@@ -17,6 +17,16 @@ import type {
 } from "../trace/channels.js";
 import type { BusAccessTraceProducer } from "../trace/bus-access.js";
 
+/** Spec 726.B — zero-alloc CPU firehose sink. When set, `publishCpuInstruction`
+ *  routes the per-instruction state through this callback as PRIMITIVES (no event
+ *  object, no publish wrapper, no observer loop) so a binary trace encodes the
+ *  hottest channel without allocating. Owned exclusively by an active binary
+ *  TraceRunController; null when no binary trace is capturing CPU. */
+export type CpuBinarySink = (
+  side: "c64" | "drive", pc: number, opcode: number, b1: number, b2: number,
+  a: number, x: number, y: number, sp: number, p: number, clk: number,
+) => void;
+
 export interface KernelTraceController {
   /** Configure a single channel (off / ring / jsonl). */
   configureChannel(name: ChannelName, cfg: ChannelConfig): void;
@@ -47,10 +57,14 @@ export interface KernelTraceController {
   getBusAccessProducer(): BusAccessTraceProducer | undefined;
   /** Set the producer reference (called by IntegratedSession during wiring). */
   setBusAccessProducer(producer: BusAccessTraceProducer | undefined): void;
+  /** Spec 726.B — install/clear the zero-alloc CPU firehose sink. */
+  setCpuBinarySink(sink: CpuBinarySink | null): void;
+  getCpuBinarySink(): CpuBinarySink | null;
 }
 
 export class KernelTraceControllerImpl implements KernelTraceController {
   private busAccessProducer: BusAccessTraceProducer | undefined;
+  private cpuBinarySink: CpuBinarySink | null = null;
 
   constructor(private readonly registry: TraceRegistry) {}
 
@@ -88,5 +102,13 @@ export class KernelTraceControllerImpl implements KernelTraceController {
 
   setBusAccessProducer(producer: BusAccessTraceProducer | undefined): void {
     this.busAccessProducer = producer;
+  }
+
+  setCpuBinarySink(sink: CpuBinarySink | null): void {
+    this.cpuBinarySink = sink;
+  }
+
+  getCpuBinarySink(): CpuBinarySink | null {
+    return this.cpuBinarySink;
   }
 }

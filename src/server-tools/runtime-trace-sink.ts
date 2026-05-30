@@ -74,7 +74,10 @@ export async function startSessionTrace(
   const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
   const ctrl = ensureRuntimeController(sessionId, session, () => {});
   const def = captureAllDef(domains);
-  const run = await ctrl.traceRun.start(def, { controller: ctrl, outputPath: traceOut });
+  // Spec 726.B — the live product trace uses the binary `.c64retrace` timeline
+  // (authority) + a DuckDB index built at finalize. The legacy JSON-streaming
+  // sink stays only for the advanced scenario/test path.
+  const run = await ctrl.traceRun.start(def, { controller: ctrl, outputPath: traceOut, binary: true });
   return { runId: run.runId, outputPath: traceOut, domains };
 }
 

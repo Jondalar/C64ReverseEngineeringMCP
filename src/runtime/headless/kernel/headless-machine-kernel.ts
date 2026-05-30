@@ -754,6 +754,12 @@ export class HeadlessMachineKernel implements MachineKernel {
     p: number,
     clk: number,
   ): void {
+    // Spec 726.B — zero-alloc CPU firehose. When a binary trace owns the CPU
+    // channel, route primitives straight to its encoder: no event object, no
+    // publish wrapper, no observer loop. The sink decides per-side whether to
+    // encode (broad-capture scope), so it fully replaces the publish path here.
+    const cpuSink = this.traceCtrl.getCpuBinarySink();
+    if (cpuSink) { cpuSink(side, prevPc & 0xffff, opcode & 0xff, b1 & 0xff, b2 & 0xff, a & 0xff, x & 0xff, y & 0xff, sp & 0xff, p & 0xff, clk); return; }
     // Fast path: skip when neither channel nor observer wants it.
     if (!this.traceRegistry.isEnabled("cpu") && !this.traceRegistry.hasObservers()) return;
     this.traceCtrl.publish("cpu", clk, {

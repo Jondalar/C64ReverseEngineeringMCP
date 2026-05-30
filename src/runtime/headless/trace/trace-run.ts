@@ -1,12 +1,21 @@
 // Spec 708.3/708.4 — declarative trace-run lifecycle.
+// Spec 726.B — binary timeline path (the product live-trace authority).
 //
 // Compiles a RuntimeTraceDefinition into bounded taps over the EXISTING kernel
 // trace channels (Spec 708.1 — no parallel diagnostic path): it enables only
-// the needed channels, registers ONE observer that filters events by the
-// definition's triggers, buffers matching capture rows in memory (sync, hot-
-// path), and on STOP writes them to the DuckDB evidence tables in one batch.
-// A run binds to a 705.B/707 checkpoint + media identity + cycle range (§2.2)
-// and reports explicit event/byte cost + overhead (§2.3).
+// the needed channels and registers ONE observer that filters events by the
+// definition's triggers. The terminal sink has two shapes:
+//
+//   • binary (ctx.binary, the PRODUCT path, Spec 726.B): the sync observer
+//     encodes each matched event into a preallocated binary chunk via
+//     BinaryTraceLogWriter — NO JSON.stringify, NO SQL on the run path. The
+//     append-only `.c64retrace` log is the timeline authority; a DuckDB query
+//     index is built FROM the log at stop() (off the realtime budget).
+//   • legacy JSON streaming (Spec 726.2, kept for the advanced scenario/test
+//     path only): the observer JSON-stringifies into a bounded queue drained to
+//     DuckDB between chunks. Proof-only for endless traces (see Spec 726 §2c).
+//
+// A run binds to a 705.B/707 checkpoint + media identity + cycle range (§2.2).
 
 import type { RuntimeController } from "../debug/runtime-controller.js";
 import type { ChannelName, TraceEvent } from "./channels.js";
@@ -18,18 +27,27 @@ import {
   openTraceRunStore, appendTraceEvents, writeTraceRunHeader, closeTraceRunStore,
   type TraceEventRow, type TraceRunStore,
 } from "./trace-run-store.js";
+import { BinaryTraceLogWriter } from "./binary-log-writer.js";
+import { IEC_BIT, type TraceFileMeta } from "./binary-format.js";
+import { indexBinaryLog } from "./binary-log-indexer.js";
 import { snapshotSha256 } from "../kernel/native-snapshot.js";
 
-// Spec 726.2 — bounded transport queue between the sync hot-path observer and
-// the async DuckDB drain. NOT a storage cap: events are NEVER dropped. The
-// chunked run loop calls drain() between chunks (emulator paused) to keep the
-// queue near this depth; exceeding it only signals backpressure (the run should
-// drain more often / chunk smaller), it does not truncate.
+// Spec 726.2 — bounded transport queue for the LEGACY JSON path only.
 const QUEUE_SOFT_LIMIT = 200_000;
+
+/** Derive the `.c64retrace` log path from a requested `.duckdb` index path. */
+export function retracePathFor(duckdbPath: string): string {
+  return duckdbPath.endsWith(".duckdb")
+    ? duckdbPath.slice(0, -".duckdb".length) + ".c64retrace"
+    : duckdbPath + ".c64retrace";
+}
 
 export interface TraceRunStartContext {
   controller: RuntimeController;
   outputPath: string; // resolved .duckdb path (caller resolves under project root)
+  /** Spec 726.B — use the binary `.c64retrace` timeline + rebuildable index.
+   *  Default path for the live MCP trace sink. */
+  binary?: boolean;
 }
 
 export interface TraceRunStatus {
@@ -41,6 +59,8 @@ export interface TraceRunStatus {
   marks?: number;
   overflowed?: boolean;
   capturing?: boolean;
+  binary?: boolean;
+  retracePath?: string;
 }
 
 interface ActiveRun {
@@ -49,19 +69,64 @@ interface ActiveRun {
   run: RuntimeTraceRun;
   dispose: () => void;
   prior: { name: ChannelName; was: boolean }[];
-  queue: TraceEventRow[];      // bounded transport, drained to DuckDB
-  store: TraceRunStore;        // open store; written incrementally
-  totalEvents: number;         // events already flushed to DuckDB
-  totalBytes: number;
   startWall: number;
   capturing: boolean;
-  overflow: boolean;           // soft backpressure signal (NOT a drop)
+  binary: boolean;
+  markCount: number;
+  // binary path
+  writer?: BinaryTraceLogWriter;
+  retracePath?: string;
+  // legacy JSON path
+  queue: TraceEventRow[];
+  store?: TraceRunStore;
+  totalEvents: number;
+  totalBytes: number;
+  overflow: boolean;
 }
 
 const CHANNEL_TO_CAPTURE: Partial<Record<ChannelName, string>> = {
   cpu: "cpu-row", drive_pc: "cpu-row", iec: "iec-row", vic: "vic-row",
   bus_access: "mem-row", io: "mem-row",
 };
+
+const n = (x: unknown): number => (typeof x === "number" ? x : 0);
+const VIC_KIND_CODE: Record<string, number> = { raster: 1, mode: 2, irq: 3, badline: 4 };
+
+/** Spec 726.B perf — channels captured at FULL range (a broad evidence trace).
+ *  For these the observer skips trigger matching entirely and encodes directly,
+ *  which is the live-default case (captureAllDef). Returns the broad channel set. */
+function computeBroadChannels(def: RuntimeTraceDefinition): Set<ChannelName> {
+  const caps = new Set(def.captures.map((c) => c.kind + (("domain" in c) ? ":" + (c as { domain: string }).domain : "")));
+  const broad = new Set<ChannelName>();
+  for (const t of def.triggers) {
+    if (t.kind === "pc-range" && t.from === 0 && t.to === 0xffff) {
+      if (t.domain === "c64-cpu" && caps.has("cpu-row:c64-cpu")) broad.add("cpu");
+      if (t.domain === "drive8-cpu" && caps.has("cpu-row:drive8-cpu")) broad.add("drive_pc");
+    } else if (t.kind === "mem-access" && t.access === "any" && t.from === 0 && t.to === 0xffff && caps.has("mem-row")) {
+      broad.add("bus_access"); broad.add("io");
+    } else if (t.kind === "iec-transition" && t.line == null && caps.has("iec-row")) {
+      broad.add("iec");
+    } else if (t.kind === "raster-window" && t.fromLine === 0 && t.toLine === 311 && caps.has("vic-row")) {
+      broad.add("vic");
+    }
+  }
+  return broad;
+}
+
+/** Pack an iec channel data object into the binary line bitfield. */
+function packIecLines(d: Record<string, unknown>): number {
+  let L = 0;
+  if (d.atn) L |= IEC_BIT.atn;
+  if (d.clk) L |= IEC_BIT.clk;
+  if (d.data) L |= IEC_BIT.data;
+  if (d.c64_atn) L |= IEC_BIT.c64_atn;
+  if (d.c64_clk) L |= IEC_BIT.c64_clk;
+  if (d.c64_data) L |= IEC_BIT.c64_data;
+  if (d.drv_clk) L |= IEC_BIT.drv_clk;
+  if (d.drv_data) L |= IEC_BIT.drv_data;
+  if (d.drv_atn_ack) L |= IEC_BIT.drv_atn_ack;
+  return L;
+}
 
 export class TraceRunController {
   private active: ActiveRun | null = null;
@@ -77,6 +142,7 @@ export class TraceRunController {
     const trace = ctrl.session.kernel.trace();
     const channels = domainsToChannels(def.domains);
     const chanSet = new Set<ChannelName>(channels);
+    const binary = ctx.binary === true;
 
     // Save prior channel state; enable only the needed channels (small ring —
     // we capture via the observer, not the ring).
@@ -89,37 +155,77 @@ export class TraceRunController {
       startCheckpointId = (await ctrl.captureCheckpoint()).id;
     }
 
-    // Spec 726.2 — open the DuckDB store NOW; events stream into it during the
-    // run via drain(). (Was: buffer all in RAM, write once at stop.)
-    const store = await openTraceRunStore(ctx.outputPath);
     const cycleStart = ctrl.session.c64Cpu.cycles;
-    const triggers = def.triggers;
-    const stop = def.stop;
-    let seq = 0;
-
-    // Spec 708.7 (§10.2.1) — compile `captures` into capture SELECTION: a matched
-    // event is only retained when its channel maps to a declared capture kind.
-    const declaredCaptures = new Set(def.captures.map((c) => c.kind));
-    // Spec 708.7 (§10.2.3) — iec-transition.line filtering: the iec channel event
-    // carries line STATES, not which line changed, so track previous bus-line
-    // state and derive the changed-line set per event.
-    let prevIec: { atn?: unknown; clk?: unknown; data?: unknown } | null = null;
-
+    const media = this.gatherMediaIdentity(ctrl);
+    const runId = `run_${def.id}_${Date.now().toString(36)}`;
     const run: RuntimeTraceRun = {
-      runId: `run_${def.id}_${Date.now().toString(36)}`,
-      definitionId: def.id, definitionVersion: def.version,
-      startCheckpointId, media: this.gatherMediaIdentity(ctrl),
-      cycleStart, marks: [], evidenceRef: ctx.outputPath,
+      runId, definitionId: def.id, definitionVersion: def.version,
+      startCheckpointId, media, cycleStart, marks: [], evidenceRef: ctx.outputPath,
       eventCount: 0, bytesWritten: 0,
     };
 
+    // Open the sink.
+    let writer: BinaryTraceLogWriter | undefined;
+    let retracePath: string | undefined;
+    let store: TraceRunStore | undefined;
+    if (binary) {
+      retracePath = retracePathFor(ctx.outputPath);
+      const meta: TraceFileMeta = {
+        runId, defId: def.id, defVersion: def.version, defName: def.name,
+        defJson: JSON.stringify(def), domains: def.domains, cycleStart,
+        mediaSha: media?.sha256, mediaName: media?.sourceName,
+        startCheckpointId, createdAt: new Date().toISOString(),
+      };
+      writer = new BinaryTraceLogWriter(retracePath, meta);
+      await writer.ready();
+    } else {
+      store = await openTraceRunStore(ctx.outputPath);
+    }
+
+    const triggers = def.triggers;
+    const stop = def.stop;
+    let seq = 0;
+    const declaredCaptures = new Set(def.captures.map((c) => c.kind));
+    let prevIec: { atn?: unknown; clk?: unknown; data?: unknown } | null = null;
+    // Spec 726.B perf — broad binary channels bypass trigger matching (§2a.1).
+    const broad = binary ? computeBroadChannels(def) : null;
+
+    // Spec 726.B — the CPU firehose is the hottest channel; route it through the
+    // zero-alloc primitive sink (no event object / publish wrapper) when broadly
+    // captured. The sink OWNS cpu/drive_pc, so remove them from the observer's
+    // broad set to avoid any double-encode.
+    const broadCpu = !!broad?.has("cpu");
+    const broadDrive = !!broad?.has("drive_pc");
+    if (binary && (broadCpu || broadDrive)) {
+      trace.setCpuBinarySink((side, pc, opcode, b1, b2, a, x, y, sp, p, clk) => {
+        const ar = this.active;
+        if (!ar || !ar.capturing || !ar.writer) return;
+        if (side === "drive" ? !broadDrive : !broadCpu) return;
+        ar.writer.appendCpuStep(side, clk, pc, opcode, a, x, y, sp, p, b1, b2);
+        ar.totalEvents++;
+        if (stop !== undefined) {
+          if (stop.kind === "event-count" && ar.totalEvents >= (stop.value ?? Infinity)) ar.capturing = false;
+          else if (stop.kind === "cycle-budget" && (clk - cycleStart) >= (stop.value ?? Infinity)) ar.capturing = false;
+        }
+      });
+      broad!.delete("cpu");
+      broad!.delete("drive_pc");
+    }
+
     const dispose = trace.registerObserver((ev: TraceEvent) => {
       const a = this.active;
-      // Spec 726.2: do NOT gate on overflow — overflow is only a backpressure
-      // warning; events are never dropped. Capturing stops only on def stop.
       if (!a || !a.capturing) return;
+      // Fast path: broad binary capture — encode directly, no filter churn.
+      if (a.binary && broad!.has(ev.channel)) {
+        this.encodeBinary(a.writer!, ev);
+        a.totalEvents++;
+        if (stop !== undefined) {
+          if (stop.kind === "event-count" && a.totalEvents >= (stop.value ?? Infinity)) a.capturing = false;
+          else if (stop.kind === "cycle-budget" && (ev.ts - cycleStart) >= (stop.value ?? Infinity)) a.capturing = false;
+        }
+        return;
+      }
       if (!chanSet.has(ev.channel)) return;
-      // iec line-change derivation (for iec-transition.line filtering).
       let changedIec: Set<string> | undefined;
       if (ev.channel === "iec") {
         const d = ev.data as Record<string, unknown>;
@@ -133,44 +239,82 @@ export class TraceRunController {
       }
       const matched = matchTriggers(triggers, ev, changedIec);
       if (!matched) return;
-      // capture selection (§10.2.1): drop events whose channel is not a declared capture.
       const captureKind = CHANNEL_TO_CAPTURE[ev.channel] ?? "raw";
       if (!declaredCaptures.has(captureKind as never)) return;
-      const dataJson = JSON.stringify(ev.data ?? {});
-      a.queue.push({
-        seq: seq++, cycle: ev.ts, channel: ev.channel,
-        triggerKind: matched, captureKind,
-        dataJson,
-      });
-      // Spec 726.2 — bounded transport: NEVER drop. The chunked run loop drains
-      // between chunks; if the queue runs past the soft limit within one chunk,
-      // signal backpressure (the run should drain more often / chunk smaller).
-      if (a.queue.length >= QUEUE_SOFT_LIMIT) a.overflow = true;
+
+      if (a.binary && a.writer) {
+        // Spec 726.B hot path — encode binary directly, no JSON/SQL.
+        this.encodeBinary(a.writer, ev);
+        a.totalEvents++;
+      } else if (a.store) {
+        // Legacy JSON streaming path.
+        a.queue.push({
+          seq: seq++, cycle: ev.ts, channel: ev.channel,
+          triggerKind: matched, captureKind, dataJson: JSON.stringify(ev.data ?? {}),
+        });
+        if (a.queue.length >= QUEUE_SOFT_LIMIT) a.overflow = true;
+      }
       // bounded stop conditions — stop CAPTURING (def-driven, not a drop).
-      const total = a.totalEvents + a.queue.length;
+      const total = a.binary ? a.totalEvents : a.totalEvents + a.queue.length;
       if (stop?.kind === "event-count" && total >= (stop.value ?? Infinity)) a.capturing = false;
       else if (stop?.kind === "cycle-budget" && (ev.ts - cycleStart) >= (stop.value ?? Infinity)) a.capturing = false;
     });
 
     this.active = {
-      def, ctx, run, dispose, prior, store,
-      queue: [], totalEvents: 0, totalBytes: 0,
-      startWall: Date.now(), capturing: true, overflow: false,
+      def, ctx, run, dispose, prior, startWall: Date.now(),
+      capturing: true, binary, markCount: 0,
+      writer, retracePath, store,
+      queue: [], totalEvents: 0, totalBytes: 0, overflow: false,
     };
     return run;
   }
 
-  /** Spec 726.2 — flush the transport queue into the open DuckDB store. Called
-   *  from the run-loop chunk boundary (emulator paused) so the async write never
-   *  overlaps stepping. Idempotent; safe when the queue is empty. */
+  /** Spec 726.B — map a matched TraceEvent to a typed binary append. The event's
+   *  `data` object is the producer's (still allocated by the producer — the
+   *  726.B-2 zero-alloc target); this path adds NO JSON.stringify, NO SQL. */
+  private encodeBinary(w: BinaryTraceLogWriter, ev: TraceEvent): void {
+    const d = ev.data as Record<string, unknown>;
+    switch (ev.channel) {
+      case "cpu":
+      case "drive_pc": {
+        const side = ev.channel === "drive_pc" || d.side === "drive" || d.side === 1 ? "drive" : "c64";
+        w.appendCpuStep(side, ev.ts, n(d.pc), n(d.opcode), n(d.a), n(d.x), n(d.y), n(d.sp), n(d.p), n(d.b1), n(d.b2));
+        break;
+      }
+      case "bus_access": {
+        const drive = d.side === "drive" || d.side === 1;
+        w.appendMemAccess(drive ? "drive_ram" : "ram", ev.ts, n(d.addr), n(d.value), n(d.pc), d.op === "write" ? 1 : 0);
+        break;
+      }
+      case "io":
+        w.appendMemAccess("io", ev.ts, n(d.addr), n(d.value), n(d.pc), d.op === "write" ? 1 : 0);
+        break;
+      case "iec":
+        w.appendIec(ev.ts, packIecLines(d));
+        break;
+      case "vic":
+        w.appendVic(ev.ts, n(d.raster_y), VIC_KIND_CODE[String(d.kind)] ?? 0, n(d.value));
+        break;
+      case "sid":
+        w.appendSid(ev.ts, n(d.reg ?? d.addr), n(d.value));
+        break;
+      default:
+        break; // reserved channels with no producer
+    }
+  }
+
+  /** Flush buffered events to the sink. Called from the run-loop chunk boundary
+   *  (emulator paused) so the async write never overlaps stepping. */
   async drain(): Promise<void> {
     const a = this.active;
-    if (!a || a.queue.length === 0) return;
+    if (!a) return;
+    if (a.binary && a.writer) { await a.writer.drain(); return; }
+    if (!a.store || a.queue.length === 0) return;
     const batch = a.queue;
     a.queue = [];
     await appendTraceEvents(a.store, a.run.runId, batch);
     a.totalEvents += batch.length;
-    a.totalBytes += batch.reduce((n, e) => n + e.dataJson.length, 0);
+    a.totalBytes += batch.reduce((acc, e) => acc + e.dataJson.length, 0);
     if (a.queue.length < QUEUE_SOFT_LIMIT) a.overflow = false;
   }
 
@@ -179,43 +323,56 @@ export class TraceRunController {
     if (!this.active) throw new Error("no active trace run");
     const cycle = this.active.ctx.controller.session.c64Cpu.cycles;
     this.active.run.marks.push({ cycle, label });
+    this.active.markCount++;
+    if (this.active.binary && this.active.writer) this.active.writer.appendMark(cycle, label);
   }
 
   status(): TraceRunStatus {
     const a = this.active;
     if (!a) return { active: false };
+    const eventCount = a.binary ? a.totalEvents : a.totalEvents + a.queue.length;
     return {
       active: true, runId: a.run.runId, definitionId: a.def.id,
-      eventCount: a.totalEvents + a.queue.length,
-      bytesBuffered: a.totalBytes + a.queue.reduce((n, e) => n + e.dataJson.length, 0),
-      marks: a.run.marks.length, overflowed: a.overflow, capturing: a.capturing,
+      eventCount,
+      bytesBuffered: a.binary ? (a.writer?.getStats().bytesEncoded ?? 0)
+        : a.totalBytes + a.queue.reduce((acc, e) => acc + e.dataJson.length, 0),
+      marks: a.markCount, overflowed: a.binary ? false : a.overflow, capturing: a.capturing,
+      binary: a.binary, retracePath: a.retracePath,
     };
   }
 
-  /** Stop the run, restore channel state, flush evidence to DuckDB. */
+  /** Stop the run, restore channel state, finalize the sink. For the binary path
+   *  this finalizes the `.c64retrace` log then builds the DuckDB query index. */
   async stop(): Promise<RuntimeTraceRun> {
     const a = this.active;
     if (!a) throw new Error("no active trace run");
     a.capturing = false;
     a.dispose();
     const trace = a.ctx.controller.session.kernel.trace();
+    trace.setCpuBinarySink(null); // Spec 726.B — release the CPU firehose sink.
     for (const p of a.prior) if (!p.was) trace.configureChannel(p.name, { mode: "off" });
 
-    // Spec 708.7 (§10.2.2) — at-stop checkpoint policy.
     if (a.def.checkpointPolicy === "at-stop") {
       a.run.stopCheckpointId = (await a.ctx.controller.captureCheckpoint()).id;
     }
 
-    // Spec 726.2 — drain the remaining queued events into the already-open
-    // store, then write the trace_run header + marks with the final counts.
-    await this.drain();
     a.run.cycleEnd = a.ctx.controller.session.c64Cpu.cycles;
-    a.run.eventCount = a.totalEvents;
-    a.run.bytesWritten = a.totalBytes;
     a.run.overheadMs = Date.now() - a.startWall;
 
-    try { await writeTraceRunHeader(a.store, a.run, a.def); }
-    finally { await closeTraceRunStore(a.store); }
+    if (a.binary && a.writer) {
+      const fin = await a.writer.finalize();
+      a.run.bytesWritten = fin.bytesWritten;
+      a.run.eventCount = fin.stats.eventCount;
+      // Build the DuckDB query index FROM the binary log (off the realtime
+      // budget; the log is the authority, this is a derived projection).
+      await indexBinaryLog(a.retracePath!, a.ctx.outputPath);
+    } else if (a.store) {
+      await this.drain();
+      a.run.eventCount = a.totalEvents;
+      a.run.bytesWritten = a.totalBytes;
+      try { await writeTraceRunHeader(a.store, a.run, a.def); }
+      finally { await closeTraceRunStore(a.store); }
+    }
 
     this.active = null;
     return a.run;
@@ -235,9 +392,7 @@ export class TraceRunController {
   }
 }
 
-/** Return the matched trigger kind (string) or null. The data field names are
- *  the kernel producers' (cpu: pc/side; iec: edge record; vic: kind/raster_y;
- *  bus_access: addr). */
+/** Return the matched trigger kind (string) or null. */
 function matchTriggers(triggers: TraceTrigger[], ev: TraceEvent, changedIec?: Set<string>): string | null {
   const d = ev.data as Record<string, unknown>;
   for (const t of triggers) {
@@ -256,8 +411,6 @@ function matchTriggers(triggers: TraceTrigger[], ev: TraceEvent, changedIec?: Se
         const addr = typeof d["addr"] === "number" ? (d["addr"] as number)
           : typeof d["address"] === "number" ? (d["address"] as number) : null;
         if (addr == null || addr < t.from || addr > t.to) break;
-        // Spec 708.7 (§10.2.3) — honour the declared read/write filter (bus_access
-        // carries `op`). "any" matches both.
         if (t.access !== "any") {
           const op = d["op"];
           if (op !== t.access) break;
@@ -266,8 +419,6 @@ function matchTriggers(triggers: TraceTrigger[], ev: TraceEvent, changedIec?: Se
       }
       case "iec-transition":
         if (ev.channel !== "iec") break;
-        // Spec 708.7 (§10.2.3) — when a specific line is named, require that line
-        // to have changed in this event; otherwise match every transition.
         if (t.line == null) return "iec-transition";
         if (changedIec?.has(t.line)) return "iec-transition";
         break;
@@ -277,7 +428,6 @@ function matchTriggers(triggers: TraceTrigger[], ev: TraceEvent, changedIec?: Se
         if (ry == null || ry < t.fromLine || ry > t.toLine) break;
         return "raster-window";
       }
-      // monitor-stop + manual-mark are not event-stream triggers (mark() / bp).
       case "monitor-stop": case "manual-mark": break;
     }
   }

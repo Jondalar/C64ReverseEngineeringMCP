@@ -20,7 +20,10 @@ this board wins until the header is reconciled.
 1. **VICE is internal-dev oracle only.** It is NOT part of the normal external/
    consuming-LLM workflow. `vice_*` tools are advanced + internal-dev-only; product
    work uses the Headless runtime + trace tools.
-2. **External LLMs work through the default MCP façade + the playbooks**
+2. **The Runtime strand is our emulator product for LLMs.** It is not a thin
+   VICE launcher and not a constrained demo path. External LLMs must be able to
+   run, inspect, trace, rewind and intervene inside our own Headless runtime.
+3. **External LLMs work through the default MCP façade + the playbooks**
    (`docs/mcp-tool-usecase-matrix.md`, `docs/mcp-llm-playbooks.md`), not through old
    internal/debug tools. `C64RE_FULL_TOOLS` is not a normal solution.
 
@@ -36,6 +39,8 @@ Small by design — only specs with concrete next implementation work.
 | Spec | Title | Why active / what's next |
 |---|---|---|
 | 721 | Visual-Origin Join (runtime-informed annotation) | Core join shipped (probe green); the semantic-pipeline extension is the active edge. |
+| 726.B | Trace V2 Binary Timeline | **Slice 1 DONE (2026-05-30)** — binary `.c64retrace` log is the live authority, DuckDB is a rebuildable index, zero-alloc CPU sink, §2a.1 perf gate GREEN (5.7% overhead, 2.05× PAL). 726.B-2 open: zero-alloc bus/iec/vic producers + streaming indexer + rebuild tool. |
+| 730 | MCP Workflow Step Orchestrator + Project Inventory Sync | BUG-005: MCP must own phase/step guidance and recommend callable default façade actions, not leak internal inventory tools. |
 
 ## GOVERNING / DOCTRINE (rules + umbrella contracts — still binding, not active implementation)
 
@@ -73,7 +78,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 | 715 | Runtime Product Proof Baseline | Small canary baseline; tag `runtime-product-green-2026-05-24`. |
 | 723 | Single-Path Runtime | All slices 723.1–723.8 landed. |
 | 725 | MCP Default Runtime + Trace Façade | default=77, vice_*/drive/maintenance advanced. |
-| 726 | Headless Trace Sink + Marks | Streaming sink + marks; **readers consume `trace_run`/`trace_event`/`trace_mark` directly (§6a) — no `meta`/`instructions`, no raw-SQL workaround.** |
+| 726 | Headless Trace Sink + Marks | Current DuckDB sink + marks shipped; **not sufficient for endless/rewind-grade tracing.** Architecture corrected: binary runtime trace log is the timeline authority; DuckDB is a query index derived from it (§2c). |
 | 727 | MCP Tool Use-Case Inventory | Matrix + gate on master (probe 17/17). |
 | 728 | MCP LLM Playbooks | Playbooks + gate on master (probe 12/12). |
 | 729 | MCP End-to-End Use-Case Gates | `check:mcp-product-surface` GREEN: boundaries/path/inventory + project_init fix + writer/reader contract + live trace product flow (`e2e-mcp-trace-first` 22/22). Only E2E-E (change/validation) deferred on Spec 711. |
@@ -93,6 +98,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 | 712 | Rewind, Replay and Branch Diff |
 | 716 | Installation, Versioning, Distribution |
 | 720 | Disassembly Output Quality |
+| 740 | Semantic Search / Vector Index For Project Knowledge |
 
 ## SUPERSEDED (replaced by a later spec)
 
@@ -131,10 +137,10 @@ mapper" header is gone.
 
 ## Counts
 
-- ACTIVE: 1 (721)
+- ACTIVE: 3 (721, 726.B, 730)
 - GOVERNING / DOCTRINE: 4 (610, 612, 620, 705)
 - DONE: 26
-- BACKLOG: 10
+- BACKLOG: 11
 - SUPERSEDED: 11
 - NEEDS-RECONCILE: 6 (428, 613, 614, 615, 708, 713)
 - (ARCHIVED: see `specs/_archive/`, ~105 historical specs)

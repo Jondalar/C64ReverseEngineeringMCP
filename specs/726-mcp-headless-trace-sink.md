@@ -1,6 +1,7 @@
 # Spec 726 — Headless Trace Sink + Marks (close the capture gap)
 
-**Status:** DONE (2026-05-29) — streaming trace sink + marks implemented. The
+**Status:** DONE for the current DuckDB sink (2026-05-29); ARCHITECTURE
+CORRECTED for the next trace implementation (2026-05-30). The shipped
 TraceRunController streams to DuckDB (queue + async drain, no RAM cap);
 `runtime_session_start(trace_out, trace_domains)` enables passive producers +
 starts the run; `runtime_session_run`/`until` chunk + drain; new default tools
@@ -8,6 +9,61 @@ starts the run; `runtime_session_run`/`until` chunk + drain; new default tools
 proven by `scripts/smoke-trace-sink.mjs` (10/10: producers passive + chunked
 traced run == untraced + real trace.duckdb). default=76, full=274.
 probe-tool-surface 18/18, probe-single-path 25/25, no runtime:proof.
+
+**Correction (2026-05-30):** the shipped DuckDB writer is acceptable as a
+queryable trace MVP, but it is NOT the final architecture for endless traces,
+rewind/forward or "record everything" runtime work. The Runtime strand is our
+own emulator product for LLMs. The authoritative timeline must be a compact
+binary runtime trace log; DuckDB is a derived query index, not the hot path and
+not the only source of truth.
+
+**726.B priority:** Trace V2 is not an optional someday optimization. It is the
+required next implementation slice for endless tracing and rewind/forward. The
+current JSON/DuckDB writer is proof-only for that use-case and must not be used
+as the long-running interactive trace architecture.
+
+**726.B Slice 1 SHIPPED (2026-05-30).** The binary `.c64retrace` timeline is now
+the authority for the live MCP trace path; DuckDB is a rebuildable query index
+built FROM the log. `runtime_session_start(trace_out=…)` streams binary; finalize
+builds the index. What landed:
+- `trace/binary-format.ts` — versioned append-only format (`C64RETR1`), file
+  header carries run metadata (rebuild is self-contained), self-delimiting
+  events.
+- `trace/binary-log-writer.ts` + `binary-log-worker.ts` — the emulator thread
+  only fills preallocated 1 MiB chunks; a `worker_threads` Worker is the ONLY
+  disk boundary (overlaps the next run chunk). Backpressure is block-only at the
+  binary-append boundary (drain, emulator paused); DuckDB never backpressures the
+  emulator. No-drop.
+- `trace/binary-log-indexer.ts` — `.c64retrace → trace.duckdb` via the DuckDB
+  Appender (columnar, ~8× faster than INSERT-VALUES; finalize lag 44 s → 5.5 s
+  for 3 M events). Reconstructs the exact `trace_run`/`trace_event`/`trace_mark`
+  reader schema (§6a) so every existing reader works unchanged. Rebuildable any
+  time from the log alone.
+- Zero-alloc CPU firehose: `kernel-trace.ts` `CpuBinarySink` routes
+  `publishCpuInstruction` primitives straight to the encoder — no event object,
+  no publish wrapper, no observer loop — for the hottest channel. Other broadly-
+  captured channels use a precomputed fast path (no trigger matching).
+
+**§2a.1 perf gate GREEN** (`scripts/smoke-trace-perf.mjs`, best-of-3): broad
+binary trace overhead **5.7%** (≤10%), trace-on **2.05× PAL** (interactive play
+while tracing), DuckDB index lag off-budget, **0 drops**.
+
+**Binary today vs reserved.** Encoded binary (live): `CPU_STEP` /
+`DRIVE_CPU_STEP` (zero-alloc sink), `RAM_WRITE` / `IO_WRITE` / `DRIVE_RAM_WRITE`
+(bus, encode-from-data), `IEC_LINE_CHANGE`, `VIC_REG_WRITE`, `SID_REG_WRITE`,
+`MARK`. RESERVED (opcode + encoder defined, no live producer yet):
+`CIA_EVENT`, `VIA_REG_WRITE`, `GCR_EVENT`, `MEDIA_WRITE`.
+
+**Honest residue → 726.B-2.** Strategy was "encode-from-data": non-CPU channels
+still allocate the producer's `data` object before the observer encodes it (CPU
+is already zero-alloc via the sink). True zero-alloc for the bus/iec/vic
+producers + streaming (not read-whole-file) indexing + a `runtime_trace_rebuild`
+tool are the remaining 726.B-2 work. The legacy JSON-streaming sink is kept ONLY
+for the advanced scenario/test path; it is not the product path.
+
+Gates: `smoke-trace-sink` 30/30, `smoke-trace-binary` 18/18, `smoke-trace-perf`
+4/4, `probe-single-path` 25/25, `probe-tool-surface` 23/23 (default=99 — no new
+tools), `smoke-trace-store-writer-reader-e2e` 8/8.
 
 **§6a reader-alignment corrected (2026-05-30):** the convenience readers
 previously SELECTed from legacy `meta`/`instructions` tables synthesized by a
@@ -191,13 +247,14 @@ external human/developer path.
 
 ## 2. Goal
 
-Bind the existing `TraceRunController` to the LIVE session and expose it as
-default MCP tools, with an **async streaming DuckDB writer** so rows land
-continuously during the run (no RAM cap, no end-of-run stall, no truncation).
+Bind the runtime trace producer to the LIVE session and expose it as default MCP
+tools. The shipped 726.A path writes a queryable DuckDB store; the corrected
+726.B goal is a binary runtime trace timeline with a rebuildable DuckDB query
+index.
 
-Reuse the Spec 708 pipeline (channels + single observer + the async `writeTraceRun`
-batched-insert path). Do NOT build a parallel trace path; rework the existing
-controller from buffer-then-flush into stream-while-running.
+Reuse the Spec 708 producer/channel model. Do NOT build a parallel trace path.
+The high-volume path must be binary, chunked and append-only; DuckDB indexing
+must be off-hot-path.
 
 ## 2a. HARD INVARIANT — trace must NOT influence the runtime
 
@@ -217,15 +274,37 @@ How the design guarantees it:
 - **Producer enablement is the one risk:** `enableBusAccessTrace` / `traceIec` /
   `traceDrive` must ONLY emit events, never add cycles or alter state. 726.2
   MUST verify this and the guard below MUST prove it.
-- Wall-clock slows under tracing (overhead) — that is NOT a runtime influence
-  (the emulated result is identical), only real-time. Acceptable; opt-in.
+- Wall-clock slowdown is a product performance concern, not a correctness
+  waiver. Trace V2 must meet the performance budget below; "it only slows the
+  host" is not an acceptable completion argument.
 
 **Guard (mandatory):** `scripts/smoke-trace-sink.mjs` runs the SAME scenario
 twice — once with `trace_out`, once without — and asserts byte-identical final
 state: PC/A/X/Y/SP/flags, cpu.cycles, drive clk, and a RAM hash. Any divergence
 = the trace influenced the runtime = blocker (fix the producer, do not ship).
 
-## 2b. Architectural Directive — One Producer, Bounded Transport, Multiple Sinks
+## 2a.1 Trace V2 Performance Budget
+
+Trace V2 must be measured against the same runtime scenario with tracing off and
+on:
+
+- Broad binary evidence trace overhead must be <= 10% versus trace-off for the
+  same executed-cycle budget.
+- If the trace-off runtime reaches PAL realtime on the test machine, trace-on
+  must remain >= 0.9x PAL.
+- If the trace-off runtime is below PAL, trace-on must remain >= 90% of the
+  trace-off throughput.
+- DuckDB indexing lag is allowed and may be minutes behind during heavy capture;
+  it must not be part of the realtime budget.
+- The binary log writer may exert backpressure only when the append-only binary
+  log itself cannot accept chunks. DuckDB/index backpressure must never stall the
+  emulator.
+
+The acceptance gate must report trace-off throughput, trace-on throughput,
+overhead percentage, binary-log bytes written, DuckDB index lag and whether any
+loss/drop occurred.
+
+## 2b. Architectural Directive — One Producer, Binary Timeline, Query Indexes
 
 There must be **one runtime event production path**, not two trace systems.
 
@@ -235,10 +314,11 @@ Required shape:
 runtime chips / bus / drive
   -> existing KernelTraceController channels
   -> one TraceRunController observer
-  -> bounded in-memory trace-event queue/ring
+  -> compact binary event chunks (typed arrays / ArrayBuffer)
   -> sinks:
-       1. DuckDB streaming writer for durable traces
-       2. optional live/UI/debug readers
+       1. append-only .c64retrace binary log (timeline authority)
+       2. DuckDB index writer derived from the binary log
+       3. optional live/UI/debug readers
 ```
 
 ### Binding rules
@@ -247,36 +327,63 @@ runtime chips / bus / drive
 2. Do **not** make V3 WebSocket capture the authoritative trace path.
 3. Do **not** use the checkpoint ring as trace history.
 4. Do **not** query small diagnostic rings as durable evidence.
-5. Do use a bounded trace-event queue/ring as the hot-path transport between
-   passive observer and async DuckDB writer.
-6. Backpressure policy for evidence traces is **block/slow**, never silent drop.
-7. DuckDB is the durable trace authority; the queue/ring is only transport.
+5. Do use preallocated binary chunks as the hot-path transport between passive
+   observer and writer.
+6. Backpressure policy for evidence traces is **block/slow only at the binary
+   append boundary**, never silent drop. DuckDB indexing is derived and may lag;
+   it must never backpressure the emulator.
+7. DuckDB is a query/index projection. It is not the emulator hot path and not
+   the sole timeline authority.
 
 Terminology:
 
 - **Checkpoint ring** = Spec 705.B restorable machine-state keyframes for rewind,
   pin, inspect and branch. It is not an event log.
+- **Binary runtime trace log** = append-only `.c64retrace` event timeline. It is
+  the durable authority for endless trace and rewind/forward evidence.
 - **Trace-event queue/ring** = bounded transport buffer for runtime events while
-  streaming to DuckDB. It is not the durable store.
-- **TraceDB / DuckDB** = durable event evidence used by `trace_store_*`,
-  `runtime_query_events`, swimlane, taint, follow-path and loader profiling.
+  streaming binary chunks to the writer. It is not the durable store.
+- **TraceDB / DuckDB** = query index used by `trace_store_*`,
+  `runtime_query_events`, swimlane, taint, follow-path and loader profiling. It
+  may be rebuilt from the binary log.
 
 This means the answer is not "ringbuffer OR traces". The answer is:
 
 ```text
 events are produced once
-events pass through a bounded trace-event queue/ring
-DuckDB is written from that queue/ring
-all trace readers query DuckDB
+events are encoded into binary chunks
+binary chunks append to the durable .c64retrace log
+DuckDB indexes are built from that log for fast queries
 checkpoint ring remains separate machine-state infrastructure
 ```
 
 - Capture is session-driven + incremental, not scenario-batch.
-- One run = one `trace.duckdb` (`trace_run` + `trace_event` + `trace_mark`),
-  re-queryable forever.
+- One run = one binary trace log plus a query index (`trace.duckdb`) that can be
+  rebuilt.
 - The agent stamps phase marks (`boot-complete`, `title`, `scene-1`) so Phase-B
   queries scope by game phase.
 - No emulator behaviour change — trace is a passive observer.
+
+## 2c. Trace V2 Hot-Path Contract — Binary, Not JSON
+
+The current `trace_event(... data_json)` path is useful for product proof, but
+is too expensive for endless traces. The endless/rewind-grade implementation
+must use channel-specific binary records on the emulator hot path:
+
+- no per-event JS object allocation for core CPU/RAM/IO events;
+- no `JSON.stringify` in the hot path;
+- no SQL row construction in the emulator thread;
+- fixed event opcodes and typed fields, for example:
+  `CPU_STEP`, `RAM_WRITE`, `IO_WRITE`, `VIC_REG_WRITE`, `CIA_EVENT`,
+  `SID_REG_WRITE`, `IEC_LINE_CHANGE`, `DRIVE_CPU_STEP`, `DRIVE_RAM_WRITE`,
+  `VIA_REG_WRITE`, `GCR_EVENT`, `MEDIA_WRITE`, `MARK`;
+- writer must be outside the emulator hot path. Prefer a Worker/child process;
+  the emulator thread may only fill/flip fixed-size binary chunks;
+- DuckDB ingestion consumes chunks in large columnar batches.
+
+The required guarantee is behavioral and performance-bounded: enabling a
+lossless evidence trace must not alter emulated cycles, device state, media
+state or execution order, and must satisfy §2a.1.
 
 ## 3. Relationship To Ring, Dump/Undump, Rewind and TraceDB
 
@@ -295,8 +402,8 @@ It does **not** answer:
 - when `$DD00` or IEC changed;
 - what drive PC was doing during a fastloader phase.
 
-Those are TraceDB questions. 726 must write TraceDB rows, not expand the
-checkpoint ring into a trace substitute.
+Those are trace-index questions. 726 must write a queryable trace index from the
+binary event timeline, not expand the checkpoint ring into a trace substitute.
 
 ### 3.2 Dump/undump is durable machine state, not timeline history
 
@@ -304,8 +411,8 @@ Spec 707 `.c64re` dump stores a complete machine checkpoint and embedded mutable
 media state. It answers: "Restore this exact machine state."
 
 It does **not** answer: "How did we get here?" That requires trace events and
-marks. 726 may reference checkpoint IDs and dump paths, but its output is the
-event timeline in `trace.duckdb`.
+marks. 726 may reference checkpoint IDs and dump paths, but the authoritative
+event timeline is the binary trace log. `trace.duckdb` is the query index.
 
 ### 3.3 Rewind uses checkpoints plus replay events
 
@@ -315,7 +422,7 @@ interventions and retained traces. 726 provides the retained trace side.
 If a branch is replayed or changed, a new trace run must be capturable from that
 branch. Tracing cannot be limited to pristine scenario runs.
 
-### 3.4 DuckDB is the durable trace authority
+### 3.4 DuckDB is the query index, not the hot-path authority
 
 Spec 708 already defines TraceDB as the persistent evidence store:
 
@@ -325,8 +432,26 @@ Spec 708 already defines TraceDB as the persistent evidence store:
 - marks;
 - queryable event rows.
 
-726 keeps that architecture. It must not introduce JSONL side paths, ad-hoc
-logs, or V3-WS-only capture paths.
+726 keeps the query contract, but corrects the storage authority for the Runtime
+strand: DuckDB is the searchable projection; the append-only binary trace log is
+the source of truth for endless traces and rewind/forward. It must not introduce
+JSONL side paths, ad-hoc logs, or V3-WS-only capture paths.
+
+## 3.5 Rewind/Forward Uses Checkpoints + Binary Delta Timeline
+
+Rewind/forward cannot depend on reconstructing the machine from DuckDB JSON
+rows. The required model is:
+
+```text
+periodic checkpoint keyframes
+  + binary trace/delta events between keyframes
+  + external input/media/intervention events
+  -> deterministic restore/replay to any retained point
+```
+
+For a C64 + 1541 this is intentionally feasible: RAM/IO/media state is small
+enough that binary state-change records are practical. The implementation should
+prefer simple binary deltas over over-engineered database abstractions.
 
 ## 4. Tasks
 
@@ -370,6 +495,32 @@ mark/stop`. Two design constraints REFINE 726.2:
 - Finalize (`runtime_trace_finalize`, or auto on session close) drains + closes.
 - Sessions WITHOUT `trace_out` are unchanged (persistence is opt-in per session).
 
+### 726.B — Trace V2 binary timeline — Slice 1 DONE (2026-05-30); 726.B-2 open
+Slice 1 (DONE):
+- ✅ Hot-path `TraceEventRow`/`data_json` replaced by binary chunk encoders for
+  the live trace; CPU firehose is zero-alloc (primitive sink).
+- ✅ DuckDB reader tools fed from an indexer that builds/rebuilds `trace.duckdb`
+  from `.c64retrace` (Appender ingest).
+- ✅ Channel schemas/opcodes for CPU, RAM, IO, VIC, SID, IEC, drive CPU, drive
+  RAM; CIA, VIA, GCR, media RESERVED (encoder defined, no producer yet).
+- ✅ `worker_threads` writer Worker = the only disk boundary; emulator thread
+  fills fixed-size chunks only.
+- ✅ No-drop evidence mode: block/slow only at the binary append boundary;
+  DuckDB indexing never backpressures the emulator; no silent truncation.
+- ✅ Equivalence guard (`smoke-trace-sink` Part 1) + binary-format guard
+  (`smoke-trace-binary`): byte-identical final state, rebuildable index.
+- ✅ §2a.1 performance gate (`smoke-trace-perf`): measured 5.7% overhead,
+  2.05× PAL, 0 drops.
+
+726.B-2 (open):
+- True zero-alloc for the bus/iec/vic producers (kill the producer-side `data`
+  object alloc the same way CPU was killed).
+- Streaming indexer (decode the log incrementally instead of read-whole-file) for
+  very large traces; optional incremental index during the run.
+- `runtime_trace_rebuild(retrace_path, duckdb_path)` default tool (rebuild is a
+  library fn today; finalize already builds the index).
+- Emit the reserved opcodes once their producers exist (CIA/VIA/GCR/media).
+
 ### 726.3 — Marks + surface + descriptions (code)
 - New tool `runtime_mark(session_id, label)` → `controller.mark(label)`; stamps
   `trace_mark(run_id, cycle, label)`. Default tier.
@@ -393,6 +544,9 @@ mark/stop`. Two design constraints REFINE 726.2:
 npm run build:mcp
 node scripts/probe-tool-surface.mjs
 node scripts/probe-single-path.mjs
+node scripts/smoke-trace-sink.mjs     # equivalence guard + capture→query (30/30)
+node scripts/smoke-trace-binary.mjs   # 726.B binary log + rebuildable index (18/18)
+node scripts/smoke-trace-perf.mjs     # 726.B §2a.1 perf budget (4/4)
 ```
 
 Plus a small capture→query smoke (`scripts/smoke-trace-sink.mjs`): boot a
@@ -420,13 +574,16 @@ that is a bug to fix, not a reason to run the 7-game gate.)
 - **Trace does not influence the runtime (§2a):** the equivalence guard proves
   byte-identical final state (registers, cycles, drive clk, RAM hash) with vs
   without `trace_out`.
+- **Trace V2 performance budget (§2a.1):** broad binary trace overhead is <= 10%
+  versus trace-off; DuckDB index lag does not stall the emulator; no loss/drop.
 - No new parallel trace path: capture reuses `TraceRunController` + the store.
 - Default surface stays façade-first; `runtime_run_scenario` + `vice_trace_*`
   stay advanced. `probe-tool-surface` + `probe-single-path` GREEN.
 
 ## 6a. Mandatory Schema Alignment — No Reader/Writer Drift
 
-The writer schema is the source of truth for this spec:
+The current DuckDB index schema is the source of truth for the shipped 726
+reader tools:
 
 ```text
 trace_run
@@ -434,7 +591,8 @@ trace_event(run_id, seq, cycle, channel, trigger_kind, capture_kind, data_json)
 trace_mark(run_id, cycle, label)
 ```
 
-All convenience readers must target that schema. They must not query old
+All convenience readers must target that schema until 726.B replaces the hot
+path with `.c64retrace` + rebuildable DuckDB indexes. They must not query old
 Spec-217 tables such as `meta` or `instructions`.
 
 Required reader behavior:
@@ -512,11 +670,17 @@ NON-NEGOTIABLE:
   observer is passive; the async DuckDB drain runs only while the emulator is
   paused (between run-chunks, inside the I/O await).
 - One production path only (§2b): runtime chips -> KernelTraceController channels
-  -> ONE TraceRunController observer -> bounded trace-event queue/ring -> DuckDB
-  streaming writer. Do NOT build a second trace path. Do NOT use the checkpoint
-  ring as event history. DuckDB is the durable authority; the queue is transport.
+  -> ONE TraceRunController observer. The shipped 726 implementation streams to
+  DuckDB; the corrected 726.B architecture must stream binary chunks to an
+  append-only .c64retrace log and build DuckDB as a query index. Do NOT build a
+  second trace path. Do NOT use the checkpoint ring as event history.
 - Streaming, not buffer-then-flush: no 500k RAM cap, no end-of-run single flush,
-  no silent truncation. Backpressure for evidence traces = block/slow, never drop.
+  no silent truncation. Backpressure for evidence traces = block/slow only at
+  the binary append boundary, never because DuckDB indexing is behind, never
+  silent drop.
+- Trace V2 is not complete without the §2a.1 performance gate: report trace-off
+  throughput, trace-on throughput, overhead, PAL ratio, binary bytes written,
+  DuckDB index lag and loss/drop count.
 
 ORDER (guard-first — prove the invariant before wiring):
 1. Build scripts/smoke-trace-sink.mjs FIRST. It runs the SAME scenario twice —
