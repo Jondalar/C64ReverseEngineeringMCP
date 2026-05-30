@@ -21,11 +21,16 @@ import type { BusAccessTraceProducer } from "../trace/bus-access.js";
  *  routes the per-instruction state through this callback as PRIMITIVES (no event
  *  object, no publish wrapper, no observer loop) so a binary trace encodes the
  *  hottest channel without allocating. Owned exclusively by an active binary
- *  TraceRunController; null when no binary trace is capturing CPU. */
+ *  TraceRunController; null when no binary trace is capturing CPU.
+ *
+ *  Returns `consumed`: true means the sink fully handled the event and the
+ *  normal publish path MUST be skipped; false means the sink did NOT take it
+ *  (e.g. this side is not broadly captured) and the normal publish path must run
+ *  so other observers / channels still see it (no silent drop). */
 export type CpuBinarySink = (
   side: "c64" | "drive", pc: number, opcode: number, b1: number, b2: number,
   a: number, x: number, y: number, sp: number, p: number, clk: number,
-) => void;
+) => boolean;
 
 export interface KernelTraceController {
   /** Configure a single channel (off / ring / jsonl). */

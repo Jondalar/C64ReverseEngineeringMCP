@@ -41,7 +41,9 @@ export class BinaryTraceLogWriter {
   private opened: Promise<void>;
   private openedResolve!: () => void;
   private finalizeResolve: ((bytes: number) => void) | null = null;
+  private finalizeReject: ((e: Error) => void) | null = null;
   private error: Error | null = null;
+  private closed = false; // set once the worker reports "done" (clean finalize)
 
   // current fill buffer
   private curBuf: ArrayBuffer;
@@ -74,20 +76,31 @@ export class BinaryTraceLogWriter {
           this.inFlight--;
           { const w = this.freeWaiters.shift(); if (w) w(); }
           break;
-        case "done": this.finalizeResolve?.(m.bytesWritten ?? 0); break;
+        case "done": this.closed = true; this.finalizeResolve?.(m.bytesWritten ?? 0); break;
         case "error":
-          this.error = new Error(`binary-log-worker: ${m.message}`);
-          this.openedResolve();
-          { const w = this.freeWaiters.shift(); if (w) w(); }
+          this.fail(new Error(`binary-log-worker: ${m.message}`));
           break;
       }
     });
-    this.worker.on("error", (e) => { this.error = e; this.openedResolve(); });
+    this.worker.on("error", (e) => this.fail(e));
+    // A non-zero exit BEFORE a clean "done" is a crash → fail pending awaits. The
+    // normal terminate() after "done" also exits non-zero; `closed` skips that.
+    this.worker.on("exit", (code) => { if (code !== 0 && !this.closed) this.fail(new Error(`binary-log-worker exited code ${code}`)); });
 
     this.worker.postMessage({ type: "open", path });
     const hdr = encodeFileHeader(header);
     // header bytes are copied (small), not transferred.
     this.worker.postMessage({ type: "header", buffer: hdr.buffer.slice(0, hdr.byteLength) });
+  }
+
+  /** Surface a fatal writer/worker error to every pending await (open, drain
+   *  backpressure, finalize) so nothing hangs. First error wins. */
+  private fail(e: Error): void {
+    if (!this.error) this.error = e;
+    this.openedResolve();
+    if (this.finalizeReject) { const rej = this.finalizeReject; this.finalizeReject = null; this.finalizeResolve = null; rej(this.error); }
+    const waiters = this.freeWaiters; this.freeWaiters = [];
+    for (const w of waiters) w();
   }
 
   async ready(): Promise<void> {
@@ -180,8 +193,10 @@ export class BinaryTraceLogWriter {
     if (this.error) throw this.error;
     this.flip();              // push partial current chunk
     await this.drain();
-    const bytes = await new Promise<number>((res) => {
+    const bytes = await new Promise<number>((res, rej) => {
+      if (this.error) { rej(this.error); return; }
       this.finalizeResolve = res;
+      this.finalizeReject = rej;
       this.worker.postMessage({ type: "finalize" });
     });
     await this.worker.terminate();

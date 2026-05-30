@@ -759,7 +759,10 @@ export class HeadlessMachineKernel implements MachineKernel {
     // publish wrapper, no observer loop. The sink decides per-side whether to
     // encode (broad-capture scope), so it fully replaces the publish path here.
     const cpuSink = this.traceCtrl.getCpuBinarySink();
-    if (cpuSink) { cpuSink(side, prevPc & 0xffff, opcode & 0xff, b1 & 0xff, b2 & 0xff, a & 0xff, x & 0xff, y & 0xff, sp & 0xff, p & 0xff, clk); return; }
+    // Only skip the publish path when the sink actually CONSUMED the event; an
+    // un-consumed side (e.g. drive when only c64 is broadly captured) falls
+    // through so other observers/channels still receive it (no silent drop).
+    if (cpuSink && cpuSink(side, prevPc & 0xffff, opcode & 0xff, b1 & 0xff, b2 & 0xff, a & 0xff, x & 0xff, y & 0xff, sp & 0xff, p & 0xff, clk)) return;
     // Fast path: skip when neither channel nor observer wants it.
     if (!this.traceRegistry.isEnabled("cpu") && !this.traceRegistry.hasObservers()) return;
     this.traceCtrl.publish("cpu", clk, {

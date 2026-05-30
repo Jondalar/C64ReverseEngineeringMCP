@@ -190,26 +190,28 @@ export class TraceRunController {
     // Spec 726.B perf — broad binary channels bypass trigger matching (§2a.1).
     const broad = binary ? computeBroadChannels(def) : null;
 
-    // Spec 726.B — the CPU firehose is the hottest channel; route it through the
-    // zero-alloc primitive sink (no event object / publish wrapper) when broadly
-    // captured. The sink OWNS cpu/drive_pc, so remove them from the observer's
-    // broad set to avoid any double-encode.
+    // Spec 726.B — the C64 CPU firehose is the hottest channel; route it through
+    // the zero-alloc primitive sink (no event object / publish wrapper / observer
+    // loop) when broadly captured. The sink OWNS the "cpu" channel, so remove it
+    // from the observer's broad set to avoid any double-encode. The drive_pc
+    // channel is NOT a publishCpuInstruction path (the drive advances in bulk and
+    // is sampled into the channel separately) — it stays on the observer fast
+    // path.
     const broadCpu = !!broad?.has("cpu");
-    const broadDrive = !!broad?.has("drive_pc");
-    if (binary && (broadCpu || broadDrive)) {
-      trace.setCpuBinarySink((side, pc, opcode, b1, b2, a, x, y, sp, p, clk) => {
+    if (binary && broadCpu) {
+      trace.setCpuBinarySink((side, pc, opcode, b1, b2, a, x, y, sp, p, clk): boolean => {
         const ar = this.active;
-        if (!ar || !ar.capturing || !ar.writer) return;
-        if (side === "drive" ? !broadDrive : !broadCpu) return;
-        ar.writer.appendCpuStep(side, clk, pc, opcode, a, x, y, sp, p, b1, b2);
+        if (!ar || !ar.capturing || !ar.writer) return false;
+        if (side !== "c64") return false; // sink owns the C64 firehose only
+        ar.writer.appendCpuStep("c64", clk, pc, opcode, a, x, y, sp, p, b1, b2);
         ar.totalEvents++;
         if (stop !== undefined) {
           if (stop.kind === "event-count" && ar.totalEvents >= (stop.value ?? Infinity)) ar.capturing = false;
           else if (stop.kind === "cycle-budget" && (clk - cycleStart) >= (stop.value ?? Infinity)) ar.capturing = false;
         }
+        return true;
       });
       broad!.delete("cpu");
-      broad!.delete("drive_pc");
     }
 
     const dispose = trace.registerObserver((ev: TraceEvent) => {

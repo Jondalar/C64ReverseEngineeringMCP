@@ -39,7 +39,7 @@ Small by design — only specs with concrete next implementation work.
 | Spec | Title | Why active / what's next |
 |---|---|---|
 | 721 | Visual-Origin Join (runtime-informed annotation) | Core join shipped (probe green); the semantic-pipeline extension is the active edge. |
-| 726.B | Trace V2 Binary Timeline | **Slice 1 DONE (2026-05-30)** — binary `.c64retrace` log is the live authority, DuckDB is a rebuildable index, zero-alloc CPU sink, §2a.1 perf gate GREEN (5.7% overhead, 2.05× PAL). 726.B-2 open: zero-alloc bus/iec/vic producers + streaming indexer + rebuild tool. |
+| 726.B | Trace V2 Binary Timeline | **Slice 1 DONE (2026-05-30, review-fixed 2026-05-31)** — binary `.c64retrace` log is the live authority, DuckDB is a rebuildable index, zero-alloc CPU sink, §2a.1 perf gate GREEN (~6% overhead, 2.1× PAL). drive8-cpu now produces real (sampled) rows; finalize no-hang; sink ownership explicit. 726.B-2 open: zero-alloc bus/iec/vic + per-instruction drive trace + streaming (not read-whole-file) indexer + rebuild tool. |
 | 730 | MCP Workflow Step Orchestrator + Project Inventory Sync | BUG-005: MCP must own phase/step guidance and recommend callable default façade actions, not leak internal inventory tools. |
 
 ## GOVERNING / DOCTRINE (rules + umbrella contracts — still binding, not active implementation)

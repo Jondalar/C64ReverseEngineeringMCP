@@ -806,11 +806,26 @@ export class IntegratedSession {
   // Spec 093: drive PC sample (called per C64 instruction step).
   private sampleDrivePc(): void {
     if (this.drivePcTraceCapacity <= 0) return;
-    const pc = this.driveDebug().drive_pc;
+    const d = this.driveDebug();
+    const pc = d.drive_pc;
     const last = this.drivePcTrace[this.drivePcTrace.length - 1];
     if (last && last.pc === pc) return; // dedupe consecutive
     this.drivePcTrace.push({ cycle: this.c64Cpu.cycles, pc });
     if (this.drivePcTrace.length > this.drivePcTraceCapacity) this.drivePcTrace.shift();
+    // Spec 726.B — publish the deduped drive-PC sample to the drive_pc channel so
+    // a drive8-cpu trace produces real DRIVE_CPU_STEP rows. NOTE: this is SAMPLED
+    // at the C64-instruction boundary (the drive advances in bulk via
+    // catchUpDrive), NOT a per-drive-instruction firehose — opcode/operands are
+    // not observable here without a hook inside vice1541/ (forbidden by Spec 612
+    // PL-5). Full per-instruction drive trace is 726.B-2. Gated on the channel so
+    // there is zero overhead unless drive8-cpu is being traced.
+    const trace = this.kernel.trace();
+    if (trace.isEnabled("drive_pc")) {
+      trace.publish("drive_pc", d.drive_clk, {
+        pc, side: "drive", clk: d.drive_clk,
+        a: d.drive_a, x: d.drive_x, y: d.drive_y, sp: d.drive_sp, p: d.drive_flags,
+      });
+    }
   }
 
   getDrivePcTrace(): Array<{ cycle: number; pc: number }> { return this.drivePcTrace.slice(); }

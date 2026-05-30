@@ -48,22 +48,37 @@ builds the index. What landed:
 binary trace overhead **5.7%** (≤10%), trace-on **2.05× PAL** (interactive play
 while tracing), DuckDB index lag off-budget, **0 drops**.
 
-**Binary today vs reserved.** Encoded binary (live): `CPU_STEP` /
-`DRIVE_CPU_STEP` (zero-alloc sink), `RAM_WRITE` / `IO_WRITE` / `DRIVE_RAM_WRITE`
-(bus, encode-from-data), `IEC_LINE_CHANGE`, `VIC_REG_WRITE`, `SID_REG_WRITE`,
-`MARK`. RESERVED (opcode + encoder defined, no live producer yet):
-`CIA_EVENT`, `VIA_REG_WRITE`, `GCR_EVENT`, `MEDIA_WRITE`.
+**Binary today vs reserved.** Encoded binary (live):
+- `CPU_STEP` — C64 CPU firehose via the **zero-alloc** `CpuBinarySink` (per
+  instruction, no object/publish/observer).
+- `DRIVE_CPU_STEP` — drive8-cpu, **SAMPLED at the C64-instruction boundary** via
+  the `drive_pc` channel (the drive advances in bulk via `catchUpDrive`; pc +
+  a/x/y/sp/p, opcode/operands not observable here). NOT a per-drive-instruction
+  firehose — that needs a Spec-612-compliant drive-core hook (726.B-2). Proven by
+  `scripts/smoke-trace-drive8.mjs` (real `channel='drive_pc'` rows + `topPcs(drive8)`).
+- `RAM_WRITE` / `IO_WRITE` / `DRIVE_RAM_WRITE` (bus, encode-from-data),
+  `IEC_LINE_CHANGE`, `VIC_REG_WRITE`, `SID_REG_WRITE`, `MARK`.
+- RESERVED (opcode + encoder defined, no live producer yet): `CIA_EVENT`,
+  `VIA_REG_WRITE`, `GCR_EVENT`, `MEDIA_WRITE`.
 
-**Honest residue → 726.B-2.** Strategy was "encode-from-data": non-CPU channels
-still allocate the producer's `data` object before the observer encodes it (CPU
-is already zero-alloc via the sink). True zero-alloc for the bus/iec/vic
-producers + streaming (not read-whole-file) indexing + a `runtime_trace_rebuild`
-tool are the remaining 726.B-2 work. The legacy JSON-streaming sink is kept ONLY
-for the advanced scenario/test path; it is not the product path.
+**Honest residue → 726.B-2 (NOT done in Slice 1):**
+- **Streaming indexer.** `binary-log-indexer.ts` still `readFileSync`s the WHOLE
+  `.c64retrace` into memory before indexing. Fine for the current scale; a
+  multi-GB endless trace needs an incremental/streaming decode. Endless-GB
+  indexing is NOT claimed complete.
+- **Zero-alloc bus/iec/vic producers.** "encode-from-data": these channels still
+  allocate the producer's `data` object before the observer encodes it (only the
+  C64 CPU is zero-alloc). The drive trace is sampled, not per-instruction.
+- **`runtime_trace_rebuild` default tool.** Rebuild is a library fn
+  (`indexBinaryLog`) today + happens at finalize; no MCP tool yet.
+The legacy JSON-streaming sink is kept ONLY for the advanced scenario/test path;
+it is not the product path.
 
 Gates: `smoke-trace-sink` 30/30, `smoke-trace-binary` 18/18, `smoke-trace-perf`
-4/4, `probe-single-path` 25/25, `probe-tool-surface` 23/23 (default=99 — no new
-tools), `smoke-trace-store-writer-reader-e2e` 8/8.
+4/4 (overhead 6.1%, 2.15× PAL), `smoke-trace-drive8` 6/6 (drive8-cpu real rows),
+`smoke-trace-writer-error` 2/2 (finalize no-hang), `probe-single-path` 25/25,
+`probe-tool-surface` 23/23 (default=99 — no new tools),
+`smoke-trace-store-writer-reader-e2e` 8/8.
 
 **§6a reader-alignment corrected (2026-05-30):** the convenience readers
 previously SELECTed from legacy `meta`/`instructions` tables synthesized by a
@@ -501,10 +516,15 @@ Slice 1 (DONE):
   the live trace; CPU firehose is zero-alloc (primitive sink).
 - ✅ DuckDB reader tools fed from an indexer that builds/rebuilds `trace.duckdb`
   from `.c64retrace` (Appender ingest).
-- ✅ Channel schemas/opcodes for CPU, RAM, IO, VIC, SID, IEC, drive CPU, drive
-  RAM; CIA, VIA, GCR, media RESERVED (encoder defined, no producer yet).
+- ✅ Channel schemas/opcodes for CPU, RAM, IO, VIC, SID, IEC, drive CPU (SAMPLED
+  drive_pc producer — real rows, not per-drive-instruction), drive RAM; CIA, VIA,
+  GCR, media RESERVED (encoder defined, no producer yet).
 - ✅ `worker_threads` writer Worker = the only disk boundary; emulator thread
-  fills fixed-size chunks only.
+  fills fixed-size chunks only. Worker errors reject every pending await
+  (open/drain/finalize) — finalize never hangs (review P2b).
+- ✅ CPU sink ownership is explicit: the sink returns `consumed`; an un-consumed
+  side (e.g. drive when only c64 is broad) falls through to the publish path, so
+  no observer is silently suppressed (review P2a).
 - ✅ No-drop evidence mode: block/slow only at the binary append boundary;
   DuckDB indexing never backpressures the emulator; no silent truncation.
 - ✅ Equivalence guard (`smoke-trace-sink` Part 1) + binary-format guard
@@ -515,8 +535,10 @@ Slice 1 (DONE):
 726.B-2 (open):
 - True zero-alloc for the bus/iec/vic producers (kill the producer-side `data`
   object alloc the same way CPU was killed).
+- Per-drive-instruction drive trace (a Spec-612-compliant drive-core hook); today
+  drive8-cpu is SAMPLED at the C64-instruction boundary.
 - Streaming indexer (decode the log incrementally instead of read-whole-file) for
-  very large traces; optional incremental index during the run.
+  multi-GB endless traces; optional incremental index during the run.
 - `runtime_trace_rebuild(retrace_path, duckdb_path)` default tool (rebuild is a
   library fn today; finalize already builds the index).
 - Emit the reserved opcodes once their producers exist (CIA/VIA/GCR/media).
@@ -544,9 +566,11 @@ Slice 1 (DONE):
 npm run build:mcp
 node scripts/probe-tool-surface.mjs
 node scripts/probe-single-path.mjs
-node scripts/smoke-trace-sink.mjs     # equivalence guard + capture→query (30/30)
-node scripts/smoke-trace-binary.mjs   # 726.B binary log + rebuildable index (18/18)
-node scripts/smoke-trace-perf.mjs     # 726.B §2a.1 perf budget (4/4)
+node scripts/smoke-trace-sink.mjs         # equivalence guard + capture→query (30/30)
+node scripts/smoke-trace-binary.mjs       # 726.B binary log + rebuildable index (18/18)
+node scripts/smoke-trace-perf.mjs         # 726.B §2a.1 perf budget (4/4)
+node scripts/smoke-trace-drive8.mjs       # 726.B drive8-cpu product domain (6/6)
+node scripts/smoke-trace-writer-error.mjs # 726.B finalize no-hang on worker error (2/2)
 ```
 
 Plus a small capture→query smoke (`scripts/smoke-trace-sink.mjs`): boot a
