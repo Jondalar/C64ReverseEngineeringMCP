@@ -25,6 +25,7 @@
     "v3:server": "npm run build:mcp && node scripts/start-v3-server.mjs",
     "ui:v3:build": "vite build --config ui/v3-vite.config.ts",
     "ui:v3:typecheck": "tsc -p ui/tsconfig.json --noEmit",
+    "smoke:ui-project-trace": "npm run build:mcp && node scripts/gen-synthetic-disks.mjs && node scripts/smoke-ui-project-trace-view.mjs",
     "bootstrap:ui-fixture": "npm run build && node scripts/bootstrap-ui-fixture.mjs",
     "headless:mm:g64-debug": "npm run build:mcp && node scripts/headless-mm-g64-debug.mjs",
     "test:bus-trace": "npm run build:mcp && node scripts/bus-trace-motm.mjs",
