@@ -465,6 +465,42 @@ button {
   font-size: 0.82rem;
 }
 
+/* BUG-018 — always-visible runtime connection/session status (human/LLM coord). */
+.runtime-status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin: 0.5rem 0 0.2rem;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.runtime-status-bar .rt-field strong { color: var(--ink); }
+.runtime-status-bar .rt-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+}
+.runtime-status-bar .rt-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--muted);
+}
+.rt-conn-open    { color: var(--accent-3); border-color: rgba(76, 175, 80, 0.4); }
+.rt-conn-open    .rt-dot { background: var(--accent-3); }
+.rt-conn-connecting { color: var(--warning); border-color: rgba(255, 213, 79, 0.4); }
+.rt-conn-connecting .rt-dot { background: var(--warning); }
+.rt-conn-closed,
+.rt-conn-error   { color: #ef5350; border-color: rgba(239, 83, 80, 0.4); }
+.rt-conn-closed  .rt-dot,
+.rt-conn-error   .rt-dot { background: #ef5350; }
+
 .metric-tile {
   border-radius: 18px;
   padding: 1rem;

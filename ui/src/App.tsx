@@ -3845,26 +3845,42 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
-  // Spec 724B — Live runtime tab session state. The WS client connects lazily
-  // (only once the Live tab is opened); non-Live users never open a socket.
+  // Spec 724B — Live runtime tab session state.
   const [liveSessionId, setLiveSessionId] = useState<string>("");
   const [liveRunState, setLiveRunState] = useState<"running" | "paused" | "off">("running");
   const [liveConn, setLiveConn] = useState<"connecting" | "open" | "closed" | "error">("closed");
-  // Subscribe to the WS connection state ONLY once the Live tab is opened (this
-  // also triggers getClient() → the lazy connect).
+  const [liveCycle, setLiveCycle] = useState<number>(0);
+  // BUG-018 — surface the runtime connection + session in the always-visible
+  // product header (human/LLM coordination). The product IS a runtime workbench,
+  // so connect on mount (not only on the Live tab) and keep the conn/session/
+  // cycle state current; the header chip below renders it.
   useEffect(() => {
-    if (activeTab !== "live") return;
     return getClient().onState(setLiveConn);
-  }, [activeTab]);
-  // Pick the running session — but ONLY after the socket is open, and re-run when
-  // it flips to open (mirrors the v3 shell). Firing before open rejects and, with
-  // no conn dep, would never retry → no session → no frame.
+  }, []);
+  // Pick the running session once the socket is open, re-running when it flips to
+  // open (mirrors the v3 shell). Firing before open rejects with no conn dep.
   useEffect(() => {
     if (liveSessionId || liveConn !== "open") return;
     let alive = true;
     getClient().call<Array<{ sessionId: string }>>("session/list").then((sessions) => {
       if (alive && sessions.length > 0) setLiveSessionId(sessions[0].sessionId);
-    }).catch(() => { /* runtime backend may be down; Live tab shows its own state */ });
+    }).catch(() => { /* runtime backend may be down; header shows the conn state */ });
+    return () => { alive = false; };
+  }, [liveConn, liveSessionId]);
+  // Poll the cycle counter while connected to a session (lightweight; matches the
+  // v3 header). No frame subscription here — frames stay a Live-tab concern.
+  useEffect(() => {
+    if (liveConn !== "open" || !liveSessionId) return;
+    let alive = true;
+    const tick = async () => {
+      if (!alive) return;
+      try {
+        const s = await getClient().call<{ c64Cycles?: number }>("session/state", { session_id: liveSessionId });
+        if (alive) setLiveCycle(s.c64Cycles ?? 0);
+      } catch { /* ignore */ }
+      if (alive) setTimeout(tick, 1000);
+    };
+    tick();
     return () => { alive = false; };
   }, [liveConn, liveSessionId]);
   const [listingQuery, setListingQuery] = useState("");
@@ -4333,6 +4349,16 @@ export function App() {
         <div className="hero-copy panel-card">
           <div className="eyebrow">C64 Reverse Engineering Workspace</div>
           <h1>{snapshot?.project.name ?? "Project"}</h1>
+          {/* BUG-018 — always-visible runtime status for human/LLM coordination:
+              connection state + session id + run state + cycle. */}
+          <div className="runtime-status-bar" role="status" aria-label="Runtime status">
+            <span className={`rt-conn rt-conn-${liveConn}`} title="Runtime WS connection">
+              <span className="rt-dot" />{liveConn}
+            </span>
+            <span className="rt-field">session: <strong>{liveSessionId || "(none)"}</strong></span>
+            <span className="rt-field">{liveRunState}</span>
+            <span className="rt-field">cycle: {liveCycle.toLocaleString()}</span>
+          </div>
           {snapshot ? (
             <div className="hero-metrics">
               {snapshot.views.projectDashboard.metrics.map((metric) => (
