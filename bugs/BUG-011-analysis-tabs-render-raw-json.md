@@ -20,6 +20,8 @@ The migrated Analysis tabs render raw JSON text directly on the page instead of 
 
 This means the v1 → v3 migration only exposed the backing data, not a product-quality UI for these analysis views.
 
+Regression clarification: this is not merely a styling issue. The actual visual/product views appear to be missing from the migrated Analysis tabs. The human workbench needs the graphical/structured representations, not JSON dumps.
+
 ## Expected
 
 Analysis tabs should render structured, readable UI views:
@@ -68,13 +70,19 @@ v3 analysis tab rendering components. The tabs likely reuse a generic JSON/prefo
 ## Notes / follow-up
 
 - This invalidates the claim that all v1 viewing screens are migrated as product UI.
-- Fix should render at least basic structured tables/cards for each Analysis tab and keep raw JSON only as an explicit debug option.
+- Fix must restore real product views/visualizations for Analysis, not just prettify JSON.
+- Required minimum: Memory Map, Payloads, Annotated Listing, and Flow Graph each need a human-readable structured/visual renderer.
+- Raw JSON may remain only behind an explicit debug/details toggle.
 
 ---
 
 ## Resolution
 
-- **Root cause:** the 724B.2 migration wired the Analysis tabs to a generic `ViewJson` renderer that `JSON.stringify`'d the view model — data exposed, no product UI.
-- **Fix commit:** `9c4da85` — structured renderers off the typed view models: Memory Map = region table (range/title/kind/status/confidence), Payloads = table (kind/title/status/path), Annotated Listing = address-range listing lines, Flow Graph = nodes list + resolved edges. `ViewJson` removed; raw JSON only behind an explicit per-panel "raw JSON" toggle.
-- **Gate proving the fix:** `npm run smoke:ui-project-trace` 31/31 — checks 27-29: no default `ViewJson` dump, ≥3 structured tables, raw JSON behind the toggle. ui:v3:build clean.
-- **Regression risk:** low — UI rendering only; data source (`/api/workspace`) unchanged; raw JSON still reachable for debugging.
+- **Root cause:** the 724B.2 migration wired the Analysis tabs to a generic `ViewJson` renderer that `JSON.stringify`'d the view model. (First pass `9c4da85` replaced the dump with plain tables — still NOT the real visualizations the human workbench needs.)
+- **Fix:** the REAL v1 visualizations were extracted from the monolithic `ui/src/App.tsx` into a shared module `ui/src/components/workspace-panels.tsx` (+ shared CSS `workspace-panels.css`), reused by BOTH v1 and v3:
+  - Memory Map → `MemoryMapPanel` 16×16 heatmap grid
+  - Flow Graph → `FlowPanel` SVG lane/node/edge graph
+  - (Disk/Cartridge under BUG-012.) Payloads + Annotated Listing keep structured lists (text is the right shape there). Raw JSON stays a per-panel debug toggle.
+- **Fix commits:** `52b595d` (extract panels), `635b398` (share CSS), `4c4fdc7` (wire v3). v3 imports the panels from the shared module, never from `App.tsx`.
+- **Gate proving the fix:** `npm run smoke:ui-project-trace` 33/33 — checks 27-31: v3 renders the shared panels, imports from the shared module (not App.tsx), and the BUILT v3 bundle + CSS contain the viz markers (`memory-grid-table` / `flow-svg` / `memory-cell`). ui:v3:build clean; v3 typecheck 0 new errors.
+- **Regression risk:** low — extraction is verbatim; v1 build/typecheck unchanged (13 pre-existing errors); data source unchanged.
