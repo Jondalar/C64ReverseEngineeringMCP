@@ -167,11 +167,28 @@ const MAP: Record<EventFamily, FamilyMapping | null> = {
 export interface QueryEventsBackend {
   /** Run a SELECT and return rows. Backend = duckdb connection wrapper. */
   exec(sql: string, params: unknown[]): Promise<any[]>;
+  /** True when the connected store is a Spec 726 live-sink store
+   *  (trace_run/trace_event/trace_mark). Then the logical instruction / bus
+   *  table names resolve to schema726 projections instead of the legacy
+   *  compat-view names (Spec 726 §6a — readers never name the legacy tables). */
+  isLiveSink?(): Promise<boolean>;
 }
 
 export async function queryEvents(backend: QueryEventsBackend, q: EventQuery): Promise<EventRow[]> {
   const mapping = MAP[q.family];
   if (!mapping) return [];
+
+  // Resolve the logical table to a real FROM source. On a 726 store, project
+  // straight from trace_event so no query names the legacy meta/instructions
+  // tables; chip_events has no 726 producer yet → returns empty (additive).
+  const liveSink = backend.isLiveSink ? await backend.isLiveSink() : false;
+  let fromSource: string = mapping.table;
+  if (liveSink) {
+    const { INSTRUCTIONS_726, BUS_EVENTS_726 } = await import("../../trace-store/schema726.js");
+    if (mapping.table === "instructions") fromSource = `(${INSTRUCTIONS_726})`;
+    else if (mapping.table === "bus_events") fromSource = `(${BUS_EVENTS_726})`;
+    else return []; // chip_events: no 726 producer
+  }
 
   const where: string[] = ["run_id = ?"];
   const params: unknown[] = [q.runId];
@@ -203,7 +220,7 @@ export async function queryEvents(backend: QueryEventsBackend, q: EventQuery): P
   }
 
   const limit = q.limit && q.limit > 0 && q.limit <= 100000 ? q.limit : 10000;
-  const sql = `SELECT * FROM ${mapping.table} WHERE ${where.join(" AND ")} ORDER BY clock LIMIT ${limit}`;
+  const sql = `SELECT * FROM ${fromSource} WHERE ${where.join(" AND ")} ORDER BY clock LIMIT ${limit}`;
   const rows = await backend.exec(sql, params);
   return rows.map((r) => mapping.rowFromDb(r, q.runId));
 }

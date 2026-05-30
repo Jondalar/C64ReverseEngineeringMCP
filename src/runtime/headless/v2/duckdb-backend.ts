@@ -6,11 +6,24 @@
 import type { QueryEventsBackend } from "./query-events.js";
 
 interface DuckConn {
-  runAndReadAll(sql: string): Promise<{ getRowObjects(): any[] }>;
+  runAndReadAll(sql: string): Promise<{ getRowObjects(): any[]; getRows(): unknown[][] }>;
 }
 
 export class DuckDbQueryBackend implements QueryEventsBackend {
   constructor(private readonly conn: DuckConn) {}
+
+  private liveSink?: boolean;
+  async isLiveSink(): Promise<boolean> {
+    if (this.liveSink === undefined) {
+      try {
+        const r = await this.conn.runAndReadAll(
+          `SELECT 1 FROM information_schema.tables
+             WHERE table_schema='main' AND table_name='trace_event' LIMIT 1`);
+        this.liveSink = r.getRows().length > 0;
+      } catch { this.liveSink = false; }
+    }
+    return this.liveSink;
+  }
 
   async exec(sql: string, params: unknown[]): Promise<any[]> {
     // Inline parameters. SQL has '?' placeholders.

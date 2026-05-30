@@ -122,18 +122,21 @@ try {
   ok(Number(memRows[0][0]) > 0, "mem rows present (producer enabled)", `mem=${memRows[0][0]}`);
 } finally { await store.closeTraceRunStore(st); }
 
-// Part 3 — the SAME trace.duckdb must be readable via the Spec-217 readers used
-// by the MCP tools (trace_store_* + runtime_query_events). The 726 store
-// installs compatibility views (instructions / bus_events / chip_events /
-// anchors / rollups) so legacy readers work unchanged.
-console.log("\nPart 3 — readable through Spec-217 MCP-tool readers\n");
+// Part 3 — the SAME trace.duckdb must be readable via the MCP-tool readers
+// (trace_store_* + runtime_query_events). They consume the 726 schema directly
+// (trace_run / trace_event / trace_mark), per Spec 726 §6a.
+console.log("\nPart 3 — readable through the MCP-tool readers (726 schema)\n");
 const q = await import(`${ROOT}/dist/runtime/trace-store/queries.js`);
 
 const info = await q.getInfo(TRACE_OUT);
-ok(info.tableCounts.instructions > 0n, "getInfo: instructions view counts > 0",
-   `instructions=${info.tableCounts.instructions} bus_events=${info.tableCounts.bus_events} anchors=${info.tableCounts.anchors}`);
-ok(info.meta.schema_version?.startsWith("spec-708"), "getInfo: meta schema_version set",
-   info.meta.schema_version || "(missing)");
+// Spec 726 §6a: getInfo on a live-sink store reports per-channel event counts
+// from trace_event directly (events:cpu / events:total / marks), NOT a legacy
+// `instructions` table count.
+ok((info.tableCounts["events:total"] ?? 0n) > 0n, "getInfo: trace_event counts > 0 (726 schema)",
+   `events:total=${info.tableCounts["events:total"]} events:cpu=${info.tableCounts["events:cpu"]} marks=${info.tableCounts.marks}`);
+ok(info.meta.source === "live-sink-726" && info.meta.schema?.includes("trace_event"),
+   "getInfo: reports the live-sink 726 schema identity",
+   `source=${info.meta.source} schema=${info.meta.schema}`);
 ok(info.masterClockRange && info.masterClockRange.max > info.masterClockRange.min,
    "getInfo: master_clock range non-empty",
    info.masterClockRange ? `${info.masterClockRange.min}..${info.masterClockRange.max}` : "missing");
@@ -149,8 +152,11 @@ const startAnchor = await q.findAnchor(TRACE_OUT, "start", 10);
 ok(startAnchor.length === 1, "findAnchor('start') returns 1 occurrence",
    `count=${startAnchor.length}`);
 
-const sql = await q.safeQuery(TRACE_OUT, "SELECT count(*) FROM instructions WHERE cpu='c64' AND pc BETWEEN 57344 AND 65535");
-ok(Number(sql[0][0]) > 0, "safeQuery: KERNAL-range instruction count > 0", `kernel pcs=${sql[0][0]}`);
+// safeQuery is the raw-SQL escape hatch. On a 726 store it queries the real
+// schema (trace_event), never a legacy compat table.
+const sql = await q.safeQuery(TRACE_OUT,
+  "SELECT count(*) FROM trace_event WHERE channel='cpu' AND CAST(json_extract(data_json,'$.pc') AS INTEGER) BETWEEN 57344 AND 65535");
+ok(Number(sql[0][0]) > 0, "safeQuery: KERNAL-range cpu event count > 0 (726 schema)", `kernel pcs=${sql[0][0]}`);
 
 // runtime_query_events backend path (Spec 232 → Spec-217 reader).
 const { DuckDbQueryBackend } = await import(`${ROOT}/dist/runtime/headless/v2/duckdb-backend.js`);
@@ -162,7 +168,7 @@ try {
   const backend = new DuckDbQueryBackend(conn);
   const cpuRows = await queryEvents(backend, { runId: capturedRunId, family: "cpu_step", limit: 5 });
   ok(cpuRows.length > 0 && cpuRows[0].family === "cpu_step",
-    "runtime_query_events: cpu_step rows materialise via compat view",
+    "runtime_query_events: cpu_step rows materialise from the 726 schema",
     `rows=${cpuRows.length} first pc=$${cpuRows[0]?.pc?.toString(16) ?? "?"}`);
 } finally { inst.closeSync?.(); }
 
@@ -183,13 +189,12 @@ let badThrew = false;
 try { ts.resolveStorePath("does-not-exist.duckdb", fakeCtx); } catch { badThrew = true; }
 ok(badThrew, "missing path → throws (no silent fallback to project root)");
 
-// Part 5 — reader-side self-heal. Stores written BEFORE the compat-view fix
-// have only trace_run / trace_event / trace_mark (no meta, no instructions /
-// bus_events / chip_events / anchors / rollups). Opening such a file through
-// the reader path MUST auto-install the compat layer — no regenerate required.
-console.log("\nPart 5 — reader self-heal on pre-fix trace.duckdb\n");
+// Part 5 — Spec 726 §6a direct-read contract. A live-sink store has ONLY the
+// base tables (trace_run / trace_event / trace_mark). The readers must work
+// against that schema DIRECTLY, without any meta / instructions compat table.
+// Simulate the pure durable store by dropping every compat artifact, then read.
+console.log("\nPart 5 — readers consume the 726 schema directly (no compat tables)\n");
 const duckdb2 = await import("@duckdb/node-api");
-// Simulate a pre-fix file: drop everything the compat layer installed.
 const inst2 = await duckdb2.DuckDBInstance.create(TRACE_OUT);
 const conn2 = await inst2.connect();
 for (const ddl of [
@@ -201,42 +206,39 @@ for (const ddl of [
   "DROP TABLE IF EXISTS meta",
 ]) await conn2.run(ddl);
 inst2.closeSync?.();
-// Verify the simulated pre-fix file actually fails without self-heal: open it
-// raw and confirm the legacy table is gone.
+// Confirm the store is now pure 726 (the legacy table really is gone).
 const inst3 = await duckdb2.DuckDBInstance.create(TRACE_OUT);
 const conn3 = await inst3.connect();
-let preFixThrows = false;
+let legacyGone = false;
 try { await conn3.runAndReadAll("SELECT count(*) FROM instructions"); }
-catch { preFixThrows = true; }
+catch { legacyGone = true; }
 inst3.closeSync?.();
-ok(preFixThrows, "pre-fix simulation: raw read of `instructions` errors before self-heal");
+ok(legacyGone, "pure 726 store: no `instructions` table present");
 
-// Now go through the reader path — it must self-heal and succeed.
+// The readers must read the 726 schema directly — no compat install needed.
 const info2 = await q.getInfo(TRACE_OUT);
-ok(info2.tableCounts.instructions > 0n,
-   "reader self-heal: getInfo works on pre-fix store",
-   `instructions=${info2.tableCounts.instructions}`);
-ok(info2.meta.schema_version?.startsWith("spec-708-streaming"),
-   "reader self-heal: meta.schema_version backfilled",
-   info2.meta.schema_version || "(missing)");
+ok((info2.tableCounts["events:total"] ?? 0n) > 0n,
+   "direct read: getInfo works on a pure 726 store",
+   `events:total=${info2.tableCounts["events:total"]}`);
+ok(info2.meta.source === "live-sink-726",
+   "direct read: getInfo reports the live-sink 726 schema identity",
+   `source=${info2.meta.source}`);
 const pcs2 = await q.topPcs(TRACE_OUT, "c64", 3);
 ok(pcs2.length > 0 && pcs2[0].count > 0,
-   "reader self-heal: topPcs works on pre-fix store",
+   "direct read: topPcs works on a pure 726 store",
    pcs2[0] ? `top pc=$${pcs2[0].pc.toString(16)} n=${pcs2[0].count}` : "no rows");
 const anchors2 = await q.listAnchors(TRACE_OUT);
 ok(anchors2.length === 2,
-   "reader self-heal: listAnchors works on pre-fix store",
+   "direct read: listAnchors works on a pure 726 store",
    anchors2.map(a => a.name).join(",") || "none");
-// runtime_query_events backend path must also self-heal.
+// runtime_query_events backend must read 726 directly (no compat install).
 const inst4 = await duckdb2.DuckDBInstance.create(TRACE_OUT);
 const conn4 = await inst4.connect();
 try {
-  const { ensureSpec726CompatLayer } = await import(`${ROOT}/dist/runtime/headless/trace/trace-run-store.js`);
-  await ensureSpec726CompatLayer(conn4);
   const backend2 = new DuckDbQueryBackend(conn4);
   const rows2 = await queryEvents(backend2, { runId: capturedRunId, family: "cpu_step", limit: 3 });
   ok(rows2.length > 0 && rows2[0].family === "cpu_step",
-    "reader self-heal: runtime_query_events backend path works",
+    "direct read: runtime_query_events reads the 726 schema",
     `rows=${rows2.length}`);
 } finally { inst4.closeSync?.(); }
 
