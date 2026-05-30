@@ -16,6 +16,7 @@ export const TaskStatusSchema = z.enum(["open", "in_progress", "blocked", "done"
 export const QuestionStatusSchema = z.enum(["open", "researching", "answered", "invalidated", "deferred", "resolution-pending"]);
 export const TimelineEventKindSchema = z.enum([
   "project.initialized",
+  "project.media-sorted",
   "artifact.registered",
   "finding.saved",
   "entity.saved",

@@ -23,5 +23,5 @@ Human + LLM E2E bug log for the C64RE MCP/UI product flow.
 | BUG-012 | Media tabs render raw JSON instead of usable UI views | ui-v3 | high | fixed (4c4fdc7 — real viz) |
 | BUG-013 | Live Drive insert menu mixes project media with C64RE dev samples | ui-v3 | medium | open |
 | BUG-014 | Migrated workspace views lost shared Inspector and original layout | ui-v3 | high | fixed (bcbd770) |
-| BUG-015 | Project init leaves media unsorted instead of placing it under typed `input/` folders | mcp-tool | medium | open |
+| BUG-015 | Project init leaves media unsorted instead of placing it under typed `input/` folders | mcp-tool | medium | fixed |
 | BUG-016 | Live C64 frame scales too large and pushes Monitor out of view | ui-v3 | medium | open |

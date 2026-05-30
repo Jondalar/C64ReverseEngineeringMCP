@@ -100,6 +100,10 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       const projectRoot = resolveWorkspaceRoot(options, project_dir, true);
       const service = new ProjectKnowledgeService(projectRoot);
       const project = service.initProject({ name, description, tags, preferredAssembler: preferred_assembler });
+      // BUG-015 — sort any loose media in the project root into the canonical
+      // typed input/ folders (.d64/.g64→disk, .crt→crt, .prg→prg, docs→docs)
+      // and register each at its canonical path. Idempotent.
+      const mediaSort = service.sortLooseInputMedia();
       const workflow = service.initializeWorkflowContract({
         canonicalDocPaths: [
           resolve(options.repoDir, "docs", "workflow.md"),
@@ -132,6 +136,12 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Session timeline: ${status.paths.sessionTimeline}`,
         `Canonical docs: ${workflow.plan.canonicalDocPaths.join(", ") || "(none)"}`,
         `Canonical prompts: ${workflow.plan.canonicalPromptIds.join(", ") || "(none)"}`,
+        ``,
+        `Input media sorted: ${mediaSort.sorted.length} file(s)`,
+        ...mediaSort.sorted.map((s) => `  ${s.from} → ${s.to} (${s.kind})`),
+        ...(mediaSort.skipped.length > 0
+          ? [`Skipped: ${mediaSort.skipped.length}`, ...mediaSort.skipped.map((s) => `  ${s.file}: ${s.reason}`)]
+          : []),
         ``,
         `Phase status:`,
         ...workflow.state.phases.map((phase) => formatWorkflowPhaseLine(phase)),

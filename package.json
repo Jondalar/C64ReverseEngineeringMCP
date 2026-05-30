@@ -179,7 +179,8 @@
     "proof:seven-game": "node scripts/runtime-proof-gate.mjs",
     "runtime:proof": "node scripts/runtime-proof-gate.mjs",
     "start": "tsx src/cli.ts",
-    "smoke:product-ui": "npm run build:mcp && npm run ui:build && node scripts/smoke-product-ui.mjs"
+    "smoke:product-ui": "npm run build:mcp && npm run ui:build && node scripts/smoke-product-ui.mjs",
+    "smoke:bug015": "npm run build:mcp && node scripts/smoke-bug015-init-media-sort.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

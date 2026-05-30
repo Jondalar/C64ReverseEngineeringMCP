@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { relative, resolve } from "node:path";
+import { basename, extname, relative, resolve } from "node:path";
 import { importAnalysisKnowledge, stampImportedKnowledgeWithPayload } from "./analysis-import.js";
 import { importManifestKnowledge } from "./manifest-import.js";
 import { buildAnnotatedListingView, buildCartridgeLayoutView, buildDiskLayoutView, buildFlowGraphView, buildLoadSequenceView, buildMediumLayoutView, buildMemoryMapView, buildProjectDashboardView } from "./view-builders.js";
@@ -404,6 +404,18 @@ export interface InitProjectInput {
   preferredAssembler?: PreferredAssembler;
 }
 
+// BUG-015 — result of sweeping loose root media into typed input/ folders.
+export interface SortedMediaEntry {
+  from: string;        // original project-root-relative name
+  to: string;          // canonical input/<type>/ path (root-relative)
+  kind: ArtifactKind;
+  artifactId: string;
+}
+export interface SortLooseInputMediaResult {
+  sorted: SortedMediaEntry[];
+  skipped: Array<{ file: string; reason: string }>;
+}
+
 export interface InitializeWorkflowContractInput {
   canonicalDocPaths?: string[];
   canonicalPromptIds?: string[];
@@ -737,6 +749,80 @@ export class ProjectKnowledgeService {
     });
     this.initializeWorkflowContract();
     return project;
+  }
+
+  // BUG-015 — canonical input layout. After init (or on demand), sweep loose
+  // media sitting in the project root into the typed input/ subfolders and
+  // register each as an artifact pointing at the canonical path. The file is
+  // MOVED (root stays clean) but its original root-relative name is preserved
+  // as provenance in the artifact description. Idempotent: a second run finds
+  // nothing loose. No repo-samples fallback — only the project's own root.
+  sortLooseInputMedia(): SortLooseInputMediaResult {
+    this.storage.ensureProjectStructure();
+    const root = this.storage.paths.root;
+    const sorted: SortedMediaEntry[] = [];
+    const skipped: Array<{ file: string; reason: string }> = [];
+    // ext → { dir, kind, scope }. docs land in input/docs as report artifacts.
+    const route = (ext: string): { dir: string; kind: ArtifactKind; scope: "input" } | null => {
+      switch (ext) {
+        case ".d64": return { dir: this.storage.paths.inputDisk, kind: "d64", scope: "input" };
+        case ".g64": return { dir: this.storage.paths.inputDisk, kind: "g64", scope: "input" };
+        case ".crt": return { dir: this.storage.paths.inputCrt, kind: "crt", scope: "input" };
+        case ".prg": return { dir: this.storage.paths.inputPrg, kind: "prg", scope: "input" };
+        case ".pdf":
+        case ".md":
+        case ".txt": return { dir: this.storage.paths.inputDocs, kind: "report", scope: "input" };
+        default: return null;
+      }
+    };
+    let entries: string[];
+    try {
+      entries = readdirSync(root);
+    } catch {
+      return { sorted, skipped };
+    }
+    for (const name of entries) {
+      if (name.startsWith(".")) continue;                       // dotfiles / markers
+      const abs = resolve(root, name);
+      let st;
+      try { st = statSync(abs); } catch { continue; }
+      if (!st.isFile()) continue;                                // only top-level files
+      const ext = extname(name).toLowerCase();
+      const dest = route(ext);
+      if (!dest) continue;                                       // unknown type — leave in root
+      const targetAbs = resolve(dest.dir, basename(name));
+      if (existsSync(targetAbs)) {                               // never clobber an existing canonical file
+        skipped.push({ file: name, reason: `target already exists at ${relative(root, targetAbs)}` });
+        continue;
+      }
+      mkdirSync(dest.dir, { recursive: true });
+      try {
+        renameSync(abs, targetAbs);
+      } catch (e) {
+        skipped.push({ file: name, reason: e instanceof Error ? e.message : String(e) });
+        continue;
+      }
+      const canonicalRel = relative(root, targetAbs).replace(/\\/g, "/");
+      const artifact = this.saveArtifact({
+        kind: dest.kind,
+        scope: dest.scope,
+        title: basename(name),
+        path: canonicalRel,
+        producedByTool: "project_init",
+        description: `Sorted into input/ by project_init. Original source: ${name} (project root).`,
+        tags: ["input", "auto-sorted"],
+      });
+      sorted.push({ from: name, to: canonicalRel, kind: dest.kind, artifactId: artifact.id });
+    }
+    if (sorted.length > 0) {
+      this.appendTimelineEvent({
+        kind: "project.media-sorted",
+        title: "Input media sorted",
+        summary: `Sorted ${sorted.length} file(s) into typed input/ folders`,
+        payload: { count: sorted.length, files: sorted.map((s) => ({ from: s.from, to: s.to })) },
+      });
+    }
+    return { sorted, skipped };
   }
 
   initializeWorkflowContract(input?: InitializeWorkflowContractInput): { plan: WorkflowPlan; state: WorkflowState } {

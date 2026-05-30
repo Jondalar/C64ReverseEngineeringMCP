@@ -116,6 +116,7 @@ export interface ProjectKnowledgePaths {
   inputCrt: string;
   inputDisk: string;
   inputRaw: string;
+  inputDocs: string;
   artifactsExtracted: string;
   artifactsGeneratedSrc: string;
   artifactsPreviews: string;
@@ -236,6 +237,7 @@ export class ProjectKnowledgeStorage {
       this.paths.inputCrt,
       this.paths.inputDisk,
       this.paths.inputRaw,
+      this.paths.inputDocs,
       this.paths.artifactsExtracted,
       this.paths.artifactsGeneratedSrc,
       this.paths.artifactsPreviews,
@@ -678,6 +680,7 @@ export function createProjectKnowledgePaths(projectRoot: string): ProjectKnowled
     inputCrt: join(root, "input", "crt"),
     inputDisk: join(root, "input", "disk"),
     inputRaw: join(root, "input", "raw"),
+    inputDocs: join(root, "input", "docs"),
     artifactsExtracted: join(root, "artifacts", "extracted"),
     artifactsGeneratedSrc: join(root, "artifacts", "generated-src"),
     artifactsPreviews: join(root, "artifacts", "previews"),
