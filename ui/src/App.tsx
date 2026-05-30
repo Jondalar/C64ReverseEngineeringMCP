@@ -149,17 +149,31 @@ function asmDialectForPath(relativePath: string): AsmViewSource["dialect"] {
   return "plain";
 }
 
+// BUG-019 — rank ASM/source artifacts so the UI defaults to the CURRENT BEST
+// version, not the stale generated disassembly. Higher = better.
+//   final-*-source        → curated final output (best)
+//   *-source              → semantic / hand source (e.g. *_semantic.tass)
+//   (unknown role)        → hand-made files with no assigned role still beat
+//                           the generated heuristic dump
+//   disasm / disasm-tass  → the auto-generated *_disasm.* dump (lowest)
+// A "_semantic" path adds a small nudge so the curated source wins ties.
 function asmArtifactPriority(artifact: ArtifactRecord): number {
+  let base: number;
   switch (artifact.role) {
     case "final-kickassembler-source":
     case "final-64tass-source":
-      return 300;
+      base = 400; break;
     case "kickassembler-source":
     case "64tass-source":
-      return 200;
+      base = 300; break;
+    case "disasm":
+    case "disasm-tass":
+      base = 100; break;
     default:
-      return 100;
+      base = 200; break;
   }
+  if (/_semantic\./i.test(artifact.relativePath)) base += 50;
+  return base;
 }
 
 function bestAsmSourcesForArtifacts(artifacts: ArtifactRecord[]): AsmViewSource[] {
@@ -171,19 +185,25 @@ function bestAsmSourcesForArtifacts(artifacts: ArtifactRecord[]): AsmViewSource[
       bestByDialect.set(dialect, artifact);
     }
   }
-  const dialectOrder: Record<AsmViewSource["dialect"], number> = {
-    kickass: 0,
-    "64tass": 1,
-    plain: 2,
-  };
-  return [...bestByDialect.entries()]
-    .sort(([left], [right]) => dialectOrder[left] - dialectOrder[right])
-    .map(([dialect, artifact]) => ({
-      id: artifact.id,
-      label: dialect === "kickass" ? "KickAss" : dialect === "64tass" ? "64tass" : artifact.relativePath,
-      path: artifact.relativePath,
-      dialect,
-    }));
+  // BUG-019 — order the returned sources BEST FIRST (by priority), so the action
+  // defaults to the curated/latest source (e.g. *_semantic.tass) instead of the
+  // stale generated *_disasm.asm. Dialect order is only a tiebreaker now.
+  const dialectOrder: Record<AsmViewSource["dialect"], number> = { kickass: 0, "64tass": 1, plain: 2 };
+  return [...bestByDialect.values()]
+    .sort((left, right) => {
+      const byPriority = asmArtifactPriority(right) - asmArtifactPriority(left);
+      if (byPriority !== 0) return byPriority;
+      return dialectOrder[asmDialectForPath(left.relativePath)] - dialectOrder[asmDialectForPath(right.relativePath)];
+    })
+    .map((artifact) => {
+      const dialect = asmDialectForPath(artifact.relativePath);
+      return {
+        id: artifact.id,
+        label: dialect === "kickass" ? "KickAss" : dialect === "64tass" ? "64tass" : artifact.relativePath,
+        path: artifact.relativePath,
+        dialect,
+      };
+    });
 }
 
 function binaryArtifactPriority(artifact: ArtifactRecord): number {

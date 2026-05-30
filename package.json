@@ -184,7 +184,8 @@
     "smoke:bug013": "npm run build:mcp && node scripts/smoke-bug013-drive-picker-project-only.mjs",
     "smoke:bug008-009": "npm run ui:build && node scripts/smoke-bug008-009-disk-tab.mjs",
     "smoke:bug017": "npm run build:mcp && npm run ui:build && node scripts/smoke-bug017-disk-sector-nav.mjs",
-    "smoke:bug018": "npm run ui:build && node scripts/smoke-bug018-runtime-status-header.mjs"
+    "smoke:bug018": "npm run ui:build && node scripts/smoke-bug018-runtime-status-header.mjs",
+    "smoke:bug019": "npm run ui:build && node scripts/smoke-bug019-best-asm-version.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",
