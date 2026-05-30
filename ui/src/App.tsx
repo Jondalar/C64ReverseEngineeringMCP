@@ -3849,14 +3849,24 @@ export function App() {
   // (only once the Live tab is opened); non-Live users never open a socket.
   const [liveSessionId, setLiveSessionId] = useState<string>("");
   const [liveRunState, setLiveRunState] = useState<"running" | "paused" | "off">("running");
+  const [liveConn, setLiveConn] = useState<"connecting" | "open" | "closed" | "error">("closed");
+  // Subscribe to the WS connection state ONLY once the Live tab is opened (this
+  // also triggers getClient() → the lazy connect).
   useEffect(() => {
-    if (activeTab !== "live" || liveSessionId) return;
+    if (activeTab !== "live") return;
+    return getClient().onState(setLiveConn);
+  }, [activeTab]);
+  // Pick the running session — but ONLY after the socket is open, and re-run when
+  // it flips to open (mirrors the v3 shell). Firing before open rejects and, with
+  // no conn dep, would never retry → no session → no frame.
+  useEffect(() => {
+    if (liveSessionId || liveConn !== "open") return;
     let alive = true;
     getClient().call<Array<{ sessionId: string }>>("session/list").then((sessions) => {
       if (alive && sessions.length > 0) setLiveSessionId(sessions[0].sessionId);
     }).catch(() => { /* runtime backend may be down; Live tab shows its own state */ });
     return () => { alive = false; };
-  }, [activeTab, liveSessionId]);
+  }, [liveConn, liveSessionId]);
   const [listingQuery, setListingQuery] = useState("");
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);

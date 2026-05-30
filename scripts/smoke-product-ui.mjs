@@ -85,6 +85,23 @@ try {
   });
   ok(Array.isArray(sessions) && sessions.length > 0, "11 runtime WS has a live session for the Live tab", `sessions=${sessions?.length}`);
 
+  // 12. the headless backend actually STREAMS frames — the Live tab paints
+  // BIN_TYPE_VIC_FRAME (0x01) binary WS broadcasts. This is the user's concern
+  // ("frame connected nicht zum Headless Backend"): prove a frame arrives.
+  const sid = sessions?.[0]?.sessionId;
+  const frame = await new Promise((resolve) => {
+    const w = new WebSocket("ws://127.0.0.1:4312");
+    let got = false;
+    const done = (v) => { if (!got) { got = true; try { w.close(); } catch {} resolve(v); } };
+    const t = setTimeout(() => done(null), 12000);
+    w.on("open", () => w.send(JSON.stringify({ jsonrpc: "2.0", id: 9, method: "debug/run", params: { session_id: sid, pacing: { mode: "pal" } } })));
+    w.on("message", (d, isBinary) => {
+      if (isBinary && d.length >= 5 && d[0] === 0x01) { clearTimeout(t); done({ bytes: d.length, w: d.readUInt16LE(5), h: d.readUInt16LE(7) }); }
+    });
+    w.on("error", () => { clearTimeout(t); done(null); });
+  });
+  ok(frame !== null, "12 headless backend STREAMS a VIC frame to the Live tab (debug/run → binary frame)", frame ? `${frame.w}x${frame.h}, ${frame.bytes}B` : "no frame in 12s");
+
   console.log(`\n--- report ---`);
   console.log(`product UI: / + /index.html = v1 workbench (C64RE Workbench) + embedded Live tab`);
   console.log(`dev/reference: /v3.html = v3 shell (not a second product UI)`);
