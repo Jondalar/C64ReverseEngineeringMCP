@@ -465,7 +465,8 @@ button {
   font-size: 0.82rem;
 }
 
-/* BUG-018 — always-visible runtime connection/session status (human/LLM coord). */
+/* BUG-018 — runtime connection/session status (human/LLM coord). Rendered in the
+   Live controls bar (next to Audio) via the .rt-inline variant. */
 .runtime-status-bar {
   display: flex;
   flex-wrap: wrap;
@@ -476,6 +477,16 @@ button {
   font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
+/* compact inline variant for the Live machine-controls bar */
+.runtime-status-bar.rt-inline {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 0.6rem;
+  margin: 0;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+.runtime-status-bar.rt-inline .rt-conn { font-size: 0.66rem; padding: 0.05rem 0.4rem; }
 .runtime-status-bar .rt-field strong { color: var(--ink); }
 .runtime-status-bar .rt-conn {
   display: inline-flex;

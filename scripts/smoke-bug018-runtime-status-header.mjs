@@ -21,11 +21,15 @@ ok(!!connEffect, "1 runtime conn is subscribed on mount (always-visible, not Liv
 // 2. cycle is polled while connected.
 ok(/session\/state/.test(app) && /setLiveCycle/.test(app), "2 cycle counter polled from session/state", "");
 
-// 3. the header renders the status bar with conn + session + run state + cycle.
-ok(/runtime-status-bar/.test(app), "3 header renders a runtime-status-bar", "");
-ok(/rt-conn-\$\{liveConn\}/.test(app), "4 conn chip reflects liveConn (connecting/open/closed/error)", "");
-ok(/session:\s*<strong>\{liveSessionId/.test(app), "5 session id shown in the header", "");
-ok(/\{liveRunState\}/.test(app) && /cycle:.*liveCycle/.test(app), "6 run state + cycle shown in the header", "");
+// 3. the status chip is rendered in the Live controls bar (passed as statusSlot
+//    to LiveTab) — per user request, NOT in the global product header.
+ok(/runtime-status-bar/.test(app) && /rt-inline/.test(app), "3 runtime status chip exists (inline controls-bar variant)", "");
+ok(/statusSlot=\{/.test(app), "4 chip is passed into the Live tab via statusSlot (next to Audio), not the header", "");
+ok(/rt-conn-\$\{liveConn\}/.test(app) && /session:\s*<strong>\{liveSessionId/.test(app) && /cycle:.*liveCycle/.test(app),
+  "5 chip shows conn + session + cycle", "");
+// the chip must NOT be in the hero header block anymore.
+const heroBlock = app.slice(app.indexOf("hero-copy"), app.indexOf("hero-metrics") + 200);
+ok(!/runtime-status-bar/.test(heroBlock), "6 status chip removed from the global hero header", "");
 
 // ---- built bundle markers ----
 const distDir = join(ROOT, "ui/dist/assets");

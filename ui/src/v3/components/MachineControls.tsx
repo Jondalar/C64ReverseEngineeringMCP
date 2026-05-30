@@ -3,7 +3,7 @@
 // Spec 701: Run/Pause/Step/Warp drive the BACKEND runtime loop via debug/*
 // + session/set_pacing. The UI no longer owns the emulation clock.
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, type ReactNode } from "react";
 import { getClient, BIN_TYPE_AUDIO_BUFFER } from "../ws-client.js";
 import { WebAudioPlayer } from "../audio-player.js";
 
@@ -13,9 +13,14 @@ interface Props {
   setRunState?: (s: "running" | "paused" | "off") => void;
   fps: number;
   onSnapshotTaken: () => void;
+  // BUG-018 (relocation) — optional status content rendered at the right of the
+  // controls bar (next to Audio / fps). The v1 product passes the runtime
+  // connection/session chip here; the standalone v3 shell omits it (it has its
+  // own header status).
+  statusSlot?: ReactNode;
 }
 
-export function MachineControls({ sessionId, runState, setRunState, fps, onSnapshotTaken }: Props): React.JSX.Element {
+export function MachineControls({ sessionId, runState, setRunState, fps, onSnapshotTaken, statusSlot }: Props): React.JSX.Element {
   const c = getClient();
   const [warp, setWarp] = useState(false);
   // Power = ON/OFF toggle (NOT reset).
@@ -166,6 +171,7 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
       >{audioOn ? "🔊 Audio" : "🔇 Audio"}</button>
       <span className="wb-controls-spacer" />
       {runState === "running" && <span className="wb-fps">{fps} fps</span>}
+      {statusSlot}
     </div>
   );
 }

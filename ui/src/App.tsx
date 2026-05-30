@@ -4349,16 +4349,6 @@ export function App() {
         <div className="hero-copy panel-card">
           <div className="eyebrow">C64 Reverse Engineering Workspace</div>
           <h1>{snapshot?.project.name ?? "Project"}</h1>
-          {/* BUG-018 — always-visible runtime status for human/LLM coordination:
-              connection state + session id + run state + cycle. */}
-          <div className="runtime-status-bar" role="status" aria-label="Runtime status">
-            <span className={`rt-conn rt-conn-${liveConn}`} title="Runtime WS connection">
-              <span className="rt-dot" />{liveConn}
-            </span>
-            <span className="rt-field">session: <strong>{liveSessionId || "(none)"}</strong></span>
-            <span className="rt-field">{liveRunState}</span>
-            <span className="rt-field">cycle: {liveCycle.toLocaleString()}</span>
-          </div>
           {snapshot ? (
             <div className="hero-metrics">
               {snapshot.views.projectDashboard.metrics.map((metric) => (
@@ -4424,6 +4414,17 @@ export function App() {
                 setSessionId={setLiveSessionId}
                 runState={liveRunState}
                 setRunState={setLiveRunState}
+                statusSlot={
+                  // BUG-018 — runtime conn/session status, in the Live controls
+                  // bar (next to Audio) per user request, not the global header.
+                  <span className="runtime-status-bar rt-inline" role="status" aria-label="Runtime status">
+                    <span className={`rt-conn rt-conn-${liveConn}`} title="Runtime WS connection">
+                      <span className="rt-dot" />{liveConn}
+                    </span>
+                    <span className="rt-field">session: <strong>{liveSessionId || "(none)"}</strong></span>
+                    <span className="rt-field">cycle: {liveCycle.toLocaleString()}</span>
+                  </span>
+                }
               />
             ) : null}
             {activeTab === "dashboard" ? (
