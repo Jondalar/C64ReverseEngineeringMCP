@@ -88,7 +88,7 @@ const evidenceSchema = z.object({
 export function registerProjectKnowledgeTools(server: McpServer, options: RegisterProjectKnowledgeToolsOptions): void {
   server.tool(
     "project_init",
-    "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders.",
+    "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). Inputs: project name, optional description/tags/assembler. Returns: created project + knowledge/phase-plan paths.",
     {
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
       name: z.string().describe("Human-readable project name"),

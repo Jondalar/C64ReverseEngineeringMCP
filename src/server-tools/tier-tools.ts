@@ -23,6 +23,11 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Enter / orient
   "agent_onboard", "c64re_whats_next", "agent_propose_next", "agent_record_step",
   "agent_set_role", "project_status", "get_project_profile",
+  // Create the project. The product entry step (vision §2.4): a fresh external
+  // directory must be initializable from the default surface — otherwise the
+  // knowledge-write tools reject every call with "not an initialized c64re
+  // project". Without this the swimlane cannot even start. (Spec 727 gap.)
+  "project_init",
   // Read knowledge
   "list_artifacts", "list_payloads", "list_findings", "list_open_questions",
   "list_entities", "list_flows", "read_artifact", "get_artifact_lineage",
