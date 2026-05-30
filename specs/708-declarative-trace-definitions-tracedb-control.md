@@ -1,6 +1,18 @@
 # Spec 708 - Declarative Trace Definitions and TraceDB Control
 
-Status: DONE — baseline + corrective slice 708.7-708.9 landed (2026-05-25 CEST, branch `claude/708-corrective`); see §11. History in §§9-10.
+Status: DONE (feature) with a KNOWN GATE REGRESSION — baseline + corrective slice
+708.7-708.9 landed (2026-05-25 CEST, branch `claude/708-corrective`); see §11.
+History in §§9-10.
+
+**Gate regression (2026-05-30, follow-up needed — tracked as NEEDS-RECONCILE in
+`specs/README.md`):** §708.9 recorded `probe:708-trace` 19/19 GREEN, but it now
+fails 16/19 on master with the 708.8 overflow classifier firing on the
+bounded-complete fixture (`events≈301k`, `overflow=true`, where the gate expects
+`overflow=false`). This reproduces identically on a clean HEAD, so it is NOT caused
+by the Spec 726 §6a reader work. The 708 *feature* surface is unchanged + trusted;
+only the overflow-threshold gate is mis-classifying — a separate small bugfix
+(re-tune the bounded-vs-flood threshold, or re-baseline the fixture). Do not treat
+708 as "all-green" until this is resolved.
 Depends: Specs 619, 623, 701, 705, 707
 Consumed by: Spec 721 runtime-informed annotation; Specs 710-712
 Owner: runtime evidence / monitor / knowledge

@@ -7,7 +7,8 @@ this board wins until the header is reconciled.
 
 | Status | Meaning |
 |---|---|
-| **ACTIVE** | Being worked now, or the next thing that blocks real work. Small set. |
+| **ACTIVE** | Concrete next implementation work. Small set. |
+| **GOVERNING / DOCTRINE** | A rule/charter/umbrella contract that still binds, but is not itself an open implementation task. |
 | **DONE** | Shipped + on master; gates green where applicable. |
 | **BACKLOG** | Planned, scoped, not started. Not blocking. |
 | **SUPERSEDED** | Replaced by a later spec; kept for history. Names its successor. |
@@ -28,18 +29,27 @@ pre-arch-port material). It is read-only history.
 
 ---
 
-## ACTIVE (real work in flight or next-blocking)
+## ACTIVE (concrete next work)
 
-| Spec | Title | Why active |
+Small by design — only specs with concrete next implementation work.
+
+| Spec | Title | Why active / what's next |
 |---|---|---|
-| 610 | 1541 Parity Rebuild Charter | Umbrella charter for the vice1541 rebuild; still the governing plan for remaining 1541 fidelity. |
+| 721 | Visual-Origin Join (runtime-informed annotation) | Core join shipped (probe green); the semantic-pipeline extension is the active edge. |
+| 724 | One UI, One Server Entry, One Project Path | 724A + 724.2e drag&drop DONE; **724B (one UI shell — integrate the v1 knowledge screens into the v3 workbench, then retire the v1 entry) is the only remaining work.** |
+| 729 | MCP End-to-End Use-Case Gates | Boundaries/path/inventory + project_init fix + writer/reader contract (E2E-I) all GREEN; **only the live trace-capture round-trip (E2E-B/C) remains to build.** |
+
+## GOVERNING / DOCTRINE (rules + umbrella contracts — still binding, not active implementation)
+
+These keep governing how work is done, but they are not themselves an open
+implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
+
+| Spec | Title | Role |
+|---|---|---|
+| 610 | 1541 Parity Rebuild Charter | Governing plan for remaining 1541 fidelity work. |
 | 612 | 1541 Port Fidelity Rules + TODO | Living doctrine + CI gate (`check:1541-fidelity`) for every `vice1541/**` edit. |
 | 620 | Port-Bug Forensic Doctrine | Living doctrine for debugging `vice1541/**` (reading-first, first-divergence). |
-| 705 | Interactive Runtime Evidence / Intervention / Replay (contract) | Umbrella contract for 711/712; sub-slices 705.A/705.B done, the intervention/rewind children are open. |
-| 713 | VICE Cartridge Fidelity | In progress: EasyFlash done; GMOD2/3/Ocean/Magic Desk/MegaByter device cores pending. |
-| 721 | Visual-Origin Join (runtime-informed annotation) | Core join shipped (probe green); semantic-pipeline extension is the active edge. |
-| 724 | One UI, One Server Entry, One Project Path | 724A done; **724B (one UI shell + 724.2e drag&drop closure)** is the active UI consolidation. |
-| 729 | MCP End-to-End Use-Case Gates | Boundaries/path/inventory + writer-reader contract GREEN; **live trace-capture round-trip (E2E-B/C/D) still to build.** |
+| 705 | Interactive Runtime Evidence / Intervention / Replay (contract) | Umbrella contract; sub-slices 705.A/705.B DONE, the intervention/rewind children are tracked as 711/712 (BACKLOG). |
 
 ## DONE (shipped + on master)
 
@@ -59,7 +69,7 @@ pre-arch-port material). It is read-only history.
 | 704 | Runtime Codebase Cleanup (§11 legacy 1541 retirement) | §11 merged. |
 | 706 | reSID Audio Latency Governor | DONE, user-confirmed. |
 | 707 | Native Snapshot Persistence (dump/undump) | DONE. |
-| 708 | Declarative Trace Definitions + TraceDB | Baseline + 708.7–708.9 landed. (Overflow-gate caveat → NEEDS-RECONCILE row below.) |
+| 708 | Declarative Trace Definitions + TraceDB | FEATURE done (baseline + 708.7–708.9 landed). The 708.8 overflow GATE has regressed — see the NEEDS-RECONCILE row (the gate, not the feature, is the open item). |
 | 709 | Reproducible Media Ingress | DONE through 709.13; UI drag&drop closure tracked under 724.2e. |
 | 710 | Frozen VIC Inspect on Checkpoint/Evidence | Core inspect + UI + durable provenance. |
 | 715 | Runtime Product Proof Baseline | Small canary baseline; tag `runtime-product-green-2026-05-24`. |
@@ -100,24 +110,31 @@ pre-arch-port material). It is read-only history.
 | 702 | Paused VIC Inspect Overlay | 710 |
 | 722 | MCP Tool Surface Audit | 725 / 727 / 728 / 729 (the implementations) |
 
-## NEEDS-RECONCILE (header/claims vs repo conflict)
+## NEEDS-RECONCILE (a decision/verification is open — not a free-form status)
 
-| Spec | Title | Conflict |
+| Spec | Title | Open question |
 |---|---|---|
 | 428 | Split C64 + 1541 CPU contracts | Header "PLAN, rollout in slices"; core landed in runtime-green. Which phases remain open vs frozen? |
 | 613 | c64 IEC `LOAD"$",8` regression | Header OPEN; 616 KERNAL-load fidelity is DONE. Is 613 still reproducible? |
 | 614 | Drive per-cycle scheduling | Header OPEN; the vice1541 bridge shipped. Is the per-cycle gap still open? |
 | 615 | GCR decode fidelity | Header OPEN; 616/617 byte-fidelity DONE. Residual scope? |
-| 708 | Trace overflow gate | `probe-708-trace` has 3 standing failures (708.8 overflow-threshold) identical on clean HEAD — classify as bug vs stale-gate. |
-| 714 | Mutable Media Snapshot Fidelity | Header claims cartridge persistence "PROVEN for every writable family"; 713 lists GMOD2/3/Ocean/Magic Desk/MegaByter cores as pending. Reconcile against 713. |
+| 708 | Trace overflow gate | Feature DONE; `probe-708-trace` 708.8 overflow classifier regressed (16/19, identical on clean HEAD). One truth recorded in the 708 header: feature trusted, the gate needs a small re-tune/re-baseline. Tracked here until that bugfix lands. |
+| 713 | VICE Cartridge Fidelity | Resolved vs 714 (no more "pending mapper" contradiction). Remaining decision: BEHAVIOR COMPLETE on branch `spec-713-cart-families`, NOT merged to master / no baseline change yet. Honest gap: GMOD3 + C64MegaCart have no real commercial sample (synthetic header-inferred gates). Decide the master baseline-extension merge. |
+
+**713 ↔ 714 reconciled (2026-05-30):** both now state the same truth — every
+writable cartridge family is ported faithfully (713) and its writable state persists
+(714.5, `probe-714-5-persist` 33/33 + `probe-714-5` 16/16), all on branch
+`spec-713-cart-families`, not yet on the master baseline. The stale 713 "pending
+mapper" header is gone.
 
 ---
 
 ## Counts
 
-- ACTIVE: 8
+- ACTIVE: 3 (721, 724, 729)
+- GOVERNING / DOCTRINE: 4 (610, 612, 620, 705)
 - DONE: 24
 - BACKLOG: 10
 - SUPERSEDED: 11
-- NEEDS-RECONCILE: 6
+- NEEDS-RECONCILE: 6 (428, 613, 614, 615, 708, 713)
 - (ARCHIVED: see `specs/_archive/`, ~105 historical specs)

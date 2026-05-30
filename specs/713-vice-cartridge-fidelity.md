@@ -1,6 +1,27 @@
 # Spec 713 - VICE Cartridge Fidelity: CRT Mapping, Banking and Writable Hardware
 
-**Status:** IN PROGRESS (scope corrected 2026-05-24 CEST after audit). This is now one complete VICE cartridge-port batch, not an EasyFlash-only repair followed by deferred active mappers. The active runtime must port or remove every declared cartridge family below, together with its VICE device core and snapshot state. Reproduced EasyFlash REDs remain the first acceptance failures: IO1 mirror (`$DE04` must act like `$DE00` via `addr & 2`), IO2 RAM `$DF00-$DFFF` missing, flash program assignment instead of AM29F040 `old & byte`, and lost flash command-state continuation. `persistsWritableState()` must not be considered complete for any writable mapper until its full VICE state is integrated by Spec 714.5. The runtime proof gate does NOT prove cartridge banking/mapping fidelity.  
+**Status:** BEHAVIOR COMPLETE on branch `spec-713-cart-families` — NOT yet merged
+to master / baseline (2026-05-30 reconcile). Every declared cartridge family is
+ported faithfully with its VICE device core + snapshot state (EasyFlash, Generic
+8K/16K + Ultimax, Ocean, Magic Desk / Magic Desk 16, Protovision MegaByter, GMOD2,
+GMOD3, C64MegaCart) — see §9 RFL matrix, §10 result and §11 audit-resolution.
+Cart gates GREEN: `probe-714-5` 16/16, `probe-713-rombank` 39/39,
+`probe-713-devcore` 53/53, `probe-713-erase-catchup` 3/3, `probe-713-ingress` 8/8,
+`smoke-cart-fidelity` 18/18, `smoke-cart-real` 4/4, `probe-714-5-persist` 33/33,
+`runtime:proof` 7/7. No open 713 behaviour defect.
+
+**Known honest gaps (not stale "pending mapper" claims):**
+- **No merge to master / no baseline change yet** — branch `spec-713-cart-families`
+  is HELD pending the master baseline-extension spec.
+- **GMOD3 + C64MegaCart have no real commercial sample** in the corpus; verified by
+  VICE-source-derived, header-inferred synthetic runtime gates (no mapper override).
+  This is the accepted completion proof for those two types, not a deferred port.
+- The runtime proof gate does NOT prove cartridge banking/mapping fidelity (the cart
+  gates above do).
+
+Prior header: "IN PROGRESS (scope corrected 2026-05-24 CEST after audit)" — the
+EasyFlash REDs (IO1 `$DE04` mirror via `addr & 2`, IO2 RAM `$DF00-$DFFF`, AM29F040
+`old & byte` program, flash command-state continuation) are all CLOSED (§11).  
 **Depends on:** Spec 705 native checkpoint/dump foundation; Spec 709 media ingress and UI mount/eject completion  
 **Blocks:** Trustworthy CRT execution, CRT-based inspect evidence, cartridge rewind/replay and code-overlay work  
 **Authority:** VICE C source is the behavioral ground truth.

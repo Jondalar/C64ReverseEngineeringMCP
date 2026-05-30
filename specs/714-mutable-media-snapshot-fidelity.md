@@ -27,6 +27,14 @@ RuntimeController. Matrix:
   (command + shift-register continuation identical); `probe-714-5` — EasyFlash
   mid-erase checkpoint + `.c64re` fresh-session.
 Operations-in-progress + modified media are captured (not rejected).
+
+**Reconcile (2026-05-30):** 714.5 cartridge-persistence is COMPLETE + gated, but it
+rides on the Spec 713 device cores, which live on branch `spec-713-cart-families`
+(BEHAVIOR COMPLETE, NOT yet merged to master). So 714.5 is proven-on-branch, not yet
+on the master baseline. Honest gap shared with 713: GMOD3 + C64MegaCart have no real
+commercial sample (header-inferred synthetic gates only). The disk path (714.1-714.4)
+is on master and DONE.
+
 **Depends on:** Specs 705.A/B, 706, 707 implementation surfaces; VICE1541 fidelity doctrine in Specs 612/620  
 **Coordinates with:** Spec 709 for media ingress/events; Spec 713 for VICE-faithful writable cartridge hardware  
 **Blocks:** Durable Spec 710 evidence promotion, Spec 711 intervention branches, Spec 712 rewind/replay; truthful writable-media `.c64re` persistence  

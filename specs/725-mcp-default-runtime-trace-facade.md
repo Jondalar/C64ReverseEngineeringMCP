@@ -197,6 +197,10 @@ Keep advanced:
    - First sentence says capability.
    - Include "Use when ..." and "Not for ..." or "use ... instead".
    - Do not expose old mode language: no fast-trap, no real-kernal, no lockstep, no legacy CPU/drive.
+   - `runtime_session_start` must include the normal `.d64` / `.g64` disk boot
+     trace sequence: start with `disk_path + trace_out`, run to BASIC READY,
+     type `LOAD\"*\",8,1\rRUN\r` via `runtime_type`, run until stable loaded
+     screen, mark phases, finalize, then query with trace readers.
 
 3. Update `scripts/probe-tool-surface.mjs`.
    - Remove the guard `no runtime_* in default`.

@@ -1,7 +1,10 @@
 # Spec 729 — MCP End-to-End Use-Case Gates
 
-**Status:** PARTIAL (2026-05-30) — initial harnesses GREEN; trace gates PENDING
-on 726 reader/writer alignment.  
+**Status:** PARTIAL (2026-05-30) — GREEN: tool-boundaries, path-portability,
+project-inventory (incl. the project_init fix) and the trace writer/reader schema
+contract (E2E-I; Spec 726 §6a alignment landed). PENDING: the live trace-capture
+round-trip (E2E-B/C) via `runtime_session_start(trace_out)` + marks + finalize.
+BLOCKED: E2E-E change/validation on Spec 711 (code-overlay tooling).  
 **Owner:** MCP workflow QA  
 **Depends on:** Specs 727, 728, 725, 726  
 **Source:** `docs/llm-human-c64re-swimlane.md`
