@@ -296,8 +296,10 @@ Accepted when a fresh LLM can inspect the matrix and answer:
 - "Which tool queries a trace?"
 - "Which tool disassembles a payload?"
 - "Which tool records a finding?"
-- "When do I use VICE?"
 - "Which tools are not for normal workflow?"
 
 If the answer requires reading implementation source or old spec history, this
 spec is not done.
+
+Internal-dev-only tools are audited for maintainers and guards, but they are not
+part of the consuming LLM's decision model.
