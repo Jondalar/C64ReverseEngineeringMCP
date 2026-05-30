@@ -19,7 +19,7 @@ function hex4(v: number): string {
   return v.toString(16).padStart(4, "0").toUpperCase();
 }
 
-export function MonitorDisasm({ lines, currentPc }: Props): JSX.Element {
+export function MonitorDisasm({ lines, currentPc }: Props): React.JSX.Element {
   if (lines.length === 0) {
     return <div className="mon-disasm mon-disasm-empty">(no disasm)</div>;
   }

@@ -83,7 +83,7 @@ function hexInput(
   label: string,
   value: number,
   onChange: (v: number) => void,
-): JSX.Element {
+): React.JSX.Element {
   return (
     <label className="trace-filter-field">
       {label}
@@ -103,7 +103,7 @@ function hexInput(
   );
 }
 
-export function TraceFilters({ state, onChange, onSearch }: Props): JSX.Element {
+export function TraceFilters({ state, onChange, onSearch }: Props): React.JSX.Element {
   function update(patch: Partial<TraceFilterState>): void {
     onChange({ ...state, ...patch });
   }

@@ -28,7 +28,7 @@ interface MemRange {
 
 const DEFAULT_MEM: MemRange = { start: 0x0400, end: 0x04ff };
 
-export function MonitorTab({ sessionId }: TabProps): JSX.Element {
+export function MonitorTab({ sessionId }: TabProps): React.JSX.Element {
   const [paused, setPaused] = useState<boolean>(true);
   const [regs, setRegs] = useState<RegisterState | null>(null);
   const [disasm, setDisasm] = useState<DisasmLine[]>([]);

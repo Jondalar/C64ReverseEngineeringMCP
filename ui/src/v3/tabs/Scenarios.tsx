@@ -43,7 +43,7 @@ interface BatchRunModalProps {
   onClose: () => void;
 }
 
-function BatchRunModal({ scenarios, onClose }: BatchRunModalProps): JSX.Element {
+function BatchRunModal({ scenarios, onClose }: BatchRunModalProps): React.JSX.Element {
   const client = getClient();
 
   const maxWorkers = Math.max(1, navigator.hardwareConcurrency - 1 || 3);
@@ -260,7 +260,7 @@ interface FullScenario {
   savedAt?: string;
 }
 
-export function ScenariosTab({ sessionId }: TabProps): JSX.Element {
+export function ScenariosTab({ sessionId }: TabProps): React.JSX.Element {
   const [summaries, setSummaries] = useState<ScenarioSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -529,7 +529,7 @@ export function ScenariosTab({ sessionId }: TabProps): JSX.Element {
   );
 }
 
-function MetaRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
+function MetaRow({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
   return (
     <tr>
       <td style={{ color: "#888", paddingRight: 12, paddingBottom: 6, verticalAlign: "middle", whiteSpace: "nowrap" }}>

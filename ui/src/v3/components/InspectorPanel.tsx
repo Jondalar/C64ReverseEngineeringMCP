@@ -128,7 +128,7 @@ function DeviceRow({
   exts: string[];
   secondLine: React.ReactNode;
   onPower?: () => void;
-}): JSX.Element {
+}): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const filtered = mediaList.filter(m => exts.some(e => m.path.toLowerCase().endsWith(e)));
   const currentName = currentPath ? currentPath.split("/").pop() ?? "" : "";
@@ -181,7 +181,7 @@ function DeviceRow({
 export function InspectorPanel({
   sessionId, drive, drive9, cart, activeMedia = "", activeMedia9 = "", activeCartMedia = "",
   onMounted, joyMode = "off", setJoyMode, joyBits, pressedKeys,
-}: Props): JSX.Element {
+}: Props): React.JSX.Element {
   const [cpu, setCpu] = useState<CpuState | null>(null);
   const [vic, setVic] = useState<VicState | null>(null);
   const [sid, setSid] = useState<SidState | null>(null);

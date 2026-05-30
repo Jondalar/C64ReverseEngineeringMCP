@@ -15,7 +15,7 @@ export interface SnapshotDetailProps {
   onDiff: (branchId: string, vsId: string) => void;
 }
 
-export function SnapshotDetail(props: SnapshotDetailProps): JSX.Element {
+export function SnapshotDetail(props: SnapshotDetailProps): React.JSX.Element {
   const {
     branch, branchId, rootBranchId, allBranchIds,
     onRestore, onPromote, onPin, onDiff,

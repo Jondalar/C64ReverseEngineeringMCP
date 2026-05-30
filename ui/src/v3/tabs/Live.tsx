@@ -134,7 +134,7 @@ function joystickBitForCode(code: string): JoyBit | null {
 }
 type JoystickMode = "off" | "port1" | "port2";
 
-export function LiveTab({ sessionId, setSessionId, runState = "running", setRunState }: TabProps): JSX.Element {
+export function LiveTab({ sessionId, setSessionId, runState = "running", setRunState }: TabProps): React.JSX.Element {
   const [hasFrame, setHasFrame] = useState(false);
   const [fps, setFps] = useState(0);
   const [drive, setDrive] = useState<DriveStatus | null>(null);

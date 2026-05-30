@@ -23,7 +23,7 @@ const KIND_LABELS: Record<string, string> = {
   joystick2: "JOY2",
 };
 
-export function ScenarioInputTimeline(props: ScenarioInputTimelineProps): JSX.Element {
+export function ScenarioInputTimeline(props: ScenarioInputTimelineProps): React.JSX.Element {
   const { inputs, onChange, readonly } = props;
   const [addKind, setAddKind] = useState<"keyboard" | "joystick1" | "joystick2">("keyboard");
   const [addCycle, setAddCycle] = useState("");

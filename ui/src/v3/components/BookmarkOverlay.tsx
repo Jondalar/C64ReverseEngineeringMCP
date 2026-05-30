@@ -16,7 +16,7 @@ interface Props {
   onJump: (cycle: number) => void;
 }
 
-export function BookmarkOverlay({ bookmarks, visibleCycleStart, visibleCycleEnd, onJump }: Props): JSX.Element {
+export function BookmarkOverlay({ bookmarks, visibleCycleStart, visibleCycleEnd, onJump }: Props): React.JSX.Element {
   const visible = bookmarks.filter(
     (b) => b.cycle >= visibleCycleStart && b.cycle <= visibleCycleEnd,
   );

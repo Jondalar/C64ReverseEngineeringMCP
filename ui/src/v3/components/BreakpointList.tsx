@@ -46,7 +46,7 @@ interface Props {
   onRemove: (id: string) => void;
 }
 
-export function BreakpointList({ breakpoints, onToggle, onRemove }: Props): JSX.Element {
+export function BreakpointList({ breakpoints, onToggle, onRemove }: Props): React.JSX.Element {
   if (breakpoints.length === 0) {
     return <div className="mon-bplist mon-bplist-empty">(no breakpoints)</div>;
   }

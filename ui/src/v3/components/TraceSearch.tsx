@@ -14,7 +14,7 @@ interface Props {
   loading: boolean;
 }
 
-export function TraceSearch({ results, onJump, loading }: Props): JSX.Element {
+export function TraceSearch({ results, onJump, loading }: Props): React.JSX.Element {
   if (loading) {
     return <div className="trace-search-status">Searching…</div>;
   }

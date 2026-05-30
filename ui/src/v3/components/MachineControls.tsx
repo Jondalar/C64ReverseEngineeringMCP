@@ -15,7 +15,7 @@ interface Props {
   onSnapshotTaken: () => void;
 }
 
-export function MachineControls({ sessionId, runState, setRunState, fps, onSnapshotTaken }: Props): JSX.Element {
+export function MachineControls({ sessionId, runState, setRunState, fps, onSnapshotTaken }: Props): React.JSX.Element {
   const c = getClient();
   const [warp, setWarp] = useState(false);
   // Power = ON/OFF toggle (NOT reset).

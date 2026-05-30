@@ -30,7 +30,7 @@ interface Props {
   paused: boolean;
 }
 
-export function MonitorRegisters({ regs, paused }: Props): JSX.Element {
+export function MonitorRegisters({ regs, paused }: Props): React.JSX.Element {
   if (!regs) {
     return <div className="mon-regs mon-regs-empty">(no registers — session paused or not started)</div>;
   }

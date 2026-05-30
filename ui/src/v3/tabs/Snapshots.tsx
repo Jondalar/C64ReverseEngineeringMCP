@@ -17,7 +17,7 @@ interface SnapshotTreeData {
   branches: Record<string, SnapshotBranch>;
 }
 
-export function SnapshotsTab({ sessionId }: TabProps): JSX.Element {
+export function SnapshotsTab({ sessionId }: TabProps): React.JSX.Element {
   const [treeData, setTreeData] = useState<SnapshotTreeData | null>(null);
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");

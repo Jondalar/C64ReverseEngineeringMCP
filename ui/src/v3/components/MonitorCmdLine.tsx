@@ -14,7 +14,7 @@ interface Props {
   history?: CmdResult[];
 }
 
-export function MonitorCmdLine({ onCmd, history = [] }: Props): JSX.Element {
+export function MonitorCmdLine({ onCmd, history = [] }: Props): React.JSX.Element {
   const [input, setInput] = useState<string>("");
   const [histIdx, setHistIdx] = useState<number>(-1);
   const [inputHistory, setInputHistory] = useState<string[]>([]);

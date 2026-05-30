@@ -39,7 +39,7 @@ interface ExportJobResult {
   samples?: number;
 }
 
-export function ExportTab({ sessionId }: TabProps): JSX.Element {
+export function ExportTab({ sessionId }: TabProps): React.JSX.Element {
   const [scenarios, setScenarios] = useState<ScenarioSummary[]>([]);
   const [loadingScenarios, setLoadingScenarios] = useState(false);
   const [form, setForm] = useState<ExportState>({

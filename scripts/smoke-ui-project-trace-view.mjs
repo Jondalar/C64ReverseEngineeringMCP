@@ -39,6 +39,14 @@ const svc = new ProjectKnowledgeService(projectDir);
 svc.initProject({ name: "724B Smoke", description: "UI project+trace view smoke" });
 svc.saveFinding({ kind: "observation", title: "Boot trace captured", summary: "via 724B smoke", confidence: 0.9, tags: ["runtime", "trace"] });
 svc.saveEntity({ kind: "memory-region", name: "boot-pc-window", summary: "top PCs during boot" });
+// register a tiny PRG artifact so the Assets/Scrub tab has something to scrub
+// + annotate ($0801 load addr + a charset-ish block).
+const prgRel = "asset.prg";
+const prgBytes = Buffer.alloc(2 + 0x400);
+prgBytes[0] = 0x01; prgBytes[1] = 0x08; // load $0801
+for (let i = 0; i < 0x400; i++) prgBytes[2 + i] = (i * 13 + 7) & 0xff; // varied pattern
+writeFileSync(join(projectDir, prgRel), prgBytes);
+svc.saveArtifact({ kind: "prg", scope: "input", title: "asset.prg", path: prgRel });
 // build the dashboard view so /api/workspace exposes it.
 try { svc.buildWorkspaceUiSnapshot(); } catch { /* views built lazily */ }
 
@@ -163,10 +171,31 @@ try {
   const gfx = await getJson("/api/graphics");
   ok(gfx.status === 200, "19 /api/graphics reachable (Graphics tab)", `status=${gfx.status}`);
 
+  // 20-23 — Assets / Scrub tab (the migrated v1 human-workbench tool).
+  // The PRG artifact must be in the snapshot (the tab's file picker).
+  const hasPrg = (ws.body.artifacts ?? []).some((a) => a.kind === "prg" && (a.relativePath === "asset.prg" || a.path?.endsWith("asset.prg")));
+  ok(hasPrg, "20 PRG artifact visible for the Assets/Scrub picker", hasPrg ? "asset.prg" : "missing");
+
+  // Scrub: fetch a raw byte slice via /api/artifact/raw (the render input).
+  const rawRes = await fetch(`http://127.0.0.1:${PORT}/api/artifact/raw?projectDir=${encodeURIComponent(projectDir)}&path=${encodeURIComponent("asset.prg")}&offset=2&length=320`);
+  const rawBuf = rawRes.ok ? new Uint8Array(await rawRes.arrayBuffer()) : new Uint8Array();
+  ok(rawRes.ok && rawBuf.length === 320, "21 /api/artifact/raw returns the scrub slice (render input)", `bytes=${rawBuf.length}`);
+
+  // Reclassify (authoring): POST a graphics segment annotation; assert the
+  // annotations file is created + the segment count is reported.
+  const annRes = await fetch(`http://127.0.0.1:${PORT}/api/scrub/annotate-segment`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ projectDir, prgPath: "asset.prg", start: "0801", end: "0820", kind: "charset", label: "smoke_charset", comment: "via 724B asset smoke" }),
+  });
+  const ann = annRes.ok ? await annRes.json() : {};
+  ok(annRes.ok && ann.totalSegments >= 1, "22 /api/scrub/annotate-segment persists a graphics segment (reclassify)", `segments=${ann.totalSegments}`);
+  ok(typeof ann.annotationsPath === "string" && existsSync(ann.annotationsPath), "23 annotations file written + visible in the project", ann.annotationsPath ? "written" : "missing");
+
   console.log(`\n--- report ---`);
   console.log(`project: ${projectDir}`);
   console.log(`endpoints proven: /api/config, /api/workspace (+ all view keys), /api/traces, /api/trace/{info,top-pcs,events}, /api/docs, /api/graphics`);
-  console.log(`tabs reachable: Knowledge, Questions, Docs, Trace Files, Memory Map, Payloads, Annotated Listing, Flow Graph, Disk, Cartridge, Graphics`);
+  console.log(`tabs reachable: Knowledge, Questions, Docs, Trace Files, Memory Map, Payloads, Annotated Listing, Flow Graph, Disk, Cartridge, Graphics, Assets/Scrub`);
+  console.log(`Assets/Scrub: PRG picker + /api/artifact/raw slice + /api/scrub/annotate-segment write proven`);
   console.log(`729 artifacts visible: project status+path, game.d64, traces/run.duckdb, marks(basic-ready,loaded-or-title), findings, entities, dashboard`);
 } catch (e) {
   ok(false, "harness", e.message + (srvErr ? " | stderr: " + srvErr.slice(-200) : ""));

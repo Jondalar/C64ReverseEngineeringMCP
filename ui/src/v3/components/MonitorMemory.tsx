@@ -20,7 +20,7 @@ function hex2(v: number): string {
 
 const BYTES_PER_ROW = 16;
 
-export function MonitorMemory({ bytes, baseAddr, onEdit }: Props): JSX.Element {
+export function MonitorMemory({ bytes, baseAddr, onEdit }: Props): React.JSX.Element {
   const [editAddr, setEditAddr] = useState<number | null>(null);
   const [editVal, setEditVal] = useState<string>("");
 
@@ -28,7 +28,7 @@ export function MonitorMemory({ bytes, baseAddr, onEdit }: Props): JSX.Element {
     return <div className="mon-mem mon-mem-empty">(no memory data)</div>;
   }
 
-  const rows: JSX.Element[] = [];
+  const rows: React.JSX.Element[] = [];
   for (let offset = 0; offset < bytes.length; offset += BYTES_PER_ROW) {
     const rowAddr = baseAddr + offset;
     const rowBytes = bytes.slice(offset, offset + BYTES_PER_ROW);

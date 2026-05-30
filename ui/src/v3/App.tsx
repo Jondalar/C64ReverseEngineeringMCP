@@ -17,19 +17,21 @@ import {
   MemoryMapTab, PayloadsTab, AnnotatedListingTab, FlowGraphTab,
   DiskTab, CartridgeTab, GraphicsTab, QuestionsTab, DocsTab,
 } from "./tabs/ProjectViews.js";
+import { AssetsTab } from "./tabs/Assets.js";
 
 const NAV = [
   { group: "Runtime", tabs: ["live", "trace"] },
   { group: "Project", tabs: ["knowledge", "questions", "docs", "trace-files"] },
   { group: "Analysis", tabs: ["memory", "payloads", "listing", "flow"] },
-  { group: "Media", tabs: ["disk", "cartridge", "graphics"] },
+  { group: "Media", tabs: ["disk", "cartridge", "graphics", "assets"] },
 ] as const;
 type Tab = "live" | "trace" | "knowledge" | "questions" | "docs" | "trace-files"
-  | "memory" | "payloads" | "listing" | "flow" | "disk" | "cartridge" | "graphics";
+  | "memory" | "payloads" | "listing" | "flow" | "disk" | "cartridge" | "graphics" | "assets";
 const LABEL: Record<Tab, string> = {
   live: "Live", trace: "Trace", knowledge: "Knowledge", questions: "Questions", docs: "Docs",
   "trace-files": "Trace Files", memory: "Memory Map", payloads: "Payloads",
   listing: "Annotated Listing", flow: "Flow Graph", disk: "Disk", cartridge: "Cartridge", graphics: "Graphics",
+  assets: "Assets / Scrub",
 };
 
 export function App(): React.JSX.Element {
@@ -108,6 +110,7 @@ export function App(): React.JSX.Element {
         {tab === "disk" && <DiskTab />}
         {tab === "cartridge" && <CartridgeTab />}
         {tab === "graphics" && <GraphicsTab />}
+        {tab === "assets" && <AssetsTab />}
       </main>
     </div>
   );

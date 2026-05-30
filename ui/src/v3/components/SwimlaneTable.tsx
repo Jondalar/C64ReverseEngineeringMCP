@@ -26,7 +26,7 @@ interface Props {
   onSelectRow: (cycle: number) => void;
 }
 
-export function SwimlaneTable({ rows, totalRows, selectedCycle, onSelectRow }: Props): JSX.Element {
+export function SwimlaneTable({ rows, totalRows, selectedCycle, onSelectRow }: Props): React.JSX.Element {
   const visible = rows.slice(0, MAX_VISIBLE);
   const truncated = totalRows > MAX_VISIBLE;
 

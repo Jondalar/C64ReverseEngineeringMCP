@@ -129,7 +129,7 @@ function searchRows(rows: SwimlaneRow[], query: string): SearchResult[] {
 
 // ── Main TraceTab ─────────────────────────────────────────────────────────────
 
-export function TraceTab({ sessionId }: TabProps): JSX.Element {
+export function TraceTab({ sessionId }: TabProps): React.JSX.Element {
   const [filters, setFilters] = useState<TraceFilterState>(defaultFilterState());
   const [rows, setRows] = useState<SwimlaneRow[]>([]);
   const [totalRows, setTotalRows] = useState(0);

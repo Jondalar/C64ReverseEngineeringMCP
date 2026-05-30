@@ -1,23 +1,31 @@
 # Spec 724 — One UI, One Server Entry, One Project Path
 
-**Status:** DONE for product viewing (2026-05-30); v1 is now legacy/dev-only.
+**Status:** DONE (2026-05-30) — one UI shell; v1 no longer needed for any normal
+human-workbench operation.
 - 724A (one `--project` resolver, no cwd/samples fallback) DONE.
 - 724.2e (browser drag&drop → backend `media/ingress`) DONE.
 - **724B.1** — v3 shell gained the Project group (Knowledge + Trace Files);
   729 artifacts (project status/path, trace.duckdb + marks, findings, entities,
   dashboard) visible. DONE.
-- **724B.2** — every remaining v1 VIEW screen migrated into the v3 shell as
-  read-only tabs sourced from the existing HTTP API (no new heavy endpoint, no
-  raw SQL, project path from the 724A resolver): Questions, Docs (Project group);
-  Memory Map, Payloads, Annotated Listing, Flow Graph (Analysis group); Disk,
-  Cartridge, Graphics (Media group). The hardcoded `project="Murder"` is gone
-  (identity from `/api/config` + `/api/workspace`). v1 `index.html` is flagged
-  legacy/dev-only. DONE.
-- **Remaining (deferred, NOT product viewing):** v1's interactive AUTHORING
-  tools — Scrub segment-annotate + in-place re-classification — are not migrated
-  and keep the v1 entry alive for dev/authoring only. v1 is NOT deleted (no
-  capability lost). Inventory: `docs/ui-724b-migration-inventory.md`. Gate:
-  `npm run smoke:ui-project-trace` (21/21).
+- **724B.2** — every v1 VIEW screen migrated into the v3 shell from the existing
+  HTTP API (no new heavy endpoint, no raw SQL, project path from the 724A
+  resolver): Questions, Docs (Project); Memory Map, Payloads, Annotated Listing,
+  Flow Graph (Analysis); Disk, Cartridge, Graphics (Media). Hardcoded
+  `project="Murder"` gone (identity from `/api/config` + `/api/workspace`). DONE.
+- **724B.3** — Scrub + reclassify (HUMAN-WORKBENCH, not dev-only) migrated into
+  the v3 **Assets / Scrub** tab, reusing the shared `C64GraphicsView` decoder +
+  the existing endpoints: view graphics candidates, Confirm/Reject heuristic
+  segments (`/api/segment/{confirm,reject}`), free-form scrub render
+  (`/api/artifact/raw` + sprite/charset/hires/multicolor decode), and save a
+  window as a graphics segment annotation (`/api/scrub/annotate-segment`, picked
+  up by the next `disasm_prg`). DONE.
+- **Typecheck debt cleared for productive v3 tabs:** all v3 `JSX.Element` →
+  `React.JSX.Element`; v3 typecheck errors 33 → 0. The remaining 13 errors are in
+  the legacy v1 `ui/src/App.tsx` only.
+- v1 `index.html` flagged legacy (reference only); NOT deleted (no capability
+  lost) — can be redirected to v3 in a later cleanup. Inventory:
+  `docs/ui-724b-migration-inventory.md`. Gate: `npm run smoke:ui-project-trace`
+  (25/25, incl. the Assets scrub-slice + reclassify-write checks).
 **Owner:** Workspace UI / server bootstrap
 **North star:** the MCP + workspace must be usable by an LLM **from outside the
 C64RE dev repo** (installed elsewhere, launched from any cwd, pointed at an

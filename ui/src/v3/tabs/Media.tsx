@@ -75,7 +75,7 @@ function basename(p: string): string {
 
 // ---- sub-components ----
 
-function TypeBadge({ type, deferred }: { type: string; deferred: boolean }): JSX.Element {
+function TypeBadge({ type, deferred }: { type: string; deferred: boolean }): React.JSX.Element {
   const label = TYPE_BADGE[type] ?? type.toUpperCase();
   const color = deferred ? "#888" : (TYPE_COLOR[type] ?? "#999");
   return (
@@ -106,7 +106,7 @@ function DriveSlot({
   mapperType?: string;
   onEject: () => void;
   onSwap: (p: string) => void;
-}): JSX.Element {
+}): React.JSX.Element {
   const [swapInput, setSwapInput] = useState("");
   return (
     <div style={{
@@ -157,7 +157,7 @@ function DriveSlot({
 
 // ---- main component ----
 
-export function MediaTab({ sessionId }: TabProps): JSX.Element {
+export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
   const [roots, setRoots] = useState<FsRoot[]>([]);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [dirContents, setDirContents] = useState<Map<string, FsEntry[]>>(new Map());
@@ -350,7 +350,7 @@ export function MediaTab({ sessionId }: TabProps): JSX.Element {
   const fileEntries = currentEntries.filter((e) => e.type !== "dir");
 
   // Render path tree (roots + subdirs if expanded).
-  function renderTree(): JSX.Element {
+  function renderTree(): React.JSX.Element {
     return (
       <div style={{ overflow: "auto", flex: 1 }}>
         {roots.map((root) => (
@@ -379,7 +379,7 @@ export function MediaTab({ sessionId }: TabProps): JSX.Element {
     );
   }
 
-  function renderSubDirs(parentPath: string, depth: number): JSX.Element {
+  function renderSubDirs(parentPath: string, depth: number): React.JSX.Element {
     const entries = dirContents.get(parentPath) ?? [];
     const subdirs = entries.filter((e) => e.type === "dir");
     return (

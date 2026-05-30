@@ -15,7 +15,7 @@ export interface WorkspaceSnapshot {
   counts?: Record<string, number>;
   findings?: Array<{ id: string; title: string; kind: string; status: string; summary?: string; updatedAt?: string }>;
   entities?: Array<{ id: string; name: string; kind: string; summary?: string }>;
-  artifacts?: Array<{ id: string; title: string; kind: string; path?: string; internal?: boolean }>;
+  artifacts?: Array<{ id: string; title: string; kind: string; path?: string; relativePath?: string; role?: string; status?: string; internal?: boolean }>;
   flows?: Array<{ id: string; name?: string; title?: string; summary?: string }>;
   openQuestions?: Array<{ id: string; question?: string; title?: string; status?: string; kind?: string }>;
   views?: {
@@ -54,6 +54,15 @@ async function getJson<T>(path: string): Promise<T> {
   return body as T;
 }
 
+async function postJson<T>(path: string, payload: unknown): Promise<T> {
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((body as { error?: string }).error || `HTTP ${res.status} ${path}`);
+  return body as T;
+}
+
+export interface ArtifactItem { id: string; title: string; kind: string; path?: string; relativePath?: string; role?: string; status?: string; internal?: boolean }
+
 export const api = {
   config: () => getJson<ProjectConfig>("/api/config"),
   workspace: () => getJson<WorkspaceSnapshot>("/api/workspace"),
@@ -64,6 +73,23 @@ export const api = {
     return res.text();
   },
   graphics: () => getJson<{ projectDir: string; items?: GraphicsItem[] }>("/api/graphics"),
+  // Scrub: fetch a raw byte slice of an artifact (projectDir from the resolved
+  // workspace; the UI passes the project root it got from /api/config).
+  artifactRaw: async (projectDir: string, relativePath: string, offset: number, length: number): Promise<Uint8Array> => {
+    const p = new URLSearchParams({ projectDir, path: relativePath, offset: String(offset), length: String(length) });
+    const res = await fetch(`/api/artifact/raw?${p.toString()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status} /api/artifact/raw`);
+    return new Uint8Array(await res.arrayBuffer());
+  },
+  // Reclassify (authoring): persist a graphics segment into <prg>_annotations.json
+  // (picked up by the next disasm_prg). Same endpoint the v1 Scrub panel used.
+  annotateSegment: (payload: { projectDir: string; prgPath: string; start: string; end: string; kind: string; label?: string; comment?: string }) =>
+    postJson<{ annotationsPath: string; totalSegments: number }>("/api/scrub/annotate-segment", payload),
+  // Confirm / reject a heuristic segment.
+  confirmSegment: (payload: { projectDir: string; artifactId: string; address: number; length: number; kind: string }) =>
+    postJson<unknown>("/api/segment/confirm", payload),
+  rejectSegment: (payload: { projectDir: string; artifactId: string; address: number; length: number; kind: string; reason: string }) =>
+    postJson<unknown>("/api/segment/reject", payload),
   traces: () => getJson<{ projectDir: string; tracesDir: string; count: number; traces: TraceArtifact[] }>("/api/traces"),
   traceInfo: (tracePath: string) => getJson<TraceInfo>(`/api/trace/info?path=${encodeURIComponent(tracePath)}`),
   traceTopPcs: (tracePath: string, cpu: "c64" | "drive8" = "c64", limit = 20) =>

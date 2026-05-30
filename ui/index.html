@@ -6,14 +6,13 @@
     <title>C64 RE Workspace (legacy / dev-only)</title>
   </head>
   <body>
-    <!-- Spec 724B: this v1 entry is LEGACY / dev-only. All product VIEW screens
-         (Dashboard, Questions, Docs, Memory Map, Payloads, Annotated Listing,
-         Flow Graph, Disk, Cartridge, Graphics) are now in the one v3 workbench
-         shell. v1 is retained only for the interactive authoring tools not yet
-         migrated (Scrub segment-annotate, in-place re-classification). -->
+    <!-- Spec 724B: this v1 entry is LEGACY. Every screen — view AND the
+         interactive Scrub/reclassify human-workbench tools — is now in the one
+         v3 workbench shell (Assets / Scrub tab). v1 is kept (no capability lost)
+         but no longer needed for normal operation; it can be redirected to v3. -->
     <div style="background:#3a2a00;color:#fc8;padding:6px 12px;font:12px sans-serif">
-      Legacy v1 UI (dev-only). Product viewing now lives in the v3 workbench. v1
-      remains only for interactive authoring (Scrub / in-place annotate).
+      Legacy v1 UI. The full workbench — including Scrub / asset reclassify — now
+      lives in the v3 shell. v1 is retained for reference only.
     </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

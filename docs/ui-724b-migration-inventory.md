@@ -20,18 +20,35 @@ endpoint, no runtime, no raw SQL, project path from the 724A resolver.
 | Disk | no | `/api/workspace` `.views.diskLayout` | Media ▸ Disk | DONE 724B.2 |
 | Cartridge | no | `/api/workspace` `.views.cartridgeLayout` | Media ▸ Cartridge | DONE 724B.2 |
 | Graphics | no | `/api/graphics` | Media ▸ Graphics | DONE 724B.2 |
-| Scrub | n/a | (segment-annotate editor) | — | NOT migrated (interactive editor; v1 dev-only) |
+| Scrub + Reclassify | no | `/api/artifact/raw` + `/api/scrub/annotate-segment` + `/api/segment/{confirm,reject}` | Media ▸ Assets / Scrub | DONE 724B.3 |
+
+## 724B.3 — Scrub / Reclassify (human workbench, not dev-only)
+
+Correction: Scrub + reclassify are HUMAN-WORKBENCH tools for the MCP user
+(view bitmap/asset, validate extraction/disasm output, classify/re-classify),
+not dev-only. They are now in the v3 shell as the **Assets / Scrub** tab, reusing
+the shared `C64GraphicsView` decoder (`ui/src/components`) + the existing HTTP API:
+
+- **View:** graphics-candidate list (`/api/graphics`).
+- **Reclassify heuristic output:** Confirm / Reject a candidate segment
+  (`/api/segment/confirm` · `/api/segment/reject`) — writes back to the project.
+- **Scrub:** pick a PRG/CRT/raw, scroll the offset (`/api/artifact/raw` byte
+  slice), render any slice as sprite / charset / hires-bitmap / multicolor-bitmap
+  via the shared decoder.
+- **Annotate (authoring):** save the current window as a graphics segment into
+  `<prg>_annotations.json` (`/api/scrub/annotate-segment`) — picked up by the next
+  `disasm_prg`. Result visible in the project (annotations file + next analysis).
 
 ## Migration shape
 
-v3 read-only tabs render the existing view models + knowledge lists. They show
-the data and link artifacts; they do NOT reimplement v1's interactive editors
-(Scrub segment-annotate, in-place re-classify). Those stay v1-only / dev-only —
-they are authoring tools, not normal product viewing, and are out of the 724B
-"make the project state visible in one shell" scope.
+v3 tabs reuse the existing HTTP API + the shared graphics decoder — no second
+project logic, project path from the 724A resolver. Read tabs render view models;
+the Assets tab additionally writes (confirm/reject/annotate) through the SAME
+endpoints v1 used.
 
 ## v1 retirement decision
 
-After 724B.2: every v1 VIEW screen is reachable in the v3 shell. The v1 entry is
-kept but marked legacy/dev-only (interactive authoring: Scrub, in-place
-annotation editing). Normal product viewing no longer needs v1.
+After 724B.3: every v1 screen — including the interactive Scrub + reclassify
+authoring — is reachable in the v3 shell. Normal human-workbench operation no
+longer needs v1 at all. The v1 entry is kept (not deleted, no capability lost)
+but flagged legacy; it can be redirected to v3 in a later cleanup.

@@ -72,7 +72,7 @@ function regionText(nodes: VisualNode[]): string[] {
   return lines;
 }
 
-export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: Props): JSX.Element {
+export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: Props): React.JSX.Element {
   const [checkpointId, setCheckpointId] = useState<string | null>(null);
   const [frameMode, setFrameMode] = useState<string>("");
   const [node, setNode] = useState<VisualNode | null>(null);

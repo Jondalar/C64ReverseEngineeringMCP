@@ -18,7 +18,7 @@ interface Props {
 
 interface MonLine { kind: "in" | "out" | "err"; text: string; }
 
-export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: Props): JSX.Element {
+export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: Props): React.JSX.Element {
   const [history, setHistory] = useState<MonLine[]>([
     { kind: "out", text: "C64RE Monitor — VICE-compat. Try: r, m c000 c0ff, d e000, bk e5cf, help" },
   ]);

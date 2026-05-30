@@ -77,7 +77,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 | 727 | MCP Tool Use-Case Inventory | Matrix + gate on master (probe 17/17). |
 | 728 | MCP LLM Playbooks | Playbooks + gate on master (probe 12/12). |
 | 729 | MCP End-to-End Use-Case Gates | `check:mcp-product-surface` GREEN: boundaries/path/inventory + project_init fix + writer/reader contract + live trace product flow (`e2e-mcp-trace-first` 22/22). Only E2E-E (change/validation) deferred on Spec 711. |
-| 724 | One UI, One Server Entry, One Project Path | DONE for product viewing: 724A resolver + 724.2e drag&drop + 724B one-shell (all v1 VIEW screens migrated into v3, `project="Murder"` removed). v1 entry now legacy/dev-only (interactive Scrub authoring not migrated; v1 not deleted). `smoke:ui-project-trace` 21/21. |
+| 724 | One UI, One Server Entry, One Project Path | DONE: 724A resolver + 724.2e drag&drop + 724B one-shell. ALL v1 screens migrated into v3 — view tabs + the interactive Scrub/reclassify human-workbench (Assets tab). `project="Murder"` removed; v3 typecheck debt cleared (33→0; 13 left are legacy v1 only). v1 legacy/reference-only, not deleted. `smoke:ui-project-trace` 25/25. |
 
 ## BACKLOG (planned, not started)
 

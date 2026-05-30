@@ -47,7 +47,7 @@ function nodeLabel(branch: SnapshotBranch, isRoot: boolean): string {
   return `run ${cycles.toLocaleString()}cy`;
 }
 
-export function SnapshotTreeView(props: SnapshotTreeViewProps): JSX.Element {
+export function SnapshotTreeView(props: SnapshotTreeViewProps): React.JSX.Element {
   const { branches, rootBranchId, selectedBranchId, currentBranchId, onSelect, depth = 0 } = props;
   const branch = branches[rootBranchId];
   if (!branch) return <></>;

@@ -21,7 +21,7 @@ export interface ScenarioListProps {
   loading: boolean;
 }
 
-export function ScenarioList(props: ScenarioListProps): JSX.Element {
+export function ScenarioList(props: ScenarioListProps): React.JSX.Element {
   const { scenarios, selectedId, onSelect, onRefresh, loading } = props;
   const [filter, setFilter] = useState("");
   const [sortKey, setSortKey] = useState<"date" | "name">("date");
