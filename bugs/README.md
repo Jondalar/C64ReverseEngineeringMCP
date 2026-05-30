@@ -24,4 +24,5 @@ Human + LLM E2E bug log for the C64RE MCP/UI product flow.
 | BUG-013 | Live Drive insert menu mixes project media with C64RE dev samples | ui-v3 | medium | fixed |
 | BUG-014 | Migrated workspace views lost shared Inspector and original layout | ui-v3 | high | fixed (bcbd770) |
 | BUG-015 | Project init leaves media unsorted instead of placing it under typed `input/` folders | mcp-tool | medium | fixed |
-| BUG-016 | Live C64 frame scales too large and pushes Monitor out of view | ui-v3 | medium | open |
+| BUG-016 | Live C64 frame scales too large and pushes Monitor out of view | ui-v3 | medium | fixed |
+| BUG-017 | Disk geometry lacks track/sector navigation for occupied non-directory data | ui-v3 | medium | open |

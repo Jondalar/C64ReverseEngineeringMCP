@@ -799,3 +799,37 @@
   0%, 49%   { background: #e04040; box-shadow: 0 0 4px #e04040; }
   50%, 100% { background: #e0c040; box-shadow: 0 0 4px #e0c040; }
 }
+
+/* ============================================================================
+   BUG-016 — v1 product-shell overrides (MUST stay after the generated rules).
+   The v3 standalone shell bounds the whole app to 100vh (.wb-main = flex:1;
+   min-height:0; overflow:hidden), so the .wb-screen's width/height:100% resolve
+   against a bounded box. The v1 product shell (.app-main-grid / .workspace-main)
+   is NOT viewport-height-bounded, so the same rules let the C64 frame grow to
+   full width and push the Monitor below the fold. Re-bound the Live tab here so
+   the screen keeps its aspect ratio, stays a sane size, and the Monitor section
+   remains visible underneath — matching the v3 Live layout proportions.
+   NOTE: regeneration of this file from v3/style.css must preserve this block.
+   ============================================================================ */
+.wb-live {
+  /* don't depend on an unbounded parent's height */
+  height: auto;
+  min-height: 0;
+}
+.wb-live .wb-live-grid {
+  /* let the row size to its content (the bounded screen) instead of stretching */
+  align-items: start;
+}
+.wb-live .wb-screen-wrap {
+  /* cap the screen area to a fraction of the viewport so the Monitor below stays
+     visible; the wrap sizes to the (aspect-correct) canvas inside it */
+  max-height: 56vh;
+}
+.wb-live .wb-screen {
+  /* aspect-correct, viewport-bounded — never full-page-width */
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 56vh;
+  aspect-ratio: 384 / 272;
+}
