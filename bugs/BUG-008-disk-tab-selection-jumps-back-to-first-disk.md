@@ -5,7 +5,7 @@
 - **Reporter:** human
 - **Area:** ui-v3
 - **Severity:** high
-- **Status:** open
+- **Status:** fixed
 
 ## Environment
 
@@ -65,9 +65,10 @@ Likely v3 Disk tab local state / selected disk key instability, or view refresh 
 
 ---
 
-## Resolution (fill on fix)
+## Resolution
 
-- **Root cause:**
-- **Fix commit:**
-- **Gate proving the fix:**
-- **Regression risk:**
+- **Root cause:** in `DiskPanel` (`ui/src/components/workspace-panels.tsx`), the effect that syncs the active disk to the GLOBAL selection (`selectedDiskFile` prop) kept `activeDiskId` in its dependency array and unconditionally ran `if (activeDiskId !== disk.artifactId) setActiveDiskId(disk.artifactId)`. Clicking a different disk tab updates the LOCAL `activeDiskId` first; the global prop still pointed at the previous disk, so the effect re-ran and forced `activeDiskId` back to the prop's (old) disk — the jump-back. The local click could never win.
+- **Fix:** the sync effect now guards on a `lastSyncedSelectionRef` (the `diskArtifactId:fileId` key it last applied) and depends only on `[disks, selectedDiskFile]` — not `activeDiskId`. It applies an external selection exactly once when that selection genuinely changes, and never fights a local tab click. The disk-tab `onClick` additionally routes the new disk's first file via `onSelectDiskFile`, so the inspector follows the switch (the ref-guard prevents that global update from bouncing the active disk back).
+- **Fix commit:** _this commit_.
+- **Gate proving the fix:** `npm run smoke:bug008-009` checks 1-4 — the ref-guard exists, the sync effect does NOT depend on `activeDiskId` (regression guard), it still follows external `selectedDiskFile` changes, and the tab click routes the selection. v1 + v3 build green; ui typecheck 13 pre-existing / 0 new.
+- **Regression risk:** low — selection logic only; external-selection following preserved; component shared by v1 + v3.

@@ -455,7 +455,14 @@
 }
 .disk-file-stack {
   min-height: 0;
-  overflow: auto;
+  /* BUG-009 — the file list is its own scroll container. A viewport-relative
+     max-height guarantees internal scrolling even when the surrounding shell is
+     not height-bounded (the v1 product layout grows with content), and
+     overscroll-behavior: contain stops the page from scrolling once the list
+     reaches its boundary. */
+  max-height: 68vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   align-content: start;
 }
 .disk-geometry-wrap {

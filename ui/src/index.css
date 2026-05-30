@@ -1088,7 +1088,12 @@ button {
 
 .disk-file-stack {
   min-height: 0;
-  overflow: auto;
+  /* BUG-009 — own scroll container: viewport-bounded height so the list scrolls
+     internally even when the v1 product shell grows with content, and
+     overscroll-behavior: contain stops the page scrolling at the list boundary. */
+  max-height: 68vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   align-content: start;
 }
 

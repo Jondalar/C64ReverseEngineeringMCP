@@ -9,7 +9,7 @@
 // fully functional. No runtime/backend/VICE coupling.
 //
 // CSS lives in ./workspace-panels.css (shared by v1 + v3 styles).
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ArtifactRecord, CartridgeLutChunk } from "../types.js";
 import type {
   EntityRecord,
@@ -620,13 +620,24 @@ export function DiskPanel({
   const [selectedFileId, setSelectedFileId] = useState<string | null>(activeDisk?.files[0]?.id ?? null);
   const [originFilter, setOriginFilter] = useState<DiskOriginFilter>("all");
 
+  // BUG-008 — sync the active disk to the GLOBAL selection (selectedDiskFile)
+  // ONLY when that selection genuinely changes. The previous version kept
+  // activeDiskId in the deps and unconditionally forced it back to the prop's
+  // disk on every render, so clicking a different disk tab (which updates the
+  // local activeDiskId before the global prop catches up) was immediately
+  // reverted to the first/previous disk. Guarding on the last-synced selection
+  // key lets local tab clicks win while still following external selections.
+  const lastSyncedSelectionRef = useRef<string | null>(null);
   useEffect(() => {
     if (!selectedDiskFile) return;
+    const key = `${selectedDiskFile.diskArtifactId}:${selectedDiskFile.fileId}`;
+    if (lastSyncedSelectionRef.current === key) return; // already applied — don't fight local clicks
     const disk = disks.find((candidate) => candidate.artifactId === selectedDiskFile.diskArtifactId);
     if (!disk || !disk.files.some((file) => file.id === selectedDiskFile.fileId)) return;
-    if (activeDiskId !== disk.artifactId) setActiveDiskId(disk.artifactId);
-    if (selectedFileId !== selectedDiskFile.fileId) setSelectedFileId(selectedDiskFile.fileId);
-  }, [activeDiskId, disks, selectedDiskFile, selectedFileId]);
+    lastSyncedSelectionRef.current = key;
+    setActiveDiskId(disk.artifactId);
+    setSelectedFileId(selectedDiskFile.fileId);
+  }, [disks, selectedDiskFile]);
 
   useEffect(() => {
     if (!activeDisk) {
@@ -724,7 +735,11 @@ export function DiskPanel({
             className={activeDisk?.artifactId === disk.artifactId ? "tab-button active" : "tab-button"}
             onClick={() => {
               setActiveDiskId(disk.artifactId);
-              setSelectedFileId(disk.files[0]?.id ?? null);
+              const first = disk.files[0]?.id ?? null;
+              setSelectedFileId(first);
+              // Follow the disk switch in the inspector. The BUG-008 ref-guard
+              // means this global update won't bounce activeDiskId back.
+              if (first) onSelectDiskFile(disk.artifactId, first);
             }}
             title={path || disk.title}
           >

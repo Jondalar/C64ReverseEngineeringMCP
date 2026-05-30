@@ -5,7 +5,7 @@
 - **Reporter:** human
 - **Area:** ui-v3
 - **Severity:** medium
-- **Status:** open
+- **Status:** fixed
 
 ## Environment
 
@@ -73,9 +73,10 @@ Disk tab CSS/layout. The file list container likely lacks fixed/max height + `ov
 
 ---
 
-## Resolution (fill on fix)
+## Resolution
 
-- **Root cause:**
-- **Fix commit:**
-- **Gate proving the fix:**
-- **Regression risk:**
+- **Root cause:** `.disk-file-stack` had `overflow: auto` but no bounded height, and its ancestor `.disk-layout-shell` uses `min-height: 72vh` (grows with content, no cap). In the v1 product shell the surrounding layout is not viewport-bounded, so a long list made the whole panel grow past the viewport and the PAGE scrolled instead of the list. The internal `overflow` never engaged because the container had no height ceiling. (The rule is duplicated: the v1 product reads `ui/src/index.css`'s copy, the v3 dev shell reads `ui/src/components/workspace-panels.css`'s copy — both were stale.)
+- **Fix:** give `.disk-file-stack` a viewport-relative `max-height: 68vh` + `overflow-y: auto` + `overscroll-behavior: contain` in BOTH `ui/src/index.css` (v1 product) and `ui/src/components/workspace-panels.css` (v3). The list now scrolls internally regardless of the parent's height behavior, and overscroll containment stops the page moving when the list hits its boundary.
+- **Fix commit:** _this commit_.
+- **Gate proving the fix:** `npm run smoke:bug008-009` checks 5-7 — the BUILT v1 bundle CSS `.disk-file-stack` rule contains `max-height: 68vh`, `overflow-y: auto`, and `overscroll-behavior: contain`. v1 build green.
+- **Regression risk:** low — CSS only; `68vh` is a generous bound; no layout-structure change. (Follow-up worth noting: the disk CSS is duplicated across `index.css` and `workspace-panels.css`; a later cleanup could dedupe by importing the shared sheet into the v1 entry too.)
