@@ -1162,6 +1162,34 @@ button {
   filter: brightness(1.35) drop-shadow(0 0 6px rgba(255, 246, 161, 0.5));
 }
 
+/* BUG-017 — raw sector navigation: every sector is clickable; the chosen sector
+   gets a distinct accent highlight separate from file selection. */
+.disk-sector-clickable { cursor: pointer; }
+.disk-sector.sector-selected {
+  stroke: var(--accent-2, #7c6cee);
+  stroke-width: 2.5;
+  filter: brightness(1.4) drop-shadow(0 0 6px rgba(124, 108, 238, 0.6));
+  opacity: 1;
+}
+.disk-sector-detail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(124, 108, 238, 0.06);
+}
+.disk-sector-detail .record-meta { margin: 0; }
+.disk-sector-hex-btn { white-space: nowrap; }
+.disk-sector-hint {
+  margin-top: 0.6rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .disk-sector-dimmed {
   opacity: 0.4;
 }

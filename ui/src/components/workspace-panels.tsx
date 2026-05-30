@@ -619,6 +619,11 @@ export function DiskPanel({
   const activeDisk = disks.find((disk) => disk.artifactId === activeDiskId) ?? disks[0];
   const [selectedFileId, setSelectedFileId] = useState<string | null>(activeDisk?.files[0]?.id ?? null);
   const [originFilter, setOriginFilter] = useState<DiskOriginFilter>("all");
+  // BUG-017 — raw track/sector navigation: which sector cell is selected for
+  // direct inspection (independent of directory-file selection).
+  const [selectedSector, setSelectedSector] = useState<{ track: number; sector: number } | null>(null);
+  // clear the raw-sector selection when the active disk changes
+  useEffect(() => { setSelectedSector(null); }, [activeDiskId]);
 
   // BUG-008 — sync the active disk to the GLOBAL selection (selectedDiskFile)
   // ONLY when that selection genuinely changes. The previous version kept
@@ -700,6 +705,27 @@ export function DiskPanel({
 
   const selectedFile = visibleFiles.find((file) => file.id === selectedFileId) ?? visibleFiles[0] ?? activeDisk?.files.find((file) => file.id === selectedFileId) ?? activeDisk?.files[0];
   const freeBlocks = activeDisk?.sectors.filter((sector) => sector.category === "free").length ?? 0;
+  // BUG-017 — disk image path for raw sector reads (/api/disk/sector-bytes).
+  const diskArtifactForPath = activeDisk ? snapshot.artifacts.find((art) => art.id === activeDisk.artifactId) : undefined;
+  const diskImagePath = activeDisk?.imageRelativePath ?? diskArtifactForPath?.relativePath ?? "";
+  const diskDisplayName = activeDisk ? (activeDisk.diskName ?? activeDisk.title) : "";
+  // Open the raw 256-byte hex view of a sector + mark it selected.
+  function inspectSector(track: number, sector: number) {
+    setSelectedSector({ track, sector });
+    if (!diskImagePath) return;
+    const params = new URLSearchParams({
+      projectDir: snapshot.project.rootPath,
+      path: diskImagePath,
+      track: String(track),
+      sector: String(sector),
+    });
+    onOpenHex(diskImagePath, {
+      title: `${diskDisplayName} · T${track}/S${sector}`,
+      baseAddress: 0,
+      length: 256,
+      fetchUrl: `/api/disk/sector-bytes?${params.toString()}`,
+    });
+  }
   const directoryLines = activeDisk
     ? [
         `0 "${(activeDisk.diskName ?? activeDisk.title).toUpperCase()}" ${(activeDisk.diskId ?? "--").toUpperCase()}`,
@@ -863,12 +889,16 @@ export function DiskPanel({
                 {activeDisk.sectors.map((sector) => {
                   const selectionActive = selectedFile?.id !== undefined;
                   const isSelected = selectionActive && sector.fileId === selectedFile!.id;
+                  // BUG-017 — raw-sector selection (independent of file selection).
+                  const isSectorSelected = selectedSector?.track === sector.track && selectedSector?.sector === sector.sector;
                   const filteredOut = sector.fileId !== undefined && !visibleFileIds.has(sector.fileId);
-                  const dimmed = !isSelected && (filteredOut || selectionActive);
+                  const dimmed = !isSelected && !isSectorSelected && (filteredOut || selectionActive);
                   const className = [
                     "disk-sector",
+                    "disk-sector-clickable",
                     `disk-sector-${sector.category}`,
                     isSelected ? "selected" : "",
+                    isSectorSelected ? "sector-selected" : "",
                     dimmed ? "disk-sector-dimmed" : "",
                     filteredOut ? "disk-sector-filtered-out" : "",
                   ].filter(Boolean).join(" ");
@@ -886,7 +916,13 @@ export function DiskPanel({
                         d={sectorPath(sector.track, sector.angleStart, sector.angleEnd)}
                         className={className}
                         style={useFileColor ? { fill: sector.color } : undefined}
-                      />
+                        onClick={() => inspectSector(sector.track, sector.sector)}
+                        role="button"
+                        tabIndex={-1}
+                        aria-label={`Track ${sector.track} sector ${sector.sector} (${sector.category})`}
+                      >
+                        <title>{`T${sector.track}/S${sector.sector} · ${sector.category}${sector.hint ? " · " + sector.hint : ""}${sector.fileTitle ? " · " + sector.fileTitle : ""} — click for hex`}</title>
+                      </path>
                       {hintColor ? (
                         <path
                           d={sectorPath(sector.track, sector.angleStart, sector.angleEnd)}
@@ -913,6 +949,34 @@ export function DiskPanel({
                 })}
               </svg>
             </div>
+            {/* BUG-017 — raw sector inspector: click any sector in the geometry
+                (incl. occupied non-directory data: orphan/drive-code/raw) to see
+                its track/sector + category/hint/file and open the 256-byte hex. */}
+            {(() => {
+              const sel = selectedSector
+                ? activeDisk.sectors.find((s) => s.track === selectedSector.track && s.sector === selectedSector.sector)
+                : undefined;
+              if (!selectedSector) {
+                return <p className="disk-sector-hint">Click any sector in the geometry to inspect its raw 256 bytes.</p>;
+              }
+              return (
+                <div className="disk-sector-detail">
+                  <div className="record-meta">
+                    <span><strong>T{selectedSector.track}/S{selectedSector.sector}</strong></span>
+                    <span>{sel?.category ?? "unknown"}</span>
+                    {sel?.hint ? <span>hint: {sel.hint}</span> : null}
+                    {sel?.fileTitle ? <span>file: {sel.fileTitle}</span> : <span>no directory file</span>}
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button disk-sector-hex-btn"
+                    onClick={() => inspectSector(selectedSector.track, selectedSector.sector)}
+                  >
+                    Open hex (256 B)
+                  </button>
+                </div>
+              );
+            })()}
             {selectedFile ? (
               <div className="disk-selected-meta">
                 <div className="record-meta">
