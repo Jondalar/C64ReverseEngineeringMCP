@@ -5,7 +5,7 @@
 - **Reporter:** human
 - **Area:** analysis
 - **Severity:** low
-- **Status:** open
+- **Status:** closed → backlog (Spec 731)
 
 ## Environment
 
@@ -57,9 +57,19 @@ PRG analysis heuristics / BASIC token decoder integration.
 
 ---
 
-## Resolution (fill on fix)
+## Resolution — closed to backlog
 
-- **Root cause:**
-- **Fix commit:**
-- **Gate proving the fix:**
-- **Regression risk:**
+- **Decision (2026-05-30):** this is an analysis enhancement, not a product-flow
+  blocker. Closed as a bug and promoted to a tracked backlog spec rather than
+  fixed inline.
+- **Backlog spec:** `specs/731-basic-program-classification.md` (Status: BACKLOG)
+  — `$0801` BASIC detection via the line-link chain, a CBM BASIC V2 detokenizer,
+  classification as a `basic`/`basic_bootstrap` segment instead of demoted 6502
+  code, and emitting the `SYS` target as an entry point. Includes the DDD
+  `DDD.LOAD` / `BOOT` PRGs as fixture corpus.
+- **Root cause (recorded):** the pipeline parses `$0801` PRGs as 6502 from the
+  load address and only demotes them when it hits JAM/illegal opcodes; it never
+  recognises tokenized BASIC. Fix belongs in code-discovery as a pre-pass (Spec
+  731 §4).
+- **Gate (future):** Spec 731 §5 acceptance.
+- **Regression risk:** n/a (no code change in this bug closure).
