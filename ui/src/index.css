@@ -444,11 +444,19 @@ button {
 .app-root.live-mode > .app-main-grid {
   flex: 1 1 auto;
   min-height: 0;
+  /* the default .app-main-grid uses align-items:start, which leaves the
+     workspace-main content-height — then wb-live height:100% grows the cockpit
+     past the viewport and overflow:hidden clips the Monitor. Stretch instead so
+     workspace-main fills the 1fr row with a DEFINITE height. */
+  align-items: stretch;
 }
 .app-root.live-mode .app-main-grid.docs-mode {
   grid-template-rows: auto minmax(0, 1fr); /* tab nav, then the Live cockpit */
 }
 .app-root.live-mode .workspace-main {
+  /* block (not grid) so .wb-live { height:100% } resolves against a clean,
+     definite-height parent — same bounded box the v3 shell gives wb-live. */
+  display: block;
   min-height: 0;
   height: 100%;
 }
