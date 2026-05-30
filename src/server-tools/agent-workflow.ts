@@ -236,8 +236,8 @@ function proposeNextActions(service: ProjectKnowledgeService, state: AgentState,
   // Failsafe: surface unregistered-file delta as a top candidate. When
   // bulk operations bypassed the MCP layer (direct CLI loops, Node lib
   // imports, hand-emitted files), the artifact store falls behind the
-  // filesystem. The agent must run register_existing_files before the
-  // next session can rely on agent_onboard.
+  // filesystem. project_inventory_sync (Spec 730.3) is the product facade
+  // for this — it registers files, imports manifests, and rebuilds views.
   const reg = auditResult.counts.unregisteredFiles > 0 ? scanRegistrationDelta(projectRoot, 5) : { unregisteredCount: 0, unregisteredByExt: {} as Record<string, number> };
   if (reg.unregisteredCount > 0) {
     const sorted = Object.entries(reg.unregisteredByExt).sort((a, b) => b[1] - a[1]).slice(0, 3);
@@ -246,7 +246,7 @@ function proposeNextActions(service: ProjectKnowledgeService, state: AgentState,
       rank: candidates.length,
       source: "unregistered-files",
       reason: `${reg.unregisteredCount} files match c64re extensions but are absent from artifacts.json (${extSummary})`,
-      suggestion: `Run register_existing_files with appropriate glob patterns, or scan_registration_delta to inspect first.`,
+      suggestion: `Run project_inventory_sync to register project files, import manifests, and rebuild views.`,
     });
   }
 
@@ -424,7 +424,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         const emptyWorkspace = status.counts.artifacts === 0 && reg.totalCandidates === 0;
         if (emptyWorkspace) {
           lines.push(`○ Empty workspace — no artifacts registered yet and no media found to inventory.`);
-          lines.push(`  Add media (.d64/.g64/.crt/.prg) to the project, then run extract_disk / extract_crt / register_existing_files.`);
+          lines.push(`  Add media (.d64/.g64/.crt/.prg) to the project, then run project_inventory_sync to register and import them.`);
         } else {
           lines.push(`✓ Filesystem and artifact store are in sync (${status.counts.artifacts} artifacts, ${reg.totalCandidates} media candidates scanned).`);
         }
@@ -432,7 +432,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         const sorted = Object.entries(reg.unregisteredByExt).sort((a, b) => b[1] - a[1]).slice(0, 5);
         lines.push(`⚠ ${reg.unregisteredCount} files on disk are NOT registered in artifacts.json.`);
         lines.push(`  Top extensions: ${sorted.map(([e, n]) => `${e}=${n}`).join(", ")}`);
-        lines.push(`  Run scan_registration_delta to inspect, then register_existing_files to fix.`);
+        lines.push(`  Run project_inventory_sync to register files, import manifests, and rebuild views.`);
       }
       const unimportedAnalysis = countUnimportedAnalysisArtifacts(service);
       if (unimportedAnalysis > 0) {
@@ -544,7 +544,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         const sorted = Object.entries(reg.unregisteredByExt).sort((a, b) => b[1] - a[1]).slice(0, 3);
         out.push(``);
         out.push(`⚠ ${reg.unregisteredCount} files on disk are NOT registered (top: ${sorted.map(([e, n]) => `${e}=${n}`).join(", ")}).`);
-        out.push(`  A run is not finished until artifacts are registered. Call register_existing_files before sealing this step.`);
+        out.push(`  A run is not finished until artifacts are registered. Run project_inventory_sync before sealing this step.`);
       }
       if (unimportedAnalysis > 0) {
         out.push(``);

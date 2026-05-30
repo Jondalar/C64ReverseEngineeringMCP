@@ -125,7 +125,7 @@ At initialization, after context loss, or when entering a new project:
    - a partially imported project
    - a project with stale views
 
-If knowledge files are missing, initialize the project with `project_init`. If artifacts exist but knowledge is empty, run `import_analysis_report` / `import_manifest_artifact` before reasoning.
+If knowledge files are missing, initialize the project with `project_init`. If artifacts exist but knowledge is empty, run `project_inventory_sync` (imports manifests, registers files, rebuilds views) or `import_analysis_report` for individual analysis runs before reasoning.
 
 ---
 
@@ -178,7 +178,7 @@ Writes primarily to:
 - entities (`save_entity`)
 - relations (`link_entities`)
 - flows (`save_flow`)
-- views: `build_cartridge_layout_view`, `build_memory_map`, `build_disk_layout_view`, `build_flow_graph_view`, `build_load_sequence_view`
+- views: `build_memory_map`, `build_flow_graph_view`, `build_load_sequence_view`, `build_all_views` (for disk/cart layouts, run `project_inventory_sync` or `build_all_views`)
 
 ### Implementer
 
@@ -287,16 +287,16 @@ Use `save_artifact` with meaningful `role` and `scope`.
 
 When you call any of the c64re library entry points directly — Node imports of `dist/bwc-bitstream-ts/*`, `dist/graphics-render/*`, the pipeline CLI (`dist/pipeline/cli.cjs`), or shell-loop wrappers around them — you may bypass the MCP artifact-registration step. The pipeline CLI now auto-registers when it detects `knowledge/phase-plan.json` in the CWD ancestry, but other library imports do not. The same applies to files written by the `Write` tool (markdown docs, hand-emitted JSON) and shell-emitted output.
 
-**Every such call must be followed by `register_existing_files` covering the affected outputs**, or the files become invisible to the workspace UI and to future sessions.
+**Every such call must be followed by `project_inventory_sync` (or `save_artifact` for a single file) covering the affected outputs**, or the files become invisible to the workspace UI and to future sessions.
 
 If you find yourself writing a file that did not come out of an MCP tool — `Write`-tool-produced markdown, hand-emitted JSON, screenshots dumped via shell — the same rule applies.
 
-A run is not finished until the artifacts are registered. Treat `register_existing_files` (or `save_artifact` for a single file) as part of the **definition of done**.
+A run is not finished until the artifacts are registered. Treat `project_inventory_sync` (or `save_artifact` for a single file) as part of the **definition of done**.
 
 Detection helpers — surface the gap automatically:
 
-- `scan_registration_delta` — read-only filesystem-vs-artifacts.json scan.
-- `agent_onboard` — surfaces the delta in its summary.
+- `project_inventory_sync` — registers files, imports manifests, and rebuilds views in one call.
+- `agent_onboard` — surfaces the registration delta in its summary.
 - `agent_propose_next` — promotes "register N unregistered files" to a top-rank suggestion.
 - `agent_record_step` — warns when sealing a step with unregistered files outstanding.
 
@@ -304,7 +304,7 @@ Detection helpers — surface the gap automatically:
 
 Even when the artifact registration is in sync, a second gap appears when bulk CLI runs (`dist/pipeline/cli.cjs analyze-prg`) register the analysis JSON but never invoke `import_analysis_report`. The artifact is tracked, but the entities / findings / relations / open questions inside the report stay un-extracted, and any UI feature that filters by stage→entity (memory-map Payload-Focus, load-sequence stage tags) silently shows a no-op.
 
-Catch-up tool: `bulk_import_analysis_reports`. Walks every analysis-run artifact and runs `importAnalysisArtifact` on those whose entities are not yet back-linked. Same dry-run / live-run / progress-summary shape as `register_existing_files`.
+Catch-up tool: `bulk_import_analysis_reports`. Walks every analysis-run artifact and runs `importAnalysisArtifact` on those whose entities are not yet back-linked. Same dry-run / live-run / progress-summary shape as `project_inventory_sync`.
 
 Detection: `agent_onboard`, `agent_propose_next`, and `agent_record_step` surface the unimported-analysis count alongside the unregistered-file count. The workspace UI banner shows both gaps as separate warning lines. A run is not finished until both are zero.
 
@@ -345,14 +345,14 @@ The workspace UI is a first-class consumer of the analysis. After changes to kno
 | If you changed... | Rebuild... |
 |---|---|
 | memory entities (regions, addresses, segments) | `build_memory_map` |
-| CRT chip / bank / segment entities | `build_cartridge_layout_view` |
-| disk file / sector / track entities | `build_disk_layout_view` |
+| CRT chip / bank / segment entities | `project_inventory_sync` or `build_all_views` |
+| disk file / sector / track entities | `project_inventory_sync` or `build_all_views` |
 | loader / depacker / phase entities | `build_load_sequence_view` |
 | routines / relations / flows | `build_flow_graph_view` |
 | labels / comments / routine semantics | `build_annotated_listing_view` |
 | task or status counts | `build_project_dashboard` |
 
-If multiple areas changed, run `build_all_views`. The `agent_propose_next` tool flags stale views automatically by comparing knowledge vs view mtimes.
+If multiple areas changed, run `project_inventory_sync` or `build_all_views`. The `agent_propose_next` tool flags stale views automatically by comparing knowledge vs view mtimes.
 
 ---
 

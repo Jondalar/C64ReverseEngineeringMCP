@@ -224,13 +224,13 @@ function suggestedActionsFor(findings: ProjectAuditFinding[]): string[] {
     actions.push("Remove or archive missing artifact records, or restore the referenced files.");
   }
   if (findings.some((finding) => finding.id === "unregistered-files")) {
-    actions.push("Run scan_registration_delta, then register_existing_files for intentional project artifacts.");
+    actions.push("Run project_inventory_sync to register project files, import manifests, and rebuild views.");
   }
   if (findings.some((finding) => finding.id === "unimported-analysis-artifacts")) {
     actions.push("Run bulk_import_analysis_reports or import_analysis_report for each listed analysis artifact.");
   }
   if (findings.some((finding) => finding.id === "unimported-manifest-artifacts")) {
-    actions.push("Run import_manifest_artifact for each listed manifest artifact.");
+    actions.push("Run project_inventory_sync to import manifests and rebuild views.");
   }
   if (findings.some((finding) => finding.id === "stale-views")) {
     actions.push("Run build_all_views.");
@@ -318,7 +318,7 @@ export function auditProject(projectRoot: string, options: ProjectAuditOptions =
       title: "Manifest artifacts were registered but not imported",
       paths: unimportedManifests.slice(0, 20).map((artifact) => `${artifact.id}: ${artifact.relativePath}`),
       whyItMatters: "Disk/cart manifests carry file and medium placement facts that the UI should not rediscover ad hoc.",
-      suggestedFix: "Run import_manifest_artifact for each manifest artifact.",
+      suggestedFix: "Run project_inventory_sync to import manifest artifacts and rebuild views.",
     });
   }
 

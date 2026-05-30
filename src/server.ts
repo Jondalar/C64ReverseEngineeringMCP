@@ -27,6 +27,8 @@ import { registerAgentStepTools } from "./server-tools/agent-step.js";
 import { registerSandboxTools } from "./server-tools/sandbox.js";
 import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
 import { registerTraceStoreTools } from "./server-tools/trace-store.js";
+import { registerInventorySyncTool } from "./server-tools/inventory-sync.js";
+import { registerAgentStepTools } from "./server-tools/agent-step.js";
 import { phaseForTool, PHASE_TITLES } from "./agent-orchestrator/phase-tools.js";
 import { tierForTool, fullToolsEnabled } from "./server-tools/tier-tools.js";
 import { phaseGatedHandler } from "./server-tools/phase-gate-handler.js";
@@ -172,6 +174,8 @@ function createServer(): McpServer {
   registerSandboxDepackTool(server, toolContext);
   registerViceTools(server, toolContext);
   registerProjectKnowledgeTools(server, { repoDir: repoDir() });
+  registerInventorySyncTool(server, toolContext);
+  registerAgentStepTools(server, toolContext);
 
   return server;
 }

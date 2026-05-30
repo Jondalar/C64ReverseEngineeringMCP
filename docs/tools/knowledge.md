@@ -42,8 +42,8 @@ knowledge store and renders the JSON views the workspace UI consumes. See
 |---|---|
 | `save_artifact` | Register an artifact (path + role + scope) so views can reference it. |
 | `list_project_artifacts` | Filter / search registered artifacts. |
+| `project_inventory_sync` | Register unregistered project files, import disk/CRT/PRG manifests, and rebuild stale views in one idempotent call. Use this as the default product action for inventory/sync work. |
 | `import_analysis_report` | Pull entities, findings, relations, flows, and open questions out of a TRXDis analysis JSON. |
-| `import_manifest_artifact` | Pull entities + relations out of CRT or disk manifest JSON. |
 
 ## View builders
 
@@ -51,9 +51,7 @@ knowledge store and renders the JSON views the workspace UI consumes. See
 |---|---|
 | `build_project_dashboard` | Render `views/project-dashboard.json` (metrics + section status). |
 | `build_memory_map` | Render `views/memory-map.json` (memory regions + entity links). |
-| `build_cartridge_layout_view` | Render `views/cartridge-layout.json` (cart-type-aware bank grid + ROML / ROMH / EEPROM mapping). |
-| `build_disk_layout_view` | Render `views/disk-layout.json` (per-disk file list + sector chains). |
 | `build_load_sequence_view` | Render `views/load-sequence.json` (loader / depacker phases). |
 | `build_flow_graph_view` | Render `views/flow-graph.json` (structure / load / runtime modes). |
 | `build_annotated_listing_view` | Render `views/annotated-listing.json` (semantic listing window). |
-| `build_all_views` | Re-render every view in one call. |
+| `build_all_views` | Re-render every view in one call (including disk and cartridge layouts). |

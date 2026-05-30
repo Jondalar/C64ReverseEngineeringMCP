@@ -857,7 +857,7 @@ function WorkflowRunnerPanel({
           <h3>PRG Reverse Workflow</h3>
           <span>no PRG artifacts</span>
         </div>
-        <p className="empty-inline">Register a PRG with project_init / register_existing_files to enable the workflow runner.</p>
+        <p className="empty-inline">Register a PRG with project_init, then run project_inventory_sync to enable the workflow runner.</p>
       </section>
     );
   }
@@ -3835,7 +3835,7 @@ function RegistrationBanner() {
         {hasUnregistered ? (
           <div>
             <strong>⚠ {delta.unregisteredCount} files on disk are not registered as artifacts.</strong>
-            {" "}Top extensions: {exts}. Run <code>register_existing_files</code> from the agent to fix.
+            {" "}Top extensions: {exts}. Run <code>project_inventory_sync</code> from the agent to fix.
           </div>
         ) : null}
         {hasUnimported ? (

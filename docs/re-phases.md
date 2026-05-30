@@ -13,7 +13,7 @@ the project knowledge layer.
 
 - **Allowed tools**: `extract_disk`, `extract_crt`,
   `extract_disk_custom_lut`, `extract_g64_*`, `inspect_disk`,
-  `inspect_g64_*`, `inspect_address_range`, `register_existing_files`,
+  `inspect_g64_*`, `inspect_address_range`, `project_inventory_sync`,
   `register_payload`, `bulk_create_cart_chunk_payloads`,
   `bulk_import_analysis_reports`, `save_artifact`.
 - **Done when**: every payload visible on the medium has a registered
