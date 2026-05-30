@@ -143,9 +143,30 @@ try {
     ok(false, "13 /api/trace/events", "no run_id from info");
   }
 
+  // 14. 724B.2 — every migrated v3 tab's backing data is reachable. The shell
+  //     tabs are: Knowledge, Questions, Docs, Trace Files (Project); Memory Map,
+  //     Payloads, Annotated Listing, Flow Graph (Analysis); Disk, Cartridge,
+  //     Graphics (Media). Knowledge/Questions/Payloads/MemMap/Listing/Flow/Disk/
+  //     Cartridge all read /api/workspace; Docs reads /api/docs; Graphics reads
+  //     /api/graphics. Assert the snapshot exposes the view+list keys and the two
+  //     extra endpoints respond (data may be empty on a tiny project — the KEY /
+  //     endpoint reachability is what makes the tab usable, not non-empty data).
+  const VIEW_KEYS = ["projectDashboard", "memoryMap", "diskLayout", "cartridgeLayout", "annotatedListing", "loadSequence", "flowGraph"];
+  const viewsObj = ws.body.views ?? {};
+  const missingViews = VIEW_KEYS.filter((k) => !(k in viewsObj));
+  ok(missingViews.length === 0, "14 /api/workspace exposes all view-model keys (Memory Map/Disk/Cartridge/Listing/Payloads/Flow)", missingViews.join(",") || "all present");
+  ok(Array.isArray(ws.body.openQuestions), "15 openQuestions list present (Questions tab)", `n=${ws.body.openQuestions?.length ?? "missing"}`);
+  ok(Array.isArray(ws.body.flows), "16 flows list present (Flow Graph tab)", `n=${ws.body.flows?.length ?? "missing"}`);
+  ok(Array.isArray(ws.body.artifacts), "17 artifacts list present (Payloads tab)", `n=${ws.body.artifacts?.length ?? "missing"}`);
+  const docs = await getJson("/api/docs");
+  ok(docs.status === 200 && Array.isArray(docs.body.docs), "18 /api/docs reachable (Docs tab)", `n=${docs.body.docs?.length}`);
+  const gfx = await getJson("/api/graphics");
+  ok(gfx.status === 200, "19 /api/graphics reachable (Graphics tab)", `status=${gfx.status}`);
+
   console.log(`\n--- report ---`);
   console.log(`project: ${projectDir}`);
-  console.log(`endpoints proven: /api/config, /api/workspace, /api/traces, /api/trace/info, /api/trace/top-pcs, /api/trace/events`);
+  console.log(`endpoints proven: /api/config, /api/workspace (+ all view keys), /api/traces, /api/trace/{info,top-pcs,events}, /api/docs, /api/graphics`);
+  console.log(`tabs reachable: Knowledge, Questions, Docs, Trace Files, Memory Map, Payloads, Annotated Listing, Flow Graph, Disk, Cartridge, Graphics`);
   console.log(`729 artifacts visible: project status+path, game.d64, traces/run.duckdb, marks(basic-ready,loaded-or-title), findings, entities, dashboard`);
 } catch (e) {
   ok(false, "harness", e.message + (srvErr ? " | stderr: " + srvErr.slice(-200) : ""));

@@ -7,7 +7,7 @@ import { api, type WorkspaceSnapshot } from "../rest-client.js";
 const card: React.CSSProperties = { background: "#161616", borderRadius: 5, padding: 10, marginBottom: 10 };
 const hdr: React.CSSProperties = { fontWeight: "bold", color: "#888", fontSize: 11, textTransform: "uppercase", marginBottom: 6 };
 
-export function KnowledgeTab(): JSX.Element {
+export function KnowledgeTab(): React.JSX.Element {
   const [snap, setSnap] = useState<WorkspaceSnapshot | null>(null);
   const [err, setErr] = useState<string>("");
   const [loading, setLoading] = useState(true);

@@ -15,9 +15,23 @@ export interface WorkspaceSnapshot {
   counts?: Record<string, number>;
   findings?: Array<{ id: string; title: string; kind: string; status: string; summary?: string; updatedAt?: string }>;
   entities?: Array<{ id: string; name: string; kind: string; summary?: string }>;
-  artifacts?: Array<{ id: string; title: string; kind: string; path?: string }>;
-  views?: { projectDashboard?: unknown };
+  artifacts?: Array<{ id: string; title: string; kind: string; path?: string; internal?: boolean }>;
+  flows?: Array<{ id: string; name?: string; title?: string; summary?: string }>;
+  openQuestions?: Array<{ id: string; question?: string; title?: string; status?: string; kind?: string }>;
+  views?: {
+    projectDashboard?: unknown;
+    memoryMap?: unknown;
+    diskLayout?: unknown;
+    cartridgeLayout?: unknown;
+    mediumLayout?: unknown;
+    annotatedListing?: unknown;
+    loadSequence?: unknown;
+    flowGraph?: unknown;
+  };
 }
+
+export interface DocEntry { groupId?: string; relativePath?: string; path?: string; title?: string }
+export interface GraphicsItem { id?: string; label?: string; title?: string; kind?: string; start?: number; end?: number; confirmed?: boolean; [k: string]: unknown }
 
 export interface TraceMark { label: string; cycle: number }
 export interface TraceArtifact {
@@ -43,6 +57,13 @@ async function getJson<T>(path: string): Promise<T> {
 export const api = {
   config: () => getJson<ProjectConfig>("/api/config"),
   workspace: () => getJson<WorkspaceSnapshot>("/api/workspace"),
+  docs: () => getJson<{ projectDir: string; docs: DocEntry[] }>("/api/docs"),
+  document: async (relativePath: string): Promise<string> => {
+    const res = await fetch(`/api/document?path=${encodeURIComponent(relativePath)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status} /api/document`);
+    return res.text();
+  },
+  graphics: () => getJson<{ projectDir: string; items?: GraphicsItem[] }>("/api/graphics"),
   traces: () => getJson<{ projectDir: string; tracesDir: string; count: number; traces: TraceArtifact[] }>("/api/traces"),
   traceInfo: (tracePath: string) => getJson<TraceInfo>(`/api/trace/info?path=${encodeURIComponent(tracePath)}`),
   traceTopPcs: (tracePath: string, cpu: "c64" | "drive8" = "c64", limit = 20) =>

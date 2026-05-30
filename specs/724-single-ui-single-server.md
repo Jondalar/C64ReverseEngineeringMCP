@@ -1,9 +1,23 @@
 # Spec 724 — One UI, One Server Entry, One Project Path
 
-**Status:** ACTIVE (2026-05-30) — 724A (one `--project` resolver, no cwd/samples
-fallback) DONE; 724.2e (browser drag&drop → backend `media/ingress`) DONE
-(2026-05-30); **724B (one UI shell — integrate the v1 knowledge screens into the v3
-workbench, then retire the v1 entry) is the active remaining work.**
+**Status:** DONE for product viewing (2026-05-30); v1 is now legacy/dev-only.
+- 724A (one `--project` resolver, no cwd/samples fallback) DONE.
+- 724.2e (browser drag&drop → backend `media/ingress`) DONE.
+- **724B.1** — v3 shell gained the Project group (Knowledge + Trace Files);
+  729 artifacts (project status/path, trace.duckdb + marks, findings, entities,
+  dashboard) visible. DONE.
+- **724B.2** — every remaining v1 VIEW screen migrated into the v3 shell as
+  read-only tabs sourced from the existing HTTP API (no new heavy endpoint, no
+  raw SQL, project path from the 724A resolver): Questions, Docs (Project group);
+  Memory Map, Payloads, Annotated Listing, Flow Graph (Analysis group); Disk,
+  Cartridge, Graphics (Media group). The hardcoded `project="Murder"` is gone
+  (identity from `/api/config` + `/api/workspace`). v1 `index.html` is flagged
+  legacy/dev-only. DONE.
+- **Remaining (deferred, NOT product viewing):** v1's interactive AUTHORING
+  tools — Scrub segment-annotate + in-place re-classification — are not migrated
+  and keep the v1 entry alive for dev/authoring only. v1 is NOT deleted (no
+  capability lost). Inventory: `docs/ui-724b-migration-inventory.md`. Gate:
+  `npm run smoke:ui-project-trace` (21/21).
 **Owner:** Workspace UI / server bootstrap
 **North star:** the MCP + workspace must be usable by an LLM **from outside the
 C64RE dev repo** (installed elsewhere, launched from any cwd, pointed at an

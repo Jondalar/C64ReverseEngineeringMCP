@@ -13,15 +13,26 @@ import { LiveTab } from "./tabs/Live.js";
 import { TraceTab } from "./tabs/Trace.js";
 import { KnowledgeTab } from "./tabs/Knowledge.js";
 import { TraceFilesTab } from "./tabs/TraceFiles.js";
+import {
+  MemoryMapTab, PayloadsTab, AnnotatedListingTab, FlowGraphTab,
+  DiskTab, CartridgeTab, GraphicsTab, QuestionsTab, DocsTab,
+} from "./tabs/ProjectViews.js";
 
 const NAV = [
   { group: "Runtime", tabs: ["live", "trace"] },
-  { group: "Project", tabs: ["knowledge", "trace-files"] },
+  { group: "Project", tabs: ["knowledge", "questions", "docs", "trace-files"] },
+  { group: "Analysis", tabs: ["memory", "payloads", "listing", "flow"] },
+  { group: "Media", tabs: ["disk", "cartridge", "graphics"] },
 ] as const;
-type Tab = "live" | "trace" | "knowledge" | "trace-files";
-const LABEL: Record<Tab, string> = { live: "Live", trace: "Trace", knowledge: "Knowledge", "trace-files": "Trace Files" };
+type Tab = "live" | "trace" | "knowledge" | "questions" | "docs" | "trace-files"
+  | "memory" | "payloads" | "listing" | "flow" | "disk" | "cartridge" | "graphics";
+const LABEL: Record<Tab, string> = {
+  live: "Live", trace: "Trace", knowledge: "Knowledge", questions: "Questions", docs: "Docs",
+  "trace-files": "Trace Files", memory: "Memory Map", payloads: "Payloads",
+  listing: "Annotated Listing", flow: "Flow Graph", disk: "Disk", cartridge: "Cartridge", graphics: "Graphics",
+};
 
-export function App(): JSX.Element {
+export function App(): React.JSX.Element {
   const [tab, setTab] = useState<Tab>("live");
   const [conn, setConn] = useState<ConnectionState>("closed");
   const [sessionId, setSessionId] = useState<string>("");
@@ -87,7 +98,16 @@ export function App(): JSX.Element {
         {tab === "live" && <LiveTab sessionId={sessionId} setSessionId={setSessionId} runState={runState} setRunState={setRunState} />}
         {tab === "trace" && <TraceTab sessionId={sessionId} setSessionId={setSessionId} />}
         {tab === "knowledge" && <KnowledgeTab />}
+        {tab === "questions" && <QuestionsTab />}
+        {tab === "docs" && <DocsTab />}
         {tab === "trace-files" && <TraceFilesTab />}
+        {tab === "memory" && <MemoryMapTab />}
+        {tab === "payloads" && <PayloadsTab />}
+        {tab === "listing" && <AnnotatedListingTab />}
+        {tab === "flow" && <FlowGraphTab />}
+        {tab === "disk" && <DiskTab />}
+        {tab === "cartridge" && <CartridgeTab />}
+        {tab === "graphics" && <GraphicsTab />}
       </main>
     </div>
   );

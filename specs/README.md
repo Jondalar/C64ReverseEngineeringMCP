@@ -36,7 +36,6 @@ Small by design — only specs with concrete next implementation work.
 | Spec | Title | Why active / what's next |
 |---|---|---|
 | 721 | Visual-Origin Join (runtime-informed annotation) | Core join shipped (probe green); the semantic-pipeline extension is the active edge. |
-| 724 | One UI, One Server Entry, One Project Path | 724A + 724.2e drag&drop DONE; **724B (one UI shell — integrate the v1 knowledge screens into the v3 workbench, then retire the v1 entry) is the only remaining work.** |
 
 ## GOVERNING / DOCTRINE (rules + umbrella contracts — still binding, not active implementation)
 
@@ -78,6 +77,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 | 727 | MCP Tool Use-Case Inventory | Matrix + gate on master (probe 17/17). |
 | 728 | MCP LLM Playbooks | Playbooks + gate on master (probe 12/12). |
 | 729 | MCP End-to-End Use-Case Gates | `check:mcp-product-surface` GREEN: boundaries/path/inventory + project_init fix + writer/reader contract + live trace product flow (`e2e-mcp-trace-first` 22/22). Only E2E-E (change/validation) deferred on Spec 711. |
+| 724 | One UI, One Server Entry, One Project Path | DONE for product viewing: 724A resolver + 724.2e drag&drop + 724B one-shell (all v1 VIEW screens migrated into v3, `project="Murder"` removed). v1 entry now legacy/dev-only (interactive Scrub authoring not migrated; v1 not deleted). `smoke:ui-project-trace` 21/21. |
 
 ## BACKLOG (planned, not started)
 
@@ -131,9 +131,9 @@ mapper" header is gone.
 
 ## Counts
 
-- ACTIVE: 2 (721, 724)
+- ACTIVE: 1 (721)
 - GOVERNING / DOCTRINE: 4 (610, 612, 620, 705)
-- DONE: 25
+- DONE: 26
 - BACKLOG: 10
 - SUPERSEDED: 11
 - NEEDS-RECONCILE: 6 (428, 613, 614, 615, 708, 713)

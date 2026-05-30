@@ -9,7 +9,7 @@ const card: React.CSSProperties = { background: "#161616", borderRadius: 5, padd
 const hdr: React.CSSProperties = { fontWeight: "bold", color: "#888", fontSize: 11, textTransform: "uppercase", marginBottom: 6 };
 const hex = (n: number) => "$" + (n >>> 0).toString(16);
 
-export function TraceFilesTab(): JSX.Element {
+export function TraceFilesTab(): React.JSX.Element {
   const [traces, setTraces] = useState<TraceArtifact[]>([]);
   const [err, setErr] = useState("");
   const [sel, setSel] = useState<TraceArtifact | null>(null);
