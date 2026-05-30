@@ -40,8 +40,11 @@ ok(leak(/^runtime_drive(_session)?_|^runtime_diagnose_/).length === 0,
   "5a no runtime_drive_*/runtime_diagnose_* in default", leak(/^runtime_drive/).join(",") || "none");
 
 // 5b. no maintenance / bulk / sandbox in default.
-ok(leak(/^(backfill_|dedupe_|sandbox_|bulk_)|_(backfill|dedupe|repair)/).length === 0,
-  "5b no maintenance/bulk/sandbox in default", leak(/^(backfill_|dedupe_|sandbox_|bulk_)/).join(",") || "none");
+// Exception (Spec 730.1): bulk_create_cart_chunk_payloads is a product RE tool explicitly promoted.
+const BULK_EXCEPTIONS_730 = new Set(["bulk_create_cart_chunk_payloads"]);
+const bulk5b = leak(/^(backfill_|dedupe_|sandbox_|bulk_)|_(backfill|dedupe|repair)/).filter((n) => !BULK_EXCEPTIONS_730.has(n));
+ok(bulk5b.length === 0,
+  "5b no maintenance/bulk/sandbox in default (bulk_create_cart_chunk_payloads excepted per Spec 730.1)", bulk5b.join(",") || "none");
 
 // 5c (Spec 725 §3.7-3.9): the required facade tools MUST be default.
 const REQUIRED_DEFAULT = [
@@ -120,6 +123,37 @@ ok(!have.has("runtime_audio_export"), "16 audio name-collision retired (no runti
 // 15 (722.4): the headless_* namespace is fully retired — one runtime language.
 const headlessLeft = allNames.filter((n) => n.startsWith("headless_"));
 ok(headlessLeft.length === 0, "15 no headless_* tool remains (consolidated into runtime_*)", headlessLeft.join(",") || "none");
+
+// --- 730.1: promoted disk/G64 + cartridge tools must be in the default tier ---
+const PROMOTED_730 = [
+  // Disk / G64
+  "list_g64_slots", "inspect_g64_track", "inspect_g64_blocks", "inspect_g64_syncs",
+  "scan_g64_headers", "read_g64_sector_candidate", "extract_g64_sectors",
+  "extract_g64_raw_track", "analyze_g64_anomalies",
+  "suggest_disk_lut_sector", "extract_disk_custom_lut", "set_payload_disk_hint",
+  // Cartridge
+  "bulk_create_cart_chunk_payloads", "link_cart_chunk_to_asm", "record_cart_chunk_packer",
+];
+const missing730 = PROMOTED_730.filter((n) => !defaultSet.has(n));
+ok(missing730.length === 0, "730a all 15 promoted disk/G64+cart tools are default",
+  missing730.join(",") || "none");
+
+// 730b: view-build internals and vice_* must NOT be default.
+const MUST_NOT_DEFAULT_730 = ["build_disk_layout_view", "build_cartridge_layout_view"];
+const wrongDefault730 = MUST_NOT_DEFAULT_730.filter((n) => defaultSet.has(n));
+ok(wrongDefault730.length === 0, "730b build_disk_layout_view + build_cartridge_layout_view are NOT default",
+  wrongDefault730.join(",") || "none");
+// vice_* already guarded by check 3 above; redundant explicit check for clarity.
+const viceInDefault730 = PROMOTED_730.filter((n) => n.startsWith("vice_") && defaultSet.has(n));
+ok(viceInDefault730.length === 0, "730b no vice_* tool in default (redundant guard)", viceInDefault730.join(",") || "none");
+
+// 730c: none of the 15 promoted descriptions starts with "Spec" or contains "C64RE_FULL_TOOLS".
+const bad730Start = PROMOTED_730.filter((n) => /^\s*Spec\b/i.test(dfull(n)));
+ok(bad730Start.length === 0, "730c no promoted tool description starts with 'Spec'",
+  bad730Start.join(",") || "none");
+const bad730Full = PROMOTED_730.filter((n) => /C64RE_FULL_TOOLS/i.test(dfull(n)));
+ok(bad730Full.length === 0, "730c no promoted tool description contains 'C64RE_FULL_TOOLS'",
+  bad730Full.join(",") || "none");
 
 console.log(`\nDefault surface (${defaultNames.length}):`);
 for (const n of defaultNames) console.log(`  ${n}`);

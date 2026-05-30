@@ -65,11 +65,20 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "trace_store_bus_find", "trace_store_anchor_list", "trace_store_anchor_find",
   // Spec 726 — live trace capture facade (write side, completes the readers above).
   "runtime_mark", "runtime_trace_finalize", "runtime_trace_status",
+  // Spec 730.1 — promote disk/G64 + cartridge RE tools to the default surface.
+  // Disk / G64 raw-inspection product tools:
+  "list_g64_slots", "inspect_g64_track", "inspect_g64_blocks", "inspect_g64_syncs",
+  "scan_g64_headers", "read_g64_sector_candidate", "extract_g64_sectors",
+  "extract_g64_raw_track", "analyze_g64_anomalies",
+  "suggest_disk_lut_sector", "extract_disk_custom_lut", "set_payload_disk_hint",
+  // Cartridge chunk product tools:
+  "bulk_create_cart_chunk_payloads", "link_cart_chunk_to_asm", "record_cart_chunk_packer",
 ]);
 
 /** Documented cap on the default surface (probe fails if exceeded). Spec 725
- * raised this 45→80 to fit the Headless Runtime + TraceDB facade. */
-export const DEFAULT_TIER_CAP = 80;
+ * raised this 45→80 to fit the Headless Runtime + TraceDB facade. Spec 730.1
+ * raised 80→95 to fit the promoted disk/G64 + cartridge RE tools (15 new). */
+export const DEFAULT_TIER_CAP = 95;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

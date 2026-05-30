@@ -988,7 +988,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
 
   server.tool(
     "link_cart_chunk_to_asm",
-    "Link a cartridge LUT chunk to a disassembly (.asm/.tass) artifact via a RelationRecord. Idempotently creates a chunk entity (kind=code-segment, tagged 'cart-chunk:<key>') and a 'derived-from' relation pointing at the ASM artifact's entity (or its artifact). The cart medium UI surfaces the linked ASM source under the chunk inspector. Identify the chunk by (bank, slot, offset_in_bank, length) or by (lut, idx).",
+    "Use to associate a specific cartridge bank/slot chunk with its .asm or .tass disassembly artifact — records a derived-from relation so the cartridge inspector UI surfaces the correct source file for that chunk. Not for bulk chunk promotion (use bulk_create_cart_chunk_payloads) or for packer/format metadata (use record_cart_chunk_packer). Inputs: absolute or project-relative path to the runtime_luts/all_luts.json, chunk identified by (bank, slot, offset_in_bank, length) or by (lut, idx), and the asm_artifact_id from list_artifacts. Updates the knowledge store; no files are written.",
     {
       lut_path: z.string().describe("Path to runtime_luts/all_luts.json (relative or absolute)."),
       project_dir: z.string().optional().describe("Override project dir; defaults to env C64RE_PROJECT_DIR."),
@@ -1101,7 +1101,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
 
   server.tool(
     "record_cart_chunk_packer",
-    "Persist packer / format / notes metadata for a cartridge LUT chunk. Cart chunks are derived from runtime_luts/all_luts.json (analyzer output, regenerated on re-run), so this tool writes a sidecar file 'chunk_packers.json' next to it. The view-builder layers the sidecar on top of the analyzer chunks. Identify the chunk by (bank, slot, offsetInBank, length) — the dedup key the view uses — or by a single (lut, idx) pair if you prefer to look it up by reference.",
+    "Use to record the packer, format, and notes for a cartridge LUT chunk when you have identified its compression scheme — writes a chunk_packers.json sidecar so the cartridge layout view can show the packer alongside each bank entry. Not for ASM linkage (use link_cart_chunk_to_asm) or for bulk chunk creation (use bulk_create_cart_chunk_payloads). Inputs: absolute or project-relative path to runtime_luts/all_luts.json, chunk identified by (bank, slot, offset_in_bank, length) or (lut, idx), and the packer name string. Writes chunk_packers.json next to the LUT file; no knowledge-store entity is created automatically.",
     {
       lut_path: z.string().describe("Path to the runtime_luts/all_luts.json (relative to project dir or absolute). The sidecar is written to chunk_packers.json next to it."),
       bank: z.number().int().nonnegative().optional().describe("Cart bank index. Required when identifying by physical placement."),

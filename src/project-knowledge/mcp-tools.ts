@@ -1000,7 +1000,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 037: payload disk hint.
   server.tool(
     "set_payload_disk_hint",
-    "Spec 037: tag a payload entity with a disk-hint (drive-code | protected | raw-unanalyzed | bad-crc | gap). Surfaces as a colour overlay on the disk heatmap. Pass hint=null/omitted to clear.",
+    "Use to tag a payload entity with a disk-structure hint (drive-code, protected, raw-unanalyzed, bad-crc, or gap) so the disk heatmap UI can colour-code it correctly. Not for sector-level extraction (use extract_disk or extract_disk_custom_lut) or for general findings (use save_finding). Inputs: project dir (optional), payload_entity_id from list_payloads, and the hint value; pass no hint to clear. Updates the payload entity record; the disk layout view reflects the hint after build_all_views.",
     {
       project_dir: z.string().optional(),
       payload_entity_id: z.string(),

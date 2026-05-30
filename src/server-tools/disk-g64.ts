@@ -47,7 +47,7 @@ function parseLutReferences(text: string): G64LutReference[] {
 export function registerDiskG64Tools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "list_g64_slots",
-    "List all G64 half-track slots, including raw offsets, lengths, and speed-zone metadata.",
+    "Use to enumerate every half-track slot in a G64 image before inspecting individual tracks — gives offsets, lengths, and speed-zone info so you know which slots hold real data. Not for DOS-directory listings (use inspect_disk) or sector-level decoding (use inspect_g64_track). Inputs: absolute or project-relative path to a .g64 file. Returns: slot table; does not write any artifact.",
     {
       image_path: z.string().describe("Path to the .g64 image"),
       include_empty: z.boolean().optional().describe("Include empty slots with raw offset 0"),
@@ -85,7 +85,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "inspect_g64_track",
-    "Decode a specific G64 track via GCR and report discovered sectors, missing IDs, duplicates, and raw track metadata.",
+    "Use to decode a single G64 track via GCR and report discovered sectors, missing sector IDs, duplicates, invalid blocks, and raw track metadata including speed zone. Not for listing all slots (use list_g64_slots) or for block-level ring-map inspection (use inspect_g64_blocks). Inputs: absolute or project-relative .g64 path plus track number (supports 0.5 half-track steps). Returns: sector summary JSON + ASCII ring map; does not write any artifact.",
     {
       image_path: z.string().describe("Path to the .g64 image"),
       track: z.number().positive().describe("Track number, supports 0.5 steps such as 18 or 18.5"),
@@ -168,7 +168,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "inspect_g64_blocks",
-    "Inspect a G64 track or half-track at raw GCR block level and return JSON plus an ASCII ring map.",
+    "Use when you need raw GCR block-level detail for a single G64 track: sync positions, parity choices, header/data pair validity, and an ASCII ring map. Not for a high-level sector summary (use inspect_g64_track) or for sync-mark positions only (use inspect_g64_syncs). Inputs: absolute or project-relative .g64 path plus track number. Returns: JSON block pairs + ASCII ring map; does not write any artifact.",
     {
       image_path: z.string().describe("Path to the .g64 image"),
       track: z.number().positive().describe("Track number, supports 0.5 steps such as 18 or 18.5"),
@@ -243,7 +243,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "extract_g64_raw_track",
-    "Export the raw circular G64 half-track data for bit-level inspection.",
+    "Use to export the raw circular half-track bitstream of a G64 track to a .bin file for bit-level analysis outside the MCP. Not for decoded-sector extraction (use extract_g64_sectors) or for in-place inspection without writing files (use inspect_g64_track). Inputs: absolute or project-relative .g64 path plus track number; output_path defaults to analysis/g64-raw/<name>-track-N.bin inside the project. Writes one binary file; no artifact or finding is registered automatically.",
     {
       image_path: z.string().describe("Path to the .g64 image"),
       track: z.number().positive().describe("Track number, supports 0.5 steps such as 18 or 18.5"),
@@ -285,7 +285,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "inspect_g64_syncs",
-    "Inspect sync marks on a raw G64 half-track and report bit-aligned sync positions.",
+    "Use to list the bit-aligned positions of every sync mark on a specific G64 half-track — useful when verifying custom protection that relies on unusual sync counts or spacing. Not for full sector decoding (use inspect_g64_track) or block-pair detail (use inspect_g64_blocks). Inputs: absolute or project-relative .g64 path plus track number. Returns: sync positions list; does not write any artifact.",
     {
       image_path: z.string().describe("Path to the .g64 image"),
       track: z.number().positive().describe("Track number, supports 0.5 steps such as 18 or 18.5"),
@@ -330,7 +330,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "scan_g64_headers",
-    "Scan a G64 track or half-track like VICE's 1541 sector-header search and list discovered header candidates.",
+    "Use to scan a G64 track for sector header candidates the way real 1541 firmware searches — essential when a custom loader uses non-standard sector IDs or duplicate headers. Not for read-ahead sector data (use read_g64_sector_candidate) or for full decoded-sector listing (use inspect_g64_track). Inputs: absolute or project-relative .g64 path plus track number. Returns: header candidate list; does not write any artifact.",
     {
       image_path: z.string().describe("Path to the .g64 image"),
       track: z.number().positive().describe("Track number, supports 0.5 steps such as 18 or 18.5"),
@@ -369,7 +369,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "read_g64_sector_candidate",
-    "Read a sector from a G64 track or half-track using a VICE-style 1541 sync/header search.",
+    "Use to read a specific sector from a G64 track by simulating the 1541 firmware's sync/header-search loop — the right tool when you know which sector you need and want its decoded payload bytes. Not for listing all headers on a track (use scan_g64_headers) or for extracting many sectors at once (use extract_g64_sectors). Inputs: absolute or project-relative .g64 path, track number, and sector number. Returns: sector status + first 16 payload bytes preview; does not write any artifact.",
     {
       image_path: z.string().describe("Path to the .g64 image"),
       track: z.number().positive().describe("Track number, supports 0.5 steps such as 18 or 18.5"),
@@ -420,7 +420,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "extract_g64_sectors",
-    "Decode a G64 track via GCR and write one file per decoded sector for low-level inspection.",
+    "Use to decode a G64 track via GCR and write one .bin file per sector to disk — the right tool when you need the raw sector payloads as files for further analysis or comparison. Not for in-place inspection without writing files (use inspect_g64_track) or for exporting the raw bitstream (use extract_g64_raw_track). Inputs: absolute or project-relative .g64 path, track number; output defaults to analysis/g64/<image>/track-N/ inside the project. Writes sector .bin files + track-metadata.json; no artifact is auto-registered.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from image_path to knowledge/phase-plan.json."),
       image_path: z.string().describe("Path to the .g64 image"),
@@ -485,7 +485,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "analyze_g64_anomalies",
-    "Scan a G64 image track-by-track and report duplicate, missing, unexpected, or invalid decoded sectors.",
+    "Use to sweep an entire G64 image track-by-track and produce a structured anomaly report — duplicate sectors, missing sectors, unexpected sector IDs, invalid blocks — including optional cross-reference against a known custom-LUT file. Not for single-track inspection (use inspect_g64_track) or for DOS directory listing (use inspect_disk). Inputs: absolute or project-relative .g64 path; optional LUT text file path. Returns: anomaly report; does not write any artifact.",
     {
       image_path: z.string().describe("Path to the .g64 image"),
       lut_path: z.string().optional().describe("Optional text/markdown file containing LUT references like T37:S2+225 for coverage diagnostics"),

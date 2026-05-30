@@ -186,7 +186,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
 
   server.tool(
     "extract_disk_custom_lut",
-    "Extract files indexed by a custom (non-DOS) LUT sector. Use when a disk parks its real payloads in a fixed-stride table (Lykia disk1 T18S18, BWC variants, etc.) rather than the standard 1541 directory. Each entry produces a payload file with origin=\"custom\" merged into manifest.json.",
+    "Use when a disk stores its real payloads in a fixed-stride non-DOS LUT sector rather than the standard directory — extracts one file per LUT entry and merges them with origin=custom into manifest.json. Not for standard DOS disks (use extract_disk) or when you do not yet know the LUT location (use suggest_disk_lut_sector first). Inputs: absolute or project-relative disk image path, lut_track, lut_sector, payload_format, and optional stride/count/sentinel. Writes payload files + manifest.json in the project analysis folder.",
     {
       project_dir: z.string().optional(),
       image_path: z.string(),
@@ -283,7 +283,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
 
   server.tool(
     "suggest_disk_lut_sector",
-    "Heuristic scan: look at every sector for plausible fixed-stride LUT entry tables and rank by confidence. Use before extract_disk_custom_lut when you do not yet know which sector the loader reads from.",
+    "Use to heuristically scan every sector of a disk image and rank candidates by how plausibly they serve as a fixed-stride loader LUT — run this first when you do not yet know which sector a custom loader reads its file table from. Not for DOS-directory inspection (use inspect_disk) or for extracting payloads once you know the LUT location (use extract_disk_custom_lut). Inputs: absolute or project-relative disk image path (.d64 or .g64). Returns: ranked candidate list; does not write any artifact.",
     {
       project_dir: z.string().optional(),
       image_path: z.string(),

@@ -189,7 +189,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
   server.tool(
     "bulk_create_cart_chunk_payloads",
-    "Walk the cartridge-layout view's lutChunks and create a payload entity for each one. Idempotent (skip when an existing payload entity has matching cart-chunk:<key> tag). Closes the gap where stock cart chunks are not auto-promoted to payload entities by extract_crt.",
+    "Use after extract_crt to promote all cartridge LUT chunks to payload entities in the project knowledge store — run once per cartridge to make every bank/slot chunk visible for analysis, linking, and ASM output. Not for single-chunk operations (use link_cart_chunk_to_asm or record_cart_chunk_packer) or for disk payloads (use extract_disk). Inputs: project dir (optional); dry_run=true previews without writing. Writes payload entities to the knowledge store; the cartridge layout view reflects them after build_all_views.",
     {
       project_dir: z.string().optional(),
       dry_run: z.boolean().optional(),
