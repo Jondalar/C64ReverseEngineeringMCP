@@ -1,17 +1,20 @@
 :root {
   color-scheme: dark;
-  --bg: #07111c;
-  --bg-elevated: #0f1b2b;
-  --bg-panel: rgba(11, 22, 34, 0.92);
-  --bg-soft: #14263a;
-  --ink: #edf6ff;
-  --muted: #92a8bf;
-  --line: rgba(137, 176, 208, 0.18);
-  --accent: #f15a29;
-  --accent-2: #4db5ff;
-  --accent-3: #8be38b;
-  --warning: #ffc65c;
-  --shadow: 0 18px 55px rgba(0, 0, 0, 0.32);
+  /* Spec 724B slice 2b — v3 theme palette. Only the variable VALUES change here;
+     v1 references these everywhere, so the workbench retones to the v3 look with
+     no structural change. */
+  --bg: #0a0a18;
+  --bg-elevated: #1a1a2e;
+  --bg-panel: rgba(26, 26, 46, 0.92);
+  --bg-soft: #232340;
+  --ink: #d0d0e8;
+  --muted: #6868a0;
+  --line: #2a2a44;
+  --accent: #6c5ce7;
+  --accent-2: #7c6cee;
+  --accent-3: #4caf50;
+  --warning: #ffd54f;
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
 }
 
 * {
@@ -26,12 +29,11 @@ body,
 
 body {
   margin: 0;
-  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  /* v3 look: monospace, compact, flat dark background (no radial gradients). */
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
   color: var(--ink);
-  background:
-    radial-gradient(circle at top left, rgba(77, 181, 255, 0.18), transparent 28%),
-    radial-gradient(circle at top right, rgba(241, 90, 41, 0.16), transparent 24%),
-    linear-gradient(180deg, #0b1621 0%, #06101a 60%, #040b12 100%);
+  background: var(--bg);
 }
 
 button,
@@ -70,9 +72,10 @@ button {
 
 .hero-copy h1 {
   margin: 0 0 0.75rem;
-  font-family: "Trebuchet MS", "Avenir Next Condensed", sans-serif;
-  font-size: clamp(2rem, 4vw, 3.25rem);
-  line-height: 0.95;
+  /* v3 look: compact monospace heading, not the oversized condensed sans. */
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: clamp(1.1rem, 2vw, 1.5rem);
+  line-height: 1.1;
 }
 
 .section-heading {
@@ -99,9 +102,9 @@ button {
 }
 
 .panel-card {
-  background: linear-gradient(180deg, rgba(19, 34, 49, 0.98), rgba(11, 22, 34, 0.98));
+  background: var(--bg-elevated);
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 8px;
   box-shadow: var(--shadow);
   padding: 1rem;
 }
@@ -121,7 +124,7 @@ button {
   width: 100%;
   padding: 0.9rem 1rem;
   border-radius: 12px;
-  border: 1px solid rgba(137, 176, 208, 0.22);
+  border: 1px solid rgba(92, 92, 128, 0.22);
   background: rgba(7, 17, 28, 0.95);
   color: var(--ink);
 }
@@ -130,7 +133,7 @@ button {
   width: 100%;
   padding: 0.9rem 1rem;
   border-radius: 12px;
-  border: 1px solid rgba(137, 176, 208, 0.22);
+  border: 1px solid rgba(92, 92, 128, 0.22);
   background: rgba(7, 17, 28, 0.95);
   color: var(--ink);
   resize: vertical;
@@ -156,14 +159,14 @@ button {
 }
 
 .primary-button {
-  background: linear-gradient(135deg, var(--accent), #ff8742);
-  color: white;
+  background: var(--accent);
+  color: #fff;
 }
 
 .ghost-button {
-  background: rgba(77, 181, 255, 0.08);
+  background: rgba(124, 108, 238, 0.10);
   color: var(--accent-2);
-  border: 1px solid rgba(77, 181, 255, 0.24);
+  border: 1px solid rgba(124, 108, 238, 0.24);
 }
 
 .error-banner,
@@ -183,8 +186,8 @@ button {
 .error-banner {
   padding: 0.85rem 1rem;
   border-radius: 14px;
-  background: rgba(241, 90, 41, 0.14);
-  border: 1px solid rgba(241, 90, 41, 0.35);
+  background: rgba(108, 92, 231, 0.14);
+  border: 1px solid rgba(108, 92, 231, 0.35);
 }
 
 .registration-banner {
@@ -291,12 +294,12 @@ button {
 }
 
 .memory-filter-pill:hover {
-  background: rgba(77, 181, 255, 0.12);
+  background: rgba(124, 108, 238, 0.12);
 }
 
 .memory-filter-pill-active {
-  background: rgba(77, 181, 255, 0.25);
-  border-color: rgba(77, 181, 255, 0.55);
+  background: rgba(124, 108, 238, 0.25);
+  border-color: rgba(124, 108, 238, 0.55);
 }
 
 .memory-filter-pill-title {
@@ -319,7 +322,7 @@ button {
   width: 100%;
   padding: 0.55rem 0.8rem;
   border-radius: 10px;
-  border: 1px solid rgba(137, 176, 208, 0.22);
+  border: 1px solid rgba(92, 92, 128, 0.22);
   background: rgba(7, 17, 28, 0.95);
   color: var(--ink);
   margin-bottom: 0.8rem;
@@ -355,8 +358,8 @@ button {
 .payload-format {
   font-size: 0.72rem;
   text-transform: uppercase;
-  background: rgba(77, 181, 255, 0.16);
-  border: 1px solid rgba(77, 181, 255, 0.32);
+  background: rgba(124, 108, 238, 0.16);
+  border: 1px solid rgba(124, 108, 238, 0.32);
   padding: 0.05rem 0.4rem;
   border-radius: 4px;
 }
@@ -385,7 +388,7 @@ button {
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
-  border: 1px solid rgba(137, 176, 208, 0.32);
+  border: 1px solid rgba(92, 92, 128, 0.32);
   background: rgba(7, 17, 28, 0.7);
   color: inherit;
 }
@@ -395,7 +398,7 @@ button {
 }
 
 .payload-button-mon:hover {
-  background: rgba(77, 181, 255, 0.16);
+  background: rgba(124, 108, 238, 0.16);
   border-color: var(--accent-2);
 }
 
@@ -466,7 +469,7 @@ button {
   border-radius: 18px;
   padding: 1rem;
   border: 1px solid var(--line);
-  background: linear-gradient(180deg, rgba(17, 31, 46, 0.92), rgba(11, 22, 34, 0.92));
+  background: var(--bg-panel);
   box-shadow: var(--shadow);
 }
 
@@ -513,7 +516,7 @@ button {
 .tab-button {
   padding: 0.7rem 1rem;
   border-radius: 999px;
-  background: rgba(77, 181, 255, 0.08);
+  background: rgba(124, 108, 238, 0.08);
   color: var(--ink);
   border: 1px solid transparent;
   cursor: pointer;
@@ -531,8 +534,8 @@ button {
 }
 
 .tab-button.active {
-  border-color: rgba(241, 90, 41, 0.35);
-  background: rgba(241, 90, 41, 0.18);
+  border-color: rgba(108, 92, 231, 0.35);
+  background: rgba(108, 92, 231, 0.18);
   color: white;
 }
 
@@ -555,7 +558,7 @@ button {
 
 .overview-card {
   border-radius: 16px;
-  border: 1px solid rgba(137, 176, 208, 0.14);
+  border: 1px solid rgba(92, 92, 128, 0.14);
   background: rgba(8, 18, 29, 0.74);
   padding: 1rem;
 }
@@ -593,7 +596,7 @@ button {
   text-align: left;
   padding: 0.9rem;
   border-radius: 14px;
-  border: 1px solid rgba(137, 176, 208, 0.14);
+  border: 1px solid rgba(92, 92, 128, 0.14);
   background: rgba(8, 18, 29, 0.86);
   color: var(--ink);
   cursor: pointer;
@@ -605,8 +608,8 @@ button {
 }
 
 .active-record {
-  border-color: rgba(241, 90, 41, 0.45);
-  background: rgba(241, 90, 41, 0.12);
+  border-color: rgba(108, 92, 231, 0.45);
+  background: rgba(108, 92, 231, 0.12);
 }
 
 .record-card p,
@@ -641,7 +644,7 @@ button {
   margin-top: 0.7rem;
   height: 0.9rem;
   border-radius: 999px;
-  background: rgba(77, 181, 255, 0.08);
+  background: rgba(124, 108, 238, 0.08);
   overflow: hidden;
 }
 
@@ -653,7 +656,7 @@ button {
 
 .detail-card {
   border-radius: 16px;
-  border: 1px solid rgba(137, 176, 208, 0.14);
+  border: 1px solid rgba(92, 92, 128, 0.14);
   background: rgba(8, 18, 29, 0.8);
   padding: 1rem;
 }
@@ -689,7 +692,7 @@ button {
 .data-table th,
 .data-table td {
   padding: 0.7rem 0.6rem;
-  border-bottom: 1px solid rgba(137, 176, 208, 0.12);
+  border-bottom: 1px solid rgba(92, 92, 128, 0.12);
   text-align: left;
   vertical-align: top;
 }
@@ -699,20 +702,20 @@ button {
 }
 
 .data-table tbody tr:hover {
-  background: rgba(77, 181, 255, 0.06);
+  background: rgba(124, 108, 238, 0.06);
 }
 
 .data-table tbody tr.active-row {
-  background: rgba(241, 90, 41, 0.12);
+  background: rgba(108, 92, 231, 0.12);
 }
 
 .graph-canvas-wrap {
   overflow: auto;
   border-radius: 16px;
   background:
-    radial-gradient(circle at top left, rgba(77, 181, 255, 0.08), transparent 25%),
+    radial-gradient(circle at top left, rgba(124, 108, 238, 0.08), transparent 25%),
     rgba(8, 18, 29, 0.86);
-  border: 1px solid rgba(137, 176, 208, 0.12);
+  border: 1px solid rgba(92, 92, 128, 0.12);
   min-height: 30rem;
 }
 
@@ -730,12 +733,12 @@ button {
 }
 
 .flow-lane-bg {
-  fill: rgba(77, 181, 255, 0.04);
-  stroke: rgba(137, 176, 208, 0.12);
+  fill: rgba(124, 108, 238, 0.04);
+  stroke: rgba(92, 92, 128, 0.12);
 }
 
 .flow-edge-line {
-  stroke: rgba(77, 181, 255, 0.52);
+  stroke: rgba(124, 108, 238, 0.52);
   stroke-width: 2;
 }
 
@@ -744,18 +747,18 @@ button {
 }
 
 .flow-node-group:hover .flow-node-rect {
-  fill: rgba(241, 90, 41, 0.18);
-  stroke: rgba(241, 90, 41, 0.55);
+  fill: rgba(108, 92, 231, 0.18);
+  stroke: rgba(108, 92, 231, 0.55);
 }
 
 .flow-node-group.active .flow-node-rect {
-  fill: rgba(241, 90, 41, 0.18);
-  stroke: rgba(241, 90, 41, 0.65);
+  fill: rgba(108, 92, 231, 0.18);
+  stroke: rgba(108, 92, 231, 0.65);
 }
 
 .flow-node-rect {
   fill: rgba(11, 22, 34, 0.96);
-  stroke: rgba(137, 176, 208, 0.18);
+  stroke: rgba(92, 92, 128, 0.18);
 }
 
 .flow-node-kind {
@@ -824,7 +827,7 @@ button {
   min-height: 7.8rem;
   padding: 0.65rem 0.75rem;
   border-radius: 12px;
-  border: 1px solid rgba(137, 176, 208, 0.22);
+  border: 1px solid rgba(92, 92, 128, 0.22);
   background: rgba(7, 17, 28, 0.95);
   color: var(--ink);
 }
@@ -849,7 +852,7 @@ button {
 
 .legend-code,
 .category-code {
-  background: rgba(77, 181, 255, 0.82);
+  background: rgba(124, 108, 238, 0.82);
 }
 
 .legend-data,
@@ -864,13 +867,13 @@ button {
 
 .legend-other,
 .category-other {
-  background: rgba(241, 90, 41, 0.78);
+  background: rgba(108, 92, 231, 0.78);
 }
 
 .memory-grid-wrap {
   overflow: auto;
   border-radius: 16px;
-  border: 1px solid rgba(137, 176, 208, 0.14);
+  border: 1px solid rgba(92, 92, 128, 0.14);
   background: rgba(8, 18, 29, 0.82);
   padding: 0.8rem;
 }
@@ -898,12 +901,12 @@ button {
   min-width: 1.8rem;
   height: 1.8rem;
   border-radius: 7px;
-  border: 1px solid rgba(137, 176, 208, 0.12);
+  border: 1px solid rgba(92, 92, 128, 0.12);
   cursor: pointer;
 }
 
 .memory-cell.selected {
-  outline: 2px solid rgba(241, 90, 41, 0.72);
+  outline: 2px solid rgba(108, 92, 231, 0.72);
   outline-offset: 1px;
 }
 
@@ -978,12 +981,12 @@ button {
   top: 1rem;
   width: 0.4rem;
   height: 1px;
-  background: rgba(137, 176, 208, 0.22);
+  background: rgba(92, 92, 128, 0.22);
 }
 
 .docs-viewer {
   border-radius: 16px;
-  border: 1px solid rgba(137, 176, 208, 0.14);
+  border: 1px solid rgba(92, 92, 128, 0.14);
   background: rgba(8, 18, 29, 0.8);
   padding: 1rem;
   overflow: auto;
@@ -1021,13 +1024,13 @@ button {
   padding: 0.85rem;
   border-radius: 12px;
   background: rgba(5, 12, 19, 0.95);
-  border: 1px solid rgba(137, 176, 208, 0.1);
+  border: 1px solid rgba(92, 92, 128, 0.1);
   overflow: auto;
 }
 
 .thin-markdown code {
   font-family: "SFMono-Regular", "Menlo", monospace;
-  background: rgba(77, 181, 255, 0.08);
+  background: rgba(124, 108, 238, 0.08);
   padding: 0.08rem 0.3rem;
   border-radius: 4px;
 }
@@ -1039,15 +1042,15 @@ button {
 .markdown-table {
   width: 100%;
   border-collapse: collapse;
-  border: 1px solid rgba(137, 176, 208, 0.14);
+  border: 1px solid rgba(92, 92, 128, 0.14);
   background: rgba(6, 14, 22, 0.82);
 }
 
 .markdown-table th,
 .markdown-table td {
   padding: 0.65rem 0.7rem;
-  border-bottom: 1px solid rgba(137, 176, 208, 0.12);
-  border-right: 1px solid rgba(137, 176, 208, 0.08);
+  border-bottom: 1px solid rgba(92, 92, 128, 0.12);
+  border-right: 1px solid rgba(92, 92, 128, 0.08);
   text-align: left;
   vertical-align: top;
 }
@@ -1096,9 +1099,9 @@ button {
   padding: 0.5rem;
   border-radius: 16px;
   background:
-    radial-gradient(circle at center, rgba(77, 181, 255, 0.1), transparent 42%),
+    radial-gradient(circle at center, rgba(124, 108, 238, 0.1), transparent 42%),
     rgba(8, 18, 29, 0.82);
-  border: 1px solid rgba(137, 176, 208, 0.12);
+  border: 1px solid rgba(92, 92, 128, 0.12);
   margin-bottom: 1rem;
 }
 
@@ -1109,7 +1112,7 @@ button {
 
 .disk-center-hole {
   fill: rgba(3, 9, 14, 0.95);
-  stroke: rgba(137, 176, 208, 0.22);
+  stroke: rgba(92, 92, 128, 0.22);
 }
 
 .disk-sector {
@@ -1118,7 +1121,7 @@ button {
 }
 
 .disk-sector-file {
-  fill: rgba(77, 181, 255, 0.8);
+  fill: rgba(124, 108, 238, 0.8);
 }
 
 .disk-sector-directory {
@@ -1126,7 +1129,7 @@ button {
 }
 
 .disk-sector-bam {
-  fill: rgba(241, 90, 41, 0.82);
+  fill: rgba(108, 92, 231, 0.82);
 }
 
 .disk-sector-free,
@@ -1177,7 +1180,7 @@ button {
   padding: 0.9rem;
   border-radius: 12px;
   background: rgba(9, 18, 28, 0.92);
-  border: 1px solid rgba(137, 176, 208, 0.12);
+  border: 1px solid rgba(92, 92, 128, 0.12);
   color: #bfe2ff;
   font-family: "Courier New", "Lucida Console", monospace;
   font-size: 0.92rem;
@@ -1195,7 +1198,7 @@ button {
 }
 
 .disk-legend-file {
-  background: rgba(77, 181, 255, 0.82);
+  background: rgba(124, 108, 238, 0.82);
 }
 
 .disk-legend-directory {
@@ -1203,7 +1206,7 @@ button {
 }
 
 .disk-legend-bam {
-  background: rgba(241, 90, 41, 0.82);
+  background: rgba(108, 92, 231, 0.82);
 }
 
 .disk-legend-free {
@@ -1272,10 +1275,9 @@ button {
 .static-card {
   width: 100%;
   text-align: left;
-  border-radius: 16px;
-  border: 1px solid rgba(137, 176, 208, 0.14);
-  background:
-    linear-gradient(180deg, rgba(16, 30, 46, 0.94), rgba(8, 18, 29, 0.9));
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg-elevated);
   color: var(--ink);
   padding: 1rem;
 }
@@ -1285,8 +1287,8 @@ button {
 }
 
 .sequence-card.active-record {
-  border-color: rgba(241, 90, 41, 0.45);
-  background: rgba(241, 90, 41, 0.12);
+  border-color: rgba(108, 92, 231, 0.45);
+  background: rgba(108, 92, 231, 0.12);
 }
 
 .sequence-card:disabled {
@@ -1342,8 +1344,8 @@ button {
 .chip-tag {
   padding: 0.28rem 0.55rem;
   border-radius: 999px;
-  background: rgba(77, 181, 255, 0.12);
-  border: 1px solid rgba(77, 181, 255, 0.18);
+  background: rgba(124, 108, 238, 0.12);
+  border: 1px solid rgba(124, 108, 238, 0.18);
   color: var(--accent-2);
   font-size: 0.76rem;
 }
@@ -1355,7 +1357,7 @@ button {
 }
 
 .evidence-line {
-  border-left: 2px solid rgba(241, 90, 41, 0.36);
+  border-left: 2px solid rgba(108, 92, 231, 0.36);
   padding-left: 0.65rem;
   color: var(--muted);
   font-size: 0.86rem;
@@ -1381,19 +1383,19 @@ button {
 .inspector-chip {
   padding: 0.42rem 0.7rem;
   border-radius: 999px;
-  background: rgba(77, 181, 255, 0.1);
-  border: 1px solid rgba(77, 181, 255, 0.18);
+  background: rgba(124, 108, 238, 0.1);
+  border: 1px solid rgba(124, 108, 238, 0.18);
   color: var(--accent-2);
   cursor: pointer;
 }
 
 .inspector-chip:hover {
-  background: rgba(77, 181, 255, 0.16);
+  background: rgba(124, 108, 238, 0.16);
 }
 
 .inspector-chip.active {
-  background: rgba(241, 90, 41, 0.18);
-  border-color: rgba(241, 90, 41, 0.42);
+  background: rgba(108, 92, 231, 0.18);
+  border-color: rgba(108, 92, 231, 0.42);
   color: #ffd2c2;
 }
 
@@ -1410,7 +1412,7 @@ button {
   padding: 0.8rem;
   border-radius: 12px;
   background: rgba(8, 18, 29, 0.82);
-  border: 1px solid rgba(137, 176, 208, 0.12);
+  border: 1px solid rgba(92, 92, 128, 0.12);
 }
 
 .timeline-card strong,
@@ -1805,7 +1807,7 @@ button {
 }
 
 .cart-segment-clickable:hover {
-  outline: 1px solid rgba(77, 181, 255, 0.85);
+  outline: 1px solid rgba(124, 108, 238, 0.85);
 }
 
 .cart-segment-startup {
@@ -2369,7 +2371,7 @@ button {
 .questions-panel select {
   background: rgba(8, 18, 29, 0.74);
   color: var(--text);
-  border: 1px solid rgba(137, 176, 208, 0.18);
+  border: 1px solid rgba(92, 92, 128, 0.18);
   border-radius: 8px;
   padding: 0.4rem 0.6rem;
   font-size: 0.92rem;
@@ -2395,11 +2397,11 @@ button {
 }
 
 .questions-row:nth-child(odd) {
-  background: rgba(137, 176, 208, 0.04);
+  background: rgba(92, 92, 128, 0.04);
 }
 
 .questions-row-head {
-  background: rgba(137, 176, 208, 0.08) !important;
+  background: rgba(92, 92, 128, 0.08) !important;
   font-size: 0.78rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
