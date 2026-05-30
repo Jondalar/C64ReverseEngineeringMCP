@@ -45,13 +45,12 @@ const liveCss = readFileSync(join(ROOT, "ui/src/components/live-runtime.css"), "
 const leak = /(^|\n)\s*(body|html|\*)\s*[,{]/.test(liveCss) || /[,\s]#root\s*[,{]/.test(liveCss);
 ok(!leak, "4 scoped Live CSS has NO v3 global resets (body/*/#root)", leak ? "LEAK" : "clean");
 
-// 4b. BUG-016 — the v1-integrated Live screen is viewport-bounded (not full
-// page width), so the Monitor stays visible. The bundle must carry the bounded
-// .wb-screen rule (aspect-ratio + max-height) as the winning (last) override.
-const screenRules = v1Css.match(/\.wb-live \.wb-screen\{[^}]*\}/g) ?? [];
-const lastScreen = screenRules[screenRules.length - 1] ?? "";
-ok(/aspect-ratio:\s*384\s*\/\s*272/.test(lastScreen) && /max-height:\s*56vh/.test(lastScreen),
-  "4b BUG-016: Live screen is viewport-bounded (aspect-ratio + max-height), not full-width", lastScreen ? "bounded" : "rule missing");
+// 4b. BUG-016 / Live layout — the Live cockpit is bound to the viewport so the
+// C64 screen fills the available area while the Monitor stays visible (no full
+// page scroll). The bundle must carry the `.app-root.live-mode` viewport bind.
+const liveModeRule = v1Css.match(/\.app-root\.live-mode\{[^}]*\}/)?.[0] ?? "";
+ok(/height:100vh/.test(liveModeRule) && /overflow:hidden/.test(liveModeRule) && /flex/.test(liveModeRule),
+  "4b BUG-016: Live tab binds the cockpit to the viewport (.app-root.live-mode)", liveModeRule ? "bound" : "rule missing");
 
 // ---- live routing assertions (boot the real workspace, HTTP+WS) ----
 const PORT = 4326;

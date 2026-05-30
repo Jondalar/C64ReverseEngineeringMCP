@@ -428,6 +428,31 @@ button {
   grid-template-columns: 1fr;
 }
 
+/* BUG-016/Live layout — when the Live tab is active, bind the whole workbench to
+   the viewport (flex column: header natural, main fills the rest) so the Live
+   cockpit fills the available height. The C64 screen then grows to fill all the
+   space left over after the fixed-width inspector and the natural-height monitor
+   (user request), with no full-page scroll. No magic numbers — flexbox derives
+   the available height. */
+.app-root.live-mode {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.app-root.live-mode > .app-main-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.app-root.live-mode .app-main-grid.docs-mode {
+  grid-template-rows: auto minmax(0, 1fr); /* tab nav, then the Live cockpit */
+}
+.app-root.live-mode .workspace-main {
+  min-height: 0;
+  height: 100%;
+}
+
 .workspace-main,
 .workspace-side {
   display: grid;

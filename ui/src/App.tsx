@@ -4344,7 +4344,7 @@ export function App() {
   return (
     <InternalVisibilityContext.Provider value={internalVisibilityValue}>
     <LineageVisibilityContext.Provider value={lineageVisibilityValue}>
-    <div className="app-root">
+    <div className={activeTab === "live" ? "app-root live-mode" : "app-root"}>
       <header className="hero-shell">
         <div className="hero-copy panel-card">
           <div className="eyebrow">C64 Reverse Engineering Workspace</div>

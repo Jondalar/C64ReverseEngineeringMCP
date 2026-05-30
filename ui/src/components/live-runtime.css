@@ -801,35 +801,13 @@
 }
 
 /* ============================================================================
-   BUG-016 — v1 product-shell overrides (MUST stay after the generated rules).
-   The v3 standalone shell bounds the whole app to 100vh (.wb-main = flex:1;
-   min-height:0; overflow:hidden), so the .wb-screen's width/height:100% resolve
-   against a bounded box. The v1 product shell (.app-main-grid / .workspace-main)
-   is NOT viewport-height-bounded, so the same rules let the C64 frame grow to
-   full width and push the Monitor below the fold. Re-bound the Live tab here so
-   the screen keeps its aspect ratio, stays a sane size, and the Monitor section
-   remains visible underneath — matching the v3 Live layout proportions.
-   NOTE: regeneration of this file from v3/style.css must preserve this block.
+   BUG-016 / Live layout — the C64 screen fills the available cockpit area.
+   The Live cockpit is bound to the viewport by `.app-root.live-mode` (see
+   index.css): header natural, the workbench main flexes to fill the rest, and
+   `.wb-live { height:100% }` (the generated rule above) makes the screen row
+   (1fr) take all the space left over after the fixed-width inspector and the
+   natural-height Monitor. The screen uses the generated width/height:100% +
+   object-fit:contain, so it grows as large as fits (aspect-correct) and the
+   Monitor stays visible — no full-page scroll, no 56vh cap. Nothing to override
+   here anymore; this note documents why the earlier cap was removed.
    ============================================================================ */
-.wb-live {
-  /* don't depend on an unbounded parent's height */
-  height: auto;
-  min-height: 0;
-}
-.wb-live .wb-live-grid {
-  /* let the row size to its content (the bounded screen) instead of stretching */
-  align-items: start;
-}
-.wb-live .wb-screen-wrap {
-  /* cap the screen area to a fraction of the viewport so the Monitor below stays
-     visible; the wrap sizes to the (aspect-correct) canvas inside it */
-  max-height: 56vh;
-}
-.wb-live .wb-screen {
-  /* aspect-correct, viewport-bounded — never full-page-width */
-  width: auto;
-  height: auto;
-  max-width: 100%;
-  max-height: 56vh;
-  aspect-ratio: 384 / 272;
-}
