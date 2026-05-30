@@ -5,7 +5,7 @@
 - **Reporter:** human
 - **Area:** ui-v3
 - **Severity:** high
-- **Status:** open
+- **Status:** fixed
 
 ## Environment
 
@@ -72,9 +72,9 @@ v3 analysis tab rendering components. The tabs likely reuse a generic JSON/prefo
 
 ---
 
-## Resolution (fill on fix)
+## Resolution
 
-- **Root cause:**
-- **Fix commit:**
-- **Gate proving the fix:**
-- **Regression risk:**
+- **Root cause:** the 724B.2 migration wired the Analysis tabs to a generic `ViewJson` renderer that `JSON.stringify`'d the view model — data exposed, no product UI.
+- **Fix commit:** `9c4da85` — structured renderers off the typed view models: Memory Map = region table (range/title/kind/status/confidence), Payloads = table (kind/title/status/path), Annotated Listing = address-range listing lines, Flow Graph = nodes list + resolved edges. `ViewJson` removed; raw JSON only behind an explicit per-panel "raw JSON" toggle.
+- **Gate proving the fix:** `npm run smoke:ui-project-trace` 31/31 — checks 27-29: no default `ViewJson` dump, ≥3 structured tables, raw JSON behind the toggle. ui:v3:build clean.
+- **Regression risk:** low — UI rendering only; data source (`/api/workspace`) unchanged; raw JSON still reachable for debugging.

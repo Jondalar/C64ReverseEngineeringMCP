@@ -19,5 +19,6 @@ Human + LLM E2E bug log for the C64RE MCP/UI product flow.
 | BUG-008 | Disk tab selection jumps back to first disk | ui-v3 | high | open |
 | BUG-009 | Disk file list scrolls the whole page instead of the list panel | ui-v3 | medium | open |
 | BUG-010 | Workspace UI Live tab does not start/connect Headless Runtime backend | workspace-ui | blocker | fixed (700b398) |
-| BUG-011 | Analysis tabs render raw JSON instead of usable UI views | ui-v3 | high | open |
-| BUG-012 | Media tabs render raw JSON instead of usable UI views | ui-v3 | high | open |
+| BUG-011 | Analysis tabs render raw JSON instead of usable UI views | ui-v3 | high | fixed (9c4da85) |
+| BUG-012 | Media tabs render raw JSON instead of usable UI views | ui-v3 | high | fixed (9c4da85) |
+| BUG-013 | Live Drive insert menu mixes project media with C64RE dev samples | ui-v3 | medium | open |

@@ -5,7 +5,7 @@
 - **Reporter:** human
 - **Area:** ui-v3
 - **Severity:** high
-- **Status:** open
+- **Status:** fixed
 
 ## Environment
 
@@ -72,9 +72,9 @@ v3 tab routing/content selection and Media tab renderers. The tab group may rout
 
 ---
 
-## Resolution (fill on fix)
+## Resolution
 
-- **Root cause:**
-- **Fix commit:**
-- **Gate proving the fix:**
-- **Regression risk:**
+- **Root cause:** same as BUG-011 — the Media tabs (Disk, Cartridge) used the generic `ViewJson` raw-JSON renderer. (Graphics + Assets/Scrub were already structured.) The "MEMORY MAP JSON in the Media group" in the screenshot was the previously-selected Memory Map tab's raw dump; the v3 router itself switches cleanly by tab id (no stale-content bug found).
+- **Fix commit:** `9c4da85` — Disk = per-disk file table (name/type/track-sector/load/size) with a STABLE disk selector keyed by `artifactId` (defaults only when nothing chosen, so it won't snap back on refresh); Cartridge = cartridge cards (name/hw/exrom/game/chips/banks). Raw JSON only behind the explicit per-panel toggle.
+- **Gate proving the fix:** `npm run smoke:ui-project-trace` 31/31 — checks 27-29 (no default raw dump, structured tables, raw behind toggle). ui:v3:build clean.
+- **Regression risk:** low — UI rendering only; data source unchanged. (Full Disk-tab selection-stability + list-scroll containment are tracked as BUG-008/009.)
