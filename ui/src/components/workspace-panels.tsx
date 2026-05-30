@@ -622,8 +622,10 @@ export function DiskPanel({
   // BUG-017 — raw track/sector navigation: which sector cell is selected for
   // direct inspection (independent of directory-file selection).
   const [selectedSector, setSelectedSector] = useState<{ track: number; sector: number } | null>(null);
-  // clear the raw-sector selection when the active disk changes
-  useEffect(() => { setSelectedSector(null); }, [activeDiskId]);
+  // BUG-017 (track grid) — which whole track is selected via the track strip.
+  const [selectedTrack, setSelectedTrack] = useState<number | null>(null);
+  // clear the raw-sector + track selection when the active disk changes
+  useEffect(() => { setSelectedSector(null); setSelectedTrack(null); }, [activeDiskId]);
 
   // BUG-008 — sync the active disk to the GLOBAL selection (selectedDiskFile)
   // ONLY when that selection genuinely changes. The previous version kept
@@ -709,9 +711,10 @@ export function DiskPanel({
   const diskArtifactForPath = activeDisk ? snapshot.artifacts.find((art) => art.id === activeDisk.artifactId) : undefined;
   const diskImagePath = activeDisk?.imageRelativePath ?? diskArtifactForPath?.relativePath ?? "";
   const diskDisplayName = activeDisk ? (activeDisk.diskName ?? activeDisk.title) : "";
-  // Open the raw 256-byte hex view of a sector + mark it selected.
+  // Open the raw 256-byte hex view of a sector + mark it (and its track) selected.
   function inspectSector(track: number, sector: number) {
     setSelectedSector({ track, sector });
+    setSelectedTrack(track);
     if (!diskImagePath) return;
     const params = new URLSearchParams({
       projectDir: snapshot.project.rootPath,
@@ -725,6 +728,30 @@ export function DiskPanel({
       length: 256,
       fetchUrl: `/api/disk/sector-bytes?${params.toString()}`,
     });
+  }
+  // BUG-017 (track grid) — lowest sector number present on a track.
+  const firstSectorOfTrack = (track: number) => {
+    const sectors = (activeDisk?.sectors ?? []).filter((s) => s.track === track).map((s) => s.sector);
+    return sectors.length ? Math.min(...sectors) : 0;
+  };
+  const isD64Image = diskImagePath.toLowerCase().endsWith(".d64");
+  // Click a whole track in the strip → show it in the hex/monitor. D64 reads the
+  // whole track by offset; other formats (G64) open the track's first decoded
+  // sector via the format-agnostic sector-bytes endpoint. Either way the track is
+  // highlighted in the geometry.
+  function showTrack(track: number) {
+    setSelectedTrack(track);
+    if (isD64Image && diskImagePath) {
+      const sectors = d64SectorsInTrack(track);
+      onOpenHex(diskImagePath, {
+        title: `${diskDisplayName} · Track ${track}`,
+        baseAddress: 0,
+        offset: d64SectorOffset(track, 0),
+        length: sectors * 256,
+      });
+    } else {
+      inspectSector(track, firstSectorOfTrack(track));
+    }
   }
   const directoryLines = activeDisk
     ? [
@@ -851,38 +878,27 @@ export function DiskPanel({
               <h4>Disk Geometry</h4>
               <span>track/sector occupancy</span>
             </div>
-            {(() => {
-              const diskArtifact = snapshot.artifacts.find((art) => art.id === activeDisk.artifactId);
-              const diskPath = activeDisk.imageRelativePath ?? diskArtifact?.relativePath ?? "";
-              const isD64 = diskPath.toLowerCase().endsWith(".d64");
-              if (!isD64) return null;
-              return (
-                <div className="disk-track-strip">
-                  <span className="disk-track-strip-label">Track</span>
-                  {Array.from({ length: activeDisk.trackCount }, (_, i) => i + 1).map((track) => {
-                    const sectors = d64SectorsInTrack(track);
-                    const offset = d64SectorOffset(track, 0);
-                    const length = sectors * 256;
-                    return (
-                      <button
-                        key={track}
-                        type="button"
-                        className="disk-track-mon"
-                        title={`Open hex view of track ${track} (${sectors} sectors = ${length} B)`}
-                        onClick={() => onOpenHex(diskPath, {
-                          title: `${activeDisk.diskName ?? activeDisk.title} · Track ${track}`,
-                          baseAddress: 0,
-                          offset,
-                          length,
-                        })}
-                      >
-                        {track}
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })()}
+            {/* BUG-017 (track grid) — compact clickable track strip between the
+                header and the circular geometry. Works for every format (D64 reads
+                the whole track by offset; G64 etc. open the track's first sector
+                via the sector-bytes endpoint). Clicking a track highlights it in
+                the geometry and shows it in the hex/monitor. */}
+            <div className="disk-track-strip">
+              <span className="disk-track-strip-label">Track</span>
+              {Array.from({ length: activeDisk.trackCount }, (_, i) => i + 1).map((track) => (
+                <button
+                  key={track}
+                  type="button"
+                  className={selectedTrack === track ? "disk-track-mon active" : "disk-track-mon"}
+                  title={isD64Image
+                    ? `Show track ${track} (${d64SectorsInTrack(track)} sectors) in the hex view`
+                    : `Show track ${track} (first sector) in the hex view`}
+                  onClick={() => showTrack(track)}
+                >
+                  {track}
+                </button>
+              ))}
+            </div>
             <div className="disk-geometry-wrap">
               <svg viewBox="0 0 640 640" className="disk-geometry-svg" role="img" aria-label="Disk geometry">
                 <circle cx="320" cy="320" r="58" className="disk-center-hole" />
@@ -891,14 +907,17 @@ export function DiskPanel({
                   const isSelected = selectionActive && sector.fileId === selectedFile!.id;
                   // BUG-017 — raw-sector selection (independent of file selection).
                   const isSectorSelected = selectedSector?.track === sector.track && selectedSector?.sector === sector.sector;
+                  // BUG-017 (track grid) — whole-track highlight from the strip.
+                  const isTrackSelected = selectedTrack === sector.track;
                   const filteredOut = sector.fileId !== undefined && !visibleFileIds.has(sector.fileId);
-                  const dimmed = !isSelected && !isSectorSelected && (filteredOut || selectionActive);
+                  const dimmed = !isSelected && !isSectorSelected && !isTrackSelected && (filteredOut || selectionActive);
                   const className = [
                     "disk-sector",
                     "disk-sector-clickable",
                     `disk-sector-${sector.category}`,
                     isSelected ? "selected" : "",
                     isSectorSelected ? "sector-selected" : "",
+                    isTrackSelected ? "track-selected" : "",
                     dimmed ? "disk-sector-dimmed" : "",
                     filteredOut ? "disk-sector-filtered-out" : "",
                   ].filter(Boolean).join(" ");

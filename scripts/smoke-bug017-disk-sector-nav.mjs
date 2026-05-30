@@ -26,6 +26,14 @@ ok(/sector-selected/.test(src) && /selectedSector/.test(src), "3 raw-sector sele
 ok(/\/api\/disk\/sector-bytes\?/.test(src), "4 click opens the 256-byte hex via /api/disk/sector-bytes", "");
 ok(/disk-sector-detail/.test(src), "5 raw-sector detail line (track/sector/category/hint/file)", "");
 
+// BUG-017 (track grid restore) — a clickable track strip above the geometry,
+// for ALL formats (not D64-gated), with whole-track show + track highlight.
+ok(/function showTrack\(/.test(src) && /onClick=\{\(\) => showTrack\(track\)\}/.test(src), "5a track strip buttons call showTrack(track)", "");
+const stripBlock = src.slice(src.indexOf("disk-track-strip"), src.indexOf("disk-geometry-wrap"));
+ok(!/if \(!isD64\) return null/.test(stripBlock), "5b track strip is NOT D64-gated (shows for G64 etc.)", "");
+ok(/selectedTrack/.test(src) && /track-selected/.test(src), "5c selected track highlights its sectors in the geometry", "");
+ok(/inspectSector\(track, firstSectorOfTrack\(track\)\)/.test(src), "5d non-D64 track click shows the track's first sector (format-agnostic)", "");
+
 // ---- backend data-path E2E: real D64 over the HTTP API ----
 const projectDir = mkdtempSync(join(tmpdir(), "c64re-bug017-"));
 mkdirSync(join(projectDir, "input", "disk"), { recursive: true });

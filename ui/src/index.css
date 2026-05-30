@@ -1371,6 +1371,18 @@ button {
   color: #58a6ff;
   background: rgba(88, 166, 255, 0.08);
 }
+/* BUG-017 (track grid) — selected track button + its sectors highlighted. */
+.disk-track-mon.active {
+  border-color: var(--accent-2, #7c6cee);
+  color: #fff;
+  background: rgba(124, 108, 238, 0.35);
+}
+.disk-sector.track-selected {
+  stroke: var(--accent-2, #7c6cee);
+  stroke-width: 1.5;
+  filter: brightness(1.2);
+  opacity: 1;
+}
 
 .sequence-strip {
   display: grid;

@@ -20,12 +20,22 @@ Some disks have only a few visible directory entries, but the disk geometry visu
 
 The user can see that there is data on many tracks, but cannot navigate the raw track/sector occupancy directly from the disk visualization.
 
+Update after the first fix: individual sector clicks now work, but the old
+track-grid control between the "Disk Geometry" header and the circular geometry
+is still missing. That grid allowed selecting an entire track and showing it
+directly in the monitor/sector view. The sector-only click path is useful, but
+it does not replace the fast track-level navigation workflow.
+
 ## Expected
 
 The Disk view should let the user inspect disk data beyond directory entries:
 
 - Track numbers / sector occupancy should be clickable or otherwise navigable.
+- A compact track/sector grid should be visible above the circular geometry,
+  like the earlier UI, so the user can click a whole track quickly.
 - Clicking a track or sector in the geometry should update the Inspector/detail panel.
+- Clicking a track in the grid should show that track's sectors in the monitor/detail
+  area without requiring precise clicks on the circular SVG.
 - The user should be able to step through tracks/sectors, including occupied non-directory data.
 - Directory file selection remains available, but is not the only way to inspect disk contents.
 - For copy-protected/custom-loader disks with sparse directories and full raw data, the UI must expose the raw disk layout.
@@ -36,7 +46,8 @@ The Disk view should let the user inspect disk data beyond directory entries:
 2. Go to the Disk tab.
 3. Observe the disk geometry/heatmap shows many occupied tracks.
 4. Try to click/select tracks or sectors that are not listed as directory files.
-5. Observe there is no obvious raw track/sector navigation.
+5. Observe that sector clicks exist, but the old track-grid navigation above the
+   circular geometry is missing.
 
 Minimal command / call:
 
@@ -50,6 +61,12 @@ UI action: Disk tab → inspect disk geometry on a mostly full disk with few dir
 
 ```text
 Die Disks haben "wenig" Directory Einträge, sind aber ranvoll .. wo sind die Tracks hin über der Disk ? Zum Durchklicken ?
+```
+
+```text
+ich kann zwar in die sectors klicken, aber wir hatten mal zwischen DISK GEOMETRY
+und der Grafik ein Grid, da konnte man reinklicken für einen ganzen TRack,
+und der wurd im mon einfach angezeigt. das ist sehr sehr hilfreich zu haben.
 ```
 
 - Browser evidence:
@@ -71,14 +88,16 @@ DiskPanel / Disk Geometry UI. Existing SVG likely visualizes occupancy but does 
 ## Notes / follow-up
 
 - This is important for copy-protected/custom-loader disks where meaningful data is not represented by normal directory entries.
-- A minimal fix could add clickable track buttons/sector cells and a raw sector inspector before building a full hex viewer.
+- The first fix added clickable sector cells and a raw sector inspector.
+- Remaining missing piece: restore the compact track/sector grid workflow above
+  the circular geometry, with track-level selection and monitor/detail update.
 
 ---
 
 ## Resolution
 
 - **Root cause:** the Disk Geometry SVG rendered every sector cell (with full track/sector/category/hint/fileId data already in the snapshot) but the cells had no click handler and no raw-sector selection state — so occupied non-directory data (orphan_allocated, drive-code, raw-unanalyzed, bam, …) could only be reached if it happened to belong to a listed directory file. The raw 256-byte read endpoint (`/api/disk/sector-bytes?path&track&sector`) already existed; only the UI navigation was missing.
-- **Scope:** full (user-chosen) — clickable sectors + raw-sector detail + 256-byte hex viewer.
+- **Scope:** partial — clickable sectors + raw-sector detail + 256-byte hex viewer shipped, but the old track-grid workflow is still missing.
 - **Fix (`ui/src/components/workspace-panels.tsx` `DiskPanel`):**
   - Every SVG sector `<path>` is now a clickable button (`disk-sector-clickable`, native `<title>` tooltip) → `inspectSector(track, sector)`.
   - `inspectSector` sets a `selectedSector` state (distinct accent highlight `disk-sector.sector-selected`, independent of directory-file selection) and opens the existing hex overlay with `fetchUrl=/api/disk/sector-bytes?…` (256-byte length) — reusing the product hex viewer, no new viewer needed.
@@ -86,4 +105,32 @@ DiskPanel / Disk Geometry UI. Existing SVG likely visualizes occupancy but does 
   - CSS added to BOTH `index.css` (v1 product) and `workspace-panels.css` (v3) — the disk CSS is duplicated across the two sheets.
 - **Fix commit:** _this commit_.
 - **Gate proving the fix:** `npm run smoke:bug017` 9/9 — UI source wiring (inspectSector, per-sector onClick, selection+highlight, sector-bytes URL, detail line) + a real-D64 HTTP E2E (`/api/disk/sector-bytes` returns 256 raw bytes for T18/S0 with the correct content, out-of-range track → 404). v1+v3 build green; ui typecheck 13 pre-existing / 0 new.
-- **Regression risk:** low — additive UI + an already-existing endpoint; directory-file selection is unchanged; no backend change. (Future: a richer in-panel hex/ASCII split or sector-chain follow could build on this.)
+- **Regression risk:** low — additive UI + an already-existing endpoint; directory-file selection is unchanged; no backend change. (Future: restore the track-grid selector and richer in-panel hex/ASCII split or sector-chain follow.)
+
+## Reopen note — 2026-05-30
+
+BUG-017 is not complete. The sector-click part is fixed, but the earlier
+track-grid selector is still absent. Keep this bug open until the UI again offers
+fast track-level navigation above the circular disk geometry.
+
+## Resolution — track grid restored (2026-05-30)
+
+- **Root cause (reopen):** a clickable track strip DID exist between the "Disk
+  Geometry" header and the circular SVG, but it was gated `if (!isD64) return
+  null` — so on G64 images (common for cracked disks) it disappeared, and it only
+  ever opened a whole-track hex via D64 offset math (no track highlight).
+- **Fix (`DiskPanel`):** the track strip now renders for EVERY format (un-gated).
+  Each track button calls `showTrack(track)`, which highlights that track's
+  sectors in the geometry (`selectedTrack` → `.disk-sector.track-selected`,
+  `.disk-track-mon.active`) and shows the track in the hex/monitor: D64 reads the
+  whole track by offset (as before); other formats (G64) open the track's first
+  decoded sector via the format-agnostic `/api/disk/sector-bytes` endpoint
+  (`inspectSector(track, firstSectorOfTrack(track))`). Clicking an individual
+  sector also marks its track active, so the strip + geometry stay in sync.
+  CSS added to both `index.css` (v1) and `workspace-panels.css` (v3).
+- **Gate proving the fix:** `npm run smoke:bug017` 13/13 — adds checks 5a–5d
+  (strip → showTrack, NOT D64-gated, selected-track highlight, non-D64 first
+  sector) on top of the sector-click + real-D64 HTTP E2E. v1+v3 build green;
+  ui typecheck 13 pre-existing / 0 new.
+- **Regression risk:** low — additive UI; existing sector-click + D64 whole-track
+  hex preserved; format-agnostic path reuses the existing endpoint.
