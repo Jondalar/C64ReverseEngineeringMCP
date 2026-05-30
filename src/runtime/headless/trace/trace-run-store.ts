@@ -273,6 +273,12 @@ export async function writeTraceRun(
 }
 
 export async function closeTraceRunStore(store: TraceRunStore): Promise<void> {
+  // Fold the WAL into the main .duckdb file before closing, so a SEPARATE reader
+  // process (the MCP trace_store_* tools, the UI /api/trace/* endpoints) sees the
+  // committed rows instead of an empty file with a dangling .duckdb.wal. Without
+  // this, capture-in-process-A + read-in-process-B reads nothing (Spec 729 known
+  // `.wal` leftover). Best-effort: never let a checkpoint error block the close.
+  try { await store.conn?.run?.("CHECKPOINT"); } catch { /* ignore */ }
   try { store.inst?.closeSync?.(); } catch { /* ignore */ }
 }
 

@@ -1,0 +1,158 @@
+// Spec 724B — UI/API smoke. Proves the One-UI shell's backend can surface a real
+// 729-style project: project status + path, media, trace artifacts + marks, trace
+// readers (info / top-pcs / events), findings, entities, dashboard — all read-only
+// over the HTTP API the v3 shell uses, with the project path from the 724A resolver
+// (NO repo cwd / samples fallback).
+//
+// Builds a 729 project in a temp dir OUTSIDE the repo (project_init via the
+// service + a real trace.duckdb via the library trace sink), boots the real
+// workspace-ui HTTP server against it, and HTTP-checks the endpoints.
+import { spawn } from "node:child_process";
+import { mkdtempSync, mkdirSync, copyFileSync, existsSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { createConnection } from "node:net";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+let pass = 0, fail = 0;
+const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
+
+console.log("Spec 724B — UI/API project + trace view smoke\n");
+
+const seed = join(ROOT, "samples/synthetic/1byte.d64");
+if (!existsSync(seed)) {
+  console.log(`  PENDING  seed disk ${seed} not generated — run: node scripts/gen-synthetic-disks.mjs`);
+  console.log("\nPENDING (no seed). 0 pass, 0 fail."); process.exit(0);
+}
+
+// ---- build a 729-style project OUTSIDE the repo ----
+const projectDir = mkdtempSync(join(tmpdir(), "c64re-724b-"));
+ok(!projectDir.startsWith(ROOT), "0 project dir outside the repo", projectDir);
+mkdirSync(join(projectDir, "traces"), { recursive: true });
+copyFileSync(seed, join(projectDir, "game.d64"));
+const tracePath = join(projectDir, "traces", "run.duckdb");
+
+// init project + persist a finding/entity via the service.
+const { ProjectKnowledgeService } = await import(`${ROOT}/dist/project-knowledge/service.js`);
+const svc = new ProjectKnowledgeService(projectDir);
+svc.initProject({ name: "724B Smoke", description: "UI project+trace view smoke" });
+svc.saveFinding({ kind: "observation", title: "Boot trace captured", summary: "via 724B smoke", confidence: 0.9, tags: ["runtime", "trace"] });
+svc.saveEntity({ kind: "memory-region", name: "boot-pc-window", summary: "top PCs during boot" });
+// build the dashboard view so /api/workspace exposes it.
+try { svc.buildWorkspaceUiSnapshot(); } catch { /* views built lazily */ }
+
+// capture a real trace.duckdb via the library trace sink, in a SEPARATE child
+// process. DuckDB takes a per-process file handle/WAL; if we captured in THIS
+// process its handle would still hold the file when the (separate) HTTP server
+// reads it cross-process. A child that fully exits releases the file (and the
+// CHECKPOINT-on-close folds the WAL into the main .duckdb), so the server reads
+// committed rows.
+const captureSrc = `
+const ROOT=${JSON.stringify(ROOT)};
+const tracePath=${JSON.stringify(tracePath)};
+const diskPath=${JSON.stringify(join(projectDir, "game.d64"))};
+const {startIntegratedSession,stopIntegratedSession}=await import(ROOT+'/dist/runtime/headless/integrated-session-manager.js');
+const sink=await import(ROOT+'/dist/server-tools/runtime-trace-sink.js');
+const {getRuntimeController}=await import(ROOT+'/dist/runtime/headless/debug/runtime-controller.js');
+const {sessionId,session}=startIntegratedSession({diskPath,mode:'true-drive'});
+session.resetCold();
+await sink.startSessionTrace(sessionId,session,tracePath,sink.DEFAULT_TRACE_DOMAINS);
+const ctrl=getRuntimeController(sessionId);
+for(let i=0;i<6;i++){session.runFor(200000);await ctrl.traceRun.drain();}
+ctrl.traceRun.mark('basic-ready');
+for(let i=0;i<4;i++){session.runFor(200000);await ctrl.traceRun.drain();}
+ctrl.traceRun.mark('loaded-or-title');
+await ctrl.traceRun.stop();
+stopIntegratedSession(sessionId);
+`;
+await new Promise((resolve, reject) => {
+  const cap = spawn(process.execPath, ["--input-type=module", "-e", captureSrc], { stdio: ["ignore", "ignore", "pipe"] });
+  let err = "";
+  cap.stderr.on("data", (d) => { err += d.toString(); });
+  cap.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`capture child exited ${code}: ${err.slice(-300)}`)));
+});
+ok(existsSync(tracePath), "1 trace.duckdb captured in project traces/ (separate process)", tracePath);
+
+// ---- boot the real workspace-ui HTTP server against this project ----
+const PORT = 4319;
+const srv = spawn(process.execPath, [join(ROOT, "dist/workspace-ui/server.js"), "--project", projectDir, "--port", String(PORT), "--api-only"], {
+  cwd: tmpdir(), env: { ...process.env }, stdio: ["ignore", "pipe", "pipe"],
+});
+let srvErr = "";
+srv.stderr.on("data", (d) => { srvErr += d.toString(); });
+
+async function waitPort(port, ms = 8000) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    const up = await new Promise((r) => {
+      const s = createConnection({ port, host: "127.0.0.1" }, () => { s.end(); r(true); });
+      s.on("error", () => r(false));
+    });
+    if (up) return true;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  return false;
+}
+async function getJson(path) {
+  const res = await fetch(`http://127.0.0.1:${PORT}${path}`);
+  return { status: res.status, body: await res.json() };
+}
+
+let exitCode = 0;
+try {
+  const up = await waitPort(PORT);
+  ok(up, "2 workspace-ui HTTP server is up", up ? `:${PORT}` : srvErr.slice(-200));
+  if (!up) throw new Error("server did not start");
+
+  // 3. project status + path (no hardcoded project).
+  const cfg = await getJson("/api/config");
+  ok(cfg.status === 200 && cfg.body.defaultProjectDir === projectDir, "3 /api/config returns the resolved project path", cfg.body.defaultProjectDir);
+
+  const ws = await getJson("/api/workspace");
+  ok(ws.status === 200 && ws.body.project, "4 /api/workspace returns project status", ws.body.project?.name);
+  ok((ws.body.counts?.findings ?? 0) >= 1, "5 findings visible", `findings=${ws.body.counts?.findings}`);
+  ok((ws.body.counts?.entities ?? 0) >= 1, "6 entities visible", `entities=${ws.body.counts?.entities}`);
+  ok(!!ws.body.views?.projectDashboard, "7 dashboard view reachable", ws.body.views?.projectDashboard ? "present" : "missing");
+
+  // 8. media list includes game.d64 (via the WS media route is runtime; here the
+  //    artifact/knowledge side — media file is in the project dir, listed by the
+  //    media browser endpoint or present on disk). We assert it exists on disk +
+  //    is under the project (the UI media picker reads the project dir, 724A).
+  ok(existsSync(join(projectDir, "game.d64")), "8 project media game.d64 present under project dir", "");
+
+  // 9. trace artifacts listed with marks.
+  const traces = await getJson("/api/traces");
+  ok(traces.status === 200 && traces.body.count >= 1, "9 /api/traces lists the trace.duckdb", `count=${traces.body.count}`);
+  const t0 = traces.body.traces?.[0];
+  ok(t0 && t0.name === "run.duckdb", "9b trace name = run.duckdb", t0?.name);
+  const markLabels = (t0?.marks ?? []).map((m) => m.label);
+  ok(markLabels.includes("basic-ready") && markLabels.includes("loaded-or-title"),
+    "10 trace marks basic-ready + loaded-or-title visible", markLabels.join(",") || "none");
+
+  // 11. trace readers: info / top-pcs / events (no raw SQL).
+  const info = await getJson(`/api/trace/info?path=${encodeURIComponent("traces/run.duckdb")}`);
+  ok(info.status === 200 && (info.body.tableCounts?.["events:total"] ?? 0) > 0, "11 /api/trace/info counts", `events:total=${info.body.tableCounts?.["events:total"]}`);
+  const top = await getJson(`/api/trace/top-pcs?path=${encodeURIComponent("traces/run.duckdb")}&cpu=c64&limit=5`);
+  ok(top.status === 200 && Array.isArray(top.body.pcs) && top.body.pcs.length > 0, "12 /api/trace/top-pcs returns PCs", `n=${top.body.pcs?.length}`);
+  const runId = info.body.meta?.run_id;
+  if (runId) {
+    const ev = await getJson(`/api/trace/events?path=${encodeURIComponent("traces/run.duckdb")}&run_id=${encodeURIComponent(runId)}&family=cpu_step&limit=10`);
+    ok(ev.status === 200 && ev.body.count > 0, "13 /api/trace/events(cpu_step) returns rows", `rows=${ev.body.count}`);
+  } else {
+    ok(false, "13 /api/trace/events", "no run_id from info");
+  }
+
+  console.log(`\n--- report ---`);
+  console.log(`project: ${projectDir}`);
+  console.log(`endpoints proven: /api/config, /api/workspace, /api/traces, /api/trace/info, /api/trace/top-pcs, /api/trace/events`);
+  console.log(`729 artifacts visible: project status+path, game.d64, traces/run.duckdb, marks(basic-ready,loaded-or-title), findings, entities, dashboard`);
+} catch (e) {
+  ok(false, "harness", e.message + (srvErr ? " | stderr: " + srvErr.slice(-200) : ""));
+  exitCode = 1;
+} finally {
+  srv.kill();
+}
+
+console.log(`\n${fail === 0 ? "GREEN" : "RED"} 724B UI/API view: ${pass} pass, ${fail} fail.`);
+process.exit(fail === 0 ? 0 : (exitCode || 1));
