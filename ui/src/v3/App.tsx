@@ -41,8 +41,30 @@ export function App(): React.JSX.Element {
   const [cycle, setCycle] = useState<number>(0);
   const [runState, setRunState] = useState<"running" | "paused" | "off">("running");
   const [project, setProject] = useState<{ name?: string; path?: string }>({});
+  const [runtimeHint, setRuntimeHint] = useState<string>("");
 
   useEffect(() => getClient().onState(setConn), []);
+
+  // BUG-010: if the runtime WS backend is not connected, ask the HTTP API whether
+  // it is reachable and surface an ACTIONABLE banner (which backend + how to start
+  // it) instead of an endless "connecting". Clears once the WS connects.
+  useEffect(() => {
+    if (conn === "open") { setRuntimeHint(""); return; }
+    let alive = true;
+    const check = async () => {
+      if (!alive) return;
+      try {
+        const s = await api.runtimeStatus();
+        if (alive) setRuntimeHint(s.reachable ? "" : (s.hint ?? `Runtime backend not reachable at ${s.wsUrl}.`));
+      } catch { if (alive) setRuntimeHint(""); }
+      // Effect re-subscribes whenever `conn` changes (incl. → "open", which
+      // returns early above), so a plain re-poll here is safe.
+      if (alive) setTimeout(check, 3000);
+    };
+    // give the WS a moment to connect before nagging.
+    const t = setTimeout(check, 1500);
+    return () => { alive = false; clearTimeout(t); };
+  }, [conn]);
 
   // Project identity from the resolver (no hardcoded project).
   useEffect(() => {
@@ -84,6 +106,12 @@ export function App(): React.JSX.Element {
         <span className="wb-meta">{runState}</span>
         <span className="wb-meta">cycle: {cycle.toLocaleString()}</span>
       </header>
+      {runtimeHint && (
+        <div style={{ background: "#3a1010", color: "#fbb", padding: "6px 12px", fontSize: 12, borderBottom: "1px solid #602020" }}>
+          ⚠ Runtime backend not connected — the Live tab needs the Headless Runtime WS server.
+          <span style={{ color: "#fdd", marginLeft: 6 }}>{runtimeHint}</span>
+        </div>
+      )}
       <nav className="wb-tabs" style={{ display: "flex", gap: 16, alignItems: "center" }}>
         {NAV.map((g) => (
           <span key={g.group} style={{ display: "flex", gap: 4, alignItems: "center" }}>

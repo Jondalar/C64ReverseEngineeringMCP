@@ -8,6 +8,14 @@ export interface ProjectConfig {
   defaultProjectDir: string;
   apiOnly: boolean;
   hasUiDist: boolean;
+  runtimeWsUrl?: string;
+}
+
+export interface RuntimeStatus {
+  wsUrl: string;
+  reachable: boolean;
+  projectDir: string;
+  hint?: string;
 }
 
 export interface WorkspaceSnapshot {
@@ -65,6 +73,7 @@ export interface ArtifactItem { id: string; title: string; kind: string; path?: 
 
 export const api = {
   config: () => getJson<ProjectConfig>("/api/config"),
+  runtimeStatus: () => getJson<RuntimeStatus>("/api/runtime-status"),
   workspace: () => getJson<WorkspaceSnapshot>("/api/workspace"),
   docs: () => getJson<{ projectDir: string; docs: DocEntry[] }>("/api/docs"),
   document: async (relativePath: string): Promise<string> => {

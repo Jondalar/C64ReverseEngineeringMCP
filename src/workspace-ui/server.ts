@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { createConnection } from "node:net";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, relative, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -283,6 +284,22 @@ const uiV3DistDir = resolveUiDist("dist-v3");
 const hasUiV3Dist = existsSync(uiV3DistDir);
 const hasUiDist = existsSync(uiDistDir) || hasUiV3Dist;
 
+// BUG-010: the Live tab needs the Headless Runtime WS backend (default :4312).
+// The HTTP server can't start it (separate process — `npm run workspace` brings
+// up both), but it CAN tell the UI whether it is reachable, so the Live tab shows
+// an actionable error instead of spinning on "connecting" forever.
+const RUNTIME_WS_HOST = "127.0.0.1";
+const RUNTIME_WS_PORT = Number(process.env.C64RE_V3_WS_PORT ?? 4312);
+function probeRuntimeWs(timeoutMs = 800): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = createConnection({ host: RUNTIME_WS_HOST, port: RUNTIME_WS_PORT });
+    const done = (up: boolean) => { try { sock.destroy(); } catch { /* ignore */ } resolve(up); };
+    const timer = setTimeout(() => done(false), timeoutMs);
+    sock.once("connect", () => { clearTimeout(timer); done(true); });
+    sock.once("error", () => { clearTimeout(timer); done(false); });
+  });
+}
+
 const server = createServer((req, res) => {
   const requestUrl = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
 
@@ -301,7 +318,23 @@ const server = createServer((req, res) => {
       defaultProjectDir: options.projectDir,
       apiOnly: options.apiOnly,
       hasUiDist,
+      runtimeWsUrl: `ws://${RUNTIME_WS_HOST}:${RUNTIME_WS_PORT}`,
     }));
+    return;
+  }
+
+  // BUG-010: report whether the runtime WS backend (Live tab) is up, so the UI
+  // can show an actionable error ("runtime backend not running — start it with
+  // npm run workspace") instead of an endless "connecting".
+  if (requestUrl.pathname === "/api/runtime-status") {
+    void probeRuntimeWs().then((up) => {
+      send(res, jsonResponse(200, {
+        wsUrl: `ws://${RUNTIME_WS_HOST}:${RUNTIME_WS_PORT}`,
+        reachable: up,
+        projectDir: options.projectDir,
+        hint: up ? undefined : `Runtime backend not reachable on :${RUNTIME_WS_PORT}. Start the full workspace (HTTP + runtime) with: npm run workspace -- --project "${options.projectDir}"`,
+      }));
+    });
     return;
   }
 
