@@ -417,7 +417,17 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       lines.push(`## Registration Delta`);
       const reg = scanRegistrationDelta(projectRoot, 0);
       if (reg.unregisteredCount === 0) {
-        lines.push(`✓ Filesystem and artifact store are in sync.`);
+        // BUG-006: "in sync" is misleading for an empty/unverified workspace —
+        // zero artifacts AND zero scanned media candidates means NOTHING was
+        // registered and NOTHING was checked, not that the stores agree. Report
+        // the empty state + the correct next step instead of a false green.
+        const emptyWorkspace = status.counts.artifacts === 0 && reg.totalCandidates === 0;
+        if (emptyWorkspace) {
+          lines.push(`○ Empty workspace — no artifacts registered yet and no media found to inventory.`);
+          lines.push(`  Add media (.d64/.g64/.crt/.prg) to the project, then run extract_disk / extract_crt / register_existing_files.`);
+        } else {
+          lines.push(`✓ Filesystem and artifact store are in sync (${status.counts.artifacts} artifacts, ${reg.totalCandidates} media candidates scanned).`);
+        }
       } else {
         const sorted = Object.entries(reg.unregisteredByExt).sort((a, b) => b[1] - a[1]).slice(0, 5);
         lines.push(`⚠ ${reg.unregisteredCount} files on disk are NOT registered in artifacts.json.`);
