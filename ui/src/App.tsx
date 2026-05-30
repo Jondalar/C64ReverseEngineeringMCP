@@ -19,6 +19,11 @@ import {
   LineageVisibilityContext, useLineageVisibility,
   InternalVisibilityContext, useInternalVisibility,
 } from "./components/workspace-panels.js";
+// Spec 724B: the v3 Live C64 runtime tab, embedded into the product workbench.
+// Self-contained (its own screen/controls/monitor/inspector via the WS client);
+// styled by the scoped .wb-live CSS. WS connects lazily on first use (Live tab).
+import { LiveTab } from "./v3/tabs/Live.js";
+import { getClient } from "./v3/ws-client.js";
 import type { CartridgeLutChunk } from "./types.js";
 import type {
   ArtifactRecord,
@@ -41,7 +46,7 @@ import type {
 // findings/entities/flows/relations (record-list tabs — surface inside
 // inspector instead), load (folded into Flow sub-mode), activity
 // (folded into Dashboard).
-type TabId = "dashboard" | "questions" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "flow" | "listing";
+type TabId = "live" | "dashboard" | "questions" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "flow" | "listing";
 
 interface UiConfig {
   defaultProjectDir: string;
@@ -111,6 +116,7 @@ type DiskFileSelection = { diskArtifactId: string; fileId: string };
 type CartChunkSelection = { cartridgeArtifactId: string; chunk: CartridgeLutChunk };
 
 const allTabs: Array<{ id: TabId; label: string }> = [
+  { id: "live", label: "Live" },
   { id: "dashboard", label: "Dashboard" },
   { id: "questions", label: "Questions" },
   { id: "docs", label: "Docs" },
@@ -3839,6 +3845,18 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
+  // Spec 724B — Live runtime tab session state. The WS client connects lazily
+  // (only once the Live tab is opened); non-Live users never open a socket.
+  const [liveSessionId, setLiveSessionId] = useState<string>("");
+  const [liveRunState, setLiveRunState] = useState<"running" | "paused" | "off">("running");
+  useEffect(() => {
+    if (activeTab !== "live" || liveSessionId) return;
+    let alive = true;
+    getClient().call<Array<{ sessionId: string }>>("session/list").then((sessions) => {
+      if (alive && sessions.length > 0) setLiveSessionId(sessions[0].sessionId);
+    }).catch(() => { /* runtime backend may be down; Live tab shows its own state */ });
+    return () => { alive = false; };
+  }, [activeTab, liveSessionId]);
   const [listingQuery, setListingQuery] = useState("");
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
@@ -4349,7 +4367,7 @@ export function App() {
           <div className="panel-card empty-state">{loading ? "Loading workspace snapshot..." : "No snapshot loaded."}</div>
         </main>
       ) : (
-        <main className={activeTab === "docs" ? "app-main-grid docs-mode" : "app-main-grid"}>
+        <main className={activeTab === "docs" || activeTab === "live" ? "app-main-grid docs-mode" : "app-main-grid"}>
           <nav className="tab-strip" aria-label="Workspace views">
             {visibleTabs.map((tab) => (
               <button
@@ -4364,6 +4382,14 @@ export function App() {
           </nav>
 
           <section className="workspace-main">
+            {activeTab === "live" ? (
+              <LiveTab
+                sessionId={liveSessionId}
+                setSessionId={setLiveSessionId}
+                runState={liveRunState}
+                setRunState={setLiveRunState}
+              />
+            ) : null}
             {activeTab === "dashboard" ? (
               <DashboardPanel
                 snapshot={snapshot}
@@ -4493,7 +4519,7 @@ export function App() {
                 widget folds into the Dashboard. */}
           </section>
 
-          {activeTab !== "docs" ? (
+          {activeTab !== "docs" && activeTab !== "live" ? (
             <aside className="workspace-side">
               {selectedCartChunk ? (
                 <CartChunkInspector
