@@ -1,0 +1,227 @@
+// Spec 728 — MCP LLM Playbooks generator.
+// One source-of-truth array → docs/mcp-llm-playbooks.{json,md}. Every tool named
+// is validated against docs/tool-surface-inventory.json at generation time, so
+// the playbooks can never reference a tool that does not exist. vice_* tools are
+// resolved dynamically and only ever appear in the Internal Dev Oracle playbook.
+//
+// Run: node scripts/gen-mcp-llm-playbooks.mjs
+// Gate: node scripts/probe-mcp-llm-playbooks.mjs
+import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const inv = JSON.parse(readFileSync(join(ROOT, "docs/tool-surface-inventory.json"), "utf8"));
+const have = new Set(inv.tools.map((t) => t.name));
+const viceTools = inv.tools.map((t) => t.name).filter((n) => n.startsWith("vice_"));
+
+const GLOBAL_RULES = [
+  "Persist important results in project knowledge, not only in chat (save_finding / save_entity / save_open_question).",
+  "After each substantive step, call agent_record_step and propose the next action.",
+  "Use the C64RE Headless runtime for product work. VICE is internal-dev-only and never a fallback for user projects.",
+  "Do not enable C64RE_FULL_TOOLS as a normal solution.",
+  "Do not call the V3 WebSocket directly when an MCP tool exists.",
+  "Never assume repo-relative samples/ or process cwd for user media; take absolute or project-relative paths from the user.",
+  "Prefer bounded evidence queries over dumping raw traces into chat.",
+  "Do not use raw SQL (trace_store_query) as a workaround for a broken convenience reader; fix or report the reader.",
+  "Report a path-resolution failure clearly with the requested path; do not silently fall back to repo fixtures.",
+];
+
+const PLAYBOOKS = [
+  {
+    id: "new-project-onboarding",
+    title: "New Project Onboarding",
+    userIntentExamples: ["Make this folder a C64 project.", "Connect to C64RE.", "Start a crack project here."],
+    preconditions: ["An MCP session is connected.", "The user has (or will provide) a working directory for the project."],
+    steps: [
+      { actor: "llm", action: "Onboard: detect new vs resumed project, load persistent memory.", tools: ["agent_onboard", "project_status", "get_project_profile"], persist: ["project state"] },
+      { actor: "llm", action: "Ask the user's objective (crack / EasyFlash port / analysis / bugfix / routine) and set role + workflow.", tools: ["agent_set_role", "start_re_workflow"], persist: ["role", "workflow profile"], askHumanWhen: "the objective is not stated" },
+      { actor: "human", action: "Drop .d64/.g64/.crt/.prg + context into the project folder (or give absolute paths).", tools: [], persist: [] },
+      { actor: "llm", action: "Confirm next action and record the step.", tools: ["c64re_whats_next", "agent_propose_next", "agent_record_step"], persist: ["next-action proposal"] },
+    ],
+    stopConditions: ["Project is initialized, role + workflow chosen, media location known."],
+    nextActions: ["Run Media Inventory."],
+    forbiddenShortcuts: ["Do not skip onboarding and start disassembling blind.", "Do not assume repo samples/."],
+  },
+  {
+    id: "media-inventory",
+    title: "Media Inventory",
+    userIntentExamples: ["What's on this disk?", "Inventory ./game.d64", "List the files in this .crt."],
+    preconditions: ["A project exists.", "Media path (absolute or project-relative) is known."],
+    steps: [
+      { actor: "llm", action: "Inspect the medium directory/layout from the user-supplied path.", tools: ["inspect_disk", "disk_sector_allocation"], persist: ["media identity"] },
+      { actor: "llm", action: "Extract files/payloads into project artifacts.", tools: ["extract_disk", "extract_crt", "list_payloads", "read_artifact"], persist: ["artifacts", "payloads"] },
+      { actor: "llm", action: "Record initial findings/questions and refresh the dashboard.", tools: ["save_finding", "save_open_question", "build_project_dashboard", "agent_record_step"], persist: ["findings", "dashboard"] },
+    ],
+    stopConditions: ["Medium inventoried, payloads listed, artifacts registered."],
+    nextActions: ["Choose Trace-First Runtime Discovery (crack/port) or Disassembly-First Static Pass (simple payload)."],
+    forbiddenShortcuts: ["Do not fall back to repo samples if the path fails — report it.", "Do not treat a CRT as a PRG."],
+  },
+  {
+    id: "trace-first-runtime-discovery",
+    title: "Trace-First Runtime Discovery",
+    userIntentExamples: ["Run the game first and trace what executes.", "Boot ./game.d64 and capture a trace."],
+    preconditions: ["A project exists.", "A bootable .d64/.g64/.crt path is known.", "Spec 726 live trace sink is available."],
+    steps: [
+      { actor: "llm", action: "Start Headless with durable capture (trace_out to a project-relative or absolute .duckdb).", tools: ["runtime_session_start"], persist: ["session", "trace.duckdb"],
+        snippet: 'runtime_session_start({ disk_path: "<user/project .d64 or .g64>", trace_out: "traces/<run>.duckdb", trace_domains: ["c64-cpu","drive8-cpu","iec","memory"] })' },
+      { actor: "runtime", action: "Run to a stable BASIC READY screen.", tools: ["runtime_session_run", "runtime_until"], persist: [],
+        snippet: 'runtime_session_run({ session_id, max_instructions: 2000000, until: { kind: "stable_screen", frames_stable: 3 } })' },
+      { actor: "llm", action: "Mark the boot phase.", tools: ["runtime_mark"], persist: ["mark basic-ready"], snippet: 'runtime_mark({ session_id, label: "basic-ready" })' },
+      { actor: "llm", action: "Type the load+run command.", tools: ["runtime_type"], persist: [], snippet: 'runtime_type({ session_id, text: "LOAD\\"*\\",8,1\\rRUN\\r" })' },
+      { actor: "runtime", action: "Run to a stable title/loaded screen.", tools: ["runtime_session_run", "runtime_render_screen"], persist: ["screen"],
+        snippet: 'runtime_session_run({ session_id, max_instructions: 10000000, until: { kind: "stable_screen", frames_stable: 5 } })' },
+      { actor: "llm", action: "Mark loaded, finalize the trace.", tools: ["runtime_mark", "runtime_trace_finalize"], persist: ["mark loaded-or-title", "trace.duckdb"],
+        snippet: 'runtime_mark({ session_id, label: "loaded-or-title" });\nruntime_trace_finalize({ session_id })' },
+      { actor: "tracedb", action: "Query the durable trace with convenience readers (not raw SQL).", tools: ["trace_store_info", "trace_store_top_pcs", "trace_store_bus_find", "runtime_query_events", "runtime_swimlane_slice"], persist: ["executed-PC set", "bus access set"] },
+      { actor: "llm", action: "Save findings + choose disasm candidates.", tools: ["save_finding", "disasm_prg", "agent_record_step"], persist: ["findings", "entry points"] },
+    ],
+    stopConditions: ["A trace.duckdb exists with cpu + bus + marks; executed-PC + access sets queried."],
+    nextActions: ["Disassembly + Trace Validation on the executed payloads."],
+    forbiddenShortcuts: ["Do not use raw trace_store_query because a wrapper looks broken — fix/report it.", "If LOAD\"*\",8,1 is wrong, use LOAD\"$\",8 to read the directory then issue the chosen LOAD."],
+  },
+  {
+    id: "disassembly-first-static-pass",
+    title: "Disassembly-First Static Pass",
+    userIntentExamples: ["Just disassemble this PRG.", "Give me the code for ./loader.prg first."],
+    preconditions: ["A PRG payload path is known.", "The payload is simple enough to read before running, or the user asked for code first."],
+    steps: [
+      { actor: "llm", action: "Heuristic analysis pass.", tools: ["analyze_prg", "inspect_address_range"], persist: ["analysis report"] },
+      { actor: "llm", action: "Disassemble + resolve ROM/symbol references.", tools: ["disasm_prg", "disasm_menu", "c64ref_lookup"], persist: ["disasm artifact"] },
+      { actor: "llm", action: "Draft annotations; promote to findings.", tools: ["propose_annotations", "import_annotations_as_findings", "save_finding", "agent_record_step"], persist: ["annotations", "findings"] },
+    ],
+    stopConditions: ["A readable disassembly + draft annotations exist."],
+    nextActions: ["Validate with a targeted trace (Disassembly + Trace Validation)."],
+    forbiddenShortcuts: ["Do not claim labels/branches are correct without later runtime evidence for non-trivial code."],
+  },
+  {
+    id: "disassembly-trace-validation",
+    title: "Disassembly + Trace Validation",
+    userIntentExamples: ["Which of these routines actually run?", "Validate my labels against execution."],
+    preconditions: ["A disassembly exists.", "The payload can be run in Headless."],
+    steps: [
+      { actor: "llm", action: "Start a targeted trace (narrow trace_domains) and mark candidate phases.", tools: ["runtime_session_start", "runtime_session_run", "runtime_mark", "runtime_trace_finalize"], persist: ["trace.duckdb", "marks"] },
+      { actor: "tracedb", action: "Read executed PCs + memory access sets; resolve PCs to source.", tools: ["trace_store_top_pcs", "trace_store_bus_find", "runtime_query_events", "runtime_resolve_pc"], persist: ["executed-PC set"] },
+      { actor: "llm", action: "Update annotations/findings with evidence references.", tools: ["propose_annotations", "save_finding", "link_payload_to_asm", "agent_record_step"], persist: ["evidence-linked annotations"] },
+    ],
+    stopConditions: ["Annotations cite executed-PC / access evidence; dead labels removed."],
+    nextActions: ["Frozen Visual Inspect or Change/Patch iteration."],
+    forbiddenShortcuts: ["Do not use VICE; the Headless trace is the product evidence."],
+  },
+  {
+    id: "human-assisted-loader-protection",
+    title: "Human-Assisted Loader / Protection Investigation",
+    userIntentExamples: ["Press fire when I tell you and trace the loader.", "It asks for a password / disk flip."],
+    preconditions: ["A session with trace_out is running.", "The human can provide input on request."],
+    steps: [
+      { actor: "llm", action: "Start Headless with trace_out.", tools: ["runtime_session_start"], persist: ["trace.duckdb"] },
+      { actor: "human", action: "Tell the LLM what to press / when to continue / which disk.", tools: [], persist: [], askHumanWhen: "interaction is required (fire, menu, password, disk swap)" },
+      { actor: "llm", action: "Drive input and stamp marks for human-observed phases.", tools: ["runtime_type", "runtime_joystick", "runtime_media_swap", "runtime_mark"], persist: ["marks"] },
+      { actor: "tracedb", action: "Query IEC / $DD00 / drive PC / bus around the marks.", tools: ["trace_store_bus_find", "runtime_swimlane_slice", "runtime_profile_loader", "runtime_query_events"], persist: ["loader evidence"] },
+      { actor: "llm", action: "Record findings + open questions where human context is missing.", tools: ["save_finding", "save_open_question", "agent_record_step"], persist: ["findings", "questions"] },
+    ],
+    stopConditions: ["Loader/protection phases marked + evidence captured; open questions recorded."],
+    nextActions: ["Change/Patch iteration or deeper disassembly of the loader."],
+    forbiddenShortcuts: ["Do not guess protection behaviour — capture it and ask the human for missing context."],
+  },
+  {
+    id: "frozen-visual-inspect",
+    title: "Frozen Visual Inspect To Code/Data",
+    userIntentExamples: ["This logo — where do the bytes come from?", "What draws this sprite/text?"],
+    preconditions: ["A session can be paused at the visible state.", "A trace may exist for write provenance."],
+    steps: [
+      { actor: "llm", action: "Capture a checkpoint + render the screen.", tools: ["runtime_session_snapshot", "runtime_render_screen"], persist: ["checkpoint", "screen"] },
+      { actor: "llm", action: "Resolve a pixel/cell to VIC/RAM evidence; read the backing RAM.", tools: ["runtime_vic_inspect_at", "runtime_monitor_memory"], persist: ["VIC/RAM evidence"] },
+      { actor: "tracedb", action: "Query trace writes around the frame/mark to find the producing code.", tools: ["trace_store_bus_find", "runtime_query_events"], persist: ["write provenance"] },
+      { actor: "llm", action: "Link the visual evidence to RAM/file/payload/disassembly.", tools: ["save_entity", "save_finding", "link_entities", "link_payload_to_asm", "agent_record_step"], persist: ["asset→origin link"] },
+    ],
+    stopConditions: ["Visible asset linked to producing bytes/code with evidence."],
+    nextActions: ["Disassembly improvement or Change/Patch iteration."],
+    forbiddenShortcuts: ["Do not infer asset origin from prose; cite VIC/RAM/trace evidence."],
+  },
+  {
+    id: "change-patch-crack-port",
+    title: "Change / Patch / Crack / Port Iteration",
+    userIntentExamples: ["Crack the protection.", "Patch this routine.", "Port to EasyFlash."],
+    preconditions: ["The relevant code/data is understood with evidence.", "A baseline trace/checkpoint exists for before/after comparison."],
+    steps: [
+      { actor: "llm", action: "Record the intended change, assumptions and risk.", tools: ["save_finding", "save_open_question", "agent_record_step"], persist: ["change intent"] },
+      { actor: "llm", action: "Apply the change (load patched PRG / re-mount) and run with trace_out.", tools: ["runtime_load_prg", "runtime_media_mount", "runtime_session_start", "runtime_session_run", "runtime_mark", "runtime_trace_finalize"], persist: ["after trace"] },
+      { actor: "tracedb", action: "Compare before/after evidence.", tools: ["runtime_swimlane_slice", "runtime_trace_taint", "runtime_follow_path", "runtime_query_events"], persist: ["before/after diff"] },
+      { actor: "llm", action: "Record success/failure + next branch; verify a rebuild where applicable.", tools: ["assemble_source", "save_finding", "agent_record_step"], persist: ["result", "next branch"] },
+    ],
+    stopConditions: ["Change applied + result proven by runtime/trace; result recorded."],
+    nextActions: ["Iterate on the next branch or validate the full title."],
+    forbiddenShortcuts: ["Dedicated code-overlay/branch tooling (Spec 711/712) is not yet exposed; do not claim it exists.", "Do not skip before/after evidence."],
+  },
+  {
+    id: "internal-dev-oracle-vice",
+    title: "Internal Dev Oracle / VICE",
+    userIntentExamples: ["(C64RE developer) Compare our drive timing against VICE.", "Investigate a port-fidelity divergence."],
+    preconditions: ["You are developing/debugging the C64RE MCP/core itself.", "A specific internal dev fixture/artifact is named (not an implicit repo sample)."],
+    steps: [
+      { actor: "llm", action: "Capture the Headless behaviour first (this is the product authority).", tools: ["runtime_session_start", "runtime_session_run", "runtime_trace_finalize"], persist: ["headless trace"] },
+      { actor: "llm", action: "Run the VICE oracle on the SAME named fixture and compare boundary lanes.", tools: viceTools.slice(0, 6), persist: ["oracle diff finding"], askHumanWhen: "the divergence fixture is not explicitly named" },
+      { actor: "llm", action: "Record the first divergence as a finding with an oracle reference.", tools: ["save_finding", "agent_record_step"], persist: ["divergence finding"] },
+    ],
+    stopConditions: ["First divergence identified with an oracle reference."],
+    nextActions: ["Fix the port per the C→TS forensic doctrine; re-validate with Headless."],
+    forbiddenShortcuts: ["Never expose VICE as a product workflow path.", "Never use a VICE trace as a replacement for Headless evidence.", "Never tell an external LLM/user to switch to VICE.", "Never use an implicit repo-sample fixture."],
+    internalOnly: true,
+  },
+  {
+    id: "operator-maintenance",
+    title: "Operator / Maintenance",
+    userIntentExamples: ["The project store has duplicates.", "Backfill missing records."],
+    preconditions: ["The project store itself needs repair/backfill/dedupe/import.", "This is NOT a normal analysis question."],
+    steps: [
+      { actor: "human", action: "Confirm the maintenance operation before any destructive/bulk change.", tools: [], persist: [], askHumanWhen: "always, before destructive or bulk changes" },
+      { actor: "llm", action: "Run the specific advanced maintenance tool (requires C64RE_FULL_TOOLS).", tools: [], persist: ["repaired records"] },
+      { actor: "llm", action: "Record what was changed.", tools: ["agent_record_step"], persist: ["maintenance log"] },
+    ],
+    stopConditions: ["Store repaired; change recorded."],
+    nextActions: ["Resume normal workflow."],
+    forbiddenShortcuts: ["Do not use maintenance tools to answer normal analysis questions.", "Do not run destructive/bulk ops without explicit confirmation."],
+    operatorOnly: true,
+  },
+];
+
+const unknown = [];
+for (const pb of PLAYBOOKS) for (const s of pb.steps) for (const t of (s.tools || [])) if (!have.has(t)) unknown.push(`${pb.id}:${t}`);
+if (unknown.length) { console.error("ERROR: playbooks reference tools not in inventory:\n  " + unknown.join("\n  ")); process.exit(2); }
+
+const json = { generated: "scripts/gen-mcp-llm-playbooks.mjs", spec: "728", globalRules: GLOBAL_RULES, viceToolCount: viceTools.length, playbooks: PLAYBOOKS };
+writeFileSync(join(ROOT, "docs/mcp-llm-playbooks.json"), JSON.stringify(json, null, 2));
+
+let md = `# MCP LLM Playbooks (Spec 728)
+
+Generated by \`scripts/gen-mcp-llm-playbooks.mjs\`. Ordered by intent, not by
+namespace. A fresh LLM should be able to run a project from these without
+knowing sprint/spec history. Every tool named here exists in the current tool
+inventory.
+
+## Global rules (apply to every playbook)
+
+${GLOBAL_RULES.map((r, i) => `${i + 1}. ${r}`).join("\n")}
+
+`;
+for (const pb of PLAYBOOKS) {
+  md += `## ${pb.title}\n\n`;
+  md += `**id:** \`${pb.id}\`${pb.internalOnly ? "  ·  _internal-dev-only_" : ""}${pb.operatorOnly ? "  ·  _operator-only_" : ""}\n\n`;
+  md += `**Use when:** ${pb.userIntentExamples.join(" / ")}\n\n`;
+  md += `**Preconditions:** ${pb.preconditions.join("; ")}\n\n`;
+  md += `**Steps:**\n\n`;
+  pb.steps.forEach((s, i) => {
+    md += `${i + 1}. _(${s.actor})_ ${s.action}\n`;
+    if (s.tools && s.tools.length) md += `   - tools: ${s.tools.map((t) => "`" + t + "`").join(", ")}\n`;
+    if (s.persist && s.persist.length) md += `   - persist: ${s.persist.join(", ")}\n`;
+    if (s.askHumanWhen) md += `   - ask human when: ${s.askHumanWhen}\n`;
+    if (s.snippet) md += "   ```text\n" + s.snippet.split("\n").map((l) => "   " + l).join("\n") + "\n   ```\n";
+  });
+  md += `\n**Stop when:** ${pb.stopConditions.join("; ")}\n\n`;
+  md += `**Next:** ${pb.nextActions.join("; ")}\n\n`;
+  md += `**Do not:** ${pb.forbiddenShortcuts.join(" ")}\n\n`;
+}
+writeFileSync(join(ROOT, "docs/mcp-llm-playbooks.md"), md);
+
+console.log(`728 playbooks: ${PLAYBOOKS.length} playbooks, ${viceTools.length} vice tools available → docs/mcp-llm-playbooks.{json,md}`);
