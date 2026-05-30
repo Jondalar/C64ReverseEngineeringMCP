@@ -27,9 +27,10 @@ inventory.
 
 **Steps:**
 
-1. _(llm)_ Onboard: detect new vs resumed project, load persistent memory.
-   - tools: `agent_onboard`, `project_status`, `get_project_profile`
+1. _(llm)_ Onboard: detect new vs resumed project, load persistent memory. For a brand-new directory, initialize it first (knowledge writes are rejected until then).
+   - tools: `agent_onboard`, `project_init`, `project_status`, `get_project_profile`
    - persist: project state
+   - ask human when: it is unclear whether to create a new project here
 2. _(llm)_ Ask the user's objective (crack / EasyFlash port / analysis / bugfix / routine) and set role + workflow.
    - tools: `agent_set_role`, `start_re_workflow`
    - persist: role, workflow profile

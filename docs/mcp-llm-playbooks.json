@@ -29,15 +29,17 @@
       "steps": [
         {
           "actor": "llm",
-          "action": "Onboard: detect new vs resumed project, load persistent memory.",
+          "action": "Onboard: detect new vs resumed project, load persistent memory. For a brand-new directory, initialize it first (knowledge writes are rejected until then).",
           "tools": [
             "agent_onboard",
+            "project_init",
             "project_status",
             "get_project_profile"
           ],
           "persist": [
             "project state"
-          ]
+          ],
+          "askHumanWhen": "it is unclear whether to create a new project here"
         },
         {
           "actor": "llm",

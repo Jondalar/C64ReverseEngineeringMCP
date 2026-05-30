@@ -2,8 +2,8 @@
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
   "total": 274,
-  "defaultCount": 76,
-  "advancedCount": 198,
+  "defaultCount": 77,
+  "advancedCount": 197,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
     "runtime-explore": "start/run Headless, mount, input, render",
@@ -1736,16 +1736,21 @@
       "name": "project_init",
       "namespace": "project",
       "sourceFile": "project-knowledge/mcp-tools.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "workflow",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Advanced project init/maintenance operation.",
-      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Initialize a fresh directory as a C64RE project before any knowledge write — the product entry step for a new project.",
+      "notFor": "Resuming an existing project — use agent_onboard; choosing a workflow — use start_re_workflow.",
       "adjacentTools": [
+        "agent_onboard",
+        "start_re_workflow",
         "project_status"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
+      "e2eUseCases": [
+        "E2E-A",
+        "E2E-H"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {

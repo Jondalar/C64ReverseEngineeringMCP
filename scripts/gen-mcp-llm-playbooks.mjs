@@ -34,7 +34,7 @@ const PLAYBOOKS = [
     userIntentExamples: ["Make this folder a C64 project.", "Connect to C64RE.", "Start a crack project here."],
     preconditions: ["An MCP session is connected.", "The user has (or will provide) a working directory for the project."],
     steps: [
-      { actor: "llm", action: "Onboard: detect new vs resumed project, load persistent memory.", tools: ["agent_onboard", "project_status", "get_project_profile"], persist: ["project state"] },
+      { actor: "llm", action: "Onboard: detect new vs resumed project, load persistent memory. For a brand-new directory, initialize it first (knowledge writes are rejected until then).", tools: ["agent_onboard", "project_init", "project_status", "get_project_profile"], persist: ["project state"], askHumanWhen: "it is unclear whether to create a new project here" },
       { actor: "llm", action: "Ask the user's objective (crack / EasyFlash port / analysis / bugfix / routine) and set role + workflow.", tools: ["agent_set_role", "start_re_workflow"], persist: ["role", "workflow profile"], askHumanWhen: "the objective is not stated" },
       { actor: "human", action: "Drop .d64/.g64/.crt/.prg + context into the project folder (or give absolute paths).", tools: [], persist: [] },
       { actor: "llm", action: "Confirm next action and record the step.", tools: ["c64re_whats_next", "agent_propose_next", "agent_record_step"], persist: ["next-action proposal"] },
