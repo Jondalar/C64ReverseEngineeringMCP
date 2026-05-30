@@ -24,13 +24,21 @@ Shipped + GREEN (`npm run check:mcp-product-surface`):
   end-to-end. **Found + fixed a real gap:** `project_init` was advanced-tier,
   so a default LLM could not start a fresh project — promoted to default.
 
-PENDING (depend on Spec 726 reader/writer schema alignment):
+GREEN (Spec 726 reader/writer alignment landed):
 
-- E2E-B (`e2e-mcp-trace-first`), E2E-I (`smoke-trace-store-writer-reader-e2e`),
-  E2E-C trace half, E2E-D trace-provenance half. They require the convenience
-  readers to consume the live-writer `trace_run`/`trace_event`/`trace_mark`
-  schema (not `meta`/`instructions`, not a raw-SQL workaround). Built next
-  alongside the 726 alignment fix; not stubbed green.
+- E2E-I (`scripts/smoke-trace-store-writer-reader-e2e.mjs`) — 8/8 against the
+  Murder fixture (`run_live-capture_mprewdk9`) on a working COPY. The convenience
+  readers consume the live-writer `trace_run`/`trace_event`/`trace_mark` schema
+  directly; the E1 source audit finds no reader SQL on `meta`/`instructions`;
+  `trace_store_query` stays the raw escape hatch only. Runs PENDING (not skipped)
+  when the fixture is absent.
+
+PENDING (not yet built / blocked):
+
+- E2E-B (`e2e-mcp-trace-first`), E2E-C trace half, E2E-D trace-provenance half —
+  a live capture→query round-trip through `runtime_session_start(trace_out)` +
+  marks + finalize. The reader contract (E2E-I) is now proven; the live-capture
+  harness is the next slice.
 - E2E-E (change/validation) stays expected-PENDING until Spec 711 code-overlay
   tooling lands (documented, not faked).
 

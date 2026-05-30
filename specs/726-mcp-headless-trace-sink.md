@@ -8,6 +8,17 @@ starts the run; `runtime_session_run`/`until` chunk + drain; new default tools
 proven by `scripts/smoke-trace-sink.mjs` (10/10: producers passive + chunked
 traced run == untraced + real trace.duckdb). default=76, full=274.
 probe-tool-surface 18/18, probe-single-path 25/25, no runtime:proof.
+
+**§6a reader-alignment corrected (2026-05-30):** the convenience readers
+previously SELECTed from legacy `meta`/`instructions` tables synthesized by a
+compat-view shim over a 726 store — §6a forbids that. The readers now consume
+the live-writer `trace_run`/`trace_event`/`trace_mark` schema DIRECTLY via inline
+projections (`src/runtime/trace-store/schema726.ts`); legacy Spec-217 native-store
+reads are isolated in `queries-legacy217.ts` (reached only for a non-726 store).
+Proven by `scripts/smoke-trace-store-writer-reader-e2e.mjs` (8/8 against the
+Murder fixture `run_live-capture_mprewdk9`): no reader SQL on `meta`/
+`instructions`, `trace_store_query` raw SQL is the escape hatch only.
+smoke-trace-sink 30/30.
 **Owner:** MCP server / runtime trace
 **Source:** `docs/llm-human-c64re-swimlane.md` + the Murder project use-case
 `docs/USECASE_trace_to_disasm.md` (trace → dynamic analysis → better disasm).
@@ -41,6 +52,22 @@ Flow:
    `runtime_profile_loader`.
 6. LLM uses executed PC sets and bus/memory access sets to choose entry points,
    data ranges and payloads for `disasm_prg` / `disasm_menu`.
+
+Canonical `.d64` / `.g64` disk boot command sequence:
+
+```text
+runtime_session_start(disk_path=<disk>, trace_out=<trace.duckdb>)
+runtime_session_run(... until stable BASIC READY ...)
+runtime_mark("basic-ready")
+runtime_type("LOAD\"*\",8,1\rRUN\r")
+runtime_session_run(... until stable title/loaded screen ...)
+runtime_mark("loaded-or-title")
+runtime_trace_finalize()
+```
+
+For disks where `LOAD"*",8,1` is not appropriate, first run
+`LOAD"$",8` to inspect the directory, then issue the selected `LOAD` command.
+The trace remains active across all typed commands and custom-loader phases.
 
 Required 726 result: a real `trace.duckdb` exists after the live run. Reader
 tools must not need a pre-existing scenario trace or hand-written WS client.
@@ -382,9 +409,12 @@ that is a bug to fix, not a reason to run the 7-game gate.)
 - A default-surface LLM can: `runtime_session_start(trace_out=…)` →
   `runtime_session_run`/`runtime_until` + `runtime_mark(...)` across phases →
   finalize → a `trace.duckdb` with `cpu_step` + bus + `trace_mark` rows.
-- Offline (store-only, no live session): `runtime_query_events` /
-  `trace_store_query` / `trace_store_top_pcs` return the captured rows; an
-  executed-PC query over a file range returns in <1 s.
+- Offline (store-only, no live session): the convenience readers
+  `trace_store_info`, `trace_store_top_pcs`, `trace_store_bus_find`,
+  `trace_store_anchor_list`, `trace_store_anchor_find`, `runtime_query_events`,
+  `runtime_swimlane_slice`, `runtime_trace_taint`, `runtime_follow_path` and
+  `runtime_profile_loader` read the **same schema written by the 726 writer**.
+  Raw `trace_store_query` working by itself is NOT acceptance.
 - `disasm_prg` pass 2 can consume the executed-PC set as `entry_points[]` (the
   use-case payoff — measured separately in the project).
 - **Trace does not influence the runtime (§2a):** the equivalence guard proves
@@ -393,6 +423,69 @@ that is a bug to fix, not a reason to run the 7-game gate.)
 - No new parallel trace path: capture reuses `TraceRunController` + the store.
 - Default surface stays façade-first; `runtime_run_scenario` + `vice_trace_*`
   stay advanced. `probe-tool-surface` + `probe-single-path` GREEN.
+
+## 6a. Mandatory Schema Alignment — No Reader/Writer Drift
+
+The writer schema is the source of truth for this spec:
+
+```text
+trace_run
+trace_event(run_id, seq, cycle, channel, trigger_kind, capture_kind, data_json)
+trace_mark(run_id, cycle, label)
+```
+
+All convenience readers must target that schema. They must not query old
+Spec-217 tables such as `meta` or `instructions`.
+
+Required reader behavior:
+
+- `trace_store_info`: reads `trace_run`, counts `trace_event`, counts channels,
+  counts `trace_mark`.
+- `trace_store_top_pcs`: reads `trace_event WHERE channel='cpu'` and extracts
+  PC from `data_json`.
+- `trace_store_bus_find`: reads bus/access channels from `trace_event` and
+  extracts address/value/op from `data_json`.
+- `trace_store_anchor_list` / `trace_store_anchor_find`: read `trace_mark`.
+- `runtime_query_events`: maps `family` to writer `channel`, then applies
+  cycle/pc/addr filters through `trace_event.cycle` and `data_json`.
+- Higher-level readers (`swimlane`, `taint`, `follow-path`, `profile-loader`)
+  must either consume this schema directly or share the same adapter.
+
+Acceptance store:
+
+```text
+/Users/alex/Development/C64/Cracking/Murder/traces/smoke/trace.duckdb
+run_id = run_live-capture_mprewdk9
+```
+
+That store was produced by the live 726 trace sink and contains:
+
+```text
+trace_event, trace_mark, trace_run
+```
+
+No `meta`. No `instructions`.
+
+Mandatory smoke:
+
+```sh
+node scripts/smoke-trace-store-writer-reader-e2e.mjs \
+  /Users/alex/Development/C64/Cracking/Murder/traces/smoke/trace.duckdb \
+  run_live-capture_mprewdk9
+```
+
+It must assert:
+
+- `trace_store_info` succeeds and reports run/event/channel/mark counts.
+- `trace_store_top_pcs cpu=c64` succeeds and returns top C64 PCs.
+- `runtime_query_events family=cpu pc_start=$E5CD pc_end=$E5CD` returns at
+  least one CPU event when the store contains that PC.
+- No reader SQL references `meta` or `instructions`.
+- `trace_store_query` is allowed as an escape hatch, but cannot be the only
+  passing reader.
+
+No workaround is accepted. Updating agent flows to raw SQL strings instead of
+fixing wrappers is explicitly out of scope and fails this spec.
 
 ## 7. Open questions
 - **OQ1** — finalize trigger: explicit `runtime_trace_finalize(session_id)` vs
