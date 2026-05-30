@@ -180,7 +180,8 @@
     "runtime:proof": "node scripts/runtime-proof-gate.mjs",
     "start": "tsx src/cli.ts",
     "smoke:product-ui": "npm run build:mcp && npm run ui:build && node scripts/smoke-product-ui.mjs",
-    "smoke:bug015": "npm run build:mcp && node scripts/smoke-bug015-init-media-sort.mjs"
+    "smoke:bug015": "npm run build:mcp && node scripts/smoke-bug015-init-media-sort.mjs",
+    "smoke:bug013": "npm run build:mcp && node scripts/smoke-bug013-drive-picker-project-only.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

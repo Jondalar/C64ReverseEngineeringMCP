@@ -18,6 +18,10 @@ export interface RecentEntry {
 }
 
 function recentFilePath(): string {
+  // C64RE_RECENT_FILE overrides the store location (tests / isolated runs) so
+  // the user's real recents store is never touched. Default: per-user config.
+  const override = process.env.C64RE_RECENT_FILE;
+  if (override && override.trim().length > 0) return override;
   return join(homedir(), ".config", "c64re", "recent-media.json");
 }
 

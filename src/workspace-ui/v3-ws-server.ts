@@ -1173,11 +1173,25 @@ export class V3WsServer {
       const seen = new Set<string>();
       const out: Array<{ path: string; name: string; type: string }> = [];
 
-      // 1. Recents (existing only) first — preserves "recently used"
-      //    ordering at top of picker.
+      // BUG-013 — the picker must show ONLY active-project media in product
+      // mode. getRecent() is a GLOBAL store, so it carries media from prior
+      // runs (incl. the repo gate corpus: motm.g64, POLARBEAR.d64, …). Gate
+      // every recents path to inside the active project dir. (Outside paths are
+      // only allowed under --dev-samples, handled in §2.)
+      const projDirAbs = this.projectDir ? pmod.resolve(this.projectDir) : "";
+      const insideProject = (p: string): boolean => {
+        if (!projDirAbs) return false;
+        const rel = pmod.relative(projDirAbs, pmod.resolve(p));
+        return rel !== "" && !rel.startsWith("..") && !pmod.isAbsolute(rel);
+      };
+
+      // 1. Recents (existing AND inside the project) first — preserves
+      //    "recently used" ordering at top of picker. In dev-samples mode,
+      //    recents from anywhere are allowed (dev convenience).
       for (const r of getRecent() as any[]) {
         try { if (!fsmod.existsSync(r.path)) continue; } catch { continue; }
         if (seen.has(r.path)) continue;
+        if (!this.devSamples && !insideProject(r.path)) continue;
         seen.add(r.path);
         out.push({ ...r, name: r.name ?? pmod.basename(r.path) });
       }
