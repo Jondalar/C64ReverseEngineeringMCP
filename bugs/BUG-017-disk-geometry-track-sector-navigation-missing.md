@@ -158,3 +158,22 @@ ever reached the first sector.
 - **Gate:** `npm run smoke:bug017` 17/17 (adds 5e–5h: real-max-track strip,
   sector sub-strip, view-builder physical track count, G64 lying-header
   tolerance). MCP + pipeline + v1 + v3 builds green; ui typecheck 13/0.
+
+## Follow-up — whole-track hex dump with per-sector separators (2026-05-30)
+
+User clarification: clicking a track should open ALL of that track's sectors as
+one binary in the hex/monitor overlay, with a separator line marking each sector.
+
+- New endpoint `GET /api/disk/track-bytes?path&track` — concatenates every sector
+  of the track (256 B each, ascending order, missing sectors zero-filled to keep
+  the stride aligned), format-agnostic via the parser (D64 + G64). Returns an
+  `X-Sector-Count` header.
+- `HexView` gained an optional `markers: {offset,label}[]` prop: it renders a
+  `.hex-separator` divider row immediately before the row at each marker offset.
+- `DiskPanel.showTrack` now fetches `track-bytes` and passes one marker per sector
+  (`Track N · Sector i` at `i*256`), so the whole track shows with a labelled
+  divider before every sector — for every format, not just D64. (The per-sector
+  sub-strip stays as a quick single-sector jump.)
+- **Gate:** `npm run smoke:bug017` 20/20 (5d rewritten to the whole-track+markers
+  flow; 10–12 add the real track-bytes HTTP E2E: 19×256 for T18, `X-Sector-Count`,
+  sector-0 at offset 0). MCP + v1 + v3 builds green; ui typecheck 13/0.

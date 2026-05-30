@@ -2408,6 +2408,15 @@ button {
   white-space: pre;
 }
 
+/* BUG-017 — section separator between sectors in a whole-track hex dump. */
+.hex-separator {
+  color: var(--accent-2, #7c6cee);
+  font-weight: 600;
+  margin: 6px 0 2px;
+  letter-spacing: 0.04em;
+  white-space: pre;
+}
+
 .hex-addr {
   color: #58a6ff;
   min-width: 56px;

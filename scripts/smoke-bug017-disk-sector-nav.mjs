@@ -32,7 +32,7 @@ ok(/function showTrack\(/.test(src) && /onClick=\{\(\) => showTrack\(track\)\}/.
 const stripBlock = src.slice(src.indexOf("disk-track-strip"), src.indexOf("disk-geometry-wrap"));
 ok(!/if \(!isD64\) return null/.test(stripBlock), "5b track strip is NOT D64-gated (shows for G64 etc.)", "");
 ok(/selectedTrack/.test(src) && /track-selected/.test(src), "5c selected track highlights its sectors in the geometry", "");
-ok(/inspectSector\(track, firstSectorOfTrack\(track\)\)/.test(src), "5d non-D64 track click shows the track's first sector (format-agnostic)", "");
+ok(/\/api\/disk\/track-bytes\?/.test(src) && /Track \$\{track\} · Sector \$\{i\}/.test(src), "5d track click opens the WHOLE track with per-sector separators (markers)", "");
 // the strip length comes from the REAL max track + a sector sub-strip lets you
 // reach every sector (not just the first).
 ok(/diskMaxTrack/.test(src) && /length: diskMaxTrack/.test(src), "5e track strip length = real max track (extended 42-track G64, not nominal 35)", "");
@@ -76,6 +76,13 @@ try {
   ok(buf[0] === 18 && buf[1] === 1, "8 returned bytes are the correct sector (T18/S0 BAM marker)", `byte0=${buf[0]} byte1=${buf[1]}`);
   const r2 = await fetch(url(99, 0));
   ok(r2.status === 404, "9 out-of-range track → 404 (no silent garbage)", `status=${r2.status}`);
+
+  // whole-track read: track 18 = 19 sectors × 256 = 4864 B, sector 0 at offset 0.
+  const tr = await fetch(`http://127.0.0.1:${PORT}/api/disk/track-bytes?path=${encodeURIComponent("input/disk/test.d64")}&track=18`);
+  const tbuf = Buffer.from(await tr.arrayBuffer());
+  ok(tr.status === 200 && tbuf.length === 19 * 256, "10 track-bytes returns the whole track (19×256 for T18)", `status=${tr.status} len=${tbuf.length}`);
+  ok(tr.headers.get("x-sector-count") === "19", "11 X-Sector-Count header = 19 for track 18", `hdr=${tr.headers.get("x-sector-count")}`);
+  ok(tbuf[0] === 18 && tbuf[1] === 1, "12 first sector (S0) is at track-buffer offset 0 (separator anchor)", `byte0=${tbuf[0]}`);
 
   console.log(`\n--- report ---`);
   console.log(`UI: clickable SVG sectors → inspectSector → /api/disk/sector-bytes hex + raw-sector detail`);

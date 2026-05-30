@@ -501,7 +501,7 @@ export function CartridgePanel({
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
   onSelectChunk: (cartridgeArtifactId: string, chunk: CartridgeLutChunk) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number>; markers?: Array<{ offset: number; label: string }> }) => void;
 }) {
   function findChipEntity(bank: number, loadAddress: number) {
     return snapshot.entities.find((entity) =>
@@ -612,7 +612,7 @@ export function DiskPanel({
   selectedDiskFile?: DiskFileSelection | null;
   onSelectEntity: (entityId: string) => void;
   onSelectDiskFile: (diskArtifactId: string, fileId: string) => void;
-  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number>; markers?: Array<{ offset: number; label: string }> }) => void;
 }) {
   const disks = snapshot.views.diskLayout.disks;
   const [activeDiskId, setActiveDiskId] = useState<string | null>(disks[0]?.artifactId ?? null);
@@ -729,11 +729,6 @@ export function DiskPanel({
       fetchUrl: `/api/disk/sector-bytes?${params.toString()}`,
     });
   }
-  // BUG-017 (track grid) — lowest sector number present on a track.
-  const firstSectorOfTrack = (track: number) => {
-    const sectors = (activeDisk?.sectors ?? []).filter((s) => s.track === track).map((s) => s.sector);
-    return sectors.length ? Math.min(...sectors) : 0;
-  };
   // Real track count = the highest track that actually has sectors (covers
   // extended/42-track G64 images, not just the nominal trackCount).
   const diskMaxTrack = Math.max(
@@ -749,23 +744,29 @@ export function DiskPanel({
         .slice()
         .sort((a, b) => a.sector - b.sector);
   const isD64Image = diskImagePath.toLowerCase().endsWith(".d64");
-  // Click a whole track in the strip → show it in the hex/monitor. D64 reads the
-  // whole track by offset; other formats (G64) open the track's first decoded
-  // sector via the format-agnostic sector-bytes endpoint. Either way the track is
-  // highlighted in the geometry.
+  // Click a whole track in the strip → open the WHOLE track in the hex/monitor
+  // overlay: every sector concatenated (256 B each), with a separator line
+  // labelling each sector. Format-agnostic via /api/disk/track-bytes (D64 + G64).
   function showTrack(track: number) {
     setSelectedTrack(track);
-    if (isD64Image && diskImagePath) {
-      const sectors = d64SectorsInTrack(track);
-      onOpenHex(diskImagePath, {
-        title: `${diskDisplayName} · Track ${track}`,
-        baseAddress: 0,
-        offset: d64SectorOffset(track, 0),
-        length: sectors * 256,
-      });
-    } else {
-      inspectSector(track, firstSectorOfTrack(track));
-    }
+    setSelectedSector(null);
+    if (!diskImagePath) return;
+    const sectorCount = d64SectorsInTrack(track); // 256-byte stride is fixed; count by speed zone
+    const markers = Array.from({ length: sectorCount }, (_, i) => ({
+      offset: i * 256,
+      label: `Track ${track} · Sector ${i}`,
+    }));
+    const params = new URLSearchParams({
+      projectDir: snapshot.project.rootPath,
+      path: diskImagePath,
+      track: String(track),
+    });
+    onOpenHex(diskImagePath, {
+      title: `${diskDisplayName} · Track ${track} (${sectorCount} sectors)`,
+      baseAddress: 0,
+      fetchUrl: `/api/disk/track-bytes?${params.toString()}`,
+      markers,
+    });
   }
   const directoryLines = activeDisk
     ? [

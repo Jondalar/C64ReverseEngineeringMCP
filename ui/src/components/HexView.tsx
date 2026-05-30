@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 
 interface HexViewProps {
   // Project-relative path used by /api/artifact/raw (ignored when
@@ -29,6 +29,10 @@ interface HexViewProps {
   // Optional context dict (e.g. { destHi: 0x40 } for byteboozer-lykia)
   // appended verbatim to the /api/depack query string.
   packerContext?: Record<string, string | number>;
+  // BUG-017 — optional section separators. A label is rendered as a divider row
+  // immediately before the hex row at `offset` (e.g. one per disk sector in a
+  // whole-track dump). Offsets should be multiples of ROW_BYTES.
+  markers?: Array<{ offset: number; label: string }>;
   onClose: () => void;
 }
 
@@ -59,7 +63,7 @@ function petsciiPreviewChar(byte: number): string {
   return ".";
 }
 
-export function HexView({ path, projectDir, title, baseAddress = 0, offset, length, fetchUrl, bytes: presetBytes, packerHint, packerContext, onClose }: HexViewProps) {
+export function HexView({ path, projectDir, title, baseAddress = 0, offset, length, fetchUrl, bytes: presetBytes, packerHint, packerContext, markers, onClose }: HexViewProps) {
   const [bytes, setBytes] = useState<Uint8Array | null>(presetBytes ?? null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(!presetBytes);
@@ -175,6 +179,14 @@ export function HexView({ path, projectDir, title, baseAddress = 0, offset, leng
     return out;
   }, [bytes, baseAddress]);
 
+  // BUG-017 — section separators keyed by row offset (snapped down to the row
+  // grid so a marker always lands on a rendered row).
+  const markerByOffset = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const m of markers ?? []) map.set(m.offset - (m.offset % ROW_BYTES), m.label);
+    return map;
+  }, [markers]);
+
   const depackPacker = packerHint ? DEPACK_PACKER_ALIASES[packerHint.trim().toLowerCase()] : undefined;
   const canDepack = Boolean(depackPacker);
   const showDepackButton = canDepack || depackState.mode === "depacked";
@@ -227,22 +239,28 @@ export function HexView({ path, projectDir, title, baseAddress = 0, offset, leng
             <div className="hex-overlay-empty">Empty file.</div>
           ) : (
             <pre className="hex-overlay-grid">
-              {rows.map((row) => (
-                <div key={row.offset} className="hex-row">
-                  <span className="hex-addr">${formatHexAddress(row.addr)}</span>
-                  <span className="hex-cells">
-                    {Array.from({ length: ROW_BYTES }).map((_, columnIndex) => {
-                      const byte = row.cells[columnIndex];
-                      return (
-                        <span key={columnIndex} className={byte === undefined ? "hex-cell hex-cell-empty" : "hex-cell"}>
-                          {byte === undefined ? "  " : formatHexByte(byte)}
-                        </span>
-                      );
-                    })}
-                  </span>
-                  <span className="hex-ascii">{row.chars.padEnd(ROW_BYTES, " ")}</span>
-                </div>
-              ))}
+              {rows.map((row) => {
+                const marker = markerByOffset.get(row.offset);
+                return (
+                  <Fragment key={row.offset}>
+                    {marker ? <div className="hex-separator">── {marker} ──</div> : null}
+                    <div className="hex-row">
+                      <span className="hex-addr">${formatHexAddress(row.addr)}</span>
+                      <span className="hex-cells">
+                        {Array.from({ length: ROW_BYTES }).map((_, columnIndex) => {
+                          const byte = row.cells[columnIndex];
+                          return (
+                            <span key={columnIndex} className={byte === undefined ? "hex-cell hex-cell-empty" : "hex-cell"}>
+                              {byte === undefined ? "  " : formatHexByte(byte)}
+                            </span>
+                          );
+                        })}
+                      </span>
+                      <span className="hex-ascii">{row.chars.padEnd(ROW_BYTES, " ")}</span>
+                    </div>
+                  </Fragment>
+                );
+              })}
             </pre>
           )}
         </div>

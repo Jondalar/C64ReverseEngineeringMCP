@@ -14,7 +14,7 @@ import { repairProject } from "../project-knowledge/repair.js";
 import { runPayloadReverseWorkflow, runPrgReverseWorkflow } from "../lib/prg-workflow.js";
 import { findUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
 import { buildGraphicsView } from "./graphics-view.js";
-import { createDiskParser, extractFileFromChain, type DiskFileEntry } from "../disk/index.js";
+import { createDiskParser, extractFileFromChain, SECTORS_PER_TRACK, type DiskFileEntry } from "../disk/index.js";
 import { ByteBoozerDepacker, RleDepacker, depackExomizerRaw, depackExomizerSfx } from "../compression-tools.js";
 import { lykiaDecompress } from "../byteboozer-lykia-decoder.js";
 import { writeFile as writeFileAsync, mkdtemp as mkdtempAsync, rm as rmAsync } from "node:fs/promises";
@@ -1695,6 +1695,59 @@ const server = createServer((req, res) => {
         headers: {
           "Content-Type": "application/octet-stream",
           "Content-Length": String(buffer.length),
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "no-store",
+        },
+      });
+    } catch (error) {
+      send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), path }));
+    }
+    return;
+  }
+
+  // BUG-017 — whole-track read: every sector of a track concatenated (256 B each,
+  // ascending sector order). Format-agnostic via the parser (D64 + G64). Missing
+  // sectors are zero-filled so byte offsets stay aligned to sector*256. The
+  // client builds per-sector separators from the fixed 256-byte stride.
+  if (requestUrl.pathname === "/api/disk/track-bytes") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    const path = requestUrl.searchParams.get("path")?.trim();
+    const trackParam = requestUrl.searchParams.get("track");
+    if (!path || !trackParam) {
+      send(res, jsonResponse(400, { error: "Missing path/track query parameters." }));
+      return;
+    }
+    const track = Number.parseInt(trackParam, 10);
+    if (!Number.isInteger(track) || track < 1) {
+      send(res, jsonResponse(400, { error: "Invalid track." }));
+      return;
+    }
+    const imagePath = safeProjectPath(projectDir, path);
+    if (!imagePath || !existsSync(imagePath) || !statSync(imagePath).isFile()) {
+      send(res, jsonResponse(404, { error: "Disk image not found.", path, projectDir }));
+      return;
+    }
+    try {
+      const parser = createDiskParser(new Uint8Array(readFileSync(imagePath)));
+      if (!parser) {
+        send(res, jsonResponse(415, { error: "Unrecognised disk image format.", path }));
+        return;
+      }
+      const sectorCount = SECTORS_PER_TRACK[track] ?? 17;
+      const buffer = Buffer.alloc(sectorCount * 256); // zero-filled; missing sectors stay zero
+      for (let sector = 0; sector < sectorCount; sector += 1) {
+        const bytes = parser.getSector(track, sector);
+        if (bytes) Buffer.from(bytes).copy(buffer, sector * 256);
+      }
+      send(res, {
+        status: 200,
+        body: buffer,
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": String(buffer.length),
+          "X-Sector-Count": String(sectorCount),
           "Access-Control-Allow-Origin": "*",
           "Cache-Control": "no-store",
         },

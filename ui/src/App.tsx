@@ -3911,7 +3911,7 @@ export function App() {
   const [docContent, setDocContent] = useState("");
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
-  const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> } | null>(null);
+  const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number>; markers?: Array<{ offset: number; label: string }> } | null>(null);
   const [asmOverlay, setAsmOverlay] = useState<{ title: string; sources: AsmViewSource[] } | null>(null);
   const [todoComposer, setTodoComposer] = useState<TodoComposerState | null>(null);
   const [todoSaving, setTodoSaving] = useState(false);
@@ -3933,7 +3933,7 @@ export function App() {
   const [selectedCartChunk, setSelectedCartChunk] = useState<CartChunkSelection | null>(null);
   const [selectedDiskFile, setSelectedDiskFile] = useState<DiskFileSelection | null>(null);
 
-  function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) {
+  function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number>; markers?: Array<{ offset: number; label: string }> }) {
     setHexOverlay({
       path,
       title: options?.title,
@@ -3944,6 +3944,7 @@ export function App() {
       bytes: options?.bytes,
       packerHint: options?.packerHint,
       packerContext: options?.packerContext,
+      markers: options?.markers,
     });
   }
 
@@ -4646,6 +4647,7 @@ export function App() {
           bytes={hexOverlay.bytes}
           packerHint={hexOverlay.packerHint}
           packerContext={hexOverlay.packerContext}
+          markers={hexOverlay.markers}
           onClose={() => setHexOverlay(null)}
         />
       ) : null}
