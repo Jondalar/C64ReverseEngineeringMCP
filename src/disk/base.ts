@@ -21,6 +21,10 @@ export interface DiskImage {
   getDirectory(): DiskDirectory;
   extractFile(entry: DiskFileEntry, stripLoadAddress?: boolean): Uint8Array | null;
   getSector(track: number, sector: number): Uint8Array | null;
+  /** Physical number of (full) tracks in the image — 35/40 for D64, up to 42
+   *  for extended/protected G64. Used so the UI shows every track, not just the
+   *  ones referenced by directory files (BUG-017). */
+  getTrackCount(): number;
 }
 
 export interface DiskFileSectorLink {

@@ -33,6 +33,18 @@ const stripBlock = src.slice(src.indexOf("disk-track-strip"), src.indexOf("disk-
 ok(!/if \(!isD64\) return null/.test(stripBlock), "5b track strip is NOT D64-gated (shows for G64 etc.)", "");
 ok(/selectedTrack/.test(src) && /track-selected/.test(src), "5c selected track highlights its sectors in the geometry", "");
 ok(/inspectSector\(track, firstSectorOfTrack\(track\)\)/.test(src), "5d non-D64 track click shows the track's first sector (format-agnostic)", "");
+// the strip length comes from the REAL max track + a sector sub-strip lets you
+// reach every sector (not just the first).
+ok(/diskMaxTrack/.test(src) && /length: diskMaxTrack/.test(src), "5e track strip length = real max track (extended 42-track G64, not nominal 35)", "");
+ok(/disk-sector-substrip/.test(src) && /sectorsOfSelectedTrack\.map/.test(src), "5f sector sub-strip — every sector of the selected track is clickable", "");
+
+// backend: the disk track count is derived from the PHYSICAL image, and the G64
+// parser tolerates a lying header (scans real track offsets).
+const vb = readFileSync(join(ROOT, "src/project-knowledge/view-builders.ts"), "utf8");
+ok(/parser\?\.getTrackCount\?\.\(\)/.test(vb), "5g view-builder uses the parser's physical track count (not just file-referenced tracks)", "");
+const g64 = readFileSync(join(ROOT, "src/disk/g64-parser.ts"), "utf8");
+const gtc = g64.slice(g64.indexOf("getTrackCount()"), g64.indexOf("getHalfTrackCount"));
+ok(/trackOffsets/.test(gtc) && /falsified by copy protection/.test(gtc), "5h G64 track count tolerates a lying header (scans real track offsets)", "");
 
 // ---- backend data-path E2E: real D64 over the HTTP API ----
 const projectDir = mkdtempSync(join(tmpdir(), "c64re-bug017-"));

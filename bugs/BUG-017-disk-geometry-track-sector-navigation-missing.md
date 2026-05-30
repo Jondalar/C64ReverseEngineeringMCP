@@ -134,3 +134,27 @@ fast track-level navigation above the circular disk geometry.
   ui typecheck 13 pre-existing / 0 new.
 - **Regression risk:** low — additive UI; existing sector-click + D64 whole-track
   hex preserved; format-agnostic path reuses the existing endpoint.
+
+## Follow-up — full track count + per-sector navigation (2026-05-30)
+
+User feedback: the strip only showed tracks 1–35 (not 42) and a track click only
+ever reached the first sector.
+
+- **Track count cap:** the disk view-builder derived `trackCount` from the
+  tracks that DIRECTORY FILES reference (`Math.max(35, …file chains)`). On a
+  sparse-directory / copy-protected image the extended tracks (36–42) are not in
+  any file chain, so the layout capped at 35 even though the image physically has
+  42 tracks. Fix: `DiskImage.getTrackCount()` (already implemented on both
+  parsers, now part of the interface) feeds the view-builder
+  (`Math.max(35, parser.getTrackCount(), …files)`), so the layout exposes every
+  physical track. The G64 parser's `getTrackCount()` no longer trusts the header
+  byte alone (it **can be falsified by copy protection**) — it scans the real
+  track-offset table for the highest track that actually has GCR data and takes
+  the max with the header-derived count.
+- **Only-first-sector:** selecting a track now reveals a **sector sub-strip**
+  (every sector of that track as a clickable button → `inspectSector`), so all
+  sectors are reachable, not just the first. The DiskPanel also derives the strip
+  length from the real max track present (`diskMaxTrack`) as a belt-and-suspenders.
+- **Gate:** `npm run smoke:bug017` 17/17 (adds 5e–5h: real-max-track strip,
+  sector sub-strip, view-builder physical track count, G64 lying-header
+  tolerance). MCP + pipeline + v1 + v3 builds green; ui typecheck 13/0.

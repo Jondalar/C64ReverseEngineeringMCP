@@ -906,8 +906,14 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
         for (let i = 0; i < data.length; i += 1) if (data[i] !== 0) return false;
         return true;
       }
+      // BUG-017 — the track count must reflect the PHYSICAL image (so extended/
+      // protected 42-track G64s expose tracks 36-42), not just the tracks that
+      // directory files happen to reference. The parser derives it from real
+      // track data (and tolerates a lying G64 header). Fall back to file-chain
+      // max + 35 when no parser is available.
       const trackCount = Math.max(
         35,
+        parser?.getTrackCount?.() ?? 0,
         ...files.flatMap((file) => file.sectorChain.map((cell) => cell.track)),
         ...files.map((file) => file.track ?? 0),
       );

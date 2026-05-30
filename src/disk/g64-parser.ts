@@ -732,7 +732,18 @@ export class G64Parser implements DiskImage {
   }
 
   getTrackCount(): number {
-    return Math.floor(this.trackCount / 2);
+    // The G64 header track-count byte can be falsified by copy protection, so
+    // don't trust it alone. Take the highest WHOLE track that actually has a
+    // non-zero track-offset (= real GCR data present), and fall back to the
+    // header-derived count. (Half-track index i → whole track floor(i/2)+1.)
+    let maxFull = 0;
+    for (let i = 0; i < this.trackOffsets.length; i += 1) {
+      if ((this.trackOffsets[i] ?? 0) > 0) {
+        const fullTrack = Math.floor(i / 2) + 1;
+        if (fullTrack > maxFull) maxFull = fullTrack;
+      }
+    }
+    return Math.max(maxFull, Math.floor(this.trackCount / 2));
   }
 
   getHalfTrackCount(): number {

@@ -734,6 +734,20 @@ export function DiskPanel({
     const sectors = (activeDisk?.sectors ?? []).filter((s) => s.track === track).map((s) => s.sector);
     return sectors.length ? Math.min(...sectors) : 0;
   };
+  // Real track count = the highest track that actually has sectors (covers
+  // extended/42-track G64 images, not just the nominal trackCount).
+  const diskMaxTrack = Math.max(
+    activeDisk?.trackCount ?? 0,
+    ...(activeDisk?.sectors ?? []).map((s) => s.track),
+    0,
+  );
+  // Sectors of the selected track, in order — drives the sector sub-strip.
+  const sectorsOfSelectedTrack = selectedTrack === null
+    ? []
+    : (activeDisk?.sectors ?? [])
+        .filter((s) => s.track === selectedTrack)
+        .slice()
+        .sort((a, b) => a.sector - b.sector);
   const isD64Image = diskImagePath.toLowerCase().endsWith(".d64");
   // Click a whole track in the strip → show it in the hex/monitor. D64 reads the
   // whole track by offset; other formats (G64) open the track's first decoded
@@ -879,26 +893,45 @@ export function DiskPanel({
               <span>track/sector occupancy</span>
             </div>
             {/* BUG-017 (track grid) — compact clickable track strip between the
-                header and the circular geometry. Works for every format (D64 reads
-                the whole track by offset; G64 etc. open the track's first sector
-                via the sector-bytes endpoint). Clicking a track highlights it in
-                the geometry and shows it in the hex/monitor. */}
+                header and the circular geometry. Works for every format. The track
+                count comes from the REAL sectors present (so extended/42-track G64
+                images show tracks 36-42, not just the nominal 35). Selecting a
+                track reveals a sector sub-strip so every sector is reachable. */}
             <div className="disk-track-strip">
               <span className="disk-track-strip-label">Track</span>
-              {Array.from({ length: activeDisk.trackCount }, (_, i) => i + 1).map((track) => (
+              {Array.from({ length: diskMaxTrack }, (_, i) => i + 1).map((track) => (
                 <button
                   key={track}
                   type="button"
                   className={selectedTrack === track ? "disk-track-mon active" : "disk-track-mon"}
                   title={isD64Image
                     ? `Show track ${track} (${d64SectorsInTrack(track)} sectors) in the hex view`
-                    : `Show track ${track} (first sector) in the hex view`}
+                    : `Select track ${track} — then pick a sector below`}
                   onClick={() => showTrack(track)}
                 >
                   {track}
                 </button>
               ))}
             </div>
+            {selectedTrack !== null && sectorsOfSelectedTrack.length > 0 ? (
+              <div className="disk-track-strip disk-sector-substrip">
+                <span className="disk-track-strip-label">T{selectedTrack} · Sec</span>
+                {sectorsOfSelectedTrack.map((s) => {
+                  const isCur = selectedSector?.track === s.track && selectedSector?.sector === s.sector;
+                  return (
+                    <button
+                      key={s.sector}
+                      type="button"
+                      className={isCur ? "disk-track-mon active" : "disk-track-mon"}
+                      title={`Show track ${s.track} sector ${s.sector} (256 B)${s.category ? " · " + s.category : ""}`}
+                      onClick={() => inspectSector(s.track, s.sector)}
+                    >
+                      {s.sector}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
             <div className="disk-geometry-wrap">
               <svg viewBox="0 0 640 640" className="disk-geometry-svg" role="img" aria-label="Disk geometry">
                 <circle cx="320" cy="320" r="58" className="disk-center-hole" />
