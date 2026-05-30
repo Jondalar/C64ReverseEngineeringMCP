@@ -28,15 +28,31 @@ export interface WorkspaceSnapshot {
   openQuestions?: Array<{ id: string; question?: string; title?: string; status?: string; kind?: string }>;
   views?: {
     projectDashboard?: unknown;
-    memoryMap?: unknown;
-    diskLayout?: unknown;
-    cartridgeLayout?: unknown;
+    memoryMap?: MemoryMapView;
+    diskLayout?: DiskLayoutView;
+    cartridgeLayout?: CartridgeLayoutView;
     mediumLayout?: unknown;
-    annotatedListing?: unknown;
+    annotatedListing?: AnnotatedListingView;
     loadSequence?: unknown;
-    flowGraph?: unknown;
+    flowGraph?: FlowGraphView;
   };
 }
+
+// Typed shapes of the view models the backend builders emit (subset the UI needs).
+export interface MemoryMapRegion { id: string; title: string; kind: string; start: number; end: number; bank?: number; status: string; confidence: number; summary?: string }
+export interface MemoryMapView { title: string; regions: MemoryMapRegion[]; cells?: unknown[] }
+export interface DiskLayoutFile { id: string; title: string; type: string; origin: string; sizeBytes?: number; sizeSectors?: number; track?: number; sector?: number; loadAddress?: number; relativePath?: string; notes?: string[] }
+export interface DiskLayoutDisk { artifactId: string; title: string; format: string; diskName?: string; imageFileName?: string; trackCount: number; fileCount: number; files: DiskLayoutFile[] }
+export interface DiskLayoutView { title: string; disks: DiskLayoutDisk[] }
+export interface CartChip { [k: string]: unknown }
+export interface CartBank { [k: string]: unknown }
+export interface CartCartridge { id: string; title: string; cartridgeName?: string; hardwareType?: number; exrom?: number; game?: number; chips: CartChip[]; banks: CartBank[] }
+export interface CartridgeLayoutView { title: string; cartridges: CartCartridge[] }
+export interface AnnotatedListingEntry { id?: string; start: number; end: number; title: string; kind: string; status: string; comment?: string }
+export interface AnnotatedListingView { title: string; entries: AnnotatedListingEntry[] }
+export interface FlowNode { id: string; kind: string; title: string; summary?: string; status: string; confidence: number }
+export interface FlowEdge { id?: string; kind: string; title: string; from: string; to: string; summary?: string; status: string }
+export interface FlowGraphView { title: string; nodes: FlowNode[]; edges: FlowEdge[] }
 
 export interface DocEntry { groupId?: string; relativePath?: string; path?: string; title?: string }
 export interface GraphicsItem { id?: string; label?: string; title?: string; kind?: string; start?: number; end?: number; confirmed?: boolean; [k: string]: unknown }
