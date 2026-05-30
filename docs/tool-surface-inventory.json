@@ -1,5 +1,5 @@
 {
-  "total": 275,
+  "total": 277,
   "specCount": 78,
   "advancedCandidate": 68,
   "byNamespace": {
@@ -11,7 +11,7 @@
     "depack": 8,
     "pack": 8,
     "register": 7,
-    "agent": 6,
+    "agent": 8,
     "trace": 6,
     "backfill": 5,
     "extract": 5,
@@ -83,7 +83,7 @@
       "ns": "agent",
       "hasSpec": false,
       "firstSentence": "Reload the full project state into the session.",
-      "desc": "Reload the full project state into the session. Use when a session starts or after context loss/compaction \u2014 run it FIRST. Not for per-turn checks (use c64re_whats_next) or choosing among options (use agent_propose_next). Inputs: none. Returns: project metadata, workflow phases, agent role/state, recent artifacts, open tasks + questions, and the proposed next action.",
+      "desc": "Reload the full project state into the session. Use when a session starts or after context loss/compaction — run it FIRST. Not for per-turn checks (use c64re_whats_next) or choosing among options (use agent_propose_next). Inputs: none. Returns: project metadata, workflow phases, agent role/state, recent artifacts, open tasks + questions, and the proposed next action.",
       "tier": "default?"
     },
     {
@@ -109,8 +109,26 @@
       "file": "server-tools/agent-workflow.ts",
       "ns": "agent",
       "hasSpec": false,
-      "firstSentence": "Set the working role for this session \u2014 analyst, cartographer, or implementer \u2014 which biases what agent_propose_next recommends.",
-      "desc": "Set the working role for this session \u2014 analyst, cartographer, or implementer \u2014 which biases what agent_propose_next recommends. Use when you begin focused work in one of those modes. Not for recording progress (use agent_record_step). Inputs: role. Returns: confirmation + persisted role.",
+      "firstSentence": "Set the working role for this session — analyst, cartographer, or implementer — which biases what agent_propose_next recommends.",
+      "desc": "Set the working role for this session — analyst, cartographer, or implementer — which biases what agent_propose_next recommends. Use when you begin focused work in one of those modes. Not for recording progress (use agent_record_step). Inputs: role. Returns: confirmation + persisted role.",
+      "tier": "default?"
+    },
+    {
+      "name": "agent_next_step",
+      "file": "server-tools/agent-step.ts",
+      "ns": "agent",
+      "hasSpec": false,
+      "firstSentence": "Get the single MCP-chosen next step for the project, plus valid iterative branches — the product way to answer \"what do I do now?\".",
+      "desc": "Get the single MCP-chosen next step for the project, plus valid iterative branches — the product way to answer \"what do I do now?\". Use when you are unsure where to continue, after finishing a step, or after onboarding; it derives the step from real project state (is the project initialized? are files untracked / manifests unimported / views stale? is media extracted? is there analysis, source, annotations, a trace, open questions, recorded findings?). Every recommended action is a callable product tool; internal maintenance tools are listed only under \"do not call\". Not for executing the step (use agent_run_step or call the named tool) or recording progress (use agent_record_step). Inputs: optional project dir, optional free-text context. Returns: a primary suggestion (step id, phase, tool, why, completion checks), branch alternatives, any human decisions that block progress, and the forbidden-internal-tool list.",
+      "tier": "default?"
+    },
+    {
+      "name": "agent_run_step",
+      "file": "server-tools/agent-step.ts",
+      "ns": "agent",
+      "hasSpec": false,
+      "firstSentence": "Run a workflow step chosen by agent_next_step.",
+      "desc": "Run a workflow step chosen by agent_next_step. Use to execute the inventory/media-sync step in-process (it tracks present-but-untracked files, imports manifests, and rebuilds project views behind one product action). For every other step, it returns the one product tool to call next — it never crashes on an unimplemented step. Not for choosing the step (use agent_next_step) or for the underlying maintenance helpers (those are wrapped, never called directly). Inputs: step id (e.g. inventory-sync), optional project dir, optional step-specific args. Returns: the step status, the product-level actions performed, newly tracked artifacts, refreshed views, findings to review, and the next-step hint.",
       "tier": "default?"
     },
     {
@@ -118,8 +136,8 @@
       "file": "server-tools/disk-g64.ts",
       "ns": "analyze",
       "hasSpec": false,
-      "firstSentence": "Use to sweep an entire G64 image track-by-track and produce a structured anomaly report \u2014 duplicate sectors, missing sectors, unexpected sector IDs, invalid blocks \u2014 including optional cross-reference against a known custom-LUT file.",
-      "desc": "Use to sweep an entire G64 image track-by-track and produce a structured anomaly report \u2014 duplicate sectors, missing sectors, unexpected sector IDs, invalid blocks \u2014 including optional cross-reference against a known custom-LUT file. Not for single-track inspection (use inspect_g64_track) or for DOS directory listing (use inspect_disk). Inputs: absolute or project-relative .g64 path; optional LUT text file path. Returns: anomaly report; does not write any artifact.",
+      "firstSentence": "Use to sweep an entire G64 image track-by-track and produce a structured anomaly report — duplicate sectors, missing sectors, unexpected sector IDs, invalid blocks — including optional cross-reference against a known custom-LUT file.",
+      "desc": "Use to sweep an entire G64 image track-by-track and produce a structured anomaly report — duplicate sectors, missing sectors, unexpected sector IDs, invalid blocks — including optional cross-reference against a known custom-LUT file. Not for single-track inspection (use inspect_g64_track) or for DOS directory listing (use inspect_disk). Inputs: absolute or project-relative .g64 path; optional LUT text file path. Returns: anomaly report; does not write any artifact.",
       "tier": "default?"
     },
     {
@@ -127,8 +145,8 @@
       "file": "server-tools/analysis-workflow.ts",
       "ns": "analyze",
       "hasSpec": false,
-      "firstSentence": "Run the heuristic analysis pipeline on a PRG and produce structured JSON \u2014 segments, cross-references, RAM facts, pointer tables.",
-      "desc": "Run the heuristic analysis pipeline on a PRG and produce structured JSON \u2014 segments, cross-references, RAM facts, pointer tables. Use first on any new PRG to map its structure. Not for producing assembly (run disasm_prg next, passing this JSON) or for disk/cart images (extract first). Inputs: prg_path, optional project_dir. Returns: analysis JSON path + summary.",
+      "firstSentence": "Run the heuristic analysis pipeline on a PRG and produce structured JSON — segments, cross-references, RAM facts, pointer tables.",
+      "desc": "Run the heuristic analysis pipeline on a PRG and produce structured JSON — segments, cross-references, RAM facts, pointer tables. Use first on any new PRG to map its structure. Not for producing assembly (run disasm_prg next, passing this JSON) or for disk/cart images (extract first). Inputs: prg_path, optional project_dir. Returns: analysis JSON path + summary.",
       "tier": "default?"
     },
     {
@@ -164,7 +182,7 @@
       "ns": "auto",
       "hasSpec": true,
       "firstSentence": "Spec 052: run the catch-up sweep across all auto-resolvable questions (Pfad A + B).",
-      "desc": "Spec 052: run the catch-up sweep across all auto-resolvable questions (Pfad A + B). Pfad C runs from the annotation-save endpoint. Returns counts. Spec 056 R27: pass `artifact_id` to scope the sweep to questions/findings linked to that artifact only \u2014 useful as a per-file feedback signal after annotation work.",
+      "desc": "Spec 052: run the catch-up sweep across all auto-resolvable questions (Pfad A + B). Pfad C runs from the annotation-save endpoint. Returns counts. Spec 056 R27: pass `artifact_id` to scope the sweep to questions/findings linked to that artifact only — useful as a per-file feedback signal after annotation work.",
       "tier": "default?"
     },
     {
@@ -173,7 +191,7 @@
       "ns": "auto",
       "hasSpec": true,
       "firstSentence": "Spec 041: heuristic-classify all artifacts and propose relevance tags (loader / protection / save / kernal / asset).",
-      "desc": "Spec 041: heuristic-classify all artifacts and propose relevance tags (loader / protection / save / kernal / asset). Suggestions only \u2014 call set_artifact_relevance to apply. dry_run=true (default) returns proposals without writing.",
+      "desc": "Spec 041: heuristic-classify all artifacts and propose relevance tags (loader / protection / save / kernal / asset). Suggestions only — call set_artifact_relevance to apply. dry_run=true (default) returns proposals without writing.",
       "tier": "default?"
     },
     {
@@ -226,8 +244,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "build",
       "hasSpec": false,
-      "firstSentence": "Rebuild + persist ALL project JSON view-models in one pass (dashboard, memory map, listing, \u2026) for the UI.",
-      "desc": "Rebuild + persist ALL project JSON view-models in one pass (dashboard, memory map, listing, \u2026) for the UI. Use after knowledge changes to refresh every view at once. Not for human-readable markdown (use render_docs) or a single view (use the specific build_* tool). Inputs: none. Returns: rebuilt view list.",
+      "firstSentence": "Rebuild + persist ALL project JSON view-models in one pass (dashboard, memory map, listing, …) for the UI.",
+      "desc": "Rebuild + persist ALL project JSON view-models in one pass (dashboard, memory map, listing, …) for the UI. Use after knowledge changes to refresh every view at once. Not for human-readable markdown (use render_docs) or a single view (use the specific build_* tool). Inputs: none. Returns: rebuilt view list.",
       "tier": "default?"
     },
     {
@@ -307,8 +325,8 @@
       "file": "server-tools/payloads.ts",
       "ns": "bulk",
       "hasSpec": false,
-      "firstSentence": "Use after extract_crt to promote all cartridge LUT chunks to payload entities in the project knowledge store \u2014 run once per cartridge to make every bank/slot chunk visible for analysis, linking, and ASM output.",
-      "desc": "Use after extract_crt to promote all cartridge LUT chunks to payload entities in the project knowledge store \u2014 run once per cartridge to make every bank/slot chunk visible for analysis, linking, and ASM output. Not for single-chunk operations (use link_cart_chunk_to_asm or record_cart_chunk_packer) or for disk payloads (use extract_disk). Inputs: project dir (optional); dry_run=true previews without writing. Writes payload entities to the knowledge store; the cartridge layout view reflects them after build_all_views.",
+      "firstSentence": "Use after extract_crt to promote all cartridge LUT chunks to payload entities in the project knowledge store — run once per cartridge to make every bank/slot chunk visible for analysis, linking, and ASM output.",
+      "desc": "Use after extract_crt to promote all cartridge LUT chunks to payload entities in the project knowledge store — run once per cartridge to make every bank/slot chunk visible for analysis, linking, and ASM output. Not for single-chunk operations (use link_cart_chunk_to_asm or record_cart_chunk_packer) or for disk payloads (use extract_disk). Inputs: project dir (optional); dry_run=true previews without writing. Writes payload entities to the knowledge store; the cartridge layout view reflects them after build_all_views.",
       "tier": "advanced?"
     },
     {
@@ -424,8 +442,8 @@
       "file": "server-tools/bwc-bitstream.ts",
       "ns": "depack",
       "hasSpec": false,
-      "firstSentence": "Auto-dispatch on the first two bytes: 'pu' magic \u2192 depack_bwc_bitstream, else \u2192 depack_bwc_raw.",
-      "desc": "Auto-dispatch on the first two bytes: 'pu' magic \u2192 depack_bwc_bitstream, else \u2192 depack_bwc_raw. Mirrors the engine's discriminator at $0D79.",
+      "firstSentence": "Auto-dispatch on the first two bytes: 'pu' magic → depack_bwc_bitstream, else → depack_bwc_raw.",
+      "desc": "Auto-dispatch on the first two bytes: 'pu' magic → depack_bwc_bitstream, else → depack_bwc_raw. Mirrors the engine's discriminator at $0D79.",
       "tier": "default?"
     },
     {
@@ -514,8 +532,8 @@
       "file": "server-tools/media.ts",
       "ns": "disk",
       "hasSpec": false,
-      "firstSentence": "Report per-track/sector ownership for an extracted disk \u2014 system (BAM/dir), kernal file, custom file, unclaimed padding, orphan data \u2014 and flag overlaps.",
-      "desc": "Report per-track/sector ownership for an extracted disk \u2014 system (BAM/dir), kernal file, custom file, unclaimed padding, orphan data \u2014 and flag overlaps. Use to understand a disk's layout or find hidden/orphan data. Not for the file list (use inspect_disk) or extraction (use extract_disk). Inputs: extracted manifest. Returns: T/S ownership map + overlaps.",
+      "firstSentence": "Report per-track/sector ownership for an extracted disk — system (BAM/dir), kernal file, custom file, unclaimed padding, orphan data — and flag overlaps.",
+      "desc": "Report per-track/sector ownership for an extracted disk — system (BAM/dir), kernal file, custom file, unclaimed padding, orphan data — and flag overlaps. Use to understand a disk's layout or find hidden/orphan data. Not for the file list (use inspect_disk) or extraction (use extract_disk). Inputs: extracted manifest. Returns: T/S ownership map + overlaps.",
       "tier": "default?"
     },
     {
@@ -550,8 +568,8 @@
       "file": "server-tools/media.ts",
       "ns": "extract",
       "hasSpec": false,
-      "firstSentence": "Use when a disk stores its real payloads in a fixed-stride non-DOS LUT sector rather than the standard directory \u2014 extracts one file per LUT entry and merges them with origin=custom into manifest.json.",
-      "desc": "Use when a disk stores its real payloads in a fixed-stride non-DOS LUT sector rather than the standard directory \u2014 extracts one file per LUT entry and merges them with origin=custom into manifest.json. Not for standard DOS disks (use extract_disk) or when you do not yet know the LUT location (use suggest_disk_lut_sector first). Inputs: absolute or project-relative disk image path, lut_track, lut_sector, payload_format, and optional stride/count/sentinel. Writes payload files + manifest.json in the project analysis folder.",
+      "firstSentence": "Use when a disk stores its real payloads in a fixed-stride non-DOS LUT sector rather than the standard directory — extracts one file per LUT entry and merges them with origin=custom into manifest.json.",
+      "desc": "Use when a disk stores its real payloads in a fixed-stride non-DOS LUT sector rather than the standard directory — extracts one file per LUT entry and merges them with origin=custom into manifest.json. Not for standard DOS disks (use extract_disk) or when you do not yet know the LUT location (use suggest_disk_lut_sector first). Inputs: absolute or project-relative disk image path, lut_track, lut_sector, payload_format, and optional stride/count/sentinel. Writes payload files + manifest.json in the project analysis folder.",
       "tier": "default?"
     },
     {
@@ -568,8 +586,8 @@
       "file": "server-tools/disk-g64.ts",
       "ns": "extract",
       "hasSpec": false,
-      "firstSentence": "Use to decode a G64 track via GCR and write one .bin file per sector to disk \u2014 the right tool when you need the raw sector payloads as files for further analysis or comparison.",
-      "desc": "Use to decode a G64 track via GCR and write one .bin file per sector to disk \u2014 the right tool when you need the raw sector payloads as files for further analysis or comparison. Not for in-place inspection without writing files (use inspect_g64_track) or for exporting the raw bitstream (use extract_g64_raw_track). Inputs: absolute or project-relative .g64 path, track number; output defaults to analysis/g64/<image>/track-N/ inside the project. Writes sector .bin files + track-metadata.json; no artifact is auto-registered.",
+      "firstSentence": "Use to decode a G64 track via GCR and write one .bin file per sector to disk — the right tool when you need the raw sector payloads as files for further analysis or comparison.",
+      "desc": "Use to decode a G64 track via GCR and write one .bin file per sector to disk — the right tool when you need the raw sector payloads as files for further analysis or comparison. Not for in-place inspection without writing files (use inspect_g64_track) or for exporting the raw bitstream (use extract_g64_raw_track). Inputs: absolute or project-relative .g64 path, track number; output defaults to analysis/g64/<image>/track-N/ inside the project. Writes sector .bin files + track-metadata.json; no artifact is auto-registered.",
       "tier": "default?"
     },
     {
@@ -577,8 +595,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "get",
       "hasSpec": false,
-      "firstSentence": "Return the V0..Vn version chain for an artifact (oldest\u2192newest).",
-      "desc": "Return the V0..Vn version chain for an artifact (oldest\u2192newest). Use to see an artifact's revision history. Not for listing all artifacts (use list_artifacts). Inputs: artifact id. Returns: ordered lineage chain.",
+      "firstSentence": "Return the V0..Vn version chain for an artifact (oldest→newest).",
+      "desc": "Return the V0..Vn version chain for an artifact (oldest→newest). Use to see an artifact's revision history. Not for listing all artifacts (use list_artifacts). Inputs: artifact id. Returns: ordered lineage chain.",
       "tier": "default?"
     },
     {
@@ -622,8 +640,8 @@
       "file": "server-tools/inspect-range.ts",
       "ns": "inspect",
       "hasSpec": false,
-      "firstSentence": "Surface every static-analysis fact tied to a memory range \u2014 containing segments, VIC-register stores with decoded meaning, code xrefs into the range, copy routi",
-      "desc": "Surface every static-analysis fact tied to a memory range \u2014 containing segments, VIC-register stores with decoded meaning, code xrefs into the range, copy routines, display/transfer evidence. Use to answer 'how is $XXXX used?' for a candidate region in a PRG. Not for listing files on a disk (use inspect_disk) or whole-RAM summaries (use ram_report). Inputs: address range + analysis context. Returns: aggregated facts.",
+      "firstSentence": "Surface every static-analysis fact tied to a memory range — containing segments, VIC-register stores with decoded meaning, code xrefs into the range, copy routi",
+      "desc": "Surface every static-analysis fact tied to a memory range — containing segments, VIC-register stores with decoded meaning, code xrefs into the range, copy routines, display/transfer evidence. Use to answer 'how is $XXXX used?' for a candidate region in a PRG. Not for listing files on a disk (use inspect_disk) or whole-RAM summaries (use ram_report). Inputs: address range + analysis context. Returns: aggregated facts.",
       "tier": "default?"
     },
     {
@@ -649,8 +667,8 @@
       "file": "server-tools/disk-g64.ts",
       "ns": "inspect",
       "hasSpec": false,
-      "firstSentence": "Use to list the bit-aligned positions of every sync mark on a specific G64 half-track \u2014 useful when verifying custom protection that relies on unusual sync counts or spacing.",
-      "desc": "Use to list the bit-aligned positions of every sync mark on a specific G64 half-track \u2014 useful when verifying custom protection that relies on unusual sync counts or spacing. Not for full sector decoding (use inspect_g64_track) or block-pair detail (use inspect_g64_blocks). Inputs: absolute or project-relative .g64 path plus track number. Returns: sync positions list; does not write any artifact.",
+      "firstSentence": "Use to list the bit-aligned positions of every sync mark on a specific G64 half-track — useful when verifying custom protection that relies on unusual sync counts or spacing.",
+      "desc": "Use to list the bit-aligned positions of every sync mark on a specific G64 half-track — useful when verifying custom protection that relies on unusual sync counts or spacing. Not for full sector decoding (use inspect_g64_track) or block-pair detail (use inspect_g64_blocks). Inputs: absolute or project-relative .g64 path plus track number. Returns: sync positions list; does not write any artifact.",
       "tier": "default?"
     },
     {
@@ -667,8 +685,8 @@
       "file": "server-tools/compression.ts",
       "ns": "link",
       "hasSpec": false,
-      "firstSentence": "Use to associate a specific cartridge bank/slot chunk with its .asm or .tass disassembly artifact \u2014 records a derived-from relation so the cartridge inspector UI surfaces the correct source file for that chunk.",
-      "desc": "Use to associate a specific cartridge bank/slot chunk with its .asm or .tass disassembly artifact \u2014 records a derived-from relation so the cartridge inspector UI surfaces the correct source file for that chunk. Not for bulk chunk promotion (use bulk_create_cart_chunk_payloads) or for packer/format metadata (use record_cart_chunk_packer). Inputs: absolute or project-relative path to the runtime_luts/all_luts.json, chunk identified by (bank, slot, offset_in_bank, length) or by (lut, idx), and the asm_artifact_id from list_artifacts. Updates the knowledge store; no files are written.",
+      "firstSentence": "Use to associate a specific cartridge bank/slot chunk with its .asm or .tass disassembly artifact — records a derived-from relation so the cartridge inspector UI surfaces the correct source file for that chunk.",
+      "desc": "Use to associate a specific cartridge bank/slot chunk with its .asm or .tass disassembly artifact — records a derived-from relation so the cartridge inspector UI surfaces the correct source file for that chunk. Not for bulk chunk promotion (use bulk_create_cart_chunk_payloads) or for packer/format metadata (use record_cart_chunk_packer). Inputs: absolute or project-relative path to the runtime_luts/all_luts.json, chunk identified by (bank, slot, offset_in_bank, length) or by (lut, idx), and the asm_artifact_id from list_artifacts. Updates the knowledge store; no files are written.",
       "tier": "default?"
     },
     {
@@ -766,8 +784,8 @@
       "file": "server-tools/disk-g64.ts",
       "ns": "list",
       "hasSpec": false,
-      "firstSentence": "Use to enumerate every half-track slot in a G64 image before inspecting individual tracks \u2014 gives offsets, lengths, and speed-zone info so you know which slots hold real data.",
-      "desc": "Use to enumerate every half-track slot in a G64 image before inspecting individual tracks \u2014 gives offsets, lengths, and speed-zone info so you know which slots hold real data. Not for DOS-directory listings (use inspect_disk) or sector-level decoding (use inspect_g64_track). Inputs: absolute or project-relative path to a .g64 file. Returns: slot table; does not write any artifact.",
+      "firstSentence": "Use to enumerate every half-track slot in a G64 image before inspecting individual tracks — gives offsets, lengths, and speed-zone info so you know which slots hold real data.",
+      "desc": "Use to enumerate every half-track slot in a G64 image before inspecting individual tracks — gives offsets, lengths, and speed-zone info so you know which slots hold real data. Not for DOS-directory listings (use inspect_disk) or sector-level decoding (use inspect_g64_track). Inputs: absolute or project-relative path to a .g64 file. Returns: slot table; does not write any artifact.",
       "tier": "default?"
     },
     {
@@ -875,7 +893,7 @@
       "ns": "pack",
       "hasSpec": false,
       "firstSentence": "Pack a binary into a BWC bit-stream chunk that the original $C992 depacker can decompress.",
-      "desc": "Pack a binary into a BWC bit-stream chunk that the original $C992 depacker can decompress. Output is NOT byte-identical to a reference packer \u2014 it's a functional re-encoding using all five token types: plain literals, cmp_op-update literals, near-LZ (length=2 / dist\u2264256), LZ-far (length\u22653), and lit_table runs. Defaults: N1=2, N2=8, N3=128, N4=0, Y=16 (auto-picked top-frequency bytes). Optimal parser by default \u2014 DP over (position, cmp_op) picks the minimum-bit token sequence. Verified across BWC v1.0.6 boot chunks: matches or beats the original packer's ratio on 5 of 6, within 1% on the 6th.",
+      "desc": "Pack a binary into a BWC bit-stream chunk that the original $C992 depacker can decompress. Output is NOT byte-identical to a reference packer — it's a functional re-encoding using all five token types: plain literals, cmp_op-update literals, near-LZ (length=2 / dist≤256), LZ-far (length≥3), and lit_table runs. Defaults: N1=2, N2=8, N3=128, N4=0, Y=16 (auto-picked top-frequency bytes). Optimal parser by default — DP over (position, cmp_op) picks the minimum-bit token sequence. Verified across BWC v1.0.6 boot chunks: matches or beats the original packer's ratio on 5 of 6, within 1% on the 6th.",
       "tier": "default?"
     },
     {
@@ -974,7 +992,7 @@
       "ns": "project",
       "hasSpec": false,
       "firstSentence": "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders.",
-      "desc": "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write \u2014 knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). Inputs: project name, optional description/tags/assembler. Returns: created project + knowledge/phase-plan paths.",
+      "desc": "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). Inputs: project name, optional description/tags/assembler. Returns: created project + knowledge/phase-plan paths.",
       "tier": "default?"
     },
     {
@@ -983,7 +1001,7 @@
       "ns": "project",
       "hasSpec": false,
       "firstSentence": "Bring the project knowledge store in sync with what is on disk: register project files that are present but not yet tracked, import any disk/CRT/PRG manifests, and rebuild every project view.",
-      "desc": "Bring the project knowledge store in sync with what is on disk: register project files that are present but not yet tracked (input media, extracted payloads + raw sectors, analysis sidecars, generated AND hand-written/semantic source under analysis folders), import any disk/CRT/PRG manifests, and rebuild every project view so the UI and dashboard reflect the current state. Use after extraction / disassembly / import, or whenever onboarding or a project audit reports unregistered files, unimported manifests, or stale views. Idempotent \u2014 safe to run repeatedly; a second run changes nothing. It reads/writes the project knowledge store and project views only; it never moves, copies, renames, or deletes files (organizing media into input/ folders is project_init's job). Not for creating a project (use project_init) or extracting bytes from media (use extract_disk / extract_crt). Inputs: optional project dir (absolute or project-relative). Returns: counts registered/imported, the rebuilt views, any skipped files with reasons, and the suggested next step.",
+      "desc": "Bring the project knowledge store in sync with what is on disk: register project files that are present but not yet tracked (input media, extracted payloads + raw sectors, analysis sidecars, generated AND hand-written/semantic source under analysis folders), import any disk/CRT/PRG manifests, and rebuild every project view so the UI and dashboard reflect the current state. Use after extraction / disassembly / import, or whenever onboarding or a project audit reports unregistered files, unimported manifests, or stale views. Idempotent — safe to run repeatedly; a second run changes nothing. It reads/writes the project knowledge store and project views only; it never moves, copies, renames, or deletes files (organizing media into input/ folders is project_init's job). Not for creating a project (use project_init) or extracting bytes from media (use extract_disk / extract_crt). Inputs: optional project dir (absolute or project-relative). Returns: counts registered/imported, the rebuilt views, any skipped files with reasons, and the suggested next step.",
       "tier": "default?"
     },
     {
@@ -1000,8 +1018,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "project",
       "hasSpec": false,
-      "firstSentence": "Summarize the current project \u2014 knowledge counts + key filesystem paths.",
-      "desc": "Summarize the current project \u2014 knowledge counts + key filesystem paths. Use for a quick 'where is this project at'. Not for the orient-and-next-action flow (use agent_onboard) or the stored profile (use get_project_profile). Inputs: none. Returns: counts + paths.",
+      "firstSentence": "Summarize the current project — knowledge counts + key filesystem paths.",
+      "desc": "Summarize the current project — knowledge counts + key filesystem paths. Use for a quick 'where is this project at'. Not for the orient-and-next-action flow (use agent_onboard) or the stored profile (use get_project_profile). Inputs: none. Returns: counts + paths.",
       "tier": "default?"
     },
     {
@@ -1018,8 +1036,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "propose",
       "hasSpec": true,
-      "firstSentence": "Spec 052: read-only proposal \u2014 list what the resolver would do for open auto-resolvable questions (Pfad A finding-overlap, Pfad B phase-reached).",
-      "desc": "Spec 052: read-only proposal \u2014 list what the resolver would do for open auto-resolvable questions (Pfad A finding-overlap, Pfad B phase-reached). Useful before flipping projectProfile.questionAutoResolveMode.",
+      "firstSentence": "Spec 052: read-only proposal — list what the resolver would do for open auto-resolvable questions (Pfad A finding-overlap, Pfad B phase-reached).",
+      "desc": "Spec 052: read-only proposal — list what the resolver would do for open auto-resolvable questions (Pfad A finding-overlap, Pfad B phase-reached). Useful before flipping projectProfile.questionAutoResolveMode.",
       "tier": "default?"
     },
     {
@@ -1036,8 +1054,8 @@
       "file": "server-tools/artifacts.ts",
       "ns": "read",
       "hasSpec": false,
-      "firstSentence": "Read a generated artifact (ASM, JSON, SYM, MD) into context \u2014 C64 disassemblies are \u226464 KB and fit whole.",
-      "desc": "Read a generated artifact (ASM, JSON, SYM, MD) into context \u2014 C64 disassemblies are \u226464 KB and fit whole. Use to inspect a disassembly, analysis JSON, or report. Not for raw disk/cart media (use extract_disk / extract_crt) or directory peeks (use inspect_disk). Inputs: artifact path/id. Returns: file contents.",
+      "firstSentence": "Read a generated artifact (ASM, JSON, SYM, MD) into context — C64 disassemblies are ≤64 KB and fit whole.",
+      "desc": "Read a generated artifact (ASM, JSON, SYM, MD) into context — C64 disassemblies are ≤64 KB and fit whole. Use to inspect a disassembly, analysis JSON, or report. Not for raw disk/cart media (use extract_disk / extract_crt) or directory peeks (use inspect_disk). Inputs: artifact path/id. Returns: file contents.",
       "tier": "default?"
     },
     {
@@ -1045,8 +1063,8 @@
       "file": "server-tools/disk-g64.ts",
       "ns": "read",
       "hasSpec": false,
-      "firstSentence": "Use to read a specific sector from a G64 track by simulating the 1541 firmware's sync/header-search loop \u2014 the right tool when you know which sector you need and want its decoded payload bytes.",
-      "desc": "Use to read a specific sector from a G64 track by simulating the 1541 firmware's sync/header-search loop \u2014 the right tool when you know which sector you need and want its decoded payload bytes. Not for listing all headers on a track (use scan_g64_headers) or for extracting many sectors at once (use extract_g64_sectors). Inputs: absolute or project-relative .g64 path, track number, and sector number. Returns: sector status + first 16 payload bytes preview; does not write any artifact.",
+      "firstSentence": "Use to read a specific sector from a G64 track by simulating the 1541 firmware's sync/header-search loop — the right tool when you know which sector you need and want its decoded payload bytes.",
+      "desc": "Use to read a specific sector from a G64 track by simulating the 1541 firmware's sync/header-search loop — the right tool when you know which sector you need and want its decoded payload bytes. Not for listing all headers on a track (use scan_g64_headers) or for extracting many sectors at once (use extract_g64_sectors). Inputs: absolute or project-relative .g64 path, track number, and sector number. Returns: sector status + first 16 payload bytes preview; does not write any artifact.",
       "tier": "default?"
     },
     {
@@ -1072,8 +1090,8 @@
       "file": "server-tools/compression.ts",
       "ns": "record",
       "hasSpec": false,
-      "firstSentence": "Use to record the packer, format, and notes for a cartridge LUT chunk when you have identified its compression scheme \u2014 writes a chunk_packers.json sidecar so the cartridge layout view can show the packer alongside each bank entry.",
-      "desc": "Use to record the packer, format, and notes for a cartridge LUT chunk when you have identified its compression scheme \u2014 writes a chunk_packers.json sidecar so the cartridge layout view can show the packer alongside each bank entry. Not for ASM linkage (use link_cart_chunk_to_asm) or for bulk chunk creation (use bulk_create_cart_chunk_payloads). Inputs: absolute or project-relative path to runtime_luts/all_luts.json, chunk identified by (bank, slot, offset_in_bank, length) or (lut, idx), and the packer name string. Writes chunk_packers.json next to the LUT file; no knowledge-store entity is created automatically.",
+      "firstSentence": "Use to record the packer, format, and notes for a cartridge LUT chunk when you have identified its compression scheme — writes a chunk_packers.json sidecar so the cartridge layout view can show the packer alongside each bank entry.",
+      "desc": "Use to record the packer, format, and notes for a cartridge LUT chunk when you have identified its compression scheme — writes a chunk_packers.json sidecar so the cartridge layout view can show the packer alongside each bank entry. Not for ASM linkage (use link_cart_chunk_to_asm) or for bulk chunk creation (use bulk_create_cart_chunk_payloads). Inputs: absolute or project-relative path to runtime_luts/all_luts.json, chunk identified by (bank, slot, offset_in_bank, length) or (lut, idx), and the packer name string. Writes chunk_packers.json next to the LUT file; no knowledge-store entity is created automatically.",
       "tier": "default?"
     },
     {
@@ -1117,8 +1135,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "register",
       "hasSpec": true,
-      "firstSentence": "Spec 025 R23: declare a named sub-entry inside a container artifact (a disk file that itself contains other named payloads \u2014 Accolade /0, /1, etc.).",
-      "desc": "Spec 025 R23: declare a named sub-entry inside a container artifact (a disk file that itself contains other named payloads \u2014 Accolade /0, /1, etc.). Idempotent on (parent_artifact_id, sub_key).",
+      "firstSentence": "Spec 025 R23: declare a named sub-entry inside a container artifact (a disk file that itself contains other named payloads — Accolade /0, /1, etc.).",
+      "desc": "Spec 025 R23: declare a named sub-entry inside a container artifact (a disk file that itself contains other named payloads — Accolade /0, /1, etc.). Idempotent on (parent_artifact_id, sub_key).",
       "tier": "default?"
     },
     {
@@ -1153,8 +1171,8 @@
       "file": "server-tools/payloads.ts",
       "ns": "register",
       "hasSpec": false,
-      "firstSentence": "Create a payload entity \u2014 the working abstraction across mediums.",
-      "desc": "Create a payload entity \u2014 the working abstraction across mediums. A payload is a byte-blob with identity (a disk file, a LUT-extracted cart chunk, a hand-extracted custom-loader blob, a PRG). Operations like depack, disasm, repack, build are scoped to the payload, not the medium. Call this when a medium-extraction tool didn't auto-create the payload (rare for stock CRT/disk; common for custom loaders).",
+      "firstSentence": "Create a payload entity — the working abstraction across mediums.",
+      "desc": "Create a payload entity — the working abstraction across mediums. A payload is a byte-blob with identity (a disk file, a LUT-extracted cart chunk, a hand-extracted custom-loader blob, a PRG). Operations like depack, disasm, repack, build are scoped to the payload, not the medium. Call this when a medium-extraction tool didn't auto-create the payload (rare for stock CRT/disk; common for custom loaders).",
       "tier": "default?"
     },
     {
@@ -1225,8 +1243,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 271 \u2014 collect ReplayResult per scenario once batch is done.",
-      "desc": "Spec 271 \u2014 collect ReplayResult per scenario once batch is done. Errors per-scenario included.",
+      "firstSentence": "Spec 271 — collect ReplayResult per scenario once batch is done.",
+      "desc": "Spec 271 — collect ReplayResult per scenario once batch is done. Errors per-scenario included.",
       "tier": "default?"
     },
     {
@@ -1234,8 +1252,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 271 \u2014 poll progress of a parallel batch.",
-      "desc": "Spec 271 \u2014 poll progress of a parallel batch. Returns completed / total and status.",
+      "firstSentence": "Spec 271 — poll progress of a parallel batch.",
+      "desc": "Spec 271 — poll progress of a parallel batch. Returns completed / total and status.",
       "tier": "default?"
     },
     {
@@ -1243,8 +1261,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 242 \u2014 add trace bookmark with bind mode (cycle/event-key/both).",
-      "desc": "Spec 242 \u2014 add trace bookmark with bind mode (cycle/event-key/both). Persisted in trace store DuckDB.",
+      "firstSentence": "Spec 242 — add trace bookmark with bind mode (cycle/event-key/both).",
+      "desc": "Spec 242 — add trace bookmark with bind mode (cycle/event-key/both). Persisted in trace store DuckDB.",
       "tier": "default?"
     },
     {
@@ -1252,8 +1270,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 242 \u2014 list bookmarks for a run.",
-      "desc": "Spec 242 \u2014 list bookmarks for a run.",
+      "firstSentence": "Spec 242 — list bookmarks for a run.",
+      "desc": "Spec 242 — list bookmarks for a run.",
       "tier": "default?"
     },
     {
@@ -1261,8 +1279,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 241 \u2014 add PC breakpoint with VICE-style action (halt/log/snapshot/trace_burst).",
-      "desc": "Spec 241 \u2014 add PC breakpoint with VICE-style action (halt/log/snapshot/trace_burst).",
+      "firstSentence": "Spec 241 — add PC breakpoint with VICE-style action (halt/log/snapshot/trace_burst).",
+      "desc": "Spec 241 — add PC breakpoint with VICE-style action (halt/log/snapshot/trace_burst).",
       "tier": "default?"
     },
     {
@@ -1270,8 +1288,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 241 \u2014 list all registered breakpoints.",
-      "desc": "Spec 241 \u2014 list all registered breakpoints.",
+      "firstSentence": "Spec 241 — list all registered breakpoints.",
+      "desc": "Spec 241 — list all registered breakpoints.",
       "tier": "default?"
     },
     {
@@ -1279,8 +1297,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 241 \u2014 remove breakpoint by id.",
-      "desc": "Spec 241 \u2014 remove breakpoint by id.",
+      "firstSentence": "Spec 241 — remove breakpoint by id.",
+      "desc": "Spec 241 — remove breakpoint by id.",
       "tier": "default?"
     },
     {
@@ -1297,8 +1315,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 246 \u2014 semantic diff between two VSF snapshot files.",
-      "desc": "Spec 246 \u2014 semantic diff between two VSF snapshot files. Returns RAM changedRanges + CPU/CIA/VIC/SID/PLA chip diffs.",
+      "firstSentence": "Spec 246 — semantic diff between two VSF snapshot files.",
+      "desc": "Spec 246 — semantic diff between two VSF snapshot files. Returns RAM changedRanges + CPU/CIA/VIC/SID/PLA chip diffs.",
       "tier": "default?"
     },
     {
@@ -1360,8 +1378,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 269 \u2014 export PNG screenshot for a scenario.",
-      "desc": "Spec 269 \u2014 export PNG screenshot for a scenario. Runs scenario from start to atCycle (or end). Scale 1/2/4 for pixel-art upscale.",
+      "firstSentence": "Spec 269 — export PNG screenshot for a scenario.",
+      "desc": "Spec 269 — export PNG screenshot for a scenario. Runs scenario from start to atCycle (or end). Scale 1/2/4 for pixel-art upscale.",
       "tier": "default?"
     },
     {
@@ -1369,8 +1387,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 269 \u2014 export MP4 video for a scenario via ffmpeg (must be installed).",
-      "desc": "Spec 269 \u2014 export MP4 video for a scenario via ffmpeg (must be installed). PAL 50fps, RGBA + s16le piped to ffmpeg.",
+      "firstSentence": "Spec 269 — export MP4 video for a scenario via ffmpeg (must be installed).",
+      "desc": "Spec 269 — export MP4 video for a scenario via ffmpeg (must be installed). PAL 50fps, RGBA + s16le piped to ffmpeg.",
       "tier": "default?"
     },
     {
@@ -1387,8 +1405,8 @@
       "file": "server-tools/headless.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session \u2014 line state (open-collector wired-AND result) plus each driver's contribution.",
-      "desc": "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session \u2014 line state (open-collector wired-AND result) plus each driver's contribution. Useful for debugging custom loader bit-bang protocols.",
+      "firstSentence": "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution.",
+      "desc": "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. Useful for debugging custom loader bit-bang protocols.",
       "tier": "default?"
     },
     {
@@ -1396,8 +1414,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 264 \u2014 Load InputConfig from ~/.config/c64re/joystick.json, bootstrapping from vicerc if file absent.",
-      "desc": "Spec 264 \u2014 Load InputConfig from ~/.config/c64re/joystick.json, bootstrapping from vicerc if file absent.",
+      "firstSentence": "Spec 264 — Load InputConfig from ~/.config/c64re/joystick.json, bootstrapping from vicerc if file absent.",
+      "desc": "Spec 264 — Load InputConfig from ~/.config/c64re/joystick.json, bootstrapping from vicerc if file absent.",
       "tier": "default?"
     },
     {
@@ -1405,8 +1423,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 264 \u2014 Parse ~/.config/vice/vicerc and return joystick keyset bindings (KeySet2*, JoyDevice2).",
-      "desc": "Spec 264 \u2014 Parse ~/.config/vice/vicerc and return joystick keyset bindings (KeySet2*, JoyDevice2). Bootstrap config from VICE settings.",
+      "firstSentence": "Spec 264 — Parse ~/.config/vice/vicerc and return joystick keyset bindings (KeySet2*, JoyDevice2).",
+      "desc": "Spec 264 — Parse ~/.config/vice/vicerc and return joystick keyset bindings (KeySet2*, JoyDevice2). Bootstrap config from VICE settings.",
       "tier": "default?"
     },
     {
@@ -1414,8 +1432,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 264 \u2014 Save InputConfig to ~/.config/c64re/joystick.json.",
-      "desc": "Spec 264 \u2014 Save InputConfig to ~/.config/c64re/joystick.json. Never touches vicerc.",
+      "firstSentence": "Spec 264 — Save InputConfig to ~/.config/c64re/joystick.json.",
+      "desc": "Spec 264 — Save InputConfig to ~/.config/c64re/joystick.json. Never touches vicerc.",
       "tier": "default?"
     },
     {
@@ -1441,8 +1459,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 251 \u2014 restore full session state from VSF file.",
-      "desc": "Spec 251 \u2014 restore full session state from VSF file.",
+      "firstSentence": "Spec 251 — restore full session state from VSF file.",
+      "desc": "Spec 251 — restore full session state from VSF file.",
       "tier": "default?"
     },
     {
@@ -1451,7 +1469,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Stamp a named phase marker into the active trace at the current cycle (e.g.",
-      "desc": "Stamp a named phase marker into the active trace at the current cycle (e.g. 'boot', 'title', 'gameplay'). Requires an active streaming trace \u2014 start one with runtime_session_start(trace_out=...). Use to scope later trace queries by phase (between mark cycles). Not for querying marks (use trace_store_anchor_list / trace_store_query). Inputs: session_id, label. Returns: trace status.",
+      "desc": "Stamp a named phase marker into the active trace at the current cycle (e.g. 'boot', 'title', 'gameplay'). Requires an active streaming trace — start one with runtime_session_start(trace_out=...). Use to scope later trace queries by phase (between mark cycles). Not for querying marks (use trace_store_anchor_list / trace_store_query). Inputs: session_id, label. Returns: trace status.",
       "tier": "default?"
     },
     {
@@ -1468,8 +1486,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 265 \u2014 list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
-      "desc": "Spec 265 \u2014 list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
+      "firstSentence": "Spec 265 — list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
+      "desc": "Spec 265 — list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
       "tier": "default?"
     },
     {
@@ -1477,8 +1495,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Mount a disk/cart image into a session's drive (no drive reset \u2014 like inserting media on real hardware).",
-      "desc": "Mount a disk/cart image into a session's drive (no drive reset \u2014 like inserting media on real hardware). Use to insert media before LOAD. Not for swapping a mounted disk (use runtime_media_swap) or removing it (use runtime_media_unmount). Inputs: session_id, path. Returns: mount result.",
+      "firstSentence": "Mount a disk/cart image into a session's drive (no drive reset — like inserting media on real hardware).",
+      "desc": "Mount a disk/cart image into a session's drive (no drive reset — like inserting media on real hardware). Use to insert media before LOAD. Not for swapping a mounted disk (use runtime_media_swap) or removing it (use runtime_media_unmount). Inputs: session_id, path. Returns: mount result.",
       "tier": "default?"
     },
     {
@@ -1504,8 +1522,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Spike \u2014 per-region read/write liveness map over a runtime window.",
-      "desc": "Spike \u2014 per-region read/write liveness map over a runtime window. Classes: unused | read-only | dead (written, never read after) | live. Finds free/dead/reclaimable RAM. Run AT the phase you care about (e.g. in-game).",
+      "firstSentence": "Spike — per-region read/write liveness map over a runtime window.",
+      "desc": "Spike — per-region read/write liveness map over a runtime window. Classes: unused | read-only | dead (written, never read after) | live. Finds free/dead/reclaimable RAM. Run AT the phase you care about (e.g. in-game).",
       "tier": "default?"
     },
     {
@@ -1540,8 +1558,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Profile a loader run \u2014 time/cycles per phase + hotspots.",
-      "desc": "Profile a loader run \u2014 time/cycles per phase + hotspots. Use to understand loader performance/structure. Not for byte-level events (use runtime_query_events). Inputs: run id. Returns: loader profile.",
+      "firstSentence": "Profile a loader run — time/cycles per phase + hotspots.",
+      "desc": "Profile a loader run — time/cycles per phase + hotspots. Use to understand loader performance/structure. Not for byte-level events (use runtime_query_events). Inputs: run id. Returns: loader profile.",
       "tier": "default?"
     },
     {
@@ -1549,8 +1567,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 268 \u2014 promote a transient rewind branch to a persistent Scenario record.",
-      "desc": "Spec 268 \u2014 promote a transient rewind branch to a persistent Scenario record.",
+      "firstSentence": "Spec 268 — promote a transient rewind branch to a persistent Scenario record.",
+      "desc": "Spec 268 — promote a transient rewind branch to a persistent Scenario record.",
       "tier": "default?"
     },
     {
@@ -1567,8 +1585,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 250 \u2014 LLM-explicit baseline capture for a scenario.",
-      "desc": "Spec 250 \u2014 LLM-explicit baseline capture for a scenario. Writes baseline.duckdb + ram-end.bin + screenshot.png + meta.json.",
+      "firstSentence": "Spec 250 — LLM-explicit baseline capture for a scenario.",
+      "desc": "Spec 250 — LLM-explicit baseline capture for a scenario. Writes baseline.duckdb + ram-end.bin + screenshot.png + meta.json.",
       "tier": "default?"
     },
     {
@@ -1576,8 +1594,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 250 \u2014 compare current scenario run against captured baseline.",
-      "desc": "Spec 250 \u2014 compare current scenario run against captured baseline. Returns no_drift / minor_drift / structural_change / broken classification.",
+      "firstSentence": "Spec 250 — compare current scenario run against captured baseline.",
+      "desc": "Spec 250 — compare current scenario run against captured baseline. Returns no_drift / minor_drift / structural_change / broken classification.",
       "tier": "default?"
     },
     {
@@ -1603,8 +1621,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 268 / 231 \u2014 replay a saved scenario by id, returns ReplayResult hashes.",
-      "desc": "Spec 268 / 231 \u2014 replay a saved scenario by id, returns ReplayResult hashes.",
+      "firstSentence": "Spec 268 / 231 — replay a saved scenario by id, returns ReplayResult hashes.",
+      "desc": "Spec 268 / 231 — replay a saved scenario by id, returns ReplayResult hashes.",
       "tier": "default?"
     },
     {
@@ -1612,8 +1630,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 271 \u2014 run multiple scenarios in parallel via worker_threads.",
-      "desc": "Spec 271 \u2014 run multiple scenarios in parallel via worker_threads. Returns batchId for polling.",
+      "firstSentence": "Spec 271 — run multiple scenarios in parallel via worker_threads.",
+      "desc": "Spec 271 — run multiple scenarios in parallel via worker_threads. Returns batchId for polling.",
       "tier": "default?"
     },
     {
@@ -1621,8 +1639,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 251 \u2014 save full session state as VICE Snapshot Format bytes.",
-      "desc": "Spec 251 \u2014 save full session state as VICE Snapshot Format bytes.",
+      "firstSentence": "Spec 251 — save full session state as VICE Snapshot Format bytes.",
+      "desc": "Spec 251 — save full session state as VICE Snapshot Format bytes.",
       "tier": "default?"
     },
     {
@@ -1630,8 +1648,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 247 \u2014 match routine bytes against bundled/TREX/local fingerprint libraries.",
-      "desc": "Spec 247 \u2014 match routine bytes against bundled/TREX/local fingerprint libraries. Lookup chain via C64RE_FINGERPRINT_LIBS env.",
+      "firstSentence": "Spec 247 — match routine bytes against bundled/TREX/local fingerprint libraries.",
+      "desc": "Spec 247 — match routine bytes against bundled/TREX/local fingerprint libraries. Lookup chain via C64RE_FINGERPRINT_LIBS env.",
       "tier": "default?"
     },
     {
@@ -1639,8 +1657,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 268 \u2014 delete a scenario JSON by id.",
-      "desc": "Spec 268 \u2014 delete a scenario JSON by id. Returns true if found and removed.",
+      "firstSentence": "Spec 268 — delete a scenario JSON by id.",
+      "desc": "Spec 268 — delete a scenario JSON by id. Returns true if found and removed.",
       "tier": "default?"
     },
     {
@@ -1648,8 +1666,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 268 \u2014 list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/.",
-      "desc": "Spec 268 \u2014 list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. Returns summaries sorted by date.",
+      "firstSentence": "Spec 268 — list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/.",
+      "desc": "Spec 268 — list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. Returns summaries sorted by date.",
       "tier": "default?"
     },
     {
@@ -1657,8 +1675,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 268 \u2014 load a single scenario by id.",
-      "desc": "Spec 268 \u2014 load a single scenario by id. Checks project dir first, then samples.",
+      "firstSentence": "Spec 268 — load a single scenario by id.",
+      "desc": "Spec 268 — load a single scenario by id. Checks project dir first, then samples.",
       "tier": "default?"
     },
     {
@@ -1666,8 +1684,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 268 \u2014 save a scenario JSON to project dir (or samples if no project dir).",
-      "desc": "Spec 268 \u2014 save a scenario JSON to project dir (or samples if no project dir). Returns file path.",
+      "firstSentence": "Spec 268 — save a scenario JSON to project dir (or samples if no project dir).",
+      "desc": "Spec 268 — save a scenario JSON to project dir (or samples if no project dir). Returns file path.",
       "tier": "default?"
     },
     {
@@ -1702,8 +1720,8 @@
       "file": "server-tools/headless.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Start a headless C64+1541 session \u2014 the product runtime (real KERNAL/BASIC, VICE-shaped 1541, event-catchup).",
-      "desc": "Start a headless C64+1541 session \u2014 the product runtime (real KERNAL/BASIC, VICE-shaped 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, close with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events. Not for the VICE oracle (use vice_*, advanced). Inputs: disk_path; optional device_id, pal, trace_out, trace_domains. Returns: session id + resolved config + trace status when streaming.",
+      "firstSentence": "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, VICE-shaped 1541, event-catchup).",
+      "desc": "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, VICE-shaped 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, close with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events. Not for the VICE oracle (use vice_*, advanced). Inputs: disk_path; optional device_id, pal, trace_out, trace_domains. Returns: session id + resolved config + trace status when streaming.",
       "tier": "default?"
     },
     {
@@ -1711,8 +1729,8 @@
       "file": "server-tools/headless.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Snapshot a running session's machine state \u2014 both CPUs, IEC bus, drive, cycle counts.",
-      "desc": "Snapshot a running session's machine state \u2014 both CPUs, IEC bus, drive, cycle counts. Use to check where execution is. Not for the agent-API surface report (use runtime_status, advanced). Inputs: session_id. Returns: CPU/IEC/drive snapshot.",
+      "firstSentence": "Snapshot a running session's machine state — both CPUs, IEC bus, drive, cycle counts.",
+      "desc": "Snapshot a running session's machine state — both CPUs, IEC bus, drive, cycle counts. Use to check where execution is. Not for the agent-API surface report (use runtime_status, advanced). Inputs: session_id. Returns: CPU/IEC/drive snapshot.",
       "tier": "default?"
     },
     {
@@ -1720,8 +1738,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 268 \u2014 return the full branch tree for a rewind session.",
-      "desc": "Spec 268 \u2014 return the full branch tree for a rewind session. Requires session with active RewindManager.",
+      "firstSentence": "Spec 268 — return the full branch tree for a rewind session.",
+      "desc": "Spec 268 — return the full branch tree for a rewind session. Requires session with active RewindManager.",
       "tier": "default?"
     },
     {
@@ -1729,8 +1747,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": true,
-      "firstSentence": "Spec 237 \u2014 AgentQueryApi facade introspection.",
-      "desc": "Spec 237 \u2014 AgentQueryApi facade introspection. Reports what V2 surface is available + session cycle counts.",
+      "firstSentence": "Spec 237 — AgentQueryApi facade introspection.",
+      "desc": "Spec 237 — AgentQueryApi facade introspection. Reports what V2 surface is available + session cycle counts.",
       "tier": "default?"
     },
     {
@@ -1774,8 +1792,8 @@
       "file": "server-tools/headless.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Report the active streaming trace's status \u2014 runId, output path, captured event/mark counts, backpressure flag.",
-      "desc": "Report the active streaming trace's status \u2014 runId, output path, captured event/mark counts, backpressure flag. Requires an active trace started via runtime_session_start(trace_out=...). Use to watch capture progress and decide when to call runtime_trace_finalize. Not for the run's machine state (use runtime_session_status) or offline store queries (use trace_store_info). Inputs: session_id. Returns: trace status JSON.",
+      "firstSentence": "Report the active streaming trace's status — runId, output path, captured event/mark counts, backpressure flag.",
+      "desc": "Report the active streaming trace's status — runId, output path, captured event/mark counts, backpressure flag. Requires an active trace started via runtime_session_start(trace_out=...). Use to watch capture progress and decide when to call runtime_trace_finalize. Not for the run's machine state (use runtime_session_status) or offline store queries (use trace_store_info). Inputs: session_id. Returns: trace status JSON.",
       "tier": "default?"
     },
     {
@@ -1847,7 +1865,7 @@
       "ns": "save",
       "hasSpec": false,
       "firstSentence": "Persist an input, generated, analysis, or view artifact in the project knowledge layer.",
-      "desc": "Persist an input, generated, analysis, or view artifact in the project knowledge layer. Lineage: pass `derived_from` to chain this artifact under a parent (V0 \u2192 V1 \u2192 ... \u2192 Vn); `version_label` defaults to `V<rank>` and can be renamed later via rename_artifact_version. For project-level markdown documents (CLAUDE.md, docs/*.md, BUGREPORT.md, TODO.md, plans, status notes) call this with kind=\\\"other\\\", scope=\\\"knowledge\\\", format=\\\"md\\\", and a meaningful title so the workspace UI Docs tab surfaces them.",
+      "desc": "Persist an input, generated, analysis, or view artifact in the project knowledge layer. Lineage: pass `derived_from` to chain this artifact under a parent (V0 → V1 → ... → Vn); `version_label` defaults to `V<rank>` and can be renamed later via rename_artifact_version. For project-level markdown documents (CLAUDE.md, docs/*.md, BUGREPORT.md, TODO.md, plans, status notes) call this with kind=\\\"other\\\", scope=\\\"knowledge\\\", format=\\\"md\\\", and a meaningful title so the workspace UI Docs tab surfaces them.",
       "tier": "default?"
     },
     {
@@ -1864,8 +1882,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "save",
       "hasSpec": false,
-      "firstSentence": "Persist a structured entity \u2014 a named routine, memory region, bank, disk file, or state variable.",
-      "desc": "Persist a structured entity \u2014 a named routine, memory region, bank, disk file, or state variable. Use to record a concrete thing you've identified. Not for a claim/hypothesis (use save_finding) or an unresolved question (use save_open_question). Inputs: kind, name, address/scope, fields. Returns: entity id.",
+      "firstSentence": "Persist a structured entity — a named routine, memory region, bank, disk file, or state variable.",
+      "desc": "Persist a structured entity — a named routine, memory region, bank, disk file, or state variable. Use to record a concrete thing you've identified. Not for a claim/hypothesis (use save_finding) or an unresolved question (use save_open_question). Inputs: kind, name, address/scope, fields. Returns: entity id.",
       "tier": "default?"
     },
     {
@@ -1873,8 +1891,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "save",
       "hasSpec": false,
-      "firstSentence": "Persist a semantic finding \u2014 a claim, hypothesis, confirmation, or refutation \u2014 with your confidence.",
-      "desc": "Persist a semantic finding \u2014 a claim, hypothesis, confirmation, or refutation \u2014 with your confidence. Use to record what something IS or DOES. Not for a concrete named entity (use save_entity) or an unresolved question (use save_open_question). Inputs: summary, evidence, tags, optional address_range. Returns: finding id. (address_range + tags=['routine'] makes it eligible for auto-archive matching.)",
+      "firstSentence": "Persist a semantic finding — a claim, hypothesis, confirmation, or refutation — with your confidence.",
+      "desc": "Persist a semantic finding — a claim, hypothesis, confirmation, or refutation — with your confidence. Use to record what something IS or DOES. Not for a concrete named entity (use save_entity) or an unresolved question (use save_open_question). Inputs: summary, evidence, tags, optional address_range. Returns: finding id. (address_range + tags=['routine'] makes it eligible for auto-archive matching.)",
       "tier": "default?"
     },
     {
@@ -1910,7 +1928,7 @@
       "ns": "save",
       "hasSpec": true,
       "firstSentence": "Spec 026: persist a structured project profile (goals, non-goals, hardware constraints, destructive operations, build/test commands, danger zones, glossary, ant",
-      "desc": "Spec 026: persist a structured project profile (goals, non-goals, hardware constraints, destructive operations, build/test commands, danger zones, glossary, anti-patterns). Onboarding consumes this before suggesting next actions. Patch semantics \u2014 undefined fields keep their existing value.",
+      "desc": "Spec 026: persist a structured project profile (goals, non-goals, hardware constraints, destructive operations, build/test commands, danger zones, glossary, anti-patterns). Onboarding consumes this before suggesting next actions. Patch semantics — undefined fields keep their existing value.",
       "tier": "default?"
     },
     {
@@ -1927,8 +1945,8 @@
       "file": "server-tools/disk-g64.ts",
       "ns": "scan",
       "hasSpec": false,
-      "firstSentence": "Use to scan a G64 track for sector header candidates the way real 1541 firmware searches \u2014 essential when a custom loader uses non-standard sector IDs or duplicate headers.",
-      "desc": "Use to scan a G64 track for sector header candidates the way real 1541 firmware searches \u2014 essential when a custom loader uses non-standard sector IDs or duplicate headers. Not for read-ahead sector data (use read_g64_sector_candidate) or for full decoded-sector listing (use inspect_g64_track). Inputs: absolute or project-relative .g64 path plus track number. Returns: header candidate list; does not write any artifact.",
+      "firstSentence": "Use to scan a G64 track for sector header candidates the way real 1541 firmware searches — essential when a custom loader uses non-standard sector IDs or duplicate headers.",
+      "desc": "Use to scan a G64 track for sector header candidates the way real 1541 firmware searches — essential when a custom loader uses non-standard sector IDs or duplicate headers. Not for read-ahead sector data (use read_g64_sector_candidate) or for full decoded-sector listing (use inspect_g64_track). Inputs: absolute or project-relative .g64 path plus track number. Returns: header candidate list; does not write any artifact.",
       "tier": "default?"
     },
     {
@@ -1936,8 +1954,8 @@
       "file": "server-tools/graphics-render.ts",
       "ns": "scan",
       "hasSpec": false,
-      "firstSentence": "Render a sweep of PNG previews across an address window \u2014 every `step` bytes, multiple kinds (sprite/charset, hires + multicolor) \u2014 so a multimodal LLM can scru",
-      "desc": "Render a sweep of PNG previews across an address window \u2014 every `step` bytes, multiple kinds (sprite/charset, hires + multicolor) \u2014 so a multimodal LLM can scrub the dump visually and pick the slices that hold real graphics. Saves a small PNG per probe under <project>/session/graphics-scan/<run-id>/ and returns the manifest as JSON-like text.",
+      "firstSentence": "Render a sweep of PNG previews across an address window — every `step` bytes, multiple kinds (sprite/charset, hires + multicolor) — so a multimodal LLM can scru",
+      "desc": "Render a sweep of PNG previews across an address window — every `step` bytes, multiple kinds (sprite/charset, hires + multicolor) — so a multimodal LLM can scrub the dump visually and pick the slices that hold real graphics. Saves a small PNG per probe under <project>/session/graphics-scan/<run-id>/ and returns the manifest as JSON-like text.",
       "tier": "default?"
     },
     {
@@ -2008,8 +2026,8 @@
       "file": "server-tools/media.ts",
       "ns": "suggest",
       "hasSpec": false,
-      "firstSentence": "Use to heuristically scan every sector of a disk image and rank candidates by how plausibly they serve as a fixed-stride loader LUT \u2014 run this first when you do not yet know which sector a custom loader reads its file table from.",
-      "desc": "Use to heuristically scan every sector of a disk image and rank candidates by how plausibly they serve as a fixed-stride loader LUT \u2014 run this first when you do not yet know which sector a custom loader reads its file table from. Not for DOS-directory inspection (use inspect_disk) or for extracting payloads once you know the LUT location (use extract_disk_custom_lut). Inputs: absolute or project-relative disk image path (.d64 or .g64). Returns: ranked candidate list; does not write any artifact.",
+      "firstSentence": "Use to heuristically scan every sector of a disk image and rank candidates by how plausibly they serve as a fixed-stride loader LUT — run this first when you do not yet know which sector a custom loader reads its file table from.",
+      "desc": "Use to heuristically scan every sector of a disk image and rank candidates by how plausibly they serve as a fixed-stride loader LUT — run this first when you do not yet know which sector a custom loader reads its file table from. Not for DOS-directory inspection (use inspect_disk) or for extracting payloads once you know the LUT location (use extract_disk_custom_lut). Inputs: absolute or project-relative disk image path (.d64 or .g64). Returns: ranked candidate list; does not write any artifact.",
       "tier": "default?"
     },
     {
@@ -2044,8 +2062,8 @@
       "file": "server-tools/trace-store.ts",
       "ns": "trace",
       "hasSpec": false,
-      "firstSentence": "Report the DuckDB trace-store status \u2014 runs, event counts, schema.",
-      "desc": "Report the DuckDB trace-store status \u2014 runs, event counts, schema. Use to see what trace evidence exists. Not for querying events (use trace_store_query). Inputs: optional run id. Returns: store summary.",
+      "firstSentence": "Report the DuckDB trace-store status — runs, event counts, schema.",
+      "desc": "Report the DuckDB trace-store status — runs, event counts, schema. Use to see what trace evidence exists. Not for querying events (use trace_store_query). Inputs: optional run id. Returns: store summary.",
       "tier": "advanced?"
     },
     {
@@ -2072,7 +2090,7 @@
       "ns": "try",
       "hasSpec": false,
       "firstSentence": "Run one specific depacker against a file or byte-range (built-in RLE, Exomizer raw, host-side ByteBoozer2).",
-      "desc": "Run one specific depacker against a file or byte-range (built-in RLE, Exomizer raw, host-side ByteBoozer2). Use when you know \u2014 or suggest_depacker guessed \u2014 the format. Not for guessing (use suggest_depacker). Inputs: file/range, depacker kind. Returns: decompressed bytes / artifact.",
+      "desc": "Run one specific depacker against a file or byte-range (built-in RLE, Exomizer raw, host-side ByteBoozer2). Use when you know — or suggest_depacker guessed — the format. Not for guessing (use suggest_depacker). Inputs: file/range, depacker kind. Returns: decompressed bytes / artifact.",
       "tier": "default?"
     },
     {
@@ -2099,7 +2117,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Set execution breakpoints in the active VICE session, continue execution, and return when a breakpoint, stop, or JAM event occurs. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_* / runtime breakpoints.",
+      "desc": "Oracle-only (VICE ground-truth). Set execution breakpoints in the active VICE session, continue execution, and return when a breakpoint, stop, or JAM event occurs. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_* / runtime breakpoints.",
       "tier": "advanced?"
     },
     {
@@ -2108,7 +2126,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Build a heuristic call stack from the 6502 stack page in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Build a heuristic call stack from the 6502 stack page in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2117,7 +2135,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). List the available VICE memory banks for the active machine. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). List the available VICE memory banks for the active machine. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2126,7 +2144,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Save a memory range from the active VICE session as a raw binary file without a load-address header. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Save a memory range from the active VICE session as a raw binary file without a load-address header. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2135,7 +2153,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Add a breakpoint/watchpoint/tracepoint in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Add a breakpoint/watchpoint/tracepoint in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2144,7 +2162,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Delete a checkpoint from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Delete a checkpoint from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2153,7 +2171,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). List checkpoints currently configured in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). List checkpoints currently configured in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2162,7 +2180,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Resume execution in the active VICE session until the next breakpoint or manual stop. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Resume execution in the active VICE session until the next breakpoint or manual stop. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2171,7 +2189,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Capture the current VICE display buffer and save it as an 8-bit grayscale PGM preview plus JSON metadata. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Capture the current VICE display buffer and save it as an 8-bit grayscale PGM preview plus JSON metadata. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2180,7 +2198,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Read a memory range from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Read a memory range from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2189,7 +2207,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Advance the active VICE session by one instruction, stepping over subroutine calls. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Advance the active VICE session by one instruction, stepping over subroutine calls. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2198,7 +2216,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Read CPU register values from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Read CPU register values from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2207,7 +2225,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Reset the active VICE machine or one of its drives. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Reset the active VICE machine or one of its drives. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2216,7 +2234,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Save a memory range from the active VICE session as a PRG file with a load-address header. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Save a memory range from the active VICE session as a PRG file with a load-address header. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2225,7 +2243,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Set CPU register values in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Set CPU register values in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2234,7 +2252,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Save a VICE snapshot (.vsf) from the active session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Save a VICE snapshot (.vsf) from the active session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2243,7 +2261,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Advance the active VICE session by one instruction and stop again. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Advance the active VICE session by one instruction and stop again. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2252,7 +2270,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Write bytes into the active VICE session memory. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal debugging \u2192 use runtime_monitor_*.",
+      "desc": "Oracle-only (VICE ground-truth). Write bytes into the active VICE session memory. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
       "tier": "advanced?"
     },
     {
@@ -2261,7 +2279,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Autostart or autoload media into an already running VICE session via the binary monitor. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow.",
+      "desc": "Oracle-only (VICE ground-truth). Autostart or autoload media into an already running VICE session via the binary monitor. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       "tier": "advanced?"
     },
     {
@@ -2270,7 +2288,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Send keyset-based joystick input into the active visible VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow.",
+      "desc": "Oracle-only (VICE ground-truth). Send keyset-based joystick input into the active visible VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       "tier": "advanced?"
     },
     {
@@ -2279,7 +2297,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Feed text, PETSCII bytes, or named special keys into the active VICE keyboard buffer. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow.",
+      "desc": "Oracle-only (VICE ground-truth). Feed text, PETSCII bytes, or named special keys into the active VICE keyboard buffer. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       "tier": "advanced?"
     },
     {
@@ -2288,7 +2306,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Start a visible x64sc VICE session using a copied user config. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow.",
+      "desc": "Oracle-only (VICE ground-truth). Start a visible x64sc VICE session using a copied user config. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       "tier": "advanced?"
     },
     {
@@ -2297,7 +2315,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Report the current or most recent VICE session state, including workspace paths and monitor-port readiness. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow.",
+      "desc": "Oracle-only (VICE ground-truth). Report the current or most recent VICE session state, including workspace paths and monitor-port readiness. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       "tier": "advanced?"
     },
     {
@@ -2306,7 +2324,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Stop the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow.",
+      "desc": "Oracle-only (VICE ground-truth). Stop the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
       "tier": "advanced?"
     },
     {
@@ -2315,7 +2333,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Append a reasoning note/bookmark to a completed VICE trace session so investigation can proceed step by step without losing findings. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Append a reasoning note/bookmark to a completed VICE trace session so investigation can proceed step by step without losing findings. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2324,7 +2342,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Analyze the most recently completed VICE runtime-trace session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Analyze the most recently completed VICE runtime-trace session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2333,7 +2351,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Build a persistent interrupt/context index for the VICE runtime trace so IRQ/NMI-like execution paths can be isolated without scanning the full raw trace every time. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Build a persistent interrupt/context index for the VICE runtime trace so IRQ/NMI-like execution paths can be isolated without scanning the full raw trace every time. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2342,7 +2360,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Build a persistent search index for a completed runtime trace, including continuity metrics and optional semantic links from an annotations JSON. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Build a persistent search index for a completed runtime trace, including continuity metrics and optional semantic links from an annotations JSON. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2351,7 +2369,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Build a persistent semantic zoom index over the raw VICE runtime trace, including multi-scale windows, aggregate routine/segment/address summaries, and phase detection. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Build a persistent semantic zoom index over the raw VICE runtime trace, including multi-scale windows, aggregate routine/segment/address summaries, and phase detection. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2360,7 +2378,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Heuristically reconstruct the JSR caller chain leading to an anchor clock in a completed runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Heuristically reconstruct the JSR caller chain leading to an anchor clock in a completed runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2369,7 +2387,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Show the dominant memory writes and call edges recorded for one indexed interrupt context. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Show the dominant memory writes and call edges recorded for one indexed interrupt context. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2378,7 +2396,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Find instructions in a completed VICE runtime trace by raw byte pattern. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Find instructions in a completed VICE runtime trace by raw byte pattern. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2387,7 +2405,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Find direct memory accesses to a specific address in a completed VICE runtime trace, classified as read, write, or readwrite when possible. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Find direct memory accesses to a specific address in a completed VICE runtime trace, classified as read, write, or readwrite when possible. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2396,7 +2414,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Find instructions in a completed VICE runtime trace whose raw instruction bytes contain a target operand address. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Find instructions in a completed VICE runtime trace whose raw instruction bytes contain a target operand address. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2405,7 +2423,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Find occurrences of a specific PC in a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Find occurrences of a specific PC in a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2414,7 +2432,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). List the strongest phase boundaries detected from the trace window feature vectors. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). List the strongest phase boundaries detected from the trace window feature vectors. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2423,7 +2441,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Follow the concrete linear execution path after entering a given PC in the completed runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Follow the concrete linear execution path after entering a given PC in the completed runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2432,7 +2450,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Summarize the hottest PCs in a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Summarize the hottest PCs in a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2441,7 +2459,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). List indexed IRQ/NMI/interrupt contexts so you can isolate a handler execution path before opening raw trace slices. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). List indexed IRQ/NMI/interrupt contexts so you can isolate a handler execution path before opening raw trace slices. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2450,7 +2468,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). List saved reasoning notes/bookmarks for a completed VICE trace session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). List saved reasoning notes/bookmarks for a completed VICE trace session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2459,7 +2477,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Start a visible VICE session with periodic CPU-history sampling. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Start a visible VICE session with periodic CPU-history sampling. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2468,7 +2486,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Return a focused instruction window around an anchor clock from a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Return a focused instruction window around an anchor clock from a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2477,7 +2495,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Return the raw instruction slice for one indexed interrupt context, with optional padding before and after the context span. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Return the raw instruction slice for one indexed interrupt context, with optional padding before and after the context span. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2486,7 +2504,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Enable periodic CPU-history sampling on the active VICE session without restarting the emulator. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Enable periodic CPU-history sampling on the active VICE session without restarting the emulator. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2495,7 +2513,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Report whether runtime tracing is currently active on the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Report whether runtime tracing is currently active on the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2504,7 +2522,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Stop periodic CPU-history sampling on the active VICE session without closing VICE. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Stop periodic CPU-history sampling on the active VICE session without closing VICE. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2513,7 +2531,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Capture a final register snapshot plus CPU history from the active VICE session, stop the session, write trace artifacts, and return a compact analysis summary. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Capture a final register snapshot plus CPU history from the active VICE session, stop the session, write trace artifacts, and return a compact analysis summary. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2522,7 +2540,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Summarize the multi-scale trace pyramid so you can zoom out to the dominant windows and detected execution phases before opening raw slices. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Summarize the multi-scale trace pyramid so you can zoom out to the dominant windows and detected execution phases before opening raw slices. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     },
     {
@@ -2531,7 +2549,7 @@
       "ns": "vice",
       "hasSpec": false,
       "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison \u2014 not for normal project workflow. Normal tracing \u2192 use trace_store_* / runtime trace.",
+      "desc": "Oracle-only (VICE ground-truth). Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     }
   ]

@@ -62,6 +62,18 @@
         },
         {
           "actor": "llm",
+          "action": "Ask the orchestrator for the single next product step; run the inventory/media-sync step or follow its named tool.",
+          "tools": [
+            "agent_next_step",
+            "agent_run_step"
+          ],
+          "persist": [
+            "next-step suggestion",
+            "branch alternatives"
+          ]
+        },
+        {
+          "actor": "llm",
           "action": "Confirm next action and record the step.",
           "tools": [
             "c64re_whats_next",

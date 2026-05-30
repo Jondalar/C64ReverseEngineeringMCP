@@ -37,6 +37,7 @@ const PLAYBOOKS = [
       { actor: "llm", action: "Onboard: detect new vs resumed project, load persistent memory. For a brand-new directory, initialize it first (knowledge writes are rejected until then).", tools: ["agent_onboard", "project_init", "project_status", "get_project_profile"], persist: ["project state"], askHumanWhen: "it is unclear whether to create a new project here" },
       { actor: "llm", action: "Ask the user's objective (crack / EasyFlash port / analysis / bugfix / routine) and set role + workflow.", tools: ["agent_set_role", "start_re_workflow"], persist: ["role", "workflow profile"], askHumanWhen: "the objective is not stated" },
       { actor: "human", action: "Drop .d64/.g64/.crt/.prg + context into the project folder (or give absolute paths).", tools: [], persist: [] },
+      { actor: "llm", action: "Ask the orchestrator for the single next product step; run the inventory/media-sync step or follow its named tool.", tools: ["agent_next_step", "agent_run_step"], persist: ["next-step suggestion", "branch alternatives"] },
       { actor: "llm", action: "Confirm next action and record the step.", tools: ["c64re_whats_next", "agent_propose_next", "agent_record_step"], persist: ["next-action proposal"] },
     ],
     stopConditions: ["Project is initialized, role + workflow chosen, media location known."],

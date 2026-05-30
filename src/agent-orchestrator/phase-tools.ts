@@ -112,6 +112,7 @@ export const PHASE_TOOLS: Record<PhaseNumber, string[]> = {
 export const PHASE_AGNOSTIC_TOOLS: string[] = [
   "agent_onboard", "agent_propose_next", "agent_record_step",
   "agent_set_role", "agent_advance_phase", "agent_freeze_artifact",
+  "agent_next_step", "agent_run_step",
   "project_audit", "project_repair", "project_status",
   "project_init", "project_checkpoint",
   "list_artifacts", "list_entities", "list_findings",

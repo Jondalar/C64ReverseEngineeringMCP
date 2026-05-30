@@ -33,6 +33,12 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // unimported, or views are stale. Wraps the internal maintenance helpers so
   // the LLM never has to call them directly.
   "project_inventory_sync",
+  // Spec 730.4 — the step orchestrator. agent_next_step returns the single
+  // MCP-chosen next product step (+ branches) from real project state;
+  // agent_run_step runs the inventory/media-sync step in-process and points at
+  // the product tool for every other step. Both keep internal maintenance tools
+  // off the recommendation path (doNotCall only).
+  "agent_next_step", "agent_run_step",
   // Read knowledge
   "list_artifacts", "list_payloads", "list_findings", "list_open_questions",
   "list_entities", "list_flows", "read_artifact", "get_artifact_lineage",
@@ -82,8 +88,10 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
 
 /** Documented cap on the default surface (probe fails if exceeded). Spec 725
  * raised this 45→80 to fit the Headless Runtime + TraceDB facade. Spec 730.1
- * raised 80→95 to fit the promoted disk/G64 + cartridge RE tools (15 new). */
-export const DEFAULT_TIER_CAP = 95;
+ * raised 80→95 to fit the promoted disk/G64 + cartridge RE tools (15 new).
+ * Spec 730.4 raised 95→100 to fit the step orchestrator (agent_next_step +
+ * agent_run_step). */
+export const DEFAULT_TIER_CAP = 100;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

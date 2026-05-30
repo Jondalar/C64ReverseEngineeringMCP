@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 275,
-  "defaultCount": 93,
+  "total": 277,
+  "defaultCount": 95,
   "advancedCount": 182,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -138,6 +138,47 @@
       ],
       "e2eUseCases": [
         "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "agent_next_step",
+      "namespace": "agent",
+      "sourceFile": "server-tools/agent-step.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Ask the server for the single next product step (+ branch alternatives) derived from real project state — the orchestrated 'what do I do now?'.",
+      "notFor": "Running the step — use agent_run_step or the named product tool; recording progress — use agent_record_step.",
+      "adjacentTools": [
+        "agent_run_step",
+        "project_inventory_sync",
+        "agent_onboard"
+      ],
+      "e2eUseCases": [
+        "E2E-A",
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "agent_run_step",
+      "namespace": "agent",
+      "sourceFile": "server-tools/agent-step.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Run a workflow step from agent_next_step: executes the inventory/media-sync step in-process and points at the product tool for every other step.",
+      "notFor": "Choosing the step — use agent_next_step; calling internal maintenance helpers — they are wrapped behind product facades.",
+      "adjacentTools": [
+        "agent_next_step",
+        "project_inventory_sync"
+      ],
+      "e2eUseCases": [
+        "E2E-A",
+        "E2E-B"
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"

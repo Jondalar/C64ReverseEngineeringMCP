@@ -77,7 +77,7 @@
     "probe:tool-surface": "npm run build:mcp && node scripts/probe-tool-surface.mjs",
     "probe:workspace-single": "npm run build:mcp && node scripts/probe-workspace-single.mjs",
     "check:surface": "npm run build:mcp && node scripts/probe-tool-surface.mjs && node scripts/probe-workspace-single.mjs && node scripts/probe-single-path.mjs",
-    "check:mcp-product-surface": "npm run build:mcp && node scripts/probe-tool-surface.mjs && node scripts/probe-mcp-tool-usecase-matrix.mjs && node scripts/probe-mcp-llm-playbooks.mjs && node scripts/e2e-mcp-tool-boundaries.mjs && node scripts/e2e-mcp-path-portability.mjs && node scripts/e2e-mcp-project-inventory.mjs && node scripts/gen-synthetic-disks.mjs && node scripts/e2e-mcp-trace-first.mjs",
+    "check:mcp-product-surface": "npm run build:mcp && node scripts/probe-tool-surface.mjs && node scripts/probe-mcp-tool-usecase-matrix.mjs && node scripts/probe-mcp-llm-playbooks.mjs && node scripts/e2e-mcp-tool-boundaries.mjs && node scripts/e2e-mcp-path-portability.mjs && node scripts/e2e-mcp-project-inventory.mjs && node scripts/e2e-mcp-step-loop.mjs && node scripts/gen-synthetic-disks.mjs && node scripts/e2e-mcp-trace-first.mjs",
     "probe:709-media": "npm run build:mcp && node scripts/probe-709-media.mjs",
     "probe:709-ws-routes": "npm run build:mcp && node scripts/probe-709-ws-routes.mjs",
     "probe:709-12": "npm run build:mcp && node scripts/probe-709-12.mjs",
