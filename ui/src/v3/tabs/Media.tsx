@@ -255,6 +255,53 @@ export function MediaTab({ sessionId }: TabProps): JSX.Element {
     }
   }, [sessionId, client]);
 
+  // Spec 709 §3 / 724.2e — browser drag & drop. The dropped file's BYTES are
+  // sent to the SAME backend media-ingress service (media/ingress) as the path
+  // picker — there is no second browser-side media loader and no repo-samples
+  // fallback. The backend applies the 709 reset/checkpoint semantics per type:
+  //   .d64/.g64 → mount drive 8       .crt → insert + power-cycle (cold boot)
+  //   .prg      → load + inject-run (RUN)
+  const dropMedia = useCallback(async (file: File) => {
+    if (!sessionId) { setStatus("No active session — start a session first"); return; }
+    const ext = file.name.toLowerCase().split(".").pop() ?? "";
+    let req: Record<string, unknown> | undefined;
+    if (ext === "d64" || ext === "g64") req = { kind: "disk" };
+    else if (ext === "crt") req = { kind: "crt", resetPolicy: "power-cycle" };
+    else if (ext === "prg") req = { kind: "prg", mode: "inject-run" };
+    else if (ext === "c64re") { setStatus(`${file.name}: .c64re is a snapshot — use Snapshots ▸ Undump, not media`); return; }
+    else { setStatus(`Unsupported file type: .${ext} (drop .d64/.g64/.crt/.prg)`); return; }
+    try {
+      setStatus(`Ingesting ${file.name}…`);
+      const buf = new Uint8Array(await file.arrayBuffer());
+      // base64 without spreading a huge array onto the call stack.
+      let bin = "";
+      for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+      const bytes_b64 = btoa(bin);
+      const res = await client.call<{ event?: { format?: string; sha256?: string }; detail?: { mapperType?: string } }>(
+        "media/ingress", { session_id: sessionId, name: file.name, bytes_b64, ...req });
+      client.call<RecentEntry[]>("media/recent").then(setRecent).catch(() => {});
+      if (req.kind === "crt") {
+        void refreshCart();
+        setStatus(`Inserted ${file.name} as cartridge${res.detail?.mapperType ? ` [${res.detail.mapperType}]` : ""} (cold boot)`);
+      } else if (req.kind === "prg") {
+        setStatus(`Loaded + ran ${file.name}`);
+      } else {
+        setDrive8({ path: file.name, type: res.event?.format ?? ext });
+        setStatus(`Mounted ${file.name} to drive 8`);
+      }
+    } catch (e) {
+      setStatus(`Ingest error: ${(e as Error).message}`);
+    }
+  }, [sessionId, client, refreshCart]);
+
+  const [dragOver, setDragOver] = useState(false);
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file) void dropMedia(file);
+  }, [dropMedia]);
+
   const ejectSlot = useCallback(async (slot: 8 | 9) => {
     if (!sessionId) return;
     try {
@@ -374,7 +421,27 @@ export function MediaTab({ sessionId }: TabProps): JSX.Element {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: "8px", padding: "8px", color: "#ccc", fontSize: "13px" }}>
+    <div
+      onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
+      onDragLeave={(e) => { if (e.currentTarget === e.target) setDragOver(false); }}
+      onDrop={onDrop}
+      style={{ position: "relative", display: "flex", flexDirection: "column", height: "100%", gap: "8px", padding: "8px", color: "#ccc", fontSize: "13px" }}
+    >
+      {/* Spec 709 / 724.2e — drag & drop overlay. Dropped bytes go to the
+          backend media/ingress service (no second browser loader). */}
+      {dragOver && (
+        <div style={{
+          position: "absolute", inset: 0, zIndex: 10,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          background: "rgba(20,30,45,0.88)", border: "2px dashed #4a90d9", borderRadius: "6px",
+          color: "#cfe3ff", fontSize: "15px", fontWeight: "bold", textAlign: "center", pointerEvents: "none",
+        }}>
+          Drop .d64 / .g64 / .crt / .prg<br />
+          <span style={{ fontSize: "12px", fontWeight: "normal", color: "#9ab" }}>
+            disk → drive 8 · cartridge → cold boot · PRG → load + RUN
+          </span>
+        </div>
+      )}
       {/* Drive slots */}
       <div style={{ background: "#161616", borderRadius: "5px", padding: "8px" }}>
         <div style={{ fontWeight: "bold", color: "#888", marginBottom: "6px", fontSize: "11px", textTransform: "uppercase" }}>Drive Slots</div>
