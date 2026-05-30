@@ -821,7 +821,17 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             relativePath: file.relativePath,
             annotationCommentsByStage,
           });
-          const title = file.name ?? `File ${index + 1}`;
+          // BUG-003/004: a CBM directory label / pseudo-entry can decode to an
+          // empty (or whitespace-only) filename. `??` only catches undefined, so
+          // an empty string `""` slipped through and broke the DiskLayoutFile /
+          // MediumFile `min(1)` title/name schemas — killing the WHOLE disk
+          // manifest import + view build. Use a stable fallback label for an
+          // empty name; the raw (empty) name is preserved as evidence in notes.
+          const rawName = file.name;
+          const hasName = typeof rawName === "string" && rawName.trim().length > 0;
+          const title = hasName
+            ? rawName
+            : `<unnamed dir entry ${file.track ?? 0}/${file.sector ?? 0} #${index + 1}>`;
           const origin: "kernal" | "custom" = (file.origin === "custom" ? "custom" : "kernal");
           // Bias the per-file colour so custom-LUT files read as a
           // distinct family in the disk-layout grid: kernal gets the
@@ -849,7 +859,9 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             color,
             packer: file.packer ?? manifest?.defaultPacker,
             format: file.format ?? manifest?.defaultFormat,
-            notes: file.notes ?? [],
+            // BUG-003/004: keep the raw (empty/label) CBM name as evidence when
+            // we substituted a fallback title, so no directory evidence is lost.
+            notes: hasName ? (file.notes ?? []) : [...(file.notes ?? []), `raw CBM directory name was empty (label/pseudo entry)`],
             md5: file.md5,
             first16: file.first16,
             last16: file.last16,

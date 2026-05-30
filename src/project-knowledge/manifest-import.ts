@@ -138,17 +138,25 @@ export function importManifestKnowledge(artifact: ArtifactRecord): ImportedManif
       const relPath = file.relativePath;
       const absPath = relPath ? resolve(manifestDir, relPath) : undefined;
       const contentHash = absPath ? sha256OfFile(absPath) : undefined;
+      // BUG-003: a CBM directory label / pseudo-entry decodes to an empty
+      // filename. `??` only catches undefined, so an empty `""` produced an
+      // empty entity name → EntityRecordSchema.name min(1) ZodError → the WHOLE
+      // disk manifest import failed (unimportedManifestArtifacts). Treat empty /
+      // whitespace-only as "no name" and fall back; keep the raw name in summary.
+      const fileName = (typeof file.name === "string" && file.name.trim().length > 0) ? file.name : undefined;
+      const fallbackName = fileName ?? file.relativePath ?? `disk_file_${index + 1}`;
       return {
-        id: stableId("entity", artifact.id, `disk-file-${index}-${file.relativePath ?? file.name ?? "file"}`),
+        id: stableId("entity", artifact.id, `disk-file-${index}-${file.relativePath ?? fileName ?? "file"}`),
         kind: "disk-file" as const,
-        name: file.name ?? file.relativePath ?? `disk_file_${index + 1}`,
+        name: fallbackName,
         summary: [
           file.type ? `Type ${file.type}` : undefined,
           file.sizeBytes !== undefined ? `${file.sizeBytes} bytes` : undefined,
           file.track !== undefined && file.sector !== undefined ? `at ${file.track}/${file.sector}` : undefined,
+          fileName === undefined ? "raw CBM directory name empty (label/pseudo entry)" : undefined,
         ].filter(Boolean).join(", "),
         confidence: 1,
-        evidence: [buildArtifactEvidence(artifact, `Disk file ${file.name ?? file.relativePath ?? index}`)],
+        evidence: [buildArtifactEvidence(artifact, `Disk file ${fileName ?? file.relativePath ?? index}`)],
         artifactIds: [artifact.id],
         addressRange: file.loadAddress !== undefined
           ? { start: file.loadAddress, end: file.loadAddress + Math.max((file.sizeBytes ?? 1) - 1, 0) }
