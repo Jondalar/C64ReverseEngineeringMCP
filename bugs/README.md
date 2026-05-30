@@ -10,7 +10,7 @@ Human + LLM E2E bug log for the C64RE MCP/UI product flow.
 | ID | Title | Area | Severity | Status |
 |----|-------|------|----------|--------|
 | BUG-001 | `/v3.html` opens project dashboard instead of C64 Runtime Workbench | ui-v3 | blocker | fixed (597ad85) |
-| BUG-002 | v1 legacy UI is still served as a separate product entry | workspace-ui | high | open |
+| BUG-002 | v1 legacy UI is still served as a separate product entry | workspace-ui | high | fixed (ec0a1e1) |
 | BUG-003 | `extract_disk` manifest import fails on empty CBM directory filename | mcp-tool | high | fixed (17bad20) |
 | BUG-004 | `build_all_views` crashes on empty manifest item title/name | knowledge | high | fixed (17bad20) |
 | BUG-005 | Agent/audit recommends tools that are not exposed in MCP surface | mcp-tool | blocker | conceptual / spec-needed |
@@ -23,3 +23,5 @@ Human + LLM E2E bug log for the C64RE MCP/UI product flow.
 | BUG-012 | Media tabs render raw JSON instead of usable UI views | ui-v3 | high | fixed (4c4fdc7 — real viz) |
 | BUG-013 | Live Drive insert menu mixes project media with C64RE dev samples | ui-v3 | medium | open |
 | BUG-014 | Migrated workspace views lost shared Inspector and original layout | ui-v3 | high | fixed (bcbd770) |
+| BUG-015 | Project init leaves media unsorted instead of placing it under typed `input/` folders | mcp-tool | medium | open |
+| BUG-016 | Live C64 frame scales too large and pushes Monitor out of view | ui-v3 | medium | open |

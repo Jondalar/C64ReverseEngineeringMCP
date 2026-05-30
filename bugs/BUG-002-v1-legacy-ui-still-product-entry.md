@@ -5,7 +5,7 @@
 - **Reporter:** human
 - **Area:** workspace-ui
 - **Severity:** high
-- **Status:** open
+- **Status:** fixed
 
 ## Environment
 
@@ -69,9 +69,10 @@ This still exposes two UIs.
 
 ---
 
-## Resolution (fill on fix)
+## Resolution
 
-- **Root cause:**
-- **Fix commit:**
-- **Gate proving the fix:**
-- **Regression risk:**
+- **Root cause:** the earlier 724B framing made the v3 shell the product (served at `/`) and kept v1 as a *second* separately-served entry, so two normal product UIs co-existed. The final 724B decision inverts this: there is exactly ONE product UI = the v1 workbench (the functional Project/Analysis source of truth), now restyled to the v3 theme + extended with the v3 Live runtime tab. v3 standalone is demoted to dev/reference.
+- **Fix:** the static router (`src/workspace-ui/server.ts`) now serves the v1 product bundle at `/` and `/index.html`; `/v3.html` is reachable only as the dev/reference shell. The v1 entry no longer self-labels "legacy". (Live tab + theme were the parallel 724B slices.)
+- **Fix commits:** `ec0a1e1` (route `/` → v1 product, v3 → dev-only), with `8252560`/`5653738`/`6809cef` completing the one-UI product (Live tab + frame-connect + v3 theme).
+- **Gate proving the fix:** `npm run smoke:product-ui` — check 7 (`/` = `C64RE Workbench`, the v1 product) + 7b (`/` is NOT the v3 shell) + 8 (`/index.html` = the SAME product, no second UI) + 9 (`/v3.html` = `C64RE V3`, a distinct dev/reference title). 13/13 green. Asset names are unique (`index-*` vs `v3-*`) so `/assets/*` resolves correctly per entry.
+- **Regression risk:** low — routing + entry-title only; v1/v3 bundles unchanged. `/v3.html` still works for developers but is no longer a normal product entry.
