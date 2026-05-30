@@ -4,6 +4,22 @@
 // are viewers, not v1's interactive editors (Scrub / in-place annotate stay v1).
 import React, { useEffect, useState, useCallback } from "react";
 import { api, type WorkspaceSnapshot, type DocEntry, type GraphicsItem } from "../rest-client.js";
+// BUG-011/012: the REAL v1 visualizations, shared. /api/workspace returns the
+// full WorkspaceUiSnapshot (buildWorkspaceUiSnapshot), so the panels get all the
+// view models they need. v3 passes no-op callbacks for the cross-panel inspector
+// navigation (a v1-only nicety); panel-internal selection/detail stays live.
+import type { WorkspaceUiSnapshot } from "../../types.js";
+import { MemoryMapPanel, CartridgePanel, DiskPanel, FlowPanel } from "../../components/workspace-panels.js";
+const noop = () => {};
+
+// Load the FULL snapshot for the visualization panels (typed against the v1
+// view-model contract the panels consume). The HTTP API returns exactly this.
+function useFullSnapshot(): { snap: WorkspaceUiSnapshot | null; err: string } {
+  const [snap, setSnap] = useState<WorkspaceUiSnapshot | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => { api.workspace().then((s) => { setSnap(s as unknown as WorkspaceUiSnapshot); setErr(""); }).catch((e) => setErr(String(e.message ?? e))); }, []);
+  return { snap, err };
+}
 
 const card: React.CSSProperties = { background: "#161616", borderRadius: 5, padding: 10, marginBottom: 10 };
 const hdr: React.CSSProperties = { fontWeight: "bold", color: "#888", fontSize: 11, textTransform: "uppercase", marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" };
@@ -54,32 +70,14 @@ function useSnapshot(): { snap: WorkspaceSnapshot | null; err: string; reload: (
 // ---- Analysis group ----
 
 export function MemoryMapTab(): React.JSX.Element {
-  const { snap, err } = useSnapshot();
+  const { snap, err } = useFullSnapshot();
   if (err) return <div style={wrap}><div style={{ color: "#d66" }}>{err}</div></div>;
-  const view = snap?.views?.memoryMap;
-  const regions = view?.regions ?? [];
-  return (
-    <div style={wrap}>
-      <Panel title="Memory Map regions" count={regions.length} raw={view}>
-        {regions.length === 0 ? empty("No memory-map view yet — run build_memory_map.") : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-            <thead><tr><th style={th}>range</th><th style={th}>title</th><th style={th}>kind</th><th style={th}>status</th><th style={th}>conf</th></tr></thead>
-            <tbody>
-              {[...regions].sort((a, b) => a.start - b.start).map((r) => (
-                <tr key={r.id}>
-                  <td style={{ ...td, fontFamily: "monospace", color: "#9ab", whiteSpace: "nowrap" }}>{hex(r.start)}–{hex(r.end)}</td>
-                  <td style={td}><strong>{r.title}</strong>{r.summary && <div style={{ color: "#888", fontSize: 11 }}>{r.summary}</div>}</td>
-                  <td style={{ ...td, color: "#bca" }}>{r.kind}</td>
-                  <td style={{ ...td, color: "#999" }}>{r.status}</td>
-                  <td style={td}>{confBar(r.confidence)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Panel>
-    </div>
-  );
+  if (!snap) return <div style={wrap}>{empty("Loading…")}</div>;
+  if (!snap.views?.memoryMap?.cells?.length && !snap.views?.memoryMap?.regions?.length) {
+    return <div style={wrap}>{empty("No memory-map view yet — run analyze + build_memory_map.")}</div>;
+  }
+  // The real v1 heatmap-grid panel (shared). no-op for cross-panel selection.
+  return <div style={wrap}><MemoryMapPanel snapshot={snap} onSelectEntity={noop} /></div>;
 }
 
 export function PayloadsTab(): React.JSX.Element {
@@ -138,107 +136,38 @@ export function AnnotatedListingTab(): React.JSX.Element {
 }
 
 export function FlowGraphTab(): React.JSX.Element {
-  const { snap, err } = useSnapshot();
+  const { snap, err } = useFullSnapshot();
   if (err) return <div style={wrap}><div style={{ color: "#d66" }}>{err}</div></div>;
-  const view = snap?.views?.flowGraph;
-  const nodes = view?.nodes ?? [];
-  const edges = view?.edges ?? [];
-  const nodeTitle = (id: string) => nodes.find((n) => n.id === id)?.title ?? id;
-  return (
-    <div style={wrap}>
-      <Panel title="Flow nodes" count={nodes.length} raw={view}>
-        {nodes.length === 0 ? empty("No flow-graph view yet — run build_flow_graph_view.") : (
-          nodes.map((n) => (
-            <div key={n.id} style={{ padding: "3px 0", borderBottom: "1px solid #1d1d1d" }}>
-              <span style={{ color: "#7c9", fontSize: 10 }}>[{n.kind}]</span> <strong>{n.title}</strong> {confBar(n.confidence)}
-              {n.summary && <div style={{ color: "#888", fontSize: 11 }}>{n.summary}</div>}
-            </div>
-          ))
-        )}
-      </Panel>
-      {edges.length > 0 && (
-        <Panel title="Flow edges" count={edges.length}>
-          {edges.map((e, i) => (
-            <div key={e.id ?? i} style={{ padding: "2px 0", borderBottom: "1px solid #1d1d1d", fontSize: 12 }}>
-              <span style={{ color: "#9ab" }}>{nodeTitle(e.from)}</span>
-              <span style={{ color: "#666" }}> →[{e.kind}]→ </span>
-              <span style={{ color: "#9ab" }}>{nodeTitle(e.to)}</span>
-              {e.title && <span style={{ color: "#888" }}>  {e.title}</span>}
-            </div>
-          ))}
-        </Panel>
-      )}
-    </div>
-  );
+  if (!snap) return <div style={wrap}>{empty("Loading…")}</div>;
+  const fg = snap.views?.flowGraph;
+  if (!fg?.nodes?.length) return <div style={wrap}>{empty("No flow-graph view yet — run analyze + build_flow_graph_view.")}</div>;
+  // The real v1 SVG lane/node/edge graph (shared).
+  return <div style={wrap}><FlowPanel flowGraph={fg} entities={snap.entities} relations={snap.relations} onSelectEntity={noop} /></div>;
 }
 
 // ---- Media group ----
 
 export function DiskTab(): React.JSX.Element {
-  const { snap, err } = useSnapshot();
-  const [selected, setSelected] = useState<string>("");
+  const { snap, err } = useFullSnapshot();
   if (err) return <div style={wrap}><div style={{ color: "#d66" }}>{err}</div></div>;
-  const view = snap?.views?.diskLayout;
-  const disks = view?.disks ?? [];
-  if (disks.length === 0) return <div style={wrap}><Panel title="Disk layout" raw={view}>{empty("No disk-layout view yet — run extract_disk + build_disk_layout_view.")}</Panel></div>;
-  // BUG-008-safe: selection is keyed by stable artifactId and only defaults
-  // when nothing is chosen, so it doesn't snap back on data refresh.
-  const cur = disks.find((d) => d.artifactId === selected) ?? disks[0];
-  return (
-    <div style={wrap}>
-      <Panel title="Disks" count={disks.length} raw={view}>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-          {disks.map((d) => (
-            <button key={d.artifactId} onClick={() => setSelected(d.artifactId)}
-              style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, border: "1px solid " + (d.artifactId === cur.artifactId ? "#4a90d9" : "#333"), background: d.artifactId === cur.artifactId ? "#1d2a3a" : "#1a1a1a", color: "#ccc", cursor: "pointer" }}>
-              {d.imageFileName ?? d.diskName ?? d.title}
-            </button>
-          ))}
-        </div>
-        <div style={{ fontSize: 11, color: "#9ab", marginBottom: 6 }}>
-          {cur.format} · {cur.diskName ?? cur.title} · {cur.trackCount} tracks · {cur.fileCount} files
-        </div>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-          <thead><tr><th style={th}>name</th><th style={th}>type</th><th style={th}>t/s</th><th style={th}>load</th><th style={th}>size</th></tr></thead>
-          <tbody>
-            {cur.files.map((f) => (
-              <tr key={f.id}>
-                <td style={td}><strong>{f.title}</strong></td>
-                <td style={{ ...td, color: "#bca" }}>{f.type}</td>
-                <td style={{ ...td, fontFamily: "monospace", color: "#9ab" }}>{f.track ?? "?"}/{f.sector ?? "?"}</td>
-                <td style={{ ...td, fontFamily: "monospace", color: "#9ab" }}>{f.loadAddress !== undefined ? hex(f.loadAddress) : "—"}</td>
-                <td style={{ ...td, color: "#888" }}>{bytes(f.sizeBytes)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Panel>
-    </div>
-  );
+  if (!snap) return <div style={wrap}>{empty("Loading…")}</div>;
+  if (!snap.views?.diskLayout?.disks?.length) {
+    return <div style={wrap}>{empty("No disk-layout view yet — run extract_disk + build_disk_layout_view.")}</div>;
+  }
+  // The real v1 SVG cylindrical disk geometry + file list (shared). Internal disk
+  // tab selection stays live; cross-panel inspector callbacks are no-op.
+  return <div style={wrap}><DiskPanel snapshot={snap} onSelectEntity={noop} onSelectDiskFile={noop} onOpenHex={noop} /></div>;
 }
 
 export function CartridgeTab(): React.JSX.Element {
-  const { snap, err } = useSnapshot();
+  const { snap, err } = useFullSnapshot();
   if (err) return <div style={wrap}><div style={{ color: "#d66" }}>{err}</div></div>;
-  const view = snap?.views?.cartridgeLayout;
-  const carts = view?.cartridges ?? [];
-  return (
-    <div style={wrap}>
-      <Panel title="Cartridges" count={carts.length} raw={view}>
-        {carts.length === 0 ? empty("No cartridge-layout view yet — run extract_crt + build_cartridge_layout_view.") : (
-          carts.map((c) => (
-            <div key={c.id} style={{ padding: "6px 0", borderBottom: "1px solid #222" }}>
-              <strong>{c.cartridgeName ?? c.title}</strong>
-              <span style={{ color: "#9ab", fontSize: 11, marginLeft: 8 }}>
-                {c.hardwareType !== undefined ? `hw=${c.hardwareType} ` : ""}{c.exrom !== undefined ? `exrom=${c.exrom} ` : ""}{c.game !== undefined ? `game=${c.game}` : ""}
-              </span>
-              <div style={{ color: "#888", fontSize: 11 }}>{c.chips.length} chips · {c.banks.length} banks</div>
-            </div>
-          ))
-        )}
-      </Panel>
-    </div>
-  );
+  if (!snap) return <div style={wrap}>{empty("Loading…")}</div>;
+  if (!snap.views?.cartridgeLayout?.cartridges?.length) {
+    return <div style={wrap}>{empty("No cartridge-layout view yet — run extract_crt + build_cartridge_layout_view.")}</div>;
+  }
+  // The real v1 bank/chip grid (shared).
+  return <div style={wrap}><CartridgePanel snapshot={snap} onSelectEntity={noop} onSelectChunk={noop} onOpenHex={noop} /></div>;
 }
 
 export function GraphicsTab(): React.JSX.Element {

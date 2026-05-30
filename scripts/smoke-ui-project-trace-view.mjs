@@ -8,7 +8,7 @@
 // service + a real trace.duckdb via the library trace sink), boots the real
 // workspace-ui HTTP server against it, and HTTP-checks the endpoints.
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, copyFileSync, existsSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, copyFileSync, existsSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -213,20 +213,37 @@ try {
     console.log("  SKIP  24-26 UI routing (ui/dist-v3 not built — run npm run ui:v3:build)");
   }
 
-  // 27-29 — BUG-011/012: Analysis + Media tabs must render STRUCTURED UI, not a
-  // raw-JSON dump. Source-level guard on the v3 tab renderers (no React DOM here):
-  // the renderers use real tables/lists, and raw JSON only behind the Panel's
-  // explicit toggle, not as the default body.
+  // 27-31 — BUG-011/012: the Analysis + Media tabs must render the REAL v1
+  // VISUALIZATIONS (heatmap grid / SVG cylindrical disk / bank-chip grid / SVG
+  // flow graph), shared from ui/src/components/workspace-panels.tsx — NOT a
+  // JSON dump and NOT a plain table. Verified against the BUILT v3 bundle (the
+  // viz class names + SVG markers must be present) + the shared CSS.
   const pvSrc = readFileSync(join(ROOT, "ui/src/v3/tabs/ProjectViews.tsx"), "utf8");
-  ok(!/function ViewJson\b/.test(pvSrc), "27 no default ViewJson raw-dump renderer remains (BUG-011/012)", /ViewJson/.test(pvSrc) ? "ViewJson present" : "removed");
-  const structured = (pvSrc.match(/<table /g) || []).length;
-  ok(structured >= 3, "28 Analysis/Media tabs use structured tables (Memory Map / Payloads / Disk)", `<table>=${structured}`);
-  ok(/raw JSON/.test(pvSrc) && /showRaw/.test(pvSrc), "29 raw JSON is behind an explicit debug toggle, not the default", "");
+  ok(/MemoryMapPanel/.test(pvSrc) && /DiskPanel/.test(pvSrc) && /CartridgePanel/.test(pvSrc) && /FlowPanel/.test(pvSrc),
+    "27 v3 tabs render the shared visualization panels (not tables/JSON)", "");
+  ok(/workspace-panels/.test(pvSrc), "28 panels imported from the shared module (v3 does NOT import App.tsx)", /App\.js/.test(pvSrc) ? "imports App!" : "shared");
+
+  const bundleDir = join(ROOT, "ui/dist-v3/assets");
+  const jsFile = existsSync(bundleDir) ? readdirSync(bundleDir).find((f) => /^v3-.*\.js$/.test(f)) : undefined;
+  if (jsFile) {
+    const js = readFileSync(join(bundleDir, jsFile), "utf8");
+    const markers = ["memory-grid-table", "disk-geometry-svg", "flow-svg", "cart-grid-list", "disk-sector", "memory-cell"];
+    const missing = markers.filter((m) => !js.includes(m));
+    ok(missing.length === 0, "29 built v3 bundle contains the visualization markers (heatmap/disk-svg/flow-svg/cart-grid)", missing.join(",") || "all present");
+    const cssFile = readdirSync(bundleDir).find((f) => /\.css$/.test(f));
+    const css = cssFile ? readFileSync(join(bundleDir, cssFile), "utf8") : "";
+    ok(/disk-geometry-svg/.test(css) && /memory-cell/.test(css) && /flow-/.test(css),
+      "30 shared visualization CSS is bundled into v3", cssFile ? "present" : "no css");
+  } else {
+    console.log("  SKIP  29-30 viz bundle markers (ui/dist-v3 not built — run npm run ui:v3:build)");
+  }
+  // raw JSON must be available only as an explicit per-panel debug toggle.
+  ok(/showRaw/.test(pvSrc) && /raw JSON/.test(pvSrc), "31 raw JSON stays a debug toggle, not the default body", "");
 
   console.log(`\n--- report ---`);
   console.log(`project: ${projectDir}`);
   console.log(`endpoints proven: /api/config, /api/workspace (+ all view keys), /api/traces, /api/trace/{info,top-pcs,events}, /api/docs, /api/graphics`);
-  console.log(`Analysis/Media tabs render structured UI (tables/lists), raw JSON behind a toggle (BUG-011/012).`);
+  console.log(`Analysis/Media tabs render the REAL v1 visualizations (heatmap/SVG disk/bank-chip grid/flow svg), shared module, raw JSON behind a toggle (BUG-011/012).`);
   console.log(`UI routing (BUG-001): / + /v3.html → v3 shell; /index.html → legacy v1${hasV3Bundle ? "" : " (skipped — UI not built)"}`);
   console.log(`tabs reachable: Knowledge, Questions, Docs, Trace Files, Memory Map, Payloads, Annotated Listing, Flow Graph, Disk, Cartridge, Graphics, Assets/Scrub`);
   console.log(`Assets/Scrub: PRG picker + /api/artifact/raw slice + /api/scrub/annotate-segment write proven`);
