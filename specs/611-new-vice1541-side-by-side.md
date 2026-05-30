@@ -1,8 +1,10 @@
 # Spec 611 — VICE1541 side-by-side build (LEGACY1541 stays default)
 
-**Status:** ACTIVE (2026-05-16), operational strategy updated
-2026-05-17. **Replaces** the prior Spec 611
-"rotation retry" direction defined in `specs/610-1541-parity-rebuild-charter.md`.
+**Status:** SUPERSEDED (2026-05-30) — Superseded by Spec 704 §11 (legacy `drive/**`
+retired; VICE1541 is the only drive — the side-by-side phase is over). Ongoing 1541
+fidelity continues under Spec 610 / 612 / 620. Prior header: "ACTIVE (2026-05-16),
+operational strategy updated 2026-05-17." **Replaces** the prior Spec 611 "rotation
+retry" direction defined in `specs/610-1541-parity-rebuild-charter.md`.
 **Branch:** `codex/611-vice1541-side-by-side`
 **Baseline:** `runtime-green-2026-05-16` = master `87b4957`.
 **Doctrine:** `specs/600-runtime-proof-gates.md`.

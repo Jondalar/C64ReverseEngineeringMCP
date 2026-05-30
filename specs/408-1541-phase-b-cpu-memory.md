@@ -1,6 +1,6 @@
 # Spec 408 — 1541 Phase B: CPU and memory
 
-**Status:** PROPOSED
+**Status:** SUPERSEDED (2026-05-30) — Superseded by Spec 610 / 612. See specs/README.md.
 **Branch:** `vice-arch-port`
 **Depends on:** 407
 **Doctrine:** 1:1 VICE TDE port.

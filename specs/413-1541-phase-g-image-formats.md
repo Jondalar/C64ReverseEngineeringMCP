@@ -1,6 +1,6 @@
 # Spec 413 — 1541 Phase G: Image formats
 
-**Status:** PROPOSED
+**Status:** SUPERSEDED (2026-05-30) — Superseded by Spec 610 / 611 / 612. See specs/README.md.
 **Branch:** `vice-arch-port`
 **Depends on:** 412
 **Doctrine:** 1:1 VICE TDE port.

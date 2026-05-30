@@ -1,6 +1,9 @@
 # Spec 724 — One UI, One Server Entry, One Project Path
 
-**Status:** PLANNED (2026-05-29 CEST)
+**Status:** ACTIVE (2026-05-30) — 724A (one `--project` resolver, no cwd/samples
+fallback) DONE; 724.2e (browser drag&drop → backend `media/ingress`) DONE
+(2026-05-30); **724B (one UI shell — integrate the v1 knowledge screens into the v3
+workbench, then retire the v1 entry) is the active remaining work.**
 **Owner:** Workspace UI / server bootstrap
 **North star:** the MCP + workspace must be usable by an LLM **from outside the
 C64RE dev repo** (installed elsewhere, launched from any cwd, pointed at an
@@ -94,6 +97,20 @@ workspace/knowledge/analysis screens; v3 is only the emulator workbench. The
 goal is ONE shell that contains BOTH worlds. Delete nothing until every screen
 is reachable in the one UI.
 
+The one shell must follow the product swimlane, not merely glue old tabs
+together. The UI is the **human workbench** for the same project state that the
+LLM accesses through MCP. REST and WS are transports; they must not create a
+second workflow model or a second knowledge store.
+
+Binding UI roles:
+
+- MCP = agent/product API used by the LLM.
+- UI = human workbench over the same project/runtime/evidence state.
+- ProjectKnowledgeService remains the persistence authority.
+- Runtime WS streams live state; it is not a separate project owner.
+- No UI screen may silently use repo `samples/` or process `cwd` as normal
+  project media.
+
 Current split (feature-diff, see `docs/ui-server-consolidation-audit.md` §8):
 - **v1** (`ui/src/App.tsx` + `ui/src/components/**`, REST via server.ts, 11 tabs):
   Dashboard · Questions · Docs · Memory Map · Graphics · Scrub · Disk ·
@@ -102,10 +119,19 @@ Current split (feature-diff, see `docs/ui-server-consolidation-audit.md` §8):
   Scenarios · Snapshots · Export.
 
 Target shell groups (one nav, both backends):
-- **Project/Knowledge** — Dashboard, Questions, Docs (REST)
-- **Media/Extraction** — Disk, Cartridge, Payloads, Graphics (REST) + Media (WS)
-- **Code** — Memory Map, Flow Graph, Annotated Listing (REST)
-- **Runtime** — Live, Trace, Monitor (WS) + Scenarios, Snapshots, Export (WS)
+- **Project / Knowledge** — Dashboard, workflow state, entities, findings,
+  questions, Docs (REST)
+- **Media / Extraction** — Disk, Cartridge, Payloads, Graphics, media picker
+  (REST + WS)
+- **Runtime** — Live screen/audio/control, Monitor, media mount state (WS)
+- **Trace / Evidence** — trace capture status, marks, bounded trace queries,
+  evidence records (WS/REST)
+- **Code / Disassembly** — Memory Map, Flow Graph, Annotated Listing,
+  PC/source/evidence links (REST)
+- **Inspect** — frozen VIC inspect, visual-to-RAM/code links, promoted evidence
+  (WS/REST)
+- **Snapshots / Branches / Export** — dump/undump, checkpoint/rewind/branch
+  views, export (WS/REST)
 
 Sequence (no capability loss at any step):
 1. (724.2a, audit-only) feature-diff: v1 tabs + REST deps vs v3 tabs + WS deps
@@ -118,6 +144,61 @@ Sequence (no capability loss at any step):
    `ui/index.html` + the v1 entry route; `server.ts` serves the one UI.
 - Gate per step: `ui:v3:build` + `ui:v3:typecheck` + the moved screens render
   against the live REST API.
+- Additional gate: the shell started with `--project <external-project>` shows
+  only that project's media/knowledge by default. Repo samples appear only when
+  `--dev-samples` is explicitly enabled.
+
+#### 724.2e — Browser Drag & Drop Media Ingress (Spec 709 UI Closure)
+
+This is not a new requirement. Spec 709 already defines reproducible media
+ingress and UI drag/drop. 724B must make that existing contract visible in the
+one UI shell and close the old split where runtime ingress existed but the UI
+was not coherently wired.
+
+The one UI shell must support dropping media files directly into the browser.
+This is human workflow, not a dev convenience, and it must call the Spec 709
+backend media-ingress service rather than inventing another browser-side path.
+
+Supported file types:
+
+- `.d64`
+- `.g64`
+- `.prg`
+- `.crt`
+
+Required behavior:
+
+| Drop type | UI/runtime action |
+|---|---|
+| `.d64` | Copy/register into the active project media area, mount as drive 8, keep current runtime unless mount policy requires reset. |
+| `.g64` | Copy/register into the active project media area, mount as drive 8, keep current runtime unless mount policy requires reset. |
+| `.crt` | Copy/register into the active project media area, insert cartridge, perform reset/cold boot so the cartridge starts. |
+| `.prg` | Copy/register into the active project media area, load PRG into C64 memory, then type/execute `RUN` or equivalent KERNAL-safe start policy. |
+
+Rules:
+
+- The dropped file becomes a project artifact. It is not only a transient browser
+  upload.
+- The operation emits/uses the Spec 709 media-ingress event and media identity.
+- Path handling follows the 724A resolver and the path-portability rule from
+  Specs 727-729.
+- The UI uses backend media/runtime APIs; it must not implement a second media
+  loader in the browser.
+- After the action, the UI shows the resulting media/runtime state clearly:
+  mounted disk, inserted cartridge, loaded PRG, reset/run status and errors.
+- If a file type is unsupported or a mount/load fails, the UI must show a clear
+  failure with the project path/artifact id; no silent fallback to repo samples.
+
+Gate:
+
+- Drop a `.d64` fixture into an external-project workspace → artifact appears,
+  drive 8 mounted.
+- Drop a `.g64` fixture → artifact appears, drive 8 mounted.
+- Drop a `.crt` fixture → artifact appears, cartridge inserted, cold boot
+  performed.
+- Drop a `.prg` fixture → artifact appears, PRG loaded and `RUN` executed.
+- Existing 709 media-ingress probes remain green; if a gap exists in the old
+  adapter/UI contract, fix that path instead of adding a second ingress path.
 
 ### 724.3 — One project path, fanned out (code) — DONE (2026-05-29)
 Shipped: `src/workspace-ui/resolve-project-dir.ts` (`--project` > env > hard

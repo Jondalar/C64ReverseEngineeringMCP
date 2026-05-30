@@ -1,6 +1,6 @@
 # Spec 400 — Tick-order port (C64 + drive)
 
-**Status:** PROPOSED
+**Status:** SUPERSEDED (2026-05-30) — Superseded by Spec 610 / 612 (vice1541 rebuild). See specs/README.md.
 **Branch:** `vice-arch-port`
 **Depends on:** PLAN.md baseline (`vic-fix` @ `0a47f50`)
 **Doctrine:** 1:1 VICE x64sc port. No abstractions, no shortcuts, no

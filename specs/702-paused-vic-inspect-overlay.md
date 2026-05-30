@@ -1,6 +1,8 @@
 # Spec 702 — Paused VIC Inspect Overlay
 
-Status: DRAFT — production integration refined by Spec 710
+Status: SUPERSEDED (2026-05-30) — Superseded by Spec 710 (Frozen VIC Inspect on the
+Checkpoint/Evidence base, DONE). Prior header: "DRAFT — production integration
+refined by Spec 710."
 Created: 2026-05-21 CEST  
 Owner: v3 UI / runtime / knowledge
 

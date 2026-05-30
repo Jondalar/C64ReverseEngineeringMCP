@@ -1,6 +1,6 @@
 # Spec 403 — C64 Phase C: Peripherals (CIAs)
 
-**Status:** PROPOSED
+**Status:** SUPERSEDED (2026-05-30) — Superseded by Spec 610 / 612 + the runtime-green baseline. See specs/README.md.
 **Branch:** `vice-arch-port`
 **Depends on:** 402
 **Doctrine:** 1:1 VICE x64sc port. Never deviate.

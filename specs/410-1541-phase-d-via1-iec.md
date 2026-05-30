@@ -1,6 +1,6 @@
 # Spec 410 — 1541 Phase D: VIA1 (IEC interface)
 
-**Status:** PROPOSED
+**Status:** SUPERSEDED (2026-05-30) — Superseded by Spec 610 / 612. See specs/README.md.
 **Branch:** `vice-arch-port`
 **Depends on:** 409
 **Doctrine:** 1:1 VICE TDE port.

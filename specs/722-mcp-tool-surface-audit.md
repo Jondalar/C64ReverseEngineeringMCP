@@ -1,6 +1,9 @@
 # Spec 722 — MCP Tool Surface: One Coherent Product the LLM Can Use
 
-**Status:** PLANNED (2026-05-29 CEST, reworked)
+**Status:** SUPERSEDED (2026-05-30) — the tool-surface reshape this spec planned was
+implemented by Spec 725 (default façade), 727 (use-case matrix), 728 (LLM playbooks)
+and 729 (E2E gates), all on master. Kept as the originating rationale. Prior header:
+"PLANNED (2026-05-29 CEST, reworked)."
 **Owner:** MCP server / interface contract
 **North star:** the MCP must be usable by an LLM **outside the C64RE dev repo**
 — a clean default surface that reads as one product, where every tool the LLM

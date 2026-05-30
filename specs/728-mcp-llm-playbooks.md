@@ -1,6 +1,8 @@
 # Spec 728 — MCP LLM Playbooks
 
-**Status:** READY  
+**Status:** DONE (2026-05-30) — `docs/mcp-llm-playbooks.{json,md}` generated (10
+intent-ordered playbooks) + `scripts/probe-mcp-llm-playbooks.mjs` 12/12 on master.
+`vice_*` appears only in the internal-dev-oracle playbook.  
 **Owner:** MCP product workflow / agent guidance  
 **Depends on:** Specs 727, 725, 726  
 **Source:** `docs/llm-human-c64re-swimlane.md`

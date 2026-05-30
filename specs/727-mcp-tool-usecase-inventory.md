@@ -1,6 +1,9 @@
 # Spec 727 — MCP Tool Use-Case Inventory
 
-**Status:** READY  
+**Status:** DONE (2026-05-30) — `docs/mcp-tool-usecase-matrix.{json,md}` generated
+(274 rows, 77 default / 197 advanced) + `scripts/probe-mcp-tool-usecase-matrix.mjs`
+17/17 on master. Every tool classified once; trace readers name the 726 schema
+contract; `vice_*` internal-dev-oracle+advanced.  
 **Owner:** MCP server / product API  
 **Depends on:** Specs 722, 725, 726  
 **Source:** `docs/product-vision-and-workbench-contract.md` and
