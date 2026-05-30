@@ -240,6 +240,26 @@ try {
   // raw JSON must be available only as an explicit per-panel debug toggle.
   ok(/showRaw/.test(pvSrc) && /raw JSON/.test(pvSrc), "31 raw JSON stays a debug toggle, not the default body", "");
 
+  // 32-34 — BUG-014: the v3 viz views keep the v1 WORKBENCH model — primary
+  // visual on the left + the shared Inspector on the right (not a vertical
+  // stack), with LIVE selection feeding the Inspector. Source-level: tabs use
+  // Workbench + EntityInspector + a selection hook; bundle-level: the Inspector
+  // + workbench-grid classes are present in the built JS + CSS.
+  ok(/Workbench/.test(pvSrc) && /EntityInspector/.test(pvSrc) && /useEntitySelection/.test(pvSrc),
+    "32 v3 viz tabs use the workbench layout + shared Inspector + live selection", "");
+  if (jsFile) {
+    const js = readFileSync(join(bundleDir, jsFile), "utf8");
+    const im = ["inspector-card", "workspace-side", "workspace-main", "app-main-grid", "inspector-block"];
+    const miss = im.filter((m) => !js.includes(m));
+    ok(miss.length === 0, "33 built v3 bundle contains the Inspector + workbench-grid markup", miss.join(",") || "all present");
+    const cssFile = readdirSync(bundleDir).find((f) => /\.css$/.test(f));
+    const css = cssFile ? readFileSync(join(bundleDir, cssFile), "utf8") : "";
+    ok(/inspector-card/.test(css) && /workspace-side/.test(css) && /wb-embedded/.test(css),
+      "34 shared Inspector + workbench-grid CSS is bundled into v3", cssFile ? "present" : "no css");
+  } else {
+    console.log("  SKIP  33-34 inspector/workbench markers (ui/dist-v3 not built)");
+  }
+
   console.log(`\n--- report ---`);
   console.log(`project: ${projectDir}`);
   console.log(`endpoints proven: /api/config, /api/workspace (+ all view keys), /api/traces, /api/trace/{info,top-pcs,events}, /api/docs, /api/graphics`);

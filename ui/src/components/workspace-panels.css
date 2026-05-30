@@ -873,3 +873,162 @@
   flex: 1;
   text-align: left;
 }
+
+/* BUG-014 — shared Inspector + workbench-grid layout. */
+.app-main-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.65fr) minmax(300px, 0.8fr);
+  align-items: start;
+}
+.app-main-grid.docs-mode {
+  grid-template-columns: 1fr;
+}
+.workspace-main,
+.workspace-side {
+  display: grid;
+  gap: 1rem;
+  align-content: start;
+}
+.record-card p,
+.region-card p,
+.timeline-card p,
+.mini-card p,
+.inspector-copy {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.record-topline,
+.region-header,
+.detail-title-row,
+.inspector-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+.sequence-card,
+.static-card {
+  width: 100%;
+  text-align: left;
+  border-radius: 16px;
+  border: 1px solid rgba(137, 176, 208, 0.14);
+  background:
+    linear-gradient(180deg, rgba(16, 30, 46, 0.94), rgba(8, 18, 29, 0.9));
+  color: var(--ink);
+  padding: 1rem;
+}
+.sequence-card {
+  cursor: pointer;
+}
+.sequence-card.active-record {
+  border-color: rgba(241, 90, 41, 0.45);
+  background: rgba(241, 90, 41, 0.12);
+}
+.sequence-card:disabled {
+  cursor: default;
+  opacity: 0.95;
+}
+.sequence-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.7rem;
+}
+.sequence-card h4 {
+  margin: 0 0 0.45rem;
+  font-size: 1.1rem;
+}
+.sequence-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.inspector-card {
+  min-height: 18rem;
+}
+.inspector-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+.inspector-chip {
+  padding: 0.42rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(77, 181, 255, 0.1);
+  border: 1px solid rgba(77, 181, 255, 0.18);
+  color: var(--accent-2);
+  cursor: pointer;
+}
+.inspector-chip:hover {
+  background: rgba(77, 181, 255, 0.16);
+}
+.inspector-chip.active {
+  background: rgba(241, 90, 41, 0.18);
+  border-color: rgba(241, 90, 41, 0.42);
+  color: #ffd2c2;
+}
+.inspector-block {
+  margin-top: 1rem;
+}
+.inspector-block h4 {
+  margin: 0 0 0.6rem;
+}
+.mini-card,
+.timeline-card {
+  padding: 0.8rem;
+  border-radius: 12px;
+  background: rgba(8, 18, 29, 0.82);
+  border: 1px solid rgba(137, 176, 208, 0.12);
+}
+.timeline-card strong,
+.mini-card strong {
+  display: block;
+}
+.empty-state,
+.empty-inline {
+  color: var(--muted);
+}
+.hero-shell,
+  .app-main-grid,
+  .dashboard-grid,
+  .split-columns,
+  .disk-layout-shell,
+  .docs-shell,
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
+.record-card-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.record-card-row .record-card {
+  flex: 1;
+  text-align: left;
+}
+.mon-icon-button {
+  flex: 0 0 auto;
+  align-self: stretch;
+  border: 1px solid #30363d;
+  background: #0d1117;
+  color: #58a6ff;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  padding: 0 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.mon-icon-button:hover {
+  border-color: #58a6ff;
+  background: rgba(88, 166, 255, 0.12);
+}
+
+.app-main-grid.wb-embedded { display: grid; grid-template-columns: minmax(0,1fr) 360px; gap: 10px; height: 100%; min-height: 0; }
+.app-main-grid.wb-embedded > .workspace-main { min-width: 0; min-height: 0; overflow: auto; }
+.app-main-grid.wb-embedded > .workspace-side { min-height: 0; overflow: auto; }
+@media (max-width: 900px) { .app-main-grid.wb-embedded { grid-template-columns: 1fr; } }

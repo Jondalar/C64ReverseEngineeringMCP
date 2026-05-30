@@ -8,9 +8,36 @@ import { api, type WorkspaceSnapshot, type DocEntry, type GraphicsItem } from ".
 // full WorkspaceUiSnapshot (buildWorkspaceUiSnapshot), so the panels get all the
 // view models they need. v3 passes no-op callbacks for the cross-panel inspector
 // navigation (a v1-only nicety); panel-internal selection/detail stays live.
-import type { WorkspaceUiSnapshot } from "../../types.js";
-import { MemoryMapPanel, CartridgePanel, DiskPanel, FlowPanel } from "../../components/workspace-panels.js";
+import type { WorkspaceUiSnapshot, EntityRecord } from "../../types.js";
+import { MemoryMapPanel, CartridgePanel, DiskPanel, FlowPanel, EntityInspector, Workbench } from "../../components/workspace-panels.js";
 const noop = () => {};
+
+// BUG-014: the v3 viz views keep the v1 workbench model — primary visual on the
+// left, the shared Inspector on the right — with live selection. A view holds a
+// local selectedEntityId; the panel's onSelectEntity sets it; the Inspector
+// renders the linked details. The heavy v1-global actions (open hex/asm overlay,
+// create task/question, run workflow) are not available in the v3 shell yet, so
+// they pass no-op — but Inspector SELECTION + detail navigation are fully live.
+function useEntitySelection(snap: WorkspaceUiSnapshot | null) {
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const entity: EntityRecord | undefined = selectedEntityId
+    ? snap?.entities.find((e) => e.id === selectedEntityId) : undefined;
+  return { selectedEntityId, setSelectedEntityId, entity };
+}
+function InspectorSide({ snap, entity, onSelectEntity }: { snap: WorkspaceUiSnapshot; entity?: EntityRecord; onSelectEntity: (id: string) => void }): React.JSX.Element {
+  return (
+    <EntityInspector
+      snapshot={snap}
+      entity={entity}
+      onSelectEntity={onSelectEntity}
+      onOpenDocument={noop}
+      onOpenTab={noop}
+      onOpenHex={noop}
+      onCreateTask={noop}
+      onCreateQuestion={noop}
+    />
+  );
+}
 
 // Load the FULL snapshot for the visualization panels (typed against the v1
 // view-model contract the panels consume). The HTTP API returns exactly this.
@@ -71,13 +98,22 @@ function useSnapshot(): { snap: WorkspaceSnapshot | null; err: string; reload: (
 
 export function MemoryMapTab(): React.JSX.Element {
   const { snap, err } = useFullSnapshot();
+  const sel = useEntitySelection(snap);
   if (err) return <div style={wrap}><div style={{ color: "#d66" }}>{err}</div></div>;
   if (!snap) return <div style={wrap}>{empty("Loading…")}</div>;
   if (!snap.views?.memoryMap?.cells?.length && !snap.views?.memoryMap?.regions?.length) {
     return <div style={wrap}>{empty("No memory-map view yet — run analyze + build_memory_map.")}</div>;
   }
-  // The real v1 heatmap-grid panel (shared). no-op for cross-panel selection.
-  return <div style={wrap}><MemoryMapPanel snapshot={snap} onSelectEntity={noop} /></div>;
+  // v1 workbench: heatmap grid (left) + live Inspector (right). Selecting a cell
+  // sets selectedEntityId → the Inspector shows the linked region/entity.
+  return (
+    <div style={{ height: "100%", padding: 8 }}>
+      <Workbench
+        main={<MemoryMapPanel snapshot={snap} selectedEntityId={sel.selectedEntityId} onSelectEntity={sel.setSelectedEntityId} />}
+        side={<InspectorSide snap={snap} entity={sel.entity} onSelectEntity={sel.setSelectedEntityId} />}
+      />
+    </div>
+  );
 }
 
 export function PayloadsTab(): React.JSX.Element {
@@ -137,37 +173,69 @@ export function AnnotatedListingTab(): React.JSX.Element {
 
 export function FlowGraphTab(): React.JSX.Element {
   const { snap, err } = useFullSnapshot();
+  const sel = useEntitySelection(snap);
   if (err) return <div style={wrap}><div style={{ color: "#d66" }}>{err}</div></div>;
   if (!snap) return <div style={wrap}>{empty("Loading…")}</div>;
   const fg = snap.views?.flowGraph;
   if (!fg?.nodes?.length) return <div style={wrap}>{empty("No flow-graph view yet — run analyze + build_flow_graph_view.")}</div>;
-  // The real v1 SVG lane/node/edge graph (shared).
-  return <div style={wrap}><FlowPanel flowGraph={fg} entities={snap.entities} relations={snap.relations} onSelectEntity={noop} /></div>;
+  // v1 workbench: SVG node/edge graph (left) + live Inspector (right).
+  return (
+    <div style={{ height: "100%", padding: 8 }}>
+      <Workbench
+        main={<FlowPanel flowGraph={fg} entities={snap.entities} relations={snap.relations} selectedEntityId={sel.selectedEntityId} onSelectEntity={sel.setSelectedEntityId} />}
+        side={<InspectorSide snap={snap} entity={sel.entity} onSelectEntity={sel.setSelectedEntityId} />}
+      />
+    </div>
+  );
 }
 
 // ---- Media group ----
 
 export function DiskTab(): React.JSX.Element {
   const { snap, err } = useFullSnapshot();
+  const sel = useEntitySelection(snap);
   if (err) return <div style={wrap}><div style={{ color: "#d66" }}>{err}</div></div>;
   if (!snap) return <div style={wrap}>{empty("Loading…")}</div>;
   if (!snap.views?.diskLayout?.disks?.length) {
     return <div style={wrap}>{empty("No disk-layout view yet — run extract_disk + build_disk_layout_view.")}</div>;
   }
-  // The real v1 SVG cylindrical disk geometry + file list (shared). Internal disk
-  // tab selection stays live; cross-panel inspector callbacks are no-op.
-  return <div style={wrap}><DiskPanel snapshot={snap} onSelectEntity={noop} onSelectDiskFile={noop} onOpenHex={noop} /></div>;
+  // v1 workbench: SVG cylindrical disk geometry + file list (left) + Inspector
+  // (right). Internal disk-tab + file selection stays live; selecting a file also
+  // routes its entity into the Inspector. Heavy hex-overlay action = no-op (v1 global).
+  return (
+    <div style={{ height: "100%", padding: 8 }}>
+      <Workbench
+        main={<DiskPanel snapshot={snap} onSelectEntity={sel.setSelectedEntityId}
+          onSelectDiskFile={(diskArtifactId, fileId) => {
+            const disk = snap.views.diskLayout.disks.find((d) => d.artifactId === diskArtifactId);
+            const ent = disk?.files.find((f) => f.id === fileId)?.entityId;
+            if (ent) sel.setSelectedEntityId(ent);
+          }}
+          onOpenHex={noop} />}
+        side={<InspectorSide snap={snap} entity={sel.entity} onSelectEntity={sel.setSelectedEntityId} />}
+      />
+    </div>
+  );
 }
 
 export function CartridgeTab(): React.JSX.Element {
   const { snap, err } = useFullSnapshot();
+  const sel = useEntitySelection(snap);
   if (err) return <div style={wrap}><div style={{ color: "#d66" }}>{err}</div></div>;
   if (!snap) return <div style={wrap}>{empty("Loading…")}</div>;
   if (!snap.views?.cartridgeLayout?.cartridges?.length) {
     return <div style={wrap}>{empty("No cartridge-layout view yet — run extract_crt + build_cartridge_layout_view.")}</div>;
   }
-  // The real v1 bank/chip grid (shared).
-  return <div style={wrap}><CartridgePanel snapshot={snap} onSelectEntity={noop} onSelectChunk={noop} onOpenHex={noop} /></div>;
+  // v1 workbench: bank/chip grid (left) + live Inspector (right). Selecting a
+  // bank/chip routes its entity into the Inspector; chunk-inspector is v1-global (no-op).
+  return (
+    <div style={{ height: "100%", padding: 8 }}>
+      <Workbench
+        main={<CartridgePanel snapshot={snap} onSelectEntity={sel.setSelectedEntityId} onSelectChunk={noop} onOpenHex={noop} />}
+        side={<InspectorSide snap={snap} entity={sel.entity} onSelectEntity={sel.setSelectedEntityId} />}
+      />
+    </div>
+  );
 }
 
 export function GraphicsTab(): React.JSX.Element {
