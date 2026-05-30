@@ -7,26 +7,39 @@ import { describeWalkRoots, findUnimportedAnalysisArtifacts, listCandidateFiles,
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
 
-// Built-in glob set used when register_existing_files is called with no
-// `patterns` arg (R4 in REQUIREMENTS.md). Covers every c64re-produced
-// extension across input, analysis, generated, view, knowledge, and session
-// scopes, and excludes rebuild-check PRGs (Bug 14).
-const DEFAULT_PATTERNS: Array<{
+export interface RegistrationPattern {
   glob: string;
   kind: typeof KIND_VALUES[number];
   scope: typeof SCOPE_VALUES[number];
   role?: string;
   format?: string;
-}> = [
+}
+
+// Built-in glob set used when register_existing_files is called with no
+// `patterns` arg (R4 in REQUIREMENTS.md). Covers every c64re-produced
+// extension across input, analysis, generated, view, knowledge, and session
+// scopes, and excludes rebuild-check PRGs (Bug 14).
+//
+// Spec 730.3 / §7: the analysis-folder globs are broadened from the original
+// `analysis/disk/**`-only coverage to `analysis/**`, so disasm output produced
+// outside the disk subtree is still registered. The trailing block adds the
+// "semantic / hand-curated source" patterns (.asm/.tass/.sym/.md authored by a
+// human under analysis folders) so a better-than-generated source file on disk
+// becomes visible to the artifact resolver instead of being invisible
+// (BUG-019). These come AFTER the generated `*_disasm.*` patterns so a generated
+// listing keeps its specific `listing` / `generated-source` role and only the
+// remaining hand-made source files fall through to the curated-source role.
+export const DEFAULT_PATTERNS: RegistrationPattern[] = [
   { glob: "input/disk/*.d64", kind: "d64", scope: "input", role: "source-disk" },
   { glob: "input/disk/*.g64", kind: "g64", scope: "input", role: "source-disk" },
   { glob: "input/cart/*.crt", kind: "crt", scope: "input", role: "source-cart" },
   { glob: "input/prg/*.prg", kind: "prg", scope: "input", role: "source-prg" },
-  { glob: "analysis/disk/*/manifest.json", kind: "manifest", scope: "analysis", role: "disk-manifest", format: "json" },
-  { glob: "analysis/disk/**/*_analysis.json", kind: "analysis-run", scope: "analysis", role: "prg-analysis", format: "json" },
-  { glob: "analysis/disk/**/*_disasm.asm", kind: "listing", scope: "analysis", role: "disasm", format: "asm" },
-  { glob: "analysis/disk/**/*_disasm.tass", kind: "generated-source", scope: "generated", role: "disasm-tass", format: "tass" },
-  { glob: "analysis/disk/**/raw_sectors/**/*.bin", kind: "raw", scope: "analysis", role: "raw-sector", format: "bin" },
+  { glob: "analysis/**/manifest.json", kind: "manifest", scope: "analysis", role: "disk-manifest", format: "json" },
+  { glob: "analysis/**/*_analysis.json", kind: "analysis-run", scope: "analysis", role: "prg-analysis", format: "json" },
+  { glob: "analysis/**/*_annotations.json", kind: "report", scope: "analysis", role: "annotations", format: "json" },
+  { glob: "analysis/**/*_disasm.asm", kind: "listing", scope: "analysis", role: "disasm", format: "asm" },
+  { glob: "analysis/**/*_disasm.tass", kind: "generated-source", scope: "generated", role: "disasm-tass", format: "tass" },
+  { glob: "analysis/**/raw_sectors/**/*.bin", kind: "raw", scope: "analysis", role: "raw-sector", format: "bin" },
   { glob: "analysis/runtime/**/session.json", kind: "checkpoint", scope: "session", role: "vice-session", format: "json" },
   { glob: "analysis/runtime/**/trace/summary.json", kind: "report", scope: "session", role: "trace-summary", format: "json" },
   { glob: "analysis/runtime/**/trace/trace-analysis.json", kind: "report", scope: "session", role: "trace-analysis", format: "json" },
@@ -37,6 +50,14 @@ const DEFAULT_PATTERNS: Array<{
   { glob: "analysis/headless-runtime/**/trace/summary.json", kind: "report", scope: "session", role: "trace-summary", format: "json" },
   { glob: "views/*.json", kind: "view-model", scope: "view", format: "json" },
   { glob: "docs/**/*.md", kind: "other", scope: "knowledge", role: "doc", format: "md" },
+  // Spec 730.3 §7 — semantic / hand-curated source under analysis folders.
+  // Conservative: only catches files NOT already claimed by a more specific
+  // pattern above (first-match-wins in the scan loop). Role marks them as
+  // human-authored source the resolver should prefer over generated output.
+  { glob: "analysis/**/*.asm", kind: "generated-source", scope: "analysis", role: "semantic-source", format: "asm" },
+  { glob: "analysis/**/*.tass", kind: "generated-source", scope: "analysis", role: "semantic-source", format: "tass" },
+  { glob: "analysis/**/*.sym", kind: "other", scope: "analysis", role: "symbols", format: "sym" },
+  { glob: "analysis/**/*.md", kind: "other", scope: "analysis", role: "semantic-notes", format: "md" },
 ];
 
 // Files we never want to auto-register through default globs. Currently
@@ -66,6 +87,88 @@ const patternSchema = z.object({
 
 function textContent(text: string) {
   return { content: [{ type: "text" as const, text }] };
+}
+
+export interface RegisterFilesResult {
+  registered: number;
+  registeredByKind: Record<string, number>;
+  skippedAlreadyRegistered: number;
+  excludedByGlob: number;
+  unmatched: string[];
+  errors: Array<{ relativePath: string; error: string }>;
+}
+
+// Core registration pass shared by register_existing_files (the internal tool)
+// and project_inventory_sync (the Spec 730.3 product facade). Walks the project
+// for candidate files, glob-matches them against `patterns` (first match wins),
+// skips files already registered (by relativePath) and the default-exclude set,
+// and calls saveArtifact for the rest. Pure side-effect on the knowledge store;
+// never moves/copies/deletes files. Idempotent: a second call registers nothing
+// new because the candidates are already in artifacts.json.
+export function registerProjectFiles(
+  service: ProjectKnowledgeService,
+  projectRoot: string,
+  patterns: RegistrationPattern[],
+  opts: { producedByTool?: string; includeExcluded?: boolean } = {},
+): RegisterFilesResult {
+  const allCandidates = listCandidateFiles(projectRoot);
+  const excludeGlobs = opts.includeExcluded ? [] : DEFAULT_EXCLUDE_GLOBS;
+  const candidates = excludeGlobs.length > 0
+    ? allCandidates.filter((rel) => !excludeGlobs.some((g) => matchesGlob(rel, g)))
+    : allCandidates;
+  const excludedByGlob = allCandidates.length - candidates.length;
+  const existing = new Set<string>(service.listArtifacts().map((a) => a.relativePath));
+
+  const planned: Array<{ pattern: RegistrationPattern; relativePath: string }> = [];
+  let skippedAlreadyRegistered = 0;
+  const unmatched: string[] = [];
+
+  for (const rel of candidates) {
+    let matchedAny = false;
+    for (const pat of patterns) {
+      if (matchesGlob(rel, pat.glob)) {
+        matchedAny = true;
+        if (existing.has(rel)) {
+          skippedAlreadyRegistered += 1;
+          break;
+        }
+        planned.push({ pattern: pat, relativePath: rel });
+        existing.add(rel); // avoid double-add when multiple patterns match.
+        break;
+      }
+    }
+    if (!matchedAny) unmatched.push(rel);
+  }
+
+  const registeredByKind: Record<string, number> = {};
+  const errors: Array<{ relativePath: string; error: string }> = [];
+  for (const p of planned) {
+    const absPath = resolve(projectRoot, p.relativePath);
+    const stem = p.relativePath.split("/").pop()!;
+    try {
+      service.saveArtifact({
+        kind: p.pattern.kind,
+        scope: p.pattern.scope,
+        title: stem,
+        path: absPath,
+        format: p.pattern.format,
+        role: p.pattern.role,
+        producedByTool: opts.producedByTool ?? "register_existing_files",
+      });
+      registeredByKind[p.pattern.kind] = (registeredByKind[p.pattern.kind] ?? 0) + 1;
+    } catch (e) {
+      errors.push({ relativePath: p.relativePath, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
+  return {
+    registered: planned.length - errors.length,
+    registeredByKind,
+    skippedAlreadyRegistered,
+    excludedByGlob,
+    unmatched,
+    errors,
+  };
 }
 
 export function registerRegistrationTools(server: McpServer, ctx: ServerToolContext): void {

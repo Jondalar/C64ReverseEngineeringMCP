@@ -28,6 +28,11 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // knowledge-write tools reject every call with "not an initialized c64re
   // project". Without this the swimlane cannot even start. (Spec 727 gap.)
   "project_init",
+  // Spec 730.3 — single product facade over register/import/view-rebuild. The
+  // callable action when files are present-but-unregistered, manifests are
+  // unimported, or views are stale. Wraps the internal maintenance helpers so
+  // the LLM never has to call them directly.
+  "project_inventory_sync",
   // Read knowledge
   "list_artifacts", "list_payloads", "list_findings", "list_open_questions",
   "list_entities", "list_flows", "read_artifact", "get_artifact_lineage",

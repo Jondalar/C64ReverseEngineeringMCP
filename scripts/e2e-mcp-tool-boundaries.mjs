@@ -35,7 +35,11 @@ const driveDef = def.filter((n) => /^runtime_drive(_session)?_/.test(n));
 ok(driveDef.length === 0, "3 no runtime_drive_* in default", driveDef.join(",") || "none");
 
 // 4. no maintenance / bulk / sandbox in default (E2E-G).
-const maintDef = def.filter((n) => /^(backfill_|dedupe_|repair_|register_|bulk_|sandbox_)|_(backfill|dedupe|repair)/.test(n));
+// Exception (Spec 730.1): bulk_create_cart_chunk_payloads is a product RE tool
+// explicitly promoted to default — its name matches /^bulk_/ but it is not a
+// maintenance op.
+const BULK_EXCEPTIONS_730 = new Set(["bulk_create_cart_chunk_payloads"]);
+const maintDef = def.filter((n) => /^(backfill_|dedupe_|repair_|register_|bulk_|sandbox_)|_(backfill|dedupe|repair)/.test(n) && !BULK_EXCEPTIONS_730.has(n));
 ok(maintDef.length === 0, "4 no maintenance/bulk/sandbox in default", maintDef.join(",") || "none");
 
 // 5. no headless_* in default (one runtime language).
@@ -58,7 +62,7 @@ ok(oracleBad.length === 0, `7 oracle/drive-debug rows are advanced (${oracleRows
 const pb = JSON.parse(readFileSync(join(ROOT, "docs/mcp-llm-playbooks.json"), "utf8"));
 const normalTools = new Set();
 for (const b of pb.playbooks) if (!b.internalOnly && !b.operatorOnly) for (const s of b.steps) for (const t of (s.tools || [])) normalTools.add(t);
-const leak = [...normalTools].filter((t) => t.startsWith("vice_") || /^(backfill_|dedupe_|repair_|bulk_|sandbox_)/.test(t));
+const leak = [...normalTools].filter((t) => (t.startsWith("vice_") || /^(backfill_|dedupe_|repair_|bulk_|sandbox_)/.test(t)) && !BULK_EXCEPTIONS_730.has(t));
 ok(leak.length === 0, "8 normal playbooks require no vice_/maintenance tool", leak.join(",") || "none");
 
 console.log(`\n--- report ---`);

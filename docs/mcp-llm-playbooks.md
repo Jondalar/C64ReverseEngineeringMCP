@@ -62,15 +62,73 @@ inventory.
 2. _(llm)_ Extract files/payloads into project artifacts.
    - tools: `extract_disk`, `extract_crt`, `list_payloads`, `read_artifact`
    - persist: artifacts, payloads
-3. _(llm)_ Record initial findings/questions and refresh the dashboard.
+3. _(llm)_ Sync the project store with disk so newly extracted files/manifests are registered, imported, and reflected in every view.
+   - tools: `project_inventory_sync`
+   - persist: registered artifacts, imported manifests, rebuilt views
+4. _(llm)_ Record initial findings/questions and refresh the dashboard.
    - tools: `save_finding`, `save_open_question`, `build_project_dashboard`, `agent_record_step`
    - persist: findings, dashboard
 
-**Stop when:** Medium inventoried, payloads listed, artifacts registered.
+**Stop when:** Medium inventoried, payloads listed, artifacts registered + views in sync.
 
-**Next:** Choose Trace-First Runtime Discovery (crack/port) or Disassembly-First Static Pass (simple payload).
+**Next:** Choose Trace-First Runtime Discovery (crack/port), Disassembly-First Static Pass (simple payload), Raw Disk / GCR Inspection (.g64 / protection), or Cartridge Chunk Inspection (.crt banks).
 
 **Do not:** Do not fall back to repo samples if the path fails — report it. Do not treat a CRT as a PRG.
+
+## Raw Disk / GCR Inspection
+
+**id:** `raw-disk-gcr-inspection`
+
+**Use when:** This .g64 has copy protection — inspect the raw tracks. / The directory is sparse but the disk is full; what's in the raw sectors?
+
+**Preconditions:** A project exists.; A .g64 / raw disk path is known.; The DOS directory alone is not enough (protection, custom loader, orphan sectors).
+
+**Steps:**
+
+1. _(llm)_ List the G64 half-track slots and inspect a track's raw GCR/sync/header structure.
+   - tools: `list_g64_slots`, `inspect_g64_track`, `inspect_g64_blocks`, `inspect_g64_syncs`, `scan_g64_headers`
+   - persist: raw track structure
+2. _(llm)_ Read a candidate sector and detect anomalies (weak bits, long/killer tracks).
+   - tools: `read_g64_sector_candidate`, `analyze_g64_anomalies`
+   - persist: protection evidence
+3. _(llm)_ Extract raw sectors / a raw track, or a custom-LUT payload when a loader uses a non-DOS layout.
+   - tools: `extract_g64_sectors`, `extract_g64_raw_track`, `suggest_disk_lut_sector`, `extract_disk_custom_lut`
+   - persist: raw sector/track artifacts, custom-LUT payload
+4. _(llm)_ Tag the payload's disk hint, record a finding, and sync so the disk heatmap/views update.
+   - tools: `set_payload_disk_hint`, `save_finding`, `project_inventory_sync`, `agent_record_step`
+   - persist: disk hint, finding, views
+
+**Stop when:** Raw track/sector inspected, at least one raw artifact extracted, a hint/finding persisted, views synced.
+
+**Next:** Disassemble the extracted loader/payload or continue Trace-First Runtime Discovery.
+
+**Do not:** Do not assume a standard DOS layout for a protected disk. Do not invent sector contents — extract and cite them.
+
+## Cartridge Chunk Inspection
+
+**id:** `cartridge-chunk-inspection`
+
+**Use when:** Inspect the banks in this .crt. / Promote the useful cartridge chunks and link them to code.
+
+**Preconditions:** A project exists.; A .crt path is known with bank/chunk structure.
+
+**Steps:**
+
+1. _(llm)_ Extract the cartridge, then promote useful bank/slot chunks into payload entities.
+   - tools: `extract_crt`, `bulk_create_cart_chunk_payloads`, `list_payloads`
+   - persist: cartridge chunk payloads
+2. _(llm)_ Link a chunk to its best ASM/TASS artifact (or record that none exists yet) and record packer/format metadata when known.
+   - tools: `link_cart_chunk_to_asm`, `record_cart_chunk_packer`, `save_open_question`
+   - persist: chunk→ASM link, packer note
+3. _(llm)_ Sync so the cartridge layout view reflects the chunk state, and record the step.
+   - tools: `project_inventory_sync`, `save_finding`, `agent_record_step`
+   - persist: views, finding
+
+**Stop when:** Useful chunks promoted, at least one linked/annotated, cartridge views synced.
+
+**Next:** Disassemble a promoted chunk or continue Trace-First Runtime Discovery on the cartridge.
+
+**Do not:** Do not treat a cartridge chunk as a standalone PRG without checking its bank/load context.
 
 ## Trace-First Runtime Discovery
 

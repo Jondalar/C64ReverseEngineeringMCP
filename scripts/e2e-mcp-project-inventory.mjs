@@ -8,7 +8,7 @@
 //
 // No emulator / runtime:proof. Pure product-surface workflow gate.
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -101,8 +101,19 @@ try {
   ok(vice.length === 0, "4a no vice_* in the live default surface", vice.slice(0, 5).join(",") || "none");
   const drive = tools.filter((n) => /^runtime_drive(_session)?_/.test(n));
   ok(drive.length === 0, "4b no runtime_drive_* in the live default surface", drive.join(",") || "none");
-  const maint = tools.filter((n) => /^(backfill_|dedupe_|repair_|bulk_|sandbox_)/.test(n));
+  // Exception (Spec 730.1): bulk_create_cart_chunk_payloads is a product RE tool
+  // explicitly promoted to default; its name matches /^bulk_/ but it is not a
+  // maintenance op.
+  const BULK_EXCEPTIONS_730 = new Set(["bulk_create_cart_chunk_payloads"]);
+  const maint = tools.filter((n) => /^(backfill_|dedupe_|repair_|bulk_|sandbox_)/.test(n) && !BULK_EXCEPTIONS_730.has(n));
   ok(maint.length === 0, "4c no maintenance/bulk/sandbox in the live default surface", maint.join(",") || "none");
+
+  // 3b. Spec 730.3 — the product inventory-sync facade is default, and the
+  // internal helpers it wraps are NOT on the default surface.
+  ok(toolSet.has("project_inventory_sync"), "3b project_inventory_sync is on the default surface", "");
+  const leakedInternals = ["register_existing_files", "scan_registration_delta", "import_manifest_artifact"]
+    .filter((n) => toolSet.has(n));
+  ok(leakedInternals.length === 0, "3c internal registration/import helpers stay off the default surface", leakedInternals.join(",") || "none");
 
   // 5. surface size matches the matrix default count (no silent drift).
   const matrix = JSON.parse((await import("node:fs")).readFileSync(join(ROOT, "docs/mcp-tool-usecase-matrix.json"), "utf8"));
@@ -149,10 +160,82 @@ try {
     PENDING("9 analyze_prg on project-local PRG", e.message);
   }
 
+  // 10. Spec 730.3 — project_inventory_sync facade.
+  //  Lay down (a) a manifest + extracted payload, (b) an unregistered GENERATED
+  //  source file, and (c) an unregistered HAND-MADE SEMANTIC source file under
+  //  the analysis tree. None are registered yet. One sync must register them all,
+  //  import the manifest, and rebuild views; a second sync must be a safe no-op
+  //  (no duplicate artifacts, no failure). The semantic source must end up
+  //  registered/visible (BUG-019).
+  const analysisDir = join(projectDir, "analysis", "disk", "tiny");
+  mkdirSync(join(analysisDir, "raw_sectors"), { recursive: true });
+  // (a) a payload + a disk manifest referencing it (relative to the manifest).
+  const payloadBin = join(analysisDir, "raw_sectors", "file_01.bin");
+  writeFileSync(payloadBin, Buffer.from([0x01, 0x08, 0x60]));
+  writeFileSync(join(analysisDir, "manifest.json"), JSON.stringify({
+    format: "d64", diskName: "TINY", diskId: "01",
+    files: [{ index: 0, name: "FILE01", type: "PRG", sizeBytes: 3, track: 17, sector: 0,
+      loadAddress: 0x0801, relativePath: "raw_sectors/file_01.bin" }],
+  }, null, 2));
+  // (b) a generated disasm source (would normally come from disasm_prg).
+  writeFileSync(join(analysisDir, "file01_disasm.asm"), "* = $0801\n  rts\n");
+  // (c) a hand-made / semantic source the resolver must surface (BUG-019).
+  const semanticRel = "analysis/disk/tiny/file01_semantic.tass";
+  writeFileSync(join(projectDir, semanticRel), "* = $0801 ; semantic, hand-curated\n  rts\n");
+
+  const beforeArts = await callTool("list_artifacts", { project_dir: projectDir });
+  void beforeArts;
+
+  const sync1 = await callTool("project_inventory_sync", { project_dir: projectDir });
+  const sync1Text = textOf(sync1);
+  ok(okText(sync1) && /inventory sync — done/i.test(sync1Text), "10a project_inventory_sync runs clean", sync1Text.split("\n")[0]);
+  const reg1 = Number((sync1Text.match(/Files registered:\s*(\d+)/) || [])[1] || "0");
+  const imp1 = Number((sync1Text.match(/Manifests imported:\s*(\d+)/) || [])[1] || "0");
+  const views1 = Number((sync1Text.match(/Views rebuilt:\s*(\d+)/) || [])[1] || "0");
+  ok(reg1 >= 3, "10b first sync registers the unregistered files (manifest + generated + semantic source)", `registered=${reg1}`);
+  ok(imp1 >= 1, "10c first sync imports the disk manifest", `imported=${imp1}`);
+  ok(views1 >= 1, "10d first sync rebuilds project views", `views=${views1}`);
+
+  // The hand-made semantic source must be REGISTERED, not left behind. The sync
+  // facade reports any file it could not register under skipped/remaining — so
+  // the BUG-019 proof is: the semantic .tass is NOT reported as skipped/remaining
+  // after the sync (i.e. it became a tracked artifact). We read the knowledge
+  // store directly for ground truth since list_artifacts is a filesystem walker
+  // that does not surface every extension.
+  ok(!/file01_semantic\.tass/.test(sync1Text), "10e hand-made semantic source is registered, not left as a skipped/remaining problem (BUG-019)", "");
+  const storedRel = (() => {
+    try {
+      const store = JSON.parse(readFileSync(join(projectDir, "knowledge", "artifacts.json"), "utf8"));
+      return (store.items || []).map((a) => a.relativePath || a.path || "");
+    } catch { return []; }
+  })();
+  ok(storedRel.some((p) => p.endsWith("file01_semantic.tass")), "10f semantic source is a tracked artifact in the knowledge store", "");
+  ok(storedRel.some((p) => p.endsWith("file01_disasm.asm")), "10g generated disasm source is a tracked artifact", "");
+
+  // 10h. idempotency — a second sync registers nothing new and does not fail.
+  const sync2 = await callTool("project_inventory_sync", { project_dir: projectDir });
+  const sync2Text = textOf(sync2);
+  ok(okText(sync2) && /inventory sync — done/i.test(sync2Text), "10h second sync is safe (no failure)", sync2Text.split("\n")[0]);
+  const reg2 = Number((sync2Text.match(/Files registered:\s*(\d+)/) || [])[1] || "-1");
+  const imp2 = Number((sync2Text.match(/Manifests imported:\s*(\d+)/) || [])[1] || "-1");
+  ok(reg2 === 0, "10i second sync registers nothing new (idempotent)", `registered=${reg2}`);
+
+  // no duplicate artifact registrations for the semantic / generated source.
+  const storedAfter = (() => {
+    try {
+      const store = JSON.parse(readFileSync(join(projectDir, "knowledge", "artifacts.json"), "utf8"));
+      return (store.items || []).map((a) => a.relativePath || a.path || "");
+    } catch { return []; }
+  })();
+  const semCount = storedAfter.filter((p) => p.endsWith("file01_semantic.tass")).length;
+  ok(semCount === 1, "10j no duplicate artifact for the semantic source after two syncs", `count=${semCount}`);
+  ok(imp2 >= 0, "10k second sync re-import is idempotent (no error)", `imported=${imp2}`);
+
   console.log(`\n--- report ---`);
   console.log(`external project: ${projectDir}`);
   console.log(`default tools: ${tools.length} (vice/drive/maintenance excluded); finding persisted + read back; dashboard built.`);
-  console.log(`tools used: agent_onboard, save_finding, list_findings, project_status, build_project_dashboard, analyze_prg`);
+  console.log(`inventory-sync: 1st registered=${reg1} imported=${imp1} views=${views1}; 2nd registered=${reg2} (idempotent); semantic + generated source visible.`);
+  console.log(`tools used: agent_onboard, save_finding, list_findings, project_status, build_project_dashboard, analyze_prg, project_inventory_sync, list_artifacts`);
 } catch (e) {
   ok(false, "harness", e.message + (stderr ? " | stderr: " + stderr.slice(-200) : ""));
   exitCode = 1;

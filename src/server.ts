@@ -22,6 +22,7 @@ import { registerReferenceTools } from "./server-tools/reference.js";
 import { registerPromptTools } from "./server-tools/prompts.js";
 import { registerPayloadTools } from "./server-tools/payloads.js";
 import { registerRegistrationTools } from "./server-tools/registration.js";
+import { registerInventorySyncTool } from "./server-tools/inventory-sync.js";
 import { registerSandboxTools } from "./server-tools/sandbox.js";
 import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
 import { registerTraceStoreTools } from "./server-tools/trace-store.js";
@@ -164,6 +165,7 @@ function createServer(): McpServer {
   registerPromptTools(server, { readTextFile, repoRoot: repoDir() });
   registerPayloadTools(server, toolContext);
   registerRegistrationTools(server, toolContext);
+  registerInventorySyncTool(server, toolContext);
   registerSandboxTools(server, toolContext);
   registerSandboxDepackTool(server, toolContext);
   registerViceTools(server, toolContext);

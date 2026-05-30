@@ -1,9 +1,9 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 274,
-  "defaultCount": 77,
-  "advancedCount": 197,
+  "total": 275,
+  "defaultCount": 93,
+  "advancedCount": 182,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
     "runtime-explore": "start/run Headless, mount, input, render",
@@ -146,19 +146,20 @@
       "name": "analyze_g64_anomalies",
       "namespace": "analyze",
       "sourceFile": "server-tools/disk-g64.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "format-forensics",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Low-level disk-format / GCR forensics on an image.",
-      "notFor": "Normal file extraction — use extract_disk.",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Detect raw-track anomalies (weak bits, long tracks, killer tracks) signalling copy protection.",
+      "notFor": "Normal directory read — use inspect_disk.",
       "adjacentTools": [
-        "extract_disk",
-        "inspect_disk"
+        "inspect_g64_track",
+        "set_payload_disk_hint"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "extract_disk"
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "analyze_prg",
@@ -484,16 +485,19 @@
       "name": "bulk_create_cart_chunk_payloads",
       "namespace": "bulk",
       "sourceFile": "server-tools/payloads.ts",
-      "tier": "advanced",
-      "role": "maintenance",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
-      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
-      "adjacentTools": [],
-      "e2eUseCases": [
-        "E2E-G"
+      "tier": "default",
+      "role": "media-ingress",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "After extract_crt, promote useful cartridge bank/slot chunks into payload entities for analysis.",
+      "notFor": "Single-chunk linking — use link_cart_chunk_to_asm.",
+      "adjacentTools": [
+        "extract_crt",
+        "link_cart_chunk_to_asm"
       ],
-      "keepDecision": "keep-advanced",
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {
@@ -945,55 +949,57 @@
       "name": "extract_disk_custom_lut",
       "namespace": "extract",
       "sourceFile": "server-tools/media.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "format-forensics",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Low-level disk-format / GCR forensics on an image.",
-      "notFor": "Normal file extraction — use extract_disk.",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Extract a payload using a custom sector LUT (non-DOS loader layout).",
+      "notFor": "Standard DOS files — use extract_disk.",
       "adjacentTools": [
-        "extract_disk",
-        "inspect_disk"
+        "suggest_disk_lut_sector"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "extract_disk"
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "extract_g64_raw_track",
       "namespace": "extract",
       "sourceFile": "server-tools/disk-g64.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "format-forensics",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Low-level disk-format / GCR forensics on an image.",
-      "notFor": "Normal file extraction — use extract_disk.",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Extract a whole raw GCR track image for custom-loader / protection analysis.",
+      "notFor": "Per-sector decode — use extract_g64_sectors.",
       "adjacentTools": [
-        "extract_disk",
-        "inspect_disk"
+        "extract_g64_sectors",
+        "analyze_g64_anomalies"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "extract_disk"
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "extract_g64_sectors",
       "namespace": "extract",
       "sourceFile": "server-tools/disk-g64.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "format-forensics",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Low-level disk-format / GCR forensics on an image.",
-      "notFor": "Normal file extraction — use extract_disk.",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Extract decoded raw sectors from a G64 track into project artifacts.",
+      "notFor": "A whole raw track image — use extract_g64_raw_track.",
       "adjacentTools": [
-        "extract_disk",
-        "inspect_disk"
+        "extract_g64_raw_track",
+        "read_g64_sector_candidate"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "extract_disk"
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "get_artifact_lineage",
@@ -1121,68 +1127,75 @@
       "name": "inspect_g64_blocks",
       "namespace": "inspect",
       "sourceFile": "server-tools/disk-g64.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "format-forensics",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Low-level disk-format / GCR forensics on an image.",
-      "notFor": "Normal file extraction — use extract_disk.",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Decode the GCR block layout of a raw G64 track.",
+      "notFor": "Sync gaps only — use inspect_g64_syncs.",
       "adjacentTools": [
-        "extract_disk",
-        "inspect_disk"
+        "inspect_g64_syncs",
+        "inspect_g64_track"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "extract_disk"
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "inspect_g64_syncs",
       "namespace": "inspect",
       "sourceFile": "server-tools/disk-g64.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "format-forensics",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Low-level disk-format / GCR forensics on an image.",
-      "notFor": "Normal file extraction — use extract_disk.",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Inspect sync marks / gaps in a raw G64 track.",
+      "notFor": "Block decode — use inspect_g64_blocks.",
       "adjacentTools": [
-        "extract_disk",
-        "inspect_disk"
+        "inspect_g64_blocks"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "extract_disk"
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "inspect_g64_track",
       "namespace": "inspect",
       "sourceFile": "server-tools/disk-g64.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "format-forensics",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Low-level disk-format / GCR forensics on an image.",
-      "notFor": "Normal file extraction — use extract_disk.",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Inspect one raw G64 (half-)track's GCR/sync structure.",
+      "notFor": "DOS file listing — use inspect_disk.",
       "adjacentTools": [
-        "extract_disk",
-        "inspect_disk"
+        "inspect_g64_blocks",
+        "scan_g64_headers"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "extract_disk"
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "link_cart_chunk_to_asm",
       "namespace": "link",
       "sourceFile": "server-tools/compression.ts",
-      "tier": "advanced",
-      "role": "maintenance",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
-      "notFor": "Normal workflow — covered by the default facade.",
-      "adjacentTools": [],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
+      "tier": "default",
+      "role": "knowledge-write",
+      "swimlane": "asset-linking",
+      "useWhen": "Link a cartridge chunk payload to its best ASM/TASS artifact.",
+      "notFor": "Promoting chunks to payloads — use bulk_create_cart_chunk_payloads.",
+      "adjacentTools": [
+        "bulk_create_cart_chunk_payloads",
+        "record_cart_chunk_packer"
+      ],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {
@@ -1358,19 +1371,20 @@
       "name": "list_g64_slots",
       "namespace": "list",
       "sourceFile": "server-tools/disk-g64.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "format-forensics",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Low-level disk-format / GCR forensics on an image.",
-      "notFor": "Normal file extraction — use extract_disk.",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "List the half-track slots present in a .g64 image before deeper raw inspection.",
+      "notFor": "Decoded DOS directory — use inspect_disk.",
       "adjacentTools": [
-        "extract_disk",
+        "inspect_g64_track",
         "inspect_disk"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "extract_disk"
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "list_loader_entrypoints",
@@ -1754,6 +1768,27 @@
       "pathMode": "no-path"
     },
     {
+      "name": "project_inventory_sync",
+      "namespace": "project",
+      "sourceFile": "server-tools/inventory-sync.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Sync the project store with disk: register present-but-untracked files (media, payloads, sidecars, generated + hand-written source), import manifests, and rebuild every view. Run after extraction/disassembly/import or when onboarding/audit reports unregistered files or stale views.",
+      "notFor": "Creating a project — use project_init; extracting bytes from media — use extract_disk / extract_crt.",
+      "adjacentTools": [
+        "project_init",
+        "build_all_views",
+        "agent_onboard"
+      ],
+      "e2eUseCases": [
+        "E2E-A",
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "project_repair",
       "namespace": "project",
       "sourceFile": "project-knowledge/mcp-tools.ts",
@@ -1863,19 +1898,20 @@
       "name": "read_g64_sector_candidate",
       "namespace": "read",
       "sourceFile": "server-tools/disk-g64.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "format-forensics",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Low-level disk-format / GCR forensics on an image.",
-      "notFor": "Normal file extraction — use extract_disk.",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Read the decoded bytes of one candidate sector found by a header scan.",
+      "notFor": "Bulk raw extraction — use extract_g64_sectors.",
       "adjacentTools": [
-        "extract_disk",
-        "inspect_disk"
+        "scan_g64_headers",
+        "extract_g64_sectors"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "extract_disk"
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "reconstruct_lut",
@@ -1911,14 +1947,18 @@
       "name": "record_cart_chunk_packer",
       "namespace": "record",
       "sourceFile": "server-tools/compression.ts",
-      "tier": "advanced",
-      "role": "maintenance",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
-      "notFor": "Normal workflow — covered by the default facade.",
-      "adjacentTools": [],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
+      "tier": "default",
+      "role": "knowledge-write",
+      "swimlane": "asset-linking",
+      "useWhen": "Record packer/format metadata for a cartridge chunk.",
+      "notFor": "Linking ASM — use link_cart_chunk_to_asm.",
+      "adjacentTools": [
+        "link_cart_chunk_to_asm"
+      ],
+      "e2eUseCases": [
+        "E2E-F"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {
@@ -3539,19 +3579,20 @@
       "name": "scan_g64_headers",
       "namespace": "scan",
       "sourceFile": "server-tools/disk-g64.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "format-forensics",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Low-level disk-format / GCR forensics on an image.",
-      "notFor": "Normal file extraction — use extract_disk.",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Scan a G64 track for sector headers (incl. non-standard ones).",
+      "notFor": "Reading a candidate sector's bytes — use read_g64_sector_candidate.",
       "adjacentTools": [
-        "extract_disk",
-        "inspect_disk"
+        "read_g64_sector_candidate",
+        "inspect_g64_track"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "extract_disk"
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "scan_graphics_candidates",
@@ -3607,14 +3648,19 @@
       "name": "set_payload_disk_hint",
       "namespace": "set",
       "sourceFile": "project-knowledge/mcp-tools.ts",
-      "tier": "advanced",
-      "role": "maintenance",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Advanced/auxiliary tool; not part of the normal workflow.",
-      "notFor": "Normal workflow — covered by the default facade.",
-      "adjacentTools": [],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
+      "tier": "default",
+      "role": "format-forensics",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Tag a payload with a disk-structure hint (drive-code/protected/raw/bad-crc/gap) so the disk heatmap colours it.",
+      "notFor": "Sector extraction — use extract_disk / extract_disk_custom_lut.",
+      "adjacentTools": [
+        "analyze_g64_anomalies",
+        "set_payload_disk_hint"
+      ],
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {
@@ -3686,19 +3732,19 @@
       "name": "suggest_disk_lut_sector",
       "namespace": "suggest",
       "sourceFile": "server-tools/media.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "format-forensics",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Low-level disk-format / GCR forensics on an image.",
-      "notFor": "Normal file extraction — use extract_disk.",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Suggest the sector LUT a custom loader likely uses, to drive a custom-LUT extraction.",
+      "notFor": "Standard DOS extraction — use extract_disk.",
       "adjacentTools": [
-        "extract_disk",
-        "inspect_disk"
+        "extract_disk_custom_lut"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "extract_disk"
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "trace_store_anchor_find",

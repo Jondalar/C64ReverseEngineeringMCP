@@ -1,5 +1,5 @@
 {
-  "total": 274,
+  "total": 275,
   "specCount": 78,
   "advancedCandidate": 68,
   "byNamespace": {
@@ -16,7 +16,7 @@
     "backfill": 5,
     "extract": 5,
     "inspect": 5,
-    "project": 5,
+    "project": 6,
     "record": 5,
     "link": 4,
     "import": 3,
@@ -975,6 +975,15 @@
       "hasSpec": false,
       "firstSentence": "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders.",
       "desc": "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write \u2014 knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). Inputs: project name, optional description/tags/assembler. Returns: created project + knowledge/phase-plan paths.",
+      "tier": "default?"
+    },
+    {
+      "name": "project_inventory_sync",
+      "file": "server-tools/inventory-sync.ts",
+      "ns": "project",
+      "hasSpec": false,
+      "firstSentence": "Bring the project knowledge store in sync with what is on disk: register project files that are present but not yet tracked, import any disk/CRT/PRG manifests, and rebuild every project view.",
+      "desc": "Bring the project knowledge store in sync with what is on disk: register project files that are present but not yet tracked (input media, extracted payloads + raw sectors, analysis sidecars, generated AND hand-written/semantic source under analysis folders), import any disk/CRT/PRG manifests, and rebuild every project view so the UI and dashboard reflect the current state. Use after extraction / disassembly / import, or whenever onboarding or a project audit reports unregistered files, unimported manifests, or stale views. Idempotent \u2014 safe to run repeatedly; a second run changes nothing. It reads/writes the project knowledge store and project views only; it never moves, copies, renames, or deletes files (organizing media into input/ folders is project_init's job). Not for creating a project (use project_init) or extracting bytes from media (use extract_disk / extract_crt). Inputs: optional project dir (absolute or project-relative). Returns: counts registered/imported, the rebuilt views, any skipped files with reasons, and the suggested next step.",
       "tier": "default?"
     },
     {
