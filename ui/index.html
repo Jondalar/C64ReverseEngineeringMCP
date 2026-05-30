@@ -3,17 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>C64 RE Workspace (legacy / dev-only)</title>
+    <title>C64RE Workbench</title>
   </head>
   <body>
-    <!-- Spec 724B: this v1 entry is LEGACY. Every screen — view AND the
-         interactive Scrub/reclassify human-workbench tools — is now in the one
-         v3 workbench shell (Assets / Scrub tab). v1 is kept (no capability lost)
-         but no longer needed for normal operation; it can be redirected to v3. -->
-    <div style="background:#3a2a00;color:#fc8;padding:6px 12px;font:12px sans-serif">
-      Legacy v1 UI. The full workbench — including Scrub / asset reclassify — now
-      lives in the v3 shell. v1 is retained for reference only.
-    </div>
+    <!-- Spec 724B (final): this IS the product UI — the v1 workbench (the
+         functional Project/Analysis source of truth), restyled to the v3 theme
+         and extended with a Live runtime tab. Served at / and /index.html. The
+         standalone v3 shell at /v3.html is dev/reference only. -->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

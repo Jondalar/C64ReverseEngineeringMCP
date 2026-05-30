@@ -1827,28 +1827,34 @@ const server = createServer((req, res) => {
     return;
   }
 
-  // Pick the entry. Root + /v3.html → the v3 One-UI shell (the product UI).
-  // /index.html → the legacy v1 entry. Everything else (assets/*, etc.) resolves
-  // from whichever dist actually has the file, v3 first.
-  const wantsV3Entry = requestUrl.pathname === "/" || requestUrl.pathname === "/v3.html";
-  const wantsV1Entry = requestUrl.pathname === "/index.html";
+  // Spec 724B (final): ONE product UI = the v1 workbench (the functional
+  // Project/Analysis source of truth, now restyled v3 + with a Live tab). It is
+  // served at `/` and `/index.html`. The standalone v3 shell stays reachable at
+  // `/v3.html` for DEV/REFERENCE only — it is NOT a second product UI. Asset
+  // names are unique (index-* for v1, v3-* for v3), so /assets/* resolves from
+  // whichever dist has the file.
+  const wantsV1Entry = requestUrl.pathname === "/" || requestUrl.pathname === "/index.html";
+  const wantsV3Entry = requestUrl.pathname === "/v3.html";
 
   let filePath: string | undefined;
-  if (wantsV3Entry && hasUiV3Dist) {
-    filePath = join(uiV3DistDir, "v3.html");
-  } else if (wantsV1Entry && existsSync(uiDistDir)) {
+  if (wantsV1Entry && existsSync(uiDistDir)) {
     filePath = join(uiDistDir, "index.html");
+  } else if (wantsV1Entry && hasUiV3Dist) {
+    // v1 not built yet — fall back to v3 so the page isn't blank.
+    filePath = join(uiV3DistDir, "v3.html");
+  } else if (wantsV3Entry && hasUiV3Dist) {
+    filePath = join(uiV3DistDir, "v3.html");
   } else {
-    // Resolve a concrete file from either dist (v3 first), e.g. /assets/v3-*.js.
-    for (const root of [uiV3DistDir, uiDistDir]) {
+    // Resolve a concrete file from either dist (v1 first now), e.g. /assets/index-*.js.
+    for (const root of [uiDistDir, uiV3DistDir]) {
       if (!existsSync(root)) continue;
       const p = safeStaticPath(root, requestUrl.pathname);
       if (p && existsSync(p) && statSync(p).isFile()) { filePath = p; break; }
     }
-    // SPA fallback: serve the v3 shell (product) so client-side routes work.
+    // SPA fallback: serve the product UI (v1) so client-side routes work.
     if (!filePath) {
-      filePath = hasUiV3Dist ? join(uiV3DistDir, "v3.html")
-        : existsSync(uiDistDir) ? join(uiDistDir, "index.html") : undefined;
+      filePath = existsSync(uiDistDir) ? join(uiDistDir, "index.html")
+        : hasUiV3Dist ? join(uiV3DistDir, "v3.html") : undefined;
     }
   }
 
