@@ -460,6 +460,70 @@ export function computeNextStep(projectRoot: string): AgentNextStepResult {
   };
 }
 
+// Spec 730 §5.3 / BUG-005 — the machine-readable projection of the next step.
+// An LLM parses this fenced JSON instead of scraping prose; every `tool` is a
+// callable default-surface tool. Field names follow the product contract:
+// phase, step, reason, primary_action, secondary_actions, blocked_by,
+// human_question?, ui_hint?, do_not_call.
+const UI_HINT_BY_STEP: Record<string, string> = {
+  "inventory-sync": "After sync, confirm the new media/payloads appear in the workbench Disk Inspector + Payloads, and check the Inspector 'Source / Versions' for the current best artifact.",
+  "media-inspect": "Check the Disk geometry / track heatmap in the workbench after inspecting.",
+  "disk-raw-inspect": "Check the raw track/sector heatmap + disk hints in the workbench.",
+  "cart-chunk-inspect": "Check the Cartridge layout (banks/chunks) in the workbench.",
+  "static-disassemble": "Review the Annotated Listing / ASM overlay in the workbench.",
+  "semantic-annotate": "Review the proposed labels/comments in the Annotated Listing before accepting.",
+  "runtime-trace": "Watch the Live tab while the trace runs.",
+  "visual-inspect": "Compare the resolved VIC evidence against the Live frame in the workbench.",
+};
+
+interface AgentStepActionShape {
+  tool: string | null;
+  args: Record<string, unknown>;
+  label: string;
+  step: string;
+  phase: string;
+  why: string;
+}
+
+export interface AgentNextStepMachineShape {
+  phase: string;
+  step: string;
+  reason: string;
+  primary_action: AgentStepActionShape;
+  secondary_actions: AgentStepActionShape[];
+  blocked_by: Array<{ id: string; prompt: string; choices?: string[] }>;
+  human_question?: string;
+  ui_hint?: string;
+  do_not_call: string[];
+}
+
+export function nextStepMachineShape(r: AgentNextStepResult): AgentNextStepMachineShape {
+  const toAction = (s: AgentStepSuggestion): AgentStepActionShape => ({
+    tool: s.tool ?? null,
+    args: s.args ?? {},
+    label: s.label,
+    step: s.stepId,
+    phase: s.phase,
+    why: s.why,
+  });
+  // human_question is set when the primary step has no callable tool (a human
+  // decision) or when a real human decision blocks progress (§5.3 blockedBy).
+  const humanQuestion = !r.primary.tool || r.blockedBy.length > 0
+    ? (r.blockedBy[0]?.prompt ?? r.primary.why)
+    : undefined;
+  return {
+    phase: r.primary.phase,
+    step: r.primary.stepId,
+    reason: r.primary.why,
+    primary_action: toAction(r.primary),
+    secondary_actions: r.branches.map(toAction),
+    blocked_by: r.blockedBy,
+    ...(humanQuestion ? { human_question: humanQuestion } : {}),
+    ...(UI_HINT_BY_STEP[r.primary.stepId] ? { ui_hint: UI_HINT_BY_STEP[r.primary.stepId] } : {}),
+    do_not_call: r.doNotCall,
+  };
+}
+
 function renderNextStep(r: AgentNextStepResult): string {
   const lines: string[] = [];
   lines.push(`# Next step — ${r.project.name}`);
@@ -494,6 +558,13 @@ function renderNextStep(r: AgentNextStepResult): string {
   lines.push(``);
   lines.push(`## Do NOT call (internal — wrapped behind product facades)`);
   lines.push(r.doNotCall.join(", "));
+  // Machine-readable projection (BUG-005 / §5.3): parse THIS, do not scrape the
+  // prose above. Every primary/secondary `tool` is a callable default tool.
+  lines.push(``);
+  lines.push(`## Machine-readable`);
+  lines.push("```json");
+  lines.push(JSON.stringify(nextStepMachineShape(r), null, 2));
+  lines.push("```");
   return lines.join("\n");
 }
 
@@ -628,7 +699,7 @@ function renderRunStep(r: AgentRunStepResult): string {
 export function registerAgentStepTools(server: McpServer, ctx: ServerToolContext): void {
   server.tool(
     "agent_next_step",
-    "Get the single MCP-chosen next step for the project, plus valid iterative branches — the product way to answer \"what do I do now?\". Use when you are unsure where to continue, after finishing a step, or after onboarding; it derives the step from real project state (is the project initialized? are files untracked / manifests unimported / views stale? is media extracted? is there analysis, source, annotations, a trace, open questions, recorded findings?). Every recommended action is a callable product tool; internal maintenance tools are listed only under \"do not call\". Not for executing the step (use agent_run_step or call the named tool) or recording progress (use agent_record_step). Inputs: optional project dir, optional free-text context. Returns: a primary suggestion (step id, phase, tool, why, completion checks), branch alternatives, any human decisions that block progress, and the forbidden-internal-tool list.",
+    "Get the single MCP-chosen next step for the project, plus valid iterative branches — the product way to answer \"what do I do now?\". Use when you are unsure where to continue, after finishing a step, or after onboarding; it derives the step from real project state (is the project initialized? are files untracked / manifests unimported / views stale? is media extracted? is there analysis, source, annotations, a trace, open questions, recorded findings?). Every recommended action is a callable product tool; internal maintenance tools are listed only under \"do not call\". Not for executing the step (use agent_run_step or call the named tool) or recording progress (use agent_record_step). Inputs: optional project dir, optional free-text context. Returns: a primary suggestion (step id, phase, tool, why, completion checks), branch alternatives, any human decisions that block progress, and the forbidden-internal-tool list — plus a machine-readable JSON block (phase, step, reason, primary_action{tool,args,label}, secondary_actions[], blocked_by[], human_question?, ui_hint?) you can parse directly instead of scraping the prose.",
     {
       project_dir: z.string().optional().describe("Project root directory. Absolute or project-relative; defaults to C64RE_PROJECT_DIR or the active project."),
       context: z.string().optional().describe("Optional free-text context from the human/LLM to bias the recommendation."),

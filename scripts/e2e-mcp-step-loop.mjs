@@ -104,6 +104,15 @@ function parseNextStep(text) {
   return { primaryStep, primaryTool, branchTools, doNotCall };
 }
 
+// Parse the machine-readable JSON block (BUG-005 / §5.3 shape). An LLM parses
+// THIS instead of scraping the prose.
+function parseMachineShape(text) {
+  const m = text.match(/```json\n([\s\S]*?)\n```/);
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch { return null; }
+}
+const REQUIRED_SHAPE_KEYS = ["phase", "step", "reason", "primary_action", "secondary_actions", "blocked_by", "do_not_call"];
+
 let exitCode = 0;
 try {
   const init = await rpc("initialize", {
@@ -153,6 +162,27 @@ try {
   ok(p1.primaryStep === "inventory-sync", "5a after init with untracked files, primary is inventory-sync", p1.primaryStep || "(none)");
   ok(p1.primaryTool === "project_inventory_sync", "5b inventory-sync names the product facade tool", p1.primaryTool || "(none)");
 
+  // 5m. machine-readable shape (BUG-005 / §5.3): the LLM must get a parseable
+  //     next-action object, not just prose. Every action tool is callable default.
+  const m1 = parseMachineShape(textOf(ns1));
+  ok(m1 !== null, "5m1 agent_next_step emits a parseable machine-readable JSON block", m1 ? "ok" : "missing/invalid");
+  if (m1) {
+    const missingKeys = REQUIRED_SHAPE_KEYS.filter((k) => !(k in m1));
+    ok(missingKeys.length === 0, "5m2 machine shape has the required fields", missingKeys.length ? `missing: ${missingKeys.join(",")}` : "phase,step,reason,primary_action,secondary_actions,blocked_by,do_not_call");
+    ok(m1.step === "inventory-sync" && m1.phase === "media-inventory", "5m3 machine shape step/phase match the dirty-inventory state", `${m1.phase}/${m1.step}`);
+    ok(m1.primary_action?.tool === "project_inventory_sync", "5m4 primary_action.tool is the callable facade", m1.primary_action?.tool ?? "(none)");
+    ok(typeof m1.primary_action?.label === "string" && m1.primary_action.label.length > 0
+       && typeof m1.primary_action?.args === "object", "5m5 primary_action carries {tool,args,label}", "");
+    ok(toolSet.has(m1.primary_action.tool), "5m6 primary_action.tool is on the default surface (callable)", m1.primary_action.tool);
+    const internalInShape = [m1.primary_action.tool, ...(m1.secondary_actions || []).map((a) => a.tool)]
+      .filter(Boolean).filter((t) => FORBIDDEN_INTERNAL.includes(t));
+    ok(internalInShape.length === 0, "5m7 no internal tool in primary/secondary actions", internalInShape.join(",") || "none");
+    const secondaryNonDefault = (m1.secondary_actions || []).map((a) => a.tool).filter(Boolean).filter((t) => !toolSet.has(t));
+    ok(secondaryNonDefault.length === 0, "5m8 every secondary_action tool is callable default (or null human step)", secondaryNonDefault.join(",") || "none");
+    ok(FORBIDDEN_INTERNAL.every((n) => (m1.do_not_call || []).includes(n)), "5m9 do_not_call lists the internal tools", (m1.do_not_call || []).join(","));
+    ok(typeof m1.ui_hint === "string" && m1.ui_hint.length > 0, "5m10 inventory-sync carries a ui_hint for human UI verification", m1.ui_hint ? "present" : "(none)");
+  }
+
   // 6. run the inventory/media-sync step in-process via agent_run_step.
   const runSync = await callTool("agent_run_step", { project_dir: projectDir, step_id: "inventory-sync" });
   const runSyncText = textOf(runSync);
@@ -167,6 +197,16 @@ try {
   const p2 = parseNextStep(textOf(ns2));
   ok(p2.primaryStep !== "inventory-sync", "7a after sync, primary step advances past inventory-sync", p2.primaryStep || "(none)");
   ok(p2.primaryStep.length > 0, "7b advanced step has a concrete id", p2.primaryStep || "(none)");
+  // 7m. the advanced step's machine shape must also offer a callable next action
+  //     (a default tool) or a real human_question — never a dead end.
+  const m2 = parseMachineShape(textOf(ns2));
+  ok(m2 !== null && m2.step === p2.primaryStep, "7m1 advanced step has a machine-readable shape", m2 ? m2.step : "missing");
+  if (m2) {
+    const callableOrHuman = (m2.primary_action?.tool && toolSet.has(m2.primary_action.tool))
+      || (!m2.primary_action?.tool && typeof m2.human_question === "string" && m2.human_question.length > 0);
+    ok(callableOrHuman, "7m2 advanced step offers a callable default tool OR a concrete human_question (no dead end)",
+       m2.primary_action?.tool ?? `human_question: ${(m2.human_question || "").slice(0, 40)}`);
+  }
 
   // 8. every recommended tool (primary + branches) across all three calls is in
   //    the default surface; never an internal tool.

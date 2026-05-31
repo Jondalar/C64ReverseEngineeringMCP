@@ -48,6 +48,7 @@ const FORBIDDEN = [
 // recommendation. These regexes apply to a window of ~5 lines around the match.
 const DO_NOT_CALL_PATTERNS = [
   /doNotCall/i,
+  /do_not_call/i,          // machine-readable JSON field (Spec 730 §5.3 shape)
   /forbidden/i,
   /FORBIDDEN_PRODUCT_TOOLS/i,
   /never.*recommend/i,
