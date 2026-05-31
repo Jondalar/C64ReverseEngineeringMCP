@@ -192,6 +192,18 @@ export async function mountMedia(
       && typeof kernelAny.drive1541.attachDisk === "function"
       && (mediaType === "d64" || mediaType === "g64")
     ) {
+      // BUG-023 — a disk CHANGE is an implicit eject of the currently mounted
+      // disk: persist its drive-side writes to its host file + detach BEFORE
+      // attaching the new one, else the outgoing disk's writes are lost. No-op
+      // on the first mount (nothing attached / no backing path yet).
+      const cur = kernelAny.drive1541 as unknown as {
+        getAttachedMedia?: () => unknown | null;
+        detachDisk?: () => void;
+      };
+      if (session.diskPath && cur.getAttachedMedia?.()) {
+        persistMountedDiskToFile(session);
+        cur.detachDisk?.();
+      }
       kernelAny.drive1541.attachDisk({
         kind: mediaType,
         bytes: originalBytes, // pre-buildG64; vice does its own encode for d64
