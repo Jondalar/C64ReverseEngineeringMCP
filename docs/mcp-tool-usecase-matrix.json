@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 281,
-  "defaultCount": 99,
+  "total": 285,
+  "defaultCount": 103,
   "advancedCount": 182,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -4855,6 +4855,78 @@
       "keepDecision": "keep-advanced",
       "pathMode": "no-path",
       "useInstead": "runtime_session_start + trace readers"
+    },
+    {
+      "name": "project_search",
+      "namespace": "project",
+      "sourceFile": "server-tools/project-search-tools.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Project lifecycle operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "project_find_related",
+      "namespace": "project",
+      "sourceFile": "server-tools/project-search-tools.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Project lifecycle operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "project_reindex_search",
+      "namespace": "project",
+      "sourceFile": "server-tools/project-search-tools.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Project lifecycle operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "project_wiki_lint",
+      "namespace": "project",
+      "sourceFile": "server-tools/project-search-tools.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Project lifecycle operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     }
   ]
 }

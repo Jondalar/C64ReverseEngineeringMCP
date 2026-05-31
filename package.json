@@ -157,6 +157,7 @@
     "smoke:disasm-sync": "npm run build:pipeline && node scripts/smoke-disasm-sync.mjs",
     "smoke:741": "npm run build && node scripts/smoke-741-relocated-code-pseudopc.mjs",
     "e2e:741": "npm run build:mcp && node scripts/e2e-741-mcp-relocation-flow.mjs",
+    "smoke:740": "npm run build:mcp && node scripts/smoke-740-project-search.mjs",
     "build:fingerprints": "npm run build:mcp && node scripts/build-fingerprint-library.mjs",
     "smoke:fingerprint": "npm run build:mcp && node scripts/smoke-fingerprint.mjs",
     "smoke:follow-path": "npm run build:mcp && node scripts/smoke-follow-path.mjs",

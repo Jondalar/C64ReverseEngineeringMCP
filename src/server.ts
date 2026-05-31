@@ -24,6 +24,7 @@ import { registerPayloadTools } from "./server-tools/payloads.js";
 import { registerRegistrationTools } from "./server-tools/registration.js";
 import { registerInventorySyncTool } from "./server-tools/inventory-sync.js";
 import { registerArtifactVersionTools } from "./server-tools/artifact-version-tools.js";
+import { registerProjectSearchTools } from "./server-tools/project-search-tools.js";
 import { registerAgentStepTools } from "./server-tools/agent-step.js";
 import { registerSandboxTools } from "./server-tools/sandbox.js";
 import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
@@ -169,6 +170,7 @@ function createServer(): McpServer {
   registerRegistrationTools(server, toolContext);
   registerInventorySyncTool(server, toolContext);
   registerArtifactVersionTools(server, toolContext);
+  registerProjectSearchTools(server, toolContext);
   registerAgentStepTools(server, toolContext);
   registerSandboxTools(server, toolContext);
   registerSandboxDepackTool(server, toolContext);

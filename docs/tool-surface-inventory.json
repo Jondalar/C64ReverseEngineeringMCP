@@ -1,5 +1,5 @@
 {
-  "total": 281,
+  "total": 285,
   "specCount": 78,
   "advancedCandidate": 68,
   "byNamespace": {
@@ -16,7 +16,7 @@
     "backfill": 5,
     "extract": 5,
     "inspect": 5,
-    "project": 6,
+    "project": 10,
     "record": 5,
     "link": 4,
     "import": 3,
@@ -2587,6 +2587,42 @@
       "firstSentence": "Oracle-only (VICE ground-truth).",
       "desc": "Oracle-only (VICE ground-truth). Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
+    },
+    {
+      "name": "project_search",
+      "file": "server-tools/project-search-tools.ts",
+      "ns": "project",
+      "hasSpec": false,
+      "firstSentence": "Find where a topic, address, track/sector, label, or artifact is described in this project — the normal first step for any \"where is X?\" question instead of reading every doc/JSON/ASM file.",
+      "desc": "Find where a topic, address, track/sector, label, or artifact is described in this project — the normal first step for any \"where is X?\" question instead of reading every doc/JSON/ASM file. Ranks deterministically (exact address/track match, then exact id/title/tag, current-best artifact versions and curated docs/findings over generated analysis, then text match) and returns compact hits: id, kind, title, short snippet, source path/anchor, tags, address range, linked artifact/entity ids, and a why explaining each match. Use the returned ids/paths with read_artifact / read_finding / list_artifact_versions / trace readers for the exact bytes. Not a content dump (snippets only) and not the structured list tools (use list_findings / list_artifacts for full enumerations). Run project_reindex_search first if the index is stale.",
+      "tier": "default?"
+    },
+    {
+      "name": "project_find_related",
+      "file": "server-tools/project-search-tools.ts",
+      "ns": "project",
+      "hasSpec": false,
+      "firstSentence": "From an id, address, or subject stem (e.g.",
+      "desc": "From an id, address, or subject stem (e.g. an artifact id, $FC00, or 02_2.0), return the nearby project records grouped by how they connect — artifact versions, findings, entities, relations, docs, views, and address overlaps. Use to pull together everything known about one payload/region/address after project_search points you at it, without manually cross-referencing files. Returns compact grouped hits (id, kind, title, snippet, source path, why). Not a free-text search (use project_search) and not a full relation dump (use the relation/entity list tools for exhaustive graphs).",
+      "tier": "default?"
+    },
+    {
+      "name": "project_reindex_search",
+      "file": "server-tools/project-search-tools.ts",
+      "ns": "project",
+      "hasSpec": false,
+      "firstSentence": "Rebuild the project local search index from its current files (wiki docs, knowledge findings/entities/relations/flows/artifacts/versions, selected views, and ASM/TASS section headers) and scaffold the wiki skeleton (docs/index.md, knowledge/activity-log.md) if missing.",
+      "desc": "Rebuild the project local search index from its current files (wiki docs, knowledge findings/entities/relations/flows/artifacts/versions, selected views, and ASM/TASS section headers) and scaffold the wiki skeleton (docs/index.md, knowledge/activity-log.md) if missing. Use once after large ingests/analysis/disassembly so project_search reflects new knowledge; a full rebuild is cheap. Not the way to read knowledge (use project_search / project_find_related) and not a knowledge store (the index is a rebuildable cache, the raw files stay authoritative). Returns counts by kind, source files read, and any warnings.",
+      "tier": "default?"
+    },
+    {
+      "name": "project_wiki_lint",
+      "file": "server-tools/project-search-tools.ts",
+      "ns": "project",
+      "hasSpec": false,
+      "firstSentence": "Report gaps between the curated wiki (docs/index.md) and the structured knowledge: important active findings not yet mentioned in the wiki index, and orphan findings with no linked artifact or entity.",
+      "desc": "Report gaps between the curated wiki (docs/index.md) and the structured knowledge: important active findings not yet mentioned in the wiki index, and orphan findings with no linked artifact or entity. Use after a mapping session to see what still needs to be written up, instead of eyeballing every finding. Read-only; it never edits files. Returns the gap lists. Not a content generator (writing the wiki up is a manual step) and not a structured validator (use the knowledge list tools for full audits).",
+      "tier": "default?"
     }
   ]
 }

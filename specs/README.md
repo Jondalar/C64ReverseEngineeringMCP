@@ -57,6 +57,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 
 | Spec | Title | Note |
 |---|---|---|
+| 740.1 | Project Wiki + Knowledge Retrieval MVP | DONE 2026-05-31 — `project_search`/`project_find_related`/`project_reindex_search`/`project_wiki_lint` default tools + wiki skeleton; deterministic index (no embeddings/vector DB), `smoke-740` 28/28 vs Wasteland. 740.2 (wiki authoring) BACKLOG. |
 | 741 | Relocated-Code Disassembly (`.pseudopc`/`.logical`) | CORE DONE 2026-05-31 — Slices A–D: `disasm_prg.relocations[]` → `.pseudopc`/`.logical` (mixed code/data, self-mod, byte-exact), `analyze_prg` copy-loop detection → `propose_annotations`, mixed-island splitter closes BUG-021. `smoke-741` 50/50. §4 whole-disk `.include` export = optional non-goal. |
 | 730 | MCP Workflow Step Orchestrator + Project Inventory Sync | DONE 2026-05-31 — `agent_next_step`/`agent_run_step`/`project_inventory_sync` facades + machine-readable next-step; closes BUG-005 + BUG-019 Part B. Gates green. |
 | 404 | C64 Phase D: VIC-II | Literal VIC port is the product authority (723). |
@@ -99,7 +100,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 | 712 | Rewind, Replay and Branch Diff |
 | 716 | Installation, Versioning, Distribution |
 | 720 | Disassembly Output Quality |
-| 740 | Semantic Search / Vector Index For Project Knowledge |
+| 740.2 | Project Wiki authoring (`project_wiki_update`) — deeper synthesis over the 740.1 retrieval layer |
 
 ## SUPERSEDED (replaced by a later spec)
 
@@ -140,7 +141,7 @@ mapper" header is gone.
 
 - ACTIVE: 2 (721, 726.B)
 - GOVERNING / DOCTRINE: 4 (610, 612, 620, 705)
-- DONE: 28
+- DONE: 29
 - BACKLOG: 11
 - SUPERSEDED: 11
 - NEEDS-RECONCILE: 6 (428, 613, 614, 615, 708, 713)

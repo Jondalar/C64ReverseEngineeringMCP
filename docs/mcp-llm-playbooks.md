@@ -36,10 +36,14 @@ inventory.
    - persist: role, workflow profile
    - ask human when: the objective is not stated
 3. _(human)_ Drop .d64/.g64/.crt/.prg + context into the project folder (or give absolute paths).
-4. _(llm)_ Ask the orchestrator for the single next product step; run the inventory/media-sync step or follow its named tool.
+4. _(llm)_ For a resumed project, search existing knowledge before re-deriving anything: find where a topic/address/track is already described and pull together the records around a payload. Rebuild the index first if the project changed on disk.
+   - tools: `project_reindex_search`, `project_search`, `project_find_related`
+   - persist: located records, related groups
+   - ask human when: the search returns nothing for a topic you expected to exist
+5. _(llm)_ Ask the orchestrator for the single next product step; run the inventory/media-sync step or follow its named tool.
    - tools: `agent_next_step`, `agent_run_step`
    - persist: next-step suggestion, branch alternatives
-5. _(llm)_ Confirm next action and record the step.
+6. _(llm)_ Confirm next action and record the step.
    - tools: `c64re_whats_next`, `agent_propose_next`, `agent_record_step`
    - persist: next-action proposal
 

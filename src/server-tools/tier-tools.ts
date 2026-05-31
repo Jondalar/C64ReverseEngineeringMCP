@@ -89,14 +89,19 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // file instead of a stale generated dump. Each takes a single subject id.
   "list_artifact_versions", "get_current_artifact", "set_current_artifact_version",
   "mark_artifact_version_stale",
+  // Spec 740.1 — Project Wiki + Knowledge Retrieval. The normal "where is X?"
+  // entry point + neighbour walk + index rebuild + wiki coverage lint.
+  "project_search", "project_find_related", "project_reindex_search", "project_wiki_lint",
 ]);
 
 /** Documented cap on the default surface (probe fails if exceeded). Spec 725
  * raised this 45→80 to fit the Headless Runtime + TraceDB facade. Spec 730.1
  * raised 80→95 to fit the promoted disk/G64 + cartridge RE tools (15 new).
  * Spec 730.4 raised 95→100 to fit the step orchestrator (agent_next_step +
- * agent_run_step). */
-export const DEFAULT_TIER_CAP = 100;
+ * agent_run_step). Spec 740.1 raised 100→104 for the project wiki/search tools
+ * (project_search + project_find_related + project_reindex_search +
+ * project_wiki_lint). */
+export const DEFAULT_TIER_CAP = 104;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";
