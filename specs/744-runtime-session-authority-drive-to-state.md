@@ -26,6 +26,12 @@ Current behavior is split:
 - MCP exposes low-level run/type/swap primitives, but not a reliable
   "drive this title to the next meaningful state" workflow.
 
+This violates the product vision: there must be one Headless runtime that a
+human and an LLM can jointly use. A human must be able to attach the UI to the
+same session the LLM started, and the LLM must be able to inspect/control the
+same session the human is driving in the UI. Two private session worlds are not
+acceptable.
+
 That split made BUG-027 possible:
 
 1. `runtime_session_start(trace_out=...)` failed because the binary trace worker
@@ -47,21 +53,57 @@ Project RuntimeSessionService
   owns trace start/finalize through Spec 726.B
 
 MCP runtime tools
-  call RuntimeSessionService
+  call RuntimeSessionService through an adapter
 
 Live UI
-  calls RuntimeSessionService
+  calls RuntimeSessionService through an adapter
 
 Scenario / playbook runners
-  call RuntimeSessionService
+  call RuntimeSessionService through an adapter
 ```
 
 No product path may create a private `IntegratedSession` that cannot be observed
 or controlled by the other product surface.
 
 The implementation may keep a single Node process or may expose the service over
-HTTP/WS/stdio. The requirement is semantic ownership: one authority, one session
-registry, one media model, one trace lifecycle.
+HTTP/WS/stdio. The existing Live runtime WS server may become this authority, or
+it may be replaced by a clearer service module/server. The requirement is
+semantic ownership: one authority, one session registry, one media model, one
+trace lifecycle.
+
+The LLM must not be required to speak raw WebSocket. MCP remains the LLM-facing
+API. MCP runtime tools may internally call the same runtime backend that the UI
+uses, but the consuming LLM sees stable MCP tools, not a browser/UI protocol.
+
+### 2.1 Shared-Attach Contract
+
+The shared runtime must support co-working:
+
+- If the LLM starts a session through MCP, the UI can attach to that same
+  session id, render its screen, inspect status, pause/run it, mount media, and
+  show trace state.
+- If the human starts or drives a session through the UI, MCP can list/find that
+  session id and call `runtime_session_status`, `runtime_render_screen`,
+  `runtime_mark`, `runtime_trace_finalize`, media tools, and bounded run tools
+  against the same machine state.
+- Both surfaces see the same CPU/VIC/CIA/SID/1541 state, mounted media,
+  checkpoint/ring state and trace lifecycle.
+- Commands are serialized by the runtime authority. If one surface is actively
+  running the machine, the other surface gets an explicit busy/run-state result,
+  not a second hidden runner.
+
+### 2.2 Run Modes
+
+The authority must distinguish these modes:
+
+- **Tool-bounded MCP mode:** a runtime tool advances the machine for a bounded
+  budget and then returns to idle. No autonomous loop remains active after the
+  tool returns.
+- **Live UI mode:** the UI may request continuous interactive playback. This is
+  explicit, visible in status, and stoppable by pause/close.
+
+Starting a trace is not a run mode. `trace_out` attaches passive capture; it must
+not start a background run loop.
 
 ## 3. Boundary To Existing Specs
 
@@ -86,6 +128,7 @@ interface RuntimeSessionService {
   start(input: RuntimeStartRequest): Promise<RuntimeSessionHandle>;
   get(sessionId: string): RuntimeSessionHandle | undefined;
   list(): RuntimeSessionSummary[];
+  attach(sessionId: string, client: RuntimeClientKind): Promise<RuntimeSessionHandle>;
   close(sessionId: string): Promise<void>;
 
   run(sessionId: string, input: RuntimeRunRequest): Promise<RuntimeRunResult>;
@@ -105,6 +148,9 @@ interface RuntimeSessionService {
 
 `IntegratedSession` becomes an implementation detail behind this service, not a
 thing every caller constructs directly.
+
+`RuntimeClientKind` is at least `"mcp"` or `"ui"`. It is used for ownership,
+status and command arbitration only; it must not create separate emulators.
 
 ## 5. Session Lifecycle Rules
 
@@ -127,9 +173,14 @@ Rules:
   explicit startup budget documented in the tool output;
 - after `runtime_session_run` returns, the session is not burning CPU in the
   background;
+- `runtime_session_start(trace_out=...)` attaches trace capture only; it must not
+  create/start a `RuntimeController` loop;
 - `runtime_session_close` is available as a default runtime tool and releases
   trace writers, audio, media handles and timers;
 - long-running Live UI mode is explicit and visible in status.
+
+`runtime_session_close` is cleanup. It is not the primary fix for idle CPU burn.
+Idle safety must hold before close is called.
 
 ### 5.3 UI Live Mode
 
@@ -145,7 +196,8 @@ The UI must show:
 - trace state if active.
 
 If the MCP starts a session, the UI can observe/attach to that session. If the UI
-starts a session, MCP can inspect/control that session by id.
+starts a session, MCP can inspect/control that session by id. This is a product
+requirement, not a nice-to-have.
 
 ## 6. Trace Startup Packaging
 
@@ -269,7 +321,8 @@ Required default tools or equivalent facades:
 - `trace_store_top_pcs`
 - `runtime_query_events`
 
-No default tool may instruct the LLM to use the old V3 WS server directly.
+No default tool may instruct the LLM to use the old V3 WS server directly. If the
+runtime authority is exposed over WS internally, MCP tools hide that transport.
 
 ## 9. Non-Goals
 
@@ -279,6 +332,8 @@ No default tool may instruct the LLM to use the old V3 WS server directly.
 - No automated full gameplay bot.
 - No "just wait longer" solution.
 - No raw WebSocket client as the documented LLM path.
+- No second hidden runtime session to "mirror" UI or MCP. Shared state must be
+  real shared authority, not synchronization between two emulators.
 - No hidden `C64RE_FULL_TOOLS` requirement.
 
 ## 10. Acceptance Gates
@@ -326,8 +381,14 @@ smoke-runtime-session-authority
 Proves:
 
 - sessions created through MCP are visible through the UI/status service;
+- the UI can attach to the MCP-created session and observe the same frame/cycle;
+- the UI can pause/run that MCP-created session and MCP status sees the same
+  state transition;
 - sessions created through the UI/status service are visible through MCP;
-- both surfaces report the same session id, mounted media and run state.
+- MCP can inspect/control the UI-created session by id;
+- both surfaces report the same session id, mounted media, trace state and run
+  state;
+- there is no product `startIntegratedSession` path outside the authority.
 
 If implementation keeps one process, this can be an in-process service test. If
 implementation uses HTTP/WS, it must be an end-to-end test.
@@ -398,8 +459,15 @@ Required evidence:
 
 ### 744.4 — Shared UI/MCP authority
 
+- Promote or replace the current Live WS backend so it is the runtime authority,
+  not a UI-private session owner.
+- Migrate MCP `runtime_*` tools away from direct `startIntegratedSession()` calls
+  and into the authority/adapter.
 - Remove/retire product paths where UI creates a private session unseen by MCP.
+- Remove/retire product paths where MCP creates a private session unseen by UI.
 - UI status connects to the runtime authority and displays session id/run state.
+- MCP can attach to a UI-created session; UI can attach to an MCP-created
+  session.
 - Add `smoke-runtime-session-authority`.
 
 ### 744.5 — Disk prompt orchestration
@@ -426,3 +494,69 @@ Spec 744 is DONE when:
 - a disk-swap-prompting flow can be driven through MCP with trace active;
 - no default product instructions mention starting the V3 WS server directly;
 - BUG-027 is fixed with gates and resolution filled.
+
+---
+
+## 744.4 Implementation — RuntimeSessionService authority (2026-05-31)
+
+### Split points removed
+Both surfaces constructed sessions directly:
+- MCP `runtime_session_start` / `runtime_diagnose_mm` → `startIntegratedSession`
+  (`src/server-tools/headless.ts`).
+- UI bootstrap → `startIntegratedSession` (`scripts/start-v3-server.mjs`).
+The session-manager + controller registry were ALREADY module singletons, but no
+single API owned the lifecycle and product callers reached past it.
+
+### Service shape (`src/runtime/headless/runtime-session-service.ts`)
+`runtimeSessions` (singleton) wraps integrated-session-manager + the controller
+registry into one authority:
+`start` (session + controller, PAUSED, no loop) · `get` · `list` · `attach`
+(re-wires the broadcast sink → UI observes an MCP session and vice-versa) ·
+`status` · `run`/`pause`/`resume` · `close` (finalize trace → dispose controller →
+drop session, idempotent). Both surfaces import it; within one process they share
+the SAME session ids + controllers (real shared state, not mirrors).
+
+### Migrated onto the authority
+- MCP `runtime_session_start`, `runtime_session_close`, `runtime_diagnose_mm`.
+- UI `scripts/start-v3-server.mjs` (no private UI-only session).
+
+### Still call `startIntegratedSession` directly — and why (allowed)
+- `v2/scenario.ts`, `v2/rewind.ts`, `export/{screenshot,audio-export,video}.ts` —
+  **one-shot, non-interactive**: build a session, use it once, discard; never shared
+  with the UI/MCP live surface. Migrating them is cosmetic, not required for shared
+  authority.
+- `src/runtime/headless/c64/*-fidelity-tests.ts`, `smoke/load-matrix.ts`,
+  `regress/runner.ts`, `trace/eof-trace.ts`, all `scripts/*` — **test/dev/export**
+  harnesses, not the product runtime.
+
+### Idle root cause + why 744.3 missed it
+744.3 added `runtime_session_close` (cleanup). But cleanup only stops a loop that
+already started — it is not the idle-safety mechanism. The real contract is that the
+MCP path NEVER schedules an autonomous loop: `runtime_session_start` creates a PAUSED
+session (no `controller.run()`), trace capture is passive, and `runtime_session_run`
+is a one-shot synchronous `runFor`. `probe-744-idle-ownership` enforces this on the
+REAL MCP stdio server (cycles do not advance during an idle wait, with and without
+`trace_out`). BUG-027's ~100% was a long synchronous `runFor` the user couldn't stop
+(no close tool) — not a background loop; 744.3's close fixed the "couldn't stop it",
+744.4 proves "no loop in the first place".
+
+### Gates
+- `npm run smoke:744-4` (16/16) — in-process shared authority: MCP-created session
+  visible/controllable as UI (same session + controller instance, run/pause shared
+  state), UI-created session visible to MCP, close idempotent, and the interactive
+  entry points use the authority (no direct `startIntegratedSession`).
+- `npm run probe:744-idle` (8/8) — real MCP stdio path: no cycle advance while idle
+  (with + without trace), close releases.
+- Preserved: `smoke-v3-ws` 7/7 (UI renders + broadcasts), `e2e:744-2` 5/5,
+  `probe:744-3` 9/9, `probe-single-path` 25/25.
+
+### 744.4 status — what remains
+**Single authority WITHIN a process: DONE.** The remaining piece is **cross-process
+co-hosting**: the MCP server (stdio, IDE-launched) and the UI WS server (port 4312,
+human-launched) are still separate OS processes → separate module singletons, so a
+human cannot yet attach to an LLM's MCP session in PRODUCTION (only in-process, which
+the gate proves). The next slice (744.4b) makes one process host both — e.g. the MCP
+`cli.ts` also serving the V3 WS — so the authority singleton is genuinely shared at
+runtime. The WS server's internal handlers still call `getIntegratedSession` /
+`ensureRuntimeController` directly; they hit the same singletons (consistent) but
+could be routed through `runtimeSessions.get/attach` for purity.

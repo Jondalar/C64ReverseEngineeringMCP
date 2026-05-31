@@ -11,7 +11,12 @@ const { V3WsServer } = await import(`${repoRoot}/dist/workspace-ui/v3-ws-server.
 const { resolveProjectDir, hasDevSamples } = await import(
   `${repoRoot}/dist/workspace-ui/resolve-project-dir.js`
 );
-const { startIntegratedSession, getIntegratedSession } = await import(
+// Spec 744.4 — the UI boots its session through the SINGLE runtime authority, the
+// same RuntimeSessionService the MCP runtime_* tools use. No private UI-only session.
+const { runtimeSessions } = await import(
+  `${repoRoot}/dist/runtime/headless/runtime-session-service.js`
+);
+const { getIntegratedSession } = await import(
   `${repoRoot}/dist/runtime/headless/integrated-session-manager.js`
 );
 
@@ -33,7 +38,7 @@ const driveDispatchMode = process.env.C64RE_DRIVE_DISPATCH === "cycle-stepped"
 console.log(`[v3] driveDispatchMode = ${driveDispatchMode}`);
 // Spec 723: single-path runtime — true-drive + microcoded Cpu65xxVice +
 // VICE1541 + event-catchup are the ONLY path. No mode/cpu/drive/lockstep flags.
-const { sessionId } = startIntegratedSession({
+const { sessionId } = runtimeSessions.start({
   mode: "true-drive",
   driveDispatchMode,
 });

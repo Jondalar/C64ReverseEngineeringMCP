@@ -185,7 +185,11 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       enable_kernal_fileio_traps, enable_kernal_serial_traps, enable_kernal_io_traps,
       trace_out, trace_domains,
     }) => {
-      const { startIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      // Spec 744.4 — create the session through the single runtime authority, NOT
+      // startIntegratedSession directly. The service registers the session AND its
+      // controller (paused, no autonomous loop) so the UI can attach to this same
+      // session id, and MCP stays idle-bounded (no background runloop after start).
+      const { runtimeSessions } = await import("../runtime/headless/runtime-session-service.js");
       const { producerOptsForDomains, startSessionTrace, resolveTraceOut, DEFAULT_TRACE_DOMAINS } =
         await import("./runtime-trace-sink.js");
       const warnings: string[] = [];
@@ -195,7 +199,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const traceProducers = trace_out ? producerOptsForDomains(traceDomains) : {};
       // Spec 723.4a: the product runtime is true-drive + microcoded
       // unconditionally — no useCycleLockstep / useMicrocodedCpu inputs.
-      const { sessionId, session } = startIntegratedSession({
+      const { sessionId, session } = runtimeSessions.start({
         diskPath: disk_path, deviceId: device_id, isPal: pal,
         startTrack: start_track, writeProtected: write_protected,
         traceIec: trace_iec ?? traceProducers.traceIec,
@@ -453,37 +457,14 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Close a runtime session and release its resources. Use when finished with a session started by runtime_session_start: it stops the RuntimeController loop (which otherwise keeps ticking the session and pegs a CPU core ~100% after you are done), finalizes any active streaming trace, and removes the session from the registry — the clean alternative to killing the process. Not for pausing to inspect then resuming (keep the session and use runtime_session_run) or for finalizing only a trace (use runtime_trace_finalize). Inputs: session_id. Returns: what was released. Idempotent (closing an unknown/already-closed session is a no-op success).",
     { session_id: z.string() },
     safeHandler("runtime_session_close", async ({ session_id }) => {
-      const { getIntegratedSession, stopIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-      const { getRuntimeController, disposeRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
-      const existed = !!getIntegratedSession(session_id);
-      const released: string[] = [];
-      const ctrl = getRuntimeController(session_id);
-
-      // 1. Finalize a streaming trace if one is active (drain → write header → close).
-      try {
-        if (ctrl?.traceRun?.isActive()) {
-          await ctrl.traceRun.stop();
-          released.push("trace (finalized)");
-        }
-      } catch { /* nothing to finalize */ }
-
-      // 2. Dispose the RuntimeController — cancels the scheduled run loop
-      //    (setImmediate/setTimeout tick), sets stopped, clears the checkpoint
-      //    ring. This is the fix for the idle ~100% CPU: a running controller
-      //    keeps ticking even after the session is gone.
-      if (ctrl) {
-        disposeRuntimeController(session_id);
-        released.push("controller (loop cancelled)");
-      }
-
-      // 3. Drop the session from the registry.
-      const removed = stopIntegratedSession(session_id);
-      if (removed) released.push("session");
-
+      // Spec 744.4 — close goes through the single runtime authority (finalize
+      // trace + dispose controller + drop session). Idempotent.
+      const { runtimeSessions } = await import("../runtime/headless/runtime-session-service.js");
+      const { existed, released } = await runtimeSessions.close(session_id);
       return {
         content: [{
           type: "text" as const,
-          text: existed || removed
+          text: existed || released.length
             ? `Session ${session_id} closed. Released: ${released.join(", ") || "(nothing pending)"}.`
             : `Session ${session_id} was not open (already closed). No-op.`,
         }],
@@ -596,25 +577,33 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     safeHandler("runtime_diagnose_mm", async ({
       disk_path, project_dir, cycle_budget, stall_pc_repeat, watch_pc, device_id, pal, output_path,
     }) => {
-      const { startIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      // Spec 744.4 — even the one-shot diagnostic creates its session through the
+      // single authority (then closes it), so no product path constructs a private
+      // session outside the service.
+      const { runtimeSessions } = await import("../runtime/headless/runtime-session-service.js");
       const { diagnoseMm } = await import("../runtime/headless/diagnostic-mm.js");
       const { mkdirSync, writeFileSync } = await import("node:fs");
       const { dirname, join } = await import("node:path");
       const projectRoot = resolveHeadlessProjectDir(context, project_dir);
       // Spec 723.7b: lockstep is gone; diagnose_mm runs the product event-catchup
       // path with full IEC/drive trace channels enabled (debug-vice-compare).
-      const { sessionId, session } = startIntegratedSession({
+      const { sessionId, session } = runtimeSessions.start({
         diskPath: disk_path, deviceId: device_id, isPal: pal,
         mode: "debug-vice-compare",
         traceIec: true, traceIecCapacity: 4096,
         traceDrive: true, traceDriveCapacity: 2048,
       });
       session.resetCold();
-      const report = diagnoseMm(session, {
-        cycleBudget: cycle_budget,
-        stallPcRepeat: stall_pc_repeat,
-        watchPc: watch_pc ? parseHexWord(watch_pc) : undefined,
-      });
+      let report;
+      try {
+        report = diagnoseMm(session, {
+          cycleBudget: cycle_budget,
+          stallPcRepeat: stall_pc_repeat,
+          watchPc: watch_pc ? parseHexWord(watch_pc) : undefined,
+        });
+      } finally {
+        await runtimeSessions.close(sessionId); // one-shot diagnostic — release it
+      }
       const outPath = output_path
         ? resolve(projectRoot, output_path)
         : join(projectRoot, "analysis", "headless", "mm-g64-lockstep-debug.json");
