@@ -1,8 +1,15 @@
 # Spec 742 — Media Ownership + VICE-Faithful Write-Through Refactor
 
-**Status:** ACTIVE (2026-05-31) — created after BUG-023 exposed that media
-mounting/writeback is split across UI, MCP, scenario, ingress, snapshot and drive
-paths.  
+**Status:** DONE for the shipped scope (2026-05-31) — the BUG-023 failure mode is
+fixed and gated (central `mountDiskMedia`, VICE-faithful D64/G64 + EasyFlash CRT
+host-file write-through; Slices 1+2 below; `smoke:742` 9/9, `smoke:023-*` +
+`smoke:023-cart` green). The full `MediaRef`/`MediaLibrary` ownership model (§4–§5)
+and the remaining writable cart families are **backlog** (see "Remaining" — the
+cart families are blocked on Spec 713 mapper ports; the ownership model is a
+forward-looking refactor, not a bug). Closed here so it is not left perpetually
+ACTIVE; reopen as a dedicated spec when the ownership model is scheduled. Created
+after BUG-023 exposed that media mounting/writeback was split across UI, MCP,
+scenario, ingress, snapshot and drive paths.  
 **Owner:** runtime media / project media / 1541 diskimage / UI live backend  
 **Depends on:** Specs 709, 714, 723, 724, 730  
 **Related bugs:** BUG-023, BUG-010, BUG-013, BUG-015  
