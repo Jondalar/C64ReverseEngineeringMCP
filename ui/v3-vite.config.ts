@@ -30,15 +30,18 @@ function ensureRuntimeDaemon(): Plugin {
         const repo = resolve(__dirname, "..");
         const port = (endpoint.match(/^wss?:\/\/[^/:]+:(\d+)/)?.[1]) ?? "4312";
         const projectDir = process.env.C64RE_PROJECT_DIR ?? repo;
+        // PERF (Spec 744.4c) — prefer node/dist: tsx-from-src runs the ~1MHz loop
+        // ~12× slower (4fps vs 50fps). Only fall back to tsx if dist is unbuilt.
         const srcEntry = resolve(repo, "src/runtime/headless/daemon/run.ts");
         const distEntry = resolve(repo, "dist/runtime/headless/daemon/run.js");
         let cmd: string; let args: string[];
-        if (existsSync(srcEntry)) {
-          cmd = resolve(repo, "node_modules/.bin/tsx");
-          args = [srcEntry, "--project", projectDir, "--port", port];
-        } else if (existsSync(distEntry)) {
+        if (existsSync(distEntry)) {
           cmd = process.execPath;
           args = [distEntry, "--project", projectDir, "--port", port];
+        } else if (existsSync(srcEntry)) {
+          console.warn(`[ui] runtime daemon falling back to tsx-from-src — ~12× slower (≈4fps). Run \`npm run build:mcp\` for full speed.`);
+          cmd = resolve(repo, "node_modules/.bin/tsx");
+          args = [srcEntry, "--project", projectDir, "--port", port];
         } else { console.warn(`[ui] cannot warm-start runtime daemon — no daemon entry found`); return; }
         try {
           const child = spawn(cmd, args, {

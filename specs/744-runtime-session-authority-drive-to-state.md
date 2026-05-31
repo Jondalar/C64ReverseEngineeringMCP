@@ -877,3 +877,22 @@ exits 0 + logs back-off, winner keeps serving, exactly one listener. Part 2: 4 M
 start simultaneously (eager warm-start) → exactly one daemon owns the port and all
 four MCPs share it. Regression: `e2e:744-4c` 10/10 + `e2e:744-4c-autostart` 5/5
 still green with eager spawn on.
+
+### 744.4c daemon MUST run node/dist, never tsx-from-src (2026-05-31)
+**Symptom:** the UI showed the C64 booting but at ~4fps. **Root cause (measured, not
+guessed):** the daemon runs a long-lived ~1MHz emulation loop; under `tsx`-from-src it
+does **80.5k cyc/s** vs **985k cyc/s** under built `node`/dist — **12× slower = 4fps vs
+50fps** (`scripts/diag-perf-tsx-vs-node.mjs`). The earlier auto-spawn matched the
+daemon's runtime to the MCP's ("MCP under tsx → daemon under tsx"), which is wrong: the
+MCP is I/O-bound, the daemon is CPU-bound — they need not share a runtime.
+
+**Fix:** both spawn sites (`runtime-daemon-client.ts spawnDaemonDetached` and the UI
+`ui/v3-vite.config.ts` plugin) now **prefer `dist/runtime/headless/daemon/run.js` via
+`node` unconditionally**, falling back to tsx only when dist is unbuilt — with a loud
+"~12× slower, run `npm run build:mcp`" warning. Implication: after editing daemon/runtime
+source you MUST `npm run build:mcp` for the daemon to pick it up at full speed (a plain
+`/mcp reload` no longer silently runs the slow tsx daemon).
+
+Perf gate: `node scripts/diag-perf-tsx-vs-node.mjs` → node-dist realtimeRatio ≈ 1.0
+(≈50fps), documents the tsx penalty. Spawn-path change re-verified against
+e2e:744-4c 10/10 + autostart 5/5 + race 11/11.

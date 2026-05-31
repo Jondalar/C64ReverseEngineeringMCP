@@ -61,17 +61,24 @@ function spawnDaemonDetached(endpoint: string, projectDirArg?: string): boolean 
   // Repo root from this module: <repo>/{src|dist}/server-tools/runtime-daemon-client.{ts|js}
   const here = fileURLToPath(import.meta.url);
   const repo = resolvePath(dirname(here), "..", "..");
-  const fromSrc = here.endsWith(".ts");
+  // PERF (Spec 744.4c) — the daemon is a long-lived ~1MHz emulation loop. Under
+  // tsx-from-src it runs ~12× SLOWER (measured: 80k vs 985k cyc/s = 4fps vs 50fps),
+  // because tsx transpiles without V8's optimizing tiers warming the hot path the
+  // same way. So ALWAYS prefer the built node/dist entry — EVEN when this MCP itself
+  // runs under tsx (the MCP is I/O-bound, the daemon is CPU-bound; they need not match
+  // runtimes). Fall back to tsx only if dist is absent, with a loud slow-mode warning.
+  const distEntry = resolvePath(repo, "dist/runtime/headless/daemon/run.js");
   let cmd: string; let args: string[];
-  if (fromSrc) {
-    // MCP runs under tsx — start the daemon the same way (source entry, no dist needed).
-    cmd = resolvePath(repo, "node_modules", ".bin", "tsx");
-    args = [resolvePath(repo, "src/runtime/headless/daemon/run.ts"), "--project", projectDir, "--port", port];
-  } else {
-    const distEntry = resolvePath(repo, "dist/runtime/headless/daemon/run.js");
-    if (!existsSync(distEntry)) return false;
+  if (existsSync(distEntry)) {
     cmd = process.execPath;
     args = [distEntry, "--project", projectDir, "--port", port];
+  } else {
+    const tsxBin = resolvePath(repo, "node_modules", ".bin", "tsx");
+    const srcEntry = resolvePath(repo, "src/runtime/headless/daemon/run.ts");
+    if (!existsSync(tsxBin) || !existsSync(srcEntry)) return false;
+    console.error(`[c64-re mcp] WARNING: runtime daemon falling back to tsx-from-src — ~12× slower (≈4fps). Run \`npm run build:mcp\` for full-speed (50fps).`);
+    cmd = tsxBin;
+    args = [srcEntry, "--project", projectDir, "--port", port];
   }
   try {
     const child = spawn(cmd, args, {
