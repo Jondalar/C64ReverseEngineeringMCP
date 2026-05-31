@@ -1,6 +1,6 @@
 # Spec 744 — Runtime Session Authority + Drive-to-State Orchestration
 
-**Status:** ACTIVE (2026-05-31) — created after BUG-027 showed that the binary
+**Status:** 744.4 DONE (744.4a+744.4b shared authority, 2026-05-31); §7 drive-to-state orchestration still open. Created after BUG-027 showed that the binary
 trace path, media write-through and Live UI can each be partly correct while the
 product still cannot drive a real multi-disk game to an observable state through
 MCP.  
@@ -560,3 +560,54 @@ the gate proves). The next slice (744.4b) makes one process host both — e.g. t
 runtime. The WS server's internal handlers still call `getIntegratedSession` /
 `ensureRuntimeController` directly; they hit the same singletons (consistent) but
 could be routed through `runtimeSessions.get/attach` for purity.
+
+---
+
+## 744.4b Implementation — real shared authority across product processes (2026-05-31)
+
+744.4a shared sessions only IN-PROCESS. Production runs the LLM (MCP stdio) and the
+human (WS :4312) as SEPARATE OS processes → separate `runtimeSessions` singletons.
+744.4b makes ONE process host both so the authority is genuinely shared at runtime.
+
+### Chosen product topology
+The IDE-launched MCP process **co-hosts the Live runtime WS**. `src/cli.ts`
+`maybeHostRuntimeWs()`: when `C64RE_RUNTIME_WS=<port>` is set (in the project
+`.mcp.json`), after wiring the stdio server it boots one default session through the
+shared `runtimeSessions` and starts a `V3WsServer` on that port IN THE SAME PROCESS.
+- LLM → MCP stdio · human browser → WS :4312 · both → the SAME `runtimeSessions`
+  singleton in that one Node process. The HTTP knowledge API (`server.js` :4310)
+  stays a separate process (not runtime — no second authority).
+
+### Old standalone paths retired / dev-only
+- `scripts/start-v3-server.mjs` → marked **DEV-ONLY / STANDALONE** (separate-process
+  WS, not shared with MCP). Use only to run the UI runtime without an MCP/IDE process.
+- `scripts/workspace.mjs` → product-aware: when `C64RE_RUNTIME_WS` is set it does NOT
+  spawn the standalone WS (the MCP process hosts it — avoids a 2nd authority + :4312
+  conflict); HTTP-only. Without it, the standalone dev path is unchanged.
+- No default/product doc or tool description tells the LLM to start `start-v3-server`
+  or talk raw WS (grep-verified); the LLM stays on MCP tools.
+
+### Exact proof MCP stdio + UI WS share the same session
+`npm run e2e:744-4b` (8/8) spawns the REAL `dist/cli.js` with `C64RE_RUNTIME_WS` set
+(one process), then drives BOTH surfaces:
+- MCP co-hosts the WS (stderr "hosting Live runtime WS … session integrated-1").
+- MCP `runtime_session_start` → `integrated-2`; the WS `session/list` shows it
+  (MCP→UI visibility).
+- WS `session/state` and MCP `runtime_session_status` read the SAME cycle counter.
+- WS `debug/run` advances `integrated-2` from 0 → 610896 cycles that MCP
+  `runtime_session_status` then reads (UI→MCP control of the same session).
+- WS `debug/pause` stops it (MCP sees no further advance).
+- MCP can `runtime_session_status` the WS-booted default session `integrated-1`
+  (UI→MCP visibility).
+
+### Gate counts
+- New: `e2e:744-4b` 8/8 (real one-process MCP+WS shared authority).
+- Kept green: `smoke:744-4` 16/16, `probe:744-idle` 8/8, `smoke-v3-ws` 7/7,
+  `e2e:744-2` 5/5, `probe:744-3` 9/9, `probe-single-path` 25/25.
+
+### Status
+- **744.4a DONE** — single RuntimeSessionService authority; both surfaces migrated.
+- **744.4b DONE** — the product process really shares that authority across MCP stdio
+  + UI WS (proven on the real topology). Deployment: set `C64RE_RUNTIME_WS` in the
+  project `.mcp.json`. (The drive-to-state orchestration §7 / disk-swap §7.2 remain
+  separate open items of Spec 744, unrelated to session authority.)

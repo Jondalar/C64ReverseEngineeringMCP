@@ -1,5 +1,13 @@
 #!/usr/bin/env node
 // Spec 261/272 — V3 runtime WebSocket server bootstrap (port 4312).
+//
+// DEV-ONLY / STANDALONE (Spec 744.4b). This starts a SEPARATE-process WS runtime,
+// whose runtimeSessions singleton is NOT shared with the IDE-launched MCP process.
+// The PRODUCT shared-authority path is the MCP server co-hosting the WS in ONE
+// process: set `C64RE_RUNTIME_WS=<port>` in the project `.mcp.json` so `src/cli.ts`
+// hosts the Live runtime WS itself (see `maybeHostRuntimeWs`). Use this script only
+// for running the UI runtime WITHOUT an MCP/IDE process (local dev of the UI).
+//
 // Spec 724.3 — project-aware: resolves ONE project dir (--project > env > hard
 // error, NO cwd fallback) and hands it to V3WsServer so media scans read the
 // project, not process.cwd(). Boots a C64 to BASIC ready, no media mounted.
