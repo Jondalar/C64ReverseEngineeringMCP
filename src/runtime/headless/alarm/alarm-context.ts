@@ -25,16 +25,14 @@
 // subsequent steps. The CPU dispatch loop wiring is also out of scope
 // for this foundation step.
 //
-// Width semantics: CLOCK is uint32 in VICE; we model that explicitly
-// via the `CLOCK` alias and `u32` helper from `../util/uint.ts`. Note
-// that VICE pending-alarm comparison is done with raw `<=` against
-// CLOCK_MAX = 0xFFFFFFFF — i.e. larger numeric value = later in time.
-// In TS-number land this still holds for unsigned uint32 quantities,
-// so the comparators below mirror VICE 1:1 without any wrap handling
-// (matches VICE semantics: the CPU loop is expected to never let
-// pending clks exceed UINT32_MAX without an explicit time-warp).
+// Width semantics: Spec 743 — absolute CLOCK is a MONOTONIC JS number (modern
+// VICE CLOCK is uint64), NOT a uint32 that wraps at 2^32. Pending-alarm clks and
+// the comparisons below are plain monotonic `<`/`>=` on absolute time; larger
+// number = later. The disabled/no-pending sentinel is `CLOCK_MAX = CLOCK_NEVER`
+// (= Number.MAX_SAFE_INTEGER), always greater than any reachable clk. Only
+// hardware register/bitfield values wrap (those use u8/u16 elsewhere).
 
-import { u32, type CLOCK } from "../util/uint.js";
+import { u32, CLOCK_NEVER, type CLOCK } from "../util/uint.js";
 
 // ---------------------------------------------------------------------------
 // Constants — alarm.h lines 33, types.h CLOCK_MAX = ~(CLOCK)0.
@@ -43,8 +41,15 @@ import { u32, type CLOCK } from "../util/uint.js";
 /** alarm.h line 33: `#define ALARM_CONTEXT_MAX_PENDING_ALARMS 0x100`. */
 export const ALARM_CONTEXT_MAX_PENDING_ALARMS = 0x100;
 
-/** types.h: `#define CLOCK_MAX (~((CLOCK)0))` — uint32 max. */
-export const CLOCK_MAX: CLOCK = 0xffffffff >>> 0;
+/**
+ * Disabled / no-pending-alarm sentinel. Spec 743: this is the monotonic
+ * "never" clock (`CLOCK_NEVER = Number.MAX_SAFE_INTEGER`), NOT the old uint32
+ * `0xffffffff` — a real maincpu clk can exceed 2^32 over a long run, and a
+ * 0xffffffff sentinel would then read as "already due" and spin the dispatcher
+ * (BUG-025). Name kept as `CLOCK_MAX` for the chips that import it as the
+ * disabled marker; value is now `CLOCK_NEVER`.
+ */
+export const CLOCK_MAX: CLOCK = CLOCK_NEVER;
 
 // ---------------------------------------------------------------------------
 // Types — alarm.h lines 35-88.
@@ -179,7 +184,7 @@ export function alarmContextCaptureSchedule(context: AlarmContext): AlarmSchedul
   const out: AlarmScheduleEntry[] = [];
   for (let i = 0; i < context.num_pending_alarms; i++) {
     const p = context.pending_alarms[i]!;
-    out.push({ name: p.alarm.name, clk: p.clk >>> 0 });
+    out.push({ name: p.alarm.name, clk: p.clk }); // Spec 743 — monotonic, no u32
   }
   return out;
 }
@@ -203,7 +208,7 @@ export function alarmContextRestoreSchedule(
   for (let a = context.alarms; a; a = a.next) byName.set(a.name, a);
   for (const e of schedule) {
     const a = byName.get(e.name);
-    if (a) alarmSet(a, e.clk >>> 0);
+    if (a) alarmSet(a, e.clk); // Spec 743 — monotonic, no u32
   }
 }
 

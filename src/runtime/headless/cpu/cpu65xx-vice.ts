@@ -244,7 +244,8 @@ export class Cpu65xxVice {
   public get sp():    BYTE { return this.reg_sp; }
   public set sp(v: BYTE)   { this.reg_sp = u8(v); }
   public get cycles(): CLOCK { return this.clk; }
-  public set cycles(v: CLOCK) { this.clk = u32(v); }
+  // Spec 743 — absolute clk is monotonic; do NOT u32 it (a long run exceeds 2^32).
+  public set cycles(v: CLOCK) { this.clk = v; }
   /** Composite P register including flag_n/flag_z view. Compatible
    *  with legacy `flags` field semantics. */
   public get flags(): BYTE {
