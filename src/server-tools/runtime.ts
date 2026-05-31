@@ -564,7 +564,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_media_mount",
-    "Mount a disk/cart image into a session's drive (no drive reset — like inserting media on real hardware). Use to insert media before LOAD. Not for swapping a mounted disk (use runtime_media_swap) or removing it (use runtime_media_unmount). Inputs: session_id, path. Returns: mount result.",
+    "Mount a disk/cart image into a session's drive (no drive reset — like inserting media on real hardware; the running 1541 senses a disk is now present). Use to insert media before LOAD, or as STEP 2 of a hardware-style side-swap (after runtime_media_unmount + runtime_session_run); then runtime_session_run and runtime_type the RETURN to answer an \"Insert side N\" prompt. Not for removing media (use runtime_media_unmount). Inputs: session_id, path. Returns: mount result.",
     {
       session_id: z.string(),
       slot: z.number().int().default(8).describe("Drive slot: 8 (primary) or 9"),
@@ -583,7 +583,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_media_unmount",
-    "Eject the disk from a session's drive (writes back if dirty; the drive keeps running). Use to remove media. Not for replacing it in one step (use runtime_media_swap). Inputs: session_id. Returns: eject result.",
+    "Eject the disk — open the drive door. The running 1541 senses the disk was removed (write-protect line), so this is STEP 1 of answering a game's \"Insert side N\" prompt: unmount, then runtime_session_run a bit to let the drive register the removal, then runtime_media_mount the new side and runtime_session_run again, then runtime_type the RETURN. Writes back if dirty; the drive keeps running. Use to remove media or to begin a hardware-style side-swap. Not for the first mount (use runtime_media_mount). Inputs: session_id. Returns: eject result.",
     {
       session_id: z.string(),
       slot: z.number().int().default(8),
@@ -619,7 +619,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_media_swap",
-    "Swap the mounted disk for another in one step (side-B style; no session reset). Use to change disks under a running loader. Not for the first mount (use runtime_media_mount). Inputs: session_id, path. Returns: swap result.",
+    "Swap the mounted disk for another in ONE atomic step (detach+attach with no drive cycles between). Use for a quick change when nothing is polling the drive (e.g. before a fresh LOAD). NOT for a game that prompts \"Insert side N\" and waits: a real 1541 senses the disk being pulled out and a new one pushed in over many drive cycles, which an atomic swap gives no time for — instead drive it like hardware (runtime_media_unmount → runtime_session_run → runtime_media_mount → runtime_session_run, then runtime_type the RETURN). Read the screen with runtime_render_screen to know when a side-change is being asked for. Inputs: session_id, path. Returns: swap result.",
     {
       session_id: z.string(),
       slot: z.number().int().default(8),

@@ -155,7 +155,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // Path to Murder boot trace.
   server.tool(
     "runtime_session_start",
-    "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, VICE-shaped 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, close with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events. Not for the VICE oracle (use vice_*, advanced). Inputs: disk_path; optional device_id, pal, trace_out, trace_domains. Returns: session id + resolved config + trace status when streaming.",
+    "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, VICE-shaped 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). Not for the VICE oracle (use vice_*, advanced). Inputs: disk_path; optional device_id, pal, trace_out, trace_domains. Returns: session id + resolved config + trace status when streaming.",
     {
       disk_path: z.string(),
       device_id: z.number().int().min(8).max(11).optional(),

@@ -204,6 +204,58 @@ inventory.
 
 **Do not:** Do not use raw trace_store_query because a wrapper looks broken — fix/report it. If LOAD"*",8,1 is wrong, use LOAD"$",8 to read the directory then issue the chosen LOAD.
 
+## Multi-Disk Side-Swap ("Insert side N")
+
+**id:** `multi-disk-side-swap`
+
+**Use when:** Wasteland asks me to insert side 3 — drive it past the prompt. / This multi-disk game wants a disk change mid-run; swap it and continue.
+
+**Preconditions:** A running Headless session (runtime_session_start) booted into the game.; The other disk sides are available as project/abs paths.; You must READ THE SCREEN — the game tells you when and which side to insert.
+
+**Steps:**
+
+1. _(llm)_ Read the live screen and watch for a side-change prompt (e.g. "INSERT SIDE N (RETURN)"). The screen is the source of truth for WHEN a swap is needed and WHICH side.
+   - tools: `runtime_render_screen`
+   - persist: screen text/prompt
+   ```text
+   runtime_render_screen({ session_id, out_path: "/tmp/<sess>-prompt.png" })  // then read the PNG
+   ```
+2. _(llm)_ Open the drive door: EJECT the current disk. The running 1541 senses the disk was pulled out (write-protect line) — do NOT use the atomic runtime_media_swap here; a polling game needs the drive to see the removal over real cycles.
+   - tools: `runtime_media_unmount`
+   - persist: disk ejected
+   ```text
+   runtime_media_unmount({ session_id })
+   ```
+3. _(runtime)_ Let the drive run so it registers the disk-out (advance the session).
+   - tools: `runtime_session_run`
+   - persist: drive saw removal
+   ```text
+   runtime_session_run({ session_id, max_instructions: 2000000 })
+   ```
+4. _(llm)_ Insert the requested side: MOUNT the new disk image. The running 1541 senses a disk is now present.
+   - tools: `runtime_media_mount`
+   - persist: new side mounted
+   ```text
+   runtime_media_mount({ session_id, path: "<.../wasteland_sN[...].g64>" })
+   ```
+5. _(runtime)_ Run so the drive registers the new disk, then send the RETURN the prompt asked for, then run on.
+   - tools: `runtime_session_run`, `runtime_type`
+   - persist: confirm sent
+   ```text
+   runtime_session_run({ session_id, max_instructions: 2000000 });
+   runtime_type({ session_id, text: "\r" });
+   runtime_session_run({ session_id, max_instructions: 5000000, until: { kind: "stable_screen", frames_stable: 5 } })
+   ```
+6. _(llm)_ Read the screen again to confirm the prompt is gone and the game advanced (new map/scene). If it still shows the prompt, the drive did not register the change — run more cycles between eject and insert, or report a first-divergence trace.
+   - tools: `runtime_render_screen`, `runtime_mark`
+   - persist: advanced past prompt, mark side-swapped
+
+**Stop when:** The screen advanced past the "Insert side N" prompt onto game/map content after the eject → run → mount → run → RETURN sequence.
+
+**Next:** Continue the run / trace the post-swap load, or repeat for the next requested side.
+
+**Do not:** Do not use the atomic runtime_media_swap to answer a polling "Insert side N" prompt — it detaches+attaches with zero drive cycles between, so the running 1541 never senses the removal+insertion. Eject → run → mount → run instead. Do not guess WHICH side — read it off the screen. Do not assume the swap worked — render the screen and verify the prompt cleared.
+
 ## Disassembly-First Static Pass
 
 **id:** `disassembly-first-static-pass`
