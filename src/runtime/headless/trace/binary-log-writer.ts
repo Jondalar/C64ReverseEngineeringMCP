@@ -10,8 +10,9 @@
 // steps, so it cannot influence emulation. Events are NEVER dropped.
 
 import { Worker } from "node:worker_threads";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { resolve as resolvePath } from "node:path";
+import { resolve as resolvePath, sep } from "node:path";
 import {
   TraceOp, encodeCpuStep, encodeMemAccess, encodeIecLine, encodeVicEvent,
   encodeSidWrite, encodeMark, encodeFileHeader, type TraceFileMeta,
@@ -21,9 +22,27 @@ const CHUNK_BYTES = 1 << 20;        // 1 MiB transport chunk
 const POOL_TARGET = 4;              // preallocated reusable buffers
 const INFLIGHT_HIGH_WATER = 8;      // backpressure: await `free` past this many chunks in the Worker
 
+// BUG-027 Blocker 1 (Spec 744.2) — a worker_thread needs a `.js` script path.
+// The product MCP server runs from SOURCE via `npx tsx src/cli.ts` (see any
+// project `.mcp.json`), so `import.meta.url` here is the `.ts` under `src/` and
+// the sibling `binary-log-worker.js` does NOT exist (only the `.ts` does) →
+// ERR_MODULE_NOT_FOUND. The build emits a pure-JS worker to `dist/`. Resolve
+// robustly: sibling `.js` (built/dist run) → else the `dist/` twin (tsx-from-src
+// run; the dist worker is plain JS and needs no tsx loader inside the thread).
 function workerScriptPath(): string {
-  // dist/runtime/headless/trace/binary-log-writer.js → binary-log-worker.js
-  return resolvePath(fileURLToPath(import.meta.url), "..", "binary-log-worker.js");
+  const here = fileURLToPath(import.meta.url);
+  const sibling = resolvePath(here, "..", "binary-log-worker.js");
+  if (existsSync(sibling)) return sibling;
+  const distTwin = sibling.replace(
+    `${sep}src${sep}runtime${sep}`,
+    `${sep}dist${sep}runtime${sep}`,
+  );
+  if (existsSync(distTwin)) return distTwin;
+  throw new Error(
+    `binary-log-worker not found at ${sibling} or ${distTwin}. ` +
+    `Run \`npm run build:mcp\` — the binary trace worker is emitted to dist/ ` +
+    `(the MCP server runs from src/ via tsx, so the worker is loaded from dist/).`,
+  );
 }
 
 interface PendingChunk { buffer: ArrayBuffer; length: number; id: number; }
