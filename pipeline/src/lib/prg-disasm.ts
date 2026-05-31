@@ -34,6 +34,28 @@ interface PrgImage {
   data: Buffer;
 }
 
+// Spec 741: a runtime-addressed kind hint inside a relocated region.
+// start/end are RUNTIME addresses, inclusive. Slice A carries these
+// through unused (whole block rendered as code); Slice B applies them.
+export interface RelocationSubSegment {
+  start: number;
+  end: number;
+  kind: string;
+  label?: string;
+  comment?: string;
+}
+
+// Spec 741: a region stored at one (file) address but executed at
+// another (runtime) address. fileStart/fileEnd are STORED addresses,
+// inclusive; runtimeAddr is the logical execution PC of fileStart.
+export interface RelocationEntry {
+  fileStart: number;
+  fileEnd: number;
+  runtimeAddr: number;
+  label?: string;
+  subSegments?: RelocationSubSegment[];
+}
+
 interface PrgDisasmOptions {
   entryPoints?: number[];
   title?: string;
@@ -43,6 +65,10 @@ interface PrgDisasmOptions {
   // top of the existing C64 lookups so drive disasm gets correct
   // labels.
   platform?: "c64" | "c1541";
+  // Spec 741 (Slice A): relocated regions to render as
+  // .pseudopc / .logical blocks at their runtime PC while keeping the
+  // stored bytes byte-exact. Absent → rendering is unchanged.
+  relocations?: RelocationEntry[];
 }
 
 interface InstructionIndex {
@@ -2279,6 +2305,98 @@ function renderLegacy(prg: PrgImage, entryPoints: number[], lines: string[]): vo
   }
 }
 
+// Spec 741 (Slice A): normalize + validate a relocation list against a
+// PRG image. Sorts by fileStart, rejects out-of-bounds / overlapping
+// regions so the byte stream stays a clean, gap-free partition.
+function normalizeRelocations(relocations: RelocationEntry[], prg: PrgImage): RelocationEntry[] {
+  const fileLast = prg.loadAddress + prg.data.length - 1;
+  const sorted = [...relocations]
+    .map((r) => ({
+      ...r,
+      fileStart: Number(r.fileStart),
+      fileEnd: Number(r.fileEnd),
+      runtimeAddr: Number(r.runtimeAddr) & 0xffff,
+    }))
+    .sort((a, b) => a.fileStart - b.fileStart);
+
+  let cursor = prg.loadAddress;
+  for (const r of sorted) {
+    if (!Number.isFinite(r.fileStart) || !Number.isFinite(r.fileEnd) || r.fileEnd < r.fileStart) {
+      throw new Error(`relocation has invalid range: ${JSON.stringify(r)}`);
+    }
+    if (r.fileStart < prg.loadAddress || r.fileEnd > fileLast) {
+      throw new Error(
+        `relocation $${formatHex16(r.fileStart)}-$${formatHex16(r.fileEnd)} is outside the PRG ` +
+          `($${formatHex16(prg.loadAddress)}-$${formatHex16(fileLast)})`,
+      );
+    }
+    if (r.fileStart < cursor) {
+      throw new Error(`relocation $${formatHex16(r.fileStart)} overlaps a previous relocation`);
+    }
+    cursor = r.fileEnd + 1;
+  }
+  return sorted;
+}
+
+// Spec 741 (Slice A): render the bytes stored at [fileStart..fileEnd] as
+// CODE at their runtime PC, wrapped in a KickAssembler .pseudopc block.
+// The body is a plain linear disassembly of the same bytes given the
+// runtime load address — so labels/branches resolve at runtime while the
+// emitted bytes are unchanged (byte-exact rebuild). subSegments (mixed
+// code/data) are honoured in Slice B; here the whole region is code.
+function renderRelocationBlock(prg: PrgImage, reloc: RelocationEntry, lines: string[]): void {
+  const startOffset = reloc.fileStart - prg.loadAddress;
+  const length = reloc.fileEnd - reloc.fileStart + 1;
+  const slice = prg.data.subarray(startOffset, startOffset + length);
+  const sub: PrgImage = { loadAddress: reloc.runtimeAddr & 0xffff, data: slice };
+
+  const labelSuffix = reloc.label ? ` (${reloc.label})` : "";
+  lines.push(
+    `      // Spec 741 relocated: stored $${formatHex16(reloc.fileStart)}-$${formatHex16(reloc.fileEnd)}` +
+      ` runs at $${formatHex16(reloc.runtimeAddr)}${labelSuffix}`,
+  );
+  lines.push(`      .pseudopc $${formatHex16(reloc.runtimeAddr)} {`);
+
+  const body: string[] = [];
+  renderLegacy(sub, [reloc.runtimeAddr & 0xffff], body);
+  for (const line of body) {
+    lines.push(line.length > 0 ? `        ${line}` : line);
+  }
+
+  lines.push("      }");
+  lines.push("");
+}
+
+// Spec 741 (Slice A): render a non-relocated stretch [startAddr..endAddr]
+// (file = runtime) via the existing linear renderer over a sub-image.
+function renderGapLegacy(prg: PrgImage, startAddr: number, endAddr: number, lines: string[]): void {
+  const sub: PrgImage = {
+    loadAddress: startAddr,
+    data: prg.data.subarray(startAddr - prg.loadAddress, endAddr - prg.loadAddress + 1),
+  };
+  renderLegacy(sub, [startAddr], lines);
+}
+
+// Spec 741 (Slice A): top-level renderer used when relocations are present.
+// Partitions the file address space into ordered gap / relocation chunks
+// so each byte is emitted exactly once. Relocation regions are authoritative
+// and excluded from the normal file-offset walk (no double emission).
+function renderWithRelocations(prg: PrgImage, entryPoints: number[], lines: string[], relocations: RelocationEntry[]): void {
+  const fileLast = prg.loadAddress + prg.data.length - 1;
+  let cursor = prg.loadAddress;
+  for (const reloc of relocations) {
+    if (reloc.fileStart > cursor) {
+      renderGapLegacy(prg, cursor, reloc.fileStart - 1, lines);
+    }
+    renderRelocationBlock(prg, reloc, lines);
+    cursor = reloc.fileEnd + 1;
+  }
+  if (cursor <= fileLast) {
+    renderGapLegacy(prg, cursor, fileLast, lines);
+  }
+  void entryPoints;
+}
+
 export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, options: PrgDisasmOptions = {}): void {
   // Spec 048: set per-render platform override. Default c64.
   activePlatform = options.platform ?? "c64";
@@ -2330,7 +2448,15 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   lines.push(`      .pc = $${formatHex16(prg.loadAddress)} "code"`);
   lines.push("");
 
-  if (analysisContext) {
+  // Spec 741 (Slice A): when a relocation map is supplied, render via the
+  // relocation-aware partition path (gaps + .pseudopc blocks). Without it,
+  // behaviour is byte-for-byte unchanged (analysis or legacy as before).
+  const relocations = options.relocations && options.relocations.length > 0
+    ? normalizeRelocations(options.relocations, prg)
+    : undefined;
+  if (relocations) {
+    renderWithRelocations(prg, options.entryPoints ?? [], lines, relocations);
+  } else if (analysisContext) {
     lines.push(...renderAddressAliasLabels(analysisContext, prg));
     renderWithAnalysis(prg, analysisContext, lines);
   } else {

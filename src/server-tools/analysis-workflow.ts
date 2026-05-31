@@ -1,5 +1,7 @@
-import { basename, resolve } from "node:path";
+import { basename, resolve, join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runCli } from "../run-cli.js";
@@ -251,8 +253,21 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       entry_points: z.array(z.string()).optional().describe("Hex entry point addresses"),
       analysis_json: z.string().optional().describe("Path to a prior analysis JSON for segment-aware disassembly"),
       platform: z.enum(["c64", "c1541"]).optional().describe("Spec 048: target platform for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side disassembly."),
+      relocations: z.array(z.object({
+        fileStart: z.union([z.string(), z.number()]).describe("Stored/file address of the region's first byte (inclusive). Hex string ($FC00/0xFC00) or number."),
+        fileEnd: z.union([z.string(), z.number()]).describe("Stored/file address of the region's last byte (inclusive)."),
+        runtimeAddr: z.union([z.string(), z.number()]).describe("Logical execution PC that fileStart runs at."),
+        label: z.string().optional().describe("Optional label/comment for the relocated region."),
+        subSegments: z.array(z.object({
+          start: z.union([z.string(), z.number()]),
+          end: z.union([z.string(), z.number()]),
+          kind: z.string(),
+          label: z.string().optional(),
+          comment: z.string().optional(),
+        })).optional().describe("Runtime-addressed code/data kind hints inside the region (applied in a later slice; carried through for now)."),
+      })).optional().describe("Spec 741: relocated regions, rendered as KickAssembler .pseudopc / 64tass .logical blocks at their runtime PC while the stored bytes stay byte-exact. Omit for normal disassembly."),
     },
-    safeHandler("disasm_prg", async ({ project_dir, prg_path, output_asm, entry_points, analysis_json, platform }) => {
+    safeHandler("disasm_prg", async ({ project_dir, prg_path, output_asm, entry_points, analysis_json, platform, relocations }) => {
       const pd = context.projectDir(project_dir ?? prg_path, true);
       const prgAbs = resolve(pd, prg_path);
       const outAbs = output_asm
@@ -271,8 +286,16 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           // best effort
         }
       }
+      // Spec 741: hand the relocation map to the pipeline via a temp JSON
+      // file referenced by --relocations (kept off the positional args).
+      let relocationsFile: string | undefined;
+      if (relocations && relocations.length > 0) {
+        relocationsFile = join(tmpdir(), `c64re-reloc-${randomUUID()}.json`);
+        writeFileSync(relocationsFile, `${JSON.stringify(relocations, null, 2)}\n`, "utf8");
+      }
       const args: string[] = [];
       if (resolvedPlatform !== "c64") args.push("--platform", resolvedPlatform);
+      if (relocationsFile) args.push("--relocations", relocationsFile);
       args.push(prgAbs, outAbs);
       if (entries) args.push(entries);
       if (analysis_json) args.push(resolve(pd, analysis_json));

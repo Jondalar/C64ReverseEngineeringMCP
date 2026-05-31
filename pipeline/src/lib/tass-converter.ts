@@ -6,9 +6,30 @@ export function convertKickAsmToTass(kickAsm: string): string {
   const lines = kickAsm.split("\n");
   const result: string[] = [];
   let inBlockComment = false;
+  // Spec 741: track .pseudopc { ... } nesting so the matching closing
+  // brace converts to 64tass .here. Our renderer emits braces only for
+  // .pseudopc blocks, so this is unambiguous.
+  let pseudoDepth = 0;
 
   for (const line of lines) {
     let converted = line;
+
+    if (!inBlockComment) {
+      // .pseudopc $XXXX { → .logical $XXXX
+      const pseudoMatch = converted.match(/^(\s*)\.pseudopc\s+(\$[0-9A-Fa-f]+)\s*\{\s*$/);
+      if (pseudoMatch) {
+        pseudoDepth += 1;
+        result.push(`${pseudoMatch[1]}.logical ${pseudoMatch[2]}`);
+        continue;
+      }
+      // closing brace of a .pseudopc block → .here
+      if (pseudoDepth > 0 && /^\s*\}\s*$/.test(converted)) {
+        pseudoDepth -= 1;
+        const indent = converted.match(/^(\s*)/)?.[1] ?? "";
+        result.push(`${indent}.here`);
+        continue;
+      }
+    }
 
     // Block comments: /* ... */ → ; per line
     if (inBlockComment) {

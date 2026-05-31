@@ -3,13 +3,50 @@ import { basename, resolve } from "node:path";
 import { parseCrt, writeCrtOutputs } from "./lib/crt";
 import { exportMenuPayloads, reconstructBootPayloads } from "./lib/easyflash";
 import { emitKickAssemblerSources } from "./lib/kickasm";
-import { disassemblePrgToKickAsm } from "./lib/prg-disasm";
+import { disassemblePrgToKickAsm, RelocationEntry } from "./lib/prg-disasm";
 import { analyzePrgFile, analyzeRawFile, writeAnalysisReport } from "./analysis/pipeline";
 import { renderPointerTableMarkdown } from "./analysis/pointer-tables";
 import { renderRamStateMarkdown } from "./analysis/ram-state";
 import { analyzeSampleBuffer } from "./analysis/sample";
 import { consumeRegisterFlags, registerCliArtifact, registerCliPayload } from "./lib/artifact-register";
 import { readFileSync as readFileSyncFs } from "node:fs";
+
+// Spec 741: parse a relocation map JSON. Accepts addresses as numbers or
+// strings ("$FC00", "0xFC00", "64512"). Shape is validated downstream by
+// the renderer (normalizeRelocations).
+function parseAddr(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (/^\$[0-9a-fA-F]+$/.test(s)) return Number.parseInt(s.slice(1), 16);
+    if (/^0x[0-9a-fA-F]+$/.test(s)) return Number.parseInt(s.slice(2), 16);
+    return Number.parseInt(s, 10);
+  }
+  throw new Error(`relocation address is not a number or hex string: ${JSON.stringify(value)}`);
+}
+
+function loadRelocationMap(path: string): RelocationEntry[] {
+  const raw = JSON.parse(readFileSync(path, "utf8"));
+  const list = Array.isArray(raw) ? raw : raw?.relocations;
+  if (!Array.isArray(list)) {
+    throw new Error(`relocation map must be a JSON array (or { relocations: [...] }): ${path}`);
+  }
+  return list.map((entry: Record<string, unknown>) => ({
+    fileStart: parseAddr(entry.fileStart),
+    fileEnd: parseAddr(entry.fileEnd),
+    runtimeAddr: parseAddr(entry.runtimeAddr),
+    label: typeof entry.label === "string" ? entry.label : undefined,
+    subSegments: Array.isArray(entry.subSegments)
+      ? (entry.subSegments as Record<string, unknown>[]).map((s) => ({
+          start: parseAddr(s.start),
+          end: parseAddr(s.end),
+          kind: String(s.kind ?? "code"),
+          label: typeof s.label === "string" ? s.label : undefined,
+          comment: typeof s.comment === "string" ? s.comment : undefined,
+        }))
+      : undefined,
+  }));
+}
 
 function usage(): never {
   throw new Error(
@@ -19,7 +56,7 @@ function usage(): never {
       "  node dist/cli.js reconstruct-lut [analysisDir]",
       "  node dist/cli.js export-menu [analysisDir]",
       "  node dist/cli.js disasm-menu [analysisDir] [outputDir]",
-      "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [analysisJson]",
+      "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [analysisJson] [--platform c64|c1541] [--relocations <json>]",
       "  node dist/cli.js analyze-prg <prg> [outputJson] [entryHex,...]",
       "  node dist/cli.js ram-report <analysisJson> [outputMd]",
       "  node dist/cli.js pointer-report <analysisJson> [outputMd]",
@@ -82,6 +119,8 @@ function main(): void {
     // the positional args before the existing arg parsing so we keep
     // the public CLI shape stable.
     let platform: "c64" | "c1541" = "c64";
+    // Spec 741: optional --relocations <path-to-json> with a relocation map.
+    let relocationsPath: string | undefined;
     const remaining: string[] = [];
     for (let i = 0; i < args.length; i += 1) {
       if (args[i] === "--platform" && args[i + 1]) {
@@ -89,6 +128,11 @@ function main(): void {
         i += 1;
       } else if (args[i].startsWith("--platform=")) {
         platform = args[i].slice("--platform=".length) as "c64" | "c1541";
+      } else if (args[i] === "--relocations" && args[i + 1]) {
+        relocationsPath = args[i + 1];
+        i += 1;
+      } else if (args[i].startsWith("--relocations=")) {
+        relocationsPath = args[i].slice("--relocations=".length);
       } else {
         remaining.push(args[i]);
       }
@@ -102,11 +146,13 @@ function main(): void {
       ? remaining[2].split(",").filter(Boolean).map((value) => Number.parseInt(value, 16))
       : [0x0827];
     const prgAbs = resolve(prgPath);
+    const relocations = relocationsPath ? loadRelocationMap(resolve(relocationsPath)) : undefined;
     disassemblePrgToKickAsm(prgAbs, outputPath, {
       entryPoints,
       title: prgPath,
       analysisPath: remaining[3] ? resolve(remaining[3]) : undefined,
       platform,
+      relocations,
     });
     registerCliArtifact({
       kind: "generated-source",
