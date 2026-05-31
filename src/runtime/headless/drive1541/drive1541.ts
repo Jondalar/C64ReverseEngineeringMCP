@@ -18,6 +18,10 @@ export interface Drive1541Media {
   kind: "d64" | "g64" | "p64";
   bytes: Uint8Array;
   readOnly: boolean;
+  /** BUG-023 — host backing file path. When set and not readOnly, the drive's
+   *  disk-image write points (fsimage_*_write_half_track) write through to this
+   *  file immediately, matching VICE's fd-backed fwrite. */
+  backingPath?: string;
 }
 
 export interface Drive1541DebugProbe {

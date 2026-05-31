@@ -54,6 +54,10 @@ declare module "./drivetypes.js" {
       dirty: number;
       len: number;
     };
+    /** BUG-023 — VICE-faithful host-file write-through. Installed at attach for
+     *  writable path-backed media; called at the writeback commit (same point
+     *  as VICE's fwrite) to mirror the in-RAM G64 image to the host file. */
+    hostFlush?: (() => void) | null;
   }
 }
 
@@ -526,6 +530,9 @@ export function fsimage_gcr_write_half_track(
 
   /* Make sure the stream is visible to other readers. */
   fflush(fsimage.fd);
+  // BUG-023 — VICE writes the host file here (fd is the real file). Mirror the
+  // committed in-RAM G64 image to the backing file at this exact point.
+  fsimage.hostFlush?.();
 
   return 0;
 }

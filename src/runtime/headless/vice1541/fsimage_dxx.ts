@@ -111,6 +111,12 @@ interface Fsimage_t_view {
   fd: Uint8Array;
   name: string | null;
   error_info: Fsimage_error_info;
+  // BUG-023 — VICE-faithful host-file write-through. VICE's fd IS the real
+  // file; our fd is the in-RAM bytes. This bridge callback (installed at attach
+  // for writable path-backed media) writes the in-RAM image to the host file at
+  // the writeback commit point, so a drive write reaches disk immediately — the
+  // same semantic point as VICE's fwrite/fpwrite. Null/absent = RAM-only.
+  hostFlush?: (() => void) | null;
 }
 
 function _fsimage_view(f: fsimage_t): Fsimage_t_view {
@@ -417,6 +423,9 @@ export function fsimage_dxx_write_half_track(
     }
   }
   fflush(fsimage.fd);
+  // BUG-023 — VICE writes the host file here (fd is the real file). Mirror the
+  // committed in-RAM image to the backing file at this exact point.
+  fsimage.hostFlush?.();
   return 0;
 }
 

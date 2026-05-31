@@ -7,36 +7,76 @@
 - **Severity:** high
 - **Status:** fixed <!-- open | investigating | fixed | wontfix | duplicate -->
 
-## FIXED 2026-05-31 — host-file writeback added
+## FIXED 2026-05-31 — VICE-faithful host-file WRITE-THROUGH
 
-**Root cause:** a mounted disk was only `media.bytes` in RAM. GCR writeback
-flushed at most GCR → `media.bytes`; nothing ever wrote `media.bytes` back to the
-backing `.d64`/`.g64` file. VICE writes a real `fd`; our port's `fd` is the in-RAM
-`Uint8Array`. So after a game format/copy/save the host file stayed unchanged and
-its mtime never moved.
+### Porting doctrine (RFL audit-failure class — read this)
 
-**Fix:** add the missing persistence layer (bridge side, outside `vice1541/` per
-Spec 612 PL-5):
-- `Vice1541Facade.persistDirtyTracks()` — flush all dirty GCR → `media.bytes`
-  without detaching (VICE-faithful `drive_gcr_data_writeback_all`).
-- `media/mount.ts` `persistMountedDiskToFile(session)` — flush, then atomically
-  (temp + rename) write `media.bytes` back to `session.diskPath`; **read-only
-  media is never overwritten**.
-- `runtime_media_unmount` now persists before detaching; new default tool
-  `runtime_media_persist` saves without ejecting; `runtime_media_swap` persists
-  the outgoing disk (multi-disk side-swap). Product rule: writable project media
-  is the working copy (original protection is project_init/ingress's job).
+This bug was not a missing `writeFile` call; it is a **VICE-port side-effect
+class**. Codify it:
 
-**Gate:** `scripts/smoke-023-host-file-persist.mjs` (`npm run smoke:023-host-file`,
-8/8) — creates a real temp `.d64` FILE, writes a sector through the real drive
-path, persists, then RE-READS the file from the filesystem and asserts the host
-bytes changed + host mtime advanced + a remount sees the sector; read-only media
-refuses + is left untouched. Existing gates stay green: `smoke:023`,
-`smoke:023-via` (6/6), `smoke:023-snapshot-flush` (4/4), `probe-single-path`
-(25/25), `check:mcp-product-surface` (all green), `build:mcp`.
+1. **VICE `fwrite`/`fpwrite`/file side effects MUST map to real host-file writes
+   in the TS port.** Replacing an `fopen`/`fwrite` fd with an in-RAM buffer drops
+   VICE's externally-observable behaviour. The port must reproduce the host write
+   at the same semantic point.
+2. **`media.bytes` is a cache/mirror, NOT the persistence authority** for writable
+   path-backed media. The host file is the authority. Boundary persistence
+   (unmount/swap/snapshot) is a safety flush, not the primary mechanism.
+3. **Any test that claims VICE file persistence MUST re-read the file from the
+   filesystem** (bytes AND mtime) — never assert only on in-RAM `media.bytes`, a
+   checkpoint blob, or a `_session.g64` side-file.
+4. **Same class applies to writable CARTRIDGE state** (EasyFlash flash → host
+   `.crt`): a cartridge write must reach the host file at its VICE write point,
+   not only RAM/checkpoint. Tracked as a follow-up (BUG-023-cart).
+
+### Root cause
+
+VICE's disk-image `fd` is the real file: `drive_gcr_data_writeback` →
+`fsimage_dxx/gcr_write_half_track` → `fwrite` changes the host `.d64`/`.g64` at
+the writeback commit. Our port replaced the `fd` with the in-RAM `media.bytes`
+`Uint8Array` and `util_fpwrite` wrote only RAM — so the host file (and its mtime)
+never changed after a game format/copy/save.
+
+### Fix — write-through at the diskimage write point
+
+- `fsimage_dxx_write_half_track` / `fsimage_gcr_write_half_track` call an optional
+  `fsimage.hostFlush()` right after `util_fpwrite` (the VICE `fwrite` point).
+- The facade (`makeDiskImage`, bridge — node:fs stays out of `vice1541/` per PL-5)
+  installs `hostFlush` for writable path-backed media: it writes the committed
+  in-RAM image to the backing file. Read-only media installs no hook → never
+  written.
+- `Drive1541Media.backingPath` carries the host path; `mount.ts` passes it on
+  attach. So a drive write reaches disk **immediately at the writeback**, with no
+  unmount/snapshot — exactly like VICE.
+- Boundary persistence (`persistMountedDiskToFile` + `runtime_media_persist` +
+  unmount/swap writeback) is kept as a SAFETY flush for the final not-yet-
+  committed track, not the primary path.
+
+### Gate — re-reads the host file
+
+`scripts/smoke-023-write-through.mjs` (`npm run smoke:023-write-through`, 7/7):
+temp `.d64` FILE → write a sector through the real drive path →
+`drive_gcr_data_writeback` (the commit point, no detach/unmount/snapshot) →
+**RE-READ the file from the filesystem** → host bytes changed + host mtime
+advanced + remount sees the sector; read-only path-backed media leaves the host
+file + mtime untouched. Plus `smoke:023-host-file` (8/8, boundary persist),
+`smoke:023-via` (6/6), `smoke:023-snapshot-flush` (4/4), `smoke:023`,
+`probe-single-path` (25/25), `check:mcp-product-surface` (all green), `build:mcp`.
+
+### Why earlier gates missed it
+
+| Test | Verifies RAM media | Verifies host file (re-read + mtime) | Verdict |
+|---|---|---|---|
+| smoke:023 / -via / -snapshot-flush | yes (`media.bytes` / GCRIMAGE blob) | **no** | missed |
+| KERNAL SAVE (617) | yes (in-memory `fsimage.fd`) | no | missed |
+| probe-714 / 707 / 709 | yes (checkpoint blob) | no | missed |
+| smoke-write-support | side-file `_session.g64` | no (not the original) | missed |
+| **smoke:023-write-through** (new) | — | **YES (re-reads file + mtime)** | catches it |
+
+Every prior gate stopped at RAM/blob; none re-read the host file, so the missing
+`fwrite` side effect was invisible. Doctrine #3 above closes that.
 
 The earlier "D64 decode-lossy" (synthetic boundary) and "snapshot-flush no-op"
-(in-blob detail, fix kept at be50bab9) findings are SECONDARY, not the
+(in-blob detail, fix kept at `be50bab9`) findings are SECONDARY, not the
 user-facing bug.
 
 ## REOPENED 2026-05-31 — real root cause: no RAM-media → backing-file writeback

@@ -183,7 +183,7 @@ export async function mountMedia(
     // dual-attach guarded on drive1541="vice"; vice is now the only drive.)
     const kernelAny = session.kernel as unknown as {
       drive1541?: {
-        attachDisk?: (m: { kind: "d64" | "g64" | "p64"; bytes: Uint8Array; readOnly: boolean }) => void;
+        attachDisk?: (m: { kind: "d64" | "g64" | "p64"; bytes: Uint8Array; readOnly: boolean; backingPath?: string }) => void;
         reset?: (kind: "cold" | "warm") => void;
       };
     };
@@ -208,6 +208,7 @@ export async function mountMedia(
         kind: mediaType,
         bytes: originalBytes, // pre-buildG64; vice does its own encode for d64
         readOnly: false,
+        backingPath: path, // BUG-023 — write-through to the host file at writeback
       });
       // MOUNT MUST NOT RESET THE DRIVE (user directive 2026-05-21).
       // On real hardware inserting/swapping a disk does NOT reset the 1541 —

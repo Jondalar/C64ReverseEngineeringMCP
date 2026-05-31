@@ -41,6 +41,7 @@
 // `drive_image_attach`.
 
 import { alarmContextNew, alarmContextNextPendingClk } from "../alarm/alarm-context.js";
+import { writeFileSync } from "node:fs";
 import { InterruptCpuStatus } from "../cpu/interrupt-cpu-status.js";
 import type {
   Drive1541,
@@ -990,9 +991,27 @@ function makeDiskImage(media: Drive1541Media): disk_image_t {
     : { buf: media.bytes, length: media.bytes.length, cursor: 0 };
   const fsimage: fsimage_t = {
     fd: fd as unknown as never,
-    name: null,
+    name: media.backingPath ?? null,
     error_info: { map: null, dirty: 0, len: 0 },
   } as fsimage_t;
+  // BUG-023 — VICE-faithful host-file write-through. VICE's fsimage fd IS the
+  // real file; our fd is the in-RAM bytes. Install a hostFlush callback that
+  // fsimage_dxx/gcr_write_half_track calls at the writeback commit point to
+  // write the in-RAM image back to the host file (so a drive write reaches disk
+  // immediately, not lazily at unmount). Only for writable, path-backed media;
+  // read-only media is never written. media.bytes is a mirror, not the
+  // persistence authority — the host file is.
+  if (media.backingPath && !media.readOnly) {
+    const path = media.backingPath;
+    const currentBytes: () => Uint8Array = media.kind === "d64"
+      ? () => fd as Uint8Array
+      : () => { const f = fd as FILE_t; return f.buf.subarray(0, f.length); };
+    (fsimage as unknown as { hostFlush?: () => void }).hostFlush = () => {
+      // Overwrite the backing file with the committed image. Matches VICE's
+      // fd-backed write at the same semantic point; host mtime changes.
+      writeFileSync(path, currentBytes());
+    };
+  }
   let type: number;
   let max_half_tracks: number;
   let tracks: number;
