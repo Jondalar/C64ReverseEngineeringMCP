@@ -62,7 +62,7 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // product runtime; no V3 WebSocket server required).
   "runtime_session_start", "runtime_session_status", "runtime_session_run",
   "runtime_session_snapshot", "runtime_media_browse", "runtime_media_mount",
-  "runtime_media_unmount", "runtime_media_swap", "runtime_type",
+  "runtime_media_unmount", "runtime_media_persist", "runtime_media_swap", "runtime_type",
   "runtime_joystick", "runtime_load_prg", "runtime_render_screen",
   // Spec 725 §3.8 — Monitor / frozen-inspect facade.
   "runtime_monitor_registers", "runtime_monitor_memory", "runtime_monitor_disasm",
@@ -101,7 +101,7 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * agent_run_step). Spec 740.1 raised 100→104 for the project wiki/search tools
  * (project_search + project_find_related + project_reindex_search +
  * project_wiki_lint). */
-export const DEFAULT_TIER_CAP = 104;
+export const DEFAULT_TIER_CAP = 105;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

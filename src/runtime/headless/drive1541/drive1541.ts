@@ -81,4 +81,7 @@ export interface Drive1541 {
   getAttachedMedia?(): { kind: string; bytes: Uint8Array; readOnly: boolean } | null;
   /** True if the in-memory GCR image was written since attach (dirty guard). */
   isMediaDirty?(): boolean;
+  /** BUG-023 — flush all dirty GCR tracks into the in-RAM media bytes (no
+   *  detach) so the bridge can write them back to the host backing file. */
+  persistDirtyTracks?(): void;
 }

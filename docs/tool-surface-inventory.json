@@ -1,9 +1,9 @@
 {
-  "total": 285,
+  "total": 286,
   "specCount": 78,
   "advancedCandidate": 68,
   "byNamespace": {
-    "runtime": 66,
+    "runtime": 67,
     "vice": 49,
     "list": 18,
     "save": 10,
@@ -2622,6 +2622,15 @@
       "hasSpec": false,
       "firstSentence": "Report gaps between the curated wiki (docs/index.md) and the structured knowledge: important active findings not yet mentioned in the wiki index, and orphan findings with no linked artifact or entity.",
       "desc": "Report gaps between the curated wiki (docs/index.md) and the structured knowledge: important active findings not yet mentioned in the wiki index, and orphan findings with no linked artifact or entity. Use after a mapping session to see what still needs to be written up, instead of eyeballing every finding. Read-only; it never edits files. Returns the gap lists. Not a content generator (writing the wiki up is a manual step) and not a structured validator (use the knowledge list tools for full audits).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_media_persist",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Write the mounted disk in-RAM image back to its host backing file WITHOUT ejecting (flushes drive-side GCR writes to the .d64/.g64 on disk, atomically; host mtime changes).",
+      "desc": "Write the mounted disk in-RAM image back to its host backing file WITHOUT ejecting (flushes drive-side GCR writes to the .d64/.g64 on disk, atomically; host mtime changes). Use to save a game disk writes (format/copy/save) while keeping it mounted. Not for ejecting the disk (use runtime_media_unmount, which persists then ejects) or for a session snapshot (use runtime_session_snapshot). Read-only media is never overwritten. Inputs: session_id. Returns persist result.",
       "tier": "default?"
     }
   ]

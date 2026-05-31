@@ -8,7 +8,7 @@
 //
 // Tape (.t64 / .tap) is deferred to V3.1.
 
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync, renameSync } from "node:fs";
 import { extname } from "node:path";
 import type { IntegratedSession } from "../integrated-session.js";
 import { loadCartridgeMapper } from "../cartridge.js";
@@ -249,10 +249,54 @@ export async function mountMedia(
  * toggle calls `drive_disable()` (drive.c:531-560). Doc §13 Phase H
  * step 32, §17 OQ-414-1.
  */
+/** Result of a host-file writeback. */
+export interface DiskPersistResult {
+  written: boolean;
+  path?: string;
+  bytes?: number;
+  reason?: string;
+}
+
+/**
+ * BUG-023 — persist the mounted (in-RAM) disk image back to its host backing
+ * file. Mounting reads the file once into `media.bytes` (RAM); drive writes
+ * land in the GCR buffer and (on flush) in `media.bytes`, but nothing ever
+ * wrote `media.bytes` back to the `.d64`/`.g64` file. VICE writes a real fd; our
+ * port's fd is the in-RAM array. This closes that gap: flush dirty GCR →
+ * `media.bytes` (VICE-faithful drive_gcr_data_writeback_all), then write the
+ * bytes back to the backing path atomically (temp + rename → host mtime changes,
+ * no partial image). read-only media is never overwritten.
+ */
+export function persistMountedDiskToFile(session: IntegratedSession): DiskPersistResult {
+  const drive = (session.kernel as unknown as {
+    drive1541?: {
+      persistDirtyTracks?: () => void;
+      getAttachedMedia?: () => { kind: string; bytes: Uint8Array; readOnly: boolean } | null;
+    };
+  }).drive1541;
+  if (!drive?.getAttachedMedia) return { written: false, reason: "no drive / media accessor" };
+  // Flush GCR → media.bytes first (so the bytes reflect drive-side writes).
+  drive.persistDirtyTracks?.();
+  const attached = drive.getAttachedMedia();
+  const path = session.diskPath;
+  if (!attached) return { written: false, reason: "no media attached" };
+  if (attached.readOnly) return { written: false, path, reason: "media is read-only — not writing back" };
+  if (!path) return { written: false, reason: "no backing file path" };
+  // Atomic write: temp file + rename, so a reader never sees a partial image
+  // and the host filesystem mtime changes.
+  const tmp = `${path}.c64re-tmp`;
+  writeFileSync(tmp, attached.bytes);
+  renameSync(tmp, path);
+  return { written: true, path, bytes: attached.bytes.length };
+}
+
 export function unmountMedia(
   session: IntegratedSession,
   slot: DriveSlot,
-): { slot: DriveSlot; ejected: boolean } {
+): { slot: DriveSlot; ejected: boolean; persisted: DiskPersistResult } {
+  // BUG-023 — write the RAM disk image back to its host backing file BEFORE
+  // detaching (detach frees the GCR buffer + clears the attached-media ref).
+  const persisted = persistMountedDiskToFile(session);
   // VICE drive_image_detach: set detach_clk + swap to no-disk parser.
   // Drive sees no-sync + neutral for DRIVE_DETACH_DELAY (~600K cycles).
   // Track data freed; head position preserved.
@@ -266,7 +310,7 @@ export function unmountMedia(
     kernelAny.drive1541.detachDisk();
   }
   session.diskPath = "";
-  return { slot, ejected: true };
+  return { slot, ejected: true, persisted };
 }
 
 /**

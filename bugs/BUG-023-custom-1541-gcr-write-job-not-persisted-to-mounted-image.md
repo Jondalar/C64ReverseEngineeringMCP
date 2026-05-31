@@ -7,6 +7,57 @@
 - **Severity:** high
 - **Status:** fixed <!-- open | investigating | fixed | wontfix | duplicate -->
 
+## FIXED 2026-05-31 — host-file writeback added
+
+**Root cause:** a mounted disk was only `media.bytes` in RAM. GCR writeback
+flushed at most GCR → `media.bytes`; nothing ever wrote `media.bytes` back to the
+backing `.d64`/`.g64` file. VICE writes a real `fd`; our port's `fd` is the in-RAM
+`Uint8Array`. So after a game format/copy/save the host file stayed unchanged and
+its mtime never moved.
+
+**Fix:** add the missing persistence layer (bridge side, outside `vice1541/` per
+Spec 612 PL-5):
+- `Vice1541Facade.persistDirtyTracks()` — flush all dirty GCR → `media.bytes`
+  without detaching (VICE-faithful `drive_gcr_data_writeback_all`).
+- `media/mount.ts` `persistMountedDiskToFile(session)` — flush, then atomically
+  (temp + rename) write `media.bytes` back to `session.diskPath`; **read-only
+  media is never overwritten**.
+- `runtime_media_unmount` now persists before detaching; new default tool
+  `runtime_media_persist` saves without ejecting; `runtime_media_swap` persists
+  the outgoing disk (multi-disk side-swap). Product rule: writable project media
+  is the working copy (original protection is project_init/ingress's job).
+
+**Gate:** `scripts/smoke-023-host-file-persist.mjs` (`npm run smoke:023-host-file`,
+8/8) — creates a real temp `.d64` FILE, writes a sector through the real drive
+path, persists, then RE-READS the file from the filesystem and asserts the host
+bytes changed + host mtime advanced + a remount sees the sector; read-only media
+refuses + is left untouched. Existing gates stay green: `smoke:023`,
+`smoke:023-via` (6/6), `smoke:023-snapshot-flush` (4/4), `probe-single-path`
+(25/25), `check:mcp-product-surface` (all green), `build:mcp`.
+
+The earlier "D64 decode-lossy" (synthetic boundary) and "snapshot-flush no-op"
+(in-blob detail, fix kept at be50bab9) findings are SECONDARY, not the
+user-facing bug.
+
+## REOPENED 2026-05-31 — real root cause: no RAM-media → backing-file writeback
+
+The "fixed" status was premature. Real UI repro: Wasteland running in the UI
+formats + copies onto the mounted project disk
+`/Users/alex/Development/C64/Cracking/Wasteland_EF/blanks/blank_s1.d64`; the host
+file stays empty AND its filesystem mtime does not change. So nothing ever
+writes the backing file.
+
+**Final root cause:** a mounted disk is only `media.bytes` in RAM. GCR writeback
+flushes at most GCR → `media.bytes`; there is NO final writeback
+`media.bytes → backing .d64/.g64 file`. VICE writes to a real `fd`
+(`fopen "r+"`); our port's `fd` is an in-RAM `Uint8Array`, so `fwrite`/`fflush`
+hit RAM and never the disk file (`mount.ts:157` reads the file once; no
+`writeFileSync` back to the path exists anywhere).
+
+The prior "D64 decode-lossy" and "snapshot-flush no-op" findings are SECONDARY
+notes (a synthetic boundary + an in-blob detail), NOT the user-facing bug. The
+snapshot-flush fix (commit be50bab9) is kept but is insufficient on its own.
+
 ## RFL code audit + real VIA→rotation probe (2026-05-31) — SUPERSEDES the "D64 decode-bound" note below
 
 VICE persists the same `.d64` custom save; ours does not → treat as a PORT bug,

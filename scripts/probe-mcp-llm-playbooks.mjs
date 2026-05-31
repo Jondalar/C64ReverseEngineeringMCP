@@ -87,7 +87,10 @@ const SUPPORTING = new Set(["runtime_session_status", "runtime_trace_status", "r
   "mark_artifact_version_stale",
   // Spec 740.1 — project_search/find_related drive the onboarding retrieval step;
   // reindex + wiki-lint are supporting utilities (rebuild cache / report gaps).
-  "project_reindex_search", "project_wiki_lint"]);
+  "project_reindex_search", "project_wiki_lint",
+  // BUG-023 — save mounted-disk writes back to the host file (supports any
+  // media/runtime playbook; eject does the same via runtime_media_unmount).
+  "runtime_media_persist"]);
 const trulyUncovered = uncovered.filter((n) => !SUPPORTING.has(n));
 ok(trulyUncovered.length === 0, "9 every default tool is in a playbook or marked supporting", trulyUncovered.slice(0, 10).join(",") || "none");
 

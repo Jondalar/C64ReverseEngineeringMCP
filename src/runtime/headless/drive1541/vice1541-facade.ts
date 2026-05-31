@@ -442,6 +442,18 @@ export class Vice1541Facade implements Drive1541 {
   }
 
   /**
+   * BUG-023 — flush ALL dirty GCR tracks back into the in-RAM media bytes
+   * (GCR→sector decode for D64, verbatim for G64) WITHOUT detaching, so the
+   * bridge can write the in-RAM image back to its host backing file while the
+   * disk stays mounted. VICE-faithful: drive_gcr_data_writeback_all (the same
+   * call VICE makes before a snapshot). getAttachedMedia().bytes is the same
+   * Uint8Array the writeback mutates, so it reflects the writes after this call.
+   */
+  persistDirtyTracks(): void {
+    drive_gcr_data_writeback_all();
+  }
+
+  /**
    * Spec 707 dirty-media guard. True if the in-memory GCR image has been written
    * since attach. Read-only: `GCR_dirty_track` catches the current not-yet-
    * written-back track; the live GCR-image hash diverging from the post-attach

@@ -600,6 +600,24 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   );
 
   server.tool(
+    "runtime_media_persist",
+    "Write the mounted disk's in-RAM image back to its host backing file WITHOUT ejecting (flushes drive-side GCR writes → the .d64/.g64 on disk, atomically; host mtime changes). Use to save a game's disk writes (format/copy/save) while keeping it mounted. Not for ejecting the disk (use runtime_media_unmount, which persists then ejects) or for a session snapshot (use runtime_session_snapshot). Read-only media is never overwritten. Inputs: session_id. Returns: { written, path, bytes } or the reason it was skipped.",
+    {
+      session_id: z.string(),
+      slot: z.number().int().default(8),
+    },
+    safeHandler("runtime_media_persist", async ({ session_id, slot }) => {
+      if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { persistMountedDiskToFile } = await import("../runtime/headless/media/mount.js");
+      const result = persistMountedDiskToFile(session);
+      return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }),
+  );
+
+  server.tool(
     "runtime_media_swap",
     "Swap the mounted disk for another in one step (side-B style; no session reset). Use to change disks under a running loader. Not for the first mount (use runtime_media_mount). Inputs: session_id, path. Returns: swap result.",
     {
