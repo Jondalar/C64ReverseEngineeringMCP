@@ -1,10 +1,9 @@
 # Spec 743 — Runtime CLOCK Semantics + Pause/Inspect/Resume Stability
 
-**Status:** ACTIVE — AUDIT COMPLETE, implementation deferred (2026-05-31). Replaces
-the incorrect clkguard draft. This is a C64RE Runtime bug, not a VICE-product
-workflow. §6.0 audit done; the fix reaches the fidelity-critical CIA timer core
-(`ciat.ts`, Spec 612), so it is a gated slice (6-game screenshots), not a small
-edit — owner deferred implementation to a dedicated slice.  
+**Status:** DONE (2026-05-31) — implemented monotonic-CLOCK across CPU + alarm +
+interrupt + VIC + CIA/ciat/TOD. No clkguard (VICE CLOCK is uint64; absolute runtime
+time is now a monotonic JS number, exact to 2^53). BUG-025 fixed. See
+"Implementation" at the end. Replaces the incorrect clkguard draft.  
 **Owner:** runtime CPU core / alarm system / CIA / VIC / Live UI monitor loop  
 **Depends on:** Specs 705, 723, 724  
 **Related bugs:** BUG-025  
@@ -130,11 +129,10 @@ keep `& 0xffff` / `& 0xff`. Disabled sentinels → `CLOCK_NEVER`, never `0xfffff
 **Blast radius / risk:** reaches the fidelity-critical `ciat.ts` timer (Spec 612
 1:1 port) and CIA/VIC scheduling. ~25–40 edit sites over 5 files; each needs the
 absolute-vs-register judgment above. A wrong de-`u32` on a 16-bit counter breaks
-timer wrap → IRQ timing → games. Therefore implementation is **gated on the
+timer wrap → IRQ timing → games. Therefore implementation was **gated on the
 mandatory 6-game screenshot set** (motm / MM s1 / IM2 / LNR s1 / Scramble / Pawn
-s1) plus `probe-single-path` and the forced-boundary gate (§9). Not a "small"
-change despite the simple root cause — deferred per owner decision 2026-05-31
-(audit complete, implementation pending a dedicated slice).
+s1) plus `probe-single-path`, cia-suite + the unit boundary probes. DONE
+2026-05-31 — see "Implementation" at the end (all gates green; 7-game PNGs read).
 
 ### 6.1 Reference checklist
 
@@ -264,3 +262,48 @@ Spec 743 is DONE when:
 - BUG-025 repro no longer fails after Inspector/Frozen overlay;
 - BUG-025 is marked fixed with root cause and gate;
 - docs do not describe this as a VICE clkguard port.
+
+---
+
+## Implementation (2026-05-31)
+
+Monotonic CLOCK across the maincpu domain. `util/uint.ts`: `CLOCK` documented as a
+monotonic JS number; added `CLOCK_NEVER = Number.MAX_SAFE_INTEGER` (the one
+disabled-clock sentinel); `clkAdd = a + b` (no u32). Every `u32`/`>>>0`/`0xffffffff`
+on an **absolute** maincpu clock removed; hardware register/bitfield widths kept.
+
+| Slice | Files | Gate |
+|---|---|---|
+| 743.1 CPU + alarm | `cpu/cpu65xx-vice.ts` (cycles setter), `util/uint.ts`, `alarm/alarm-context.ts` (CLOCK_MAX→CLOCK_NEVER, capture/restore, timeWarp) | `probe:743-1` 12/12 |
+| 743.2 interrupt + VIC | `vic/vic-ii-vice.ts` (raster fireClk + re-arm); `cpu/interrupt-cpu-status.ts` already clean (its CLOCK_MAX was already MAX_SAFE_INTEGER) | `probe:743-2` 9/9 |
+| 743.3 CIA/ciat/TOD | `cia/ciat.ts` (setAlarm), `cia/cia6526-vice.ts` (rclk/idle/alarmclk/ifr/dispatch), `cia/cia-tod.ts` (todclk) | `probe:743-3` 11/11 + cia-suite 16/16 + cia-fidelity 22/22 |
+| 743.4 checkpoint + inspector | (verification only — checkpoint already stores plain numbers) | `probe:743-4` 10/10 |
+| 743.5 product baseline | — | probe-single-path 25/25; 7-game screenshots verified by reading each final PNG (motm/MM/IM2/LNR/Scramble/Pawn/Polarbear) |
+
+`npm run probe:743` runs 743-1..4 (42 checks).
+
+### Remaining intentional `u32`/`>>>0` (hardware/register width — NOT absolute clk)
+
+- `cpu/cpu65xx-vice.ts` `lastIFlagClearInstrLen = u32(clk - instrStart + 2)` — an
+  instruction *length* (≤ ~8), not an absolute clk.
+- `alarm/alarm-context.ts` dispatch `offset = u32(cpuClk - next_pending)` — a short
+  non-negative delta (dispatch only fires when `cpuClk >= next`).
+- `cia/cia6526-vice.ts` `delay`/`sdr_delay` IRQ-pipeline **bitfield registers**.
+- `cia/cia-tod.ts` `todticks`/`ticks_per_sec`/`power_ticks` — TOD **periods** (< 2^32;
+  `u32` doubles as `floor` for the integer interval, no wrap role).
+- 16-bit timer `cnt`/`latch` keep `& 0xffff`; 8-bit ports `& 0xff`; BCD TOD digits.
+
+After this work there is **no** `u32`/`>>>0` on an absolute maincpu CLOCK.
+
+### Why there is no "force clk to 2^32 and run" full-machine gate
+
+Directly setting `c64Cpu.cycles ≈ 0xFFFFFFFF` is an invalid test: it jumps clk by
+~2.6e9 cycles while leaving every already-armed alarm (and each chip's internal clk
+baseline) stranded at the old boot clk, so `drainAlarms` spins regardless of the fix
+(and `ciat.update` would loop billions of cycles). A real session reaches 2^32
+**gradually**, with alarms continuously rescheduled ahead of clk; the bug was a chip
+scheduling `u32(clk + period)` that **wrapped** below clk near the boundary. That
+exact mechanism is removed and unit-proven monotonic per chip in
+`probe:743-1/2/3` (schedule/predict at `clk + delta > 2^32` stays in the future).
+`probe:743-4` proves the live machine + inspector/checkpoint path stay coherent and
+monotonic (BUG-025 acceptance: use overlay → resume → no guard trip, ×repeat).

@@ -5,7 +5,7 @@
 - **Reporter:** human
 - **Area:** runtime / live-ui / inspector
 - **Severity:** high
-- **Status:** investigating (root cause proven; fix specced in 743, not yet implemented)
+- **Status:** fixed (Spec 743 — maincpu CLOCK made monotonic; `probe:743` 42/42 + cia-suite 16/16 + 7-game PNGs read)
 
 ## Environment
 
@@ -96,40 +96,48 @@ Acceptance:
 
 ---
 
-## Root cause (PROVEN 2026-05-31)
+## Root cause candidate (2026-05-31)
 
-**No clkguard in the headless runtime.** `Cpu65xxVice.clk` (= `maincpu_clk`, uint32)
-grows unbounded; nothing ever rebases it before it reaches `CLOCK_MAX` (2^32). In
-the wrap zone an alarm armed at `u32(clk + delta)` wraps to a *small* value, so the
-maincpu alarm context's `next_pending_alarm_clk` falls below `clk` and the CPU's
-`drainAlarms()` loop (`cpu65xx-vice.ts:684`) spins forever → the 0x1000 guard trips
-at `clk≈0xFFFFC8C2` (= 2^32 − 14142).
+**Runtime CLOCK narrowed to a 32-bit domain.** The failure clock is near
+`0xffffffff`, and the reproduced error appears when the CPU clock is forced near
+that boundary. This indicates that at least one maincpu absolute-clock path uses
+uint32 wrapping (`u32`, `>>> 0`, or `0xffffffff` sentinel) where the C64RE runtime
+needs monotonic CLOCK semantics.
 
-VICE prevents this with `clkguard.c` (subtract a fixed amount near CLOCK_MAX +
-time-warp every clk-relative subsystem). Our port even has the warp helpers
-(`alarmContextTimeWarp`, interrupt `timeWarp` — comment: *"used when the CPU clock
-counter wraps"*) but **they are never called** — the guard was never wired.
+The likely failure chain:
 
-**The Inspector is an accelerant, not the cause.** Proven with
-`scripts/repro-025-inspect-clk.mjs` (separate backend):
-- freeze + capture + restore + 3× inspect cycles → **clean**; `clk` stays healthy,
-  alarms re-arm correctly. Inspect does NOT mutate `clk`.
-- forcing `c64Cpu.cycles = 0xFFFFC000` then running → **exact error reproduced**
-  (`alarm-dispatch guard tripped at clk=4294950911 (ctx=maincpu)`).
+- an alarm is scheduled at `clk + delta` near `0xffffffff`;
+- the result wraps to a small value;
+- `next_pending_alarm_clk` is below current `clk`;
+- `drainAlarms()` spins until the dispatch guard trips.
 
-Debug/inspect runs under warp pacing + `runFrameWithProvenance` (≤100k cyc/freeze),
-so an inspect-heavy session reaches the 2^32 zone far faster than ~72 min realtime.
-Power-cycle resets `clk` to 0 → "works again".
+The Inspector is likely an accelerant, not the ownership root. Inspect/provenance
+paths can advance quickly under warp, reaching the old 32-bit boundary sooner.
+The fix is not an Inspector reset or an alarm clear; the fix is coherent runtime
+CLOCK semantics across CPU, alarms, interrupt status, CIA and VIC.
 
-## Resolution
+## Resolution (FIXED 2026-05-31)
 
-- **Fix:** Spec 743 — port VICE `clkguard.c` (rebase `maincpu_clk` near CLOCK_MAX +
-  warp the maincpu alarm context, interrupt status, CIA1/CIA2 + VIC clk baselines).
-  Also reconcile the `CLOCK_MAX` mismatch (alarm=0xFFFFFFFF vs int-status=2^53).
-- **Status:** root cause proven + specced (`specs/743-clkguard-clock-overflow.md`).
-  Implementation pending (user requested spec-first). NOT yet fixed.
-- **Gate (planned):** `probe:743-clkguard` (G1 forced-wrap no trip, G2 alarm phase,
-  G3 interrupt warp, G4 inspect-path-still-clean regression, G5 natural-rebase soak,
-  G6 single-path 10/10).
-- **Regression risk:** Touches CPU core + CIA + VIC; mitigated by phase-aligned
-  `sub` + G2/G5.
+- **Root cause:** maincpu absolute CLOCK was a uint32 that wrapped at 2^32
+  (`clkAdd = u32(a+b)`, `cycles` setter `u32`, alarm/CIA/VIC sentinels `0xffffffff`,
+  chip scheduling `u32(clk + period)`). Near the boundary an alarm wrapped below
+  `clk` → `next_pending < clk` → `drainAlarms()` spun → guard trip at clk≈0xFFFFC8C2.
+  Inspector = warp-paced accelerant, not the cause (the inspect path itself never
+  mutates clk).
+- **Fix:** Spec 743 — absolute runtime time is a **monotonic JS number** (modern
+  VICE CLOCK is uint64; NO clkguard). Removed every `u32`/`>>>0`/`0xffffffff` on an
+  absolute maincpu clock across CPU + alarm + interrupt + VIC + CIA/ciat/TOD; added
+  `CLOCK_NEVER = MAX_SAFE_INTEGER` as the one disabled sentinel. Hardware register
+  widths (16-bit timer counters, 8-bit ports, BCD TOD, IRQ-delay bitfields) kept.
+- **Fix commits:** Spec 743.1 (CPU+alarm) → 743.2 (interrupt+VIC) → 743.3
+  (CIA/ciat/TOD) → 743.4 (inspector+checkpoint).
+- **Gate proving the fix:** `npm run probe:743` (42/42 — schedule/predict at
+  `clk+delta > 2^32` stays monotonic; inspector freeze/capture/restore/resume ×3
+  clean; checkpoint restore preserves clk exactly). Regression: cia-suite 16/16,
+  cia-fidelity 22/22, probe-single-path 25/25, 7-game screenshots verified by reading
+  each final PNG (motm/MM/IM2/LNR/Scramble/Pawn/Polarbear).
+- **Note:** a "force clk to 2^32 + run" full-machine test is invalid (strands armed
+  alarms → spins regardless of the fix); the per-chip monotonic scheduling is
+  unit-proven instead (`probe:743-1/2/3`). See Spec 743 "Implementation".
+- **Regression risk:** touched CPU core + alarm + CIA timer (Spec 612) + VIC;
+  below-2^32 behaviour is identical (u32 on <2^32 = no-op), confirmed by the gates.
