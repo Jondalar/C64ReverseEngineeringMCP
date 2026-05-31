@@ -53,13 +53,13 @@ process.on("SIGTERM", shutdown);
 
 start("http", "node", [`${repoRoot}/dist/workspace-ui/server.js`, "--port", httpPort, ...childArgs]);
 
-// Spec 744.4b — product shared authority: when C64RE_RUNTIME_WS is set, the Live
-// runtime WS is hosted by the IDE-launched MCP process (one authority, shared
-// runtimeSessions). Do NOT also spawn the standalone WS here — that would be a
+// Spec 744.4c — product shared authority: when C64RE_RUNTIME_ENDPOINT is set, the
+// Live runtime WS is the separate process-stable Runtime Daemon (`npm run
+// runtime:daemon`). Do NOT also spawn the standalone WS here — that would be a
 // SECOND runtime authority in a separate process (and a :4312 port conflict).
-// Without C64RE_RUNTIME_WS this is the standalone dev path (UI without MCP).
-if (process.env.C64RE_RUNTIME_WS) {
-  console.log(`[workspace] Live runtime WS is hosted by the MCP process (C64RE_RUNTIME_WS=${process.env.C64RE_RUNTIME_WS}); not starting a standalone WS.`);
+// Without it this is the standalone dev path (UI without the daemon/MCP).
+if (process.env.C64RE_RUNTIME_ENDPOINT || process.env.C64RE_RUNTIME_WS) {
+  console.log(`[workspace] Live runtime WS is the Runtime Daemon (${process.env.C64RE_RUNTIME_ENDPOINT ?? "co-host"}); not starting a standalone WS. Run \`npm run runtime:daemon\`.`);
 } else {
   start("ws", "node", [`${repoRoot}/scripts/start-v3-server.mjs`, ...childArgs]);
 }

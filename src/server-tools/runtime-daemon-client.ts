@@ -1,0 +1,109 @@
+// Spec 744.4c — MCP-side Runtime Daemon client.
+//
+// When `C64RE_RUNTIME_ENDPOINT` is set, the product MCP runtime tools become
+// CLIENTS of the Runtime Daemon (they must NOT create a private IntegratedSession
+// in the MCP process — binding rule §36). The daemon IS the V3 runtime WS server
+// (the same WS the browser UI uses, port 4312) — we do NOT invent a second API.
+// This thin client speaks that existing V3 JSON-RPC protocol; the LLM never sees
+// it, it sees stable `runtime_*` tools (§124). MCP + UI thus hit ONE authority that
+// outlives MCP reconnects and browser reloads (§37/§38).
+//
+// If the endpoint is set but the daemon is unreachable, calls fail with an
+// actionable error (§236) — never a silent in-process fallback.
+
+import { WebSocket } from "ws";
+
+export function runtimeEndpoint(): string | undefined {
+  const e = process.env.C64RE_RUNTIME_ENDPOINT;
+  return e && e.trim() ? e.trim() : undefined;
+}
+
+export function isDaemonMode(): boolean {
+  return !!runtimeEndpoint();
+}
+
+class RuntimeDaemonClient {
+  private ws: WebSocket | null = null;
+  private connecting: Promise<WebSocket> | null = null;
+  private nextId = 1;
+  private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+
+  private async connect(): Promise<WebSocket> {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) return this.ws;
+    if (this.connecting) return this.connecting;
+    const endpoint = runtimeEndpoint();
+    if (!endpoint) throw new Error("C64RE_RUNTIME_ENDPOINT not set");
+    this.connecting = new Promise<WebSocket>((resolve, reject) => {
+      const ws = new WebSocket(endpoint);
+      const onErr = (e: Error) => {
+        this.connecting = null;
+        reject(new Error(
+          `Runtime daemon not reachable at ${endpoint}: ${e.message}. ` +
+          `Start it with \`npm run runtime:daemon\` — it owns the shared C64 runtime ` +
+          `the LLM and the UI both attach to (Spec 744.4c).`,
+        ));
+      };
+      ws.once("error", onErr);
+      ws.once("open", () => {
+        ws.off("error", onErr);
+        ws.on("message", (data) => this.onMessage(data.toString()));
+        ws.on("close", () => { this.ws = null; this.failAll(new Error("runtime daemon connection closed")); });
+        ws.on("error", () => { /* surfaced per-call via timeouts / failAll */ });
+        this.ws = ws;
+        this.connecting = null;
+        resolve(ws);
+      });
+    });
+    return this.connecting;
+  }
+
+  private onMessage(raw: string): void {
+    let m: { id?: number; result?: unknown; error?: { message: string } };
+    try { m = JSON.parse(raw); } catch { return; }
+    if (m.id == null) return; // notification (frame push etc.) — ignore on this client
+    const p = this.pending.get(m.id);
+    if (!p) return;
+    this.pending.delete(m.id);
+    if (m.error) p.reject(new Error(m.error.message));
+    else p.resolve(m.result);
+  }
+
+  private failAll(e: Error): void {
+    for (const { reject } of this.pending.values()) reject(e);
+    this.pending.clear();
+  }
+
+  /** One V3 JSON-RPC 2.0 request → response. */
+  async call<T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 60000): Promise<T> {
+    const ws = await this.connect();
+    const id = this.nextId++;
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`runtime daemon timeout: ${method}`)); }, timeoutMs);
+      this.pending.set(id, {
+        resolve: (v) => { clearTimeout(timer); resolve(v as T); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      });
+      ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+    });
+  }
+
+  // -- typed wrappers over the V3 protocol (the acceptance-critical surface) --
+  createSession(p: { disk_path?: string; device_id?: number; pal?: boolean; start_track?: number; write_protected?: boolean; trace_out?: string; trace_domains?: string[] }) {
+    return this.call<{ sessionId: string; mode: string; diskPath: string; c64Cycles: number; pc: number; trace: unknown }>("session/create", p);
+  }
+  listSessions() { return this.call<Array<{ sessionId: string; mode: string; diskPath: string; c64Cycles: number }>>("session/list"); }
+  state(sessionId: string) { return this.call<{ c64Cycles: number; mode: string; cpu: { pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number } }>("session/state", { session_id: sessionId }); }
+  closeSession(sessionId: string) { return this.call<{ existed: boolean; released: string[] }>("session/close", { session_id: sessionId }); }
+  /** Bounded run (cycles), tool-mode. The V3 session/run advances by a cycle budget. */
+  run(sessionId: string, cycles: number) { return this.call<{ state: unknown }>("session/run", { session_id: sessionId, cycles }); }
+  /** Live continuous run (UI Live mode). */
+  runLive(sessionId: string, pacing?: unknown) { return this.call("debug/run", { session_id: sessionId, pacing }); }
+  pause(sessionId: string) { return this.call("debug/pause", { session_id: sessionId }); }
+  resume(sessionId: string) { return this.call("debug/continue", { session_id: sessionId }); }
+  /** Returns { dataUrl } base64 PNG; caller writes to disk if a path is needed. */
+  screenshot(sessionId: string) { return this.call<{ dataUrl?: string; width?: number; height?: number }>("session/screenshot", { session_id: sessionId }); }
+  mark(sessionId: string, label: string) { return this.call("runtime/mark", { session_id: sessionId, label }); }
+}
+
+/** Singleton client (one connection per MCP process). */
+export const runtimeDaemon = new RuntimeDaemonClient();

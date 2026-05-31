@@ -134,7 +134,8 @@ The bundled TRXDis pipeline is built automatically.
 | Variable | Description | Required |
 |---|---|---|
 | `C64RE_PROJECT_DIR` | Working directory for the RE project | Yes |
-| `C64RE_RUNTIME_WS` | Port for the Live runtime WS the MCP process co-hosts (Spec 744.4b). Set to `4312` for normal product use → the LLM (MCP) and the human UI share ONE runtime session authority in the MCP process. | Recommended (`4312`) |
+| `C64RE_RUNTIME_ENDPOINT` | WS endpoint of the product Runtime Daemon (Spec 744.4c) — e.g. `ws://127.0.0.1:4312`. When set, MCP `runtime_*` tools are clients of the daemon (the same runtime the UI uses); start it with `npm run runtime:daemon`. MCP reconnect / browser reload do not reset sessions. Unset → in-process runtime (dev/test, no UI sharing). | Recommended for shared human+LLM runtime |
+| `C64RE_RUNTIME_WS` | RETIRED 744.4b MCP co-host port. It reset sessions on MCP reconnect — superseded by the Runtime Daemon (`C64RE_RUNTIME_ENDPOINT`). Setting it now only logs a deprecation. | No (retired) |
 | `C64RE_TOOLS_DIR` | Override: external TRXDis build instead of bundled | No |
 | `C64RE_KICKASS_JAR` | Override path to KickAssembler jar | No |
 | `C64RE_64TASS_BIN` | Override path to `64tass` | No |
@@ -156,7 +157,7 @@ Add `.mcp.json` at the RE-project root:
       "args": ["tsx", "/path/to/C64ReverseEngineeringMCP/src/cli.ts"],
       "env": {
         "C64RE_PROJECT_DIR": "/path/to/your/re-project",
-        "C64RE_RUNTIME_WS": "4312"
+        "C64RE_RUNTIME_ENDPOINT": "ws://127.0.0.1:4312"
       }
     }
   }
@@ -165,14 +166,18 @@ Add `.mcp.json` at the RE-project root:
 
 Use a full path to `npx` if your shell uses `nvm`.
 
-`C64RE_RUNTIME_WS` (Spec 744.4b) makes this MCP process **co-host the Live runtime
-WebSocket** on that port, so the LLM (over MCP) and the human UI (over the WS) share
-ONE runtime session authority — the human can watch/drive the LLM's session and
-vice-versa. For product use, set it to `4312` and open the UI against that port; do
-**not** also run the standalone `start-v3-server` (that would be a second, separate
-runtime authority and a port conflict). Omit it and the MCP is runtime-only (no UI
-sharing). Note: the co-hosted sessions live in the MCP process — reconnecting the MCP
-restarts the process and resets sessions.
+Spec 744.4c is the binding product architecture: a separate **C64RE Runtime Daemon**
+owns the emulator sessions; MCP and the UI are clients. With `C64RE_RUNTIME_ENDPOINT`
+set, start the daemon and both surfaces share one live runtime:
+
+```bash
+npm run runtime:daemon -- --project /path/to/your/re-project   # the shared runtime authority (ws://127.0.0.1:4312)
+```
+
+The LLM's `runtime_session_start` then creates the session inside the daemon, the
+human UI (connected to the same `:4312`) sees and drives it, and an MCP reconnect or
+browser reload does NOT reset it. Do not use `C64RE_RUNTIME_WS` (the retired 744.4b
+co-host). See [docs/runtime-daemon-solution-design.md](docs/runtime-daemon-solution-design.md).
 
 ### Codex
 
@@ -185,19 +190,25 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 
 ## Running The Workbenches
 
-**V3 Workbench** — the live emulator/debugger. The backend owns the
-C64/1541 clock, monitor state, media state, trace capture, and WebSocket
-streams; the browser is a command and visualization client.
-
-**Product (shared authority, Spec 744.4b):** set `C64RE_RUNTIME_WS=4312` in the
-`.mcp.json` (above). The **MCP process hosts the runtime WS itself** — open the V3
-browser client against `:4312` and the human shares the LLM's live session. Do NOT
-run `v3:server` for product sessions (it is a SEPARATE runtime authority).
+**Runtime Workbench** — the live emulator/debugger. Per Spec 744.4c, the product
+backend is a Runtime Daemon that owns C64/1541 clock, monitor state, media state,
+trace capture and checkpoints. The browser UI and MCP tools are clients of that
+daemon. A browser reload or MCP reconnect does not reset runtime sessions.
 
 ```bash
-npm run ui:v3:dev           # V3 browser client (connects to the MCP-hosted WS :4312)
+npm run runtime:daemon -- --project <dir>   # THE product runtime authority (ws://127.0.0.1:4312)
+```
+
+Set `C64RE_RUNTIME_ENDPOINT=ws://127.0.0.1:4312` in the `.mcp.json` so the LLM's
+`runtime_*` tools attach to this daemon; open the browser UI against the same port.
+
+The standalone V3 commands below are development-only paths (single process, not the
+shared-runtime daemon):
+
+```bash
+npm run ui:v3:dev           # V3 browser client / development
 npm run ui:v3:build         # production V3 bundle
-npm run v3:server           # DEV-ONLY standalone runtime WS (no MCP / no shared authority)
+npm run v3:server           # DEV-ONLY standalone runtime WS (not the product daemon)
 ```
 
 Runtime / backend / UI details: [docs/tools/headless.md](docs/tools/headless.md).

@@ -452,6 +452,40 @@ export class V3WsServer {
       }));
     });
 
+    // Spec 744.4c — the daemon's authority API for CREATING/closing sessions.
+    // The runtime is owned HERE (the daemon process); both the browser UI and the
+    // MCP adapter create sessions through this one authority so they share state.
+    // (The V3WsServer is otherwise stateless — it only operated on pre-existing
+    // sessions; session/create+close make it the lifecycle owner for the daemon.)
+    this.on("session/create", async ({ disk_path, device_id, pal, start_track, write_protected, trace_out, trace_domains }) => {
+      const { runtimeSessions } = await import("../runtime/headless/runtime-session-service.js");
+      const { producerOptsForDomains, startSessionTrace, resolveTraceOut, DEFAULT_TRACE_DOMAINS } =
+        await import("../server-tools/runtime-trace-sink.js");
+      const domains = trace_out ? (trace_domains ?? DEFAULT_TRACE_DOMAINS) : [];
+      const tp = trace_out ? producerOptsForDomains(domains) : {};
+      const { sessionId, session } = runtimeSessions.start({
+        diskPath: disk_path, deviceId: device_id, isPal: pal,
+        startTrack: start_track, writeProtected: write_protected,
+        traceIec: tp.traceIec, traceDrive: tp.traceDrive,
+        enableBusAccessTrace: tp.enableBusAccessTrace,
+      } as never);
+      session.resetCold();
+      let trace: unknown = null;
+      if (trace_out) {
+        const out = resolveTraceOut(trace_out, this.projectDir);
+        trace = await startSessionTrace(sessionId, session, out, domains as never);
+      }
+      return {
+        sessionId, mode: session.mode, diskPath: session.diskPath,
+        c64Cycles: session.c64Cpu.cycles, pc: session.c64Cpu.pc, trace,
+      };
+    });
+
+    this.on("session/close", async ({ session_id }) => {
+      const { runtimeSessions } = await import("../runtime/headless/runtime-session-service.js");
+      return await runtimeSessions.close(session_id);
+    });
+
     // Render current frame as PNG → return base64 data URL.
     this.on("session/screenshot", async ({ session_id }) => {
       const s = getIntegratedSession(session_id);

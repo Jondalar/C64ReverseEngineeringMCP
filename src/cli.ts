@@ -24,43 +24,21 @@ if (argv[0] === "setup") {
     console.error("[c64-re mcp] unhandledRejection:", reason);
   });
 
-  // Spec 744.4b — start the MCP stdio server FIRST so the IDE connects immediately;
-  // the co-hosted Live WS comes up in the background and must NEVER block or crash
-  // the MCP (the LLM's interface is the priority).
   startStdioServer().catch((error: unknown) => {
     console.error(error);
     process.exitCode = 1;
   });
 
-  // Spec 744.4b — ONE product process for both surfaces. When C64RE_RUNTIME_WS is
-  // set (a port, in the project .mcp.json), this MCP process ALSO hosts the Live
-  // runtime WS server, so MCP tools and the WS adapter share the SAME
-  // runtimeSessions singleton — a human UI on the WS port and the LLM on MCP stdio
-  // operate on the same session ids/frames. Fire-and-forget; deferred so it never
-  // delays the MCP handshake. Logs to stderr only (stdout is the JSON-RPC channel).
-  void maybeHostRuntimeWs();
-}
-
-async function maybeHostRuntimeWs(): Promise<void> {
-  const portEnv = process.env.C64RE_RUNTIME_WS;
-  if (!portEnv) return;
-  const port = Number(portEnv) || 4312;
-  try {
-    const { resolveProjectDir, hasDevSamples } = await import("./workspace-ui/resolve-project-dir.js");
-    const { V3WsServer } = await import("./workspace-ui/v3-ws-server.js");
-    const { runtimeSessions } = await import("./runtime/headless/runtime-session-service.js");
-    const projectDir = resolveProjectDir([], process.env);
-    const devSamples = hasDevSamples([]);
-    const driveDispatchMode = process.env.C64RE_DRIVE_DISPATCH === "cycle-stepped"
-      ? "cycle-stepped" : "vice-whole-instruction";
-    // Create ONE default session through the shared authority so the UI has a
-    // session to attach to. PAUSED, NOT pre-booted — a synchronous boot
-    // (runFor 2M) would freeze the event loop and stall MCP responses at startup.
-    // The UI/LLM runs it on demand (the very first Run boots to BASIC ready).
-    const { sessionId } = runtimeSessions.start({ mode: "true-drive", driveDispatchMode });
-    new V3WsServer({ port, host: "127.0.0.1", projectDir, devSamples });
-    console.error(`[c64-re mcp] hosting Live runtime WS on ws://127.0.0.1:${port} (shared authority, session ${sessionId}, project ${projectDir})`);
-  } catch (e) {
-    console.error(`[c64-re mcp] could not host runtime WS:`, e instanceof Error ? e.message : e);
+  // Spec 744.4c — the product runtime is owned by a separate, process-stable
+  // Runtime Daemon (the V3 runtime WS). The MCP `runtime_*` tools are CLIENTS of it
+  // (env `C64RE_RUNTIME_ENDPOINT`), so a human UI and the LLM attach to the same
+  // live session and an MCP reconnect does NOT reset the runtime. The MCP no longer
+  // hosts the runtime itself (the 744.4b co-host reset sessions on reconnect — it is
+  // retired). Logs to stderr only (stdout is the JSON-RPC channel).
+  const endpoint = process.env.C64RE_RUNTIME_ENDPOINT;
+  if (endpoint) {
+    console.error(`[c64-re mcp] runtime tools are clients of the Runtime Daemon at ${endpoint} (Spec 744.4c). Start it with \`npm run runtime:daemon\`.`);
+  } else if (process.env.C64RE_RUNTIME_WS) {
+    console.error(`[c64-re mcp] C64RE_RUNTIME_WS (744.4b MCP co-host) is RETIRED — it reset sessions on MCP reconnect. Set C64RE_RUNTIME_ENDPOINT=ws://127.0.0.1:4312 and run \`npm run runtime:daemon\` (Spec 744.4c). Falling back to in-process runtime (no UI sharing).`);
   }
 }

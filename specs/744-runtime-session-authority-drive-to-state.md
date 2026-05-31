@@ -1,17 +1,24 @@
 # Spec 744 — Runtime Session Authority + Drive-to-State Orchestration
 
-**Status:** 744.4 DONE (744.4a+744.4b shared authority, 2026-05-31); §7 drive-to-state orchestration still open. Created after BUG-027 showed that the binary
-trace path, media write-through and Live UI can each be partly correct while the
-product still cannot drive a real multi-disk game to an observable state through
-MCP.  
+**Status:** 744.4 DONE (744.4c Runtime Daemon shipped, 2026-05-31) — there is now a
+process-stable C64RE Runtime Daemon that owns the runtime; the UI and the MCP are
+both clients of it, share the same live session, and an MCP reconnect / browser
+reload does NOT reset the runtime (acceptance gate `e2e:744-4c` 9/9). 744.4a (single
+in-process authority) + 744.4b (MCP co-host, RETIRED) were interim. §7 drive-to-state
+orchestration (`runtime_swap_disk_and_continue`) remains open. Created after BUG-027
+showed that the binary trace path, media write-through and Live UI can each be partly
+correct while the product still cannot drive a real multi-disk game to an observable
+state through MCP.
+
 **Owner:** runtime session service / MCP runtime facade / Live UI backend /
-media orchestration / trace startup packaging  
-**Depends on:** Specs 724, 726.B, 742, 743  
-**Related bugs:** BUG-027, BUG-013, BUG-025  
+media orchestration / trace startup packaging
+**Depends on:** Specs 724, 726.B, 742, 743
+**Related bugs:** BUG-027, BUG-013, BUG-025
+**Solution design:** `docs/runtime-daemon-solution-design.md`
 
 ## 1. Problem
 
-The product runtime has no single session authority.
+The product runtime has no single process-stable session authority.
 
 Current behavior is split:
 
@@ -25,6 +32,10 @@ Current behavior is split:
   built output.
 - MCP exposes low-level run/type/swap primitives, but not a reliable
   "drive this title to the next meaningful state" workflow.
+- The 744.4b interim implementation moved the split rather than solving it:
+  MCP can co-host the Live WS, but then the Runtime is owned by the MCP process.
+  A MCP reconnect resets the runtime; a separately-started UI WS still owns a
+  different session. That is not the product architecture.
 
 This violates the product vision: there must be one Headless runtime that a
 human and an LLM can jointly use. A human must be able to attach the UI to the
@@ -42,40 +53,81 @@ That split made BUG-027 possible:
 
 ## 2. Product Rule
 
-There is exactly one product runtime session authority.
+There is exactly one product runtime session authority, and it is neither
+"owned by the UI" nor "owned by the MCP".
+
+The product topology is mandatory:
 
 ```text
-Project RuntimeSessionService
-  owns RuntimeSession lifecycle
+C64RE Runtime Daemon / Runtime Authority
+  owns IntegratedSession(s)
+  owns RuntimeSessionService
   owns session ids and status
   owns run/pause/stop/close
   owns media mount/swap/eject through Spec 742 MediaRef/MountedMedia
   owns trace start/finalize through Spec 726.B
+  owns checkpoint/ring state
+  is stable across MCP reconnects and browser reloads
 
 MCP runtime tools
-  call RuntimeSessionService through an adapter
+  are clients/adapters of the Runtime Daemon
+  never create product IntegratedSession instances directly
 
 Live UI
-  calls RuntimeSessionService through an adapter
+  is a client/adapter of the Runtime Daemon
+  never creates product IntegratedSession instances directly
 
 Scenario / playbook runners
-  call RuntimeSessionService through an adapter
+  are clients/adapters of the Runtime Daemon
+```
+
+### 2.1 Prohibited Product Topologies
+
+These are explicitly forbidden as final/product architecture:
+
+- **MCP-hosted Runtime:** the MCP stdio process owns the Runtime and co-hosts WS.
+  This fails the stability requirement because MCP reconnect/restart destroys or
+  replaces the Runtime.
+- **UI-hosted Runtime:** the UI/WS process owns the Runtime and MCP cannot attach
+  except by creating a second private session.
+- **Two Singletons:** MCP and UI each have a `runtimeSessions` singleton in
+  different OS processes. A singleton is only shared inside one process; this is
+  not shared runtime authority.
+- **Mirrored Sessions:** MCP and UI each run an emulator and synchronize state.
+  Shared authority means one machine state, not two emulators kept approximately
+  aligned.
+- **Raw WS as LLM workflow:** the LLM must not be asked to speak the browser Live
+  protocol. MCP remains the LLM-facing API.
+
+### 2.2 Required Product Topology
+
+```text
+C64RE Runtime Daemon
+  ├── RuntimeSessionService
+  ├── IntegratedSession(s)
+  ├── MediaService / MountedMedia
+  ├── TraceService
+  └── Checkpoint/Ring service
+
+MCP process
+  └── runtime_* tools -> Runtime API client -> Runtime Daemon
+
+Browser UI / HTTP process
+  └── Live adapter -> Runtime API client -> Runtime Daemon
 ```
 
 No product path may create a private `IntegratedSession` that cannot be observed
 or controlled by the other product surface.
 
-The implementation may keep a single Node process or may expose the service over
-HTTP/WS/stdio. The existing Live runtime WS server may become this authority, or
-it may be replaced by a clearer service module/server. The requirement is
-semantic ownership: one authority, one session registry, one media model, one
-trace lifecycle.
+The Runtime Daemon may expose HTTP, WS, JSON-RPC, or another local transport.
+The transport is an implementation detail. The ownership rule is not negotiable:
+one daemon process owns the product runtime state.
 
 The LLM must not be required to speak raw WebSocket. MCP remains the LLM-facing
 API. MCP runtime tools may internally call the same runtime backend that the UI
 uses, but the consuming LLM sees stable MCP tools, not a browser/UI protocol.
 
-### 2.1 Shared-Attach Contract
+### 2.3 Shared-Attach Contract
 
 The shared runtime must support co-working:
 
@@ -92,7 +144,7 @@ The shared runtime must support co-working:
   running the machine, the other surface gets an explicit busy/run-state result,
   not a second hidden runner.
 
-### 2.2 Run Modes
+### 2.4 Run Modes
 
 The authority must distinguish these modes:
 
@@ -121,7 +173,10 @@ inside that owned layer.
 
 ## 4. Required Runtime Service Shape
 
-Names may change, but these responsibilities must exist.
+Names may change, but these responsibilities must exist inside the Runtime
+Daemon. Product MCP/UI adapters must call this service across the daemon
+transport; they must not instantiate the service as an independent process-local
+authority.
 
 ```ts
 interface RuntimeSessionService {
@@ -152,6 +207,23 @@ thing every caller constructs directly.
 `RuntimeClientKind` is at least `"mcp"` or `"ui"`. It is used for ownership,
 status and command arbitration only; it must not create separate emulators.
 
+### 4.1 Runtime Daemon API Surface
+
+The daemon must expose a stable local API for both adapters:
+
+- session: `start`, `list`, `attach`, `status`, `close`;
+- control: `run`, `pause`, `resume`, bounded step/wait operations;
+- media: `mount`, `swap`, `eject`, mounted-media status;
+- trace: `startTrace`, `markTrace`, `statusTrace`, `finalizeTrace`;
+- render/inspect: current frame/screenshot/status needed by Live UI and MCP;
+- arbitration: explicit busy/run-state responses when commands overlap.
+
+The MCP adapter can be implemented as direct in-process calls only in tests. In
+the product path it must be a client of the daemon.
+
+The UI adapter can be implemented as WS push + request/response, but it remains
+a client of the daemon. It must not own `IntegratedSession`.
+
 ## 5. Session Lifecycle Rules
 
 ### 5.1 Start
@@ -159,9 +231,14 @@ status and command arbitration only; it must not create separate emulators.
 `runtime_session_start` must:
 
 - resolve project-local or absolute media through the 742 media service;
-- create exactly one session in the runtime authority;
+- request exactly one session in the Runtime Daemon authority;
 - optionally start a 726.B trace;
 - return the session id, media refs, run state, trace state and project path.
+
+If the Runtime Daemon is not reachable, product MCP tools must fail with an
+actionable "runtime daemon not running" error or call an explicitly-designed
+daemon-start command. They must not silently create a private `IntegratedSession`
+inside the MCP process.
 
 ### 5.2 Idle
 
@@ -198,6 +275,17 @@ The UI must show:
 If the MCP starts a session, the UI can observe/attach to that session. If the UI
 starts a session, MCP can inspect/control that session by id. This is a product
 requirement, not a nice-to-have.
+
+### 5.4 Process Lifetime
+
+Runtime lifetime is owned by the Runtime Daemon, not by clients:
+
+- MCP reconnect must not reset, close, or fork runtime sessions.
+- Browser reload must not reset, close, or fork runtime sessions.
+- Workspace HTTP restart must not reset runtime sessions unless it is the daemon
+  process itself.
+- Closing the Runtime Daemon is the explicit operation that ends the runtime
+  authority and all owned sessions.
 
 ## 6. Trace Startup Packaging
 
@@ -324,6 +412,14 @@ Required default tools or equivalent facades:
 No default tool may instruct the LLM to use the old V3 WS server directly. If the
 runtime authority is exposed over WS internally, MCP tools hide that transport.
 
+The default surface must also make daemon state explicit:
+
+- `runtime_server_status` or equivalent: reports daemon reachable/unreachable,
+  endpoint, version, project dir and active sessions.
+- `runtime_session_list` or equivalent: lets MCP discover UI-created sessions.
+- Every `runtime_*` tool response must identify the daemon endpoint and session
+  id it operated on when ambiguity is possible.
+
 ## 9. Non-Goals
 
 - No VICE product workflow.
@@ -334,6 +430,10 @@ runtime authority is exposed over WS internally, MCP tools hide that transport.
 - No raw WebSocket client as the documented LLM path.
 - No second hidden runtime session to "mirror" UI or MCP. Shared state must be
   real shared authority, not synchronization between two emulators.
+- No MCP-owned Runtime as the product topology.
+- No UI-owned Runtime as the product topology.
+- No "current process singleton" claim unless MCP and UI clients are proven to
+  hit the same daemon process in the actual product topology.
 - No hidden `C64RE_FULL_TOOLS` requirement.
 
 ## 10. Acceptance Gates
@@ -370,16 +470,19 @@ asserts:
 
 Live UI continuous mode may have a separate test, but must be explicit.
 
-### 10.3 Shared authority
+### 10.3 Runtime Daemon Authority
 
 New gate:
 
 ```text
-smoke-runtime-session-authority
+e2e-runtime-daemon-authority
 ```
 
 Proves:
 
+- one Runtime Daemon process is started explicitly;
+- UI connects to that daemon as a client;
+- MCP connects to that daemon as a client;
 - sessions created through MCP are visible through the UI/status service;
 - the UI can attach to the MCP-created session and observe the same frame/cycle;
 - the UI can pause/run that MCP-created session and MCP status sees the same
@@ -388,10 +491,12 @@ Proves:
 - MCP can inspect/control the UI-created session by id;
 - both surfaces report the same session id, mounted media, trace state and run
   state;
-- there is no product `startIntegratedSession` path outside the authority.
+- MCP reconnect does not reset or fork the session;
+- browser reload does not reset or fork the session;
+- there is no product `startIntegratedSession` path outside the daemon.
 
-If implementation keeps one process, this can be an in-process service test. If
-implementation uses HTTP/WS, it must be an end-to-end test.
+This must be an end-to-end product-topology test. An in-process singleton test is
+insufficient and may only be kept as a lower-level unit test.
 
 ### 10.4 Multi-disk drive-to-state
 
@@ -459,16 +564,37 @@ Required evidence:
 
 ### 744.4 — Shared UI/MCP authority
 
-- Promote or replace the current Live WS backend so it is the runtime authority,
-  not a UI-private session owner.
-- Migrate MCP `runtime_*` tools away from direct `startIntegratedSession()` calls
-  and into the authority/adapter.
-- Remove/retire product paths where UI creates a private session unseen by MCP.
-- Remove/retire product paths where MCP creates a private session unseen by UI.
-- UI status connects to the runtime authority and displays session id/run state.
-- MCP can attach to a UI-created session; UI can attach to an MCP-created
-  session.
-- Add `smoke-runtime-session-authority`.
+744.4 is split into explicit sub-slices. Only 744.4c satisfies the product
+architecture.
+
+#### 744.4a — In-process service facade (interim, not product-complete)
+
+- Wrap integrated-session-manager + RuntimeController into `RuntimeSessionService`.
+- Migrate local callers to the facade where useful.
+- Gate in-process sharing.
+- This is allowed as groundwork only. It does not prove product co-working.
+
+#### 744.4b — MCP co-hosted WS (rejected as final product topology)
+
+- MCP co-hosting WS can demonstrate one process, but it makes the MCP process the
+  Runtime owner.
+- It fails the product requirement because MCP reconnect/restart resets the
+  runtime and a separately-started UI WS still creates a second authority.
+- Keep only as a dev/transitional mode if useful, clearly marked non-product.
+- It must not be documented as the product solution.
+
+#### 744.4c — Runtime Daemon Authority (required)
+
+- Add a product Runtime Daemon entrypoint, e.g. `runtime:server` /
+  `scripts/start-runtime-server.mjs`.
+- Move product `IntegratedSession` ownership into that daemon process.
+- UI Live connects to the daemon as a client.
+- MCP `runtime_*` tools connect to the daemon as clients/proxies.
+- If the daemon is unavailable, MCP fails clearly or starts it through an
+  explicit daemon-start command; it never silently creates a private session.
+- Retire or dev-label standalone `start-v3-server.mjs` and MCP co-hosting as
+  non-product paths.
+- Add `e2e-runtime-daemon-authority`.
 
 ### 744.5 — Disk prompt orchestration
 
@@ -487,7 +613,7 @@ Required evidence:
 
 Spec 744 is DONE when:
 
-- there is one product runtime session authority for MCP + Live UI;
+- there is one product Runtime Daemon authority for MCP + Live UI;
 - `runtime_session_start(trace_out=...)` works from an arbitrary project cwd;
 - MCP-created sessions do not free-run while idle;
 - sessions can be closed cleanly;
@@ -495,9 +621,19 @@ Spec 744 is DONE when:
 - no default product instructions mention starting the V3 WS server directly;
 - BUG-027 is fixed with gates and resolution filled.
 
+744 is not DONE if the shared authority only works because MCP co-hosts the WS or
+because UI and MCP happen to run in one test process. The product proof must use
+the real client/server topology: Runtime Daemon + UI client + MCP client.
+
 ---
 
-## 744.4 Implementation — RuntimeSessionService authority (2026-05-31)
+## 744.4 Interim Implementation Notes (2026-05-31)
+
+These notes document what was built before the architecture was tightened. They
+are **not** DONE criteria and must not be read as permission to keep the product
+topology this way.
+
+### 744.4a — RuntimeSessionService authority (in-process groundwork)
 
 ### Split points removed
 Both surfaces constructed sessions directly:
@@ -563,66 +699,103 @@ could be routed through `runtimeSessions.get/attach` for purity.
 
 ---
 
-## 744.4b Implementation — real shared authority across product processes (2026-05-31)
+## 744.4b Interim Implementation — MCP co-hosted WS (rejected as product topology)
 
-744.4a shared sessions only IN-PROCESS. Production runs the LLM (MCP stdio) and the
-human (WS :4312) as SEPARATE OS processes → separate `runtimeSessions` singletons.
-744.4b makes ONE process host both so the authority is genuinely shared at runtime.
+744.4a shared sessions only in-process. 744.4b attempted to solve the
+cross-process split by making the IDE-launched MCP process also host the Live WS
+when `C64RE_RUNTIME_WS=<port>` is set.
 
-### Chosen product topology
-The IDE-launched MCP process **co-hosts the Live runtime WS**. `src/cli.ts`
-`maybeHostRuntimeWs()`: when `C64RE_RUNTIME_WS=<port>` is set (in the project
-`.mcp.json`), after wiring the stdio server it boots one default session through the
-shared `runtimeSessions` and starts a `V3WsServer` on that port IN THE SAME PROCESS.
-- LLM → MCP stdio · human browser → WS :4312 · both → the SAME `runtimeSessions`
-  singleton in that one Node process. The HTTP knowledge API (`server.js` :4310)
-  stays a separate process (not runtime — no second authority).
+That proved a useful lower-level fact: if MCP and WS run in one process, both can
+hit the same `runtimeSessions` singleton. It does **not** satisfy this spec's
+product architecture.
 
-### Old standalone paths retired / dev-only
-- `scripts/start-v3-server.mjs` → marked **DEV-ONLY / STANDALONE** (separate-process
-  WS, not shared with MCP). Use only to run the UI runtime without an MCP/IDE process.
-- `scripts/workspace.mjs` → product-aware: when `C64RE_RUNTIME_WS` is set it does NOT
-  spawn the standalone WS (the MCP process hosts it — avoids a 2nd authority + :4312
-  conflict); HTTP-only. Without it, the standalone dev path is unchanged.
-- No default/product doc or tool description tells the LLM to start `start-v3-server`
-  or talk raw WS (grep-verified); the LLM stays on MCP tools.
+### Why 744.4b is insufficient
 
-### Exact proof MCP stdio + UI WS share the same session
-`npm run e2e:744-4b` (8/8) spawns the REAL `dist/cli.js` with `C64RE_RUNTIME_WS` set
-(one process), then drives BOTH surfaces:
-- MCP co-hosts the WS (stderr "hosting Live runtime WS … session integrated-1").
-- MCP `runtime_session_start` → `integrated-2`; the WS `session/list` shows it
-  (MCP→UI visibility).
-- WS `session/state` and MCP `runtime_session_status` read the SAME cycle counter.
-- WS `debug/run` advances `integrated-2` from 0 → 610896 cycles that MCP
-  `runtime_session_status` then reads (UI→MCP control of the same session).
-- WS `debug/pause` stops it (MCP sees no further advance).
-- MCP can `runtime_session_status` the WS-booted default session `integrated-1`
-  (UI→MCP visibility).
+- It makes MCP the Runtime owner. MCP reconnect/restart resets or replaces the
+  Runtime, which violates the process-lifetime contract.
+- It conflicts with an already-running standalone/UI WS on the same port and can
+  fall back into split ownership.
+- It requires the Runtime to be coupled to the IDE/MCP host lifecycle instead of
+  being a stable product daemon.
+- Its gates prove one-process sharing, not a stable Runtime Daemon with two
+  independent clients.
 
-### Gate counts
-- New: `e2e:744-4b` 8/8 (real one-process MCP+WS shared authority).
-- Kept green: `smoke:744-4` 16/16, `probe:744-idle` 8/8, `smoke-v3-ws` 7/7,
-  `e2e:744-2` 5/5, `probe:744-3` 9/9, `probe-single-path` 25/25.
+### Allowed disposition
+
+- Keep 744.4b code only as a dev/transitional mode while 744.4c is being built.
+- It must be labeled non-product wherever documented.
+- It must not be the install default.
+- It must not mark 744.4 complete.
+
+### Required replacement
+
+744.4c replaces 744.4b with a Runtime Daemon topology:
+
+```text
+Runtime Daemon owns sessions
+UI connects as client
+MCP connects as client
+MCP reconnect does not reset sessions
+Browser reload does not reset sessions
+```
+
+---
+
+## 744.4c Implementation — Runtime Daemon (2026-05-31)
+
+The product runtime is now owned by a process-stable daemon. The daemon IS the V3
+runtime WS server (port 4312) — we did NOT invent a second API; the browser UI
+already speaks that protocol, and the MCP adapter speaks it too as a client. Both
+hit the ONE `runtimeSessions` authority that lives in the daemon process.
+
+### Topology shipped
+```
+C64RE Runtime Daemon  (scripts/runtime-daemon.mjs, ws://127.0.0.1:4312)
+  ├── runtimeSessions (authority) + IntegratedSession(s)
+  ├── V3WsServer (the runtime WS — UI transport)
+  └── session/create + session/close handlers (the daemon lifecycle ownership)
+
+Browser UI  → ws://127.0.0.1:4312 (V3 protocol)            ─┐ same
+MCP runtime_* tools → RuntimeDaemonClient → ws://…:4312     ─┘ daemon, same sessions
+```
+
+### What changed
+- `src/workspace-ui/v3-ws-server.ts` — added `session/create` (start+resetCold+trace)
+  and `session/close` handlers so the daemon owns session lifecycle for BOTH surfaces.
+- `src/server-tools/runtime-daemon-client.ts` (new) — MCP-side V3 WS JSON-RPC client.
+  `isDaemonMode()` = `C64RE_RUNTIME_ENDPOINT` set. If the endpoint is set but the
+  daemon is unreachable, calls fail with an actionable error — never a silent
+  in-process private session (§236).
+- `src/server-tools/headless.ts` — `runtime_session_start/status/run/close` +
+  `runtime_render_screen` route to the daemon when `isDaemonMode()`, else in-process
+  (tests/dev). The start handler hits the daemon BEFORE any in-process create, so no
+  product path creates an `IntegratedSession` outside the daemon (§96).
+- `src/cli.ts` — the 744.4b co-host is RETIRED. The MCP is a daemon client; it no
+  longer hosts the runtime. A stale `C64RE_RUNTIME_WS` only logs a deprecation.
+- `scripts/runtime-daemon.mjs` (new) + `npm run runtime:daemon` — the canonical
+  daemon entry (V3WsServer + a default booted session). `scripts/workspace.mjs`
+  skips the standalone WS when `C64RE_RUNTIME_ENDPOINT` is set.
+- README + `mcp-config-example.json` set `C64RE_RUNTIME_ENDPOINT=ws://127.0.0.1:4312`
+  and document `npm run runtime:daemon` as the product runtime.
+
+### Acceptance — `npm run e2e:744-4c` (9/9), proving design §84-97
+1 daemon starts; 4 MCP `runtime_session_start` creates the session IN THE DAEMON and
+the UI `session/list` sees it (MCP→UI), UI+MCP read the same cycle counter; 5 UI
+`debug/run` advances the SAME session MCP reads (UI→MCP control, 0→709428); 6 MCP can
+status the UI-booted default session (UI→MCP); 7 **MCP reconnect (a new MCP process)
+still sees the session — NOT reset** (cycles=749436); 8 **browser reload (a new WS
+connection) still sees the session — NOT reset**; 9 the start handler routes to the
+daemon before any in-process create.
+
+### Slice 2 (remaining, honest)
+Only the acceptance-critical MCP tools (start/status/run/close/render) are
+daemon-routed. The other ~59 `runtime_*` tools (monitor/step/breakpoints/media/
+trace-detail/input/inspect/snapshot) still reach an in-process session; in daemon
+mode they currently error "no session" until they are routed through the client.
+`runtime_session_run` `until`-conditions are also daemon-slice-2. The daemon API +
+client are built to extend tool-by-tool.
 
 ### Status
-- **744.4a DONE** — single RuntimeSessionService authority; both surfaces migrated.
-- **744.4b DONE** — the product process really shares that authority across MCP stdio
-  + UI WS (proven on the real topology). Deployment: set `C64RE_RUNTIME_WS` in the
-  project `.mcp.json`. (The drive-to-state orchestration §7 / disk-swap §7.2 remain
-  separate open items of Spec 744, unrelated to session authority.)
-
-### 744.4b hardening / install integration (2026-05-31)
-- **Startup safety:** the co-host must never block the MCP. `src/cli.ts` starts the
-  stdio server FIRST, then fires `maybeHostRuntimeWs()` (no await) and creates the
-  default session PAUSED — NOT pre-booted (a synchronous `runFor(2M)` froze the event
-  loop and stalled MCP startup under tsx). MCP now answers `initialize` in ~280ms while
-  the WS comes up at ~1.5s.
-- **Install template:** `mcp-config-example.json` + the README `.mcp.json` example now
-  set `C64RE_RUNTIME_WS=4312` by default, so a fresh install gets the shared-authority
-  WS without a hidden env trick. README env table + "Running The Workbenches" updated:
-  the MCP hosts the runtime WS; `v3:server` (start-v3-server) is DEV-ONLY standalone.
-- **Gate:** `npm run e2e:744-4b-install` (8/8) — generates a `.mcp.json` for a temp
-  project OUTSIDE the repo, launches the server with that config's env, and proves the
-  MCP responds fast AND co-hosts the WS AND both surfaces share one authority. So **a
-  fresh external LLM launched from `.mcp.json` gets the co-hosted WS by default.**
+- **744.4a DONE** (single in-process authority). **744.4b RETIRED** (MCP co-host —
+  reset on reconnect). **744.4c DONE** (Runtime Daemon — stable shared authority,
+  acceptance §84-97 green). §7 drive-to-state orchestration remains open.

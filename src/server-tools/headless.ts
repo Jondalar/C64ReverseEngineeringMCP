@@ -185,10 +185,26 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       enable_kernal_fileio_traps, enable_kernal_serial_traps, enable_kernal_io_traps,
       trace_out, trace_domains,
     }) => {
-      // Spec 744.4 — create the session through the single runtime authority, NOT
-      // startIntegratedSession directly. The service registers the session AND its
-      // controller (paused, no autonomous loop) so the UI can attach to this same
-      // session id, and MCP stays idle-bounded (no background runloop after start).
+      // Spec 744.4c — when a Runtime Daemon endpoint is configured, the product MCP
+      // creates the session IN THE DAEMON (the one process-stable authority the UI
+      // also uses), NOT a private session in the MCP process. The LLM still sees
+      // this stable tool; the daemon owns the IntegratedSession.
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const r = await runtimeDaemon.createSession({ disk_path, device_id, pal, start_track, write_protected, trace_out, trace_domains });
+        const lines = [
+          `Integrated session started (Runtime Daemon — shared with the UI).`,
+          `Session: ${r.sessionId}`,
+          `Disk: ${disk_path ?? "(none)"}`,
+          `Mode: ${r.mode}`,
+          `C64 cycles: ${r.c64Cycles}  PC: ${formatHexWord(r.pc)}`,
+        ];
+        const t = r.trace as { outputPath?: string; domains?: string[]; runId?: string } | null;
+        if (t?.runId) lines.push(`Trace: streaming → ${t.outputPath} [${(t.domains ?? []).join(",")}] run=${t.runId}`);
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      }
+      // Spec 744.4 — in-process authority (tests / no daemon). Create the session
+      // through the single runtime authority, NOT startIntegratedSession directly.
       const { runtimeSessions } = await import("../runtime/headless/runtime-session-service.js");
       const { producerOptsForDomains, startSessionTrace, resolveTraceOut, DEFAULT_TRACE_DOMAINS } =
         await import("./runtime-trace-sink.js");
@@ -261,6 +277,15 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       }).optional().describe("Named stop condition. If set, runs until satisfied (or budget exhausted) instead of max_instructions."),
     },
     safeHandler("runtime_session_run", async ({ session_id, max_instructions, breakpoints, cycle_budget, until }) => {
+      // Spec 744.4c — bounded run against the shared Runtime Daemon session.
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        if (until) throw new Error("runtime_session_run with `until` conditions is not yet routed through the Runtime Daemon (744.4c slice 2). Use cycle_budget / max_instructions.");
+        const cycles = cycle_budget ?? Math.max(1, (max_instructions ?? 100_000) * 2);
+        await runtimeDaemon.run(session_id, cycles);
+        const { c64Cycles, cpu } = await runtimeDaemon.state(session_id);
+        return { content: [{ type: "text" as const, text: `Ran up to ~${cycles} cycles (Runtime Daemon). cycles=${c64Cycles} pc=${formatHexWord(cpu.pc)}` }] };
+      }
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
@@ -425,6 +450,19 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Snapshot a running session's machine state — both CPUs, IEC bus, drive, cycle counts. Use to check where execution is. Not for the agent-API surface report (use runtime_status, advanced). Inputs: session_id. Returns: CPU/IEC/drive snapshot.",
     { session_id: z.string() },
     safeHandler("runtime_session_status", async ({ session_id }) => {
+      // Spec 744.4c — read the session from the shared Runtime Daemon (the same
+      // machine the UI drives), not a private MCP-process session.
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const { c64Cycles, mode, cpu } = await runtimeDaemon.state(session_id);
+        return { content: [{ type: "text" as const, text: [
+          `Runtime session status (Runtime Daemon) — ${session_id}`,
+          ``,
+          `C64 CPU: PC=${formatHexWord(cpu.pc)} A=${formatHexByte(cpu.a)} X=${formatHexByte(cpu.x)} Y=${formatHexByte(cpu.y)} SP=${formatHexByte(cpu.sp)} P=${formatHexByte(cpu.flags)}`,
+          `         cycles=${c64Cycles}`,
+          `Mode: ${mode}`,
+        ].join("\n") }] };
+      }
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
@@ -457,10 +495,12 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Close a runtime session and release its resources. Use when finished with a session started by runtime_session_start: it stops the RuntimeController loop (which otherwise keeps ticking the session and pegs a CPU core ~100% after you are done), finalizes any active streaming trace, and removes the session from the registry — the clean alternative to killing the process. Not for pausing to inspect then resuming (keep the session and use runtime_session_run) or for finalizing only a trace (use runtime_trace_finalize). Inputs: session_id. Returns: what was released. Idempotent (closing an unknown/already-closed session is a no-op success).",
     { session_id: z.string() },
     safeHandler("runtime_session_close", async ({ session_id }) => {
-      // Spec 744.4 — close goes through the single runtime authority (finalize
-      // trace + dispose controller + drop session). Idempotent.
-      const { runtimeSessions } = await import("../runtime/headless/runtime-session-service.js");
-      const { existed, released } = await runtimeSessions.close(session_id);
+      // Spec 744.4c — close the session in the shared Runtime Daemon (or in-process).
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { existed, released } = isDaemonMode()
+        ? await runtimeDaemon.closeSession(session_id)
+        // Spec 744.4 — in-process: finalize trace + dispose controller + drop session.
+        : await (await import("../runtime/headless/runtime-session-service.js")).runtimeSessions.close(session_id);
       return {
         content: [{
           type: "text" as const,
@@ -660,6 +700,23 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       path: z.string().describe("Output PNG path"),
     },
     safeHandler("runtime_render_screen", async ({ session_id, path }) => {
+      // Spec 744.4c — render the shared Runtime Daemon session's screen. The daemon
+      // returns a base64 PNG (same frame the UI sees); write it to the requested path.
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const shot = await runtimeDaemon.screenshot(session_id);
+        const dataUrl = shot.dataUrl ?? "";
+        const b64 = dataUrl.includes(",") ? dataUrl.slice(dataUrl.indexOf(",") + 1) : dataUrl;
+        const buf = Buffer.from(b64, "base64");
+        const { writeFileSync } = await import("node:fs");
+        writeFileSync(path, buf);
+        return { content: [{ type: "text" as const, text: [
+          `runtime_render_screen — session ${session_id} (Runtime Daemon)`,
+          `Output: ${path}`,
+          `Dimensions: ${shot.width ?? "?"}×${shot.height ?? "?"}`,
+          `Bytes: ${buf.length}`,
+        ].join("\n") }] };
+      }
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
