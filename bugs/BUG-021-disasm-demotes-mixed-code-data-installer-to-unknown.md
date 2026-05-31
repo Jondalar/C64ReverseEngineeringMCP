@@ -233,9 +233,11 @@ Gate assertions:
     runtimeAddr}` proposals through `propose_annotations`, ready to feed back
     into `disasm_prg.relocations`.
 - **Fix commits:** Spec 741 Slice A `d5c5d13d`, Slice B `fdfd4aa7`, Slice C+D
-  (this change).
+  `1ebbdc39`, + 741 sanity (surface docs + MCP E2E).
 - **Gate proving the fix:** `scripts/smoke-741-relocated-code-pseudopc.mjs`
-  (50/50). Scenario 7 is the deterministic BUG-021 split proof (whole-island
+  (50/50) + `scripts/e2e-741-mcp-relocation-flow.mjs` (13/13, full MCP-stdio
+  analyze_prg → propose_annotations → disasm_prg(relocations) → assemble_source
+  byte-match). Scenario 7 is the deterministic BUG-021 split proof (whole-island
   demote without coverage → split with coverage; trusted-entry code preserved,
   tail isolated, `mixed-island-split` tag); scenario 8 is the end-to-end
   analyze_prg check that the trusted entry is not buried in one `unknown` wall.

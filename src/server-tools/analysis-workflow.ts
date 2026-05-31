@@ -245,7 +245,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "disasm_prg",
-    "Disassemble a PRG to KickAssembler .asm + 64tass .tass, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. Not for the structural scan (use analyze_prg) or for menus/multi-file containers (use disasm_menu). Inputs: prg_path, optional analysis_json, entry_points, platform. Returns: .asm/.tass artifact paths.",
+    "Disassemble a PRG to KickAssembler .asm + 64tass .tass, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations` (Spec 741): each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze_prg / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze_prg) or for menus/multi-file containers (use disasm_menu). Inputs: prg_path, optional analysis_json, entry_points, platform, relocations. Returns: .asm/.tass artifact paths.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from prg_path to knowledge/phase-plan.json."),
       prg_path: z.string().describe("Path to the .prg file"),
@@ -510,7 +510,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "propose_annotations",
-    "Generate a DRAFT annotations file (labels, segment reclassifications, routine names) from an analysis JSON + optional disasm. Use to bootstrap semantic annotation before hand-editing. Not for saving confirmed knowledge (use save_finding / save_entity); it never overwrites a manual annotations file. Inputs: analysis JSON, optional disasm, persist_questions. Returns: draft annotations path.",
+    "Generate a DRAFT annotations file (labels, segment reclassifications, routine names, and Spec 741 relocations) from an analysis JSON + optional disasm. Use to bootstrap semantic annotation before hand-editing. The draft's relocations[] entries are in disasm_prg.relocations shape ({fileStart,fileEnd,runtimeAddr} hex) — copy accepted ones straight into disasm_prg(relocations=[...]) to render relocated loader code as .pseudopc/.logical. Not for saving confirmed knowledge (use save_finding / save_entity); it never overwrites a manual annotations file. Inputs: analysis JSON, optional disasm, persist_questions. Returns: draft annotations path.",
     {
       project_dir: z.string().optional(),
       analysis_json: z.string().describe("Path to the *_analysis.json file (relative to project_dir)."),

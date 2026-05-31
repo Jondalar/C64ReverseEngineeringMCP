@@ -1,9 +1,10 @@
 # Spec 741 — Relocated-Code Disassembly (`.pseudopc`/`.logical`) + Optional Whole-Disk Source Assembly
 
-**Status:** CORE DONE — 2026-05-31 (Slices A–D shipped; §4 whole-disk `.include`
-export remains an optional non-goal). Driven by the Wasteland EF reverse-engineering project.
+**Status:** DONE — 2026-05-31 (Slices A–D shipped; §4 whole-disk `.include`
+export is explicitly an optional non-goal, not part of this spec's DONE bar).
+Driven by the Wasteland EF reverse-engineering project.
 
-**Implementation (Slices A–D, gate `scripts/smoke-741-relocated-code-pseudopc.mjs` 50/50):**
+**Implementation (Slices A–D, gates `smoke-741` 50/50 + MCP E2E `e2e-741` 13/13):**
 - **A** — `disasm_prg.relocations[]` → KickAssembler `.pseudopc` / 64tass
   `.logical`/`.here` at the runtime PC; stored bytes byte-exact; one source file
   per payload; default output unchanged. (`d5c5d13d`)
