@@ -30,4 +30,4 @@ Human + LLM E2E bug log for the C64RE MCP/UI product flow.
 | BUG-019 | UI shows stale ASM version instead of latest/best artifact version | workspace-ui / knowledge | high | fixed (A: 8d4faf3d; B: Spec 730 §7 artifact version store) |
 | BUG-020 | Header hero contains dashboard metrics and filters | workspace-ui | medium | open |
 | BUG-021 | Spec 741 fixture: relocated loader is demoted to unknown instead of rendered as runtime code | analysis | high | fixed (Spec 741 A–D; smoke-741 50/50) |
-| BUG-022 | `.gitignore` `analysis/` rule also ignores `pipeline/src/analysis/` source | build / repo-hygiene | medium | open |
+| BUG-022 | `.gitignore` `analysis/` rule also ignores `pipeline/src/analysis/` source | build / repo-hygiene | medium | fixed |

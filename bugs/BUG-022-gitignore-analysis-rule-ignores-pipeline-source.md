@@ -5,7 +5,7 @@
 - **Reporter:** claude
 - **Area:** build / repo-hygiene
 - **Severity:** medium
-- **Status:** open
+- **Status:** fixed
 
 ## What happened
 
@@ -52,7 +52,12 @@ risks un-ignoring unintended paths). Verify nothing under a real runtime
 
 ## Resolution (fill on fix)
 
-- **Root cause:**
-- **Fix commit:**
-- **Gate proving the fix:**
-- **Regression risk:**
+- **Root cause:** `.gitignore` used a bare `analysis/` directory pattern, which
+  matches nested source directories such as `pipeline/src/analysis/` instead of
+  only the repo-root runtime output directory.
+- **Fix commit:** pending — `.gitignore` now uses anchored `/analysis/`.
+- **Gate proving the fix:** `git check-ignore -v pipeline/src/analysis/foo.ts`
+  returns no match, while `git check-ignore -v analysis/foo` still matches
+  `.gitignore:/analysis/`.
+- **Regression risk:** Low. The intended root output directory remains ignored;
+  nested source directories named `analysis` are no longer hidden.

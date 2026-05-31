@@ -5,7 +5,7 @@ build/
 knowledge/
 ui/dist-v3/
 .DS_Store
-analysis/
+/analysis/
 monitor.log
 samples/*
 !samples/test-manifest.json
