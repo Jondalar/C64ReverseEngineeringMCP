@@ -74,7 +74,7 @@ import {
   type Alarm,
   type AlarmContext,
 } from "../alarm/alarm-context.js";
-import { u8, u16, u32, type BYTE, type WORD, type CLOCK } from "../util/uint.js";
+import { u8, u16, type BYTE, type WORD, type CLOCK } from "../util/uint.js";
 import {
   type BadlineFetchResult,
   type BadlineBus,
@@ -837,18 +837,19 @@ export class VicIIVice {
 
     if (line < this.screen_height) {
       const clk = this.clkPtr();
-      const lineStartClk = u32(clk - this.raster_cycle);
+      // Spec 743 — fire clock is absolute runtime time: monotonic, no u32.
+      const lineStartClk = clk - this.raster_cycle;
       const currentLine = this.raster_y;
       let fireClk: CLOCK;
       // VICE 127-137: pick the next line == compare in the same or
       // next frame.
       if (line > currentLine) {
-        fireClk = u32(lineStartClk + VICII_RASTER_IRQ_DELAY + this.cycles_per_line * (line - currentLine));
+        fireClk = lineStartClk + VICII_RASTER_IRQ_DELAY + this.cycles_per_line * (line - currentLine);
       } else {
-        fireClk = u32(lineStartClk + VICII_RASTER_IRQ_DELAY + this.cycles_per_line * (line + this.screen_height - currentLine));
+        fireClk = lineStartClk + VICII_RASTER_IRQ_DELAY + this.cycles_per_line * (line + this.screen_height - currentLine);
       }
       // VICE line 144-146: line 0 +1 cycle delay.
-      if (line === 0) fireClk = u32(fireClk + 1);
+      if (line === 0) fireClk = fireClk + 1;
 
       this.raster_irq_clk = fireClk;
       alarmSet(this.raster_irq_alarm, fireClk);
@@ -864,7 +865,8 @@ export class VicIIVice {
   rasterIrqAlarmHandler(_offset: CLOCK): void {
     this.viciiIrqRasterSet();
     // VICE: vicii_irq_next_frame — re-arm alarm for next frame.
-    this.raster_irq_clk = u32(this.raster_irq_clk + this.screen_height * this.cycles_per_line);
+    // Spec 743 — absolute fire clock is monotonic, no u32.
+    this.raster_irq_clk = this.raster_irq_clk + this.screen_height * this.cycles_per_line;
     alarmSet(this.raster_irq_alarm, this.raster_irq_clk);
   }
 
