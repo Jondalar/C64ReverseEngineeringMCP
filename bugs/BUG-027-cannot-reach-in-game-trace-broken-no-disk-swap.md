@@ -150,9 +150,45 @@ high-level disk-swap-prompt flow instead of raw `run/type/swap` guessing.
 
 ---
 
-## Resolution (fill on fix)
+## Resolution (partial — Blockers 1 + 3 fixed; Blocker 2 diagnosed)
 
-- **Root cause:**
-- **Fix commit:**
-- **Gate proving the fix:**
-- **Regression risk:**
+### Blocker 1 — trace worker module-not-found — FIXED (Spec 744.2)
+
+- **Root cause:** the MCP server runs from SOURCE via `npx tsx src/cli.ts` (every
+  project `.mcp.json`), so `binary-log-writer`'s `import.meta.url` is the `.ts`
+  under `src/`; `workerScriptPath()` only tried the sibling `.js` (never exists in
+  `src/`). The built worker lives in `dist/` but was never tried.
+- **Fix:** `workerScriptPath()` resolves sibling `.js` (dist run) → else the `dist/`
+  twin (tsx-from-src; the dist worker is plain JS, no tsx loader needed inside the
+  thread) → else a clear "run build:mcp" error.
+- **Gate:** `npm run e2e:744-2` (5/5) — imports the writer from `src/` under tsx
+  (the exact failing condition), constructs the writer (spawns the worker), writes +
+  finalizes a `.c64retrace`.
+
+### Blocker 3 — idle ~100% CPU / no close — FIXED (Spec 744.3)
+
+- **Root cause:** a running RuntimeController keeps scheduling its tick; `stopIntegratedSession()`
+  only did `sessions.delete()` and never disposed the controller, so the loop ticked
+  an orphaned session forever. No close/stop tool was on the default surface.
+- **Fix:** new default tool `runtime_session_close` — finalizes an active trace,
+  `disposeRuntimeController` (cancels the loop), drops the session. Idempotent.
+- **Gate:** `npm run probe:744-3` (9/9).
+
+### Blocker 2 — disk-swap not detected — DIAGNOSED, fix pending (Spec 744.5)
+
+- **Finding:** the facade IS VICE-faithful — `swapDisk` → `detachDisk`/`attachDisk`
+  call `drive_image_detach`/`drive_image_attach`, which DO set `detach_clk` and (on
+  attach-after-detach) `attach_detach_clk` (`vice1541/driveimage.ts:395-397,505`). So
+  the write-protect-sense state machine (`drive.ts:1661` `drive_writeprotect_sense`,
+  VIA2 PB4 / 0x10) IS armed. The earlier "zero elapsed cycles → no pulse" hypothesis
+  is wrong: the WPS pulse (0x0 → 0x10 → 0x0) fires as the **drive clock advances**
+  through `DRIVE_DETACH_DELAY` (600k) → `DRIVE_ATTACH_DETACH_DELAY` (1.2M) →
+  `DRIVE_ATTACH_DELAY` (1.8M) cycles after the swap.
+- **Open question (needs a runtime swap trace, NOT static reading):** does the drive
+  clock (`diskunit_clk`) advance enough after the swap for the pulse window, and does
+  the 1541 DOS poll WPS within it? Suspect either (a) the drive idles (no IEC traffic
+  → `diskunit_clk` not advancing) while the game waits, so the window never expires,
+  or (b) the ~1.8M-cycle delays are mismatched for an instant headless swap. Capture
+  a trace of `drive_pc`, `$1c00` reads (VIA2 PB), `byte_ready`, and `diskunit_clk`
+  across a `runtime_media_swap` and find the first divergence before patching
+  (Spec 620 doctrine). Deferred — fidelity-critical 1541 timing, own slice.
