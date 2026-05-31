@@ -16,7 +16,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, existsSync, copyFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -103,9 +103,16 @@ try {
   ok(okText(await callTool("project_init", { project_dir: projectDir, name: "E2E Trace Flow" })), "3 project_init (external dir)", "");
   await callTool("start_re_workflow", { project_dir: projectDir, workflow: "cracker-only" });
 
+  // project_init (BUG-015) sorts top-level media into typed input/ folders, so
+  // the disk now lives under input/disk/. Resolve the post-sort path (fall back
+  // to the original if a future init stops relocating media).
+  const sortedDisk = join(projectDir, "input", "disk", "game.d64");
+  const sessionDisk = existsSync(sortedDisk) ? sortedDisk : diskPath;
+  ok(existsSync(sessionDisk), "3b disk resolves after project_init media-sort", relative(projectDir, sessionDisk));
+
   // start Headless with a durable trace, media from the project dir (abs path).
   const startRes = await callTool("runtime_session_start", {
-    disk_path: diskPath, trace_out: tracePath, trace_domains: ["c64-cpu", "memory"],
+    disk_path: sessionDisk, trace_out: tracePath, trace_domains: ["c64-cpu", "memory"],
   }, 60000);
   ok(okText(startRes), "4 runtime_session_start(disk_path, trace_out) on project media", "");
   const startText = textOf(startRes);
