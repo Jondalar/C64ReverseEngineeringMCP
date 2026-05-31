@@ -128,7 +128,7 @@ export function todReset(tod: CiaTodState, cCia: Uint8Array, currentClk: CLOCK):
   tod.todlatch[1] = cCia[CIA_TOD_SEC]!;
   tod.todlatch[2] = cCia[CIA_TOD_MIN]!;
   tod.todlatch[3] = cCia[CIA_TOD_HR]!;
-  tod.todclk = u32(currentClk + tod.todticks);
+  tod.todclk = currentClk + tod.todticks; // Spec 743 — absolute clk, monotonic
   tod.todtickcounter = 0;
   tod.power_tickcounter = 0;
   tod.power_ticks = 0;
@@ -169,7 +169,7 @@ export function todTickCallback(
 ): boolean {
   if (tod.power_freq === 0) {
     // Mirrors VICE early-return: re-check in ~1/10s.
-    tod.todclk = u32(currentClk + 100000);
+    tod.todclk = currentClk + 100000; // Spec 743 — absolute clk, monotonic
     return false;
   }
 
@@ -191,7 +191,7 @@ export function todTickCallback(
     tod.power_ticks = u32(tod.power_ticks + tod.todticks);
   }
 
-  tod.todclk = u32(currentClk + tod.todticks);
+  tod.todclk = currentClk + tod.todticks; // Spec 743 — absolute clk, monotonic
 
   // ciacore.c lines 1908-1933 — 3-bit ring counter that divides power
   // ticks down to 10Hz. 50Hz matches at counter=4, 60Hz matches at 5.

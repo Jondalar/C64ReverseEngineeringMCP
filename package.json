@@ -169,6 +169,7 @@
     "smoke:026": "npm run build:mcp && node scripts/smoke-026-keymap.mjs",
     "probe:743-1": "npm run build:mcp && node scripts/probe-743-1-alarm-primitive.mjs",
     "probe:743-2": "npm run build:mcp && node scripts/probe-743-2-interrupt-vic.mjs",
+    "probe:743-3": "npm run build:mcp && node scripts/probe-743-3-cia-tod.mjs",
     "build:fingerprints": "npm run build:mcp && node scripts/build-fingerprint-library.mjs",
     "smoke:fingerprint": "npm run build:mcp && node scripts/smoke-fingerprint.mjs",
     "smoke:follow-path": "npm run build:mcp && node scripts/smoke-follow-path.mjs",

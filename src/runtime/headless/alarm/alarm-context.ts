@@ -217,8 +217,10 @@ export function alarmContextRestoreSchedule(
  *
  * Shifts every pending alarm's clk by `warp_amount` in the given
  * direction. Direction 0 → no-op (matches VICE early-return). Positive
- * → add, negative → subtract. We fold through `u32` so wrap matches
- * VICE uint32 semantics.
+ * → add, negative → subtract. Spec 743: absolute clk is monotonic, so the
+ * shift is a plain add/subtract (no u32 wrap). NOTE: currently has no caller
+ * (the monotonic CLOCK never needs a clkguard-style rebase); kept correct in
+ * case a future rewind/offset feature wires it.
  */
 export function alarmContextTimeWarp(
   context: AlarmContext,
@@ -232,20 +234,16 @@ export function alarmContextTimeWarp(
   for (let i = 0; i < context.num_pending_alarms; i++) {
     const slot = context.pending_alarms[i]!;
     if (warpDirection > 0) {
-      slot.clk = u32(slot.clk + warpAmount);
+      slot.clk = slot.clk + warpAmount;
     } else {
-      slot.clk = u32(slot.clk - warpAmount);
+      slot.clk = slot.clk - warpAmount;
     }
   }
 
   if (warpDirection > 0) {
-    context.next_pending_alarm_clk = u32(
-      context.next_pending_alarm_clk + warpAmount,
-    );
+    context.next_pending_alarm_clk = context.next_pending_alarm_clk + warpAmount;
   } else {
-    context.next_pending_alarm_clk = u32(
-      context.next_pending_alarm_clk - warpAmount,
-    );
+    context.next_pending_alarm_clk = context.next_pending_alarm_clk - warpAmount;
   }
 }
 

@@ -15,6 +15,8 @@
 // All bit math uses `& 0xff` / `& 0xffff` / `>>> 0` to mirror C
 // uint8_t / uint16_t / uint32_t semantics.
 
+import { CLOCK_NEVER } from "../util/uint.js";
+
 export const CIAT_TABLEN = 2 << 13;            // 16384
 
 export const CIAT_CR_MASK    = 0x039;
@@ -249,8 +251,8 @@ export class Ciat {
   // ciatimer.h:155-228 ciat_set_alarm — verbatim port of VICE predict-walk.
   //
   // Predicts the exact clock of the next timer underflow without mutating
-  // timer state. Returns the predicted alarm clock, or 0xffffffff (CLOCK_MAX)
-  // if the timer is stopped or won't fire.
+  // timer state. Returns the predicted alarm clock, or CLOCK_NEVER (Spec 743 —
+  // monotonic "never", not 0xffffffff) if the timer is stopped or won't fire.
   //
   // Algorithm: walks local copies of (aclk, cnt, t) one cycle at a time
   // until one of three terminal conditions is reached:
@@ -263,7 +265,8 @@ export class Ciat {
   // cycle-exact. This replaces the "clk + cnt + 1" heuristic that was
   // wrong by ~1 cycle at load/reload boundaries.
   setAlarm(_cclk: number): number {
-    const CLOCK_MAX = 0xffffffff >>> 0;
+    // Spec 743 — "won't fire" sentinel is the monotonic CLOCK_NEVER, not the old
+    // uint32 0xffffffff (which a >2^32 maincpu clk would read as "already due").
     const tab = ciat_table();
 
     let tmp: number = 0;
@@ -285,7 +288,7 @@ export class Ciat {
          (!(t & CIAT_CR_ONESHOT) && !(t & CIAT_ONESHOT0) &&
           !(t & CIAT_ONESHOT)))
       ) {
-        tmp = (aclk + cnt) >>> 0;
+        tmp = aclk + cnt; // Spec 743 — absolute clk, monotonic
         break;
       }
       // ---- Warp stopped (ciatimer.h:181-188) -----------------------------
@@ -297,7 +300,7 @@ export class Ciat {
          (!(t & CIAT_CR_ONESHOT) && !(t & CIAT_ONESHOT0) &&
           !(t & CIAT_ONESHOT)))
       ) {
-        tmp = CLOCK_MAX;
+        tmp = CLOCK_NEVER;
         break;
       }
       // ---- Step one cycle (ciatimer.h:191-198) ---------------------------
@@ -306,7 +309,7 @@ export class Ciat {
           cnt = (cnt - 1) & 0xffff;
         }
         t = tab[t]! & 0xffff;
-        aclk = (aclk + 1) >>> 0;
+        aclk = aclk + 1; // Spec 743 — absolute clk, monotonic
       }
 
       // ---- Underflow (ciatimer.h:200-203) --------------------------------
@@ -326,6 +329,6 @@ export class Ciat {
       }
     }
 
-    return tmp >>> 0;
+    return tmp; // Spec 743 — absolute clk (or CLOCK_NEVER), monotonic
   }
 }

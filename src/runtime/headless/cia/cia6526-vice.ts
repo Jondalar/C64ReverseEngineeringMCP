@@ -47,7 +47,7 @@ import {
   type Alarm,
   type AlarmContext,
 } from "../alarm/alarm-context.js";
-import { u8, u32, type BYTE, type CLOCK } from "../util/uint.js";
+import { u8, u32, CLOCK_NEVER, type BYTE, type CLOCK } from "../util/uint.js";
 import { Ciat } from "./ciat.js";
 import {
   CIA_TOD_HR,
@@ -341,8 +341,8 @@ export class Cia6526Vice {
   public readonly ta: Ciat;
   public readonly tb: Ciat;
   /** Cached "next underflow clk" for ta_alarm. CLOCK_MAX when not pending. */
-  private ta_alarmclk: CLOCK = 0xffffffff >>> 0;
-  private tb_alarmclk: CLOCK = 0xffffffff >>> 0;
+  private ta_alarmclk: CLOCK = CLOCK_NEVER;
+  private tb_alarmclk: CLOCK = CLOCK_NEVER;
 
   // ---- TOD + SDR submodules -------------------------------------------
   public readonly tod: CiaTodState;
@@ -420,12 +420,12 @@ export class Cia6526Vice {
     this.backend.doResetCia?.();
 
     // VICE: idle alarm fence at clk + CIA_MAX_IDLE_CYCLES.
-    alarmSet(this.idle_alarm, u32(clk + CIA_MAX_IDLE_CYCLES));
+    alarmSet(this.idle_alarm, (clk + CIA_MAX_IDLE_CYCLES));
     alarmUnset(this.ta_alarm);
     alarmUnset(this.tb_alarm);
     alarmUnset(this.sdr_alarm);
-    this.ta_alarmclk = 0xffffffff >>> 0;
-    this.tb_alarmclk = 0xffffffff >>> 0;
+    this.ta_alarmclk = CLOCK_NEVER;
+    this.tb_alarmclk = CLOCK_NEVER;
 
     // Backend pulse — match VICE post-reset port flush.
     this.backend.storePa(0xff, this.old_pa);
@@ -459,7 +459,7 @@ export class Cia6526Vice {
     const clk = this.clkPtr();
     this.read_clk = clk;
     this.read_offset = 0;
-    const rclk = u32(clk - READ_OFFSET);
+    const rclk = clk - READ_OFFSET; // Spec 743 monotonic
 
     this.backend.preRead?.();
 
@@ -913,12 +913,13 @@ export class Cia6526Vice {
    *
    * Sprint 113 Phase 2 (Spec 146) note: VICE relies on the CPU clock
    * being well past `write_offset` before any CIA register access,
-   * so `clk - write_offset` never wraps below zero. Our integrated-
+   * so `clk - write_offset` never goes below zero. Our integrated-
    * session can issue CIA accesses during early boot at cpu.cycles
-   * close to zero — `u32(0 - 1)` wraps to 0xFFFFFFFF and would loop
-   * forever firing every pending alarm. Guard with the realClk peek:
-   * if the *real* (un-offset) clk hasn't reached the next pending
-   * alarm yet, do nothing. The alarm will fire at its proper clk.
+   * close to zero — Spec 743: rclk is now a MONOTONIC number, so an
+   * early `clk - write_offset` is a small NEGATIVE (not the old
+   * `u32(0-1)=0xFFFFFFFF` that looped forever firing every alarm). The
+   * realClk peek still guards: if the *real* (un-offset) clk hasn't
+   * reached the next pending alarm, do nothing — it fires at its clk.
    */
   private runPendingAlarms(clk: CLOCK, offset: number): void {
     const realClk = this.clkPtr();
@@ -926,7 +927,7 @@ export class Cia6526Vice {
       clk > alarmContextNextPendingClk(this.alarmContext) &&
       realClk >= alarmContextNextPendingClk(this.alarmContext)
     ) {
-      alarmContextDispatch(this.alarmContext, u32(clk + offset));
+      alarmContextDispatch(this.alarmContext, clk + offset);
     }
   }
 
@@ -980,7 +981,7 @@ export class Cia6526Vice {
     delay = (delay << 1) >>> 0;
     delay = (delay & ~CIA_IRQ_CLEAR) >>> 0;
     this.ifr_delay = delay;
-    this.ifr_clock = u32(this.ifr_clock + 1);
+    this.ifr_clock = this.ifr_clock + 1;
   }
 
   /** VICE: cia_ifr_catchup (ciacore.c lines 522-534). */
@@ -1012,10 +1013,10 @@ export class Cia6526Vice {
       const delay = this.ifr_delay;
       if (delay & CIA_IRQ_RAISE0) {
         // VICE USE_IRQ_RAISE0_SHORTCUT path (default 1).
-        this.mySetInt(1, u32(rclk + 1));
+        this.mySetInt(1, (rclk + 1));
       } else if (delay & CIA_IRQ_RAISE1) {
         // Lorenz imr.prg edge case.
-        alarmSet(this.idle_alarm, u32(rclk + 1));
+        alarmSet(this.idle_alarm, (rclk + 1));
       }
     }
   }
@@ -1055,7 +1056,7 @@ export class Cia6526Vice {
     const n = this.tb.update(rclk);
     if (n) {
       this.ciaSetIrqFlag(rclk, CIA_IM_TB);
-      if (this.model === CIA_MODEL_6526 && this.rdi === u32(rclk - 1)) {
+      if (this.model === CIA_MODEL_6526 && this.rdi === rclk - 1) {
         this.irqflags |= CIA_IM_TBB;
       } else {
         this.irqflags &= ~CIA_IM_TBB;
@@ -1083,8 +1084,8 @@ export class Cia6526Vice {
 
     // VICE while-loop dispatches per-cycle alarm fires up to & including
     // rclk. We drive directly through ciacore_intta which reschedules.
-    while (tmp <= rclk && tmp !== (0xffffffff >>> 0)) {
-      this.ciacoreIntta(u32(this.clkPtr() - tmp));
+    while (tmp <= rclk && tmp !== (CLOCK_NEVER)) {
+      this.ciacoreIntta(this.clkPtr() - tmp);
       lastTmp = tmp;
       tmp = this.ta_alarmclk;
     }
@@ -1102,8 +1103,8 @@ export class Cia6526Vice {
 
     let lastTmp: CLOCK = 0;
     let tmp: CLOCK = this.tb_alarmclk;
-    while (tmp <= rclk && tmp !== (0xffffffff >>> 0)) {
-      this.ciacoreInttb(u32(this.clkPtr() - tmp));
+    while (tmp <= rclk && tmp !== (CLOCK_NEVER)) {
+      this.ciacoreInttb(this.clkPtr() - tmp);
       lastTmp = tmp;
       tmp = this.tb_alarmclk;
     }
@@ -1119,24 +1120,23 @@ export class Cia6526Vice {
    * Ciat.setAlarm() — the predict-walk lives in the Ciat class next to
    * the timer state machine where it belongs (Spec 145 Phase 2).
    *
-   * Ciat.setAlarm() returns the exact underflow clock (or 0xffffffff when
-   * the timer is stopped / will never fire). We store that in ta_alarmclk /
-   * tb_alarmclk and drive alarm_set / alarm_unset identically to VICE lines
-   * 220-225.
+   * Ciat.setAlarm() returns the exact underflow clock (or CLOCK_NEVER when
+   * the timer is stopped / will never fire — Spec 743 monotonic sentinel). We
+   * store that in ta_alarmclk / tb_alarmclk and drive alarm_set / alarm_unset
+   * identically to VICE lines 220-225.
    */
   private ciatSetAlarm(t: Ciat, rclk: CLOCK): void {
-    const CLOCK_MAX = 0xffffffff >>> 0;
     const tmp = t.setAlarm(rclk);
     if (t === this.ta) {
       this.ta_alarmclk = tmp;
-      if (tmp !== CLOCK_MAX) {
+      if (tmp !== CLOCK_NEVER) {
         alarmSet(this.ta_alarm, tmp);
       } else {
         alarmUnset(this.ta_alarm);
       }
     } else {
       this.tb_alarmclk = tmp;
-      if (tmp !== CLOCK_MAX) {
+      if (tmp !== CLOCK_NEVER) {
         alarmSet(this.tb_alarm, tmp);
       } else {
         alarmUnset(this.tb_alarm);
@@ -1147,10 +1147,10 @@ export class Cia6526Vice {
   /** VICE: ciat_ack_alarm (ciatimer.h lines 436-445). */
   private ciatAckAlarm(t: Ciat, _rclk: CLOCK): void {
     if (t === this.ta) {
-      this.ta_alarmclk = 0xffffffff >>> 0;
+      this.ta_alarmclk = CLOCK_NEVER;
       alarmUnset(this.ta_alarm);
     } else {
-      this.tb_alarmclk = 0xffffffff >>> 0;
+      this.tb_alarmclk = CLOCK_NEVER;
       alarmUnset(this.tb_alarm);
     }
   }
@@ -1159,7 +1159,7 @@ export class Cia6526Vice {
 
   /** VICE: ciacore_intta (ciacore.c lines 1458-1515). */
   private ciacoreIntta(offset: CLOCK): void {
-    const rclk = u32(this.clkPtr() - offset);
+    const rclk = this.clkPtr() - offset; // Spec 743 monotonic
     this.ciaDoUpdateTa(rclk);
     this.ciatAckAlarm(this.ta, rclk);
 
@@ -1195,7 +1195,7 @@ export class Cia6526Vice {
 
   /** VICE: ciacore_intta_entry (ciacore.c lines 1520-1529). */
   private ciacoreInttaEntry(offset: CLOCK, _data: unknown): void {
-    const rclk = u32(this.clkPtr() - offset);
+    const rclk = this.clkPtr() - offset; // Spec 743 monotonic
     this.ciacoreIntta(offset);
     this.ciaIfrCatchup(rclk);
     this.ciaIfrCurrent(rclk, "cur_nxt");
@@ -1203,7 +1203,7 @@ export class Cia6526Vice {
 
   /** VICE: ciacore_inttb (ciacore.c lines 1539-1570). */
   private ciacoreInttb(offset: CLOCK): void {
-    const rclk = u32(this.clkPtr() - offset);
+    const rclk = this.clkPtr() - offset; // Spec 743 monotonic
     this.ciaDoUpdateTb(rclk);
     this.ciatAckAlarm(this.tb, rclk);
 
@@ -1217,7 +1217,7 @@ export class Cia6526Vice {
 
   /** VICE: ciacore_inttb_entry (ciacore.c lines 1575-1584). */
   private ciacoreInttbEntry(offset: CLOCK, _data: unknown): void {
-    const rclk = u32(this.clkPtr() - offset);
+    const rclk = this.clkPtr() - offset; // Spec 743 monotonic
     this.ciacoreInttb(offset);
     this.ciaIfrCatchup(rclk);
     this.ciaIfrCurrent(rclk, "cur_nxt");
@@ -1225,7 +1225,7 @@ export class Cia6526Vice {
 
   /** VICE: ciacore_intsdr_entry (ciacore.c lines 1835-1846). */
   private ciacoreIntsdrEntry(offset: CLOCK, _data: unknown): void {
-    const rclk = u32(this.clkPtr() - offset);
+    const rclk = this.clkPtr() - offset; // Spec 743 monotonic
 
     // Order-fix: if ta_alarm is also pending at rclk, run it first.
     if (this.ta_alarmclk === rclk) {
@@ -1239,7 +1239,7 @@ export class Cia6526Vice {
     if (result.setSdrIrq) this.ciaSetIrqFlag(rclk, CIA_IM_SDR);
 
     if (result.reschedule) {
-      alarmSet(this.sdr_alarm, u32(rclk + 1));
+      alarmSet(this.sdr_alarm, (rclk + 1));
     } else {
       alarmUnset(this.sdr_alarm);
     }
@@ -1252,7 +1252,7 @@ export class Cia6526Vice {
 
   /** VICE: ciacore_inttod_entry (ciacore.c lines 2009-2020). */
   private ciacoreInttodEntry(offset: CLOCK, _data: unknown): void {
-    const rclk = u32(this.clkPtr() - offset);
+    const rclk = this.clkPtr() - offset; // Spec 743 monotonic
     const alarmFired = todTickCallback(this.tod, this.c_cia, this.c_cia[CIA_CRA]!, rclk);
     alarmSet(this.tod_alarm, this.tod.todclk);
     if (alarmFired) {
@@ -1266,10 +1266,10 @@ export class Cia6526Vice {
 
   /** VICE: ciacore_idle (ciacore.c lines 2040-2064). */
   private ciacoreIdle(offset: CLOCK, _data: unknown): void {
-    const rclk = u32(this.clkPtr() - offset);
+    const rclk = this.clkPtr() - offset; // Spec 743 monotonic
     this.ciaUpdateTa(rclk);
     this.ciaUpdateTb(rclk);
-    alarmSet(this.idle_alarm, u32(rclk + CIA_MAX_IDLE_CYCLES));
+    alarmSet(this.idle_alarm, (rclk + CIA_MAX_IDLE_CYCLES));
     this.ciaIfrCatchup(rclk);
     if (this.ifr_clock === rclk) {
       this.ciaIfrCurrent(rclk, "cur_nxt");
@@ -1282,7 +1282,7 @@ export class Cia6526Vice {
     this.ciaSetIrqFlag(rclk, flag);
     // Idle-alarm front-load if not scheduled near future.
     // (We don't have alarm_clk(); just set it — alarmSet refreshes.)
-    alarmSet(this.idle_alarm, u32(rclk + 1));
+    alarmSet(this.idle_alarm, (rclk + 1));
   }
 
   // ---- store_internal -------------------------------------------------
@@ -1293,7 +1293,7 @@ export class Cia6526Vice {
     const v = u8(byte);
 
     const clk = this.clkPtr();
-    const rclk = u32(clk - this.write_offset);
+    const rclk = clk - this.write_offset; // Spec 743 monotonic
 
     this.runPendingAlarms(rclk, this.write_offset);
 
