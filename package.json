@@ -212,7 +212,8 @@
     "smoke:bug019": "npm run ui:build && node scripts/smoke-bug019-best-asm-version.mjs",
     "smoke:744-4": "npm run build:mcp && node scripts/smoke-744-4-session-authority.mjs",
     "probe:744-idle": "npm run build:mcp && node scripts/probe-744-idle-ownership.mjs",
-    "e2e:744-4b": "npm run build:mcp && node scripts/e2e-744-4b-shared-process.mjs"
+    "e2e:744-4b": "npm run build:mcp && node scripts/e2e-744-4b-shared-process.mjs",
+    "e2e:744-4b-install": "npm run build:mcp && node scripts/e2e-744-4b-install.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

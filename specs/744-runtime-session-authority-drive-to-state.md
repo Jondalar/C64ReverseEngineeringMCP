@@ -611,3 +611,18 @@ shared `runtimeSessions` and starts a `V3WsServer` on that port IN THE SAME PROC
   + UI WS (proven on the real topology). Deployment: set `C64RE_RUNTIME_WS` in the
   project `.mcp.json`. (The drive-to-state orchestration §7 / disk-swap §7.2 remain
   separate open items of Spec 744, unrelated to session authority.)
+
+### 744.4b hardening / install integration (2026-05-31)
+- **Startup safety:** the co-host must never block the MCP. `src/cli.ts` starts the
+  stdio server FIRST, then fires `maybeHostRuntimeWs()` (no await) and creates the
+  default session PAUSED — NOT pre-booted (a synchronous `runFor(2M)` froze the event
+  loop and stalled MCP startup under tsx). MCP now answers `initialize` in ~280ms while
+  the WS comes up at ~1.5s.
+- **Install template:** `mcp-config-example.json` + the README `.mcp.json` example now
+  set `C64RE_RUNTIME_WS=4312` by default, so a fresh install gets the shared-authority
+  WS without a hidden env trick. README env table + "Running The Workbenches" updated:
+  the MCP hosts the runtime WS; `v3:server` (start-v3-server) is DEV-ONLY standalone.
+- **Gate:** `npm run e2e:744-4b-install` (8/8) — generates a `.mcp.json` for a temp
+  project OUTSIDE the repo, launches the server with that config's env, and proves the
+  MCP responds fast AND co-hosts the WS AND both surfaces share one authority. So **a
+  fresh external LLM launched from `.mcp.json` gets the co-hosted WS by default.**

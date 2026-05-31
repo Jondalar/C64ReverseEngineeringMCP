@@ -5,7 +5,8 @@
       "args": ["tsx", "/CHANGE_THIS/C64ReverseEngineeringMCP/src/cli.ts"],
       "env": {
         "C64RE_TOOLS_DIR": "/CHANGE_THIS/your-trxdis-project",
-        "C64RE_PROJECT_DIR": "/CHANGE_THIS/your-re-project"
+        "C64RE_PROJECT_DIR": "/CHANGE_THIS/your-re-project",
+        "C64RE_RUNTIME_WS": "4312"
       }
     }
   }

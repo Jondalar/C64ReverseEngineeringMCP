@@ -134,6 +134,7 @@ The bundled TRXDis pipeline is built automatically.
 | Variable | Description | Required |
 |---|---|---|
 | `C64RE_PROJECT_DIR` | Working directory for the RE project | Yes |
+| `C64RE_RUNTIME_WS` | Port for the Live runtime WS the MCP process co-hosts (Spec 744.4b). Set to `4312` for normal product use → the LLM (MCP) and the human UI share ONE runtime session authority in the MCP process. | Recommended (`4312`) |
 | `C64RE_TOOLS_DIR` | Override: external TRXDis build instead of bundled | No |
 | `C64RE_KICKASS_JAR` | Override path to KickAssembler jar | No |
 | `C64RE_64TASS_BIN` | Override path to `64tass` | No |
@@ -153,13 +154,25 @@ Add `.mcp.json` at the RE-project root:
     "c64-re": {
       "command": "npx",
       "args": ["tsx", "/path/to/C64ReverseEngineeringMCP/src/cli.ts"],
-      "env": { "C64RE_PROJECT_DIR": "/path/to/your/re-project" }
+      "env": {
+        "C64RE_PROJECT_DIR": "/path/to/your/re-project",
+        "C64RE_RUNTIME_WS": "4312"
+      }
     }
   }
 }
 ```
 
 Use a full path to `npx` if your shell uses `nvm`.
+
+`C64RE_RUNTIME_WS` (Spec 744.4b) makes this MCP process **co-host the Live runtime
+WebSocket** on that port, so the LLM (over MCP) and the human UI (over the WS) share
+ONE runtime session authority — the human can watch/drive the LLM's session and
+vice-versa. For product use, set it to `4312` and open the UI against that port; do
+**not** also run the standalone `start-v3-server` (that would be a second, separate
+runtime authority and a port conflict). Omit it and the MCP is runtime-only (no UI
+sharing). Note: the co-hosted sessions live in the MCP process — reconnecting the MCP
+restarts the process and resets sessions.
 
 ### Codex
 
@@ -176,10 +189,15 @@ env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 C64/1541 clock, monitor state, media state, trace capture, and WebSocket
 streams; the browser is a command and visualization client.
 
+**Product (shared authority, Spec 744.4b):** set `C64RE_RUNTIME_WS=4312` in the
+`.mcp.json` (above). The **MCP process hosts the runtime WS itself** — open the V3
+browser client against `:4312` and the human shares the LLM's live session. Do NOT
+run `v3:server` for product sessions (it is a SEPARATE runtime authority).
+
 ```bash
-npm run v3:server           # runtime WebSocket/API server
-npm run ui:v3:dev           # V3 browser client
+npm run ui:v3:dev           # V3 browser client (connects to the MCP-hosted WS :4312)
 npm run ui:v3:build         # production V3 bundle
+npm run v3:server           # DEV-ONLY standalone runtime WS (no MCP / no shared authority)
 ```
 
 Runtime / backend / UI details: [docs/tools/headless.md](docs/tools/headless.md).
