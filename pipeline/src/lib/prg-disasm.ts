@@ -2219,41 +2219,48 @@ function renderCodeSegment(
   }
 }
 
+// Render a single analysis-driven segment (header + label + body). Extracted
+// so the relocation-aware path (Spec 741) can interleave gap segments with
+// .pseudopc blocks while reusing identical per-segment rendering.
+function renderOneAnalysisSegment(segment: Segment, prg: PrgImage, analysis: RenderAnalysisContext, lines: string[]): void {
+  lines.push(...segmentHeader(segment, analysis));
+
+  if (!(segment.kind === "code" || segment.kind === "basic_stub") && analysis.labelSet.has(segment.start)) {
+    lines.push(`${makeLabel(segment.start)}:${labelCommentTextFromAnalysis(segment.start, analysis.xrefsByTarget)}`);
+  }
+
+  if (segment.kind === "code" || segment.kind === "basic_stub") {
+    renderCodeSegment(segment, prg, analysis, lines);
+  } else if (segment.kind === "petscii_text") {
+    const hasInteriorLabels = Array.from(analysis.labelSet).some((address) => address > segment.start && address <= segment.end);
+    if (hasInteriorLabels) {
+      emitByteRange(prg.data, prg.loadAddress, segment.start, segment.end, lines, analysis, true);
+    } else {
+      emitPetsciiTextSegment(prg, segment, lines);
+    }
+  } else if (segment.kind === "sprite") {
+    // If annotation reclassifies this segment, render as plain bytes instead of sprite art
+    const annotationOverride = analysis.annotations?.segmentsByStart.get(segment.start);
+    const effectiveKind = annotationOverride?.kind ?? segment.kind;
+    const hasInteriorLabels = Array.from(analysis.labelSet).some((address) => address > segment.start && address <= segment.end);
+    if (effectiveKind !== "sprite" || hasInteriorLabels) {
+      emitByteRange(prg.data, prg.loadAddress, segment.start, segment.end, lines, analysis, true);
+    } else {
+      emitSpriteSegment(prg, segment, lines);
+    }
+  } else if (segment.kind === "pointer_table") {
+    emitPointerTableSegment(prg, segment, lines, analysis);
+  } else {
+    emitByteRange(prg.data, prg.loadAddress, segment.start, segment.end, lines, analysis, true);
+  }
+
+  lines.push("");
+}
+
 function renderWithAnalysis(prg: PrgImage, analysis: RenderAnalysisContext, lines: string[]): void {
   lines.push(...renderAnalysisPreface(analysis));
   for (const segment of buildAnnotatedSegments(analysis.segments, analysis.annotations?.segmentAnnotations)) {
-    lines.push(...segmentHeader(segment, analysis));
-
-    if (!(segment.kind === "code" || segment.kind === "basic_stub") && analysis.labelSet.has(segment.start)) {
-      lines.push(`${makeLabel(segment.start)}:${labelCommentTextFromAnalysis(segment.start, analysis.xrefsByTarget)}`);
-    }
-
-    if (segment.kind === "code" || segment.kind === "basic_stub") {
-      renderCodeSegment(segment, prg, analysis, lines);
-    } else if (segment.kind === "petscii_text") {
-      const hasInteriorLabels = Array.from(analysis.labelSet).some((address) => address > segment.start && address <= segment.end);
-      if (hasInteriorLabels) {
-        emitByteRange(prg.data, prg.loadAddress, segment.start, segment.end, lines, analysis, true);
-      } else {
-        emitPetsciiTextSegment(prg, segment, lines);
-      }
-    } else if (segment.kind === "sprite") {
-      // If annotation reclassifies this segment, render as plain bytes instead of sprite art
-      const annotationOverride = analysis.annotations?.segmentsByStart.get(segment.start);
-      const effectiveKind = annotationOverride?.kind ?? segment.kind;
-      const hasInteriorLabels = Array.from(analysis.labelSet).some((address) => address > segment.start && address <= segment.end);
-      if (effectiveKind !== "sprite" || hasInteriorLabels) {
-        emitByteRange(prg.data, prg.loadAddress, segment.start, segment.end, lines, analysis, true);
-      } else {
-        emitSpriteSegment(prg, segment, lines);
-      }
-    } else if (segment.kind === "pointer_table") {
-      emitPointerTableSegment(prg, segment, lines, analysis);
-    } else {
-      emitByteRange(prg.data, prg.loadAddress, segment.start, segment.end, lines, analysis, true);
-    }
-
-    lines.push("");
+    renderOneAnalysisSegment(segment, prg, analysis, lines);
   }
 }
 
@@ -2338,12 +2345,189 @@ function normalizeRelocations(relocations: RelocationEntry[], prg: PrgImage): Re
   return sorted;
 }
 
-// Spec 741 (Slice A): render the bytes stored at [fileStart..fileEnd] as
-// CODE at their runtime PC, wrapped in a KickAssembler .pseudopc block.
-// The body is a plain linear disassembly of the same bytes given the
-// runtime load address — so labels/branches resolve at runtime while the
-// emitted bytes are unchanged (byte-exact rebuild). subSegments (mixed
-// code/data) are honoured in Slice B; here the whole region is code.
+// Spec 741: kinds that mean "code" inside a relocated region. Everything
+// else (lookup tables, text, sprite, charset, raw data) stays .byte.
+function isRelocCodeKind(kind: string): boolean {
+  return kind === "code" || kind === "basic_stub" || kind === "probable_code";
+}
+
+// Spec 741 §2a: a relocated/self-relocating loader carries instructions whose
+// operand is patched at runtime — the classic placeholder is an absolute
+// $FFFF operand. Flag it so the reader knows it is CODE, not data.
+function relocSelfModNote(instruction: DecodedInstruction): string | undefined {
+  if (instruction.isUnknown) return undefined;
+  const mode = instruction.mode;
+  if ((mode === "abs" || mode === "abs,x" || mode === "abs,y") && ((instruction.operand ?? 0) & 0xffff) === 0xffff) {
+    return "self-modified operand ($FFFF placeholder)";
+  }
+  return undefined;
+}
+
+// Spec 741: build an AnnotationsIndex that overlays the relocation's
+// sub-segment labels on top of whatever is active, so makeLabel() returns
+// the SAME name for a label's definition and every operand that references
+// it (otherwise the rebuild would reference an undefined symbol).
+function emptyAnnotationsIndex(): AnnotationsIndex {
+  return {
+    segmentsByStart: new Map(),
+    segmentAnnotations: [],
+    labelsByAddress: new Map(),
+    routinesByAddress: new Map(),
+    pointerTables: [],
+    jumpTables: [],
+    immediatesByAddress: new Map(),
+  };
+}
+
+function overlayRelocLabels(base: AnnotationsIndex | undefined, subSegments: RelocationSubSegment[]): AnnotationsIndex {
+  const labelsByAddress = new Map(base?.labelsByAddress ?? []);
+  for (const s of subSegments) {
+    if (s.label) {
+      labelsByAddress.set(s.start & 0xffff, { address: formatHex16(s.start), label: s.label, comment: s.comment });
+    }
+  }
+  return { ...(base ?? emptyAnnotationsIndex()), labelsByAddress };
+}
+
+// Spec 741 §2a: emit the body of a relocated region at its RUNTIME pc.
+// Without subSegments the whole region is code (Slice A behaviour). With
+// subSegments, code spans become real instructions and data spans (LUTs,
+// tables, text) stay .byte — the same mixed code/data model as a normal
+// disasm, evaluated at the runtime pc. Labels resolve across the whole
+// block so internal branches/refs reassemble byte-exact.
+function renderRelocationBody(sub: PrgImage, subSegments: RelocationSubSegment[] | undefined, lines: string[]): void {
+  const runtimeStart = sub.loadAddress;
+  const runtimeEnd = sub.loadAddress + sub.data.length - 1;
+
+  // Normalize sub-segments; default = one code span covering the region.
+  const segs = (subSegments && subSegments.length > 0)
+    ? [...subSegments]
+        .map((s) => ({ ...s, start: Number(s.start) & 0xffff, end: Number(s.end) & 0xffff }))
+        .sort((a, b) => a.start - b.start)
+    : [{ start: runtimeStart, end: runtimeEnd, kind: "code" } as RelocationSubSegment];
+
+  // Decode every CODE span so labels/xrefs are known across the whole block.
+  const codeInstructions: DecodedInstruction[] = [];
+  for (const s of segs) {
+    if (!isRelocCodeKind(s.kind)) continue;
+    const off = (s.start - runtimeStart);
+    const len = (s.end - s.start + 1);
+    if (off < 0 || len <= 0 || off + len > sub.data.length) continue;
+    codeInstructions.push(...decodeLinear(s.start, sub.data.subarray(off, off + len)));
+  }
+  const index = buildInstructionIndex(codeInstructions);
+  const labels = collectLabels(codeInstructions, index, [runtimeStart]);
+  for (const s of segs) {
+    if (s.label) labels.add(s.start & 0xffff); // anchor labelled data/code spans
+  }
+  const xrefs = collectCrossReferences(codeInstructions, labels, index);
+  const ownerByAddress = new Map<number, number>();
+  for (const ins of codeInstructions) {
+    for (let i = 0; i < ins.size; i += 1) ownerByAddress.set((ins.address + i) & 0xffff, ins.address);
+  }
+
+  // Overlay sub-segment labels so makeLabel is consistent for def + use.
+  const savedAnnotations = activeAnnotations;
+  activeAnnotations = overlayRelocLabels(savedAnnotations, segs);
+  try {
+    let cursor = runtimeStart;
+    for (const s of segs) {
+      if (s.start > cursor) {
+        // Uncovered span between sub-segments → data (defensive, byte-exact).
+        emitRelocDataRange(sub, cursor, s.start - 1, labels, lines);
+      }
+      if (s.comment) lines.push(`      // ${s.comment}`);
+      if (isRelocCodeKind(s.kind)) {
+        emitRelocCodeRange(sub, Math.max(s.start, runtimeStart), Math.min(s.end, runtimeEnd), index, labels, xrefs, ownerByAddress, lines);
+      } else {
+        if (s.label || labels.has(s.start & 0xffff)) {
+          lines.push(`${makeLabel(s.start & 0xffff)}:${labelCommentText(s.start & 0xffff, xrefs)}`);
+        }
+        emitRelocDataRange(sub, Math.max(s.start, runtimeStart), Math.min(s.end, runtimeEnd), labels, lines);
+      }
+      cursor = s.end + 1;
+    }
+    if (cursor <= runtimeEnd) emitRelocDataRange(sub, cursor, runtimeEnd, labels, lines);
+  } finally {
+    activeAnnotations = savedAnnotations;
+  }
+}
+
+// Emit a runtime-addressed code span (mirrors renderLegacy's per-instruction
+// logic) + Spec 741 self-mod operand notes.
+function emitRelocCodeRange(
+  sub: PrgImage,
+  startAddr: number,
+  endAddr: number,
+  index: InstructionIndex,
+  labels: Set<number>,
+  xrefs: CrossReferenceMap,
+  ownerByAddress: Map<number, number>,
+  lines: string[],
+): void {
+  let address = startAddr;
+  while (address <= endAddr) {
+    const instruction = index.byAddress.get(address);
+    if (!instruction) {
+      // Misalignment / stray byte → keep byte-exact as data.
+      lines.push(`      .byte $${formatHex8(sub.data[address - sub.loadAddress])}`);
+      address += 1;
+      continue;
+    }
+    if (labels.has(instruction.address)) {
+      lines.push(`${makeLabel(instruction.address)}:${labelCommentText(instruction.address, xrefs)}`);
+    }
+    const asm = instruction.isUnknown
+      ? `.byte $${formatHex8(instruction.bytes[0])}`
+      : requiresUndocumentedByteRendering(instruction)
+        ? renderUndocumentedInstructionBytes(instruction).asm
+        : (() => {
+            const operand = operandTextFromFact(
+              { addressingMode: instruction.mode, operandValue: instruction.operand, targetAddress: instruction.targetAddress },
+              labels,
+              ownerByAddress,
+              ownerByAddress,
+            );
+            return operand ? `${instruction.mnemonic.padEnd(5)}${operand}` : instruction.mnemonic;
+          })();
+    let comment = instruction.isUnknown
+      ? ""
+      : requiresUndocumentedByteRendering(instruction)
+        ? renderUndocumentedInstructionBytes(instruction).comment
+        : commentTextFromTarget(instruction.targetAddress);
+    const selfMod = instruction.isUnknown ? undefined : relocSelfModNote(instruction);
+    if (selfMod) comment = comment ? `${comment} | ${selfMod}` : `// ${selfMod}`;
+    lines.push(`      ${asm.padEnd(34)}${comment}`.trimEnd());
+    if (!instruction.isUnknown && (instruction.mnemonic === "jmp" || instruction.mnemonic === "rts" || instruction.mnemonic === "rti")) {
+      lines.push("");
+    }
+    address += instruction.size;
+  }
+}
+
+// Emit a runtime-addressed data span as .byte (LUTs, tables, text, pads).
+function emitRelocDataRange(sub: PrgImage, startAddr: number, endAddr: number, labels: Set<number>, lines: string[]): void {
+  if (endAddr < startAddr) return;
+  let address = startAddr;
+  while (address <= endAddr) {
+    // Break .byte chunks at interior label anchors so refs stay addressable.
+    if (address !== startAddr && labels.has(address)) {
+      lines.push(`${makeLabel(address)}:`);
+    }
+    let chunkEnd = Math.min(endAddr, address + 15);
+    for (let probe = address + 1; probe <= chunkEnd; probe += 1) {
+      if (labels.has(probe)) { chunkEnd = probe - 1; break; }
+    }
+    const offset = address - sub.loadAddress;
+    const bytes = Array.from(sub.data.subarray(offset, offset + (chunkEnd - address + 1))).map((v) => `$${formatHex8(v)}`);
+    lines.push(`      .byte ${bytes.join(", ")}`);
+    address = chunkEnd + 1;
+  }
+}
+
+// Spec 741: render the bytes stored at [fileStart..fileEnd] at their RUNTIME
+// pc, wrapped in a KickAssembler .pseudopc block. Stored bytes are unchanged
+// (byte-exact rebuild); only the interpretation pc differs.
 function renderRelocationBlock(prg: PrgImage, reloc: RelocationEntry, lines: string[]): void {
   const startOffset = reloc.fileStart - prg.loadAddress;
   const length = reloc.fileEnd - reloc.fileStart + 1;
@@ -2358,7 +2542,7 @@ function renderRelocationBlock(prg: PrgImage, reloc: RelocationEntry, lines: str
   lines.push(`      .pseudopc $${formatHex16(reloc.runtimeAddr)} {`);
 
   const body: string[] = [];
-  renderLegacy(sub, [reloc.runtimeAddr & 0xffff], body);
+  renderRelocationBody(sub, reloc.subSegments, body);
   for (const line of body) {
     lines.push(line.length > 0 ? `        ${line}` : line);
   }
@@ -2395,6 +2579,46 @@ function renderWithRelocations(prg: PrgImage, entryPoints: number[], lines: stri
     renderGapLegacy(prg, cursor, fileLast, lines);
   }
   void entryPoints;
+}
+
+// Spec 741: subtract relocation file-ranges from [segStart..segEnd], yielding
+// the non-relocated (gap) sub-intervals — so analysis segments overlapping a
+// relocation are clipped to their gap portion (no double emission).
+function subtractRelocations(segStart: number, segEnd: number, relocations: RelocationEntry[]): Array<[number, number]> {
+  let intervals: Array<[number, number]> = [[segStart, segEnd]];
+  for (const r of relocations) {
+    const next: Array<[number, number]> = [];
+    for (const [s, e] of intervals) {
+      if (r.fileEnd < s || r.fileStart > e) { next.push([s, e]); continue; }
+      if (s < r.fileStart) next.push([s, r.fileStart - 1]);
+      if (e > r.fileEnd) next.push([r.fileEnd + 1, e]);
+    }
+    intervals = next;
+  }
+  return intervals;
+}
+
+// Spec 741: analysis-driven rendering WITH relocations. Gap stretches render
+// via the full analysis path (clipped to non-relocated sub-intervals);
+// relocation regions render as .pseudopc blocks. Items are emitted in file
+// address order so the byte stream stays a single, gap-free emission.
+function renderWithAnalysisAndRelocations(prg: PrgImage, analysis: RenderAnalysisContext, lines: string[], relocations: RelocationEntry[]): void {
+  lines.push(...renderAnalysisPreface(analysis));
+  type Item = { start: number; seg?: Segment; reloc?: RelocationEntry };
+  const items: Item[] = [];
+  for (const segment of buildAnnotatedSegments(analysis.segments, analysis.annotations?.segmentAnnotations)) {
+    for (const [s, e] of subtractRelocations(segment.start, segment.end, relocations)) {
+      if (s > e) continue;
+      const clipped = s === segment.start && e === segment.end ? segment : cloneSegment(segment, s, e);
+      items.push({ start: s, seg: clipped });
+    }
+  }
+  for (const reloc of relocations) items.push({ start: reloc.fileStart, reloc });
+  items.sort((a, b) => a.start - b.start);
+  for (const item of items) {
+    if (item.reloc) renderRelocationBlock(prg, item.reloc, lines);
+    else if (item.seg) renderOneAnalysisSegment(item.seg, prg, analysis, lines);
+  }
 }
 
 export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, options: PrgDisasmOptions = {}): void {
@@ -2454,7 +2678,10 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   const relocations = options.relocations && options.relocations.length > 0
     ? normalizeRelocations(options.relocations, prg)
     : undefined;
-  if (relocations) {
+  if (relocations && analysisContext) {
+    lines.push(...renderAddressAliasLabels(analysisContext, prg));
+    renderWithAnalysisAndRelocations(prg, analysisContext, lines, relocations);
+  } else if (relocations) {
     renderWithRelocations(prg, options.entryPoints ?? [], lines, relocations);
   } else if (analysisContext) {
     lines.push(...renderAddressAliasLabels(analysisContext, prg));
