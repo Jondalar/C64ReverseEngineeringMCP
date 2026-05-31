@@ -244,7 +244,11 @@ function default_iec_update_ports(): void {
 // drivecpu_execute is idempotent (returns early when clock <= last_clk),
 // so duplicating the per-cycle catch-up here is safe and matches VICE.
 function drive_cpu_execute_one(unit: diskunit_context_t, clock: number): void {
-  drivecpu_execute(unit, clock >>> 0);
+  // Spec 743.6 — `clock` is the monotonic C64 clk (the read/write instant). Do NOT
+  // truncate to uint32: drivecpu_execute computes cycles = clock - last_clk (both
+  // C64-domain monotonic) and its "early return when clock <= last_clk" idempotency
+  // only holds while both sides share the same monotonic domain.
+  drivecpu_execute(unit, clock);
 }
 
 // PORT OF: vice/src/drive/drive.h (drive_cpu_execute_all extern)
@@ -252,7 +256,7 @@ function drive_cpu_execute_one(unit: diskunit_context_t, clock: number): void {
 // activation matches VICE.
 function drive_cpu_execute_all(clock: number): void {
   const unit = _diskunit_get(0);
-  if (unit !== null) drivecpu_execute(unit, clock >>> 0);
+  if (unit !== null) drivecpu_execute(unit, clock); // Spec 743.6 — monotonic C64 clk, no >>> 0
 }
 
 // PORT OF: vice/src/serial/serial-iec-device.h (serial_iec_device_exec extern)

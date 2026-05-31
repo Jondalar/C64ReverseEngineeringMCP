@@ -373,7 +373,11 @@ export class Vice1541Facade implements Drive1541 {
     // instant BEFORE iec_update_cpu_bus mutates state. Fall back to
     // diskunit_clk_refs[0].value only when the bridge omitted the
     // arg (legacy tests).
-    const effClk = (clk !== undefined ? (clk >>> 0) : diskunit_clk_refs[0]!.value);
+    // Spec 743.6 — the C64-side write instant is monotonic absolute time; do NOT
+    // truncate it to uint32 before handing it to the drive catch-up (a wrapped
+    // target after clk > 2^32 stalls/over-runs the drive). Fallback to the drive
+    // clock only when the bridge omitted the arg (legacy tests).
+    const effClk = (clk !== undefined ? clk : diskunit_clk_refs[0]!.value);
     // iecbus.iec_update_cpu_bus + write_conf1 dispatched dynamically.
     // The c64iec.ts `iec_drive_write` callback writes drv_bus[8 + dnr]
     // for the drive-side path; we use the c64-side path instead — the
@@ -384,8 +388,11 @@ export class Vice1541Facade implements Drive1541 {
   }
 
   catchUpTo(c64Clock: number): number {
-    // Set last_clk if not yet primed (first catchUpTo after construction).
-    drivecpu_execute(this.unit, c64Clock >>> 0);
+    // Spec 743.6 — c64Clock is monotonic absolute C64 time; pass it through (no
+    // >>> 0) so the drive's `cycles = c64Clock - last_clk` delta stays correct
+    // past 2^32. The returned value is the DRIVE-domain clock (its own uint32
+    // counter), which is a separate domain and may keep its >>> 0.
+    drivecpu_execute(this.unit, c64Clock);
     return diskunit_clk_refs[0]!.value >>> 0;
   }
 
@@ -399,7 +406,8 @@ export class Vice1541Facade implements Drive1541 {
    * independently of the vice catchUpTo path.
    */
   tickToClock(target_clk: number): void {
-    drivecpu_execute(this.unit, target_clk >>> 0);
+    // Spec 743.6 — target_clk is the monotonic C64 catch-up target; no >>> 0.
+    drivecpu_execute(this.unit, target_clk);
   }
 
   flush(): void {

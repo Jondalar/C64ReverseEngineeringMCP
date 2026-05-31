@@ -651,11 +651,15 @@ export class HeadlessMachineKernel implements MachineKernel {
     iec.pushFlush = {
       one: (unit, clk, _cs) => {
         if (unit !== 8) return; // single-1541 baseline
-        vice.tickToClock(clk >>> 0);  // = drive_cpu_execute_one(unit, clk)
+        // Spec 743.6 — pass the MONOTONIC C64 clk (no >>> 0). The drive
+        // computes cycles = clk - last_clk (both C64-domain monotonic); a
+        // wrapped target after C64 clk > 2^32 would read as < last_clk and
+        // stall the drive (cycles=0) or jump it billions of cycles.
+        vice.tickToClock(clk);  // = drive_cpu_execute_one(unit, clk)
         overlayFromVice();
       },
       all: (clk, _cs) => {
-        vice.tickToClock(clk >>> 0);  // = drive_cpu_execute_all(clk)
+        vice.tickToClock(clk);  // = drive_cpu_execute_all(clk) — Spec 743.6 monotonic
         overlayFromVice();
       },
     };

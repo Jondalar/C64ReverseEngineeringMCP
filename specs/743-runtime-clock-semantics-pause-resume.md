@@ -307,3 +307,63 @@ exact mechanism is removed and unit-proven monotonic per chip in
 `probe:743-1/2/3` (schedule/predict at `clk + delta > 2^32` stays in the future).
 `probe:743-4` proves the live machine + inspector/checkpoint path stay coherent and
 monotonic (BUG-025 acceptance: use overlay → resume → no guard trip, ×repeat).
+
+---
+
+## 743.6 follow-up — C64→1541 catch-up bridge truncation (2026-05-31)
+
+743.1–743.5 made the C64 maincpu domain monotonic but left the **C64→drive
+catch-up bridge** truncating the absolute C64 target to uint32 before handing it to
+the 1541. After C64 clk > 2^32 the drive's `cycles = clk_value - last_clk` would see
+a wrapped (small) target < `last_clk` → `cycles = 0` (drive STALLS), or a billion-
+cycle over-run — a mixed clock-domain bug.
+
+### Contract found
+
+`drivecpu_execute(drv, clk_value)` is fed the **C64 absolute clk** (the drive
+catches up TO C64 time; the C64↔drive rate difference is handled internally by the
+16.16 `sync_factor` accumulator). It uses `clk_value` only for
+`cycles = clk_value - last_clk` and stores `last_clk = clk_value` — **already
+monotonic-safe (no `>>> 0` on either)**. The drive's OWN clock (`clk_ptr`,
+`stop_clk`, `cycle_accum`) is a **separate uint32 drive-cycle domain** advanced by
+`cycles` via `sync_factor`; it is never compared to the C64 clk.
+
+So the only defect was the `>>> 0` applied to the C64 target at the bridge.
+
+### Fix (smallest faithful)
+
+Removed `>>> 0` from every C64-clk → drive catch-up site so the monotonic C64 target
+flows through to `drivecpu_execute`:
+
+- `kernel/headless-machine-kernel.ts` — `iec.pushFlush.one/all` → `vice.tickToClock(clk)`
+- `drive1541/vice1541-facade.ts` — `tickToClock`, `catchUpTo`, `iecLineDrive` effClk
+- `vice1541/iecbus.ts` — `drive_cpu_execute_one` / `drive_cpu_execute_all`
+
+`drivecpu_execute` and `last_clk` were already wrap-free. The drive-domain
+`clk_ptr`/`stop_clk`/`cycle_accum` `>>> 0` are KEPT — they are the 1541's own
+hardware clock, not C64 absolute time.
+
+### Gate
+
+`npm run probe:743-6` (`scripts/probe-743-6-drive-clock-bridge.mjs`, 8/8) — primes
+the drive's `last_clk` near 2^32, drives `tickToClock` / `catchUpTo` across the
+boundary, and asserts the drive advances by the correct small delta (not stalled,
+not a billion-cycle jump) with `last_clk` monotonic > 2^32; a contrast case shows
+the old `>>> 0` target stalls the drive. `npm run probe:743` now runs 743-1..4 + 6.
+
+### Known remaining (separate domain, out of THIS scope)
+
+The drive's own `clk_ptr`/`stop_clk` wrap at 2^32 **drive cycles** (~72 min of drive
+time). That is the drive-domain analogue of BUG-025 and would need the same
+monotonic treatment inside `vice1541/` (drivecpu + drive alarm context). It is
+independent of the C64 bridge and governed by Spec 612 (1541 port fidelity) — a
+separate slice, not done here. The bridge truncation (which corrupts the C64→drive
+delta the moment C64 clk passes 2^32) IS fixed.
+
+## Is 743 DONE?
+
+The **C64 maincpu domain** is fully monotonic and the C64→drive bridge no longer
+truncates — so the originally-reported BUG-025 (maincpu alarm-dispatch spin) and the
+mixed-domain bridge bug are both resolved and gated. 743 is DONE **for the C64
+domain + the bridge**. A truly clock-wrap-free *drive* domain (the 743.6 "known
+remaining") is a distinct 1541-port slice and is explicitly out of 743's scope.
