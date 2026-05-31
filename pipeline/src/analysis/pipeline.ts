@@ -18,6 +18,7 @@ import { deriveDisplaySourceCandidates } from "./display-source-candidates";
 import { deriveHardwareDataCandidates } from "./hardware-data-candidates";
 import { buildEvidenceGraph } from "./evidence-graph";
 import { extractRamStateFacts } from "./ram-state";
+import { detectRelocationProposals } from "./relocations";
 import {
   AnalysisOptions,
   AnalysisReport,
@@ -28,7 +29,7 @@ import {
   Segment,
   SegmentAnalyzer,
 } from "./types";
-import { calculateStats, mergeSegments } from "./utils";
+import { calculateStats, mergeSegments, formatAddress } from "./utils";
 
 function createDefaultAnalyzers(): SegmentAnalyzer[] {
   return [
@@ -179,6 +180,11 @@ export function demoteBrokenCodeIslands(
   buffer: Buffer,
   mapping: AnalyzerContext["mapping"],
   threshold: number,
+  // Spec 741 / BUG-021: addresses of recursively-confirmed instructions
+  // (instruction-start → instruction-end). When supplied, a code island that
+  // would be demoted is SPLIT at the confirmed/unconfirmed boundary instead of
+  // demoting the whole range, and a fully-confirmed island is never demoted.
+  confirmedEndByStart?: Map<number, number>,
 ): { segments: Segment[]; changed: boolean } {
   const JAM_OPCODES = new Set([0x02, 0x12, 0x22, 0x32, 0x42, 0x52, 0x62, 0x72, 0x92, 0xb2, 0xd2, 0xf2]);
   let changed = false;
@@ -192,11 +198,33 @@ export function demoteBrokenCodeIslands(
     return "unknown";
   };
 
-  const rewritten = segments.map((segment) => {
-    if (segment.kind !== "code") return segment;
+  // Contiguous run of confirmed instructions starting at `from`. Returns the
+  // last confirmed address (inclusive), or from-1 when `from` is not a
+  // confirmed instruction start.
+  const confirmedPrefixEndFrom = (from: number, limit: number): number => {
+    if (!confirmedEndByStart) return from - 1;
+    let p = from;
+    while (p <= limit) {
+      const end = confirmedEndByStart.get(p);
+      if (end === undefined) break;
+      p = end + 1;
+    }
+    return p - 1;
+  };
+
+  const rewritten: Segment[] = [];
+  for (const segment of segments) {
+    if (segment.kind !== "code") { rewritten.push(segment); continue; }
     const startOffset = segment.start - mapping.startAddress;
     const endOffset = segment.end - mapping.startAddress;
-    if (startOffset < 0 || endOffset >= buffer.length) return segment;
+    if (startOffset < 0 || endOffset >= buffer.length) { rewritten.push(segment); continue; }
+
+    // BUG-021 solution #3: a code island fully covered by recursively-reached
+    // instructions is real code — never let code-island-demote override it.
+    if (confirmedEndByStart && confirmedPrefixEndFrom(segment.start, segment.end) >= segment.end) {
+      rewritten.push(segment);
+      continue;
+    }
 
     let confidence = segment.score?.confidence ?? 0.7;
     const reasons: string[] = [];
@@ -278,26 +306,59 @@ export function demoteBrokenCodeIslands(
 
     if (confidence < threshold && reasons.length > 0) {
       changed = true;
-      return {
-        ...segment,
-        kind: "unknown" as const,
-        score: {
-          confidence: Math.max(0.1, confidence),
-          reasons: [
-            `Demoted from code (Spec 047): ${reasons.join("; ")}.`,
-            ...segment.score.reasons.slice(0, 2),
-          ],
-          alternatives: [
-            { kind: "code" as const, confidence: segment.score.confidence, reasons: segment.score.reasons },
-          ],
-        },
-        analyzerIds: Array.from(new Set([...segment.analyzerIds, "code-island-demote"])).sort(),
+      const demotedScore = {
+        confidence: Math.max(0.1, confidence),
+        reasons: [
+          `Demoted from code (Spec 047): ${reasons.join("; ")}.`,
+          ...segment.score.reasons.slice(0, 2),
+        ],
+        alternatives: [
+          { kind: "code" as const, confidence: segment.score.confidence, reasons: segment.score.reasons },
+        ],
       };
+      const demotedTail = (start: number, end: number): Segment => ({
+        ...segment,
+        start,
+        end,
+        length: end - start + 1,
+        kind: "unknown" as const,
+        score: demotedScore,
+        analyzerIds: Array.from(new Set([...segment.analyzerIds, "code-island-demote"])).sort(),
+      });
+
+      // BUG-021 solution #1: when a recursively-confirmed code prefix exists
+      // and the demotion triggers are in the unreached tail, SPLIT instead of
+      // demoting the whole island: keep the valid control flow as code and
+      // isolate only the tail as unknown.
+      const prefixEnd = confirmedPrefixEndFrom(segment.start, segment.end);
+      if (confirmedEndByStart && prefixEnd >= segment.start && prefixEnd < segment.end) {
+        rewritten.push({
+          ...segment,
+          start: segment.start,
+          end: prefixEnd,
+          length: prefixEnd - segment.start + 1,
+          kind: "code" as const,
+          score: {
+            confidence: Math.max(segment.score.confidence, threshold),
+            reasons: [
+              `Kept as code (Spec 741 / BUG-021): recursively-reached control flow ${formatAddress(segment.start)}-${formatAddress(prefixEnd)}; mixed data tail split off.`,
+              ...segment.score.reasons.slice(0, 2),
+            ],
+            alternatives: segment.score.alternatives,
+          },
+          analyzerIds: Array.from(new Set([...segment.analyzerIds, "mixed-island-split"])).sort(),
+        });
+        rewritten.push(demotedTail(prefixEnd + 1, segment.end));
+        continue;
+      }
+
+      rewritten.push(demotedTail(segment.start, segment.end));
+      continue;
     }
     void undocCount;
     void invalidStart;
-    return segment;
-  });
+    rewritten.push(segment);
+  }
 
   return { segments: mergeSegments(rewritten), changed };
 }
@@ -455,11 +516,18 @@ export function analyzeMappedBuffer(
   // is read by the pipeline caller, not from this pass).
   const aggressive = options.demoteAggressive === true;
   const demoteThreshold = aggressive ? 0.45 : 0.3;
+  // BUG-021: map of recursively-confirmed instruction start → end, so the
+  // demote pass can split a mixed code/data island at the confirmed boundary
+  // instead of demoting the whole trusted-entry region.
+  const confirmedEndByStart = new Map<number, number>();
+  for (const ins of context.discoveredCode?.instructions ?? []) {
+    if (ins.provenance === "confirmed_code") confirmedEndByStart.set(ins.address, ins.address + ins.size - 1);
+  }
   let segments = spriteResolved;
   let passNumber = 0;
   let changed = true;
   while (changed || passNumber < 3) {
-    const result = demoteBrokenCodeIslands(segments, buffer, mapping, demoteThreshold);
+    const result = demoteBrokenCodeIslands(segments, buffer, mapping, demoteThreshold, confirmedEndByStart);
     segments = result.segments;
     changed = result.changed;
     passNumber += 1;
@@ -472,6 +540,14 @@ export function analyzeMappedBuffer(
   };
   const evidenceGraph = buildEvidenceGraph(codeSemantics, vicEvidence, segments);
   const stats = calculateStats(mapping, segments);
+
+  // Spec 741 §3.2: detect copy-loop relocations from the decoded instruction
+  // stream (confirmed + probable) and surface them as proposals.
+  const relocationInstructions = [
+    ...(context.discoveredCode?.instructions ?? []),
+    ...(context.probableCode?.instructions ?? []),
+  ];
+  const relocationProposals = detectRelocationProposals(relocationInstructions, mapping);
 
   return {
     binaryName,
@@ -489,6 +565,7 @@ export function analyzeMappedBuffer(
     codeAnalysis: context.discoveredCode,
     probableCodeAnalysis: context.probableCode,
     stats,
+    relocationProposals: relocationProposals.length > 0 ? relocationProposals : undefined,
   };
 }
 

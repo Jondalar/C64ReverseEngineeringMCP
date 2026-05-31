@@ -1,4 +1,4 @@
-// Spec 741 — Slice A+B — relocated-code disassembly (.pseudopc / .logical).
+// Spec 741 — Slice A–D — relocated-code disassembly (.pseudopc / .logical).
 //
 // Proves the renderer can place relocated code at its RUNTIME pc while the
 // stored bytes stay byte-exact, through both assemblers, via a small
@@ -30,7 +30,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
 
-console.log("Spec 741 Slice A+B — relocated-code .pseudopc / .logical (synthetic)\n");
+console.log("Spec 741 Slice A-D — relocated-code .pseudopc / .logical (synthetic)\n");
 
 const cliCjs = join(ROOT, "dist/pipeline/cli.cjs");
 if (!existsSync(cliCjs)) { console.error("dist/pipeline/cli.cjs missing — run `npm run build`"); process.exit(2); }
@@ -73,6 +73,21 @@ function disasm(prgPath, outAsm, relocations, analysisJson, entryHex) {
 function analyze(prgPath, outJson, entryHex) {
   const r = spawnSync(process.execPath, [cliCjs, "analyze-prg", prgPath, outJson, entryHex, "--no-register"], { cwd: work, encoding: "utf8" });
   if (r.status !== 0) throw new Error(`analyze-prg failed: ${r.stderr || r.stdout}`);
+}
+
+function proposeAnnotations(analysisJson, draftPath) {
+  const r = spawnSync(process.execPath, [cliCjs, "propose-annotations", analysisJson, draftPath, "--no-register"], { cwd: work, encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`propose-annotations failed: ${r.stderr || r.stdout}`);
+}
+
+// Slice D: the mixed-island splitter is unit-tested against the demote pass
+// directly (deterministic), mirroring scripts/sprint40-smoke.mjs.
+let demoteBrokenCodeIslands;
+try {
+  ({ demoteBrokenCodeIslands } = await import(join(ROOT, "dist/pipeline/analysis/pipeline.cjs")));
+} catch (e) {
+  console.error("cannot import pipeline.cjs — run `npm run build`:", e.message);
+  process.exit(2);
 }
 function hash(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return h; }
 
@@ -187,6 +202,101 @@ try {
   ok(/^\s*\.pseudopc\s+\$E000\s*\{/m.test(asm5), "5 relocated blob rendered as .pseudopc $E000");
   ok((asm5.match(/lda\s+\$FFFF,y/gi) || []).length === 1, "5 relocated bytes emitted exactly once");
   await assertByteExact("5", comboAsm, "kickassembler", combo);
+
+  // ---- Scenario 6 (Slice C): analyzer DETECTS the copy loop → proposal ----
+  // $C000 ldx#0 / 2-page unrolled copy $C300→$FC00 / jmp $FC00, then 512 bytes
+  // of source data at $C300-$C4FF. The analyzer should propose the relocation,
+  // propose_annotations should surface it, and feeding it back must rebuild
+  // byte-exact (the full detect → propose → render → verify loop).
+  const cBytes = [
+    0xa2, 0x00,             // ldx #$00
+    0xbd, 0x00, 0xc3,       // lda $C300,x
+    0x9d, 0x00, 0xfc,       // sta $FC00,x
+    0xbd, 0x00, 0xc4,       // lda $C400,x
+    0x9d, 0x00, 0xfd,       // sta $FD00,x
+    0xe8,                   // inx
+    0xd0, 0xf1,             // bne loop ($C002)
+    0x4c, 0x00, 0xfc,       // jmp $FC00
+  ];
+  while (cBytes.length < 0x300) cBytes.push(0xea);          // pad to $C300
+  for (let i = 0; i < 512; i++) cBytes.push(0xea);          // src $C300-$C4FF (benign nops)
+  const copyloop = writePrg("copyloop.prg", 0xc000, cBytes);
+  const clJson = join(work, "copyloop_analysis.json");
+  analyze(copyloop, clJson, "C000");
+  const report = JSON.parse(readFileSync(clJson, "utf8"));
+  const props = report.relocationProposals || [];
+  const p = props.find((x) => x.fileStart === 0xc300 && x.runtimeAddr === 0xfc00);
+  ok(!!p, "6 analyzer proposes a relocation $C300 → $FC00", props.map((x) => `${x.fileStart.toString(16)}→${x.runtimeAddr.toString(16)}`).join(","));
+  ok(p && p.length === 512, "6 inferred length = 512 (2 page-spaced stores)", p ? String(p.length) : "");
+  ok(p && p.followedByJump === true, "6 following jmp into destination detected");
+
+  const draft = join(work, "copyloop_draft.json");
+  proposeAnnotations(clJson, draft);
+  const draftObj = JSON.parse(readFileSync(draft, "utf8"));
+  ok(Array.isArray(draftObj.relocations) && draftObj.relocations.length >= 1, "6 propose_annotations surfaces relocation candidates");
+  const cand = (draftObj.relocations || []).find((r) => r.fileStart === "$C300" && r.runtimeAddr === "$FC00");
+  ok(!!cand, "6 draft relocation candidate in disasm-ready shape ($C300 → $FC00)");
+
+  // Feed the accepted proposal back into disasm_prg.relocations → byte-exact.
+  const clAsm = join(work, "copyloop_reloc.asm");
+  disasm(copyloop, clAsm, [{ fileStart: cand.fileStart, fileEnd: "$C4FF", runtimeAddr: cand.runtimeAddr }]);
+  const asm6 = readFileSync(clAsm, "utf8");
+  ok(/^\s*\.pseudopc\s+\$FC00\s*\{/m.test(asm6), "6 proposal feeds disasm_prg → .pseudopc $FC00");
+  await assertByteExact("6", clAsm, "kickassembler", copyloop);
+
+  // ---- Scenario 7 (Slice D): mixed-island splitter (BUG-021) — unit ----
+  // One code segment $C000-$C0F5; recursively-confirmed prefix only $C000-$C0E7
+  // (JAM tail $C0E8-$C0F5). WITHOUT coverage the whole island demotes to
+  // unknown (legacy); WITH coverage it SPLITS: code prefix kept, tail isolated.
+  const ISLAND_START = 0xc000, PREFIX_END = 0xc0e7, ISLAND_END = 0xc0f5;
+  const body = Buffer.alloc(ISLAND_END - ISLAND_START + 1, 0xea); // nops
+  // tail $C0E8-$C0F5: JAM run (rule 1, -0.4) + two forward branches whose
+  // targets land outside the island (rule 3, -0.2 each) → 0.94 demotes.
+  for (let a = PREFIX_END + 1; a <= ISLAND_END; a++) body[a - ISLAND_START] = 0x02; // JAM fill
+  body[0xf2] = 0xd0; body[0xf3] = 0x10; // bne +16 → $C104 (outside)
+  body[0xf4] = 0xd0; body[0xf5] = 0x10; // bne +16 → $C106 (outside)
+  const mapping = { startAddress: ISLAND_START, endAddress: ISLAND_END };
+  const mkSeg = () => ([{
+    kind: "code", start: ISLAND_START, end: ISLAND_END, length: ISLAND_END - ISLAND_START + 1,
+    score: { confidence: 0.94, reasons: ["trusted entry traversal"], alternatives: [] }, analyzerIds: ["code"], xrefs: [],
+  }]);
+  const confirmed = new Map();
+  for (let a = ISLAND_START; a <= PREFIX_END; a++) confirmed.set(a, a); // 1-byte confirmed instrs
+
+  const whole = demoteBrokenCodeIslands(mkSeg(), body, mapping, 0.3); // 4-arg, no coverage
+  const wholeUnknown = whole.segments.filter((s) => s.kind === "unknown");
+  ok(wholeUnknown.length === 1 && wholeUnknown[0].start === ISLAND_START && wholeUnknown[0].end === ISLAND_END,
+    "7 without coverage: whole island demotes to one unknown (legacy)", whole.segments.map((s) => s.kind).join(","));
+
+  const split = demoteBrokenCodeIslands(mkSeg(), body, mapping, 0.3, confirmed);
+  const code = split.segments.find((s) => s.kind === "code");
+  const tail = split.segments.find((s) => s.kind === "unknown");
+  ok(!split.segments.some((s) => s.kind === "unknown" && s.start === ISLAND_START && s.end === ISLAND_END),
+    "7 with coverage: NOT one unknown over the whole island");
+  ok(code && code.start === ISLAND_START && code.end === PREFIX_END, "7 trusted-entry code preserved ($C000-$C0E7)", code ? `$${code.start.toString(16)}-$${code.end.toString(16)}` : "none");
+  ok(tail && tail.start === PREFIX_END + 1 && tail.end === ISLAND_END, "7 data tail split off ($C0E8-$C0F5)", tail ? `$${tail.start.toString(16)}-$${tail.end.toString(16)}` : "none");
+  ok(code && code.analyzerIds.includes("mixed-island-split"), "7 split tagged mixed-island-split");
+
+  // ---- Scenario 8 (Slice D): end-to-end — trusted entry not buried ----
+  // analyze_prg on a mixed code+data PRG must keep the entry code as `code`
+  // and must NOT emit a single unknown wall over the whole region.
+  const dBytes = [
+    0xa9, 0x01, 0x8d, 0x20, 0xd0,   // lda #$01 / sta $D020
+    0x20, 0xd2, 0xff,               // jsr $FFD2
+    0xa9, 0x00, 0x8d, 0x21, 0xd0,   // lda #$00 / sta $D021
+    0x60,                           // rts ($C00D) — confirmed prefix ends here
+    0xa0, 0x00, 0xb9, 0x00, 0xc3, 0x99, 0x00, 0x04, 0xc8, 0x02, // tail decodes then JAM
+    0x20, 0xd2, 0xff, 0x02, 0x02,
+  ];
+  while (dBytes.length < 0xf6) dBytes.push(0x12);
+  const mixedPrg = writePrg("mixed_island.prg", 0xc000, dBytes);
+  const mixedJson = join(work, "mixed_island_analysis.json");
+  analyze(mixedPrg, mixedJson, "C000");
+  const mixedReport = JSON.parse(readFileSync(mixedJson, "utf8"));
+  const wall = mixedReport.segments.find((s) => s.kind === "unknown" && s.start === 0xc000 && s.end >= 0xc0f0);
+  ok(!wall, "8 analyzer does NOT bury the whole island in one unknown wall");
+  const entryCode = mixedReport.segments.find((s) => s.kind === "code" && s.start === 0xc000);
+  ok(!!entryCode, "8 trusted-entry code at $C000 preserved as code", entryCode ? `$${entryCode.start.toString(16)}-$${entryCode.end.toString(16)}` : "none");
 } catch (e) {
   ok(false, "harness", e.message);
 }

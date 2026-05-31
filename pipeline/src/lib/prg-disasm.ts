@@ -2604,6 +2604,20 @@ function subtractRelocations(segStart: number, segEnd: number, relocations: Relo
 // address order so the byte stream stays a single, gap-free emission.
 function renderWithAnalysisAndRelocations(prg: PrgImage, analysis: RenderAnalysisContext, lines: string[], relocations: RelocationEntry[]): void {
   lines.push(...renderAnalysisPreface(analysis));
+
+  // Spec 741: a reference from OUTSIDE a relocated region to an address INSIDE
+  // its file range (e.g. the copy loop's `lda src,x`) targets the STORED bytes
+  // at the file address. The relocated body is emitted under .pseudopc with
+  // RUNTIME labels, so the file-address symbol would be undefined. Emit an
+  // explicit alias (`.label Wxxxx = $xxxx`) for each such referenced file
+  // address so the reference resolves to the stored location (byte-exact).
+  const inReloc = (addr: number) => relocations.some((r) => addr >= r.fileStart && addr <= r.fileEnd);
+  const aliasAddrs = Array.from(analysis.labelSet).filter(inReloc).sort((a, b) => a - b);
+  for (const addr of aliasAddrs) {
+    lines.push(`      .label ${makeLabel(addr)} = $${formatHex16(addr)}`);
+  }
+  if (aliasAddrs.length > 0) lines.push("");
+
   type Item = { start: number; seg?: Segment; reloc?: RelocationEntry };
   const items: Item[] = [];
   for (const segment of buildAnnotatedSegments(analysis.segments, analysis.annotations?.segmentAnnotations)) {

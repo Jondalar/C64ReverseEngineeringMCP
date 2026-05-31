@@ -57,6 +57,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 
 | Spec | Title | Note |
 |---|---|---|
+| 741 | Relocated-Code Disassembly (`.pseudopc`/`.logical`) | CORE DONE 2026-05-31 — Slices A–D: `disasm_prg.relocations[]` → `.pseudopc`/`.logical` (mixed code/data, self-mod, byte-exact), `analyze_prg` copy-loop detection → `propose_annotations`, mixed-island splitter closes BUG-021. `smoke-741` 50/50. §4 whole-disk `.include` export = optional non-goal. |
 | 730 | MCP Workflow Step Orchestrator + Project Inventory Sync | DONE 2026-05-31 — `agent_next_step`/`agent_run_step`/`project_inventory_sync` facades + machine-readable next-step; closes BUG-005 + BUG-019 Part B. Gates green. |
 | 404 | C64 Phase D: VIC-II | Literal VIC port is the product authority (723). |
 | 423 | IEC Phase H: Validation | GREEN. |
@@ -139,7 +140,7 @@ mapper" header is gone.
 
 - ACTIVE: 2 (721, 726.B)
 - GOVERNING / DOCTRINE: 4 (610, 612, 620, 705)
-- DONE: 27
+- DONE: 28
 - BACKLOG: 11
 - SUPERSEDED: 11
 - NEEDS-RECONCILE: 6 (428, 613, 614, 615, 708, 713)

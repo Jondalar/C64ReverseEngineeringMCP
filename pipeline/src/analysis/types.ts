@@ -420,6 +420,23 @@ export interface PackerHint {
   notes?: string[];
 }
 
+// Spec 741 §3.2: a statically-detected relocation proposal — bytes stored at
+// [fileStart..fileEnd] are copied to runtimeAddr by a copy loop and executed
+// there. Surfaced via propose_annotations; accepted set feeds disasm_prg's
+// relocations[] (same {fileStart,fileEnd,runtimeAddr} shape).
+export interface RelocationProposal {
+  fileStart: number;
+  fileEnd: number;
+  runtimeAddr: number;
+  length: number;
+  indexRegister: IndexedRegister;
+  confidence: number;
+  followedByJump: boolean;
+  lengthCertain: boolean;
+  source: "static-copy-loop";
+  reasons: string[];
+}
+
 export interface AnalysisReport {
   binaryName: string;
   mapping: MemoryMapping;
@@ -434,6 +451,7 @@ export interface AnalysisReport {
   probableCodeAnalysis?: ProbableCodeAnalysis;
   stats: AnalysisStats;
   packerHints?: PackerHint[];
+  relocationProposals?: RelocationProposal[];
 }
 
 export interface AnalysisOptions {

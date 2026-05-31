@@ -314,7 +314,7 @@ function main(): void {
       outputPath: draftPath,
     });
     process.stdout.write(`Draft annotations: ${draftPath}\n`);
-    process.stdout.write(`Segments: ${draft.segments.length} | Labels: ${draft.labels.length} | Routines: ${draft.routines.length} | Open questions: ${draft.openQuestions.length}\n`);
+    process.stdout.write(`Segments: ${draft.segments.length} | Labels: ${draft.labels.length} | Routines: ${draft.routines.length} | Relocations: ${draft.relocations.length} | Open questions: ${draft.openQuestions.length}\n`);
     process.stdout.write(`Buckets: high=${draft.buckets.high} medium=${draft.buckets.medium} low=${draft.buckets.low}\n`);
     registerCliArtifact({
       kind: "report",
