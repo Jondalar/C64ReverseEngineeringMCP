@@ -13,7 +13,7 @@ Human + LLM E2E bug log for the C64RE MCP/UI product flow.
 | BUG-002 | v1 legacy UI is still served as a separate product entry | workspace-ui | high | fixed (ec0a1e1) |
 | BUG-003 | `extract_disk` manifest import fails on empty CBM directory filename | mcp-tool | high | fixed (17bad20) |
 | BUG-004 | `build_all_views` crashes on empty manifest item title/name | knowledge | high | fixed (17bad20) |
-| BUG-005 | Agent/audit recommends tools that are not exposed in MCP surface | mcp-tool | blocker | conceptual / spec-needed |
+| BUG-005 | Agent/audit recommends tools that are not exposed in MCP surface | mcp-tool | blocker | fixed (Spec 730 orchestrator + machine-readable next-step) |
 | BUG-006 | `agent_onboard` reports filesystem/artifact store “in sync” for empty unverified workspace | mcp-tool | medium | fixed (ba181dc) |
 | BUG-007 | BASIC PRGs at `$0801` are treated as 6502 code instead of BASIC programs | analysis | low | closed → backlog (Spec 731) |
 | BUG-008 | Disk tab selection jumps back to first disk | ui-v3 | high | fixed |
@@ -27,5 +27,5 @@ Human + LLM E2E bug log for the C64RE MCP/UI product flow.
 | BUG-016 | Live C64 frame scales too large and pushes Monitor out of view | ui-v3 | medium | fixed |
 | BUG-017 | Disk geometry lacks track/sector navigation for occupied non-directory data | ui-v3 | medium | fixed|
 | BUG-018 | Product UI lacks visible runtime connection/session status for LLM-human coordination | ui-v3 | medium | fixed |
-| BUG-019 | UI shows stale ASM version instead of latest/best artifact version | workspace-ui / knowledge | high | partial (A fixed; B after Spec 005) |
+| BUG-019 | UI shows stale ASM version instead of latest/best artifact version | workspace-ui / knowledge | high | fixed (A: 8d4faf3d; B: Spec 730 §7 artifact version store) |
 | BUG-020 | Header hero contains dashboard metrics and filters | workspace-ui | medium | open |

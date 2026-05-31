@@ -1,9 +1,19 @@
 # Spec 730 — MCP Workflow Step Orchestrator + Project Inventory Sync
 
-**Status:** ACTIVE (2026-05-30) — product design + implementation target for BUG-005.  
+**Status:** DONE (2026-05-31) — orchestrator + facades + recommendation rewrite +
+machine-readable `agent_next_step` shipped; BUG-005 fixed and gated.  
 **Owner:** MCP product workflow / project knowledge / tool surface  
 **Depends on:** Specs 725, 727, 728, 729  
-**Closes:** BUG-005 when implemented and gated  
+**Closes:** BUG-005 (fixed) + BUG-019 Part B (§7 artifact version store).  
+
+> **DONE note (2026-05-31).** 730.1–730.6 + §7 shipped (default=99). The final
+> closure slice added the machine-readable `agent_next_step` JSON block
+> (`phase, step, reason, primary_action{tool,args,label}, secondary_actions[],
+> blocked_by[], human_question?, ui_hint?, do_not_call[]`) so the LLM parses a
+> structured callable next-action. Gates: `e2e-mcp-step-loop` 31/31,
+> `e2e-mcp-no-internal-recommendations` 10/10, `e2e-mcp-project-inventory` 29/29,
+> `probe-tool-surface` 23/23. Zero internal-tool leakage across onboard/audit/UI/
+> playbooks (audited). Only `change-validate` remains blocked (Spec 711).
 
 ## 1. Problem
 

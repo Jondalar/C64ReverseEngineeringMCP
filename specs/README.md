@@ -40,7 +40,6 @@ Small by design — only specs with concrete next implementation work.
 |---|---|---|
 | 721 | Visual-Origin Join (runtime-informed annotation) | Core join shipped (probe green); the semantic-pipeline extension is the active edge. |
 | 726.B | Trace V2 Binary Timeline | **Slice 1 DONE (2026-05-30, review-fixed 2026-05-31)** — binary `.c64retrace` log is the live authority, DuckDB is a rebuildable index, zero-alloc CPU sink, §2a.1 perf gate GREEN (~6% overhead, 2.1× PAL). drive8-cpu now produces real (sampled) rows; finalize no-hang; sink ownership explicit. 726.B-2 open: zero-alloc bus/iec/vic + per-instruction drive trace + streaming (not read-whole-file) indexer + rebuild tool. |
-| 730 | MCP Workflow Step Orchestrator + Project Inventory Sync | BUG-005: MCP must own phase/step guidance and recommend callable default façade actions, not leak internal inventory tools. |
 
 ## GOVERNING / DOCTRINE (rules + umbrella contracts — still binding, not active implementation)
 
@@ -58,6 +57,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 
 | Spec | Title | Note |
 |---|---|---|
+| 730 | MCP Workflow Step Orchestrator + Project Inventory Sync | DONE 2026-05-31 — `agent_next_step`/`agent_run_step`/`project_inventory_sync` facades + machine-readable next-step; closes BUG-005 + BUG-019 Part B. Gates green. |
 | 404 | C64 Phase D: VIC-II | Literal VIC port is the product authority (723). |
 | 423 | IEC Phase H: Validation | GREEN. |
 | 425 | C64 VIC-II CLK_INC contract | In the frozen runtime-green baseline (`runtime-green-2026-05-16`). |
@@ -137,9 +137,9 @@ mapper" header is gone.
 
 ## Counts
 
-- ACTIVE: 3 (721, 726.B, 730)
+- ACTIVE: 2 (721, 726.B)
 - GOVERNING / DOCTRINE: 4 (610, 612, 620, 705)
-- DONE: 26
+- DONE: 27
 - BACKLOG: 11
 - SUPERSEDED: 11
 - NEEDS-RECONCILE: 6 (428, 613, 614, 615, 708, 713)
