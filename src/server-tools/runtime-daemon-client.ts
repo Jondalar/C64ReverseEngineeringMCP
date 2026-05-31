@@ -12,6 +12,10 @@
 // actionable error (§236) — never a silent in-process fallback.
 
 import { WebSocket } from "ws";
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { resolve as resolvePath, dirname } from "node:path";
 
 export function runtimeEndpoint(): string | undefined {
   const e = process.env.C64RE_RUNTIME_ENDPOINT;
@@ -20,6 +24,58 @@ export function runtimeEndpoint(): string | undefined {
 
 export function isDaemonMode(): boolean {
   return !!runtimeEndpoint();
+}
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Try one WS connection (resolves the socket or rejects with the ws error). */
+function tryOpen(endpoint: string, timeoutMs = 2500): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(endpoint);
+    const timer = setTimeout(() => { ws.terminate(); reject(new Error("connect timeout")); }, timeoutMs);
+    ws.once("open", () => { clearTimeout(timer); resolve(ws); });
+    ws.once("error", (e) => { clearTimeout(timer); reject(e); });
+  });
+}
+
+/**
+ * Spec 744.4c — auto-start the Runtime Daemon (detached) so the human never has to
+ * launch the backend by hand. Detached + unref'd → it OUTLIVES this MCP process, so
+ * an MCP reconnect attaches to the same running daemon (sessions are not reset). A
+ * second MCP racing to spawn just loses the port bind and its client retries onto
+ * the winner. Disable with C64RE_RUNTIME_AUTOSTART=0.
+ */
+function spawnDaemonDetached(endpoint: string): boolean {
+  if (process.env.C64RE_RUNTIME_AUTOSTART === "0") return false;
+  const projectDir = process.env.C64RE_PROJECT_DIR;
+  if (!projectDir) return false;
+  const m = endpoint.match(/^wss?:\/\/[^/:]+:(\d+)/);
+  const port = m ? m[1] : "4312";
+  // Repo root from this module: <repo>/{src|dist}/server-tools/runtime-daemon-client.{ts|js}
+  const here = fileURLToPath(import.meta.url);
+  const repo = resolvePath(dirname(here), "..", "..");
+  const fromSrc = here.endsWith(".ts");
+  let cmd: string; let args: string[];
+  if (fromSrc) {
+    // MCP runs under tsx — start the daemon the same way (source entry, no dist needed).
+    cmd = resolvePath(repo, "node_modules", ".bin", "tsx");
+    args = [resolvePath(repo, "src/runtime/headless/daemon/run.ts"), "--project", projectDir, "--port", port];
+  } else {
+    const distEntry = resolvePath(repo, "dist/runtime/headless/daemon/run.js");
+    if (!existsSync(distEntry)) return false;
+    cmd = process.execPath;
+    args = [distEntry, "--project", projectDir, "--port", port];
+  }
+  try {
+    const child = spawn(cmd, args, {
+      cwd: repo, detached: true, stdio: "ignore",
+      env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_DAEMON_PORT: port },
+    });
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 class RuntimeDaemonClient {
@@ -31,30 +87,38 @@ class RuntimeDaemonClient {
   private async connect(): Promise<WebSocket> {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) return this.ws;
     if (this.connecting) return this.connecting;
+    this.connecting = this.connectWithAutostart();
+    try { return await this.connecting; } finally { this.connecting = null; }
+  }
+
+  private async connectWithAutostart(): Promise<WebSocket> {
     const endpoint = runtimeEndpoint();
     if (!endpoint) throw new Error("C64RE_RUNTIME_ENDPOINT not set");
-    this.connecting = new Promise<WebSocket>((resolve, reject) => {
-      const ws = new WebSocket(endpoint);
-      const onErr = (e: Error) => {
-        this.connecting = null;
-        reject(new Error(
-          `Runtime daemon not reachable at ${endpoint}: ${e.message}. ` +
-          `Start it with \`npm run runtime:daemon\` — it owns the shared C64 runtime ` +
-          `the LLM and the UI both attach to (Spec 744.4c).`,
-        ));
-      };
-      ws.once("error", onErr);
-      ws.once("open", () => {
-        ws.off("error", onErr);
-        ws.on("message", (data) => this.onMessage(data.toString()));
-        ws.on("close", () => { this.ws = null; this.failAll(new Error("runtime daemon connection closed")); });
-        ws.on("error", () => { /* surfaced per-call via timeouts / failAll */ });
-        this.ws = ws;
-        this.connecting = null;
-        resolve(ws);
-      });
-    });
-    return this.connecting;
+    // 1) already up?
+    try { return this.wire(await tryOpen(endpoint)); } catch { /* not up yet */ }
+    // 2) auto-start the daemon (detached, outlives this MCP) then poll for it.
+    const spawned = spawnDaemonDetached(endpoint);
+    const deadlineMs = spawned ? 40_000 : 4_000; // booting the default session takes a few s
+    const start = Date.now();
+    while (Date.now() - start < deadlineMs) {
+      await sleep(400);
+      try { return this.wire(await tryOpen(endpoint)); } catch { /* keep polling */ }
+    }
+    throw new Error(
+      `Runtime daemon not reachable at ${endpoint}` +
+      (spawned ? ` (auto-started it but it did not come up in time — check \`npm run runtime:daemon\`).`
+               : `. Start it with \`npm run runtime:daemon\` (it owns the shared C64 runtime ` +
+                 `the LLM and the UI both attach to — Spec 744.4c). ` +
+                 (process.env.C64RE_PROJECT_DIR ? "" : "Also set C64RE_PROJECT_DIR.")),
+    );
+  }
+
+  private wire(ws: WebSocket): WebSocket {
+    ws.on("message", (data) => this.onMessage(data.toString()));
+    ws.on("close", () => { this.ws = null; this.failAll(new Error("runtime daemon connection closed")); });
+    ws.on("error", () => { /* surfaced per-call via timeouts / failAll */ });
+    this.ws = ws;
+    return ws;
   }
 
   private onMessage(raw: string): void {

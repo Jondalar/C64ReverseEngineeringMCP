@@ -799,3 +799,22 @@ client are built to extend tool-by-tool.
 - **744.4a DONE** (single in-process authority). **744.4b RETIRED** (MCP co-host —
   reset on reconnect). **744.4c DONE** (Runtime Daemon — stable shared authority,
   acceptance §84-97 green). §7 drive-to-state orchestration remains open.
+
+### 744.4c auto-start — no manual backend (2026-05-31)
+The human (and the LLM) must not have to launch the backend by hand. When
+`C64RE_RUNTIME_ENDPOINT` is set but no daemon is up, the MCP `runtime_*` tools
+**auto-start the Runtime Daemon detached** (`runtime-daemon-client.ts`
+`spawnDaemonDetached`): spawned under the SAME runtime as the MCP (tsx-from-src →
+`tsx src/runtime/headless/daemon/run.ts`; built → `node dist/.../run.js`), `detached`
++ `unref()` so it OUTLIVES the MCP. A reconnecting MCP attaches to the same running
+daemon → sessions are not reset. A second MCP racing to spawn loses the port bind and
+its client retries onto the winner. Disable with `C64RE_RUNTIME_AUTOSTART=0`.
+
+The daemon starts the WS FIRST (endpoint opens immediately) and creates its default
+session PAUSED — a synchronous pre-boot (`runFor 2M`) would block the event loop for
+seconds under tsx and stall the port / the MCP auto-start poll.
+
+Gate: `npm run e2e:744-4c-autostart` (5/5) — no daemon up → MCP `runtime_session_start`
+auto-starts it + creates a session; the daemon then listens; it SURVIVES the MCP exit
+(detached); a reconnecting MCP attaches to the same daemon + sees the session.
+Verified for both the built (`node`) and the product tsx-from-src launch.

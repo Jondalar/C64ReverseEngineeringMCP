@@ -213,7 +213,8 @@
     "smoke:744-4": "npm run build:mcp && node scripts/smoke-744-4-session-authority.mjs",
     "probe:744-idle": "npm run build:mcp && node scripts/probe-744-idle-ownership.mjs",
     "runtime:daemon": "npm run build:mcp && node scripts/runtime-daemon.mjs",
-    "e2e:744-4c": "npm run build:mcp && node scripts/e2e-744-4c-daemon.mjs"
+    "e2e:744-4c": "npm run build:mcp && node scripts/e2e-744-4c-daemon.mjs",
+    "e2e:744-4c-autostart": "npm run build:mcp && node scripts/e2e-744-4c-autostart.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

@@ -134,7 +134,8 @@ The bundled TRXDis pipeline is built automatically.
 | Variable | Description | Required |
 |---|---|---|
 | `C64RE_PROJECT_DIR` | Working directory for the RE project | Yes |
-| `C64RE_RUNTIME_ENDPOINT` | WS endpoint of the product Runtime Daemon (Spec 744.4c) — e.g. `ws://127.0.0.1:4312`. When set, MCP `runtime_*` tools are clients of the daemon (the same runtime the UI uses); start it with `npm run runtime:daemon`. MCP reconnect / browser reload do not reset sessions. Unset → in-process runtime (dev/test, no UI sharing). | Recommended for shared human+LLM runtime |
+| `C64RE_RUNTIME_ENDPOINT` | WS endpoint of the product Runtime Daemon (Spec 744.4c) — e.g. `ws://127.0.0.1:4312`. When set, MCP `runtime_*` tools are clients of the daemon (the same runtime the UI uses). **The MCP auto-starts the daemon (detached) on first use — you do NOT start the backend by hand;** it outlives the MCP, so reconnect / browser reload do not reset sessions. `npm run runtime:daemon` is an optional explicit/foreground launch. Unset → in-process runtime (dev/test, no UI sharing). | Recommended for shared human+LLM runtime |
+| `C64RE_RUNTIME_AUTOSTART` | Set to `0` to disable the MCP auto-starting the daemon (then run `npm run runtime:daemon` yourself). | No |
 | `C64RE_RUNTIME_WS` | RETIRED 744.4b MCP co-host port. It reset sessions on MCP reconnect — superseded by the Runtime Daemon (`C64RE_RUNTIME_ENDPOINT`). Setting it now only logs a deprecation. | No (retired) |
 | `C64RE_TOOLS_DIR` | Override: external TRXDis build instead of bundled | No |
 | `C64RE_KICKASS_JAR` | Override path to KickAssembler jar | No |
@@ -195,12 +196,14 @@ backend is a Runtime Daemon that owns C64/1541 clock, monitor state, media state
 trace capture and checkpoints. The browser UI and MCP tools are clients of that
 daemon. A browser reload or MCP reconnect does not reset runtime sessions.
 
-```bash
-npm run runtime:daemon -- --project <dir>   # THE product runtime authority (ws://127.0.0.1:4312)
-```
+Set `C64RE_RUNTIME_ENDPOINT=ws://127.0.0.1:4312` in the `.mcp.json` (see above). The
+MCP **auto-starts the daemon (detached) on first use** — you do not launch the backend
+by hand. Open the browser UI against the same port; the human and the LLM then share
+one live runtime. For an explicit foreground launch:
 
-Set `C64RE_RUNTIME_ENDPOINT=ws://127.0.0.1:4312` in the `.mcp.json` so the LLM's
-`runtime_*` tools attach to this daemon; open the browser UI against the same port.
+```bash
+npm run runtime:daemon -- --project <dir>   # optional — the MCP auto-starts it otherwise
+```
 
 The standalone V3 commands below are development-only paths (single process, not the
 shared-runtime daemon):
