@@ -216,8 +216,7 @@
     "e2e:744-4c": "npm run build:mcp && node scripts/e2e-744-4c-daemon.mjs",
     "e2e:744-4c-autostart": "npm run build:mcp && node scripts/e2e-744-4c-autostart.mjs",
     "e2e:744-4c-race": "npm run build:mcp && node scripts/e2e-744-4c-race.mjs",
-    "e2e:744-4c-slice2a": "npm run build:mcp && node scripts/e2e-744-4c-slice2a.mjs",
-    "e2e:744-4c-slice2b": "npm run build:mcp && node scripts/e2e-744-4c-slice2b.mjs"
+    "e2e:744-4c-slice2a": "npm run build:mcp && node scripts/e2e-744-4c-slice2a.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

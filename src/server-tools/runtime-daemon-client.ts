@@ -217,19 +217,6 @@ class RuntimeDaemonClient {
   apiCall<T = unknown>(sessionId: string, method: string, args: unknown[] = []) {
     return this.call<T>("api/call", { session_id: sessionId, method, args });
   }
-
-  // -- Spec 744.4c slice 2b — media on the SHARED daemon session (the UI's media
-  //    methods; the daemon broadcasts media/changed so the human's view updates).
-  //    `path` MUST be pre-resolved absolute on the MCP side (caller's project). --
-  mediaMount(sessionId: string, drive: number, path: string, reset?: boolean) {
-    return this.call("media/mount", { session_id: sessionId, drive, path, reset });
-  }
-  mediaUnmount(sessionId: string, drive: number) {
-    return this.call("media/unmount", { session_id: sessionId, drive });
-  }
-  mediaSwap(sessionId: string, drive: number, path: string) {
-    return this.call("media/swap", { session_id: sessionId, drive, path });
-  }
 }
 
 /** Singleton client (one connection per MCP process). */

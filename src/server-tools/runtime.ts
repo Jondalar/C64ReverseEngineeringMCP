@@ -9,24 +9,10 @@
 // `runtime_compare_with_vice` and only when scenario absent from
 // baseline corpus.
 
-import { isAbsolute, resolve as resolvePath } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
-
-/**
- * Spec 744.4c slice 2b — resolve a media path to ABSOLUTE on the MCP (caller)
- * side, where C64RE_PROJECT_DIR is the caller's project. The daemon is project-
- * agnostic, so a relative path sent raw would resolve against the daemon's cwd
- * (wrong project). Absolute paths pass through. Mirrors the in-process behaviour
- * (a relative path there resolves against the MCP's cwd = caller) while making it
- * correct across the process boundary.
- */
-function resolveCallerMediaPath(path: string): string {
-  if (isAbsolute(path)) return path;
-  return resolvePath(process.env.C64RE_PROJECT_DIR ?? process.cwd(), path);
-}
 
 async function getApi(sessionId: string) {
   const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
@@ -595,16 +581,6 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_media_mount", async ({ session_id, slot, path }) => {
       if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
-      // Spec 744.4c slice 2b — route into the SHARED daemon session (the disk lands
-      // in the machine the human watches; the daemon broadcasts media/changed). Path
-      // is resolved absolute on the caller side so the daemon (project-agnostic)
-      // loads from the caller's project. reset omitted → withReset=true on both
-      // sides (matches the in-process default), so behaviour is identical.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-      if (isDaemonMode()) {
-        const result = await runtimeDaemon.mediaMount(session_id, slot, resolveCallerMediaPath(path));
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-      }
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
