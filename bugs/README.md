@@ -31,4 +31,5 @@ Human + LLM E2E bug log for the C64RE MCP/UI product flow.
 | BUG-020 | Header hero contains dashboard metrics and filters | workspace-ui | medium | open |
 | BUG-021 | Spec 741 fixture: relocated loader is demoted to unknown instead of rendered as runtime code | analysis | high | fixed (Spec 741 A–D; smoke-741 50/50) |
 | BUG-022 | `.gitignore` `analysis/` rule also ignores `pipeline/src/analysis/` source | build / repo-hygiene | medium | fixed |
-| BUG-023 | Custom true-drive (drive-side GCR) writes not persisted to D64-backed image (Wasteland Utils Copy + Scramble HighScore) | runtime | high | investigating (classifier `smoke:023`: loss is decode-bound; D64 GCR→sector decode drops non-standard sectors) |
+| BUG-023 | Custom true-drive (drive-side GCR) writes not persisted to D64-backed image (Wasteland Utils Copy + Scramble HighScore) | runtime | high | fixed (snapshot/dump writeback-all hook was no-op; wired to real `drive_gcr_data_writeback_all`; `smoke:023-snapshot-flush` 4/4) |
+| BUG-024 | Code-derived disk loads (no CBM dir / no on-disk LUT) can't be registered as rich payloads — `save_entity` makes thin records | mcp-tool | medium | open |

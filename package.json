@@ -161,6 +161,7 @@
     "smoke:023": "npm run build:mcp && node scripts/smoke-023-custom-drive-write-persist.mjs",
     "smoke:023-capture": "npm run build:mcp && node scripts/smoke-023-real-gcr-capture.mjs",
     "smoke:023-via": "npm run build:mcp && node scripts/smoke-023-via-rotation-write-path.mjs",
+    "smoke:023-snapshot-flush": "npm run build:mcp && node scripts/smoke-023-snapshot-flush.mjs",
     "build:fingerprints": "npm run build:mcp && node scripts/build-fingerprint-library.mjs",
     "smoke:fingerprint": "npm run build:mcp && node scripts/smoke-fingerprint.mjs",
     "smoke:follow-path": "npm run build:mcp && node scripts/smoke-follow-path.mjs",

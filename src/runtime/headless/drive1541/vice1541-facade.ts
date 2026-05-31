@@ -75,6 +75,7 @@ import {
   drive_install_hooks,
   drive_cpu_early_init_all,
   drive_set_half_track,
+  drive_gcr_data_writeback_all,
   drive_setup_context,
   diskunit_context as vice_diskunit_context,  // T3.2-fix-E: import from drive.ts (canonical, allocated by drive_setup_context). drivesync.ts has a forward-staged stub that drive.ts SHADOWS — must import from drive.ts not drivesync.ts.
   UI_JAM_NONE,
@@ -734,7 +735,13 @@ export class Vice1541Facade implements Drive1541 {
       // restore (head already in place) but wrong for cross-session .c64re
       // undump. Wire it to the real function (same one attachDisk uses at :420).
       drive_set_half_track: (num: number, side: number, drv: drive_t) => drive_set_half_track(num, side, drv),
-      drive_gcr_data_writeback_all: () => { /* no-op */ },
+      // BUG-023 — VICE-faithful: drive_snapshot writes/reads the GCRIMAGE
+      // module after flushing every dirty GCR track back to its image
+      // (drive.c calls drive_gcr_data_writeback_all() before snapshot write).
+      // A no-op here left dirty drive-side GCR writes (custom true-drive saves)
+      // un-decoded, so a snapshot/dump taken while the disk is mounted embedded
+      // the .d64 payload at its clean baseline. Wire it to the real function.
+      drive_gcr_data_writeback_all: () => drive_gcr_data_writeback_all(),
       drive_is_dualdrive_by_devnr: () => false,
       drive_update_ui_status: () => { /* no-op */ },
       drive_sound_stop: () => { /* no-op */ },

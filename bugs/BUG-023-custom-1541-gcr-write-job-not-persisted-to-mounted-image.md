@@ -5,7 +5,7 @@
 - **Reporter:** llm
 - **Area:** runtime
 - **Severity:** high
-- **Status:** investigating <!-- open | investigating | fixed | wontfix | duplicate -->
+- **Status:** fixed <!-- open | investigating | fixed | wontfix | duplicate -->
 
 ## RFL code audit + real VIA→rotation probe (2026-05-31) — SUPERSEDES the "D64 decode-bound" note below
 
@@ -209,9 +209,34 @@ report — left for the owner.)
 
 ---
 
-## Resolution (fill on fix)
+## Resolution
 
-- **Root cause:**
-- **Fix commit:**
-- **Gate proving the fix:**
-- **Regression risk:**
+- **Root cause:** the snapshot/dump GCR-flush hook was a no-op. VICE calls
+  `drive_gcr_data_writeback_all()` before writing a snapshot (drive.c /
+  drive-snapshot.c) so every dirty GCR track is decoded back into its `.d64`
+  image; our `vice1541-facade.ts` installed `drive_gcr_data_writeback_all: () =>
+  {}` into the drive_snapshot hooks. So a dump/snapshot taken while the disk was
+  mounted captured the embedded `.d64` media payload at its clean baseline — the
+  drive-side custom GCR writes (Wasteland Utils Copy, Scramble HighScore) rode
+  only in the verbatim GCRIMAGE blob and never appeared in the `.d64` view. The
+  per-op write path (VIA2 → rotation → write_next_bit → detach decode) was a
+  faithful VICE port and worked end to end (proven by `smoke:023-via`); only the
+  snapshot-flush wiring diverged.
+- **Fix:** wire the facade's `drive_gcr_data_writeback_all` hook to the real
+  `drive_gcr_data_writeback_all()` (drive.ts, already a faithful port of VICE
+  drive.c:849-870) instead of the no-op (`src/runtime/headless/drive1541/
+  vice1541-facade.ts`). Narrow: no G64 policy, no auto-conversion.
+- **Fix commits:** audit `2250a8dc`; fix (this change).
+- **Gate proving the fix:** `scripts/smoke-023-snapshot-flush.mjs`
+  (`npm run smoke:023-snapshot-flush`, 4/4) — a dirty GCR track (written through
+  the real `write_next_bit` sink, no detach) is blank in the mounted `.d64`
+  before a snapshot and equals the written sector after `snapshot()` triggers the
+  now-wired writeback-all; GCRIMAGE restore/read-back also sees the bytes.
+  Plus `smoke:023-via` (6/6, real VIA→rotation path) and `smoke:023` (classifier)
+  stay green; `probe-single-path` 25/25.
+- **Prior "D64 decode-bound / unsuitable" finding:** documented ONLY as a
+  synthetic boundary (a deliberately corrupted sector in `smoke:023`), NOT the
+  real bug — VICE persists the same real `.d64`.
+- **Regression risk:** low. The change only replaces a no-op with the existing
+  faithful `drive_gcr_data_writeback_all` on the snapshot path; it flushes dirty
+  GCR→image exactly as VICE does before a snapshot. Single-path probe green.
