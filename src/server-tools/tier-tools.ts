@@ -65,6 +65,10 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Spec 725 §3.7 — Headless Runtime facade (the LLM's normal way to run the
   // product runtime; no V3 WebSocket server required).
   "runtime_session_start", "runtime_session_status", "runtime_session_run",
+  // BUG-027 Blocker 3 (Spec 744.3) — close/release a session so a finished
+  // RuntimeController stops ticking (otherwise it pegs a core ~100%); the clean
+  // alternative to killing the process. Must be on the default surface next to start.
+  "runtime_session_close",
   "runtime_session_snapshot", "runtime_media_browse", "runtime_media_mount",
   "runtime_media_unmount", "runtime_media_persist", "runtime_media_swap", "runtime_type",
   "runtime_joystick", "runtime_load_prg", "runtime_render_screen",
@@ -105,8 +109,9 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * agent_run_step). Spec 740.1 raised 100→104 for the project wiki/search tools
  * (project_search + project_find_related + project_reindex_search +
  * project_wiki_lint). BUG-024 raised 104→106 (headroom) when promoting
- * register_payload — carved code-derived loads become first-class payloads. */
-export const DEFAULT_TIER_CAP = 106;
+ * register_payload — carved code-derived loads become first-class payloads.
+ * BUG-027 raised 106→107 (runtime_session_close — session lifecycle/close). */
+export const DEFAULT_TIER_CAP = 107;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

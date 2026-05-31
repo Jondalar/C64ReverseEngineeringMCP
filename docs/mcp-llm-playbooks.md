@@ -191,8 +191,14 @@ inventory.
 8. _(llm)_ Save findings + choose disasm candidates.
    - tools: `save_finding`, `disasm_prg`, `agent_record_step`
    - persist: findings, entry points
+9. _(llm)_ Close the session when done — stops the run loop (else it pegs a core ~100%) and frees the session.
+   - tools: `runtime_session_close`
+   - persist: session released
+   ```text
+   runtime_session_close({ session_id })
+   ```
 
-**Stop when:** A trace.duckdb exists with cpu + bus + marks; executed-PC + access sets queried.
+**Stop when:** A trace.duckdb exists with cpu + bus + marks; executed-PC + access sets queried; the session is closed.
 
 **Next:** Disassembly + Trace Validation on the executed payloads.
 

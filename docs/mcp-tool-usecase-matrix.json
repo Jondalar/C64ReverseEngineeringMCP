@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 286,
-  "defaultCount": 105,
+  "total": 287,
+  "defaultCount": 106,
   "advancedCount": 181,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -3201,6 +3201,25 @@
       "e2eUseCases": [
         "E2E-B",
         "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_session_close",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Close a session when finished — stops the run loop (else it pegs a core ~100%), finalizes an active trace, frees the session. The clean alternative to killing the process.",
+      "notFor": "Pausing to inspect then resuming — keep the session and use runtime_session_run; finalizing only a trace — use runtime_trace_finalize.",
+      "adjacentTools": [
+        "runtime_session_start",
+        "runtime_trace_finalize"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"

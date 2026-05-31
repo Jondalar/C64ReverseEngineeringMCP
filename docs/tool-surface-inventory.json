@@ -1,5 +1,5 @@
 {
-  "total": 286,
+  "total": 287,
   "specCount": 78,
   "advancedCandidate": 68,
   "byNamespace": {
@@ -1731,6 +1731,15 @@
       "hasSpec": false,
       "firstSentence": "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition.",
       "desc": "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition. Use to step the machine forward. When the session has a streaming trace active (runtime_session_start trace_out=...), this run automatically chunks + drains the trace queue to trace.duckdb between chunks (behaviour-neutral). Not for run-to-PC only (use runtime_until) or for phase markers (use runtime_mark between calls). Inputs: session_id, max_instructions, optional breakpoints/until/cycle_budget. Returns: counts + final PC.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_session_close",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Close a runtime session and release its resources.",
+      "desc": "Close a runtime session and release its resources. Use when finished with a session started by runtime_session_start: it stops the RuntimeController loop (which otherwise keeps ticking the session and pegs a CPU core ~100% after you are done), finalizes any active streaming trace, and removes the session from the registry — the clean alternative to killing the process. Not for pausing to inspect then resuming (keep the session and use runtime_session_run) or for finalizing only a trace (use runtime_trace_finalize). Inputs: session_id. Returns: what was released. Idempotent (closing an unknown/already-closed session is a no-op success).",
       "tier": "default?"
     },
     {

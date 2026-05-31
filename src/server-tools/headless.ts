@@ -449,6 +449,49 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
+    "runtime_session_close",
+    "Close a runtime session and release its resources. Use when finished with a session started by runtime_session_start: it stops the RuntimeController loop (which otherwise keeps ticking the session and pegs a CPU core ~100% after you are done), finalizes any active streaming trace, and removes the session from the registry — the clean alternative to killing the process. Not for pausing to inspect then resuming (keep the session and use runtime_session_run) or for finalizing only a trace (use runtime_trace_finalize). Inputs: session_id. Returns: what was released. Idempotent (closing an unknown/already-closed session is a no-op success).",
+    { session_id: z.string() },
+    safeHandler("runtime_session_close", async ({ session_id }) => {
+      const { getIntegratedSession, stopIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { getRuntimeController, disposeRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+      const existed = !!getIntegratedSession(session_id);
+      const released: string[] = [];
+      const ctrl = getRuntimeController(session_id);
+
+      // 1. Finalize a streaming trace if one is active (drain → write header → close).
+      try {
+        if (ctrl?.traceRun?.isActive()) {
+          await ctrl.traceRun.stop();
+          released.push("trace (finalized)");
+        }
+      } catch { /* nothing to finalize */ }
+
+      // 2. Dispose the RuntimeController — cancels the scheduled run loop
+      //    (setImmediate/setTimeout tick), sets stopped, clears the checkpoint
+      //    ring. This is the fix for the idle ~100% CPU: a running controller
+      //    keeps ticking even after the session is gone.
+      if (ctrl) {
+        disposeRuntimeController(session_id);
+        released.push("controller (loop cancelled)");
+      }
+
+      // 3. Drop the session from the registry.
+      const removed = stopIntegratedSession(session_id);
+      if (removed) released.push("session");
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: existed || removed
+            ? `Session ${session_id} closed. Released: ${released.join(", ") || "(nothing pending)"}.`
+            : `Session ${session_id} was not open (already closed). No-op.`,
+        }],
+      };
+    },
+));
+
+  server.tool(
     "runtime_load_prg",
     "Inject a PRG into a session's RAM as if KERNAL LOAD placed it. Use to load a program without a disk. Not for disk LOAD (mount + runtime_type a LOAD line) or static analysis (use analyze_prg). Inputs: session_id, prg_path, optional load_address. Returns: load range.",
     {

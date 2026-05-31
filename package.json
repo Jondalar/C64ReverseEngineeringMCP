@@ -168,6 +168,7 @@
     "e2e:024": "npm run build:mcp && node scripts/e2e-024-payload-rich.mjs",
     "smoke:026": "npm run build:mcp && node scripts/smoke-026-keymap.mjs",
     "e2e:744-2": "npm run build:mcp && npx tsx scripts/e2e-744-2-trace-worker.mts",
+    "probe:744-3": "npm run build:mcp && node scripts/probe-744-3-session-close.mjs",
     "probe:743-1": "npm run build:mcp && node scripts/probe-743-1-alarm-primitive.mjs",
     "probe:743-2": "npm run build:mcp && node scripts/probe-743-2-interrupt-vic.mjs",
     "probe:743-3": "npm run build:mcp && node scripts/probe-743-3-cia-tod.mjs",
