@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { fileURLToPath } from "node:url";
+import { resolve, dirname } from "node:path";
 import { startStdioServer } from "./server.js";
 
 // Spec 044: subcommand router. `c64re setup <agent>` patches the
@@ -37,7 +39,26 @@ if (argv[0] === "setup") {
   // retired). Logs to stderr only (stdout is the JSON-RPC channel).
   const endpoint = process.env.C64RE_RUNTIME_ENDPOINT;
   if (endpoint) {
-    console.error(`[c64-re mcp] runtime tools are clients of the Runtime Daemon at ${endpoint} (Spec 744.4c). Start it with \`npm run runtime:daemon\`.`);
+    console.error(`[c64-re mcp] runtime tools are clients of the Runtime Daemon at ${endpoint} (Spec 744.4c).`);
+    // Spec 744.4c (Trigger 1) — EAGER warm-start: bring the shared Runtime Daemon up
+    // at MCP start (not just on the first tool call), so `/mcp reload` ALONE makes
+    // :4312 available and the human can open the UI before the LLM acts. Detached +
+    // fire-and-forget: MUST NOT block stdio startup (no await on readiness, no
+    // pre-boot runFor). Idempotent + race-safe (loser daemons exit cleanly).
+    {
+      const repoDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+      let startupProjectDir: string | undefined;
+      try {
+        const { resolveProjectDir } = await import("./project-root.js");
+        startupProjectDir = resolveProjectDir({ cwd: process.cwd(), repoDir });
+      } catch {
+        startupProjectDir = process.env.C64RE_PROJECT_DIR;
+      }
+      const { ensureDaemon } = await import("./server-tools/runtime-daemon-client.js");
+      void ensureDaemon({ endpoint, projectDir: startupProjectDir }).then((r) => {
+        if (r === "spawned") console.error(`[c64-re mcp] runtime daemon warm-started at ${endpoint}.`);
+      });
+    }
   } else if (process.env.C64RE_RUNTIME_WS) {
     console.error(`[c64-re mcp] C64RE_RUNTIME_WS (744.4b MCP co-host) is RETIRED — it reset sessions on MCP reconnect. Set C64RE_RUNTIME_ENDPOINT=ws://127.0.0.1:4312 and run \`npm run runtime:daemon\` (Spec 744.4c). Falling back to in-process runtime (no UI sharing).`);
   }

@@ -17,6 +17,10 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve as resolvePath, dirname } from "node:path";
 
+/** The product Runtime Daemon always listens here unless overridden. The UI
+ *  targets this directly even when the MCP env has no endpoint configured. */
+export const DEFAULT_RUNTIME_ENDPOINT = "ws://127.0.0.1:4312";
+
 export function runtimeEndpoint(): string | undefined {
   const e = process.env.C64RE_RUNTIME_ENDPOINT;
   return e && e.trim() ? e.trim() : undefined;
@@ -78,6 +82,29 @@ function spawnDaemonDetached(endpoint: string, projectDirArg?: string): boolean 
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Spec 744.4c — idempotent, fire-and-forget "make sure the daemon is up".
+ * The ONE helper behind all three start triggers — MCP eager start (cli.ts),
+ * the UI dev-server (vite plugin), and the lazy first-tool-call path. Whoever
+ * is first (human opening the UI, or the LLM calling a runtime tool) brings the
+ * shared runtime up; the rest see it already running. Never throws. Race-safe:
+ * if several callers spawn at once, the OS port-bind picks exactly one winner and
+ * the loser daemons exit cleanly (run.ts EADDRINUSE → exit 0).
+ */
+export async function ensureDaemon(
+  opts?: { endpoint?: string; projectDir?: string },
+): Promise<"already-up" | "spawned" | "skipped" | "failed"> {
+  try {
+    if (process.env.C64RE_RUNTIME_AUTOSTART === "0") return "skipped";
+    const endpoint = opts?.endpoint ?? runtimeEndpoint() ?? DEFAULT_RUNTIME_ENDPOINT;
+    // already up? (cheap pre-check — avoids a redundant spawn in the common case)
+    try { const ws = await tryOpen(endpoint, 800); ws.close(); return "already-up"; } catch { /* down */ }
+    return spawnDaemonDetached(endpoint, opts?.projectDir) ? "spawned" : "failed";
+  } catch {
+    return "failed";
   }
 }
 

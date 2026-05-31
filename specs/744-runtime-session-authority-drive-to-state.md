@@ -842,3 +842,38 @@ spawn-project:
 Gate: `npm run e2e:744-4c` test 10 — a DIFFERENT-project MCP (its own
 `C64RE_PROJECT_DIR`, not the daemon's) passes a RELATIVE `trace_out`; the created
 session's trace path resolves into ITS project, not the daemon's spawn-project. 10/10.
+
+### 744.4c three start triggers + eager warm-start + race safety (2026-05-31)
+The human must never hand-start the backend, and must be able to start from EITHER
+end — open the UI, or just talk to the LLM. One idempotent helper
+`ensureDaemon({endpoint, projectDir})` (`runtime-daemon-client.ts`) backs **three
+triggers**, all fire-and-forget + race-safe:
+
+1. **MCP eager start** (`cli.ts`) — when `C64RE_RUNTIME_ENDPOINT` is set, the MCP
+   warm-starts the daemon at startup (not just on first tool use), so `/mcp reload`
+   alone makes `:4312` available. projectDir = env `C64RE_PROJECT_DIR` → else
+   resolved from cwd (`resolveStartupProjectDir`). MUST NOT block stdio (no await on
+   readiness, no pre-boot `runFor`).
+2. **UI dev-server start** (`ui/v3-vite.config.ts` `ensureRuntimeDaemon` plugin,
+   `apply:"serve"`) — the browser can't spawn a process, but the vite Node server
+   can: on boot it pings `:4312` and spawns the daemon (tsx-from-src, dist fallback)
+   if dead. So `npm run ui:v3:dev` gives UI **and** backend.
+3. **Lazy first tool call** (existing `connectWithAutostart`) — the ultimate
+   guarantee for any path the other two missed.
+
+**Why `/mcp reload` showed no `:4312` before this:** spawn was lazy-only, and a
+reload re-handshakes the MCP without calling any runtime tool → nothing spawned.
+Trigger 1 closes that gap.
+
+**Multi-start race (correctness):** the OS port-bind is the single arbiter. The
+daemon now AWAITS a confirmed bind (`V3WsServer.ready()` resolves on `listening`,
+rejects on `error`) **before** creating its default session; on `EADDRINUSE` it
+exits cleanly (`exit 0`) leaving no orphan session (previously the loser constructed
+a session then crashed on the unhandled `error`). No spawn-lockfile — the port bind
+is authority and cannot go stale; losers are cheap + self-healing.
+
+Gate: `npm run e2e:744-4c-race` (11/11) — Part 1: two daemons on one port → loser
+exits 0 + logs back-off, winner keeps serving, exactly one listener. Part 2: 4 MCPs
+start simultaneously (eager warm-start) → exactly one daemon owns the port and all
+four MCPs share it. Regression: `e2e:744-4c` 10/10 + `e2e:744-4c-autostart` 5/5
+still green with eager spawn on.

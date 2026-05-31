@@ -127,6 +127,11 @@ export interface ClientContext {
 
 export class V3WsServer {
   private wss: WebSocketServer;
+  // Spec 744.4c — resolves when the port is actually bound ("listening"), rejects
+  // on bind failure ("error", e.g. EADDRINUSE). The daemon awaits this BEFORE
+  // creating its default session, so a loser in a multi-start race exits cleanly
+  // with zero side effects instead of constructing a session then crashing.
+  private readonly readyPromise: Promise<void>;
   private handlers = new Map<string, RpcHandler>();
   private clients = new Set<WebSocket>();
   // Single-session FIFO op chain. Node fires each ws "message" listener
@@ -176,8 +181,24 @@ export class V3WsServer {
       console.warn(`[v3-ws] WARNING: binding ${host}:${port} (not localhost). No auth — exposes session to network.`);
     }
     this.wss = new WebSocketServer({ port, host });
+    // Spec 744.4c — track bind outcome. once("error") rejects readiness (the only
+    // window EADDRINUSE matters); the persistent on("error") keeps any later socket
+    // error from crashing the process as an unhandled 'error' event.
+    this.readyPromise = new Promise<void>((resolveReady, rejectReady) => {
+      this.wss.once("listening", () => resolveReady());
+      this.wss.once("error", (err) => rejectReady(err));
+    });
+    this.wss.on("error", (err) => {
+      console.error(`[v3-ws] server error:`, (err as NodeJS.ErrnoException)?.code ?? err);
+    });
     this.wss.on("connection", (ws) => this.onConnection(ws));
     this.registerBuiltinHandlers();
+  }
+
+  /** Spec 744.4c — resolves once the port is bound, rejects on bind failure
+   *  (e.g. EADDRINUSE). Callers (the daemon entry) gate setup on this. */
+  ready(): Promise<void> {
+    return this.readyPromise;
   }
 
   /** Register a JSON-RPC method handler. */

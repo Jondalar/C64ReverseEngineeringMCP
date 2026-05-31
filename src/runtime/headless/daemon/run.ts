@@ -30,6 +30,22 @@ export async function runDaemon(argv: string[]): Promise<void> {
   // (runFor 2M) would block the event loop (seconds under tsx) and stall the port.
   const server = new V3WsServer({ port, host, projectDir, devSamples });
 
+  // Spec 744.4c — wait for the port to ACTUALLY bind before doing anything else.
+  // Multiple start triggers (MCP eager + UI dev-server + lazy tool call) can race
+  // to spawn a daemon; the OS port-bind is the single arbiter. A loser hits
+  // EADDRINUSE here and exits cleanly (exit 0) — BEFORE creating any session — so
+  // exactly one daemon owns the runtime and the losers leave no trace.
+  try {
+    await server.ready();
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException)?.code;
+    if (code === "EADDRINUSE") {
+      console.log(`[daemon] :${port} already owned by another Runtime Daemon — exiting cleanly (the existing one is the shared authority).`);
+      process.exit(0);
+    }
+    throw e;
+  }
+
   // Create ONE default session (PAUSED, at cold reset — NOT pre-booted) so a
   // freshly-connecting UI has a machine to attach to. The first Run boots it to
   // BASIC ready; the MCP/LLM creates more, all visible to both surfaces.
