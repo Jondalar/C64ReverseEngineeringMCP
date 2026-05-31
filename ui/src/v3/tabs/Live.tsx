@@ -53,8 +53,13 @@ function keyEventToC64Keys(e: KeyboardEvent): C64KeyName[] | null {
   switch (code) {
     case "Enter":      return ["RETURN"];
     case "Backspace":  return ["DEL"];
-    case "Escape":     return ["RUN_STOP"];
-    case "Tab":        return ["C_EQ"];
+    // BUG-026 — left-edge mapping matches the physical C64 layout:
+    //   host ESC (top-left) → C64 ← (LARROW), the top-left "ESCAPE"-position key
+    //   host ^ (Backquote)  → C64 CTRL
+    //   host TAB            → C64 RUN/STOP
+    case "Escape":     return ["LARROW"];
+    case "Tab":        return ["RUN_STOP"];
+    case "Backquote":  return ["CTRL"];
     case "Home":       return ["HOME"];
     case "ControlLeft":
     case "ControlRight": return ["CTRL"];

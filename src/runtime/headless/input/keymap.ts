@@ -33,7 +33,12 @@ export interface KeyTranslation {
 // ------------------------------------------------------------------
 const SPECIAL_MAP: Record<string, KeyTranslation | null> = {
   // Browser code          → C64 key
-  Escape:                 { key: "RUN_STOP" },
+  // BUG-026 — left-edge mapping matches the physical C64 layout:
+  //   host ESC (top-left)  → C64 ← (LARROW), the top-left "ESCAPE"-position key
+  //   host ^ (Backquote)   → C64 CTRL
+  //   host TAB             → C64 RUN/STOP
+  // (ESC no longer triggers RUN/STOP; ← moves off Backquote onto ESC.)
+  Escape:                 { key: "LARROW" },
   PageUp:                 { key: "RESTORE" },      // NMI
   Home:                   { key: "HOME" },
   End:                    { key: "DEL" },           // INST/DEL
@@ -41,7 +46,7 @@ const SPECIAL_MAP: Record<string, KeyTranslation | null> = {
   Backspace:              { key: "DEL" },
   Enter:                  { key: "RETURN" },
   NumpadEnter:            { key: "RETURN" },
-  Tab:                    { key: "CTRL" },           // Commodore CTRL
+  Tab:                    { key: "RUN_STOP" },        // BUG-026 — host TAB = C64 RUN/STOP
   ShiftLeft:              { key: "L_SHIFT" },
   ShiftRight:             { key: "R_SHIFT" },
   F1:                     { key: "F1" },
@@ -57,7 +62,7 @@ const SPECIAL_MAP: Record<string, KeyTranslation | null> = {
   ArrowLeft:              { key: "CRSR_RT", shift: true },
   ArrowRight:             { key: "CRSR_RT" },
   Space:                  { key: "SPACE" },
-  Backquote:              { key: "LARROW" },   // ` → ← (left arrow)
+  Backquote:              { key: "CTRL" },     // BUG-026 — host ^ (`) = C64 CTRL
   Backslash:              { key: "UP_ARROW" }, // \ → ↑ (up arrow)
   BracketLeft:            { key: "@" },
   BracketRight:           { key: "*" },
@@ -106,7 +111,7 @@ const QWERTY_MAP: Record<string, KeyTranslation> = {
 // ------------------------------------------------------------------
 export const POSITIONAL_MAP: Record<string, KeyTranslation> = {
   // Row 0 physical → C64 function / special
-  Escape:    { key: "RUN_STOP" },
+  Escape:    { key: "LARROW" },   // BUG-026 — top-left "ESCAPE"-position = C64 ←
   F1:        { key: "F1" },
   F2:        { key: "F1", shift: true },
   F3:        { key: "F3" },
@@ -116,13 +121,13 @@ export const POSITIONAL_MAP: Record<string, KeyTranslation> = {
   F7:        { key: "F7" },
   F8:        { key: "F7", shift: true },
   // Number row (physical → C64 positional)
-  Backquote: { key: "LARROW" },
+  Backquote: { key: "CTRL" },   // BUG-026 — host ^ (`) = C64 CTRL
   Digit1:    { key: "1" }, Digit2: { key: "2" }, Digit3: { key: "3" },
   Digit4:    { key: "4" }, Digit5: { key: "5" }, Digit6: { key: "6" },
   Digit7:    { key: "7" }, Digit8: { key: "8" }, Digit9: { key: "9" },
   Digit0:    { key: "0" }, Minus: { key: "+" }, Equal: { key: "-" },
   // QWERTY row
-  Tab:       { key: "CTRL" },
+  Tab:       { key: "RUN_STOP" },   // BUG-026 — host TAB = C64 RUN/STOP
   KeyQ: { key: "Q" }, KeyW: { key: "W" }, KeyE: { key: "E" },
   KeyR: { key: "R" }, KeyT: { key: "T" }, KeyY: { key: "Y" },
   KeyU: { key: "U" }, KeyI: { key: "I" }, KeyO: { key: "O" },

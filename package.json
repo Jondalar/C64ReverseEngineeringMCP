@@ -166,6 +166,7 @@
     "smoke:742": "npm run build:mcp && node scripts/smoke-742-central-mount.mjs",
     "smoke:023-cart": "npm run build:mcp && node scripts/smoke-023-cart-write-through.mjs",
     "e2e:024": "npm run build:mcp && node scripts/e2e-024-payload-rich.mjs",
+    "smoke:026": "npm run build:mcp && node scripts/smoke-026-keymap.mjs",
     "build:fingerprints": "npm run build:mcp && node scripts/build-fingerprint-library.mjs",
     "smoke:fingerprint": "npm run build:mcp && node scripts/smoke-fingerprint.mjs",
     "smoke:follow-path": "npm run build:mcp && node scripts/smoke-follow-path.mjs",
