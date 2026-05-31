@@ -818,3 +818,27 @@ Gate: `npm run e2e:744-4c-autostart` (5/5) — no daemon up → MCP `runtime_ses
 auto-starts it + creates a session; the daemon then listens; it SURVIVES the MCP exit
 (detached); a reconnecting MCP attaches to the same daemon + sees the session.
 Verified for both the built (`node`) and the product tsx-from-src launch.
+
+### 744.4c project-agnostic sessions — the client brings its context (2026-05-31)
+The Runtime Daemon is a **project-agnostic runtime host**: one daemon can serve
+several projects at once (the LLM in project A and the LLM in project B both attach
+to it). So the *session* must be self-describing — the **client brings its project
+context per `session/create`**, the daemon resolves nothing against its own
+spawn-project:
+
+- The MCP `runtime_session_start` daemon branch resolves `disk_path` and `trace_out`
+  to **absolute** against the MCP's OWN project (`resolveHeadlessProjectDir(context)`
+  + `resolveTraceOut` / `resolve`), then hands the daemon already-resolved paths.
+- The daemon's `session/create` (`v3-ws-server.ts`) passes those straight through —
+  `resolveTraceOut(absolute, this.projectDir) === absolute`, so `this.projectDir`
+  (the daemon's default-session / UI base) is NOT applied to a self-describing MCP
+  session. The disk + the `trace.duckdb` always land in the *caller's* project.
+- `projectDir`-at-spawn (the auto-start `--project`) therefore shrinks to one job:
+  the daemon's own default session + UI base. It is NOT load-bearing for
+  MCP-created sessions. NB `context.projectDir()` returns the project ROOT (it is a
+  project-root finder, not a path resolver) — resolving a file path uses
+  `resolve(project, path)` / `resolveTraceOut`, not `context.projectDir(path)`.
+
+Gate: `npm run e2e:744-4c` test 10 — a DIFFERENT-project MCP (its own
+`C64RE_PROJECT_DIR`, not the daemon's) passes a RELATIVE `trace_out`; the created
+session's trace path resolves into ITS project, not the daemon's spawn-project. 10/10.

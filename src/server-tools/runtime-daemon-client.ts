@@ -45,9 +45,12 @@ function tryOpen(endpoint: string, timeoutMs = 2500): Promise<WebSocket> {
  * second MCP racing to spawn just loses the port bind and its client retries onto
  * the winner. Disable with C64RE_RUNTIME_AUTOSTART=0.
  */
-function spawnDaemonDetached(endpoint: string): boolean {
+function spawnDaemonDetached(endpoint: string, projectDirArg?: string): boolean {
   if (process.env.C64RE_RUNTIME_AUTOSTART === "0") return false;
-  const projectDir = process.env.C64RE_PROJECT_DIR;
+  // Spec 744.4c (fix A) — prefer the project the MCP tool resolved (config-agnostic:
+  // works whether C64RE_PROJECT_DIR is in the env or derived from the MCP context),
+  // falling back to the env. The daemon is per-project, so it must know which one.
+  const projectDir = projectDirArg ?? process.env.C64RE_PROJECT_DIR;
   if (!projectDir) return false;
   const m = endpoint.match(/^wss?:\/\/[^/:]+:(\d+)/);
   const port = m ? m[1] : "4312";
@@ -82,7 +85,12 @@ class RuntimeDaemonClient {
   private ws: WebSocket | null = null;
   private connecting: Promise<WebSocket> | null = null;
   private nextId = 1;
+  private projectDir?: string;
   private readonly pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+
+  /** The MCP tool tells the client which project it resolved, so an auto-started
+   *  daemon serves that project even when C64RE_PROJECT_DIR is not in the env. */
+  setProjectDir(dir: string | undefined): void { if (dir) this.projectDir = dir; }
 
   private async connect(): Promise<WebSocket> {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) return this.ws;
@@ -97,7 +105,7 @@ class RuntimeDaemonClient {
     // 1) already up?
     try { return this.wire(await tryOpen(endpoint)); } catch { /* not up yet */ }
     // 2) auto-start the daemon (detached, outlives this MCP) then poll for it.
-    const spawned = spawnDaemonDetached(endpoint);
+    const spawned = spawnDaemonDetached(endpoint, this.projectDir);
     const deadlineMs = spawned ? 40_000 : 4_000; // booting the default session takes a few s
     const start = Date.now();
     while (Date.now() - start < deadlineMs) {

@@ -3,8 +3,9 @@
 // the human (UI WS) are BOTH clients of it, share the same session, and neither an
 // MCP reconnect nor a browser reload resets the runtime.
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 
@@ -22,10 +23,10 @@ console.log("Spec 744.4c — Runtime Daemon: MCP + UI are clients of ONE stable 
 if (!existsSync(cli)) { console.error("build:mcp first"); process.exit(2); }
 
 const procs = [];
-function spawnMcp() {
+function spawnMcp(projectDir = ROOT) {
   const proc = spawn(process.execPath, [cli], {
     cwd: ROOT,
-    env: { ...process.env, C64RE_PROJECT_DIR: ROOT, C64RE_FULL_TOOLS: "1", C64RE_RUNTIME_ENDPOINT: ENDPOINT },
+    env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_FULL_TOOLS: "1", C64RE_RUNTIME_ENDPOINT: ENDPOINT },
     stdio: ["pipe", "pipe", "pipe"],
   });
   procs.push(proc);
@@ -102,6 +103,23 @@ try {
   const startHandler = headless.slice(headless.indexOf('"runtime_session_start"'), headless.indexOf('"runtime_session_run"'));
   const daemonBranchFirst = startHandler.indexOf("isDaemonMode()") < startHandler.indexOf("runtimeSessions.start(");
   ok(daemonBranchFirst, "9 runtime_session_start routes to the daemon BEFORE any in-process create (no private session)");
+
+  // ---- PROJECT-AGNOSTIC daemon: a DIFFERENT-project MCP's RELATIVE trace_out must
+  //      land in ITS OWN project, not the daemon's spawn-project (ROOT). Proves the
+  //      session is self-describing — the client brings its context per create. ----
+  const tmpProj = join(tmpdir(), `c64re-744-4c-proj-${process.pid}`);
+  mkdirSync(join(tmpProj, "traces"), { recursive: true });
+  mkdirSync(join(tmpProj, "knowledge"), { recursive: true });
+  writeFileSync(join(tmpProj, "knowledge", "phase-plan.json"), "{}"); // valid c64re project marker
+  const mcp3 = spawnMcp(tmpProj); // C64RE_PROJECT_DIR = tmpProj, NOT ROOT
+  await mcpReady(mcp3);
+  const startX = mcp3.text(await mcp3.call("runtime_session_start", { disk_path: DISK, write_protected: true, trace_out: "traces/cross.duckdb" }));
+  const Sx = (startX.match(/Session:\s*(\S+)/) || [])[1];
+  const traceOut = (startX.match(/Trace:\s*streaming\s*→\s*(\S+)/) || [])[1] || "";
+  ok(traceOut.startsWith(tmpProj) && !traceOut.startsWith(ROOT),
+    "10 different-project MCP's relative trace_out resolves into ITS project, not the daemon's", traceOut);
+  if (Sx) await mcp3.call("runtime_session_close", { session_id: Sx });
+  mcp3.kill();
 
   await mcp2.call("runtime_session_close", { session_id: S });
   mcp2.kill();

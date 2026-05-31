@@ -191,11 +191,30 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // this stable tool; the daemon owns the IntegratedSession.
       const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
       if (isDaemonMode()) {
-        const r = await runtimeDaemon.createSession({ disk_path, device_id, pal, start_track, write_protected, trace_out, trace_domains });
+        // Spec 744.4c — the daemon is a PROJECT-AGNOSTIC runtime host: it may serve
+        // several projects at once. The session must be self-describing, so the MCP
+        // resolves every path to ABSOLUTE against ITS OWN project context here and
+        // hands the daemon already-resolved paths. The daemon then resolves nothing
+        // against its own spawn-project (resolveTraceOut passes absolute through), so
+        // the disk + the trace.duckdb always land in the *caller's* project — not the
+        // daemon's. (projectDir-at-spawn below is only the daemon's default-session /
+        // UI base; it is not load-bearing for MCP-created sessions.)
+        const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+        const { resolveTraceOut } = await import("./runtime-trace-sink.js");
+        // Resolve to ABSOLUTE the same way the trace path is (absolute as-is, else
+        // under the MCP's project). NOTE: context.projectDir() returns the project
+        // ROOT, not a resolved file path — it is the wrong tool for this.
+        const absDisk = disk_path
+          ? (resolve(mcpProject ?? process.cwd(), disk_path))
+          : disk_path;
+        const absTraceOut = trace_out ? resolveTraceOut(trace_out, mcpProject) : undefined;
+        // Seed the auto-spawn base so a daemon we start lives in a real project.
+        runtimeDaemon.setProjectDir(mcpProject);
+        const r = await runtimeDaemon.createSession({ disk_path: absDisk, device_id, pal, start_track, write_protected, trace_out: absTraceOut, trace_domains });
         const lines = [
           `Integrated session started (Runtime Daemon — shared with the UI).`,
           `Session: ${r.sessionId}`,
-          `Disk: ${disk_path ?? "(none)"}`,
+          `Disk: ${absDisk ?? "(none)"}`,
           `Mode: ${r.mode}`,
           `C64 cycles: ${r.c64Cycles}  PC: ${formatHexWord(r.pc)}`,
         ];

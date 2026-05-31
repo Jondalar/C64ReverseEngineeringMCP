@@ -457,6 +457,12 @@ export class V3WsServer {
     // MCP adapter create sessions through this one authority so they share state.
     // (The V3WsServer is otherwise stateless — it only operated on pre-existing
     // sessions; session/create+close make it the lifecycle owner for the daemon.)
+    //
+    // PROJECT-AGNOSTIC: the daemon may serve several projects at once, so the CLIENT
+    // brings its context — disk_path and trace_out arrive already ABSOLUTE (resolved
+    // against the caller's own project). resolveTraceOut passes absolute through, so
+    // this.projectDir (the daemon's default-session/UI base) is NOT applied to a
+    // self-describing MCP session. A bare relative path still falls back to the base.
     this.on("session/create", async ({ disk_path, device_id, pal, start_track, write_protected, trace_out, trace_domains }) => {
       const { runtimeSessions } = await import("../runtime/headless/runtime-session-service.js");
       const { producerOptsForDomains, startSessionTrace, resolveTraceOut, DEFAULT_TRACE_DOMAINS } =
