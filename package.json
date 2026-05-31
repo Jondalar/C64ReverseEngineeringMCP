@@ -163,6 +163,7 @@
     "smoke:023-snapshot-flush": "npm run build:mcp && node scripts/smoke-023-snapshot-flush.mjs",
     "smoke:023-host-file": "npm run build:mcp && node scripts/smoke-023-host-file-persist.mjs",
     "smoke:023-write-through": "npm run build:mcp && node scripts/smoke-023-write-through.mjs",
+    "smoke:742": "npm run build:mcp && node scripts/smoke-742-central-mount.mjs",
     "build:fingerprints": "npm run build:mcp && node scripts/build-fingerprint-library.mjs",
     "smoke:fingerprint": "npm run build:mcp && node scripts/smoke-fingerprint.mjs",
     "smoke:follow-path": "npm run build:mcp && node scripts/smoke-follow-path.mjs",

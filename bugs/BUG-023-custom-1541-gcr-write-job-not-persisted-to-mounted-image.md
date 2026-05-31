@@ -28,6 +28,11 @@ class**. Codify it:
    `.crt`): a cartridge write must reach the host file at its VICE write point,
    not only RAM/checkpoint. Tracked as a follow-up (BUG-023-cart).
 
+The multiple uncoordinated attach paths that let this hide in the UI (UI picker /
+ingress / mount tool / drive-session each calling `attachDisk` separately) are
+unified under **Spec 742** (one central `mountDiskMedia`, backing-path identity
+preserved on every path). Slice 1 shipped with this fix.
+
 ### Root cause
 
 VICE's disk-image `fd` is the real file: `drive_gcr_data_writeback` →

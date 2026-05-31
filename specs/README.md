@@ -40,6 +40,7 @@ Small by design — only specs with concrete next implementation work.
 |---|---|---|
 | 721 | Visual-Origin Join (runtime-informed annotation) | Core join shipped (probe green); the semantic-pipeline extension is the active edge. |
 | 726.B | Trace V2 Binary Timeline | **Slice 1 DONE (2026-05-30, review-fixed 2026-05-31)** — binary `.c64retrace` log is the live authority, DuckDB is a rebuildable index, zero-alloc CPU sink, §2a.1 perf gate GREEN (~6% overhead, 2.1× PAL). drive8-cpu now produces real (sampled) rows; finalize no-hang; sink ownership explicit. 726.B-2 open: zero-alloc bus/iec/vic + per-instruction drive trace + streaming (not read-whole-file) indexer + rebuild tool. |
+| 742 | Media Ownership + VICE-Faithful Write-Through Refactor | ACTIVE after BUG-023: unify UI/MCP/scenario/ingress media attach paths, preserve `MediaRef`/backing-path ownership, and make writable D64/G64 path-backed media write through to host files at VICE diskimage commit points. |
 
 ## GOVERNING / DOCTRINE (rules + umbrella contracts — still binding, not active implementation)
 
@@ -139,7 +140,7 @@ mapper" header is gone.
 
 ## Counts
 
-- ACTIVE: 2 (721, 726.B)
+- ACTIVE: 3 (721, 726.B, 742)
 - GOVERNING / DOCTRINE: 4 (610, 612, 620, 705)
 - DONE: 29
 - BACKLOG: 11

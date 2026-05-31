@@ -8,8 +8,9 @@
 //
 // Tape (.t64 / .tap) is deferred to V3.1.
 
-import { existsSync, writeFileSync, renameSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { extname } from "node:path";
+import { mountDiskMedia, persistDriveToFile, type DiskMountDrive } from "./mount-disk-media.js";
 import type { IntegratedSession } from "../integrated-session.js";
 import { loadCartridgeMapper } from "../cartridge.js";
 import type { HeadlessCartridgeMapperType } from "../types.js";
@@ -192,24 +193,17 @@ export async function mountMedia(
       && typeof kernelAny.drive1541.attachDisk === "function"
       && (mediaType === "d64" || mediaType === "g64")
     ) {
-      // BUG-023 — a disk CHANGE is an implicit eject of the currently mounted
-      // disk: persist its drive-side writes to its host file + detach BEFORE
-      // attaching the new one, else the outgoing disk's writes are lost. No-op
-      // on the first mount (nothing attached / no backing path yet).
-      const cur = kernelAny.drive1541 as unknown as {
-        getAttachedMedia?: () => unknown | null;
-        detachDisk?: () => void;
-      };
-      if (session.diskPath && cur.getAttachedMedia?.()) {
-        persistMountedDiskToFile(session);
-        cur.detachDisk?.();
-      }
-      kernelAny.drive1541.attachDisk({
-        kind: mediaType,
-        bytes: originalBytes, // pre-buildG64; vice does its own encode for d64
-        readOnly: false,
-        backingPath: path, // BUG-023 — write-through to the host file at writeback
-      });
+      // Spec 742 — the ONE central disk attach (persists+detaches the outgoing
+      // disk on change, attaches with the host backing path for write-through,
+      // records the path identity). path-backed → "project-path".
+      mountDiskMedia(
+        {
+          drive: kernelAny.drive1541 as unknown as import("./mount-disk-media.js").DiskMountDrive,
+          getDiskPath: () => session.diskPath,
+          setDiskPath: (p) => { (session as { diskPath: string }).diskPath = p; },
+        },
+        { kind: mediaType, name: path, bytes: originalBytes, backingPath: path, readOnly: false, source: "project-path" },
+      );
       // MOUNT MUST NOT RESET THE DRIVE (user directive 2026-05-21).
       // On real hardware inserting/swapping a disk does NOT reset the 1541 —
       // the drive 6502 keeps running its current code (DOS idle loop, OR a
@@ -281,26 +275,11 @@ export interface DiskPersistResult {
  * no partial image). read-only media is never overwritten.
  */
 export function persistMountedDiskToFile(session: IntegratedSession): DiskPersistResult {
-  const drive = (session.kernel as unknown as {
-    drive1541?: {
-      persistDirtyTracks?: () => void;
-      getAttachedMedia?: () => { kind: string; bytes: Uint8Array; readOnly: boolean } | null;
-    };
-  }).drive1541;
-  if (!drive?.getAttachedMedia) return { written: false, reason: "no drive / media accessor" };
-  // Flush GCR → media.bytes first (so the bytes reflect drive-side writes).
-  drive.persistDirtyTracks?.();
-  const attached = drive.getAttachedMedia();
-  const path = session.diskPath;
-  if (!attached) return { written: false, reason: "no media attached" };
-  if (attached.readOnly) return { written: false, path, reason: "media is read-only — not writing back" };
-  if (!path) return { written: false, reason: "no backing file path" };
-  // Atomic write: temp file + rename, so a reader never sees a partial image
-  // and the host filesystem mtime changes.
-  const tmp = `${path}.c64re-tmp`;
-  writeFileSync(tmp, attached.bytes);
-  renameSync(tmp, path);
-  return { written: true, path, bytes: attached.bytes.length };
+  // Spec 742 — delegate to the central safety-flush. With write-through the
+  // host file is already current at each track commit; this flushes the final
+  // not-yet-committed track on unmount/swap/explicit-persist.
+  const drive = (session.kernel as unknown as { drive1541?: DiskMountDrive }).drive1541;
+  return persistDriveToFile(drive, session.diskPath);
 }
 
 export function unmountMedia(

@@ -14,6 +14,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { Vice1541Facade } from "./vice1541-facade.js";
 import type { Drive1541Media } from "./drive1541.js";
+import { mountDiskMedia, type DiskMountDrive } from "../media/mount-disk-media.js";
 
 export interface DriveSessionRecord {
   sessionId: string;
@@ -52,17 +53,29 @@ export function startDriveSession(opts: StartDriveSessionOptions): DriveSessionR
   }
   const bytes = new Uint8Array(readFileSync(opts.diskPath));
   const drive = new Vice1541Facade();
-  drive.attachDisk({
-    kind: mediaKind(opts.diskPath),
-    bytes,
-    readOnly: opts.writeProtected ?? false,
-  });
   const record: DriveSessionRecord = {
     sessionId: `drive-${nextId++}`,
     diskPath: opts.diskPath,
     startedAt: new Date().toISOString(),
     drive,
   };
+  // Spec 742 — central attach so the backing path is threaded (write-through
+  // for a writable standalone drive session too).
+  mountDiskMedia(
+    {
+      drive: drive as unknown as DiskMountDrive,
+      getDiskPath: () => "", // fresh facade, nothing mounted yet
+      setDiskPath: () => { /* record.diskPath already set above */ },
+    },
+    {
+      kind: mediaKind(opts.diskPath),
+      name: opts.diskPath,
+      bytes,
+      backingPath: opts.writeProtected ? undefined : opts.diskPath,
+      readOnly: opts.writeProtected ?? false,
+      source: "runtime-tool",
+    },
+  );
   sessions.set(record.sessionId, record);
   return record;
 }

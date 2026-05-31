@@ -16,11 +16,12 @@
 //     parse-only "success".
 
 import type { RuntimeController } from "../debug/runtime-controller.js";
+import { mountDiskMedia } from "./mount-disk-media.js";
 import { snapshotSha256, NATIVE_SNAPSHOT_MAGIC } from "../kernel/native-snapshot.js";
 import { loadCartridgeMapperFromBytes } from "../cartridge.js";
 
 export type MediaIngressRequest =
-  | { kind: "disk"; role: "drive8"; bytes: Uint8Array; name: string }
+  | { kind: "disk"; role: "drive8"; bytes: Uint8Array; name: string; backingPath?: string }
   | { kind: "prg"; bytes: Uint8Array; name: string; mode: "load" | "inject-run"; entry?: number }
   | { kind: "crt"; bytes: Uint8Array; name: string; resetPolicy: "reset" | "power-cycle" }
   | { kind: "eject"; role: "drive8" | "cartridge" };
@@ -157,9 +158,25 @@ export async function ingestMedia(
         if (!drive?.attachDisk) throw new Error("media-ingress: no VICE1541 drive to attach disk");
         format = diskFormat(req.bytes, req.name);
         sha256 = snapshotSha256(req.bytes);
-        drive.attachDisk({ kind: format as "d64" | "g64", bytes: req.bytes, readOnly: false });
-        ctrl.session.diskPath = req.name; // identity/display name
+        // Spec 742 — route through the one central attach so the backing-file
+        // identity is preserved (write-through when local/project-backed).
+        mountDiskMedia(
+          {
+            drive: drive as unknown as import("./mount-disk-media.js").DiskMountDrive,
+            getDiskPath: () => ctrl.session.diskPath,
+            setDiskPath: (p) => { (ctrl.session as { diskPath: string }).diskPath = p; },
+          },
+          {
+            kind: format as "d64" | "g64",
+            name: req.name,
+            bytes: req.bytes,
+            backingPath: req.backingPath,
+            readOnly: false,
+            source: req.backingPath ? "project-path" : "uploaded-bytes",
+          },
+        );
         detail["name"] = req.name;
+        if (req.backingPath) detail["backingPath"] = req.backingPath;
         break;
       }
       case "eject": {
