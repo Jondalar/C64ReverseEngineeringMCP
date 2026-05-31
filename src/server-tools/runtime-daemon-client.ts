@@ -209,6 +209,14 @@ class RuntimeDaemonClient {
   /** Returns { dataUrl } base64 PNG; caller writes to disk if a path is needed. */
   screenshot(sessionId: string) { return this.call<{ dataUrl?: string; width?: number; height?: number }>("session/screenshot", { session_id: sessionId }); }
   mark(sessionId: string, label: string) { return this.call("runtime/mark", { session_id: sessionId, label }); }
+
+  /** Spec 744.4c slice 2 — invoke an AgentQueryApi method on the SHARED daemon
+   *  session (monitor/step/breakpoint analysis). Returns the same value the
+   *  in-process `createAgentQueryApi({session})[method](...args)` would, with
+   *  TypedArrays normalized to plain arrays daemon-side. */
+  apiCall<T = unknown>(sessionId: string, method: string, args: unknown[] = []) {
+    return this.call<T>("api/call", { session_id: sessionId, method, args });
+  }
 }
 
 /** Singleton client (one connection per MCP process). */

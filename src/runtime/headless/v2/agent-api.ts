@@ -71,6 +71,15 @@ export interface AgentApiOptions {
   scenarioRegistry?: Map<string, unknown>;
 }
 
+// Spec 744.4c slice 2a — BreakpointManager must live PER SESSION, not per
+// AgentQueryApi instance. Each MCP/UI tool call builds a fresh
+// createAgentQueryApi({session}); a per-instance `_bp` meant a breakpoint added
+// by one call vanished on the next (and was invisible to the human + any other
+// client). Keying by the shared session object (the daemon hands out the same
+// instance to every caller) makes breakpoints durable + shared — the whole point
+// of the Runtime Daemon. WeakMap so a closed session's manager is GC'd.
+const sessionBreakpointManagers = new WeakMap<IntegratedSession, BreakpointManager>();
+
 /** Spec 237 — V2 agent query API stable surface. */
 export class AgentQueryApi {
   private session: IntegratedSession;
@@ -80,7 +89,6 @@ export class AgentQueryApi {
   private diskPath?: string;
   private mode?: ScenarioMode;
   private scenarioRegistry?: Map<string, unknown>;
-  private _bp?: BreakpointManager;
   private _monitor?: MonitorAPI;
   private _rewind?: RewindManager;
 
@@ -161,8 +169,11 @@ export class AgentQueryApi {
 
   // ---- Breakpoints (Spec 241) ----
   private bp(): BreakpointManager {
-    if (!this._bp) this._bp = new BreakpointManager();
-    return this._bp;
+    // Spec 744.4c slice 2a — per-session (shared), not per-instance. See
+    // sessionBreakpointManagers above.
+    let mgr = sessionBreakpointManagers.get(this.session);
+    if (!mgr) { mgr = new BreakpointManager(); sessionBreakpointManagers.set(this.session, mgr); }
+    return mgr;
   }
   addBreakpoint(spec: BreakpointSpec): string {
     this.bp().add(spec);

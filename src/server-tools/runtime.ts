@@ -22,6 +22,23 @@ async function getApi(sessionId: string) {
   return createAgentQueryApi({ session });
 }
 
+/**
+ * Spec 744.4c slice 2 — call an AgentQueryApi method against the active session,
+ * routing to the shared Runtime Daemon when one is configured (so the LLM's
+ * analysis/debug actions land on the SAME live machine the human watches), else
+ * in-process. Returns the identical value either way — the daemon runs the same
+ * AgentQueryApi and normalizes TypedArrays to plain arrays. Per slice the daemon
+ * allowlists which methods are reachable (v3-ws-server API_CALL_ALLOWLIST).
+ */
+async function callApi<T = unknown>(session_id: string, method: string, ...args: unknown[]): Promise<T> {
+  const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+  if (isDaemonMode()) {
+    return runtimeDaemon.apiCall<T>(session_id, method, args);
+  }
+  const api = await getApi(session_id) as unknown as Record<string, (...a: unknown[]) => unknown>;
+  return api[method](...args) as T;
+}
+
 /** Spec 726-fix — every trace-store reader handler must open the DuckDB file
  *  with try/finally CLOSE, otherwise the file's per-process lock leaks across
  *  calls (next reader call on the same file fails with "Conflicting lock is
@@ -52,8 +69,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       memspace: z.enum(["c64", "drive"]).optional(),
     },
     safeHandler("runtime_monitor_registers", async ({ session_id, memspace }) => {
-      const api = await getApi(session_id);
-      const r = api.monitorRegisters(memspace ?? "c64");
+      const r = await callApi(session_id, "monitorRegisters", memspace ?? "c64");
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     }),
   );
@@ -67,8 +83,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       end: z.number(),
     },
     safeHandler("runtime_monitor_memory", async ({ session_id, start, end }) => {
-      const api = await getApi(session_id);
-      const bytes = api.monitorMemory(start, end);
+      const bytes = await callApi<number[]>(session_id, "monitorMemory", start, end);
       const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join(" ");
       return { content: [{ type: "text", text: `${bytes.length} bytes from $${start.toString(16)}-$${end.toString(16)}:\n${hex}` }] };
     }),
@@ -119,8 +134,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       count: z.number().default(10),
     },
     safeHandler("runtime_monitor_disasm", async ({ session_id, addr, count }) => {
-      const api = await getApi(session_id);
-      const lines = api.monitorDisasm(addr, count);
+      const lines = await callApi<Array<{ text: string }>>(session_id, "monitorDisasm", addr, count);
       return { content: [{ type: "text", text: lines.map(l => l.text).join("\n") }] };
     }),
   );
@@ -130,9 +144,8 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Execute one instruction in a session, stepping INTO subroutines. Use for fine-grained single-step debugging. Not for stepping over a JSR (use runtime_step_over). Inputs: session_id. Returns: new PC + registers.",
     { session_id: z.string() },
     safeHandler("runtime_step_into", async ({ session_id }) => {
-      const api = await getApi(session_id);
-      api.stepInto();
-      const r = api.monitorRegisters("c64");
+      await callApi(session_id, "stepInto");
+      const r = await callApi<{ pc: number }>(session_id, "monitorRegisters", "c64");
       return { content: [{ type: "text", text: `stepped to PC=$${r.pc.toString(16)}` }] };
     }),
   );
@@ -145,8 +158,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       budget: z.number().optional(),
     },
     safeHandler("runtime_step_over", async ({ session_id, budget }) => {
-      const api = await getApi(session_id);
-      const r = api.stepOver(budget !== undefined ? { budget } : undefined);
+      const r = await callApi(session_id, "stepOver", budget !== undefined ? { budget } : undefined);
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     }),
   );
@@ -177,8 +189,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       action: z.enum(["halt", "log", "snapshot", "trace_burst"]).default("halt"),
     },
     safeHandler("runtime_breakpoint_add", async ({ session_id, id, pc, action }) => {
-      const api = await getApi(session_id);
-      api.addPcBreakpoint(id, pc, action);
+      await callApi(session_id, "addPcBreakpoint", id, pc, action);
       return { content: [{ type: "text", text: `breakpoint ${id} added at PC=$${pc.toString(16)} action=${action}` }] };
     }),
   );
@@ -188,8 +199,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Spec 241 — list all registered breakpoints.",
     { session_id: z.string() },
     safeHandler("runtime_breakpoint_list", async ({ session_id }) => {
-      const api = await getApi(session_id);
-      const list = api.listBreakpoints();
+      const list = await callApi(session_id, "listBreakpoints");
       return { content: [{ type: "text", text: JSON.stringify(list, null, 2) }] };
     }),
   );
@@ -199,8 +209,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Spec 241 — remove breakpoint by id.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_breakpoint_remove", async ({ session_id, id }) => {
-      const api = await getApi(session_id);
-      const ok = api.removeBreakpoint(id);
+      const ok = await callApi<boolean>(session_id, "removeBreakpoint", id);
       return { content: [{ type: "text", text: ok ? `removed ${id}` : `${id} not found` }] };
     }),
   );

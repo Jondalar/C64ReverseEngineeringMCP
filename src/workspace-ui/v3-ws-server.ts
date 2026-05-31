@@ -125,6 +125,18 @@ export interface ClientContext {
   sendBinary: (type: number, seq: number, payload: Uint8Array) => void;
 }
 
+/** Spec 744.4c slice 2 — make a value safe for JSON-RPC: TypedArrays → plain
+ *  arrays (else JSON serializes them as index-keyed objects and the MCP side's
+ *  Array.from() yields []), recursing through plain objects/arrays. */
+function normalizeForJson(value: unknown): unknown {
+  if (value == null || typeof value !== "object") return value;
+  if (ArrayBuffer.isView(value)) return Array.from(value as unknown as ArrayLike<number>);
+  if (Array.isArray(value)) return value.map(normalizeForJson);
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = normalizeForJson(v);
+  return out;
+}
+
 export class V3WsServer {
   private wss: WebSocketServer;
   // Spec 744.4c — resolves when the port is actually bound ("listening"), rejects
@@ -151,6 +163,19 @@ export class V3WsServer {
     // Spec 701 — loop/step commands mutate the live session; serialize them
     // behind any in-flight mount/reset so they execute atomically.
     "debug/run", "debug/pause", "debug/continue", "debug/step", "session/set_pacing",
+    // Spec 744.4c slice 2 — the AgentQueryApi bridge can mutate the session
+    // (stepInto/stepOver/breakpoints), so serialize it through the same op chain
+    // so it never interleaves with a run/mount/reset.
+    "api/call",
+  ]);
+
+  // Spec 744.4c slice 2 — AgentQueryApi methods reachable via the api/call bridge.
+  // Extended per slice as each group is verified to round-trip + format identically.
+  // Slice 2a = monitor read + single-step + breakpoints.
+  private static readonly API_CALL_ALLOWLIST = new Set<string>([
+    "monitorRegisters", "monitorMemory", "monitorDisasm",
+    "stepInto", "stepOver",
+    "addPcBreakpoint", "listBreakpoints", "removeBreakpoint",
   ]);
   // Spec 703 §8 — per-session audio. reSID PCM is rendered on the backend in
   // the RuntimeController's per-frame hook (the SAME loop + cadence that pushes
@@ -511,6 +536,30 @@ export class V3WsServer {
     this.on("session/close", async ({ session_id }) => {
       const { runtimeSessions } = await import("../runtime/headless/runtime-session-service.js");
       return await runtimeSessions.close(session_id);
+    });
+
+    // Spec 744.4c slice 2 — generic AgentQueryApi bridge. The MCP `runtime_*`
+    // analysis/debug tools (monitor_registers/memory/disasm, step_into/over,
+    // breakpoint_add/list/remove, …) all go through `createAgentQueryApi({session})`.
+    // Routing them one method at a time would be N near-identical handlers; instead
+    // this ONE handler runs the SAME AgentQueryApi against the SHARED daemon session,
+    // so the result is byte-identical to the in-process path and the LLM's debug
+    // actions land on the machine the human is watching. An allowlist gates which
+    // methods are exposed (extended per slice). Serialized via opChain above.
+    this.on("api/call", async ({ session_id, method, args }) => {
+      if (typeof method !== "string" || !V3WsServer.API_CALL_ALLOWLIST.has(method)) {
+        throw new Error(`api/call: method not allowed: ${method}`);
+      }
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`no session ${session_id}`);
+      const { createAgentQueryApi } = await import("../runtime/headless/v2/agent-api.js");
+      const api = createAgentQueryApi({ session }) as unknown as Record<string, (...a: unknown[]) => unknown>;
+      const fn = api[method];
+      if (typeof fn !== "function") throw new Error(`api/call: unknown method ${method}`);
+      const result = await fn.apply(api, Array.isArray(args) ? args : []);
+      // Normalize TypedArrays (e.g. monitorMemory → Uint8Array) to plain arrays so
+      // JSON-RPC round-trips them as arrays, not index-keyed objects.
+      return normalizeForJson(result);
     });
 
     // Render current frame as PNG → return base64 data URL.

@@ -896,3 +896,43 @@ source you MUST `npm run build:mcp` for the daemon to pick it up at full speed (
 Perf gate: `node scripts/diag-perf-tsx-vs-node.mjs` → node-dist realtimeRatio ≈ 1.0
 (≈50fps), documents the tsx penalty. Spawn-path change re-verified against
 e2e:744-4c 10/10 + autostart 5/5 + race 11/11.
+
+### 744.4c Slice 2 — routing the rest of the runtime_* tools to the daemon (2026-05-31)
+Slice 1 routed only 5 tools (`session_start/status/run/close/render_screen`). The other
+~63 ran in a PRIVATE in-process emulator in the MCP — invisible to the UI's shared
+session (LLM debug actions hit a different C64 than the human watched). Slice 2 routes
+the **session-attached** tools to the daemon; the test-harness tools that spin their OWN
+ephemeral session(s) stay in-process.
+
+**Design — one bridge, not N branches.** Every analysis/debug tool in `runtime.ts` goes
+through `getApi(session_id)` → `createAgentQueryApi({ session })` (stateless wrapper;
+breakpoint/loop state lives in the per-session controller). So instead of an
+`isDaemonMode()` branch per tool, there is:
+- Daemon: ONE generic `api/call` handler (`v3-ws-server.ts`) — runs the SAME
+  `createAgentQueryApi` against the shared session and returns the identical value, with
+  `normalizeForJson` converting TypedArrays (e.g. `monitorMemory` → `Uint8Array`) to plain
+  arrays so JSON-RPC round-trips them as arrays, not index-keyed objects. An
+  `API_CALL_ALLOWLIST` gates which methods are reachable (extended per slice; serialized
+  via opChain so mutating calls can't interleave with run/mount/reset).
+- MCP: ONE `callApi(session_id, method, ...args)` helper (`runtime.ts`) — daemon mode →
+  `runtimeDaemon.apiCall`, else in-process `getApi(...)[method](...)`. Per-tool change is
+  mechanical: `const r = api.foo(x)` → `const r = await callApi(session_id, "foo", x)`.
+
+**Slice 2a (DONE):** debug/step + monitor — `runtime_monitor_registers/memory/disasm`,
+`runtime_step_into/step_over`, `runtime_breakpoint_add/list/remove` (8 tools). Allowlist:
+monitorRegisters/Memory/Disasm, stepInto, stepOver, addPcBreakpoint, listBreakpoints,
+removeBreakpoint. Gate `npm run e2e:744-4c-slice2a` (8/8): monitor_registers reads the
+SAME PC the UI sees; monitor_memory TypedArray-normalizes over RPC; step_into advances the
+SHARED session's PC; a breakpoint added by one MCP is visible+removable from a SECOND MCP
+(shared daemon controller state); no private MCP-side session leaks. Regression:
+e2e:744-4c 10/10 + autostart 5/5 + race 11/11 green.
+
+**Slice 2b/2c (pending):** 2b = media (mount/unmount/swap/persist — note media paths must be
+pre-resolved ABSOLUTE on the MCP side against the CALLER's project, same project-agnostic
+rule as slice-1 disk_path) + session-attached readers (resolve_pc, memory_access_map,
+vic_inspect_at, status); 2c = snapshot/vsf/branch (save_vsf/load_vsf/snapshot_tree/
+promote_branch — .vsf path pre-resolved ABSOLUTE against caller project). VERIFY exact
+api method names first via `createAgentQueryApi` surface before wiring (the in-process
+`api.<method>` call in each handler is the source of truth). **KEEP-INPROC** (never route —
+own ephemeral sessions / pure file ops): scenario_*, run_scenario(s), batch_*, regression_*,
+export_*, profile_loader, input_*.
