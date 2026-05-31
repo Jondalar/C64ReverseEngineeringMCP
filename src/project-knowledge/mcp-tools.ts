@@ -1846,7 +1846,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "save_entity",
-    "Persist a structured entity — a named routine, memory region, bank, disk file, or state variable. Use to record a concrete thing you've identified. Not for a claim/hypothesis (use save_finding) or an unresolved question (use save_open_question). Inputs: kind, name, address/scope, fields. Returns: entity id.",
+    "Persist a structured entity — a named routine, memory region, bank, disk file, or state variable. Use to record a concrete thing you've identified. Not for a claim/hypothesis (use save_finding), an unresolved question (use save_open_question), or a loadable byte-blob/payload (use register_payload — kind=payload here makes a thin record with no load address / format / source .prg, so it will NOT show on the disk view or memory map). Inputs: kind, name, address/scope, fields. Returns: entity id.",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),

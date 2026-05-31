@@ -51,6 +51,10 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Record knowledge
   "save_finding", "save_entity", "save_open_question", "propose_annotations",
   "import_annotations_as_findings", "link_payload_to_asm", "link_entities",
+  // BUG-024 — register a carved code-derived/custom-loader block as a first-class
+  // payload (load addr + format + source .prg + medium spans) so it renders on the
+  // disk/memory views like a CBM/LUT-extracted payload. Common in cracks.
+  "register_payload",
   // Build views / docs
   "build_all_views", "build_project_dashboard", "build_memory_map",
   "build_annotated_listing_view", "render_docs",
@@ -100,8 +104,9 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * Spec 730.4 raised 95→100 to fit the step orchestrator (agent_next_step +
  * agent_run_step). Spec 740.1 raised 100→104 for the project wiki/search tools
  * (project_search + project_find_related + project_reindex_search +
- * project_wiki_lint). */
-export const DEFAULT_TIER_CAP = 105;
+ * project_wiki_lint). BUG-024 raised 104→106 (headroom) when promoting
+ * register_payload — carved code-derived loads become first-class payloads. */
+export const DEFAULT_TIER_CAP = 106;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

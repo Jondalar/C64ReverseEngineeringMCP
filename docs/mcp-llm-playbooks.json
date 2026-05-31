@@ -240,6 +240,18 @@
         },
         {
           "actor": "llm",
+          "action": "Register a carved code-derived load (custom-loader/DD00 block with no CBM dir or on-disk LUT) as a first-class payload — pass the carved .prg, load address, format and its track/sector spans so it renders on the disk view and memory map like a normal payload.",
+          "tools": [
+            "register_payload",
+            "link_payload_to_asm"
+          ],
+          "persist": [
+            "payload (load/format/source .prg/medium spans)",
+            "asm link"
+          ]
+        },
+        {
+          "actor": "llm",
           "action": "Tag the payload's disk hint, record a finding, and sync so the disk heatmap/views update.",
           "tools": [
             "set_payload_disk_hint",

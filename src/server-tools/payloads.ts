@@ -1,8 +1,9 @@
 import { existsSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, basename } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { subjectIdForArtifact } from "../project-knowledge/artifact-versions.js";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 
@@ -40,7 +41,7 @@ function textContent(text: string) {
 export function registerPayloadTools(server: McpServer, ctx: ServerToolContext): void {
   server.tool(
     "register_payload",
-    "Create a payload entity — the working abstraction across mediums. A payload is a byte-blob with identity (a disk file, a LUT-extracted cart chunk, a hand-extracted custom-loader blob, a PRG). Operations like depack, disasm, repack, build are scoped to the payload, not the medium. Call this when a medium-extraction tool didn't auto-create the payload (rare for stock CRT/disk; common for custom loaders).",
+    "Register an extracted byte-blob as a first-class payload — the working abstraction across mediums (a disk file, a LUT cart chunk, a hand-carved custom-loader/DD00 block, a PRG). Use after carving a code-derived load (no CBM dir / no on-disk LUT — common in cracks): pass source_prg_path (the carved .prg), load_address, format, and medium_spans (its track/sector on the disk) — it registers the .prg, auto-links the matching disassembly, and the block then shows on the disk view at its T/S, in the memory map at its load address, and in list_payloads with load/fmt/src/asm, exactly like a CBM/LUT-extracted payload. Not for thin name-only records (do NOT use save_entity kind=payload — it omits load/format/source) and not for ASM-only links (use link_payload_to_asm).",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -50,6 +51,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       format: z.enum(PAYLOAD_FORMATS).optional().describe("Format / packer of the source bytes. Default 'unknown'."),
       packer: z.string().optional().describe("Packer name when format is more specific than the enum (e.g. 'lykia-bb2-vM3')."),
       source_artifact_id: z.string().optional().describe("Artifact id of the raw packed bytes (chip dump, disk file, etc.)."),
+      source_prg_path: z.string().optional().describe("Path to a carved/extracted .prg (a code-derived custom-loader block). Registered as the source artifact and linked automatically — no need to run project_inventory_sync + look up an id first. Use this OR source_artifact_id."),
       depacked_artifact_id: z.string().optional().describe("Artifact id of the unpacked bytes if a depack ran."),
       asm_artifact_ids: z.array(z.string()).optional().describe("Artifact id(s) of disassembly outputs that cover this payload."),
       content_hash: z.string().optional().describe("Optional sha256/etc. for deduplication."),
@@ -67,6 +69,44 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         : args.load_address !== undefined
           ? { start: args.load_address, end: args.load_address, bank: args.bank }
           : undefined;
+
+      // BUG-024 — accept a carved .prg PATH directly: register it as an artifact
+      // and use it as the source (no project_inventory_sync + id lookup first).
+      let sourceArtifactId = args.source_artifact_id;
+      if (!sourceArtifactId && args.source_prg_path) {
+        const prgAbs = resolve(projectRoot, args.source_prg_path);
+        if (!existsSync(prgAbs)) throw new Error(`source_prg_path not found: ${prgAbs}`);
+        ctx.tryRegisterKnowledgeArtifacts(projectRoot, {
+          toolName: "register_payload",
+          title: `Payload source: ${basename(prgAbs)}`,
+          parameters: { name: args.name },
+          inputs: [],
+          outputs: [{
+            path: prgAbs, kind: "prg", scope: "generated",
+            role: "payload-source", format: "prg", producedByTool: "register_payload",
+          }],
+        });
+        sourceArtifactId = service.listArtifacts().find((a) => a.path === prgAbs)?.id;
+        if (!sourceArtifactId) throw new Error(`failed to register source .prg: ${prgAbs}`);
+      }
+
+      // BUG-024 — auto stem-match disassembly artifacts (block_X.prg ↔
+      // block_X_disasm.asm/.tass) so list_payloads shows asm coverage, like the
+      // extraction pipeline does. Explicit asm_artifact_ids override.
+      let asmArtifactIds = args.asm_artifact_ids;
+      if ((!asmArtifactIds || asmArtifactIds.length === 0) && sourceArtifactId) {
+        const src = service.listArtifacts().find((a) => a.id === sourceArtifactId);
+        if (src) {
+          const stem = subjectIdForArtifact(src);
+          const matched = service.listArtifacts().filter((a) =>
+            a.id !== src.id
+            && (a.format === "asm" || a.format === "tass" || /\.(asm|tass)$/i.test(a.path ?? a.relativePath ?? ""))
+            && subjectIdForArtifact(a) === stem,
+          ).map((a) => a.id);
+          if (matched.length > 0) asmArtifactIds = matched;
+        }
+      }
+
       const entity = service.saveEntity({
         id: args.id,
         kind: "payload",
@@ -79,14 +119,14 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         payloadLoadAddress: args.load_address,
         payloadFormat: args.format,
         payloadPacker: args.packer,
-        payloadSourceArtifactId: args.source_artifact_id,
+        payloadSourceArtifactId: sourceArtifactId,
         payloadDepackedArtifactId: args.depacked_artifact_id,
-        payloadAsmArtifactIds: args.asm_artifact_ids,
+        payloadAsmArtifactIds: asmArtifactIds,
         payloadContentHash: args.content_hash,
         artifactIds: [
-          ...(args.source_artifact_id ? [args.source_artifact_id] : []),
+          ...(sourceArtifactId ? [sourceArtifactId] : []),
           ...(args.depacked_artifact_id ? [args.depacked_artifact_id] : []),
-          ...(args.asm_artifact_ids ?? []),
+          ...(asmArtifactIds ?? []),
         ],
         tags: args.tags,
       });

@@ -2,8 +2,8 @@
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
   "total": 286,
-  "defaultCount": 104,
-  "advancedCount": 182,
+  "defaultCount": 105,
+  "advancedCount": 181,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
     "runtime-explore": "start/run Headless, mount, input, render",
@@ -2178,16 +2178,20 @@
       "name": "register_payload",
       "namespace": "register",
       "sourceFile": "server-tools/payloads.ts",
-      "tier": "advanced",
-      "role": "maintenance",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
-      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
-      "adjacentTools": [],
-      "e2eUseCases": [
-        "E2E-G"
+      "tier": "default",
+      "role": "knowledge-write",
+      "swimlane": "asset-linking",
+      "useWhen": "Register a carved code-derived/custom-loader load (no CBM dir / no on-disk LUT) as a first-class payload — pass source_prg_path, load_address, format and medium_spans (track/sector) so it renders on the disk view at its T/S, in the memory map at its load address, and in list_payloads with load/fmt/src/asm.",
+      "notFor": "Thin name-only records — never use save_entity kind=payload; ASM-only links — use link_payload_to_asm.",
+      "adjacentTools": [
+        "link_payload_to_asm",
+        "list_payloads",
+        "disasm_prg"
       ],
-      "keepDecision": "keep-advanced",
+      "e2eUseCases": [
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {

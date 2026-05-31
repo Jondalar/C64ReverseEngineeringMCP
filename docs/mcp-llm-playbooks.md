@@ -101,7 +101,10 @@ inventory.
 3. _(llm)_ Extract raw sectors / a raw track, or a custom-LUT payload when a loader uses a non-DOS layout.
    - tools: `extract_g64_sectors`, `extract_g64_raw_track`, `suggest_disk_lut_sector`, `extract_disk_custom_lut`
    - persist: raw sector/track artifacts, custom-LUT payload
-4. _(llm)_ Tag the payload's disk hint, record a finding, and sync so the disk heatmap/views update.
+4. _(llm)_ Register a carved code-derived load (custom-loader/DD00 block with no CBM dir or on-disk LUT) as a first-class payload — pass the carved .prg, load address, format and its track/sector spans so it renders on the disk view and memory map like a normal payload.
+   - tools: `register_payload`, `link_payload_to_asm`
+   - persist: payload (load/format/source .prg/medium spans), asm link
+5. _(llm)_ Tag the payload's disk hint, record a finding, and sync so the disk heatmap/views update.
    - tools: `set_payload_disk_hint`, `save_finding`, `project_inventory_sync`, `agent_record_step`
    - persist: disk hint, finding, views
 

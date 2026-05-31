@@ -38,7 +38,10 @@ ok(driveDef.length === 0, "3 no runtime_drive_* in default", driveDef.join(",") 
 // Exception (Spec 730.1): bulk_create_cart_chunk_payloads is a product RE tool
 // explicitly promoted to default — its name matches /^bulk_/ but it is not a
 // maintenance op.
-const BULK_EXCEPTIONS_730 = new Set(["bulk_create_cart_chunk_payloads"]);
+// Exception (BUG-024): register_payload is a product knowledge-write tool — it
+// matches /^register_/ but registers a carved code-derived load as a first-class
+// payload (load addr + format + source .prg + medium spans), not a maintenance op.
+const BULK_EXCEPTIONS_730 = new Set(["bulk_create_cart_chunk_payloads", "register_payload"]);
 const maintDef = def.filter((n) => /^(backfill_|dedupe_|repair_|register_|bulk_|sandbox_)|_(backfill|dedupe|repair)/.test(n) && !BULK_EXCEPTIONS_730.has(n));
 ok(maintDef.length === 0, "4 no maintenance/bulk/sandbox in default", maintDef.join(",") || "none");
 
