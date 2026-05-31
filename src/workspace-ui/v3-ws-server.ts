@@ -1091,7 +1091,7 @@ export class V3WsServer {
       if (p.kind === "eject") return { kind: "eject", role: p.role === "cartridge" ? "cartridge" : "drive8" };
       if (!bytes) throw new Error("media/ingress: bytes_b64 or path required");
       if (p.kind === "prg") return { kind: "prg", bytes, name, mode: p.mode === "inject-run" ? "inject-run" : "load", entry: p.entry };
-      if (p.kind === "crt") return { kind: "crt", bytes, name, resetPolicy: p.resetPolicy === "reset" ? "reset" : "power-cycle" };
+      if (p.kind === "crt") return { kind: "crt", bytes, name, resetPolicy: p.resetPolicy === "reset" ? "reset" : "power-cycle", backingPath: p.path ? String(p.path) : undefined };
       // Spec 742 — preserve the server-resolvable host path so writable disks
       // write through to the file the user picked. Uploaded bytes (bytes_b64,
       // no path) have no host file → no backingPath → RAM-only.

@@ -25,6 +25,10 @@ interface ParsedCartridgeImage {
   game: number;
   banks: Map<number, CrtBank>;
   profiles: Set<CrtLoadProfile>;
+  /** BUG-023-cart / Spec 742 — the original .crt bytes, kept so a writable
+   *  mapper can re-pack its mutated flash back into a valid .crt (CHIP packets
+   *  overwritten in place) for host-file write-back. */
+  rawBytes: Uint8Array;
 }
 
 interface HeadlessCartridgeLines {
@@ -56,6 +60,11 @@ export interface HeadlessCartridgeMapper {
   /** Spec 714.5 — restore a previously captured writable image onto the live
    *  device (overlays the flash rebuilt from the original .crt bytes). */
   setWritableImage?(bytes: Uint8Array): void;
+  /** BUG-023-cart / Spec 742 — re-pack the live mutated flash back into a valid
+   *  .crt byte image (the original .crt with each CHIP packet's data overwritten
+   *  from the current flash), for host-file write-back on eject/persist. Null
+   *  when the mapper cannot produce one. */
+  getCrtImage?(): Uint8Array | null;
   /** Spec 713 — wire the live maincpu_clk into writable hardware that needs it
    *  (flash erase busy window / status toggle). The bus calls this at attach. */
   setClock?(clk: () => number): void;
@@ -172,6 +181,7 @@ function parseCrt(data: Uint8Array, path: string, mapperType?: HeadlessCartridge
     game,
     banks,
     profiles,
+    rawBytes: new Uint8Array(data),
   };
 }
 
@@ -849,6 +859,44 @@ class EasyFlashMapper extends BaseMapper {
     const loLen = this.loFlash.getData().length;
     this.loFlash.loadData(bytes.subarray(0, loLen));
     this.hiFlash.loadData(bytes.subarray(loLen));
+  }
+
+  // BUG-023-cart / Spec 742 — re-pack the live flash back into the original .crt
+  // structure: copy the original bytes and overwrite each CHIP packet's data
+  // from the matching flash bank (ROML→loFlash, ROMH→hiFlash). Bank b lives at
+  // b<<13 in each flash (buildLinearChipData layout). Preserves header / names /
+  // load addresses / chip order exactly — only data changes (VICE-faithful save).
+  getCrtImage(): Uint8Array | null {
+    const orig = this.image.rawBytes;
+    if (!orig || orig.length < 0x40) return null;
+    const out = new Uint8Array(orig);
+    const lo = this.loFlash.getData();
+    const hi = this.hiFlash.getData();
+    const headerLen = readU32Be(out, 0x10);
+    let offset = headerLen;
+    while (offset + 0x10 <= out.length) {
+      if (Buffer.from(out.subarray(offset, offset + 4)).toString("ascii") !== "CHIP") break;
+      const packetLen = readU32Be(out, offset + 4);
+      const bank = readU16Be(out, offset + 10);
+      const loadAddress = readU16Be(out, offset + 12);
+      const size = readU16Be(out, offset + 14);
+      const dataOff = offset + 16;
+      const bankOff = bank << 13;
+      const first = Math.min(size, 0x2000);
+      const src = loadAddress === 0x8000 ? lo : hi; // $A000/$E000 → ROMH
+      if (bankOff + first <= src.length && dataOff + first <= out.length) {
+        out.set(src.subarray(bankOff, bankOff + first), dataOff);
+      }
+      // 16K chip ($8000 carrying ROML+ROMH): second 8K from hiFlash.
+      if (loadAddress === 0x8000 && size > 0x2000) {
+        const second = size - 0x2000;
+        if (bankOff + second <= hi.length && dataOff + 0x2000 + second <= out.length) {
+          out.set(hi.subarray(bankOff, bankOff + second), dataOff + 0x2000);
+        }
+      }
+      offset += packetLen;
+    }
+    return out;
   }
 
   // Spec 713 §1 — the memory bus routes every access through the active VICE

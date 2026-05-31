@@ -17,13 +17,14 @@
 
 import type { RuntimeController } from "../debug/runtime-controller.js";
 import { mountDiskMedia } from "./mount-disk-media.js";
+import { persistCartridgeToFile } from "./persist-cartridge.js";
 import { snapshotSha256, NATIVE_SNAPSHOT_MAGIC } from "../kernel/native-snapshot.js";
 import { loadCartridgeMapperFromBytes } from "../cartridge.js";
 
 export type MediaIngressRequest =
   | { kind: "disk"; role: "drive8"; bytes: Uint8Array; name: string; backingPath?: string }
   | { kind: "prg"; bytes: Uint8Array; name: string; mode: "load" | "inject-run"; entry?: number }
-  | { kind: "crt"; bytes: Uint8Array; name: string; resetPolicy: "reset" | "power-cycle" }
+  | { kind: "crt"; bytes: Uint8Array; name: string; resetPolicy: "reset" | "power-cycle"; backingPath?: string }
   | { kind: "eject"; role: "drive8" | "cartridge" };
 
 export interface MediaIngressEvent {
@@ -184,9 +185,20 @@ export async function ingestMedia(
           drive?.detachDisk?.();
           ctrl.session.diskPath = "";
         } else {
-          // cartridge eject: detach + reset so the machine re-vectors to KERNAL
-          const bus = (ctrl.session.kernel as { c64Bus?: { attachCartridge?(c: undefined): void } }).c64Bus;
+          // BUG-023-cart / Spec 742 — write the programmed flash back to the host
+          // .crt BEFORE detaching (VICE saves the .crt on detach). Read-only /
+          // non-writable carts are skipped by persistCartridgeToFile.
+          const bus = (ctrl.session.kernel as { c64Bus?: {
+            attachCartridge?(c: undefined): void;
+            getCartridge?(): import("../cartridge.js").HeadlessCartridgeMapper | undefined;
+          } }).c64Bus;
+          const cartPath = (ctrl.session as { cartPath?: string }).cartPath ?? "";
+          if (cartPath) {
+            const persisted = persistCartridgeToFile(bus?.getCartridge?.(), cartPath);
+            if (persisted.written) detail["cartPersisted"] = persisted.path;
+          }
           bus?.attachCartridge?.(undefined);
+          (ctrl.session as { cartPath?: string }).cartPath = "";
           ctrl.session.resetCold("pal-default", { keepRam: true });
         }
         detail["role"] = req.role;
@@ -214,10 +226,14 @@ export async function ingestMedia(
         if (!bus?.attachCartridge) throw new Error("media-ingress: bus has no cartridge attach");
         // Spec 709.7 — pass the source bytes so the checkpoint/.c64re can embed + recreate it.
         bus.attachCartridge(mapper, { bytes: req.bytes, name: req.name });
+        // BUG-023-cart / Spec 742 — remember the host .crt path so a writable
+        // (EasyFlash) cart can write its programmed flash back on eject/persist.
+        (ctrl.session as { cartPath?: string }).cartPath = req.backingPath ?? "";
         // real reset so $FFFC re-vectors from the cart (Ultimax/GAME): power-cycle
         // clears RAM, reset keeps it.
         ctrl.session.resetCold("pal-default", { keepRam: req.resetPolicy === "reset" });
         detail["mapperType"] = mapper.getMapperType();
+        if (req.backingPath) detail["backingPath"] = req.backingPath;
         detail["resetPolicy"] = req.resetPolicy;
         break;
       }

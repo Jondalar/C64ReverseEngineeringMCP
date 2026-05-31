@@ -415,10 +415,20 @@ re-read the **host file** (bytes + mtime). See BUG-023 doctrine.
   `smoke:023-via` (6/6), `smoke:023-snapshot-flush` (4/4), `smoke:023`,
   `probe-single-path` (25/25), `check:mcp-product-surface` (all green).
 
+### Slice 2 (shipped 2026-05-31) — EasyFlash CRT write-through
+
+Same RFL class for cartridges (BUG-023-cart). `parseCrt` keeps `rawBytes`;
+`EasyFlashMapper.getCrtImage()` re-packs the live flash into the original `.crt`
+(CHIP packets overwritten in place); `media/persist-cartridge.ts`
+`persistCartridgeToFile` writes the host `.crt`; `ingress.ts` stores
+`session.cartPath` on mount and writes the programmed flash back on eject (VICE
+saves on detach); `v3-ws-server` forwards `p.path`. Gate `npm run smoke:023-cart`
+(7/7); Spec 714.5 stays green (33/33).
+
 ### Remaining (next slices)
 
 - Full `MediaRef` / `MediaLibrary` ownership (§4–§5); working-copy creation.
 - Scenario media + snapshot-restore path identity through the same model.
-- **CRT write-through** (EasyFlash flash → host `.crt`) — same VICE-fwrite class
-  as BUG-023, tracked as BUG-023-cart.
+- Other writable cart families (MegaByter/flash800, GMOD2 m93c86 EEPROM,
+  spi-flash) get `getCrtImage`; real EF boot→program→eject runtime gate.
 - Atomicity policy (in-place vs temp+rename) decision in `DiskImageBackend`.
