@@ -7,6 +7,48 @@
 - **Severity:** high
 - **Status:** investigating <!-- open | investigating | fixed | wontfix | duplicate -->
 
+## RFL code audit + real VIA→rotation probe (2026-05-31) — SUPERSEDES the "D64 decode-bound" note below
+
+VICE persists the same `.d64` custom save; ours does not → treat as a PORT bug,
+not "D64 unsuitable". Field-by-field RFL audit (VICE `/src` ↔ TS `vice1541/`) of
+the whole write path found **every bit-level field a faithful match**:
+
+| Area | VICE | TS | Verdict |
+|---|---|---|---|
+| VIA2 `store_pra` ($1C01→GCR_write_value) | via2d.c:180-191 | via2d.ts:355-368 | match |
+| `set_cb2` head-mode guard | via2d.c:95-107 | via2d.ts:225-234 | match |
+| `via2d_update_pcr` (`read_write_mode=pcrval&0x20`) | via2d.c:170-177 | via2d.ts:339-346 | match |
+| viacore `set_cb2_output_state` ($C0→low→write) | viacore.c:1350-1376 | viacore.ts:379-401 | match |
+| rotation WRITE branch + `write_next_bit` + `GCR_dirty_track` | rotation.c:495-569 / 227-252 | rotation.ts:602-664 / 361-389 | match |
+| `read_write_mode` init = 1 | drive.c:258 | drive.ts:553 | match |
+| D64 writeback decode-fail behaviour | fsimage-dxx.c | fsimage_dxx.ts:369-393 | match |
+| **snapshot `drive_gcr_data_writeback_all`** | **VICE flushes all dirty GCR→image before snapshot** | **`drive_snapshot.ts:330` = `() => { /* no-op */ }`** | **DIVERGE** |
+
+**Real VIA→rotation probe** (`scripts/smoke-023-via-rotation-write-path.mjs`,
+`npm run smoke:023-via`, 6/6): drives the actual chain a custom save uses —
+`STA $1C0C=$E0`(read)→`$C0`(write) flips `read_write_mode` 0x20→0 via the real
+VIA store; `STA $1C01` writes through `rotation_rotate_disk` set `GCR_dirty_track=1`
+(head moved 512 bits); **detach decodes the written track into the mounted D64**.
+So the per-op write path is correct END TO END. (The earlier `smoke:023`
+classifier drove `write_next_bit` directly with a test-set `read_write_mode` — a
+shortcut; it only proved the synthetic boundary, not the real path.)
+
+**Root cause (narrowed):** the drive emulation writes + persists correctly on
+detach/seek. The field failure is the **persistence/inspect path**: the `.d64`
+view only updates via the detach/seek writeback decode, and the snapshot/dump
+path's `drive_gcr_data_writeback_all()` is a **no-op**, so a dump/snapshot taken
+while the disk is still mounted captures the embedded `.d64` media payload at its
+**clean baseline** (writes ride only in the verbatim GCRIMAGE blob). VICE calls
+`drive_gcr_data_writeback_all()` before snapshot write → its `.d64` reflects the
+writes. **Minimal fix candidate:** wire `drive_gcr_data_writeback_all` to call
+`drive_gcr_data_writeback` for each active drive (matching VICE), and/or flush
+dirty GCR before exposing/dumping the mounted `.d64`. **Minimal gate:** write via
+the real path → snapshot/dump → the embedded `.d64` must reflect the writes.
+
+NOTE: the "decode-bound / D64 unsuitable for non-standard GCR" classification
+below is **superseded** — it only proved a synthetic boundary (a deliberately
+corrupted sector), not the real game, and VICE persists the same real `.d64`.
+
 ## Root class (generalized 2026-05-31)
 
 **Not Wasteland-specific.** The product gap is: **custom / fastloader save+write
