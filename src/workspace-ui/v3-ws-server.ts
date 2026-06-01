@@ -32,7 +32,8 @@ import {
   formatDumpSummary, formatUndumpSummary, resolveSnapshotPath,
 } from "../runtime/headless/kernel/snapshot-persistence.js";
 import { validateTraceDefinition, slugTraceId } from "../runtime/headless/trace/trace-definition.js";
-import { ingestMedia, type MediaIngressRequest } from "../runtime/headless/media/ingress.js";
+import { ingestMedia } from "../runtime/headless/media/ingress.js";
+import { buildIngressRequest, kindFromExt } from "../runtime/headless/media/ingress-request.js";
 import { readFileSync } from "node:fs";
 import { int16ToLeBytes, monoToStereoLR } from "../runtime/headless/audio/audio-buffer.js";
 import { writeWav } from "../runtime/headless/audio/wav-writer.js";
@@ -1193,20 +1194,8 @@ export class V3WsServer {
     // drag/drop + file chooser send a typed request here (bytes as base64, or a
     // server-resolvable path); disk/prg/crt/eject all run through ingestMedia
     // with checkpoint-before/after + dirty-media + drive9 + .c64re guards.
-    const buildIngressRequest = (p: any): MediaIngressRequest => {
-      const name: string = String(p.name ?? (p.path ? String(p.path).split("/").pop() : "media"));
-      const bytes: Uint8Array | undefined = p.bytes_b64
-        ? new Uint8Array(Buffer.from(String(p.bytes_b64), "base64"))
-        : p.path ? new Uint8Array(readFileSync(String(p.path))) : undefined;
-      if (p.kind === "eject") return { kind: "eject", role: p.role === "cartridge" ? "cartridge" : "drive8" };
-      if (!bytes) throw new Error("media/ingress: bytes_b64 or path required");
-      if (p.kind === "prg") return { kind: "prg", bytes, name, mode: p.mode === "inject-run" ? "inject-run" : "load", entry: p.entry };
-      if (p.kind === "crt") return { kind: "crt", bytes, name, resetPolicy: p.resetPolicy === "reset" ? "reset" : "power-cycle", backingPath: p.path ? String(p.path) : undefined };
-      // Spec 742 — preserve the server-resolvable host path so writable disks
-      // write through to the file the user picked. Uploaded bytes (bytes_b64,
-      // no path) have no host file → no backingPath → RAM-only.
-      return { kind: "disk", role: "drive8", bytes, name, backingPath: p.path ? String(p.path) : undefined };
-    };
+    // Spec 744.4c slice 2b — buildIngressRequest + kindFromExt moved to the shared
+    // media/ingress-request module so the MCP tools build byte-identical requests.
     this.on("media/ingress", async ({ session_id, ...rest }) => {
       const ctrl = ctrlFor(session_id);
       const ireq = buildIngressRequest(rest);
@@ -1219,15 +1208,7 @@ export class V3WsServer {
     // (Spec 709 §2.1). slot 9 + .c64re rejected. .vsf stays the legacy snapshot
     // path (not media). The adapter returns a MountResult-COMPATIBLE shape
     // ({ mountedPath, type, mapperType, slot } + the typed event/detail) so the
-    // existing Media tab keeps working (Spec 709.9).
-    const kindFromExt = (path: string): "disk" | "prg" | "crt" | "vsf" | "c64re" => {
-      const e = path.toLowerCase().split(".").pop();
-      if (e === "prg") return "prg";
-      if (e === "crt") return "crt";
-      if (e === "c64re") return "c64re";
-      if (e === "vsf") return "vsf";
-      return "disk";
-    };
+    // existing Media tab keeps working (Spec 709.9). kindFromExt: shared module.
     const adaptMount = async ({ session_id, slot, path }: any) => {
       if (typeof path !== "string") throw new Error("media/mount: path required");
       if (slot !== undefined && Number(slot) === 9) throw new Error("media/mount: drive 9 not supported (v1 drive8-only)");

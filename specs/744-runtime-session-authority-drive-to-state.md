@@ -927,12 +927,50 @@ SHARED session's PC; a breakpoint added by one MCP is visible+removable from a S
 (shared daemon controller state); no private MCP-side session leaks. Regression:
 e2e:744-4c 10/10 + autostart 5/5 + race 11/11 green.
 
-**Slice 2b/2c (pending):** 2b = media (mount/unmount/swap/persist — note media paths must be
-pre-resolved ABSOLUTE on the MCP side against the CALLER's project, same project-agnostic
-rule as slice-1 disk_path) + session-attached readers (resolve_pc, memory_access_map,
-vic_inspect_at, status); 2c = snapshot/vsf/branch (save_vsf/load_vsf/snapshot_tree/
-promote_branch — .vsf path pre-resolved ABSOLUTE against caller project). VERIFY exact
-api method names first via `createAgentQueryApi` surface before wiring (the in-process
-`api.<method>` call in each handler is the source of truth). **KEEP-INPROC** (never route —
-own ephemeral sessions / pure file ops): scenario_*, run_scenario(s), batch_*, regression_*,
-export_*, profile_loader, input_*.
+**Slice 2b (DONE) — media converges to ONE abstract operation, not three legacy adapters.**
+`runtime_media_mount/unmount/swap` do NOT go through the AgentQueryApi bridge — they called
+`getIntegratedSession` + `mountMedia/unmountMedia/swapDisk` directly (so daemon-mode would throw
+"No integrated session"). The first 2b attempt routed them to the daemon's `media/mount` adapter
+and FAILED (4/8) on a return-SHAPE mismatch: `media/mount`'s `adaptMount` returns a
+MountResult-projection while `mountMedia` returns a different `MountResult` — not byte-identical.
+
+The fix (the user's design): converge on the SINGLE media authority that Spec 709 already built —
+`ingestMedia(ctrl, MediaIngressRequest)`. The client brings the MEDIUM (`path`, resolved ABSOLUTE
+against the caller's project; or `bytes_b64`) + the ACTION (`kind`); the authority applies it and
+returns ONE shape (`MediaIngressResult {ok, event, paused, wasRunning, detail}`). Both MCP modes
+hit that one op:
+- Extracted the path/bytes→request builder + `kindFromExt` from `v3-ws-server` into shared
+  `media/ingress-request.ts` (`buildIngressRequest`), so the daemon WS route and the in-process
+  MCP route build BYTE-IDENTICAL requests (pure extraction; smoke-media 10/10 + probe-709-media
+  22/22 confirm behaviour-neutral).
+- MCP helper `mediaIngress(session_id, req)` (`runtime.ts`): daemon mode → `runtimeDaemon.mediaIngress`
+  → daemon `media/ingress` (the SAME op the UI uses, recorded in the shared `mediaEvents` history
+  a UI client reads via `media/events`); in-process → `ensureRuntimeController` + `ingestMedia`.
+- The three tools now build `{kind, path: resolveCallerMediaPath(path)}` (mount: disk/crt/prg by
+  ext; swap: disk; unmount: `{kind:"eject", role:"drive8"}`) and call `mediaIngress`. Legacy
+  `mountMedia/unmountMedia/swapDisk` fork removed from the tool path. NOTE there is NO
+  `media/changed` broadcast (the reverted attempt asserted a fictional one) — shared-state proof
+  is the `mediaEvents` history, which IS replayable (Spec 709.8) and is the human-visible record.
+Gate `npm run e2e:744-4c-slice2b` (10/10): mount→shared ingest (MediaIngressResult shape); relative
+path → caller-project write-through backing path; UI reads the LLM's mount from the shared
+media-event history; a SECOND MCP shares the session; swap+unmount route; the history records
+`disk,disk,eject` in order; no private session leaks. Regression: slice2a 9/9 + daemon 10/10 +
+autostart 5/5 + race 11/11 + smoke-media 10/10 + probe-709-media 22/22. `media_persist` NOT routed
+(no `media/persist` V3 method; left in-process — Slice 2c).
+
+**Slice 2c (pending) — each remaining tool is bespoke, NOT a clean bridge route** (verified
+against the real `createAgentQueryApi` surface in `v2/agent-api.ts`):
+- `runtime_status` → routable via api/call (`status()` reads session).
+- `runtime_resolve_pc` → `resolvePc(artifactId,pc)` is ARTIFACT-STATIC (doesn't read the session)
+  → routing pointless; leave in-proc.
+- `runtime_save_vsf`/`load_vsf` → `saveVsf()`/`loadVsf(bytes)` use BINARY Uint8Array return/arg;
+  api/call normalizes RETURN TypedArrays but a Uint8Array ARG becomes an index-object over
+  JSON-RPC — needs a dedicated daemon method (take the abs-resolved path, read/write daemon-side).
+- `runtime_memory_access_map`, `runtime_vic_inspect_at` → bespoke (`MemoryAccessTracker`,
+  checkpoint ring); each needs its own daemon method (vic has `vic/inspect/at`).
+- `runtime_media_persist` → add a `media/persist` V3 method (writes the mounted disk's RAM image
+  back to its backing file), then route like 2b.
+**KEEP-INPROC** (never route — own ephemeral sessions / no live-session state / trace-backend the
+daemon api lacks): scenario_*, run_scenario(s), batch_*, regression_*, export_*, profile_loader,
+input_*, and the AgentQueryApi trace-backend methods (queryEvents/followPath/swimlane/taint/
+bookmarks — they THROW without a backend, which the daemon's api has none of).

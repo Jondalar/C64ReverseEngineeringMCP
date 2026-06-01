@@ -217,6 +217,20 @@ class RuntimeDaemonClient {
   apiCall<T = unknown>(sessionId: string, method: string, args: unknown[] = []) {
     return this.call<T>("api/call", { session_id: sessionId, method, args });
   }
+
+  /** Spec 744.4c slice 2b — the abstract media operation on the SHARED daemon
+   *  session. Routes to the daemon's `media/ingress` (Spec 709 single media
+   *  authority) — the SAME op the UI uses, which broadcasts media/changed so the
+   *  human sees the LLM's mount live. The caller brings the medium (absolute
+   *  `path`, or `bytes_b64`) + the action (`kind`). */
+  mediaIngress<T = unknown>(sessionId: string, req: {
+    kind?: "disk" | "prg" | "crt" | "eject";
+    path?: string; bytes_b64?: string; name?: string;
+    mode?: "load" | "inject-run"; entry?: number;
+    resetPolicy?: "reset" | "power-cycle"; role?: "drive8" | "cartridge";
+  }) {
+    return this.call<T>("media/ingress", { session_id: sessionId, ...req });
+  }
 }
 
 /** Singleton client (one connection per MCP process). */

@@ -9,10 +9,49 @@
 // `runtime_compare_with_vice` and only when scenario absent from
 // baseline corpus.
 
+import { isAbsolute, resolve as resolvePath } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
+
+/**
+ * Spec 744.4c slice 2b — the ABSTRACT media operation. The client (this MCP)
+ * brings the MEDIUM (a host `path`, resolved ABSOLUTE against the caller's
+ * project) + the ACTION (`kind`); the runtime media authority (`ingestMedia`,
+ * Spec 709) applies it and returns ONE shape (MediaIngressResult). Both modes
+ * converge on that one operation — daemon mode routes to the daemon's
+ * `media/ingress` WS (the SAME op the UI uses, broadcasting media/changed so the
+ * human sees the LLM's mount live); in-process runs ingestMedia directly. No more
+ * legacy mountMedia/swapDisk fork (those returned a different MountResult shape).
+ *
+ * `path` is resolved absolute HERE because the daemon is project-agnostic: a
+ * relative path sent raw would resolve against the daemon's cwd (wrong project).
+ */
+function resolveCallerMediaPath(path: string): string {
+  if (isAbsolute(path)) return path;
+  return resolvePath(process.env.C64RE_PROJECT_DIR ?? process.cwd(), path);
+}
+
+async function mediaIngress(
+  session_id: string,
+  req: { kind: "disk" | "prg" | "crt" | "eject"; path?: string; name?: string; mode?: "load" | "inject-run"; entry?: number; resetPolicy?: "reset" | "power-cycle"; role?: "drive8" | "cartridge" },
+): Promise<unknown> {
+  const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+  if (isDaemonMode()) {
+    return runtimeDaemon.mediaIngress(session_id, req);
+  }
+  // In-process: the same single media authority, via the session's controller.
+  const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+  const session = getIntegratedSession(session_id);
+  if (!session) throw new Error(`No integrated session ${session_id}`);
+  const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+  const { ingestMedia } = await import("../runtime/headless/media/ingress.js");
+  const { buildIngressRequest } = await import("../runtime/headless/media/ingress-request.js");
+  const ctrl = ensureRuntimeController(session_id, session, () => {});
+  const ireq = buildIngressRequest(req);
+  return await ingestMedia(ctrl, ireq, { resumeIfRunning: ireq.kind === "crt" });
+}
 
 async function getApi(sessionId: string) {
   const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
@@ -581,11 +620,10 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_media_mount", async ({ session_id, slot, path }) => {
       if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { mountMedia } = await import("../runtime/headless/media/mount.js");
-      const result = await mountMedia(session, slot as 8 | 9, path);
+      if (slot === 9) throw new Error("drive 9 not supported in v1 (drive8-only)");
+      // Spec 744.4c slice 2b — one abstract media op against the shared session.
+      const kind = path.toLowerCase().endsWith(".crt") ? "crt" : path.toLowerCase().endsWith(".prg") ? "prg" : "disk";
+      const result = await mediaIngress(session_id, { kind, path: resolveCallerMediaPath(path) });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }),
   );
@@ -599,11 +637,9 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_media_unmount", async ({ session_id, slot }) => {
       if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { unmountMedia } = await import("../runtime/headless/media/mount.js");
-      const result = unmountMedia(session, slot as 8 | 9);
+      if (slot === 9) throw new Error("drive 9 not supported in v1 (drive8-only)");
+      // Spec 744.4c slice 2b — eject via the one abstract media op.
+      const result = await mediaIngress(session_id, { kind: "eject", role: "drive8" });
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }),
   );
@@ -636,11 +672,10 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_media_swap", async ({ session_id, slot, path }) => {
       if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { swapDisk } = await import("../runtime/headless/media/mount.js");
-      const result = await swapDisk(session, slot as 8 | 9, path);
+      if (slot === 9) throw new Error("drive 9 not supported in v1 (drive8-only)");
+      // Spec 744.4c slice 2b — swap = ingest a new disk (the authority detaches the
+      // old + attaches the new). Same single op + shape as mount.
+      const result = await mediaIngress(session_id, { kind: "disk", path: resolveCallerMediaPath(path) });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }),
   );
