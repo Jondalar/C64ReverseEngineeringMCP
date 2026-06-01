@@ -1005,13 +1005,13 @@ export class V3WsServer {
     // arrives ABSOLUTE (caller-resolved, project-agnostic).
     this.on("trace/read", async ({ op, duckdb_path, args }) => {
       if (typeof duckdb_path !== "string" || !duckdb_path) throw new Error("trace/read: duckdb_path required");
-      // Spec 746.x — the DuckDB index now builds in the background after stop()
-      // (so the trace-stop button is instant). Block here, in the daemon process
-      // that owns the index job, until THIS store's index is ready — so a read
-      // right after stop transparently waits instead of opening a missing/partial
-      // store. Instant if already done / never indexed in this process.
-      const { awaitIndex } = await import("../runtime/headless/trace/background-indexer.js");
-      await awaitIndex(duckdb_path);
+      // Spec 746.x — LAZY-ON-READ in the daemon process that owns the index job:
+      // wait for an in-flight build, or (re)build a missing index from the
+      // .c64retrace authority, before reading. A read right after stop transparently
+      // waits; an orphaned store (e.g. a multi-GB trace whose index never built) is
+      // recovered here on first read. Throws the real reason if the build failed.
+      const { ensureIndex } = await import("../runtime/headless/trace/background-indexer.js");
+      await ensureIndex(duckdb_path);
       const a = (args ?? {}) as Record<string, unknown>;
 
       // Spec 746.x — trace_store_* reader functions (queries.ts) routed IN the

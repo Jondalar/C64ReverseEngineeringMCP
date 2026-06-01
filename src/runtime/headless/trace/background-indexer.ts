@@ -39,6 +39,18 @@ function indexWorkerScriptPath(): string {
 // the in-flight set for isIndexing().
 const inFlight = new Map<string, Promise<IndexResult>>();
 const active = new Set<string>();
+// Last index failure per path, so a reader can surface WHY the store is missing
+// (corrupt log, disk full) instead of a cryptic "store not found". Cleared when a
+// fresh build for the path starts.
+const indexErrors = new Map<string, string>();
+
+/** `.duckdb` → its `.c64retrace` authority (inlined to avoid a trace-run.ts import
+ *  cycle — trace-run.ts imports this module). */
+function retracePathFor(duckdbPath: string): string {
+  return duckdbPath.endsWith(".duckdb")
+    ? duckdbPath.slice(0, -".duckdb".length) + ".c64retrace"
+    : duckdbPath + ".c64retrace";
+}
 
 /** Kick a DuckDB index build on a worker thread. Fire-and-forget: returns the
  *  promise for callers that want it, but stop() does NOT await it. */
@@ -53,6 +65,7 @@ export function startBackgroundIndex(
   const existing = inFlight.get(duckdbPath);
   if (active.has(duckdbPath) && existing) return existing;
   active.add(duckdbPath);
+  indexErrors.delete(duckdbPath); // fresh attempt clears any prior failure
   const p = new Promise<IndexResult>((res, rej) => {
     let worker: Worker;
     try { worker = new Worker(indexWorkerScriptPath()); }
@@ -71,7 +84,11 @@ export function startBackgroundIndex(
   // fires-and-forgets this index never raises an unhandledRejection. awaitIndex()
   // re-reads the raw `p` from inFlight and catches its own error; a failed index
   // just leaves the .c64retrace authority on disk (re-indexable).
-  void p.catch((e) => console.error(`[trace] background index failed for ${duckdbPath}:`, e instanceof Error ? e.message : e));
+  void p.catch((e) => {
+    const msg = e instanceof Error ? e.message : String(e);
+    indexErrors.set(duckdbPath, msg);
+    console.error(`[trace] background index failed for ${duckdbPath}:`, msg);
+  });
   inFlight.set(duckdbPath, p);
   // (review #7) Bound the map: drop the settled entry after a grace window (late
   // readers within it still resolve instantly; after it, the index is long done +
@@ -93,6 +110,34 @@ export async function awaitIndex(duckdbPath: string | undefined): Promise<void> 
   const p = inFlight.get(duckdbPath);
   if (!p) return;
   try { await p; } catch { /* index failed; reader sees on-disk state */ }
+}
+
+/** Spec 746.x — LAZY-ON-READ. Guarantee a queryable `.duckdb` exists for this
+ *  path before a reader opens it: wait for an in-flight build, trust a present
+ *  store, else (re)build it from the `.c64retrace` authority. This both
+ *  materializes the index on first read AND recovers an ORPHANED store — e.g. a
+ *  multi-GB trace whose old whole-file index failed (now fixed by the streaming
+ *  indexer). Throws with the real reason if the (re)build failed, so the failure
+ *  is surfaced to the LLM/UI rather than reading a missing store. */
+export async function ensureIndex(duckdbPath: string | undefined): Promise<void> {
+  if (!duckdbPath) return;
+  if (active.has(duckdbPath)) { await awaitIndex(duckdbPath); }
+  else if (!existsSync(duckdbPath)) {
+    const retrace = retracePathFor(duckdbPath);
+    if (existsSync(retrace)) { // a trace authority with no index → build it lazily
+      startBackgroundIndex(retrace, duckdbPath);
+      await awaitIndex(duckdbPath);
+    }
+  }
+  if (!existsSync(duckdbPath)) {
+    const why = indexErrors.get(duckdbPath);
+    if (why) throw new Error(`trace index unavailable for ${duckdbPath}: ${why}`);
+  }
+}
+
+/** The last index-build failure reason for a path, if any. */
+export function indexError(duckdbPath: string | undefined): string | undefined {
+  return duckdbPath ? indexErrors.get(duckdbPath) : undefined;
 }
 
 /** True while a background index for this path is in flight. */

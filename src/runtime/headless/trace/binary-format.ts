@@ -238,6 +238,18 @@ export function decodeEvent(buf: Uint8Array, off: number): { ev: DecodedEvent; n
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const op = buf[off] as TraceOp;
   let o = off + 1;
+  // Bounds gate (Spec 746.x streaming): return null if the FULL event does not fit
+  // in `buf` — it straddles a streaming-window boundary (caller carries + reads
+  // more) OR is a truncated final record (aborted trace). Without this the field
+  // reads below throw "offset is out of bounds". SIZE[op] = bytes after the opcode.
+  const szb = SIZE[op];
+  if (szb !== undefined && szb >= 0) {
+    if (off + 1 + szb > buf.length) return null;
+  } else if (op === TraceOp.MARK) {
+    if (off + 11 > buf.length) return null;            // opcode + f64 cycle + u16 len
+    const labelLen = dv.getUint16(off + 9, true);
+    if (off + 11 + labelLen > buf.length) return null; // + label bytes
+  }
   const cycle = dv.getFloat64(o, true); o += 8;
   switch (op) {
     case TraceOp.CPU_STEP:

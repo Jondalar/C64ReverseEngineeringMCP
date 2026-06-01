@@ -96,13 +96,13 @@ export async function withDuckDb<T>(dbPath: string, fn: (conn: any, backend: any
   const duckdb = await import("@duckdb/node-api");
   const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
   const { ensureSpec726CompatLayer } = await import("../runtime/headless/trace/trace-run-store.js");
-  // Spec 746.x — if THIS process owns a background index for dbPath (non-daemon /
-  // in-process runs), wait for it to finish + atomically publish before opening,
-  // so a read right after stop() sees the fresh complete store, not a stale/empty
-  // one. No-op when the index lives in another process (the daemon) — there the
-  // atomic-rename in the indexer is what keeps a cross-process open crash-safe.
-  const { awaitIndex } = await import("../runtime/headless/trace/background-indexer.js");
-  await awaitIndex(dbPath);
+  // Spec 746.x — LAZY-ON-READ: wait for an in-flight index, trust a present store,
+  // or (re)build a missing one from the .c64retrace authority before opening — so a
+  // read right after stop() sees the fresh store AND an orphaned store (e.g. a
+  // multi-GB trace whose index never built) is recovered on first read. Throws the
+  // real reason if the build failed (surfaced instead of a cryptic "not found").
+  const { ensureIndex } = await import("../runtime/headless/trace/background-indexer.js");
+  await ensureIndex(dbPath);
   // 1) read-only (no exclusive lock; works while the daemon holds the file).
   try {
     const inst = await (duckdb as any).DuckDBInstance.create(dbPath, { access_mode: "READ_ONLY" });
