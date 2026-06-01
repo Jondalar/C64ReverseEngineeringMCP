@@ -104,6 +104,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 | 716 | Installation, Versioning, Distribution |
 | 720 | Disassembly Output Quality |
 | 740.2 | Project Wiki authoring (`project_wiki_update`) — deeper synthesis over the 740.1 retrieval layer |
+| 747 | Bun Runtime Investigation for MCP + Runtime Daemon — opt-in compatibility/performance investigation only; Node remains baseline until MCP stdio, Runtime Daemon, trace workers, DuckDB, and benchmarks prove Bun safe. |
 
 ## SUPERSEDED (replaced by a later spec)
 
@@ -145,7 +146,7 @@ mapper" header is gone.
 - ACTIVE: 5 (721, 726.B, 742, 743, 744)
 - GOVERNING / DOCTRINE: 4 (610, 612, 620, 705)
 - DONE: 29
-- BACKLOG: 11
+- BACKLOG: 12
 - SUPERSEDED: 11
 - NEEDS-RECONCILE: 6 (428, 613, 614, 615, 708, 713)
 - (ARCHIVED: see `specs/_archive/`, ~105 historical specs)
