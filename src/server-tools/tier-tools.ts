@@ -83,7 +83,11 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "trace_store_info", "trace_store_query", "trace_store_top_pcs",
   "trace_store_bus_find", "trace_store_anchor_list", "trace_store_anchor_find",
   // Spec 726 — live trace capture facade (write side, completes the readers above).
-  "runtime_mark", "runtime_trace_finalize", "runtime_trace_status",
+  // runtime_trace_start is THE enable-on-a-running-session entry point — without it
+  // on the default surface the LLM could finalize/status a trace it can't begin
+  // (BUG: it was omitted, so a default-surface agent reported "no tool to start a
+  // trace" while the UI toggle worked). Spec 746 makes this the LLM's live-trace gate.
+  "runtime_trace_start", "runtime_mark", "runtime_trace_finalize", "runtime_trace_status",
   // Spec 730.1 — promote disk/G64 + cartridge RE tools to the default surface.
   // Disk / G64 raw-inspection product tools:
   "list_g64_slots", "inspect_g64_track", "inspect_g64_blocks", "inspect_g64_syncs",
@@ -110,8 +114,10 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * (project_search + project_find_related + project_reindex_search +
  * project_wiki_lint). BUG-024 raised 104→106 (headroom) when promoting
  * register_payload — carved code-derived loads become first-class payloads.
- * BUG-027 raised 106→107 (runtime_session_close — session lifecycle/close). */
-export const DEFAULT_TIER_CAP = 107;
+ * BUG-027 raised 106→107 (runtime_session_close — session lifecycle/close).
+ * Spec 746 raised 107→108 (runtime_trace_start — the LLM's enable-trace-on-a-
+ * running-session gate; its finalize/status siblings were already default). */
+export const DEFAULT_TIER_CAP = 108;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";
