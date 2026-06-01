@@ -175,12 +175,34 @@ each ships with a gate. Decisions the user must still make are flagged **[OQ]**.
   no JSON/DuckDB on the hot path.
 
 ## 6. Open questions (decide before building the affected slice)
-- **OQ1** (746.1): producers-on-by-default vs runtime-toggleable. → recommend on.
-- **OQ2** (746.6): retain `.c64retrace` after indexing vs discard. → recommend retain.
-- **OQ3**: ring budget for the product default session — keep 128 MiB / ~2.6 min, or
-  make it configurable per session? → likely configurable, default 128 MiB.
-- **OQ4**: write-delta streaming (random-access accelerator) — build now or defer
-  until re-sim-from-anchor proves too slow for the UI scrub? → defer; measure first.
+- **OQ1 — DECIDED (2026-06-01):** producers **on-by-default** (A). Trace AN/AUS is ONE
+  control (WS `trace/run/*`) reachable from **THREE entry points: the UI (Live-tab
+  button), the API (`runtime_trace_start` MCP tool), and a Monitor command** — for both
+  human and LLM, on the running shared session. Producers-on makes the toggle trivial
+  (channels+observer only, no new passive-proof). The three-gate control is the binding
+  requirement; 746.2/746.9 + a new Monitor `trace` command all call the same WS path.
+- **OQ2 — DECIDED (2026-06-01):** `.c64retrace` (binary) is the KEPT authority; the
+  `.duckdb` is a DISCARDABLE cache, built on-demand from the binary log when a query
+  needs it. Code finding that drove this: the indexer is content-LOSSLESS (every event
+  1:1, `binary-log-indexer.ts:107-126`) BUT writes a `data_json` column = 5-10× LARGER
+  than the binary + NOT reverse-rebuildable. So keeping the binary (not the DuckDB)
+  saves MORE disk, keeps rebuildability + the raw recorded truth (the user's port-debug
+  anchor). Cost: first query after a trace must index (~5.5s / 3M events, off the
+  hot path). Implication for 746.6 layout: `.c64retrace` durable; `.duckdb` is a
+  regenerable cache (safe to evict; rebuild via `indexBinaryLog`).
+- **OQ3 — DECIDED (2026-06-01):** ring budget is **configurable per session, default
+  128 MiB** (~2.6 min). Bytes-based (not cycle/time — keeps RAM bounded even when
+  checkpoint size varies with dirty media). A `ringBudgetBytes?` option at session
+  start + a WS `checkpoint/set_budget` to bump it live (e.g. 256 MiB for a long
+  multi-load loader). The ring already estimates per-checkpoint bytes
+  (`estimateCheckpointBytes`), so the budget is enforced as today, just no longer a
+  hard constant.
+- **OQ4 — DECIDED (2026-06-01):** write-delta streaming is **DEFERRED — measure first**.
+  The MVP is CPU-firehose + snapshot ONLY (sufficient for reconstruction: only the CPU
+  writes RAM, re-sim from the nearest anchor ≤500k cyc rebuilds any in-between state).
+  Write-deltas (RAM/IO/VIC) are PURELY a random-access accelerator (jump to cycle T
+  without re-simming). Build them ONLY if the UI scrub via re-sim proves too slow.
+  Saves work + trace size now; revisit after measuring scrub latency.
 
 ## 7. Non-goals
 - NOT rebuilding the ring / binary trace / swimlane / scenarios (they exist).
