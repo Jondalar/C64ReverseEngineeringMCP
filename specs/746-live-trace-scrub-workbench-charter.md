@@ -202,12 +202,29 @@ each ships with a gate. Decisions the user must still make are flagged **[OQ]**.
   `trace/current`→`trace/read` = 100000 rows with {cycle,c64Pc,c64Op}. UI shows clear
   guidance when no trace / still-recording. REMAINING (cosmetic): PC-click→disasm jump
   via resolve_pc; live (pre-stop) swimlane from the binary log.
-- **746.11 — Scrub timeline bound to the ring**: a checkpoint timeline (the Snapshots
-  tab) where the human scrubs rewind→forward, pins, branches; restore drives the
-  shared session so the LLM sees the same state.
-- **746.12 — Graphics-scrub on LIVE RAM**: point the existing graphics Scrub tab at
-  the running session's RAM (not just file artifacts) so the human/LLM spots
-  charset/bitmap/sprite patterns in the live footprint while the game runs.
+- **746.11 — PENDING (UI feature — build with visual iteration).** Scrub timeline
+  bound to the RING. The backend is READY: WS `checkpoint/list|capture|pin|unpin|
+  restore` + the MCP `runtime_checkpoint_*` tools (746.4, gated 9/9) — restore rewinds
+  the shared session. What remains is a NEW React timeline component (the existing
+  Snapshots tab shows the RewindManager branch-tree, a SEPARATE world from the live
+  ring). This is real UI work that needs the human's eye at the screen (cf. the hero-
+  layout iteration), not blind autonomous build — deferred to a hands-on session.
+- **746.12 — PENDING (UI feature — build with visual iteration).** Graphics-scrub on
+  LIVE RAM. The static `ScrubPanel` (App.tsx:2065) renders charset/bitmap/sprite from
+  ARTIFACT bytes via `/api/scrub/*`; pointing it at the running session's RAM needs a
+  live-RAM byte source (a `memread` slice → the same renderer). Substantial UI work in
+  the large App.tsx — deferred to a hands-on session.
+
+## 4.6 Status summary (2026-06-01)
+DONE + pushed: 746.1 (producers-on default session), 746.2 (runtime_trace_start),
+746.3 (finalize/status daemon-routed), 746.4 (checkpoint MCP tools), 746.5 (all
+trace readers daemon-routed, BUG-029), 746.6 (per-session persistence layout),
+746.9 (Live-tab Trace button), 746.9b (Monitor `trace` command), 746.10 (Swimlane
+viewer wired). The LLM + human can: start/stop a trace on the running shared session
+from THREE gates (UI/API/Monitor), read the swimlane concurrently, and scrub/rewind
+the checkpoint ring. DEFERRED as real features (not wiring): 746.7 (ring↔RewindManager
+marriage), 746.8 (structured trace→finding), 746.11 + 746.12 (ring-scrub timeline +
+live-RAM graphics-scrub UI — need visual iteration at the screen).
 
 ## 5. Acceptance (when this charter is "usable")
 - From the running Wasteland_EF session, the LLM can: `runtime_trace_start` →
