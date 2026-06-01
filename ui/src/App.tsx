@@ -3998,47 +3998,6 @@ function CartChunkInspector({
   );
 }
 
-function RegistrationBanner() {
-  const [delta, setDelta] = useState<{ unregisteredCount: number; unregisteredByExt: Record<string, number>; unimportedAnalysisCount?: number } | null>(null);
-  const [dismissed, setDismissed] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/registration-delta`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (!cancelled && d) setDelta(d); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-  if (!delta || dismissed) return null;
-  const hasUnregistered = delta.unregisteredCount > 0;
-  const hasUnimported = (delta.unimportedAnalysisCount ?? 0) > 0;
-  if (!hasUnregistered && !hasUnimported) return null;
-  const exts = Object.entries(delta.unregisteredByExt)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([e, n]) => `${e}=${n}`)
-    .join(", ");
-  return (
-    <div className="registration-banner">
-      <div className="registration-banner-lines">
-        {hasUnregistered ? (
-          <div>
-            <strong>⚠ {delta.unregisteredCount} files on disk are not registered as artifacts.</strong>
-            {" "}Top extensions: {exts}. Run <code>project_inventory_sync</code> from the agent to fix.
-          </div>
-        ) : null}
-        {hasUnimported ? (
-          <div>
-            <strong>⚠ {delta.unimportedAnalysisCount} analysis-run artifact(s) registered but never imported.</strong>
-            {" "}Entities / findings missing → loadSequence Payload-Focus stages have no linked entities. Run <code>bulk_import_analysis_reports</code> to back-fill.
-          </div>
-        ) : null}
-      </div>
-      <button type="button" onClick={() => setDismissed(true)}>dismiss</button>
-    </div>
-  );
-}
-
 export function App() {
   const [snapshot, setSnapshot] = useState<WorkspaceUiSnapshot | null>(null);
   const [discoveredDocs, setDiscoveredDocs] = useState<DiscoveredMarkdownDoc[]>([]);
@@ -4557,7 +4516,7 @@ export function App() {
     <div className={activeTab === "live" ? "app-root live-mode" : "app-root"}>
       <header className="hero-shell">
         <div className="hero-copy panel-card">
-          <div className="eyebrow">C64 Reverse Engineering Workspace</div>
+          <div className="eyebrow">C64RE (by DKL/TREX)</div>
           <h1>{snapshot?.project.name ?? "Project"}</h1>
           {snapshot ? (
             <div className="hero-metrics">
@@ -4596,7 +4555,6 @@ export function App() {
       </header>
 
       {error ? <div className="error-banner">{error}</div> : null}
-      <RegistrationBanner />
 
       {!snapshot ? (
         <main className="loading-shell">
