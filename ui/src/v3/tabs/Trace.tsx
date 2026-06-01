@@ -157,35 +157,29 @@ export function TraceTab({ sessionId }: TabProps): React.JSX.Element {
     setError(null);
     try {
       const client = getClient();
-      // Call AgentQueryApi swimlaneSlice via WS runtime/call.
-      // Op: "swimlaneSlice", args: [SwimlaneQuery]
-      const result = await client.runtime<{ markdown?: string; rows?: unknown[] }>(
-        sessionId,
-        "swimlaneSlice",
-        {
-          runId,
-          cycleRange: [filters.cycleStart, filters.cycleEnd] as [number, number],
-          compact: true,
-          filterC64PcRange:
-            filters.pcStart !== 0x0000 || filters.pcEnd !== 0xffff
-              ? ([filters.pcStart, filters.pcEnd] as [number, number])
-              : undefined,
-        },
-      );
-
-      // Backend may return rendered markdown or raw rows.
-      if (result && typeof (result as any).markdown === "string") {
-        const { rows: parsed, totalRows: total } = parseMarkdownSwimlane(
-          (result as any).markdown as string,
-        );
-        setRows(parsed);
-        setTotalRows(total);
-      } else {
-        // Fallback stub — no trace available yet.
-        setRows([]);
-        setTotalRows(0);
-        setError("Backend returned no swimlane data. Run a session with trace capture enabled.");
+      // Spec 746.10 — resolve the session's current/last-finalized trace store, then
+      // read the swimlane THROUGH THE DAEMON (trace/read) so a live-daemon lock never
+      // blocks us (BUG-029). The store's runId is authoritative (not the sessionId).
+      const cur = await client.call<{ path: string | null; runId?: string; active?: boolean }>("trace/current", { session_id: sessionId });
+      if (!cur || !cur.path) {
+        setRows([]); setTotalRows(0);
+        setError("No trace yet — start a trace (⏺ Trace button or `trace on` in the Monitor), run the session, then refresh.");
+        return;
       }
+      if (cur.active) {
+        // DuckDB index is built at stop(); a live run has no queryable store yet.
+        setRows([]); setTotalRows(0);
+        setError("Trace is still recording — stop it (⏺ Trace / `trace off`) to build the queryable index, then refresh.");
+        return;
+      }
+      const slice = await client.call<{ rows?: SwimlaneRow[] }>("trace/read", {
+        op: "swimlane",
+        duckdb_path: cur.path,
+        args: { run_id: cur.runId, cycle_start: filters.cycleStart, cycle_end: filters.cycleEnd, compact: true },
+      });
+      const parsed = (slice?.rows ?? []) as SwimlaneRow[];
+      setRows(parsed);
+      setTotalRows(parsed.length);
     } catch (e: any) {
       setError(`Swimlane fetch failed: ${e?.message ?? String(e)}`);
     } finally {

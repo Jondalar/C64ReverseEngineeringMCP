@@ -973,6 +973,9 @@ export class V3WsServer {
     });
     this.on("trace/run/stop", async ({ session_id }) => ({ run: await ctrlFor(session_id).traceRun.stop() }));
     this.on("trace/run/status", ({ session_id }) => ctrlFor(session_id).traceRun.status());
+    // Spec 746.10 — the session's current (active) or last-finalized trace store, so a
+    // UI/LLM can read the swimlane without re-passing the path.
+    this.on("trace/current", ({ session_id }) => ctrlFor(session_id).traceRun.currentStorePath() ?? { path: null });
     this.on("trace/run/mark", ({ session_id, label }) => {
       const c = ctrlFor(session_id);
       if (!label) throw new Error("trace/run/mark: label required");

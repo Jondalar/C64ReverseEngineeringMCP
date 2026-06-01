@@ -191,9 +191,17 @@ each ships with a gate. Decisions the user must still make are flagged **[OQ]**.
   mark→off round-trips on the shared session. **All three OQ1 control gates now live:
   UI button + `runtime_trace_start` API + Monitor `trace` command.** REMAINING: UI
   domain-picker + live events/marks readout (cosmetic).
-- **746.10 — Swimlane viewer**: render `runtime_swimlane_slice` (C64 + 1541 lanes
-  = the user's fields) as a scrollable offline-stepping view, cycle-scrubbed,
-  PC-clickable → jump to disasm (static↔runtime glue via `resolve_pc`).
+- **746.10 — DONE (2026-06-01).** Swimlane viewer wired to the live trace. The
+  existing Trace tab called the WRONG path (`runtime/call swimlaneSlice` = the
+  backend-less AgentQueryApi bridge → always "no data"). Fixed: the tab now resolves
+  the session's store via the new `trace/current` WS method (active or last-finalized
+  run, exposed via `TraceRunController.currentStorePath()` + `lastStorePath/lastRunId`
+  that survive stop()), then reads the swimlane THROUGH the daemon (`trace/read` op
+  swimlane — concurrent-safe, BUG-029). Returns the user's lane fields
+  (cycle/c64Pc/c64Op + drive lanes). Verified end-to-end: trace on→run→off→
+  `trace/current`→`trace/read` = 100000 rows with {cycle,c64Pc,c64Op}. UI shows clear
+  guidance when no trace / still-recording. REMAINING (cosmetic): PC-click→disasm jump
+  via resolve_pc; live (pre-stop) swimlane from the binary log.
 - **746.11 — Scrub timeline bound to the ring**: a checkpoint timeline (the Snapshots
   tab) where the human scrubs rewind→forward, pins, branches; restore drives the
   shared session so the LLM sees the same state.

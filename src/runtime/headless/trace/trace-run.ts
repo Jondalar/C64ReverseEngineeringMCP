@@ -130,13 +130,25 @@ function packIecLines(d: Record<string, unknown>): number {
 
 export class TraceRunController {
   private active: ActiveRun | null = null;
+  // Spec 746.10 — remember the last store path (+ runId) so a UI/LLM can read the
+  // swimlane after stop() without re-passing the path. Survives stop().
+  private lastStorePath: string | undefined;
+  private lastRunId: string | undefined;
 
   isActive(): boolean { return this.active !== null; }
+
+  /** The .duckdb store of the active run, else the last finalized run (Spec 746.10). */
+  currentStorePath(): { path: string; runId: string; active: boolean } | undefined {
+    if (this.active) return { path: this.active.ctx.outputPath, runId: this.active.run.runId, active: true };
+    if (this.lastStorePath && this.lastRunId) return { path: this.lastStorePath, runId: this.lastRunId, active: false };
+    return undefined;
+  }
 
   async start(def: RuntimeTraceDefinition, ctx: TraceRunStartContext): Promise<RuntimeTraceRun> {
     const v = validateTraceDefinition(def);
     if (!v.ok) throw new Error(`invalid trace definition: ${v.errors.join("; ")}`);
     if (this.active) throw new Error("a trace run is already active; stop it first");
+    this.lastStorePath = ctx.outputPath;
 
     const ctrl = ctx.controller;
     const trace = ctrl.session.kernel.trace();
@@ -268,6 +280,7 @@ export class TraceRunController {
       writer, retracePath, store,
       queue: [], totalEvents: 0, totalBytes: 0, overflow: false,
     };
+    this.lastRunId = run.runId; // Spec 746.10 — survives stop()
     return run;
   }
 
