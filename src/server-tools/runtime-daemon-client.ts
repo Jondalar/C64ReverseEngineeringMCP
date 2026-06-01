@@ -12,7 +12,7 @@
 // actionable error (§236) — never a silent in-process fallback.
 
 import { WebSocket } from "ws";
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve as resolvePath, dirname } from "node:path";
@@ -40,6 +40,54 @@ function tryOpen(endpoint: string, timeoutMs = 2500): Promise<WebSocket> {
     ws.once("open", () => { clearTimeout(timer); resolve(ws); });
     ws.once("error", (e) => { clearTimeout(timer); reject(e); });
   });
+}
+
+/**
+ * Spec 746.x — LIVENESS check: a TCP connect (`open`) is NOT enough. A hung daemon
+ * (100% CPU, dead event loop — the BUG-027-B3 idle-free-run zombie) still holds the
+ * port + may even accept the socket, but never answers. So we open AND round-trip a
+ * `ping` (the `{pong}` handler). Returns:
+ *   "healthy"  — connected + got pong within timeout
+ *   "stall"    — connected (port held) but NO pong → a wedged daemon
+ *   "down"     — could not connect at all (no daemon)
+ */
+async function probeLiveness(endpoint: string, pingTimeoutMs = 3000): Promise<"healthy" | "stall" | "down"> {
+  let ws: WebSocket;
+  try { ws = await tryOpen(endpoint, Math.min(1500, pingTimeoutMs)); }
+  catch { return "down"; }
+  try {
+    const pong = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), pingTimeoutMs);
+      const id = 999999;
+      const onMsg = (data: unknown) => {
+        try { const m = JSON.parse(String(data)); if (m.id === id) { clearTimeout(timer); ws.off("message", onMsg as never); resolve(true); } } catch { /* ignore */ }
+      };
+      ws.on("message", onMsg as never);
+      ws.send(JSON.stringify({ jsonrpc: "2.0", id, method: "ping", params: {} }));
+    });
+    return pong ? "healthy" : "stall";
+  } catch {
+    return "stall";
+  } finally {
+    try { ws.close(); } catch { /* ignore */ }
+  }
+}
+
+/** Spec 746.x — kill whatever process is LISTENing on the endpoint's port (the
+ *  wedged daemon). Best-effort, localhost only. Uses lsof + kill -9. */
+function killStalledDaemon(endpoint: string): boolean {
+  const m = endpoint.match(/^wss?:\/\/(?:127\.0\.0\.1|localhost):(\d+)/);
+  if (!m) return false; // only self-heal a localhost daemon
+  const port = m[1];
+  try {
+    // NB: top-level ESM import of execSync — `require()` is undefined in this ESM
+    // module (package.json type:module), so the old require() form threw + the kill
+    // silently never happened (the zombie survived). This is the real BUG.
+    execSync(`lsof -ti tcp:${port} -sTCP:LISTEN | xargs kill -9`, { stdio: "ignore", timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -107,8 +155,22 @@ export async function ensureDaemon(
   try {
     if (process.env.C64RE_RUNTIME_AUTOSTART === "0") return "skipped";
     const endpoint = opts?.endpoint ?? runtimeEndpoint() ?? DEFAULT_RUNTIME_ENDPOINT;
-    // already up? (cheap pre-check — avoids a redundant spawn in the common case)
-    try { const ws = await tryOpen(endpoint, 800); ws.close(); return "already-up"; } catch { /* down */ }
+    // Spec 746.x — LIVENESS, not just port-open. A wedged daemon (100% CPU, dead
+    // event loop) holds the port but never answers → before, eager-spawn saw the
+    // port held and gave up, so the zombie stayed forever and no session came up.
+    const health = await probeLiveness(endpoint);
+    if (health === "healthy") return "already-up";
+    if (health === "stall") {
+      // self-heal: kill the wedged daemon, then spawn a fresh one onto the freed port.
+      console.error(`[c64-re mcp] runtime daemon at ${endpoint} is STALLED (no pong) — killing it + respawning.`);
+      killStalledDaemon(endpoint);
+      // wait for the port to actually release (kill -9 + socket teardown is not instant)
+      // before spawning, else the fresh daemon hits EADDRINUSE and exits as a race loser.
+      for (let i = 0; i < 20; i++) {
+        await sleep(150);
+        if ((await probeLiveness(endpoint, 500)) === "down") break;
+      }
+    }
     return spawnDaemonDetached(endpoint, opts?.projectDir) ? "spawned" : "failed";
   } catch {
     return "failed";
@@ -136,8 +198,16 @@ class RuntimeDaemonClient {
   private async connectWithAutostart(): Promise<WebSocket> {
     const endpoint = runtimeEndpoint();
     if (!endpoint) throw new Error("C64RE_RUNTIME_ENDPOINT not set");
-    // 1) already up?
-    try { return this.wire(await tryOpen(endpoint)); } catch { /* not up yet */ }
+    // 1) already up AND alive? (liveness, not just port-open — a wedged daemon holds
+    //    the port but never answers; ping it before trusting the connection.)
+    const health = await probeLiveness(endpoint);
+    if (health === "healthy") {
+      try { return this.wire(await tryOpen(endpoint)); } catch { /* fall through to respawn */ }
+    } else if (health === "stall") {
+      console.error(`[c64-re mcp] runtime daemon at ${endpoint} is STALLED — killing it + respawning.`);
+      killStalledDaemon(endpoint);
+      for (let i = 0; i < 20; i++) { await sleep(150); if ((await probeLiveness(endpoint, 500)) === "down") break; }
+    }
     // 2) auto-start the daemon (detached, outlives this MCP) then poll for it.
     const spawned = spawnDaemonDetached(endpoint, this.projectDir);
     const deadlineMs = spawned ? 40_000 : 4_000; // booting the default session takes a few s

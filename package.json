@@ -221,7 +221,8 @@
     "e2e:744-4c-slice2c": "npm run build:mcp && node scripts/e2e-744-4c-slice2c.mjs",
     "e2e:bug028": "npm run build:mcp && node scripts/e2e-bug028-input-drive.mjs",
     "e2e:746": "npm run build:mcp && node scripts/e2e-746-live-trace.mjs",
-    "e2e:746-checkpoint": "npm run build:mcp && node scripts/e2e-746-checkpoint.mjs"
+    "e2e:746-checkpoint": "npm run build:mcp && node scripts/e2e-746-checkpoint.mjs",
+    "e2e:stall-heal": "npm run build:mcp && node scripts/e2e-stall-heal.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

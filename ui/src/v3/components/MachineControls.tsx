@@ -27,13 +27,41 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
   //   OFF → ON: simulate plugging in C64 = cold reset + start running.
   //   ON  → OFF: simulate unplugging = stop polling, freeze state.
   // Use Reset to restart without "unplugging".
+  // Spec 746.x — Power = cold power-cycle, AND a session-recycle if the session is
+  // wedged. A hung session won't answer session/state; we probe it with a short
+  // timeout and, responsive or not, drive a cold reset (resetWarm via session/reset)
+  // to recover — even from a JAMmed game / frozen loop. (A DEAD DAEMON PROCESS is a
+  // different failure: the MCP-side stall-heal kills+respawns it; this button talks
+  // WS to the daemon, so it can only recycle the SESSION, not the process.)
+  const probeSession = async (timeoutMs = 2000): Promise<boolean> => {
+    try {
+      await Promise.race([
+        c.call("session/state", { session_id: sessionId }),
+        new Promise((_r, rej) => setTimeout(() => rej(new Error("probe timeout")), timeoutMs)),
+      ]);
+      return true;
+    } catch { return false; }
+  };
   const powerToggle = async () => {
     if (!sessionId) return;
     if (runState === "off") {
+      // OFF → ON: cold power-cycle. If the session was wedged, the cold reset
+      // recovers it; probe is informational (we reset either way).
+      const alive = await probeSession();
+      if (!alive) console.warn("[power] session not responding — recycling via cold reset");
       await c.call("session/reset", { session_id: sessionId, video: "pal-default" });
       setRunState?.("running");
       onSnapshotTaken();
     } else {
+      // ON → OFF: stop polling. But if the session is WEDGED while "on" (frozen
+      // screen, no frames), a plain OFF leaves it stuck — so recycle it with a cold
+      // reset first, then mark off, so the next ON comes up clean.
+      const alive = await probeSession();
+      if (!alive) {
+        console.warn("[power] session wedged — recycling (cold reset) before power-off");
+        try { await c.call("session/reset", { session_id: sessionId, video: "pal-default" }); } catch { /* ignore */ }
+        onSnapshotTaken();
+      }
       setRunState?.("off");
     }
   };
