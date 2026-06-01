@@ -962,8 +962,11 @@ export class V3WsServer {
       const { captureAllDef } = await import("../server-tools/runtime-trace-sink.js");
       const doms = (Array.isArray(domains) && domains.length ? domains : ["c64-cpu", "memory"]) as never;
       const def = captureAllDef(doms);
+      // Spec 746.6 — per-session persistence layout: <project>/runtime/<session>/.
+      // .c64retrace (the kept authority, OQ2) sits next to the .duckdb index (the
+      // discardable cache, rebuilt from the log) under a session-scoped dir.
       const outputPath = resolveSnapshotPath(
-        output ? String(output) : `traces/live_${Date.now().toString(36)}.duckdb`,
+        output ? String(output) : `runtime/${session_id}/live_${Date.now().toString(36)}.duckdb`,
       );
       const run = await c.traceRun.start(def, { controller: c, outputPath });
       return { run, outputPath, domains: doms };

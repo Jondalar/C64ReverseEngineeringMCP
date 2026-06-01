@@ -19,6 +19,7 @@ resources/roms/*.bin
 resources/fingerprints/trex/
 resources/fingerprints/local/
 traces/
+runtime/
 !samples/screenshots/
 samples/screenshots/*
 !samples/screenshots/proof/

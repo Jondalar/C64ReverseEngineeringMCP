@@ -146,7 +146,14 @@ each ships with a gate. Decisions the user must still make are flagged **[OQ]**.
   omitted (convenience) — deferred; the path is passed explicitly today.
 
 ### 4.3 Persistence
-- **746.6 — Trace + checkpoint persistence layout under the project.** Define where
+- **746.6 — DONE (2026-06-01, partial — default layout).** Live traces now default to
+  `<project>/runtime/<session_id>/live_<ts>.duckdb` (session-scoped), with the kept
+  `.c64retrace` authority (OQ2) next to the discardable `.duckdb` cache. Explicit
+  `output=` paths still honoured (project-relative or absolute). Verified: a
+  no-`output` `trace/start_domains` writes under `runtime/integrated-1/`. REMAINING:
+  a retention sweeper for transient stores + moving pinned `.c64re` checkpoint dumps
+  under the same tree — deferred (the default layout is the load-bearing part).
+- **746.6 (orig) — Trace + checkpoint persistence layout under the project.** Define where
   a session's `.c64retrace` + `trace.duckdb` + pinned `.c64re` checkpoints live
   (e.g. `<project>/runtime/<session>/…`), naming, and retention (ring is transient;
   pinned/dumped are durable). **[OQ2]**: keep `.c64retrace` after finalize (it's the
