@@ -976,6 +976,46 @@ export class V3WsServer {
       c.traceRun.mark(String(label));
       return c.traceRun.status();
     });
+
+    // BUG-029 — read a trace store IN THE DAEMON PROCESS. A DuckDB read-write handle
+    // takes a CROSS-PROCESS file lock, so an external reader (the MCP/tool process)
+    // cannot open a store the daemon is touching. But a read-only open IN THE SAME
+    // PROCESS as the writer is allowed — so the daemon reads its own store and returns
+    // the result over WS. One generic op-dispatch (like slice-2c api/call) covers every
+    // trace-store reader; the MCP trace-read tools route here in daemon mode. The path
+    // arrives ABSOLUTE (caller-resolved, project-agnostic).
+    this.on("trace/read", async ({ op, duckdb_path, args }) => {
+      if (typeof duckdb_path !== "string" || !duckdb_path) throw new Error("trace/read: duckdb_path required");
+      const { withDuckDb } = await import("../server-tools/runtime.js");
+      const a = (args ?? {}) as Record<string, unknown>;
+      return await withDuckDb(duckdb_path, async (conn: any, backend: any) => {
+        switch (String(op)) {
+          case "swimlane": {
+            const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
+            return await swimlaneSlice(backend, { runId: a.run_id as string, cycleRange: [Number(a.cycle_start), Number(a.cycle_end)], compact: a.compact as boolean });
+          }
+          case "query_events": {
+            const { queryEvents } = await import("../runtime/headless/v2/query-events.js");
+            return await queryEvents(backend, a as never);
+          }
+          case "follow_path": {
+            const { followPath } = await import("../runtime/headless/v2/follow-path.js");
+            return await followPath(backend, a as never);
+          }
+          case "taint": {
+            const { traceTaint } = await import("../runtime/headless/v2/taint.js");
+            return await traceTaint(backend, a as never);
+          }
+          case "sql": {
+            const reader = await conn.runAndReadAll(String(a.sql));
+            const rows = reader.getRows().slice(0, Number(a.limit ?? 200));
+            return { rows: rows.map((r: unknown[]) => r.map((c) => typeof c === "bigint" ? c.toString() : c)) };
+          }
+          default:
+            throw new Error(`trace/read: unknown op "${op}"`);
+        }
+      });
+    });
     this.on("session/set_pacing", ({ session_id, mode, ratio }) => {
       const c = ctrlFor(session_id);
       if (!PACING_MODES.includes(mode)) throw new Error(`bad pacing mode: ${mode}`);

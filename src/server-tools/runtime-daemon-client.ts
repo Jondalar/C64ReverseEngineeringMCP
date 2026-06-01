@@ -286,6 +286,12 @@ class RuntimeDaemonClient {
   traceStatus<T = unknown>(sessionId: string) {
     return this.call<T>("trace/run/status", { session_id: sessionId });
   }
+  /** BUG-029 — read a trace store IN the daemon process (the only one that can open
+   *  a store the live daemon holds a lock on). op = swimlane|query_events|follow_path|
+   *  taint|sql. `duckdbPath` must be absolute (caller-resolved). */
+  traceRead<T = unknown>(op: string, duckdbPath: string, args: Record<string, unknown>) {
+    return this.call<T>("trace/read", { op, duckdb_path: duckdbPath, args });
+  }
 }
 
 /** Singleton client (one connection per MCP process). */

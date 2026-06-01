@@ -79,13 +79,17 @@ try {
   const store = (finTxt.match(/Store:\s*(\S+)/) || [])[1];
   ok(/Runtime Daemon/.test(finTxt) && store && existsSync(store), "5 runtime_trace_finalize wrote the store (daemon-routed)", store);
 
-  // 6 the finalize summary reported a non-empty store (events captured). The actual
-  //   store-content read is done AFTER the daemon exits (see post-finally check) —
-  //   reading the DuckDB while the daemon process is live hits a cross-process lock
-  //   (BUG-029, separate from 746's start/finalize routing).
   const finEvents = Number((finTxt.match(/Events:\s*(\d+)/) || [])[1] || 0);
   ok(finEvents > 1000, "6 finalize reported the firehose captured events (store non-empty)", `events=${finEvents}`);
   globalThis.__storePath = store; globalThis.__runId = runId;
+
+  // 6d BUG-029 fix — read the swimlane via the MCP tool WHILE THE DAEMON IS LIVE.
+  //    This is the exact scenario that hit "Could not set lock"; the daemon-routed
+  //    read (trace/read in the daemon process) must now return the stepping lanes.
+  let sw = "";
+  try { sw = m.text(await m.call("runtime_swimlane_slice", { run_id: runId, duckdb_path: store, cycle_start: 0, cycle_end: 3_000_000, compact: true })); }
+  catch (e) { sw = "ERR: " + e.message; }
+  ok(/c64_pc/.test(sw) && sw.split("\n").length > 3, "6d runtime_swimlane_slice reads the trace WHILE the daemon is live (BUG-029 fixed)", sw.split("\n").find((l) => /c64_pc/.test(l)) || sw.slice(0, 80));
 
   // 6b mark stamped into the run.
   ok(/marks:\s*[1-9]/.test(finTxt) || /phase-1/.test(finTxt), "6b finalize reported the stamped mark", (finTxt.match(/marks:\s*\d+/) || [""])[0]);

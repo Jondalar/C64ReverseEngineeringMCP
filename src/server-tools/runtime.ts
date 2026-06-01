@@ -121,6 +121,28 @@ export async function withDuckDb<T>(dbPath: string, fn: (conn: any, backend: any
   }
 }
 
+/**
+ * BUG-029 — read a trace store, routing the read INTO the daemon process when one is
+ * configured (the only process that can open a store the live daemon holds a lock on;
+ * a DuckDB read-write handle takes a cross-process lock). The daemon opens its own
+ * store read-only in-process and returns rows. Out of daemon mode, runs `localFn`
+ * against `withDuckDb` directly. The path is resolved absolute caller-side so the
+ * project-agnostic daemon reads the caller's file.
+ */
+async function daemonTraceRead<T>(
+  op: string,
+  duckdbPath: string,
+  args: Record<string, unknown>,
+  localFn: () => Promise<T>,
+): Promise<T> {
+  const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+  if (isDaemonMode()) {
+    const abs = isAbsolute(duckdbPath) ? duckdbPath : resolvePath(process.env.C64RE_PROJECT_DIR ?? process.cwd(), duckdbPath);
+    return runtimeDaemon.traceRead<T>(op, abs, args);
+  }
+  return localFn();
+}
+
 export function registerRuntimeTools(server: McpServer, _context: ServerToolContext): void {
   // ---- Monitor (Spec 248) ----
   server.tool(
@@ -397,15 +419,19 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       limit: z.number().default(1000),
     },
     safeHandler("runtime_query_events", async (args) => {
-      const { queryEvents } = await import("../runtime/headless/v2/query-events.js");
-      return withDuckDb(args.duckdb_path, async (_conn, backend) => {
-        const q: any = { runId: args.run_id, family: args.family, limit: args.limit };
-        if (args.cycle_start !== undefined && args.cycle_end !== undefined) q.cycleRange = [args.cycle_start, args.cycle_end];
-        if (args.pc_start !== undefined && args.pc_end !== undefined) q.pcRange = [args.pc_start, args.pc_end];
-        if (args.addr_start !== undefined && args.addr_end !== undefined) q.addrRange = [args.addr_start, args.addr_end];
-        const rows = await queryEvents(backend, q);
-        return { content: [{ type: "text", text: `${rows.length} rows\n${JSON.stringify(rows.slice(0, 200), null, 2)}` }] };
-      });
+      const q: any = { runId: args.run_id, family: args.family, limit: args.limit };
+      if (args.cycle_start !== undefined && args.cycle_end !== undefined) q.cycleRange = [args.cycle_start, args.cycle_end];
+      if (args.pc_start !== undefined && args.pc_end !== undefined) q.pcRange = [args.pc_start, args.pc_end];
+      if (args.addr_start !== undefined && args.addr_end !== undefined) q.addrRange = [args.addr_start, args.addr_end];
+      // BUG-029 — daemon-side read.
+      const rows = await daemonTraceRead<any[]>(
+        "query_events", args.duckdb_path, q,
+        async () => {
+          const { queryEvents } = await import("../runtime/headless/v2/query-events.js");
+          return withDuckDb(args.duckdb_path, async (_conn, backend) => queryEvents(backend, q));
+        },
+      );
+      return { content: [{ type: "text", text: `${rows.length} rows\n${JSON.stringify(rows.slice(0, 200), null, 2)}` }] };
     }),
   );
 
@@ -452,17 +478,19 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       compact: z.boolean().default(true),
     },
     safeHandler("runtime_swimlane_slice", async (args) => {
-      const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
       const { renderMarkdown } = await import("../runtime/headless/v2/swimlane-render.js");
-      return withDuckDb(args.duckdb_path, async (_conn, backend) => {
-        const slice = await swimlaneSlice(backend, {
-          runId: args.run_id,
-          cycleRange: [args.cycle_start, args.cycle_end],
-          compact: args.compact,
-        });
-        const md = renderMarkdown(slice, { maxRows: 200 });
-        return { content: [{ type: "text", text: md }] };
-      });
+      // BUG-029 — daemon-side read so a live-daemon store lock doesn't block us.
+      const slice = await daemonTraceRead<any>(
+        "swimlane", args.duckdb_path,
+        { run_id: args.run_id, cycle_start: args.cycle_start, cycle_end: args.cycle_end, compact: args.compact },
+        async () => {
+          const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
+          return withDuckDb(args.duckdb_path, async (_conn, backend) =>
+            swimlaneSlice(backend, { runId: args.run_id, cycleRange: [args.cycle_start, args.cycle_end], compact: args.compact }));
+        },
+      );
+      const md = renderMarkdown(slice, { maxRows: 200 });
+      return { content: [{ type: "text", text: md }] };
     }),
   );
 
