@@ -182,9 +182,15 @@ each ships with a gate. Decisions the user must still make are flagged **[OQ]**.
   (cpu+drive+iec+memory) on the shared session via `trace/start_domains` / `trace/run/
   stop`; reflects backend trace state on mount (`trace/run/status`); red active style
   (`wb-trace-on`) + store-path tooltip. This is the UI gate of OQ1's three-gate control
-  (UI ✓ + API `runtime_trace_start` ✓; Monitor command = 746.9b). REMAINING in 746.9b:
-  domain pickers + a richer status readout (events/marks live) + a Monitor `trace`
-  command. ui:build clean; button + `trace/start_domains` verified in the bundle.
+  (UI ✓ + API `runtime_trace_start` ✓; Monitor command = 746.9b). ui:build clean;
+  button + `trace/start_domains` verified in the bundle.
+- **746.9b — DONE (2026-06-01).** Monitor `trace` command (the THIRD OQ1 gate):
+  `trace on [domains...] | off | status | mark "<label>"` via `monitor/exec` — builds
+  `captureAllDef(domains)` (default cpu+drive+iec+memory), no pre-registered definition
+  (distinct from the advanced `tracedb <def-id>` command). Verified: on→status(active)→
+  mark→off round-trips on the shared session. **All three OQ1 control gates now live:
+  UI button + `runtime_trace_start` API + Monitor `trace` command.** REMAINING: UI
+  domain-picker + live events/marks readout (cosmetic).
 - **746.10 — Swimlane viewer**: render `runtime_swimlane_slice` (C64 + 1541 lanes
   = the user's fields) as a scrollable offline-stepping view, cycle-scrubbed,
   PC-clickable → jump to disasm (static↔runtime glue via `resolve_pc`).

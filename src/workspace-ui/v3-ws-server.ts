@@ -1591,6 +1591,39 @@ export class V3WsServer {
           monitorDisasmAddr.set(session_id, s.c64Cpu.pc); // bare `d` follows restored PC
           return { output: formatUndumpSummary(r) };
         }
+        // Spec 746.9b — the simple Monitor trace gate (third control gate alongside
+        // the UI button + the runtime_trace_start API). No pre-registered definition:
+        //   trace on [domains...] | off | status | mark "<label>"
+        // domains default to cpu+drive+iec+memory (the full live picture).
+        if (op === "trace") {
+          const sub = (tokens[1] ?? "status").toLowerCase();
+          if (sub === "off" || sub === "stop") {
+            if (!ctrl.traceRun.isActive()) return { output: "trace: no active run" };
+            const run = await ctrl.traceRun.stop();
+            return { output: `trace off: ${run.runId}  events=${run.eventCount} marks=${run.marks.length}\n  evidence: ${run.evidenceRef}` };
+          }
+          if (sub === "status") {
+            const st = ctrl.traceRun.status();
+            return { output: st.active ? `trace active: ${st.runId} events=${st.eventCount} marks=${st.marks}` : "trace: off" };
+          }
+          if (sub === "mark") {
+            const label = [...cmd.matchAll(/"([^"]*)"/g)].map((m) => m[1])[0] ?? tokens.slice(2).join(" ");
+            if (!label) return { output: 'trace: usage: trace mark "<label>"' };
+            ctrl.traceRun.mark(label);
+            return { output: `trace mark: "${label}" @ cycle ${s.c64Cpu.cycles}` };
+          }
+          if (sub === "on" || sub === "start") {
+            if (ctrl.traceRun.isActive()) return { output: "trace: already active — `trace off` first" };
+            const doms = tokens.slice(2).filter(Boolean);
+            const domains = (doms.length ? doms : ["c64-cpu", "drive8-cpu", "iec", "memory"]) as never;
+            const { captureAllDef } = await import("../server-tools/runtime-trace-sink.js");
+            const def = captureAllDef(domains);
+            const outputPath = resolveSnapshotPath(`runtime/${session_id}/live_${Date.now().toString(36)}.duckdb`);
+            const run = await ctrl.traceRun.start(def, { controller: ctrl, outputPath });
+            return { output: `trace on: ${run.runId}  domains=[${(domains as string[]).join(",")}]\n  evidence: ${outputPath}` };
+          }
+          return { output: "trace: on [domains...] | off | status | mark \"<label>\"" };
+        }
         // Spec 708 / 623 §8 — declarative trace runs (one-shot; no RETURN repeat).
         //   tracedb start "<def-id>" ["<output>"] | stop | status | mark "<label>"
         if (op === "tracedb") {
