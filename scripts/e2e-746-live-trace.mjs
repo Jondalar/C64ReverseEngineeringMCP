@@ -91,6 +91,13 @@ try {
   catch (e) { sw = "ERR: " + e.message; }
   ok(/c64_pc/.test(sw) && sw.split("\n").length > 3, "6d runtime_swimlane_slice reads the trace WHILE the daemon is live (BUG-029 fixed)", sw.split("\n").find((l) => /c64_pc/.test(l)) || sw.slice(0, 80));
 
+  // 6e BUG-029/746.5 — trace_store_query (different reader layer, queries.js) also
+  //    reads the live-daemon store concurrently (read-only-first in withConn).
+  let tq = "";
+  try { tq = m.text(await m.call("trace_store_query", { path: store, sql: "SELECT count(*) FROM trace_event", limit: 5 })); }
+  catch (e) { tq = "ERR: " + e.message; }
+  ok(/\d/.test(tq) && !/ERR:/.test(tq), "6e trace_store_query reads the live-daemon store (queries.js read-only-first)", tq.split("\n").filter(Boolean).pop());
+
   // 6b mark stamped into the run.
   ok(/marks:\s*[1-9]/.test(finTxt) || /phase-1/.test(finTxt), "6b finalize reported the stamped mark", (finTxt.match(/marks:\s*\d+/) || [""])[0]);
 

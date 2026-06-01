@@ -1006,6 +1006,10 @@ export class V3WsServer {
             const { traceTaint } = await import("../runtime/headless/v2/taint.js");
             return await traceTaint(backend, a as never);
           }
+          case "profile_loader": {
+            const { profileLoader } = await import("../runtime/headless/v2/loader-profile.js");
+            return await profileLoader(backend, a.scenario_id as string, [Number(a.cycle_start), Number(a.cycle_end)]);
+          }
           case "sql": {
             const reader = await conn.runAndReadAll(String(a.sql));
             const rows = reader.getRows().slice(0, Number(a.limit ?? 200));

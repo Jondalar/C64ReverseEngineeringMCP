@@ -21,15 +21,32 @@ async function loadDuckDb(): Promise<AnyDuckDb> {
 async function withConn<T>(dbPath: string, fn: (conn: any, isLiveSink: boolean) => Promise<T>): Promise<T> {
   if (!existsSync(dbPath)) throw new Error(`trace store not found: ${dbPath}`);
   const duckdb = await loadDuckDb();
+  // BUG-029 — open READ_ONLY first: a read-write handle takes a cross-process file
+  // lock, so a reader process cannot open a store another process (the daemon) is
+  // touching → "Could not set lock". A read-only open needs no exclusive lock. A
+  // 726 live-sink store already has the reader schema, so no compat CREATE VIEW is
+  // needed (read-only can't write). Fall back to read-write + compat ONLY for a
+  // legacy Spec-217 native store that needs the bridge views built.
+  try {
+    const inst = await (duckdb.DuckDBInstance as any).create(dbPath, { access_mode: "READ_ONLY" });
+    try {
+      const conn = await (inst as any).connect();
+      const liveSink = await isLiveSinkStore(conn);
+      if (liveSink) return await fn(conn, liveSink);
+      // legacy store opened read-only but needs compat views → re-open read-write.
+      throw Object.assign(new Error("legacy-store-needs-compat"), { __legacy: true });
+    } finally {
+      (inst as any).closeSync?.();
+    }
+  } catch (e: any) {
+    if (!e?.__legacy) {
+      // read-only failed for a real reason (e.g. legacy store can't even open RO);
+      // fall through to the read-write path below.
+    }
+  }
   const inst = await (duckdb.DuckDBInstance as any).create(dbPath);
   try {
     const conn = await (inst as any).connect();
-    // Spec 726 §6a: for a LIVE-sink store (trace_run/trace_event/trace_mark) the
-    // readers below query that schema DIRECTLY via the schema726 projections —
-    // they never name the legacy `meta`/`instructions` tables. The compat layer
-    // is installed ONLY as the bridge for genuine legacy Spec-217 native stores
-    // (which have no trace_event table); on a 726 store it is a no-op for the
-    // reader path here.
     const liveSink = await isLiveSinkStore(conn);
     if (!liveSink) {
       const { ensureSpec726CompatLayer } = await import("../headless/trace/trace-run-store.js");

@@ -450,19 +450,20 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       cross_domain: z.boolean().default(true),
     },
     safeHandler("runtime_follow_path", async (args) => {
-      const { followPath } = await import("../runtime/headless/v2/follow-path.js");
-      return withDuckDb(args.duckdb_path, async (_conn, backend) => {
-        const chain = await followPath(backend, {
-          runId: args.run_id,
-          endEventCycle: args.end_event_cycle,
-          endEventFamily: args.end_event_family as any,
-          endEventKey: JSON.parse(args.end_event_key),
-          maxDepth: args.max_depth,
-          cycleWindow: args.cycle_window,
-          crossDomain: args.cross_domain,
-        });
-        return { content: [{ type: "text", text: JSON.stringify(chain, null, 2) }] };
+      const q = {
+        runId: args.run_id,
+        endEventCycle: args.end_event_cycle,
+        endEventFamily: args.end_event_family as any,
+        endEventKey: JSON.parse(args.end_event_key),
+        maxDepth: args.max_depth,
+        cycleWindow: args.cycle_window,
+        crossDomain: args.cross_domain,
+      };
+      const chain = await daemonTraceRead<any>("follow_path", args.duckdb_path, q, async () => {
+        const { followPath } = await import("../runtime/headless/v2/follow-path.js");
+        return withDuckDb(args.duckdb_path, async (_conn, backend) => followPath(backend, q));
       });
+      return { content: [{ type: "text", text: JSON.stringify(chain, null, 2) }] };
     }),
   );
 
@@ -507,17 +508,12 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       cycle_window: z.number().default(1_000_000),
     },
     safeHandler("runtime_trace_taint", async (args) => {
-      const { traceTaint } = await import("../runtime/headless/v2/taint.js");
-      return withDuckDb(args.duckdb_path, async (_conn, backend) => {
-        const graph = await traceTaint(backend, {
-          runId: args.run_id,
-          startCycle: args.start_cycle,
-          startAddr: args.start_addr,
-          maxDepth: args.max_depth,
-          cycleWindow: args.cycle_window,
-        });
-        return { content: [{ type: "text", text: JSON.stringify(graph, null, 2) }] };
+      const q = { runId: args.run_id, startCycle: args.start_cycle, startAddr: args.start_addr, maxDepth: args.max_depth, cycleWindow: args.cycle_window };
+      const graph = await daemonTraceRead<any>("taint", args.duckdb_path, q, async () => {
+        const { traceTaint } = await import("../runtime/headless/v2/taint.js");
+        return withDuckDb(args.duckdb_path, async (_conn, backend) => traceTaint(backend, q));
       });
+      return { content: [{ type: "text", text: JSON.stringify(graph, null, 2) }] };
     }),
   );
 
@@ -532,11 +528,15 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       cycle_end: z.number(),
     },
     safeHandler("runtime_profile_loader", async (args) => {
-      const { profileLoader } = await import("../runtime/headless/v2/loader-profile.js");
-      return withDuckDb(args.duckdb_path, async (_conn, backend) => {
-        const profile = await profileLoader(backend, args.scenario_id, [args.cycle_start, args.cycle_end]);
-        return { content: [{ type: "text", text: JSON.stringify(profile, null, 2) }] };
-      });
+      const profile = await daemonTraceRead<any>(
+        "profile_loader", args.duckdb_path,
+        { scenario_id: args.scenario_id, cycle_start: args.cycle_start, cycle_end: args.cycle_end },
+        async () => {
+          const { profileLoader } = await import("../runtime/headless/v2/loader-profile.js");
+          return withDuckDb(args.duckdb_path, async (_conn, backend) => profileLoader(backend, args.scenario_id, [args.cycle_start, args.cycle_end]));
+        },
+      );
+      return { content: [{ type: "text", text: JSON.stringify(profile, null, 2) }] };
     }),
   );
 

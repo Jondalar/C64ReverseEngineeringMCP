@@ -129,9 +129,16 @@ each ships with a gate. Decisions the user must still make are flagged **[OQ]**.
 ### 4.2 Checkpoint / scrub tools (LLM can rewind)
 - **746.4 — MCP checkpoint tools**: `runtime_checkpoint_list/capture/restore/pin/
   unpin` → the existing WS RPCs. Closes G4. Lets the LLM scrub + pin evidence.
-- **746.5 — `runtime_trace_active` default path**: swimlane/query/trace_store tools
-  default `duckdb_path` to the live session's current/last finalized trace when
-  omitted. Closes G5.
+- **746.5 — DONE (2026-06-01, with BUG-029).** All trace-store READERS route to the
+  daemon when one is live (the only process that can open a store the daemon holds a
+  cross-process lock on): new WS `trace/read` op-dispatch (swimlane/query_events/
+  follow_path/taint/profile_loader/sql) + `daemonTraceRead` helper in `runtime.ts`;
+  `runtime_swimlane_slice/query_events/follow_path/trace_taint/profile_loader` routed.
+  The `trace_store_*` tools (different layer, `trace-store/queries.ts withConn`) made
+  READ_ONLY-first so they too read a live-daemon store concurrently. Gate `e2e:746`
+  14/14 (6d swimlane + 6e trace_store_query both read WHILE the daemon is live).
+  STILL OPEN sub-item: default `duckdb_path` to the live session's current trace when
+  omitted (convenience) — deferred; the path is passed explicitly today.
 
 ### 4.3 Persistence
 - **746.6 — Trace + checkpoint persistence layout under the project.** Define where
