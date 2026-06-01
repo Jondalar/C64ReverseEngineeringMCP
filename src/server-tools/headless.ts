@@ -417,11 +417,75 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
 ));
 
+  // Spec 746.2 — start a streaming trace on an ALREADY-RUNNING session (the shared
+  // daemon session the human drives). This is the gap BUG/charter closes: before,
+  // tracing could ONLY be enabled at runtime_session_start(trace_out=...). Now the
+  // LLM can trace the live Wasteland session after the fact, by domain. The default
+  // daemon session is built producers-on (Spec 746.1) so iec/drive/memory have data.
+  server.tool(
+    "runtime_trace_start",
+    "Start a streaming trace on a RUNNING session (no need to pre-declare trace_out at session_start). Use to begin capturing the live shared session's execution into a .c64retrace binary timeline (the authority) + a queryable trace.duckdb index. Pick domains (default c64-cpu+memory; add drive8-cpu/iec/vic for the full picture). Then drive with runtime_session_run, stamp phases with runtime_mark, finalize with runtime_trace_finalize, and read the swimlane/offline-stepping with runtime_swimlane_slice / query with trace_store_*. Not for a one-shot scenario (use runtime_session_start trace_out=). Inputs: session_id, optional domains, optional output path. Returns: runId + store path + domains.",
+    {
+      session_id: z.string(),
+      domains: z.array(z.enum(["c64-cpu", "drive8-cpu", "iec", "vic", "sid", "memory"])).optional()
+        .describe("Trace domains. Default ['c64-cpu','memory']. The CPU firehose is the swimlane truth; add drive8-cpu/iec for IEC-bus + drive stepping, vic for raster."),
+      output: z.string().optional().describe("Path (abs or under the project) for the trace store. Default traces/live_<ts>.duckdb."),
+    },
+    safeHandler("runtime_trace_start", async ({ session_id, domains, output }) => {
+      const doms = domains ?? ["c64-cpu", "memory"];
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        // resolve the output path against the caller's project (project-agnostic daemon)
+        let absOut: string | undefined = output;
+        if (output) {
+          const { resolveTraceOut } = await import("./runtime-trace-sink.js");
+          const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+          absOut = resolveTraceOut(output, proj);
+        }
+        const r = await runtimeDaemon.traceStartDomains<{ run: { runId: string }; outputPath: string; domains: string[] }>(session_id, doms, absOut);
+        return { content: [{ type: "text" as const, text: [
+          `Trace started (Runtime Daemon) — run ${r.run.runId}`,
+          `Domains: ${r.domains.join(", ")}`,
+          `Store: ${r.outputPath}`,
+          `Drive the session (runtime_session_run / runtime_until), stamp phases with runtime_mark, then runtime_trace_finalize. Read it with runtime_swimlane_slice / trace_store_*.`,
+        ].join("\n") }] };
+      }
+      // in-process: build the def + start on the session's controller.
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { captureAllDef, resolveTraceOut } = await import("./runtime-trace-sink.js");
+      const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+      const ctrl = ensureRuntimeController(session_id, session, () => {});
+      if (ctrl.traceRun.isActive()) throw new Error(`Trace already active on session ${session_id} — finalize it first.`);
+      const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+      const outPath = resolveTraceOut(output ?? `traces/live_${Date.now().toString(36)}.duckdb`, proj);
+      const run = await ctrl.traceRun.start(captureAllDef(doms as never), { controller: ctrl, outputPath: outPath });
+      return { content: [{ type: "text" as const, text: [
+        `Trace started — run ${run.runId}`,
+        `Domains: ${doms.join(", ")}`,
+        `Store: ${outPath}`,
+      ].join("\n") }] };
+    },
+));
+
   server.tool(
     "runtime_trace_finalize",
-    "Finalize the active streaming trace: drain remaining events + write the trace_run header, then close the trace.duckdb. Requires an active trace started via runtime_session_start(trace_out=...). Call once capture is complete; the store is then queryable any time via trace_store_query / trace_store_top_pcs / trace_store_bus_find / runtime_query_events (pass the trace.duckdb path). Not for marking (use runtime_mark) or progress polling (use runtime_trace_status). Inputs: session_id. Returns: run summary (runId, event/byte counts, mark list, store path).",
+    "Finalize the active streaming trace: drain remaining events + write the trace_run header, then close the trace.duckdb. Requires an active trace (runtime_trace_start, or runtime_session_start trace_out=...). Call once capture is complete; the store is then queryable any time via trace_store_query / trace_store_top_pcs / trace_store_bus_find / runtime_query_events (pass the trace.duckdb path). Not for marking (use runtime_mark) or progress polling (use runtime_trace_status). Inputs: session_id. Returns: run summary (runId, event/byte counts, mark list, store path).",
     { session_id: z.string() },
     safeHandler("runtime_trace_finalize", async ({ session_id }) => {
+      // Spec 746.3 — route to the shared daemon (BUG-028 class: was getRuntimeController-only).
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const { run } = await runtimeDaemon.traceStop<{ run: { runId: string; eventCount: number; bytesWritten: number; marks: unknown[]; cycleStart: number; cycleEnd: number; evidenceRef: string } }>(session_id);
+        return { content: [{ type: "text" as const, text: [
+          `Trace finalized (Runtime Daemon) — run ${run.runId}`,
+          `Events: ${run.eventCount}  bytes: ${run.bytesWritten}  marks: ${run.marks.length}`,
+          `Cycles: ${run.cycleStart}..${run.cycleEnd}`,
+          `Store: ${run.evidenceRef}`,
+          `Query it with trace_store_query / trace_store_top_pcs / runtime_swimlane_slice (duckdb_path = the store).`,
+        ].join("\n") }] };
+      }
       const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
       const ctrl = getRuntimeController(session_id);
       if (!ctrl?.traceRun.isActive()) throw new Error(`No active trace on session ${session_id}.`);
@@ -441,6 +505,12 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Report the active streaming trace's status — runId, output path, captured event/mark counts, backpressure flag. Requires an active trace started via runtime_session_start(trace_out=...). Use to watch capture progress and decide when to call runtime_trace_finalize. Not for the run's machine state (use runtime_session_status) or offline store queries (use trace_store_info). Inputs: session_id. Returns: trace status JSON.",
     { session_id: z.string() },
     safeHandler("runtime_trace_status", async ({ session_id }) => {
+      // Spec 746.3 — route to the shared daemon (BUG-028 class).
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const s = await runtimeDaemon.traceStatus(session_id);
+        return { content: [{ type: "text" as const, text: JSON.stringify(s, null, 2) }] };
+      }
       const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
       const ctrl = getRuntimeController(session_id);
       const s = ctrl?.traceRun.status() ?? { active: false };

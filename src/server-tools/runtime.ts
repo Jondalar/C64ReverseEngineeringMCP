@@ -82,19 +82,42 @@ async function callApi<T = unknown>(session_id: string, method: string, ...args:
  *  with try/finally CLOSE, otherwise the file's per-process lock leaks across
  *  calls (next reader call on the same file fails with "Conflicting lock is
  *  held"). Also installs the Spec 726 compat layer on open so 726 stores
- *  written before the compat views existed are auto-healed. */
+ *  written before the compat views existed are auto-healed.
+ *
+ *  Spec 746.3 — READ-ONLY FIRST: a default read-write open takes an EXCLUSIVE
+ *  file lock, so a reader (this MCP process) cannot open a store that the daemon
+ *  process is touching (live tracing / indexing) → "Could not set lock on". Open
+ *  READ_ONLY first: DuckDB allows many concurrent read-only handles across
+ *  processes, no exclusive lock. A read-only store cannot CREATE VIEW, so the
+ *  compat layer is skipped — fine for live 726 stores (the indexer already wrote
+ *  the reader schema). Fall back to read-write (+ compat) only for an OLD store
+ *  that needs healing AND when no other process holds the lock. */
 export async function withDuckDb<T>(dbPath: string, fn: (conn: any, backend: any) => Promise<T>): Promise<T> {
   const duckdb = await import("@duckdb/node-api");
   const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
   const { ensureSpec726CompatLayer } = await import("../runtime/headless/trace/trace-run-store.js");
-  const inst = await (duckdb as any).DuckDBInstance.create(dbPath);
+  // 1) read-only (no exclusive lock; works while the daemon holds the file).
   try {
-    const conn = await inst.connect();
-    await ensureSpec726CompatLayer(conn);
-    const backend = new DuckDbQueryBackend(conn);
-    return await fn(conn, backend);
-  } finally {
-    try { (inst as any).closeSync?.(); } catch { /* ignore */ }
+    const inst = await (duckdb as any).DuckDBInstance.create(dbPath, { access_mode: "READ_ONLY" });
+    try {
+      const conn = await inst.connect();
+      const backend = new DuckDbQueryBackend(conn);
+      return await fn(conn, backend);
+    } finally {
+      try { (inst as any).closeSync?.(); } catch { /* ignore */ }
+    }
+  } catch (e) {
+    // read-only failed (e.g. an OLD store missing the reader schema → needs compat
+    // CREATE VIEWs, which read-only can't do). Fall back to read-write + heal.
+    const inst = await (duckdb as any).DuckDBInstance.create(dbPath);
+    try {
+      const conn = await inst.connect();
+      await ensureSpec726CompatLayer(conn);
+      const backend = new DuckDbQueryBackend(conn);
+      return await fn(conn, backend);
+    } finally {
+      try { (inst as any).closeSync?.(); } catch { /* ignore */ }
+    }
   }
 }
 

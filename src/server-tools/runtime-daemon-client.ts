@@ -272,6 +272,20 @@ class RuntimeDaemonClient {
   loadPrg<T = unknown>(sessionId: string, prgPath: string, loadAddress?: number) {
     return this.call<T>("session/load_prg", { session_id: sessionId, prg_path: prgPath, load_address: loadAddress });
   }
+
+  // -- Spec 746.2/746.3 — live trace control on the SHARED session (the three-gate
+  //    control: this MCP path + the UI button + the Monitor command all converge on
+  //    the daemon's trace/* WS methods). The default session is built producers-on
+  //    (746.1) so iec/drive/memory domains have data when started mid-session. --
+  traceStartDomains<T = unknown>(sessionId: string, domains: string[], output?: string) {
+    return this.call<T>("trace/start_domains", { session_id: sessionId, domains, output });
+  }
+  traceStop<T = unknown>(sessionId: string) {
+    return this.call<T>("trace/run/stop", { session_id: sessionId });
+  }
+  traceStatus<T = unknown>(sessionId: string) {
+    return this.call<T>("trace/run/status", { session_id: sessionId });
+  }
 }
 
 /** Singleton client (one connection per MCP process). */

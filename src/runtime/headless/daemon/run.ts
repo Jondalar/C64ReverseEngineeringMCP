@@ -49,7 +49,21 @@ export async function runDaemon(argv: string[]): Promise<void> {
   // Create ONE default session (PAUSED, at cold reset — NOT pre-booted) so a
   // freshly-connecting UI has a machine to attach to. The first Run boots it to
   // BASIC ready; the MCP/LLM creates more, all visible to both surfaces.
-  const { sessionId } = runtimeSessions.start({ mode: "true-drive", driveDispatchMode } as never);
+  //
+  // Spec 746.1 (OQ1 — producers on-by-default): build the default session WITH the
+  // iec/drive/bus producers enabled. The producers are passive-proven (726 §2a:
+  // byte-identical with/without, ~5.7% binary overhead) and are CONSTRUCTION-TIME
+  // only — so enabling them here is the prerequisite for starting a FULL-domain
+  // trace (iec/drive/memory) MID-SESSION on the running default session, from any of
+  // the three control gates (UI / API / Monitor). Without this, only the CPU
+  // firehose could be traced after the fact; iec/drive/memory would be empty.
+  const { sessionId } = runtimeSessions.start({
+    mode: "true-drive",
+    driveDispatchMode,
+    traceIec: true,
+    traceDrive: true,
+    enableBusAccessTrace: true,
+  } as never);
   const session = getIntegratedSession(sessionId)!;
   session.resetCold("pal-default");
   console.log(`[daemon] default session ${sessionId}: pc=$${session.c64Cpu.pc.toString(16)} (paused at reset)`);

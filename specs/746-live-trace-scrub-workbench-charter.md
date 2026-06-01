@@ -109,18 +109,22 @@ Scoped to "make the ratified model usable", in dependency order. Each is a slice
 each ships with a gate. Decisions the user must still make are flagged **[OQ]**.
 
 ### 4.1 Runtime wiring (unblocks everything)
-- **746.1 — Default daemon session built trace-ready.** Decide **[OQ1]**: build the
-  default session WITH iec/drive/bus producers always-on (they are passive-proven,
-  ~5.7% binary overhead per 726.B; cost = a little CPU on the idle default session),
-  OR make producers runtime-toggleable (bigger; breaks the 726 construction-time
-  assumption → smoke-trace-sink must additionally prove a mid-run producer toggle is
-  passive). Recommendation: **producers-on-by-default** (cheap, keeps the passive
-  proof simple), revisit toggle later.
-- **746.2 — `runtime_trace_start` MCP tool** → routes to WS `trace/run/start` on the
-  shared session, taking a `RuntimeTraceDefinition` (or domain list) + `trace_out`
-  resolved caller-side (project-agnostic, like slice-2c). Closes G1.
-- **746.3 — daemon-route `runtime_trace_finalize` + `runtime_trace_status`**
-  (isDaemonMode branch → `trace/run/stop` + `trace/run/status`). Closes G2/G3-tool.
+- **746.1 — DONE (2026-06-01).** Default daemon session built trace-ready: `daemon/run.ts`
+  now starts it with `traceIec/traceDrive/enableBusAccessTrace` on (OQ1 = producers-on).
+  So a full-domain (iec/drive/memory) trace can start mid-session on the running default
+  session. Closes G3.
+- **746.2 — DONE (2026-06-01).** `runtime_trace_start` MCP tool + a new WS
+  `trace/start_domains` method (builds `captureAllDef(domains)` + starts on the shared
+  controller — no pre-registered definition needed). Routes to the daemon in daemon mode;
+  `output` resolved caller-side (project-agnostic). Closes G1.
+- **746.3 — DONE (2026-06-01).** `runtime_trace_finalize` + `runtime_trace_status`
+  daemon-routed (isDaemonMode branch → `trace/run/stop` + `trace/run/status`). Closes G2.
+  Gate `npm run e2e:746` (12/12): trace_status (no trace, no throw) → trace_start on the
+  RUNNING session → status active → run+mark → finalize (store written) → the store holds
+  1.53M events incl. 844918 CPU-firehose rows → swimlane renders 88387 stepping lanes
+  (read post-teardown). KNOWN GAP: reading the store via an MCP tool WHILE the daemon is
+  live hits a DuckDB cross-process lock = **BUG-029** (fix = route trace-store READS
+  through the daemon too; fold into 746.5).
 
 ### 4.2 Checkpoint / scrub tools (LLM can rewind)
 - **746.4 — MCP checkpoint tools**: `runtime_checkpoint_list/capture/restore/pin/

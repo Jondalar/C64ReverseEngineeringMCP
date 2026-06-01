@@ -951,6 +951,23 @@ export class V3WsServer {
       const run = await c.traceRun.start(def, { controller: c, outputPath });
       return { run };
     });
+    // Spec 746.2 — start a live trace by DOMAINS (no pre-registered definition).
+    // Builds a captureAll definition for the requested domains and starts it on the
+    // shared session. This is the single trace-control entry the three gates use
+    // (UI button, runtime_trace_start MCP tool, Monitor `trace` command). The
+    // default session is built producers-on (746.1) so iec/drive/memory have data.
+    this.on("trace/start_domains", async ({ session_id, domains, output }) => {
+      const c = ctrlFor(session_id);
+      if (c.traceRun.isActive()) throw new Error(`trace already active on session ${session_id} — stop it first (trace/run/stop).`);
+      const { captureAllDef } = await import("../server-tools/runtime-trace-sink.js");
+      const doms = (Array.isArray(domains) && domains.length ? domains : ["c64-cpu", "memory"]) as never;
+      const def = captureAllDef(doms);
+      const outputPath = resolveSnapshotPath(
+        output ? String(output) : `traces/live_${Date.now().toString(36)}.duckdb`,
+      );
+      const run = await c.traceRun.start(def, { controller: c, outputPath });
+      return { run, outputPath, domains: doms };
+    });
     this.on("trace/run/stop", async ({ session_id }) => ({ run: await ctrlFor(session_id).traceRun.stop() }));
     this.on("trace/run/status", ({ session_id }) => ctrlFor(session_id).traceRun.status());
     this.on("trace/run/mark", ({ session_id, label }) => {
