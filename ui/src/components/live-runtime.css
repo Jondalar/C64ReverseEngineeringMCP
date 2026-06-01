@@ -572,6 +572,7 @@
 .wb-live .wb-controls button:hover:not(:disabled) { border-color: var(--c64-blue-bright); }
 .wb-live .wb-controls button:disabled { opacity: 0.4; cursor: not-allowed; }
 .wb-live .wb-controls button.wb-audio-on { border-color: var(--c64-green); color: var(--c64-green); }
+.wb-live .wb-controls button.wb-trace-on { border-color: #e0506a; color: #e0506a; }
 .wb-live .wb-controls-spacer { flex: 1; }
 .wb-live .wb-fps { color: var(--c64-fg-muted); font-size: 11px; }
 .wb-live-grid {

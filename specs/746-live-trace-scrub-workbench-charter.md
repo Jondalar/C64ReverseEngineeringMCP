@@ -159,22 +159,32 @@ each ships with a gate. Decisions the user must still make are flagged **[OQ]**.
   pinned/dumped are durable). **[OQ2]**: keep `.c64retrace` after finalize (it's the
   authority; DuckDB rebuildable from it) or discard once indexed? Recommendation:
   KEEP the `.c64retrace` (it's the truth; DuckDB is a cache).
-- **746.7 — Scenario ↔ checkpoint bridge.** Promote a pinned checkpoint + the
-  recorded input/media/intervention events into a durable `Scenario` (712.4 path),
-  so the spec-driven experiment loop can re-run it. Wire `runtime_promote_branch`
-  end-to-end on the shared session.
+- **746.7 — DEFERRED (feature, not wiring).** Scenario ↔ checkpoint bridge. AUDIT
+  (2026-06-01): `runtime_promote_branch` exists + is daemon-routed, BUT it promotes
+  from the `RewindManager`'s OWN snapshot map (`v2/rewind.ts`), which is a SEPARATE
+  world from the live `checkpointRing` (`kernel/runtime-checkpoint-ring.ts`). Promoting
+  a LIVE ring checkpoint → Scenario needs the RewindManager married to the ring
+  (record input/media/intervention events between ring keyframes, build a branch from a
+  ring checkpoint — 712 §5.2-5.4). That is real feature work, not the "make-usable"
+  wiring this charter front-loads. Deferred to a dedicated 712-follow-up slice.
 
 ### 4.4 Semantic layer (findings, not just rows)
-- **746.8 — bridge trace evidence → knowledge.** A trace query / swimlane window the
-  LLM judges meaningful becomes a `save_finding` with the trace anchor (runId +
-  cycle range + marks) as evidence, queryable via `project_search`. DuckDB answers
-  "where was $D020 written"; the knowledge layer answers "what this routine does".
-  Keep them distinct; this slice is the link.
+- **746.8 — DEFERRED (partly already possible).** Bridge trace evidence → knowledge.
+  AUDIT (2026-06-01): `save_finding` already accepts `addressRange` + `evidence`, so the
+  LLM can TODAY save a finding citing a trace anchor (runId + cycle range + marks) as
+  free-text/range evidence. A dedicated structured trace-evidence type (auto-link a
+  swimlane window → finding, queryable join) is a knowledge-layer FEATURE, not wiring.
+  Deferred; the manual path works now.
 
 ### 4.5 UI (the human can drive it)
-- **746.9 — Live-tab trace control**: start/stop/mark buttons + domain pickers +
-  active-trace status (runId, events, marks, store path) on the Live tab. The human
-  toggles tracing on the running session.
+- **746.9 — DONE (2026-06-01).** Live-tab trace control: a "⏺ Trace" toggle in the
+  MachineControls bar (next to Snapshot/Warp/Audio) starts/stops a full-domain trace
+  (cpu+drive+iec+memory) on the shared session via `trace/start_domains` / `trace/run/
+  stop`; reflects backend trace state on mount (`trace/run/status`); red active style
+  (`wb-trace-on`) + store-path tooltip. This is the UI gate of OQ1's three-gate control
+  (UI ✓ + API `runtime_trace_start` ✓; Monitor command = 746.9b). REMAINING in 746.9b:
+  domain pickers + a richer status readout (events/marks live) + a Monitor `trace`
+  command. ui:build clean; button + `trace/start_domains` verified in the bundle.
 - **746.10 — Swimlane viewer**: render `runtime_swimlane_slice` (C64 + 1541 lanes
   = the user's fields) as a scrollable offline-stepping view, cycle-scrubbed,
   PC-clickable → jump to disasm (static↔runtime glue via `resolve_pc`).

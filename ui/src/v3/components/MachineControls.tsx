@@ -74,6 +74,36 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
     onSnapshotTaken();
   };
 
+  // Spec 746.9 — Trace AN/AUS, the third control gate (UI + API + Monitor). Starts/
+  // stops a streaming trace on the SHARED session (full domains: cpu + drive + iec +
+  // memory). The default session is built producers-on (746.1), so a mid-session
+  // start captures everything; the store path is daemon-resolved under runtime/<sess>/.
+  const [tracing, setTracing] = useState(false);
+  const [traceStore, setTraceStore] = useState<string>("");
+  useEffect(() => {
+    // reflect actual backend trace state on mount / session change.
+    if (!sessionId) return;
+    let alive = true;
+    c.call<{ active?: boolean; outputPath?: string }>("trace/run/status", { session_id: sessionId })
+      .then((s) => { if (alive) { setTracing(!!s?.active); if (s?.outputPath) setTraceStore(s.outputPath); } })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [sessionId]);
+  const toggleTrace = async () => {
+    if (!sessionId) return;
+    try {
+      if (tracing) {
+        const r = await c.call<{ run?: { evidenceRef?: string } }>("trace/run/stop", { session_id: sessionId });
+        setTracing(false);
+        if (r?.run?.evidenceRef) setTraceStore(r.run.evidenceRef);
+      } else {
+        const r = await c.call<{ outputPath?: string }>("trace/start_domains", { session_id: sessionId, domains: ["c64-cpu", "drive8-cpu", "iec", "memory"] });
+        setTracing(true);
+        if (r?.outputPath) setTraceStore(r.outputPath);
+      }
+    } catch (e) { console.error("trace toggle:", e); }
+  };
+
   // Spec 703 §8 — live SID audio, ON by default. Browsers gate the
   // AudioContext behind a user gesture, so we ARM on mount (subscribe + start
   // the backend pump + create a suspended context) and resume on the first
@@ -157,6 +187,12 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
       </button>
       <button onClick={step} disabled={runState !== "paused"} title="Step one instruction">⤳ Step</button>
       <button onClick={snapshot} title="Save snapshot">📷 Snapshot</button>
+      <button
+        onClick={toggleTrace}
+        disabled={runState === "off"}
+        className={tracing ? "wb-trace-on" : ""}
+        title={tracing ? `Stop trace${traceStore ? " → " + traceStore : ""}` : "Start trace (cpu+drive+iec+memory) on the live session"}
+      >{tracing ? "⏺ Trace ●" : "⏺ Trace"}</button>
       <button
         onClick={toggleWarp}
         disabled={runState === "off"}
