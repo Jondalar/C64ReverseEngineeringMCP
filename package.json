@@ -218,7 +218,8 @@
     "e2e:744-4c-race": "npm run build:mcp && node scripts/e2e-744-4c-race.mjs",
     "e2e:744-4c-slice2a": "npm run build:mcp && node scripts/e2e-744-4c-slice2a.mjs",
     "e2e:744-4c-slice2b": "npm run build:mcp && node scripts/e2e-744-4c-slice2b.mjs",
-    "e2e:744-4c-slice2c": "npm run build:mcp && node scripts/e2e-744-4c-slice2c.mjs"
+    "e2e:744-4c-slice2c": "npm run build:mcp && node scripts/e2e-744-4c-slice2c.mjs",
+    "e2e:bug028": "npm run build:mcp && node scripts/e2e-bug028-input-drive.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

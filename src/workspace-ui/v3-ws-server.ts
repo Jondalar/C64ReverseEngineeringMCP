@@ -624,6 +624,26 @@ export class V3WsServer {
       return { tally, regions, cycles: cyc, classes: wantClasses, minBytes: minB };
     });
 
+    // BUG-028 — runtime/mark: stamp a phase marker into the shared session's active
+    // trace. (The MCP runtime_mark had a daemon wrapper pointing here but the handler
+    // did not exist → dead route; now real.)
+    this.on("runtime/mark", ({ session_id, label }) => {
+      const ctrl = getRuntimeController(session_id);
+      if (!ctrl?.traceRun.isActive()) throw new Error(`No active trace on session ${session_id} (start one with runtime_session_start trace_out=...).`);
+      ctrl.traceRun.mark(String(label ?? ""));
+      const st = ctrl.traceRun.status();
+      return { runId: st.runId, eventCount: st.eventCount, marks: st.marks, label };
+    });
+
+    // BUG-028 — session/load_prg: inject a PRG into the SHARED session's RAM. The
+    // path is abs-resolved on the MCP (caller) side; the daemon (localhost) reads it.
+    this.on("session/load_prg", ({ session_id, prg_path, load_address }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      const r = s.loadPrgIntoRam(String(prg_path), load_address !== undefined ? Number(load_address) : undefined);
+      return { loadAddress: r.loadAddress, endAddress: r.endAddress, bytesLoaded: r.bytesLoaded, path: prg_path };
+    });
+
     // vic/inspect/at_capture — frozen-pixel provenance. Captures + pins a checkpoint
     // if none given (the in-process tool's behaviour), then resolves the node.
     this.on("vic/inspect/at_capture", async ({ session_id, x, y, checkpoint_id }) => {

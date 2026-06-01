@@ -258,6 +258,20 @@ class RuntimeDaemonClient {
   vicInspectAt<T = unknown>(sessionId: string, x: number, y: number, checkpointId?: string) {
     return this.call<T>("vic/inspect/at_capture", { session_id: sessionId, x, y, checkpoint_id: checkpointId });
   }
+
+  // -- BUG-028 — INPUT/DRIVE on the SHARED daemon session. Read tools (status/
+  //    render) were daemon-routed but these write/drive tools were not, so the LLM
+  //    could see the human's session but not type/joystick/mark/load into it. --
+  typeText<T = unknown>(sessionId: string, text: string, holdCycles?: number, gapCycles?: number) {
+    return this.call<T>("session/type", { session_id: sessionId, text, hold_cycles: holdCycles, gap_cycles: gapCycles });
+  }
+  joystickSet<T = unknown>(sessionId: string, port: number, state: { up?: boolean; down?: boolean; left?: boolean; right?: boolean; fire?: boolean }) {
+    return this.call<T>("session/joystick_set", { session_id: sessionId, port, ...state });
+  }
+  // (mark() already exists above — runtime/mark — reused by runtime_mark.)
+  loadPrg<T = unknown>(sessionId: string, prgPath: string, loadAddress?: number) {
+    return this.call<T>("session/load_prg", { session_id: sessionId, prg_path: prgPath, load_address: loadAddress });
+  }
 }
 
 /** Singleton client (one connection per MCP process). */

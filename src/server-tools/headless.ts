@@ -402,6 +402,12 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       label: z.string().describe("Phase label, e.g. boot-complete / title / scene-1."),
     },
     safeHandler("runtime_mark", async ({ session_id, label }) => {
+      // BUG-028 — mark the SHARED daemon session's active trace.
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const s = await runtimeDaemon.mark(session_id, label) as { runId: string; eventCount: number; marks: number };
+        return { content: [{ type: "text" as const, text: `Marked "${label}" — run ${s.runId}, ${s.eventCount} events, ${s.marks} marks.` }] };
+      }
       const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
       const ctrl = getRuntimeController(session_id);
       if (!ctrl?.traceRun.isActive()) throw new Error(`No active trace on session ${session_id} (start one with runtime_session_start trace_out=...).`);
@@ -540,10 +546,27 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       load_address: z.string().optional().describe("Override load address (hex). Default = PRG header."),
     },
     safeHandler("runtime_load_prg", async ({ session_id, prg_path, load_address }) => {
+      const addr = load_address ? parseHexWord(load_address) : undefined;
+      // BUG-028 — inject into the SHARED daemon session. The path is resolved
+      // absolute against the MCP's project (the project-agnostic daemon, localhost,
+      // reads the caller's file — same rule as session_start's disk_path).
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+        const absPrg = resolve(mcpProject ?? process.cwd(), prg_path);
+        const r = await runtimeDaemon.loadPrg<{ loadAddress: number; endAddress: number; bytesLoaded: number }>(session_id, absPrg, addr);
+        return { content: [{ type: "text" as const, text: [
+          `PRG loaded into RAM (Runtime Daemon).`,
+          `Path: ${absPrg}`,
+          `Load address: ${formatHexWord(r.loadAddress)}`,
+          `End address: ${formatHexWord(r.endAddress)}`,
+          `Bytes: ${r.bytesLoaded}`,
+        ].join("\n") }] };
+      }
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
-      const result = session.loadPrgIntoRam(prg_path, load_address ? parseHexWord(load_address) : undefined);
+      const result = session.loadPrgIntoRam(prg_path, addr);
       return {
         content: [{
           type: "text" as const,
@@ -570,10 +593,21 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       gap_cycles: z.number().int().min(0).max(2_000_000).optional(),
     },
     safeHandler("runtime_type", async ({ session_id, text, hold_cycles, gap_cycles }) => {
+      const decoded = text.replace(/\\r/g, "\r").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+      // BUG-028 — type into the SHARED daemon session (the machine the human drives),
+      // not a private in-process session. Read tools were routed; this write tool
+      // was not, so the LLM could see but not type. Now uniform.
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        await runtimeDaemon.typeText(session_id, decoded, hold_cycles ?? 33000, gap_cycles ?? 33000);
+        return { content: [{ type: "text" as const, text: [
+          `Queued ${decoded.length} chars on session ${session_id} (Runtime Daemon).`,
+          `Hold cycles: ${hold_cycles ?? 33000}  Gap cycles: ${gap_cycles ?? 33000}`,
+        ].join("\n") }] };
+      }
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
-      const decoded = text.replace(/\\r/g, "\r").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
       session.typeText(decoded, hold_cycles ?? 33000, gap_cycles ?? 33000);
       return {
         content: [{
@@ -602,6 +636,15 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       fire: z.boolean().optional(),
     },
     safeHandler("runtime_joystick", async ({ session_id, up, down, left, right, fire }) => {
+      // BUG-028 — joystick on the SHARED daemon session.
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        await runtimeDaemon.joystickSet(session_id, 2, { up, down, left, right, fire });
+        return { content: [{ type: "text" as const, text: [
+          `Joystick port 2 — session ${session_id} (Runtime Daemon)`,
+          `up=${!!up} down=${!!down} left=${!!left} right=${!!right} fire=${!!fire}`,
+        ].join("\n") }] };
+      }
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
