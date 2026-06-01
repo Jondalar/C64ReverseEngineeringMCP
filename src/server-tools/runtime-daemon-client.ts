@@ -292,6 +292,25 @@ class RuntimeDaemonClient {
   traceRead<T = unknown>(op: string, duckdbPath: string, args: Record<string, unknown>) {
     return this.call<T>("trace/read", { op, duckdb_path: duckdbPath, args });
   }
+
+  // -- Spec 746.4 — checkpoint ring (scrub/rewind) on the SHARED daemon session.
+  //    The ring auto-captures every 25 frames while running; these let the LLM
+  //    list/capture/pin/restore the same keyframes the human scrubs. --
+  checkpointList<T = unknown>(sessionId: string) {
+    return this.call<T>("checkpoint/list", { session_id: sessionId });
+  }
+  checkpointCapture<T = unknown>(sessionId: string) {
+    return this.call<T>("checkpoint/capture", { session_id: sessionId });
+  }
+  checkpointPin<T = unknown>(sessionId: string, id: string) {
+    return this.call<T>("checkpoint/pin", { session_id: sessionId, id });
+  }
+  checkpointUnpin<T = unknown>(sessionId: string, id: string) {
+    return this.call<T>("checkpoint/unpin", { session_id: sessionId, id });
+  }
+  checkpointRestore<T = unknown>(sessionId: string, id: string) {
+    return this.call<T>("checkpoint/restore", { session_id: sessionId, id });
+  }
 }
 
 /** Singleton client (one connection per MCP process). */

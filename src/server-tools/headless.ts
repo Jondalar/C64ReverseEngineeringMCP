@@ -868,6 +868,85 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
 ));
 
+  // Spec 746.4 — checkpoint ring (scrub / rewind) on the SHARED session. The ring
+  // auto-captures a full RuntimeCheckpoint every 25 frames while the session runs
+  // (128 MiB bytes-budget, evict-oldest, pinned-exempt). These tools let the LLM
+  // list/capture/pin/restore the SAME keyframes the human scrubs in the UI — the
+  // basis for "rewind to interesting state, pin as evidence, branch". All route to
+  // the daemon (the ring lives there); in-process is the test fallback.
+  const cpInProc = async (session_id: string) => {
+    const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+    const session = getIntegratedSession(session_id);
+    if (!session) throw new Error(`No integrated session ${session_id}`);
+    const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+    return ensureRuntimeController(session_id, session, () => {});
+  };
+
+  server.tool(
+    "runtime_checkpoint_list",
+    "List the session's checkpoint-ring keyframes (id, frame, cycles, pinned) + ring stats (count, bytes, budget). The ring auto-captures a full machine snapshot every ~0.5s while the session runs, for rewind/scrub. Use to see what points you can restore to. Not for the trace timeline (use trace_store_*). Inputs: session_id. Returns: checkpoint refs + stats.",
+    { session_id: z.string() },
+    safeHandler("runtime_checkpoint_list", async ({ session_id }) => {
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      let r: unknown;
+      if (isDaemonMode()) r = await runtimeDaemon.checkpointList(session_id);
+      else { const c = await cpInProc(session_id); r = { checkpoints: c.checkpointRing.list(), stats: c.checkpointRing.stats() }; }
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    },
+));
+
+  server.tool(
+    "runtime_checkpoint_capture",
+    "Capture a checkpoint NOW (a full restorable snapshot of the shared session at the current instruction boundary) and add it to the ring. Use to mark an interesting live moment before it scrolls out of the auto-capture window. Not for a durable file (use runtime_session_snapshot). Inputs: session_id. Returns: the new checkpoint ref + ring stats.",
+    { session_id: z.string() },
+    safeHandler("runtime_checkpoint_capture", async ({ session_id }) => {
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const r = isDaemonMode()
+        ? await runtimeDaemon.checkpointCapture(session_id)
+        : await (async () => { const c = await cpInProc(session_id); const ref = await c.captureCheckpoint(); return { ref, stats: c.checkpointRing.stats() }; })();
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    },
+));
+
+  server.tool(
+    "runtime_checkpoint_pin",
+    "Pin a checkpoint so the ring never evicts it (the durability primitive — pinned keyframes survive past the ~2.6 min window). Use to retain an interesting state as evidence / a branch base. Not for a file dump (use runtime_session_snapshot). Inputs: session_id, checkpoint id. Returns: ref + stats.",
+    { session_id: z.string(), id: z.string() },
+    safeHandler("runtime_checkpoint_pin", async ({ session_id, id }) => {
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const r = isDaemonMode()
+        ? await runtimeDaemon.checkpointPin(session_id, id)
+        : await (async () => { const c = await cpInProc(session_id); const ref = c.checkpointRing.pin(id); if (!ref) throw new Error(`unknown checkpoint ${id}`); return { ref, stats: c.checkpointRing.stats() }; })();
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    },
+));
+
+  server.tool(
+    "runtime_checkpoint_unpin",
+    "Unpin a checkpoint (let the ring reclaim it under the byte budget again). Use to release a retained state you no longer need. Inputs: session_id, checkpoint id. Returns: ref + stats.",
+    { session_id: z.string(), id: z.string() },
+    safeHandler("runtime_checkpoint_unpin", async ({ session_id, id }) => {
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const r = isDaemonMode()
+        ? await runtimeDaemon.checkpointUnpin(session_id, id)
+        : await (async () => { const c = await cpInProc(session_id); const ref = c.checkpointRing.unpin(id); if (!ref) throw new Error(`unknown checkpoint ${id}`); return { ref, stats: c.checkpointRing.stats() }; })();
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    },
+));
+
+  server.tool(
+    "runtime_checkpoint_restore",
+    "Restore the shared session to a checkpoint (REWIND/scrub): the machine jumps back to that full keyframe state and pauses. The human watching the UI sees the same jump (one shared session). Use to rewind to an interesting moment. Not for forward replay of recorded events (that's the branch/scenario path). Inputs: session_id, checkpoint id. Returns: restored ref + new machine state.",
+    { session_id: z.string(), id: z.string() },
+    safeHandler("runtime_checkpoint_restore", async ({ session_id, id }) => {
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const r = isDaemonMode()
+        ? await runtimeDaemon.checkpointRestore(session_id, id)
+        : await (async () => { const c = await cpInProc(session_id); const restored = await c.restoreCheckpoint(id); return { restored, state: c.state() }; })();
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    },
+));
+
   server.tool(
     "runtime_drive_session_save_vsf",
     "Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",

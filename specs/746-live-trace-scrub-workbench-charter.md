@@ -127,8 +127,13 @@ each ships with a gate. Decisions the user must still make are flagged **[OQ]**.
   through the daemon too; fold into 746.5).
 
 ### 4.2 Checkpoint / scrub tools (LLM can rewind)
-- **746.4 — MCP checkpoint tools**: `runtime_checkpoint_list/capture/restore/pin/
-  unpin` → the existing WS RPCs. Closes G4. Lets the LLM scrub + pin evidence.
+- **746.4 — DONE (2026-06-01).** MCP checkpoint tools `runtime_checkpoint_list/
+  capture/pin/unpin/restore` → the existing WS `checkpoint/*` RPCs (daemon-routed;
+  in-process fallback via `ensureRuntimeController`). Closes G4 — the LLM can now
+  scrub/rewind + pin evidence on the SAME ring the human scrubs. Gate
+  `npm run e2e:746-checkpoint` (9/9): list/capture/pin → restore REWINDS the shared
+  session (cycles 2.0M→1.0M, the UI sees the same jump) → unpin; a SECOND MCP sees
+  the same ring.
 - **746.5 — DONE (2026-06-01, with BUG-029).** All trace-store READERS route to the
   daemon when one is live (the only process that can open a store the daemon holds a
   cross-process lock on): new WS `trace/read` op-dispatch (swimlane/query_events/
