@@ -231,6 +231,33 @@ class RuntimeDaemonClient {
   }) {
     return this.call<T>("media/ingress", { session_id: sessionId, ...req });
   }
+
+  // -- Spec 744.4c slice 2c — rewind/branch on the SHARED daemon session --
+  snapshotTree<T = unknown>(sessionId: string) {
+    return this.call<T>("runtime/snapshot_tree", { session_id: sessionId });
+  }
+  promoteBranch<T = unknown>(sessionId: string, branchId: string) {
+    return this.call<T>("runtime/promote_branch", { session_id: sessionId, branch_id: branchId });
+  }
+  // -- Spec 744.4c slice 2c — persist + VSF + memory-access-map + vic-inspect on
+  //    the SHARED daemon session. Paths are abs-resolved on the MCP side; the
+  //    daemon (localhost) reads/writes them → write-through to the caller's file
+  //    is preserved (Spec 742). --
+  mediaPersist<T = unknown>(sessionId: string, slot: number) {
+    return this.call<T>("media/persist", { session_id: sessionId, slot });
+  }
+  vsfSave<T = unknown>(sessionId: string, outputPath: string) {
+    return this.call<T>("vsf/save", { session_id: sessionId, output_path: outputPath });
+  }
+  vsfLoad<T = unknown>(sessionId: string, inputPath: string) {
+    return this.call<T>("vsf/load", { session_id: sessionId, input_path: inputPath });
+  }
+  memoryAccessMap<T = unknown>(sessionId: string, cycles: number, classes: string[], minBytes: number) {
+    return this.call<T>("debug/memory_access_map", { session_id: sessionId, cycles, classes, min_bytes: minBytes });
+  }
+  vicInspectAt<T = unknown>(sessionId: string, x: number, y: number, checkpointId?: string) {
+    return this.call<T>("vic/inspect/at_capture", { session_id: sessionId, x, y, checkpoint_id: checkpointId });
+  }
 }
 
 /** Singleton client (one connection per MCP process). */

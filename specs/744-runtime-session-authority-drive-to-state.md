@@ -958,19 +958,38 @@ media-event history; a SECOND MCP shares the session; swap+unmount route; the hi
 autostart 5/5 + race 11/11 + smoke-media 10/10 + probe-709-media 22/22. `media_persist` NOT routed
 (no `media/persist` V3 method; left in-process — Slice 2c).
 
-**Slice 2c (pending) — each remaining tool is bespoke, NOT a clean bridge route** (verified
-against the real `createAgentQueryApi` surface in `v2/agent-api.ts`):
-- `runtime_status` → routable via api/call (`status()` reads session).
-- `runtime_resolve_pc` → `resolvePc(artifactId,pc)` is ARTIFACT-STATIC (doesn't read the session)
-  → routing pointless; leave in-proc.
-- `runtime_save_vsf`/`load_vsf` → `saveVsf()`/`loadVsf(bytes)` use BINARY Uint8Array return/arg;
-  api/call normalizes RETURN TypedArrays but a Uint8Array ARG becomes an index-object over
-  JSON-RPC — needs a dedicated daemon method (take the abs-resolved path, read/write daemon-side).
-- `runtime_memory_access_map`, `runtime_vic_inspect_at` → bespoke (`MemoryAccessTracker`,
-  checkpoint ring); each needs its own daemon method (vic has `vic/inspect/at`).
-- `runtime_media_persist` → add a `media/persist` V3 method (writes the mounted disk's RAM image
-  back to its backing file), then route like 2b.
+**Slice 2c (DONE) — the remaining 9 session-attached tools route to the shared daemon.** Each
+followed the SAME line (one underlying authority; the client brings its context), but the right
+authority differs per tool — three flavours:
+- **api/call (allowlist extend):** `runtime_status` (`status()`), `runtime_until` (`until()`).
+- **existing daemon method:** `runtime_snapshot_tree` → `runtime/snapshot_tree`,
+  `runtime_promote_branch` → `runtime/promote_branch`. (Bonus: the in-process `getApi` path for
+  these was BROKEN — `beginRewindSession` needs scenarioId+diskPath+mode that `createAgentQueryApi({session})`
+  never set, so it threw. Routing makes them WORK. Also fixed a latent bug in the daemon's own
+  rewind methods: they passed `diskPath: ""` which `beginRewindSession` rejects → now
+  `session.diskPath || session_id`.)
+- **new daemon method (file IO / bespoke helper runs daemon-side):**
+  - `media/persist` — `persistMountedDiskToFile`. **WRITE-THROUGH PRESERVED (Spec 742):** the
+    backing path was set absolute at mount time, so the daemon (localhost) writes the CALLER's
+    `.d64/.g64`. Gate test 4b asserts `pr.path === <caller abs path>`.
+  - `vsf/save` + `vsf/load` — the BYTES NEVER CROSS THE WIRE. The MCP resolves the path absolute
+    (caller project) and the daemon owns the file IO (`saveSessionVsf`/`loadSessionVsf`),
+    sidestepping the Uint8Array-arg JSON-RPC problem. Gate test 5 asserts the file really appears
+    on disk in the caller's project.
+  - `debug/memory_access_map` — `MemoryAccessTracker` over a run window (formatting stays MCP-side
+    so output is byte-identical).
+  - `vic/inspect/at_capture` — captures+pins a checkpoint on the SHARED ring if none given (the
+    in-process tool's behaviour), then resolves the pixel node.
+Gate `npm run e2e:744-4c-slice2c` (13/13): status/until/persist/save_vsf/load_vsf/memory_access_map/
+vic_inspect_at/snapshot_tree all route to the shared session; until advances it (UI sees cycles);
+**media_persist write-through targets the caller's host file**; **save_vsf writes a real file into
+the caller's project**; no private session leaks. Regression: slice2a 9/9 + slice2b 10/10 + daemon
+10/10 + autostart 5/5 + race 11/11 + smoke-media 10/10 + probe-709-media 22/22.
+
 **KEEP-INPROC** (never route — own ephemeral sessions / no live-session state / trace-backend the
-daemon api lacks): scenario_*, run_scenario(s), batch_*, regression_*, export_*, profile_loader,
-input_*, and the AgentQueryApi trace-backend methods (queryEvents/followPath/swimlane/taint/
-bookmarks — they THROW without a backend, which the daemon's api has none of).
+daemon api lacks; `resolve_pc` is artifact-static): scenario_*, run_scenario(s), batch_*,
+regression_*, export_*, profile_loader, input_*, resolve_pc, media_browse/list_paths,
+diff_snapshots, scan_fingerprints, and the AgentQueryApi trace-backend methods (queryEvents/
+followPath/swimlane/taint/bookmarks — they THROW without a backend, which the daemon's api has none
+of). These are correct to leave in-process; a future slice could add a daemon trace-backend if the
+LLM needs live trace queries against the shared session.

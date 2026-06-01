@@ -177,6 +177,8 @@ export class V3WsServer {
     "monitorRegisters", "monitorMemory", "monitorDisasm",
     "stepInto", "stepOver",
     "addPcBreakpoint", "listBreakpoints", "removeBreakpoint",
+    // Spec 744.4c slice 2c — session-attached run/introspection.
+    "until", "status",
   ]);
   // Spec 703 §8 — per-session audio. reSID PCM is rendered on the backend in
   // the RuntimeController's per-frame hook (the SAME loop + cadence that pushes
@@ -561,6 +563,87 @@ export class V3WsServer {
       // Normalize TypedArrays (e.g. monitorMemory → Uint8Array) to plain arrays so
       // JSON-RPC round-trips them as arrays, not index-keyed objects.
       return normalizeForJson(result);
+    });
+
+    // Spec 744.4c slice 2c — bespoke session-attached ops that do NOT fit the
+    // generic api/call bridge (own helpers / file IO / checkpoint ring). Each runs
+    // the SAME logic the in-process MCP tool ran, now against the SHARED session.
+
+    // media/persist — write the mounted disk's RAM image back to its host file
+    // WITHOUT ejecting. CRITICAL: write-through (Spec 742) is preserved — the
+    // backingPath threaded at mount time IS the caller's abs path (localhost), so
+    // persisting daemon-side writes the caller's .d64/.g64.
+    this.on("media/persist", async ({ session_id, slot }) => {
+      const n = slot !== undefined ? Number(slot) : 8;
+      if (n === 9) throw new Error("media/persist: drive 9 not supported (v1 drive8-only)");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`no session ${session_id}`);
+      const { persistMountedDiskToFile } = await import("../runtime/headless/media/mount.js");
+      return persistMountedDiskToFile(session);
+    });
+
+    // vsf/save + vsf/load — full session snapshot to/from a host path. The path is
+    // abs-resolved on the MCP side (caller project); the daemon (localhost) reads/
+    // writes that same file. Bytes never cross the wire (avoids the Uint8Array-arg
+    // JSON-RPC problem) — the daemon owns the file IO.
+    this.on("vsf/save", async ({ session_id, output_path }) => {
+      if (typeof output_path !== "string" || !output_path) throw new Error("vsf/save: output_path required");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`no session ${session_id}`);
+      const { saveSessionVsf } = await import("../runtime/headless/vsf/session-vsf.js");
+      saveSessionVsf(session, output_path);
+      const { statSync } = await import("node:fs");
+      return { savedPath: output_path, bytes: statSync(output_path).size };
+    });
+    this.on("vsf/load", async ({ session_id, input_path }) => {
+      if (typeof input_path !== "string" || !input_path) throw new Error("vsf/load: input_path required");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`no session ${session_id}`);
+      const { loadSessionVsf } = await import("../runtime/headless/vsf/session-vsf.js");
+      const { statSync } = await import("node:fs");
+      const bytes = statSync(input_path).size;
+      loadSessionVsf(session, input_path);
+      return { loadedPath: input_path, bytes };
+    });
+
+    // debug/memory_access_map — per-region read/write liveness over a run window.
+    this.on("debug/memory_access_map", async ({ session_id, cycles, classes, min_bytes }) => {
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`no session ${session_id}`);
+      const cyc = Number(cycles) || 2_000_000;
+      const wantClasses: string[] = Array.isArray(classes) ? classes : ["dead", "unused"];
+      const minB = Number(min_bytes) || 256;
+      const { MemoryAccessTracker } = await import("../runtime/headless/debug/memory-access-map.js");
+      const t = new MemoryAccessTracker(session.c64Bus);
+      t.attach();
+      session.runFor(cyc, { cycleBudget: cyc });
+      const map = t.finish();
+      const want = new Set(wantClasses);
+      const tally = map.regions.reduce((a: Record<string, number>, r) => { a[r.cls] = (a[r.cls] || 0) + 1; return a; }, {});
+      const regions = map.regions.filter((r) => want.has(r.cls) && (r.end - r.start + 1) >= minB);
+      return { tally, regions, cycles: cyc, classes: wantClasses, minBytes: minB };
+    });
+
+    // vic/inspect/at_capture — frozen-pixel provenance. Captures + pins a checkpoint
+    // if none given (the in-process tool's behaviour), then resolves the node.
+    this.on("vic/inspect/at_capture", async ({ session_id, x, y, checkpoint_id }) => {
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`no session ${session_id}`);
+      const { buildVicInspectSnapshot, resolveNodeAt } = await import("../runtime/headless/inspect/vic-inspect.js");
+      const ctrl = ctrlFor(session_id);
+      let id = checkpoint_id ? String(checkpoint_id) : undefined;
+      if (!id) {
+        if (ctrl.runState === "running") ctrl.pause();
+        const ref = await ctrl.captureCheckpoint();
+        ctrl.checkpointRing.pin(ref.id);
+        id = ref.id;
+      }
+      const cp = ctrl.checkpointRing.restoreSnapshot(String(id))?.payload as any;
+      if (!cp || !cp.vic || !cp.ram) throw new Error(`vic/inspect/at_capture: unknown checkpoint ${id}`);
+      const frame = buildVicInspectSnapshot(cp);
+      const provenance = cp.vicProvenance ?? undefined;
+      const node = resolveNodeAt(cp, (Number(x) || 0) | 0, (Number(y) || 0) | 0, provenance);
+      return { checkpointId: id, frame, node, hasProvenance: !!provenance };
     });
 
     // Render current frame as PNG → return base64 data URL.
@@ -1346,7 +1429,7 @@ export class V3WsServer {
       // Spec 723.2: the product path is true-drive; never bake a fast-trap
       // scenario into a promoted branch. (ScenarioMode has no debug modes;
       // the live session is true-drive.)
-      const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: "", mode: "true-drive" });
+      const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: session.diskPath || session_id, mode: "true-drive" });
       const rm = api.beginRewindSession();
       const handle = rm.handle();
       const branches: Record<string, any> = {};
@@ -1366,7 +1449,7 @@ export class V3WsServer {
       // Spec 723.2: the product path is true-drive; never bake a fast-trap
       // scenario into a promoted branch. (ScenarioMode has no debug modes;
       // the live session is true-drive.)
-      const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: "", mode: "true-drive" });
+      const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: session.diskPath || session_id, mode: "true-drive" });
       const rm = api.beginRewindSession();
       return rm.promoteBranch(branch_id);
     });

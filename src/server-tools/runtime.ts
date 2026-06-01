@@ -144,6 +144,19 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       min_bytes: z.number().default(256).describe("minimum region size to report"),
     },
     safeHandler("runtime_memory_access_map", async ({ session_id, cycles, classes, min_bytes }) => {
+      const hx = (n: number) => "$" + (n & 0xffff).toString(16).padStart(4, "0");
+      const renderMap = (tally: Record<string, number>, regions: Array<{ start: number; end: number; cls: string; reads: number; writes: number }>) => {
+        const rows = regions.map(r => `  ${hx(r.start)}-${hx(r.end)}  ${r.cls.padEnd(9)} r=${r.reads} w=${r.writes}`);
+        const text = `memory-access map over ${cycles} cyc — regions by class: ${JSON.stringify(tally)}\n` +
+          `${classes.join("/")} regions ≥${min_bytes}B:\n${rows.join("\n") || "  (none)"}`;
+        return { content: [{ type: "text" as const, text }], structuredContent: { tally, regions } };
+      };
+      // Spec 744.4c slice 2c — run the liveness window on the SHARED session.
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const r = await runtimeDaemon.memoryAccessMap<{ tally: Record<string, number>; regions: any[] }>(session_id, cycles, classes, min_bytes);
+        return renderMap(r.tally, r.regions);
+      }
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
@@ -153,14 +166,9 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       session.runFor(cycles, { cycleBudget: cycles });
       const map = t.finish();
       const want = new Set(classes);
-      const hx = (n: number) => "$" + (n & 0xffff).toString(16).padStart(4, "0");
-      const rows = map.regions
-        .filter(r => want.has(r.cls) && (r.end - r.start + 1) >= min_bytes)
-        .map(r => `  ${hx(r.start)}-${hx(r.end)}  ${r.cls.padEnd(9)} r=${r.reads} w=${r.writes}`);
       const tally = map.regions.reduce((a, r) => { a[r.cls] = (a[r.cls] || 0) + 1; return a; }, {} as Record<string, number>);
-      const text = `memory-access map over ${cycles} cyc — regions by class: ${JSON.stringify(tally)}\n` +
-        `${classes.join("/")} regions ≥${min_bytes}B:\n${rows.join("\n") || "  (none)"}`;
-      return { content: [{ type: "text", text }], structuredContent: { tally, regions: map.regions.filter(r => want.has(r.cls) && (r.end - r.start + 1) >= min_bytes) } };
+      const regions = map.regions.filter(r => want.has(r.cls) && (r.end - r.start + 1) >= min_bytes);
+      return renderMap(tally, regions);
     }),
   );
 
@@ -211,8 +219,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       budget: z.number().optional(),
     },
     safeHandler("runtime_until", async ({ session_id, addr, budget }) => {
-      const api = await getApi(session_id);
-      const r = api.until(addr, budget !== undefined ? { budget } : undefined);
+      const r = await callApi(session_id, "until", addr, budget !== undefined ? { budget } : undefined);
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     }),
   );
@@ -262,11 +269,20 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       output_path: z.string(),
     },
     safeHandler("runtime_save_vsf", async ({ session_id, output_path }) => {
+      // Spec 744.4c slice 2c — snapshot the shared session to a host VSF file. The
+      // path is resolved absolute against the caller's project; the daemon
+      // (localhost) writes that same file — bytes never cross the wire.
+      const abs = resolveCallerMediaPath(output_path);
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const r = await runtimeDaemon.vsfSave<{ savedPath: string; bytes: number }>(session_id, abs);
+        return { content: [{ type: "text", text: `saved ${r.bytes} bytes to ${r.savedPath}` }] };
+      }
       const api = await getApi(session_id);
       const bytes = api.saveVsf();
       const { writeFileSync } = await import("node:fs");
-      writeFileSync(output_path, bytes);
-      return { content: [{ type: "text", text: `saved ${bytes.length} bytes to ${output_path}` }] };
+      writeFileSync(abs, bytes);
+      return { content: [{ type: "text", text: `saved ${bytes.length} bytes to ${abs}` }] };
     }),
   );
 
@@ -278,11 +294,19 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       input_path: z.string(),
     },
     safeHandler("runtime_load_vsf", async ({ session_id, input_path }) => {
+      // Spec 744.4c slice 2c — restore the shared session from a host VSF file. The
+      // daemon (localhost) reads the caller-resolved abs path; bytes never cross.
+      const abs = resolveCallerMediaPath(input_path);
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const r = await runtimeDaemon.vsfLoad<{ loadedPath: string; bytes: number }>(session_id, abs);
+        return { content: [{ type: "text", text: `loaded ${r.bytes} bytes from ${r.loadedPath}` }] };
+      }
       const api = await getApi(session_id);
       const { readFileSync } = await import("node:fs");
-      const bytes = new Uint8Array(readFileSync(input_path));
+      const bytes = new Uint8Array(readFileSync(abs));
       api.loadVsf(bytes);
-      return { content: [{ type: "text", text: `loaded ${bytes.length} bytes from ${input_path}` }] };
+      return { content: [{ type: "text", text: `loaded ${bytes.length} bytes from ${abs}` }] };
     }),
   );
 
@@ -308,8 +332,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Spec 237 — AgentQueryApi facade introspection. Reports what V2 surface is available + session cycle counts.",
     { session_id: z.string() },
     safeHandler("runtime_status", async ({ session_id }) => {
-      const api = await getApi(session_id);
-      const s = api.status();
+      const s = await callApi(session_id, "status");
       return { content: [{ type: "text", text: JSON.stringify(s, null, 2) }] };
     }),
   );
@@ -653,6 +676,14 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_media_persist", async ({ session_id, slot }) => {
       if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
+      // Spec 744.4c slice 2c — persist the shared session's disk to its host file.
+      // Write-through (Spec 742) is preserved: the backing path was set absolute at
+      // mount time, so the daemon (localhost) writes the CALLER's .d64/.g64.
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const result = await runtimeDaemon.mediaPersist(session_id, slot);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
@@ -797,14 +828,23 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Spec 268 — return the full branch tree for a rewind session. Requires session with active RewindManager.",
     { session_id: z.string() },
     safeHandler("runtime_snapshot_tree", async ({ session_id }) => {
-      const api = await getApi(session_id);
+      // Spec 744.4c slice 2c — route to the daemon's runtime/snapshot_tree (which
+      // sets scenarioId+diskPath+mode for beginRewindSession; the in-process
+      // getApi path did NOT, so it threw). Same shared session as the UI.
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const tree = await runtimeDaemon.snapshotTree(session_id);
+        return { content: [{ type: "text", text: JSON.stringify(tree, null, 2) }] };
+      }
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { createAgentQueryApi } = await import("../runtime/headless/v2/agent-api.js");
+      const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: session.diskPath || session_id, mode: "true-drive" });
       const rm = api.beginRewindSession();
       const handle = rm.handle();
-      // Convert Map to plain object for serialisation.
       const branches: Record<string, any> = {};
-      for (const [k, v] of handle.branches) {
-        branches[k] = v;
-      }
+      for (const [k, v] of handle.branches) branches[k] = v;
       return { content: [{ type: "text", text: JSON.stringify({
         scenarioId: handle.scenarioId,
         rootBranchId: handle.rootBranchId,
@@ -820,7 +860,17 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Spec 268 — promote a transient rewind branch to a persistent Scenario record.",
     { session_id: z.string(), branch_id: z.string() },
     safeHandler("runtime_promote_branch", async ({ session_id, branch_id }) => {
-      const api = await getApi(session_id);
+      // Spec 744.4c slice 2c — route to the daemon's runtime/promote_branch.
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const r = await runtimeDaemon.promoteBranch(session_id, branch_id);
+        return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+      }
+      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const session = getIntegratedSession(session_id);
+      if (!session) throw new Error(`No integrated session ${session_id}`);
+      const { createAgentQueryApi } = await import("../runtime/headless/v2/agent-api.js");
+      const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: session.diskPath || session_id, mode: "true-drive" });
       const rm = api.beginRewindSession();
       const { scenarioId, scenario, patches } = rm.promoteBranch(branch_id);
       return { content: [{ type: "text", text: JSON.stringify({ scenarioId, scenario, patches }, null, 2) }] };
@@ -975,6 +1025,13 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       checkpoint_id: z.string().optional(),
     },
     safeHandler("runtime_vic_inspect_at", async ({ session_id, x, y, checkpoint_id }) => {
+      // Spec 744.4c slice 2c — resolve a frozen pixel on the SHARED session's
+      // checkpoint ring (the same frames the human inspects).
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const r = await runtimeDaemon.vicInspectAt(session_id, x, y, checkpoint_id);
+        return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+      }
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
       const { buildVicInspectSnapshot, resolveNodeAt } = await import("../runtime/headless/inspect/vic-inspect.js");
