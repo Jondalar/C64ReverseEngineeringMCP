@@ -971,15 +971,19 @@ export class V3WsServer {
       const run = await c.traceRun.start(def, { controller: c, outputPath });
       return { run, outputPath, domains: doms };
     });
-    this.on("trace/run/stop", async ({ session_id }) => {
-      // Spec 746.x (review #4) — guard like the Monitor's `trace off`. A trace can
-      // SELF-ABORT (writer/worker failure) and clear itself; without this guard
-      // stop() throws "no active trace run", the UI's toggleTrace() await rejects,
-      // setTracing(false) never runs, and the button is stuck visually 'on'. Return
-      // the aborted status instead so the client re-syncs to "off".
+    // Spec 746.x — ONE stop path. `wait_index` is a POLICY flag, not a second
+    // method: the UI omits it (instant button — the index publishes in the
+    // background) while the MCP/LLM passes it (block until the DuckDB store is
+    // queryable, since the LLM's next step is a query). Either way the runtime
+    // does the identical stop. (review #4) Guard isActive like the Monitor's
+    // `trace off`: a SELF-ABORTED trace already cleared itself, so return its
+    // status instead of throwing — else the UI button sticks visually 'on'.
+    this.on("trace/run/stop", async ({ session_id, wait_index }) => {
       const c = ctrlFor(session_id);
       if (!c.traceRun.isActive()) return { run: null, status: c.traceRun.status() };
-      return { run: await c.traceRun.stop() };
+      const run = await c.traceRun.stop();
+      if (wait_index) await c.traceRun.awaitIndex();
+      return { run };
     });
     this.on("trace/run/status", ({ session_id }) => ctrlFor(session_id).traceRun.status());
     // Spec 746.10 — the session's current (active) or last-finalized trace store, so a
@@ -1001,8 +1005,38 @@ export class V3WsServer {
     // arrives ABSOLUTE (caller-resolved, project-agnostic).
     this.on("trace/read", async ({ op, duckdb_path, args }) => {
       if (typeof duckdb_path !== "string" || !duckdb_path) throw new Error("trace/read: duckdb_path required");
-      const { withDuckDb } = await import("../server-tools/runtime.js");
+      // Spec 746.x — the DuckDB index now builds in the background after stop()
+      // (so the trace-stop button is instant). Block here, in the daemon process
+      // that owns the index job, until THIS store's index is ready — so a read
+      // right after stop transparently waits instead of opening a missing/partial
+      // store. Instant if already done / never indexed in this process.
+      const { awaitIndex } = await import("../runtime/headless/trace/background-indexer.js");
+      await awaitIndex(duckdb_path);
       const a = (args ?? {}) as Record<string, unknown>;
+
+      // Spec 746.x — trace_store_* reader functions (queries.ts) routed IN the
+      // daemon (their own READ_ONLY open, after the awaitIndex above), so the MCP
+      // process never opens the store itself = ONE read path through the runtime.
+      // BigInt cycle/seq columns are JSON-unsafe over WS; cycles/seq stay well
+      // under 2^53, so down-cast to Number losslessly.
+      if (String(op) === "store_fn") {
+        const q = await import("../runtime/trace-store/queries.js");
+        const fa = (a.args ?? {}) as Record<string, any>;
+        const jsonSafe = (x: unknown) => JSON.parse(JSON.stringify(x, (_k, v) => typeof v === "bigint" ? Number(v) : v));
+        let out: unknown;
+        switch (String(a.fn)) {
+          case "getInfo": out = await q.getInfo(duckdb_path); break;
+          case "topPcs": out = await q.topPcs(duckdb_path, fa.cpu, fa.limit); break;
+          case "findBusEvents": out = await q.findBusEvents(duckdb_path, Number(fa.addr), fa.limit); break;
+          case "listAnchors": out = await q.listAnchors(duckdb_path); break;
+          case "findAnchor": out = await q.findAnchor(duckdb_path, String(fa.name), fa.limit); break;
+          case "safeQuery": out = await q.safeQuery(duckdb_path, String(fa.sql), fa.limit); break;
+          default: throw new Error(`trace/read store_fn: unknown fn "${a.fn}"`);
+        }
+        return jsonSafe(out);
+      }
+
+      const { withDuckDb } = await import("../server-tools/runtime.js");
       return await withDuckDb(duckdb_path, async (conn: any, backend: any) => {
         switch (String(op)) {
           case "swimlane": {

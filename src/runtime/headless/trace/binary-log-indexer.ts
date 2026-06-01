@@ -6,7 +6,7 @@
 // shipped readers consume (Spec 726 §6a), so `trace_store_*` /
 // `runtime_query_events` work against a rebuilt store with no reader changes.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, renameSync, unlinkSync, existsSync } from "node:fs";
 import {
   decodeFileHeader, decodeEvent, TraceOp, ACCESS_WRITE, IEC_BIT,
   type DecodedEvent, type TraceFileMeta,
@@ -100,7 +100,16 @@ export async function indexBinaryLog(
   const { meta, headerLen } = decodeFileHeader(buf);
 
   const def: RuntimeTraceDefinition = JSON.parse(meta.defJson);
-  const store = await openTraceRunStore(duckdbPath);
+  // Spec 746.x — build into a TEMP file in the same directory and atomically
+  // rename onto the final path only after a fully successful build. This makes
+  // the final .duckdb crash-safe + complete for EVERY reader (UI / MCP /
+  // workspace-ui HTTP), regardless of routing or awaitIndex: a concurrent open of
+  // duckdbPath while we index sees the previous complete store (or nothing) —
+  // never the half-written/exclusively-locked store the index worker holds (which
+  // is the temp file). A failed/partial build is unlinked, never published.
+  const tmpPath = `${duckdbPath}.idx-${process.pid}-${Date.now()}.tmp`;
+  const store = await openTraceRunStore(tmpPath);
+  let result: IndexResult;
   try {
     const marks: { cycle: number; label: string }[] = [];
     const channels = new Set<string>();
@@ -152,10 +161,19 @@ export async function indexBinaryLog(
       ...runOverrides,
     };
     await writeTraceRunHeader(store, run, def);
-    return { runId: meta.runId, eventCount, markCount: marks.length, channels: channels.size, outputPath: duckdbPath };
-  } finally {
-    await closeTraceRunStore(store);
+    result = { runId: meta.runId, eventCount, markCount: marks.length, channels: channels.size, outputPath: duckdbPath };
+  } catch (e) {
+    // Close + delete the temp store so a failed build never becomes the visible
+    // store (the .c64retrace remains the authority and is re-indexable).
+    await closeTraceRunStore(store).catch(() => {});
+    try { if (existsSync(tmpPath)) unlinkSync(tmpPath); } catch { /* best effort */ }
+    throw e;
   }
+  // Release the handle, THEN atomically publish (rename replaces any prior store
+  // in one syscall — no window where duckdbPath is partial or missing-table).
+  await closeTraceRunStore(store);
+  renameSync(tmpPath, duckdbPath);
+  return result;
 }
 
 /** Read just the file header meta (cheap — no event decode). */

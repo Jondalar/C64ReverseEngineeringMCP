@@ -350,8 +350,11 @@ class RuntimeDaemonClient {
   traceStartDomains<T = unknown>(sessionId: string, domains: string[], output?: string) {
     return this.call<T>("trace/start_domains", { session_id: sessionId, domains, output });
   }
-  traceStop<T = unknown>(sessionId: string) {
-    return this.call<T>("trace/run/stop", { session_id: sessionId });
+  /** Spec 746.x — ONE stop path. `waitIndex` is the policy flag: the UI omits it
+   *  (instant button, index publishes in the background); the MCP/LLM passes true
+   *  to block until the DuckDB store is queryable (its next step is a query). */
+  traceStop<T = unknown>(sessionId: string, waitIndex = false) {
+    return this.call<T>("trace/run/stop", { session_id: sessionId, wait_index: waitIndex });
   }
   traceStatus<T = unknown>(sessionId: string) {
     return this.call<T>("trace/run/status", { session_id: sessionId });

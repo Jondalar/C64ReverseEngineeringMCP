@@ -477,7 +477,9 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Spec 746.3 — route to the shared daemon (BUG-028 class: was getRuntimeController-only).
       const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
       if (isDaemonMode()) {
-        const { run } = await runtimeDaemon.traceStop<{ run: { runId: string; eventCount: number; bytesWritten: number; marks: unknown[]; cycleStart: number; cycleEnd: number; evidenceRef: string } }>(session_id);
+        // wait_index=true: stop + await the background DuckDB index so the store is
+        // queryable on return (the LLM queries next); the UI's instant button omits it.
+        const { run } = await runtimeDaemon.traceStop<{ run: { runId: string; eventCount: number; bytesWritten: number; marks: unknown[]; cycleStart: number; cycleEnd: number; evidenceRef: string } }>(session_id, true);
         return { content: [{ type: "text" as const, text: [
           `Trace finalized (Runtime Daemon) — run ${run.runId}`,
           `Events: ${run.eventCount}  bytes: ${run.bytesWritten}  marks: ${run.marks.length}`,
@@ -490,6 +492,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const ctrl = getRuntimeController(session_id);
       if (!ctrl?.traceRun.isActive()) throw new Error(`No active trace on session ${session_id}.`);
       const run = await ctrl.traceRun.stop();
+      await ctrl.traceRun.awaitIndex(); // queryable store on return (background index)
       return { content: [{ type: "text" as const, text: [
         `Trace finalized — run ${run.runId}`,
         `Events: ${run.eventCount}  bytes: ${run.bytesWritten}  marks: ${run.marks.length}`,

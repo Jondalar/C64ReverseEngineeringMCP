@@ -429,7 +429,13 @@ const server = createServer((req, res) => {
           const { queryEvents } = await import("../runtime/headless/v2/query-events.js");
           const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
           const duckdb = await import("@duckdb/node-api");
-          const inst = await (duckdb as any).DuckDBInstance.create(abs);
+          // Spec 746.x — READ_ONLY (was an exclusive default open): the workspace-ui
+          // HTTP server is a SEPARATE process from the Runtime Daemon, so it cannot
+          // reach the in-process index await; an exclusive open could collide with
+          // the daemon's index worker. READ_ONLY takes no exclusive lock, and the
+          // indexer's temp-file + atomic rename means this only ever opens a
+          // complete, published store. (Reads a static artifact, never the live runtime.)
+          const inst = await (duckdb as any).DuckDBInstance.create(abs, { access_mode: "READ_ONLY" });
           try {
             const conn = await inst.connect();
             const backend = new DuckDbQueryBackend(conn);

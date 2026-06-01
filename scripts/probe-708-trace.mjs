@@ -105,6 +105,7 @@ async function runRealTrace(out, withMark) {
     session.runFor(1_000_000, { cycleBudget: 1_000_000 });
     const status = tr.status();
     const finished = await tr.stop();
+    await tr.awaitIndex(); // Spec 746.x — index builds on a worker; wait before reading the store
     const teardown = {
       obsRestored: reg.hasObservers() === before.obs,
       cpuRestored: reg.isEnabled("cpu") === before.cpu,
@@ -176,6 +177,7 @@ let firstCount = -1;
       publishFn(reg, () => ts++);
       const status = tr.status();
       const run = await tr.stop();
+      await tr.awaitIndex(); // Spec 746.x — index on a worker; wait before opening the store
       const store = await openTraceRunStore(out);
       let rows;
       try { rows = await queryTraceRunStore(store, "SELECT channel, trigger_kind, data_json FROM trace_event ORDER BY seq"); }
@@ -249,6 +251,7 @@ let firstCount = -1;
       await tr.start(def, { controller: ctrl, outputPath: out });
       reg.publish("cpu", session.c64Cpu.cycles + 1, { side: 0, pc: 0xE055, opcode: 0xEA });
       const run = await tr.stop();
+      await tr.awaitIndex(); // Spec 746.x — index on a worker; wait before opening the store
       const store = await openTraceRunStore(out);
       let row;
       try { row = (await queryTraceRunStore(store, "SELECT stop_checkpoint_id, start_checkpoint_id FROM trace_run"))[0]; }

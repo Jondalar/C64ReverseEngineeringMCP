@@ -29,7 +29,7 @@ import {
 } from "./trace-run-store.js";
 import { BinaryTraceLogWriter } from "./binary-log-writer.js";
 import { IEC_BIT, type TraceFileMeta } from "./binary-format.js";
-import { indexBinaryLog } from "./binary-log-indexer.js";
+import { startBackgroundIndex, awaitIndex, isIndexing } from "./background-indexer.js";
 import { snapshotSha256 } from "../kernel/native-snapshot.js";
 
 // Spec 726.2 — bounded transport queue for the LEGACY JSON path only.
@@ -143,6 +143,9 @@ export class TraceRunController {
   // swimlane after stop() without re-passing the path. Survives stop().
   private lastStorePath: string | undefined;
   private lastRunId: string | undefined;
+  // Spec 746.x — the .duckdb path whose index is building in the background after
+  // the last stop() (the index runs off-thread so stop is instant).
+  private lastIndexPath: string | undefined;
   // Spec 746.x — last self-abort reason (writer/worker failure mid-run). Surfaced
   // in status() so UI/MCP/Monitor can tell an aborted trace from a clean stop /
   // never-started (cleared on the next start()).
@@ -150,12 +153,19 @@ export class TraceRunController {
 
   isActive(): boolean { return this.active !== null; }
 
-  /** The .duckdb store of the active run, else the last finalized run (Spec 746.10). */
-  currentStorePath(): { path: string; runId: string; active: boolean } | undefined {
-    if (this.active) return { path: this.active.ctx.outputPath, runId: this.active.run.runId, active: true };
-    if (this.lastStorePath && this.lastRunId) return { path: this.lastStorePath, runId: this.lastRunId, active: false };
+  /** The .duckdb store of the active run, else the last finalized run (Spec 746.10).
+   *  `indexing` is true while the background DuckDB index for a just-stopped run
+   *  is still building — a reader should awaitIndex() before querying it. */
+  currentStorePath(): { path: string; runId: string; active: boolean; indexing: boolean } | undefined {
+    if (this.active) return { path: this.active.ctx.outputPath, runId: this.active.run.runId, active: true, indexing: false };
+    if (this.lastStorePath && this.lastRunId) return { path: this.lastStorePath, runId: this.lastRunId, active: false, indexing: isIndexing(this.lastIndexPath) };
     return undefined;
   }
+
+  /** Spec 746.x — block until the background DuckDB index for the last stopped
+   *  run is ready (instant if already done / never indexed). Reader paths call
+   *  this before opening the store; stop() itself does NOT, so it stays instant. */
+  async awaitIndex(): Promise<void> { await awaitIndex(this.lastIndexPath); }
 
   async start(def: RuntimeTraceDefinition, ctx: TraceRunStartContext): Promise<RuntimeTraceRun> {
     const v = validateTraceDefinition(def);
@@ -424,19 +434,23 @@ export class TraceRunController {
     if (a.binary && a.writer) {
       const fin = await a.writer.finalize();
       a.run.bytesWritten = fin.bytesWritten;
-      // Build the DuckDB query index FROM the binary log (off the realtime
-      // budget; the log is the authority, this is a derived projection). Carry the
-      // STOP-time fields the start-written .c64retrace header cannot know
-      // (stopCheckpointId for the at-stop policy, overheadMs) into the index.
-      const idx = await indexBinaryLog(a.retracePath!, a.ctx.outputPath, {
+      // eventCount = queryable trace_event ROWS (marks are a separate stream, NOT
+      // counted), matching the DuckDB index and the legacy JSON path. The writer's
+      // raw stats.eventCount includes the appended marks, so subtract them — this
+      // is available immediately (no index needed) so the returned run is exact.
+      a.run.eventCount = Math.max(0, fin.stats.eventCount - a.markCount);
+      // Spec 746.x — build the DuckDB query index in a WORKER THREAD and RETURN
+      // NOW. The .c64retrace is the authority and is already closed; the index is
+      // a rebuildable projection, so the UI trace-stop button is instant and the
+      // daemon never freezes on the decode (was a synchronous ~minute block on a
+      // large trace). Readers call awaitIndex(path) to block only until ready.
+      // Carry the STOP-time fields the start-written .c64retrace header cannot
+      // know (stopCheckpointId for the at-stop policy, overheadMs) into the index.
+      this.lastIndexPath = a.ctx.outputPath;
+      startBackgroundIndex(a.retracePath!, a.ctx.outputPath, {
         stopCheckpointId: a.run.stopCheckpointId,
         overheadMs: a.run.overheadMs,
       });
-      // eventCount = queryable trace_event ROWS (marks are a separate stream, NOT
-      // counted), matching the DuckDB index and the legacy JSON path. The writer's
-      // raw stats.eventCount includes marks, which would make run.eventCount drift
-      // from the row count a user actually queries.
-      a.run.eventCount = idx.eventCount;
     } else if (a.store) {
       await this.drain();
       a.run.eventCount = a.totalEvents;

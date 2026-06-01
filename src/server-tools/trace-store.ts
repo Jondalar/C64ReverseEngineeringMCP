@@ -25,6 +25,17 @@ import { safeHandler } from "./safe-handler.js";
 // root and then discarded it — every non-root path failed with "directory has
 // no trace.duckdb". Resolve the input itself: absolute as-is, relative under
 // the project dir.
+// Spec 746.x — ONE read path. In daemon mode the store is read INSIDE the daemon
+// process (the runtime owns the store; clients ask, they don't open it themselves),
+// which also picks up the daemon-side awaitIndex so a read right after stop() sees
+// the fresh, atomically-published index. Out of daemon mode (tests/standalone) the
+// index worker lives in this process, so the local queries.ts call is correct.
+async function routeStoreRead<T>(fn: string, dbPath: string, args: Record<string, unknown>, localFn: () => Promise<T>): Promise<T> {
+  const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+  if (isDaemonMode()) return runtimeDaemon.traceRead<T>("store_fn", dbPath, { fn, args });
+  return localFn();
+}
+
 export function resolveStorePath(input: string, context: ServerToolContext): string {
   const proj = (() => { try { return context.projectDir(undefined, false); } catch { return undefined; } })();
   const abs = isAbsolute(input) ? resolvePath(input) : resolvePath(proj ?? process.cwd(), input);
@@ -52,7 +63,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     },
     safeHandler("trace_store_info", async ({ path }) => {
       const dbPath = resolveStorePath(path, context);
-      const info = await getInfo(dbPath);
+      const info = await routeStoreRead("getInfo", dbPath, {}, () => getInfo(dbPath));
       const lines = [`trace_store_info: ${dbPath}`, ``, `meta:`];
       for (const [k, v] of Object.entries(info.meta)) lines.push(`  ${k} = ${v}`);
       lines.push(``, `tables:`);
@@ -72,7 +83,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     },
     safeHandler("trace_store_anchor_list", async ({ path }) => {
       const dbPath = resolveStorePath(path, context);
-      const rows = await listAnchors(dbPath);
+      const rows = await routeStoreRead("listAnchors", dbPath, {}, () => listAnchors(dbPath));
       const lines = [`anchors (${rows.length}):`, ``];
       lines.push(`name\tcpu\tpc\toccurrences\tfirst_clock\tlast_clock`);
       for (const r of rows) {
@@ -92,7 +103,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     },
     safeHandler("trace_store_anchor_find", async ({ path, name, limit }) => {
       const dbPath = resolveStorePath(path, context);
-      const rows = await findAnchor(dbPath, name, limit ?? 200);
+      const rows = await routeStoreRead("findAnchor", dbPath, { name, limit: limit ?? 200 }, () => findAnchor(dbPath, name, limit ?? 200));
       const lines = [`occurrences of '${name}' (${rows.length}):`, ``];
       lines.push(`occ\tpc\tclock\tseq`);
       for (const r of rows) lines.push(`${r.occurrence}\t${fmtHex(r.pc)}\t${r.clock}\t${r.seq}`);
@@ -110,7 +121,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     },
     safeHandler("trace_store_top_pcs", async ({ path, cpu, limit }) => {
       const dbPath = resolveStorePath(path, context);
-      const rows = await topPcs(dbPath, cpu, limit ?? 20);
+      const rows = await routeStoreRead("topPcs", dbPath, { cpu, limit: limit ?? 20 }, () => topPcs(dbPath, cpu, limit ?? 20));
       const lines = [`top ${rows.length} PCs for cpu=${cpu}:`, ``];
       for (const r of rows) lines.push(`${fmtHex(r.pc)}\t${r.count}`);
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
@@ -134,7 +145,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
       } else {
         n = Number(addr);
       }
-      const rows = await findBusEvents(dbPath, n, limit ?? 100);
+      const rows = await routeStoreRead("findBusEvents", dbPath, { addr: n, limit: limit ?? 100 }, () => findBusEvents(dbPath, n, limit ?? 100));
       const lines = [`bus_events at ${fmtHex(n)} (${rows.length}):`, ``, `seq\tcpu\tkind\tclock\tpc\tvalue`];
       for (const r of rows) {
         lines.push(`${r.seq}\t${r.cpu}\t${r.kind}\t${r.clock}\t${r.pc !== null ? fmtHex(r.pc) : ""}\t${r.value ?? ""}`);
@@ -153,7 +164,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     },
     safeHandler("trace_store_query", async ({ path, sql, limit }) => {
       const dbPath = resolveStorePath(path, context);
-      const rows = await safeQuery(dbPath, sql, limit ?? 200);
+      const rows = await routeStoreRead("safeQuery", dbPath, { sql, limit: limit ?? 200 }, () => safeQuery(dbPath, sql, limit ?? 200));
       const lines = [`query (${rows.length} rows):`, ``];
       for (const r of rows) {
         lines.push(r.map((c) => typeof c === "bigint" ? c.toString() : String(c)).join("\t"));

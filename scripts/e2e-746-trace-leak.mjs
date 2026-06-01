@@ -120,24 +120,46 @@ try {
   try { retraceBytes = statSync(retrace).size; } catch {}
   ok(retraceBytes > 1_000_000, "7 .c64retrace authority grew on disk (drain streams events out)", `${retrace} = ${retraceBytes} bytes`);
 
-  // 8 trace stop is clean + daemon stays responsive afterwards. NOTE: stop()
-  //   builds the DuckDB index from the .c64retrace log (currently a synchronous,
-  //   event-loop-blocking decode loop — binary-log-indexer.ts). On this 20s WARP
-  //   monster (~460 MB / ~29M events) that legitimately takes tens of seconds, so
-  //   we give it a generous timeout. (At realistic PAL volume it's sub-second.
-  //   Off-loading the index to a worker is a separate follow-up; it is NOT the
-  //   OOM bug this gate covers.)
-  const t0 = rssMiB(daemon.pid); // (reuse helper just for a cheap wall marker via samples below)
-  let stopOk = false, responsive = false, stopMs = 0;
-  const stopStart = rssSamples.length; void stopStart; void t0;
+  // 8 trace stop is INSTANT — the UI button must not freeze. stop() finalizes the
+  //   .c64retrace (fast) and kicks the DuckDB index build on a WORKER THREAD, then
+  //   returns. On this 20s WARP monster (~460 MB / ~29M events) the OLD synchronous
+  //   index blocked the daemon ~48s; now stop must return in well under that.
+  let stopOk = false, stopMs = 0;
   try {
-    const begin = await wsRpc(ws, "trace/run/status", { session_id: S }, 4000).then(() => Date.now()).catch(() => Date.now());
-    const r = await wsRpc(ws, "trace/run/stop", { session_id: S }, 180000); stopOk = !!r;
+    const begin = Date.now();
+    const r = await wsRpc(ws, "trace/run/stop", { session_id: S }, 30000); stopOk = !!r;
     stopMs = Date.now() - begin;
   } catch (e) { stopOk = false; dlog += "\nSTOP ERR " + e.message; }
-  try { const l = await wsRpc(ws, "session/list", {}, 10000); responsive = Array.isArray(l) && l.length > 0; } catch {}
-  ok(stopOk, "8 trace/run/stop clean (index built from the .c64retrace log)", stopOk ? `stopped in ~${stopMs} ms` : "threw");
-  ok(responsive, "9 daemon responsive after stop (session/list answers)");
+  ok(stopOk && stopMs < 5000, "8 trace/run/stop is INSTANT (index deferred to a worker, button never freezes)", stopOk ? `returned in ${stopMs} ms (<5000)` : "threw");
+
+  // 8b daemon stays RESPONSIVE while the big index builds on the worker thread —
+  //    the OLD synchronous index would have the event loop pinned here.
+  let liveDuringIndex = 0;
+  for (let i = 0; i < 5; i++) {
+    try { const l = await wsRpc(ws, "session/list", {}, 2000); if (Array.isArray(l) && l.length) liveDuringIndex++; } catch {}
+    await sleep(300);
+  }
+  ok(liveDuringIndex >= 4, "8b daemon RESPONSIVE during the background index (worker thread, no event-loop block)", `${liveDuringIndex}/5 pings`);
+
+  // 9 the deferred index DOES complete + the store becomes queryable. trace/read
+  //   (op sql) awaits the background index transparently, then queries the rows.
+  let rowCount = -1;
+  try {
+    const res = await wsRpc(ws, "trace/read", { op: "sql", duckdb_path: outPath, args: { sql: "SELECT count(*) FROM trace_event", limit: 5 } }, 180000);
+    rowCount = Number(res?.rows?.[0]?.[0] ?? -1);
+  } catch (e) { dlog += "\nREAD ERR " + e.message; }
+  ok(rowCount > 1_000_000, "9 background index completed + store queryable (trace/read awaits it)", `trace_event rows=${rowCount}`);
+
+  // 10 the trace_store_* read path is now ROUTED THROUGH THE DAEMON (op store_fn),
+  //    so the MCP process never opens the .duckdb itself = one read path. Prove the
+  //    op works + returns the fresh, atomically-published store (temp+rename).
+  let infoOk = false, infoEvents = -1;
+  try {
+    const info = await wsRpc(ws, "trace/read", { op: "store_fn", duckdb_path: outPath, args: { fn: "getInfo" } }, 180000);
+    infoEvents = Number(info?.tableCounts?.["events:total"] ?? -1);
+    infoOk = infoEvents > 1_000_000;
+  } catch (e) { dlog += "\nSTORE_FN ERR " + e.message; }
+  ok(infoOk, "10 trace_store_* daemon-routed (store_fn) reads the published store — ONE read path", `trace_event=${infoEvents}`);
   ws.close();
 } catch (e) {
   console.error("FATAL", e.message); console.error(dlog.slice(-1000)); exit = 2;
