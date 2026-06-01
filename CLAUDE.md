@@ -262,7 +262,9 @@ When operating inside an actual C64 RE *project* (i.e. a `C64RE_PROJECT_DIR` wor
 1. Load `docs/agent-doctrine.md` (or call MCP prompt `c64re_agent_doctrine`) and adopt it.
 2. Run `agent_onboard` at session start (or after context loss) to reload persistent project memory.
 3. Persist progress with `agent_record_step` and the `save_finding` / `save_entity` / `save_open_question` family — never leave knowledge only in chat.
-4. Use `agent_set_role` to mark whether you are operating as **analyst**, **cartographer**, or **implementer**.
+4. For durable project understanding, also update the wiki layer manually while Spec 740.2 is pending: the closest `docs/*.md`, `docs/index.md` for new topics, `knowledge/activity-log.md` for the step/decision, then run `project_reindex_search`.
+5. Use `project_search` / `project_find_related` before re-deriving existing knowledge.
+6. Use `agent_set_role` to mark whether you are operating as **analyst**, **cartographer**, or **implementer**.
 
 These rules apply to project work. They do **not** apply to ordinary edits to this MCP repo's source code.
 

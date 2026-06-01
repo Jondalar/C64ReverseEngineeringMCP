@@ -55,6 +55,37 @@ Your first responsibility is **not** to answer quickly. Your first responsibilit
 
 Never keep important reverse-engineering knowledge only in chat. Whenever you discover, confirm, refine, or reject something, update the project knowledge layer.
 
+Durable knowledge has two surfaces:
+
+1. **Structured records** for machine-readable facts:
+   `save_finding`, `save_entity`, `save_open_question`, relations, payload links,
+   artifact-version links.
+2. **Wiki synthesis** for human/LLM-readable project understanding:
+   curated `docs/*.md`, `docs/index.md`, and `knowledge/activity-log.md`
+   (Spec 740.1).
+
+Until `project_wiki_update` exists (Spec 740.2), update Markdown deliberately as
+part of the step when the result is durable project knowledge. Do not wait for a
+future tool if the current session has enough evidence.
+
+Minimum persistence contract after a substantive step:
+
+1. Save structured facts/questions when relevant (`save_finding`,
+   `save_entity`, `save_open_question`, link tools).
+2. Update the closest wiki page when the finding changes the project model
+   (`docs/LOADER.md`, `docs/CODE_CARTOGRAPHY.md`, `docs/GLOSSARY.md`,
+   `docs/SWIMLANES.md`, or another focused doc).
+3. Add or update a row in `docs/index.md` when this introduces a new topic,
+   subsystem, payload, or investigation path.
+4. Append one short entry to `knowledge/activity-log.md` for durable steps,
+   decisions, contradictions, or major evidence captures.
+5. Run `project_reindex_search` after wiki/knowledge updates so future LLM
+   sessions can find the new information.
+
+`project_search` / `project_find_related` are the default way to find existing
+knowledge before re-deriving it. `project_wiki_lint` is the default way to find
+important records that still lack wiki coverage.
+
 ### 1.1. Headless over VICE (2026-05-09)
 
 **Default to headless for every action.** VICE is fallback / oracle

@@ -1,7 +1,7 @@
 # Spec 712 - Rewind, Replay and Branch Diff Runtime/UI
 
-Status: DRAFT (2026-05-23 CEST)
-Depends: Specs 705.B, 707-711, 701, 714
+Status: DRAFT (2026-05-23 CEST; trace architecture corrected 2026-05-30)
+Depends: Specs 705.B, 707-711, 701, 714, 726.B
 Owner: runtime / v3 UI / experiments / knowledge
 
 > **Spec 714 requirement (mutable media).** Rewind/replay/branch-diff must
@@ -27,22 +27,27 @@ run -> rewind -> inspect -> branch/change -> replay -> compare -> retain
 ```
 
 This is the integration layer. It does not replace the ring, persistence,
-trace, media, inspect or intervention contracts.
+trace, media, inspect or intervention contracts. It assumes the Runtime strand
+is the product emulator for LLM work: rewind/forward must operate on our
+Headless runtime state and event timeline, not on VICE or external tooling.
 
 ## 2. Binding Decisions
 
 ### 2.1 Rewind Restores Machine State; Replay Applies Recorded Events
 
 Navigating backward selects a 705.B checkpoint and restores it under the
-707/706 restore contracts. Advancing deterministically from it replays only
-recorded external events: inputs, media operations, trace markers and
-interventions.
+707/706 restore contracts. Advancing deterministically from it replays recorded
+external events plus the binary runtime trace/delta timeline between
+checkpoints: inputs, media operations, trace markers, interventions and
+state-change events needed to reconstruct the selected point.
 
 ### 2.2 Normal Playback Remains Lightweight
 
-The bounded automatic ring permits recent rewind without saving all execution.
-Only pinned checkpoints, retained traces and explicit branches become durable
-project artifacts.
+The automatic checkpoint ring keeps recent keyframes. The binary runtime trace
+log keeps the event/delta timeline between keyframes. DuckDB is a query index
+over that timeline, not the rewind authority. Normal playback with trace capture
+must remain close to the untraced runtime budget defined in Spec 726 §2a.1; a
+rewind-capable trace cannot make the product UI unusable.
 
 ### 2.3 Branch Comparison Compares Evidence, Not Just Screenshots
 
@@ -63,6 +68,8 @@ interface RuntimeTimeline {
   liveHeadCheckpointId: string;
   ringCheckpoints: string[];
   pinnedCheckpoints: string[];
+  binaryTraceLogPath?: string;
+  traceIndexPath?: string;
   branches: RuntimeBranchRef[];
   events: RuntimeReplayEvent[];
 }
@@ -100,9 +107,9 @@ persistent/pinned artifacts.
 
 | ID | Task | Depends |
 |---|---|---|
-| 712.1 | Define timeline/event/branch-diff aggregation API over existing specs. | 705.B, 707-711 |
+| 712.1 | Define timeline/event/branch-diff aggregation API over existing specs, including binary trace log + DuckDB index references. | 705.B, 707-711, 726.B |
 | 712.2 | Implement recent rewind restore/navigation using the in-memory ring. | 705.B, 706 |
-| 712.3 | Implement deterministic forward replay for recorded input/media/intervention events. | 709, 711 |
+| 712.3 | Implement deterministic forward replay for recorded input/media/intervention events and binary delta timeline between checkpoints. | 709, 711, 726.B |
 | 712.4 | Implement retain/pin/dump and named experiment/branch management. | 707 |
 | 712.5 | Implement evidence comparison: state, visible inspect nodes and retained traces. | 708, 710 |
 | 712.6 | Deliver the minimal timeline/branch-diff UI and performance/retention gates. | 712.1-5 |
@@ -117,12 +124,14 @@ persistent/pinned artifacts.
    and compare resulting frame/state/evidence without changing original media.
 4. Media operations and user inputs between checkpoints replay in the recorded
    order and make divergence explicit when missing.
-5. Automatic capture and UI browsing retain acceptable live PAL performance and
-   bounded memory use.
+5. Automatic capture and UI browsing meet Spec 726 §2a.1: broad binary trace-on
+   throughput stays within 10% of trace-off, DuckDB index lag never stalls the
+   emulator, and memory remains bounded by checkpoint retention + trace chunk
+   buffers.
 
 ## 7. Non-Goals
 
-- Infinite event recording for every casual play session.
+- Reconstructing rewind/forward from DuckDB JSON rows alone.
 - Reconstructing unrecorded inputs or media swaps.
 - Replacing DuckDB evidence queries or frozen VIC inspect views.
 - Hiding nondeterminism behind screenshot-only matching.

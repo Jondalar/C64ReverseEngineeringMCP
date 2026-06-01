@@ -41,6 +41,8 @@ Small by design — only specs with concrete next implementation work.
 | 721 | Visual-Origin Join (runtime-informed annotation) | Core join shipped (probe green); the semantic-pipeline extension is the active edge. |
 | 726.B | Trace V2 Binary Timeline | **Slice 1 DONE (2026-05-30, review-fixed 2026-05-31)** — binary `.c64retrace` log is the live authority, DuckDB is a rebuildable index, zero-alloc CPU sink, §2a.1 perf gate GREEN (~6% overhead, 2.1× PAL). drive8-cpu now produces real (sampled) rows; finalize no-hang; sink ownership explicit. 726.B-2 open: zero-alloc bus/iec/vic + per-instruction drive trace + streaming (not read-whole-file) indexer + rebuild tool. |
 | 742 | Media Ownership + VICE-Faithful Write-Through Refactor | ACTIVE after BUG-023: unify UI/MCP/scenario/ingress media attach paths, preserve `MediaRef`/backing-path ownership, and make writable D64/G64 path-backed media write through to host files at VICE diskimage commit points. |
+| 743 | Runtime CLOCK Semantics + Pause/Inspect/Resume Stability | ACTIVE after BUG-025: remove unintended 32-bit wrapping from absolute maincpu runtime clocks; prove Pause/Run and monitor `g` survive Inspector/Frozen overlay and old `0xffffffff` boundary crossing. |
+| 744 | Runtime Session Authority + Drive-to-State Orchestration | ACTIVE after BUG-027: binding architecture is a process-stable Runtime Daemon authority; UI and MCP are clients. 744.4a/744.4b are interim and insufficient (MCP co-hosting is not product). Next: 744.4c Runtime Daemon + then §7 drive-to-state / disk-swap flow. |
 
 ## GOVERNING / DOCTRINE (rules + umbrella contracts — still binding, not active implementation)
 
@@ -140,7 +142,7 @@ mapper" header is gone.
 
 ## Counts
 
-- ACTIVE: 3 (721, 726.B, 742)
+- ACTIVE: 5 (721, 726.B, 742, 743, 744)
 - GOVERNING / DOCTRINE: 4 (610, 612, 620, 705)
 - DONE: 29
 - BACKLOG: 11
