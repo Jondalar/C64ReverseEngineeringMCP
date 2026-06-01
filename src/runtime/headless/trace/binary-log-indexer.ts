@@ -84,8 +84,18 @@ export interface IndexResult {
 }
 
 /** Build (or rebuild) a DuckDB index from a `.c64retrace` file. Idempotent at
- *  the file level: writes a fresh store at `duckdbPath` (caller controls path). */
-export async function indexBinaryLog(retracePath: string, duckdbPath: string): Promise<IndexResult> {
+ *  the file level: writes a fresh store at `duckdbPath` (caller controls path).
+ *
+ *  Spec 746.x — `runOverrides` carries STOP-time run fields that the `.c64retrace`
+ *  header (written at START) cannot know: notably `stopCheckpointId` (the at-stop
+ *  checkpoint policy) and `overheadMs`. Without it the persisted DuckDB run header
+ *  silently drops them on the binary path (the now-default path), so e.g. an
+ *  at-stop checkpoint id is lost. Merged last so the live run is authoritative. */
+export async function indexBinaryLog(
+  retracePath: string,
+  duckdbPath: string,
+  runOverrides?: Partial<RuntimeTraceRun>,
+): Promise<IndexResult> {
   const buf = new Uint8Array(readFileSync(retracePath));
   const { meta, headerLen } = decodeFileHeader(buf);
 
@@ -139,6 +149,7 @@ export async function indexBinaryLog(retracePath: string, duckdbPath: string): P
       evidenceRef: duckdbPath,
       eventCount,
       bytesWritten: buf.length,
+      ...runOverrides,
     };
     await writeTraceRunHeader(store, run, def);
     return { runId: meta.runId, eventCount, markCount: marks.length, channels: channels.size, outputPath: duckdbPath };

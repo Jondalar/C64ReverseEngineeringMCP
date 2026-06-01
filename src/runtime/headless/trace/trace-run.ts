@@ -46,7 +46,12 @@ export interface TraceRunStartContext {
   controller: RuntimeController;
   outputPath: string; // resolved .duckdb path (caller resolves under project root)
   /** Spec 726.B — use the binary `.c64retrace` timeline + rebuildable index.
-   *  Default path for the live MCP trace sink. */
+   *  This is the PRODUCT path and the DEFAULT (`undefined` ⇒ binary). The legacy
+   *  JSON-streaming path (per-event objects + live DuckDB inserts) is opt-in via
+   *  an explicit `binary: false` and is for the advanced scenario/test path ONLY:
+   *  it cannot keep up with the live firehose (~985k events/s) and grows
+   *  pendingSend/DuckDB-bound memory unbounded → the daemon OOMs mid-trace. Every
+   *  live control gate (UI / Monitor / MCP) MUST stay on the binary default. */
   binary?: boolean;
 }
 
@@ -61,6 +66,10 @@ export interface TraceRunStatus {
   capturing?: boolean;
   binary?: boolean;
   retracePath?: string;
+  /** Spec 746.x — set when the last run SELF-ABORTED (writer/worker failure
+   *  mid-run) rather than stopping cleanly; `error` carries the reason. */
+  aborted?: boolean;
+  error?: string;
 }
 
 interface ActiveRun {
@@ -134,6 +143,10 @@ export class TraceRunController {
   // swimlane after stop() without re-passing the path. Survives stop().
   private lastStorePath: string | undefined;
   private lastRunId: string | undefined;
+  // Spec 746.x — last self-abort reason (writer/worker failure mid-run). Surfaced
+  // in status() so UI/MCP/Monitor can tell an aborted trace from a clean stop /
+  // never-started (cleared on the next start()).
+  private lastError: string | undefined;
 
   isActive(): boolean { return this.active !== null; }
 
@@ -148,13 +161,17 @@ export class TraceRunController {
     const v = validateTraceDefinition(def);
     if (!v.ok) throw new Error(`invalid trace definition: ${v.errors.join("; ")}`);
     if (this.active) throw new Error("a trace run is already active; stop it first");
+    this.lastError = undefined; // fresh run — clear any prior self-abort flag
     this.lastStorePath = ctx.outputPath;
 
     const ctrl = ctx.controller;
     const trace = ctrl.session.kernel.trace();
     const channels = domainsToChannels(def.domains);
     const chanSet = new Set<ChannelName>(channels);
-    const binary = ctx.binary === true;
+    // Spec 726.B / 746.x — binary is the PRODUCT path and the DEFAULT. Only an
+    // explicit `binary: false` selects the legacy JSON-streaming path (test/
+    // scenario only); the live firehose would OOM the daemon on that path.
+    const binary = ctx.binary !== false;
 
     // Save prior channel state; enable only the needed channels (small ring —
     // we capture via the observer, not the ring).
@@ -319,11 +336,41 @@ export class TraceRunController {
   }
 
   /** Flush buffered events to the sink. Called from the run-loop chunk boundary
-   *  (emulator paused) so the async write never overlaps stepping. */
+   *  (emulator paused) so the async write never overlaps stepping.
+   *
+   *  RESILIENCE — a trace sink failure (e.g. the binary-log worker dying mid-run,
+   *  notably during a media swap) MUST NOT propagate into the live run loop and kill
+   *  the shared daemon (the human's "session/connection gone"). On a writer error we
+   *  ABORT the trace (detach the sink, drop the run) and keep running untraced rather
+   *  than throw. The partial .c64retrace on disk is still indexable. */
   async drain(): Promise<void> {
     const a = this.active;
     if (!a) return;
-    if (a.binary && a.writer) { await a.writer.drain(); return; }
+    if (a.binary && a.writer) {
+      try { await a.writer.drain(); }
+      catch (e) {
+        // Sink failed mid-run (worker death / disk I/O error / backpressure
+        // ceiling). Abort the trace and keep running untraced — but tear down
+        // CLEANLY, mirroring stop()'s teardown so the abort does not itself leak:
+        //   • terminate the writer's worker thread + close its fd (review #5 —
+        //     a.dispose() only unregisters the observer, NOT the worker),
+        //   • release the CPU firehose sink,
+        //   • restore the ring channels we switched on (review #3 — else they
+        //     leak enabled). The already-drained chunks form a valid, chunk-
+        //     aligned .c64retrace prefix on disk; lastStorePath/lastRunId stay
+        //     set so trace/current still resolves it.
+        const err = e instanceof Error ? e.message : String(e);
+        console.error(`[trace] sink failed mid-run — aborting trace, run continues untraced:`, err);
+        const trace = a.ctx.controller.session.kernel.trace();
+        try { a.writer?.dispose(); } catch { /* noop */ }
+        try { a.dispose(); } catch { /* noop */ }
+        try { trace.setCpuBinarySink(null); } catch { /* noop */ }
+        try { for (const p of a.prior) if (!p.was) trace.configureChannel(p.name, { mode: "off" }); } catch { /* noop */ }
+        this.lastError = err;
+        this.active = null;
+      }
+      return;
+    }
     if (!a.store || a.queue.length === 0) return;
     const batch = a.queue;
     a.queue = [];
@@ -344,7 +391,7 @@ export class TraceRunController {
 
   status(): TraceRunStatus {
     const a = this.active;
-    if (!a) return { active: false };
+    if (!a) return this.lastError ? { active: false, aborted: true, error: this.lastError } : { active: false };
     const eventCount = a.binary ? a.totalEvents : a.totalEvents + a.queue.length;
     return {
       active: true, runId: a.run.runId, definitionId: a.def.id,
@@ -377,10 +424,19 @@ export class TraceRunController {
     if (a.binary && a.writer) {
       const fin = await a.writer.finalize();
       a.run.bytesWritten = fin.bytesWritten;
-      a.run.eventCount = fin.stats.eventCount;
       // Build the DuckDB query index FROM the binary log (off the realtime
-      // budget; the log is the authority, this is a derived projection).
-      await indexBinaryLog(a.retracePath!, a.ctx.outputPath);
+      // budget; the log is the authority, this is a derived projection). Carry the
+      // STOP-time fields the start-written .c64retrace header cannot know
+      // (stopCheckpointId for the at-stop policy, overheadMs) into the index.
+      const idx = await indexBinaryLog(a.retracePath!, a.ctx.outputPath, {
+        stopCheckpointId: a.run.stopCheckpointId,
+        overheadMs: a.run.overheadMs,
+      });
+      // eventCount = queryable trace_event ROWS (marks are a separate stream, NOT
+      // counted), matching the DuckDB index and the legacy JSON path. The writer's
+      // raw stats.eventCount includes marks, which would make run.eventCount drift
+      // from the row count a user actually queries.
+      a.run.eventCount = idx.eventCount;
     } else if (a.store) {
       await this.drain();
       a.run.eventCount = a.totalEvents;

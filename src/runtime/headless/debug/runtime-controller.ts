@@ -113,6 +113,10 @@ export class RuntimeController {
   private framesSinceEpoch = 0;
   private frameCounter = 0;    // monotonic completed-frame count (for presentation)
   private lastPresentMs = 0;
+  // Spec 746.x — single in-flight guard for the per-frame trace drain. The drain
+  // feeds the trace worker + recycles its 1 MiB chunk buffers; under worker
+  // backpressure it can outlast a frame, so we never stack a second drain on top.
+  private traceDraining = false;
 
   // Spec 703 §8 — per-frame audio hook. Called once per COMPLETED emulated
   // frame (un-throttled, unlike presentation). The server uses it to flush the
@@ -509,6 +513,25 @@ export class RuntimeController {
           );
         } catch { /* drop this checkpoint; the ring stays consistent */ }
       }
+    }
+
+    // Spec 746.x — drain the live trace ONCE per completed frame, here at the
+    // paused chunk boundary (runFor returned at an atomic instruction boundary;
+    // the loop is the only thing running between ticks). The binary trace's
+    // worker — which writes the .c64retrace authority AND recycles the 1 MiB
+    // chunk buffers — is ONLY fed by drain(); without this the sync CPU firehose
+    // grows pendingSend + fresh 1 MiB allocs unbounded (~15 MiB/s @PAL,
+    // ~140 MiB/s @warp) → OOM → the shared daemon dies mid-trace ("Session weg").
+    // Isolated exactly like audio/present/checkpoint above: a drain failure must
+    // never kill the loop. The `traceDraining` guard means a slow (back-pressured)
+    // drain cannot stack; the firehose stays sync, so no events are lost while a
+    // drain is in flight — they just ride the next frame's drain. trace-run.ts
+    // turns a writer/worker failure into a graceful trace-abort, not a throw.
+    if (this.traceRun.isActive() && !this.traceDraining) {
+      this.traceDraining = true;
+      void this.traceRun.drain()
+        .catch(() => { /* trace-run already aborted the trace; loop continues untraced */ })
+        .finally(() => { this.traceDraining = false; });
     }
 
     if (warp) {

@@ -6,6 +6,7 @@
 //
 // Args: --project <dir> [--port 4312] [--dev-samples].
 
+import { mkdirSync, appendFileSync } from "node:fs";
 import { resolveProjectDir, hasDevSamples } from "../../../workspace-ui/resolve-project-dir.js";
 
 export async function runDaemon(argv: string[]): Promise<void> {
@@ -71,6 +72,22 @@ export async function runDaemon(argv: string[]): Promise<void> {
   console.log(`[daemon] runtime authority ready.`);
   console.log(`[daemon]   endpoint (UI + MCP): ws://${host}:${port}`);
   console.log(`[daemon]   MCP reconnect / browser reload do NOT reset sessions (the runtime lives in this process).`);
+
+  // The daemon is a SHARED authority: a single unhandled error in one tool / the
+  // trace-worker / a media swap must NOT kill the whole process (= the human's
+  // "session/connection gone"). Without these, an uncaught throw from e.g. the
+  // binary-trace-worker dying mid-swap takes the daemon down hard. Log the full
+  // stack (so we can finally SEE the trace crash) but keep the process alive.
+  const logDir = `${projectDir}/runtime`;
+  const crashLog = `${logDir}/daemon-crash.log`;
+  const recordCrash = (kind: string, e: unknown) => {
+    const stack = e instanceof Error ? (e.stack ?? e.message) : String(e);
+    const line = `\n[${kind}] (no-timestamp) ${stack}\n`;
+    console.error(`[daemon] ${kind} (kept alive):`, e instanceof Error ? e.stack : e);
+    try { mkdirSync(logDir, { recursive: true }); appendFileSync(crashLog, line); } catch { /* best effort */ }
+  };
+  process.on("uncaughtException", (e) => recordCrash("uncaughtException", e));
+  process.on("unhandledRejection", (e) => recordCrash("unhandledRejection", e));
 
   const shutdown = async () => { try { await server.close(); } catch { /* noop */ } process.exit(0); };
   process.on("SIGINT", shutdown);

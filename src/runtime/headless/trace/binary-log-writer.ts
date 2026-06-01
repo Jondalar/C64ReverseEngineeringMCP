@@ -21,6 +21,15 @@ import {
 const CHUNK_BYTES = 1 << 20;        // 1 MiB transport chunk
 const POOL_TARGET = 4;              // preallocated reusable buffers
 const INFLIGHT_HIGH_WATER = 8;      // backpressure: await `free` past this many chunks in the Worker
+// Spec 746.x (review #2) — hard ceiling on UNFLUSHED chunks held in memory. The
+// live run loop drains between frames but never AWAITS the drain (it cannot —
+// tick() must stay paced), so a worker that falls behind (slow/contended disk,
+// or a firehose wider than write throughput) would otherwise let flip() allocate
+// fresh 1 MiB buffers without bound → OS OOM of the shared daemon (the very crash
+// this work fixes). At the ceiling we fail the writer; the next drain() throws →
+// trace-run.ts aborts the trace gracefully (run continues untraced) instead of
+// allocating to death. 256 chunks = 256 MiB cap, far above any healthy backlog.
+const MAX_PENDING_CHUNKS = 256;
 
 // BUG-027 Blocker 1 (Spec 744.2) — a worker_thread needs a `.js` script path.
 // The product MCP server runs from SOURCE via `npx tsx src/cli.ts` (see any
@@ -179,7 +188,20 @@ export class BinaryTraceLogWriter {
   /** Move the filled current chunk into pendingSend, take a fresh fill buffer.
    *  Sync + alloc-only: never awaits (cannot — runs inside the sync observer). */
   private flip(): void {
+    // Once failed (incl. the backpressure ceiling below), stop buffering: reuse
+    // the current fill buffer in place so a failed writer cannot keep allocating
+    // while the run loop's next drain() picks up this.error and aborts the trace.
+    if (this.error) { this.curOff = 0; return; }
     if (this.curOff > 0) {
+      // Spec 746.x (review #2) — backpressure ceiling. If the worker is so far
+      // behind that pendingSend has reached the cap, fail the writer instead of
+      // allocating another 1 MiB buffer. The next drain() throws this.error and
+      // the trace is aborted gracefully (run continues untraced).
+      if (this.pendingSend.length >= MAX_PENDING_CHUNKS) {
+        this.fail(new Error(`trace backpressure ceiling: ${this.pendingSend.length} unflushed chunks (~${this.pendingSend.length} MiB) — the trace sink worker cannot keep up; aborting trace`));
+        this.curOff = 0;
+        return;
+      }
       this.pendingSend.push({ buffer: this.curBuf, length: this.curOff, id: this.nextId++ });
       const next = this.freePool.pop();
       if (next) { this.curBuf = next; }
@@ -187,6 +209,18 @@ export class BinaryTraceLogWriter {
       this.curDv = new DataView(this.curBuf);
       this.curOff = 0;
     }
+  }
+
+  /** Spec 746.x (review #5) — best-effort teardown for the ABORT path (worker
+   *  failure mid-run). fail() only sets this.error + wakes waiters; it never
+   *  terminates the worker. Without this, an aborted run orphans the worker
+   *  thread + its open fd for the daemon's lifetime (one leak per start→abort
+   *  cycle). Idempotent; `closed` guards the normal finalize()→terminate() path. */
+  dispose(): void {
+    if (this.closed) return;
+    this.closed = true;
+    if (!this.error) this.error = new Error("trace writer disposed");
+    try { this.worker.terminate(); } catch { /* best effort */ }
   }
 
   /** Transfer pending chunks to the Worker; apply backpressure at the binary

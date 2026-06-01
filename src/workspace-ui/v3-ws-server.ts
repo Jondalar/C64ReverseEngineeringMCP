@@ -971,7 +971,16 @@ export class V3WsServer {
       const run = await c.traceRun.start(def, { controller: c, outputPath });
       return { run, outputPath, domains: doms };
     });
-    this.on("trace/run/stop", async ({ session_id }) => ({ run: await ctrlFor(session_id).traceRun.stop() }));
+    this.on("trace/run/stop", async ({ session_id }) => {
+      // Spec 746.x (review #4) — guard like the Monitor's `trace off`. A trace can
+      // SELF-ABORT (writer/worker failure) and clear itself; without this guard
+      // stop() throws "no active trace run", the UI's toggleTrace() await rejects,
+      // setTracing(false) never runs, and the button is stuck visually 'on'. Return
+      // the aborted status instead so the client re-syncs to "off".
+      const c = ctrlFor(session_id);
+      if (!c.traceRun.isActive()) return { run: null, status: c.traceRun.status() };
+      return { run: await c.traceRun.stop() };
+    });
     this.on("trace/run/status", ({ session_id }) => ctrlFor(session_id).traceRun.status());
     // Spec 746.10 — the session's current (active) or last-finalized trace store, so a
     // UI/LLM can read the swimlane without re-passing the path.

@@ -266,12 +266,19 @@ let firstCount = -1;
         captures: [{ kind: "cpu-row", domain: "c64-cpu" }], retention: "transient",
       };
       const tr = new TraceRunController();
-      await tr.start(def, { controller: ctrl, outputPath: join(dir, "flood.duckdb") });
+      // overflow classification is a LEGACY-JSON-path concept (bounded queue +
+      // QUEUE_SOFT_LIMIT). Since Spec 746.x binary is the default, so request the
+      // legacy path explicitly to exercise it. (capturing is NOT asserted false:
+      // overflow only flags the queue; it does not stop capture — there is no
+      // `stop` condition on this def, so capturing stays true. The prior
+      // `capturing===false` clause was a spurious, pre-existing always-false
+      // assertion.)
+      await tr.start(def, { controller: ctrl, outputPath: join(dir, "flood.duckdb"), binary: false });
       for (let i = 0; i < 500_010; i++) reg.publish("cpu", i, { side: 0, pc: 0xE000, opcode: 0xEA });
       const status = tr.status();
       await tr.stop();
-      gate("G11 unbounded flood classified as overflow (708.8)",
-        status.overflowed === true && status.capturing === false,
+      gate("G11 unbounded flood classified as overflow (708.8, legacy JSON path)",
+        status.overflowed === true,
         `events=${status.eventCount} overflow=${status.overflowed}`);
     }
   } finally { stopIntegratedSession(sessionId); }
