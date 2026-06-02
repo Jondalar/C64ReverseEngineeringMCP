@@ -159,3 +159,22 @@ entries in the Disk/Cartridge tabs. (A briefly-created duplicate Spec 749 was re
 the work is now **Spec 750** — Disk+Cartridge Cartography Visualization — which uses
 721's medium model. BUG-031 closes under **750.1** (mediumRef + per-image scoping +
 the Disk/Cartridge panels rendering the `origin=custom` entries).
+
+**750.1 progress (2026-06-02) — the 3 follow-up points:**
+1. **Grouping — FIXED.** The builder now emits ONE file entry per (payload, image)
+   whose `sectorChain` is the UNION of all the payload's applicable sector spans
+   (a payload = one logical unit, its mediumSpans are its scattered footprint, not N
+   files). `e2e:bug031` 2b/2c/2d: 3 scattered spans → 1 entry, 3-sector chain,
+   geometry colours all 3 as one file. 14/14.
+2. **UI render — needs the 4310 server restarted, NOT just `/mcp reconnect`.** The
+   workspace-ui HTTP server (`server.ts:348`) recomputes `buildWorkspaceUiSnapshot()`
+   LIVE per request with its IN-PROCESS builder; the running 4310 still had the old
+   builder → 2 files. DATA changes reflect on browser refresh (service is rebuilt
+   per request); a builder CODE change needs a 4310 restart. After restart the
+   DiskPanel renders the grouped `origin=custom` entries (list + wheel) + the
+   `custom`/`unscoped` badges. (The UI reads the live snapshot, NOT views/disk-layout.json.)
+3. **Per-image scoping — mechanism in, data pending.** `mediumRef` scopes per span;
+   payloads registered WITHOUT a `mediumRef` are `unscoped` → shown on every image +
+   badged (the chosen "show + badge" behaviour). To bind a payload to s1, re-register
+   with `image:"wasteland_s1"` (or the disk-manifest artifact id) — then it shows only
+   on s1.

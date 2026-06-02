@@ -37,9 +37,14 @@ const diskB = mkDisk("wlB", "WASTELAND-B", []); // second image → multi-disk p
 svc.saveEntity({ kind: "payload", name: "utils_overlay_7E00",
   mediumSpans: [{ kind: "sector", track: 8, sector: 0, offsetInSector: 0, length: 1536 }],
   payloadLoadAddress: 0x7E00, payloadFormat: "raw" });
-// block2 @ T12 — mediumRef=diskA → scoped to A only.
+// block2 — THREE scattered single-sector spans (descending-interleave, like the real
+// game), all scoped to diskA → must group into ONE file entry with a 3-sector chain.
 svc.saveEntity({ kind: "payload", name: "block2_engine_0200",
-  mediumSpans: [{ kind: "sector", track: 12, sector: 0, offsetInSector: 0, length: 8000, mediumRef: diskA.id }],
+  mediumSpans: [
+    { kind: "sector", track: 34, sector: 1, offsetInSector: 0, length: 254, mediumRef: diskA.id },
+    { kind: "sector", track: 33, sector: 5, offsetInSector: 0, length: 254, mediumRef: diskA.id },
+    { kind: "sector", track: 32, sector: 2, offsetInSector: 0, length: 254, mediumRef: diskA.id },
+  ],
   payloadLoadAddress: 0x0200, payloadFormat: "raw" });
 // diskB_only @ T9 — mediumRef=diskB → must NOT appear on A.
 svc.saveEntity({ kind: "payload", name: "diskB_only_payload",
@@ -64,9 +69,20 @@ const tA = fA.map((f) => f.title);
 const utilsA = fA.find((f) => f.title === "utils_overlay_7E00");
 ok(!!utilsA && utilsA.origin === "custom" && utilsA.unscoped === true && utilsA.track === 8, "1 unscoped payload (no mediumRef) shows on A + flagged unscoped", utilsA ? `unscoped=${utilsA.unscoped} T${utilsA.track}` : `fA=[${tA}]`);
 
-// 2 scoped-to-A span shows on A, NOT unscoped, carries mediumRef.
-const blockA = fA.find((f) => f.title === "block2_engine_0200");
-ok(!!blockA && blockA.unscoped !== true && blockA.mediumRef === diskA.id, "2 mediumRef=A span scoped to A (not unscoped)", blockA ? `unscoped=${blockA.unscoped} ref=${blockA.mediumRef === diskA.id}` : "missing");
+// 2 scoped-to-A payload shows on A, NOT unscoped, carries mediumRef.
+const blockAs = fA.filter((f) => f.title === "block2_engine_0200");
+const blockA = blockAs[0];
+ok(!!blockA && blockA.unscoped !== true && blockA.mediumRef === diskA.id, "2 mediumRef=A payload scoped to A (not unscoped)", blockA ? `unscoped=${blockA.unscoped} ref=${blockA.mediumRef === diskA.id}` : "missing");
+// 2b GROUPING: 3 scattered spans → ONE file entry with a 3-sector chain (not 3 entries).
+ok(blockAs.length === 1, "2b 3 scattered spans = ONE payload entry (not 3 chunks)", `entries=${blockAs.length}`);
+ok((blockA?.sectorChain?.length ?? 0) === 3, "2b sectorChain spans all 3 scattered sectors", `chain=${blockA?.sectorChain?.length}`);
+const chainCells = new Set((blockA?.sectorChain ?? []).map((c) => `${c.track}:${c.sector}`));
+ok(chainCells.has("34:1") && chainCells.has("33:5") && chainCells.has("32:2"), "2c chain covers T34/S1 + T33/S5 + T32/S2", [...chainCells].join(","));
+// 2d geometry colours all 3 scattered cells.
+const cells = dA?.sectors ?? [];
+const t34 = cells.find((s) => s.track === 34 && s.sector === 1);
+const t32 = cells.find((s) => s.track === 32 && s.sector === 2);
+ok(t34?.category === "file" && t32?.category === "file" && t34?.fileId === t32?.fileId, "2d geometry colours the scattered cells as ONE file", `t34=${t34?.category} t32=${t32?.category} same=${t34?.fileId === t32?.fileId}`);
 
 // 3 a span pinned to disk B does NOT appear on disk A.
 ok(!fA.some((f) => f.title === "diskB_only_payload"), "3 mediumRef=B span excluded from A", tA.join(","));

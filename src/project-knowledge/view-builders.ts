@@ -910,46 +910,59 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
       //   • no span.mediumRef → UNSCOPED: shown on every disk image but flagged so the
       //     UI badges it "image not yet attributed" (never silently fanned-as-confirmed).
       // The same artifact on multiple images = multiple spans (each with its mediumRef).
+      // ONE region per PAYLOAD per image (a payload is one logical unit whose bytes
+      // may be SCATTERED across many sectors — its mediumSpans are that footprint, NOT
+      // N separate files). Gather the entity's sector spans applicable to THIS image
+      // (scoped-here OR unscoped, minus CBM-claimed cells) into a single file entry
+      // whose sectorChain is the union of all those sectors.
       const payloadFiles: typeof manifestFiles = context.entities
         .filter((e) => e.kind !== "disk-file") // disk-file entities ARE the manifest files
-        .flatMap((e) => {
-          const spans = (e.mediumSpans ?? []).filter((sp): sp is Extract<typeof sp, { kind: "sector" }> => sp.kind === "sector");
-          return spans
-            .filter((span) => !claimedCells.has(`${span.track}:${span.sector}`)) // CBM-cell dedup
-            .filter((span) => (span.mediumRef ? span.mediumRef === artifact.id : true)) // scoped to this image, or unscoped
-            .map((span) => {
-              const length = span.length ?? 0;
-              const sizeSectors = Math.max(1, Math.ceil((length || 1) / 254));
-              const unscoped = !span.mediumRef;
-              const colorKey: Array<string | number> = [artifact.id, "payload", e.id, span.track, span.sector, "custom"];
-              return {
-                id: `${artifact.id}-payload-${e.id}-${span.track}-${span.sector}`,
-                title: spans.length > 1 ? `${e.name} @T${span.track}/S${span.sector}` : e.name,
-                type: e.payloadFormat ?? e.kind ?? "payload",
-                origin: "custom" as const,
-                unscoped,
-                mediumRef: span.mediumRef,
-                sizeSectors,
-                sizeBytes: length || undefined,
-                track: span.track,
-                sector: span.sector,
-                loadAddress: e.payloadLoadAddress,
-                relativePath: undefined as string | undefined,
-                entityId: e.id,
-                sectorChain: synthSectorChain(span.track, span.sector, sizeSectors),
-                loadType: "custom-loader" as const, // code-derived → read by the custom loader, not KERNAL
-                loaderHint: undefined,
-                loaderSource: undefined,
-                color: fnvHslColor(colorKey),
-                packer: e.payloadPacker,
-                format: e.payloadFormat,
-                notes: [`registered payload (origin=custom)${unscoped ? " — UNSCOPED: image not yet attributed (no mediumRef)" : ""}`],
-                md5: undefined as string | undefined,
-                first16: undefined as string | undefined,
-                last16: undefined as string | undefined,
-                kindGuess: e.payloadFormat ?? e.kind,
-              };
-            });
+        .map((e) => {
+          const sectorSpans = (e.mediumSpans ?? []).filter((sp): sp is Extract<typeof sp, { kind: "sector" }> => sp.kind === "sector");
+          const applicable = sectorSpans
+            .filter((span) => (span.mediumRef ? span.mediumRef === artifact.id : true)) // scoped here, or unscoped
+            .filter((span) => !claimedCells.has(`${span.track}:${span.sector}`));        // CBM-cell dedup
+          return { e, applicable };
+        })
+        .filter((x) => x.applicable.length > 0)
+        .map(({ e, applicable }) => {
+          // chain = union of every applicable span's sectors (each span: ceil(len/254)
+          // sectors from its start), re-indexed into one contiguous chain.
+          const merged = applicable.flatMap((span) =>
+            synthSectorChain(span.track, span.sector, Math.max(1, Math.ceil((span.length || 1) / 254))));
+          const sectorChain = merged.map((c, i) => ({ ...c, index: i, isLast: i === merged.length - 1 }));
+          const first = applicable[0];
+          const totalBytes = applicable.reduce((acc, s) => acc + (s.length ?? 0), 0);
+          const unscoped = applicable.every((s) => !s.mediumRef); // not explicitly scoped to this image
+          const scopedRef = applicable.find((s) => s.mediumRef)?.mediumRef;
+          const colorKey: Array<string | number> = [artifact.id, "payload", e.id, "custom"];
+          return {
+            id: `${artifact.id}-payload-${e.id}`,
+            title: e.name,
+            type: e.payloadFormat ?? e.kind ?? "payload",
+            origin: "custom" as const,
+            unscoped,
+            mediumRef: scopedRef,
+            sizeSectors: sectorChain.length,
+            sizeBytes: totalBytes || undefined,
+            track: first.track,
+            sector: first.sector,
+            loadAddress: e.payloadLoadAddress,
+            relativePath: undefined as string | undefined,
+            entityId: e.id,
+            sectorChain,
+            loadType: "custom-loader" as const, // code-derived → read by the custom loader, not KERNAL
+            loaderHint: undefined,
+            loaderSource: undefined,
+            color: fnvHslColor(colorKey),
+            packer: e.payloadPacker,
+            format: e.payloadFormat,
+            notes: [`registered payload (origin=custom), ${sectorChain.length} sector(s)${unscoped ? " — UNSCOPED: image not yet attributed (no mediumRef)" : ""}`],
+            md5: undefined as string | undefined,
+            first16: undefined as string | undefined,
+            last16: undefined as string | undefined,
+            kindGuess: e.payloadFormat ?? e.kind,
+          };
         });
       const files = [...manifestFiles, ...payloadFiles];
 
