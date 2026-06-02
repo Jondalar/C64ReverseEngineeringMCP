@@ -5,7 +5,7 @@
 - **Reporter:** llm
 - **Area:** knowledge / ui-v3 (disk-layout view + builder)
 - **Severity:** medium
-- **Status:** fixed <!-- open | investigating | fixed | wontfix | duplicate -->
+- **Status:** partial <!-- builder fixed; UI-render + per-image scoping still open — see FOLLOW-UP at end -->
 
 ## Environment
 
@@ -116,3 +116,44 @@ already does a manifest-merge for fixed-LUT disks; this is the same need for
 - **Regression risk:** low — manifest files are unchanged (the pass only ADDS custom
   entries + dedups overlaps); same builder as BUG-003/004 (`smoke-bug003-004` 6/6,
   `project-knowledge-smoke` green).
+
+---
+
+## FOLLOW-UP (2026-06-02, reporter llm) — builder fixed, but NOT closed end-to-end
+
+Verified after the builder fix + `register_payload`-with-spans + `build_all_views`:
+
+**Builder side WORKS** — `views/disk-layout.json` now has, per disk, 64 file entries:
+`prodos`+`2.0` + `block2_engine_0200` (46 sector entries, T34/33/32/31) + `block3_game_7E00`
+(15, T4) + `utils_overlay_7E00` (T8). Each has `track`/`sector`/`sectorChain`/`color`. ✓
+
+**Two halves still open:**
+
+1. **UI render does NOT consume it.** After MCP reconnect + UI reload, the Disk tab still
+   shows only the 2 CBM files (`01_prodos`, `02_2.0`) in the left "wasteland" panel AND the
+   geometry wheel is still all-red (BAM) + the T18 arc — none of the `origin=custom` payload
+   entries from `disk-layout.json` are listed or drawn. So the resolution note "the UI
+   already renders origin=custom files via the custom-LUT path" does **not** hold for this
+   disk panel — the front-end disk view is still manifest/BAM-bound and ignores
+   `disks[].files` custom entries. (Builder emits the data; UI doesn't render it.)
+
+2. **Per-image scoping is wrong.** The payload spans were attached to **all 4 disk records**
+   (s1–s4), not just the source image — `block2_engine_0200` (side-1 content) appears on
+   s2/s3/s4 too. With 4 images present the "single-disk default" matching doesn't apply and
+   there's no explicit `artifactIds` image link, so it should scope by which image the
+   `medium_spans` actually belong to (or require/derive the image link), not fan out to all.
+
+**Repro:** register payloads with sector `medium_spans`, `build_all_views`, open Disk tab.
+`disk-layout.json` has 64 entries/disk; UI shows 2 + red wheel; entries duplicated across all
+4 disks.
+
+**Status → partial** (builder ✓, UI-render + per-image scoping open).
+
+**Tracked under Spec 721.J5** (2026-06-02): the two open halves are NOT a new spec —
+they are the disk instance of Spec 721's already-defined medium model
+(`AssetCandidate.source.mediumRef` / `MediaRegion` = disk sector/track or CRT bank,
+709 identity). The fix = carry `mediumRef` on `mediumSpans` (so a span is scoped to
+its image; the SAME artifact on multiple sides = multiple spans, never a fan-to-all),
+scope the disk/cartridge layout overlays by it, and render the `origin=custom`
+entries in the Disk/Cartridge tabs. (A briefly-created duplicate Spec 749 was retired
+in favour of 721.J5.) BUG-031 closes when 721.J5 lands.

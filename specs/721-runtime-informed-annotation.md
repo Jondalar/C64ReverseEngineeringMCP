@@ -115,6 +115,14 @@ VisualElement → MemoryRange → Routine → ArtifactRange → MediaRegion
 Saved via `save_relation` / `link_entities` / `link_payload_to_*` — the join is a
 set of relations + a classification, not a blob.
 
+**One placement model, two representations.** The asset-side `AssetCandidate.source`
+(`mediumRef` + offset/length) and the payload/entity-side `mediumSpans`
+(`sector`/`slot`) are the SAME fact — where bytes live on a medium image. They must
+share the `mediumRef` (the disk-side/CRT identity): `mediumSpans` carry `mediumRef`
+so a span is scoped to its image, and the same artifact on multiple images is just
+multiple spans (or multiple `MediaRegion`s on the chain). The disk/cartridge LAYOUT
+views consume this scoped placement (721.J5).
+
 **Annotation proposals** (with `EvidenceRef`s, `provenance:"runtime-join"`):
 - a `RoutineAnnotation` for the writer/depack routine ("unpacks sprite set X from
   $… to $…"), and `LabelAnnotation`/`SegmentAnnotation` for the source and
@@ -139,6 +147,7 @@ resolution second; UI/overlay last.
 | **721.J2** | **Trace-backed derived-asset PoC.** A depacked/copied asset (no direct hash match). Use the DuckDB trace writer/source/copy/depack chain to resolve `derived_asset` back to a packed `AssetCandidate` on the medium; attach the chain as evidence. | The trace store resolves an origin when bytes were transformed; honest `derived_asset`. | 721.J1, 708 traceRef, depack tooling |
 | **721.J3** | **Knowledge relations + annotation proposals.** Persist the `VisualElement→MemoryRange→Routine→ArtifactRange→MediaRegion` chain via `save_relation`; emit annotation proposals (routine + data labels) with `EvidenceRef`s. | The join lands as durable, reviewable knowledge that disasm consumes. | 721.J1/J2, 042/720 |
 | **721.J4** | *(later)* **UI navigation + code overlay.** Clickable screen→asset→file/offset→code→trace; overlaps Spec 711. | End-to-end human navigation. | 721.J3, 711 |
+| **721.J5** | **Medium-scoped placement on the LAYOUT views (disk + cartridge).** Carry `mediumRef` (§3/§5 — which disk-side/CRT image, 709 identity) on the payload/entity `mediumSpans` (sector\|slot), so the SAME representation answers "where + on which image". The `buildDiskLayoutView` / `buildCartridgeLayoutView` overlays then SCOPE payload spans by `mediumRef`: same artifact on multiple images = multiple spans; an unscoped span (no `mediumRef`) is shown but badged `unscoped`, never silently fanned to all. The Disk/Cartridge tabs RENDER the `origin=custom` entries (geometry segments + list). **This is the structured-placement / disk-geometry sibling of the visual join — same medium model, different surface.** Closes **BUG-031** (disk instance; the committed builder-overlay is the unscoped precursor) + its cartridge analogue. | The reversed disk/cart cartography colours the right image(s), not just the CBM/manifest. | 721.J1 (mediumRef model), 709 identity, BUG-024 mediumSpans |
 
 Each PoC is a focused gate (a tiny script proving the one capability), not a big
 suite. J1 is deterministic + needs no runtime trace; J2 needs a retained trace.

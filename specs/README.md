@@ -38,7 +38,7 @@ Small by design — only specs with concrete next implementation work.
 
 | Spec | Title | Why active / what's next |
 |---|---|---|
-| 721 | Visual-Origin Join (runtime-informed annotation) | Core join shipped (probe green); the semantic-pipeline extension is the active edge. |
+| 721 | Visual-Origin Join (runtime-informed annotation) | Core join shipped (probe green). Active edges: the semantic-pipeline extension + **721.J5 medium-scoped placement on the disk/cartridge LAYOUT views** (`mediumRef` on `mediumSpans` → scope overlays per image + render in the Disk/Cartridge tabs — closes BUG-031). |
 | 726.B | Trace V2 Binary Timeline | **Slice 1 DONE** — binary `.c64retrace` log is the live authority, DuckDB is a rebuildable index, zero-alloc CPU sink, perf gate GREEN (~6%, 2.1× PAL). **726.B-2: STREAMING (not read-whole-file) indexer + lazy-on-read rebuild DONE (2026-06-02, `e2e:746-index-streaming` 10/10).** Remaining: zero-alloc bus/iec/vic + per-instruction drive trace. |
 | 742 | Media Ownership + VICE-Faithful Write-Through Refactor | ACTIVE after BUG-023: unify UI/MCP/scenario/ingress media attach paths, preserve `MediaRef`/backing-path ownership; disk + EasyFlash-CRT write-through shipped, remaining families to verify. |
 | 744 | Runtime Session Authority + Drive-to-State Orchestration | **744.4c Runtime Daemon DONE (shipped 2026-05-31)** — process-stable daemon authority; UI + MCP are clients. One-runtime/one-read-path trace hardening shipped (746.x). Next: §7 drive-to-state / disk-swap flow. |
@@ -92,7 +92,6 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 | 720 | Disassembly Output Quality |
 | 740.2 | Project Wiki authoring (`project_wiki_update`) — deeper synthesis over the 740.1 retrieval layer |
 | 747 | Bun Runtime Investigation — opt-in compatibility/performance investigation only; Node remains baseline until MCP stdio, Runtime Daemon, trace workers, DuckDB + benchmarks prove Bun safe. |
-| 749 | Medium Placement Provenance + Layout Overlay (disk + cartridge) — CONCEPT: `medium_spans` need an image dimension (same artifact can be on multiple disk sides / cart images); scope layout overlays by it + render them in the Disk/Cartridge tabs. Generalises BUG-031. OQs open. |
 
 ## SUPERSEDED (replaced by a later spec — kept here as breadcrumbs; bodies archived)
 
@@ -118,7 +117,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 - ACTIVE: 5 (721, 726.B, 742, 744, 748)
 - GOVERNING / DOCTRINE: 7 (610, 612, 620, 705, 715, 723, 746)
 - DONE: 12 (425, 426, 427, 616, 617, 618, 622, 703, 704, 708, 726, 740.1)
-- BACKLOG: 13 (incl. 749 medium-placement concept)
+- BACKLOG: 12
 - SUPERSEDED: 2 (600, 601)
 - NEEDS-RECONCILE: 5 (428, 613, 614, 615, 713)
 - ARCHIVED: ~130 historical specs in `specs/_archive/` (incl. the 25 done/superseded specs archived 2026-06-02)
