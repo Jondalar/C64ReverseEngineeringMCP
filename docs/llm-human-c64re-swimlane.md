@@ -59,6 +59,7 @@ Default-visible:
 - Analysis/disassembly: `analyze_prg`, `disasm_prg`, `disasm_menu`, `inspect_address_range`, `c64ref_lookup`
 - Headless Runtime: `runtime_session_start`, `runtime_media_mount`, `runtime_session_run`, `runtime_type`, `runtime_joystick`, `runtime_render_screen`, `runtime_session_snapshot`
 - Monitor/inspect: `runtime_monitor_registers`, `runtime_monitor_memory`, `runtime_monitor_disasm`, `runtime_until`, `runtime_resolve_pc`, `runtime_vic_inspect_at`
+- Trace capture/control: `runtime_trace_start`, `runtime_mark`, `runtime_trace_finalize` (all on the default surface, Spec 746 — the LLM starts a live trace on the running session, no cold-boot)
 - Trace/evidence: `runtime_query_events`, `trace_store_*`, `runtime_swimlane_slice`, `runtime_trace_taint`, `runtime_follow_path`, `runtime_profile_loader`
 
 Not default:
@@ -67,3 +68,33 @@ Not default:
 - Drive-only debug tools.
 - Maintenance/backfill/repair/bulk.
 - Old runtime modes, lockstep switches, legacy paths.
+
+## 5. What the swimlane is built from — the `.c64retrace` (Spec 726.B / 746.x)
+
+The swimlane (offline stepping: `C64 A X Y SP $00 $01 NV-BDIZC LIN CYC` + the 1541
+lane + PC/IRQ + media/cart bytes) is reconstructed from the trace's authoritative
+binary log, `.c64retrace`. DuckDB is only a rebuildable query index over it.
+
+```
+FILE       := FileHeader Event*
+FileHeader := MAGIC(8 "C64RETR1") version(u16) flags(u16) metaLen(u32) metaJson(metaLen)
+Event      := opcode(u8) payload(self-delimiting, little-endian)
+```
+
+- `cycle` is **f64** in every event — it IS the global stopwatch the C64 and 1541
+  lanes are aligned on. (u32 would wrap on a real PAL session.)
+- One swimlane CPU row = one `CPU_STEP` (0x10, 19 bytes): `cycle f64 + PC u16 +
+  opcode + A + X + Y + SP + P + b1 + b2`. The 1541 lane is `DRIVE_CPU_STEP` (0x30,
+  same shape). Memory writes (`0x11/0x12/0x31`, 15B), VIC (`0x20`), SID (`0x22`),
+  IEC line changes (`0x23`), and phase `MARK`s (`0x01`, variable) interleave by cycle.
+- Events are self-delimiting (fixed opcodes have a static size; `MARK` embeds a u16
+  length), so a reader streams the log sequentially and skips unknown opcodes —
+  forward-compatible across format bumps.
+
+**How a slice is served:** the LLM/UI never opens the store itself — it asks the
+daemon (`runtime_swimlane_slice` / `trace_store_*` route through `trace/read`),
+which ensures the DuckDB index exists (lazy-rebuilds from the `.c64retrace` if
+missing, streaming + >2 GiB-safe) and returns a bounded slice. The binary log is the
+truth; a buggy reconstruction would diverge from the recorded PC stream, so the log
+doubles as a checksum on any replay. Full wire spec:
+`src/runtime/headless/trace/binary-format.ts`.

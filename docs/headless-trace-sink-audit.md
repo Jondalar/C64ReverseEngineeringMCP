@@ -2,6 +2,31 @@
 
 **Date:** 2026-05-29. Audit-only — input for 726.2/726.3. No code change.
 
+> **SHIPPED (2026-06-02) — read this first.** The gaps + constraints this audit
+> scoped are implemented, but NOT the way the audit guessed. The actual design:
+> - The product capture path is the **binary `.c64retrace` firehose** (Spec 726.B),
+>   NOT the legacy JSON buffer-then-flush this audit critiques. The observer encodes
+>   directly into a preallocated chunk (no JSON, no SQL, no per-event alloc on the
+>   hot path); the `.c64retrace` append-only log is the **timeline authority**.
+> - **No 500k buffer cap / no silent truncation.** The live run loop
+>   (`runtime-controller.tick()`) drains the trace once per completed frame +
+>   recycles the 1 MiB chunk — this is what keeps the ~15–140 MiB/s firehose from
+>   OOM'ing the daemon. Full-session traces are feasible.
+> - DuckDB is a **derived, rebuildable index** built FROM the log after `stop()`,
+>   on a **worker thread** (stop returns in ~12 ms; the indexer streams the log in
+>   bounded windows so it is >2 GiB-safe, builds into a temp file + atomic-renames).
+>   Readers `awaitIndex()`; a missing index is **lazy-rebuilt on read** from the log.
+> - **Producer enablement** is gated in the tool surface: `runtime_session_start
+>   (trace_domains=[…])` / `runtime_trace_start(domains=[…])` enable the matching
+>   producers at construction (`enableBusAccessTrace`/`traceIec`/`traceDrive`).
+> - `runtime_trace_start` (start a trace on a RUNNING session) is on the **default**
+>   tool surface (Spec 746); `trace.finalize` is collapsed into `trace.stop
+>   {wait_index}`; all reads route through the daemon.
+>
+> Canonical current spec: `docs/runtime-daemon-solution-design.md` §"Trace Capture &
+> Indexing" + `src/runtime/headless/trace/binary-format.ts`. The sections below are
+> the original pre-implementation audit, kept for provenance.
+
 Goal: persist a queryable `trace.duckdb` from the LIVE headless session via MCP.
 This audit reads the existing pipeline and finds it is **almost entirely
 present** — the gap is MCP wiring + two real design constraints.

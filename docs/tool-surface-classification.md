@@ -27,21 +27,25 @@ change. Builds on `docs/tool-surface-inventory.md` (191 tools).
 | ADVANCED | raw runtime / debug / VICE / maintenance / format-detail | register only under `C64RE_FULL_TOOLS` |
 | REWRITE | description leads with `Spec NNN` / steers to superseded flow | rewrite to the §2 template |
 
-## Counts (corrected 2026-05-29 — inventory now includes the knowledge tools)
+## Counts (corrected 2026-06-02 — Spec 746 live-trace + binary-format hardening)
 
-The first inventory cut missed `src/project-knowledge/mcp-tools.ts` (80
-knowledge tools). True totals:
+`tier-tools.ts` `DEFAULT_TOOLS` + `docs/tool-surface-inventory.json` are the
+authority; `scripts/probe-tool-surface.mjs` enforces the cap. Current totals:
 
-- Total: **271** (server-tools 191 + project-knowledge 80).
-- **KEEP default façade: 42** (shipped in 722.3a `tier-tools.ts`,
-  `scripts/probe-tool-surface.mjs` GREEN; cap 45).
-- **ADVANCED: 229** (vice 49 · runtime 48 · headless 15 · all knowledge
-  maintenance/list/save/build/register detail not in the façade · compression /
-  g64 / sandbox).
-- **MERGE: ~10** (headless↔runtime overlaps + the audio/monitor dups) — 722.4.
-- **REWRITE: 111** (every spec-numbered description) — 722.5.
+- Total: **288** (server-tools + `src/project-knowledge/mcp-tools.ts` 80).
+- **KEEP default façade: 107** (cap **108** — Spec 746 promoted `runtime_trace_start`
+  107→108 so the LLM can START a live trace on a running session, not just
+  finalize/status one; the §3.7/3.8/3.9 Headless Runtime + TraceDB facades were
+  promoted in Spec 725/730). `probe-tool-surface.mjs` GREEN.
+- **ADVANCED: ~180** (vice 49 · runtime debug/drive-only · maintenance/bulk ·
+  format-forensics · sandbox) — behind `C64RE_FULL_TOOLS`.
+- **MERGE: ~10** (headless↔runtime overlaps) — 722.4.
+- **REWRITE: 111** (spec-numbered descriptions) — 722.5.
 
-Façade-first means the LLM sees **42** obvious tools by default, not 271.
+Façade-first means the LLM sees **~107** obvious tools by default, not 288. The
+Headless Runtime (Spec 725) AND live Trace Capture (Spec 726.B / 746 —
+`runtime_trace_start` / `runtime_mark` / `runtime_trace_finalize`) are now part of
+the default product workflow, not advanced debug.
 
 ## KEEP — default façade (~36)
 
@@ -155,7 +159,28 @@ oracle/fallback, not an alternate workflow.
   duplicate-capability name in default; vice/maintenance/drive-only/sandbox all
   advanced; default count ≤ cap (~40).
 
-## Acceptance for 722 overall
-Default surface = the ~36 façade tools, every one capability-first; everything
-raw/debug/VICE/maintenance behind `C64RE_FULL_TOOLS`; zero capability removed;
-`probe-tool-surface` GREEN. (No emulator/UI change; no `runtime:proof` needed.)
+## Acceptance for 722 overall (updated Spec 746)
+Default surface = the **107** façade tools (static analysis + Headless Runtime +
+Monitor/Inspect + TraceDB + live-trace capture incl. `runtime_trace_start`), every
+one capability-first; everything raw/debug/VICE/maintenance/drive-only/sandbox
+behind `C64RE_FULL_TOOLS`; zero capability removed; `probe-tool-surface` GREEN (cap
+108). (No emulator/UI change; no `runtime:proof` needed.)
+
+## §3.10 — Trace binary format (`.c64retrace`, Spec 726.B / 746.x)
+
+The default product trace is an append-only `.c64retrace` binary log (the timeline
+AUTHORITY); the `.duckdb` is a derived query index rebuilt after stop on a worker
+thread, or lazily on first read if missing (streaming, >2 GiB-safe).
+
+```
+FILE       := FileHeader Event*
+FileHeader := MAGIC(8 "C64RETR1") version(u16) flags(u16) metaLen(u32) metaJson(metaLen)
+Event      := opcode(u8) payload(self-delimiting, little-endian, cycle=f64)
+```
+
+Records (total bytes): `CPU_STEP`/`DRIVE_CPU_STEP` (0x10/0x30) = 19B (cycle f64 + PC
+u16 + opcode + A/X/Y/SP/P + b1/b2); `RAM/IO/DRIVE_RAM_WRITE` (0x11/0x12/0x31) = 15B;
+`VIC_REG_WRITE` (0x20) = 13B; `SID_REG_WRITE` (0x22) = 12B; `IEC_LINE_CHANGE` (0x23)
+= 11B; `MARK` (0x01) = variable (cycle + u16 len + label). Self-delimiting →
+forward-compatible (skip unknown opcodes). Full wire spec: `binary-format.ts` +
+`docs/runtime-daemon-solution-design.md`.

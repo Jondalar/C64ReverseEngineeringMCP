@@ -110,19 +110,29 @@ reveals:
 - which visible states matter to the user.
 
 The workflow must therefore permit an early runtime/loader capture after initial
-media inventory, especially for `cracker-only` and port workflows. Runtime may
+media inventory, especially for `cracker-only` and port workflows. **The LLM can
+start a live trace itself via `runtime_trace_start` on a running session** (promoted
+to the default tool surface, Spec 746 — no cold-boot, same shared session the human
+drives), so the agent begins capture without manual UI intervention. Runtime may
 also be used later to confirm or refine semantic conclusions.
 
-### 3.4 DuckDB Full Trace Is Durable Raw Evidence
+### 3.4 The Binary `.c64retrace` Is the Trace Authority; DuckDB Is a Rebuildable Index
 
-C64RE deliberately supports retained full or high-volume runtime traces in
-DuckDB. A full trace is not an accidental debug log; it is a source artifact
-that enables later questions which were not known at capture time.
+C64RE deliberately supports retained full or high-volume runtime traces. A full
+trace is not an accidental debug log; it is a source artifact that enables later
+questions which were not known at capture time. The **binary append-only log
+(`.c64retrace`, Spec 726.B)** is the authoritative timeline; **DuckDB is a
+rebuildable query index** derived from it (Spec 746.x), not the authority.
 
 Rules:
 
 - a retained runtime run is linked to media, checkpoint/experiment, trace
   definition, cycle range, and marks;
+- the `.c64retrace` binary log (FileHeader + Event*, cycle=f64) is the immutable
+  timeline authority + source artifact; the `trace.duckdb` index is a queryable
+  projection built FROM it after stop on a worker thread (stop returns instantly,
+  ~12 ms; readers `awaitIndex` before querying; a missing index is lazy-rebuilt on
+  read, streaming + >2 GiB-safe);
 - raw trace data remains queryable in DuckDB and may be exported/retained as a
   project artifact;
 - rollups, anchors, evidence bundles, and views are derived for efficient human
