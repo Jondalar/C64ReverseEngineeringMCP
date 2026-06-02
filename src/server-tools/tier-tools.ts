@@ -104,6 +104,9 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Spec 740.1 — Project Wiki + Knowledge Retrieval. The normal "where is X?"
   // entry point + neighbour walk + index rebuild + wiki coverage lint.
   "project_search", "project_find_related", "project_reindex_search", "project_wiki_lint",
+  // Spec 748 (BUG-032) — persistent project STEERING (the steering-file analogue):
+  // always-apply rules injected at the top of agent_onboard every session.
+  "project_steering_set",
 ]);
 
 /** Documented cap on the default surface (probe fails if exceeded). Spec 725
@@ -116,8 +119,9 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * register_payload — carved code-derived loads become first-class payloads.
  * BUG-027 raised 106→107 (runtime_session_close — session lifecycle/close).
  * Spec 746 raised 107→108 (runtime_trace_start — the LLM's enable-trace-on-a-
- * running-session gate; its finalize/status siblings were already default). */
-export const DEFAULT_TIER_CAP = 108;
+ * running-session gate; its finalize/status siblings were already default).
+ * Spec 748 raised 108→109 (project_steering_set — persistent project steering). */
+export const DEFAULT_TIER_CAP = 109;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

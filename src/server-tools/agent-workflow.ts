@@ -364,6 +364,26 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
 
       const lines: string[] = [];
       lines.push(`# Agent Onboarding`);
+      // Spec 748 (BUG-032) — PROJECT STEERING, injected FIRST + verbatim (the Kiro
+      // "steering file" analogue: project-scoped, always-in-context rules the agent
+      // must apply every session). Lives at <project>/knowledge/steering.md; written
+      // via project_steering_set. Surfaced at the very top so it can't be missed.
+      const steeringPath = join(projectRoot, "knowledge", "steering.md");
+      if (existsSync(steeringPath)) {
+        const steering = readFileSync(steeringPath, "utf8").trim();
+        if (steering.length > 0) {
+          lines.push(``);
+          lines.push(`## ⚙ PROJECT STEERING (always apply — ${steeringPath})`);
+          lines.push(steering);
+          lines.push(``);
+          lines.push(`---`);
+        }
+      } else {
+        lines.push(``);
+        lines.push(`## ⚙ Project Steering: none set`);
+        lines.push(`No \`knowledge/steering.md\`. Set persistent project rules (the discipline the agent must always apply — e.g. "after a load trace, derive the disk-T/S↔load cartography and register_payload the spans"; "after each action, record a finding + reconcile the related open question") with \`project_steering_set\`.`);
+        lines.push(``);
+      }
       if (autoImport.imported > 0) {
         lines.push(`Auto-imported ${autoImport.imported} analysis-run artifact(s): ${autoImport.entities} entities, ${autoImport.findings} findings, ${autoImport.relations} relations, ${autoImport.flows} flows, ${autoImport.questions} open questions.`);
         lines.push(``);
@@ -462,6 +482,31 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       lines.push(`Phase plan: ${status.paths.knowledgePhasePlan}`);
       lines.push(`Workflow state: ${status.paths.knowledgeWorkflowState}`);
       return textContent(lines.join("\n"));
+    },
+  );
+
+  server.tool(
+    "project_steering_set",
+    "Set the project's persistent STEERING rules — the always-apply guidance the agent must follow every session (the steering-file analogue). Use to encode project doctrine that must not be forgotten across context loss: e.g. 'after a load trace, derive the disk-T/S↔load cartography and register_payload the spans'; 'after each action, record a finding + reconcile the related open question'. Written to <project>/knowledge/steering.md and injected verbatim at the TOP of agent_onboard every session. Not for one-off notes (use save_finding) or per-turn next-step (use agent_next_step). Inputs: rules (markdown), optional append. Returns: the written path + content length.",
+    {
+      project_dir: z.string().optional(),
+      rules: z.string().min(1).describe("Markdown steering rules. Replaces the file unless append=true."),
+      append: z.boolean().optional().describe("Append to the existing steering instead of replacing (default false)."),
+    },
+    async ({ project_dir, rules, append }) => {
+      const projectRoot = ctx.projectDir(project_dir);
+      const path = join(projectRoot, "knowledge", "steering.md");
+      mkdirSync(dirname(path), { recursive: true });
+      let content = rules.trim() + "\n";
+      if (append && existsSync(path)) {
+        content = readFileSync(path, "utf8").replace(/\s*$/, "") + "\n\n" + content;
+      }
+      writeFileSync(path, content);
+      return textContent([
+        `Project steering ${append ? "appended" : "set"} → ${path} (${content.length} chars).`,
+        `It is injected verbatim at the top of agent_onboard every session (the steering-file analogue).`,
+        `Read it back any time with agent_onboard, or edit the file directly.`,
+      ].join("\n"));
     },
   );
 

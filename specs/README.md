@@ -42,6 +42,7 @@ Small by design — only specs with concrete next implementation work.
 | 726.B | Trace V2 Binary Timeline | **Slice 1 DONE** — binary `.c64retrace` log is the live authority, DuckDB is a rebuildable index, zero-alloc CPU sink, perf gate GREEN (~6%, 2.1× PAL). **726.B-2: STREAMING (not read-whole-file) indexer + lazy-on-read rebuild DONE (2026-06-02, `e2e:746-index-streaming` 10/10).** Remaining: zero-alloc bus/iec/vic + per-instruction drive trace. |
 | 742 | Media Ownership + VICE-Faithful Write-Through Refactor | ACTIVE after BUG-023: unify UI/MCP/scenario/ingress media attach paths, preserve `MediaRef`/backing-path ownership; disk + EasyFlash-CRT write-through shipped, remaining families to verify. |
 | 744 | Runtime Session Authority + Drive-to-State Orchestration | **744.4c Runtime Daemon DONE (shipped 2026-05-31)** — process-stable daemon authority; UI + MCP are clients. One-runtime/one-read-path trace hardening shipped (746.x). Next: §7 drive-to-state / disk-swap flow. |
+| 748 | Project Steering + Agent Discipline | **748.1 DONE** — project `knowledge/steering.md` via `project_steering_set`, injected at the top of `agent_onboard` (the Kiro steering-file analogue; `e2e:748` 6/6). Next: 748.2 orchestrator-enforced disciplines (BUG-032), 748.3 trace→cartography extractor (feeds BUG-031). |
 
 ## GOVERNING / DOCTRINE (rules + umbrella contracts — still binding, not active implementation)
 
@@ -113,7 +114,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 
 ## Counts
 
-- ACTIVE: 4 (721, 726.B, 742, 744)
+- ACTIVE: 5 (721, 726.B, 742, 744, 748)
 - GOVERNING / DOCTRINE: 7 (610, 612, 620, 705, 715, 723, 746)
 - DONE: 12 (425, 426, 427, 616, 617, 618, 622, 703, 704, 708, 726, 740.1)
 - BACKLOG: 12

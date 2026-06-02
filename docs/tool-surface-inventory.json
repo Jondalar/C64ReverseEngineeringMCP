@@ -1,5 +1,5 @@
 {
-  "total": 288,
+  "total": 289,
   "specCount": 78,
   "advancedCandidate": 68,
   "byNamespace": {
@@ -16,7 +16,7 @@
     "backfill": 5,
     "extract": 5,
     "inspect": 5,
-    "project": 10,
+    "project": 11,
     "record": 5,
     "link": 4,
     "import": 3,
@@ -2640,6 +2640,15 @@
       "hasSpec": false,
       "firstSentence": "Report gaps between the curated wiki (docs/index.md) and the structured knowledge: important active findings not yet mentioned in the wiki index, and orphan findings with no linked artifact or entity.",
       "desc": "Report gaps between the curated wiki (docs/index.md) and the structured knowledge: important active findings not yet mentioned in the wiki index, and orphan findings with no linked artifact or entity. Use after a mapping session to see what still needs to be written up, instead of eyeballing every finding. Read-only; it never edits files. Returns the gap lists. Not a content generator (writing the wiki up is a manual step) and not a structured validator (use the knowledge list tools for full audits).",
+      "tier": "default?"
+    },
+    {
+      "name": "project_steering_set",
+      "file": "server-tools/agent-workflow.ts",
+      "ns": "project",
+      "hasSpec": false,
+      "firstSentence": "Set the project's persistent STEERING rules \u2014 the always-apply guidance the agent must follow every session (the steering-file analogue).",
+      "desc": "Set the project's persistent STEERING rules \u2014 the always-apply guidance the agent must follow every session (the steering-file analogue). Use to encode project doctrine that must not be forgotten across context loss (e.g. 'after a load trace, derive the disk-T/S\u2194load cartography and register_payload the spans'; 'after each action, record a finding + reconcile the related open question'); written to knowledge/steering.md and injected verbatim at the top of agent_onboard every session. Not for one-off notes (use save_finding) or per-turn next-step (use agent_next_step). Inputs: rules (markdown), optional append. Returns: the written path + content length.",
       "tier": "default?"
     },
     {
