@@ -155,5 +155,7 @@ they are the disk instance of Spec 721's already-defined medium model
 709 identity). The fix = carry `mediumRef` on `mediumSpans` (so a span is scoped to
 its image; the SAME artifact on multiple sides = multiple spans, never a fan-to-all),
 scope the disk/cartridge layout overlays by it, and render the `origin=custom`
-entries in the Disk/Cartridge tabs. (A briefly-created duplicate Spec 749 was retired
-in favour of 721.J5.) BUG-031 closes when 721.J5 lands.
+entries in the Disk/Cartridge tabs. (A briefly-created duplicate Spec 749 was retired;
+the work is now **Spec 750** — Disk+Cartridge Cartography Visualization — which uses
+721's medium model. BUG-031 closes under **750.1** (mediumRef + per-image scoping +
+the Disk/Cartridge panels rendering the `origin=custom` entries).
