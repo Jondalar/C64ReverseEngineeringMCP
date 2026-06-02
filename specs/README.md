@@ -92,6 +92,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 | 720 | Disassembly Output Quality |
 | 740.2 | Project Wiki authoring (`project_wiki_update`) — deeper synthesis over the 740.1 retrieval layer |
 | 747 | Bun Runtime Investigation — opt-in compatibility/performance investigation only; Node remains baseline until MCP stdio, Runtime Daemon, trace workers, DuckDB + benchmarks prove Bun safe. |
+| 749 | Medium Placement Provenance + Layout Overlay (disk + cartridge) — CONCEPT: `medium_spans` need an image dimension (same artifact can be on multiple disk sides / cart images); scope layout overlays by it + render them in the Disk/Cartridge tabs. Generalises BUG-031. OQs open. |
 
 ## SUPERSEDED (replaced by a later spec — kept here as breadcrumbs; bodies archived)
 
@@ -117,7 +118,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 - ACTIVE: 5 (721, 726.B, 742, 744, 748)
 - GOVERNING / DOCTRINE: 7 (610, 612, 620, 705, 715, 723, 746)
 - DONE: 12 (425, 426, 427, 616, 617, 618, 622, 703, 704, 708, 726, 740.1)
-- BACKLOG: 12
+- BACKLOG: 13 (incl. 749 medium-placement concept)
 - SUPERSEDED: 2 (600, 601)
 - NEEDS-RECONCILE: 5 (428, 613, 614, 615, 713)
 - ARCHIVED: ~130 historical specs in `specs/_archive/` (incl. the 25 done/superseded specs archived 2026-06-02)
