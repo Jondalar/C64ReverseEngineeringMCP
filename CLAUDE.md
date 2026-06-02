@@ -4,9 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Runtime Proof Gates (Mandatory 2026-05-16)
 
-**Single source of truth for "is this green":** the Runtime Proof
-Gates defined in `specs/600-runtime-proof-gates.md` and the
-oracle PNGs under `samples/screenshots/proof/`.
+**Single source of truth for "is this green":** the Runtime Product
+Proof Baseline in `specs/715-runtime-product-proof-baseline.md`
+(manifest-driven runner `scripts/runtime-product-proof.mjs`, tag
+`runtime-product-green-2026-05-24`) — it supersedes the original
+Spec 600 proof gates (now archived:
+`specs/_archive/600-runtime-proof-gates.md`). The oracle PNGs under
+`samples/screenshots/proof/` still apply.
 
 - Tag `runtime-green-2026-05-16` (= master HEAD commit `87b4957`,
   "Merge vic_bugs: Specs 425-429 = CLK_INC + VIC bank + IM2 fix +
