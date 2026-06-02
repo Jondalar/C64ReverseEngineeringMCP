@@ -784,7 +784,7 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
         : null;
       const directoryEntries = parser?.getDirectory().files ?? [];
       const directoryChain = parser ? traceDirectorySectorChain((track, sector) => parser.getSector(track, sector)) : [{ track: 18, sector: 1 }];
-      const files = [...(manifest?.files ?? [])]
+      const manifestFiles = [...(manifest?.files ?? [])]
         .sort((left, right) => (left.index ?? 0) - (right.index ?? 0))
         .map((file, index) => {
           const entity = diskFileEntities.find((candidate) =>
@@ -868,6 +868,77 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             kindGuess: file.kindGuess,
           };
         });
+      // BUG-031 — overlay registered payloads whose mediumSpans are sector-kind
+      // onto the disk geometry. Code-derived raw regions (no CBM dir entry — the
+      // custom loader reads them by track/sector; the whole world/engine of a game
+      // like Wasteland) are registered via register_payload(medium_spans=sector)
+      // but were invisible here: `files` came only from the CBM manifest + BAM. Emit
+      // them as origin=custom file entries (with a synthesized sector chain) so the
+      // reversed cartography colours the disk, not just the 2 dir files. Disk-view
+      // analogue of BUG-024.
+      const sectorsPerTrack = (t: number) => SECTORS_PER_TRACK[t] ?? 17;
+      const synthSectorChain = (startTrack: number, startSector: number, count: number) => {
+        const cells: Array<{ index: number; track: number; sector: number; nextTrack: number; nextSector: number; bytesUsed: number; isLast: boolean }> = [];
+        let t = startTrack, s = startSector;
+        for (let i = 0; i < count && t >= 1 && t <= 42; i += 1) {
+          cells.push({ index: i, track: t, sector: s, nextTrack: 0, nextSector: 0, bytesUsed: 254, isLast: i === count - 1 });
+          s += 1;
+          if (s >= sectorsPerTrack(t)) { s = 0; t += 1; }
+        }
+        return cells;
+      };
+      // (track,sector) already represented by a CBM-manifest file → don't double-list
+      // a payload registered at the same spot (e.g. 01_prodos is BOTH a dir file AND
+      // a registered payload).
+      const claimedCells = new Set<string>();
+      for (const f of manifestFiles) {
+        if (f.track !== undefined && f.sector !== undefined) claimedCells.add(`${f.track}:${f.sector}`);
+        for (const c of f.sectorChain) claimedCells.add(`${c.track}:${c.sector}`);
+      }
+      const onlyDisk = context.artifacts.filter((a) => a.role === "disk-manifest").length === 1;
+      const payloadFiles: typeof manifestFiles = context.entities
+        // a sector-span entity belongs to THIS image if it's explicitly linked to
+        // the disk artifact, or (single-disk project, the common case) by default.
+        .filter((e) => (e.mediumSpans ?? []).some((sp) => sp.kind === "sector"))
+        .filter((e) => e.kind !== "disk-file") // disk-file entities ARE the manifest files
+        .filter((e) => (e.artifactIds ?? []).includes(artifact.id) || onlyDisk)
+        .flatMap((e) => {
+          const spans = (e.mediumSpans ?? []).filter((sp): sp is Extract<typeof sp, { kind: "sector" }> => sp.kind === "sector");
+          return spans
+            .filter((span) => !claimedCells.has(`${span.track}:${span.sector}`))
+            .map((span, si) => {
+              const length = span.length ?? 0;
+              const sizeSectors = Math.max(1, Math.ceil((length || 1) / 254));
+              const colorKey: Array<string | number> = [artifact.id, "payload", e.id, si, span.track, span.sector, "custom"];
+              return {
+                id: `${artifact.id}-payload-${e.id}-${si}`,
+                title: spans.length > 1 ? `${e.name} #${si + 1}` : e.name,
+                type: e.payloadFormat ?? e.kind ?? "payload",
+                origin: "custom" as const,
+                sizeSectors,
+                sizeBytes: length || undefined,
+                track: span.track,
+                sector: span.sector,
+                loadAddress: e.payloadLoadAddress,
+                relativePath: undefined as string | undefined,
+                entityId: e.id,
+                sectorChain: synthSectorChain(span.track, span.sector, sizeSectors),
+                loadType: "custom-loader" as const, // code-derived → read by the custom loader, not KERNAL
+                loaderHint: undefined,
+                loaderSource: undefined,
+                color: fnvHslColor(colorKey),
+                packer: e.payloadPacker,
+                format: e.payloadFormat,
+                notes: ["registered payload (origin=custom) — code-derived raw region, no CBM directory entry (BUG-031)"],
+                md5: undefined as string | undefined,
+                first16: undefined as string | undefined,
+                last16: undefined as string | undefined,
+                kindGuess: e.payloadFormat ?? e.kind,
+              };
+            });
+        });
+      const files = [...manifestFiles, ...payloadFiles];
+
       const fileBySector = new Map<string, { id: string; title: string; color?: string }>();
       for (const file of files) {
         for (const cell of file.sectorChain) {
