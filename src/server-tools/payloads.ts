@@ -24,6 +24,10 @@ const mediumSpanSchema = z.union([
     sector: z.number().int().nonnegative(),
     offsetInSector: z.number().int().nonnegative().optional(),
     length: z.number().int().nonnegative(),
+    // Spec 750 — which disk IMAGE this span is on (disk-manifest artifact id OR the
+    // image basename, resolved to the id). Omit for a single-disk project or when the
+    // image isn't yet attributed (it shows on all disks, badged "unscoped").
+    image: z.string().optional(),
   }),
   z.object({
     kind: z.literal("slot"),
@@ -31,6 +35,7 @@ const mediumSpanSchema = z.union([
     slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH", "EEPROM", "OTHER"]),
     offsetInBank: z.number().int().nonnegative(),
     length: z.number().int().nonnegative(),
+    image: z.string().optional(), // Spec 750 — which cart image (crt-manifest artifact id or basename)
   }),
 ]);
 
@@ -107,6 +112,28 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         }
       }
 
+      // Spec 750 — resolve a span's `image` (disk-/crt-manifest artifact id OR the
+      // image's basename/dir) to the manifest artifact id stored as mediumRef. No
+      // match (or omitted) ⇒ undefined ⇒ unscoped (shown on all images, badged).
+      const mediumArtifacts = service.listArtifacts().filter((a) => a.role === "disk-manifest" || a.role === "crt-manifest");
+      const normKey = (s: string) => s.toLowerCase().replace(/\.[^.]+$/, "").replace(/[^a-z0-9]/g, "");
+      const imageKey = (a: { relativePath?: string; path?: string; title?: string }) => {
+        const p = a.relativePath ?? a.path ?? "";
+        const parts = p.split("/").filter(Boolean);
+        const parent = parts.length >= 2 ? parts[parts.length - 2] : (a.title ?? "");
+        return parent;
+      };
+      const resolveImage = (image?: string): string | undefined => {
+        if (!image) return undefined;
+        if (mediumArtifacts.some((a) => a.id === image)) return image;
+        const want = normKey(image);
+        const hit = mediumArtifacts.find((a) => {
+          const k = normKey(imageKey(a)), t = normKey(a.title ?? "");
+          return k.includes(want) || want.includes(k) || t.includes(want);
+        });
+        return hit?.id;
+      };
+
       const entity = service.saveEntity({
         id: args.id,
         kind: "payload",
@@ -114,8 +141,8 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         summary: args.summary,
         addressRange,
         mediumSpans: args.medium_spans?.map((span) => span.kind === "sector"
-          ? { kind: "sector", track: span.track, sector: span.sector, offsetInSector: span.offsetInSector ?? 0, length: span.length }
-          : { kind: "slot", bank: span.bank, slot: span.slot, offsetInBank: span.offsetInBank, length: span.length }),
+          ? { kind: "sector", track: span.track, sector: span.sector, offsetInSector: span.offsetInSector ?? 0, length: span.length, mediumRef: resolveImage(span.image) }
+          : { kind: "slot", bank: span.bank, slot: span.slot, offsetInBank: span.offsetInBank, length: span.length, mediumRef: resolveImage(span.image) }),
         payloadLoadAddress: args.load_address,
         payloadFormat: args.format,
         payloadPacker: args.packer,

@@ -603,6 +603,10 @@ export const EntityMediumSpanSchema = z.discriminatedUnion("kind", [
     sector: z.number().int().nonnegative(),
     offsetInSector: z.number().int().nonnegative().default(0),
     length: z.number().int().nonnegative(),
+    // Spec 750 — which medium IMAGE this span is on (disk-/crt-manifest artifact id,
+    // = Spec 721 mediumRef / 709 identity). Absent ⇒ unscoped (shown on every image
+    // of its kind, badged). The SAME content on multiple images = multiple spans.
+    mediumRef: z.string().optional(),
   }),
   z.object({
     kind: z.literal("slot"),
@@ -610,6 +614,7 @@ export const EntityMediumSpanSchema = z.discriminatedUnion("kind", [
     slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH", "EEPROM", "OTHER"]),
     offsetInBank: z.number().int().nonnegative(),
     length: z.number().int().nonnegative(),
+    mediumRef: z.string().optional(), // Spec 750 — which cart image (crt-manifest artifact id)
   }),
 ]);
 
@@ -1105,6 +1110,10 @@ export const DiskLayoutFileSchema = z.object({
   title: z.string().min(1),
   type: z.string().min(1),
   origin: z.enum(["kernal", "custom"]).default("kernal"),
+  // Spec 750 — an overlaid custom payload span with NO mediumRef is shown on every
+  // disk image but flagged unscoped, so the UI badges it "image not yet attributed".
+  unscoped: z.boolean().optional(),
+  mediumRef: z.string().optional(), // the disk-manifest artifact id this entry is scoped to (if any)
   sizeSectors: z.number().int().nonnegative().optional(),
   sizeBytes: z.number().int().nonnegative().optional(),
   track: z.number().int().nonnegative().optional(),
@@ -1335,6 +1344,7 @@ export const MediumSpanSchema = z.discriminatedUnion("kind", [
     sector: z.number().int().nonnegative(),
     offsetInSector: z.number().int().nonnegative().default(0),
     length: z.number().int().nonnegative(),
+    mediumRef: z.string().optional(), // Spec 750 — which disk image (disk-manifest artifact id)
   }),
   z.object({
     kind: z.literal("slot"),
@@ -1342,6 +1352,7 @@ export const MediumSpanSchema = z.discriminatedUnion("kind", [
     slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH", "EEPROM", "OTHER"]),
     offsetInBank: z.number().int().nonnegative(),
     length: z.number().int().nonnegative(),
+    mediumRef: z.string().optional(), // Spec 750 — which cart image (crt-manifest artifact id)
   }),
 ]);
 

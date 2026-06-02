@@ -60,11 +60,16 @@ Both the Disk wheel and the Cartridge bank/slot grid, scoped per image (`mediumR
 ## 3. Slices (render-first)
 
 - **750.1 — mediumRef + render payloads@position (closes BUG-031).** Add `mediumRef`
-  to `mediumSpans` (entity + payload schema); `buildDiskLayoutView` /
-  `buildCartridgeLayoutView` scope overlays by it (same artifact on multiple images =
-  multiple spans; unscoped = badged, not fanned). Make `DiskPanel` + `CartridgePanel`
-  RENDER the `origin=custom` entries (wheel + list). This is the committed
-  builder-overlay's missing UI + scoping half. Subsumes the stopgap 721.J5.
+  to `mediumSpans` (entity + payload schema); the layout builders scope overlays by it
+  (same artifact on multiple images = multiple spans; unscoped = badged, not fanned).
+  Make the panels RENDER the `origin=custom` entries (wheel + list). Subsumes 721.J5.
+  **DISK DONE (2026-06-02):** `mediumRef` on both span schemas + `register_payload`
+  `image`→`mediumRef` resolver (id or basename) + `buildDiskLayoutView` per-span
+  scoping (`unscoped` flag for no-mediumRef) + `DiskPanel` `custom`/`unscoped` badges +
+  v3 bundle built. `e2e:bug031` 10/10 (scoped-to-A, excluded-from-A-when-pinned-B,
+  unscoped-on-all, CBM-dedup, geometry). **CART symmetric follow-up open (750.1b):**
+  the slot-span `mediumRef` schema is in; `buildCartridgeLayoutView` overlay +
+  `CartridgePanel` render of payload slot-spans not yet wired.
 - **750.2 — addressing overlay (the table of contents).** Surface `LoaderEntryPoint`
   (kinds) + `ContainerEntry.subKey` index→position so the two views draw the LUT /
   dispatch as edges. BAM + custom-LUT as `kind=lut`. Manual `declare_loader_entrypoint`

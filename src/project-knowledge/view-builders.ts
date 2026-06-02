@@ -845,6 +845,8 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             title,
             type: file.type ?? "unknown",
             origin,
+            unscoped: false as boolean,            // CBM/manifest files are scoped to this image
+            mediumRef: artifact.id as string | undefined,
             sizeSectors: file.sizeSectors,
             sizeBytes: file.sizeBytes,
             track: file.track,
@@ -902,29 +904,31 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
       // here). Only exclude a payload explicitly pinned to a DIFFERENT disk. (The old
       // single-disk-only fallback failed real projects with several disk-manifest
       // artifacts — e.g. dup/versioned manifests — so utils_overlay_7E00 @ T8 never showed.)
-      const diskArtifactIds = new Set(context.artifacts.filter((a) => a.role === "disk-manifest").map((a) => a.id));
+      // Spec 750.1 — scope PER SPAN by mediumRef (which disk image this span is on):
+      //   • span.mediumRef === this disk → SCOPED here.
+      //   • span.mediumRef set to a DIFFERENT disk → skip.
+      //   • no span.mediumRef → UNSCOPED: shown on every disk image but flagged so the
+      //     UI badges it "image not yet attributed" (never silently fanned-as-confirmed).
+      // The same artifact on multiple images = multiple spans (each with its mediumRef).
       const payloadFiles: typeof manifestFiles = context.entities
-        .filter((e) => (e.mediumSpans ?? []).some((sp) => sp.kind === "sector"))
         .filter((e) => e.kind !== "disk-file") // disk-file entities ARE the manifest files
-        .filter((e) => {
-          const ids = e.artifactIds ?? [];
-          if (ids.includes(artifact.id)) return true;                  // explicitly on this disk
-          if (ids.some((id) => diskArtifactIds.has(id))) return false; // pinned to a DIFFERENT disk
-          return true;                                                 // unlinked → global payload, overlay here
-        })
         .flatMap((e) => {
           const spans = (e.mediumSpans ?? []).filter((sp): sp is Extract<typeof sp, { kind: "sector" }> => sp.kind === "sector");
           return spans
-            .filter((span) => !claimedCells.has(`${span.track}:${span.sector}`))
-            .map((span, si) => {
+            .filter((span) => !claimedCells.has(`${span.track}:${span.sector}`)) // CBM-cell dedup
+            .filter((span) => (span.mediumRef ? span.mediumRef === artifact.id : true)) // scoped to this image, or unscoped
+            .map((span) => {
               const length = span.length ?? 0;
               const sizeSectors = Math.max(1, Math.ceil((length || 1) / 254));
-              const colorKey: Array<string | number> = [artifact.id, "payload", e.id, si, span.track, span.sector, "custom"];
+              const unscoped = !span.mediumRef;
+              const colorKey: Array<string | number> = [artifact.id, "payload", e.id, span.track, span.sector, "custom"];
               return {
-                id: `${artifact.id}-payload-${e.id}-${si}`,
-                title: spans.length > 1 ? `${e.name} #${si + 1}` : e.name,
+                id: `${artifact.id}-payload-${e.id}-${span.track}-${span.sector}`,
+                title: spans.length > 1 ? `${e.name} @T${span.track}/S${span.sector}` : e.name,
                 type: e.payloadFormat ?? e.kind ?? "payload",
                 origin: "custom" as const,
+                unscoped,
+                mediumRef: span.mediumRef,
                 sizeSectors,
                 sizeBytes: length || undefined,
                 track: span.track,
@@ -939,7 +943,7 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
                 color: fnvHslColor(colorKey),
                 packer: e.payloadPacker,
                 format: e.payloadFormat,
-                notes: ["registered payload (origin=custom) — code-derived raw region, no CBM directory entry (BUG-031)"],
+                notes: [`registered payload (origin=custom)${unscoped ? " — UNSCOPED: image not yet attributed (no mediumRef)" : ""}`],
                 md5: undefined as string | undefined,
                 first16: undefined as string | undefined,
                 last16: undefined as string | undefined,

@@ -867,6 +867,11 @@ export function DiskPanel({
                           <span>{file.relativePath ?? file.title}</span>
                         </span>
                         {sourceArt ? <PhaseBadge phase={sourceArt.phase} frozen={sourceArt.phaseFrozen} /> : null}
+                        {/* Spec 750 — code-derived payload entries (origin=custom) read off the
+                            disk by the custom loader; flag the ones not yet attributed to a
+                            specific disk image (no mediumRef) so they read honestly. */}
+                        {file.origin === "custom" ? <span className="record-status" title="registered payload (code-derived raw region)">custom</span> : null}
+                        {file.unscoped ? <span className="record-status" style={{ opacity: 0.7 }} title="image not yet attributed (no mediumRef) — shown on all disks">unscoped</span> : null}
                         <span className="record-status">{file.loadType}</span>
                       </div>
                       <div className="record-meta">
