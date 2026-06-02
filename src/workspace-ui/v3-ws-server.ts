@@ -709,10 +709,30 @@ export class V3WsServer {
       // If we're sitting ON a breakpoint (resumed from one), step past it
       // once so the run doesn't immediately re-trigger the same address.
       if (bps.size > 0 && bps.has(s.c64Cpu.pc)) s.runFor(1);
-      const r = s.runFor(Math.ceil(cycleBudget / 2) + 1000, {
-        cycleBudget,
+      const runSeg = (budget: number) => s.runFor(Math.ceil(budget / 2) + 1000, {
+        cycleBudget: budget,
         breakpoints: bps.size > 0 ? bps : undefined,
       });
+      // BUG-030 — when a trace is active, run in BOUNDED segments and drain the
+      // trace sink between them, so a long firehose (a fastloader disk load emits
+      // millions of events) feeds the writer incrementally instead of buffering
+      // past the 256-chunk backpressure ceiling and aborting the whole trace. This
+      // is the producer-side backpressure: the sim pauses per segment while the
+      // worker writes. The worker (1 MiB chunks → SSD) easily keeps up at this cadence.
+      let r: ReturnType<typeof runSeg>;
+      const TRACE_DRAIN_CYCLES = 100_000;
+      if (ctrl.traceRun.isActive() && cycleBudget > TRACE_DRAIN_CYCLES) {
+        let remaining = cycleBudget;
+        do {
+          const seg = Math.min(TRACE_DRAIN_CYCLES, remaining);
+          r = runSeg(seg);
+          await ctrl.traceRun.drain(); // resilient: a sink failure aborts the trace, never throws here
+          remaining -= seg;
+        } while (remaining > 0 && r.aborted !== "breakpoint");
+      } else {
+        r = runSeg(cycleBudget);
+        if (ctrl.traceRun.isActive()) await ctrl.traceRun.drain();
+      }
       if (r.aborted === "breakpoint") {
         // Halt: report the hit so a manual caller can drop into the monitor,
         // print "BK reached" + registers, and focus the input.

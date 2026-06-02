@@ -29,7 +29,9 @@ const INFLIGHT_HIGH_WATER = 8;      // backpressure: await `free` past this many
 // this work fixes). At the ceiling we fail the writer; the next drain() throws →
 // trace-run.ts aborts the trace gracefully (run continues untraced) instead of
 // allocating to death. 256 chunks = 256 MiB cap, far above any healthy backlog.
-const MAX_PENDING_CHUNKS = 256;
+// Env-overridable so a test can force the ceiling on a small fixture (the real
+// product cadence keeps pendingSend tiny via the per-segment/per-frame drain).
+const MAX_PENDING_CHUNKS = Math.max(2, Number(process.env.C64RE_TRACE_MAX_PENDING_CHUNKS) || 256);
 
 // BUG-027 Blocker 1 (Spec 744.2) — a worker_thread needs a `.js` script path.
 // The product MCP server runs from SOURCE via `npx tsx src/cli.ts` (see any

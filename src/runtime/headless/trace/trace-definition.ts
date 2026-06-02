@@ -211,4 +211,5 @@ export interface RuntimeTraceRun {
   eventCount: number;
   bytesWritten: number;
   overheadMs?: number;
+  aborted?: boolean;                // BUG-030 — stopped on a poisoned writer (e.g. backpressure ceiling); partial .c64retrace prefix on disk
 }

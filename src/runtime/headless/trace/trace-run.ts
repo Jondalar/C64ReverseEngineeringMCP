@@ -414,52 +414,74 @@ export class TraceRunController {
   }
 
   /** Stop the run, restore channel state, finalize the sink. For the binary path
-   *  this finalizes the `.c64retrace` log then builds the DuckDB query index. */
+   *  this finalizes the `.c64retrace` log then builds the DuckDB query index.
+   *
+   *  ALWAYS-CLEAN (BUG-030): a POISONED writer (e.g. the backpressure ceiling fired
+   *  during a fastloader firehose) must NEVER wedge the session — `active` is
+   *  claimed null FIRST, and a writer-finalize failure becomes a graceful abort
+   *  (tear the sink down, record the reason, return the best-effort run) instead of
+   *  a throw. So a backpressured/aborted trace can always be stopped + a fresh
+   *  `trace_start` can begin without a daemon restart. */
   async stop(): Promise<RuntimeTraceRun> {
     const a = this.active;
     if (!a) throw new Error("no active trace run");
+    this.active = null; // claim it up-front: any teardown failure below cannot wedge
+
     a.capturing = false;
     a.dispose();
     const trace = a.ctx.controller.session.kernel.trace();
-    trace.setCpuBinarySink(null); // Spec 726.B — release the CPU firehose sink.
-    for (const p of a.prior) if (!p.was) trace.configureChannel(p.name, { mode: "off" });
+    try { trace.setCpuBinarySink(null); } catch { /* noop */ } // release the firehose sink
+    try { for (const p of a.prior) if (!p.was) trace.configureChannel(p.name, { mode: "off" }); } catch { /* noop */ }
 
-    if (a.def.checkpointPolicy === "at-stop") {
-      a.run.stopCheckpointId = (await a.ctx.controller.captureCheckpoint()).id;
-    }
+    try {
+      if (a.def.checkpointPolicy === "at-stop") {
+        a.run.stopCheckpointId = (await a.ctx.controller.captureCheckpoint()).id;
+      }
+    } catch { /* checkpoint best-effort */ }
 
     a.run.cycleEnd = a.ctx.controller.session.c64Cpu.cycles;
     a.run.overheadMs = Date.now() - a.startWall;
 
     if (a.binary && a.writer) {
-      const fin = await a.writer.finalize();
-      a.run.bytesWritten = fin.bytesWritten;
-      // eventCount = queryable trace_event ROWS (marks are a separate stream, NOT
-      // counted), matching the DuckDB index and the legacy JSON path. The writer's
-      // raw stats.eventCount includes the appended marks, so subtract them — this
-      // is available immediately (no index needed) so the returned run is exact.
-      a.run.eventCount = Math.max(0, fin.stats.eventCount - a.markCount);
-      // Spec 746.x — build the DuckDB query index in a WORKER THREAD and RETURN
-      // NOW. The .c64retrace is the authority and is already closed; the index is
-      // a rebuildable projection, so the UI trace-stop button is instant and the
-      // daemon never freezes on the decode (was a synchronous ~minute block on a
-      // large trace). Readers call awaitIndex(path) to block only until ready.
-      // Carry the STOP-time fields the start-written .c64retrace header cannot
-      // know (stopCheckpointId for the at-stop policy, overheadMs) into the index.
       this.lastIndexPath = a.ctx.outputPath;
-      startBackgroundIndex(a.retracePath!, a.ctx.outputPath, {
-        stopCheckpointId: a.run.stopCheckpointId,
-        overheadMs: a.run.overheadMs,
-      });
+      try {
+        const fin = await a.writer.finalize();
+        a.run.bytesWritten = fin.bytesWritten;
+        // eventCount = queryable trace_event ROWS (marks are a separate stream, NOT
+        // counted). The writer's raw stats.eventCount includes the appended marks,
+        // so subtract them — available immediately so the returned run is exact.
+        a.run.eventCount = Math.max(0, fin.stats.eventCount - a.markCount);
+        // Build the DuckDB query index in a WORKER THREAD and RETURN NOW (the
+        // .c64retrace is the authority + already closed; the index is a rebuildable
+        // projection). Readers call awaitIndex(path) to block only until ready.
+        startBackgroundIndex(a.retracePath!, a.ctx.outputPath, {
+          stopCheckpointId: a.run.stopCheckpointId,
+          overheadMs: a.run.overheadMs,
+        });
+      } catch (e) {
+        // Writer poisoned (backpressure ceiling / worker death). Do NOT throw —
+        // tear the writer down and record the abort. The drained chunks already on
+        // disk form a valid .c64retrace prefix (header + whole events), so a later
+        // trace_store_* read lazy-rebuilds the partial index via ensureIndex.
+        this.lastError = e instanceof Error ? e.message : String(e);
+        a.run.aborted = true;
+        try { a.writer.dispose(); } catch { /* noop */ }
+        console.error(`[trace] stop on a poisoned writer — trace aborted (not wedged):`, this.lastError);
+      }
     } else if (a.store) {
-      await this.drain();
-      a.run.eventCount = a.totalEvents;
-      a.run.bytesWritten = a.totalBytes;
-      try { await writeTraceRunHeader(a.store, a.run, a.def); }
-      finally { await closeTraceRunStore(a.store); }
+      try {
+        await this.drain();
+        a.run.eventCount = a.totalEvents;
+        a.run.bytesWritten = a.totalBytes;
+        await writeTraceRunHeader(a.store, a.run, a.def);
+      } catch (e) {
+        this.lastError = e instanceof Error ? e.message : String(e);
+        a.run.aborted = true;
+      } finally {
+        try { await closeTraceRunStore(a.store); } catch { /* noop */ }
+      }
     }
 
-    this.active = null;
     return a.run;
   }
 
