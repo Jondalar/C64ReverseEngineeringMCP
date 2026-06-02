@@ -215,7 +215,28 @@ each ships with a gate. Decisions the user must still make are flagged **[OQ]**.
   live-RAM byte source (a `memread` slice → the same renderer). Substantial UI work in
   the large App.tsx — deferred to a hands-on session.
 
-## 4.6 Status summary (2026-06-01)
+### 4.6 Execution-context focus (flow lanes)
+- **746.13 — PENDING (REFINE 2026-06-03).** MAIN/IRQ/NMI focus for the trace, mirroring
+  the Monitor's flow-focus (`FlowTracker`, Spec 623 §4.3, `stepping.ts`; `CpuFlowKind =
+  main|irq|nmi|brk|trap`). The Monitor pushes a flow frame on IRQ/NMI/BRK entry
+  (SP−3 + a jump to the vector target with no JSR/JMP) and pops on RTI. The trace stores
+  NONE of it: `CPU_STEP` (18 B — pc/opcode/A/X/Y/SP/P/b1/b2) carries no flow-kind, so the
+  swimlane has no main/irq/nmi lane. But the info is implicit per step (PC + opcode +
+  SP-delta), so the exact FlowTracker logic replays over the recorded stream.
+  Two builds:
+  - **A — derive-at-read (recommended).** The swimlane reader (746.10 layer) replays
+    FlowTracker over the CPU_STEP stream → a derived `flow` column + a focus param
+    (`main|irq|nmi`). NO format change (runs on existing `.c64retrace`), ZERO hot-path
+    cost (the zero-alloc firehose stays untouched).
+  - **B — capture-time tag.** Write a 1-byte flow-kind into CPU_STEP at capture (the
+    runtime knows the kind at interrupt-dispatch). Exact for nasty nesting (IRQ-in-NMI,
+    self-modified vectors) but +1 B/step, a format-version bump, and a flow-stack in the
+    hot sink.
+  Recommendation: ship A first; add B only if read-time derivation proves unreliable on
+  nested / SMC-vector cases. Surfaces as a swimlane focus filter, then the same focus on
+  the UI swimlane tab. Decisions parked for refinement → **OQ5**.
+
+## 4.7 Status summary (2026-06-01)
 DONE + pushed: 746.1 (producers-on default session), 746.2 (runtime_trace_start),
 746.3 (finalize/status daemon-routed), 746.4 (checkpoint MCP tools), 746.5 (all
 trace readers daemon-routed, BUG-029), 746.6 (per-session persistence layout),
@@ -224,7 +245,8 @@ viewer wired). The LLM + human can: start/stop a trace on the running shared ses
 from THREE gates (UI/API/Monitor), read the swimlane concurrently, and scrub/rewind
 the checkpoint ring. DEFERRED as real features (not wiring): 746.7 (ring↔RewindManager
 marriage), 746.8 (structured trace→finding), 746.11 + 746.12 (ring-scrub timeline +
-live-RAM graphics-scrub UI — need visual iteration at the screen).
+live-RAM graphics-scrub UI — need visual iteration at the screen). PENDING (refine
+2026-06-03): 746.13 (MAIN/IRQ/NMI flow-focus on the swimlane).
 
 ## 5. Acceptance (when this charter is "usable")
 - From the running Wasteland_EF session, the LLM can: `runtime_trace_start` →
@@ -261,6 +283,17 @@ live-RAM graphics-scrub UI — need visual iteration at the screen).
   multi-load loader). The ring already estimates per-checkpoint bytes
   (`estimateCheckpointBytes`), so the budget is enforced as today, just no longer a
   hard constant.
+- **OQ5 — OPEN (REFINE 2026-06-03, 746.13 flow-focus):** derive-at-read (A) vs
+  capture-tag (B)? Lean A (no format change, no hot-path cost). Sub-questions to settle:
+  - **(a) robustness of A** — does SP-delta + vector-target detection misclassify on
+    nested IRQ-in-NMI, RTI-less handlers, or self-modified `$0314/$0316`/`$FFFE/$FFFA`
+    vectors? If A is wrong too often there → fall to B (or B as an opt-in "exact" mode).
+  - **(b) lane granularity** — does `brk`/`trap` get its own lane or fold into `main`?
+    Monitor's `CpuFlowKind` has all five; the swimlane may want just 3 (main/irq/nmi).
+  - **(c) focus param shape** — filter (drop the other lanes' rows) vs colour-only (keep
+    all rows, tint by kind)? Filter is the Monitor's mental model; colour keeps context.
+  - **(d) drive CPU** — the 1541 has its own IRQ flow (`DRIVE_CPU_STEP`). Same lane model
+    for the drive, or C64-only first and drive as a follow-up?
 - **OQ4 — DECIDED (2026-06-01):** write-delta streaming is **DEFERRED — measure first**.
   The MVP is CPU-firehose + snapshot ONLY (sufficient for reconstruction: only the CPU
   writes RAM, re-sim from the nearest anchor ≤500k cyc rebuilds any in-between state).
