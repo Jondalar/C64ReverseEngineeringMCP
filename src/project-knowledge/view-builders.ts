@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, extname, resolve as resolvePath } from "node:path";
 import { createDiskParser, SECTORS_PER_TRACK, traceFileSectorChain, type DiskFileEntry } from "../disk/index.js";
 import { classifyArtifactInternal } from "./service.js";
-import { loadEffectiveSegments } from "./effective-segments.js";
+import { loadEffectiveSegments, overlayCovering, type AnnotationSegmentOverlay } from "./effective-segments.js";
+import { mapSegmentKindToEntityKind } from "./analysis-import.js";
 
 // Bug 26 / Spec 058 + this-session fix: legacy artifacts whose
 // `internal` flag was never set (predates the schema field) need
@@ -559,6 +560,35 @@ export function buildMemoryMapView(context: ViewBuildContext): MemoryMapView {
     return false;
   }
 
+  // Spec 751.5 (BUG-034) — view-time annotation overlay. Regions minted from
+  // analysis segments carry the stale heuristic kind; if a sibling
+  // _annotations.json reclassifies the whole region, show the annotation's
+  // (mapped) kind instead. Non-destructive: entity records are untouched, and
+  // this reflects annotations added AFTER import without re-minting.
+  const overlaysByAnalysisArtifact = new Map<string, AnnotationSegmentOverlay[]>();
+  for (const art of context.artifacts) {
+    if (art.role !== "analysis-json") continue;
+    try {
+      const ov = loadEffectiveSegments(art.path).overlays;
+      if (ov.length > 0) overlaysByAnalysisArtifact.set(art.id, ov);
+    } catch { /* unreadable analysis — skip */ }
+  }
+  function annotationKindForEntity(entity: typeof context.entities[number]): EntityRecord["kind"] | undefined {
+    const range = entity.addressRange;
+    if (!range || overlaysByAnalysisArtifact.size === 0) return undefined;
+    for (const artId of entity.artifactIds ?? []) {
+      const ov = overlaysByAnalysisArtifact.get(artId);
+      if (!ov) continue;
+      const hit = overlayCovering(ov, range.start);
+      // Require the overlay to cover the WHOLE region (a reclassification of
+      // this exact span), not merely touch its start.
+      if (hit && hit.start <= range.start && hit.end >= range.end) {
+        return mapSegmentKindToEntityKind(hit.kind);
+      }
+    }
+    return undefined;
+  }
+
   const regions = context.entities
     .filter((entity) => entity.addressRange)
     .sort((left, right) => {
@@ -572,22 +602,27 @@ export function buildMemoryMapView(context: ViewBuildContext): MemoryMapView {
       }
       return left.name.localeCompare(right.name);
     })
-    .map((entity) => ({
-      id: entity.id,
-      title: entity.name,
-      kind: entity.kind,
-      start: entity.addressRange!.start,
-      end: entity.addressRange!.end,
-      bank: entity.addressRange!.bank,
-      entityId: entity.id,
-      findingIds: [...(findingIdsByEntityId.get(entity.id) ?? [])].sort(),
-      status: entity.status,
-      confidence: entity.confidence,
-      summary: entity.summary,
-      // Mark medium-only regions so the UI can hide them by default
-      // and surface them via the "show cart-window mapping" toggle.
-      mediumOnly: isMediumOnlyEntity(entity),
-    }));
+    .map((entity) => {
+      const annKind = annotationKindForEntity(entity);
+      return {
+        id: entity.id,
+        title: entity.name,
+        kind: annKind ?? entity.kind,
+        start: entity.addressRange!.start,
+        end: entity.addressRange!.end,
+        bank: entity.addressRange!.bank,
+        entityId: entity.id,
+        findingIds: [...(findingIdsByEntityId.get(entity.id) ?? [])].sort(),
+        status: entity.status,
+        confidence: entity.confidence,
+        summary: entity.summary,
+        // Mark medium-only regions so the UI can hide them by default
+        // and surface them via the "show cart-window mapping" toggle.
+        mediumOnly: isMediumOnlyEntity(entity),
+        // Spec 751 — kind came from an annotation overlay, not the heuristic.
+        ...(annKind !== undefined ? { reclassifiedByAnnotation: true } : {}),
+      };
+    });
 
   const cellSize = 0x100;
   const rowStride = 0x1000;

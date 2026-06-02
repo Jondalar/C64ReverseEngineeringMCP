@@ -219,7 +219,7 @@ function mapXrefTypeToRelationKind(type: string): RelationKind {
   return "references";
 }
 
-function mapSegmentKindToEntityKind(kind: string): EntityRecord["kind"] {
+export function mapSegmentKindToEntityKind(kind: string): EntityRecord["kind"] {
   switch (kind) {
     case "code":
     case "basic_stub":

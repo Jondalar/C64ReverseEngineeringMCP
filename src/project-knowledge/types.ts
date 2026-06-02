@@ -1062,6 +1062,9 @@ export const MemoryMapRegionSchema = z.object({
   // has no runtime presence by default. UI hides these unless the
   // "show cart-window mapping" toggle is on.
   mediumOnly: z.boolean().default(false),
+  // Spec 751 (BUG-034) — this region's kind comes from an annotation
+  // reclassification (effective-segments overlay), not the raw heuristic.
+  reclassifiedByAnnotation: z.boolean().optional(),
 });
 
 export const MemoryMapCellSchema = z.object({

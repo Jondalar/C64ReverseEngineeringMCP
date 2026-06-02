@@ -2,7 +2,7 @@
 // FAITHFUL port of the pipeline algorithm (same segmentation), correctly
 // OVERRIDE an already-covered range (the resolve-pc append-bug), and load
 // _analysis.json + _annotations.json non-destructively.
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -92,6 +92,72 @@ writeFileSync(ap2, JSON.stringify({ segments: [{ kind: "code", start: 0x2000, en
 const loaded2 = srv.loadEffectiveSegments(ap2);
 ok(loaded2.segments.length === 1 && loaded2.segments[0].kind === "code" && loaded2.overlays.length === 0, "loader: no annotations sibling → identity");
 
-console.log(`\nproject: ${dir}`);
-console.log(`\n${fail === 0 ? "GREEN" : "RED"} Spec 751.1: ${pass} pass, ${fail} fail.`);
+// ===========================================================================
+// 751.7 integration — the knowledge-layer consumers reflect an annotation
+// reclassification end-to-end, WITHOUT mutating the entity record or the
+// _analysis.json on disk (BUG-034 option D).
+// ===========================================================================
+console.log("\nSpec 751.7 — integration (memory-map + annotated-listing + findings, non-destructive)\n");
+
+const { ProjectKnowledgeService } = await import(`${ROOT}/dist/project-knowledge/service.js`);
+const { mapSegmentKindToEntityKind } = await import(`${ROOT}/dist/project-knowledge/analysis-import.js`);
+
+const projectDir = mkdtempSync(join(tmpdir(), "c64re-751int-"));
+const svc = new ProjectKnowledgeService(projectDir);
+svc.initProject({ name: "Spec 751", description: "BUG-034 effective-segments", tags: ["test"] });
+
+mkdirSync(join(projectDir, "analysis"), { recursive: true });
+mkdirSync(join(projectDir, "input"), { recursive: true });
+const prgPath = join(projectDir, "input", "wl.prg");
+const intAnalysisPath = join(projectDir, "analysis", "wl_analysis.json");
+const intAnnPath = join(projectDir, "analysis", "wl_annotations.json");
+writeFileSync(prgPath, Buffer.from([0x00, 0x09, 0x60])); // load addr $0900 + RTS
+
+// Heuristic: two CODE segments. Annotation reclassifies the FIRST to data and
+// names a routine at the SECOND.
+writeFileSync(intAnalysisPath, JSON.stringify({
+  binaryName: "wl.prg",
+  entryPoints: [{ address: 0x0a00, source: "analysis", reason: "entry" }],
+  segments: [
+    { kind: "code", start: 0x0900, end: 0x09ff, score: { confidence: 0.8, reasons: ["probable code"] } },
+    { kind: "code", start: 0x0a00, end: 0x0aff, score: { confidence: 0.9, reasons: ["entry"] } },
+  ],
+}, null, 2));
+writeFileSync(intAnnPath, JSON.stringify({
+  segments: [{ start: "0900", end: "09FF", kind: "data", label: "blob", comment: "force-decoded data" }],
+  routines: [{ address: "0A00", name: "installer_entry", comment: "the real code" }],
+}, null, 2));
+
+const prgArtifact = svc.saveArtifact({ kind: "prg", scope: "input", title: "wl.prg", path: prgPath, role: "prg", platform: "c64" });
+const analysisArtifact = svc.saveArtifact({ kind: "analysis-run", scope: "analysis", title: "wl analysis", path: intAnalysisPath, role: "analysis-json", format: "json", sourceArtifactIds: [prgArtifact.id] });
+const imported = svc.importAnalysisArtifact(analysisArtifact.id);
+ok(imported.importedEntityCount > 0, "import minted entities from analysis segments", `n=${imported.importedEntityCount}`);
+
+// Entity record for $0900 keeps the HEURISTIC (code) kind — overlay is view-time.
+const seg0900Entity = svc.listEntities().find((e) => e.addressRange?.start === 0x0900 && e.addressRange?.end === 0x09ff);
+ok(seg0900Entity?.kind === mapSegmentKindToEntityKind("code"), "entity record $0900 keeps heuristic kind (overlay is non-destructive)", `kind=${seg0900Entity?.kind}`);
+
+const emit = svc.emitAnnotationFindings({ sourcePrgArtifactId: prgArtifact.id, annotationsPath: intAnnPath, analysisJsonPath: intAnalysisPath });
+ok(emit.routinesEmitted >= 1, "751.3 parity: routine finding still emitted", `routines=${emit.routinesEmitted}`);
+ok(emit.segmentReclassesEmitted >= 1, "751.3 parity: segment-reclass finding still emitted", `segclass=${emit.segmentReclassesEmitted}`);
+
+// Memory-map view: $0900 region shows the annotation (data) kind + the flag.
+const mm = svc.buildMemoryMapView().view;
+const mmRegion = mm.regions.find((r) => r.start === 0x0900 && r.end === 0x09ff);
+ok(mmRegion?.kind === mapSegmentKindToEntityKind("data"), "751.5 memory-map: $0900 region shows annotation kind (data)", `kind=${mmRegion?.kind}`);
+ok(mmRegion?.reclassifiedByAnnotation === true, "751.5 memory-map: reclassifiedByAnnotation flag set");
+const mmRegionB = mm.regions.find((r) => r.start === 0x0a00 && r.end === 0x0aff);
+ok(mmRegionB && mmRegionB.reclassifiedByAnnotation !== true, "751.5 memory-map: un-annotated $0A00 region keeps heuristic kind (no flag)");
+
+// Annotated-listing view: the $0900 entry reflects the annotation kind.
+const al = svc.buildAnnotatedListingView().view;
+const alEntry = al.entries.find((e) => e.start === 0x0900);
+ok(alEntry?.kind === "data", "751.4 annotated-listing: $0900 entry kind = data (overlay applied)", `kind=${alEntry?.kind}`);
+
+// Non-destructive: _analysis.json on disk unchanged.
+const diskAnalysis = JSON.parse(readFileSync(intAnalysisPath, "utf8"));
+ok(diskAnalysis.segments[0].kind === "code", "NON-DESTRUCTIVE: _analysis.json $0900 still 'code' on disk", `disk=${diskAnalysis.segments[0].kind}`);
+
+console.log(`\nproject: ${dir}\nintegration project: ${projectDir}`);
+console.log(`\n${fail === 0 ? "GREEN" : "RED"} Spec 751: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

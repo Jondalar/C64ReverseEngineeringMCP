@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
-import { loadEffectiveSegments } from "../project-knowledge/effective-segments.js";
+import { loadEffectiveSegments, overlayCovering } from "../project-knowledge/effective-segments.js";
 
 interface AnalysisInstruction {
   address: number;
@@ -231,12 +231,16 @@ function buildReport(args: InspectArgs): string {
   // segments) so a reclassified region reports its annotation kind here, not
   // the stale heuristic kind (BUG-034). Non-destructive (reads sibling
   // _annotations.json; never writes _analysis.json).
-  const segments = loadEffectiveSegments(analysisPath).segments
+  const { segments: effectiveSegments, overlays } = loadEffectiveSegments(analysisPath);
+  const segments = effectiveSegments
     .filter((seg) => seg.start <= endAddress && seg.end >= startAddress)
     .sort((left, right) => left.start - right.start);
   lines.push(`## Containing segments (${segments.length})`);
   for (const seg of segments) {
-    lines.push(`- $${hex16(seg.start)}–$${hex16(seg.end)} kind=${seg.kind}${seg.label ? ` label=${seg.label}` : ""}${seg.score?.confidence !== undefined ? ` conf=${seg.score.confidence.toFixed(2)}` : ""}`);
+    // Spec 751.6 (D) — mark a kind that came from an annotation reclassification.
+    const reclass = overlayCovering(overlays, seg.start);
+    const annMark = reclass && reclass.kind === seg.kind ? "  [reclassified by annotation]" : "";
+    lines.push(`- $${hex16(seg.start)}–$${hex16(seg.end)} kind=${seg.kind}${seg.label ? ` label=${seg.label}` : ""}${seg.score?.confidence !== undefined ? ` conf=${seg.score.confidence.toFixed(2)}` : ""}${annMark}`);
   }
   lines.push("");
 
