@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, extname, resolve as resolvePath } from "node:path";
 import { createDiskParser, SECTORS_PER_TRACK, traceFileSectorChain, type DiskFileEntry } from "../disk/index.js";
 import { classifyArtifactInternal } from "./service.js";
+import { loadEffectiveSegments } from "./effective-segments.js";
 
 // Bug 26 / Spec 058 + this-session fix: legacy artifacts whose
 // `internal` flag was never set (predates the schema field) need
@@ -2514,23 +2515,12 @@ export function buildAnnotatedListingView(context: ViewBuildContext): AnnotatedL
   const entries = context.artifacts
     .filter((artifact) => artifact.role === "analysis-json")
     .flatMap((artifact) => {
-      const report = readJsonIfExists(artifact.path) as {
-        segments?: Array<{
-          kind?: string;
-          start?: number | string;
-          end?: number | string;
-          score?: { confidence?: number; reasons?: string[] };
-        }>;
-      } | undefined;
-      return [...(report?.segments ?? [])]
-        .map((segment) => ({
-          ...segment,
-          start: coerceAddress(segment.start),
-          end: coerceAddress(segment.end),
-        }))
-        .filter((segment): segment is { kind?: string; start: number; end: number; score?: { confidence?: number; reasons?: string[] } } =>
-          segment.start !== undefined && segment.end !== undefined,
-        )
+      // Spec 751 — effective segments (annotation overlay applied) so a
+      // reclassified region shows its annotation kind in the listing, not the
+      // stale heuristic kind (BUG-034). Non-destructive (reads the sibling
+      // _annotations.json; never writes _analysis.json).
+      return loadEffectiveSegments(artifact.path).segments
+        .filter((segment) => typeof segment.start === "number" && typeof segment.end === "number")
         .sort((left, right) => left.start - right.start)
         .map((segment) => {
           const entity = entityByAddress.find((candidate) =>

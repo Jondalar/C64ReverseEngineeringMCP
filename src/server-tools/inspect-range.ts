@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
+import { loadEffectiveSegments } from "../project-knowledge/effective-segments.js";
 
 interface AnalysisInstruction {
   address: number;
@@ -226,8 +227,11 @@ function buildReport(args: InspectArgs): string {
   lines.push(`Analysis: ${analysisPath}`);
   lines.push("");
 
-  // Containing segments
-  const segments = report.segments
+  // Containing segments — Spec 751: apply the annotation overlay (effective
+  // segments) so a reclassified region reports its annotation kind here, not
+  // the stale heuristic kind (BUG-034). Non-destructive (reads sibling
+  // _annotations.json; never writes _analysis.json).
+  const segments = loadEffectiveSegments(analysisPath).segments
     .filter((seg) => seg.start <= endAddress && seg.end >= startAddress)
     .sort((left, right) => left.start - right.start);
   lines.push(`## Containing segments (${segments.length})`);

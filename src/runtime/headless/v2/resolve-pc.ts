@@ -11,6 +11,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { buildEffectiveSegments, annotationSegmentsToOverlays } from "../../../project-knowledge/effective-segments.js";
 
 // ---- Types imported from pipeline (avoid circular dep: inline what we need) ----
 
@@ -165,33 +166,26 @@ function loadArtifactData(artifactId: string): ArtifactData {
     labelsSorted.sort((a, b) => a.address - b.address);
   }
 
-  // Segments: sort by start
-  const segmentsSorted: ArtifactData["segmentsSorted"] = [];
-  if (analysis?.segments) {
-    for (const seg of analysis.segments) {
-      segmentsSorted.push({
-        start: seg.start,
-        end: seg.end,
-        kind: seg.kind as SegmentKind,
-        confidence: seg.score?.confidence ?? 0,
-      });
-    }
-    segmentsSorted.sort((a, b) => a.start - b.start);
-  }
-
-  // Also fold segment annotations from annotations file
-  if (annotations?.segments) {
-    for (const seg of annotations.segments) {
-      const start = parseHex(seg.start);
-      const end = parseHex(seg.end);
-      // Check if there's already a segment covering this range; if so skip
-      const alreadyCovered = segmentsSorted.some((s) => s.start <= start && s.end >= end);
-      if (!alreadyCovered) {
-        segmentsSorted.push({ start, end, kind: seg.kind as SegmentKind, confidence: 0.9 });
-      }
-    }
-    segmentsSorted.sort((a, b) => a.start - b.start);
-  }
+  // Segments: apply the Spec 055 annotation overlay (Spec 751 — shared module).
+  // Annotation segment reclassifications OVERRIDE the heuristic kind on overlap
+  // (the old code appended-with-skip, so a reclassify of an already-covered
+  // range was silently dropped — BUG-034). Annotation-owned regions get a 0.9
+  // confidence; analysis-owned clones keep their score.
+  const analysisSegs = (analysis?.segments ?? []).map((seg) => ({
+    start: seg.start,
+    end: seg.end,
+    kind: seg.kind as SegmentKind,
+    confidence: seg.score?.confidence ?? 0,
+  }));
+  const overlays = annotationSegmentsToOverlays(annotations?.segments);
+  const segmentsSorted: ArtifactData["segmentsSorted"] = buildEffectiveSegments(analysisSegs, overlays)
+    .map((s) => ({
+      start: s.start,
+      end: s.end,
+      kind: s.kind as SegmentKind,
+      confidence: typeof s.confidence === "number" ? s.confidence : 0.9,
+    }))
+    .sort((a, b) => a.start - b.start);
 
   // --- Disasm source line index ---
   const disasmPath = join(dir, `${artifactId}_disasm.asm`);

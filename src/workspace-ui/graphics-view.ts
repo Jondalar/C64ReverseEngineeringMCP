@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { relative } from "node:path";
 import type { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import type { ArtifactRecord } from "../project-knowledge/types.js";
+import { loadEffectiveSegments } from "../project-knowledge/effective-segments.js";
 
 export type GraphicsKind =
   | "sprite"
@@ -166,7 +167,11 @@ export function buildGraphicsView(
     const prgRelativePath = prgArtifact.relativePath
       || relative(projectRoot, prgArtifact.path).replace(/\\/g, "/");
 
-    for (const segment of report.segments) {
+    // Spec 751 — iterate effective segments (annotation overlay applied) so a
+    // region reclassified to/from a graphics kind appears/disappears correctly
+    // (BUG-034). Non-destructive (sibling _annotations.json; no write-back).
+    const effectiveSegments = loadEffectiveSegments(analysisArtifact.path).segments as unknown as typeof report.segments;
+    for (const segment of effectiveSegments) {
       if (!GRAPHICS_KINDS.has(segment.kind)) continue;
       const start = segment.start;
       const end = segment.end;
