@@ -2,7 +2,7 @@
 
 **Severity:** medium (annotation reclassifications invisible outside disasm; one consumer re-implements the overlay incorrectly)
 **Area:** analysis / knowledge views / effective-segments overlay (Spec 055)
-**Status:** open (root-caused; fix = Spec 751, option D)
+**Status:** fixed (Spec 751 option D — `e2e:751` 27/27)
 
 ## Repro (Wasteland-Claude, hit 3×)
 1. `analyze_prg` a PRG → `_analysis.json` (heuristic segments; a code region misclassified as `unknown`/data).
@@ -36,5 +36,23 @@ Not a doctrine violation. Non-write-back is **correct + intended** — non-destr
 - **(A core)** One shared **server-side** overlay module (`src/.../effective-segments.ts`) — a dependency-light port of the pure algorithm (only `Segment` + overlay shapes). Route all 6 consumers through `loadEffectiveSegments(analysisPath, annotationsPath)`; collapse the `service.ts` inline pair and fix the `resolve-pc` append-bug onto it. Read-only, no write-back, no new artifact. Pipeline keeps its own copy (disasm path already correct, separate build world).
 - **(D surfacing)** Where a consumer shows a segment whose **effective owner differs** from the raw analysis kind, mark it "reclassified by annotation" using the already-persisted Spec 055 findings — so the reclassification is visible, not silent.
 
-## Resolution
-_(pending Spec 751 implementation — gate `e2e:bug034` / `e2e:751` TBD)_
+## Resolution (FIXED 2026-06-02 — Spec 751 option D)
+One shared server-side module `src/project-knowledge/effective-segments.ts` (faithful ESM
+port of the pipeline Spec 055 overlay, proven byte-equal by parity tests). All real
+friction surfaces route through it:
+- `inspect_address_range`, graphics-view, annotated-listing → `loadEffectiveSegments`.
+- `resolve-pc` append-with-skip bug replaced by the real overlay.
+- `service.ts` inline 3rd copy collapsed onto the shared `annotationSegmentsToOverlays` +
+  `overlayCovering` (routine-end + segclass findings unchanged).
+- memory-map: **view-time** overlay scoped per entity→analysis-artifact + a
+  `reclassifiedByAnnotation` flag (entity records untouched).
+- (D) hint: `inspect_address_range` marks `[reclassified by annotation]`; memory-map carries
+  the flag; listings link the Spec 055 segclass finding.
+
+The originally-listed 6th surface (`view-builders.ts:251`) was a FALSE POSITIVE (reads
+annotation comments, not segment kinds).
+
+Non-destructive throughout: no `_analysis.json` write-back, no sidecar, byte-identical
+rebuild gate untouched. Gate `e2e:751` 27/27 (parity + integration + non-destructive at
+entity-record AND on-disk levels). Regressions: e2e:024 15/15, e2e:741 13/13, smoke:741
+50/50, e2e:bug031 14/14, project-knowledge smoke.

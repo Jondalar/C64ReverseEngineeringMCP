@@ -1,6 +1,6 @@
 # Spec 751 — Effective-segments overlay reuse (BUG-034)
 
-**Status:** PLANNED (2026-06-02) — option D ratified by user; code pending "bau".
+**Status:** DONE (2026-06-02) — option D shipped; gate `e2e:751` 27/27.
 **Closes:** BUG-034. **Lineage:** Spec 055 (effective-segments overlay) hardening.
 **Doc anchor:** `pipeline/src/lib/effective-segments.ts:72` (`buildEffectiveSegments`);
 non-destructive gate `specs/720-disasm-output-quality.md:109`.
@@ -69,19 +69,36 @@ Undoc-opcode salad ($EB/$FF/$4B) + the 28-byte `$01` run = the disassembler walk
 data. Reclassify region → `data` via `SegmentAnnotation`; with this spec that shows in
 inspect / memory-map / graphics / disk-layout, not just the disasm.
 
-## 5. Slices
-- **751.1** — extract `src/project-knowledge/effective-segments.ts` (pure port + loader);
-  unit-parity test vs. the pipeline impl on shared fixtures.
-- **751.2** — route consumers 1,3,4,6 (the straightforward raw reads) through the loader.
-- **751.3** — collapse `service.ts:2532` inline onto the shared module.
-- **751.4** — fix `resolve-pc.ts:171-194` (overlay, not append) — also kills the latent bug.
-- **751.5** — memory-map (consumer 5): apply overlay at `analysis-import` entity minting OR
-  at the memory-map view read (decide in refinement — import-time changes entity truth).
-- **751.6** — (D) "reclassified by annotation" hint from Spec 055 findings.
-- **751.7** — gate `e2e:751`: a fixture with a data region + a reclassify annotation; assert
-  all six consumers report `data` (not the heuristic kind), the resolve-overlay is correct,
-  and `_analysis.json` on disk is **unchanged** (non-destructive). Byte-identical disasm
-  rebuild still green.
+## 5. Slices (all DONE 2026-06-02)
+- **751.1 — DONE.** `src/project-knowledge/effective-segments.ts` (pure generic port +
+  `loadEffectiveSegments` + `annotationSegmentsToOverlays` + `overlayCovering`). Parity vs.
+  the pipeline algorithm proven on 5 fixtures (`e2e:751`).
+- **751.2 — DONE.** Routed consumers **1, 3, 4** through `loadEffectiveSegments`
+  (inspect_address_range, graphics-view, annotated-listing). **Consumer 6 was a FALSE
+  POSITIVE** — `view-builders.ts:251` (`readSemanticAnnotationSummary`) reads annotation
+  *comments*, not analysis segment kinds; no overlay needed.
+- **751.3 — DONE.** Collapsed the `service.ts` inline overlay onto the shared
+  `annotationSegmentsToOverlays` + `overlayCovering`; `effectiveSegmentEndAt` keeps its
+  kind+source walk so routine-end + segclass findings are byte-for-byte unchanged.
+- **751.4 — DONE.** `resolve-pc.ts` now uses the real overlay (was append-with-skip that
+  dropped a reclassify of an already-covered range). Latent bug killed.
+- **751.5 — DONE.** Resolved the refinement decision as **view-time** (import-time was
+  flawed — annotations arrive after import). `buildMemoryMapView` overlays the annotation
+  kind onto regions minted from analysis segments, scoped per entity→analysis-artifact,
+  + a `reclassifiedByAnnotation` flag. Entity records untouched (non-destructive).
+- **751.6 — DONE.** (D) hint: `inspect_address_range` marks `[reclassified by annotation]`
+  inline; memory-map carries the explicit flag; annotated-listing/regions already link the
+  Spec 055 segclass finding.
+- **751.7 — DONE.** Gate `e2e:751` **27/27**: unit parity (incl. the resolve-pc
+  full-override case) + integration (memory-map kind+flag, annotated-listing kind,
+  emitAnnotationFindings parity) + **non-destructive at BOTH the entity-record and on-disk
+  `_analysis.json` levels**. Regressions green: e2e:024 15/15, e2e:741 13/13, smoke:741
+  50/50, e2e:bug031 14/14, project-knowledge smoke.
+
+> **UI note:** the memory-map + annotated-listing builders run in the 4310 workspace-ui
+> server (recomputed live per request) — a builder CODE change needs a **4310 restart** to
+> show in the browser. `inspect_address_range` / `resolve-pc` are MCP-side → **`/mcp
+> reconnect`**.
 
 ## 6. Non-goals
 - NOT changing the heuristic / code-discovery (why it over-reached = separate, Spec 047
@@ -90,3 +107,11 @@ inspect / memory-map / graphics / disk-layout, not just the disasm.
 - NO write-back to `_analysis.json`. NO new sidecar artifact (rejected option B). NO
   `materialize` tool that mutates source (rejected option C).
 - Byte-identical rebuild gate (`specs/720:109`) preserved — annotations never touch bytes.
+- **Deliberate exclusions (completeness audit 2026-06-02):** `service.ts`
+  `computeQualityMetrics` (≈3503) reads RAW segments on purpose — it measures the
+  *analyzer's* output quality (unknown-byte ratio, confidence), not a region-kind display;
+  overlaying annotations would conflate "heuristic quality" with "human understanding".
+  The graphics confirm/reject endpoints (`service.ts` ≈2912/2977/3031) operate on a
+  separate axis (asset confirm-state), not kind display. `analysis-import` entity minting
+  stays heuristic at import (the 751.5 view-time decision overlays at display). These are
+  intentional, not missed surfaces.
