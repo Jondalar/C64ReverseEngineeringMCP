@@ -6,6 +6,7 @@ import { importAnalysisKnowledge, stampImportedKnowledgeWithPayload } from "./an
 import { importManifestKnowledge } from "./manifest-import.js";
 import { buildAnnotatedListingView, buildCartridgeLayoutView, buildDiskLayoutView, buildFlowGraphView, buildLoadSequenceView, buildMediumLayoutView, buildMemoryMapView, buildProjectDashboardView } from "./view-builders.js";
 import { ProjectKnowledgeStorage, defaultProjectSlug } from "./storage.js";
+import { annotationSegmentsToOverlays, overlayCovering } from "./effective-segments.js";
 import {
   isVersionedSourceArtifact,
   memberFromCandidate,
@@ -2516,25 +2517,16 @@ export class ProjectKnowledgeService {
       const n = Number.parseInt(s, 16);
       return Number.isFinite(n) ? n : undefined;
     }
-    // Build effective segments inline (no pipeline dep). Annotation kind
-    // wins on overlap; analysis fills the gaps.
-    type AnnSeg = { start: number; end: number; kind: string; label?: string };
-    const annotationSegs: AnnSeg[] = ((annotations.segments ?? [])
-      .map((s) => {
-        const start = parseHexOrNum(s.start);
-        const end = parseHexOrNum(s.end);
-        if (start === undefined || end === undefined || !s.kind || end < start) return undefined;
-        return { start, end, kind: s.kind, label: s.label } as AnnSeg;
-      })
-      .filter((s): s is AnnSeg => s !== undefined))
-      .sort((a, b) => a.start - b.start);
+    // Spec 751.3 — single-source the annotation overlay parsing + precedence
+    // through the shared effective-segments module (this was an inline 3rd copy
+    // of the Spec 055 overlay, BUG-034). annotationSegmentsToOverlays parses the
+    // hex/number addresses; overlayCovering resolves the annotation owner
+    // (later-by-start wins). effectiveSegmentEndAt keeps its kind+source walk so
+    // routine-end derivation is byte-for-byte unchanged.
+    const annotationSegs = annotationSegmentsToOverlays(annotations.segments).sort((a, b) => a.start - b.start);
     const analysisSegs = (analysis?.segments ?? []).filter((s) => typeof s.start === "number" && typeof s.end === "number" && s.end >= s.start);
     function effectiveOwnerAt(addr: number): { kind: string; source: "annotation" | "analysis" } | undefined {
-      let annOwner: typeof annotationSegs[number] | undefined;
-      for (const a of annotationSegs) {
-        if (a.start > addr) break;
-        if (addr <= a.end) annOwner = a;
-      }
+      const annOwner = overlayCovering(annotationSegs, addr);
       if (annOwner) return { kind: annOwner.kind, source: "annotation" };
       for (const s of analysisSegs) {
         if (s.start <= addr && addr <= s.end) return { kind: s.kind, source: "analysis" };

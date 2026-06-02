@@ -30,6 +30,7 @@ export interface EffSegment {
   length?: number;
   label?: string;
   comment?: string;
+  score?: { confidence?: number; reasons?: string[] };
   [k: string]: unknown;
 }
 
@@ -51,20 +52,22 @@ interface OwnerHint {
   comment?: string;
 }
 
-/** Parse a hex address that may carry a leading `$` (annotation files store
- *  hex strings, e.g. "09A9" or "$09A9"). */
+/** Parse a hex address that may carry a leading `$` or `0x` (annotation files
+ *  store hex strings, e.g. "09A9", "$09A9", "0x09A9"). */
 export function parseHexAddr(hex: string): number {
-  return parseInt(String(hex).replace(/^\$/, ""), 16);
+  return parseInt(String(hex).replace(/^\$/, "").replace(/^0x/i, ""), 16);
 }
 
-/** Map raw `_annotations.json` segment entries (hex-string start/end) to
- *  numeric overlays. Tolerates already-numeric start/end. */
+/** Map raw `_annotations.json` segment entries (hex-string or numeric
+ *  start/end) to numeric overlays. Tolerant of optional/missing fields —
+ *  entries lacking a start, end, or kind are skipped. */
 export function annotationSegmentsToOverlays(
-  segments: ReadonlyArray<{ start: string | number; end: string | number; kind: string; label?: string; comment?: string }> | undefined,
+  segments: ReadonlyArray<{ start?: string | number; end?: string | number; kind?: string; label?: string; comment?: string }> | undefined,
 ): AnnotationSegmentOverlay[] {
   if (!segments || segments.length === 0) return [];
   const out: AnnotationSegmentOverlay[] = [];
   for (const s of segments) {
+    if (s.start === undefined || s.end === undefined || !s.kind) continue;
     const start = typeof s.start === "number" ? s.start : parseHexAddr(s.start);
     const end = typeof s.end === "number" ? s.end : parseHexAddr(s.end);
     if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) continue;
