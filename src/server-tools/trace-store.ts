@@ -39,7 +39,15 @@ async function routeStoreRead<T>(fn: string, dbPath: string, args: Record<string
 export function resolveStorePath(input: string, context: ServerToolContext): string {
   const proj = (() => { try { return context.projectDir(undefined, false); } catch { return undefined; } })();
   const abs = isAbsolute(input) ? resolvePath(input) : resolvePath(proj ?? process.cwd(), input);
-  if (!existsSync(abs)) throw new Error(`trace store path not found: ${abs}`);
+  if (!existsSync(abs)) {
+    // Spec 746.x — a MISSING .duckdb is acceptable when its .c64retrace authority
+    // exists: the reader path (ensureIndex) rebuilds the index from it lazily
+    // (recovers an orphaned store, e.g. a multi-GB trace whose index never built).
+    // Pass the path through so the rebuild can run instead of being blocked here.
+    const retrace = abs.endsWith(".duckdb") ? abs.slice(0, -".duckdb".length) + ".c64retrace" : abs + ".c64retrace";
+    if (existsSync(retrace)) return abs;
+    throw new Error(`trace store path not found: ${abs}`);
+  }
   if (statSync(abs).isDirectory()) {
     const candidate = resolvePath(abs, "trace.duckdb");
     if (!existsSync(candidate)) {

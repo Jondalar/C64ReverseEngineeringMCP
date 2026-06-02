@@ -70,6 +70,19 @@ try {
   //   ensureIndex rebuilds it from the authority (the 4.5 GB-orphan scenario).
   unlinkSync(out);
   ok(!existsSync(out), "3 orphan: .duckdb removed, .c64retrace kept", "removed");
+
+  // 3b/3c resolveStorePath must PASS a missing .duckdb through when its .c64retrace
+  //   exists (so the trace_store_* path can trigger the lazy rebuild) but still
+  //   throw when neither exists.
+  const { resolveStorePath } = await import("../dist/server-tools/trace-store.js");
+  const ctxStub = { projectDir: () => { throw new Error("no proj"); } };
+  let rsThrew = false, rsPath = "";
+  try { rsPath = resolveStorePath(out, ctxStub); } catch { rsThrew = true; }
+  ok(!rsThrew && rsPath === out, "3b resolveStorePath passes a missing .duckdb through when .c64retrace exists", rsThrew ? "threw" : "ok");
+  let negThrew = false;
+  try { resolveStorePath(join(dir, "nope.duckdb"), ctxStub); } catch { negThrew = true; }
+  ok(negThrew, "3c resolveStorePath still throws when neither .duckdb nor .c64retrace exists");
+
   await ensureIndex(out);
   ok(existsSync(out), "4 lazy-on-read REBUILT the missing index from the .c64retrace authority");
   let rows2 = -1;
