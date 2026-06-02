@@ -3897,16 +3897,29 @@ export class ProjectKnowledgeService {
         }
         continue;
       }
-      // Preserve existing per-member stale/missing status across the refresh.
+      // Preserve existing per-member stale/missing status across the refresh — BUT
+      // (BUG-033) CLEAR it when the file has REAPPEARED on disk (a regenerated /
+      // byte-identical rebuild after a clean-restart `mark_artifact_version_stale`):
+      // a present file is `available`, not sticky-missing.
       const priorStatus = new Map(existing.versions.map((v) => [v.artifactId, v.status]));
+      const vroot = this.storage.paths.root;
+      const effPrior = (c: typeof ordered[number]): ArtifactVersionMember["status"] | undefined => {
+        const p = priorStatus.get(c.artifact.id);
+        if ((p === "stale" || p === "missing") && existsSync(resolve(vroot, c.artifact.path))) return undefined; // reappeared
+        return p;
+      };
+      const isAvail = (c: typeof ordered[number]) => { const p = effPrior(c); return p !== "stale" && p !== "missing"; };
       const isManual = existing.currentSource === "manual";
-      // Auto current = best non-stale candidate; respect a manual pin.
-      const autoTop = ordered.find((c) => priorStatus.get(c.artifact.id) !== "stale" && priorStatus.get(c.artifact.id) !== "missing");
+      // Auto current = best AVAILABLE candidate, PREFERRING a primary listing over a
+      // `related` companion (BUG-033: a `.sym` must never auto-win over the `.asm`/
+      // `.tass`). Fall to a related one only when no primary is available.
+      const autoTop = ordered.find((c) => isAvail(c) && c.role !== "related")
+        ?? ordered.find((c) => isAvail(c));
       const currentId = isManual && this.getArtifactById(existing.currentArtifactId)
         ? existing.currentArtifactId
         : (autoTop?.artifact.id ?? existing.currentArtifactId);
       const versions = ordered.map((c) => {
-        const prior = priorStatus.get(c.artifact.id);
+        const prior = effPrior(c);
         const status: ArtifactVersionMember["status"] = prior === "stale" || prior === "missing"
           ? prior
           : (c.artifact.id === currentId ? "current" : "available");
