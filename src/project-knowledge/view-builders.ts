@@ -895,13 +895,23 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
         if (f.track !== undefined && f.sector !== undefined) claimedCells.add(`${f.track}:${f.sector}`);
         for (const c of f.sectorChain) claimedCells.add(`${c.track}:${c.sector}`);
       }
-      const onlyDisk = context.artifacts.filter((a) => a.role === "disk-manifest").length === 1;
+      // register_payload links a payload to its .prg + disasm artifacts, NOT to the
+      // disk-manifest artifact — so a sector-span payload is "unlinked" to any disk.
+      // Match it to THIS image if it's explicitly on this disk artifact, OR it is not
+      // pinned to ANY disk-manifest artifact (a project-global payload → overlay it
+      // here). Only exclude a payload explicitly pinned to a DIFFERENT disk. (The old
+      // single-disk-only fallback failed real projects with several disk-manifest
+      // artifacts — e.g. dup/versioned manifests — so utils_overlay_7E00 @ T8 never showed.)
+      const diskArtifactIds = new Set(context.artifacts.filter((a) => a.role === "disk-manifest").map((a) => a.id));
       const payloadFiles: typeof manifestFiles = context.entities
-        // a sector-span entity belongs to THIS image if it's explicitly linked to
-        // the disk artifact, or (single-disk project, the common case) by default.
         .filter((e) => (e.mediumSpans ?? []).some((sp) => sp.kind === "sector"))
         .filter((e) => e.kind !== "disk-file") // disk-file entities ARE the manifest files
-        .filter((e) => (e.artifactIds ?? []).includes(artifact.id) || onlyDisk)
+        .filter((e) => {
+          const ids = e.artifactIds ?? [];
+          if (ids.includes(artifact.id)) return true;                  // explicitly on this disk
+          if (ids.some((id) => diskArtifactIds.has(id))) return false; // pinned to a DIFFERENT disk
+          return true;                                                 // unlinked → global payload, overlay here
+        })
         .flatMap((e) => {
           const spans = (e.mediumSpans ?? []).filter((sp): sp is Extract<typeof sp, { kind: "sector" }> => sp.kind === "sector");
           return spans
