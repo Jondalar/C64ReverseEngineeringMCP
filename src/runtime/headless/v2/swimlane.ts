@@ -7,6 +7,7 @@
 import { queryEvents, type QueryEventsBackend } from "./query-events.js";
 import { OPCODE_TABLE } from "../../../exomizer-ts/generated-opcodes.js";
 import { UNDOC_TABLE } from "../cpu/undoc-table.js";
+import { deriveFlow, type FlowKind } from "./flow-focus.js";
 
 // ── Public types ────────────────────────────────────────────────────────────
 
@@ -15,6 +16,8 @@ export interface SwimlaneRow {
   c64Pc?: number;
   /** mnemonic + operand, e.g. "LDA $D011" */
   c64Op?: string;
+  /** Spec 746.13 — derived execution-context lane for this C64 step. */
+  c64Flow?: FlowKind;
   c64IoRw?: "r" | "w";
   c64IoAddr?: number;
   c64IoValue?: number;
@@ -42,6 +45,12 @@ export interface SwimlaneQuery {
   compact?: boolean;
   filterC64PcRange?: [number, number];
   filterDrvPcRange?: [number, number];
+  /** Spec 746.13 — keep only rows whose derived C64 flow lane matches
+   *  (main|irq|nmi). The `c64Flow` column is always populated regardless. */
+  focus?: FlowKind;
+  /** Optional NMI handler entry ($FFFA target) to sharpen NMI-vs-IRQ on an
+   *  NMI taken directly from main flow. */
+  nmiVector?: number;
 }
 
 // ── Internal opcode → mnemonic helper ───────────────────────────────────────
@@ -144,6 +153,15 @@ export async function swimlaneSlice(
 
   const cycles = Array.from(cycleSet).sort((a, b) => a - b);
 
+  // Spec 746.13 — derive the per-step flow lane (main|irq|nmi) by replaying the
+  // FlowTracker classification over the ordered CPU_STEP stream. (Best-effort
+  // if the stream is pc-filtered — the derivation needs the full stream.)
+  const flowSteps = cpuSteps
+    .filter((e): e is Extract<typeof cpuSteps[number], { family: "cpu_step" }> => e.family === "cpu_step")
+    .map((e) => ({ cycle: e.cycle, pc: e.pc, opcode: e.opcode, sp: e.sp }))
+    .sort((a, b) => a.cycle - b.cycle);
+  const flowByCycle = deriveFlow(flowSteps, query.nmiVector !== undefined ? { nmiVector: query.nmiVector } : {});
+
   // Index events by cycle for O(1) lookup.
   type AnyEvent = typeof cpuSteps[number] | typeof memReads[number] | typeof memWrites[number] | typeof atnChanges[number] | typeof clkChanges[number] | typeof dataChanges[number];
 
@@ -182,6 +200,8 @@ export async function swimlaneSlice(
       if (ev.family === "cpu_step") {
         row.c64Pc = ev.pc;
         row.c64Op = opcodeToMnemonic(ev.opcode);
+        const fl = flowByCycle.get(cycle);
+        if (fl) row.c64Flow = fl;
       }
     }
 
@@ -242,12 +262,19 @@ export async function swimlaneSlice(
     rows.push(row);
   }
 
+  // Spec 746.13 — focus filter: keep only rows in the requested flow lane.
+  // (The c64Flow column is always populated; this just narrows the view.)
+  let focusedRows = rows;
+  if (query.focus) {
+    focusedRows = rows.filter((r) => r.c64Flow === query.focus);
+  }
+
   // Compact: drop rows where nothing changed vs previous row.
-  let finalRows = rows;
+  let finalRows = focusedRows;
   if (compact) {
     finalRows = [];
     let prev: SwimlaneRow | undefined;
-    for (const row of rows) {
+    for (const row of focusedRows) {
       if (!prev || rowChanged(prev, row)) {
         finalRows.push(row);
         prev = row;
@@ -262,6 +289,7 @@ function rowChanged(prev: SwimlaneRow, cur: SwimlaneRow): boolean {
   return (
     cur.c64Pc !== prev.c64Pc ||
     cur.c64Op !== prev.c64Op ||
+    cur.c64Flow !== prev.c64Flow ||
     cur.c64IoRw !== prev.c64IoRw ||
     cur.c64IoAddr !== prev.c64IoAddr ||
     cur.c64IoValue !== prev.c64IoValue ||

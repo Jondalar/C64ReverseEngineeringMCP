@@ -477,24 +477,32 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Swimlane (Spec 234) ----
   server.tool(
     "runtime_swimlane_slice",
-    "Return a per-lane (C64 PC / drive PC / IEC / VIA) slice of the trace around a cycle window. Use to compare lanes at a moment of interest. Not for a single-PC search (use trace_store_query). Inputs: run id, cycle window. Returns: per-lane events.",
+    "Return a per-lane (C64 PC / drive PC / IEC / VIA) slice of the trace around a cycle window. Use to compare lanes at a moment of interest. Not for a single-PC search (use trace_store_query). Each C64 step carries a derived `flow` lane (main|irq|nmi); pass `focus` to keep only one (e.g. focus='irq' to see just the interrupt handler). Inputs: run id, cycle window, optional focus. Returns: per-lane events.",
     {
       run_id: z.string(),
       duckdb_path: z.string(),
       cycle_start: z.number(),
       cycle_end: z.number(),
       compact: z.boolean().default(true),
+      focus: z.enum(["main", "irq", "nmi"]).optional().describe("Spec 746.13 — keep only rows in this execution-context lane."),
+      nmi_vector: z.number().optional().describe("Optional $FFFA target to sharpen NMI-vs-IRQ for an NMI taken from main flow."),
     },
     safeHandler("runtime_swimlane_slice", async (args) => {
       const { renderMarkdown } = await import("../runtime/headless/v2/swimlane-render.js");
       // BUG-029 — daemon-side read so a live-daemon store lock doesn't block us.
       const slice = await daemonTraceRead<any>(
         "swimlane", args.duckdb_path,
-        { run_id: args.run_id, cycle_start: args.cycle_start, cycle_end: args.cycle_end, compact: args.compact },
+        { run_id: args.run_id, cycle_start: args.cycle_start, cycle_end: args.cycle_end, compact: args.compact, focus: args.focus, nmi_vector: args.nmi_vector },
         async () => {
           const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
           return withDuckDb(args.duckdb_path, async (_conn, backend) =>
-            swimlaneSlice(backend, { runId: args.run_id, cycleRange: [args.cycle_start, args.cycle_end], compact: args.compact }));
+            swimlaneSlice(backend, {
+              runId: args.run_id,
+              cycleRange: [args.cycle_start, args.cycle_end],
+              compact: args.compact,
+              ...(args.focus ? { focus: args.focus } : {}),
+              ...(args.nmi_vector !== undefined ? { nmiVector: args.nmi_vector } : {}),
+            }));
         },
       );
       const md = renderMarkdown(slice, { maxRows: 200 });

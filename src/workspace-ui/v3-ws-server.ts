@@ -1061,7 +1061,14 @@ export class V3WsServer {
         switch (String(op)) {
           case "swimlane": {
             const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
-            return await swimlaneSlice(backend, { runId: a.run_id as string, cycleRange: [Number(a.cycle_start), Number(a.cycle_end)], compact: a.compact as boolean });
+            return await swimlaneSlice(backend, {
+              runId: a.run_id as string,
+              cycleRange: [Number(a.cycle_start), Number(a.cycle_end)],
+              compact: a.compact as boolean,
+              // Spec 746.13 — flow-focus lane + filter.
+              ...(a.focus ? { focus: a.focus as "main" | "irq" | "nmi" } : {}),
+              ...(a.nmi_vector !== undefined ? { nmiVector: Number(a.nmi_vector) } : {}),
+            });
           }
           case "query_events": {
             const { queryEvents } = await import("../runtime/headless/v2/query-events.js");

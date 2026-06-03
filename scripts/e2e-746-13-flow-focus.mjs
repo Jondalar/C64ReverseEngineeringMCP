@@ -99,5 +99,36 @@ const lane = (map, cyc) => map.get(cyc);
   ok([0, 2, 4].every((c) => f.get(c) === "main"), "5 no interrupts → all main");
 }
 
+// ── 6. Integration: swimlaneSlice attaches the flow column + focus filters ───
+console.log("\n746.13 integration — swimlaneSlice flow column + focus filter\n");
+const { swimlaneSlice } = await import(`${ROOT}/dist/runtime/headless/v2/swimlane.js`);
+const { renderMarkdown } = await import(`${ROOT}/dist/runtime/headless/v2/swimlane-render.js`);
+
+// Stub QueryEventsBackend: return cpu_step rows for the `instructions` table,
+// nothing for bus/chip tables. Columns match query-events rowFromDb.
+const cpuRows = [
+  { clock: 0, pc: 0x1000, opcode: NOP, a: 0, x: 0, y: 0, sp: 0xff, p: 0 },  // main
+  { clock: 2, pc: 0x1001, opcode: NOP, a: 0, x: 0, y: 0, sp: 0xff, p: 0 },  // main
+  { clock: 4, pc: 0xff48, opcode: PHA, a: 0, x: 0, y: 0, sp: 0xfb, p: 0 },  // irq entry
+  { clock: 6, pc: 0xff49, opcode: PLA, a: 0, x: 0, y: 0, sp: 0xfc, p: 0 },  // irq
+  { clock: 8, pc: 0xff4a, opcode: RTI, a: 0, x: 0, y: 0, sp: 0xff, p: 0 },  // irq, pop
+  { clock: 10, pc: 0x1002, opcode: NOP, a: 0, x: 0, y: 0, sp: 0xff, p: 0 }, // main
+];
+const backend = { async exec(sql) { return String(sql).includes("instructions") ? cpuRows : []; } };
+
+const slice = await swimlaneSlice(backend, { runId: "r", cycleRange: [0, 20], compact: false });
+const at = (cyc) => slice.rows.find((r) => r.cycle === cyc);
+ok(at(0)?.c64Flow === "main", "6 swimlane row@0 flow=main", `got ${at(0)?.c64Flow}`);
+ok(at(4)?.c64Flow === "irq", "6 swimlane row@4 (IRQ entry) flow=irq", `got ${at(4)?.c64Flow}`);
+ok(at(8)?.c64Flow === "irq", "6 swimlane RTI row flow=irq");
+ok(at(10)?.c64Flow === "main", "6 swimlane row@10 (post-RTI) flow=main", `got ${at(10)?.c64Flow}`);
+
+const md = renderMarkdown(slice);
+ok(/\bflow\b/.test(md) && md.includes("irq"), "6 renderMarkdown shows the flow column + irq");
+
+const focused = await swimlaneSlice(backend, { runId: "r", cycleRange: [0, 20], compact: false, focus: "irq" });
+ok(focused.rows.length > 0 && focused.rows.every((r) => r.c64Flow === "irq"), "6 focus='irq' keeps only irq rows", `n=${focused.rows.length}`);
+ok(focused.rows.every((r) => r.cycle >= 4 && r.cycle <= 8), "6 focus='irq' rows are the handler window (4..8)");
+
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} Spec 746.13 flow-focus: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

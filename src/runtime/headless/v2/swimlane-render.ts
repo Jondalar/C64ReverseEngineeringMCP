@@ -44,20 +44,21 @@ export function renderMarkdown(slice: SwimlaneSlice, opts: RenderMarkdownOpts = 
   );
   lines.push("");
   lines.push(
-    `| cycle | c64_pc | c64_op | c64_io | bus | drv_pc | drv_op | drv_io |`,
+    `| cycle | c64_pc | c64_op | flow | c64_io | bus | drv_pc | drv_op | drv_io |`,
   );
-  lines.push(`|------:|-------:|--------|--------|-----|-------:|--------|--------|`);
+  lines.push(`|------:|-------:|--------|------|--------|-----|-------:|--------|--------|`);
 
   for (const row of rows) {
     const c64Pc  = row.c64Pc  !== undefined ? hex(row.c64Pc)  : "";
     const c64Op  = row.c64Op  ?? "";
+    const flow   = row.c64Flow ?? "";
     const c64Io  = fmtIo(row.c64IoRw, row.c64IoAddr, row.c64IoValue);
     const bus    = fmtBus(row.busAtn, row.busClk, row.busData);
     const drvPc  = row.drvPc  !== undefined ? hex(row.drvPc)  : "";
     const drvOp  = row.drvOp  ?? "";
     const drvIo  = fmtIo(row.drvIoRw, row.drvIoAddr, row.drvIoValue);
 
-    lines.push(`| ${row.cycle} | ${c64Pc} | ${c64Op} | ${c64Io} | ${bus} | ${drvPc} | ${drvOp} | ${drvIo} |`);
+    lines.push(`| ${row.cycle} | ${c64Pc} | ${c64Op} | ${flow} | ${c64Io} | ${bus} | ${drvPc} | ${drvOp} | ${drvIo} |`);
   }
 
   if (truncated) {
