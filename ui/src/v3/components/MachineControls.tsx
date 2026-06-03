@@ -209,6 +209,17 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
         className={runState === "off" ? "wb-power-off" : "wb-power-on"}
         title={runState === "off" ? "Power ON (cold boot)" : "Power OFF (unplug)"}
       >⏻ Power {runState === "off" ? "OFF" : "ON"}</button>
+      <button
+        onClick={() => {
+          if (!sessionId) return;
+          // Spec 754 — open the monitor in a separate OS window (drag it to your
+          // second screen). Same bundle, ?monitor=1 routes App → MonitorPopout.
+          const url = `${window.location.pathname}?monitor=1&sessionId=${encodeURIComponent(sessionId)}`;
+          window.open(url, `c64re_monitor_${sessionId}`, "width=820,height=640,left=20,top=80");
+        }}
+        disabled={!sessionId}
+        title="Open the monitor in a separate window (drag it to a second screen)"
+      >▣ MON</button>
       <button onClick={reset} disabled={runState === "off"} title="Reset (RESTORE key / cold reset, machine stays powered)">↺ Reset</button>
       <button onClick={togglePause} disabled={runState === "off"} title="Run / Pause">
         {runState === "running" ? "⏸ Pause" : "▶ Run"}

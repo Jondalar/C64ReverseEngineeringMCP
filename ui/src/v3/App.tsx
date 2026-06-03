@@ -10,6 +10,7 @@ import React, { useEffect, useState } from "react";
 import { getClient, type ConnectionState } from "./ws-client.js";
 import { api } from "./rest-client.js";
 import { LiveTab } from "./tabs/Live.js";
+import { MonitorPopout } from "./components/MonitorPopout.js";
 import { TraceTab } from "./tabs/Trace.js";
 import { KnowledgeTab } from "./tabs/Knowledge.js";
 import { TraceFilesTab } from "./tabs/TraceFiles.js";
@@ -35,6 +36,16 @@ const LABEL: Record<Tab, string> = {
 };
 
 export function App(): React.JSX.Element {
+  // Spec 754 — MON pop-out: the same bundle, opened with `?monitor=1&sessionId=…`
+  // in a separate OS window, renders ONLY the monitor bound to that live session.
+  // Checked before any hook; the query is constant per window so the branch is
+  // stable across renders (hook order preserved).
+  {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("monitor") === "1") {
+      return <MonitorPopout sessionId={q.get("sessionId") ?? ""} />;
+    }
+  }
   const [tab, setTab] = useState<Tab>("live");
   const [conn, setConn] = useState<ConnectionState>("closed");
   const [sessionId, setSessionId] = useState<string>("");
