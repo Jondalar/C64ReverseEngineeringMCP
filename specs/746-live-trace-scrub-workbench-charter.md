@@ -216,25 +216,30 @@ each ships with a gate. Decisions the user must still make are flagged **[OQ]**.
   the large App.tsx — deferred to a hands-on session.
 
 ### 4.6 Execution-context focus (flow lanes)
-- **746.13 — PENDING (REFINE 2026-06-03).** MAIN/IRQ/NMI focus for the trace, mirroring
-  the Monitor's flow-focus (`FlowTracker`, Spec 623 §4.3, `stepping.ts`; `CpuFlowKind =
-  main|irq|nmi|brk|trap`). The Monitor pushes a flow frame on IRQ/NMI/BRK entry
-  (SP−3 + a jump to the vector target with no JSR/JMP) and pops on RTI. The trace stores
-  NONE of it: `CPU_STEP` (18 B — pc/opcode/A/X/Y/SP/P/b1/b2) carries no flow-kind, so the
-  swimlane has no main/irq/nmi lane. But the info is implicit per step (PC + opcode +
-  SP-delta), so the exact FlowTracker logic replays over the recorded stream.
-  Two builds:
-  - **A — derive-at-read (recommended).** The swimlane reader (746.10 layer) replays
-    FlowTracker over the CPU_STEP stream → a derived `flow` column + a focus param
-    (`main|irq|nmi`). NO format change (runs on existing `.c64retrace`), ZERO hot-path
-    cost (the zero-alloc firehose stays untouched).
-  - **B — capture-time tag.** Write a 1-byte flow-kind into CPU_STEP at capture (the
-    runtime knows the kind at interrupt-dispatch). Exact for nasty nesting (IRQ-in-NMI,
-    self-modified vectors) but +1 B/step, a format-version bump, and a flow-stack in the
-    hot sink.
-  Recommendation: ship A first; add B only if read-time derivation proves unreliable on
-  nested / SMC-vector cases. Surfaces as a swimlane focus filter, then the same focus on
-  the UI swimlane tab. Decisions parked for refinement → **OQ5**.
+- **746.13 — PLANNED (refined 2026-06-03, OQ5 DECIDED).** MAIN/IRQ/NMI focus for the
+  trace, mirroring the Monitor's flow-focus (`FlowTracker`, Spec 623 §4.3, `stepping.ts`).
+  The Monitor pushes a flow frame on IRQ/NMI/BRK entry (SP−3 + a jump to the vector target
+  with no JSR/JMP) and pops on RTI. The trace stores NONE of it: `CPU_STEP` (18 B —
+  pc/opcode/A/X/Y/SP/P/b1/b2) carries no flow-kind, so the swimlane has no main/irq/nmi
+  lane. The info is implicit per step (PC + opcode + SP-delta), so the FlowTracker logic
+  replays over the recorded stream.
+
+  **Ratified design (OQ5):**
+  - **Build = A (derive-at-read), B-fallback.** The swimlane reader (746.10 layer) replays
+    FlowTracker over the CPU_STEP stream → a derived `flow` column. NO format change (runs
+    on existing `.c64retrace`), ZERO hot-path cost (the zero-alloc firehose stays
+    untouched). Keep B (a 1-byte capture-time tag) in reserve ONLY if read-time derivation
+    proves unreliable on the rare nested-IRQ-in-NMI / SMC-vector cases.
+  - **3 lanes: `main | irq | nmi`.** `brk` folds into `irq` (shares the `$FFFE` vector);
+    `trap` is dropped (vestigial in the single-path runtime — real KERNAL, no trap layer,
+    Spec 723). Derive: IRQ/NMI entry = SP−3 + control-transfer to the vector target without
+    JSR/JMP (BRK opcode `$00` → `irq`); RTI (`$40`) pops.
+  - **Focus = colour + filter (both).** The swimlane always colour-codes rows by kind
+    (main / irq / nmi); an optional focus param drops the other lanes' rows on demand
+    (the Monitor mental model). Default tinted, filter opt-in.
+  - **C64-only first.** Apply to the C64 CPU_STEP stream now; the 1541 drive CPU
+    (`DRIVE_CPU_STEP`, own IRQ/VIA flow + drive-ROM vectors) is a trivial follow-up reusing
+    the same replay — deferred to a 746.13b slice.
 
 ## 4.7 Status summary (2026-06-01)
 DONE + pushed: 746.1 (producers-on default session), 746.2 (runtime_trace_start),
@@ -245,8 +250,9 @@ viewer wired). The LLM + human can: start/stop a trace on the running shared ses
 from THREE gates (UI/API/Monitor), read the swimlane concurrently, and scrub/rewind
 the checkpoint ring. DEFERRED as real features (not wiring): 746.7 (ring↔RewindManager
 marriage), 746.8 (structured trace→finding), 746.11 + 746.12 (ring-scrub timeline +
-live-RAM graphics-scrub UI — need visual iteration at the screen). PENDING (refine
-2026-06-03): 746.13 (MAIN/IRQ/NMI flow-focus on the swimlane).
+live-RAM graphics-scrub UI — need visual iteration at the screen). PLANNED (refined
+2026-06-03, OQ5 decided): 746.13 (MAIN/IRQ/NMI flow-focus — derive-at-read, 3 lanes,
+colour+filter, C64-first).
 
 ## 5. Acceptance (when this charter is "usable")
 - From the running Wasteland_EF session, the LLM can: `runtime_trace_start` →
@@ -283,17 +289,16 @@ live-RAM graphics-scrub UI — need visual iteration at the screen). PENDING (re
   multi-load loader). The ring already estimates per-checkpoint bytes
   (`estimateCheckpointBytes`), so the budget is enforced as today, just no longer a
   hard constant.
-- **OQ5 — OPEN (REFINE 2026-06-03, 746.13 flow-focus):** derive-at-read (A) vs
-  capture-tag (B)? Lean A (no format change, no hot-path cost). Sub-questions to settle:
-  - **(a) robustness of A** — does SP-delta + vector-target detection misclassify on
-    nested IRQ-in-NMI, RTI-less handlers, or self-modified `$0314/$0316`/`$FFFE/$FFFA`
-    vectors? If A is wrong too often there → fall to B (or B as an opt-in "exact" mode).
-  - **(b) lane granularity** — does `brk`/`trap` get its own lane or fold into `main`?
-    Monitor's `CpuFlowKind` has all five; the swimlane may want just 3 (main/irq/nmi).
-  - **(c) focus param shape** — filter (drop the other lanes' rows) vs colour-only (keep
-    all rows, tint by kind)? Filter is the Monitor's mental model; colour keeps context.
-  - **(d) drive CPU** — the 1541 has its own IRQ flow (`DRIVE_CPU_STEP`). Same lane model
-    for the drive, or C64-only first and drive as a follow-up?
+- **OQ5 — DECIDED (2026-06-03, 746.13 flow-focus):**
+  - **(a) build →** **A (derive-at-read), B-fallback.** No format change, zero hot-path
+    cost; runs on existing `.c64retrace`. Keep the 1-byte capture-tag (B) in reserve only
+    if A proves unreliable on rare nested-IRQ-in-NMI / SMC-vector cases.
+  - **(b) lanes →** **3: `main | irq | nmi`.** `brk` folds into `irq` (shared `$FFFE`
+    vector); `trap` dropped (vestigial in the single-path runtime, Spec 723).
+  - **(c) focus →** **both — colour + filter.** Always colour-code rows by kind; optional
+    focus param drops the other lanes on demand (Monitor mental model).
+  - **(d) drive →** **C64-only first.** The 1541 `DRIVE_CPU_STEP` flow reuses the same
+    replay later (746.13b follow-up).
 - **OQ4 — DECIDED (2026-06-01):** write-delta streaming is **DEFERRED — measure first**.
   The MVP is CPU-firehose + snapshot ONLY (sufficient for reconstruction: only the CPU
   writes RAM, re-sim from the nearest anchor ≤500k cyc rebuilds any in-between state).
