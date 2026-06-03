@@ -150,10 +150,10 @@ export class BinaryTraceLogWriter {
     this.commit(off);
   }
 
-  appendMemAccess(kind: "ram" | "io" | "drive_ram", cycle: number, addr: number, value: number, pc: number, access: number): void {
+  appendMemAccess(kind: "ram" | "io" | "drive_ram", cycle: number, addr: number, value: number, pc: number, access: number, oldValue?: number): void {
     const op = kind === "io" ? TraceOp.IO_WRITE : kind === "drive_ram" ? TraceOp.DRIVE_RAM_WRITE : TraceOp.RAM_WRITE;
-    let off = encodeMemAccess(this.curDv, this.curOff, CHUNK_BYTES, op, cycle, addr, value, pc, access);
-    if (off < 0) { this.flip(); off = encodeMemAccess(this.curDv, 0, CHUNK_BYTES, op, cycle, addr, value, pc, access); }
+    let off = encodeMemAccess(this.curDv, this.curOff, CHUNK_BYTES, op, cycle, addr, value, pc, access, oldValue);
+    if (off < 0) { this.flip(); off = encodeMemAccess(this.curDv, 0, CHUNK_BYTES, op, cycle, addr, value, pc, access, oldValue); }
     this.commit(off);
   }
 

@@ -193,6 +193,8 @@ export class TraceStoreProducer {
     const side: TraceCpu = ev.data.side === "drive" ? "drive8" : "c64";
     const addr = (ev.data.addr as number) ?? undefined;
     const value = (ev.data.value as number) ?? undefined;
+    // Spec 753 — pre-write value (mutation surface); undefined for reads / I/O.
+    const oldValue = ev.data.oldValue as number | undefined;
     // Spec 218: bus-access producer publishes `op`, not `access`.
     // Tolerate both field names for back-compat with any older event
     // shape that might still use `access`.
@@ -216,6 +218,7 @@ export class TraceStoreProducer {
       kind: (isWrite ? "write" : "read") as BusEventKind,
       addr: addr,
       value: value,
+      oldValue: oldValue,
       lineAtn,
       lineClk,
       lineData,

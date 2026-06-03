@@ -41,6 +41,10 @@ export interface BusAccessEvent {
   op: "read" | "write";
   addr: number;
   value: number;
+  /** Spec 753 — pre-write value at addr for write events (mutation /
+   *  persistence surface). Undefined for reads and for I/O-window writes
+   *  where a pre-read would have side effects. */
+  oldValue?: number;
 
   // CPU context
   pc: number;
@@ -99,8 +103,8 @@ export interface BusAccessTraceFilter {
 }
 
 export interface BusAccessTraceProducer {
-  emitC64Access(p: { op: "read" | "write"; addr: number; value: number }): void;
-  emitDriveAccess(p: { op: "read" | "write"; addr: number; value: number }): void;
+  emitC64Access(p: { op: "read" | "write"; addr: number; value: number; oldValue?: number }): void;
+  emitDriveAccess(p: { op: "read" | "write"; addr: number; value: number; oldValue?: number }): void;
   setFilter(filter: BusAccessTraceFilter): void;
   enable(): void;
   disable(): void;
@@ -132,7 +136,7 @@ export class BusAccessTraceProducerImpl implements BusAccessTraceProducer {
     };
   }
 
-  emitC64Access(p: { op: "read" | "write"; addr: number; value: number }): void {
+  emitC64Access(p: { op: "read" | "write"; addr: number; value: number; oldValue?: number }): void {
     if (!this.enabled) return;
     if (!this.deps.registry.isEnabled("bus_access")) return;
     const pc = this.deps.c64Cpu.pc;
@@ -147,6 +151,7 @@ export class BusAccessTraceProducerImpl implements BusAccessTraceProducer {
       op: p.op,
       addr: p.addr & 0xffff,
       value: p.value & 0xff,
+      oldValue: p.oldValue === undefined ? undefined : p.oldValue & 0xff,
       pc: pc & 0xffff,
       at_boundary,
       iec: this.snapIec(),

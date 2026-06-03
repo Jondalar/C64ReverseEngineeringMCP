@@ -325,11 +325,15 @@ export class TraceRunController {
       }
       case "bus_access": {
         const drive = d.side === "drive" || d.side === 1;
-        w.appendMemAccess(drive ? "drive_ram" : "ram", ev.ts, n(d.addr), n(d.value), n(d.pc), d.op === "write" ? 1 : 0);
+        // Spec 753 — carry oldValue (the pre-write value) when present (undefined
+        // for reads / I/O-window writes).
+        w.appendMemAccess(drive ? "drive_ram" : "ram", ev.ts, n(d.addr), n(d.value), n(d.pc), d.op === "write" ? 1 : 0,
+          d.oldValue === undefined || d.oldValue === null ? undefined : n(d.oldValue));
         break;
       }
       case "io":
-        w.appendMemAccess("io", ev.ts, n(d.addr), n(d.value), n(d.pc), d.op === "write" ? 1 : 0);
+        w.appendMemAccess("io", ev.ts, n(d.addr), n(d.value), n(d.pc), d.op === "write" ? 1 : 0,
+          d.oldValue === undefined || d.oldValue === null ? undefined : n(d.oldValue));
         break;
       case "iec":
         w.appendIec(ev.ts, packIecLines(d));

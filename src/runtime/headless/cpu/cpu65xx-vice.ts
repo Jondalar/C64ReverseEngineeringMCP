@@ -106,6 +106,10 @@ export interface BusEvent {
   addr: WORD;
   value: BYTE;
   kind: BusAccessKind;
+  /** Spec 753 — pre-write value at addr for WRITE events (mutation /
+   *  persistence surface). Only set for non-I/O writes (`addr < $D000`),
+   *  where a pre-read is side-effect-free. Undefined otherwise. */
+  oldValue?: BYTE;
 }
 
 export type BusEventListener = (ev: BusEvent) => void;
@@ -387,9 +391,10 @@ export class Cpu65xxVice {
   }
 
   // -------- Bus access primitives --------
-  private emit(kind: BusAccessKind, addr: WORD, value: BYTE): void {
+  private emit(kind: BusAccessKind, addr: WORD, value: BYTE, oldValue?: BYTE): void {
     if (!this.busTraceEnabled) return;
     const ev: BusEvent = { cycle: this.clk, addr: u16(addr), value: u8(value), kind };
+    if (oldValue !== undefined) ev.oldValue = u8(oldValue);
     for (const l of this.busListeners) l(ev);
   }
 
@@ -465,11 +470,16 @@ export class Cpu65xxVice {
   store(addr: WORD, value: BYTE): void {
     const a = u16(addr);
     const v = u8(value);
+    // Spec 753 — capture the pre-write value for the mutation/persistence
+    // surface. Read only when tracing AND below the I/O window: reading
+    // $D000-$DFFF (VIC/SID/CIA registers) has side effects, so oldValue stays
+    // undefined there. RAM/ZP/stack/screen reads are side-effect-free.
+    const oldValue = (this.busTraceEnabled && a < 0xd000) ? u8(this.memory.read(a)) : undefined;
     if (this.ioPortHook && (a === 0x0000 || a === 0x0001)) {
       this.ioPortHook.write(a as 0 | 1, v);
     }
     this.memory.write(a, v);
-    this.emit("WRITE", a, v);
+    this.emit("WRITE", a, v, oldValue);
   }
 
   /** STORE_DUMMY — VICE pattern for RMW first-write of OLD value. */

@@ -133,7 +133,8 @@ export async function ensureSpec726CompatLayer(conn: any): Promise<void> {
          END AS kind,
          CAST(json_extract(data_json, '$.addr') AS USMALLINT) AS addr,
          CAST(json_extract(data_json, '$.value') AS UTINYINT) AS value,
-         NULL::UTINYINT AS old_value,
+         CAST(json_extract(data_json, '$.oldValue') AS UTINYINT) AS old_value, -- Spec 753 mutation surface
+
          CASE WHEN channel = 'iec'
               THEN CAST(json_extract(data_json, '$.atn') AS BOOLEAN) END AS line_atn,
          CASE WHEN channel = 'iec'

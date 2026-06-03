@@ -73,6 +73,7 @@ function eventToRow(ev: DecodedEvent, seq: number): TraceEventRow | null {
       const data: Record<string, unknown> = {
         addr: ev.addr, value: ev.value, op, pc: ev.pc, side: drive ? "drive" : "c64",
       };
+      if (ev.oldValue !== undefined) data.oldValue = ev.oldValue; // Spec 753 — mutation surface
       if (drive) data.cycle_drive = ev.cycle; else data.cycle_c64 = ev.cycle;
       return {
         seq, cycle: ev.cycle, channel: ev.op === TraceOp.IO_WRITE ? "io" : "bus_access",

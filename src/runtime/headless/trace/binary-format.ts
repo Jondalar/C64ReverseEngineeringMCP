@@ -55,9 +55,9 @@ const SIZE: Record<number, number> = {
   [TraceOp.MARK]: -1,             // f64 cycle + u16 len + label
   [TraceOp.CPU_STEP]: 18,         // see encodeCpuStep
   [TraceOp.DRIVE_CPU_STEP]: 18,
-  [TraceOp.RAM_WRITE]: 14,        // see encodeMemAccess
-  [TraceOp.IO_WRITE]: 14,
-  [TraceOp.DRIVE_RAM_WRITE]: 14,
+  [TraceOp.RAM_WRITE]: 15,        // see encodeMemAccess (Spec 753: +1 old_value byte)
+  [TraceOp.IO_WRITE]: 15,
+  [TraceOp.DRIVE_RAM_WRITE]: 15,
   [TraceOp.VIC_REG_WRITE]: 12,
   [TraceOp.SID_REG_WRITE]: 11,
   [TraceOp.IEC_LINE_CHANGE]: 10,
@@ -154,14 +154,20 @@ export function encodeMemAccess(
   dv: DataView, off: number, cap: number,
   op: TraceOp.RAM_WRITE | TraceOp.IO_WRITE | TraceOp.DRIVE_RAM_WRITE,
   cycle: number, addr: number, value: number, pc: number, access: number,
+  oldValue?: number,
 ): number {
-  if (!fits(off, 1 + 14, cap)) return -1;
+  if (!fits(off, 1 + 15, cap)) return -1;
   dv.setUint8(off, op); off += 1;
   dv.setFloat64(off, cycle, true); off += 8;
   dv.setUint16(off, addr & 0xffff, true); off += 2;
   dv.setUint8(off, value & 0xff); off += 1;
   dv.setUint16(off, pc & 0xffff, true); off += 2;
-  dv.setUint8(off, access & 0xff); off += 1;
+  // Spec 753 — access byte: bit0 = read/write; bit7 = oldValue-present. The
+  // trailing byte holds the pre-write value (the mutation surface); absent for
+  // reads + I/O-window writes (where a pre-read would have side effects).
+  const hasOld = oldValue !== undefined && oldValue !== null;
+  dv.setUint8(off, (access & 0x7f) | (hasOld ? 0x80 : 0)); off += 1;
+  dv.setUint8(off, hasOld ? (oldValue & 0xff) : 0); off += 1;
   return off;
 }
 
@@ -227,7 +233,7 @@ export interface DecodedEvent {
   // present per-op
   pc?: number; opcode?: number; a?: number; x?: number; y?: number; sp?: number; p?: number;
   b1?: number; b2?: number;
-  addr?: number; value?: number; access?: number;
+  addr?: number; value?: number; access?: number; oldValue?: number;
   lines?: number; rasterY?: number; kindCode?: number; reg?: number;
   label?: string;
 }
@@ -265,8 +271,11 @@ export function decodeEvent(buf: Uint8Array, off: number): { ev: DecodedEvent; n
       const addr = dv.getUint16(o, true); o += 2;
       const value = buf[o++];
       const pc = dv.getUint16(o, true); o += 2;
-      const access = buf[o++];
-      return { ev: { op, cycle, addr, value, pc, access }, next: o };
+      const accByte = buf[o++];
+      const access = accByte & 0x7f;
+      const oldRaw = buf[o++];
+      const oldValue = (accByte & 0x80) !== 0 ? oldRaw : undefined;
+      return { ev: { op, cycle, addr, value, pc, access, oldValue }, next: o };
     }
     case TraceOp.IEC_LINE_CHANGE: {
       const lines = dv.getUint16(o, true); o += 2;

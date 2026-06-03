@@ -526,6 +526,22 @@ export class IntegratedSession {
       // Spec 205-A c1: register producer with kernel trace controller
       // so external consumers can reach it via kernel.trace().
       this.kernel.trace().setBusAccessProducer(producer);
+      // Spec 753 — bridge the C64 CPU bus-trace harness into the producer.
+      // The drive side is fed by the IEC bus; the C64 CPU side was never
+      // wired. store()/loadRead() already emit WRITE/READ events (gated by
+      // busTraceEnabled, zero-cost when off); forward them to the producer,
+      // which gates again on the `bus_access` channel being live. Only real
+      // RAM/IO accesses are forwarded — FETCH (opcode/operand from PC, already
+      // in the instructions table) and DUMMY_* (RMW phantom cycles) are not,
+      // so reads in bus_events are genuine data reads. P1 = WRITE, P2 = READ.
+      this.c64Cpu.addBusListener((ev) => {
+        if (ev.kind === "WRITE") {
+          producer.emitC64Access({ op: "write", addr: ev.addr, value: ev.value, oldValue: ev.oldValue });
+        } else if (ev.kind === "READ") {
+          producer.emitC64Access({ op: "read", addr: ev.addr, value: ev.value });
+        }
+      });
+      this.c64Cpu.enableBusTrace(true);
     }
   }
 
