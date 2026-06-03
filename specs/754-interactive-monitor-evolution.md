@@ -249,6 +249,143 @@ in-loop (stop at trigger). Rewind is the time-travel-after-stop tool. A future
 scan the trace + rewind to the nearest checkpoint + single-step to the exact cycle —
 needs ring+trace+rewind combined; a follow-up mode, not the default.
 
+### 3.3f Symbols & knowledge (Block F) — DECIDED (2026-06-03)
+The monitor becomes a front-end onto the knowledge layer (the §3.6 capability-layer
+idea). VICE's labels are a tiny subset of our findings/entities/symbols/xref.
+```
+label <addr> <name>     name an address (VICE add_label) — persists as an entity/symbol
+label                   list
+unlabel <addr|name>     remove
+sym <name|addr>         resolve a symbol (our symbols/entities)
+xref <addr>             cross-refs: who calls/jumps/reads/writes here (VICE has none)
+note <addr> "<text>"    drop a finding/comment from the monitor (persists)
+```
+- Word commands (not VICE `add_label`/`delete_label`), persisting as
+  entities/symbols. **Bidirectional:** a monitor `label` creates/links a knowledge
+  entity; existing symbols/findings surface as monitor labels.
+- **`xref <addr>`** — callers/callees/reads/writes from `crossReferences`. A real
+  crack win VICE can't do ("who writes $d018?" → list).
+- **`note`** — set a finding straight from the monitor (instead of the `save_finding`
+  tool). The monitor as a knowledge front-end.
+- `d` disassembly shows labels/comments/xref **inline** (annotated, couples §3.3b) —
+  EXPERIMENTAL ("try it"): the annotated-listing data rendered live in the monitor.
+
+### 3.3g File I/O + FS mini-shell (Block G) — DECIDED (2026-06-03)
+The VICE monitor is also a filesystem mini-shell — the user uses it constantly while
+cracking (load a sample, save a patched PRG). Add it, rooted at the project dir.
+
+**FS mini-shell (rooted at `C64RE_PROJECT_DIR`):**
+```
+pwd                    current dir (starts at the project dir)
+cd <dir>               change dir
+ls | dir [path]        list the HOST filesystem (the mini-shell)
+mkdir / rmdir <dir>    make/remove dir
+```
+Filenames in `load`/`save`/`bload`/`bsave` resolve relative to the shell cwd.
+Project-rooted, but absolute paths allowed (load a `.crt` from `samples/` etc.).
+
+**File I/O (relative to cwd, bank-aware = cpu lens):**
+```
+load  "<file>" [dev] [addr]      PRG load (CBM header → load addr, or override)
+save  "<file>" [dev] <a1> <a2>   save a range as PRG (2-byte load addr)
+bload "<file>" <addr>            binary load — raw bytes, no header
+bsave "<file>" <a1> <a2>         binary save — raw range, no header (the Block-C range↔file)
+```
+
+**Snapshots — naming maps to format (user decision):**
+```
+snap   "<file.c64re>"            OUR snapshot format (Spec 707) — RENAME of the
+unsnap "<file.c64re>"            existing dump/undump.
+dump   "<file.vsf>"              VICE Snapshot Format (interop) — undump a VICE-saved
+undump "<file.vsf>"              state (e.g. EF_Version_C/*.vsf) into our runtime;
+                                 dump our state for an oracle cross-check in VICE.
+```
+`dump`/`undump` keep their VICE-faithful meaning (= `.vsf`); the existing `.c64re`
+path moves to `snap`/`unsnap`. **The `.vsf` codec is its own spec — Spec 755**
+(native VICE snapshot read/write; the command here just dispatches by extension).
+
+**Disk (distinct from the host FS):**
+```
+attach "<file>" [dev]   mount disk/crt
+detach [dev]
+@ "<disk-cmd>"          disk command — @"$" = disk directory, @"s0:name" = scratch
+```
+`ls`/`dir` = host FS (mini-shell); the DISK directory is `@"$"` — two different
+"dir"s, do not conflate.
+
+### 3.3h Analysis superpowers + the checkpoint-substrate model (Block H) — DECIDED (2026-06-03)
+The realization of §3.6 — our capabilities as monitor commands, thin over the same
+services the MCP tools call. **OQ1 RESOLVED: curated verbs only, NO generic `!tool`
+escape** (the LLM-workflow tools stay LLM-only).
+
+**Curated capability verbs:**
+```
+map [static-ranges]        trace_memory_map (free RAM / persistence surface)
+taint <addr>               data-flow taint (runtime_trace_taint)
+inspect <addr>             inspect_address_range (segment/kind/effective)
+analyze <addr> [end]       heuristic analysis on a memory range (analyze_prg core)
+extract <disk|crt> …       extract → auto analyze+disasm (Spec 752 L2)
+bitmap <addr> [w h mode]   RAM-as-image (§3.3b, folds Scrub)
+flow                       flowState panel (§3.3a)
+xref <addr>                cross-refs (§3.3f)
+```
+
+**VICE analysis verbs:**
+```
+sw | stopwatch [reset]     cycle counter delta (trivial; c64Cpu.cycles)
+bt | backtrace             JSR call chain — stack scan for return-addr pairs +
+                           our FlowTracker IRQ/NMI frames (more than VICE's stack-only guess)
+```
+`profile`/`prof` is **dropped** (user: overrated — LLM-driven trace analysis beats a
+built-in profiler). `top-pcs`/hotspots stays an LLM `trace_store_*` tool, not a
+monitor verb.
+
+**The unification — one substrate, three views (the "wie passt das zusammen"):**
+The **checkpoint ring** (Spec 705.B, auto-captures full state ~every 0.5 s) is the
+TIME SUBSTRATE. History is NOT stored per-instruction; it is REGENERATED by
+deterministic replay:
+- **`chis [cycles]`** = rewind to the nearest checkpoint → **replay to now with
+  capture on** → the exact recent stream (≤0.5 s for free; deeper by rewinding
+  further). No always-on per-instruction ring; bounded, on-demand (you are paused).
+  This is literally "what we do between two snapshots" — replay between, don't store.
+- **`bt`** = read the stack now (instant best-guess) + refine via the chis replay
+  (exact JSR chain) + the FlowTracker interrupt frames.
+- **CHIS swimlane in the monitor** — render the replayed stream as lanes
+  **c64-CPU · IRQ · NMI · IO · 1541** (+ VIC/SID as needed), reusing `swimlane.ts`
+  (Spec 746) + flow-focus (746.13 — the main/irq/nmi flow IS the lane structure).
+  The monitor's "what just happened across all subsystems" view.
+```
+> chis 5000
+ cyc      c64-CPU        IRQ      NMI    IO          1541
+ 109153k  .;E5CD LDA     -        -      -           $EC2D
+ 109160k  →IRQ           EA31     -      $D019 r     ...
+```
+- `trace` (§3.3e) stays the explicit, persisted, unbounded capture for durable
+  evidence; chis/bt/swimlane are the cheap on-demand replay views over the substrate.
+- Perf: replaying ≤0.5 s of emulation on demand is fast (well over real-time in warp);
+  no steady-state cost. Determinism: replay from a full-state checkpoint reproduces
+  the exact stream (recorded inputs for the window where needed).
+
+### 3.3i Memspace / device (Block I) — DECIDED (2026-06-03)
+A sticky **device** selects which CPU the verbs (`r`/`m`/`d`/`step`/`chis`/…) target —
+the C64 CPU or the 1541 drive CPU (`drivecpu.ts`, its own 6502). Word, not VICE's
+`c:`/`8:` prefixes.
+```
+device c64        verbs target the C64 CPU (default)
+device drive8     verbs target the 1541 CPU      (alias: dev)
+```
+Couples the Spec 753b drive memory map (stepping/dumping the drive). The status
+sidebar already surfaces DRIVE 8 state.
+
+### 3.3j Meta (Block J) — DECIDED (2026-06-03)
+Only `help`. The rest of VICE's meta/utility (`~`, `print`, `radix`, `keybuf`,
+`record`/`playback`, `log`) is dropped as not useful here (record/playback is the
+Scenarios tab; keyboard feed is `runtime_type`).
+```
+help | ?   list commands CATEGORISED by the functional blocks (A-I), not a flat list
+help <cmd> help for one command
+```
+
 ### 3.4 `sidefx` + a `peek` primitive (couples to Spec 753b)
 Add a side-effect-free `peek(addr)` to the memory bus (VICE `mem_bank_peek`) and a
 `sidefx on|off` toggle (default off → monitor reads peek). Then **Spec 753's
@@ -291,13 +428,11 @@ Plus VICE's `memspace` prefixes (`c:` / `8:`) so commands address the C64 OR the
   `map/taint/xref/extract/checkpoint/flow` verbs; memspace prefixes.
 
 ## 5. Open questions (genuinely the user's call)
-- **OQ1 — capability-layer breadth (the fork).**
-  (A) Parity+polish only: P1+P2, no tool-bridge. Smallest, no architecture risk.
-  (B) **Curated capability layer (P3 as written):** the RE-operational ops become
-  monitor commands AND MCP tools over one core (the VICE binary-monitor model).
-  (C) (B) + a generic `!<tool> <args>` escape over the whole ~296-tool surface.
-  Recommendation: target **B**, ship **A** first (P1+P2), treat C as a later escape
-  hatch. But the ceiling is the user's decision.
+- **OQ1 — capability-layer breadth (the fork). RESOLVED (2026-06-03): curated only.**
+  The RE-operational ops (`map/taint/inspect/analyze/extract/bitmap/flow/xref` — §3.3h)
+  become monitor commands AND MCP tools over one core (the VICE binary-monitor model).
+  **No** generic `!<tool>` escape over the whole tool surface — LLM-workflow tools
+  (`save_finding`, `agent_*`, `project_init`) stay LLM-only.
 - **OQ2 — what belongs in the monitor.** LLM-workflow tools (`save_finding`,
   `agent_*`, `project_init`) are not sensible interactive commands — confirm the
   curated set is RE-operational only.
