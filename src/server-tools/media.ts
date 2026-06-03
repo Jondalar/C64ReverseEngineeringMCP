@@ -58,6 +58,16 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
             const knowledgeService = new ProjectKnowledgeService(pd);
             const imported = knowledgeService.importManifestArtifact(knowledgeRegistration.outputArtifacts[0]);
             result.stdout = (result.stdout || "CRT extraction complete.") + `\nImported manifest knowledge: ${imported.importedEntityCount} entities, ${imported.importedFindingCount} findings, ${imported.importedRelationCount} relations`;
+            // Spec 752 L2 — auto-disasm + analyse every extracted payload.
+            // (Cart CHUNKS at real load addresses are promoted + analysed by
+            // bulk_create_cart_chunk_payloads; this covers the CRT manifest's
+            // own chip/bank payloads.) Soft-fail.
+            try {
+              const chain = await autoAnalyzeExtractedPayloads(pd, imported.importedPayloadEntityIds, { mode: "quick" });
+              result.stdout += `\n${summarizeAutoChain(chain)}`;
+            } catch (chainErr) {
+              result.stdout += `\nAuto-disasm skipped: ${chainErr instanceof Error ? chainErr.message : String(chainErr)}`;
+            }
           } catch (error) {
             result.stdout = (result.stdout || "CRT extraction complete.") + `\nManifest import skipped: ${error instanceof Error ? error.message : String(error)}`;
           }

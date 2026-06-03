@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { subjectIdForArtifact } from "../project-knowledge/artifact-versions.js";
+import { autoAnalyzeExtractedPayloads, summarizeAutoChain } from "../lib/extract-auto-chain.js";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 
@@ -279,6 +280,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       let planned = 0;
       let created = 0;
       let skipped = 0;
+      const createdPayloadIds: string[] = []; // Spec 752 L2 — auto-chain targets
       for (const cartridge of cartView.cartridges) {
         const manifestArtifact = artifacts.find((a) => a.id === cartridge.artifactId);
         const manifestDir = manifestArtifact?.relativePath.includes("/") ? manifestArtifact.relativePath.slice(0, manifestArtifact.relativePath.lastIndexOf("/")) : "";
@@ -303,7 +305,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
             : (chunk.slot === "ULTIMAX_ROMH" ? 0xe000 : 0x8000);
           const sourceAddress = slotBase + chunk.offsetInBank;
           if (!args.dry_run) {
-            service.saveEntity({
+            const chunkEntity = service.saveEntity({
               kind: "payload",
               name: chunk.label ?? `${chunk.lut}.${String(chunk.index).padStart(2, "0")} bank ${chunk.bank} ${chunk.slot}`,
               summary: `${chunk.length} bytes, ${chunk.packer ?? chunk.format ?? "raw"}; origin chip $${sourceAddress.toString(16)}`,
@@ -323,6 +325,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
               payloadSourceArtifactId: chipArtifactId,
               tags: ["cart-chunk", "payload", tag],
             });
+            createdPayloadIds.push(chunkEntity.id);
             created += 1;
           }
         }
@@ -334,6 +337,17 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         `Already-payload (skipped): ${skipped}`,
         `Created: ${created}`,
       ];
+      // Spec 752 L2 — auto-disasm + analyse the promoted chunk payloads (those
+      // with a known load address). Soft-fail; chunk-level carving + depack is
+      // a refinement (the chip blob is the available extract today).
+      if (!args.dry_run && createdPayloadIds.length > 0) {
+        try {
+          const chain = await autoAnalyzeExtractedPayloads(projectRoot, createdPayloadIds, { mode: "quick" });
+          lines.push(summarizeAutoChain(chain));
+        } catch (chainErr) {
+          lines.push(`Auto-disasm skipped: ${chainErr instanceof Error ? chainErr.message : String(chainErr)}`);
+        }
+      }
       return textContent(lines.join("\n"));
     },
 ));
