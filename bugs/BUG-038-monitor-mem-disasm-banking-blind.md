@@ -5,7 +5,7 @@
 - **Reporter:** llm (Block B grounding) — confirmed by user
 - **Area:** ui-v3 / runtime monitor
 - **Severity:** medium (memory view is wrong for ROM/I/O — misleads disassembly + dumps)
-- **Status:** open <!-- open | investigating | fixed | wontfix | duplicate -->
+- **Status:** fixed <!-- open | investigating | fixed | wontfix | duplicate -->
 
 ## What happened
 The monitor's `m` (memory dump) and `d` (disassemble) read directly from the raw
@@ -40,3 +40,18 @@ I/O reads go through a side-effect-free `peek` by default (Spec 754 §3.4) so vi
 ## Notes
 Fix lands with Spec 754 §3.3b (Block B): bank lens + `peek` primitive (§3.4). A
 banked read accessor + the `peek` are the shared dependency.
+
+## Resolution
+
+Fixed in Spec 754 §3.3b/§3.4. Added a side-effect-free `peek(addr, lens)` to
+`HeadlessMemoryBus` (the VICE `mem_bank_peek` analog); lens ∈ cpu|ram|rom|io|cart.
+The `cpu` lens mirrors `read()`'s banking/ultimax routing 1:1 against the current
+`memConfig`, minus every side effect ($00/$01 latches direct, no PLA reconfig, no
+IRQ/timer latch clears). Optional `peek?()` added to the IO-handler + cartridge-mapper
+interfaces; VIC (literal-port authority + VicIIVice), SID, CIA1/2 implement
+side-effect-free peeks; color RAM via the io shadow. `m`/`d` take an optional bank
+lens (default sticky `bank`, = cpu): `m e000` now shows KERNAL, `m d000` I/O — not raw
+RAM. `read()`/`write()` hot paths untouched.
+
+**Gate:** `npm run e2e:754` Part A (peek banking $E000 cpu=KERNAL vs ram=sentinel,
+lens routing, side-effect-free I/O, $20/row format).

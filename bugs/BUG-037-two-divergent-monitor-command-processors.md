@@ -5,7 +5,7 @@
 - **Reporter:** llm (recon during monitor-concept review)
 - **Area:** ui-v3
 - **Severity:** medium (duplication + inconsistent behaviour; blocks building richer commands cleanly)
-- **Status:** open <!-- open | investigating | fixed | wontfix | duplicate -->
+- **Status:** fixed <!-- open | investigating | fixed | wontfix | duplicate -->
 
 ## What happened
 There are **two separate monitor command processors** with overlapping-but-different
@@ -47,3 +47,15 @@ parser, single source of truth for the command table.
 ## Notes
 This is the prerequisite cleanup for the monitor-evolution spec: build richer
 commands on ONE parser, not two.
+
+## Resolution
+
+Fixed in Spec 754 §3.2. Extracted the single canonical command processor
+`monitor-shell.ts` (`runMonitorCommand`); the live `monitor/exec` WS handler is now a
+thin adapter over it. Retired the dead, unmounted second path —
+`ui/src/v3/tabs/Monitor.tsx` + `components/MonitorCmdLine.tsx` + `monitor-cmd-parser.ts`
+(plus the orphan `scripts/smoke-monitor-cmd-parser.mjs`). One command table is now the
+source of truth.
+
+**Gate:** `npm run e2e:754` Part C — the dead files are absent and the one canonical
+processor is importable.

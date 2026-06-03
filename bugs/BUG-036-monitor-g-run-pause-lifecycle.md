@@ -5,7 +5,7 @@
 - **Reporter:** human (Wasteland testing) + llm (VICE cross-check)
 - **Area:** ui-v3 / runtime
 - **Severity:** high (core interactive debug loop is broken)
-- **Status:** open <!-- open | investigating | fixed | wontfix | duplicate -->
+- **Status:** fixed <!-- open | investigating | fixed | wontfix | duplicate -->
 
 ## What happened
 On the **live workbench monitor** (`MonitorPanel` → WS `monitor/exec`,
@@ -75,3 +75,18 @@ The Run/Pause buttons and `g`/`x`/`pause` must all drive the one `runState` mach
 Smaller than first thought: the run-state machine exists; `g` just needs to use it
 (and add `pause`). The proper model + button parity belong to Spec 754 §3.1.
 Focus/step (Spec 623 §4.3) is already done and live — not part of this bug.
+
+## Resolution
+
+Fixed in Spec 754 P1 (§3.1). The monitor command dispatch was extracted into the
+one canonical processor `src/runtime/headless/debug/monitor-shell.ts`
+(`runMonitorCommand`); `monitor/exec` is now a thin adapter. `g` → `ctrl.continue()`
+(enters the SAME running run-state the Run button uses), `g <addr>` → set PC + continue,
+`x` → resume alias, with a parked-on-breakpoint skip. The old bounded-burst
+(`ctrl.pause()` + 1-frame `runFor`, ending HALTED) is gone. `until <addr>` is the
+synchronous run-to-landing (lands halted; the agent path stays `runtime_until`).
+Halting is the toolbar Pause (`debug/pause`); no `pause` verb (VICE-faithful).
+
+**Gate:** `npm run e2e:754` Part B (22/22) — `g` enters running, `g <addr>` sets PC,
+`x` resumes, `until` lands halted at the target, and a breakpoint halts a RUNNING
+machine (resume→bp→pause under warp). + `probe:single-path` 25/25.

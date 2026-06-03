@@ -417,9 +417,13 @@ Plus VICE's `memspace` prefixes (`c:` / `8:`) so commands address the C64 OR the
 1541 drive uniformly (the model for the 753b drive memory map).
 
 ## 4. Phases
-- **P1 — lifecycle + consolidate.** Run-state model + `g/x/pause/resume/z/n/ret/
-  until` wired to one path; Run/Pause buttons fixed; retire the duplicate parser.
-  Closes BUG-036 + BUG-037. (Highest user value — this is what bites today.)
+- **P1 — lifecycle + consolidate. DONE (2026-06-03).** Extracted the one canonical
+  processor `src/runtime/headless/debug/monitor-shell.ts` (`runMonitorCommand`);
+  `monitor/exec` is now a thin adapter; retired the dead second parser. `g`→continue,
+  `g <addr>`→set-PC+continue, `x`→resume, `until <addr>`→synchronous run-to-landing;
+  bounded-burst dropped. Block B (§3.3b/§3.4) landed alongside: side-effect-free
+  `peek(addr,lens)` + bank-lens `m`/`d`. Closes BUG-036 + BUG-037 + BUG-038.
+  Gate `e2e:754` 22/22 + `probe:single-path` 25/25.
 - **P2 — VICE-parity commands.** `a` inline assembler; `load/save/bload/bsave`;
   `sidefx` + `peek` (and fold Spec 753b old_value-via-peek); `f/t/c/h` memory ops if
   missing; label load/save.
