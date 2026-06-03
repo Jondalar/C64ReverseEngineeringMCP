@@ -38,7 +38,7 @@ export type RuntimeRunState = "running" | "paused" | "stopped";
 export type RuntimePacingMode = "pal" | "warp" | "fixed-ratio";
 
 export interface RuntimeStopInfo {
-  reason: "pause" | "breakpoint" | "step" | "jam" | "error";
+  reason: "pause" | "breakpoint" | "step" | "jam" | "error" | "observer";
   pc: number;
   cycles: number;
   breakpointId?: number;
@@ -479,6 +479,20 @@ export class RuntimeController {
         registers: registerDump(this.session),
       };
       this.broadcast("debug/breakpoint_hit", payload);
+      this.broadcast("debug/stopped", { session_id: this.sessionId, stop: this.stopInfo, registers: registerDump(this.session) });
+      return; // loop halts itself; no reschedule
+    }
+
+    // Spec 754 §3.3e — an observer with a `break` action halted the run-loop.
+    if (r.aborted === "observer") {
+      this.runState = "paused";
+      const halt = this.session.observers?.lastHalt ?? null;
+      this.stopInfo = { reason: "observer", pc: r.lastPc, cycles: this.session.c64Cpu.cycles };
+      this.broadcast("debug/observer_hit", {
+        session_id: this.sessionId, pc: r.lastPc, cycles: this.session.c64Cpu.cycles,
+        observer: halt?.name ?? null, message: halt?.message ?? null,
+        registers: registerDump(this.session),
+      });
       this.broadcast("debug/stopped", { session_id: this.sessionId, stop: this.stopInfo, registers: registerDump(this.session) });
       return; // loop halts itself; no reschedule
     }

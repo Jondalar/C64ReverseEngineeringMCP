@@ -350,6 +350,14 @@ export class Cpu65xxVice {
   clearBusListeners(): void { this.busListeners = []; }
   enableBusTrace(on: boolean): void { this.busTraceEnabled = on; }
 
+  // Spec 754 §3.3e — observer per-address gate. When ANY load/store observer is
+  // active the registry sets `accessWatch` (a 64K table) + `onObservedAccess`;
+  // otherwise both are null and store()/loadRead() pay a single null-check (idle
+  // cost = 0). The gate is per-ADDRESS (user decision): only the exact watched
+  // address fires the callback — no over-eval on hot pages.
+  public accessWatch: Uint8Array | null = null;
+  public onObservedAccess: ((kind: "READ" | "WRITE", addr: number, value: number) => void) | null = null;
+
   // ============================================================
   // Internals.
   // ============================================================
@@ -456,6 +464,8 @@ export class Cpu65xxVice {
   loadRead(addr: WORD): BYTE {
     const v = this.load(addr);
     this.emit("READ", addr, v);
+    // Spec 754 §3.3e — load observer (per-address gate; null when none active).
+    if (this.accessWatch && this.accessWatch[addr & 0xffff]) this.onObservedAccess?.("READ", addr & 0xffff, v);
     return v;
   }
 
@@ -481,6 +491,8 @@ export class Cpu65xxVice {
     }
     this.memory.write(a, v);
     this.emit("WRITE", a, v, oldValue);
+    // Spec 754 §3.3e — store observer (per-address gate; null when none active).
+    if (this.accessWatch && this.accessWatch[a]) this.onObservedAccess?.("WRITE", a, v);
   }
 
   /** STORE_DUMMY — VICE pattern for RMW first-write of OLD value. */

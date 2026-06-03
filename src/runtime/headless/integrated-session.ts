@@ -50,6 +50,7 @@ import {
   type BusAccessTraceProducer,
 } from "./trace/bus-access.js";
 import { Cpu65xxVice } from "./cpu/cpu65xx-vice.js";
+import { ObserverRegistry } from "./debug/monitor-observers.js";
 import {
   type AlarmContext,
 } from "./alarm/alarm-context.js";
@@ -209,6 +210,8 @@ export class IntegratedSession {
   public readonly c64Bus: HeadlessMemoryBus;
   public readonly c64Cpu: Cpu65xxVice;
   public readonly iecBus: IecBus;
+  // Spec 754 §3.3e — monitor observers (lazily created on first `obs` command).
+  public observers: ObserverRegistry | null = null;
   // Spec 704 §11 R3 — legacy drive / trackBuffer / headPosition / gcrShifter
   // fields removed. VICE1541 (kernel.drive1541) is the only drive; it owns
   // its 6502 / VIAs / GCR rotation / head geometry internally.
@@ -927,14 +930,24 @@ export class IntegratedSession {
     this.sampleDrivePc();
   }
 
+  /** Spec 754 §3.3e — get-or-create the observer registry for this session. */
+  ensureObservers(): ObserverRegistry {
+    if (!this.observers) {
+      this.observers = new ObserverRegistry(this);
+      this.observers.attach(this.c64Cpu);
+    }
+    return this.observers;
+  }
+
   runFor(maxC64Instructions: number, opts?: { breakpoints?: Set<number>; cycleBudget?: number }): {
     instructionsExecuted: number;
     lastPc: number;
-    aborted?: "breakpoint" | "cycle-budget";
+    aborted?: "breakpoint" | "cycle-budget" | "observer";
   } {
     const breakpoints = opts?.breakpoints;
     const cycleBudget = opts?.cycleBudget ?? Infinity;
     const startCycles = this.c64Cpu.cycles;
+    const obs = this.observers;
     let i = 0;
     for (; i < maxC64Instructions; i++) {
       if (breakpoints && breakpoints.has(this.c64Cpu.pc)) {
@@ -943,7 +956,20 @@ export class IntegratedSession {
       if (this.c64Cpu.cycles - startCycles >= cycleBudget) {
         return { instructionsExecuted: i, lastPc: this.c64Cpu.pc, aborted: "cycle-budget" };
       }
+      // Spec 754 §3.3e — exec observers: checked BEFORE executing the watched
+      // instruction so a break halts with PC at it (VICE break-on-exec). log
+      // actions run inline + return false (continue).
+      if (obs && obs.execActive && obs.execWatch[this.c64Cpu.pc] && obs.onExec(this.c64Cpu.pc & 0xffff)) {
+        return { instructionsExecuted: i, lastPc: this.c64Cpu.pc, aborted: "observer" };
+      }
       this.stepC64Instruction();
+      // load/store observers fire from the CPU bus hook DURING the instruction;
+      // a break-action sets haltRequested → honor it at the instruction boundary
+      // (post-access state = "at the trigger").
+      if (obs && obs.haltRequested) {
+        obs.haltRequested = false;
+        return { instructionsExecuted: i + 1, lastPc: this.c64Cpu.pc, aborted: "observer" };
+      }
     }
     return { instructionsExecuted: i, lastPc: this.c64Cpu.pc };
   }

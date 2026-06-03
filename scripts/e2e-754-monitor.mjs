@@ -224,6 +224,97 @@ console.log("\nSpec 754 — Part E: registers/sidefx/screen (Block D)\n");
 }
 
 // =====================================================================
+// Part F — Block E: observers (obs/o when…if…do break|log).
+// =====================================================================
+console.log("\nSpec 754 — Part F: observers (Block E)\n");
+{
+  const { session, sessionId } = startIntegratedSession({});
+  const { ctrl, mon } = newCtx(session, sessionId);
+  try {
+    const setup = () => {
+      session.resetCold("pal-default");
+      // $C000 LDA #$42 ; NOP sled to $C0FF ; BRK at $C100
+      session.c64Bus.ram[0xc000] = 0xa9; session.c64Bus.ram[0xc001] = 0x42;
+      for (let a = 0xc002; a <= 0xc0ff; a++) session.c64Bus.ram[a] = 0xea;
+      session.c64Bus.ram[0xc100] = 0x00;
+      session.c64Cpu.pc = 0xc000;
+    };
+
+    // F1 — exec observer `do break` halts at the address.
+    setup();
+    await mon("obs b1 when exec $c008 do break");
+    let r = session.runFor(2000);
+    ok("F1 exec observer `do break` halts at the addr", r.aborted === "observer" && (session.c64Cpu.pc & 0xffff) === 0xc008, `aborted=${r.aborted} pc=$${session.c64Cpu.pc.toString(16)}`);
+    await mon("obs b1 del");
+
+    // F2 — condition gating (false skips, true halts).
+    setup();
+    await mon("obs b2 when exec $c008 if a==$99 do break");
+    r = session.runFor(2000);
+    ok("F2a exec observer with FALSE cond does NOT halt", r.aborted !== "observer", `aborted=${r.aborted}`);
+    await mon("obs b2 del");
+    setup();
+    await mon("obs b2 when exec $c008 if a==$42 do break");
+    r = session.runFor(2000);
+    ok("F2b exec observer with TRUE cond (a==$42) halts", r.aborted === "observer" && (session.c64Cpu.pc & 0xffff) === 0xc008);
+    await mon("obs b2 del");
+
+    // F3 — store observer `do break` halts on the watched write.
+    session.resetCold("pal-default");
+    session.c64Bus.ram[0xc000] = 0xa9; session.c64Bus.ram[0xc001] = 0xaa;            // LDA #$AA
+    session.c64Bus.ram[0xc002] = 0x8d; session.c64Bus.ram[0xc003] = 0x00; session.c64Bus.ram[0xc004] = 0xc8; // STA $C800
+    for (let a = 0xc005; a <= 0xc0ff; a++) session.c64Bus.ram[a] = 0xea;
+    session.c64Bus.ram[0xc100] = 0x00;
+    session.c64Cpu.pc = 0xc000;
+    await mon("obs w1 when store $c800 do break");
+    r = session.runFor(2000);
+    ok("F3 store observer `do break` halts on the watched write", r.aborted === "observer" && session.c64Bus.ram[0xc800] === 0xaa, `aborted=${r.aborted} $c800=${(session.c64Bus.ram[0xc800] ?? 0).toString(16)}`);
+    await mon("obs w1 del");
+
+    // F3b — store cond on the accessed value (false → no halt).
+    session.c64Cpu.pc = 0xc000; session.c64Bus.ram[0xc800] = 0;
+    await mon("obs w1 when store $c800 if val==$bb do break");
+    r = session.runFor(2000);
+    ok("F3b store observer cond on `val` (false) does NOT halt", r.aborted !== "observer");
+    await mon("obs w1 del");
+
+    // F4 — `do log` continues (no halt); the log ring grows.
+    setup();
+    session.c64Bus.ram[0xc000] = 0x4c; session.c64Bus.ram[0xc001] = 0x00; session.c64Bus.ram[0xc002] = 0xc0; // JMP $C000 (loop)
+    session.c64Cpu.pc = 0xc000;
+    await mon("obs L when exec $c000 do log");
+    r = session.runFor(50);
+    ok("F4 `do log` continues (no halt) and logs accumulate", r.aborted !== "observer" && session.observers.logs.length > 1, `aborted=${r.aborted} logs=${session.observers.logs.length}`);
+    const logShow = (await mon("obs log")).output ?? "";
+    ok("F4b `obs log` shows the lines", /obs L: exec \$C000/.test(logShow), (logShow.split("\n")[0] ?? "").slice(0, 50));
+    await mon("obs L del");
+
+    // F5 — idle = zero cost: no load/store observer ⇒ cpu.accessWatch is null.
+    ok("F5 idle: cpu.accessWatch null when no load/store observer active", session.c64Cpu.accessWatch === null);
+
+    // F6 — management: list / off.
+    await mon("obs m1 when exec $c000 do break");
+    const lst = (await mon("obs")).output ?? "";
+    ok("F6a `obs` lists the observer", /m1\s+exec \$C000.*do break/.test(lst.replace(/\n/g, " ")), (lst.split("\n")[1] ?? ""));
+    await mon("obs m1 off");
+    setup();
+    r = session.runFor(50);
+    ok("F6b `obs m1 off` disables it (no halt)", r.aborted !== "observer");
+    await mon("obs m1 del");
+
+    // F7 — autonomous loop: resume → observer break → pause (tick integration).
+    setup();
+    await mon("obs A when exec $c008 do break");
+    session.c64Cpu.pc = 0xc000;
+    ctrl.setPacing("warp");
+    await mon("g");
+    let spins = 0;
+    while (ctrl.runState === "running" && spins < 5000) { await new Promise((res) => setImmediate(res)); spins++; }
+    ok("F7 autonomous loop halts on observer break (resume→obs→pause)", ctrl.runState !== "running" && (session.c64Cpu.pc & 0xffff) === 0xc008, `runState=${ctrl.runState} pc=$${session.c64Cpu.pc.toString(16)} spins=${spins}`);
+  } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
+}
+
+// =====================================================================
 // Part C — BUG-037: the dead second parser is retired.
 // =====================================================================
 console.log("\nSpec 754 — Part C: one canonical monitor (BUG-037)\n");

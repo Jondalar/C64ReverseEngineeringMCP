@@ -17,6 +17,7 @@
 // `c64Bus.peek()` — so `m e000` shows KERNAL, `m d000` shows I/O, not raw RAM.
 
 import { disasmLine } from "./disasm6502.js";
+import type { ObsTrigger, ObsAction } from "./monitor-observers.js";
 import type { RuntimeController } from "./runtime-controller.js";
 import type { IntegratedSession } from "../integrated-session.js";
 import type { MemBankLens } from "../memory-bus.js";
@@ -424,6 +425,60 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       return { output: out.join("\n") };
     }
 
+    // ---- Observers (Spec 754 §3.3e) — unify break/watch/trace/condition. --
+    //   obs <name> when exec|load|store <addr[..end]> [if <cond>] do break|log
+    //   obs                      list      obs <name> on|off|del
+    //   obs log                  recent `do log` lines
+    //   ignore <name> [n]        skip the next n triggers
+    // cond: a/x/y/pc/sp/fl/rl/val/addr  ==  !=  <  >  <=  >=  &&  ||  ( )
+    if (op === "obs" || op === "o" || op === "ignore") {
+      const reg = s.ensureObservers();
+      if (op === "ignore") {
+        const nm = tokens[1]; const n = parseInt(tokens[2] ?? "1", 10);
+        if (!nm) return { error: "ignore: usage: ignore <name> [n]" };
+        const cnt = isNaN(n) ? 1 : n;
+        return { output: reg.setIgnore(nm, cnt) ? `ignore ${nm}: skip next ${cnt}` : `no observer '${nm}'` };
+      }
+      const rest = tokens.slice(1);
+      const fmt = (o: { enabled: boolean; name: string; trigger: string; lo: number; hi: number; condSrc?: string; action: string; hits: number }) =>
+        `  ${o.enabled ? "*" : "o"} ${o.name}  ${o.trigger} $${hex(o.lo, 4)}${o.hi !== o.lo ? `..${hex(o.hi, 4)}` : ""}${o.condSrc ? ` if ${o.condSrc}` : ""} do ${o.action}  hits=${o.hits}`;
+      if (rest.length === 0) {
+        const list = reg.list();
+        return { output: list.length ? "observers:\n" + list.map(fmt).join("\n") : "no observers (obs <name> when exec|load|store <addr> [if <cond>] do break|log)" };
+      }
+      if (rest[0]!.toLowerCase() === "log") {
+        return { output: reg.logs.length ? reg.logs.slice(-40).join("\n") : "obs log: (empty)" };
+      }
+      const name = rest[0]!;
+      const sub = (rest[1] ?? "").toLowerCase();
+      if (rest.length === 2 && (sub === "on" || sub === "off")) {
+        return { output: reg.setEnabled(name, sub === "on") ? `obs ${name} ${sub}` : `no observer '${name}'` };
+      }
+      if (rest.length === 2 && (sub === "del" || sub === "delete" || sub === "rm")) {
+        return { output: reg.remove(name) ? `obs ${name} deleted` : `no observer '${name}'` };
+      }
+      const lower = rest.map((t) => t.toLowerCase());
+      const wi = lower.indexOf("when");
+      const di = lower.lastIndexOf("do");
+      const ii = lower.indexOf("if");
+      if (wi !== 1 || di <= wi) return { error: "obs: usage: obs <name> when exec|load|store <addr[..end]> [if <cond>] do break|log" };
+      const trig = lower[wi + 1];
+      if (trig !== "exec" && trig !== "load" && trig !== "store") return { error: `obs: trigger must be exec|load|store, got '${rest[wi + 1]}'` };
+      const addrTok = rest[wi + 2] ?? "";
+      const [loS, hiS] = addrTok.split("..");
+      const lo = parseAddr(loS); const hi = hiS ? parseAddr(hiS) : lo;
+      if (lo === null || hi === null) return { error: `obs: bad address '${addrTok}'` };
+      const action = (rest[di + 1] ?? "").toLowerCase();
+      if (action !== "break" && action !== "log") {
+        if (action === "mark" || action === "cmd" || action === "trace") return { error: `obs: action '${action}' is v1.1 — v1 supports break|log` };
+        return { error: `obs: action must be break|log, got '${action || "(none)"}'` };
+      }
+      const condSrc = ii > wi && ii < di ? rest.slice(ii + 1, di).join(" ") : undefined;
+      const res = reg.add({ name, trigger: trig as ObsTrigger, lo, hi, condSrc, action: action as ObsAction });
+      if ("error" in res) return { error: `obs: condition: ${res.error}` };
+      return { output: `obs ${name}: ${trig} $${hex(lo, 4)}${hi !== lo ? `..${hex(hi, 4)}` : ""}${condSrc ? ` if ${condSrc}` : ""} do ${action}` };
+    }
+
     // ---- Go / resume (Spec 754 §3.1, closes BUG-036). ---------------------
     //   g          → continue the autonomous run-loop at the current PC
     //   g <addr>   → set PC, then continue (goto + run)
@@ -549,10 +604,14 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "    t <a> <b> <dst>  move/copy a..b to dst (overlap-safe)\n" +
         "    c <a> <b> <dst>  compare a..b vs dst (list diffs)\n" +
         "    h <a> <b> <d..>  hunt for a byte pattern (xx = wildcard)\n" +
-        "  BREAKPOINTS\n" +
+        "  BREAKPOINTS / OBSERVERS\n" +
         "    bk               list breakpoints (#num $addr)\n" +
         "    bk <a> | bk -<a> set / remove breakpoint (by addr)\n" +
         "    del <n..> | del  delete by #num / delete all\n" +
+        "    obs <name> when exec|load|store <a[..b]> [if <cond>] do break|log\n" +
+        "    obs | obs log    list observers / show log lines\n" +
+        "    obs <name> on|off|del   ·   ignore <name> [n]\n" +
+        "      cond: a/x/y/pc/sp/fl/rl/val/addr  == != < > <= >= && || ( )\n" +
         "  CPU\n" +
         "    r                registers (+ flow + IRQ/NMI vectors)\n" +
         "    r a=$42 x=$10    set registers (a/x/y/sp/pc/fl)\n" +
