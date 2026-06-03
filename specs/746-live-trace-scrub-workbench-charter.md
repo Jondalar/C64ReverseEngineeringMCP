@@ -216,8 +216,18 @@ each ships with a gate. Decisions the user must still make are flagged **[OQ]**.
   the large App.tsx — deferred to a hands-on session.
 
 ### 4.6 Execution-context focus (flow lanes)
-- **746.13 — PLANNED (refined 2026-06-03, OQ5 DECIDED).** MAIN/IRQ/NMI focus for the
-  trace, mirroring the Monitor's flow-focus (`FlowTracker`, Spec 623 §4.3, `stepping.ts`).
+- **746.13 — DONE (2026-06-03, C64 lane; gate `e2e:746-13` 24/24).** MAIN/IRQ/NMI focus
+  for the trace, mirroring the Monitor's flow-focus (`FlowTracker`, Spec 623 §4.3,
+  `stepping.ts`).
+  **Built:** `v2/flow-focus.ts` `deriveFlow()` replays the FlowTracker classification
+  (SP-delta-3 interrupt detector) over the cpu_step stream → a `c64Flow` lane; wired into
+  `swimlaneSlice` (new `c64Flow` column + `focus`/`nmiVector` query params), surfaced in
+  the markdown render (`flow` column) + JSONL, and exposed on `runtime_swimlane_slice`
+  (`focus=main|irq|nmi`, `nmi_vector`) through both the daemon `trace/read` path and the
+  local fallback. Pure reader-side: no format change, zero hot-path cost, runs on existing
+  `.c64retrace`. (NOTE: `trace_store_query` stays raw SQL — the flow lane is derived in the
+  swimlane reader, not a DuckDB column.) **Remaining: 746.13b** — the 1541 `DRIVE_CPU_STEP`
+  drive-side flow lane (same replay, drive-ROM vectors).
   The Monitor pushes a flow frame on IRQ/NMI/BRK entry (SP−3 + a jump to the vector target
   with no JSR/JMP) and pops on RTI. The trace stores NONE of it: `CPU_STEP` (18 B —
   pc/opcode/A/X/Y/SP/P/b1/b2) carries no flow-kind, so the swimlane has no main/irq/nmi
@@ -253,9 +263,10 @@ viewer wired). The LLM + human can: start/stop a trace on the running shared ses
 from THREE gates (UI/API/Monitor), read the swimlane concurrently, and scrub/rewind
 the checkpoint ring. DEFERRED as real features (not wiring): 746.7 (ring↔RewindManager
 marriage), 746.8 (structured trace→finding), 746.11 + 746.12 (ring-scrub timeline +
-live-RAM graphics-scrub UI — need visual iteration at the screen). PLANNED (refined
-2026-06-03, OQ5 decided): 746.13 (MAIN/IRQ/NMI flow-focus — derive-at-read, 3 lanes,
-LLM-first `flow` column + `focus=` filter, C64-first; UI tint deferred).
+live-RAM graphics-scrub UI — need visual iteration at the screen). DONE (2026-06-03):
+746.13 (MAIN/IRQ/NMI flow-focus — derive-at-read, 3 lanes, LLM-first `c64Flow` column +
+`focus=` filter on `runtime_swimlane_slice`, C64 lane; `e2e:746-13` 24/24). Remaining:
+746.13b drive-side lane; UI tint deferred.
 
 ## 5. Acceptance (when this charter is "usable")
 - From the running Wasteland_EF session, the LLM can: `runtime_trace_start` →
