@@ -50,9 +50,17 @@ const LENSES: readonly MemBankLens[] = ["cpu", "ram", "rom", "io", "cart"];
 /** Sticky default bank lens per session (the `bank <name>` command). */
 const bankDefaults = new Map<string, MemBankLens>();
 
+/**
+ * Side-effect read toggle per session (Spec 754 §3.4). Default OFF → monitor
+ * reads use the side-effect-free `peek` (VICE `sidefx 0`); ON → live `read()`
+ * (so e.g. `m d019` clears the IRQ latch, like the running CPU would).
+ */
+const sidefxOn = new Map<string, boolean>();
+
 /** For gate teardown / session close — drop a session's monitor-private state. */
 export function disposeMonitorShellState(sessionId: string): void {
   bankDefaults.delete(sessionId);
+  sidefxOn.delete(sessionId);
 }
 
 export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): Promise<MonitorResult> {
@@ -75,6 +83,33 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
     const l = t.toLowerCase();
     if (l === "default") return bankDefaults.get(sessionId) ?? "cpu";
     return (LENSES as readonly string[]).includes(l) ? (l as MemBankLens) : null;
+  };
+  const parseByte = (t?: string): number | null => {
+    if (!t) return null;
+    const v = parseInt(t.replace(/^\$/, ""), 16);
+    return isNaN(v) || v < 0 || v > 0xff ? null : v;
+  };
+  // sidefx OFF (default) → side-effect-free peek; ON → live read (I/O side
+  // effects). Only `cpu`/`io` lenses can have side effects; ram/rom/cart never.
+  const sidefx = sidefxOn.get(sessionId) ?? false;
+  const readByte = (addr: number, lens: MemBankLens): number =>
+    (sidefx && (lens === "cpu" || lens === "io"))
+      ? (s.c64Bus.read(addr & 0xffff) & 0xff)
+      : (s.c64Bus.peek(addr & 0xffff, lens) & 0xff);
+  // Writes: `ram` lens → raw RAM; otherwise the banked CPU write path (RAM
+  // under ROM, real I/O effects when mapped — `wr d020 00` blacks the border).
+  const writeByte = (addr: number, val: number, lens: MemBankLens): void => {
+    if (lens === "ram") s.c64Bus.ram[addr & 0xffff] = val & 0xff;
+    else s.c64Bus.write(addr & 0xffff, val & 0xff);
+  };
+  // Screen-code → ASCII for the `screen` decode (display only).
+  const scToAscii = (sc: number): string => {
+    const c = sc & 0x7f; // ignore the reverse-video bit
+    if (c === 0) return "@";
+    if (c >= 1 && c <= 26) return String.fromCharCode(64 + c); // A-Z
+    if (c === 32) return " ";
+    if (c >= 33 && c <= 63) return String.fromCharCode(c); // !"#…digits…?
+    return ".";
   };
 
   try {
@@ -155,14 +190,53 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       return { output: "tracedb: start|stop|status|mark" };
     }
 
-    // ---- Registers (Spec 754 §3.3d: `cpu` is no longer an alias). ----------
+    // ---- Registers (Spec 754 §3.3d). `r` shows (variant B: flow inline +
+    // vectors block); `r a=$42 x=$10` (space- or comma-separated) sets. `cpu`
+    // is no longer an alias for `r`.
     if (op === "r" || op === "registers") {
       const c = s.c64Cpu;
+      const sets = tokens.slice(1).join(" ").split(/[\s,]+/).filter((t) => t.includes("="));
+      if (sets.length) {
+        const done: string[] = [];
+        for (const pair of sets) {
+          const [reg, valStr] = pair.split("=");
+          const v = parseInt((valStr ?? "").replace(/^\$/, ""), 16);
+          if (isNaN(v)) { done.push(`bad ${pair}`); continue; }
+          switch ((reg ?? "").toLowerCase()) {
+            case "a": case "ac": c.a = v & 0xff; done.push(`a=$${hex(v & 0xff)}`); break;
+            case "x": case "xr": c.x = v & 0xff; done.push(`x=$${hex(v & 0xff)}`); break;
+            case "y": case "yr": c.y = v & 0xff; done.push(`y=$${hex(v & 0xff)}`); break;
+            case "sp": c.sp = v & 0xff; done.push(`sp=$${hex(v & 0xff)}`); break;
+            case "pc": c.pc = v & 0xffff; disasmCursors.set(sessionId, c.pc); done.push(`pc=$${hex(v & 0xffff, 4)}`); break;
+            case "p": case "fl": case "flags": c.flags = v & 0xff; done.push(`fl=$${hex(v & 0xff)}`); break;
+            default: done.push(`unknown reg '${reg}'`);
+          }
+        }
+        return { output: `set ${done.join(" ")}` };
+      }
       const flagsStr = "NV-BDIZC".split("").map((f, i) =>
         ((c.flags >> (7 - i)) & 1) ? f : f.toLowerCase()).join("");
+      // Vectors (crack-gold): hardware vectors + the RAM IRQ/NMI vectors loaders
+      // hijack. Read via the cpu lens (KERNAL banked) — peek, no side effect.
+      const pk = (a: number) => s.c64Bus.peek(a & 0xffff, "cpu") & 0xff;
+      const w16 = (lo: number, hi: number) => (pk(lo) | (pk(hi) << 8)) & 0xffff;
+      const irqHw = w16(0xfffe, 0xffff), nmiHw = w16(0xfffa, 0xfffb);
+      const cinv = w16(0x0314, 0x0315), nmiv = w16(0x0318, 0x0319);
+      const flow = ctrl.flow.currentFlow().toUpperCase();
       return { output:
-        `  ADDR AC XR YR SP NV-BDIZC\n` +
-        `.;${hex(c.pc, 4)} ${hex(c.a)} ${hex(c.x)} ${hex(c.y)} ${hex(c.sp)} ${flagsStr}` };
+        `  ADDR AC XR YR SP NV-BDIZC  flow\n` +
+        `.;${hex(c.pc, 4)} ${hex(c.a)} ${hex(c.x)} ${hex(c.y)} ${hex(c.sp)} ${flagsStr}  ${flow}\n` +
+        `  vectors  IRQ hw=$${hex(irqHw, 4)}  CINV $0314->$${hex(cinv, 4)}     NMI hw=$${hex(nmiHw, 4)}  NMIV $0318->$${hex(nmiv, 4)}` };
+    }
+
+    // ---- sidefx [on|off|toggle] (Spec 754 §3.4) — monitor read side effects.
+    if (op === "sidefx") {
+      const arg = (tokens[1] ?? "toggle").toLowerCase();
+      const cur = sidefxOn.get(sessionId) ?? false;
+      const next = arg === "on" ? true : arg === "off" ? false : arg === "toggle" ? !cur : null;
+      if (next === null) return { error: "sidefx: on|off|toggle" };
+      sidefxOn.set(sessionId, next);
+      return { output: `sidefx = ${next ? "on (monitor reads are LIVE — I/O side effects)" : "off (peek — side-effect-free, default)"}` };
     }
 
     // ---- Bank lens default (Spec 754 §3.3b/§3.3d): bank [cpu|ram|rom|io|cart].
@@ -191,7 +265,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       for (let a = start & ~0x1f; a <= end; a += 32) {
         const bytes: string[] = []; const ascii: string[] = [];
         for (let j = 0; j < 32 && a + j <= end; j++) {
-          const b = s.c64Bus.peek((a + j) & 0xffff, lens) & 0xff;
+          const b = readByte((a + j) & 0xffff, lens);
           bytes.push(hex(b));
           ascii.push(b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : ".");
         }
@@ -209,7 +283,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       if (lensTok !== null) i++;
       const start = parseAddr(tokens[i]) ?? disasmCursors.get(sessionId) ?? s.c64Cpu.pc;
       const count = parseInt(tokens[i + 1] ?? "16", 10);
-      const read = (a: number) => s.c64Bus.peek(a & 0xffff, lens) & 0xff;
+      const read = (a: number) => readByte(a & 0xffff, lens);
       const lines: string[] = [];
       let a = start & 0xffff;
       for (let k = 0; k < count; k++) {
@@ -219,6 +293,99 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         a = (a + size) & 0xffff;
       }
       disasmCursors.set(sessionId, a);
+      return { output: lines.join("\n") };
+    }
+
+    // ---- Memory edit (Spec 754 §3.3c — word commands, not VICE symbols). ---
+    // wr [lens] <addr> <byte..>  — write exactly these bytes (length = list).
+    if (op === "wr") {
+      let i = 1;
+      const lensTok = lensOf(tokens[i]);
+      const lens = lensTok ?? bankDefaults.get(sessionId) ?? "cpu";
+      if (lensTok !== null) i++;
+      const addr = parseAddr(tokens[i]);
+      if (addr === null) return { error: "wr: usage: wr [lens] <addr> <byte..>" };
+      i++;
+      const bytes = tokens.slice(i).map((t) => parseByte(t));
+      if (!bytes.length || bytes.some((b) => b === null)) return { error: "wr: need >=1 byte value ($00-$FF)" };
+      bytes.forEach((b, k) => writeByte((addr + k) & 0xffff, b!, lens));
+      return { output: `wrote ${bytes.length} byte(s) @ $${hex(addr, 4)} (${lens})` };
+    }
+    // f <start> <end> <data..> — fill the range, repeating the data pattern.
+    if (op === "f" || op === "fill") {
+      const start = parseAddr(tokens[1]); const end = parseAddr(tokens[2]);
+      if (start === null || end === null) return { error: "f: usage: f <start> <end> <byte..>" };
+      const data = tokens.slice(3).map((t) => parseByte(t));
+      if (!data.length || data.some((b) => b === null)) return { error: "f: need >=1 fill byte" };
+      let n = 0;
+      for (let a = start; a <= end; a++, n++) writeByte(a & 0xffff, data[n % data.length]!, "cpu");
+      return { output: `filled $${hex(start, 4)}..$${hex(end, 4)} (${n} bytes, pattern ${data.length})` };
+    }
+    // t <start> <end> <dest> — move/copy (overlap-safe: read all, then write).
+    if (op === "t" || op === "move") {
+      const start = parseAddr(tokens[1]); const end = parseAddr(tokens[2]); const dest = parseAddr(tokens[3]);
+      if (start === null || end === null || dest === null) return { error: "t: usage: t <start> <end> <dest>" };
+      const len = end - start + 1;
+      if (len <= 0) return { error: "t: end < start" };
+      const buf: number[] = [];
+      for (let k = 0; k < len; k++) buf.push(readByte((start + k) & 0xffff, "cpu"));
+      for (let k = 0; k < len; k++) writeByte((dest + k) & 0xffff, buf[k]!, "cpu");
+      return { output: `moved ${len} byte(s) $${hex(start, 4)}..$${hex(end, 4)} -> $${hex(dest, 4)}` };
+    }
+    // c <start> <end> <dest> — compare, list the differences.
+    if (op === "c" || op === "compare") {
+      const start = parseAddr(tokens[1]); const end = parseAddr(tokens[2]); const dest = parseAddr(tokens[3]);
+      if (start === null || end === null || dest === null) return { error: "c: usage: c <start> <end> <dest>" };
+      const len = end - start + 1;
+      if (len <= 0) return { error: "c: end < start" };
+      const diffs: string[] = [];
+      for (let k = 0; k < len; k++) {
+        const a = readByte((start + k) & 0xffff, "cpu"); const b = readByte((dest + k) & 0xffff, "cpu");
+        if (a !== b) diffs.push(`  $${hex((start + k) & 0xffff, 4)}: ${hex(a)} != ${hex(b)} @$${hex((dest + k) & 0xffff, 4)}`);
+        if (diffs.length > 64) { diffs.push("  ... (truncated)"); break; }
+      }
+      return { output: diffs.length ? `differences:\n${diffs.join("\n")}` : `identical ($${hex(start, 4)}..$${hex(end, 4)} == $${hex(dest, 4)})` };
+    }
+    // h <start> <end> <byte/xx..> — hunt/search (xx or * = wildcard byte).
+    if (op === "h" || op === "hunt") {
+      const start = parseAddr(tokens[1]); const end = parseAddr(tokens[2]);
+      if (start === null || end === null) return { error: "h: usage: h <start> <end> <byte/xx..>" };
+      const pat = tokens.slice(3).map((t) => (t.toLowerCase() === "xx" || t === "*") ? -1 : parseByte(t));
+      if (!pat.length || pat.some((b) => b === null)) return { error: "h: need >=1 pattern byte (xx = wildcard)" };
+      const hits: number[] = [];
+      for (let a = start; a + pat.length - 1 <= end; a++) {
+        let m = true;
+        for (let k = 0; k < pat.length; k++) { const pb = pat[k]!; if (pb !== -1 && readByte((a + k) & 0xffff, "cpu") !== pb) { m = false; break; } }
+        if (m) { hits.push(a); if (hits.length > 256) break; }
+      }
+      return { output: hits.length ? `found ${hits.length}:\n  ` + hits.map((a) => `$${hex(a, 4)}`).join(" ") : "not found" };
+    }
+    // a <addr> <instruction> — inline 6502 assembler (Spec 754 §3.3c).
+    if (op === "a") {
+      const addr = parseAddr(tokens[1]);
+      if (addr === null || tokens.length < 3) return { error: "a: usage: a <addr> <instruction>  (e.g. a c000 lda #$01)" };
+      const text = tokens.slice(2).join(" ");
+      const { assembleLine } = await import("./assembler6502.js");
+      const r = assembleLine(text, addr & 0xffff);
+      if ("error" in r) return { error: `a: ${r.error}` };
+      r.bytes.forEach((b, k) => s.c64Bus.write((addr + k) & 0xffff, b & 0xff));
+      disasmCursors.set(sessionId, (addr + r.size) & 0xffff);
+      const back = disasmLine((x) => s.c64Bus.peek(x & 0xffff, "cpu") & 0xff, addr).line;
+      return { output: `${hex(addr, 4)}  ${r.bytes.map((b) => hex(b)).join(" ").padEnd(11)}  ${back}` };
+    }
+    // screen — decode the 40x25 text screen at the REAL screen pointer (VIC
+    // bank from CIA2 $DD00 + $D018 matrix nibble), not a hard-coded $0400.
+    if (op === "screen") {
+      const dd00 = s.c64Bus.peek(0xdd00, "io") & 0x03;
+      const vicBank = (3 - dd00) * 0x4000; // CIA2 PA bits 0..1 are inverted
+      const d018 = s.c64Bus.peek(0xd018, "io") & 0xff;
+      const screenBase = (vicBank + (((d018 >> 4) & 0x0f) * 0x0400)) & 0xffff;
+      const lines: string[] = [`screen @ $${hex(screenBase, 4)}  (VIC bank $${hex(vicBank, 4)}, $D018=$${hex(d018)})`];
+      for (let row = 0; row < 25; row++) {
+        let line = "";
+        for (let col = 0; col < 40; col++) line += scToAscii(s.c64Bus.peek((screenBase + row * 40 + col) & 0xffff, "ram"));
+        lines.push("|" + line + "|");
+      }
       return { output: lines.join("\n") };
     }
 
@@ -374,13 +541,22 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "  MEMORY (bank lens: cpu|ram|rom|io|cart, default cpu = what CPU sees)\n" +
         "    m [lens] <a> [b] memory dump ($20/row + petscii; default len $800)\n" +
         "    d [lens] [a] [n] disassemble (n instr from a, default PC)\n" +
+        "    screen           decode the 40x25 text screen (real screen pointer)\n" +
         "    bank [lens]      show/set the sticky default lens for m/d\n" +
+        "    wr [lens] <a> <b..>  write exactly these bytes from a\n" +
+        "    f <a> <b> <d..>  fill range a..b with repeating data\n" +
+        "    a <a> <instr>    inline assemble (e.g. a c000 lda #$01)\n" +
+        "    t <a> <b> <dst>  move/copy a..b to dst (overlap-safe)\n" +
+        "    c <a> <b> <dst>  compare a..b vs dst (list diffs)\n" +
+        "    h <a> <b> <d..>  hunt for a byte pattern (xx = wildcard)\n" +
         "  BREAKPOINTS\n" +
         "    bk               list breakpoints (#num $addr)\n" +
         "    bk <a> | bk -<a> set / remove breakpoint (by addr)\n" +
         "    del <n..> | del  delete by #num / delete all\n" +
         "  CPU\n" +
-        "    r                registers\n" +
+        "    r                registers (+ flow + IRQ/NMI vectors)\n" +
+        "    r a=$42 x=$10    set registers (a/x/y/sp/pc/fl)\n" +
+        "    sidefx [on|off]  monitor read side effects (default off = peek)\n" +
         "  STATE / TRACE\n" +
         "    dump|undump <p>  snapshot persist/restore (.c64re, Spec 707)\n" +
         "    trace on|off|status|mark   live trace gate (Spec 746)\n" +

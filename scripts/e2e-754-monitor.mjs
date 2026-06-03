@@ -143,6 +143,87 @@ console.log("\nSpec 754 — Part B: lifecycle g/x/until (BUG-036)\n");
 }
 
 // =====================================================================
+// Part D — Block C: memory edit (wr/f/t/c/h) + inline assembler (a).
+// =====================================================================
+console.log("\nSpec 754 — Part D: memory edit + assembler (Block C)\n");
+{
+  const { session, sessionId } = startIntegratedSession({});
+  const { ctrl, mon } = newCtx(session, sessionId);
+  try {
+    session.resetCold("pal-default");
+    const peek = (a) => session.c64Bus.peek(a, "cpu") & 0xff;
+
+    // wr — write exactly the listed bytes.
+    await mon("wr c000 a9 01 8d 20 d0");
+    ok("D1 `wr` writes the exact byte list", peek(0xc000) === 0xa9 && peek(0xc001) === 0x01 && peek(0xc002) === 0x8d && peek(0xc004) === 0xd0,
+      `${hx(peek(0xc000))} ${hx(peek(0xc001))} ${hx(peek(0xc002))} ${hx(peek(0xc003))} ${hx(peek(0xc004))}`);
+
+    // a — inline assembler. `a c100 lda #$01` → A9 01.
+    const aRes = await mon("a c100 lda #$01");
+    ok("D2 `a c100 lda #$01` assembles to A9 01", peek(0xc100) === 0xa9 && peek(0xc101) === 0x01, aRes.output);
+    await mon("a c102 sta $d020");
+    ok("D3 `a sta $d020` assembles to 8D 20 D0", peek(0xc102) === 0x8d && peek(0xc103) === 0x20 && peek(0xc104) === 0xd0);
+    await mon("a c200 bne $c200"); // branch to self → offset $FE
+    ok("D4 `a bne $c200`@$c200 → D0 FE (rel offset)", peek(0xc200) === 0xd0 && peek(0xc201) === 0xfe, `${hx(peek(0xc200))} ${hx(peek(0xc201))}`);
+
+    // f — fill range with a repeating pattern.
+    await mon("f c300 c307 ea");
+    ok("D5 `f c300 c307 ea` fills 8 bytes with $EA", [0, 1, 7].every((k) => peek(0xc300 + k) === 0xea));
+
+    // h — hunt (with wildcard). Find the LDA #$01 we wrote at $C100.
+    const hRes = await mon("h c000 c1ff a9 xx 8d");
+    ok("D6 `h` finds a pattern with a wildcard byte", /c000/i.test(hRes.output ?? ""), hRes.output);
+
+    // t — move, then c — compare (identical), then mutate + compare (diff).
+    await mon("t c000 c004 c400");
+    ok("D7 `t` move copies the range", peek(0xc400) === 0xa9 && peek(0xc404) === 0xd0);
+    const cSame = await mon("c c000 c004 c400");
+    ok("D8 `c` reports identical after a clean move", /identical/i.test(cSame.output ?? ""), cSame.output);
+    await mon("wr c402 ff");
+    const cDiff = await mon("c c000 c004 c400");
+    ok("D9 `c` lists a difference after a poke", /!=/.test(cDiff.output ?? ""), (cDiff.output ?? "").split("\n")[0]);
+
+    // wr ram lens vs banked: under KERNAL, banked write hits RAM; ram lens too.
+    await mon("wr ram e000 77");
+    ok("D10 `wr ram e000` writes raw RAM under KERNAL", session.c64Bus.ram[0xe000] === 0x77 && peek(0xe000) !== 0x77);
+  } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
+}
+
+// =====================================================================
+// Part E — Block D: registers (set + vectors + flow) + sidefx + screen.
+// =====================================================================
+console.log("\nSpec 754 — Part E: registers/sidefx/screen (Block D)\n");
+{
+  const { session, sessionId } = startIntegratedSession({});
+  const { ctrl, mon } = newCtx(session, sessionId);
+  try {
+    session.resetCold("pal-default");
+
+    // r set (space + comma forms).
+    await mon("r a=$42 x=$10");
+    ok("E1 `r a=$42 x=$10` sets registers", (session.c64Cpu.a & 0xff) === 0x42 && (session.c64Cpu.x & 0xff) === 0x10);
+    await mon("r y=$7, sp=$f0");
+    ok("E2 `r y=$7, sp=$f0` (comma form) sets registers", (session.c64Cpu.y & 0xff) === 0x07 && (session.c64Cpu.sp & 0xff) === 0xf0);
+
+    // r show — variant B (flow inline + vectors block).
+    const rShow = (await mon("r")).output ?? "";
+    ok("E3 `r` shows the flow column", /\bflow\b/.test(rShow) && /MAIN/.test(rShow), rShow.split("\n")[0]);
+    ok("E4 `r` shows the IRQ/NMI vectors block", /vectors/.test(rShow) && /CINV/.test(rShow) && /NMIV/.test(rShow), (rShow.split("\n")[2] ?? "").slice(0, 60));
+
+    // sidefx toggle.
+    const sOn = (await mon("sidefx on")).output ?? "";
+    ok("E5 `sidefx on` reports live reads", /on/.test(sOn) && /LIVE/i.test(sOn));
+    const sOff = (await mon("sidefx off")).output ?? "";
+    ok("E6 `sidefx off` reports peek (default)", /off/.test(sOff) && /peek/i.test(sOff));
+
+    // screen — 40x25 decode at the real screen pointer.
+    const scr = (await mon("screen")).output ?? "";
+    const rows = scr.split("\n");
+    ok("E7 `screen` decodes 25 rows of 40 chars at the real pointer", rows.length === 26 && (rows[1] ?? "").length === 42 && /screen @ \$/.test(rows[0] ?? ""), `${rows.length} lines, row width ${(rows[1] ?? "").length}`);
+  } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
+}
+
+// =====================================================================
 // Part C — BUG-037: the dead second parser is retired.
 // =====================================================================
 console.log("\nSpec 754 — Part C: one canonical monitor (BUG-037)\n");
