@@ -180,7 +180,21 @@ spec-wide principle the user set — cf. `m cpu` over `c:`): drop the bare `>`.
 - Drop VICE `cpu <type>` (CPU-type is moot — always 6502; the live `cpu`→`r` alias
   is removed).
 
-### 3.3e Observers — unify breakpoint / watch / tracepoint / condition / command (Block E) — DECIDED (2026-06-03)
+### 3.3e Observers — unify breakpoint / watch / tracepoint / condition / command (Block E) — DONE v1 (2026-06-03)
+**v1 shipped:** `obs/o when exec|load|store <addr[..end]> [if <cond>] do break|log`
+(+ `obs` list, `obs <name> on|off|del`, `obs log`, `ignore <name> [n]`). In-loop
+eval (exec at the instruction boundary in `runFor`; load/store via the CPU bus
+hook). **Per-ADDRESS** watch gate (user decision) — idle cost 0 (`accessWatch`
+null when no load/store observer), an active observer pays cond-eval only on its
+exact address. Cond grammar: `a/x/y/pc/sp/fl/rl/val/addr` + `== != < > <= >= && ||`
++ parens. `monitor-observers.ts` + `aborted='observer'` (RuntimeController halts +
+`debug/observer_hit`). Gate `e2e:754` Part F (50/50). **v1.1 TODO:** actions
+`mark`/`cmd`/`trace <scope>` (need controller/monitor wired into the registry);
+`cy` (cycle-in-line) in conditions; `g` skip-past an exec-observer addr (today it
+re-triggers); observer×manual-stepping interaction. `bk` stays its own breakpoint
+(facade-into-obs unify deferred).
+
+
 The biggest "break free from VICE" decision. VICE's `break`/`watch`/`trace`/
 `condition`/`command`/`ignore` are replaced by ONE named abstraction — the
 **observer** — because (user) "bk ist doch ein watch mit fassade" and VICE's inline-
@@ -424,12 +438,18 @@ Plus VICE's `memspace` prefixes (`c:` / `8:`) so commands address the C64 OR the
   bounded-burst dropped. Block B (§3.3b/§3.4) landed alongside: side-effect-free
   `peek(addr,lens)` + bank-lens `m`/`d`. Closes BUG-036 + BUG-037 + BUG-038.
   Gate `e2e:754` 22/22 + `probe:single-path` 25/25.
-- **P2 — VICE-parity commands.** `a` inline assembler; `load/save/bload/bsave`;
-  `sidefx` + `peek` (and fold Spec 753b old_value-via-peek); `f/t/c/h` memory ops if
-  missing; label load/save.
-- **P3 — capability layer + superset verbs.** Capability registry (replaces the
-  allowlist); curated RE ops as monitor commands AND MCP tools over one core; the
-  `map/taint/xref/extract/checkpoint/flow` verbs; memspace prefixes.
+- **P2 — VICE-parity commands. DONE except file-IO (2026-06-03).** `a` inline
+  assembler (`assembler6502.ts`); `sidefx` + `peek`; `wr/f/t/c/h` memory edit; `r`
+  set + vectors/flow; `screen`. Gate `e2e:754` Parts D+E (39/39). **Remaining (→
+  Block G):** `load/save/bload/bsave` + fs mini-shell + snap/unsnap↔dump/undump
+  rename (the `.vsf` codec = Spec 755).
+- **P3 — capability layer + superset verbs.** Block E observers DONE (§3.3e, v1 —
+  `e2e:754` Part F, 50/50). **Remaining:** the capability registry + curated verbs
+  (`map/taint/inspect/xref/flow/chis/bt`/swimlane) over the unified daemon query
+  core — **Q1 RESOLVED (2026-06-03): the daemon query-core reads the project
+  artifacts read-only so `inspect`/`xref` are one source for UI+MCP+monitor;
+  heavy producers `analyze`/`extract`/`note` stay LLM/UI** (Block F/H). Plus
+  `device c64|drive8` (Block I).
 
 ## 5. Open questions (genuinely the user's call)
 - **OQ1 — capability-layer breadth (the fork). RESOLVED (2026-06-03): curated only.**
