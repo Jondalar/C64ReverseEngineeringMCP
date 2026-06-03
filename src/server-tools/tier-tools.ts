@@ -82,6 +82,7 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "runtime_follow_path", "runtime_profile_loader",
   "trace_store_info", "trace_store_query", "trace_store_top_pcs",
   "trace_store_bus_find", "trace_store_anchor_list", "trace_store_anchor_find",
+  "trace_memory_map", // Spec 753 — page memory map (free RAM / persistence surface)
   // Spec 726 — live trace capture facade (write side, completes the readers above).
   // runtime_trace_start is THE enable-on-a-running-session entry point — without it
   // on the default surface the LLM could finalize/status a trace it can't begin

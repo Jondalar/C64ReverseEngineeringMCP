@@ -163,6 +163,41 @@ console.log("\nSpec 753 — Part C: gating (no `memory` domain → zero bus rows
   }
 }
 
+// =====================================================================
+// Part D — trace_memory_map reconstruction + reconcile-with-static.
+// =====================================================================
+console.log("\nSpec 753 — Part D: trace_memory_map reconstruction + reconcile\n");
+{
+  const { buildMemoryMap, renderMemoryMap } = await import("../dist/server-tools/trace-memory-map.js");
+  const duckdb = await import("@duckdb/node-api");
+  const N = (v) => (v === null || v === undefined ? 0 : Number(v));
+  try {
+    const inst = await duckdb.DuckDBInstance.create(storePathB, { access_mode: "READ_ONLY" });
+    const conn = await inst.connect();
+    const aggSql = `SELECT (addr>>8) AS page, COUNT(*) FILTER (WHERE kind='write') AS writes, COUNT(*) FILTER (WHERE kind='read') AS reads, COUNT(*) FILTER (WHERE kind='write' AND old_value IS NOT NULL AND old_value<>value) AS mut, MIN(clock) AS f, MAX(clock) AS l, COUNT(DISTINCT pc) FILTER (WHERE kind='write') AS wp FROM bus_events WHERE cpu='c64' AND kind IN ('write','read') AND addr IS NOT NULL GROUP BY page ORDER BY page`;
+    const codeSql = `SELECT DISTINCT (pc>>8) AS page FROM instructions WHERE cpu='c64' AND pc IS NOT NULL`;
+    const aggRows = (await conn.runAndReadAll(aggSql)).getRows();
+    const codeRows = (await conn.runAndReadAll(codeSql)).getRows();
+    inst.closeSync?.();
+    const pageRows = aggRows.map((r) => ({ page: N(r[0]), writes: N(r[1]), reads: N(r[2]), mutations: N(r[3]), firstClk: N(r[4]), lastClk: N(r[5]), writerPcs: N(r[6]) }));
+    const codePages = new Set(codeRows.map((r) => N(r[0]) & 0xff));
+    // static_ranges: claim page $05 is module-owned (it is untouched in the run → must
+    // be flagged NOT provably free). Page $C0 is the executed code page.
+    const map = buildMemoryMap({ cpu: "c64", pageRows, codePages, staticRanges: [{ from: 0x0500, to: 0x05ff, label: "fake-module" }] });
+    const txt = renderMemoryMap(map, { runLabel: runIdB });
+
+    ok("D1 map reconstructs all 256 pages", map.pages.length === 256);
+    ok("D2 indirect target page $C7 classified DATA-W (the EA the decode path can't bind)", map.pages[0xc7].writes > 0 && /data-w/.test(map.pages[0xc7].role), `${map.pages[0xc7].role} w=${map.pages[0xc7].writes}`);
+    ok("D2b executed page $C0 classified CODE", /code/.test(map.pages[0xc0].role), map.pages[0xc0].role);
+    ok("D3 an untouched page is reported provably-free", map.freeHoles.length > 0 && map.totals.freePages > 0, `${map.totals.freePages} free pages`);
+    ok("D4 EF-legal free hole present (<$8000 or $C000-CFFF)", map.freeHoles.some((h) => h.efLegal));
+    ok("D5 reconcile flags static-owned-but-untouched page $0500", map.staticUntouched.some((p) => p.page === 0x05), map.staticUntouched.map((p) => "$" + p.page.toString(16)).join(" "));
+    ok("D6 static-owned page $05 is NOT provably free", map.pages[0x05].provablyFree === false);
+    ok("D7 mandatory coverage banner present (run-only + Spec 752 boundary)", /COVERAGE = THIS RUN ONLY/.test(txt) && /Spec 752/.test(txt));
+    ok("D8 ASCII page grid rendered (16 rows)", /page map/.test(txt) && txt.split("\n").filter((l) => /\$[0-9A-F]x00/.test(l)).length === 16);
+  } catch (e) { ok("D1-D8 trace_memory_map", false, e.message); }
+}
+
 globalThis.__store753 = storePathB; globalThis.__run753 = runIdB; globalThis.__dir753 = dir;
 
 console.log("\n---");

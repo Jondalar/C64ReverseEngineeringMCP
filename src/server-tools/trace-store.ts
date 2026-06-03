@@ -18,6 +18,7 @@ import {
 } from "../runtime/trace-store/queries.js";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
+import { buildMemoryMap, renderMemoryMap } from "./trace-memory-map.js";
 
 // Bug-fix (post-Spec 726): `input` is a PATH to a trace.duckdb (or a directory
 // holding one), NOT a project hint. The previous implementation passed `input`
@@ -178,6 +179,48 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
         lines.push(r.map((c) => typeof c === "bigint" ? c.toString() : String(c)).join("\t"));
       }
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    }),
+  );
+
+  // Spec 753 P3 — page memory map from bus_events (writes/reads, incl. the
+  // indirect EAs the instruction-decode path cannot resolve) + instructions
+  // (executed = CODE). BEHAVIOUR, not grounding (Spec 752 §6): free-RAM /
+  // persistence footprint for porting, NOT "what a block is".
+  server.tool(
+    "trace_memory_map",
+    "Reconstruct a per-page RAM memory map from a trace store: which pages are CODE (executed), DATA-W (written — incl. indirect STA (zp),Y targets the decode path can't see), DATA-R (read-only), or untouched; per-region write/read/mutation counts (old≠new = the persistence surface) + writer-PC count; and a 'provably free' free-hole list (untouched this run AND not static-occupied). For porting/footprint work (free EF-legal RAM, what mutates). Optional static_ranges reconciles with the module load-map. Coverage = THIS RUN ONLY (a trace is one path) — this is runtime behaviour, NOT identity grounding (Spec 752). Not for 'what is this block' (extract+disasm). Inputs: store path, cpu, optional static_ranges. Returns: ASCII page map + region table + free holes.",
+    {
+      path: z.string().describe("Path to trace.duckdb or its parent directory."),
+      cpu: z.enum(["c64", "drive8"]).optional().describe("CPU side (default c64)."),
+      static_ranges: z.array(z.object({
+        from: z.number().int().describe("Inclusive start address."),
+        to: z.number().int().describe("Inclusive end address."),
+        label: z.string().optional().describe("Owner label (module / segment)."),
+      })).optional().describe("Statically-owned address ranges (module load-map / analysis-json). Pages overlapping these are reconciled: a static-owned page untouched in the run is flagged NOT provably free."),
+      run_label: z.string().optional().describe("Optional run label for the header."),
+    },
+    safeHandler("trace_memory_map", async ({ path, cpu, static_ranges, run_label }) => {
+      const dbPath = resolveStorePath(path, context);
+      const side = cpu ?? "c64";
+      const aggSql =
+        `SELECT (addr >> 8) AS page, ` +
+        `COUNT(*) FILTER (WHERE kind='write') AS writes, ` +
+        `COUNT(*) FILTER (WHERE kind='read') AS reads, ` +
+        `COUNT(*) FILTER (WHERE kind='write' AND old_value IS NOT NULL AND old_value <> value) AS mutations, ` +
+        `MIN(clock) AS first_clk, MAX(clock) AS last_clk, ` +
+        `COUNT(DISTINCT pc) FILTER (WHERE kind='write') AS writer_pcs ` +
+        `FROM bus_events WHERE cpu='${side}' AND kind IN ('write','read') AND addr IS NOT NULL GROUP BY page ORDER BY page`;
+      const codeSql = `SELECT DISTINCT (pc >> 8) AS page FROM instructions WHERE cpu='${side}' AND pc IS NOT NULL`;
+      const aggRows = await routeStoreRead("safeQuery", dbPath, { sql: aggSql, limit: 300 }, () => safeQuery(dbPath, aggSql, 300));
+      const codeRows = await routeStoreRead("safeQuery", dbPath, { sql: codeSql, limit: 300 }, () => safeQuery(dbPath, codeSql, 300));
+      const N = (v: unknown) => v === null || v === undefined ? 0 : Number(v);
+      const pageRows = aggRows.map((r) => ({
+        page: N(r[0]), writes: N(r[1]), reads: N(r[2]), mutations: N(r[3]),
+        firstClk: N(r[4]), lastClk: N(r[5]), writerPcs: N(r[6]),
+      }));
+      const codePages = new Set<number>(codeRows.map((r) => N(r[0]) & 0xff));
+      const map = buildMemoryMap({ cpu: side, pageRows, codePages, staticRanges: static_ranges });
+      return { content: [{ type: "text" as const, text: renderMemoryMap(map, { runLabel: run_label }) }] };
     }),
   );
 }
