@@ -1,6 +1,11 @@
 # Spec 752 — Extract-first grounding doctrine
 
-**Status:** DONE (2026-06-03) — all 8 slices shipped, gate `e2e:752` 25/25.
+**Status:** DONE (2026-06-03) — 8 slices + adversarial-review hardening, gate
+`e2e:752` 33/33 (incl. real-disk L2 end-to-end). **Review finding:** L2 was
+non-functional on real disk/CRT extracts until `linkExtractedPayloadFiles`
+registered per-file artifacts + relinked the entities (manifest-import makes
+disk-file/chip entities internal with the manifest as source). See the final
+review-fix commit.
 **Cross-links:** Spec 748.2 (orchestrator teeth, was OPEN — this is its content),
 748.3 (extract→cartography), BUG-032 (enforcement half). Builds on Spec 730
 (`agent_next_step` ladder) + 748.1 (steering vehicle).
