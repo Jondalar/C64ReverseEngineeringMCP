@@ -234,9 +234,12 @@ each ships with a gate. Decisions the user must still make are flagged **[OQ]**.
     `trap` is dropped (vestigial in the single-path runtime — real KERNAL, no trap layer,
     Spec 723). Derive: IRQ/NMI entry = SP−3 + control-transfer to the vector target without
     JSR/JMP (BRK opcode `$00` → `irq`); RTI (`$40`) pops.
-  - **Focus = colour + filter (both).** The swimlane always colour-codes rows by kind
-    (main / irq / nmi); an optional focus param drops the other lanes' rows on demand
-    (the Monitor mental model). Default tinted, filter opt-in.
+  - **Focus = filter param, LLM-FIRST.** These traces serve the LLM first — there is NO
+    swimlane UX yet. So 746.13 ships a derived `flow` column + an optional `focus=main|irq|
+    nmi` param on the LLM-facing reader (`runtime_swimlane_slice` / `trace_store_*`) that
+    drops the other lanes' rows (the Monitor mental model). Row colour-coding is a pure UI
+    concern with no surface today — deferred to whenever the swimlane UI is built
+    (API-first doctrine: data + filter now, tint as a UI follow-up).
   - **C64-only first.** Apply to the C64 CPU_STEP stream now; the 1541 drive CPU
     (`DRIVE_CPU_STEP`, own IRQ/VIA flow + drive-ROM vectors) is a trivial follow-up reusing
     the same replay — deferred to a 746.13b slice.
@@ -252,7 +255,7 @@ the checkpoint ring. DEFERRED as real features (not wiring): 746.7 (ring↔Rewin
 marriage), 746.8 (structured trace→finding), 746.11 + 746.12 (ring-scrub timeline +
 live-RAM graphics-scrub UI — need visual iteration at the screen). PLANNED (refined
 2026-06-03, OQ5 decided): 746.13 (MAIN/IRQ/NMI flow-focus — derive-at-read, 3 lanes,
-colour+filter, C64-first).
+LLM-first `flow` column + `focus=` filter, C64-first; UI tint deferred).
 
 ## 5. Acceptance (when this charter is "usable")
 - From the running Wasteland_EF session, the LLM can: `runtime_trace_start` →
@@ -295,8 +298,10 @@ colour+filter, C64-first).
     if A proves unreliable on rare nested-IRQ-in-NMI / SMC-vector cases.
   - **(b) lanes →** **3: `main | irq | nmi`.** `brk` folds into `irq` (shared `$FFFE`
     vector); `trap` dropped (vestigial in the single-path runtime, Spec 723).
-  - **(c) focus →** **both — colour + filter.** Always colour-code rows by kind; optional
-    focus param drops the other lanes on demand (Monitor mental model).
+  - **(c) focus →** **filter param, LLM-first.** A `flow` column + a `focus=main|irq|nmi`
+    filter on the reader (`runtime_swimlane_slice` / `trace_store_*`) — the LLM is the
+    primary consumer; there is no swimlane UX yet. Row colour-coding deferred to a later UI
+    follow-up (API-first; UI follows).
   - **(d) drive →** **C64-only first.** The 1541 `DRIVE_CPU_STEP` flow reuses the same
     replay later (746.13b follow-up).
 - **OQ4 — DECIDED (2026-06-01):** write-delta streaming is **DEFERRED — measure first**.
