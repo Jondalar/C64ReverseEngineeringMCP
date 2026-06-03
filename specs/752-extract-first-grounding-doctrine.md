@@ -1,6 +1,6 @@
 # Spec 752 — Extract-first grounding doctrine
 
-**Status:** IN PROGRESS (2026-06-03).
+**Status:** DONE (2026-06-03) — all 8 slices shipped, gate `e2e:752` 25/25.
 **Cross-links:** Spec 748.2 (orchestrator teeth, was OPEN — this is its content),
 748.3 (extract→cartography), BUG-032 (enforcement half). Builds on Spec 730
 (`agent_next_step` ladder) + 748.1 (steering vehicle).
@@ -67,10 +67,10 @@ and gets a `finding.ungrounded` timeline event. Never throw — auto-producers
 cite the analysis artifact, so they pass the predicate). The `save_finding` MCP handler
 appends a visible ⚠ L1 warning when the result comes back `ungrounded`.
 
-## 5. Slices + per-slice gate
+## 5. Slices + per-slice gate (all DONE 2026-06-03, `e2e:752` 25/25)
 | Slice | Change | Gate |
 |---|---|---|
-| **S1** | doctrine text: L1 in `docs/agent-doctrine.md`; provision L2 into `steering.md` at `project_init`; this spec | fresh `project_init` → `steering.md` has the extract-first rule; doctrine prompt has the L1 sentence |
+| **S1** ✅ | doctrine text: L1 in `docs/agent-doctrine.md`; provision L2 into `steering.md` at `project_init`; this spec | fresh `project_init` → `steering.md` has the extract-first rule; doctrine prompt has the L1 sentence |
 | **S2** | `importManifestArtifact` returns `importedPayloadEntityIds` | extract a known disk → N IDs == `list_payloads` count; counts unchanged |
 | **S3** | broaden `prg-workflow.ts:348` stamp to `disk-file`/`cart-chunk`, preserve original kind + disk-file fields | `runPayloadReverseWorkflow` on a disk-file entity keeps `kind`, populates `payloadAsmArtifactIds`, keeps `mediumSpans`/`addressRange` |
 | **S4** | `autoAnalyzeExtractedPayloads(root, ids, {mode:'quick'})` — soft-fail per payload, ONE final view rebuild | broken payload → `status:failed`, rest `done`, helper never throws |
@@ -100,6 +100,20 @@ not apply). Commit per slice.
 - **Custom-LUT import gap** is a correctness fix, not just a feature — gate it explicitly.
 - **Cross-disk dedup** (`payloadContentHash`): dedup resolved source paths before chaining
   so the same PRG isn't analysed twice.
+
+## 6.5 Known follow-ups (shipped DONE, refine later)
+- **Signal inconsistency:** `agent_next_step`'s `analysisArtifacts` signal counts
+  `kind:analysis-run` / `role:prg-analysis`, but the auto-chain registers analysis as
+  `role:analysis-json`. So a payload analysed by L2 does not increment that *signal* (the
+  L1 *backing* predicate DOES allowlist `analysis-json`, so findings are still correctly
+  grounded). Normalise the workflow's analysis `role` or widen the signal allowlist.
+- **Cart chunk carving:** S6 auto-chains chunk payloads at the chip-blob level (the chip
+  `.bin` is the source artifact). Chunk-level carving (chunk → its own artifact + depack)
+  + auto-depack of compressed chunks is a refinement (`record_cart_chunk_packer` /
+  `link_cart_chunk_to_asm` exist for the manual path).
+- **Auto-chain cap:** `autoAnalyzeExtractedPayloads` supports `maxPayloads` but the extract
+  handlers don't set it — a very large disk auto-chains every payload. Add a default cap +
+  queue-the-rest via `agent_next_step` if it bites.
 
 ## 7. Non-goals
 - NOT removing/penalising tracing — trace stays the runtime-behaviour tool (Spec 746.x).
