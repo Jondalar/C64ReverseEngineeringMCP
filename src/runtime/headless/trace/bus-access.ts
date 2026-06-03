@@ -104,7 +104,10 @@ export interface BusAccessTraceFilter {
 
 export interface BusAccessTraceProducer {
   emitC64Access(p: { op: "read" | "write"; addr: number; value: number; oldValue?: number }): void;
-  emitDriveAccess(p: { op: "read" | "write"; addr: number; value: number; oldValue?: number }): void;
+  // Spec 753 — the drive CPU is not yet wired for general RAM/ROM bus capture
+  // (only VIA1 $1800 is instrumented), so no oldValue source exists drive-side;
+  // omit it here until drive memory capture lands (753b follow-up).
+  emitDriveAccess(p: { op: "read" | "write"; addr: number; value: number }): void;
   setFilter(filter: BusAccessTraceFilter): void;
   enable(): void;
   disable(): void;

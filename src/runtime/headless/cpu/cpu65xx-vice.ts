@@ -471,10 +471,11 @@ export class Cpu65xxVice {
     const a = u16(addr);
     const v = u8(value);
     // Spec 753 — capture the pre-write value for the mutation/persistence
-    // surface. Read only when tracing AND below the I/O window: reading
-    // $D000-$DFFF (VIC/SID/CIA registers) has side effects, so oldValue stays
-    // undefined there. RAM/ZP/stack/screen reads are side-effect-free.
-    const oldValue = (this.busTraceEnabled && a < 0xd000) ? u8(this.memory.read(a)) : undefined;
+    // surface. Read only when tracing AND in a side-effect-free window: skip
+    // $D000-$DFFF (VIC/SID/CIA registers) and $00/$01 (the 6510 CPU port —
+    // reading $01 mutates the capacitor-decay state). RAM/ZP($02+)/stack/screen
+    // reads are side-effect-free; oldValue stays undefined elsewhere.
+    const oldValue = (this.busTraceEnabled && a >= 0x0002 && a < 0xd000) ? u8(this.memory.read(a)) : undefined;
     if (this.ioPortHook && (a === 0x0000 || a === 0x0001)) {
       this.ioPortHook.write(a as 0 | 1, v);
     }

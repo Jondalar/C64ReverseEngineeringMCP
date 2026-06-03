@@ -231,6 +231,26 @@ console.log("\nSpec 753 — Part E: finalize sidecar (buildMemoryMapText)\n");
   } catch (e) { ok("E1-E3 finalize sidecar", false, e.message); }
 }
 
+// =====================================================================
+// Part F — binary format v2: a v1 (pre-old_value) log is rejected loudly,
+//          not silently mis-framed (review blocker fix).
+// =====================================================================
+console.log("\nSpec 753 — Part F: binary format version guard\n");
+{
+  const bf = await import("../dist/runtime/headless/trace/binary-format.js");
+  ok("F1 format version bumped to 2 (old_value layout)", bf.C64RETRACE_FORMAT_VERSION === 2, `v${bf.C64RETRACE_FORMAT_VERSION}`);
+  const meta = { runId: "r", defId: "d", defVersion: 1, defName: "n", defJson: "{}", domains: [], cycleStart: 0, createdAt: "t" };
+  const buf = bf.encodeFileHeader(meta);
+  // sanity: a freshly-encoded v2 header decodes
+  let okV2 = false; try { okV2 = bf.decodeFileHeader(buf).version === 2; } catch {}
+  ok("F2 v2 header decodes", okV2);
+  // forge a v1 header by overwriting the version u16 (at MAGIC_LEN) → must throw
+  const forged = buf.slice();
+  new DataView(forged.buffer, forged.byteOffset, forged.byteLength).setUint16(bf.MAGIC_LEN, 1, true);
+  let threw = false; try { bf.decodeFileHeader(forged); } catch (e) { threw = /version 1/.test(e.message); }
+  ok("F3 v1 log rejected loudly (no silent mis-frame)", threw);
+}
+
 globalThis.__store753 = storePathB; globalThis.__run753 = runIdB; globalThis.__dir753 = dir;
 
 console.log("\n---");

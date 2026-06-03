@@ -480,9 +480,14 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         // wait_index=true: stop + await the background DuckDB index so the store is
         // queryable on return (the LLM queries next); the UI's instant button omits it.
         const { run } = await runtimeDaemon.traceStop<{ run: { runId: string; eventCount: number; bytesWritten: number; marks: unknown[]; cycleStart: number; cycleEnd: number; evidenceRef: string } }>(session_id, true);
-        // Spec 753 — auto-write the page memory map sidecar if mem-row was captured (soft-fail).
-        const { writeTraceMemoryMapSidecar } = await import("./trace-store.js");
-        const mm = await writeTraceMemoryMapSidecar(run.evidenceRef, context, run.runId);
+        // Spec 753 — auto-write the page memory map sidecar if mem-row was captured.
+        // Fully soft-fail: a failure here (incl. the dynamic import) must NEVER turn
+        // a successful finalize into an error envelope.
+        let mm: string | null = null;
+        try {
+          const { writeTraceMemoryMapSidecar } = await import("./trace-store.js");
+          mm = await writeTraceMemoryMapSidecar(run.evidenceRef, context, run.runId);
+        } catch { /* soft-fail — finalize already succeeded */ }
         return { content: [{ type: "text" as const, text: [
           `Trace finalized (Runtime Daemon) — run ${run.runId}`,
           `Events: ${run.eventCount}  bytes: ${run.bytesWritten}  marks: ${run.marks.length}`,
@@ -497,9 +502,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       if (!ctrl?.traceRun.isActive()) throw new Error(`No active trace on session ${session_id}.`);
       const run = await ctrl.traceRun.stop();
       await ctrl.traceRun.awaitIndex(); // queryable store on return (background index)
-      // Spec 753 — auto-write the page memory map sidecar if mem-row was captured (soft-fail).
-      const { writeTraceMemoryMapSidecar } = await import("./trace-store.js");
-      const mm = await writeTraceMemoryMapSidecar(run.evidenceRef, context, run.runId);
+      // Spec 753 — auto-write the page memory map sidecar if mem-row was captured.
+      // Fully soft-fail (incl. the dynamic import) — never break a good finalize.
+      let mm: string | null = null;
+      try {
+        const { writeTraceMemoryMapSidecar } = await import("./trace-store.js");
+        mm = await writeTraceMemoryMapSidecar(run.evidenceRef, context, run.runId);
+      } catch { /* soft-fail — finalize already succeeded */ }
       return { content: [{ type: "text" as const, text: [
         `Trace finalized — run ${run.runId}`,
         `Events: ${run.eventCount}  bytes: ${run.bytesWritten}  marks: ${run.marks.length}`,

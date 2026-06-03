@@ -22,7 +22,11 @@
 // exceeds u32 cycles).
 
 export const C64RETRACE_MAGIC = new Uint8Array([0x43, 0x36, 0x34, 0x52, 0x45, 0x54, 0x52, 0x31]); // "C64RETR1"
-export const C64RETRACE_FORMAT_VERSION = 1;
+// v2 (Spec 753): RAM_WRITE/IO_WRITE/DRIVE_RAM_WRITE gained a trailing old_value
+// byte (present-bit in the access byte). v1 records are 1 byte shorter for the
+// same opcode, so a v1 log decoded as v2 misaligns — decodeFileHeader rejects a
+// version mismatch (traces are ephemeral; re-capture on bump).
+export const C64RETRACE_FORMAT_VERSION = 2;
 export const MAGIC_LEN = 8;
 export const FILE_HEADER_FIXED = MAGIC_LEN + 2 /*version*/ + 2 /*flags*/ + 4 /*metaLen*/;
 
@@ -116,6 +120,12 @@ export function decodeFileHeader(buf: Uint8Array): ParsedFileHeader {
   }
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const version = dv.getUint16(MAGIC_LEN, true);
+  // Spec 753 — record layout is version-specific (RAM_WRITE 14→15 bytes at v2).
+  // A mismatch would mis-frame every fixed-size record after the first one, so
+  // reject loudly instead of silently corrupting the index.
+  if (version !== C64RETRACE_FORMAT_VERSION) {
+    throw new Error(`c64retrace: unsupported format version ${version} (this build reads v${C64RETRACE_FORMAT_VERSION}); re-capture the trace`);
+  }
   const metaLen = dv.getUint32(MAGIC_LEN + 4, true);
   const metaStart = FILE_HEADER_FIXED;
   if (buf.length < metaStart + metaLen) throw new Error("c64retrace: truncated meta");
