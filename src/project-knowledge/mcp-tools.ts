@@ -7,6 +7,7 @@ import { auditProject, renderProjectAudit } from "./audit.js";
 import { PROJECT_REPAIR_OPERATIONS, repairProject, renderProjectRepair } from "./repair.js";
 import { safeHandler } from "../server-tools/safe-handler.js";
 import { ensureWikiSkeleton } from "./project-wiki.js";
+import { ensureDefaultSteering } from "../server-tools/steering-defaults.js";
 import { ProjectKnowledgeService } from "./service.js";
 
 interface RegisterProjectKnowledgeToolsOptions {
@@ -108,6 +109,10 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       // Spec 740.1 — scaffold the project wiki skeleton (docs/index.md +
       // knowledge/activity-log.md) so the search/wiki layer has a home.
       const wikiScaffold = ensureWikiSkeleton(projectRoot);
+      // Spec 752 — provision the extract-first grounding doctrine into the
+      // project steering file (injected at the top of agent_onboard). Default
+      // only; never clobbers a hand-written steering.md.
+      const steeringSeed = ensureDefaultSteering(projectRoot);
       const workflow = service.initializeWorkflowContract({
         canonicalDocPaths: [
           resolve(options.repoDir, "docs", "workflow.md"),
@@ -142,6 +147,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Canonical prompts: ${workflow.plan.canonicalPromptIds.join(", ") || "(none)"}`,
         ``,
         `Wiki scaffolded: ${wikiScaffold.created.length ? wikiScaffold.created.join(", ") : "already present"}`,
+        `Steering (extract-first doctrine): ${steeringSeed}`,
         `Input media sorted: ${mediaSort.sorted.length} file(s)`,
         ...mediaSort.sorted.map((s) => `  ${s.from} → ${s.to} (${s.kind})`),
         ...(mediaSort.skipped.length > 0

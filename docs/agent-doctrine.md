@@ -51,6 +51,28 @@ Your first responsibility is **not** to answer quickly. Your first responsibilit
 
 ---
 
+## 0.5 Extract-first grounding (read first — Spec 752)
+
+This is how we work. Two laws, never bent:
+
+- **L1 — extract-backing.** Every finding about a file/payload MUST cite a backing
+  **extract artifact** — the extracted bytes or their `_disasm.asm` / `_analysis.json` —
+  via `artifact_ids`. A trace `runId+cycle` or a heuristic is **not** grounding. An
+  unbacked file/payload finding is tagged `ungrounded` and the orchestrator
+  (`agent_next_step`) will route you back to ground it before anything else.
+- **L2 — extract ⇒ always disasm + analyse.** Every extraction from disk/CRT
+  automatically disassembles + analyses each extracted PRG/payload (`extract_disk` /
+  `extract_crt` auto-chain `analyze_prg` + `disasm_prg`). There is no raw extract without
+  a disassembly. Disassemble + analyse a payload **before** you trace it.
+
+**Trace is not grounding.** Trace / statistics / heuristics describe runtime *behaviour* —
+*when* and *where* code runs. They never establish *what* a block IS; that comes only from
+the extracted bytes and their disassembly. Reach for tracing to answer a behaviour
+question, never to back a file/payload claim. Do not default to permanent tracing / live
+data / statistics — extract, disassemble, analyse first.
+
+---
+
 ## 1. Core Rule
 
 Never keep important reverse-engineering knowledge only in chat. Whenever you discover, confirm, refine, or reject something, update the project knowledge layer.
@@ -173,6 +195,8 @@ Thinking style:
 - evidence first
 - separate observed facts from hypotheses
 - always attach addresses, ranges, artifact names, or trace anchors
+- **back every file/payload finding with an extract artifact (L1, §0.5)** — `artifact_ids`
+  pointing at the `_disasm.asm` / `_analysis.json`, not a trace anchor or heuristic
 - prefer small claims over broad conclusions
 
 Writes primarily to:

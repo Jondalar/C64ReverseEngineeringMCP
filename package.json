@@ -227,6 +227,7 @@
     "e2e:bug031": "npm run build:mcp && node scripts/e2e-bug031-disk-payload-spans.mjs",
     "e2e:bug033": "npm run build:mcp && node scripts/e2e-bug033-version-reconcile.mjs",
     "e2e:751": "npm run build && node scripts/e2e-751-effective-segments.mjs",
+    "e2e:752": "npm run build:mcp && node scripts/e2e-752-extract-first-doctrine.mjs",
     "e2e:748": "npm run build:mcp && node scripts/e2e-748-project-steering.mjs",
     "e2e:746-checkpoint": "npm run build:mcp && node scripts/e2e-746-checkpoint.mjs",
     "e2e:746-13": "npm run build:mcp && node scripts/e2e-746-13-flow-focus.mjs",
