@@ -171,7 +171,12 @@ the artifact store and can never satisfy the L1 backing predicate.
 ### Adversarial review — 4 real findings fixed
 - **Binary format version (blocker).** SIZE 14→15 with no version bump → an old
   v1 `.c64retrace` would silently mis-frame. Bumped `C64RETRACE_FORMAT_VERSION`
-  to 2; `decodeFileHeader` now rejects a mismatch loudly (traces are ephemeral).
+  to 2. *(Initially a hard reject — superseded by **BUG-035**: the reject orphaned
+  the v1 corpus + tripped on the live daemon's writer skew. Replaced with
+  version-aware decoding: `decodeFileHeader` accepts v1..current, `decodeEvent`/
+  `decodeEventStream` take the header version and decode a v1 mem-access record at
+  the 14-byte width. v1 logs re-index in place without re-tracing; only a FUTURE
+  version rejects. Gate Parts F+G.)*
 - **`$0001` pre-read (verified false, fixed anyway).** Reading `$01` mutates 6510
   capacitor-decay state; the immediately-following `store` write clobbers it, so
   no divergence — but `$00/$01` are now excluded from the pre-read regardless

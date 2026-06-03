@@ -232,23 +232,54 @@ console.log("\nSpec 753 — Part E: finalize sidecar (buildMemoryMapText)\n");
 }
 
 // =====================================================================
-// Part F — binary format v2: a v1 (pre-old_value) log is rejected loudly,
-//          not silently mis-framed (review blocker fix).
+// Part F — binary format v2 + BUG-035 back-compat: v1 headers are ACCEPTED
+//          (historical corpus survives the bump); only FUTURE versions reject.
 // =====================================================================
-console.log("\nSpec 753 — Part F: binary format version guard\n");
+console.log("\nSpec 753 — Part F: binary format version (v1 back-compat, future reject)\n");
+let BF;
 {
   const bf = await import("../dist/runtime/headless/trace/binary-format.js");
-  ok("F1 format version bumped to 2 (old_value layout)", bf.C64RETRACE_FORMAT_VERSION === 2, `v${bf.C64RETRACE_FORMAT_VERSION}`);
+  BF = bf;
+  ok("F1 format version is 2 (old_value layout)", bf.C64RETRACE_FORMAT_VERSION === 2, `v${bf.C64RETRACE_FORMAT_VERSION}`);
   const meta = { runId: "r", defId: "d", defVersion: 1, defName: "n", defJson: "{}", domains: [], cycleStart: 0, createdAt: "t" };
   const buf = bf.encodeFileHeader(meta);
-  // sanity: a freshly-encoded v2 header decodes
   let okV2 = false; try { okV2 = bf.decodeFileHeader(buf).version === 2; } catch {}
   ok("F2 v2 header decodes", okV2);
-  // forge a v1 header by overwriting the version u16 (at MAGIC_LEN) → must throw
-  const forged = buf.slice();
-  new DataView(forged.buffer, forged.byteOffset, forged.byteLength).setUint16(bf.MAGIC_LEN, 1, true);
-  let threw = false; try { bf.decodeFileHeader(forged); } catch (e) { threw = /version 1/.test(e.message); }
-  ok("F3 v1 log rejected loudly (no silent mis-frame)", threw);
+  const setVer = (b, v) => { const c = b.slice(); new DataView(c.buffer, c.byteOffset, c.byteLength).setUint16(bf.MAGIC_LEN, v, true); return c; };
+  // BUG-035: a v1 header must now be ACCEPTED (read-compat), not rejected.
+  let v1ok = false; try { v1ok = bf.decodeFileHeader(setVer(buf, 1)).version === 1; } catch {}
+  ok("F3 v1 header ACCEPTED (BUG-035 back-compat — historical corpus survives)", v1ok);
+  // a future version this build can't lay out must still reject.
+  let futureThrew = false; try { bf.decodeFileHeader(setVer(buf, 3)); } catch (e) { futureThrew = /version 3/.test(e.message); }
+  ok("F4 future version 3 rejected", futureThrew);
+}
+
+// =====================================================================
+// Part G — BUG-035: a v1 mem-access record (14-byte payload, no old_value) is
+//          decoded at the right width so the NEXT record stays framed.
+// =====================================================================
+console.log("\nSpec 753 — Part G: v1 mem-access back-compat decode (BUG-035)\n");
+{
+  const RAM_WRITE = 0x11, ACCESS_WRITE = 1;
+  // hand-build a v1 record: op(1) cycle(8) addr(2) value(1) pc(2) access(1) = 15 bytes total.
+  const v1rec = (cycle, addr, value, pc) => {
+    const b = new Uint8Array(15); const dv = new DataView(b.buffer);
+    let o = 0; dv.setUint8(o, RAM_WRITE); o += 1; dv.setFloat64(o, cycle, true); o += 8;
+    dv.setUint16(o, addr, true); o += 2; dv.setUint8(o, value); o += 1;
+    dv.setUint16(o, pc, true); o += 2; dv.setUint8(o, ACCESS_WRITE); o += 1;
+    return b;
+  };
+  const r1 = v1rec(10, 0x1800, 0x37, 0xf2b0), r2 = v1rec(20, 0x07ff, 0x99, 0xf2b3);
+  const stream = new Uint8Array(30); stream.set(r1, 0); stream.set(r2, 15);
+  // decode with version=1 → 2 events, framed correctly, no old_value.
+  const evs = BF.decodeEventStream(stream, 0, 1);
+  ok("G1 v1 stream decodes 2 events (correct framing — no mis-align)", evs.length === 2, `got ${evs.length}`);
+  ok("G2 v1 record 1: addr/value/pc correct", evs[0] && evs[0].addr === 0x1800 && evs[0].value === 0x37 && evs[0].pc === 0xf2b0);
+  ok("G3 v1 record 2: addr/value correct (proves the 1-byte-shorter framing)", evs[1] && evs[1].addr === 0x07ff && evs[1].value === 0x99);
+  ok("G4 v1 has no old_value", evs[0] && evs[0].oldValue === undefined);
+  // single-record decodeEvent with version=1 advances exactly 15 bytes.
+  const one = BF.decodeEvent(r1, 0, 1);
+  ok("G5 v1 single record advances 15 bytes (not 16)", one && one.next === 15, one ? `next=${one.next}` : "null");
 }
 
 globalThis.__store753 = storePathB; globalThis.__run753 = runIdB; globalThis.__dir753 = dir;

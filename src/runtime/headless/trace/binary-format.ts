@@ -120,11 +120,12 @@ export function decodeFileHeader(buf: Uint8Array): ParsedFileHeader {
   }
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const version = dv.getUint16(MAGIC_LEN, true);
-  // Spec 753 — record layout is version-specific (RAM_WRITE 14→15 bytes at v2).
-  // A mismatch would mis-frame every fixed-size record after the first one, so
-  // reject loudly instead of silently corrupting the index.
-  if (version !== C64RETRACE_FORMAT_VERSION) {
-    throw new Error(`c64retrace: unsupported format version ${version} (this build reads v${C64RETRACE_FORMAT_VERSION}); re-capture the trace`);
+  // Spec 753 / BUG-035 — record layout is version-specific (mem-access 14→15 bytes
+  // at v2). Decoders are version-aware (decodeEvent takes `version`), so OLDER logs
+  // (v1) stay readable — the historical corpus survives the bump. Reject only a
+  // FUTURE version this build cannot lay out, or an invalid 0.
+  if (version < 1 || version > C64RETRACE_FORMAT_VERSION) {
+    throw new Error(`c64retrace: unsupported format version ${version} (this build reads v1..v${C64RETRACE_FORMAT_VERSION})`);
   }
   const metaLen = dv.getUint32(MAGIC_LEN + 4, true);
   const metaStart = FILE_HEADER_FIXED;
@@ -248,8 +249,17 @@ export interface DecodedEvent {
   label?: string;
 }
 
-/** Decode one event at `off`. Returns the event + next offset, or null at EOF. */
-export function decodeEvent(buf: Uint8Array, off: number): { ev: DecodedEvent; next: number } | null {
+/** True for the memory/IO access opcodes (RAM_WRITE/IO_WRITE/DRIVE_RAM_WRITE),
+ *  whose record gained a trailing old_value byte at format v2 (Spec 753). */
+function isMemAccessOp(op: TraceOp): boolean {
+  return op === TraceOp.RAM_WRITE || op === TraceOp.IO_WRITE || op === TraceOp.DRIVE_RAM_WRITE;
+}
+
+/** Decode one event at `off`. Returns the event + next offset, or null at EOF.
+ *  `version` = the file-header format version (BUG-035 back-compat): a v1 mem-access
+ *  record is 1 byte shorter (no old_value byte) than v2 — decode it at the right
+ *  width so historical v1 captures stay readable across the v2 bump. */
+export function decodeEvent(buf: Uint8Array, off: number, version: number = C64RETRACE_FORMAT_VERSION): { ev: DecodedEvent; next: number } | null {
   if (off >= buf.length) return null;
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const op = buf[off] as TraceOp;
@@ -258,7 +268,8 @@ export function decodeEvent(buf: Uint8Array, off: number): { ev: DecodedEvent; n
   // in `buf` — it straddles a streaming-window boundary (caller carries + reads
   // more) OR is a truncated final record (aborted trace). Without this the field
   // reads below throw "offset is out of bounds". SIZE[op] = bytes after the opcode.
-  const szb = SIZE[op];
+  // BUG-035: a v1 mem-access record is 1 byte shorter (no old_value byte).
+  const szb = (version < 2 && isMemAccessOp(op)) ? SIZE[op]! - 1 : SIZE[op];
   if (szb !== undefined && szb >= 0) {
     if (off + 1 + szb > buf.length) return null;
   } else if (op === TraceOp.MARK) {
@@ -282,6 +293,10 @@ export function decodeEvent(buf: Uint8Array, off: number): { ev: DecodedEvent; n
       const value = buf[o++];
       const pc = dv.getUint16(o, true); o += 2;
       const accByte = buf[o++];
+      if (version < 2) {
+        // BUG-035 v1: access byte is raw (no present-bit), no trailing old_value byte.
+        return { ev: { op, cycle, addr, value, pc, access: accByte & 0xff, oldValue: undefined }, next: o };
+      }
       const access = accByte & 0x7f;
       const oldRaw = buf[o++];
       const oldValue = (accByte & 0x80) !== 0 ? oldRaw : undefined;
@@ -316,12 +331,13 @@ export function decodeEvent(buf: Uint8Array, off: number): { ev: DecodedEvent; n
   }
 }
 
-/** Decode an entire event stream (after the file header). */
-export function decodeEventStream(buf: Uint8Array, start: number): DecodedEvent[] {
+/** Decode an entire event stream (after the file header). Pass the header
+ *  `version` so v1 mem-access records decode at the right width (BUG-035). */
+export function decodeEventStream(buf: Uint8Array, start: number, version: number = C64RETRACE_FORMAT_VERSION): DecodedEvent[] {
   const out: DecodedEvent[] = [];
   let off = start;
   for (;;) {
-    const r = decodeEvent(buf, off);
+    const r = decodeEvent(buf, off, version);
     if (!r) break;
     out.push(r.ev);
     off = r.next;

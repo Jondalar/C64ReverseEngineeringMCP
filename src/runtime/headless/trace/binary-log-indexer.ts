@@ -127,13 +127,16 @@ export async function indexBinaryLog(
 ): Promise<IndexResult> {
   const fd = openSync(retracePath, "r");
   let meta: TraceFileMeta, headerLen: number, def: RuntimeTraceDefinition, size: number, seedCarry: Uint8Array;
+  let fmtVersion: number;
   try {
     size = fstatSync(fd).size;
     const hn = Math.min(size, INDEX_HEADER_MAX);
     const hbuf = Buffer.allocUnsafe(hn);
     readFullSync(fd, hbuf, 0, hn, 0);
     const hu8 = new Uint8Array(hbuf.buffer, hbuf.byteOffset, hn);
-    ({ meta, headerLen } = decodeFileHeader(hu8));
+    // BUG-035 — keep the header version; v1 mem-access records decode 1 byte
+    // shorter than v2, so every decodeEvent below must be told the version.
+    ({ meta, headerLen, version: fmtVersion } = decodeFileHeader(hu8));
     def = JSON.parse(meta.defJson);
     // Events already read into the header window seed the event stream (copy out
     // before hbuf is dropped).
@@ -196,7 +199,7 @@ export async function indexBinaryLog(
       const window = new Uint8Array(chunkBuf.buffer, chunkBuf.byteOffset, windowLen);
       let off = 0;
       for (;;) {
-        const r = decodeEvent(window, off);
+        const r = decodeEvent(window, off, fmtVersion);
         if (!r) break;
         onEvent(r.ev);
         off = r.next;
