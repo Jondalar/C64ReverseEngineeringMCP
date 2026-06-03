@@ -705,6 +705,9 @@ export interface ManifestImportResult {
   importedEntityCount: number;
   importedFindingCount: number;
   importedRelationCount: number;
+  /** Spec 752 — ids of the imported payload entities (disk-file / cart-chunk /
+   *  payload), so the L2 auto-chain can disasm+analyse each extracted PRG. */
+  importedPayloadEntityIds: string[];
 }
 
 export interface BuildAllViewsResult {
@@ -4461,11 +4464,18 @@ export class ProjectKnowledgeService {
         `${imported.relations.length} relations`,
       ].join(" / "),
     });
+    // Spec 752 — payload entities (those carrying a source artifact + load
+    // address) are the L2 auto-chain targets.
+    const importedPayloadEntityIds = imported.entities
+      .filter((e) => (e as { payloadSourceArtifactId?: string }).payloadSourceArtifactId
+        || ["payload", "disk-file", "cart-chunk"].includes((e as { kind?: string }).kind ?? ""))
+      .map((e) => e.id);
     return {
       artifact,
       importedEntityCount: imported.entities.length,
       importedFindingCount: imported.findings.length,
       importedRelationCount: imported.relations.length,
+      importedPayloadEntityIds,
     };
   }
 

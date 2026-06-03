@@ -43,6 +43,50 @@ const doctrine = readFileSync(join(ROOT, "docs", "agent-doctrine.md"), "utf8");
 ok(/Extract-first grounding/.test(doctrine) && /L1 — extract-backing/.test(doctrine), "S1 agent-doctrine.md states L1 (extract-backing)");
 ok(/Trace is not grounding/i.test(doctrine), "S1 agent-doctrine.md states trace-is-not-grounding");
 
-console.log(`\nproject: ${dir}`);
+// ===========================================================================
+// S3/S4/S5 — L2 auto-chain: analyse+disasm every extracted payload, soft-fail.
+// ===========================================================================
+console.log("\nS3/S4/S5 — L2 extract auto-chain (analyse+disasm payloads, soft-fail)\n");
+const { ProjectKnowledgeService } = await import(`${ROOT}/dist/project-knowledge/service.js`);
+const { autoAnalyzeExtractedPayloads } = await import(`${ROOT}/dist/lib/extract-auto-chain.js`);
+
+const proj = mkdtempSync(join(tmpdir(), "c64re-752c-"));
+const svc = new ProjectKnowledgeService(proj);
+svc.initProject({ name: "752 auto-chain" });
+mkdirSync(join(proj, "input", "prg"), { recursive: true });
+
+// A tiny valid PRG: load $1000, LDA #$00 / RTS.
+const goodPrgPath = join(proj, "input", "prg", "good.prg");
+writeFileSync(goodPrgPath, Buffer.from([0x00, 0x10, 0xa9, 0x00, 0x60]));
+const goodArt = svc.saveArtifact({ kind: "prg", scope: "input", title: "good.prg", path: goodPrgPath, role: "prg", platform: "c64" });
+const goodPayload = svc.saveEntity({ kind: "payload", name: "good_payload", payloadSourceArtifactId: goodArt.id, payloadFormat: "prg", payloadLoadAddress: 0x1000 });
+
+// A broken payload: its source artifact's file does not exist → workflow throws.
+const brokenArt = svc.saveArtifact({ kind: "prg", scope: "input", title: "missing.prg", path: join(proj, "input", "prg", "missing.prg"), role: "prg", platform: "c64" });
+const brokenPayload = svc.saveEntity({ kind: "payload", name: "broken_payload", payloadSourceArtifactId: brokenArt.id, payloadFormat: "prg", payloadLoadAddress: 0x2000 });
+
+let chain;
+let threw = false;
+try {
+  chain = await autoAnalyzeExtractedPayloads(proj, [goodPayload.id, brokenPayload.id], { mode: "quick" });
+} catch { threw = true; }
+ok(!threw, "S4 auto-chain never throws even with a broken payload");
+const goodRes = chain?.find((r) => r.payloadId === goodPayload.id);
+const brokenRes = chain?.find((r) => r.payloadId === brokenPayload.id);
+ok(goodRes?.status === "done", "S4 good payload → done", `status=${goodRes?.status}`);
+ok(brokenRes?.status === "failed", "S4 broken payload → failed (soft-fail, isolated)", `status=${brokenRes?.status}`);
+
+// S3 stamp: the good payload now carries an asm artifact id.
+const svc2 = new ProjectKnowledgeService(proj);
+const stampedPayload = svc2.listEntities().find((e) => e.id === goodPayload.id);
+ok((stampedPayload?.payloadAsmArtifactIds?.length ?? 0) > 0, "S3 good payload stamped with payloadAsmArtifactIds (extract evidence)", `n=${stampedPayload?.payloadAsmArtifactIds?.length}`);
+ok(stampedPayload?.kind === "payload", "S3 stamp preserved the entity kind");
+
+// L2: an analysis artifact + a disasm listing now exist for the good payload.
+const arts = svc2.listArtifacts();
+ok(arts.some((a) => a.role === "analysis-json" || a.kind === "analysis-run"), "L2 analysis artifact produced for the extracted payload");
+ok(arts.some((a) => a.relativePath.endsWith("_disasm.asm") || a.role === "kickassembler-source"), "L2 disasm listing produced for the extracted payload");
+
+console.log(`\nproject: ${dir}\nauto-chain project: ${proj}`);
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} Spec 752: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

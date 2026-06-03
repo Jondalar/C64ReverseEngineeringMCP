@@ -5,6 +5,7 @@ import { runCli } from "../run-cli.js";
 import { extractDiskImage, readDiskDirectory } from "../disk-extractor.js";
 import { diskSectorAllocation, extractDiskCustomLut, suggestDiskLutSector } from "../disk-custom-lut.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { autoAnalyzeExtractedPayloads, summarizeAutoChain } from "../lib/extract-auto-chain.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
 
@@ -164,6 +165,15 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
             const knowledgeService = new ProjectKnowledgeService(pd);
             const imported = knowledgeService.importManifestArtifact(knowledgeRegistration.outputArtifacts[0]);
             lines.push("", `Imported manifest knowledge: ${imported.importedEntityCount} entities, ${imported.importedFindingCount} findings, ${imported.importedRelationCount} relations`);
+            // Spec 752 L2 — auto-disasm + analyse every extracted payload.
+            // Soft-fail: a failure here never breaks the extraction itself.
+            try {
+              const chain = await autoAnalyzeExtractedPayloads(pd, imported.importedPayloadEntityIds, { mode: "quick" });
+              lines.push(summarizeAutoChain(chain));
+              for (const r of chain.filter((c) => c.status === "failed")) lines.push(`  failed: ${r.name ?? r.payloadId} — ${r.reason}`);
+            } catch (chainErr) {
+              lines.push(`Auto-disasm skipped: ${chainErr instanceof Error ? chainErr.message : String(chainErr)}`);
+            }
           } catch (error) {
             lines.push("", `Manifest import skipped: ${error instanceof Error ? error.message : String(error)}`);
           }
@@ -240,6 +250,26 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
         outputs: [{ path: result.manifestPath, kind: "manifest", scope: "generated", role: "disk-manifest", format: "json", producedByTool: "extract_disk_custom_lut" } as never],
       });
       if (reg.runPath) lines.push(`Knowledge run: ${reg.runPath}`);
+      // Spec 752 — custom-LUT extraction previously never imported the manifest,
+      // so its payloads never became entities and L2 silently no-op'd on the
+      // exact custom-loader scenario it is most needed for. Import now, then
+      // auto-disasm + analyse each extracted payload.
+      if (reg.outputArtifacts?.[0]) {
+        try {
+          const knowledgeService = new ProjectKnowledgeService(pd);
+          const imported = knowledgeService.importManifestArtifact(reg.outputArtifacts[0]);
+          lines.push(`Imported manifest knowledge: ${imported.importedEntityCount} entities, ${imported.importedFindingCount} findings, ${imported.importedRelationCount} relations`);
+          try {
+            const chain = await autoAnalyzeExtractedPayloads(pd, imported.importedPayloadEntityIds, { mode: "quick" });
+            lines.push(summarizeAutoChain(chain));
+            for (const r of chain.filter((c) => c.status === "failed")) lines.push(`  failed: ${r.name ?? r.payloadId} — ${r.reason}`);
+          } catch (chainErr) {
+            lines.push(`Auto-disasm skipped: ${chainErr instanceof Error ? chainErr.message : String(chainErr)}`);
+          }
+        } catch (error) {
+          lines.push(`Manifest import skipped: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     }),
   );

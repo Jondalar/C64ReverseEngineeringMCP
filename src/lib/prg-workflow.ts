@@ -340,12 +340,13 @@ export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOpti
     payloadId: payload.id,
   });
 
-  // Stamp the produced asm artifacts back onto the payload entity so the
-  // UI shows them next time the payload is selected. Only do this for
-  // proper payload entities; other kinds (disk-file, cart-chunk) keep
-  // their original kind and the workflow output is discoverable via the
-  // analysis JSON registration alone.
-  if (payload.kind === "payload") try {
+  // Stamp the produced asm artifacts back onto the entity so the UI shows
+  // them next time it is selected AND so a file/payload finding has a backing
+  // extract to cite (Spec 752 L1). Applies to disk-file / cart-chunk entities
+  // too — saveEntity merges `input ?? existing` per field and preserves the
+  // existing kind + disk-file fields (mediumSpans/addressRange/…), so the
+  // stamp never downgrades a disk-file entity.
+  if (["payload", "disk-file", "cart-chunk"].includes(payload.kind)) try {
     const refreshedService = new ProjectKnowledgeService(projectRoot);
     const asmArtifactIds = refreshedService.listArtifacts()
       .filter((entry) => entry.relativePath === relative(projectRoot, result.asmPath) || entry.relativePath === relative(projectRoot, result.tassPath))
@@ -354,7 +355,7 @@ export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOpti
       const merged = Array.from(new Set([...(payload.payloadAsmArtifactIds ?? []), ...asmArtifactIds]));
       refreshedService.saveEntity({
         id: payload.id,
-        kind: "payload",
+        kind: payload.kind,
         name: payload.name,
         summary: payload.summary,
         status: payload.status,
