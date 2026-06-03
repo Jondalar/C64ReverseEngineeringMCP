@@ -245,6 +245,18 @@ export class Sid6581 {
   }
 
   /**
+   * Spec 754 §3.4 / BUG-038 — side-effect-free register peek (VICE sid
+   * peek analog). Returns the latched register-file value WITHOUT the
+   * osc3/env readback advance or the POT-reader callback. SID has no
+   * read-to-clear latch, but osc3 ($D41B) / env3 ($D41C) reads observe
+   * live voice-3 phase/envelope — a peek returns the last stored register
+   * byte instead (best-effort, documented), never advancing voice state.
+   */
+  peek(addr: number): BYTE {
+    return u8(this.regs[addr & 0x1f]!);
+  }
+
+  /**
    * VICE: sid_store_chip() + fastsid_store(). 1:1 dispatch.
    * Side effects:
    *   - Update voice state for affected voice (regs 0-6 = V0,
@@ -572,13 +584,15 @@ function nvalue(v: number): number {
 // Bus install — $D400-$D7FF mirror tile (32-byte stride).
 // ---------------------------------------------------------------------------
 export function installSid(bus: {
-  registerIoHandler(addr: number, h: { read: (a: number) => number; write: (a: number, v: number) => void }): void;
+  registerIoHandler(addr: number, h: { read: (a: number) => number; write: (a: number, v: number) => void; peek?: (a: number) => number }): void;
 }): Sid6581 {
   const sid = new Sid6581();
   for (let a = 0xD400; a < 0xD800; a++) {
     bus.registerIoHandler(a, {
       read: () => sid.read(a),
       write: (_addr, value) => sid.write(a, value),
+      // Spec 754 §3.4 / BUG-038 — side-effect-free peek for the bank lens.
+      peek: () => sid.peek(a),
     });
   }
   return sid;

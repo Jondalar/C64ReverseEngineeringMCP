@@ -10,7 +10,6 @@ import { WebSocketServer, WebSocket } from "ws";
 import { createAgentQueryApi, type AgentQueryApi } from "../runtime/headless/v2/agent-api.js";
 import { getIntegratedSession } from "../runtime/headless/integrated-session-manager.js";
 import { gcr_find_sync, gcr_decode_block } from "../runtime/headless/vice1541/gcr.js";
-import { disasmLine } from "../runtime/headless/debug/disasm6502.js";
 import {
   buildVicInspectSnapshot, assembleInspectEvidence,
   resolveVisibleNodeAt, resolveVisibleRegion,
@@ -28,9 +27,10 @@ import {
 } from "../runtime/headless/debug/runtime-controller.js";
 import { SidAudioRecorder, AudioExportSession, LIVE_RECORDER_BUFFER_SAMPLES } from "../runtime/headless/audio/sid-audio-recorder.js";
 import {
-  dumpRuntimeSnapshot, undumpRuntimeSnapshot,
-  formatDumpSummary, formatUndumpSummary, resolveSnapshotPath,
+  dumpRuntimeSnapshot, undumpRuntimeSnapshot, resolveSnapshotPath,
 } from "../runtime/headless/kernel/snapshot-persistence.js";
+// Spec 754 — the one canonical monitor command processor (BUG-037).
+import { runMonitorCommand } from "../runtime/headless/debug/monitor-shell.js";
 import { validateTraceDefinition, slugTraceId } from "../runtime/headless/trace/trace-definition.js";
 import { ingestMedia } from "../runtime/headless/media/ingress.js";
 import { buildIngressRequest, kindFromExt } from "../runtime/headless/media/ingress-request.js";
@@ -1629,307 +1629,18 @@ export class V3WsServer {
       return { deleted: ok };
     });
 
-    // Spec 352 — Monitor exec (VICE-compat subset).
+    // Spec 352 / 754 — Monitor exec. Thin adapter: build the context and call
+    // the ONE canonical command processor (BUG-037, monitor-shell.ts). All
+    // command logic — lifecycle (g/x/until, BUG-036), bank-lens m/d (BUG-038),
+    // stepping, breakpoints, trace, snapshots — lives in runMonitorCommand.
     this.on("monitor/exec", async ({ session_id, command }) => {
       const s = getIntegratedSession(session_id);
       if (!s) return { error: `no session ${session_id}` };
-      // Spec 701 — share the core-owned breakpoint store + halt the
-      // autonomous loop before any synchronous monitor stepping (g/z/n) so
-      // the manual step can't race the backend run-loop.
       const ctrl = controllerFor(session_id);
-      const cmd = String(command ?? "").trim();
-      if (!cmd) return { output: "" };
-      const tokens = cmd.split(/\s+/);
-      const op = tokens[0]!.toLowerCase();
-      const hex = (n: number, w = 2) => n.toString(16).padStart(w, "0").toUpperCase();
-      const parseAddr = (t?: string): number | null => {
-        if (!t) return null;
-        const v = parseInt(t.replace(/^\$/, ""), 16);
-        return isNaN(v) ? null : v & 0xffff;
-      };
-      try {
-        // Spec 707 / 623 §7 — native runtime snapshot persistence.
-        // `dump "<path>"` / `undump "<path>"` (quoted, may contain spaces).
-        // Both are one-shot: there is no cursor/repeat state, and a bare RETURN
-        // returns "" above (line ~994), so a dump is never repeated by RETURN.
-        if (op === "dump" || op === "undump") {
-          const pm = cmd.match(/^\w+\s+"([^"]+)"/) ?? cmd.match(/^\w+\s+(\S+)/);
-          const path = pm?.[1];
-          if (!path) return { output: `${op}: usage: ${op} "<path.c64re>"` };
-          if (op === "dump") {
-            const r = await dumpRuntimeSnapshot(ctrl, path);
-            return { output: formatDumpSummary(r) };
-          }
-          const r = await undumpRuntimeSnapshot(ctrl, path);
-          monitorDisasmAddr.set(session_id, s.c64Cpu.pc); // bare `d` follows restored PC
-          return { output: formatUndumpSummary(r) };
-        }
-        // Spec 746.9b — the simple Monitor trace gate (third control gate alongside
-        // the UI button + the runtime_trace_start API). No pre-registered definition:
-        //   trace on [domains...] | off | status | mark "<label>"
-        // domains default to cpu+drive+iec+memory (the full live picture).
-        if (op === "trace") {
-          const sub = (tokens[1] ?? "status").toLowerCase();
-          if (sub === "off" || sub === "stop") {
-            if (!ctrl.traceRun.isActive()) return { output: "trace: no active run" };
-            const run = await ctrl.traceRun.stop();
-            return { output: `trace off: ${run.runId}  events=${run.eventCount} marks=${run.marks.length}\n  evidence: ${run.evidenceRef}` };
-          }
-          if (sub === "status") {
-            const st = ctrl.traceRun.status();
-            return { output: st.active ? `trace active: ${st.runId} events=${st.eventCount} marks=${st.marks}` : "trace: off" };
-          }
-          if (sub === "mark") {
-            const label = [...cmd.matchAll(/"([^"]*)"/g)].map((m) => m[1])[0] ?? tokens.slice(2).join(" ");
-            if (!label) return { output: 'trace: usage: trace mark "<label>"' };
-            ctrl.traceRun.mark(label);
-            return { output: `trace mark: "${label}" @ cycle ${s.c64Cpu.cycles}` };
-          }
-          if (sub === "on" || sub === "start") {
-            if (ctrl.traceRun.isActive()) return { output: "trace: already active — `trace off` first" };
-            const doms = tokens.slice(2).filter(Boolean);
-            const domains = (doms.length ? doms : ["c64-cpu", "drive8-cpu", "iec", "memory"]) as never;
-            const { captureAllDef } = await import("../server-tools/runtime-trace-sink.js");
-            const def = captureAllDef(domains);
-            const outputPath = resolveSnapshotPath(`runtime/${session_id}/live_${Date.now().toString(36)}.duckdb`);
-            const run = await ctrl.traceRun.start(def, { controller: ctrl, outputPath });
-            return { output: `trace on: ${run.runId}  domains=[${(domains as string[]).join(",")}]\n  evidence: ${outputPath}` };
-          }
-          return { output: "trace: on [domains...] | off | status | mark \"<label>\"" };
-        }
-        // Spec 708 / 623 §8 — declarative trace runs (one-shot; no RETURN repeat).
-        //   tracedb start "<def-id>" ["<output>"] | stop | status | mark "<label>"
-        if (op === "tracedb") {
-          const sub = (tokens[1] ?? "").toLowerCase();
-          const args = [...cmd.matchAll(/"([^"]*)"/g)].map((m) => m[1]);
-          if (sub === "stop") {
-            const run = await ctrl.traceRun.stop();
-            return { output: `tracedb stopped: ${run.runId}\n  events=${run.eventCount} bytes=${run.bytesWritten} cyc=${run.cycleStart}..${run.cycleEnd}\n  evidence: ${run.evidenceRef}` };
-          }
-          if (sub === "status") {
-            const st = ctrl.traceRun.status();
-            return { output: st.active
-              ? `tracedb active: ${st.runId} def=${st.definitionId} events=${st.eventCount} marks=${st.marks}${st.capturing ? "" : " (capture stopped)"}`
-              : "tracedb: no active run" };
-          }
-          if (sub === "start") {
-            const defId = args[0];
-            if (!defId) return { output: 'tracedb: usage: tracedb start "<definition-id>" ["<output>"]' };
-            const def = ctrl.traceDefinitions.get(defId);
-            if (!def) return { output: `tracedb: unknown definition "${defId}" (put it via trace/definition/put first)` };
-            const outputPath = resolveSnapshotPath(args[1] ?? `traces/${def.id}_${Date.now().toString(36)}.duckdb`);
-            const run = await ctrl.traceRun.start(def, { controller: ctrl, outputPath });
-            return { output: `tracedb started: ${run.runId}\n  def=${def.id} domains=[${def.domains.join(",")}]\n  evidence: ${outputPath}` };
-          }
-          if (sub === "mark") {
-            const label = args[0];
-            if (!label) return { output: 'tracedb: usage: tracedb mark "<label>"' };
-            ctrl.traceRun.mark(label);
-            return { output: `tracedb mark: "${label}" @ cycle ${s.c64Cpu.cycles}` };
-          }
-          return { output: 'tracedb: start|stop|status|mark' };
-        }
-        // Registers
-        if (op === "r" || op === "registers" || op === "cpu") {
-          const c = s.c64Cpu;
-          const flagsStr = "NV-BDIZC".split("").map((f, i) =>
-            ((c.flags >> (7-i)) & 1) ? f : f.toLowerCase()).join("");
-          return { output:
-            `  ADDR AC XR YR SP NV-BDIZC\n` +
-            `.;${hex(c.pc, 4)} ${hex(c.a)} ${hex(c.x)} ${hex(c.y)} ${hex(c.sp)} ${flagsStr}` };
-        }
-        // Memory dump: m [addr] [end]
-        if (op === "m" || op === "mem") {
-          // Bare `m` continues from where the previous `m` ended (VICE-style).
-          const start = parseAddr(tokens[1]) ?? monitorMemAddr.get(session_id) ?? 0;
-          const end = parseAddr(tokens[2]) ?? Math.min(0xffff, start + 0x7f);
-          const lines: string[] = [];
-          for (let a = start & ~0xf; a <= end; a += 16) {
-            const bytes: string[] = []; const ascii: string[] = [];
-            for (let i = 0; i < 16 && a+i <= end; i++) {
-              const b = s.c64Bus.ram[a+i] ?? 0;
-              bytes.push(hex(b));
-              ascii.push(b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : ".");
-            }
-            lines.push(`>C:${hex(a, 4)}  ${bytes.join(" ").padEnd(48)}  ${ascii.join("")}`);
-          }
-          monitorMemAddr.set(session_id, (end + 1) & 0xffff); // next bare `m` resumes here
-          return { output: lines.join("\n") };
-        }
-        // Disassembly: d [addr] [count]  — real 6502/6510 disasm.
-        // Bare `d` continues from where the previous `d` ended (VICE-style).
-        if (op === "d" || op === "disass") {
-          const start = parseAddr(tokens[1]) ?? monitorDisasmAddr.get(session_id) ?? s.c64Cpu.pc;
-          const count = parseInt(tokens[2] ?? "16", 10);
-          const read = (a: number) => s.c64Bus.ram[a & 0xffff] ?? 0;
-          const lines: string[] = [];
-          let a = start & 0xffff;
-          for (let i = 0; i < count; i++) {
-            const { size, line } = disasmLine(read, a);
-            const mark = (a === s.c64Cpu.pc) ? " <-- PC" : "";
-            lines.push(line + mark);
-            a = (a + size) & 0xffff;
-          }
-          monitorDisasmAddr.set(session_id, a); // next bare `d` resumes here
-          return { output: lines.join("\n") };
-        }
-        // Breakpoints: bk | bk <addr> | bk -<addr> | bk clear
-        if (op === "bk" || op === "break" || op === "b") {
-          const t1 = tokens[1];
-          if (!t1) {
-            const list = ctrl.listBreakpoints();
-            return { output: list.length
-              ? "breakpoints:\n" + list.map(({ num, addr }) => `  #${num}  $${hex(addr, 4)}`).join("\n")
-              : "no breakpoints (set: bk <addr>)" };
-          }
-          if (t1.toLowerCase() === "clear") { ctrl.clearBreakpoints(); return { output: "breakpoints cleared" }; }
-          if (t1.startsWith("-")) { // bk -<addr> : delete by address
-            const a = parseAddr(t1.slice(1));
-            if (a === null) return { error: `bad address: ${t1}` };
-            for (const { num, addr } of ctrl.listBreakpoints()) if (addr === a) ctrl.delBreakpoint(num);
-            return { output: `removed bp $${hex(a, 4)} (${ctrl.listBreakpoints().length} left)` };
-          }
-          const addr = parseAddr(t1);
-          if (addr === null) return { error: `bad address: ${t1}` };
-          const num = ctrl.addBreakpoint(addr);
-          return { output: `bk #${num} set at $${hex(addr, 4)} (${ctrl.listBreakpoints().length} total)` };
-        }
-        // Delete breakpoint(s): del | del <num> | del <num> ...  (VICE: del <checknum>)
-        if (op === "del" || op === "delete") {
-          if (!tokens[1]) { ctrl.clearBreakpoints(); return { output: "all breakpoints deleted" }; }
-          const out: string[] = [];
-          for (const t of tokens.slice(1)) {
-            const num = parseInt(t, 10);
-            if (isNaN(num)) { out.push(`bad checknum: ${t}`); continue; }
-            if (ctrl.delBreakpoint(num)) out.push(`deleted #${num}`);
-            else out.push(`no breakpoint #${num}`);
-          }
-          return { output: out.join("\n") };
-        }
-        // Go / continue: g [addr] — run until a breakpoint (cap 20M instr).
-        // Halt the autonomous loop first so this synchronous run is the only
-        // thing advancing the CPU.
-        if (op === "g") {
-          ctrl.pause();
-          const addr = parseAddr(tokens[1]);
-          if (addr !== null) s.c64Cpu.pc = addr & 0xffff;
-          const bps = ctrl.bpAddrSet();
-          if (bps.size === 0) {
-            s.runFor(20_000);
-            monitorDisasmAddr.set(session_id, s.c64Cpu.pc);
-            return { output: `ran 1 frame -> .C:${hex(s.c64Cpu.pc, 4)} (no breakpoints; set with 'bk <addr>')` };
-          }
-          if (bps.has(s.c64Cpu.pc)) s.runFor(1); // clear the BP we're sitting on
-          const startCyc = s.c64Cpu.cycles;
-          const CAP = 20_000_000; let executed = 0; let hit = false;
-          while (executed < CAP) {
-            const r = s.runFor(Math.min(2_000_000, CAP - executed), { breakpoints: bps });
-            executed += r.instructionsExecuted;
-            if (r.aborted === "breakpoint") { hit = true; break; }
-            if (r.instructionsExecuted === 0) break;
-          }
-          const cyc = s.c64Cpu.cycles - startCyc;
-          monitorDisasmAddr.set(session_id, s.c64Cpu.pc);
-          return { output: hit
-            ? `BREAK at .C:${hex(s.c64Cpu.pc, 4)} (${executed} instr, ${cyc} cyc)`
-            : `ran ${executed} instr (${cyc} cyc) — no breakpoint hit, pc=$${hex(s.c64Cpu.pc, 4)}` };
-        }
-        // Spec 623 §4.2/§4.3 — interrupt-aware stepping. Format the landing
-        // line + a short tag for how the step ended (Spec 623 §4.2).
-        const readRam = (a: number) => s.c64Bus.ram[a & 0xffff] ?? 0;
-        const landLine = (stop: { reason: string; cyc: number }, tag: string) => {
-          const flow = ctrl.flow.currentFlow();
-          const flowTag = flow === "main" ? "" : ` [${flow}]`;
-          const why =
-            stop.reason === "user-bp" ? ", hit user bp" :
-            stop.reason === "cap" ? ", CAP" :
-            stop.reason === "focus-timeout" ? ", focus-timeout" : "";
-          monitorDisasmAddr.set(session_id, s.c64Cpu.pc);
-          return { output: `${disasmLine(readRam, s.c64Cpu.pc).line}${flowTag} (${tag}, ${stop.cyc} cyc${why})` };
-        };
-        // Step into: z | step | si — one instruction. May enter an IRQ/NMI
-        // (VICE-correct, §4.2): a pending interrupt is taken before the next
-        // main-flow opcode.
-        if (op === "z" || op === "step" || op === "si") {
-          ctrl.pause();
-          const stop = ctrl.flow.stepInto(s as any);
-          return landLine(stop, "step");
-        }
-        // Step over: n | next — VICE-faithful (§4.2). JSR subroutines AND
-        // accepted IRQ/NMI are treated as nested flow run THROUGH; stops back
-        // in the caller flow after one instruction. NOT "break at PC+len".
-        if (op === "n" || op === "next" || op === "so") {
-          ctrl.pause();
-          const stop = ctrl.flow.stepOver(s as any, ctrl.bpAddrSet());
-          return landLine(stop, "next");
-        }
-        // Return: ret | return — run until the current frame returns (RTS/RTI).
-        if (op === "ret" || op === "return") {
-          ctrl.pause();
-          const stop = ctrl.flow.runReturn(s as any, ctrl.bpAddrSet());
-          return landLine(stop, "return");
-        }
-        // Flow focus (C64RE extension, §4.3): focus [auto|main|irq|nmi|brk|clear]
-        if (op === "focus") {
-          const arg = (tokens[1] ?? "").toLowerCase();
-          if (arg === "" ) {
-            const f = ctrl.flow;
-            const stackStr = f.stack.length
-              ? f.stack.map((fr) => `  ${fr.kind}  enter=$${hex(fr.enteredAtPc, 4)} sp=$${hex(fr.stackSpAtEntry)}`).join("\n")
-              : "  (main — no interrupt/trap frame active)";
-            return { output: `focus = ${f.focus} (current flow: ${f.currentFlow()})\nflow stack:\n${stackStr}` };
-          }
-          if (["auto", "main", "irq", "nmi", "brk", "none", "clear"].includes(arg)) {
-            ctrl.flow.focus = (arg === "clear" ? "none" : arg) as any;
-            return { output: `focus = ${ctrl.flow.focus}` };
-          }
-          return { error: `focus: expected auto|main|irq|nmi|brk|clear, got '${arg}'` };
-        }
-        // stepf/sf — step into, stop only in the selected/current flow (§4.3).
-        if (op === "sf" || op === "stepf") {
-          ctrl.pause();
-          const stop = ctrl.flow.stepFocus(s as any, ctrl.bpAddrSet());
-          return landLine(stop, `stepf:${ctrl.flow.effectiveFocus()}`);
-        }
-        // nextf/nf — step over calls + foreign flows, stop in selected flow (§4.3).
-        if (op === "nf" || op === "nextf") {
-          ctrl.pause();
-          const stop = ctrl.flow.nextFocus(s as any, ctrl.bpAddrSet());
-          return landLine(stop, `nextf:${ctrl.flow.effectiveFocus()}`);
-        }
-        // Reset
-        if (op === "reset") {
-          ctrl.pause();
-          s.resetCold("pal-default");
-          return { output: "reset" };
-        }
-        // Help
-        if (op === "help" || op === "?") {
-          return { output:
-            "VICE-compat monitor:\n" +
-            "  r                registers\n" +
-            "  m <a> [b]        memory dump\n" +
-            "  d [a] [n]        disassemble (n instr from a, default PC)\n" +
-            "  bk               list breakpoints (#num $addr)\n" +
-            "  bk <a>           set breakpoint at a\n" +
-            "  bk -<a>          remove breakpoint at address a\n" +
-            "  del <n> [n..]    delete breakpoint(s) by #num\n" +
-            "  del              delete all breakpoints\n" +
-            "  bk clear         clear all breakpoints\n" +
-            "  g [a]            go/continue (PC=a) until a breakpoint\n" +
-            "  z / step         step into — may enter IRQ/NMI (VICE-correct)\n" +
-            "  n / next         step over — skips JSR + runs THROUGH IRQ/NMI,\n" +
-            "                   stops back in caller flow (VICE-faithful)\n" +
-            "  ret / return     run until current frame returns (RTS/RTI)\n" +
-            "  focus [m]        C64RE flow focus: auto|main|irq|nmi|brk|clear\n" +
-            "  sf / stepf       step into, stop only in focused flow (C64RE)\n" +
-            "  nf / nextf       step over, stop only in focused flow (C64RE)\n" +
-            "  reset            cold reset" };
-        }
-        return { error: `unknown command: ${op}. Try 'help'.` };
-      } catch (e: any) {
-        return { error: `exec error: ${e.message ?? e}` };
-      }
+      return runMonitorCommand(
+        { session: s, ctrl, sessionId: session_id, memCursors: monitorMemAddr, disasmCursors: monitorDisasmAddr },
+        String(command ?? ""),
+      );
     });
 
     this.on("runtime/scenario_load", async ({ id }) => {

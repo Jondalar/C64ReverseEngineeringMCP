@@ -530,6 +530,76 @@ export class VicIIVice {
   }
 
   /**
+   * Spec 754 §3.4 / BUG-038 — side-effect-free register peek (VICE
+   * vicii_peek, vicii-mem.c:747). Mirrors read()'s value computation but
+   * WITHOUT the read-to-clear latches: $D01E/$D01F return the raw collision
+   * registers (no clear of the latch or the IRQ source bit), and no
+   * `last_read` shadow is mutated. Open/unused bits are OR'd exactly as
+   * read() does. (This is the fidelity-renderer VIC path; the live runtime
+   * uses the literal-port vicii_peek wired in installLiteralPortRenderer.)
+   */
+  peek(addr: WORD): BYTE {
+    const a = addr & 0x3f;
+    switch (a) {
+      case 0x00: case 0x02: case 0x04: case 0x06:
+      case 0x08: case 0x0a: case 0x0c: case 0x0e:
+      case 0x01: case 0x03: case 0x05: case 0x07:
+      case 0x09: case 0x0b: case 0x0d: case 0x0f:
+      case VICII_R_SP_X_MSB:
+      case VICII_R_SP_ENABLE:
+      case VICII_R_SP_Y_EXP:
+      case VICII_R_SP_PRIO:
+      case VICII_R_SP_MC:
+      case VICII_R_SP_X_EXP:
+        return u8(this.regs[a]!);
+      case VICII_R_CTRL1: {
+        // Raster bit 8 overlay (matches d01112Read) but no last_read write.
+        let rasterY = this.raster_y;
+        if (rasterY === 0 && this.raster_cycle === 0) rasterY = this.screen_height - 1;
+        return u8((this.regs[VICII_R_CTRL1]! & 0x7f) | ((rasterY & 0x100) >> 1));
+      }
+      case VICII_R_RASTER: {
+        let rasterY = this.raster_y;
+        if (rasterY === 0 && this.raster_cycle === 0) rasterY = this.screen_height - 1;
+        return u8(rasterY & 0xff);
+      }
+      case VICII_R_LP_X:
+      case VICII_R_LP_Y:
+        return 0;
+      case VICII_R_CTRL2:
+        return u8(this.regs[a]! | 0xc0);
+      case VICII_R_MEM_PTR:
+        return u8(this.regs[a]! | 0x01);
+      case VICII_R_IRQ_STATUS:
+        // VICE d019_peek: irq_status | 0x70 (no bit-7 inference, no clear).
+        return u8(this.irq_status | 0x70);
+      case VICII_R_IRQ_MASK:
+        return u8(this.regs[a]! | 0xf0);
+      case VICII_R_SP_SP_COLL:
+        // Side-effect-free: raw latch, no read-to-clear.
+        return u8(this.regs[VICII_R_SP_SP_COLL]!);
+      case VICII_R_SP_BG_COLL:
+        return u8(this.regs[VICII_R_SP_BG_COLL]!);
+      case VICII_R_BORDER:
+      case VICII_R_BG0:
+      case VICII_R_BG1:
+      case VICII_R_BG2:
+      case VICII_R_BG3:
+      case VICII_R_SP_MC_COL_1:
+      case VICII_R_SP_MC_COL_2:
+        return u8(this.regs[a]! | 0xf0);
+      case 0x27: case 0x28: case 0x29: case 0x2a:
+      case 0x2b: case 0x2c: case 0x2d: case 0x2e:
+        return u8(this.regs[a]! | 0xf0);
+      case 0x2f:
+      case 0x30:
+        return 0xff;
+      default:
+        return 0xff;
+    }
+  }
+
+  /**
    * VICE: vicii_store (vicii-mem.c 1290). Reproduced for the documented
    * set; DTV / VIC-IIe writes treated as unmodeled (latch to regs[]).
    */
@@ -1097,7 +1167,7 @@ export class VicIIVice {
 // ---------------------------------------------------------------------------
 
 export interface MemoryBus {
-  registerIoHandler(addr: number, h: { read: (a: number) => number; write: (a: number, v: number) => void }): void;
+  registerIoHandler(addr: number, h: { read: (a: number) => number; write: (a: number, v: number) => void; peek?: (a: number) => number }): void;
 }
 
 export function installVicIIVice(bus: MemoryBus, vic: VicIIVice): void {
@@ -1108,6 +1178,8 @@ export function installVicIIVice(bus: MemoryBus, vic: VicIIVice): void {
       bus.registerIoHandler(a, {
         read: () => vic.read(reg),
         write: (_addr, value) => vic.write(reg, value),
+        // Spec 754 §3.4 / BUG-038 — side-effect-free peek for the bank lens.
+        peek: () => vic.peek(reg),
       });
     }
   }

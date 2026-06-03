@@ -167,6 +167,8 @@ export function installCia2(
     bus.registerIoHandler(addr, {
       read: () => c.read(reg),
       write: (_a, value) => c.write(reg, value),
+      // Spec 754 §3.4 / BUG-038 — side-effect-free peek (VICE ciacore_peek).
+      peek: () => c.peek(reg),
     });
   }
   // Initial PA state: output bits all-high so IEC bus starts released.

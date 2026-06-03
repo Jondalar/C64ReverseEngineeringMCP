@@ -139,6 +139,9 @@ export function installCia1(bus: HeadlessMemoryBus, opts: InstallCia1Options): I
     bus.registerIoHandler(addr, {
       read: () => c.read(reg),
       write: (_a, value) => c.write(reg, value),
+      // Spec 754 §3.4 / BUG-038 — side-effect-free peek (VICE ciacore_peek):
+      // no ICR read-to-clear, no timer-read latch effects.
+      peek: () => c.peek(reg),
     });
   }
   return {

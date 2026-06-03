@@ -44,6 +44,15 @@ export interface HeadlessCartridgeMapper {
   setState(state: HeadlessCartridgeState): void;
   getLines(): HeadlessCartridgeLines;
   read(address: number, bankInfo: HeadlessBankInfo): number | undefined;
+  /** Spec 754 §3.4 / BUG-038 — side-effect-free cartridge peek (VICE
+   *  `*_peek` analog) for the bank lens. Returns the ROM-window byte (ROML
+   *  $8000-$9FFF / ROMH $A000-$BFFF / $E000-$FFFF) for the CURRENT bank
+   *  WITHOUT advancing any flash command-state machine, toggling DQ6/DQ3
+   *  status, clocking a serial EEPROM/SPI line, or mutating `lastRead`.
+   *  Returns undefined when the window/IO is not mapped by this cart (the
+   *  bus then falls back to RAM / open-bus). Optional — a mapper that can
+   *  only answer via a side-effecting path omits it (best-effort fallback). */
+  peek?(address: number, bankInfo: HeadlessBankInfo): number | undefined;
   write(address: number, value: number, bankInfo: HeadlessBankInfo): boolean;
   /** Spec 709.11b — true if writable (flash) contents were mutated since attach.
    *  Read-only mappers omit it. Used by the dump guard (v1 can't persist flash). */
@@ -342,6 +351,16 @@ abstract class BaseMapper implements HeadlessCartridgeMapper {
     return undefined;
   }
 
+  // Spec 754 §3.4 / BUG-038 — side-effect-free peek. The BaseMapper read()
+  // path (and OceanMapper's, MagicDesk's) is already a pure array index with
+  // no command-state / latch mutation, so peek == read for these families.
+  // Flash/serial-backed mappers (EasyFlash, MegaByter, GMOD2/3, C64MegaCart)
+  // override this to avoid advancing the flash command machine / clocking the
+  // EEPROM/SPI line.
+  peek(address: number, bankInfo: HeadlessBankInfo): number | undefined {
+    return this.read(address, bankInfo);
+  }
+
   write(address: number, value: number, bankInfo: HeadlessBankInfo): boolean {
     void address;
     void value;
@@ -602,6 +621,15 @@ class Flash040 {
         default: break;
       }
     }
+  }
+
+  /** Spec 754 §3.4 / BUG-038 — side-effect-free flash array byte. Ignores the
+   *  command-state machine + erase busy status (no DQ6/DQ3/DQ7 toggling, no
+   *  catch-up, no lastRead mutation): just the stored array byte, which is the
+   *  ROM contents the CPU sees in the plain READ state. Best-effort for a chip
+   *  mid-command/erase (a peek is a debugger view, not a bus read). */
+  peek(addr: number): number {
+    return this.data[addr] ?? 0xff;
   }
 
   read(addr: number): number {
@@ -913,6 +941,18 @@ class EasyFlashMapper extends BaseMapper {
     return undefined;
   }
 
+  // Spec 754 §3.4 / BUG-038 — side-effect-free peek: flash array byte via
+  // Flash040.peek (no command-state advance / DQ status toggle). IO2 RAM is a
+  // plain array read (already side-effect-free).
+  peek(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
+    if (address >= 0xdf00 && address <= 0xdfff) return this.ioRam[address & 0xff];
+    const offset = this.chipOffsetForWindow(address);
+    if (address >= 0x8000 && address <= 0x9fff) return this.loFlash.peek(offset);
+    if (address >= 0xa000 && address <= 0xbfff) return this.hiFlash.peek(offset);
+    if (address >= 0xe000 && address <= 0xffff) return this.hiFlash.peek(offset);
+    return undefined;
+  }
+
   write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
     // VICE easyflash_io1_store: IO1 ($DE00-$DEFF) decodes `addr & 2` — even = bank
     // register (& 0x3f), odd-bit1 = mode register (& 0x87). So $DE04 mirrors
@@ -983,6 +1023,12 @@ class MegabyterMapper extends BaseMapper {
   read(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
     if (address >= 0x8000 && address <= 0x9fff) return this.flash.read(this.flashOffset(address));
     return undefined; // ROML-only cart; upper windows are not mapped by MegaByter
+  }
+
+  // Spec 754 §3.4 / BUG-038 — side-effect-free peek of the ROML flash window.
+  peek(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
+    if (address >= 0x8000 && address <= 0x9fff) return this.flash.peek(this.flashOffset(address));
+    return undefined;
   }
 
   write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
@@ -1076,6 +1122,20 @@ class Gmod2Mapper extends BaseMapper {
     // (fake-ultimax) — return undefined so the bus serves RAM.
     if (this.cmode === "8k" && address >= 0x8000 && address <= 0x9fff) {
       return this.flash.read(this.flashOffset(address));
+    }
+    return undefined;
+  }
+
+  // Spec 754 §3.4 / BUG-038 — side-effect-free peek. The flash ROML window is
+  // peeked via Flash040.peek. The IO1 ($DE00) EEPROM-read path is NOT peeked
+  // (m93c86_read_data advances the serial state machine) — return undefined so
+  // the bus serves open-bus instead of clocking the EEPROM. Best-effort,
+  // documented: a debugger peek of $DE00 on GMOD2 reports open-bus, not the
+  // live EEPROM data bit.
+  peek(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
+    if (address >= 0xde00 && address <= 0xdeff) return undefined; // → bus open-bus
+    if (this.cmode === "8k" && address >= 0x8000 && address <= 0x9fff) {
+      return this.flash.peek(this.flashOffset(address));
     }
     return undefined;
   }
@@ -1218,6 +1278,17 @@ class Gmod3Mapper extends BaseMapper {
     return undefined;
   }
 
+  // Spec 754 §3.4 / BUG-038 — side-effect-free peek. ROML reads the parallel
+  // flash array directly (no side effect) and ROMH the vector table /
+  // mem_read_without_ultimax (side-effect-free); both reuse read(). The IO1
+  // ($DE00) SPI-read path is skipped (return undefined → bus open-bus) so a
+  // debugger peek never disturbs the serial line. Best-effort, documented.
+  peek(address: number, bankInfo: HeadlessBankInfo): number | undefined {
+    if (address >= 0xde00 && address <= 0xdeff) return undefined; // → bus open-bus
+    // ROML / ROMH read() paths are pure array / readWithoutUltimax — safe.
+    return this.read(address, bankInfo);
+  }
+
   write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
     if (address >= 0xde00 && address <= 0xdeff) {
       const a = address & 0xff;
@@ -1310,6 +1381,16 @@ class C64MegaCartMapper extends BaseMapper {
     if (address >= 0xde00 && address <= 0xdfff) return undefined; // IO1/IO2 read = phi1 open-bus
     if ((address >= 0x8000 && address <= 0x9fff) || (address >= 0xe000 && address <= 0xffff)) {
       return this.flash.read(this.flashOffset(address));
+    }
+    return undefined;
+  }
+
+  // Spec 754 §3.4 / BUG-038 — side-effect-free peek of the flash ROM windows
+  // (no command-state advance). IO1/IO2 are open-bus (return undefined).
+  peek(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
+    if (address >= 0xde00 && address <= 0xdfff) return undefined;
+    if ((address >= 0x8000 && address <= 0x9fff) || (address >= 0xe000 && address <= 0xffff)) {
+      return this.flash.peek(this.flashOffset(address));
     }
     return undefined;
   }

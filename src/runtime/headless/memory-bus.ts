@@ -4,7 +4,20 @@ import type { HeadlessCartridgeMapper } from "./cartridge.js";
 export interface HeadlessIoHandler {
   read?(address: number): number | undefined;
   write?(address: number, value: number): void;
+  // Spec 754 §3.4 / BUG-038 — side-effect-free register peek (VICE
+  // *_peek analog). Returns the current register/shadow value WITHOUT
+  // the read side effect (no IRQ-latch clear on $D019, no collision-latch
+  // clear on $D01E/$D01F, no CIA timer-read latch effects, no SID osc3/env
+  // read advance). Optional so existing handlers keep compiling; the bus
+  // `peek()` io path falls back when a handler omits it. NEVER calls read().
+  peek?(address: number): number | undefined;
 }
+
+// Spec 754 §3.4 / BUG-038 — bank-lens selector for the side-effect-free
+// memory `peek` (the VICE `mem_bank_peek` model). `cpu` mirrors the live
+// banked CPU view (current PLA memconfig); the others force a specific
+// underlying source regardless of banking.
+export type MemBankLens = 'cpu' | 'ram' | 'rom' | 'io' | 'cart';
 
 function clampByte(value: number): number {
   return value & 0xff;
@@ -652,6 +665,161 @@ export class HeadlessMemoryBus {
       return this.ram[n]!;
     }
     if (n >= 0xe000 && n <= 0xffff && cfg.bankE === "kernal") return this.kernalRom[n - 0xe000]!;
+    return this.ram[n]!;
+  }
+
+  // Spec 754 §3.4 / BUG-038 — side-effect-free banked peek (VICE
+  // `mem_bank_peek` analog) for the bank lens. Replicates read()'s
+  // window/ultimax/PLA routing for the `cpu` lens but performs NO side
+  // effects: no IRQ/collision latch clears, no CIA timer-read latch
+  // effects, no SID osc3/env advance, no CPU-port capacitor mutation, no
+  // PLA reconfig, no access-trace/observer fire. It NEVER calls the
+  // side-effecting read()/handler.read(); it reads the raw RAM/ROM arrays,
+  // a handler's peek?(), or the cartridge's peek?().
+  //
+  // Lenses:
+  //   ram  → raw 64K RAM.
+  //   rom  → underlying ROM byte for ROM regions regardless of banking
+  //          ($A000-$BFFF=basic, $D000-$DFFF=char, $E000-$FFFF=kernal),
+  //          else RAM.
+  //   cart → cartridge ROM byte for the cart windows ($8000-$9FFF ROML,
+  //          $A000-$BFFF / $E000-$FFFF ROMH) if a cart is attached and
+  //          exposes a side-effect-free peek?(); else RAM / open-bus $FF.
+  //   io   → side-effect-free I/O register peek for $D000-$DFFF; else RAM.
+  //   cpu  → mirror read()'s banking decision using the CURRENT memConfig
+  //          windows, then peek that source side-effect-free.
+  peek(address: number, lens: MemBankLens = 'cpu'): number {
+    const n = clampWord(address);
+    switch (lens) {
+      case 'ram':
+        return this.ram[n]!;
+      case 'rom':
+        return this.peekRom(n);
+      case 'cart':
+        return this.peekCart(n);
+      case 'io':
+        return (n >= 0xd000 && n <= 0xdfff) ? this.peekIo(n) : this.ram[n]!;
+      case 'cpu':
+      default:
+        return this.peekCpu(n);
+    }
+  }
+
+  /** Spec 754 §3.4 — `rom` lens: the underlying ROM byte for ROM regions
+   *  regardless of current banking, else raw RAM. */
+  private peekRom(n: number): number {
+    if (n >= 0xa000 && n <= 0xbfff) return this.basicRom[n - 0xa000]!;
+    if (n >= 0xd000 && n <= 0xdfff) return this.charRom[n - 0xd000]!;
+    if (n >= 0xe000 && n <= 0xffff) return this.kernalRom[n - 0xe000]!;
+    return this.ram[n]!;
+  }
+
+  /** Spec 754 §3.4 — `cart` lens: cartridge ROM byte for the cart windows
+   *  via a side-effect-free path. Best-effort: a mapper that exposes no
+   *  peek?() falls back to RAM (or open-bus $FF in ultimax-mapped windows).
+   *  Documented limit — see HeadlessCartridgeMapper.peek?. */
+  private peekCart(n: number): number {
+    const isCartWindow =
+      (n >= 0x8000 && n <= 0x9fff) || (n >= 0xa000 && n <= 0xbfff) || (n >= 0xe000 && n <= 0xffff);
+    if (this.cartridge && isCartWindow) {
+      const cv = this.cartridge.peek?.(n, this.getBankInfo());
+      if (cv !== undefined) return cv & 0xff;
+      // Mapper can't peek this window → open bus for ultimax-mapped windows,
+      // else the RAM underneath. (Best-effort; documented.)
+      if (this.isUltimax()) return this.openBusProvider() & 0xff;
+      return this.ram[n]!;
+    }
+    return this.ram[n]!;
+  }
+
+  /** Spec 754 §3.4 — `io` lens: side-effect-free I/O register peek for
+   *  $D000-$DFFF. Cart IO ($DE00-$DFFF) and chip registers ($D000-$DC.., SID,
+   *  CIAs, color RAM) are peeked via the handler's peek?() / raw shadow; never
+   *  via the side-effecting handler.read(). */
+  private peekIo(n: number): number {
+    // Cart IO ($DE00-$DFFF): mappers may have side-effecting IO reads
+    // (GMOD2/3 SPI/EEPROM clocking); a cart peek?() is side-effect-free, else
+    // we fall back to the open-bus shadow rather than calling cart.read().
+    if (n >= 0xde00 && n <= 0xdfff && this.cartridge) {
+      const cv = this.cartridge.peek?.(n, this.getBankInfo());
+      if (cv !== undefined) return cv & 0xff;
+      return this.openBusProvider() & 0xff;
+    }
+    const handler = this.ioHandlers.get(n);
+    if (handler?.peek) {
+      const v = handler.peek(n);
+      if (v !== undefined) {
+        let ioValue = clampByte(v);
+        // Color RAM ($D800-$DBFF) — low nibble valid, upper nibble open bus
+        // ($f0), mirroring read(). (Color RAM has no handler; this guards a
+        // future handler too.)
+        if (n >= 0xd800 && n <= 0xdbff) ioValue = (ioValue & 0x0f) | 0xf0;
+        return ioValue;
+      }
+    }
+    // No handler peek available → documented best-effort: the last value seen
+    // on the I/O bus at that address (the `this.io[]` open-bus shadow). For
+    // color RAM ($D800-$DBFF, no handler) this is the authoritative store.
+    // NEVER call the side-effecting handler.read().
+    let ioValue = this.io[n - 0xd000]!;
+    if (n >= 0xd800 && n <= 0xdbff) ioValue = (ioValue & 0x0f) | 0xf0;
+    return ioValue;
+  }
+
+  /** Spec 754 §3.4 — `cpu` lens: mirror read()'s banking decision using the
+   *  CURRENT memConfig windows + ultimax logic, minus all handler side
+   *  effects. Cite: read() above (the structure is replicated 1:1). */
+  private peekCpu(n: number): number {
+    // $00/$01 — processor port latches (computeCpuPortDataRead mutates the
+    // capacitor-decay state, so return the latched values directly here).
+    if (n === 0x0000) return this.cpuPortDirection;
+    if (n === 0x0001) return this.cpuPortValue;
+    // $8000-$9FFF — ROML when the config maps cart_lo.
+    if (n >= 0x8000 && n <= 0x9fff) {
+      if (this.memConfig.bank8 === 'cart_lo') {
+        const cv = this.cartridge?.peek?.(n, this.getBankInfo());
+        if (cv !== undefined) return cv & 0xff;
+      }
+      return this.ram[n]!;
+    }
+    // $A000-$BFFF — ROMH@a000 / BASIC / ultimax open bus / RAM.
+    if (n >= 0xa000 && n <= 0xbfff) {
+      if (this.memConfig.bankA === 'cart_hi') {
+        const cv = this.cartridge?.peek?.(n, this.getBankInfo());
+        if (cv !== undefined) return cv & 0xff;
+      } else if (this.basicVisible()) {
+        return this.basicRom[n - 0xa000]!;
+      } else if (this.isUltimax()) {
+        return this.openBusProvider() & 0xff;
+      }
+      return this.ram[n]!;
+    }
+    // $C000-$CFFF — ultimax open bus, else RAM.
+    if (n >= 0xc000 && n <= 0xcfff) {
+      if (this.isUltimax()) return this.openBusProvider() & 0xff;
+      return this.ram[n]!;
+    }
+    // $D000-$DFFF — I/O when visible, else char ROM / RAM.
+    if (n >= 0xd000 && n <= 0xdfff) {
+      if (this.ioVisible()) return this.peekIo(n);
+      if (this.charVisible()) return this.charRom[n - 0xd000]!;
+      return this.ram[n]!;
+    }
+    // $E000-$FFFF — KERNAL / ultimax ROMH / RAM.
+    if (n >= 0xe000 && n <= 0xffff) {
+      if (this.kernalVisible()) return this.kernalRom[n - 0xe000]!;
+      if (this.memConfig.bankE === 'cart_hi_ultimax') {
+        const cv = this.cartridge?.peek?.(n, this.getBankInfo());
+        if (cv !== undefined) return cv & 0xff;
+        return this.openBusProvider() & 0xff;
+      }
+      return this.ram[n]!;
+    }
+    // $1000-$7FFF — ultimax open bus, else RAM.
+    if (n >= 0x1000 && n <= 0x7fff && this.isUltimax()) {
+      return this.openBusProvider() & 0xff;
+    }
+    // $0000-$0FFF + everything else → RAM.
     return this.ram[n]!;
   }
 

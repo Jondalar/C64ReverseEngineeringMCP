@@ -1183,7 +1183,7 @@ export class IntegratedSession {
     // raise/clear, color reg cregs[] propagation). Replaces poll-based
     // color reg sync.
     const bus = this.c64Bus as unknown as {
-      registerIoHandler: (a: number, h: { read: (a: number) => number; write: (a: number, v: number) => void }) => void;
+      registerIoHandler: (a: number, h: { read: (a: number) => number; write: (a: number, v: number) => void; peek?: (a: number) => number }) => void;
     };
     for (let mirror = 0; mirror < 0x400; mirror += 0x40) {
       for (let r = 0; r < 0x40; r++) {
@@ -1195,6 +1195,9 @@ export class IntegratedSession {
           // literal raster_y is in sync via the per-cycle hook). The
           // VicIIVice read path is no longer wired to IO.
           read: () => LIT_MEM.vicii_read(reg),
+          // Spec 754 §3.4 / BUG-038 — side-effect-free peek for the bank
+          // lens: literal-port vicii_peek (no $D019 / $D01E / $D01F clear).
+          peek: () => LIT_MEM.vicii_peek(reg),
           write: (_addr, value) => {
             // Mirror to literal port FIRST (= VICE order: store updates
             // derived state immediately, draw_cycle picks up in same cycle)
