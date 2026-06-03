@@ -59,6 +59,18 @@ export function resolveStorePath(input: string, context: ServerToolContext): str
   return abs;
 }
 
+/** BUG-035 — lazily (re)build a missing DuckDB index from its `.c64retrace`
+ *  authority before a trace_store read. No-op if the store already exists or has
+ *  no sibling `.c64retrace`. The `withConn`/`safeQuery` reader (unlike the
+ *  `withDuckDb` readers) does not do this itself, so an orphaned binary log — e.g.
+ *  a capture whose background index never ran (BUG-035) — would otherwise be
+ *  unreadable. A build failure throws (surfaced as a clear error by safeHandler).
+ *  For a multi-GB log this blocks until the index is built. */
+async function ensureTraceIndex(dbPath: string): Promise<void> {
+  const { ensureIndex } = await import("../runtime/headless/trace/background-indexer.js");
+  await ensureIndex(dbPath);
+}
+
 function fmtHex(n: number): string {
   return "$" + (n & 0xffff).toString(16).padStart(4, "0").toUpperCase();
 }
@@ -201,6 +213,12 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     },
     safeHandler("trace_memory_map", async ({ path, cpu, static_ranges, run_label }) => {
       const dbPath = resolveStorePath(path, context);
+      // BUG-035 / Spec 753 — self-heal: if the .duckdb is missing but its
+      // .c64retrace authority exists (orphaned capture whose background index never
+      // ran), build the index lazily before querying. `safeQuery`/`withConn` does
+      // NOT do this (only the `withDuckDb` readers did), so without this a perfectly
+      // good binary log is unreadable by this tool.
+      await ensureTraceIndex(dbPath);
       const side = cpu ?? "c64";
       const runQuery = (sql: string) => routeStoreRead("safeQuery", dbPath, { sql, limit: 300 }, () => safeQuery(dbPath, sql, 300));
       const res = await buildMemoryMapText(runQuery, { cpu: side, staticRanges: static_ranges, runLabel: run_label });
@@ -222,6 +240,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
 export async function writeTraceMemoryMapSidecar(storePathRef: string, context: ServerToolContext, runLabel?: string): Promise<string | null> {
   try {
     const dbPath = resolveStorePath(storePathRef, context);
+    await ensureTraceIndex(dbPath); // BUG-035 — build a missing index from .c64retrace
     const runQuery = (sql: string) => routeStoreRead("safeQuery", dbPath, { sql, limit: 300 }, () => safeQuery(dbPath, sql, 300));
     const res = await buildMemoryMapText(runQuery, { cpu: "c64", runLabel });
     if (!res) return null; // no memory capture → no sidecar
