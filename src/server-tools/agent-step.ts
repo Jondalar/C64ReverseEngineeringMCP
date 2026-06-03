@@ -150,6 +150,7 @@ interface ProjectSignals {
   openQuestions: number;
   unsavedHint: boolean;              // analysis exists but no findings recorded yet
   findings: number;
+  ungroundedFindings: number;        // Spec 752 L1 — findings tagged `ungrounded`
 }
 
 function gatherSignals(service: ProjectKnowledgeService, projectRoot: string, initialized: boolean): ProjectSignals {
@@ -159,7 +160,7 @@ function gatherSignals(service: ProjectKnowledgeService, projectRoot: string, in
       unregisteredFiles: 0, unregisteredExamples: [], unimportedManifests: 0, staleViews: 0,
       mediaArtifacts: 0, hasG64: false, hasCrt: false, extractedPayloads: 0,
       analysisArtifacts: 0, sourceArtifacts: 0, annotationArtifacts: 0, traceArtifacts: 0,
-      openQuestions: 0, unsavedHint: false, findings: 0,
+      openQuestions: 0, unsavedHint: false, findings: 0, ungroundedFindings: 0,
     };
   }
 
@@ -201,7 +202,9 @@ function gatherSignals(service: ProjectKnowledgeService, projectRoot: string, in
     a.kind === "trace" || a.role?.startsWith("trace") || a.role === "runtime-trace",
   ).length;
 
-  const findings = service.listFindings().length;
+  const allFindings = service.listFindings();
+  const findings = allFindings.length;
+  const ungroundedFindings = allFindings.filter((f) => (f.tags ?? []).includes("ungrounded")).length;
   const openQuestions = service.listOpenQuestions({ status: "open" }).length;
 
   return {
@@ -219,6 +222,7 @@ function gatherSignals(service: ProjectKnowledgeService, projectRoot: string, in
     traceArtifacts,
     openQuestions,
     findings,
+    ungroundedFindings,
     // unsaved facts: structural analysis exists but nothing has been recorded.
     unsavedHint: analysisArtifacts > 0 && findings === 0,
   };
@@ -343,6 +347,20 @@ function pickPrimary(signals: ProjectSignals, projectDir: string): LadderOutcome
       primary: suggestStep(
         "static-disassemble",
         `${signals.analysisArtifacts} analysis result(s) exist but no ASM/TASS source has been produced. Disassemble to source.`,
+        { project_dir: projectDir },
+      ),
+      blockedBy,
+    };
+  }
+
+  // 7b. Spec 752 L1 — ungrounded findings outrank annotate / runtime-trace /
+  // record-knowledge. A file/payload finding must cite a backing extract before
+  // we move on; do not let the agent reach for tracing/stats as grounding.
+  if (signals.ungroundedFindings > 0) {
+    return {
+      primary: suggestStep(
+        "static-analyze",
+        `${signals.ungroundedFindings} finding(s) cite no backing extract (tagged \`ungrounded\` — L1). Extract the source payload (extract_disk / extract_crt auto-runs disasm + analyse), then re-save each finding with artifact_ids pointing at its _analysis.json / _disasm.asm. A trace runId+cycle or a heuristic is NOT grounding.`,
         { project_dir: projectDir },
       ),
       blockedBy,

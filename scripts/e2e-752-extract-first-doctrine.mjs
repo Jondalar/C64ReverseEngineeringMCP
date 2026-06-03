@@ -87,6 +87,61 @@ const arts = svc2.listArtifacts();
 ok(arts.some((a) => a.role === "analysis-json" || a.kind === "analysis-run"), "L2 analysis artifact produced for the extracted payload");
 ok(arts.some((a) => a.relativePath.endsWith("_disasm.asm") || a.role === "kickassembler-source"), "L2 disasm listing produced for the extracted payload");
 
-console.log(`\nproject: ${dir}\nauto-chain project: ${proj}`);
+// ===========================================================================
+// S7 — L1 enforcement: saveFinding tags an unbacked file/payload finding.
+// ===========================================================================
+console.log("\nS7 — L1 saveFinding grounding marker (soft, never throws)\n");
+const tagged = (f) => (f.tags ?? []).includes("ungrounded");
+
+const ep = mkdtempSync(join(tmpdir(), "c64re-752e-"));
+const esvc = new ProjectKnowledgeService(ep);
+esvc.initProject({ name: "752 enforce" });
+
+// a1 — file/payload finding (addressRange + routine tag) with NO backing → ungrounded.
+const f1 = esvc.saveFinding({ kind: "classification", title: "routine at C000", addressRange: { start: 0xc000, end: 0xc010 }, tags: ["routine"] });
+ok(tagged(f1), "S7 unbacked routine finding → tagged ungrounded");
+
+// a2 — same shape but citing an analysis-run artifact → NOT ungrounded.
+const anaArt = esvc.saveArtifact({ kind: "analysis-run", scope: "analysis", title: "x_analysis.json", path: join(ep, "analysis", "x_analysis.json"), role: "prg-analysis", format: "json" });
+const f2 = esvc.saveFinding({ kind: "classification", title: "routine at C100", addressRange: { start: 0xc100, end: 0xc110 }, tags: ["routine"], artifactIds: [anaArt.id] });
+ok(!tagged(f2), "S7 routine finding citing an analysis artifact → NOT ungrounded");
+
+// a3 — re-save f1 WITH the backing artifact → marker cleared.
+const f1b = esvc.saveFinding({ id: f1.id, kind: "classification", title: "routine at C000", addressRange: { start: 0xc000, end: 0xc010 }, tags: ["routine"], artifactIds: [anaArt.id] });
+ok(!tagged(f1b), "S7 re-grounded finding → ungrounded marker cleared");
+
+// a4 — a non-file/payload finding (no addressRange, no payloadId) → never tagged.
+const f3 = esvc.saveFinding({ kind: "hypothesis", title: "general idea", tags: ["note"] });
+ok(!tagged(f3), "S7 non-file/payload finding → not tagged (no false positive)");
+
+// a5 — addressRange but NO file/payload tag → not scoped → not tagged.
+const f4 = esvc.saveFinding({ kind: "observation", title: "range note", addressRange: { start: 0x0400, end: 0x07e7 }, tags: ["screen"] });
+ok(!tagged(f4), "S7 addressRange without a file/payload tag → not tagged (predicate precision)");
+
+// ===========================================================================
+// S8 — agent_next_step routes an ungrounded finding to grounding (above trace).
+// ===========================================================================
+console.log("\nS8 — agent_next_step ungrounded rung (above annotate/trace/record)\n");
+const { computeNextStep } = await import(`${ROOT}/dist/server-tools/agent-step.js`);
+
+// Project with ONLY an ungrounded finding + clean inventory → rung 7b fires.
+const sp = mkdtempSync(join(tmpdir(), "c64re-752f-"));
+const ssvc = new ProjectKnowledgeService(sp);
+ssvc.initProject({ name: "752 nextstep" });
+ssvc.saveFinding({ kind: "classification", title: "ungrounded routine", addressRange: { start: 0x1000, end: 0x1010 }, tags: ["routine"] });
+ssvc.buildAllViews();
+const ns = computeNextStep(sp);
+ok(ns.primary.stepId === "static-analyze", "S8 ungrounded finding → primary step routes to grounding (static-analyze)", `step=${ns.primary.stepId}`);
+ok(/ungrounded/i.test(ns.primary.why) && /L1/.test(ns.primary.why), "S8 the why names L1 / ungrounded", ns.primary.why.slice(0, 60));
+
+// Control: no ungrounded findings → the rung does not fire.
+const sp2 = mkdtempSync(join(tmpdir(), "c64re-752g-"));
+const ssvc2 = new ProjectKnowledgeService(sp2);
+ssvc2.initProject({ name: "752 nextstep ctrl" });
+ssvc2.buildAllViews();
+const ns2 = computeNextStep(sp2);
+ok(!/ungrounded/i.test(ns2.primary.why), "S8 control (no ungrounded) → rung does not fire", `step=${ns2.primary.stepId}`);
+
+console.log(`\nproject: ${dir}\nauto-chain: ${proj}\nenforce: ${ep}\nnextstep: ${sp}`);
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} Spec 752: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

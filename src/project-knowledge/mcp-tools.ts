@@ -1654,6 +1654,17 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Status: ${finding.status}`,
         `Confidence: ${finding.confidence}`,
       ];
+      // Spec 752 L1 — surface the ungrounded marker as a visible warning at the
+      // point of action (the steering "teeth").
+      if ((finding.tags ?? []).includes("ungrounded")) {
+        lines.push(
+          ``,
+          `⚠ UNGROUNDED (L1): this file/payload finding cites no backing extract artifact.`,
+          `   Extract the source payload (extract_disk / extract_crt auto-runs disasm+analyse),`,
+          `   then re-save with artifact_ids=[<_analysis.json / _disasm.asm id>] or evidence citing`,
+          `   the extract. A trace runId+cycle or a heuristic is NOT grounding.`,
+        );
+      }
       // Spec 057 R26: closed-loop sweep when this finding is a routine
       // claim with an address range. Scope to the first artifact link
       // when present; else project-wide.

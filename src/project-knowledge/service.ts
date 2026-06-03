@@ -4066,6 +4066,33 @@ export class ProjectKnowledgeService {
       .sort((left, right) => left.name.localeCompare(right.name));
   }
 
+  /** Spec 752 L1 — does this finding cite a backing EXTRACT artifact (the
+   *  extracted bytes / its disasm / analysis), directly or via its payload? */
+  private findingHasBackingExtract(finding: FindingRecord): boolean {
+    const EXTRACT_KINDS = new Set(["analysis-run", "generated-source", "prg", "listing"]);
+    const EXTRACT_ROLES = new Set(["analysis-json", "disasm", "prg-analysis", "kickassembler-source"]);
+    const artifactIds = new Set<string>([
+      ...finding.artifactIds,
+      ...finding.evidence.map((e) => e.artifactId).filter((x): x is string => typeof x === "string"),
+    ]);
+    if (artifactIds.size > 0) {
+      const artifacts = this.storage.loadArtifacts().items;
+      for (const id of artifactIds) {
+        const a = artifacts.find((x) => x.id === id);
+        if (a && (EXTRACT_KINDS.has(a.kind) || (a.role !== undefined && EXTRACT_ROLES.has(a.role)))) return true;
+      }
+    }
+    // Indirect: the finding's payload entity carries an extract (analysis/asm or
+    // the extracted source bytes).
+    if (finding.payloadId !== undefined) {
+      const ent = this.storage.loadEntities().items.find(
+        (e) => e.id === finding.payloadId || e.payloadId === finding.payloadId,
+      );
+      if (ent && ((ent.payloadAsmArtifactIds?.length ?? 0) > 0 || ent.payloadSourceArtifactId !== undefined)) return true;
+    }
+    return false;
+  }
+
   saveFinding(input: SaveFindingInput): FindingRecord {
     const store = this.storage.loadFindings();
     const timestamp = nowIso();
@@ -4089,6 +4116,20 @@ export class ProjectKnowledgeService {
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
     };
+    // Spec 752 L1 — extract-backing. A finding about a file/payload MUST cite a
+    // backing extract artifact (the extracted bytes / its _disasm.asm /
+    // _analysis.json). Soft: tag `ungrounded` + a timeline event; NEVER throw —
+    // auto-producers (importAnalysisKnowledge, import_annotations_as_findings)
+    // already cite the analysis artifact so they pass. A trace runId+cycle or a
+    // heuristic does not count.
+    const filePayloadScoped = finding.payloadId !== undefined
+      || (finding.addressRange !== undefined
+        && finding.tags.some((t) => t === "routine" || t === "segment-classification" || t === "annotation"));
+    if (filePayloadScoped && !this.findingHasBackingExtract(finding)) {
+      if (!finding.tags.includes("ungrounded")) finding.tags = [...finding.tags, "ungrounded"];
+    } else if (finding.tags.includes("ungrounded")) {
+      finding.tags = finding.tags.filter((t) => t !== "ungrounded"); // re-grounded on re-save
+    }
     this.storage.saveFindings({
       ...store,
       updatedAt: timestamp,
@@ -4100,6 +4141,14 @@ export class ProjectKnowledgeService {
       findingId: finding.id,
       summary: finding.kind,
     });
+    if (finding.tags.includes("ungrounded")) {
+      this.appendTimelineEvent({
+        kind: "note",
+        title: `Ungrounded finding (L1): ${finding.title}`,
+        findingId: finding.id,
+        summary: "No backing extract artifact — cite the _disasm.asm / _analysis.json via artifact_ids (Spec 752 L1). A trace anchor or heuristic is not grounding.",
+      });
+    }
     // Spec 052: in-band auto-resolution. Walk auto-resolvable
     // questions sharing entityIds with this finding.
     try {
