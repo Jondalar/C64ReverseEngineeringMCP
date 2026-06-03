@@ -108,9 +108,10 @@ One command table = the source of truth (Spec 724.2: integrate, keep all working
 commands).
 
 ### 3.3 VICE-parity command set (adopt the overlap verbatim)
-Execution: `g n z ret until`. Memory: `m d a > f t c h i ii` + `mem*`. CPU: `r
-sidefx bank`. Breakpoints: `break watch trace condition command enable disable
-delete ignore`. Labels: `add_label load_labels save_labels show_labels`. File:
+Execution: `g n z ret until`. Memory: `m d a wr f t c h i ii` (word `wr`, not `>`).
+CPU: `r sidefx bank`. Breakpoints → **replaced by the observer model (§3.3e)**: the
+VICE `break/watch/trace/condition/command/ignore` verbs are subsumed by `obs`/`o`;
+`bk` stays as a convenience facade. Labels: `add_label load_labels save_labels show_labels`. File:
 `load save bload bsave dump undump` (dump/undump exist). New work: **`a` inline
 assembler** (reuse `pipeline/src/lib/mos6502.ts` for one-line mnemonic→bytes→poke)
 and **`load/save/bload/bsave`** (reuse `loadPrgIntoRam` + a memory-range dump).
@@ -138,6 +139,115 @@ under KERNAL, `m d000` shows RAM under I/O, not what the CPU sees).
   sprite) to scrub for graphics/charsets/sprites by eye. Build the command +
   data now; keep the Scrub tab until the view lands; visual placement = browser-
   annotate later ([[feedback_ui_browser_annotation]]).
+
+### 3.3c Memory edit (Block C) — DECIDED (2026-06-03)
+All new on the live `monitor/exec` path. **Word commands, not VICE symbols** (the
+spec-wide principle the user set — cf. `m cpu` over `c:`): drop the bare `>`.
+- `wr <addr> <bytes…>` — write exactly these bytes from `addr` (length = the list).
+  This replaces VICE `>`. `wr c000 a9 01 8d 20 d0`.
+- `f <start> <end> <data…>` — fill the range, repeating the data (VICE verbatim;
+  the user's habitual byte-write `f c000 c004 a9 01 …` keeps working). `wr` = list-
+  length, `f` = range + repeat — both kept, distinct.
+- `a <addr> <instruction>` — inline assembler. Build a one-line 6502 assembler
+  (mnemonic + operand → addressing mode → opcode bytes → poke) reusing the opcode
+  table in `pipeline/src/lib/mos6502.ts` (256 ops incl. undocumented). All modes
+  (`#$xx`, zp, zp,x/y, abs, abs,x/y, `($zp,x)`, `($zp),y`, ind, acc, impl, rel).
+  Single-line first; VICE-style assembly-mode (multi-line, empty line exits) +
+  label/symbol resolution from findings = later.
+- `t <range> <dest>` move (overlap-safe), `c <range> <dest>` compare (show diffs),
+  `h <range> <data…>` hunt/search (`xx` = wildcard byte) — VICE verbatim. (`wr`/`f`/
+  `h` are the cracking core: hunt a pattern, patch it.)
+
+**Spec-wide naming principle (user):** prefer a word command over a VICE symbol.
+`wr` not `>`; bank lens words not `c:`/`8:` prefixes (§3.3b). Apply to later blocks.
+
+### 3.3d CPU & registers (Block D) — DECIDED (2026-06-03)
+- `r` — show. Keep the VICE register line (muscle memory) + add **flow inline** and
+  a **vectors block** (variant B). Always show the vectors (crack-gold: where the
+  IRQ/NMI RAM-vector actually points = what loaders/cracks hijack). Inside an
+  interrupt, the flow field shows the FlowTracker frame (`IRQ ◀ from MAIN @ $E5CD
+  (entered cyc+35)`) — VICE cannot do this. Shape:
+  ```
+  > r
+    ADDR AC XR YR SP NV-BDIZC  flow
+  .;E5CD 00 00 0A F3 nv-bdiZc  MAIN
+    vectors  IRQ hw=$FF48  CINV $0314→$EA31     NMI hw=$FE43  NMIV $0318→$FE47
+  ```
+- `r <reg>=<val>` — SET (was show-only). Accept space- AND comma-separated lists
+  (`r a=$42 x=$10` / `r a=$42, x=$10`).
+- `bank [name]` — sticky default lens `cpu|ram|rom|io|cart` (couples §3.3b).
+- `sidefx [on|off|toggle]` — side-effect read toggle (couples §3.4 `peek`).
+- Drop VICE `cpu <type>` (CPU-type is moot — always 6502; the live `cpu`→`r` alias
+  is removed).
+
+### 3.3e Observers — unify breakpoint / watch / tracepoint / condition / command (Block E) — DECIDED (2026-06-03)
+The biggest "break free from VICE" decision. VICE's `break`/`watch`/`trace`/
+`condition`/`command`/`ignore` are replaced by ONE named abstraction — the
+**observer** — because (user) "bk ist doch ein watch mit fassade" and VICE's inline-
+`if` syntax is poor. Conditions are encapsulated IN the observer, not scattered.
+
+**Model:** `observer = { name, trigger, condition?, action }`.
+```
+obs <name> when <trigger> [if <cond>] do <action>      # verb `obs`, shortcut `o`
+```
+- **trigger** = `exec|load|store <addr | start..end>` (`..` = range).
+- **condition** (encapsulated, optional) = regs `a/x/y/pc/sp/fl` + `rl` (rasterline)
+  + `cy` (cycle-in-line) + ops `== != < > <= >= && ||` + parens.
+- **action** = `break` (default) · `log` (print + continue = VICE tracepoint) ·
+  `trace <scope>` (event-driven scoped capture — VICE can't) · `cmd "<mon-cmd>"`
+  (= VICE command) · `mark` (drop a trace bookmark / checkpoint mark).
+- **`bk <addr>` stays** as a convenience that creates an exec-observer with
+  `do break` behind the scenes (muscle memory).
+- **management:** `obs` (list: name·trigger·cond·action·hits·on/off) ·
+  `obs <name> on|off` · `obs <name> del` · `ignore <name> [n]` (skip n triggers).
+```
+o sflip when store $d018 if a!=$1b do break
+o keyrd when load  $0314..0315       do log
+o hot   when exec  $c000..cfff       do trace c64-cpu+memory
+bk e5cf      # = o _bk1 when exec $e5cf do break
+```
+VICE `watch`/`trace`(point)/`condition`/`command`/`enable`/`disable` are SUBSUMED
+(not separate commands). `trace` stays OUR capture verb (§ below), not a tracepoint
+(`do log` is the tracepoint).
+
+**Evaluation architecture — IN the execution path, NOT run-then-rewind:**
+- **exec** trigger → the CPU-step PC check (`runFor({breakpoints})` + the autonomous
+  loop) — exactly today's `bk` cost.
+- **load/store** trigger → the **Spec 753 bus-access emit** (`store()`/`loadRead()`).
+  The SAME hook that feeds `trace_memory_map` now also feeds observers (and a live
+  trace). One hook, multiple consumers.
+- The condition is evaluated at the trigger point (full regs/RL/CY available); you
+  **stop AT the trigger** — the CPU state IS the trigger state, no rewind to reach it.
+- NOT run-then-rewind: that would need an always-on firehose to detect after the
+  fact, which is the expensive path.
+
+**Performance strategy (load/store observers are the only real cost):**
+- Gating, 3 tiers: no observers → 0 (`store()` unchanged, emit off — Spec 753 proven
+  inert). exec → `Set.has(pc)`/instr (= current `bk`, negligible). load/store →
+  a **per-page watch bitmap**: `if (watchedPages[addr>>8]) checkSlow(...)` — fast
+  path is one array index + branch; the condition eval runs only on a watched page.
+- Do NOT build the full `BusAccessEvent` per access for observers — the bitmap gate
+  comes first; only a match builds context.
+- **Decouple the old_value pre-read** (Spec 753): gate it on *trace active*, not
+  *emit active* — observers need addr+value+cond, not old_value. So observing
+  doesn't pay the pre-read.
+- Reference: full firehose capture = ~5.7% / 2.05× PAL (Spec 726.B gate); observers
+  with the bitmap gate are a small fraction of that; the paced 1 MHz loop has headroom.
+
+**Trace + scope + rewind (the "more than VICE" part — user point 1):**
+- `trace start <scope>` / `trace stop` / `trace status`. scope = domains
+  (`c64-cpu/drive8-cpu/iec/vic/sid/memory`) + focus (`main|irq|nmi`, Block A) +
+  addr-window (`win $c000..cfff`). Our `trace` = the trace-store capture, unchanged.
+- `rewind` (last checkpoint) · `rewind <n>` (n back) · `rewind list` (the ring). The
+  `checkpointRing` already auto-captures ~every 25 frames (~0.5 s); `restoreCheckpoint`
+  / `rewindTo` exist but only in the Snapshots tab — expose them in the monitor.
+- Combo: `o X when … do trace <scope>` = scoped, event-driven capture.
+
+**Rewind = secondary, plus a retroactive follow-up:** the primary observer is
+in-loop (stop at trigger). Rewind is the time-travel-after-stop tool. A future
+**retroactive observer** ("break at the LAST write to $d018 before the crash") =
+scan the trace + rewind to the nearest checkpoint + single-step to the exact cycle —
+needs ring+trace+rewind combined; a follow-up mode, not the default.
 
 ### 3.4 `sidefx` + a `peek` primitive (couples to Spec 753b)
 Add a side-effect-free `peek(addr)` to the memory bus (VICE `mem_bank_peek`) and a
