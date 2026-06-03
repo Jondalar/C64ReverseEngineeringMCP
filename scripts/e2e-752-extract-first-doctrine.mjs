@@ -142,6 +142,56 @@ ssvc2.buildAllViews();
 const ns2 = computeNextStep(sp2);
 ok(!/ungrounded/i.test(ns2.primary.why), "S8 control (no ungrounded) → rung does not fire", `step=${ns2.primary.stepId}`);
 
-console.log(`\nproject: ${dir}\nauto-chain: ${proj}\nenforce: ${ep}\nnextstep: ${sp}`);
+// ===========================================================================
+// REVIEW FIXES — real-disk L2 (relink), L1 indirect kind/role validation,
+// 64tass role, steering token idempotency. (Adversarial-review hardening.)
+// ===========================================================================
+console.log("\nReview fixes — real-disk L2 relink + L1 indirect validation\n");
+const { extractDiskImage } = await import(`${ROOT}/dist/disk-extractor.js`);
+const { linkExtractedPayloadFiles } = await import(`${ROOT}/dist/lib/extract-auto-chain.js`);
+
+// Real disk: a disk-file entity (born internal, source=manifest) must be
+// relinked to a real PRG and then auto-disassembled.
+const dp = mkdtempSync(join(tmpdir(), "c64re-752h-"));
+const dsvc = new ProjectKnowledgeService(dp);
+dsvc.initProject({ name: "752 real disk" });
+const man = extractDiskImage(`${ROOT}/samples/fixtures/load-fidelity/lf-002-5block.d64`, join(dp, "analysis", "disk"));
+const manArt = dsvc.saveArtifact({ kind: "manifest", scope: "generated", title: "manifest", path: man.manifestPath, role: "disk-manifest", format: "json" });
+const dimp = dsvc.importManifestArtifact(manArt.id);
+ok(dimp.importedPayloadEntityIds.length > 0, "REVIEW disk import yields payload entity ids", `n=${dimp.importedPayloadEntityIds.length}`);
+const nLinked = linkExtractedPayloadFiles(dp, manArt.id);
+ok(nLinked > 0, "REVIEW extracted files relinked to per-file PRG artifacts", `linked=${nLinked}`);
+const dchain = await autoAnalyzeExtractedPayloads(dp, dimp.importedPayloadEntityIds, { mode: "quick" });
+ok(dchain.some((c) => c.status === "done"), "REVIEW real disk-file payload auto-disassembled (L2 works end-to-end)", dchain.map((c) => `${c.name}:${c.status}`).join(","));
+const dEnt = dsvc.listEntities().find((e) => dimp.importedPayloadEntityIds.includes(e.id));
+ok(dEnt?.internal !== true, "REVIEW relinked disk-file entity is no longer internal");
+
+// L1 indirect: a payload backed ONLY by a d64 disk image is NOT grounding.
+const lp = mkdtempSync(join(tmpdir(), "c64re-752i-"));
+const lsvc = new ProjectKnowledgeService(lp);
+lsvc.initProject({ name: "752 L1 indirect" });
+const d64Art = lsvc.saveArtifact({ kind: "d64", scope: "input", title: "game.d64", path: join(lp, "input", "game.d64"), role: "disk-image" });
+const payOnlyDisk = lsvc.saveEntity({ kind: "payload", name: "disk_only_payload", payloadSourceArtifactId: d64Art.id, payloadFormat: "prg" });
+const fIndirectBad = lsvc.saveFinding({ kind: "classification", title: "routine in disk payload", payloadId: payOnlyDisk.id, addressRange: { start: 0x1000, end: 0x1010 }, tags: ["routine"] });
+ok((fIndirectBad.tags ?? []).includes("ungrounded"), "REVIEW payload backed only by a d64 → finding still ungrounded (kind validated)");
+// Give the payload a real disasm artifact → now grounded.
+const asmArt = lsvc.saveArtifact({ kind: "generated-source", scope: "analysis", title: "p_disasm.asm", path: join(lp, "analysis", "p_disasm.asm"), role: "kickassembler-source", format: "kickass" });
+lsvc.saveEntity({ id: payOnlyDisk.id, kind: "payload", name: "disk_only_payload", payloadAsmArtifactIds: [asmArt.id] });
+const fIndirectGood = lsvc.saveFinding({ id: fIndirectBad.id, kind: "classification", title: "routine in disk payload", payloadId: payOnlyDisk.id, addressRange: { start: 0x1000, end: 0x1010 }, tags: ["routine"] });
+ok(!(fIndirectGood.tags ?? []).includes("ungrounded"), "REVIEW payload with a disasm artifact → finding grounded");
+
+// 64tass-source role is accepted as grounding.
+const tassArt = lsvc.saveArtifact({ kind: "report", scope: "analysis", title: "p.tass", path: join(lp, "analysis", "p.tass"), role: "64tass-source" });
+const fTass = lsvc.saveFinding({ kind: "classification", title: "routine grounded by tass", addressRange: { start: 0x2000, end: 0x2010 }, tags: ["routine"], artifactIds: [tassArt.id] });
+ok(!(fTass.tags ?? []).includes("ungrounded"), "REVIEW 64tass-source role counts as grounding");
+
+// Steering idempotency keys on the hidden token even if the heading is edited.
+const tk = mkdtempSync(join(tmpdir(), "c64re-752j-"));
+mkdirSync(join(tk, "knowledge"), { recursive: true });
+const { EXTRACT_FIRST_TOKEN } = await import(`${ROOT}/dist/server-tools/steering-defaults.js`);
+writeFileSync(join(tk, "knowledge", "steering.md"), `# Steering\n${EXTRACT_FIRST_TOKEN}\n## (heading hand-edited away)\n`);
+ok(ensureDefaultSteering(tk) === "present", "REVIEW steering idempotency survives a heading edit (hidden token)");
+
+console.log(`\nproject: ${dir}\nauto-chain: ${proj}\nenforce: ${ep}\nnextstep: ${sp}\nreal-disk: ${dp}`);
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} Spec 752: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

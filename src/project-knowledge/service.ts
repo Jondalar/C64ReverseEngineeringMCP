@@ -4070,25 +4070,27 @@ export class ProjectKnowledgeService {
    *  extracted bytes / its disasm / analysis), directly or via its payload? */
   private findingHasBackingExtract(finding: FindingRecord): boolean {
     const EXTRACT_KINDS = new Set(["analysis-run", "generated-source", "prg", "listing"]);
-    const EXTRACT_ROLES = new Set(["analysis-json", "disasm", "prg-analysis", "kickassembler-source"]);
-    const artifactIds = new Set<string>([
-      ...finding.artifactIds,
-      ...finding.evidence.map((e) => e.artifactId).filter((x): x is string => typeof x === "string"),
-    ]);
-    if (artifactIds.size > 0) {
-      const artifacts = this.storage.loadArtifacts().items;
-      for (const id of artifactIds) {
-        const a = artifacts.find((x) => x.id === id);
-        if (a && (EXTRACT_KINDS.has(a.kind) || (a.role !== undefined && EXTRACT_ROLES.has(a.role)))) return true;
-      }
-    }
-    // Indirect: the finding's payload entity carries an extract (analysis/asm or
-    // the extracted source bytes).
+    const EXTRACT_ROLES = new Set(["analysis-json", "disasm", "prg-analysis", "kickassembler-source", "64tass-source"]);
+    const artifacts = this.storage.loadArtifacts().items;
+    const isExtract = (id: string | undefined): boolean => {
+      if (id === undefined) return false;
+      const a = artifacts.find((x) => x.id === id);
+      return a !== undefined && (EXTRACT_KINDS.has(a.kind) || (a.role !== undefined && EXTRACT_ROLES.has(a.role)));
+    };
+    // Direct: an artifact the finding cites is an extract.
+    for (const id of finding.artifactIds) if (isExtract(id)) return true;
+    for (const e of finding.evidence) if (isExtract(e.artifactId)) return true;
+    // Indirect: the finding's payload entity is itself backed by an extract —
+    // its disasm/asm, or an extract-KIND source (a d64/manifest source does NOT
+    // count: the disk image is not the payload's extract).
     if (finding.payloadId !== undefined) {
       const ent = this.storage.loadEntities().items.find(
         (e) => e.id === finding.payloadId || e.payloadId === finding.payloadId,
       );
-      if (ent && ((ent.payloadAsmArtifactIds?.length ?? 0) > 0 || ent.payloadSourceArtifactId !== undefined)) return true;
+      if (ent) {
+        if ((ent.payloadAsmArtifactIds ?? []).some((id) => isExtract(id))) return true;
+        if (isExtract(ent.payloadSourceArtifactId) || isExtract(ent.artifactIds?.[0])) return true;
+      }
     }
     return false;
   }
@@ -4517,7 +4519,7 @@ export class ProjectKnowledgeService {
     // address) are the L2 auto-chain targets.
     const importedPayloadEntityIds = imported.entities
       .filter((e) => (e as { payloadSourceArtifactId?: string }).payloadSourceArtifactId
-        || ["payload", "disk-file", "cart-chunk"].includes((e as { kind?: string }).kind ?? ""))
+        || ["payload", "disk-file", "cart-chunk", "chip"].includes((e as { kind?: string }).kind ?? ""))
       .map((e) => e.id);
     return {
       artifact,

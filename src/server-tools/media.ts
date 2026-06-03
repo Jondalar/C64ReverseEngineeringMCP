@@ -5,7 +5,7 @@ import { runCli } from "../run-cli.js";
 import { extractDiskImage, readDiskDirectory } from "../disk-extractor.js";
 import { diskSectorAllocation, extractDiskCustomLut, suggestDiskLutSector } from "../disk-custom-lut.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
-import { autoAnalyzeExtractedPayloads, summarizeAutoChain } from "../lib/extract-auto-chain.js";
+import { autoAnalyzeExtractedPayloads, summarizeAutoChain, linkExtractedPayloadFiles } from "../lib/extract-auto-chain.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
 
@@ -62,6 +62,9 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
             // (Cart CHUNKS at real load addresses are promoted + analysed by
             // bulk_create_cart_chunk_payloads; this covers the CRT manifest's
             // own chip/bank payloads.) Soft-fail.
+            // Register each extracted file as its own artifact + relink the
+            // entity so it is a real, analysable (non-internal) payload.
+            linkExtractedPayloadFiles(pd, knowledgeRegistration.outputArtifacts[0]);
             try {
               const chain = await autoAnalyzeExtractedPayloads(pd, imported.importedPayloadEntityIds, { mode: "quick" });
               result.stdout += `\n${summarizeAutoChain(chain)}`;
@@ -175,8 +178,11 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
             const knowledgeService = new ProjectKnowledgeService(pd);
             const imported = knowledgeService.importManifestArtifact(knowledgeRegistration.outputArtifacts[0]);
             lines.push("", `Imported manifest knowledge: ${imported.importedEntityCount} entities, ${imported.importedFindingCount} findings, ${imported.importedRelationCount} relations`);
-            // Spec 752 L2 — auto-disasm + analyse every extracted payload.
+            // Spec 752 L2 — register each extracted file as its own artifact +
+            // relink the entity (so it is a real, analysable non-internal
+            // payload), then auto-disasm + analyse every extracted payload.
             // Soft-fail: a failure here never breaks the extraction itself.
+            linkExtractedPayloadFiles(pd, knowledgeRegistration.outputArtifacts[0]);
             try {
               const chain = await autoAnalyzeExtractedPayloads(pd, imported.importedPayloadEntityIds, { mode: "quick" });
               lines.push(summarizeAutoChain(chain));
@@ -269,6 +275,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
           const knowledgeService = new ProjectKnowledgeService(pd);
           const imported = knowledgeService.importManifestArtifact(reg.outputArtifacts[0]);
           lines.push(`Imported manifest knowledge: ${imported.importedEntityCount} entities, ${imported.importedFindingCount} findings, ${imported.importedRelationCount} relations`);
+          linkExtractedPayloadFiles(pd, reg.outputArtifacts[0]);
           try {
             const chain = await autoAnalyzeExtractedPayloads(pd, imported.importedPayloadEntityIds, { mode: "quick" });
             lines.push(summarizeAutoChain(chain));

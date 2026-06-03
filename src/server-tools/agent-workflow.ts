@@ -6,6 +6,7 @@ import { auditProject, auditProjectCached, type AuditCachedResult, type ProjectA
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { countUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
 import type { ServerToolContext } from "./types.js";
+import { ensureDefaultSteering } from "./steering-defaults.js";
 
 const AGENT_STATE_SCHEMA_VERSION = 1;
 
@@ -368,6 +369,10 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       // "steering file" analogue: project-scoped, always-in-context rules the agent
       // must apply every session). Lives at <project>/knowledge/steering.md; written
       // via project_steering_set. Surfaced at the very top so it can't be missed.
+      // Spec 752 — self-heal: a project that never ran project_init (or predates
+      // 752) still gets the extract-first doctrine injected. Never clobbers a
+      // hand-written steering (appends the block only when absent).
+      try { ensureDefaultSteering(projectRoot); } catch { /* best-effort */ }
       const steeringPath = join(projectRoot, "knowledge", "steering.md");
       if (existsSync(steeringPath)) {
         const steering = readFileSync(steeringPath, "utf8").trim();

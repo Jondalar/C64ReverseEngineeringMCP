@@ -8,12 +8,15 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-/** Marker used to detect whether the extract-first block is already present. */
+/** Human-readable heading marker. */
 export const EXTRACT_FIRST_MARKER = "Extract-first grounding (Spec 752";
+/** Stable hidden token idempotency keys on (survives a heading hand-edit). */
+export const EXTRACT_FIRST_TOKEN = "<!-- spec752-steering-v1 -->";
 
 /** The per-project operational rule (L2 + the L1 reminder). The universal law
  *  lives in docs/agent-doctrine.md; this is the always-in-context steering. */
-export const EXTRACT_FIRST_STEERING = `## ${EXTRACT_FIRST_MARKER} — always apply)
+export const EXTRACT_FIRST_STEERING = `${EXTRACT_FIRST_TOKEN}
+## ${EXTRACT_FIRST_MARKER} — always apply)
 - **Extract-first grounding (L1).** Every finding about a file/payload MUST cite a
   backing **extract artifact** via \`artifact_ids\` (the extracted bytes / its
   \`_disasm.asm\` / \`_analysis.json\`). A trace \`runId+cycle\` or a heuristic is NOT
@@ -37,7 +40,7 @@ export function ensureDefaultSteering(projectRoot: string): "created" | "appende
     return "created";
   }
   const existing = readFileSync(path, "utf8");
-  if (existing.includes(EXTRACT_FIRST_MARKER)) {
+  if (existing.includes(EXTRACT_FIRST_TOKEN) || existing.includes(EXTRACT_FIRST_MARKER)) {
     return "present";
   }
   writeFileSync(path, existing.replace(/\s*$/, "") + "\n\n" + EXTRACT_FIRST_STEERING + "\n");

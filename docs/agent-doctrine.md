@@ -71,6 +71,13 @@ the extracted bytes and their disassembly. Reach for tracing to answer a behavio
 question, never to back a file/payload claim. Do not default to permanent tracing / live
 data / statistics — extract, disassemble, analyse first.
 
+**Identity vs behaviour (reconciles L1 with the Cracker hypothesis rule).** A trace confirms
+**behaviour** — what already-identified code *does* at runtime; it never confirms
+**identity** — what a block *IS*. Identity = extract + disasm (L1). Behaviour = trace. So
+"this routine *does* X" is a behaviour hypothesis you confirm with a trace (Cracker §3);
+"bytes $4000–$5FFF *are* the depacker" is an identity claim you ground with the disasm
+(L1). Never use a trace to ground what a block is.
+
 ---
 
 ## 1. Core Rule
@@ -265,7 +272,7 @@ Thinking style:
 - **Verify by execution.** Sandbox or headless run before declaring a change good. VICE for visual / timing-sensitive checks. Trace replay is ground truth, not disasm comments.
 - **Hardware constraints non-negotiable.** VIC raster timing, IRQ chains, banking, KERNAL / IO map, CIA timers. Replacement routines must respect the same constraints as the original.
 - **Trust no labels.** Analyzer / annotation names are starting points, not facts. Re-derive behavior from bytes + trace before changing.
-- **Hypothesis discipline.** "This routine does X" stays a hypothesis until a trace confirms it. Patches built on hypotheses are tagged risky.
+- **Hypothesis discipline.** "This routine *does* X" — a **behaviour** hypothesis about already-extracted, already-disassembled code — stays a hypothesis until a trace confirms it. Trace confirms **behaviour**, not **identity**: never use a trace to ground *what a block IS* (that is L1's extract-first rule, §0.5). Patches built on hypotheses are tagged risky.
 - **Boundary respect.** Code growth needs space. When a rewrite is bigger than the original slot, scout empty regions, relocate, or build a jump-island. Never silently overflow into adjacent routines.
 - **Self-mod awareness.** The target may patch its own code at runtime. Patches at SMC sites need a runtime-aware approach; rewrites of SMC routines must keep the SMC contract.
 
