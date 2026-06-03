@@ -136,6 +136,7 @@ let storePathB, runIdB;
 // Part C — gating: NO memory domain → zero bus rows (opt-in / no overhead).
 // =====================================================================
 console.log("\nSpec 753 — Part C: gating (no `memory` domain → zero bus rows)\n");
+let storeNoMem;
 {
   const { ensureRuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js");
   const { captureAllDef } = await import("../dist/server-tools/runtime-trace-sink.js");
@@ -145,6 +146,7 @@ console.log("\nSpec 753 — Part C: gating (no `memory` domain → zero bus rows
     loadFixture(session);
     const ctrl = ensureRuntimeController(sessionId, session, () => {});
     storeC = join(dir, "trace753-nomem.duckdb");
+    storeNoMem = storeC;
     await ctrl.traceRun.start(captureAllDef(["c64-cpu"]), { controller: ctrl, outputPath: storeC });
     for (let i = 0; i < STEPS; i++) session.stepC64Instruction();
     await ctrl.traceRun.stop();
@@ -196,6 +198,37 @@ console.log("\nSpec 753 — Part D: trace_memory_map reconstruction + reconcile\
     ok("D7 mandatory coverage banner present (run-only + Spec 752 boundary)", /COVERAGE = THIS RUN ONLY/.test(txt) && /Spec 752/.test(txt));
     ok("D8 ASCII page grid rendered (16 rows)", /page map/.test(txt) && txt.split("\n").filter((l) => /\$[0-9A-F]x00/.test(l)).length === 16);
   } catch (e) { ok("D1-D8 trace_memory_map", false, e.message); }
+}
+
+// =====================================================================
+// Part E — finalize auto-artifact: the sidecar path (buildMemoryMapText)
+//          produces a map when mem-row captured, null otherwise.
+// =====================================================================
+console.log("\nSpec 753 — Part E: finalize sidecar (buildMemoryMapText)\n");
+{
+  const { buildMemoryMapText } = await import("../dist/server-tools/trace-memory-map.js");
+  const duckdb = await import("@duckdb/node-api");
+  const mkRunner = async (store) => {
+    const inst = await duckdb.DuckDBInstance.create(store, { access_mode: "READ_ONLY" });
+    const conn = await inst.connect();
+    return { runQuery: async (sql) => (await conn.runAndReadAll(sql)).getRows(), close: () => inst.closeSync?.() };
+  };
+  try {
+    const a = await mkRunner(storePathB);
+    const res = await buildMemoryMapText(a.runQuery, { cpu: "c64", runLabel: runIdB });
+    a.close();
+    ok("E1 mem-captured store → map text built", !!res && /COVERAGE = THIS RUN ONLY/.test(res.text), res ? `free=${res.map.totals.freePages}` : "null");
+    // write + read back the sidecar (mirrors writeTraceMemoryMapSidecar's fs step)
+    const sidecar = join(dir, "trace753.memorymap.md");
+    if (res) writeFileSync(sidecar, res.text);
+    const { readFileSync } = await import("node:fs");
+    ok("E2 sidecar file written + holds the map", existsSync(sidecar) && /free holes/.test(readFileSync(sidecar, "utf8")));
+
+    const b = await mkRunner(storeNoMem);
+    const resNone = await buildMemoryMapText(b.runQuery, { cpu: "c64" });
+    b.close();
+    ok("E3 no-memory store → null (no sidecar written)", resNone === null);
+  } catch (e) { ok("E1-E3 finalize sidecar", false, e.message); }
 }
 
 globalThis.__store753 = storePathB; globalThis.__run753 = runIdB; globalThis.__dir753 = dir;

@@ -5,7 +5,7 @@
 // contains `trace.duckdb`.
 
 import { resolve as resolvePath, isAbsolute } from "node:path";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, writeFileSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -18,7 +18,7 @@ import {
 } from "../runtime/trace-store/queries.js";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
-import { buildMemoryMap, renderMemoryMap } from "./trace-memory-map.js";
+import { buildMemoryMapText } from "./trace-memory-map.js";
 
 // Bug-fix (post-Spec 726): `input` is a PATH to a trace.duckdb (or a directory
 // holding one), NOT a project hint. The previous implementation passed `input`
@@ -202,25 +202,33 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     safeHandler("trace_memory_map", async ({ path, cpu, static_ranges, run_label }) => {
       const dbPath = resolveStorePath(path, context);
       const side = cpu ?? "c64";
-      const aggSql =
-        `SELECT (addr >> 8) AS page, ` +
-        `COUNT(*) FILTER (WHERE kind='write') AS writes, ` +
-        `COUNT(*) FILTER (WHERE kind='read') AS reads, ` +
-        `COUNT(*) FILTER (WHERE kind='write' AND old_value IS NOT NULL AND old_value <> value) AS mutations, ` +
-        `MIN(clock) AS first_clk, MAX(clock) AS last_clk, ` +
-        `COUNT(DISTINCT pc) FILTER (WHERE kind='write') AS writer_pcs ` +
-        `FROM bus_events WHERE cpu='${side}' AND kind IN ('write','read') AND addr IS NOT NULL GROUP BY page ORDER BY page`;
-      const codeSql = `SELECT DISTINCT (pc >> 8) AS page FROM instructions WHERE cpu='${side}' AND pc IS NOT NULL`;
-      const aggRows = await routeStoreRead("safeQuery", dbPath, { sql: aggSql, limit: 300 }, () => safeQuery(dbPath, aggSql, 300));
-      const codeRows = await routeStoreRead("safeQuery", dbPath, { sql: codeSql, limit: 300 }, () => safeQuery(dbPath, codeSql, 300));
-      const N = (v: unknown) => v === null || v === undefined ? 0 : Number(v);
-      const pageRows = aggRows.map((r) => ({
-        page: N(r[0]), writes: N(r[1]), reads: N(r[2]), mutations: N(r[3]),
-        firstClk: N(r[4]), lastClk: N(r[5]), writerPcs: N(r[6]),
-      }));
-      const codePages = new Set<number>(codeRows.map((r) => N(r[0]) & 0xff));
-      const map = buildMemoryMap({ cpu: side, pageRows, codePages, staticRanges: static_ranges });
-      return { content: [{ type: "text" as const, text: renderMemoryMap(map, { runLabel: run_label }) }] };
+      const runQuery = (sql: string) => routeStoreRead("safeQuery", dbPath, { sql, limit: 300 }, () => safeQuery(dbPath, sql, 300));
+      const res = await buildMemoryMapText(runQuery, { cpu: side, staticRanges: static_ranges, runLabel: run_label });
+      const text = res ? res.text : `trace_memory_map: no memory accesses captured for cpu=${side}. Re-run the trace with the 'memory' domain (captures mem-row) to populate bus_events.`;
+      return { content: [{ type: "text" as const, text }] };
     }),
   );
+}
+
+/** Spec 753 P3 — finalize auto-artifact. When a finalized trace captured memory
+ *  accesses, write a `<store>.memorymap.md` sidecar next to the store (the page
+ *  map: free RAM + persistence surface). Soft-fail (never breaks finalize) and
+ *  daemon-safe (queries route through the daemon — no concurrent store open).
+ *  Returns a one-line summary to append to the finalize output, or null.
+ *
+ *  Deliberately a loose sidecar, NOT a registered knowledge artifact: per Spec
+ *  752 a trace is behaviour, not grounding — keeping it out of the artifact store
+ *  means it can never satisfy the L1 backing predicate. */
+export async function writeTraceMemoryMapSidecar(storePathRef: string, context: ServerToolContext, runLabel?: string): Promise<string | null> {
+  try {
+    const dbPath = resolveStorePath(storePathRef, context);
+    const runQuery = (sql: string) => routeStoreRead("safeQuery", dbPath, { sql, limit: 300 }, () => safeQuery(dbPath, sql, 300));
+    const res = await buildMemoryMapText(runQuery, { cpu: "c64", runLabel });
+    if (!res) return null; // no memory capture → no sidecar
+    const sidecar = dbPath.endsWith(".duckdb") ? dbPath.slice(0, -".duckdb".length) + ".memorymap.md" : dbPath + ".memorymap.md";
+    writeFileSync(sidecar, res.text, "utf8");
+    return `Memory map (mem-row captured): ${sidecar} — ${res.map.totals.freePages} free / ${res.map.totals.writtenPages} written pages (coverage = THIS RUN ONLY; runtime behaviour, not grounding).`;
+  } catch {
+    return null; // soft fail — never break finalize
+  }
 }

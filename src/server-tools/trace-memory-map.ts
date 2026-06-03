@@ -119,6 +119,49 @@ export function buildMemoryMap(input: {
   return { cpu: input.cpu, pages, regions, freeHoles, staticUntouched, totals };
 }
 
+// --- shared store-query path (tool + finalize sidecar + gate use ONE path) ---
+
+/** `cpu` MUST be a validated literal ('c64' | 'drive8') — callers gate it. */
+export function memMapAggSql(cpu: string): string {
+  return `SELECT (addr>>8) AS page, ` +
+    `COUNT(*) FILTER (WHERE kind='write') AS writes, ` +
+    `COUNT(*) FILTER (WHERE kind='read') AS reads, ` +
+    `COUNT(*) FILTER (WHERE kind='write' AND old_value IS NOT NULL AND old_value <> value) AS mutations, ` +
+    `MIN(clock) AS first_clk, MAX(clock) AS last_clk, ` +
+    `COUNT(DISTINCT pc) FILTER (WHERE kind='write') AS writer_pcs ` +
+    `FROM bus_events WHERE cpu='${cpu}' AND kind IN ('write','read') AND addr IS NOT NULL GROUP BY page ORDER BY page`;
+}
+export function memMapCodeSql(cpu: string): string {
+  return `SELECT DISTINCT (pc>>8) AS page FROM instructions WHERE cpu='${cpu}' AND pc IS NOT NULL`;
+}
+
+export function buildMemoryMapFromQueryRows(
+  aggRows: unknown[][], codeRows: unknown[][], opts: { cpu: string; staticRanges?: MemMapStaticRange[] },
+): MemMapResult {
+  const N = (v: unknown) => (v === null || v === undefined ? 0 : Number(v));
+  const pageRows: MemMapPageRow[] = aggRows.map((r) => ({
+    page: N(r[0]), writes: N(r[1]), reads: N(r[2]), mutations: N(r[3]),
+    firstClk: N(r[4]), lastClk: N(r[5]), writerPcs: N(r[6]),
+  }));
+  const codePages = new Set<number>(codeRows.map((r) => N(r[0]) & 0xff));
+  return buildMemoryMap({ cpu: opts.cpu, pageRows, codePages, staticRanges: opts.staticRanges });
+}
+
+/** Build the rendered map text from a store via a query runner (daemon-routed
+ *  safeQuery, or a local duckdb conn). Returns null when the trace captured no
+ *  memory accesses (no mem-row domain) — callers skip the sidecar / report none. */
+export async function buildMemoryMapText(
+  runQuery: (sql: string) => Promise<unknown[][]>,
+  opts: { cpu?: string; staticRanges?: MemMapStaticRange[]; runLabel?: string } = {},
+): Promise<{ text: string; map: MemMapResult } | null> {
+  const cpu = opts.cpu ?? "c64";
+  const aggRows = await runQuery(memMapAggSql(cpu));
+  if (!aggRows || aggRows.length === 0) return null;
+  const codeRows = await runQuery(memMapCodeSql(cpu));
+  const map = buildMemoryMapFromQueryRows(aggRows, codeRows, { cpu, staticRanges: opts.staticRanges });
+  return { text: renderMemoryMap(map, { runLabel: opts.runLabel }), map };
+}
+
 const ROLE_CHAR: Record<MemRole, string> = {
   "code": "C", "code-write": "c", "data-w": "W", "data-w-mut": "M", "data-r": "R", "untouched": ".",
 };

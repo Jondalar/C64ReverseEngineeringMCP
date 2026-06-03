@@ -480,11 +480,15 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         // wait_index=true: stop + await the background DuckDB index so the store is
         // queryable on return (the LLM queries next); the UI's instant button omits it.
         const { run } = await runtimeDaemon.traceStop<{ run: { runId: string; eventCount: number; bytesWritten: number; marks: unknown[]; cycleStart: number; cycleEnd: number; evidenceRef: string } }>(session_id, true);
+        // Spec 753 — auto-write the page memory map sidecar if mem-row was captured (soft-fail).
+        const { writeTraceMemoryMapSidecar } = await import("./trace-store.js");
+        const mm = await writeTraceMemoryMapSidecar(run.evidenceRef, context, run.runId);
         return { content: [{ type: "text" as const, text: [
           `Trace finalized (Runtime Daemon) — run ${run.runId}`,
           `Events: ${run.eventCount}  bytes: ${run.bytesWritten}  marks: ${run.marks.length}`,
           `Cycles: ${run.cycleStart}..${run.cycleEnd}`,
           `Store: ${run.evidenceRef}`,
+          ...(mm ? [mm] : []),
           `Query it with trace_store_query / trace_store_top_pcs / runtime_swimlane_slice (duckdb_path = the store).`,
         ].join("\n") }] };
       }
@@ -493,11 +497,15 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       if (!ctrl?.traceRun.isActive()) throw new Error(`No active trace on session ${session_id}.`);
       const run = await ctrl.traceRun.stop();
       await ctrl.traceRun.awaitIndex(); // queryable store on return (background index)
+      // Spec 753 — auto-write the page memory map sidecar if mem-row was captured (soft-fail).
+      const { writeTraceMemoryMapSidecar } = await import("./trace-store.js");
+      const mm = await writeTraceMemoryMapSidecar(run.evidenceRef, context, run.runId);
       return { content: [{ type: "text" as const, text: [
         `Trace finalized — run ${run.runId}`,
         `Events: ${run.eventCount}  bytes: ${run.bytesWritten}  marks: ${run.marks.length}`,
         `Cycles: ${run.cycleStart}..${run.cycleEnd}`,
         `Store: ${run.evidenceRef}`,
+        ...(mm ? [mm] : []),
         `Query it with trace_store_query / trace_store_top_pcs / runtime_query_events (duckdb_path = the store).`,
       ].join("\n") }] };
     },
