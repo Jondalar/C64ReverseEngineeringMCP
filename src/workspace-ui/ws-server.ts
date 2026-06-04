@@ -1727,7 +1727,7 @@ export class WsServer {
       // scan C64RE_PROJECT_DIR for the _analysis.json whose mapping covers the
       // address, load its effective segments (annotation overlay, BUG-034-safe) +
       // its xrefs. The daemon reads the project files; no write, no reverse-RPC.
-      const projectRead = async (pop: "inspect" | "xref", pargs: Record<string, unknown>): Promise<string> => {
+      const projectRead = async (pop: "inspect" | "xref" | "sym", pargs: Record<string, unknown>): Promise<string> => {
         const projectDir = process.env.C64RE_PROJECT_DIR;
         if (!projectDir) throw new Error("no C64RE_PROJECT_DIR");
         const addr = Number(pargs.addr) & 0xffff;
@@ -1747,6 +1747,19 @@ export class WsServer {
         walk(projectDir, 0);
         const stem = pargs.stem ? String(pargs.stem) : undefined;
         const candidates = stem ? found.filter((p) => path.basename(p).startsWith(stem)) : found;
+        // sym <name> — reverse lookup: scan the project analysis for a segment
+        // labelled <name> → its address (the new value; addr→label is `inspect`).
+        if (pop === "sym") {
+          const name = String(pargs.query ?? "");
+          if (!name) throw new Error("sym: a name is required");
+          const { loadEffectiveSegments } = await import("../project-knowledge/effective-segments.js");
+          for (const p of candidates) {
+            let segs: any[]; try { segs = loadEffectiveSegments(p).segments; } catch { continue; }
+            const m = segs.find((g) => g.label === name);
+            if (m) return `sym ${name} = $${(m.start & 0xffff).toString(16).padStart(4, "0")}  (${path.basename(p).replace(/_analysis\.json$/, "")}, ${m.kind})`;
+          }
+          throw new Error(`no symbol named "${name}" in the project analysis`);
+        }
         // Range-match via a small head read (avoid parsing multi-MB files).
         let hit: string | undefined;
         for (const p of candidates) {

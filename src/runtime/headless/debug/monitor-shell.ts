@@ -52,7 +52,7 @@ export interface MonitorShellCtx {
   // Spec 754 §3.3f/§3.6 (Q1) — read-only project-artifact bridge (inspect/xref).
   // The WS server scans C64RE_PROJECT_DIR for the _analysis.json covering an
   // address (loadEffectiveSegments overlay, BUG-034-safe); monitor-shell calls it.
-  projectRead?: (op: "inspect" | "xref", args: Record<string, unknown>) => Promise<string>;
+  projectRead?: (op: "inspect" | "xref" | "sym", args: Record<string, unknown>) => Promise<string>;
 }
 
 const LENSES: readonly MemBankLens[] = ["cpu", "ram", "rom", "io", "cart"];
@@ -708,6 +708,15 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       try { return { output: await ctx.projectRead("xref", { addr, stem: tokens[2] }) }; }
       catch (e) { return { error: `xref: ${e instanceof Error ? e.message : String(e)}` }; }
     }
+    // sym <name> [stem] — reverse symbol lookup: a named routine/label -> address
+    // (addr->label is `inspect`). (label/note WRITES stay LLM/UI per Q1.)
+    if (op === "sym") {
+      if (!ctx.projectRead) return { error: "sym: project-read bridge unavailable (run via the daemon)" };
+      const q = tokens[1];
+      if (!q) return { error: "sym: usage: sym <name> [artifact-stem]" };
+      try { return { output: await ctx.projectRead("sym", { query: q, stem: tokens[2] }) }; }
+      catch (e) { return { error: `sym: ${e instanceof Error ? e.message : String(e)}` }; }
+    }
 
     // ---- Reset ------------------------------------------------------------
     if (op === "reset") {
@@ -768,7 +777,8 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "    chis [cycles]    replay from the nearest checkpoint → recent stream swimlane (non-destructive)\n" +
         "  KNOWLEDGE (reads the project _analysis.json that covers the address)\n" +
         "    inspect <a> [stem]  segment kind/label + xrefs at a\n" +
-        "    xref <a> [stem]     who calls/jumps/reads/writes a (in + out)" };
+        "    xref <a> [stem]     who calls/jumps/reads/writes a (in + out)\n" +
+        "    sym <name> [stem]   reverse lookup: named routine/label -> address" };
     }
 
     return { error: `unknown command: ${op}. Try 'help'.` };

@@ -435,6 +435,8 @@ console.log("\nSpec 754 — Part J: inspect/xref bridge (Block H/F)\n");
     ok("J1 `inspect <addr>` calls projectRead (op=inspect, addr=$025C)", calls.at(-1)?.op === "inspect" && calls.at(-1)?.args.addr === 0x025c);
     await mon("xref d018 block2");
     ok("J2 `xref <addr> [stem]` passes addr + stem", calls.at(-1)?.op === "xref" && calls.at(-1)?.args.addr === 0xd018 && calls.at(-1)?.args.stem === "block2");
+    await mon("sym print_string");
+    ok("J4 `sym <name>` calls projectRead (op=sym, query=name)", calls.at(-1)?.op === "sym" && calls.at(-1)?.args.query === "print_string");
     const nb = await runMonitorCommand({ session, ctrl, sessionId, memCursors: new Map(), disasmCursors: new Map() }, "inspect 1000");
     ok("J3 `inspect` without the bridge reports unavailable (not a crash)", /unavailable/.test(nb.error ?? ""));
   } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
