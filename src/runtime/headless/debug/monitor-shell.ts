@@ -45,6 +45,10 @@ export interface MonitorShellCtx {
   sessionId: string;
   memCursors: Map<string, number>;
   disasmCursors: Map<string, number>;
+  // Spec 754 §3.3h — trace-store read bridge (map/taint/swimlane). Provided by
+  // the WS server (it owns the daemon trace-store readers + currentStorePath);
+  // monitor-shell stays runtime-pure. Returns rendered text or throws (no store).
+  traceRead?: (op: "map" | "taint" | "swimlane", args: Record<string, unknown>) => Promise<string>;
 }
 
 const LENSES: readonly MemBankLens[] = ["cpu", "ram", "rom", "io", "cart"];
@@ -644,6 +648,35 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       }
       return { output: lines.join("\n") };
     }
+    // map [cpu] — trace_memory_map: free RAM / persistence surface over the live
+    // (or last) trace. Needs a trace (`trace on` first). taint/swimlane likewise.
+    if (op === "map") {
+      if (!ctx.traceRead) return { error: "map: trace-read bridge unavailable (run via the daemon)" };
+      const cpu = (tokens[1] ?? "c64").toLowerCase();
+      if (cpu !== "c64" && cpu !== "drive8") return { error: "map: cpu must be c64|drive8" };
+      try { return { output: await ctx.traceRead("map", { cpu }) }; }
+      catch (e) { return { error: `map: ${e instanceof Error ? e.message : String(e)}` }; }
+    }
+    // taint <addr> [cycle] — data-flow taint backward from (cycle, addr). cycle
+    // defaults to now. Shows what wrote the value + its sources.
+    if (op === "taint") {
+      if (!ctx.traceRead) return { error: "taint: trace-read bridge unavailable (run via the daemon)" };
+      const addr = parseAddr(tokens[1]);
+      if (addr === null) return { error: "taint: usage: taint <addr> [cycle]" };
+      const startCycle = parseInt(tokens[2] ?? String(s.c64Cpu.cycles), 10) || s.c64Cpu.cycles;
+      try { return { output: await ctx.traceRead("taint", { startAddr: addr, startCycle }) }; }
+      catch (e) { return { error: `taint: ${e instanceof Error ? e.message : String(e)}` }; }
+    }
+    // swimlane [start] [end] — CHIS swimlane (c64-CPU/IRQ/NMI/IO/1541 lanes) over
+    // a cycle window (default the last ~2000 cycles).
+    if (op === "swimlane" || op === "sw") {
+      if (!ctx.traceRead) return { error: "swimlane: trace-read bridge unavailable (run via the daemon)" };
+      const now = s.c64Cpu.cycles;
+      const start = parseInt(tokens[1] ?? String(Math.max(0, now - 2000)), 10);
+      const end = parseInt(tokens[2] ?? String(now), 10);
+      try { return { output: await ctx.traceRead("swimlane", { cycleStart: start, cycleEnd: end }) }; }
+      catch (e) { return { error: `swimlane: ${e instanceof Error ? e.message : String(e)}` }; }
+    }
 
     // ---- Reset ------------------------------------------------------------
     if (op === "reset") {
@@ -696,7 +729,11 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "  STATE / TRACE\n" +
         "    dump|undump <p>  snapshot persist/restore (.c64re, Spec 707)\n" +
         "    trace on|off|status|mark   live trace gate (Spec 746)\n" +
-        "    tracedb start|stop|status|mark   declarative trace (Spec 708)" };
+        "    tracedb start|stop|status|mark   declarative trace (Spec 708)\n" +
+        "  ANALYSIS (need a trace — `trace on` first)\n" +
+        "    map [cpu]        memory map: free RAM / persistence surface\n" +
+        "    taint <a> [cyc]  data-flow taint backward from (cyc,addr)\n" +
+        "    swimlane [s] [e] CHIS swimlane (cpu/irq/nmi/io/1541 lanes) over a cycle window" };
     }
 
     return { error: `unknown command: ${op}. Try 'help'.` };

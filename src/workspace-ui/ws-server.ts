@@ -1650,8 +1650,43 @@ export class WsServer {
       const s = getIntegratedSession(session_id);
       if (!s) return { error: `no session ${session_id}` };
       const ctrl = controllerFor(session_id);
+      // Spec 754 §3.3h — the trace-store read bridge (map/taint/swimlane). The WS
+      // server owns the daemon trace readers + currentStorePath; monitor-shell
+      // stays runtime-pure and calls ctx.traceRead. In-daemon read-only open
+      // (BUG-029): no cross-process lock.
+      const traceRead = async (mop: "map" | "taint" | "swimlane", margs: Record<string, unknown>): Promise<string> => {
+        const sp = ctrl.traceRun.currentStorePath?.();
+        if (!sp?.path) throw new Error("no trace store — run `trace on` first");
+        const { ensureIndex } = await import("../runtime/headless/trace/background-indexer.js");
+        await ensureIndex(sp.path);
+        const { withDuckDb } = await import("../server-tools/runtime.js");
+        return withDuckDb(sp.path, async (conn: any, backend: any) => {
+          if (mop === "map") {
+            const runQuery = async (sql: string) =>
+              (await conn.runAndReadAll(sql)).getRows().map((r: unknown[]) => r.map((c) => typeof c === "bigint" ? Number(c) : c));
+            const { buildMemoryMapText } = await import("../server-tools/trace-memory-map.js");
+            const r = await buildMemoryMapText(runQuery, { cpu: String(margs.cpu ?? "c64") });
+            return r?.text ?? "map: empty (the trace captured no memory accesses — enable the memory domain)";
+          }
+          if (mop === "taint") {
+            const { traceTaint } = await import("../runtime/headless/v2/taint.js");
+            const g: any = await traceTaint(backend, { runId: sp.runId, startCycle: Number(margs.startCycle), startAddr: Number(margs.startAddr) } as never);
+            const ns: any[] = Object.values(g.nodes ?? {});
+            const hx = (n: number) => (n & 0xffff).toString(16).padStart(4, "0");
+            if (!ns.length) return `taint: no contributing write found for $${hx(Number(margs.startAddr))} in the window`;
+            const lines = [`taint $${hx(Number(margs.startAddr))} @cyc ${margs.startCycle} — ${ns.length} node(s)${g.truncated ? " (truncated)" : ""}:`];
+            for (const n of ns.slice(0, 40)) lines.push(`  cyc ${n.cycle} pc=$${hx(n.pc ?? 0)} ${n.contribution} $${hx(n.addr ?? 0)}=$${(n.value ?? 0).toString(16).padStart(2, "0")}`);
+            return lines.join("\n");
+          }
+          // swimlane
+          const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
+          const { renderMarkdown } = await import("../runtime/headless/v2/swimlane-render.js");
+          const slice = await swimlaneSlice(backend, { runId: sp.runId, cycleRange: [Number(margs.cycleStart), Number(margs.cycleEnd)], compact: true } as never);
+          return renderMarkdown(slice, { maxRows: 200 });
+        });
+      };
       return runMonitorCommand(
-        { session: s, ctrl, sessionId: session_id, memCursors: monitorMemAddr, disasmCursors: monitorDisasmAddr },
+        { session: s, ctrl, sessionId: session_id, memCursors: monitorMemAddr, disasmCursors: monitorDisasmAddr, traceRead },
         String(command ?? ""),
       );
     });

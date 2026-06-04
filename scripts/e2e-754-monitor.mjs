@@ -389,6 +389,32 @@ console.log("\nSpec 754 — Part H: capability verbs flow + bt (Block H)\n");
 }
 
 // =====================================================================
+// Part I — Block H map/taint/swimlane (trace bridge wiring + args).
+// =====================================================================
+console.log("\nSpec 754 — Part I: map/taint/swimlane bridge (Block H)\n");
+{
+  const { session, sessionId } = startIntegratedSession({});
+  const ctrl = new RuntimeController(sessionId, session, () => {});
+  try {
+    session.resetCold("pal-default");
+    const calls = [];
+    const ctx = {
+      session, ctrl, sessionId, memCursors: new Map(), disasmCursors: new Map(),
+      traceRead: async (op, args) => { calls.push({ op, args }); return `STUB ${op} ${JSON.stringify(args)}`; },
+    };
+    const mon = (cmd) => runMonitorCommand(ctx, cmd);
+    const m = (await mon("map")).output ?? "";
+    ok("I1 `map` calls the trace bridge (op=map, cpu=c64)", calls.at(-1)?.op === "map" && calls.at(-1)?.args.cpu === "c64" && /STUB map/.test(m));
+    await mon("taint c800 12345");
+    ok("I2 `taint <addr> <cyc>` passes startAddr + startCycle", calls.at(-1)?.op === "taint" && calls.at(-1)?.args.startAddr === 0xc800 && calls.at(-1)?.args.startCycle === 12345);
+    await mon("swimlane 100 200");
+    ok("I3 `swimlane s e` passes the cycle window", calls.at(-1)?.op === "swimlane" && calls.at(-1)?.args.cycleStart === 100 && calls.at(-1)?.args.cycleEnd === 200);
+    const noBridge = await runMonitorCommand({ session, ctrl, sessionId, memCursors: new Map(), disasmCursors: new Map() }, "map");
+    ok("I4 `map` without the bridge reports unavailable (not a crash)", /unavailable/.test(noBridge.error ?? ""));
+  } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
+}
+
+// =====================================================================
 // Part C — BUG-037: the dead second parser is retired.
 // =====================================================================
 console.log("\nSpec 754 — Part C: one canonical monitor (BUG-037)\n");
