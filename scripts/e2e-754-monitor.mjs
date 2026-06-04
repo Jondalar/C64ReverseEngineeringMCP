@@ -604,12 +604,51 @@ console.log("\nSpec 754 — Part M: swimlane TUI render (renderText)\n");
     { cycle: 102 }, // empty filler — must be dropped
     { cycle: 104, c64Pc: 0xc002, c64Op: "STA abs", c64Flow: "main", c64IoRw: "w", c64IoAddr: 0xd020, c64IoValue: 0 },
   ] };
-  const txt = renderText(slice, { maxRows: 200 });
+  const txt = renderText(slice, { maxRows: 200, fold: false });
   ok("M1 no markdown pipes", !txt.includes("|"), txt.split("\n")[0]);
   ok("M2 idle drive/iec columns dropped", !/1541|drv_io/.test(txt) && !/\biec\b/.test(txt));
   ok("M3 io column kept when data present", /\bio\b/.test(txt) && /D020 w=00/.test(txt));
   ok("M4 empty filler row dropped (only the 2 data rows)", (txt.match(/c00[02]/gi) ?? []).length === 2 && !/\b102\b/.test(txt));
   ok("M5 flow column dropped when all 'main'", !/\bflow\b/.test(txt) && !/\bmain\b/.test(txt));
+
+  // M6 — a same-flow loop folds: body once + ↺×N.
+  const loop = [];
+  for (let r = 0; r < 4; r++) loop.push(
+    { cycle: 1000 + r * 4, c64Pc: 0xc000, c64Op: "SBC #imm", c64Flow: "main" },
+    { cycle: 1002 + r * 4, c64Pc: 0xc002, c64Op: "BNE rel", c64Flow: "main" });
+  const t6 = renderText({ startCycle: 1000, endCycle: 1100, compact: true, rows: loop });
+  ok("M6 same-flow loop folds (body 1x + ↺×4)", /↺×4/.test(t6) && (t6.match(/c000/gi) ?? []).length === 1, t6.split("\n").find((l) => /↺/.test(l)));
+
+  // M7 — an IRQ block in the middle FENCES the fold (two groups, irq between).
+  const fenced = [
+    { cycle: 10, c64Pc: 0xc000, c64Op: "SBC #imm", c64Flow: "main" }, { cycle: 12, c64Pc: 0xc002, c64Op: "BNE rel", c64Flow: "main" },
+    { cycle: 14, c64Pc: 0xc000, c64Op: "SBC #imm", c64Flow: "main" }, { cycle: 16, c64Pc: 0xc002, c64Op: "BNE rel", c64Flow: "main" },
+    { cycle: 18, c64Pc: 0xea31, c64Op: "PHA", c64Flow: "irq" },
+    { cycle: 20, c64Pc: 0xc000, c64Op: "SBC #imm", c64Flow: "main" }, { cycle: 22, c64Pc: 0xc002, c64Op: "BNE rel", c64Flow: "main" },
+    { cycle: 24, c64Pc: 0xc000, c64Op: "SBC #imm", c64Flow: "main" }, { cycle: 26, c64Pc: 0xc002, c64Op: "BNE rel", c64Flow: "main" },
+  ];
+  const t7 = renderText({ startCycle: 10, endCycle: 30, compact: true, rows: fenced });
+  ok("M7 IRQ fences the fold (2 groups, irq not folded in)", (t7.match(/↺×2/g) ?? []).length === 2 && /ea31/i.test(t7) && /\birq\b/.test(t7), t7);
+
+  // M8 — polling loop: same PCs, different read each pass → IO range, not swallowed.
+  const poll = [
+    { cycle: 10, c64Pc: 0x24e6, c64Op: "LDA abs", c64Flow: "main", c64IoRw: "r", c64IoAddr: 0xd012, c64IoValue: 0x9d },
+    { cycle: 12, c64Pc: 0x24e9, c64Op: "BNE rel", c64Flow: "main" },
+    { cycle: 14, c64Pc: 0x24e6, c64Op: "LDA abs", c64Flow: "main", c64IoRw: "r", c64IoAddr: 0xd012, c64IoValue: 0xa2 },
+    { cycle: 16, c64Pc: 0x24e9, c64Op: "BNE rel", c64Flow: "main" },
+  ];
+  const t8 = renderText({ startCycle: 10, endCycle: 20, compact: true, rows: poll });
+  ok("M8 varying poll value folds to a range ($D012 r=9D..A2)", /D012 r=9D\.\.A2/.test(t8), t8.split("\n").find((l) => /D012/.test(l)));
+
+  // M9 — a partial trailing instruction after the loop is shown normally.
+  const trailing = [
+    { cycle: 10, c64Pc: 0xc000, c64Op: "SBC #imm", c64Flow: "main" }, { cycle: 12, c64Pc: 0xc002, c64Op: "BNE rel", c64Flow: "main" },
+    { cycle: 14, c64Pc: 0xc000, c64Op: "SBC #imm", c64Flow: "main" }, { cycle: 16, c64Pc: 0xc002, c64Op: "BNE rel", c64Flow: "main" },
+    { cycle: 18, c64Pc: 0xc000, c64Op: "SBC #imm", c64Flow: "main" }, { cycle: 20, c64Pc: 0xc002, c64Op: "BNE rel", c64Flow: "main" },
+    { cycle: 22, c64Pc: 0xc004, c64Op: "RTS", c64Flow: "main" },
+  ];
+  const t9 = renderText({ startCycle: 10, endCycle: 30, compact: true, rows: trailing });
+  ok("M9 loop folds ×3, trailing RTS shown after", /↺×3/.test(t9) && /c004/i.test(t9) && /RTS/.test(t9), t9);
 }
 
 // =====================================================================

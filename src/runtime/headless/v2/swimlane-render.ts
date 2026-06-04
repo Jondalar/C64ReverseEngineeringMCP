@@ -72,11 +72,81 @@ export function renderMarkdown(slice: SwimlaneSlice, opts: RenderMarkdownOpts = 
 
 // ── Plain-text (TUI) renderer ─────────────────────────────────────────────────
 // For the interactive monitor console (Spec 754): NO markdown pipes, columns
-// space-aligned, and a lane is shown ONLY if it carries data in the window
-// (drive/IEC/IO/flow columns vanish when idle). Empty filler rows are dropped.
-export function renderText(slice: SwimlaneSlice, opts: RenderMarkdownOpts = {}): string {
+// space-aligned, a lane is shown ONLY if it carries data (drive/IEC/IO/flow
+// vanish when idle), empty filler rows dropped, and consecutive loop iterations
+// are FOLDED (body once + `↺×N`).
+//
+// Fold rules (the cycle-accurate-stream subtleties, per the user):
+//  - FLOW-SCOPED: the fold key includes the flow lane (main/irq/nmi) + the c64
+//    and drive PC/op "shape" — NOT the IO/bus values (those are the varying part).
+//  - INTERRUPT-FENCED: because flow is in the key, an IRQ/NMI block in the middle
+//    of a main loop breaks the fold automatically → you SEE when the IRQ hit.
+//  - VARIATION KEPT: a polling loop (same PCs, different read each pass) folds the
+//    body once and summarises the varying IO cell as a range (`$D012 r=9D..A2`),
+//    so the exit condition isn't silently swallowed.
+type Cells = { cycle: string; c64: string; flow: string; io: string; bus: string; drv: string; dio: string };
+
+/** Merge one body-row position across its iterations: shape stays, varying
+ *  IO/bus cells become a range/summary. */
+function summarizeCell(vals: string[]): string {
+  const distinct = [...new Set(vals.filter((v) => v !== ""))];
+  if (distinct.length <= 1) return distinct[0] ?? "";
+  // `$ADDR rw=VAL` sharing the same `$ADDR rw=` prefix → collapse to MIN..MAX.
+  const m = distinct.map((s) => s.match(/^(\$[0-9A-F]+ [rw]=)([0-9A-F]+)$/));
+  if (m.every((x) => x) && new Set(m.map((x) => x![1])).size === 1) {
+    const vs = m.map((x) => parseInt(x![2], 16));
+    const lo = Math.min(...vs).toString(16).toUpperCase().padStart(2, "0");
+    const hi = Math.max(...vs).toString(16).toUpperCase().padStart(2, "0");
+    return `${m[0]![1]}${lo}..${hi}`;
+  }
+  return `${distinct[0]} …`;
+}
+
+interface FoldGroup { reps: number; body: Cells[]; }
+function foldCells(all: Cells[], maxPeriod = 64): (Cells | FoldGroup)[] {
+  const key = (c: Cells) => `${c.flow}${c.c64}${c.drv}`; // shape only
+  const out: (Cells | FoldGroup)[] = [];
+  let i = 0;
+  while (i < all.length) {
+    let found: { L: number; reps: number } | null = null;
+    const maxL = Math.min(maxPeriod, Math.floor((all.length - i) / 2));
+    for (let L = 1; L <= maxL; L++) {
+      let reps = 1;
+      for (;;) {
+        let match = true;
+        for (let k = 0; k < L; k++) {
+          if (i + reps * L + k >= all.length || key(all[i + k]!) !== key(all[i + reps * L + k]!)) { match = false; break; }
+        }
+        if (!match) break;
+        reps++;
+      }
+      if (reps >= 2 && L * reps >= 3) { found = { L, reps }; break; } // smallest period wins
+    }
+    if (found) {
+      const { L, reps } = found;
+      const body: Cells[] = [];
+      for (let k = 0; k < L; k++) {
+        const variants = Array.from({ length: reps }, (_, r) => all[i + r * L + k]!);
+        body.push({
+          ...variants[0]!,
+          io: summarizeCell(variants.map((v) => v.io)),
+          bus: summarizeCell(variants.map((v) => v.bus)),
+          dio: summarizeCell(variants.map((v) => v.dio)),
+        });
+      }
+      out.push({ reps, body });
+      i += L * reps;
+    } else {
+      out.push(all[i]!); i++;
+    }
+  }
+  return out;
+}
+
+export interface RenderTextOpts extends RenderMarkdownOpts { fold?: boolean; }
+
+export function renderText(slice: SwimlaneSlice, opts: RenderTextOpts = {}): string {
   const maxRows = opts.maxRows ?? 200;
-  type Cells = { cycle: string; c64: string; flow: string; io: string; bus: string; drv: string; dio: string };
   const all: Cells[] = slice.rows.map((row) => ({
     cycle: String(row.cycle),
     c64: (row.c64Pc !== undefined ? hex(row.c64Pc) : "") + (row.c64Op ? " " + row.c64Op : ""),
@@ -86,10 +156,19 @@ export function renderText(slice: SwimlaneSlice, opts: RenderMarkdownOpts = {}):
     drv: (row.drvPc !== undefined ? hex(row.drvPc) : "") + (row.drvOp ? " " + row.drvOp : ""),
     dio: fmtIo(row.drvIoRw, row.drvIoAddr, row.drvIoValue),
   })).filter((c) => c.c64 || c.io || c.bus || c.drv || c.dio); // drop empty filler rows
-  const shown = all.slice(0, maxRows);
-  const truncated = all.length > maxRows;
+
+  const items = (opts.fold === false) ? all.map((c) => c as Cells | FoldGroup) : foldCells(all);
+  // Expand to render-rows; a fold group's first body row carries the `↺×N` tag.
+  const rr: { c: Cells; tag?: string }[] = [];
+  for (const it of items) {
+    if ("reps" in it) it.body.forEach((c, idx) => rr.push({ c, tag: idx === 0 ? `↺×${it.reps}` : undefined }));
+    else rr.push({ c: it });
+  }
+  const shown = rr.slice(0, maxRows);
+  const truncated = rr.length > maxRows;
   if (!shown.length) return `swimlane ${slice.startCycle}–${slice.endCycle}: (no events in window)`;
-  const has = (k: keyof Cells) => shown.some((c) => c[k] !== "" && !(k === "flow" && c[k] === "main"));
+
+  const has = (k: keyof Cells) => shown.some((r) => r.c[k] !== "" && !(k === "flow" && r.c[k] === "main"));
   const cols: { key: keyof Cells; head: string }[] = [{ key: "cycle", head: "cycle" }, { key: "c64", head: "c64" }];
   if (has("flow")) cols.push({ key: "flow", head: "flow" });
   if (has("io")) cols.push({ key: "io", head: "io" });
@@ -97,14 +176,16 @@ export function renderText(slice: SwimlaneSlice, opts: RenderMarkdownOpts = {}):
   if (has("drv")) cols.push({ key: "drv", head: "1541" });
   if (has("dio")) cols.push({ key: "dio", head: "drv_io" });
   const w: Record<string, number> = {};
-  for (const c of cols) w[c.key] = Math.max(c.head.length, ...shown.map((r) => r[c.key].length), 1);
-  const line = (get: (k: keyof Cells) => string) => cols.map((c) => get(c.key).padEnd(w[c.key]!)).join("  ").trimEnd();
+  for (const c of cols) w[c.key] = Math.max(c.head.length, ...shown.map((r) => r.c[c.key].length), 1);
+  const fmtRow = (get: (k: keyof Cells) => string, tag?: string) =>
+    (cols.map((c) => get(c.key).padEnd(w[c.key]!)).join("  ") + (tag ? "  " + tag : "")).trimEnd();
+
   const lines = [
-    `swimlane ${slice.startCycle}–${slice.endCycle}${slice.compact ? " (compact)" : ""}  ${shown.length}${truncated ? "/" + all.length : ""} rows`,
-    line((k) => cols.find((c) => c.key === k)!.head),
+    `swimlane ${slice.startCycle}–${slice.endCycle}${slice.compact ? " (compact)" : ""}  ${shown.length} rows (${all.length} raw)`,
+    fmtRow((k) => cols.find((c) => c.key === k)!.head),
   ];
-  for (const r of shown) lines.push(line((k) => r[k]));
-  if (truncated) lines.push(`… ${all.length - maxRows} more — narrow with \`swimlane <s> <e>\``);
+  for (const r of shown) lines.push(fmtRow((k) => r.c[k], r.tag));
+  if (truncated) lines.push(`… ${rr.length - maxRows} more rows — narrow with \`swimlane <s> <e>\``);
   return lines.join("\n");
 }
 
