@@ -849,14 +849,31 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       try { return { output: await ctx.traceRead("taint", { startAddr: addr, startCycle }) }; }
       catch (e) { return { error: `taint: ${e instanceof Error ? e.message : String(e)}` }; }
     }
-    // swimlane [start] [end] — CHIS swimlane (c64-CPU/IRQ/NMI/IO/1541 lanes) over
-    // a cycle window (default the last ~2000 cycles).
+    // swimlane — pick a TRACE, render its tail. (A trace = millions of events; the
+    // default window is the last ~2000 cycles OF THE SELECTED TRACE, anchored to
+    // the store's own max(cycle) — NOT the live CPU clock, which runs on past the
+    // captured range after `trace off` → an empty table.)
+    //   swimlane list            list the stored traces (newest first)
+    //   swimlane                 newest trace, tail
+    //   swimlane <name>          that trace, tail
+    //   swimlane <name> <s> <e>  that trace, explicit cycle window
+    //   swimlane <s> <e>         newest trace, explicit cycle window
     if (op === "swimlane" || op === "sw") {
       if (!ctx.traceRead) return { error: "swimlane: trace-read bridge unavailable (run via the daemon)" };
-      const now = s.c64Cpu.cycles;
-      const start = parseInt(tokens[1] ?? String(Math.max(0, now - 2000)), 10);
-      const end = parseInt(tokens[2] ?? String(now), 10);
-      try { return { output: await ctx.traceRead("swimlane", { cycleStart: start, cycleEnd: end }) }; }
+      const a1 = tokens[1];
+      const margs: Record<string, unknown> = { lastCycles: 2000 };
+      const numAt = (t?: string) => (t !== undefined && /^\d+$/.test(t) ? parseInt(t, 10) : undefined);
+      if (a1 && a1.toLowerCase() === "list") {
+        margs.list = true;
+      } else if (numAt(a1) !== undefined) {
+        margs.cycleStart = numAt(a1);          // swimlane <s> [e] — newest trace
+        if (numAt(tokens[2]) !== undefined) margs.cycleEnd = numAt(tokens[2]);
+      } else if (a1) {
+        margs.name = a1;                        // swimlane <name> [s] [e]
+        if (numAt(tokens[2]) !== undefined) margs.cycleStart = numAt(tokens[2]);
+        if (numAt(tokens[3]) !== undefined) margs.cycleEnd = numAt(tokens[3]);
+      }
+      try { return { output: await ctx.traceRead("swimlane", margs) }; }
       catch (e) { return { error: `swimlane: ${e instanceof Error ? e.message : String(e)}` }; }
     }
     // chis [cycles] — replay from the nearest checkpoint with capture ON, render
@@ -952,7 +969,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "  ANALYSIS (need a trace — `trace on` first)\n" +
         "    map [cpu]        memory map: free RAM / persistence surface\n" +
         "    taint <a> [cyc]  data-flow taint backward from (cyc,addr)\n" +
-        "    swimlane [s] [e] swimlane (cpu/irq/nmi/io/1541 lanes) over a cycle window\n" +
+        "    swimlane [list|name] [s] [e]  trace lanes (cpu/irq/nmi/io/1541): list / newest / by name; tail ~2000cy\n" +
         "    chis [cycles]    replay from the nearest checkpoint → recent stream swimlane (non-destructive)\n" +
         "  KNOWLEDGE (reads the project _analysis.json that covers the address)\n" +
         "    inspect <a> [stem]  segment kind/label + xrefs at a\n" +

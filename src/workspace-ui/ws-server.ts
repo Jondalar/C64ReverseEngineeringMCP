@@ -1693,6 +1693,71 @@ export class WsServer {
             try { await ctrl.restoreCheckpoint(nowRef.id); } catch { /* best effort — machine may sit at replay-end */ }
           }
         }
+        // swimlane — picks a TRACE (list / newest / by name) and renders its tail.
+        // Separate from the currentStorePath block below: it can read ANY stored
+        // trace, and its default window anchors to the STORE's own max(cycle), not
+        // the live CPU clock (which runs past the captured range after `trace off`).
+        if (mop === "swimlane") {
+          const { resolveSnapshotPath } = await import("../runtime/headless/kernel/snapshot-persistence.js");
+          const fs = await import("node:fs");
+          const path = await import("node:path");
+          const dir = path.dirname(resolveSnapshotPath(`runtime/${session_id}/x.duckdb`));
+          const q = await import("../runtime/trace-store/queries.js");
+          const listStores = (): { name: string; path: string; mtime: number }[] => {
+            let ents: string[]; try { ents = fs.readdirSync(dir); } catch { return []; }
+            return ents.filter((f) => f.endsWith(".duckdb")).map((f) => {
+              const p = path.join(dir, f);
+              let mtime = 0; try { mtime = fs.statSync(p).mtimeMs; } catch { /* gone */ }
+              return { name: f.replace(/\.duckdb$/, ""), path: p, mtime };
+            }).sort((x, y) => y.mtime - x.mtime);
+          };
+          if (margs.list) {
+            const stores = listStores();
+            if (!stores.length) return "swimlane list: no traces yet (run `trace on` … `trace off`)";
+            const lines = ["traces (newest first) — `swimlane <name>`:"];
+            for (const st of stores.slice(0, 30)) {
+              try {
+                const gi: any = await q.getInfo(st.path);
+                const ev = Number(gi.tableCounts?.["events:total"] ?? 0);
+                const mn = gi.masterClockRange ? Number(gi.masterClockRange.min) : 0;
+                const mx = gi.masterClockRange ? Number(gi.masterClockRange.max) : 0;
+                lines.push(`  ${st.name}  cyc ${mn}..${mx}  events=${ev}`);
+              } catch { lines.push(`  ${st.name}  (index not built — read once to build)`); }
+            }
+            return lines.join("\n");
+          }
+          let storePath: string | undefined;
+          if (margs.name) {
+            const nm = String(margs.name).replace(/\.duckdb$/, "");
+            const cand = path.join(dir, nm + ".duckdb");
+            if (fs.existsSync(cand)) storePath = cand;
+            else return `swimlane: no trace named '${nm}' — try \`swimlane list\``;
+          } else {
+            storePath = listStores()[0]?.path ?? ctrl.traceRun.currentStorePath?.()?.path;
+          }
+          if (!storePath) return "swimlane: no trace store — run `trace on` … `trace off` first";
+          const { ensureIndex } = await import("../runtime/headless/trace/background-indexer.js");
+          await ensureIndex(storePath);
+          const { withDuckDb } = await import("../server-tools/runtime.js");
+          const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
+          const { renderMarkdown } = await import("../runtime/headless/v2/swimlane-render.js");
+          return await withDuckDb(storePath, async (conn: any, backend: any) => {
+            const rid = (await conn.runAndReadAll("SELECT run_id FROM trace_run LIMIT 1")).getRows()[0]?.[0];
+            const runId = rid != null ? String(rid) : undefined;
+            let cs = Number(margs.cycleStart);
+            let ce = Number(margs.cycleEnd);
+            if (!Number.isFinite(cs) || !Number.isFinite(ce)) {
+              const span = Number(margs.lastCycles ?? 2000);
+              const rg = (await conn.runAndReadAll("SELECT MIN(cycle), MAX(cycle) FROM trace_event WHERE cycle IS NOT NULL")).getRows()[0];
+              const mn = Number(rg?.[0] ?? 0), mx = Number(rg?.[1] ?? 0);
+              if (!Number.isFinite(ce)) ce = mx;
+              if (!Number.isFinite(cs)) cs = Math.max(mn, ce - span);
+            }
+            const slice = await swimlaneSlice(backend, { runId, cycleRange: [cs, ce], compact: true } as never);
+            const stem = path.basename(storePath!).replace(/\.duckdb$/, "");
+            return `# swimlane ${stem}  cyc ${cs}..${ce}\n` + renderMarkdown(slice, { maxRows: 200 });
+          });
+        }
         const sp = ctrl.traceRun.currentStorePath?.();
         if (!sp?.path) throw new Error("no trace store — run `trace on` first");
         const { ensureIndex } = await import("../runtime/headless/trace/background-indexer.js");
@@ -1716,11 +1781,7 @@ export class WsServer {
             for (const n of ns.slice(0, 40)) lines.push(`  cyc ${n.cycle} pc=$${hx(n.pc ?? 0)} ${n.contribution} $${hx(n.addr ?? 0)}=$${(n.value ?? 0).toString(16).padStart(2, "0")}`);
             return lines.join("\n");
           }
-          // swimlane
-          const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
-          const { renderMarkdown } = await import("../runtime/headless/v2/swimlane-render.js");
-          const slice = await swimlaneSlice(backend, { runId: sp.runId, cycleRange: [Number(margs.cycleStart), Number(margs.cycleEnd)], compact: true } as never);
-          return renderMarkdown(slice, { maxRows: 200 });
+          throw new Error(`trace read: unexpected op '${mop}' in store block`); // swimlane handled above
         });
       };
       // Spec 754 §3.3f/§3.6 (Q1) — read-only project-artifact bridge (inspect/xref):
