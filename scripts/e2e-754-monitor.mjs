@@ -169,6 +169,13 @@ console.log("\nSpec 754 — Part D: memory edit + assembler (Block C)\n");
     await mon("a c200 bne $c200"); await mon(""); // branch to self → offset $FE
     ok("D4 `a bne $c200`@$c200 → D0 FE (rel offset)", peek(0xc200) === 0xd0 && peek(0xc201) === 0xfe, `${hx(peek(0xc200))} ${hx(peek(0xc201))}`);
 
+    // D4b — `d <start> <end>` is a RANGE (VICE), and an opcode straddling `end`
+    // is still shown whole. c100 LDA #$01 (2b) + c102 STA $d020 (3b, c102..c104).
+    const dr = ((await mon("d c100 c104")).output ?? "").split("\n").filter(Boolean);
+    ok("D4b `d <start> <end>` disassembles the range (straddling opcode whole)", dr.length === 2 && /c100/i.test(dr[0] ?? "") && /c102/i.test(dr[1] ?? ""), `${dr.length} lines`);
+    const dErr = await mon("d c104 c100");
+    ok("D4c `d` end<start errors (not silent-empty)", /end .*< start/.test(dErr.error ?? ""), dErr.error);
+
     // f — fill range with a repeating pattern.
     await mon("f c300 c307 ea");
     ok("D5 `f c300 c307 ea` fills 8 bytes with $EA", [0, 1, 7].every((k) => peek(0xc300 + k) === 0xea));

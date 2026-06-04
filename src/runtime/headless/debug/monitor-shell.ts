@@ -357,15 +357,32 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       const lens = lensTok ?? bankDefaults.get(sessionId) ?? "cpu";
       if (lensTok !== null) i++;
       const start = parseAddr(tokens[i]) ?? disasmCursors.get(sessionId) ?? s.c64Cpu.pc;
-      const count = parseInt(tokens[i + 1] ?? "16", 10);
+      // `d <start> <end>` = RANGE (VICE). The 2nd arg, when present, is an END
+      // address — disassemble start..end inclusive; an opcode straddling `end` is
+      // still shown whole. Without it, a default instruction count from start.
+      const end = tokens[i + 1] !== undefined ? parseAddr(tokens[i + 1]) : null;
+      if (end !== null && end < (start & 0xffff)) {
+        return { error: `d: end $${hex(end, 4)} < start $${hex(start & 0xffff, 4)}` };
+      }
       const read = (a: number) => readByte(a & 0xffff, lens);
       const lines: string[] = [];
       let a = start & 0xffff;
-      for (let k = 0; k < count; k++) {
-        const { size, line } = disasmLine(read, a);
-        const mark = (a === s.c64Cpu.pc) ? " <-- PC" : "";
-        lines.push(line + mark);
-        a = (a + size) & 0xffff;
+      const MAX = 4096; // console safety bound for a huge range
+      let n = 0;
+      if (end !== null) {
+        while (a <= (end & 0xffff) && n < MAX) {
+          const { size, line } = disasmLine(read, a);
+          lines.push(line + (a === s.c64Cpu.pc ? " <-- PC" : ""));
+          a = (a + size) & 0xffff; n++;
+          if (a === 0) break; // wrapped past $FFFF
+        }
+        if (a <= (end & 0xffff) && n >= MAX) lines.push(`… (truncated at $${hex(a, 4)} — \`d $${hex(a, 4)} $${hex(end & 0xffff, 4)}\` to continue)`);
+      } else {
+        for (; n < 16; n++) {
+          const { size, line } = disasmLine(read, a);
+          lines.push(line + (a === s.c64Cpu.pc ? " <-- PC" : ""));
+          a = (a + size) & 0xffff;
+        }
       }
       disasmCursors.set(sessionId, a);
       return { output: lines.join("\n") };
@@ -882,7 +899,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "    reset            cold reset\n" +
         "  MEMORY (bank lens: cpu|ram|rom|io|cart, default cpu = what CPU sees)\n" +
         "    m [lens] <a> [b] memory dump ($20/row + petscii; default len $800)\n" +
-        "    d [lens] [a] [n] disassemble (n instr from a, default PC)\n" +
+        "    d [lens] [a] [end] disassemble: a..end range (VICE), or ~16 from a/PC\n" +
         "    sd [n]           step+disasm: the REAL executed path, loops folded (dynamic)\n" +
         "    df [-i] [a] [n]  follow-disasm: walk control flow (static); -i asks at branches (df t|f|b)\n" +
         "    screen           decode the 40x25 text screen (real screen pointer)\n" +
