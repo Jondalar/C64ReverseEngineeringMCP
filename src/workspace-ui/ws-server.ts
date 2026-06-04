@@ -1773,11 +1773,18 @@ export class WsServer {
           }
           if (mop === "taint") {
             const { traceTaint } = await import("../runtime/headless/v2/taint.js");
-            const g: any = await traceTaint(backend, { runId: sp.runId, startCycle: Number(margs.startCycle), startAddr: Number(margs.startAddr) } as never);
+            // Default cycle = the trace's own MAX(cycle) (NOT the live clock, which
+            // runs past the capture after `trace off`) — same anchor as swimlane.
+            let startCycle = Number(margs.startCycle);
+            if (!Number.isFinite(startCycle)) {
+              const rg = (await conn.runAndReadAll("SELECT MAX(cycle) FROM trace_event WHERE cycle IS NOT NULL")).getRows()[0];
+              startCycle = Number(rg?.[0] ?? 0);
+            }
+            const g: any = await traceTaint(backend, { runId: sp.runId, startCycle, startAddr: Number(margs.startAddr) } as never);
             const ns: any[] = Object.values(g.nodes ?? {});
             const hx = (n: number) => (n & 0xffff).toString(16).padStart(4, "0");
-            if (!ns.length) return `taint: no contributing write found for $${hx(Number(margs.startAddr))} in the window`;
-            const lines = [`taint $${hx(Number(margs.startAddr))} @cyc ${margs.startCycle} — ${ns.length} node(s)${g.truncated ? " (truncated)" : ""}:`];
+            if (!ns.length) return `taint: no contributing write found for $${hx(Number(margs.startAddr))} @cyc ${startCycle} (try an explicit cycle from \`swimlane\`/\`map\`)`;
+            const lines = [`taint $${hx(Number(margs.startAddr))} @cyc ${startCycle} — ${ns.length} node(s)${g.truncated ? " (truncated)" : ""}:`];
             for (const n of ns.slice(0, 40)) lines.push(`  cyc ${n.cycle} pc=$${hx(n.pc ?? 0)} ${n.contribution} $${hx(n.addr ?? 0)}=$${(n.value ?? 0).toString(16).padStart(2, "0")}`);
             return lines.join("\n");
           }

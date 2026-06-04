@@ -175,6 +175,13 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       prompt: asmPrompt(next),
     };
   };
+  // df -i interactive walk: format a step; a pending branch carries a
+  // `branch t/f/b>` prompt (the UI shows it) and keeps the walk in dfWalks.
+  const dfFinish = (r: { lines: string[]; pending?: DfState }): MonitorResult => {
+    if (r.pending) { dfWalks.set(sessionId, r.pending); return { output: r.lines.join("\n"), prompt: "branch t/f/b> " }; }
+    dfWalks.delete(sessionId);
+    return { output: r.lines.join("\n") };
+  };
 
   try {
     // ---- Modal assemble interception (Spec 754 §3.3c). A session in assemble
@@ -186,6 +193,13 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       if (!cmd) { asmCursors.delete(sessionId); return { output: "" }; }
       const res = await assembleAt(at, cmd);
       return res.error ? { error: res.error, prompt: asmPrompt(at) } : res;
+    }
+    // df -i modal: while an interactive walk is pending, a bare t/f/b IS the
+    // branch choice (type `t`, not `df t` — so f/t/b don't hit fill/move/break).
+    // Explicit `df t|f|b` still works (handled in the df verb below).
+    if (dfWalks.has(sessionId) && tokens.length === 1 && (op === "t" || op === "f" || op === "b")) {
+      const readCpu = (a: number) => readByte(a & 0xffff, "cpu");
+      return dfFinish(resumeDisasm(dfWalks.get(sessionId)!, readCpu, op as "t" | "f" | "b"));
     }
 
     // ---- Snapshots (Spec 707 / 623 §7) — one-shot, no RETURN repeat. -------
@@ -408,11 +422,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       const readCpu = (a: number) => readByte(a & 0xffff, "cpu");
       const sub = (tokens[1] ?? "").toLowerCase();
       const pending = dfWalks.get(sessionId);
-      if (pending && (sub === "t" || sub === "f" || sub === "b")) {
-        const r = resumeDisasm(pending, readCpu, sub as "t" | "f" | "b");
-        if (r.pending) dfWalks.set(sessionId, r.pending); else dfWalks.delete(sessionId);
-        return { output: r.lines.join("\n") };
-      }
+      if (pending && (sub === "t" || sub === "f" || sub === "b")) return dfFinish(resumeDisasm(pending, readCpu, sub as "t" | "f" | "b"));
       let i = 1;
       const interactive = tokens[i] === "-i" ? (i++, true) : false;
       const addrTok = tokens[i];
@@ -420,9 +430,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       if (addrTok !== undefined && parseAddr(addrTok) !== null) { addr = parseAddr(addrTok)!; i++; }
       else addr = disasmCursors.get(sessionId) ?? s.c64Cpu.pc;
       const n = Math.max(1, Math.min(parseInt(tokens[i] ?? "200", 10) || 200, 100000));
-      const r = followDisasm(readCpu, addr & 0xffff, n, { interactive });
-      if (r.pending) dfWalks.set(sessionId, r.pending); else dfWalks.delete(sessionId);
-      return { output: r.lines.join("\n") };
+      return dfFinish(followDisasm(readCpu, addr & 0xffff, n, { interactive }));
     }
 
     // ---- Memory edit (Spec 754 §3.3c — word commands, not VICE symbols). ---
@@ -845,7 +853,9 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       if (!ctx.traceRead) return { error: "taint: trace-read bridge unavailable (run via the daemon)" };
       const addr = parseAddr(tokens[1]);
       if (addr === null) return { error: "taint: usage: taint <addr> [cycle]" };
-      const startCycle = parseInt(tokens[2] ?? String(s.c64Cpu.cycles), 10) || s.c64Cpu.cycles;
+      // No live-clock default: omit cycle → the bridge anchors to the trace's own
+      // MAX(cycle) (same fix as swimlane — the live clock runs past the capture).
+      const startCycle = tokens[2] !== undefined ? parseInt(tokens[2], 10) : undefined;
       try { return { output: await ctx.traceRead("taint", { startAddr: addr, startCycle }) }; }
       catch (e) { return { error: `taint: ${e instanceof Error ? e.message : String(e)}` }; }
     }

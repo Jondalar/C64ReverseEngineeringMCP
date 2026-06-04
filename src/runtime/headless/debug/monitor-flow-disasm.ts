@@ -125,7 +125,7 @@ function walk(st: DfState, read: Read): DfResult {
       const fall = (st.addr + cf.size) & 0xffff;
       if (st.interactive) {
         st.pendingBranch = { taken: cf.target!, fall };
-        lines.push(`${indent(st.stack.length)}  ? branch — (t)aken $${hx4(cf.target!)} / (f)all $${hx4(fall)} / (b)oth   [df t|f|b]`);
+        lines.push(`${indent(st.stack.length)}  ? branch — (t)aken $${hx4(cf.target!)} / (f)all $${hx4(fall)} / (b)oth   [type t/f/b]`);
         return { lines, pending: st };
       }
       // non-interactive default: fall-through + annotate the taken target.

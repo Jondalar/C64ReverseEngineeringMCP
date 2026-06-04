@@ -387,10 +387,20 @@ console.log("\nSpec 754 — Part G: flow disassembly (sd / df / df -i)\n");
     ram[0xc002] = 0xd0; ram[0xc003] = 0x0c;       // BNE $C010
     ram[0xc004] = 0xea;                           // NOP (fall-through)
     ram[0xc010] = 0xea;                           // NOP (taken)
-    const dfi = (await mon("df -i c000 20")).output ?? "";
-    ok("G6 `df -i` stops at the conditional branch + asks the path", /\? branch/.test(dfi) && /\(t\)aken/.test(dfi), (dfi.split("\n").find((l) => /branch/.test(l)) ?? "").trim());
+    const dfiRes = await mon("df -i c000 20");
+    const dfi = dfiRes.output ?? "";
+    ok("G6 `df -i` stops at the branch + asks (branch prompt set)", /\? branch/.test(dfi) && /\(t\)aken/.test(dfi) && dfiRes.prompt === "branch t/f/b> ", dfiRes.prompt);
     const dff = (await mon("df f")).output ?? "";
     ok("G7 `df f` resumes the fall-through path ($C004)", /c004/i.test(dff), (dff.split("\n")[0] ?? "").trim());
+
+    // G8 — modal: while a walk is PENDING, a bare `t/f/b` is the branch choice
+    // (not the fill/move/break verb). After the walk ends, `f` is fill again.
+    const dfi2 = await mon("df -i c000 20");
+    ok("G8a re-armed `df -i` is pending again (prompt)", dfi2.prompt === "branch t/f/b> ");
+    const dffBare = (await mon("f")).output ?? "";
+    ok("G8b bare `f` (pending walk) = fall-through, NOT fill", /c004/i.test(dffBare));
+    const fillAfter = await mon("f");
+    ok("G8c after the walk, bare `f` is the fill command again", /usage/.test(fillAfter.error ?? ""), fillAfter.error);
   } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
 }
 
@@ -436,6 +446,8 @@ console.log("\nSpec 754 — Part I: map/taint/swimlane bridge (Block H)\n");
     ok("I1 `map` calls the trace bridge (op=map, cpu=c64)", calls.at(-1)?.op === "map" && calls.at(-1)?.args.cpu === "c64" && /STUB map/.test(m));
     await mon("taint c800 12345");
     ok("I2 `taint <addr> <cyc>` passes startAddr + startCycle", calls.at(-1)?.op === "taint" && calls.at(-1)?.args.startAddr === 0xc800 && calls.at(-1)?.args.startCycle === 12345);
+    await mon("taint c800");
+    ok("I2b `taint <addr>` (no cyc) omits startCycle (bridge anchors to trace max)", calls.at(-1)?.op === "taint" && calls.at(-1)?.args.startAddr === 0xc800 && calls.at(-1)?.args.startCycle === undefined);
     await mon("swimlane 100 200");
     ok("I3 `swimlane s e` passes the cycle window (newest trace)", calls.at(-1)?.op === "swimlane" && calls.at(-1)?.args.cycleStart === 100 && calls.at(-1)?.args.cycleEnd === 200);
     await mon("swimlane");
