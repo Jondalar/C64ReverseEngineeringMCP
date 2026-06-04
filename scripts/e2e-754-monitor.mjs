@@ -409,6 +409,8 @@ console.log("\nSpec 754 — Part I: map/taint/swimlane bridge (Block H)\n");
     ok("I2 `taint <addr> <cyc>` passes startAddr + startCycle", calls.at(-1)?.op === "taint" && calls.at(-1)?.args.startAddr === 0xc800 && calls.at(-1)?.args.startCycle === 12345);
     await mon("swimlane 100 200");
     ok("I3 `swimlane s e` passes the cycle window", calls.at(-1)?.op === "swimlane" && calls.at(-1)?.args.cycleStart === 100 && calls.at(-1)?.args.cycleEnd === 200);
+    await mon("chis 3000");
+    ok("I5 `chis [cycles]` passes the replay window", calls.at(-1)?.op === "chis" && calls.at(-1)?.args.windowCycles === 3000);
     const noBridge = await runMonitorCommand({ session, ctrl, sessionId, memCursors: new Map(), disasmCursors: new Map() }, "map");
     ok("I4 `map` without the bridge reports unavailable (not a crash)", /unavailable/.test(noBridge.error ?? ""));
   } finally { ctrl.pause(); stopIntegratedSession(sessionId); }

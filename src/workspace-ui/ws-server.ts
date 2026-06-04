@@ -1654,7 +1654,45 @@ export class WsServer {
       // server owns the daemon trace readers + currentStorePath; monitor-shell
       // stays runtime-pure and calls ctx.traceRead. In-daemon read-only open
       // (BUG-029): no cross-process lock.
-      const traceRead = async (mop: "map" | "taint" | "swimlane", margs: Record<string, unknown>): Promise<string> => {
+      const traceRead = async (mop: "map" | "taint" | "swimlane" | "chis", margs: Record<string, unknown>): Promise<string> => {
+        // chis = replay-from-checkpoint → render. Generates its OWN store (does not
+        // read currentStorePath). Non-destructive: save now, restore the nearest
+        // checkpoint, replay-with-capture to now, swimlane, restore now.
+        if (mop === "chis") {
+          const windowCycles = Number(margs.windowCycles ?? 5000);
+          const nowCycles = s.c64Cpu.cycles;
+          if (ctrl.traceRun.isActive()) throw new Error("a trace is active — `trace off` first");
+          const refs = ctrl.checkpointRing.list();
+          if (!refs.length) throw new Error("no checkpoint in the ring yet — run the machine (it auto-captures while running)");
+          let pick = refs[0]!;
+          for (const r of refs) if (r.cycles <= nowCycles - windowCycles) pick = r;
+          const nowRef = await ctrl.captureCheckpoint();
+          try {
+            await ctrl.restoreCheckpoint(pick.id);
+            const fromCycles = s.c64Cpu.cycles;
+            const toRun = nowCycles - fromCycles;
+            if (toRun <= 0) throw new Error("nearest checkpoint is at/after now — nothing to replay");
+            const { captureAllDef } = await import("../server-tools/runtime-trace-sink.js");
+            const { resolveSnapshotPath } = await import("../runtime/headless/kernel/snapshot-persistence.js");
+            const def = captureAllDef(["c64-cpu", "iec", "memory"] as never);
+            const outputPath = resolveSnapshotPath(`runtime/${session_id}/chis_${Date.now().toString(36)}.duckdb`);
+            const run = await ctrl.traceRun.start(def, { controller: ctrl, outputPath });
+            s.runFor(Math.ceil(toRun / 2) + 2000, { cycleBudget: toRun });
+            const stopped = await ctrl.traceRun.stop();
+            const storePath = stopped.evidenceRef ?? outputPath;
+            const { ensureIndex } = await import("../runtime/headless/trace/background-indexer.js");
+            await ensureIndex(storePath);
+            const { withDuckDb } = await import("../server-tools/runtime.js");
+            const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
+            const { renderMarkdown } = await import("../runtime/headless/v2/swimlane-render.js");
+            return await withDuckDb(storePath, async (_conn: any, backend: any) => {
+              const slice = await swimlaneSlice(backend, { runId: stopped.runId ?? run.runId, cycleRange: [fromCycles, nowCycles], compact: true } as never);
+              return `chis: replayed ${toRun} cyc from checkpoint @cyc ${fromCycles}\n` + renderMarkdown(slice, { maxRows: 200 });
+            });
+          } finally {
+            try { await ctrl.restoreCheckpoint(nowRef.id); } catch { /* best effort — machine may sit at replay-end */ }
+          }
+        }
         const sp = ctrl.traceRun.currentStorePath?.();
         if (!sp?.path) throw new Error("no trace store — run `trace on` first");
         const { ensureIndex } = await import("../runtime/headless/trace/background-indexer.js");
