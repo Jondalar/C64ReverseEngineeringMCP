@@ -1792,7 +1792,7 @@ export class WsServer {
         return lines.join("\n");
       };
       return runMonitorCommand(
-        { session: s, ctrl, sessionId: session_id, memCursors: monitorMemAddr, disasmCursors: monitorDisasmAddr, traceRead, projectRead },
+        { session: s, ctrl, sessionId: session_id, memCursors: monitorMemAddr, disasmCursors: monitorDisasmAddr, traceRead, projectRead, projectDir: this.projectDir },
         String(command ?? ""),
       );
     });

@@ -284,9 +284,21 @@ note <addr> "<text>"    drop a finding/comment from the monitor (persists)
 - `d` disassembly shows labels/comments/xref **inline** (annotated, couples §3.3b) —
   EXPERIMENTAL ("try it"): the annotated-listing data rendered live in the monitor.
 
-### 3.3g File I/O + FS mini-shell (Block G) — DECIDED (2026-06-03)
+### 3.3g File I/O + FS mini-shell (Block G) — DONE v1 (2026-06-04)
 The VICE monitor is also a filesystem mini-shell — the user uses it constantly while
 cracking (load a sample, save a patched PRG). Add it, rooted at the project dir.
+
+**v1 shipped (gate e2e:754 Part K, 80/80):** the FS mini-shell
+(`pwd`/`cd`/`ls`/`dir`/`mkdir`/`rmdir`, per-session cwd starting at the WS server's
+`projectDir`) + file I/O (`load`/`save`/`bload`/`bsave`). Paths resolve relative to
+the session cwd via `resolveFsPath`; absolute paths allowed. `load` uses
+`session.loadPrgIntoRam` (CBM header → load addr, or override) and sets the disasm
+cursor; `save` writes a 2-byte-load-addr PRG; `bload`/`bsave` are raw (no header)
+over `c64Bus.ram[]`. monitor-shell stays runtime-pure (just node:fs); the WS server
+passes `projectDir`. **Deferred:** `[dev]` arg on load/save (Block I device plumbing);
+the disk verbs `attach`/`detach`/`@"<cmd>"` (need the media-mount path); the
+`snap`/`unsnap` ↔ `dump`/`undump` rename (the `.vsf` codec is **Spec 755** — until
+that lands, `dump`/`undump` keep their current `.c64re` meaning, no rename).
 
 **FS mini-shell (rooted at `C64RE_PROJECT_DIR`):**
 ```
@@ -473,11 +485,12 @@ Plus VICE's `memspace` prefixes (`c:` / `8:`) so commands address the C64 OR the
   bounded-burst dropped. Block B (§3.3b/§3.4) landed alongside: side-effect-free
   `peek(addr,lens)` + bank-lens `m`/`d`. Closes BUG-036 + BUG-037 + BUG-038.
   Gate `e2e:754` 22/22 + `probe:single-path` 25/25.
-- **P2 — VICE-parity commands. DONE except file-IO (2026-06-03).** `a` inline
+- **P2 — VICE-parity commands. DONE (2026-06-04).** `a` inline
   assembler (`assembler6502.ts`); `sidefx` + `peek`; `wr/f/t/c/h` memory edit; `r`
-  set + vectors/flow; `screen`. Gate `e2e:754` Parts D+E (39/39). **Remaining (→
-  Block G):** `load/save/bload/bsave` + fs mini-shell + snap/unsnap↔dump/undump
-  rename (the `.vsf` codec = Spec 755).
+  set + vectors/flow; `screen`; Block G file-IO (`load/save/bload/bsave` + fs
+  mini-shell, §3.3g v1, Part K). Gate `e2e:754` Parts D+E+K (80/80). **Deferred from
+  Block G:** disk `attach/detach/@` + `snap/unsnap`↔`dump/undump` rename (the `.vsf`
+  codec = Spec 755).
 - **P3 — capability layer + superset verbs.** Block E observers DONE (§3.3e, v1 —
   `e2e:754` Part F, 50/50). **Remaining:** the capability registry + curated verbs
   (`map/taint/inspect/xref/flow/chis/bt`/swimlane) over the unified daemon query

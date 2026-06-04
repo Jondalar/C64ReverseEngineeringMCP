@@ -10,8 +10,9 @@
 //      machine, `until <addr>` is the synchronous run-to-landing.
 //   C) BUG-037 — consolidation. The dead second parser is gone; the one
 //      canonical processor (runMonitorCommand) handles the command set.
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, readFileSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -440,6 +441,65 @@ console.log("\nSpec 754 — Part J: inspect/xref bridge (Block H/F)\n");
     const nb = await runMonitorCommand({ session, ctrl, sessionId, memCursors: new Map(), disasmCursors: new Map() }, "inspect 1000");
     ok("J3 `inspect` without the bridge reports unavailable (not a crash)", /unavailable/.test(nb.error ?? ""));
   } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
+}
+
+// =====================================================================
+// Part K — Block G: FS mini-shell + file I/O (pwd/cd/ls/mkdir, save/load,
+// bsave/bload round-trips), rooted at a temp project dir.
+// =====================================================================
+console.log("\nSpec 754 — Part K: fs-shell + file I/O (Block G)\n");
+{
+  const root = mkdtempSync(join(tmpdir(), "c64re-754-g-"));
+  const { session, sessionId } = startIntegratedSession({});
+  const ctrl = new RuntimeController(sessionId, session, () => {});
+  try {
+    session.resetCold("pal-default");
+    const ctx = { session, ctrl, sessionId, memCursors: new Map(), disasmCursors: new Map(), projectDir: root };
+    const mon = (cmd) => runMonitorCommand(ctx, cmd);
+
+    const pwd = await mon("pwd");
+    ok("K1 pwd reports the project dir", pwd.output === root, pwd.output);
+
+    await mon("mkdir sub");
+    ok("K2 mkdir creates the directory", existsSync(join(root, "sub")) && statSync(join(root, "sub")).isDirectory());
+
+    const cd = await mon("cd sub");
+    const pwd2 = await mon("pwd");
+    ok("K3 cd changes the session cwd", cd.output === join(root, "sub") && pwd2.output === join(root, "sub"));
+
+    // Seed a known RAM pattern; save it as a PRG (writes into cwd = sub).
+    const pat = [0xa9, 0x01, 0x8d, 0x20];
+    for (let i = 0; i < pat.length; i++) session.c64Bus.ram[0xc000 + i] = pat[i];
+    const sv = await mon('save "p.prg" c000 c003');
+    ok("K4 save writes a PRG into the session cwd", existsSync(join(root, "sub", "p.prg")), sv.output);
+    const prg = readFileSync(join(root, "sub", "p.prg"));
+    ok("K5 PRG has the 2-byte little-endian load address", prg.length === 6 && prg[0] === 0x00 && prg[1] === 0xc0);
+
+    // Wipe RAM, reload via `load`, verify the round-trip.
+    for (let i = 0; i < pat.length; i++) session.c64Bus.ram[0xc000 + i] = 0;
+    const ld = await mon('load "p.prg"');
+    const roundtrip = pat.every((b, i) => session.c64Bus.ram[0xc000 + i] === b);
+    ok("K6 load restores the PRG bytes (round-trip)", roundtrip, ld.output);
+    ok("K7 load reports the load range + sets the disasm cursor", /\$C000\.\.\$C003/.test(ld.output ?? "") && ctx.disasmCursors.get(sessionId) === 0xc000);
+
+    // Raw bsave/bload round-trip with an override address.
+    const bs = await mon('bsave "raw.bin" c000 c003');
+    ok("K8 bsave writes raw bytes (no header)", readFileSync(join(root, "sub", "raw.bin")).length === 4, bs.output);
+    for (let i = 0; i < pat.length; i++) session.c64Bus.ram[0xc800 + i] = 0;
+    const bl = await mon('bload "raw.bin" c800');
+    const braw = pat.every((b, i) => session.c64Bus.ram[0xc800 + i] === b);
+    ok("K9 bload loads raw bytes at the given address", braw, bl.output);
+
+    // ls lists what we wrote.
+    const ls = await mon("ls");
+    ok("K10 ls lists the saved files", /p\.prg/.test(ls.output ?? "") && /raw\.bin/.test(ls.output ?? ""), ls.output);
+
+    // Error handling: missing file, bad usage.
+    const miss = await mon('load "nope.prg"');
+    ok("K11 load of a missing file errors (no crash)", /no such file/.test(miss.error ?? ""));
+    const usage = await mon("save");
+    ok("K12 save without args reports usage", /usage/.test(usage.error ?? ""));
+  } finally { ctrl.pause(); stopIntegratedSession(sessionId); rmSync(root, { recursive: true, force: true }); }
 }
 
 // =====================================================================

@@ -3,7 +3,7 @@
 // BUG-037: there used to be two divergent monitor parsers (the live VICE-syntax
 // `monitor/exec` handler in ws-server.ts, and a dead client-side
 // `monitor-cmd-parser.ts` behind `Monitor.tsx`). This module is the single
-// source of truth: every monitor surface (the v3 WS handler, the pop-out, future
+// source of truth: every monitor surface (the WS handler, the pop-out, future
 // MCP adapters, gates) routes through `runMonitorCommand`. The WS handler is now
 // a thin adapter that builds the context and calls this.
 //
@@ -16,6 +16,8 @@
 // default `cpu` = what the CPU sees, banked) via the side-effect-free
 // `c64Bus.peek()` — so `m e000` shows KERNAL, `m d000` shows I/O, not raw RAM.
 
+import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, rmdirSync } from "node:fs";
+import { isAbsolute, resolve as resolvePathJoin, basename } from "node:path";
 import { disasmLine } from "./disasm6502.js";
 import { stepDisasm, followDisasm, resumeDisasm, type DfState } from "./monitor-flow-disasm.js";
 import type { ObsTrigger, ObsAction } from "./monitor-observers.js";
@@ -53,6 +55,10 @@ export interface MonitorShellCtx {
   // The WS server scans C64RE_PROJECT_DIR for the _analysis.json covering an
   // address (loadEffectiveSegments overlay, BUG-034-safe); monitor-shell calls it.
   projectRead?: (op: "inspect" | "xref" | "sym", args: Record<string, unknown>) => Promise<string>;
+  // Spec 754 §3.3g — the FS mini-shell root (the daemon's C64RE_PROJECT_DIR).
+  // load/save/bload/bsave + cd/ls resolve relative to the per-session cwd, which
+  // starts here. Falls back to process.env / cwd when not provided.
+  projectDir?: string;
 }
 
 const LENSES: readonly MemBankLens[] = ["cpu", "ram", "rom", "io", "cart"];
@@ -70,11 +76,15 @@ const sidefxOn = new Map<string, boolean>();
 /** Pending interactive `df -i` walk per session (resumed by `df t|f|b`). */
 const dfWalks = new Map<string, DfState>();
 
+/** FS mini-shell cwd per session (Spec 754 §3.3g; starts at the project dir). */
+const fsShellCwd = new Map<string, string>();
+
 /** For gate teardown / session close — drop a session's monitor-private state. */
 export function disposeMonitorShellState(sessionId: string): void {
   bankDefaults.delete(sessionId);
   sidefxOn.delete(sessionId);
   dfWalks.delete(sessionId);
+  fsShellCwd.delete(sessionId);
 }
 
 export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): Promise<MonitorResult> {
@@ -124,6 +134,16 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
     if (c === 32) return " ";
     if (c >= 33 && c <= 63) return String.fromCharCode(c); // !"#…digits…?
     return ".";
+  };
+  // FS mini-shell (Spec 754 §3.3g) — rooted at the project dir, absolute paths
+  // allowed. load/save/bload/bsave resolve relative to the per-session cwd.
+  const projectDir = ctx.projectDir ?? process.env.C64RE_PROJECT_DIR ?? process.cwd();
+  const cwd = () => fsShellCwd.get(sessionId) ?? projectDir;
+  const resolveFsPath = (arg: string) => (isAbsolute(arg) ? arg : resolvePathJoin(cwd(), arg));
+  // Parse `<verb> "<file>" <rest...>` (file quoted or bare).
+  const parseFileCmd = (): { file?: string; rest: string[] } => {
+    const m = cmd.match(/^\S+\s+"([^"]+)"\s*(.*)$/) ?? cmd.match(/^\S+\s+(\S+)\s*(.*)$/);
+    return { file: m?.[1], rest: (m?.[2] ?? "").trim().split(/\s+/).filter(Boolean) };
   };
 
   try {
@@ -438,6 +458,83 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         lines.push("|" + line + "|");
       }
       return { output: lines.join("\n") };
+    }
+
+    // ---- FS mini-shell + file I/O (Spec 754 §3.3g) — rooted at the project dir.
+    if (op === "pwd") return { output: cwd() };
+    if (op === "cd") {
+      const arg = parseFileCmd().file ?? tokens[1];
+      const d = arg ? resolveFsPath(arg) : projectDir;
+      try { if (!statSync(d).isDirectory()) return { error: `cd: not a directory: ${d}` }; }
+      catch { return { error: `cd: no such directory: ${d}` }; }
+      fsShellCwd.set(sessionId, d);
+      return { output: d };
+    }
+    if (op === "ls" || op === "dir") {
+      const arg = parseFileCmd().file ?? tokens[1];
+      const d = arg ? resolveFsPath(arg) : cwd();
+      let ents;
+      try { ents = readdirSync(d, { withFileTypes: true }); } catch (e) { return { error: `ls: ${e instanceof Error ? e.message : String(e)}` }; }
+      const lines = ents.sort((a, b) => a.name.localeCompare(b.name)).slice(0, 500).map((e) => `  ${e.isDirectory() ? "d" : "-"} ${e.name}`);
+      return { output: `${d}:\n${lines.join("\n") || "  (empty)"}` };
+    }
+    if (op === "mkdir") {
+      const arg = parseFileCmd().file ?? tokens[1];
+      if (!arg) return { error: "mkdir: usage: mkdir <dir>" };
+      try { mkdirSync(resolveFsPath(arg), { recursive: true }); return { output: `mkdir ${arg}` }; }
+      catch (e) { return { error: `mkdir: ${e instanceof Error ? e.message : String(e)}` }; }
+    }
+    if (op === "rmdir") {
+      const arg = parseFileCmd().file ?? tokens[1];
+      if (!arg) return { error: "rmdir: usage: rmdir <dir>" };
+      try { rmdirSync(resolveFsPath(arg)); return { output: `rmdir ${arg}` }; }
+      catch (e) { return { error: `rmdir: ${e instanceof Error ? e.message : String(e)}` }; }
+    }
+    // load "<file>" [addr] — PRG load into RAM (CBM 2-byte header → load addr, or override addr).
+    if (op === "load") {
+      const { file, rest } = parseFileCmd();
+      if (!file) return { error: 'load: usage: load "<file>" [addr]' };
+      const p = resolveFsPath(file);
+      if (!existsSync(p)) return { error: `load: no such file: ${p}` };
+      const override = rest[0] !== undefined ? parseAddr(rest[0]) : null;
+      const r = s.loadPrgIntoRam(p, override ?? undefined);
+      disasmCursors.set(sessionId, r.loadAddress);
+      return { output: `loaded ${basename(file)}: $${hex(r.loadAddress, 4)}..$${hex(r.endAddress, 4)} (${r.bytesLoaded} bytes)` };
+    }
+    // save "<file>" <a1> <a2> — save a RAM range as a PRG (2-byte load addr = a1).
+    if (op === "save") {
+      const { file, rest } = parseFileCmd();
+      const a1 = parseAddr(rest[0]); const a2 = parseAddr(rest[1]);
+      if (!file || a1 === null || a2 === null || a2 < a1) return { error: 'save: usage: save "<file>" <a1> <a2>' };
+      const bytes: number[] = [a1 & 0xff, (a1 >> 8) & 0xff];
+      for (let a = a1; a <= a2; a++) bytes.push(s.c64Bus.ram[a & 0xffff] ?? 0);
+      try { writeFileSync(resolveFsPath(file), Buffer.from(bytes)); }
+      catch (e) { return { error: `save: ${e instanceof Error ? e.message : String(e)}` }; }
+      return { output: `saved ${basename(file)}: $${hex(a1, 4)}..$${hex(a2, 4)} (${bytes.length - 2} bytes + load addr)` };
+    }
+    // bload "<file>" <addr> — raw binary load (no header).
+    if (op === "bload") {
+      const { file, rest } = parseFileCmd();
+      const addr = parseAddr(rest[0]);
+      if (!file || addr === null) return { error: 'bload: usage: bload "<file>" <addr>' };
+      const p = resolveFsPath(file);
+      if (!existsSync(p)) return { error: `bload: no such file: ${p}` };
+      const buf = readFileSync(p);
+      let n = 0;
+      for (let i = 0; i < buf.length && addr + i <= 0xffff; i++) { s.c64Bus.ram[(addr + i) & 0xffff] = buf[i]!; n++; }
+      disasmCursors.set(sessionId, addr & 0xffff);
+      return { output: `bloaded ${basename(file)}: ${n} bytes -> $${hex(addr, 4)}..$${hex((addr + n - 1) & 0xffff, 4)}` };
+    }
+    // bsave "<file>" <a1> <a2> — raw binary save (no header).
+    if (op === "bsave") {
+      const { file, rest } = parseFileCmd();
+      const a1 = parseAddr(rest[0]); const a2 = parseAddr(rest[1]);
+      if (!file || a1 === null || a2 === null || a2 < a1) return { error: 'bsave: usage: bsave "<file>" <a1> <a2>' };
+      const bytes: number[] = [];
+      for (let a = a1; a <= a2; a++) bytes.push(s.c64Bus.ram[a & 0xffff] ?? 0);
+      try { writeFileSync(resolveFsPath(file), Buffer.from(bytes)); }
+      catch (e) { return { error: `bsave: ${e instanceof Error ? e.message : String(e)}` }; }
+      return { output: `bsaved ${basename(file)}: $${hex(a1, 4)}..$${hex(a2, 4)} (${bytes.length} bytes, raw)` };
     }
 
     // ---- Breakpoints: bk | bk <addr> | bk -<addr> | bk clear --------------
@@ -778,7 +875,14 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "  KNOWLEDGE (reads the project _analysis.json that covers the address)\n" +
         "    inspect <a> [stem]  segment kind/label + xrefs at a\n" +
         "    xref <a> [stem]     who calls/jumps/reads/writes a (in + out)\n" +
-        "    sym <name> [stem]   reverse lookup: named routine/label -> address" };
+        "    sym <name> [stem]   reverse lookup: named routine/label -> address\n" +
+        "  FILE (rooted at the project dir; relative paths off the session cwd)\n" +
+        '    pwd | cd [dir] | ls [dir]   FS shell (cd with no arg = project dir)\n' +
+        "    mkdir <dir> | rmdir <dir>   make / remove a directory\n" +
+        '    load "<f>" [addr]   load a PRG into RAM (2-byte header, or override addr)\n' +
+        '    save "<f>" <a1> <a2>  save a1..a2 as a PRG (2-byte load addr = a1)\n' +
+        '    bload "<f>" <addr>   raw binary load (no header)\n' +
+        '    bsave "<f>" <a1> <a2>  raw binary save (no header)' };
     }
 
     return { error: `unknown command: ${op}. Try 'help'.` };
