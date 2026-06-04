@@ -4062,6 +4062,24 @@ export function App() {
     tick();
     return () => { alive = false; };
   }, [liveConn, liveSessionId]);
+  // Spec 754 — the RUN/Pause button (MachineControls, always visible) must reflect
+  // the DAEMON run-state no matter WHO drove it: the toolbar, an MCP client, or the
+  // monitor `g`/Pause from the MON pop-out (a separate OS window). Previously the
+  // only daemon→button sync lived in the Live tab, so a `g` in the pop-out ran the
+  // machine server-side but the main-window button stayed on "Run" until you
+  // clicked it. These listeners live at App level (always mounted) so `g` flips the
+  // button with no second RUN click, on any tab.
+  useEffect(() => {
+    if (liveConn !== "open" || !liveSessionId) return;
+    const c = getClient();
+    const mine = (p: any) => !p?.session_id || p.session_id === liveSessionId;
+    const offRun = c.onNotification("debug/running", (p: any) => { if (mine(p)) setLiveRunState("running"); });
+    const offStop = c.onNotification("debug/stopped", (p: any) => { if (mine(p)) setLiveRunState("paused"); });
+    const offPause = c.onNotification("debug/paused", (p: any) => { if (mine(p)) setLiveRunState("paused"); });
+    const offBp = c.onNotification("debug/breakpoint_hit", (p: any) => { if (mine(p)) setLiveRunState("paused"); });
+    const offObs = c.onNotification("debug/observer_hit", (p: any) => { if (mine(p)) setLiveRunState("paused"); });
+    return () => { offRun(); offStop(); offPause(); offBp(); offObs(); };
+  }, [liveConn, liveSessionId]);
   const [listingQuery, setListingQuery] = useState("");
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
