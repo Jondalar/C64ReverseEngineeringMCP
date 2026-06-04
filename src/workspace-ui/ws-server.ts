@@ -1723,8 +1723,63 @@ export class WsServer {
           return renderMarkdown(slice, { maxRows: 200 });
         });
       };
+      // Spec 754 §3.3f/§3.6 (Q1) — read-only project-artifact bridge (inspect/xref):
+      // scan C64RE_PROJECT_DIR for the _analysis.json whose mapping covers the
+      // address, load its effective segments (annotation overlay, BUG-034-safe) +
+      // its xrefs. The daemon reads the project files; no write, no reverse-RPC.
+      const projectRead = async (pop: "inspect" | "xref", pargs: Record<string, unknown>): Promise<string> => {
+        const projectDir = process.env.C64RE_PROJECT_DIR;
+        if (!projectDir) throw new Error("no C64RE_PROJECT_DIR");
+        const addr = Number(pargs.addr) & 0xffff;
+        const fs = await import("node:fs");
+        const path = await import("node:path");
+        const found: string[] = [];
+        const walk = (dir: string, depth: number) => {
+          if (depth > 6) return;
+          let ents: any[]; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+          for (const e of ents) {
+            if (e.name === "node_modules" || e.name.startsWith(".")) continue;
+            const p = path.join(dir, e.name);
+            if (e.isDirectory()) walk(p, depth + 1);
+            else if (e.name.endsWith("_analysis.json")) found.push(p);
+          }
+        };
+        walk(projectDir, 0);
+        const stem = pargs.stem ? String(pargs.stem) : undefined;
+        const candidates = stem ? found.filter((p) => path.basename(p).startsWith(stem)) : found;
+        // Range-match via a small head read (avoid parsing multi-MB files).
+        let hit: string | undefined;
+        for (const p of candidates) {
+          let head = "";
+          try { const fd = fs.openSync(p, "r"); const buf = Buffer.alloc(4096); const n = fs.readSync(fd, buf, 0, 4096, 0); fs.closeSync(fd); head = buf.subarray(0, n).toString("utf8"); } catch { continue; }
+          const ms = head.match(/"startAddress"\s*:\s*(\d+)/); const me = head.match(/"endAddress"\s*:\s*(\d+)/);
+          if (!ms || !me) continue;
+          if (addr >= Number(ms[1]) && addr <= Number(me[1])) { hit = p; break; }
+        }
+        if (!hit) throw new Error(`no _analysis.json covers $${addr.toString(16)}${stem ? ` (stem ${stem})` : ""}`);
+        const { loadEffectiveSegments } = await import("../project-knowledge/effective-segments.js");
+        const report: any = JSON.parse(fs.readFileSync(hit, "utf8"));
+        const { segments } = loadEffectiveSegments(hit);
+        const xrefs: any[] = [...(report.codeAnalysis?.xrefs ?? []), ...(report.probableCodeAnalysis?.xrefs ?? [])];
+        const aStem = path.basename(hit).replace(/_analysis\.json$/, "");
+        const hx = (n: number) => (n & 0xffff).toString(16).padStart(4, "0");
+        if (pop === "inspect") {
+          const seg = segments.find((g: any) => addr >= g.start && addr <= g.end);
+          const lines = [`inspect $${hx(addr)} — artifact ${aStem}`];
+          lines.push(seg ? `  segment $${hx(seg.start)}..$${hx(seg.end)} ${seg.kind}${seg.label ? ` (${seg.label})` : ""}` : "  (no segment at this address)");
+          const into = xrefs.filter((x) => x.targetAddress === addr).slice(0, 8);
+          if (into.length) { lines.push("  xrefs in:"); for (const x of into) lines.push(`    <- $${hx(x.sourceAddress)} ${x.type}`); }
+          return lines.join("\n");
+        }
+        const into = xrefs.filter((x) => x.targetAddress === addr);
+        const outof = xrefs.filter((x) => x.sourceAddress === addr);
+        const lines = [`xref $${hx(addr)} — artifact ${aStem}  (in:${into.length} out:${outof.length})`];
+        for (const x of into.slice(0, 16)) lines.push(`  <- $${hx(x.sourceAddress)} ${x.type}${x.operandText ? ` ${x.operandText}` : ""}`);
+        for (const x of outof.slice(0, 16)) lines.push(`  -> $${hx(x.targetAddress)} ${x.type}`);
+        return lines.join("\n");
+      };
       return runMonitorCommand(
-        { session: s, ctrl, sessionId: session_id, memCursors: monitorMemAddr, disasmCursors: monitorDisasmAddr, traceRead },
+        { session: s, ctrl, sessionId: session_id, memCursors: monitorMemAddr, disasmCursors: monitorDisasmAddr, traceRead, projectRead },
         String(command ?? ""),
       );
     });

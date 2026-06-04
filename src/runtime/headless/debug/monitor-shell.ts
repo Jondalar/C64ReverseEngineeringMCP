@@ -49,6 +49,10 @@ export interface MonitorShellCtx {
   // the WS server (it owns the daemon trace-store readers + currentStorePath);
   // monitor-shell stays runtime-pure. Returns rendered text or throws (no store).
   traceRead?: (op: "map" | "taint" | "swimlane" | "chis", args: Record<string, unknown>) => Promise<string>;
+  // Spec 754 §3.3f/§3.6 (Q1) — read-only project-artifact bridge (inspect/xref).
+  // The WS server scans C64RE_PROJECT_DIR for the _analysis.json covering an
+  // address (loadEffectiveSegments overlay, BUG-034-safe); monitor-shell calls it.
+  projectRead?: (op: "inspect" | "xref", args: Record<string, unknown>) => Promise<string>;
 }
 
 const LENSES: readonly MemBankLens[] = ["cpu", "ram", "rom", "io", "cart"];
@@ -686,6 +690,24 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       try { return { output: await ctx.traceRead("chis", { windowCycles }) }; }
       catch (e) { return { error: `chis: ${e instanceof Error ? e.message : String(e)}` }; }
     }
+    // inspect <addr> [stem] — the analysis segment + xrefs at addr, from the
+    // project's _analysis.json that covers it (effective-segments overlay).
+    if (op === "inspect") {
+      if (!ctx.projectRead) return { error: "inspect: project-read bridge unavailable (run via the daemon)" };
+      const addr = parseAddr(tokens[1]);
+      if (addr === null) return { error: "inspect: usage: inspect <addr> [artifact-stem]" };
+      try { return { output: await ctx.projectRead("inspect", { addr, stem: tokens[2] }) }; }
+      catch (e) { return { error: `inspect: ${e instanceof Error ? e.message : String(e)}` }; }
+    }
+    // xref <addr> [stem] — who calls/jumps/reads/writes this address (a crack win
+    // VICE can't do: "who writes $d018?").
+    if (op === "xref") {
+      if (!ctx.projectRead) return { error: "xref: project-read bridge unavailable (run via the daemon)" };
+      const addr = parseAddr(tokens[1]);
+      if (addr === null) return { error: "xref: usage: xref <addr> [artifact-stem]" };
+      try { return { output: await ctx.projectRead("xref", { addr, stem: tokens[2] }) }; }
+      catch (e) { return { error: `xref: ${e instanceof Error ? e.message : String(e)}` }; }
+    }
 
     // ---- Reset ------------------------------------------------------------
     if (op === "reset") {
@@ -743,7 +765,10 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "    map [cpu]        memory map: free RAM / persistence surface\n" +
         "    taint <a> [cyc]  data-flow taint backward from (cyc,addr)\n" +
         "    swimlane [s] [e] swimlane (cpu/irq/nmi/io/1541 lanes) over a cycle window\n" +
-        "    chis [cycles]    replay from the nearest checkpoint → recent stream swimlane (non-destructive)" };
+        "    chis [cycles]    replay from the nearest checkpoint → recent stream swimlane (non-destructive)\n" +
+        "  KNOWLEDGE (reads the project _analysis.json that covers the address)\n" +
+        "    inspect <a> [stem]  segment kind/label + xrefs at a\n" +
+        "    xref <a> [stem]     who calls/jumps/reads/writes a (in + out)" };
     }
 
     return { error: `unknown command: ${op}. Try 'help'.` };

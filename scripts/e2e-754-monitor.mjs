@@ -417,6 +417,30 @@ console.log("\nSpec 754 — Part I: map/taint/swimlane bridge (Block H)\n");
 }
 
 // =====================================================================
+// Part J — Block H/F inspect/xref (project-read bridge wiring + args).
+// =====================================================================
+console.log("\nSpec 754 — Part J: inspect/xref bridge (Block H/F)\n");
+{
+  const { session, sessionId } = startIntegratedSession({});
+  const ctrl = new RuntimeController(sessionId, session, () => {});
+  try {
+    session.resetCold("pal-default");
+    const calls = [];
+    const ctx = {
+      session, ctrl, sessionId, memCursors: new Map(), disasmCursors: new Map(),
+      projectRead: async (op, args) => { calls.push({ op, args }); return `STUB ${op} $${Number(args.addr).toString(16)}`; },
+    };
+    const mon = (cmd) => runMonitorCommand(ctx, cmd);
+    await mon("inspect 025c");
+    ok("J1 `inspect <addr>` calls projectRead (op=inspect, addr=$025C)", calls.at(-1)?.op === "inspect" && calls.at(-1)?.args.addr === 0x025c);
+    await mon("xref d018 block2");
+    ok("J2 `xref <addr> [stem]` passes addr + stem", calls.at(-1)?.op === "xref" && calls.at(-1)?.args.addr === 0xd018 && calls.at(-1)?.args.stem === "block2");
+    const nb = await runMonitorCommand({ session, ctrl, sessionId, memCursors: new Map(), disasmCursors: new Map() }, "inspect 1000");
+    ok("J3 `inspect` without the bridge reports unavailable (not a crash)", /unavailable/.test(nb.error ?? ""));
+  } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
+}
+
+// =====================================================================
 // Part C — BUG-037: the dead second parser is retired.
 // =====================================================================
 console.log("\nSpec 754 — Part C: one canonical monitor (BUG-037)\n");
