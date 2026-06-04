@@ -400,6 +400,30 @@ help | ?   list commands CATEGORISED by the functional blocks (A-I), not a flat 
 help <cmd> help for one command
 ```
 
+### 3.3k Flow disassembly (Block K) — DONE v1 (2026-06-04, user idea)
+Three disassemblers that show the code PATH, not just linear bytes — VICE's `d` is
+strictly linear. The user's dynamic-vs-static insight, built as three commands
+(`monitor-flow-disasm.ts`):
+- **`sd [n]` — step+disassemble (DYNAMIC, ground truth).** Step n from PC, render
+  the REAL executed path, **fold loops** (each touched address once + `xN`).
+  Non-destructive — wrapped in a checkpoint save/restore (Spec 705.B) so it
+  explores without advancing the machine; falls back to destructive + a notice if
+  the media is dirty (can't snapshot). Truth, but only the path actually taken.
+- **`df [-i] [addr] [n]` — follow-disassemble (STATIC).** Walk control flow without
+  executing (addr-first, like `d`; default from PC). Follows `JMP`, descends into
+  `JSR` (call stack) + returns on `RTS`, follows an indirect `JMP` via the current
+  pointer, loop-guarded (visited-set → `| back to $… (loop)`). Covers unreached
+  code. A conditional branch defaults to **fall-through + annotate the taken target**.
+- **`df -i` — INTERACTIVE.** The static walk STOPS at each conditional branch and
+  asks the path (`df t|f|b` — taken / fall / both); the human resolves the
+  ambiguity static analysis cannot. IDA-style guided exploration; per-session
+  pending-walk state. (`b` follows taken now + notes the fall-through to explore.)
+
+Gate `e2e:754` Part G (G1-G7): sd loop-fold + non-destructive, df JMP-follow +
+JSR-descend/return + RTS-end, df -i branch-stop + resume. **v1.1 ideas:** `df b`
+as a real tree; symbol/label annotation inline; sd loop-fold preserving exact
+interleave; an "until focus then list" variant.
+
 ### 3.4 `sidefx` + a `peek` primitive (couples to Spec 753b)
 Add a side-effect-free `peek(addr)` to the memory bus (VICE `mem_bank_peek`) and a
 `sidefx on|off` toggle (default off → monitor reads peek). Then **Spec 753's

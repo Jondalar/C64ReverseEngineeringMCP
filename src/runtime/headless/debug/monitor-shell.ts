@@ -17,6 +17,7 @@
 // `c64Bus.peek()` — so `m e000` shows KERNAL, `m d000` shows I/O, not raw RAM.
 
 import { disasmLine } from "./disasm6502.js";
+import { stepDisasm, followDisasm, resumeDisasm, type DfState } from "./monitor-flow-disasm.js";
 import type { ObsTrigger, ObsAction } from "./monitor-observers.js";
 import type { RuntimeController } from "./runtime-controller.js";
 import type { IntegratedSession } from "../integrated-session.js";
@@ -58,10 +59,14 @@ const bankDefaults = new Map<string, MemBankLens>();
  */
 const sidefxOn = new Map<string, boolean>();
 
+/** Pending interactive `df -i` walk per session (resumed by `df t|f|b`). */
+const dfWalks = new Map<string, DfState>();
+
 /** For gate teardown / session close — drop a session's monitor-private state. */
 export function disposeMonitorShellState(sessionId: string): void {
   bankDefaults.delete(sessionId);
   sidefxOn.delete(sessionId);
+  dfWalks.delete(sessionId);
 }
 
 export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): Promise<MonitorResult> {
@@ -295,6 +300,43 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       }
       disasmCursors.set(sessionId, a);
       return { output: lines.join("\n") };
+    }
+
+    // ---- Flow disassembly (Spec 754 §3.3k): sd dynamic / df static / df -i. -
+    // sd [n] — step n (from PC), render the REAL executed path, fold loops to
+    // body+xcount. Non-destructive (checkpoint save/restore) when media is clean.
+    if (op === "sd") {
+      const n = Math.max(1, Math.min(parseInt(tokens[1] ?? "50", 10) || 50, 100000));
+      let ref: { id: string } | null = null;
+      try { ref = await ctrl.captureCheckpoint(); } catch { ref = null; }
+      let lines: string[];
+      try { lines = stepDisasm(s, n); }
+      finally { if (ref) { try { await ctrl.restoreCheckpoint(ref.id); } catch { /* leave advanced */ } } }
+      if (!ref) lines.push("(sd: could not snapshot — machine ADVANCED; `snap` first to preserve)");
+      return { output: lines.join("\n") };
+    }
+    // df [-i] [addr] [n] — STATIC control-flow walk (addr-first, like `d`;
+    // default from PC). Follows JMP, descends JSR + returns on RTS, follows an
+    // indirect JMP, loop-guarded. `df t|f|b` resumes an interactive (-i) walk.
+    if (op === "df") {
+      const readCpu = (a: number) => readByte(a & 0xffff, "cpu");
+      const sub = (tokens[1] ?? "").toLowerCase();
+      const pending = dfWalks.get(sessionId);
+      if (pending && (sub === "t" || sub === "f" || sub === "b")) {
+        const r = resumeDisasm(pending, readCpu, sub as "t" | "f" | "b");
+        if (r.pending) dfWalks.set(sessionId, r.pending); else dfWalks.delete(sessionId);
+        return { output: r.lines.join("\n") };
+      }
+      let i = 1;
+      const interactive = tokens[i] === "-i" ? (i++, true) : false;
+      const addrTok = tokens[i];
+      let addr: number;
+      if (addrTok !== undefined && parseAddr(addrTok) !== null) { addr = parseAddr(addrTok)!; i++; }
+      else addr = disasmCursors.get(sessionId) ?? s.c64Cpu.pc;
+      const n = Math.max(1, Math.min(parseInt(tokens[i] ?? "200", 10) || 200, 100000));
+      const r = followDisasm(readCpu, addr & 0xffff, n, { interactive });
+      if (r.pending) dfWalks.set(sessionId, r.pending); else dfWalks.delete(sessionId);
+      return { output: r.lines.join("\n") };
     }
 
     // ---- Memory edit (Spec 754 §3.3c — word commands, not VICE symbols). ---
@@ -596,6 +638,8 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "  MEMORY (bank lens: cpu|ram|rom|io|cart, default cpu = what CPU sees)\n" +
         "    m [lens] <a> [b] memory dump ($20/row + petscii; default len $800)\n" +
         "    d [lens] [a] [n] disassemble (n instr from a, default PC)\n" +
+        "    sd [n]           step+disasm: the REAL executed path, loops folded (dynamic)\n" +
+        "    df [-i] [a] [n]  follow-disasm: walk control flow (static); -i asks at branches (df t|f|b)\n" +
         "    screen           decode the 40x25 text screen (real screen pointer)\n" +
         "    bank [lens]      show/set the sticky default lens for m/d\n" +
         "    wr [lens] <a> <b..>  write exactly these bytes from a\n" +

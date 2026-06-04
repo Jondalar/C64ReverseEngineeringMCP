@@ -315,6 +315,57 @@ console.log("\nSpec 754 — Part F: observers (Block E)\n");
 }
 
 // =====================================================================
+// Part G — Block §3.3k: flow disassembly (sd dynamic / df static / df -i).
+// =====================================================================
+console.log("\nSpec 754 — Part G: flow disassembly (sd / df / df -i)\n");
+{
+  const { session, sessionId } = startIntegratedSession({});
+  const { ctrl, mon } = newCtx(session, sessionId);
+  try {
+    const ram = session.c64Bus.ram;
+
+    // G1/G2 — sd: a tight DEX/BNE loop (x3) + NOP sled, loop-folded, non-destructive.
+    session.resetCold("pal-default");
+    ram[0xc000] = 0xa2; ram[0xc001] = 0x03;       // LDX #$03
+    ram[0xc002] = 0xca;                            // DEX
+    ram[0xc003] = 0xd0; ram[0xc004] = 0xfd;       // BNE $C002 (-3)
+    for (let a = 0xc005; a <= 0xc0ff; a++) ram[a] = 0xea; // NOP sled
+    session.c64Cpu.pc = 0xc000;
+    const sd = (await mon("sd 20")).output ?? "";
+    ok("G1 `sd` folds the executed loop (DEX/BNE ×3)", /x3/.test(sd), (sd.split("\n").find((l) => /x3/.test(l)) ?? "").trim());
+    ok("G2 `sd` is non-destructive (PC restored to $C000)", (session.c64Cpu.pc & 0xffff) === 0xc000, `pc=$${session.c64Cpu.pc.toString(16)}`);
+
+    // G3/G4 — df: follows a JMP into the real routine, ends on RTS (empty stack).
+    session.resetCold("pal-default");
+    ram[0xc000] = 0x4c; ram[0xc001] = 0x00; ram[0xc002] = 0xc1; // JMP $C100
+    ram[0xc100] = 0xa9; ram[0xc101] = 0x01;                     // LDA #$01
+    ram[0xc102] = 0x60;                                          // RTS
+    const df = (await mon("df c000 10")).output ?? "";
+    ok("G3 `df` follows the JMP into $C100 (LDA)", /c100/i.test(df) && /LDA/i.test(df), (df.split("\n")[1] ?? "").trim());
+    ok("G4 `df` ends on RTS with an empty call stack", /end/i.test(df));
+
+    // G5 — df: descends into a JSR and returns to the instruction after it.
+    session.resetCold("pal-default");
+    ram[0xc000] = 0x20; ram[0xc001] = 0x00; ram[0xc002] = 0xc2; // JSR $C200
+    ram[0xc003] = 0x00;                                          // BRK
+    ram[0xc200] = 0xea; ram[0xc201] = 0x60;                     // NOP ; RTS
+    const dfj = (await mon("df c000 10")).output ?? "";
+    ok("G5 `df` descends into JSR ($C200) and returns to $C003", /c200/i.test(dfj) && /c003/i.test(dfj), "");
+
+    // G6/G7 — df -i: stop at a conditional branch, resume the fall-through.
+    session.resetCold("pal-default");
+    ram[0xc000] = 0xa9; ram[0xc001] = 0x00;       // LDA #$00
+    ram[0xc002] = 0xd0; ram[0xc003] = 0x0c;       // BNE $C010
+    ram[0xc004] = 0xea;                           // NOP (fall-through)
+    ram[0xc010] = 0xea;                           // NOP (taken)
+    const dfi = (await mon("df -i c000 20")).output ?? "";
+    ok("G6 `df -i` stops at the conditional branch + asks the path", /\? branch/.test(dfi) && /\(t\)aken/.test(dfi), (dfi.split("\n").find((l) => /branch/.test(l)) ?? "").trim());
+    const dff = (await mon("df f")).output ?? "";
+    ok("G7 `df f` resumes the fall-through path ($C004)", /c004/i.test(dff), (dff.split("\n")[0] ?? "").trim());
+  } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
+}
+
+// =====================================================================
 // Part C — BUG-037: the dead second parser is retired.
 // =====================================================================
 console.log("\nSpec 754 — Part C: one canonical monitor (BUG-037)\n");
