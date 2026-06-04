@@ -465,12 +465,16 @@ strictly linear. The user's dynamic-vs-static insight, built as three commands
   pointer, loop-guarded (visited-set → `| back to $… (loop)`). Covers unreached
   code. A conditional branch defaults to **fall-through + annotate the taken target**.
 - **`df -i` — INTERACTIVE.** The static walk STOPS at each conditional branch and
-  asks the path (`df t|f|b` — taken / fall / both); the human resolves the
-  ambiguity static analysis cannot. IDA-style guided exploration; per-session
-  pending-walk state. (`b` follows taken now + notes the fall-through to explore.)
+  asks the path (taken / fall / both); the human resolves the ambiguity static
+  analysis cannot. IDA-style guided exploration; per-session pending-walk state.
+  (`b` follows taken now + notes the fall-through.) **Modal (2026-06-04):** while a
+  walk is pending a bare `t`/`f`/`b` IS the choice (a `branch t/f/b>` prompt; type
+  `t`, not `df t` — so it doesn't hit fill/move/break); explicit `df t|f|b` still
+  works. See §3.8.
 
-Gate `e2e:754` Part G (G1-G7): sd loop-fold + non-destructive, df JMP-follow +
-JSR-descend/return + RTS-end, df -i branch-stop + resume. **v1.1 ideas:** `df b`
+Gate `e2e:754` Part G (G1-G9): sd loop-fold + non-destructive, df JMP-follow +
+JSR-descend/return + RTS-end, df -i branch-stop + resume + the bare-letter modal.
+**v1.1 ideas:** `df b`
 as a real tree; symbol/label annotation inline; sd loop-fold preserving exact
 interleave; an "until focus then list" variant.
 
@@ -503,6 +507,55 @@ New first-class monitor commands over the capability core: `map` (trace_memory_m
 (→ analyze→disasm), `inspect`, `checkpoint`/`rewind` (Spec 705.B), `flow` (746.13).
 Plus VICE's `memspace` prefixes (`c:` / `8:`) so commands address the C64 OR the
 1541 drive uniformly (the model for the 753b drive memory map).
+
+### 3.8 Live-test refinements (2026-06-04) — DONE, all on master, gate `e2e:754` 111/111
+The blocks above were exercised on the live Wasteland_EF workbench; each finding
+was fixed + gated the same session. The in-monitor `help` text reflects all of these.
+- **Run-state sync (§3.1).** The RUN/Pause button (`liveRunState`, App-level) was
+  only synced to the daemon inside the Live tab → `g` from the MON pop-out ran the
+  machine but the button stayed "Run". Lifted the `debug/running|stopped|paused|
+  breakpoint_hit|observer_hit` listeners to App level (`ui/src/App.tsx`) so `g`
+  (or Pause) from any window/tab flips the button — no second click.
+- **`d <start> <end>` is a RANGE (§3.3b).** Was a base-10 instruction count
+  (`d ce00 ce08` → `parseInt("ce08",10)=NaN` → empty). Now a VICE range; an opcode
+  straddling `end` is shown whole; `end<start` errors; huge ranges bounded + a
+  continue hint.
+- **Modal assemble (§3.3c).** `a <addr>` enters assemble mode; `.cXXX` prompt;
+  empty line exits; bad line stays in mode. `MonitorResult.prompt` + `asmCursors`.
+- **Observer wildcards + name guard (§3.3e).** `obs <glob> on|off|del` (`obs * del`
+  = all); `*`/`?` rejected in a new observer name (reserved for the wildcard).
+- **Observer break → monitor + live log (§3.3e v1.1).** `do break` now drops into
+  the monitor with a `*obs <name> at $PC` banner + register dump + focus (UI
+  listened for `debug/breakpoint_hit` but not `debug/observer_hit`); `do log` lines
+  stream live to the console (`debug/observer_log`, drained per run-chunk) in
+  addition to the pull-only `obs log`.
+- **swimlane selects a TRACE (§3.3h).** Default window was the LIVE clock
+  (`now-2000..now`) — empty after `trace off` (the clock runs on). Redesigned:
+  `swimlane list` / `swimlane` (newest) / `swimlane <name>` / `<name> <s> <e>`;
+  the default window is the last ~2000 cycles OF THE SELECTED TRACE, anchored to
+  the store's own `MAX(cycle)`. Own bridge block enumerates `runtime/<session>/
+  *.duckdb`.
+- **taint cycle anchor (§3.3h).** `taint <addr>` with no cycle anchors to the
+  trace's `MAX(cycle)` (same live-clock fix as swimlane), not the live clock.
+- **TUI render + loop-fold (§3.3h).** swimlane/chis emitted a markdown table
+  (pipe-noise in the console) with idle empty lanes. New `renderText` (alongside
+  `renderMarkdown` for UI/MCP): space-aligned, no pipes, idle drive/IEC/IO/flow
+  columns dropped, empty filler rows dropped, and consecutive loop iterations
+  FOLDED (body once + `↺×N`). Fold is **flow-scoped** (key = flow + c64/drive
+  PC-op shape) and **interrupt-fenced** (an IRQ/NMI block mid-loop breaks the fold
+  → you see when it hit), and **keeps variation** (a polling loop's varying read
+  becomes a range `$D012 r=9D..A2`).
+- **df -i modal branch (§3.3k).** While an interactive walk is pending, a bare
+  `t`/`f`/`b` is the branch choice (was hitting fill/move/break); `branch t/f/b>`
+  prompt; explicit `df t|f|b` still works.
+- **Empty-Enter repeats the last command (QoL).** Hold Enter to keep stepping
+  (`n`); the modal prompts (assemble / df -i) keep their own meaning for empty.
+- **What's gate- vs live-verified:** the in-process gate (`e2e:754`, 111 checks)
+  covers the command logic + arg wiring + `renderText`/fold. The WS bridges
+  (trace-store reads, project reads) and the UI listeners are live-tested on the
+  daemon (the gate stubs the bridge). Still open: `chis`/`map`/`inspect`/`xref`/`sym`
+  real output is live-only; cross-file xref = Spec 759; Block I device; bitmap;
+  Spec 755 `.vsf`.
 
 ## 4. Phases
 - **P1 — lifecycle + consolidate. DONE (2026-06-03).** Extracted the one canonical
