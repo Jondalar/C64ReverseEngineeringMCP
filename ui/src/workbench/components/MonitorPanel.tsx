@@ -69,11 +69,16 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: 
   }, [sessionId]);
 
   const dispatch = async (raw: string) => {
-    const cmd = raw.trim();
-    // Empty line: a no-op normally; in a modal prompt (assemble) it's the exit.
-    if (!cmd && prompt === null) return;
+    const trimmed = raw.trim();
+    // VICE QoL: an empty line REPEATS the last command (e.g. hold Enter to keep
+    // stepping with `n`). EXCEPTION: in a modal prompt (assemble) an empty line is
+    // the exit — never a repeat.
+    const isRepeat = !trimmed && prompt === null;
+    const cmd = isRepeat ? (cmdHistory[cmdHistory.length - 1] ?? "") : trimmed;
+    if (!cmd && prompt === null) return; // nothing to run / nothing to repeat yet
     append([{ kind: "in", text: (prompt ?? "> ") + cmd }]);
-    if (cmd) { setCmdHistory((h) => [...h, cmd]); setCmdHistoryIdx(-1); }
+    // Don't re-record a repeat — keeps ↑ history one entry per distinct command.
+    if (cmd && !isRepeat) { setCmdHistory((h) => [...h, cmd]); setCmdHistoryIdx(-1); }
     if (!sessionId) {
       append([{ kind: "err", text: "no session" }]);
       return;
