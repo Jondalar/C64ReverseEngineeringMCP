@@ -28,7 +28,7 @@ Human + LLM E2E bug log for the C64RE MCP/UI product flow.
 | BUG-017 | Disk geometry lacks track/sector navigation for occupied non-directory data | ui-v3 | medium | fixed|
 | BUG-018 | Product UI lacks visible runtime connection/session status for LLM-human coordination | ui-v3 | medium | fixed |
 | BUG-019 | UI shows stale ASM version instead of latest/best artifact version | workspace-ui / knowledge | high | fixed (A: 8d4faf3d; B: Spec 730 §7 artifact version store) |
-| BUG-020 | Header hero contains dashboard metrics and filters | workspace-ui | medium | open |
+| BUG-020 | Header hero contains dashboard metrics and filters | workspace-ui | medium | fixed (user-confirmed 2026-06-04 — lean header, metrics/filters moved to Dashboard) |
 | BUG-021 | Spec 741 fixture: relocated loader is demoted to unknown instead of rendered as runtime code | analysis | high | fixed (Spec 741 A–D; smoke-741 50/50) |
 | BUG-022 | `.gitignore` `analysis/` rule also ignores `pipeline/src/analysis/` source | build / repo-hygiene | medium | fixed |
 | BUG-023 | Custom true-drive (drive-side GCR) writes not persisted to host .d64/.g64 file (Wasteland Utils Copy + Scramble HighScore) | runtime | high | fixed (VICE-faithful write-through: fsimage_*_write_half_track → hostFlush writes the host file at the writeback commit; `smoke:023-write-through` 7/7 re-reads file+mtime, no unmount. Doctrine: VICE fwrite must map to host writes; tests re-read FS) |

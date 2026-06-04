@@ -5,7 +5,7 @@
 - **Reporter:** human
 - **Area:** workspace-ui
 - **Severity:** medium
-- **Status:** open
+- **Status:** fixed (user-confirmed 2026-06-04)
 
 ## Environment
 
@@ -91,10 +91,13 @@ be rendered inside the Dashboard tab instead of the global header.
 
 ---
 
-## Resolution (fill on fix)
+## Resolution
 
-- **Root cause:**
-- **Fix commit:**
-- **Gate proving the fix:**
-- **Regression risk:**
+- **Root cause:** dashboard metrics + version/internal filters lived in the global
+  header hero, dominating every non-dashboard tab.
+- **Fix:** the header is now lean (identity/nav); the count boxes + filters moved
+  to the Dashboard. **User-confirmed done 2026-06-04.**
+- **Fix commit:** (incidental in the workbench layout rework — not pinned)
+- **Gate proving the fix:** visual / user-confirmed (layout, no automated gate).
+- **Regression risk:** low (layout-only).
 
