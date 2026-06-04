@@ -593,6 +593,26 @@ console.log("\nSpec 754 — Part L: modal assemble (a mode)\n");
 }
 
 // =====================================================================
+// Part M — swimlane/chis TUI renderer (renderText): no pipes, idle lanes
+// dropped, empty filler rows dropped.
+// =====================================================================
+console.log("\nSpec 754 — Part M: swimlane TUI render (renderText)\n");
+{
+  const { renderText } = await import("../dist/runtime/headless/v2/swimlane-render.js");
+  const slice = { startCycle: 100, endCycle: 200, compact: true, rows: [
+    { cycle: 100, c64Pc: 0xc000, c64Op: "LDA #imm", c64Flow: "main" },
+    { cycle: 102 }, // empty filler — must be dropped
+    { cycle: 104, c64Pc: 0xc002, c64Op: "STA abs", c64Flow: "main", c64IoRw: "w", c64IoAddr: 0xd020, c64IoValue: 0 },
+  ] };
+  const txt = renderText(slice, { maxRows: 200 });
+  ok("M1 no markdown pipes", !txt.includes("|"), txt.split("\n")[0]);
+  ok("M2 idle drive/iec columns dropped", !/1541|drv_io/.test(txt) && !/\biec\b/.test(txt));
+  ok("M3 io column kept when data present", /\bio\b/.test(txt) && /D020 w=00/.test(txt));
+  ok("M4 empty filler row dropped (only the 2 data rows)", (txt.match(/c00[02]/gi) ?? []).length === 2 && !/\b102\b/.test(txt));
+  ok("M5 flow column dropped when all 'main'", !/\bflow\b/.test(txt) && !/\bmain\b/.test(txt));
+}
+
+// =====================================================================
 // Part C — BUG-037: the dead second parser is retired.
 // =====================================================================
 console.log("\nSpec 754 — Part C: one canonical monitor (BUG-037)\n");

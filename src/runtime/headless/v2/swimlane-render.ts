@@ -70,6 +70,44 @@ export function renderMarkdown(slice: SwimlaneSlice, opts: RenderMarkdownOpts = 
   return lines.join("\n");
 }
 
+// ── Plain-text (TUI) renderer ─────────────────────────────────────────────────
+// For the interactive monitor console (Spec 754): NO markdown pipes, columns
+// space-aligned, and a lane is shown ONLY if it carries data in the window
+// (drive/IEC/IO/flow columns vanish when idle). Empty filler rows are dropped.
+export function renderText(slice: SwimlaneSlice, opts: RenderMarkdownOpts = {}): string {
+  const maxRows = opts.maxRows ?? 200;
+  type Cells = { cycle: string; c64: string; flow: string; io: string; bus: string; drv: string; dio: string };
+  const all: Cells[] = slice.rows.map((row) => ({
+    cycle: String(row.cycle),
+    c64: (row.c64Pc !== undefined ? hex(row.c64Pc) : "") + (row.c64Op ? " " + row.c64Op : ""),
+    flow: row.c64Flow ?? "",
+    io: fmtIo(row.c64IoRw, row.c64IoAddr, row.c64IoValue),
+    bus: fmtBus(row.busAtn, row.busClk, row.busData),
+    drv: (row.drvPc !== undefined ? hex(row.drvPc) : "") + (row.drvOp ? " " + row.drvOp : ""),
+    dio: fmtIo(row.drvIoRw, row.drvIoAddr, row.drvIoValue),
+  })).filter((c) => c.c64 || c.io || c.bus || c.drv || c.dio); // drop empty filler rows
+  const shown = all.slice(0, maxRows);
+  const truncated = all.length > maxRows;
+  if (!shown.length) return `swimlane ${slice.startCycle}–${slice.endCycle}: (no events in window)`;
+  const has = (k: keyof Cells) => shown.some((c) => c[k] !== "" && !(k === "flow" && c[k] === "main"));
+  const cols: { key: keyof Cells; head: string }[] = [{ key: "cycle", head: "cycle" }, { key: "c64", head: "c64" }];
+  if (has("flow")) cols.push({ key: "flow", head: "flow" });
+  if (has("io")) cols.push({ key: "io", head: "io" });
+  if (has("bus")) cols.push({ key: "bus", head: "iec" });
+  if (has("drv")) cols.push({ key: "drv", head: "1541" });
+  if (has("dio")) cols.push({ key: "dio", head: "drv_io" });
+  const w: Record<string, number> = {};
+  for (const c of cols) w[c.key] = Math.max(c.head.length, ...shown.map((r) => r[c.key].length), 1);
+  const line = (get: (k: keyof Cells) => string) => cols.map((c) => get(c.key).padEnd(w[c.key]!)).join("  ").trimEnd();
+  const lines = [
+    `swimlane ${slice.startCycle}–${slice.endCycle}${slice.compact ? " (compact)" : ""}  ${shown.length}${truncated ? "/" + all.length : ""} rows`,
+    line((k) => cols.find((c) => c.key === k)!.head),
+  ];
+  for (const r of shown) lines.push(line((k) => r[k]));
+  if (truncated) lines.push(`… ${all.length - maxRows} more — narrow with \`swimlane <s> <e>\``);
+  return lines.join("\n");
+}
+
 // ── JSONL renderer ────────────────────────────────────────────────────────────
 
 export function renderJsonl(slice: SwimlaneSlice): string {

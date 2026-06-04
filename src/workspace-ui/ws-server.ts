@@ -1684,10 +1684,10 @@ export class WsServer {
             await ensureIndex(storePath);
             const { withDuckDb } = await import("../server-tools/runtime.js");
             const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
-            const { renderMarkdown } = await import("../runtime/headless/v2/swimlane-render.js");
+            const { renderText } = await import("../runtime/headless/v2/swimlane-render.js");
             return await withDuckDb(storePath, async (_conn: any, backend: any) => {
               const slice = await swimlaneSlice(backend, { runId: stopped.runId ?? run.runId, cycleRange: [fromCycles, nowCycles], compact: true } as never);
-              return `chis: replayed ${toRun} cyc from checkpoint @cyc ${fromCycles}\n` + renderMarkdown(slice, { maxRows: 200 });
+              return `chis: replayed ${toRun} cyc from checkpoint @cyc ${fromCycles}\n` + renderText(slice, { maxRows: 200 });
             });
           } finally {
             try { await ctrl.restoreCheckpoint(nowRef.id); } catch { /* best effort — machine may sit at replay-end */ }
@@ -1740,7 +1740,7 @@ export class WsServer {
           await ensureIndex(storePath);
           const { withDuckDb } = await import("../server-tools/runtime.js");
           const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
-          const { renderMarkdown } = await import("../runtime/headless/v2/swimlane-render.js");
+          const { renderText } = await import("../runtime/headless/v2/swimlane-render.js");
           return await withDuckDb(storePath, async (conn: any, backend: any) => {
             const rid = (await conn.runAndReadAll("SELECT run_id FROM trace_run LIMIT 1")).getRows()[0]?.[0];
             const runId = rid != null ? String(rid) : undefined;
@@ -1755,7 +1755,7 @@ export class WsServer {
             }
             const slice = await swimlaneSlice(backend, { runId, cycleRange: [cs, ce], compact: true } as never);
             const stem = path.basename(storePath!).replace(/\.duckdb$/, "");
-            return `# swimlane ${stem}  cyc ${cs}..${ce}\n` + renderMarkdown(slice, { maxRows: 200 });
+            return `# ${stem}\n` + renderText(slice, { maxRows: 200 });
           });
         }
         const sp = ctrl.traceRun.currentStorePath?.();
