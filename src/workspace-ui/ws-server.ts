@@ -434,7 +434,20 @@ export class WsServer {
       if (!s) throw new Error(`no session ${session_id}`);
       return ensureRuntimeController(
         session_id, s,
-        (m, p) => this.broadcast(m, p),
+        (m, p) => {
+          // Spec 754 — after an autonomous stop (breakpoint / observer / pause),
+          // move the monitor's disasm cursor to the landing PC so a bare `d`
+          // shows where `r` is. The step verbs (z/n/ret) + toolbar step already
+          // do this; the run-loop stop was the gap (cursor stayed stale → `d`
+          // disagreed with `r`). Only the disasm cursor — the `m` memory cursor
+          // stays put (memory inspection is independent of the PC).
+          const pc = typeof p?.pc === "number" ? p.pc
+            : typeof p?.stop?.pc === "number" ? p.stop.pc : undefined;
+          if (pc !== undefined && (m === "debug/breakpoint_hit" || m === "debug/observer_hit" || m === "debug/stopped" || m === "debug/paused")) {
+            monitorDisasmAddr.set(session_id, pc & 0xffff);
+          }
+          this.broadcast(m, p);
+        },
         (frameNum) => pushFrame(session_id, frameNum),
       );
     };
