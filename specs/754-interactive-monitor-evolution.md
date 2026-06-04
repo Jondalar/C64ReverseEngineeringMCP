@@ -1,8 +1,12 @@
 # Spec 754 — Interactive Monitor evolution: VICE-superset over a shared capability layer
 
-**Status:** PROPOSED (2026-06-03)
-**Owner:** runtime monitor (`src/runtime/headless/v2/monitor.ts`, `agent-api.ts`) +
-ui-v3 monitor (`ui/src/v3/**`, `src/workspace-ui/v3-ws-server.ts`)
+**Status:** P1+P2 DONE + LIVE-TESTED (2026-06-04, master `fe3d94b0`, gate `e2e:754`
+111/111). P3 remaining: Block I (device c64|drive8), bitmap (PNG artifact),
+capability registry (Spec 760, deferred). Snapshot rename (`snap`/`unsnap`↔
+`dump`/`undump`) waits on the `.vsf` codec = Spec 755. See §3.8 for the live-test
+refinement log.
+**Owner:** runtime monitor (`src/runtime/headless/debug/monitor-shell.ts`) +
+the workbench monitor (`ui/src/workbench/components/Monitor*.tsx`, `src/workspace-ui/ws-server.ts`)
 **Closes:** BUG-036 (no coherent pause/resume — `g` only sets PC, "Run" calls a
 missing op), BUG-037 (two divergent monitor command processors).
 **Reference:** VICE monitor — `vice/src/monitor/{monitor.c, mon_parse.y,
