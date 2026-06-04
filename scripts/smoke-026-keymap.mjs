@@ -3,7 +3,7 @@
 // ^ (Backquote) = C64 CTRL, TAB = C64 RUN/STOP.
 // Asserts the backend keymap (input/keymap.ts → translateKey, used by
 // runtime_type / input/keyboard_press). The Live UI mirror lives in
-// ui/src/v3/tabs/Live.tsx keyEventToC64Keys — keep the two in sync.
+// ui/src/workbench/tabs/Live.tsx keyEventToC64Keys — keep the two in sync.
 import { translateKey } from "../dist/runtime/headless/input/keymap.js";
 
 let pass = 0, fail = 0;

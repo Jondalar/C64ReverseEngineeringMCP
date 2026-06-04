@@ -1,5 +1,10 @@
 # UI / server consolidation audit (Spec 724.1)
 
+> **Historical (superseded by Spec 757, 2026-06-04).** This audit predates the
+> final decision. There is now ONE UI (one source `ui/src/`, one build `ui:build`
+> → `ui/dist`, one name — the "v3" label is retired; the WS server is
+> `ws-server.ts`/`WsServer`). Read for history; "v3" below = today's single UI.
+
 **Date:** 2026-05-29. Audit-only — input for the 724 code slices. No code change.
 
 **North star:** the MCP + workspace must be usable by an LLM from OUTSIDE the

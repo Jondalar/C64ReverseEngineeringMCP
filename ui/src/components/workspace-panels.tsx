@@ -8,7 +8,11 @@
 // the cross-panel inspector navigation; panel-internal selection/detail stays
 // fully functional. No runtime/backend/VICE coupling.
 //
-// CSS lives in ./workspace-panels.css (shared by v1 + v3 styles).
+// Spec 757 — co-locate the panel CSS with the component that uses it, so the ONE
+// UI bundle is self-sufficient. (It used to reach the bundle only via the deleted
+// standalone v3 style.css @import; the product never imported it directly, leaving
+// panel classes like `wb-embedded` unstyled.)
+import "./workspace-panels.css";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ArtifactRecord, CartridgeLutChunk } from "../types.js";
 import type {

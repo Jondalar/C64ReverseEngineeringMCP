@@ -35,7 +35,7 @@ in ways neither real hardware nor a normal emulator offers:
 - **code overlay** — map live execution onto disassembly and findings
 - **observation** — DuckDB traces, swimlanes, monitor, frozen-frame
   exploration
-- **live browser workbench (V3)** — the backend owns the clock, monitor,
+- **live browser workbench** — the backend owns the clock, monitor,
   media, trace, and audio; the browser commands and visualizes
 - **frame-locked audio**, media ingress, mutable disks & cartridges
 
@@ -108,7 +108,7 @@ end-to-end product and unified-workbench direction is defined in
 ┌───────────────────────────────────────────────────────────────┐
 │ User Interfaces                                                │
 │                                                               │
-│ Emulator UI / V3 Workbench                                     │
+│ Emulator UI / Workbench                                        │
 │ - live C64 screen · media · monitor · inspector                │
 │ - keyboard / joystick · trace swimlanes · frozen explore       │
 │                                                               │
@@ -205,13 +205,11 @@ one live runtime. For an explicit foreground launch:
 npm run runtime:daemon -- --project <dir>   # optional — the MCP auto-starts it otherwise
 ```
 
-The standalone V3 commands below are development-only paths (single process, not the
-shared-runtime daemon):
+The UI is built/served as ONE bundle (Spec 757 — no separate "v3" build):
 
 ```bash
-npm run ui:v3:dev           # V3 browser client / development
-npm run ui:v3:build         # production V3 bundle
-npm run v3:server           # DEV-ONLY standalone runtime WS (not the product daemon)
+npm run ui:dev              # UI dev server (vite; warm-starts the runtime daemon)
+npm run ui:build            # production UI bundle (ui/dist, served at / by the workspace server)
 ```
 
 Runtime / backend / UI details: [docs/tools/headless.md](docs/tools/headless.md).

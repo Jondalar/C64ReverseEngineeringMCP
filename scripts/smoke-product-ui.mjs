@@ -2,7 +2,7 @@
 // truth) restyled v3 + with a Live runtime tab. Proves the routing + composition
 // contract WITHOUT a browser:
 //   - / and /index.html serve the v1 product bundle (one product UI, no second).
-//   - /v3.html is reachable but is the dev/reference shell, not the product.
+//   - /v3.html is retired -> 404 (one UI, no second entry, Spec 757).
 //   - the v1 bundle embeds the Live tab (wb-live) AND keeps the core v1 tabs +
 //     the central Inspector + the real visualizations (no no-op core, no raw JSON).
 //   - the scoped Live CSS is bundled and carries NO v3 global resets.

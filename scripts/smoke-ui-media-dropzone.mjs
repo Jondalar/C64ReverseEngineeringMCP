@@ -15,7 +15,7 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 
 console.log("Spec 709/724.2e — UI media drag&drop closure\n");
 
-const mediaTsx = join(ROOT, "ui/src/v3/tabs/Media.tsx");
+const mediaTsx = join(ROOT, "ui/src/workbench/tabs/Media.tsx");
 ok(existsSync(mediaTsx), "0 Media.tsx exists", mediaTsx);
 const src = readFileSync(mediaTsx, "utf8");
 

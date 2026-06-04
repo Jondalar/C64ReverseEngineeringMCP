@@ -1,9 +1,9 @@
 # Spec 745 — Retire the standalone v3 UI entry (ONE build, ONE bundle)
 
-**Status:** PROPOSED (2026-06-01) — **absorbed into Spec 757** (2026-06-04): this
-spec's "one build" decision is Spec 757 P1; Spec 757 additionally eliminates the
-"v3" *naming* everywhere (the user directive 745 §6 explicitly deferred). Build
-against Spec 757.
+**Status:** SUPERSEDED (2026-06-04) by **Spec 757** (DONE): this spec's "one
+build" decision is Spec 757 P1; Spec 757 additionally eliminated the "v3" *naming*
+everywhere (the user directive 745 §6 explicitly deferred). Read Spec 757 for the
+delivered end-state.
 **Depends on:** Spec 724 (single-UI — shipped, but left contradictory).
 
 ## 1. Why (the bug that triggered this)

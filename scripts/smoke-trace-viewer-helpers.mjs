@@ -15,7 +15,7 @@
 //   T7: rowsToJsonl — empty rows list produces header-only JSONL
 //   T8: parseMarkdownSwimlane — large table (250 rows) cap at 200 visible
 
-// ── Inline the pure helpers (mirrors ui/src/v3/tabs/Trace.tsx) ───────────────
+// ── Inline the pure helpers (mirrors ui/src/workbench/tabs/Trace.tsx) ───────────────
 
 /**
  * @param {string} md

@@ -18,7 +18,7 @@ export interface BinaryFrame {
 
 export type ConnectionState = "connecting" | "open" | "closed" | "error";
 
-export class V3WsClient {
+export class WsClient {
   private ws?: WebSocket;
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
@@ -128,10 +128,10 @@ export class V3WsClient {
 }
 
 // Singleton for tabs to share.
-let _client: V3WsClient | undefined;
-export function getClient(): V3WsClient {
+let _client: WsClient | undefined;
+export function getClient(): WsClient {
   if (!_client) {
-    _client = new V3WsClient();
+    _client = new WsClient();
     _client.connect();
   }
   return _client;

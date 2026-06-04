@@ -16,7 +16,7 @@
 //          is exercised against real code when a stall→catch-up flush emits a
 //          large backlog at once).
 //   Fix B  worklet latency governor (browser code — its trim arithmetic is
-//          REPLICATED here; KEEP IN SYNC with ui/src/v3/resid-worklet.js).
+//          REPLICATED here; KEEP IN SYNC with ui/src/workbench/resid-worklet.js).
 //   Fix C  WS backpressure (modeled as a per-frame ship bound).
 //
 // Run reports a BEFORE config (current master behavior) and an AFTER config
@@ -39,7 +39,7 @@ const SAMPLES_PER_FRAME = SAMPLE_RATE / FPS;        // 882 (realtime drain / fra
 const msOf = (samples) => (samples / SAMPLE_RATE) * 1000;
 
 // --- worklet ring model (mono-sample units; stereo handled by /2 on push) --
-// Mirrors ui/src/v3/resid-worklet.js: ring with hard-overflow drop-oldest and
+// Mirrors ui/src/workbench/resid-worklet.js: ring with hard-overflow drop-oldest and
 // (optionally) the Spec 706.3 latency governor. KEEP IN SYNC.
 class WorkletRingModel {
   constructor({ cap, startFill, governor, target, margin }) {

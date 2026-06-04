@@ -5,7 +5,7 @@
 // knowledge artifact: vic/inspect/promote returns the FrozenInspectEvidence, then
 // the record is POSTed to the workspace knowledge API (/api/vic-inspect-evidence).
 //
-// The WS (V3WsServer) is the live-runtime transport only; persistence goes through
+// The WS (WsServer) is the live-runtime transport only; persistence goes through
 // the HTTP workspace/knowledge API (Spec 710.3 ONE-UI architecture).
 //
 // Coordinates: the overlay works in the visible frame (384x272); the resolver

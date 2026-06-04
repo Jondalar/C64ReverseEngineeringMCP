@@ -1,6 +1,16 @@
 # Spec 757 — One UI: eliminate "v3" (one source, one build, one name)
 
-**Status:** PROPOSED (2026-06-04)
+**Status:** DONE (2026-06-04) — P1 (collapse to ONE build), P2 (rename the v3
+token: `ui/src/v3`→`ui/src/workbench`, `V3WsServer`→`WsServer`,
+`v3-ws-server.ts`→`ws-server.ts`, env `C64RE_V3_WS_PORT`→`C64RE_WS_PORT`), P3
+(purge tests/docs/commands). MON pop-out moved into the one product `App.tsx`;
+fixed a latent gap — `workspace-panels.css` was orphaned (reached the bundle only
+via the deleted standalone `style.css`) → co-located on the component. Gates:
+`build:mcp` + `ui:build` green; `smoke:ui-project-trace` 36/36 (one-UI routing,
+`/v3.html`→404, viz/inspector bundled into the product); `probe:single-path` green.
+`git grep -i '\bv3\b'` over live code/scripts = 0 (only GPL-v3 license + the
+runtime-maturity V1/V2/V3 roadmap label in CLAUDE.md — a distinct concept — and
+`specs/_archive` history remain).
 **Absorbs / supersedes:** Spec 745 (retire the standalone v3 entry — its "one
 build" half is P1 here) + the open contradiction in Spec 724/724B.
 **Owner:** the UI (`ui/**`, `src/workspace-ui/**`) + every script/test/doc/rule

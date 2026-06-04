@@ -13,7 +13,7 @@
 //       once (the WS layer wires this to: reset send seq + broadcast audio/flush).
 //   G3  the worklet flush model empties the ring AND re-arms the prebuffer, so
 //       post-restore only NEW (post-restore) PCM is played, never stale frames.
-//       (Mirrors ui/src/v3/resid-worklet.js flush() — KEEP IN SYNC.)
+//       (Mirrors ui/src/workbench/resid-worklet.js flush() — KEEP IN SYNC.)
 //
 // NOT asserted: byte-identity of already-buffered PCM across restore (transport,
 // not machine state — Spec 706 §9 / 705.A reSID gate covers synthesis identity).

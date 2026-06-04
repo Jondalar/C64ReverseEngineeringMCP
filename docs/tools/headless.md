@@ -1,7 +1,7 @@
 # Headless TS C64 + 1541 Runtime
 
 The Headless Runtime is the TypeScript emulator subsystem used by MCP
-tools, agents, regression scripts, and the V3 Emulator UI. It is no
+tools, agents, regression scripts, and the Emulator UI. It is no
 longer just a loader/depacker harness.
 
 It remains part of the larger C64RE MCP project:
@@ -58,7 +58,7 @@ isolating media or VIA behavior from a full C64 boot.
 |---|---|
 | `headless_render_screen` | Render the current VIC framebuffer to a PNG artifact. |
 
-## V3 Emulator UI - Visualization Of The Headless Core
+## Emulator UI - Visualization Of The Headless Core
 
 The **headless runtime, not the UI, owns the machine clock.** The browser is a
 visualization and command layer on top of a backend-driven loop.
@@ -124,8 +124,8 @@ The screen is a **binary VIC frame stream**, not per-frame PNG/base64:
 ### Run it
 
 ```bash
-npm run v3:server     # headless runtime WS backend (port 4312)
-npm run ui:v3:dev     # V3 browser client (vite, port 4313)
+npm run runtime:daemon -- --project <dir>   # headless runtime WS backend (port 4312)
+npm run ui:dev                              # UI dev server (vite; warm-starts the daemon)
 ```
 
 The same runtime surface also adds media selection, keyboard/joystick
@@ -151,7 +151,7 @@ As of 2026-05-22, the active runtime work is around:
 
 - 1:1 VICE-shaped C64/1541 behavior under `src/runtime/headless/**`
 - the 7-game Runtime Proof Gate staying green as the single acceptance bar
-- backend-owned autonomous runtime loop + V3 visualization
+- backend-owned autonomous runtime loop + visualization
 - VICE-faithful monitor stepping and flow-aware debugging
 - VIC-II pixel/line/raster fidelity from the `viciisc/` literal port
 - per-cycle drive scheduling, IEC, GCR, KERNAL load/save, and custom-fastloader

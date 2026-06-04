@@ -21,7 +21,9 @@ console.log("Spec 724A — probe-workspace-single\n");
 const server = stripComments(read("src/workspace-ui/server.ts"));
 const wsSrvRaw = read("src/workspace-ui/ws-server.ts");
 const wsSrv = stripComments(wsSrvRaw);
-const bootstrap = stripComments(read("scripts/start-v3-server.mjs"));
+// Spec 757 — the WS bootstrap is the Runtime Daemon entry (the retired
+// start-v3-server.mjs was a second WS-start path).
+const bootstrap = stripComments(read("src/runtime/headless/daemon/run.ts"));
 const workspace = read("scripts/workspace.mjs");
 
 // 1. server.ts resolves the project via the shared resolver, with NO cwd default.
@@ -41,13 +43,13 @@ ok(!/process\.env\[?["']?C64RE_PROJECT_DIR/.test(wsSrv),
 // 4. WsServer requires projectDir (ctor throws without).
 ok(/requires projectDir/.test(wsSrv), "4 WsServer ctor requires projectDir");
 
-// 5. start-v3-server carries NO post-723 removed runtime keys.
+// 5. the daemon WS bootstrap carries NO post-723 removed runtime keys.
 const deadKeys = /useMicrocodedCpu|drive1541|C64RE_DRIVE1541|C64RE_CYCLE_PUMPED|cycle-pumped-renderer/;
-ok(!deadKeys.test(bootstrap), "5 start-v3-server has no post-723 dead runtime keys");
+ok(!deadKeys.test(bootstrap), "5 daemon run.ts has no post-723 dead runtime keys");
 
 // 6. Both the WS bootstrap + the unified workspace use the shared resolver.
-ok(/resolveProjectDir/.test(bootstrap), "6 start-v3-server uses resolveProjectDir");
-ok(/resolveProjectDir/.test(workspace) && /server\.js/.test(workspace) && /start-v3-server\.mjs/.test(workspace),
+ok(/resolveProjectDir/.test(bootstrap), "6 daemon run.ts uses resolveProjectDir");
+ok(/resolveProjectDir/.test(workspace) && /server\.js/.test(workspace) && /daemon\/run\.js/.test(workspace),
   "6b workspace bootstrap resolves once + starts HTTP + WS");
 
 // 7. The unified bootstrap passes the SAME --project to both children.

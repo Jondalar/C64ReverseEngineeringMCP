@@ -1,7 +1,7 @@
 // Spec 724B — UI/API smoke. Proves the One-UI shell's backend can surface a real
 // 729-style project: project status + path, media, trace artifacts + marks, trace
 // readers (info / top-pcs / events), findings, entities, dashboard — all read-only
-// over the HTTP API the v3 shell uses, with the project path from the 724A resolver
+// over the HTTP API the UI uses, with the project path from the 724A resolver
 // (NO repo cwd / samples fallback).
 //
 // Builds a 729 project in a temp dir OUTSIDE the repo (project_init via the
@@ -74,8 +74,12 @@ ctrl.traceRun.mark('loaded-or-title');
 await ctrl.traceRun.stop();
 stopIntegratedSession(sessionId);
 `;
+// node 22 disallows `--input-type=module` with `-e`; run the module from a temp
+// file instead (same separate-process semantics for the DuckDB file handle).
+const capFile = join(projectDir, "_capture.mjs");
+writeFileSync(capFile, captureSrc);
 await new Promise((resolve, reject) => {
-  const cap = spawn(process.execPath, ["--input-type=module", "-e", captureSrc], { stdio: ["ignore", "ignore", "pipe"] });
+  const cap = spawn(process.execPath, [capFile], { stdio: ["ignore", "ignore", "pipe"] });
   let err = "";
   cap.stderr.on("data", (d) => { err += d.toString(); });
   cap.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`capture child exited ${code}: ${err.slice(-300)}`)));
@@ -84,10 +88,10 @@ ok(existsSync(tracePath), "1 trace.duckdb captured in project traces/ (separate 
 
 // ---- boot the real workspace-ui HTTP server against this project ----
 const PORT = 4319;
-// NOT --api-only: also serve the static UI so the BUG-001 routing fix (/, /v3.html
-// → v3 shell; /index.html → legacy v1) is gated. UI-entry asserts are guarded by
-// the presence of the built bundles (skip cleanly if the UI was not built).
-const hasV3Bundle = existsSync(join(ROOT, "ui/dist-v3/v3.html"));
+// NOT --api-only: also serve the static UI so the ONE-UI routing (/ + /index.html
+// → the product workbench; the retired /v3.html → 404, Spec 757) is gated. UI-entry
+// asserts are guarded by the built bundle (skip cleanly if the UI was not built).
+const hasUiBundle = existsSync(join(ROOT, "ui/dist/index.html"));
 const srv = spawn(process.execPath, [join(ROOT, "dist/workspace-ui/server.js"), "--project", projectDir, "--port", String(PORT)], {
   cwd: tmpdir(), env: { ...process.env }, stdio: ["ignore", "pipe", "pipe"],
 });
@@ -159,7 +163,7 @@ try {
     ok(false, "13 /api/trace/events", "no run_id from info");
   }
 
-  // 14. 724B.2 — every migrated v3 tab's backing data is reachable. The shell
+  // 14. 724B.2 — every migrated tab's backing data is reachable. The shell
   //     tabs are: Knowledge, Questions, Docs, Trace Files (Project); Memory Map,
   //     Payloads, Annotated Listing, Flow Graph (Analysis); Disk, Cartridge,
   //     Graphics (Media). Knowledge/Questions/Payloads/MemMap/Listing/Flow/Disk/
@@ -199,72 +203,71 @@ try {
   ok(annRes.ok && ann.totalSegments >= 1, "22 /api/scrub/annotate-segment persists a graphics segment (reclassify)", `segments=${ann.totalSegments}`);
   ok(typeof ann.annotationsPath === "string" && existsSync(ann.annotationsPath), "23 annotations file written + visible in the project", ann.annotationsPath ? "written" : "missing");
 
-  // 24-26 — BUG-001: static UI routing. / and /v3.html serve the v3 One-UI
-  // shell (C64RE V3); /index.html serves the legacy v1 entry. Guarded by the
-  // built bundle so the gate skips cleanly when the UI was not built.
-  if (hasV3Bundle) {
+  // 24-26 — Spec 757 ONE UI: / + /index.html serve the product workbench
+  // (C64RE Workbench); the retired /v3.html → 404. Guarded by the built bundle.
+  if (hasUiBundle) {
     const root = await getText("/");
-    ok(root.status === 200 && /C64RE V3/.test(root.text) && /assets\/v3-/.test(root.text), "24 / serves the v3 One-UI shell (not v1)", root.text.match(/<title>[^<]*/)?.[0] ?? "");
+    ok(root.status === 200 && /C64RE Workbench/.test(root.text) && /assets\/index-/.test(root.text), "24 / serves the product workbench (one UI)", root.text.match(/<title>[^<]*/)?.[0] ?? "");
     const v3 = await getText("/v3.html");
-    ok(v3.status === 200 && /C64RE V3/.test(v3.text), "25 /v3.html serves the v3 shell (BUG-001 fixed)", "");
+    ok(v3.status === 404, "25 /v3.html is retired → 404 (no second entry)", `status=${v3.status}`);
     const idx = await getText("/index.html");
-    ok(idx.status === 200 && !/C64RE V3/.test(idx.text), "26 /index.html still serves the legacy v1 entry", idx.text.match(/<title>[^<]*/)?.[0] ?? "");
+    ok(idx.status === 200 && /C64RE Workbench/.test(idx.text), "26 /index.html = the SAME product UI", idx.text.match(/<title>[^<]*/)?.[0] ?? "");
   } else {
-    console.log("  SKIP  24-26 UI routing (ui/dist-v3 not built — run npm run ui:v3:build)");
+    console.log("  SKIP  24-26 UI routing (ui/dist not built — run npm run ui:build)");
   }
 
   // 27-31 — BUG-011/012: the Analysis + Media tabs must render the REAL v1
   // VISUALIZATIONS (heatmap grid / SVG cylindrical disk / bank-chip grid / SVG
   // flow graph), shared from ui/src/components/workspace-panels.tsx — NOT a
-  // JSON dump and NOT a plain table. Verified against the BUILT v3 bundle (the
+  // JSON dump and NOT a plain table. Verified against the BUILT product bundle (the
   // viz class names + SVG markers must be present) + the shared CSS.
-  const pvSrc = readFileSync(join(ROOT, "ui/src/v3/tabs/ProjectViews.tsx"), "utf8");
+  const pvSrc = readFileSync(join(ROOT, "ui/src/workbench/tabs/ProjectViews.tsx"), "utf8");
   ok(/MemoryMapPanel/.test(pvSrc) && /DiskPanel/.test(pvSrc) && /CartridgePanel/.test(pvSrc) && /FlowPanel/.test(pvSrc),
-    "27 v3 tabs render the shared visualization panels (not tables/JSON)", "");
-  ok(/workspace-panels/.test(pvSrc), "28 panels imported from the shared module (v3 does NOT import App.tsx)", /App\.js/.test(pvSrc) ? "imports App!" : "shared");
+    "27 workbench tabs render the shared visualization panels (not tables/JSON)", "");
+  ok(/workspace-panels/.test(pvSrc), "28 panels imported from the shared module (the tab does NOT import App.tsx)", /App\.js/.test(pvSrc) ? "imports App!" : "shared");
 
-  const bundleDir = join(ROOT, "ui/dist-v3/assets");
-  const jsFile = existsSync(bundleDir) ? readdirSync(bundleDir).find((f) => /^v3-.*\.js$/.test(f)) : undefined;
+  const bundleDir = join(ROOT, "ui/dist/assets");
+  const jsFile = existsSync(bundleDir) ? readdirSync(bundleDir).find((f) => /^index-.*\.js$/.test(f)) : undefined;
   if (jsFile) {
     const js = readFileSync(join(bundleDir, jsFile), "utf8");
     const markers = ["memory-grid-table", "disk-geometry-svg", "flow-svg", "cart-grid-list", "disk-sector", "memory-cell"];
     const missing = markers.filter((m) => !js.includes(m));
-    ok(missing.length === 0, "29 built v3 bundle contains the visualization markers (heatmap/disk-svg/flow-svg/cart-grid)", missing.join(",") || "all present");
+    ok(missing.length === 0, "29 built product bundle contains the visualization markers (heatmap/disk-svg/flow-svg/cart-grid)", missing.join(",") || "all present");
     const cssFile = readdirSync(bundleDir).find((f) => /\.css$/.test(f));
     const css = cssFile ? readFileSync(join(bundleDir, cssFile), "utf8") : "";
     ok(/disk-geometry-svg/.test(css) && /memory-cell/.test(css) && /flow-/.test(css),
-      "30 shared visualization CSS is bundled into v3", cssFile ? "present" : "no css");
+      "30 shared visualization CSS is bundled into the product", cssFile ? "present" : "no css");
   } else {
-    console.log("  SKIP  29-30 viz bundle markers (ui/dist-v3 not built — run npm run ui:v3:build)");
+    console.log("  SKIP  29-30 viz bundle markers (ui/dist not built — run npm run ui:build)");
   }
   // raw JSON must be available only as an explicit per-panel debug toggle.
   ok(/showRaw/.test(pvSrc) && /raw JSON/.test(pvSrc), "31 raw JSON stays a debug toggle, not the default body", "");
 
-  // 32-34 — BUG-014: the v3 viz views keep the v1 WORKBENCH model — primary
+  // 32-34 — BUG-014: the viz views keep the v1 WORKBENCH model — primary
   // visual on the left + the shared Inspector on the right (not a vertical
   // stack), with LIVE selection feeding the Inspector. Source-level: tabs use
   // Workbench + EntityInspector + a selection hook; bundle-level: the Inspector
   // + workbench-grid classes are present in the built JS + CSS.
   ok(/Workbench/.test(pvSrc) && /EntityInspector/.test(pvSrc) && /useEntitySelection/.test(pvSrc),
-    "32 v3 viz tabs use the workbench layout + shared Inspector + live selection", "");
+    "32 viz tabs use the workbench layout + shared Inspector + live selection", "");
   if (jsFile) {
     const js = readFileSync(join(bundleDir, jsFile), "utf8");
     const im = ["inspector-card", "workspace-side", "workspace-main", "app-main-grid", "inspector-block"];
     const miss = im.filter((m) => !js.includes(m));
-    ok(miss.length === 0, "33 built v3 bundle contains the Inspector + workbench-grid markup", miss.join(",") || "all present");
+    ok(miss.length === 0, "33 built product bundle contains the Inspector + workbench-grid markup", miss.join(",") || "all present");
     const cssFile = readdirSync(bundleDir).find((f) => /\.css$/.test(f));
     const css = cssFile ? readFileSync(join(bundleDir, cssFile), "utf8") : "";
     ok(/inspector-card/.test(css) && /workspace-side/.test(css) && /wb-embedded/.test(css),
-      "34 shared Inspector + workbench-grid CSS is bundled into v3", cssFile ? "present" : "no css");
+      "34 shared Inspector + workbench-grid CSS is bundled into the product", cssFile ? "present" : "no css");
   } else {
-    console.log("  SKIP  33-34 inspector/workbench markers (ui/dist-v3 not built)");
+    console.log("  SKIP  33-34 inspector/workbench markers (ui/dist not built)");
   }
 
   console.log(`\n--- report ---`);
   console.log(`project: ${projectDir}`);
   console.log(`endpoints proven: /api/config, /api/workspace (+ all view keys), /api/traces, /api/trace/{info,top-pcs,events}, /api/docs, /api/graphics`);
   console.log(`Analysis/Media tabs render the REAL v1 visualizations (heatmap/SVG disk/bank-chip grid/flow svg), shared module, raw JSON behind a toggle (BUG-011/012).`);
-  console.log(`UI routing (BUG-001): / + /v3.html → v3 shell; /index.html → legacy v1${hasV3Bundle ? "" : " (skipped — UI not built)"}`);
+  console.log(`UI routing (Spec 757 one UI): / + /index.html → the product workbench; /v3.html → 404${hasUiBundle ? "" : " (skipped — UI not built)"}`);
   console.log(`tabs reachable: Knowledge, Questions, Docs, Trace Files, Memory Map, Payloads, Annotated Listing, Flow Graph, Disk, Cartridge, Graphics, Assets/Scrub`);
   console.log(`Assets/Scrub: PRG picker + /api/artifact/raw slice + /api/scrub/annotate-segment write proven`);
   console.log(`729 artifacts visible: project status+path, game.d64, traces/run.duckdb, marks(basic-ready,loaded-or-title), findings, entities, dashboard`);
