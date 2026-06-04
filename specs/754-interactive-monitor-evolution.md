@@ -152,8 +152,18 @@ spec-wide principle the user set — cf. `m cpu` over `c:`): drop the bare `>`.
   (mnemonic + operand → addressing mode → opcode bytes → poke) reusing the opcode
   table in `pipeline/src/lib/mos6502.ts` (256 ops incl. undocumented). All modes
   (`#$xx`, zp, zp,x/y, abs, abs,x/y, `($zp,x)`, `($zp),y`, ind, acc, impl, rel).
-  Single-line first; VICE-style assembly-mode (multi-line, empty line exits) +
-  label/symbol resolution from findings = later.
+  **Modal assemble DONE (2026-06-04, VICE-faithful):** `a <addr>` enters assemble
+  mode at addr; `a <addr> <instr>` assembles inline then stays in mode at the next
+  addr. In mode the prompt becomes VICE's `.c002  ` (lowercase dot-addr,
+  `monitor.c:3068` `make_prompt`) and every line is an instruction (no `a` prefix);
+  each advances the cursor by the instruction length; an **empty line exits**
+  (`mon_parse.y:944` `asm_mode=0`). Per-session `asmCursors` + a `MonitorResult.prompt`
+  field; the dispatch intercepts in-mode lines BEFORE verb parsing; the client
+  (`MonitorPanel`, shared by the in-page panel + the MON popout) shows `prompt` and
+  sends raw/empty lines. **One deliberate deviation from VICE:** a bad instruction
+  stays in mode + re-shows the prompt (VICE silently drops out) — friendlier for
+  live editing. Gate `e2e:754` Part L (88/88). Label/symbol operands still
+  numeric-only (couples to the Block F label store).
 - `t <range> <dest>` move (overlap-safe), `c <range> <dest>` compare (show diffs),
   `h <range> <data…>` hunt/search (`xx` = wildcard byte) — VICE verbatim. (`wr`/`f`/
   `h` are the cracking core: hunt a pattern, patch it.)

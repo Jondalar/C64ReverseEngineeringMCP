@@ -33,6 +33,11 @@ import {
 export interface MonitorResult {
   output?: string;
   error?: string;
+  // Spec 754 §3.3c (modal assemble, VICE `a`): when set, the session is in a
+  // line-prompt mode (assemble). The client shows this string as the input
+  // prompt (e.g. ".c002  ") and sends the raw next line — including an empty
+  // line, which exits the mode. Absent → normal `>` prompt / not modal.
+  prompt?: string;
 }
 
 /**
@@ -79,18 +84,24 @@ const dfWalks = new Map<string, DfState>();
 /** FS mini-shell cwd per session (Spec 754 §3.3g; starts at the project dir). */
 const fsShellCwd = new Map<string, string>();
 
+/** Modal assemble cursor per session (Spec 754 §3.3c; VICE `a` assemble mode). */
+const asmCursors = new Map<string, number>();
+
 /** For gate teardown / session close — drop a session's monitor-private state. */
 export function disposeMonitorShellState(sessionId: string): void {
   bankDefaults.delete(sessionId);
   sidefxOn.delete(sessionId);
   dfWalks.delete(sessionId);
   fsShellCwd.delete(sessionId);
+  asmCursors.delete(sessionId);
 }
 
 export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): Promise<MonitorResult> {
   const { session: s, ctrl, sessionId, memCursors, disasmCursors } = ctx;
   const cmd = String(command ?? "").trim();
-  if (!cmd) return { output: "" };
+  // An empty line is a no-op UNLESS the session is in modal assemble — there an
+  // empty line is the explicit exit (handled in the assemble interception below).
+  if (!cmd && !asmCursors.has(sessionId)) return { output: "" };
   const tokens = cmd.split(/\s+/);
   const op = tokens[0]!.toLowerCase();
 
@@ -145,8 +156,38 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
     const m = cmd.match(/^\S+\s+"([^"]+)"\s*(.*)$/) ?? cmd.match(/^\S+\s+(\S+)\s*(.*)$/);
     return { file: m?.[1], rest: (m?.[2] ?? "").trim().split(/\s+/).filter(Boolean) };
   };
+  // Modal assemble (Spec 754 §3.3c) — VICE-style `.c002  ` prompt at the cursor.
+  const asmPrompt = (a: number) => "." + (a & 0xffff).toString(16).padStart(4, "0") + "  ";
+  // Assemble one instruction at `addr`: on success write bytes, advance the
+  // assemble + disasm cursors (→ stay in mode), return the listing + next
+  // prompt; on error return just the error (cursor unchanged, no mode change).
+  const assembleAt = async (addr: number, text: string): Promise<MonitorResult> => {
+    const { assembleLine } = await import("./assembler6502.js");
+    const r = assembleLine(text, addr & 0xffff);
+    if ("error" in r) return { error: `a: ${r.error}` };
+    r.bytes.forEach((b, k) => s.c64Bus.write((addr + k) & 0xffff, b & 0xff));
+    const next = (addr + r.size) & 0xffff;
+    asmCursors.set(sessionId, next);
+    disasmCursors.set(sessionId, next);
+    const back = disasmLine((x) => s.c64Bus.peek(x & 0xffff, "cpu") & 0xff, addr).line;
+    return {
+      output: `${hex(addr, 4)}  ${r.bytes.map((b) => hex(b)).join(" ").padEnd(11)}  ${back}`,
+      prompt: asmPrompt(next),
+    };
+  };
 
   try {
+    // ---- Modal assemble interception (Spec 754 §3.3c). A session in assemble
+    // mode treats EVERY line as an instruction (no verb dispatch); an empty line
+    // exits. A bad instruction stays in mode + re-shows the prompt (friendlier
+    // than VICE, which would silently drop out — intentional, see spec). --------
+    if (asmCursors.has(sessionId)) {
+      const at = asmCursors.get(sessionId)!;
+      if (!cmd) { asmCursors.delete(sessionId); return { output: "" }; }
+      const res = await assembleAt(at, cmd);
+      return res.error ? { error: res.error, prompt: asmPrompt(at) } : res;
+    }
+
     // ---- Snapshots (Spec 707 / 623 §7) — one-shot, no RETURN repeat. -------
     if (op === "dump" || op === "undump") {
       const pm = cmd.match(/^\w+\s+"([^"]+)"/) ?? cmd.match(/^\w+\s+(\S+)/);
@@ -432,17 +473,18 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       return { output: hits.length ? `found ${hits.length}:\n  ` + hits.map((a) => `$${hex(a, 4)}`).join(" ") : "not found" };
     }
     // a <addr> <instruction> — inline 6502 assembler (Spec 754 §3.3c).
+    // a <addr> [instr] — VICE assemble. `a c000` enters modal assemble at $C000;
+    // `a c000 lda #$01` assembles that line then stays in mode at the next addr.
+    // In mode: type instructions line-by-line (no `a` prefix); empty line exits.
     if (op === "a") {
       const addr = parseAddr(tokens[1]);
-      if (addr === null || tokens.length < 3) return { error: "a: usage: a <addr> <instruction>  (e.g. a c000 lda #$01)" };
-      const text = tokens.slice(2).join(" ");
-      const { assembleLine } = await import("./assembler6502.js");
-      const r = assembleLine(text, addr & 0xffff);
-      if ("error" in r) return { error: `a: ${r.error}` };
-      r.bytes.forEach((b, k) => s.c64Bus.write((addr + k) & 0xffff, b & 0xff));
-      disasmCursors.set(sessionId, (addr + r.size) & 0xffff);
-      const back = disasmLine((x) => s.c64Bus.peek(x & 0xffff, "cpu") & 0xff, addr).line;
-      return { output: `${hex(addr, 4)}  ${r.bytes.map((b) => hex(b)).join(" ").padEnd(11)}  ${back}` };
+      if (addr === null) return { error: "a: usage: a <addr> [instruction]  — enter assemble mode (empty line exits)" };
+      if (tokens.length < 3) {
+        asmCursors.set(sessionId, addr & 0xffff);
+        disasmCursors.set(sessionId, addr & 0xffff);
+        return { output: "", prompt: asmPrompt(addr & 0xffff) };
+      }
+      return await assembleAt(addr & 0xffff, tokens.slice(2).join(" "));
     }
     // screen — decode the 40x25 text screen at the REAL screen pointer (VIC
     // bank from CIA2 $DD00 + $D018 matrix nibble), not a hard-coded $0400.
@@ -847,7 +889,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "    bank [lens]      show/set the sticky default lens for m/d\n" +
         "    wr [lens] <a> <b..>  write exactly these bytes from a\n" +
         "    f <a> <b> <d..>  fill range a..b with repeating data\n" +
-        "    a <a> <instr>    inline assemble (e.g. a c000 lda #$01)\n" +
+        "    a <a> [instr]    assemble; `a c000` enters assemble mode (type lines, empty exits)\n" +
         "    t <a> <b> <dst>  move/copy a..b to dst (overlap-safe)\n" +
         "    c <a> <b> <dst>  compare a..b vs dst (list diffs)\n" +
         "    h <a> <b> <d..>  hunt for a byte pattern (xx = wildcard)\n" +

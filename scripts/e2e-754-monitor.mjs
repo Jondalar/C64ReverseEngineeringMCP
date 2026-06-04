@@ -159,12 +159,14 @@ console.log("\nSpec 754 — Part D: memory edit + assembler (Block C)\n");
     ok("D1 `wr` writes the exact byte list", peek(0xc000) === 0xa9 && peek(0xc001) === 0x01 && peek(0xc002) === 0x8d && peek(0xc004) === 0xd0,
       `${hx(peek(0xc000))} ${hx(peek(0xc001))} ${hx(peek(0xc002))} ${hx(peek(0xc003))} ${hx(peek(0xc004))}`);
 
-    // a — inline assembler. `a c100 lda #$01` → A9 01.
-    const aRes = await mon("a c100 lda #$01");
+    // a — inline assembler. `a c100 lda #$01` → A9 01. (Each `a <addr> <instr>`
+    // now ENTERS assemble mode at the next addr — Part L covers the mode; here we
+    // exit with an empty line after each one-shot to test the assembler alone.)
+    const aRes = await mon("a c100 lda #$01"); await mon("");
     ok("D2 `a c100 lda #$01` assembles to A9 01", peek(0xc100) === 0xa9 && peek(0xc101) === 0x01, aRes.output);
-    await mon("a c102 sta $d020");
+    await mon("a c102 sta $d020"); await mon("");
     ok("D3 `a sta $d020` assembles to 8D 20 D0", peek(0xc102) === 0x8d && peek(0xc103) === 0x20 && peek(0xc104) === 0xd0);
-    await mon("a c200 bne $c200"); // branch to self → offset $FE
+    await mon("a c200 bne $c200"); await mon(""); // branch to self → offset $FE
     ok("D4 `a bne $c200`@$c200 → D0 FE (rel offset)", peek(0xc200) === 0xd0 && peek(0xc201) === 0xfe, `${hx(peek(0xc200))} ${hx(peek(0xc201))}`);
 
     // f — fill range with a repeating pattern.
@@ -500,6 +502,48 @@ console.log("\nSpec 754 — Part K: fs-shell + file I/O (Block G)\n");
     const usage = await mon("save");
     ok("K12 save without args reports usage", /usage/.test(usage.error ?? ""));
   } finally { ctrl.pause(); stopIntegratedSession(sessionId); rmSync(root, { recursive: true, force: true }); }
+}
+
+// =====================================================================
+// Part L — Block C modal assemble (VICE `a` assemble mode): `a <addr>` enters,
+// lines assemble + advance the prompt, empty line exits, bad line stays in mode.
+// =====================================================================
+console.log("\nSpec 754 — Part L: modal assemble (a mode)\n");
+{
+  const { session, sessionId } = startIntegratedSession({});
+  const ctrl = new RuntimeController(sessionId, session, () => {});
+  try {
+    session.resetCold("pal-default");
+    const ctx = { session, ctrl, sessionId, memCursors: new Map(), disasmCursors: new Map() };
+    const mon = (cmd) => runMonitorCommand(ctx, cmd);
+    const ram = (a) => session.c64Bus.ram[a & 0xffff];
+
+    const enter = await mon("a c000");
+    ok("L1 `a <addr>` enters mode (prompt .c000, no output)", enter.prompt === ".c000  " && (enter.output ?? "") === "", enter.prompt);
+
+    const i1 = await mon("lda #$01");
+    ok("L2 in-mode line assembles + advances prompt", ram(0xc000) === 0xa9 && ram(0xc001) === 0x01 && i1.prompt === ".c002  ", i1.prompt);
+
+    const i2 = await mon("sta $d020");
+    ok("L3 next line assembles at the advanced cursor", ram(0xc002) === 0x8d && ram(0xc003) === 0x20 && ram(0xc004) === 0xd0 && i2.prompt === ".c005  ", i2.prompt);
+
+    const exit = await mon("");
+    ok("L4 empty line exits mode (no prompt)", exit.prompt === undefined && (exit.output ?? "") === "");
+
+    const reg = await mon("r");
+    ok("L5 after exit a verb runs normally (not assembled)", reg.prompt === undefined && !reg.error && (reg.output ?? "").length > 0);
+
+    const inl = await mon("a c100 lda #$ff");
+    ok("L6 `a <addr> <instr>` assembles inline + enters mode at next", ram(0xc100) === 0xa9 && ram(0xc101) === 0xff && inl.prompt === ".c102  ", inl.prompt);
+    await mon("");
+
+    await mon("a c200");
+    const bad = await mon("frobnicate");
+    ok("L7 bad instruction stays in mode (error + same prompt)", !!bad.error && bad.prompt === ".c200  ", bad.error);
+    const after = await mon("lda #$02");
+    ok("L8 mode survives a bad line; next good line assembles at the same cursor", ram(0xc200) === 0xa9 && ram(0xc201) === 0x02 && after.prompt === ".c202  ", after.prompt);
+    await mon("");
+  } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
 }
 
 // =====================================================================

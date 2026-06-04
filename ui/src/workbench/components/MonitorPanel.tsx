@@ -25,6 +25,9 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: 
   const [input, setInput] = useState("");
   const [cmdHistory, setCmdHistory] = useState<string[]>([]);
   const [cmdHistoryIdx, setCmdHistoryIdx] = useState(-1);
+  // Spec 754 §3.3c — modal prompt (assemble mode). Non-null = the server is in a
+  // line-prompt mode; show it instead of `>` and send empty lines (exit signal).
+  const [prompt, setPrompt] = useState<string | null>(null);
   const outRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -50,25 +53,27 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: 
 
   const dispatch = async (raw: string) => {
     const cmd = raw.trim();
-    if (!cmd) return;
-    append([{ kind: "in", text: "> " + cmd }]);
-    setCmdHistory((h) => [...h, cmd]);
-    setCmdHistoryIdx(-1);
+    // Empty line: a no-op normally; in a modal prompt (assemble) it's the exit.
+    if (!cmd && prompt === null) return;
+    append([{ kind: "in", text: (prompt ?? "> ") + cmd }]);
+    if (cmd) { setCmdHistory((h) => [...h, cmd]); setCmdHistoryIdx(-1); }
     if (!sessionId) {
       append([{ kind: "err", text: "no session" }]);
       return;
     }
     try {
-      const r = await getClient().call<{ output?: string; error?: string }>("monitor/exec", {
+      const r = await getClient().call<{ output?: string; error?: string; prompt?: string }>("monitor/exec", {
         session_id: sessionId, command: cmd,
       });
       if (r.error) append([{ kind: "err", text: r.error }]);
       if (r.output) append(r.output.split(/\r?\n/).map((t) => ({ kind: "out" as const, text: t })));
+      setPrompt(r.prompt ?? null);
     } catch (e: any) {
       // monitor/exec may not exist yet — fall back to inline parser
       const out = inlineDispatch(cmd);
       if (out) append([{ kind: "out", text: out }]);
       else append([{ kind: "err", text: `monitor backend not wired (${e.message ?? e}).` }]);
+      setPrompt(null);
     }
   };
 
@@ -104,7 +109,7 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: 
         ))}
       </div>
       <div className="wb-monitor-in">
-        <span className="wb-prompt">&gt;</span>
+        <span className="wb-prompt">{prompt ? prompt.trimEnd() : ">"}</span>
         <input
           ref={inputRef}
           value={input}
