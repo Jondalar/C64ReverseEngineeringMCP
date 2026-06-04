@@ -37,7 +37,7 @@ export function MonitorPopout({ sessionId }: { sessionId: string }): React.JSX.E
       </div>
       <div style={{ flex: 1, minHeight: 0 }}>
         {sessionId
-          ? <MonitorPanel sessionId={sessionId} maximized={true} onToggleMax={() => { /* popped = always full */ }} breakpoint={bp} />
+          ? <MonitorPanel sessionId={sessionId} maximized={false} onToggleMax={() => { /* popped = always full (CSS .wb-monitor-popout) */ }} breakpoint={bp} />
           : <div style={{ padding: 12, color: "#888" }}>no sessionId in URL (expected <code>?monitor=1&amp;sessionId=…</code>)</div>}
       </div>
     </div>
