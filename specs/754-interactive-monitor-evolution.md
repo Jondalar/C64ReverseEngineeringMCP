@@ -327,10 +327,21 @@ detach [dev]
 `ls`/`dir` = host FS (mini-shell); the DISK directory is `@"$"` — two different
 "dir"s, do not conflate.
 
-### 3.3h Analysis superpowers + the checkpoint-substrate model (Block H) — DECIDED (2026-06-03)
-The realization of §3.6 — our capabilities as monitor commands, thin over the same
-services the MCP tools call. **OQ1 RESOLVED: curated verbs only, NO generic `!tool`
-escape** (the LLM-workflow tools stay LLM-only).
+### 3.3h Analysis superpowers + the checkpoint-substrate model (Block H) — DONE v1 (2026-06-04)
+**v1 shipped (gate e2e:754 Parts H/I/J, 67/67):** `flow` + `bt` (daemon-local);
+`map` + `taint` + `swimlane` (trace-store via the WS `ctx.traceRead` bridge on
+`ctrl.traceRun.currentStorePath()`, read-only in-daemon → no BUG-029 lock);
+`chis` (replay-from-checkpoint → swimlane, non-destructive); `inspect` + `xref`
+(read-only project `_analysis.json` via the WS `ctx.projectRead` bridge —
+`loadEffectiveSegments` overlay, BUG-034-safe; address→artifact by head-read
+range-match + optional `[stem]`). monitor-shell stays runtime-pure; the WS server
+owns the trace/project readers. **Deferred:** `bitmap` (PNG artifact — text
+monitor can't show inline); the capability **registry** (Spec 760 — monitor verbs
+stay direct dispatch). **v1 caveats:** map/taint/swimlane need a trace (`trace on`);
+chis vs active observers; the address→artifact gap (multiple PRGs at one address →
+use `[stem]`). The realization of §3.6 — capabilities as monitor commands over the
+same services the MCP tools call. **OQ1 RESOLVED: curated verbs only, NO generic
+`!tool` escape** (the LLM-workflow tools stay LLM-only).
 
 **Curated capability verbs:**
 ```
