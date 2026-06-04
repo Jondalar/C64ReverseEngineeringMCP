@@ -366,6 +366,29 @@ console.log("\nSpec 754 — Part G: flow disassembly (sd / df / df -i)\n");
 }
 
 // =====================================================================
+// Part H — Block H (capability verbs): flow + bt (daemon-local).
+// =====================================================================
+console.log("\nSpec 754 — Part H: capability verbs flow + bt (Block H)\n");
+{
+  const { session, sessionId } = startIntegratedSession({});
+  const { ctrl, mon } = newCtx(session, sessionId);
+  try {
+    session.resetCold("pal-default");
+
+    // H1 — flow: after a cold reset, current=main, no interrupt frame.
+    const fl = (await mon("flow")).output ?? "";
+    ok("H1 `flow` shows the flow panel (current=main, no frame)", /current=main/.test(fl) && /no interrupt/.test(fl), (fl.split("\n")[0] ?? ""));
+
+    // H2 — bt: plant a JSR return address on the stack and see it scanned.
+    // return target $C100 → pushed value $C0FF (target-1) → lo=$FF hi=$C0.
+    session.c64Bus.ram[0x01fe] = 0xff; session.c64Bus.ram[0x01ff] = 0xc0;
+    session.c64Cpu.sp = 0xfd; // SP+1 = $01FE
+    const bt = (await mon("bt")).output ?? "";
+    ok("H2 `bt` scans the stack for the JSR return candidate ($C100)", /c100/i.test(bt) && /JSR return/.test(bt), (bt.split("\n").find((l) => /c100/i.test(l)) ?? "").trim());
+  } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
+}
+
+// =====================================================================
 // Part C — BUG-037: the dead second parser is retired.
 // =====================================================================
 console.log("\nSpec 754 — Part C: one canonical monitor (BUG-037)\n");

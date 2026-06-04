@@ -614,6 +614,37 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       return landLine(stop, `nextf:${ctrl.flow.effectiveFocus()}`);
     }
 
+    // ---- Capability verbs (Spec 754 §3.3h) — daemon-local panels. ----------
+    // flow — the interrupt/trap flow frame stack (read-only panel; `focus` sets).
+    if (op === "flow") {
+      const st = ctrl.flow.flowState();
+      const frames = st.stack.length
+        ? st.stack.map((fr) => `  ${fr.kind}  enter=$${hex(fr.pc, 4)} -> ret=$${hex(fr.returnPc ?? 0, 4)}  cyc=${fr.cycle}`).join("\n")
+        : "  (main — no interrupt/trap frame active)";
+      return { output: `flow: current=${st.current}  focus=${st.focus}\nframes:\n${frames}` };
+    }
+    // bt — backtrace: scan the 6502 stack for JSR return-address candidates
+    // (VICE-style best-guess after free-run) + the FlowTracker IRQ/NMI frames
+    // (more than VICE). Refine the exact chain with `chis`.
+    if (op === "bt") {
+      const sp = s.c64Cpu.sp & 0xff;
+      const lines: string[] = ["backtrace (live stack scan — best-effort; refine with `chis`):"];
+      let found = 0;
+      for (let a = 0x0100 + ((sp + 1) & 0xff); a <= 0x01ff && found < 16; a += 2) {
+        const lo = s.c64Bus.peek(a & 0xffff, "cpu") & 0xff;
+        const hi = s.c64Bus.peek((a + 1) & 0xffff, "cpu") & 0xff;
+        const ret = (((hi << 8) | lo) + 1) & 0xffff;
+        lines.push(`  $${hex(a, 4)}: -> $${hex(ret, 4)}  (JSR return?)`);
+        found++;
+      }
+      if (!found) lines.push("  (stack empty — SP at top)");
+      if (ctrl.flow.stack.length) {
+        lines.push("flow frames (exact, from stepping):");
+        for (const fr of ctrl.flow.stack) lines.push(`  ${fr.kind} @ $${hex(fr.enteredAtPc, 4)}`);
+      }
+      return { output: lines.join("\n") };
+    }
+
     // ---- Reset ------------------------------------------------------------
     if (op === "reset") {
       ctrl.pause();
@@ -634,6 +665,8 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "    ret / return     run until current frame returns (RTS/RTI)\n" +
         "    focus [m]        flow focus: auto|main|irq|nmi|brk|clear (C64RE)\n" +
         "    sf / nf          step into/over, stop only in focused flow (C64RE)\n" +
+        "    flow             interrupt/trap flow frame stack (panel)\n" +
+        "    bt               backtrace (stack scan + flow frames)\n" +
         "    reset            cold reset\n" +
         "  MEMORY (bank lens: cpu|ram|rom|io|cart, default cpu = what CPU sees)\n" +
         "    m [lens] <a> [b] memory dump ($20/row + petscii; default len $800)\n" +
