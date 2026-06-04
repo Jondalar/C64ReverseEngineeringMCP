@@ -15,7 +15,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { getClient, BIN_TYPE_VIC_FRAME } from "../ws-client.js";
 import type { TabProps } from "./Live.types.js";
-import { MonitorPanel } from "../components/MonitorPanel.js";
+// Spec 754 — the monitor is now the pop-out (MON button → separate window,
+// MonitorPopout). The in-page bottom MonitorPanel is removed; MonitorPanel.tsx
+// stays (the pop-out renders it).
 import { InspectorPanel } from "../components/InspectorPanel.js";
 import { MachineControls } from "../components/MachineControls.js";
 import { ExploreOverlay } from "../components/ExploreOverlay.js";
@@ -150,7 +152,6 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   // Spec 709.13 — the CART (slot 0) display is derived from backend cart_status
   // (cart.sourceName), NOT a per-tab local path, so it can't diverge across tabs.
   const [screenFocused, setScreenFocused] = useState(false);
-  const [monitorMax, setMonitorMax] = useState(false);
   const [bpSignal, setBpSignal] = useState<{ pc: number; num: number; registers: string; seq: number } | null>(null);
   const [exploreSelection, setExploreSelection] = useState<{x:number;y:number;w:number;h:number} | null>(null);
   const fpsCounterRef = useRef({ frames: 0, lastT: Date.now() });
@@ -485,12 +486,6 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           pressedKeys={pressedKeys}
         />
       </div>
-      <MonitorPanel
-        sessionId={sessionId}
-        maximized={monitorMax}
-        onToggleMax={() => setMonitorMax(!monitorMax)}
-        breakpoint={bpSignal}
-      />
     </div>
   );
 }
