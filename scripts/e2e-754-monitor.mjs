@@ -325,6 +325,21 @@ console.log("\nSpec 754 — Part F: observers (Block E)\n");
     let spins = 0;
     while (ctrl.runState === "running" && spins < 5000) { await new Promise((res) => setImmediate(res)); spins++; }
     ok("F7 autonomous loop halts on observer break (resume→obs→pause)", ctrl.runState !== "running" && (session.c64Cpu.pc & 0xffff) === 0xc008, `runState=${ctrl.runState} pc=$${session.c64Cpu.pc.toString(16)} spins=${spins}`);
+
+    // F8 — wildcard del/on/off: `obs <glob> del` removes all matching; `obs * del` = all.
+    await mon("obs * del"); // clean slate (also exercises "all")
+    await mon("obs gob1 when exec $c000 do break");
+    await mon("obs gob2 when exec $c001 do break");
+    await mon("obs keep1 when exec $c002 do break");
+    const names = () => session.observers.list().map((o) => o.name);
+    const dg = await mon("obs gob* del");
+    ok("F8a `obs gob* del` deletes matching, leaves others", /deleted 2/.test(dg.output ?? "") && names().includes("keep1") && !names().some((n) => n.startsWith("gob")), dg.output);
+    const da = await mon("obs * del");
+    ok("F8b `obs * del` deletes all", names().length === 0, da.output);
+
+    // F9 — `*`/`?` rejected in a NEW observer name (reserved for the wildcard).
+    const bad = await mon("obs *bad* when exec $c000 do break");
+    ok("F9 obs name with `*` is rejected", /can't contain \* or \?/.test(bad.error ?? "") && names().length === 0, bad.error);
   } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
 }
 

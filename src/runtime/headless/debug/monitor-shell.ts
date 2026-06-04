@@ -657,10 +657,29 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       }
       const name = rest[0]!;
       const sub = (rest[1] ?? "").toLowerCase();
+      // A name with `*`/`?` is a glob → the on/off/del acts on ALL matches
+      // (`obs * del` = all, `obs col* off` = every observer starting "col").
+      const isGlob = /[*?]/.test(name);
+      const globMatches = (): string[] => {
+        const re = new RegExp("^" + name.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$");
+        return reg.list().map((o) => o.name).filter((n) => re.test(n));
+      };
       if (rest.length === 2 && (sub === "on" || sub === "off")) {
+        if (isGlob) {
+          const m = globMatches();
+          if (!m.length) return { output: `no observer matches '${name}'` };
+          m.forEach((n) => reg.setEnabled(n, sub === "on"));
+          return { output: `${sub} ${m.length}: ${m.join(", ")}` };
+        }
         return { output: reg.setEnabled(name, sub === "on") ? `obs ${name} ${sub}` : `no observer '${name}'` };
       }
       if (rest.length === 2 && (sub === "del" || sub === "delete" || sub === "rm")) {
+        if (isGlob) {
+          const m = globMatches();
+          if (!m.length) return { output: `no observer matches '${name}'` };
+          m.forEach((n) => reg.remove(n));
+          return { output: `deleted ${m.length}: ${m.join(", ")}` };
+        }
         return { output: reg.remove(name) ? `obs ${name} deleted` : `no observer '${name}'` };
       }
       const lower = rest.map((t) => t.toLowerCase());
@@ -679,6 +698,9 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         if (action === "mark" || action === "cmd" || action === "trace") return { error: `obs: action '${action}' is v1.1 — v1 supports break|log` };
         return { error: `obs: action must be break|log, got '${action || "(none)"}'` };
       }
+      // `*`/`?` are reserved as del/on/off wildcards — keep them out of names so
+      // the wildcard is unambiguous (and so a pasted *italic* name can't sneak in).
+      if (/[*?]/.test(name)) return { error: `obs: name can't contain * or ? (reserved for wildcards) — got '${name}'` };
       const condSrc = ii > wi && ii < di ? rest.slice(ii + 1, di).join(" ") : undefined;
       const res = reg.add({ name, trigger: trig as ObsTrigger, lo, hi, condSrc, action: action as ObsAction });
       if ("error" in res) return { error: `obs: condition: ${res.error}` };
@@ -916,7 +938,8 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "    del <n..> | del  delete by #num / delete all\n" +
         "    obs <name> when exec|load|store <a[..b]> [if <cond>] do break|log\n" +
         "    obs | obs log    list observers / show log lines\n" +
-        "    obs <name> on|off|del   ·   ignore <name> [n]\n" +
+        "    obs <name> on|off|del   (name may glob: `obs * del` = all, `obs c* off`)\n" +
+        "    ignore <name> [n]\n" +
         "      cond: a/x/y/pc/sp/fl/rl/val/addr  == != < > <= >= && || ( )\n" +
         "  CPU\n" +
         "    r                registers (+ flow + IRQ/NMI vectors)\n" +
