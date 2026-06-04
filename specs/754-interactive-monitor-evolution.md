@@ -198,11 +198,28 @@ hook). **Per-ADDRESS** watch gate (user decision) — idle cost 0 (`accessWatch`
 null when no load/store observer), an active observer pays cond-eval only on its
 exact address. Cond grammar: `a/x/y/pc/sp/fl/rl/val/addr` + `== != < > <= >= && ||`
 + parens. `monitor-observers.ts` + `aborted='observer'` (RuntimeController halts +
-`debug/observer_hit`). Gate `e2e:754` Part F (50/50). **v1.1 TODO:** actions
-`mark`/`cmd`/`trace <scope>` (need controller/monitor wired into the registry);
-`cy` (cycle-in-line) in conditions; `g` skip-past an exec-observer addr (today it
-re-triggers); observer×manual-stepping interaction. `bk` stays its own breakpoint
-(facade-into-obs unify deferred).
+`debug/observer_hit`). Gate `e2e:754` Part F.
+
+**v1.1 — UI feedback wired (2026-06-04).** The server always broadcast
+`debug/observer_hit` (break) + accumulated `do log` lines, but NO UI listener
+consumed them — a `break` observer halted silently (no monitor jump, no banner)
+and `do log` was pull-only via `obs log` (diagnosed via a 4-agent
+fire→broadcast→UI trace, all 5 root-cause claims adversarially confirmed). Fixed:
+- **break → drops into the monitor like `bk`:** `MonitorPopout` + `Live` now listen
+  for `debug/observer_hit`; `MonitorPanel` prints an observer banner
+  `*obs <name> at $PC — <message>` (vs `#n BREAK`) + register dump + input focus;
+  Live freezes run-state + grabs the frozen frame. `BpSignal` carries
+  `observer`/`message`.
+- **`do log` → live stream:** the registry buffers pending lines
+  (`drainPendingLog()`); the controller drains + broadcasts `debug/observer_log`
+  per run-chunk; `MonitorPanel` appends them to the console live (a visible
+  tracepoint). `obs log` still pulls the full ring. Gate `e2e:754` Part F4c
+  (drain). UI listeners are live-tested (gate can't assert React subscriptions).
+
+**v1.1 TODO (remaining):** actions `mark`/`cmd`/`trace <scope>` (need
+controller/monitor wired into the registry); `cy` (cycle-in-line) in conditions;
+`g` skip-past an exec-observer addr (today it re-triggers); observer×manual-stepping
+interaction. `bk` stays its own breakpoint (facade-into-obs unify deferred).
 
 
 The biggest "break free from VICE" decision. VICE's `break`/`watch`/`trace`/

@@ -152,7 +152,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   // Spec 709.13 — the CART (slot 0) display is derived from backend cart_status
   // (cart.sourceName), NOT a per-tab local path, so it can't diverge across tabs.
   const [screenFocused, setScreenFocused] = useState(false);
-  const [bpSignal, setBpSignal] = useState<{ pc: number; num: number; registers: string; seq: number } | null>(null);
+  const [bpSignal, setBpSignal] = useState<{ pc: number; num: number; registers: string; seq: number; observer?: string; message?: string } | null>(null);
   const [exploreSelection, setExploreSelection] = useState<{x:number;y:number;w:number;h:number} | null>(null);
   const fpsCounterRef = useRef({ frames: 0, lastT: Date.now() });
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -277,6 +277,15 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       setRunState?.("paused");
       grabScreenshot.current();
     });
+    // Observer `break` halt (Spec 754 §3.3e) — mirror the breakpoint reaction:
+    // freeze the run-state + grab the frozen frame. The banner/focus is in the
+    // MON popout (MonitorPanel via debug/observer_hit).
+    const offObsHit = client.onNotification("debug/observer_hit", (p: any) => {
+      if (p?.session_id && p.session_id !== sessionId) return;
+      setBpSignal({ pc: p.pc, num: -1, registers: p.registers, seq: Date.now(), observer: p.observer ?? "?", message: p.message ?? undefined });
+      setRunState?.("paused");
+      grabScreenshot.current();
+    });
     const offStopped = client.onNotification("debug/stopped", (p: any) => {
       if (p?.session_id && p.session_id !== sessionId) return;
       setRunState?.("paused");
@@ -291,7 +300,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       if (p?.session_id && p.session_id !== sessionId) return;
       setRunState?.("running");
     });
-    return () => { offHit(); offStopped(); offPaused(); offRunning(); };
+    return () => { offHit(); offObsHit(); offStopped(); offPaused(); offRunning(); };
   }, [sessionId, setRunState]);
 
   // Drive + cart status poll

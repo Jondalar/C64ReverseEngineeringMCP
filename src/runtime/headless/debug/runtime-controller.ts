@@ -466,6 +466,13 @@ export class RuntimeController {
       return;
     }
 
+    // Spec 754 §3.3e — flush any `do log` lines accumulated this chunk as a live
+    // trace stream. Log observers don't halt (return false → continue), so this
+    // chunk-boundary drain is how they reach the monitor without an explicit
+    // `obs log`. Done on every path (incl. the halts below) so nothing is lost.
+    const obsLog = this.session.observers?.drainPendingLog?.() ?? [];
+    if (obsLog.length) this.broadcast("debug/observer_log", { session_id: this.sessionId, lines: obsLog });
+
     if (r.aborted === "breakpoint") {
       this.runState = "paused";
       const num = this.bpNumForAddr(r.lastPc);

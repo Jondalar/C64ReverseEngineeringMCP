@@ -109,7 +109,8 @@ export class ObserverRegistry {
   execActive = false;
   haltRequested = false;
   lastHalt: { name: string; message: string; pc: number } | null = null;
-  readonly logs: string[] = []; // ring of recent `do log` lines
+  readonly logs: string[] = []; // ring of recent `do log` lines (pull via `obs log`)
+  private readonly pendingLog: string[] = []; // not-yet-broadcast lines (drained per run-chunk for the live stream)
   private observers: Observer[] = [];
   private cpu: ObservableCpu | null = null;
 
@@ -226,6 +227,16 @@ export class ObserverRegistry {
   private pushLog(line: string): void {
     this.logs.push(line);
     if (this.logs.length > 500) this.logs.splice(0, this.logs.length - 500);
+    this.pendingLog.push(line);
+    if (this.pendingLog.length > 500) this.pendingLog.splice(0, this.pendingLog.length - 500);
+  }
+
+  /** Drain the `do log` lines accumulated since the last call (live UI stream). */
+  drainPendingLog(): string[] {
+    if (this.pendingLog.length === 0) return [];
+    const out = this.pendingLog.slice();
+    this.pendingLog.length = 0;
+    return out;
   }
 }
 

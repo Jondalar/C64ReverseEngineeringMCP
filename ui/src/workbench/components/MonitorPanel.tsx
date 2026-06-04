@@ -11,9 +11,10 @@ interface Props {
   sessionId: string;
   maximized: boolean;
   onToggleMax: () => void;
-  // Set by the Live run-loop when emulation halts at a breakpoint. The
-  // changing `seq` re-triggers the in-monitor "BREAK" report + input focus.
-  breakpoint?: { pc: number; num: number; registers: string; seq: number } | null;
+  // Set by the Live run-loop when emulation halts at a breakpoint OR an observer
+  // `break` (then `observer` is set → an observer banner instead of "#n BREAK").
+  // The changing `seq` re-triggers the in-monitor report + input focus.
+  breakpoint?: { pc: number; num: number; registers: string; seq: number; observer?: string; message?: string } | null;
 }
 
 interface MonLine { kind: "in" | "out" | "err"; text: string; }
@@ -37,19 +38,35 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: 
 
   const append = (lines: MonLine[]) => setHistory((h) => [...h, ...lines]);
 
-  // Breakpoint halt: drop into the monitor — print "BREAK", the register
-  // dump, and focus the input so the user can step (z/n) or continue (g).
+  // Breakpoint / observer-break halt: drop into the monitor — print the banner,
+  // the register dump, and focus the input so the user can step (z/n)/continue (g).
   useEffect(() => {
     if (!breakpoint) return;
     const pcHex = breakpoint.pc.toString(16).padStart(4, "0").toUpperCase();
+    const banner = breakpoint.observer
+      ? `*obs ${breakpoint.observer} at $${pcHex}${breakpoint.message ? ` — ${breakpoint.message}` : ""}`
+      : `#${breakpoint.num} BREAK at $${pcHex}`;
     setHistory((h) => [
       ...h,
-      { kind: "err", text: `#${breakpoint.num} BREAK at $${pcHex}` },
+      { kind: "err", text: banner },
       ...breakpoint.registers.split(/\r?\n/).map((t) => ({ kind: "out" as const, text: t })),
     ]);
     inputRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [breakpoint?.seq]);
+
+  // Spec 754 §3.3e — live `do log` stream: observer log lines append to the
+  // console as they fire (drained per run-chunk by the controller), so a `log`
+  // observer is a visible tracepoint without needing an explicit `obs log`.
+  useEffect(() => {
+    if (!sessionId) return;
+    const off = getClient().onNotification("debug/observer_log", (p: { session_id?: string; lines?: string[] }) => {
+      if (p?.session_id && p.session_id !== sessionId) return;
+      if (p?.lines?.length) append(p.lines.map((t) => ({ kind: "out" as const, text: t })));
+    });
+    return off;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
 
   const dispatch = async (raw: string) => {
     const cmd = raw.trim();

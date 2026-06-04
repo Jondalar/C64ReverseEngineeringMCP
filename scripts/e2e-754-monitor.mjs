@@ -290,6 +290,10 @@ console.log("\nSpec 754 — Part F: observers (Block E)\n");
     ok("F4 `do log` continues (no halt) and logs accumulate", r.aborted !== "observer" && session.observers.logs.length > 1, `aborted=${r.aborted} logs=${session.observers.logs.length}`);
     const logShow = (await mon("obs log")).output ?? "";
     ok("F4b `obs log` shows the lines", /obs L: exec \$C000/.test(logShow), (logShow.split("\n")[0] ?? "").slice(0, 50));
+    // F4c — the live-stream source: drainPendingLog returns the accumulated lines
+    // (the controller broadcasts these as debug/observer_log) then empties.
+    const drained = session.observers.drainPendingLog();
+    ok("F4c drainPendingLog returns the live lines then empties", drained.length > 1 && session.observers.drainPendingLog().length === 0, `drained=${drained.length}`);
     await mon("obs L del");
 
     // F5 — idle = zero cost: no load/store observer ⇒ cpu.accessWatch is null.

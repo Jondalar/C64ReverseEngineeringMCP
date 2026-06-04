@@ -9,7 +9,7 @@ import React, { useEffect, useState } from "react";
 import { getClient, type ConnectionState } from "../ws-client.js";
 import { MonitorPanel } from "./MonitorPanel.js";
 
-type BpSignal = { pc: number; num: number; registers: string; seq: number };
+type BpSignal = { pc: number; num: number; registers: string; seq: number; observer?: string; message?: string };
 
 export function MonitorPopout({ sessionId }: { sessionId: string }): React.JSX.Element {
   const [conn, setConn] = useState<ConnectionState>("closed");
@@ -26,7 +26,13 @@ export function MonitorPopout({ sessionId }: { sessionId: string }): React.JSX.E
       if (p?.session_id && p.session_id !== sessionId) return;
       setBp({ pc: p.pc, num: p.num, registers: p.registers, seq: Date.now() });
     });
-    return off;
+    // Observer `break` halt (Spec 754 §3.3e) — same drop-into-monitor as a
+    // breakpoint, but carries the observer name/message for the banner.
+    const offObs = getClient().onNotification("debug/observer_hit", (p: { session_id?: string; pc: number; observer?: string; message?: string; registers: string }) => {
+      if (p?.session_id && p.session_id !== sessionId) return;
+      setBp({ pc: p.pc, num: -1, registers: p.registers, seq: Date.now(), observer: p.observer ?? "?", message: p.message ?? undefined });
+    });
+    return () => { off(); offObs(); };
   }, [sessionId]);
 
   return (
