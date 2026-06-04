@@ -57,11 +57,14 @@ await runtimeSessions.close(uiSess.sessionId);
 //     authority: the MCP runtime_session_start tool and the UI bootstrap must call
 //     runtimeSessions.start, NOT startIntegratedSession directly.
 const headless = readFileSync(join(ROOT, "src/server-tools/headless.ts"), "utf8");
-const startV3 = readFileSync(join(ROOT, "scripts/start-v3-server.mjs"), "utf8");
+// Spec 757 — the standalone start-v3-server.mjs (a second WS-start path) is
+// retired; the ONE WS bootstrap is the Runtime Daemon entry (daemon/run.ts →
+// WsServer). Verify it does not construct a private session outside the authority.
+const daemonRun = readFileSync(join(ROOT, "src/runtime/headless/daemon/run.ts"), "utf8");
 ok(/runtimeSessions\.start\(/.test(headless) && !/= startIntegratedSession\(/.test(headless),
   "MCP runtime_session_start uses the authority (no direct startIntegratedSession)");
-ok(/runtimeSessions\.start\(/.test(startV3) && !/= startIntegratedSession\(/.test(startV3),
-  "UI bootstrap uses the authority (no private UI-only session)");
+ok(/new (V3WsServer|WsServer)\(/.test(daemonRun) && !/= startIntegratedSession\(/.test(daemonRun),
+  "UI WS bootstrap (daemon run.ts → WsServer) uses the authority, no private startIntegratedSession");
 
 console.log(`\nSpec 744.4: ${pass} pass, ${fail} fail`);
 process.exit(fail > 0 ? 1 : 0);

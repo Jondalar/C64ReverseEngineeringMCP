@@ -76,8 +76,9 @@ try {
   const idx = await text("/index.html");
   ok(idx.status === 200 && /C64RE Workbench/.test(idx.body), "8 /index.html = SAME product UI (no second UI)", "");
 
+  // Spec 757 — ONE UI: the standalone /v3.html entry is retired → 404.
   const v3 = await text("/v3.html");
-  ok(v3.status === 200 && /C64RE V3/.test(v3.body), "9 /v3.html reachable as dev/reference only", "");
+  ok(v3.status === 404, "9 /v3.html is gone (ONE UI — no second entry)", `status=${v3.status}`);
 
   const rs = await json("/api/runtime-status");
   ok(rs.status === 200 && rs.body.reachable === true, "10 /api/runtime-status reachable", `reachable=${rs.body.reachable}`);
@@ -110,8 +111,8 @@ try {
   ok(frame !== null, "12 headless backend STREAMS a VIC frame to the Live tab (debug/run → binary frame)", frame ? `${frame.w}x${frame.h}, ${frame.bytes}B` : "no frame in 12s");
 
   console.log(`\n--- report ---`);
-  console.log(`product UI: / + /index.html = v1 workbench (C64RE Workbench) + embedded Live tab`);
-  console.log(`dev/reference: /v3.html = v3 shell (not a second product UI)`);
+  console.log(`product UI: / + /index.html = the workbench (C64RE Workbench) + embedded Live tab`);
+  console.log(`routing: /v3.html → 404 (one UI, no second entry)`);
   console.log(`Live: scoped .wb-live CSS, WS :4312 reachable, session present`);
 } catch (e) {
   ok(false, "harness", e.message + (log ? " | " + log.slice(-160) : ""));

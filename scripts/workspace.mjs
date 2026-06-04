@@ -2,7 +2,7 @@
 // Spec 724.3 — ONE workspace bootstrap. Resolves the project dir ONCE and
 // starts both backends with it:
 //   - HTTP (knowledge API + UI)  : dist/workspace-ui/server.js  (:4310)
-//   - WS   (live runtime)        : scripts/start-v3-server.mjs  (:4312)
+//   - WS   (live runtime)        : dist/runtime/headless/daemon/run.js  (:4312)
 // Usage: npm run workspace -- --project <dir> [--dev-samples] [--port <http>]
 // No cwd fallback — a project path is required (usable outside the C64RE repo).
 
@@ -61,5 +61,7 @@ start("http", "node", [`${repoRoot}/dist/workspace-ui/server.js`, "--port", http
 if (process.env.C64RE_RUNTIME_ENDPOINT || process.env.C64RE_RUNTIME_WS) {
   console.log(`[workspace] Live runtime WS is the Runtime Daemon (${process.env.C64RE_RUNTIME_ENDPOINT ?? "co-host"}); not starting a standalone WS. Run \`npm run runtime:daemon\`.`);
 } else {
-  start("ws", "node", [`${repoRoot}/scripts/start-v3-server.mjs`, ...childArgs]);
+  // Spec 757 — ONE WS-start path: the Runtime Daemon entry (the same WsServer),
+  // not a second standalone bootstrap. Was scripts/start-v3-server.mjs (retired).
+  start("ws", "node", [`${repoRoot}/dist/runtime/headless/daemon/run.js`, "--port", "4312", ...childArgs]);
 }

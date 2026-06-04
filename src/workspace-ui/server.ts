@@ -262,14 +262,11 @@ function enumerateMarkdownDocs(root: string): MarkdownDocEntry[] {
 }
 
 const options = parseArgs(process.argv.slice(2));
-// Spec 724B / BUG-001: the v3 One-UI shell is the product UI. Its build lands in
-// `ui/dist-v3` (v3.html + assets/v3-*). The legacy v1 build is `ui/dist`
-// (index.html + assets/index-*). The static server serves BOTH: root + /v3.html
-// → the v3 shell; /index.html → the legacy v1 entry; /assets/* resolves from
-// whichever dist actually has the file. Before this, only `ui/dist` was served,
-// so /v3.html fell back to v1's index.html (BUG-001: "v3 opens v1 dashboard").
+// Spec 757 — ONE UI. The product shell is `ui/dist` (built by `npm run ui:build`),
+// served at `/` and `/index.html`. There is no second bundle and no `/v3.html`
+// (the standalone v3 entry is retired).
 //
-// Resolve the UI dists from the SERVER MODULE location (dist/workspace-ui →
+// Resolve the UI dist from the SERVER MODULE location (dist/workspace-ui →
 // repo root), not process.cwd(), so the UI is found regardless of the launch
 // cwd (724A path-portability — the same cwd coupling fixed for media). Fall back
 // to a cwd-relative `ui/` for the vite dev layout.
@@ -280,9 +277,7 @@ function resolveUiDist(name: string): string {
   return resolve(process.cwd(), "ui", name);
 }
 const uiDistDir = resolveUiDist("dist");
-const uiV3DistDir = resolveUiDist("dist-v3");
-const hasUiV3Dist = existsSync(uiV3DistDir);
-const hasUiDist = existsSync(uiDistDir) || hasUiV3Dist;
+const hasUiDist = existsSync(uiDistDir);
 
 // BUG-010: the Live tab needs the Headless Runtime WS backend (default :4312).
 // The HTTP server can't start it (separate process — `npm run workspace` brings
@@ -1926,34 +1921,20 @@ const server = createServer((req, res) => {
     return;
   }
 
-  // Spec 724B (final): ONE product UI = the v1 workbench (the functional
-  // Project/Analysis source of truth, now restyled v3 + with a Live tab). It is
-  // served at `/` and `/index.html`. The standalone v3 shell stays reachable at
-  // `/v3.html` for DEV/REFERENCE only — it is NOT a second product UI. Asset
-  // names are unique (index-* for v1, v3-* for v3), so /assets/* resolves from
-  // whichever dist has the file.
-  const wantsV1Entry = requestUrl.pathname === "/" || requestUrl.pathname === "/index.html";
-  const wantsV3Entry = requestUrl.pathname === "/v3.html";
+  // Spec 757 — ONE UI: the product shell `ui/dist` is served at `/` and
+  // `/index.html`. There is no second bundle; the retired `/v3.html` (and any
+  // other explicit `.html` entry that has no file) → 404. Non-`.html` unmatched
+  // paths fall back to the SPA entry so client-side routes work.
+  const wantsEntry = requestUrl.pathname === "/" || requestUrl.pathname === "/index.html";
 
   let filePath: string | undefined;
-  if (wantsV1Entry && existsSync(uiDistDir)) {
+  if (wantsEntry && existsSync(uiDistDir)) {
     filePath = join(uiDistDir, "index.html");
-  } else if (wantsV1Entry && hasUiV3Dist) {
-    // v1 not built yet — fall back to v3 so the page isn't blank.
-    filePath = join(uiV3DistDir, "v3.html");
-  } else if (wantsV3Entry && hasUiV3Dist) {
-    filePath = join(uiV3DistDir, "v3.html");
   } else {
-    // Resolve a concrete file from either dist (v1 first now), e.g. /assets/index-*.js.
-    for (const root of [uiDistDir, uiV3DistDir]) {
-      if (!existsSync(root)) continue;
-      const p = safeStaticPath(root, requestUrl.pathname);
-      if (p && existsSync(p) && statSync(p).isFile()) { filePath = p; break; }
-    }
-    // SPA fallback: serve the product UI (v1) so client-side routes work.
-    if (!filePath) {
-      filePath = existsSync(uiDistDir) ? join(uiDistDir, "index.html")
-        : hasUiV3Dist ? join(uiV3DistDir, "v3.html") : undefined;
+    const p = safeStaticPath(uiDistDir, requestUrl.pathname);
+    if (p && existsSync(p) && statSync(p).isFile()) filePath = p;
+    if (!filePath && !requestUrl.pathname.endsWith(".html")) {
+      filePath = existsSync(uiDistDir) ? join(uiDistDir, "index.html") : undefined;
     }
   }
 
