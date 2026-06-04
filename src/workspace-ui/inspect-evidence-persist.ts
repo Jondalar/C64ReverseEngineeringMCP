@@ -2,7 +2,7 @@
 //
 // Spec 710.3/710.5 — persist a frozen-VIC inspect evidence record into the ONE
 // project knowledge store via ProjectKnowledgeService.saveArtifact. This lives
-// on the HTTP workspace/knowledge API side, NOT in the V3WsServer (the WS stays
+// on the HTTP workspace/knowledge API side, NOT in the WsServer (the WS stays
 // a thin live-runtime transport — Spec 710.3 architecture). The UI receives the
 // FrozenInspectEvidence from WS `vic/inspect/promote` and POSTs it here.
 //

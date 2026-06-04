@@ -15,12 +15,12 @@
   --c64-red: #ef5350;
   --c64-border: #2a2a44;
 }
-.wb-live .v3-app {
+.wb-live .workbench-app {
   height: 100vh;
   display: flex;
   flex-direction: column;
 }
-.wb-live .v3-header {
+.wb-live .workbench-header {
   display: flex;
   align-items: center;
   gap: 1rem;
@@ -29,31 +29,31 @@
   border-bottom: 1px solid var(--c64-border);
   font-size: 12px;
 }
-.wb-live .v3-title {
+.wb-live .workbench-title {
   font-weight: bold;
   color: var(--c64-blue-bright);
   font-size: 14px;
 }
-.wb-live .v3-conn {
+.wb-live .workbench-conn {
   padding: 2px 8px;
   border-radius: 3px;
   background: var(--c64-bg-1);
   color: var(--c64-fg-muted);
 }
-.wb-live .v3-conn-open { color: var(--c64-green); }
-.wb-live .v3-conn-closed { color: var(--c64-red); }
-.wb-live .v3-conn-error { color: var(--c64-red); }
-.wb-live .v3-conn-connecting { color: var(--c64-yellow); }
-.wb-live .v3-session, .wb-live .v3-cycle {
+.wb-live .workbench-conn-open { color: var(--c64-green); }
+.wb-live .workbench-conn-closed { color: var(--c64-red); }
+.wb-live .workbench-conn-error { color: var(--c64-red); }
+.wb-live .workbench-conn-connecting { color: var(--c64-yellow); }
+.wb-live .workbench-session, .wb-live .workbench-cycle {
   color: var(--c64-fg-muted);
 }
-.wb-live .v3-tabs {
+.wb-live .workbench-tabs {
   display: flex;
   gap: 0;
   background: var(--c64-bg-2);
   border-bottom: 1px solid var(--c64-border);
 }
-.wb-live .v3-tab {
+.wb-live .workbench-tab {
   padding: 0.5rem 1rem;
   background: transparent;
   color: var(--c64-fg-muted);
@@ -65,25 +65,25 @@
   font-size: 11px;
   letter-spacing: 0.5px;
 }
-.wb-live .v3-tab:hover { color: var(--c64-fg); }
-.wb-live .v3-tab.active {
+.wb-live .workbench-tab:hover { color: var(--c64-fg); }
+.wb-live .workbench-tab.active {
   color: var(--c64-blue-bright);
   border-bottom-color: var(--c64-blue);
 }
-.wb-live .v3-main {
+.wb-live .workbench-main {
   flex: 1;
   overflow: auto;
   padding: 1rem;
   background: var(--c64-bg-1);
 }
-.wb-live .v3-footer {
+.wb-live .workbench-footer {
   padding: 0.25rem 1rem;
   background: var(--c64-bg-2);
   border-top: 1px solid var(--c64-border);
   color: var(--c64-fg-muted);
   font-size: 11px;
 }
-.wb-live .v3-tab-stub {
+.wb-live .workbench-tab-stub {
   text-align: center;
   margin-top: 4rem;
   color: var(--c64-fg-muted);
@@ -319,7 +319,7 @@
   font-size: 14px;
   pointer-events: none;
 }
-.wb-live .v3-tab-stub h2 {
+.wb-live .workbench-tab-stub h2 {
   font-size: 18px;
   color: var(--c64-blue-bright);
   margin-bottom: 0.5rem;

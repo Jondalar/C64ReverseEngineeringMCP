@@ -38,8 +38,8 @@ import { readFileSync } from "node:fs";
 import { int16ToLeBytes, monoToStereoLR } from "../runtime/headless/audio/audio-buffer.js";
 import { writeWav } from "../runtime/headless/audio/wav-writer.js";
 
-export const V3_WS_PORT = 4312;
-export const V3_WS_HOST = "127.0.0.1";
+export const WS_PORT = 4312;
+export const WS_HOST = "127.0.0.1";
 
 // Spec 701 — breakpoints are CORE-owned now: the per-session
 // RuntimeController holds the stable-checknum breakpoint store so the
@@ -138,7 +138,7 @@ function normalizeForJson(value: unknown): unknown {
   return out;
 }
 
-export class V3WsServer {
+export class WsServer {
   private wss: WebSocketServer;
   // Spec 744.4c — resolves when the port is actually bound ("listening"), rejects
   // on bind failure ("error", e.g. EADDRINUSE). The daemon awaits this BEFORE
@@ -198,15 +198,15 @@ export class V3WsServer {
   private readonly devSamples: boolean;
 
   constructor(opts: { port?: number; host?: string; projectDir: string; devSamples?: boolean }) {
-    const port = opts.port ?? V3_WS_PORT;
-    const host = opts.host ?? V3_WS_HOST;
+    const port = opts.port ?? WS_PORT;
+    const host = opts.host ?? WS_HOST;
     if (!opts.projectDir) {
-      throw new Error("V3WsServer requires projectDir (Spec 724.3 — no cwd fallback).");
+      throw new Error("WsServer requires projectDir (Spec 724.3 — no cwd fallback).");
     }
     this.projectDir = opts.projectDir;
     this.devSamples = opts.devSamples ?? false;
     if (host !== "127.0.0.1" && host !== "localhost") {
-      console.warn(`[v3-ws] WARNING: binding ${host}:${port} (not localhost). No auth — exposes session to network.`);
+      console.warn(`[ws] WARNING: binding ${host}:${port} (not localhost). No auth — exposes session to network.`);
     }
     this.wss = new WebSocketServer({ port, host });
     // Spec 744.4c — track bind outcome. once("error") rejects readiness (the only
@@ -217,7 +217,7 @@ export class V3WsServer {
       this.wss.once("error", (err) => rejectReady(err));
     });
     this.wss.on("error", (err) => {
-      console.error(`[v3-ws] server error:`, (err as NodeJS.ErrnoException)?.code ?? err);
+      console.error(`[ws] server error:`, (err as NodeJS.ErrnoException)?.code ?? err);
     });
     this.wss.on("connection", (ws) => this.onConnection(ws));
     this.registerBuiltinHandlers();
@@ -343,7 +343,7 @@ export class V3WsServer {
       }
     });
     ws.on("error", (err) => {
-      console.error("[v3-ws] client error:", err.message);
+      console.error("[ws] client error:", err.message);
     });
   }
 
@@ -389,7 +389,7 @@ export class V3WsServer {
       }
     };
 
-    if (V3WsServer.SERIALIZED_METHODS.has(req.method)) {
+    if (WsServer.SERIALIZED_METHODS.has(req.method)) {
       // Queue behind any in-flight session op; keep the chain alive even
       // if a handler rejects (exec already swallows + reports errors).
       const link = this.opChain.then(exec, exec);
@@ -504,7 +504,7 @@ export class V3WsServer {
     // Spec 744.4c — the daemon's authority API for CREATING/closing sessions.
     // The runtime is owned HERE (the daemon process); both the browser UI and the
     // MCP adapter create sessions through this one authority so they share state.
-    // (The V3WsServer is otherwise stateless — it only operated on pre-existing
+    // (The WsServer is otherwise stateless — it only operated on pre-existing
     // sessions; session/create+close make it the lifecycle owner for the daemon.)
     //
     // PROJECT-AGNOSTIC: the daemon may serve several projects at once, so the CLIENT
@@ -550,7 +550,7 @@ export class V3WsServer {
     // actions land on the machine the human is watching. An allowlist gates which
     // methods are exposed (extended per slice). Serialized via opChain above.
     this.on("api/call", async ({ session_id, method, args }) => {
-      if (typeof method !== "string" || !V3WsServer.API_CALL_ALLOWLIST.has(method)) {
+      if (typeof method !== "string" || !WsServer.API_CALL_ALLOWLIST.has(method)) {
         throw new Error(`api/call: method not allowed: ${method}`);
       }
       const session = getIntegratedSession(session_id);

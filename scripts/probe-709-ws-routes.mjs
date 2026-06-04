@@ -3,14 +3,14 @@
 // ingestMedia). Proves: a CART eject removes the cartridge and leaves the disk
 // in drive 8 intact; a drive-8 eject removes the disk; drive 9 is rejected.
 //
-// Uses the actual V3WsServer + a ws JSON-RPC client on a private high port
+// Uses the actual WsServer + a ws JSON-RPC client on a private high port
 // (NOT 4312 — the live UI port; see memory). Order: CRT first (resets), then
 // disk (mount does not reset), so the CART-eject test isolates the routing.
 
 import { resolve } from "node:path";
 import { WebSocket } from "ws";
 import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { V3WsServer } from "../dist/workspace-ui/v3-ws-server.js";
+import { WsServer } from "../dist/workspace-ui/ws-server.js";
 
 const failures = [];
 let passes = 0;
@@ -44,7 +44,7 @@ const driveHasDisk = (session) => !!session.kernel.drive1541?.getAttachedMedia?.
 const { session, sessionId } = startIntegratedSession({
   mode: "true-drive", useMicrocodedCpu: true, vicRenderer: "literal-port", drive1541: "vice",
 });
-const server = new V3WsServer({ port: PORT, host: "127.0.0.1", projectDir: process.cwd() });
+const server = new WsServer({ port: PORT, host: "127.0.0.1", projectDir: process.cwd() });
 const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
 try {
   await new Promise((res, rej) => { ws.once("open", res); ws.once("error", rej); });

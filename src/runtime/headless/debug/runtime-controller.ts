@@ -46,7 +46,7 @@ export interface RuntimeStopInfo {
 
 // Stable-checknum breakpoint store (VICE-style — a checknum is assigned once
 // and never reused, so `del <n>` and "#N BREAK" stay consistent). Moved here
-// from v3-ws-server so the autonomous loop and the monitor share ONE source
+// from ws-server so the autonomous loop and the monitor share ONE source
 // of breakpoint truth (Spec 701 §6 — breakpoints are core-owned).
 export interface BpStore { next: number; bps: Map<number /*checknum*/, number /*addr*/>; }
 

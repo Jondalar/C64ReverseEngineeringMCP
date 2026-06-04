@@ -1,7 +1,7 @@
 // Spec 264 — WebSocket handlers for browser input events.
 //
-// These handlers are designed to be registered with V3WsServer
-// (src/workspace-ui/v3-ws-server.ts) via `server.on(method, handler)`.
+// These handlers are designed to be registered with WsServer
+// (src/workspace-ui/ws-server.ts) via `server.on(method, handler)`.
 //
 // Protocol (JSON-RPC 2.0 methods):
 //   input/keyboard_press   { session_id, code }
@@ -11,7 +11,7 @@
 //   input/save_config      { config: InputConfig }  → { ok: true }
 //
 // The handlers call session.keyboard.pressKey / setJoystick* on the
-// integrated session. They are wired in during V3WsServer construction
+// integrated session. They are wired in during WsServer construction
 // via registerInputHandlers().
 //
 // Note: keyboard_press/release use the "live press" model — the key
@@ -172,7 +172,7 @@ export function handleSaveConfig(
 }
 
 // ------------------------------------------------------------------
-// Registration helper for V3WsServer
+// Registration helper for WsServer
 // ------------------------------------------------------------------
 
 export interface WsServerLike {
@@ -180,7 +180,7 @@ export interface WsServerLike {
 }
 
 /**
- * Register all Spec 264 input handlers on a V3WsServer instance.
+ * Register all Spec 264 input handlers on a WsServer instance.
  * getSession must return an InputSessionAdapter for a given session_id.
  */
 export function registerInputHandlers(

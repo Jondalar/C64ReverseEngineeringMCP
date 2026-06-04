@@ -10,7 +10,7 @@ import { mkdirSync, appendFileSync } from "node:fs";
 import { resolveProjectDir, hasDevSamples } from "../../../workspace-ui/resolve-project-dir.js";
 
 export async function runDaemon(argv: string[]): Promise<void> {
-  const { V3WsServer } = await import("../../../workspace-ui/v3-ws-server.js");
+  const { WsServer } = await import("../../../workspace-ui/ws-server.js");
   const { runtimeSessions } = await import("../runtime-session-service.js");
   const { getIntegratedSession } = await import("../integrated-session-manager.js");
 
@@ -29,7 +29,7 @@ export async function runDaemon(argv: string[]): Promise<void> {
   // Start the WS FIRST so the endpoint opens immediately — clients (and the MCP
   // auto-start poll) must not wait on any boot. A synchronous pre-boot here
   // (runFor 2M) would block the event loop (seconds under tsx) and stall the port.
-  const server = new V3WsServer({ port, host, projectDir, devSamples });
+  const server = new WsServer({ port, host, projectDir, devSamples });
 
   // Spec 744.4c — wait for the port to ACTUALLY bind before doing anything else.
   // Multiple start triggers (MCP eager + UI dev-server + lazy tool call) can race

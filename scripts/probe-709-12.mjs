@@ -16,7 +16,7 @@
 //     D1 disk insert while running → C64 stays running (1541 = device).
 //     D2 disk eject while running → C64 stays running.
 //     D3 CRT op → C64 pauses (cartridge port = part of the C64).
-//   Part B (live UI/WS gate, real V3WsServer + ws client):
+//   Part B (live UI/WS gate, real WsServer + ws client):
 //     B1 running session + media/mount slot 0 .crt → cart attached, runtime
 //        resumes (running) and the CPU leaves cycle 0 (cart executes).
 //     B2 paused session + media/mount slot 0 .crt → stays paused at cycle 0.
@@ -30,7 +30,7 @@ import { WebSocket } from "ws";
 import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
 import { RuntimeController, ensureRuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
 import { ingestMedia } from "../dist/runtime/headless/media/ingress.js";
-import { V3WsServer } from "../dist/workspace-ui/v3-ws-server.js";
+import { WsServer } from "../dist/workspace-ui/ws-server.js";
 
 const failures = [];
 let passes = 0;
@@ -148,7 +148,7 @@ function rpc(ws, method, params) {
 }
 const driveHasDisk = (session) => !!session.kernel.drive1541?.getAttachedMedia?.();
 
-const server = new V3WsServer({ port: PORT, host: "127.0.0.1", projectDir: process.cwd() });
+const server = new WsServer({ port: PORT, host: "127.0.0.1", projectDir: process.cwd() });
 const ws = new WebSocket(`ws://127.0.0.1:${PORT}`);
 const crtPath = resolve("samples/AccoladeComics_TRX+1D_EF.crt");
 

@@ -63,7 +63,7 @@ const headless = readFileSync(join(ROOT, "src/server-tools/headless.ts"), "utf8"
 const daemonRun = readFileSync(join(ROOT, "src/runtime/headless/daemon/run.ts"), "utf8");
 ok(/runtimeSessions\.start\(/.test(headless) && !/= startIntegratedSession\(/.test(headless),
   "MCP runtime_session_start uses the authority (no direct startIntegratedSession)");
-ok(/new (V3WsServer|WsServer)\(/.test(daemonRun) && !/= startIntegratedSession\(/.test(daemonRun),
+ok(/new WsServer\(/.test(daemonRun) && !/= startIntegratedSession\(/.test(daemonRun),
   "UI WS bootstrap (daemon run.ts → WsServer) uses the authority, no private startIntegratedSession");
 
 console.log(`\nSpec 744.4: ${pass} pass, ${fail} fail`);

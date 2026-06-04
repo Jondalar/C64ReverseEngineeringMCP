@@ -1,7 +1,7 @@
 // Spec 754 — the ONE canonical interactive monitor command processor.
 //
 // BUG-037: there used to be two divergent monitor parsers (the live VICE-syntax
-// `monitor/exec` handler in v3-ws-server.ts, and a dead client-side
+// `monitor/exec` handler in ws-server.ts, and a dead client-side
 // `monitor-cmd-parser.ts` behind `Monitor.tsx`). This module is the single
 // source of truth: every monitor surface (the v3 WS handler, the pop-out, future
 // MCP adapters, gates) routes through `runMonitorCommand`. The WS handler is now

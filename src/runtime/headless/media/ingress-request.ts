@@ -5,7 +5,7 @@
 // authority (bytes/hash/event based; mountMedia is only a legacy path→bytes
 // adapter). The client brings the MEDIUM (a server-resolvable `path`, or raw
 // `bytes_b64`) + the ACTION (`kind`); this builder turns that wire-shaped input
-// into a typed MediaIngressRequest. It lived inline in v3-ws-server; extracted
+// into a typed MediaIngressRequest. It lived inline in ws-server; extracted
 // here so the daemon WS route AND the in-process MCP tools build byte-identical
 // requests — one operation, one shape, whichever side runs it.
 

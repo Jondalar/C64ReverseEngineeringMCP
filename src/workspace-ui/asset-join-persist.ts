@@ -3,7 +3,7 @@
 // Spec 721.J3 (persistence) — write a Visual-Origin Join knowledge result into
 // the ONE project knowledge store: each chain node becomes an entity, each edge
 // a link_entities relation, and the summary a finding tying them together. Lives
-// on the HTTP workspace/knowledge side (NOT the V3WsServer — the WS stays a thin
+// on the HTTP workspace/knowledge side (NOT the WsServer — the WS stays a thin
 // live-runtime transport, Spec 710.3 architecture). The UI/MCP gets the
 // JoinKnowledge from `vic/inspect/origin` and POSTs it here to persist.
 //

@@ -22,8 +22,9 @@ import {
 // Spec 724B: the v3 Live C64 runtime tab, embedded into the product workbench.
 // Self-contained (its own screen/controls/monitor/inspector via the WS client);
 // styled by the scoped .wb-live CSS. WS connects lazily on first use (Live tab).
-import { LiveTab } from "./v3/tabs/Live.js";
-import { getClient } from "./v3/ws-client.js";
+import { LiveTab } from "./workbench/tabs/Live.js";
+import { getClient } from "./workbench/ws-client.js";
+import { MonitorPopout } from "./workbench/components/MonitorPopout.js";
 import type { CartridgeLutChunk } from "./types.js";
 import type {
   ArtifactRecord,
@@ -3999,6 +4000,16 @@ function CartChunkInspector({
 }
 
 export function App() {
+  // Spec 754/757 — MON pop-out: the same (one) bundle opened with
+  // `?monitor=1&sessionId=…` in a separate OS window renders ONLY the monitor
+  // bound to that live session. Checked before any hook; the query is constant
+  // per window so the branch is stable across renders (hook order preserved).
+  {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("monitor") === "1") {
+      return <MonitorPopout sessionId={q.get("sessionId") ?? ""} />;
+    }
+  }
   const [snapshot, setSnapshot] = useState<WorkspaceUiSnapshot | null>(null);
   const [discoveredDocs, setDiscoveredDocs] = useState<DiscoveredMarkdownDoc[]>([]);
   const [graphicsItems, setGraphicsItems] = useState<GraphicsItem[]>([]);

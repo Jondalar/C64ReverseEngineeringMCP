@@ -2,7 +2,7 @@
  * Viz-component rules extracted from ui/src/index.css so BOTH the v1 entry
  * and the v3 One-UI shell render the same panels (heatmap / SVG disk /
  * bank-chip grid / flow svg). Globals (:root/body/#root/.app-*) are NOT
- * included — v3 keeps its own layout. Imported by index.css + v3/style.css. */
+ * included — the workbench Live tab keeps its own layout (Spec 757). */
 
 .section-heading {
   display: flex;

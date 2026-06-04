@@ -19,7 +19,7 @@ const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:]
 console.log("Spec 724A — probe-workspace-single\n");
 
 const server = stripComments(read("src/workspace-ui/server.ts"));
-const wsSrvRaw = read("src/workspace-ui/v3-ws-server.ts");
+const wsSrvRaw = read("src/workspace-ui/ws-server.ts");
 const wsSrv = stripComments(wsSrvRaw);
 const bootstrap = stripComments(read("scripts/start-v3-server.mjs"));
 const workspace = read("scripts/workspace.mjs");
@@ -29,17 +29,17 @@ ok(/resolveProjectDir\s*\(/.test(server), "1 server.ts uses resolveProjectDir");
 ok(!/projectDir:\s*process\.cwd\(\)/.test(server) && !/:\s*process\.cwd\(\),?\s*$/m.test(server.split("apiOnly")[0] ?? server),
   "1b server.ts has no process.cwd() projectDir default");
 
-// 2. v3-ws-server media `samples/` scan is gated by devSamples (no silent cwd
+// 2. ws-server media `samples/` scan is gated by devSamples (no silent cwd
 //    scan). Tested on raw source (it is code, not a keyword ban).
 ok(/this\.devSamples\s*&&\s*fsmod\.existsSync\(samplesDir\)/.test(wsSrvRaw),
   "2 WS samples scan gated by this.devSamples");
 
-// 3. v3-ws-server reads the project from this.projectDir, not process.env.
+// 3. ws-server reads the project from this.projectDir, not process.env.
 ok(!/process\.env\[?["']?C64RE_PROJECT_DIR/.test(wsSrv),
   "3 WS uses this.projectDir, not process.env.C64RE_PROJECT_DIR");
 
-// 4. V3WsServer requires projectDir (ctor throws without).
-ok(/requires projectDir/.test(wsSrv), "4 V3WsServer ctor requires projectDir");
+// 4. WsServer requires projectDir (ctor throws without).
+ok(/requires projectDir/.test(wsSrv), "4 WsServer ctor requires projectDir");
 
 // 5. start-v3-server carries NO post-723 removed runtime keys.
 const deadKeys = /useMicrocodedCpu|drive1541|C64RE_DRIVE1541|C64RE_CYCLE_PUMPED|cycle-pumped-renderer/;

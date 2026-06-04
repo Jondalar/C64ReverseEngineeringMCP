@@ -67,7 +67,7 @@ async function getApi(sessionId: string) {
  * analysis/debug actions land on the SAME live machine the human watches), else
  * in-process. Returns the identical value either way — the daemon runs the same
  * AgentQueryApi and normalizes TypedArrays to plain arrays. Per slice the daemon
- * allowlists which methods are reachable (v3-ws-server API_CALL_ALLOWLIST).
+ * allowlists which methods are reachable (ws-server API_CALL_ALLOWLIST).
  */
 async function callApi<T = unknown>(session_id: string, method: string, ...args: unknown[]): Promise<T> {
   const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");

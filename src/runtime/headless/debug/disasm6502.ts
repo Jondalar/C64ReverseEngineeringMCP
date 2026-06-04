@@ -1,5 +1,5 @@
 // Self-contained 6502/6510 disassembler for the headless debugger
-// (monitor/exec in v3-ws-server). ESM, no pipeline dependency — the
+// (monitor/exec in ws-server). ESM, no pipeline dependency — the
 // opcode table is a verbatim copy of pipeline/src/lib/mos6502.ts OPCODES
 // (full 256 incl. undocumented). Used by the UI monitor `d` command and
 // step-over (`n`) to know instruction sizes.

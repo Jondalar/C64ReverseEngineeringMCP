@@ -59,7 +59,7 @@ ok(cwdHits.length === 0, "3 no silent cwd-default / cwd+samples project resoluti
 
 // 3b. the v3 runtime WS media-samples scan is gated by an explicit dev flag
 //     (no silent repo-samples fallback) — Spec 724.4 / probe-workspace-single #2.
-const wsSrv = join(ROOT, "src/workspace-ui/v3-ws-server.ts");
+const wsSrv = join(ROOT, "src/workspace-ui/ws-server.ts");
 let samplesGated = true;
 if (existsSync(wsSrv)) {
   const src = readFileSync(wsSrv, "utf8");

@@ -171,7 +171,7 @@ const before = await runConfig("BEFORE (master)", {
 
 // AFTER = the SHIPPED Spec 706 fix params (must mirror the real code):
 //   Fix A  LIVE_RECORDER_BUFFER_SAMPLES = 3528 (sid-audio-recorder.ts)
-//   Fix C  MAX_AUDIO_SHIP_SAMPLES = 1764 mono ≈ 40 ms (v3-ws-server.ts)
+//   Fix C  MAX_AUDIO_SHIP_SAMPLES = 1764 mono ≈ 40 ms (ws-server.ts)
 //   Fix B  audio-player.ts: prebuffer 120 ms, governor target 100 ms / margin 50 ms
 const after = await runConfig("AFTER (706 fixes)", {
   recorderCap: 3528,           // Fix A LIVE_RECORDER_BUFFER_SAMPLES

@@ -284,7 +284,7 @@ const hasUiDist = existsSync(uiDistDir);
 // up both), but it CAN tell the UI whether it is reachable, so the Live tab shows
 // an actionable error instead of spinning on "connecting" forever.
 const RUNTIME_WS_HOST = "127.0.0.1";
-const RUNTIME_WS_PORT = Number(process.env.C64RE_V3_WS_PORT ?? 4312);
+const RUNTIME_WS_PORT = Number(process.env.C64RE_WS_PORT ?? 4312);
 function probeRuntimeWs(timeoutMs = 800): Promise<boolean> {
   return new Promise((resolve) => {
     const sock = createConnection({ host: RUNTIME_WS_HOST, port: RUNTIME_WS_PORT });

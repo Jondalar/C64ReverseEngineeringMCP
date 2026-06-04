@@ -48,7 +48,7 @@ ok(!browserParse, "6 no browser-side media parser/loader (backend is the authori
 ok(!/samples\//.test(src), "7 no repo-samples reference in the Media tab", /samples\//.test(src) ? "found" : "none");
 
 // 8. the backend media/ingress route exists + accepts bytes_b64.
-const wsSrv = readFileSync(join(ROOT, "src/workspace-ui/v3-ws-server.ts"), "utf8");
+const wsSrv = readFileSync(join(ROOT, "src/workspace-ui/ws-server.ts"), "utf8");
 ok(/this\.on\("media\/ingress"/.test(wsSrv) && /bytes_b64/.test(wsSrv),
   "8 backend media/ingress route exists + accepts bytes_b64", "");
 
