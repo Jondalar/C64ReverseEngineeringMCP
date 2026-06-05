@@ -234,11 +234,17 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       const pm = cmd.match(/^\w+\s+"([^"]+)"/) ?? cmd.match(/^\w+\s+(\S+)/);
       const path = pm?.[1];
       if (!path) return { output: `${op}: usage: ${op} "<path.c64re>"` };
+      // Resolve relative paths against the per-session cwd (= project dir),
+      // exactly like save/bsave — otherwise dumpRuntimeSnapshot's own
+      // resolveSnapshotPath falls back to process.cwd() (the daemon's cwd =
+      // the C64RE repo root), so `dump "foo.c64re"` lands in the repo instead
+      // of the project.
+      const snapPath = resolveFsPath(path);
       if (op === "dump") {
-        const r = await dumpRuntimeSnapshot(ctrl, path);
+        const r = await dumpRuntimeSnapshot(ctrl, snapPath);
         return { output: formatDumpSummary(r) };
       }
-      const r = await undumpRuntimeSnapshot(ctrl, path);
+      const r = await undumpRuntimeSnapshot(ctrl, snapPath);
       disasmCursors.set(sessionId, s.c64Cpu.pc); // bare `d` follows restored PC
       return { output: formatUndumpSummary(r) };
     }

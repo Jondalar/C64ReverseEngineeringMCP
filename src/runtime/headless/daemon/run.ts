@@ -15,6 +15,10 @@ export async function runDaemon(argv: string[]): Promise<void> {
   const { getIntegratedSession } = await import("../integrated-session-manager.js");
 
   const projectDir = resolveProjectDir(argv, process.env);
+  // Export the resolved project dir so env-reading resolvers (e.g.
+  // resolveSnapshotPath) target the project, not the daemon's cwd (= the C64RE
+  // repo root). Without this, relative snapshot/trace paths land in the repo.
+  process.env.C64RE_PROJECT_DIR = projectDir;
   const devSamples = hasDevSamples(argv);
   const portIdx = argv.indexOf("--port");
   const port = Number(
