@@ -434,7 +434,19 @@ deterministic replay:
   no steady-state cost. Determinism: replay from a full-state checkpoint reproduces
   the exact stream (recorded inputs for the window where needed).
 
-### 3.3i Memspace / device (Block I) — DECIDED (2026-06-03)
+### 3.3i Memspace / device (Block I) — DONE v1 read-inspect (2026-06-05)
+**v1 shipped (gate e2e:754 Part N, 119/119):** sticky `device c64|drive8` (alias
+`dev`); on `drive8` the read verbs `r`/`m`/`d` target the 1541 CPU — `r` shows the
+drive registers (`s.driveDebug()`), `m`/`d` read the drive address space via a
+side-effect-free peek (`Drive1541DebugProbe.peek` → VICE `drivemem_bank_peek`, the
+drivemem PEEK page table; RAM/ROM/VIA, no side effects). Default `c64`, unchanged.
+**Read-inspect ONLY:** while `drive8` the edit/exec/capability/single-step verbs are
+blocked with a clear message (`device c64` first) — the **1541-CPU single-step**
+(`z`/`n` on the drive) is a separate Spec 612-fidelity-gated slice (no drive
+single-step primitive exists yet; rushing it risks port divergence). Bank lens is
+C64-only (ignored on drive8). The original decision below stands.
+
+
 A sticky **device** selects which CPU the verbs (`r`/`m`/`d`/`step`/`chis`/…) target —
 the C64 CPU or the 1541 drive CPU (`drivecpu.ts`, its own 6502). Word, not VICE's
 `c:`/`8:` prefixes.

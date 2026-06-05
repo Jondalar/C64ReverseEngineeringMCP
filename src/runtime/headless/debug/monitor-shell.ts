@@ -87,6 +87,10 @@ const fsShellCwd = new Map<string, string>();
 /** Modal assemble cursor per session (Spec 754 §3.3c; VICE `a` assemble mode). */
 const asmCursors = new Map<string, number>();
 
+/** Sticky target device per session (Spec 754 §3.3i; `device c64|drive8`).
+ *  drive8 = the monitor reads the 1541 CPU's regs/memory (read-inspect only). */
+const deviceSel = new Map<string, "c64" | "drive8">();
+
 /** For gate teardown / session close — drop a session's monitor-private state. */
 export function disposeMonitorShellState(sessionId: string): void {
   bankDefaults.delete(sessionId);
@@ -94,6 +98,7 @@ export function disposeMonitorShellState(sessionId: string): void {
   dfWalks.delete(sessionId);
   fsShellCwd.delete(sessionId);
   asmCursors.delete(sessionId);
+  deviceSel.delete(sessionId);
 }
 
 export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): Promise<MonitorResult> {
@@ -127,10 +132,17 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
   // sidefx OFF (default) → side-effect-free peek; ON → live read (I/O side
   // effects). Only `cpu`/`io` lenses can have side effects; ram/rom/cart never.
   const sidefx = sidefxOn.get(sessionId) ?? false;
+  // Spec 754 §3.3i — sticky device. drive8 routes the read verbs (m/d, the only
+  // ones allowed on drive8 per the guard below) to the 1541 CPU's address space
+  // via the side-effect-free drive peek; the bank lens is C64-only (ignored).
+  const device = deviceSel.get(sessionId) ?? "c64";
+  const driveProbe = device === "drive8" ? s.driveDebug() : null;
   const readByte = (addr: number, lens: MemBankLens): number =>
-    (sidefx && (lens === "cpu" || lens === "io"))
-      ? (s.c64Bus.read(addr & 0xffff) & 0xff)
-      : (s.c64Bus.peek(addr & 0xffff, lens) & 0xff);
+    driveProbe
+      ? ((driveProbe.peek?.(addr & 0xffff) ?? 0) & 0xff)
+      : (sidefx && (lens === "cpu" || lens === "io"))
+        ? (s.c64Bus.read(addr & 0xffff) & 0xff)
+        : (s.c64Bus.peek(addr & 0xffff, lens) & 0xff);
   // Writes: `ram` lens → raw RAM; otherwise the banked CPU write path (RAM
   // under ROM, real I/O effects when mapped — `wr d020 00` blacks the border).
   const writeByte = (addr: number, val: number, lens: MemBankLens): void => {
@@ -200,6 +212,21 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
     if (dfWalks.has(sessionId) && tokens.length === 1 && (op === "t" || op === "f" || op === "b")) {
       const readCpu = (a: number) => readByte(a & 0xffff, "cpu");
       return dfFinish(resumeDisasm(dfWalks.get(sessionId)!, readCpu, op as "t" | "f" | "b"));
+    }
+
+    // ---- device target (Spec 754 §3.3i) — sticky c64 | drive8. ------------
+    if (op === "device" || op === "dev") {
+      const arg = (tokens[1] ?? "").toLowerCase();
+      if (!arg) return { output: `device: ${device}   (c64 | drive8 — drive8 = read-inspect r/m/d on the 1541 CPU)` };
+      if (arg === "c64" || arg === "drive8") { deviceSel.set(sessionId, arg); return { output: `device: ${arg}` }; }
+      return { error: "device: usage: device c64|drive8" };
+    }
+    // Spec 754 §3.3i — while device=drive8 the monitor is READ-INSPECT only: the
+    // 1541-CPU single-step + edit + capability verbs are not wired to the drive
+    // (a Spec 612 fidelity slice). Allow only r/m/d (+ device/help). Everything
+    // else would silently act on the C64 → block it with a clear message.
+    if (device === "drive8" && !["r", "m", "d", "help", "?"].includes(op)) {
+      return { error: `device drive8: read-inspect only (r/m/d). \`device c64\` first to use \`${op}\`.` };
     }
 
     // ---- Snapshots (Spec 707 / 623 §7) — one-shot, no RETURN repeat. -------
@@ -283,6 +310,16 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
     // vectors block); `r a=$42 x=$10` (space- or comma-separated) sets. `cpu`
     // is no longer an alias for `r`.
     if (op === "r" || op === "registers") {
+      // Spec 754 §3.3i — device drive8: the 1541 CPU registers (read-only).
+      if (device === "drive8") {
+        const d = s.driveDebug();
+        const dfl = "NV-BDIZC".split("").map((f, i) => ((d.drive_flags >> (7 - i)) & 1) ? f : f.toLowerCase()).join("");
+        return { output:
+          `1541 (drive 8)\n` +
+          `  ADDR AC XR YR SP NV-BDIZC  clk\n` +
+          `.;${hex(d.drive_pc, 4)} ${hex(d.drive_a)} ${hex(d.drive_x)} ${hex(d.drive_y)} ${hex(d.drive_sp)} ${dfl}  ${d.drive_clk}\n` +
+          `  track ${d.current_track} (halftrack ${d.head_halftrack})  led ${d.led ? "on" : "off"}` };
+      }
       const c = s.c64Cpu;
       const sets = tokens.slice(1).join(" ").split(/[\s,]+/).filter((t) => t.includes("="));
       if (sets.length) {
@@ -972,6 +1009,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "    r                registers (+ flow + IRQ/NMI vectors)\n" +
         "    r a=$42 x=$10    set registers (a/x/y/sp/pc/fl)\n" +
         "    sidefx [on|off]  monitor read side effects (default off = peek)\n" +
+        "    device [c64|drive8]  target the C64 or the 1541 CPU (drive8 = read-inspect r/m/d)\n" +
         "  STATE / TRACE\n" +
         "    dump|undump <p>  snapshot persist/restore (.c64re, Spec 707)\n" +
         "    trace on|off|status|mark   live trace gate (Spec 746)\n" +

@@ -88,6 +88,8 @@ import {
   drivecpu_trigger_reset,
   diskunit_clk_refs,
 } from "../vice1541/drivecpu.js";
+// Spec 754 §3.3i — side-effect-free drive address-space peek for the monitor.
+import { drivemem_bank_peek } from "../vice1541/drivemem.js";
 import {
   driverom_install_hooks,
   driverom_load,
@@ -571,6 +573,9 @@ export class Vice1541Facade implements Drive1541 {
       head_halftrack: ht,
       current_track: ht >> 1,
       led: (this.drive.led_status ?? 0) & 0xff,
+      // Spec 754 §3.3i — VICE drivemem_bank_peek: read the 1541 CPU address space
+      // (RAM/ROM/VIA) with NO side effects, for the monitor `m`/`d` on device drive8.
+      peek: (addr: number) => drivemem_bank_peek(0, addr & 0xffff, this.unit) & 0xff,
     };
   }
 

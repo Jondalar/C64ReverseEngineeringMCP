@@ -39,6 +39,11 @@ export interface Drive1541DebugProbe {
   head_halftrack: number;
   current_track: number;
   led: number;
+  // Spec 754 §3.3i (Block I) — side-effect-free read of the 1541 CPU address
+  // space (drive RAM/ROM/VIA via the drivemem PEEK page table = VICE
+  // drivemem_bank_peek), so the monitor `m`/`d` can inspect the drive while
+  // `device drive8` is selected. Optional: a stub drive returns undefined.
+  peek?(addr: number): number;
 }
 
 export interface Drive1541 {

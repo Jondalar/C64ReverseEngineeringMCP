@@ -652,6 +652,37 @@ console.log("\nSpec 754 — Part M: swimlane TUI render (renderText)\n");
 }
 
 // =====================================================================
+// Part N — Block I: device c64|drive8 (read-inspect on the 1541 CPU).
+// =====================================================================
+console.log("\nSpec 754 — Part N: device c64|drive8 (Block I)\n");
+{
+  const { session, sessionId } = startIntegratedSession({});
+  const { ctrl, mon } = newCtx(session, sessionId);
+  try {
+    session.resetCold("pal-default");
+    ok("N1 device defaults to c64", /device: c64/.test((await mon("device")).output ?? ""));
+    ok("N2 `device drive8` switches target", /device: drive8/.test((await mon("device drive8")).output ?? ""));
+    const rDrive = (await mon("r")).output ?? "";
+    ok("N3 `r` on drive8 shows the 1541 CPU registers", /1541 \(drive 8\)/.test(rDrive) && /ADDR AC XR YR SP/.test(rDrive), (rDrive.split("\n")[0] ?? ""));
+    // The 1541 ROM lives at $C000; reading the drive space must differ from the
+    // C64 space at the same address (proves device routing, not c64Bus).
+    const dDrive = (await mon("d c000 c010")).output ?? "";
+    await mon("device c64");
+    const dC64 = (await mon("d c000 c010")).output ?? "";
+    ok("N4 `d c000` reads the DRIVE address space (≠ the C64 at $C000)", dDrive.length > 0 && dDrive !== dC64, "drive≠c64");
+    ok("N5 drive disasm shows real ROM code at $c000 (not empty)", /c000/i.test(dDrive));
+    // Guard: write/exec verbs are blocked while device=drive8.
+    await mon("device drive8");
+    const blocked = await mon("wr c000 ff");
+    ok("N6 write/exec verbs blocked on drive8 (read-inspect only)", /read-inspect only/.test(blocked.error ?? ""), blocked.error);
+    const mDrive = (await mon("m c000 c003")).output ?? "";
+    ok("N7 `m` on drive8 reads drive memory (allowed)", /c000/i.test(mDrive) && !/read-inspect/.test(mDrive));
+    await mon("device c64");
+    ok("N8 `device c64` restores the C64 target", !/1541/.test((await mon("r")).output ?? ""));
+  } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
+}
+
+// =====================================================================
 // Part C — BUG-037: the dead second parser is retired.
 // =====================================================================
 console.log("\nSpec 754 — Part C: one canonical monitor (BUG-037)\n");
