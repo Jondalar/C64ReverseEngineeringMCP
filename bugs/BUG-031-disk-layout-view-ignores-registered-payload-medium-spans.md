@@ -5,7 +5,7 @@
 - **Reporter:** llm
 - **Area:** knowledge / ui-v3 (disk-layout view + builder)
 - **Severity:** medium
-- **Status:** partial <!-- builder fixed; UI-render + per-image scoping still open — see FOLLOW-UP at end -->
+- **Status:** fixed (Spec 750.1; UI render user-confirmed 2026-06-05)
 
 ## Environment
 
@@ -147,7 +147,12 @@ Verified after the builder fix + `register_payload`-with-spans + `build_all_view
 `disk-layout.json` has 64 entries/disk; UI shows 2 + red wheel; entries duplicated across all
 4 disks.
 
-**Status → partial** (builder ✓, UI-render + per-image scoping open).
+**Status → FIXED 2026-06-05.** Builder ✓ (overlay-pass + grouping, `e2e:bug031` 14/14),
+UI render ✓ (DiskPanel renders the grouped `origin=custom` entries + `custom`/`unscoped`
+badges on the live snapshot — **user-confirmed the UI shows it**), per-image scoping ✓
+(mechanism via `mediumRef`; payloads without one are `unscoped` = shown-on-all + badged,
+bind with `image:"…"` on re-register — a usage choice, not a code gap). Closed under
+Spec 750.1.
 
 **Tracked under Spec 721.J5** (2026-06-02): the two open halves are NOT a new spec —
 they are the disk instance of Spec 721's already-defined medium model
