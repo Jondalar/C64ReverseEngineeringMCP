@@ -551,7 +551,14 @@ export class WsServer {
 
     this.on("session/close", async ({ session_id }) => {
       const { runtimeSessions } = await import("../runtime/headless/runtime-session-service.js");
-      return await runtimeSessions.close(session_id);
+      const r = await runtimeSessions.close(session_id);
+      // Leak fix: drop this session's ws-server-side per-session state (the VICE
+      // continue cursors + the frozen-inspect evidence list), else entries
+      // accumulate one set per closed session for the daemon's lifetime.
+      monitorDisasmAddr.delete(session_id);
+      monitorMemAddr.delete(session_id);
+      inspectEvidence.delete(session_id);
+      return r;
     });
 
     // Spec 744.4c slice 2 — generic AgentQueryApi bridge. The MCP `runtime_*`

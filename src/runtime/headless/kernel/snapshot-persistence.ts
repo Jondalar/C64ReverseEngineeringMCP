@@ -172,6 +172,12 @@ export async function undumpRuntimeSnapshot(ctrl: RuntimeController, path: strin
   // in place; the WS media/events route + ingress share this ref).
   const restoredEvents = (snapshot.payload as { mediaEvents?: unknown[] }).mediaEvents;
   if (Array.isArray(restoredEvents)) {
+    // Leak fix (705.B ring): unpin the OUTGOING events' checkpoints before dropping
+    // them — else those pins survive in the ring forever, immune to eviction.
+    for (const e of ctrl.mediaEvents) {
+      if (e.checkpointBeforeId) ctrl.checkpointRing.unpin(e.checkpointBeforeId);
+      if (e.checkpointAfterId) ctrl.checkpointRing.unpin(e.checkpointAfterId);
+    }
     ctrl.mediaEvents.length = 0;
     ctrl.mediaEvents.push(...(restoredEvents as (typeof ctrl.mediaEvents)));
   }

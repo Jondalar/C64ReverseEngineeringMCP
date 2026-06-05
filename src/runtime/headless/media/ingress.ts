@@ -254,6 +254,19 @@ export async function ingestMedia(
   };
   // Spec 709.8 — append to the ordered, replayable media-event history.
   ctrl.mediaEvents.push(event);
+  // Leak fix (705.B ring): the before/after checkpoints are PINNED so the recent
+  // media history stays replayable, but only a bounded window needs anchors. Each
+  // media op (disk swap / PRG load / CRT attach) otherwise pins 2 forever → the
+  // ring fills with un-evictable entries (unbounded across a long session — and
+  // `runtime_swap_disk_and_continue` does eject+mount = 2 ops/swap). Keep the last
+  // PINNED_MEDIA_EVENTS pinned; unpin the checkpoints of the event that fell out so
+  // the ring can evict them.
+  const PINNED_MEDIA_EVENTS = 16;
+  const fellOut = ctrl.mediaEvents[ctrl.mediaEvents.length - 1 - PINNED_MEDIA_EVENTS];
+  if (fellOut) {
+    if (fellOut.checkpointBeforeId) ctrl.checkpointRing.unpin(fellOut.checkpointBeforeId);
+    if (fellOut.checkpointAfterId) ctrl.checkpointRing.unpin(fellOut.checkpointAfterId);
+  }
 
   // Spec 709.13.1 — resume semantics:
   //  - A device op (disk insert/eject/swap) never paused → the C64 keeps running.

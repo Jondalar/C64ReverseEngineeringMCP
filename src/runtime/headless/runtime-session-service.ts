@@ -151,6 +151,11 @@ class RuntimeSessionService {
       if (ctrl?.traceRun?.isActive()) { await ctrl.traceRun.stop(); released.push("trace"); }
     } catch { /* nothing to finalize */ }
     if (ctrl) { disposeRuntimeController(sessionId); released.push("controller"); }
+    // Leak fix: drop the monitor-shell per-session maps (bankDefaults / sidefxOn /
+    // dfWalks / fsShellCwd / asmCursors). disposeMonitorShellState existed but was
+    // never called — one set of entries leaked per closed session.
+    const { disposeMonitorShellState } = await import("./debug/monitor-shell.js");
+    disposeMonitorShellState(sessionId);
     if (stopIntegratedSession(sessionId)) released.push("session");
     return { existed, released };
   }
