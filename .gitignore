@@ -40,3 +40,6 @@ snapshots/
 # it with `npm run build:resid-wasm`. Ignore only emcc scratch + the dist copy.
 third_party/resid/build/
 dist/runtime/headless/sid/wasm/
+
+# scratch / probe outputs (never commit)
+.tmp/

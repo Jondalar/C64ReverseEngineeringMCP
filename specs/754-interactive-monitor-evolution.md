@@ -196,7 +196,7 @@ spec-wide principle the user set — cf. `m cpu` over `c:`): drop the bare `>`.
   is removed).
 
 ### 3.3e Observers — unify breakpoint / watch / tracepoint / condition / command (Block E) — DONE v1 (2026-06-03)
-**v1 shipped:** `obs/o when exec|load|store <addr[..end]> [if <cond>] do break|log`
+**v1 shipped:** `obs/o when exec|load|store <addr[..end]> [if <cond>] do break|log [fields]`
 (+ `obs` list, `obs <name> on|off|del`, `obs log`, `ignore <name> [n]`). In-loop
 eval (exec at the instruction boundary in `runFor`; load/store via the CPU bus
 hook). **Per-ADDRESS** watch gate (user decision) — idle cost 0 (`accessWatch`
@@ -220,6 +220,18 @@ fire→broadcast→UI trace, all 5 root-cause claims adversarially confirmed). F
   per run-chunk; `MonitorPanel` appends them to the console live (a visible
   tracepoint). `obs log` still pulls the full ring. Gate `e2e:754` Part F4c
   (drain). UI listeners are live-tested (gate can't assert React subscriptions).
+
+**v1.2 — `do log <fields>` (2026-06-05).** `do log` now takes an optional field
+list — what to print per trigger, in order: registers `a/x/y/sp/pc/fl` and memory
+peeks `$addr` (byte) / `$addr:w` (little-endian word, for pointers). Empty list
+keeps the v1 default line (`pc a cyc`). A `LogExpr[]` carried on the observer;
+`fire()` renders it against the live CPU + `c64Bus.peek(_, "cpu")` (side-effect-
+free, zero-page shows as `$FD` not `$00FD`). `do break` rejects trailing fields.
+Motivating case (user, Wasteland loader): capture the call args at every
+`JSR $FC00` without halting —
+`obs fcload when exec $fc00 do log $fd $fe $ff a x y` →
+`obs fcload: exec $FC00  $FD=03 $FE=00 $FF=C6 a=01 x=0E y=22 cyc=N` per call.
+Gate `e2e:754` Part F10 (a–f).
 
 **v1.1 TODO (remaining):** actions `mark`/`cmd`/`trace <scope>` (need
 controller/monitor wired into the registry); `cy` (cycle-in-line) in conditions;

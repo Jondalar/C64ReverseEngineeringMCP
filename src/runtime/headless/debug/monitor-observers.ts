@@ -18,6 +18,15 @@ import type { IntegratedSession } from "../integrated-session.js";
 export type ObsTrigger = "exec" | "load" | "store";
 export type ObsAction = "break" | "log";
 
+/**
+ * A `do log` field (Spec 754 §3.3e, 2026-06-05) — what to print per trigger.
+ * A register (a/x/y/sp/pc/fl) or a memory peek (byte, or `:w` little-endian
+ * word). An empty list keeps the v1 default line (`pc a cyc`).
+ */
+export type LogExpr =
+  | { kind: "reg"; name: "a" | "x" | "y" | "sp" | "pc" | "fl" }
+  | { kind: "mem"; addr: number; word: boolean };
+
 /** The minimal CPU surface the registry wires the per-address gate into. */
 export interface ObservableCpu {
   accessWatch: Uint8Array | null;
@@ -32,6 +41,7 @@ export interface Observer {
   condSrc?: string;
   cond?: CondNode;
   action: ObsAction;
+  logExprs?: LogExpr[]; // `do log <exprs>` fields; empty/absent = default line
   enabled: boolean;
   hits: number;
   ignoreLeft: number;
@@ -119,7 +129,7 @@ export class ObserverRegistry {
   attach(cpu: ObservableCpu): void { this.cpu = cpu; this.rebuild(); }
 
   /** Parse + register an observer. Returns the created observer or an error. */
-  add(spec: { name: string; trigger: ObsTrigger; lo: number; hi: number; condSrc?: string; action: ObsAction }): Observer | { error: string } {
+  add(spec: { name: string; trigger: ObsTrigger; lo: number; hi: number; condSrc?: string; action: ObsAction; logExprs?: LogExpr[] }): Observer | { error: string } {
     let cond: CondNode | undefined;
     if (spec.condSrc) {
       try { cond = parseCond(spec.condSrc); } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
@@ -127,7 +137,9 @@ export class ObserverRegistry {
     const existing = this.observers.findIndex((o) => o.name === spec.name);
     const obs: Observer = {
       name: spec.name, trigger: spec.trigger, lo: spec.lo & 0xffff, hi: spec.hi & 0xffff,
-      condSrc: spec.condSrc, cond, action: spec.action, enabled: true, hits: 0, ignoreLeft: 0,
+      condSrc: spec.condSrc, cond, action: spec.action,
+      logExprs: spec.logExprs && spec.logExprs.length ? spec.logExprs : undefined,
+      enabled: true, hits: 0, ignoreLeft: 0,
     };
     if (existing >= 0) this.observers[existing] = obs; else this.observers.push(obs);
     this.rebuild();
@@ -220,8 +232,31 @@ export class ObserverRegistry {
     if (o.action === "break") return true;
     // log (= VICE tracepoint): print + continue.
     const where = o.trigger === "exec" ? `exec $${hx4(pc)}` : `${o.trigger} $${hx4(addr ?? 0)}=$${hx2(value ?? 0)}`;
-    this.pushLog(`obs ${o.name}: ${where}  pc=$${hx4(pc)} a=$${hx2(this.session.c64Cpu.a)} cyc=${this.session.c64Cpu.cycles}`);
+    const fields = o.logExprs && o.logExprs.length
+      ? this.renderLogExprs(o.logExprs, pc)
+      : `pc=$${hx4(pc)} a=$${hx2(this.session.c64Cpu.a)}`;
+    this.pushLog(`obs ${o.name}: ${where}  ${fields} cyc=${this.session.c64Cpu.cycles}`);
     return false;
+  }
+
+  /** Render `do log <exprs>` fields against the current CPU + memory state. */
+  private renderLogExprs(exprs: readonly LogExpr[], pc: number): string {
+    const c = this.session.c64Cpu;
+    const peek = (a: number) => this.session.c64Bus.peek(a & 0xffff, "cpu") & 0xff;
+    return exprs.map((e) => {
+      if (e.kind === "reg") {
+        switch (e.name) {
+          case "pc": return `pc=$${hx4(pc)}`;
+          case "a": return `a=${hx2(c.a)}`;
+          case "x": return `x=${hx2(c.x)}`;
+          case "y": return `y=${hx2(c.y)}`;
+          case "sp": return `sp=${hx2(c.sp)}`;
+          case "fl": return `fl=${hx2(c.flags)}`;
+        }
+      }
+      if (e.word) return `$${hxAddr(e.addr)}=${hx4(peek(e.addr) | (peek(e.addr + 1) << 8))}`;
+      return `$${hxAddr(e.addr)}=${hx2(peek(e.addr))}`;
+    }).join(" ");
   }
 
   private pushLog(line: string): void {
@@ -242,3 +277,5 @@ export class ObserverRegistry {
 
 const hx2 = (n: number) => (n & 0xff).toString(16).toUpperCase().padStart(2, "0");
 const hx4 = (n: number) => (n & 0xffff).toString(16).toUpperCase().padStart(4, "0");
+// Compact address: 2 hex digits for zero-page so `$FD` reads like the user typed.
+const hxAddr = (n: number) => ((n & 0xffff) < 0x100 ? hx2(n) : hx4(n));

@@ -340,6 +340,39 @@ console.log("\nSpec 754 — Part F: observers (Block E)\n");
     // F9 — `*`/`?` rejected in a NEW observer name (reserved for the wildcard).
     const bad = await mon("obs *bad* when exec $c000 do break");
     ok("F9 obs name with `*` is rejected", /can't contain \* or \?/.test(bad.error ?? "") && names().length === 0, bad.error);
+
+    // F10 — `do log <exprs>` (2026-06-05): per-trigger fields = regs + $addr peeks.
+    // The Wasteland loader case: capture the call args ($FD/$FE/$FF + A/X/Y) at
+    // every `JSR $FC00` without halting. Loop at $C000 (JMP, touches no reg/zp).
+    await mon("obs * del");
+    setup();
+    session.c64Bus.ram[0xc000] = 0x4c; session.c64Bus.ram[0xc001] = 0x00; session.c64Bus.ram[0xc002] = 0xc0; // JMP $C000
+    session.c64Cpu.pc = 0xc000;
+    session.c64Cpu.a = 0x01; session.c64Cpu.x = 0x0e; session.c64Cpu.y = 0x22;
+    session.c64Bus.ram[0xfd] = 0x03; session.c64Bus.ram[0xfe] = 0x00; session.c64Bus.ram[0xff] = 0xc6;
+    const fcEcho = await mon("obs FC when exec $c000 do log $fd $fe $ff a x y");
+    ok("F10a echo reflects the log fields", /do log \$fd \$fe \$ff a x y/.test(fcEcho.output ?? ""), fcEcho.output);
+    r = session.runFor(50);
+    const fcLine = session.observers.logs[session.observers.logs.length - 1] ?? "";
+    ok("F10b `do log` line carries reg + memory fields",
+      /\$FD=03 \$FE=00 \$FF=C6 a=01 x=0E y=22/.test(fcLine) && r.aborted !== "observer", fcLine);
+    const fcList = (await mon("obs")).output ?? "";
+    ok("F10c `obs` list shows the fields", /FC\s+exec \$C000 do log \$fd \$fe \$ff a x y/.test(fcList.replace(/\n/g, " ")), (fcList.split("\n")[1] ?? ""));
+    await mon("obs FC del");
+
+    // F10d — `:w` = little-endian word peek ($FE/$FF → $C600 pointer).
+    await mon("obs PTR when exec $c000 do log $fe:w");
+    session.runFor(20);
+    const ptrLine = session.observers.logs[session.observers.logs.length - 1] ?? "";
+    ok("F10d `$fe:w` logs a little-endian word ($FE/$FF=$C600)", /\$FE=C600/.test(ptrLine), ptrLine);
+    await mon("obs PTR del");
+
+    // F10e — `break` takes no fields; a bad log field is rejected.
+    const brkFields = await mon("obs Z when exec $c000 do break a x");
+    ok("F10e `do break` with fields is rejected", /takes no fields/.test(brkFields.error ?? ""), brkFields.error);
+    const badField = await mon("obs Z when exec $c000 do log $fd nope");
+    ok("F10f bad log field is rejected", /bad field 'nope'/.test(badField.error ?? ""), badField.error);
+    await mon("obs * del");
   } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
 }
 

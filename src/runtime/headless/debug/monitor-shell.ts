@@ -20,7 +20,7 @@ import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, mkdirSy
 import { isAbsolute, resolve as resolvePathJoin, basename } from "node:path";
 import { disasmLine } from "./disasm6502.js";
 import { stepDisasm, followDisasm, resumeDisasm, type DfState } from "./monitor-flow-disasm.js";
-import type { ObsTrigger, ObsAction } from "./monitor-observers.js";
+import type { ObsTrigger, ObsAction, LogExpr } from "./monitor-observers.js";
 import type { RuntimeController } from "./runtime-controller.js";
 import type { IntegratedSession } from "../integrated-session.js";
 import type { MemBankLens } from "../memory-bus.js";
@@ -701,7 +701,8 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
     }
 
     // ---- Observers (Spec 754 §3.3e) — unify break/watch/trace/condition. --
-    //   obs <name> when exec|load|store <addr[..end]> [if <cond>] do break|log
+    //   obs <name> when exec|load|store <addr[..end]> [if <cond>] do break|log [fields]
+    //     log fields: a/x/y/sp/pc/fl or $addr[:w]  (empty = default pc/a/cyc line)
     //   obs                      list      obs <name> on|off|del
     //   obs log                  recent `do log` lines
     //   ignore <name> [n]        skip the next n triggers
@@ -715,8 +716,9 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         return { output: reg.setIgnore(nm, cnt) ? `ignore ${nm}: skip next ${cnt}` : `no observer '${nm}'` };
       }
       const rest = tokens.slice(1);
-      const fmt = (o: { enabled: boolean; name: string; trigger: string; lo: number; hi: number; condSrc?: string; action: string; hits: number }) =>
-        `  ${o.enabled ? "*" : "o"} ${o.name}  ${o.trigger} $${hex(o.lo, 4)}${o.hi !== o.lo ? `..${hex(o.hi, 4)}` : ""}${o.condSrc ? ` if ${o.condSrc}` : ""} do ${o.action}  hits=${o.hits}`;
+      const fmtLogExpr = (e: LogExpr) => e.kind === "reg" ? e.name : `$${e.addr.toString(16)}${e.word ? ":w" : ""}`;
+      const fmt = (o: { enabled: boolean; name: string; trigger: string; lo: number; hi: number; condSrc?: string; action: string; logExprs?: LogExpr[]; hits: number }) =>
+        `  ${o.enabled ? "*" : "o"} ${o.name}  ${o.trigger} $${hex(o.lo, 4)}${o.hi !== o.lo ? `..${hex(o.hi, 4)}` : ""}${o.condSrc ? ` if ${o.condSrc}` : ""} do ${o.logExprs && o.logExprs.length ? `log ${o.logExprs.map(fmtLogExpr).join(" ")}` : o.action}  hits=${o.hits}`;
       if (rest.length === 0) {
         const list = reg.list();
         return { output: list.length ? "observers:\n" + list.map(fmt).join("\n") : "no observers (obs <name> when exec|load|store <addr> [if <cond>] do break|log)" };
@@ -755,7 +757,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       const wi = lower.indexOf("when");
       const di = lower.lastIndexOf("do");
       const ii = lower.indexOf("if");
-      if (wi !== 1 || di <= wi) return { error: "obs: usage: obs <name> when exec|load|store <addr[..end]> [if <cond>] do break|log" };
+      if (wi !== 1 || di <= wi) return { error: "obs: usage: obs <name> when exec|load|store <addr[..end]> [if <cond>] do break|log [a/x/y/$addr ...]" };
       const trig = lower[wi + 1];
       if (trig !== "exec" && trig !== "load" && trig !== "store") return { error: `obs: trigger must be exec|load|store, got '${rest[wi + 1]}'` };
       const addrTok = rest[wi + 2] ?? "";
@@ -771,9 +773,28 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       // the wildcard is unambiguous (and so a pasted *italic* name can't sneak in).
       if (/[*?]/.test(name)) return { error: `obs: name can't contain * or ? (reserved for wildcards) — got '${name}'` };
       const condSrc = ii > wi && ii < di ? rest.slice(ii + 1, di).join(" ") : undefined;
-      const res = reg.add({ name, trigger: trig as ObsTrigger, lo, hi, condSrc, action: action as ObsAction });
+      // `do log <exprs>` — fields to print per trigger (regs + $addr[:w] peeks).
+      // Empty list = the v1 default line. `break` takes no fields.
+      const exprToks = rest.slice(di + 2);
+      let logExprs: LogExpr[] | undefined;
+      if (action === "log" && exprToks.length) {
+        const REG_FIELDS = new Set(["a", "x", "y", "sp", "pc", "fl"]);
+        logExprs = [];
+        for (const t of exprToks) {
+          const lw = t.toLowerCase();
+          if (REG_FIELDS.has(lw)) { logExprs.push({ kind: "reg", name: lw as "a" | "x" | "y" | "sp" | "pc" | "fl" }); continue; }
+          const word = /:w$/i.test(t);
+          const a = parseAddr(word ? t.slice(0, -2) : t);
+          if (a === null) return { error: `obs: log: bad field '${t}' (use a/x/y/sp/pc/fl or $addr[:w])` };
+          logExprs.push({ kind: "mem", addr: a & 0xffff, word });
+        }
+      } else if (action === "break" && exprToks.length) {
+        return { error: `obs: 'break' takes no fields (got '${exprToks.join(" ")}')` };
+      }
+      const res = reg.add({ name, trigger: trig as ObsTrigger, lo, hi, condSrc, action: action as ObsAction, logExprs });
       if ("error" in res) return { error: `obs: condition: ${res.error}` };
-      return { output: `obs ${name}: ${trig} $${hex(lo, 4)}${hi !== lo ? `..${hex(hi, 4)}` : ""}${condSrc ? ` if ${condSrc}` : ""} do ${action}` };
+      const doDesc = logExprs && logExprs.length ? `log ${exprToks.join(" ")}` : action;
+      return { output: `obs ${name}: ${trig} $${hex(lo, 4)}${hi !== lo ? `..${hex(hi, 4)}` : ""}${condSrc ? ` if ${condSrc}` : ""} do ${doDesc}` };
     }
 
     // ---- Go / resume (Spec 754 §3.1, closes BUG-036). ---------------------
@@ -1025,7 +1046,8 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "    bk               list breakpoints (#num $addr)\n" +
         "    bk <a> | bk -<a> set / remove breakpoint (by addr)\n" +
         "    del <n..> | del  delete by #num / delete all\n" +
-        "    obs <name> when exec|load|store <a[..b]> [if <cond>] do break|log\n" +
+        "    obs <name> when exec|load|store <a[..b]> [if <cond>] do break|log [fields]\n" +
+        "      log fields: a/x/y/sp/pc/fl or $addr[:w]  e.g. `do log $fd $fe $ff a x y`\n" +
         "    obs | obs log    list observers / show log lines\n" +
         "    obs <name> on|off|del   (name may glob: `obs * del` = all, `obs c* off`)\n" +
         "    ignore <name> [n]\n" +
