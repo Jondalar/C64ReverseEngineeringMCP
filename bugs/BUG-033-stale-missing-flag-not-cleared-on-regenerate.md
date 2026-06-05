@@ -2,7 +2,7 @@
 
 **Severity:** low (cosmetic + confusing current-version selection)
 **Area:** artifact version store / `project_inventory_sync` / `mark_artifact_version_stale`
-**Status:** fixed (main) — secondary (label rename) open
+**Status:** fixed (main + secondary)
 
 ## Repro
 1. `mark_artifact_version_stale(subject, artifact_id, status='missing')` on a version whose file you deleted (clean-restart workflow).
@@ -41,5 +41,18 @@ present) → cleared + .asm current + .sym available; genuine-delete → stays m
 .sym becomes current (only available). Regressions: `e2e:artifact-best-version` 19/19,
 `e2e:024` 15/15, project-knowledge-smoke green.
 
-## Secondary (separate, minor) — OPEN
-File-space `routines[]` annotations (e.g. `{address:"C000", name:"installer_entry"}`) only emit a header *comment* block above the auto-label `WC000:` — they do NOT rename the label. By contrast, relocation `subSegments[].label` DOES rename (`serial_send_2bit:`). Inconsistent; renaming the file-space label too would match. (Disasm-render layer — separate from the version-store fix above.)
+## Secondary (separate, minor) — FIXED 2026-06-05
+File-space `routines[]` annotations (e.g. `{address:"C000", name:"installer_entry"}`) only emitted a header *comment* block above the auto-label `WC000:` — they did NOT rename the label. By contrast, relocation `subSegments[].label` DOES rename (`serial_send_2bit:`).
+
+**Fix** (`buildAnnotationsIndex`, `pipeline/src/lib/annotations.ts`): a routine with a
+`name` now also seeds `labelsByAddress` → the auto-label is renamed (`WC000:` →
+`installer_entry:`), matching the reloc path. The descriptive name is sanitised to a
+valid assembler identifier via `toLabelIdent` (`Turn advance` → `Turn_advance`,
+`3d engine` → `_3d_engine`) so the rebuild stays byte-identical (labels are symbolic).
+Explicit `labels[]` win (seeded first); a name that collides with an explicit label
+or another routine, or sanitises to nothing, keeps the auto-label + the routine's
+header-comment block (no silent duplicate-label rebuild break). The header comment
+block (full prose name) is unchanged.
+
+Gate `smoke:bug033-label` 7/7. No regression: `smoke:741` 50/50, `e2e:751` 27/27,
+`e2e:bug033` 7/7, `smoke:resolve-pc` 26/26, `probe:721-j3` 13/13.

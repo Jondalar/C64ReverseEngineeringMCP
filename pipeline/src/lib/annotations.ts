@@ -120,6 +120,14 @@ function parseHex(hex: string): number {
   return parseInt(hex.replace(/^\$/, ""), 16);
 }
 
+// A routine's `name` is descriptive prose ("Turn advance"); turn it into a valid
+// 6502-assembler label identifier (`Turn_advance`) so promoting it to a label
+// can't break the rebuild. Returns undefined if nothing usable remains.
+function toLabelIdent(name: string): string | undefined {
+  const s = name.trim().replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").replace(/^(\d)/, "_$1");
+  return s.length ? s : undefined;
+}
+
 export function buildAnnotationsIndex(annotations: AnnotationsFile): AnnotationsIndex {
   const segmentsByStart = new Map<number, SegmentAnnotation>();
   const segmentAnnotations: Array<{ start: number; end: number; annotation: SegmentAnnotation }> = [];
@@ -135,11 +143,27 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
     segmentsByStart.set(start, seg);
     segmentAnnotations.push({ start, end, annotation: seg });
   }
+  const usedLabels = new Set<string>();
   for (const lbl of annotations.labels) {
     labelsByAddress.set(parseHex(lbl.address), lbl);
+    usedLabels.add(lbl.label);
   }
   for (const rt of annotations.routines) {
-    routinesByAddress.set(parseHex(rt.address), rt);
+    const addr = parseHex(rt.address);
+    routinesByAddress.set(addr, rt);
+    // BUG-033 (secondary): a named routine RENAMES the auto-label (`WC000:` →
+    // `turn_advance:`), matching reloc `subSegments[].label`. The descriptive name
+    // is sanitised to a valid assembler identifier; rebuild stays byte-identical
+    // (labels are symbolic). Explicit labels win (set first, above); collisions
+    // (with an explicit label or another routine) keep the auto-label + the
+    // routine's header comment block (no silent duplicate-label rebuild break).
+    if (rt.name && !labelsByAddress.has(addr)) {
+      const ident = toLabelIdent(rt.name);
+      if (ident && !usedLabels.has(ident)) {
+        labelsByAddress.set(addr, { address: rt.address, label: ident });
+        usedLabels.add(ident);
+      }
+    }
   }
   for (const pt of annotations.pointerTables ?? []) {
     pointerTables.push({
