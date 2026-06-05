@@ -429,17 +429,14 @@ export class HeadlessMemoryBus {
           this.io[normalized - 0xd000] = clampByte(value);
         }
         let ioValue = this.io[normalized - 0xd000]!;
-        // Spec 106 (M2.4d) — color RAM ($D800-$DBFF) is a 1Kx4 SRAM
-        // on real HW: only the low nibble is stored; reads return
-        // open-bus on the upper nibble. We approximate open-bus as
-        // $f0 (a common observed value when VIC has just fetched a
-        // sprite-pointer / screen byte). Per Spec 106 fallback path:
-        // "Open-bus value coupled too tightly to VIC: return constant
-        //  $FF, document, refine in a follow-up spec." We pick $f0
-        // so the lower-nibble write/read round-trip is visible
-        // without leaking VIC state.
+        // Color RAM ($D800-$DBFF) is a 1Kx4 SRAM on real HW: only the low
+        // nibble is stored; the upper nibble reads back the open (phi1) data
+        // bus. VICE: colorram_read() = mem_color_ram | (vicii_read_phi1() &
+        // 0xf0). We use the same phi1 source already wired for ultimax
+        // open-bus (openBusProvider → literal-port last_read_phi1); absent a
+        // phi1 lane the provider defaults to $FF.
         if (normalized >= 0xd800 && normalized <= 0xdbff) {
-          ioValue = (ioValue & 0x0f) | 0xf0;
+          ioValue = (ioValue & 0x0f) | (this.openBusProvider() & 0xf0);
         }
         this.recordAccess("read", normalized, ioValue, "io");
         return ioValue;
@@ -658,7 +655,7 @@ export class HeadlessMemoryBus {
         const v = handler?.read?.(n);
         if (v !== undefined) this.io[n - 0xd000] = clampByte(v);
         let ioValue = this.io[n - 0xd000]!;
-        if (n >= 0xd800 && n <= 0xdbff) ioValue = (ioValue & 0x0f) | 0xf0;
+        if (n >= 0xd800 && n <= 0xdbff) ioValue = (ioValue & 0x0f) | (this.openBusProvider() & 0xf0);
         return ioValue;
       }
       if (cfg.bankD === "char") return this.charRom[n - 0xd000]!;
@@ -750,10 +747,10 @@ export class HeadlessMemoryBus {
       const v = handler.peek(n);
       if (v !== undefined) {
         let ioValue = clampByte(v);
-        // Color RAM ($D800-$DBFF) — low nibble valid, upper nibble open bus
-        // ($f0), mirroring read(). (Color RAM has no handler; this guards a
+        // Color RAM ($D800-$DBFF) — low nibble valid, upper nibble open (phi1)
+        // bus, mirroring read(). (Color RAM has no handler; this guards a
         // future handler too.)
-        if (n >= 0xd800 && n <= 0xdbff) ioValue = (ioValue & 0x0f) | 0xf0;
+        if (n >= 0xd800 && n <= 0xdbff) ioValue = (ioValue & 0x0f) | (this.openBusProvider() & 0xf0);
         return ioValue;
       }
     }
@@ -762,7 +759,7 @@ export class HeadlessMemoryBus {
     // color RAM ($D800-$DBFF, no handler) this is the authoritative store.
     // NEVER call the side-effecting handler.read().
     let ioValue = this.io[n - 0xd000]!;
-    if (n >= 0xd800 && n <= 0xdbff) ioValue = (ioValue & 0x0f) | 0xf0;
+    if (n >= 0xd800 && n <= 0xdbff) ioValue = (ioValue & 0x0f) | (this.openBusProvider() & 0xf0);
     return ioValue;
   }
 
