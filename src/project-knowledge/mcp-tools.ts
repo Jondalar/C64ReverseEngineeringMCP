@@ -7,6 +7,7 @@ import { auditProject, renderProjectAudit } from "./audit.js";
 import { PROJECT_REPAIR_OPERATIONS, repairProject, renderProjectRepair } from "./repair.js";
 import { safeHandler } from "../server-tools/safe-handler.js";
 import { ensureWikiSkeleton } from "./project-wiki.js";
+import { ensureUiLauncher } from "./ui-launcher.js";
 import { ensureDefaultSteering } from "../server-tools/steering-defaults.js";
 import { ProjectKnowledgeService } from "./service.js";
 
@@ -113,6 +114,10 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       // project steering file (injected at the top of agent_onboard). Default
       // only; never clobbers a hand-written steering.md.
       const steeringSeed = ensureDefaultSteering(projectRoot);
+      // Convenience: a `ui.sh` launcher in the project root to start/restart the
+      // workspace (HTTP UI :4310 + runtime daemon :4312) pointed at this project.
+      // Idempotent + never clobbers a hand-edited ui.sh.
+      const uiLauncher = ensureUiLauncher(projectRoot, options.repoDir);
       const workflow = service.initializeWorkflowContract({
         canonicalDocPaths: [
           resolve(options.repoDir, "docs", "workflow.md"),
@@ -148,6 +153,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         ``,
         `Wiki scaffolded: ${wikiScaffold.created.length ? wikiScaffold.created.join(", ") : "already present"}`,
         `Steering (extract-first doctrine): ${steeringSeed}`,
+        `UI launcher: ${uiLauncher.created ? `created ${uiLauncher.path} (./ui.sh start|restart|stop|status)` : "already present (not overwritten)"}`,
         `Input media sorted: ${mediaSort.sorted.length} file(s)`,
         ...mediaSort.sorted.map((s) => `  ${s.from} → ${s.to} (${s.kind})`),
         ...(mediaSort.skipped.length > 0
