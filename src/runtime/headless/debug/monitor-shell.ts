@@ -564,6 +564,30 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       return { output: lines.join("\n") };
     }
 
+    // bitmap <addr> [w] [h] [hires|charset|sprite] — render a RAM range as an
+    // image (§3.3b, folds the Scrub tab). The text console can't inline it, so it
+    // writes a PNG artifact + returns the path. w/h are DECIMAL counts (cells/rows
+    // /sprites per mode); addr is hex. (multicolor = v1.1.)
+    if (op === "bitmap" || op === "bm") {
+      const addr = parseAddr(tokens[1]);
+      if (addr === null) return { error: "bitmap: usage: bitmap <addr> [w] [h] [hires|charset|sprite]" };
+      const rest = tokens.slice(2);
+      const modeTok = rest.find((t) => /^(hires|charset|sprite|mc|multicolor)$/i.test(t));
+      if (modeTok && /^(mc|multicolor)$/i.test(modeTok)) return { error: "bitmap: multicolor is v1.1 — use hires | charset | sprite" };
+      const mode = (modeTok ?? "hires").toLowerCase() as "hires" | "charset" | "sprite";
+      const nums = rest.filter((t) => /^\d+$/.test(t)).map((t) => parseInt(t, 10));
+      const defW = mode === "charset" ? 16 : mode === "sprite" ? 8 : 40;
+      const defH = mode === "charset" ? 16 : mode === "sprite" ? 4 : 25;
+      const w = Math.max(1, Math.min(nums[0] ?? defW, 256));
+      const h = Math.max(1, Math.min(nums[1] ?? defH, 256));
+      const { renderBitmapPng } = await import("./monitor-bitmap.js");
+      const out = renderBitmapPng((a) => readByte(a & 0xffff, "cpu"), { addr: addr & 0xffff, w, h, mode });
+      const file = resolveFsPath(`bitmap_${hex(addr & 0xffff, 4)}_${mode}_${w}x${h}.png`);
+      try { writeFileSync(file, out.png); }
+      catch (e) { return { error: `bitmap: ${e instanceof Error ? e.message : String(e)}` }; }
+      return { output: `bitmap ${mode} $${hex(addr & 0xffff, 4)} → ${out.width}×${out.height}px (${out.bytes} bytes read) → ${file}` };
+    }
+
     // ---- FS mini-shell + file I/O (Spec 754 §3.3g) — rooted at the project dir.
     if (op === "pwd") return { output: cwd() };
     if (op === "cd") {
@@ -989,6 +1013,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "    sd [n]           step+disasm: the REAL executed path, loops folded (dynamic)\n" +
         "    df [-i] [a] [n]  follow-disasm: walk control flow (static); -i asks at branches (df t|f|b)\n" +
         "    screen           decode the 40x25 text screen (real screen pointer)\n" +
+        "    bitmap <a> [w h] [hires|charset|sprite]  render a RAM range to a PNG (scrub gfx)\n" +
         "    bank [lens]      show/set the sticky default lens for m/d\n" +
         "    wr [lens] <a> <b..>  write exactly these bytes from a\n" +
         "    f <a> <b> <d..>  fill range a..b with repeating data\n" +

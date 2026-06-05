@@ -683,6 +683,38 @@ console.log("\nSpec 754 — Part N: device c64|drive8 (Block I)\n");
 }
 
 // =====================================================================
+// Part O — Block B: bitmap RAM-as-image render (PNG artifact).
+// =====================================================================
+console.log("\nSpec 754 — Part O: bitmap PNG render (Block B)\n");
+{
+  const { renderBitmapPng } = await import("../dist/runtime/headless/debug/monitor-bitmap.js");
+  const isPng = (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
+  const read = (a) => (a & 1) ? 0x00 : 0xff;
+  const hi = renderBitmapPng(read, { addr: 0, w: 2, h: 1, mode: "hires" });
+  ok("O1 hires: w*8 × h px + valid PNG", hi.width === 16 && hi.height === 1 && isPng(hi.png), `${hi.width}x${hi.height}`);
+  const ch = renderBitmapPng(read, { addr: 0, w: 1, h: 1, mode: "charset" });
+  ok("O2 charset: 8×8 cell + valid PNG", ch.width === 8 && ch.height === 8 && isPng(ch.png));
+  const sp = renderBitmapPng(read, { addr: 0, w: 1, h: 1, mode: "sprite" });
+  ok("O3 sprite: 24×21 + valid PNG + 64-byte stride read", sp.width === 24 && sp.height === 21 && isPng(sp.png) && sp.bytes === 64);
+
+  const root = mkdtempSync(join(tmpdir(), "c64re-754-bm-"));
+  const { session, sessionId } = startIntegratedSession({});
+  const ctrl = new RuntimeController(sessionId, session, () => {});
+  try {
+    session.resetCold("pal-default");
+    for (let a = 0xc000; a < 0xc020; a++) session.c64Bus.ram[a] = a & 1 ? 0 : 0xff;
+    const ctx = { session, ctrl, sessionId, memCursors: new Map(), disasmCursors: new Map(), projectDir: root };
+    const mon = (cmd) => runMonitorCommand(ctx, cmd);
+    const r = await mon("bitmap c000 4 4 hires");
+    const m = (r.output ?? "").match(/→ (\S+\.png)$/);
+    ok("O4 `bitmap` writes a PNG + reports dims", /32×4px/.test(r.output ?? "") && !!m && existsSync(m[1]), r.output);
+    ok("O5 the written file is a real PNG", !!m && isPng(readFileSync(m[1])));
+    const mc = await mon("bitmap c000 4 4 multicolor");
+    ok("O6 multicolor rejected (v1.1)", /v1\.1/.test(mc.error ?? ""), mc.error);
+  } finally { ctrl.pause(); stopIntegratedSession(sessionId); rmSync(root, { recursive: true, force: true }); }
+}
+
+// =====================================================================
 // Part C — BUG-037: the dead second parser is retired.
 // =====================================================================
 console.log("\nSpec 754 — Part C: one canonical monitor (BUG-037)\n");

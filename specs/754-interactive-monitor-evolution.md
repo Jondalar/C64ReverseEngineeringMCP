@@ -1,10 +1,11 @@
 # Spec 754 — Interactive Monitor evolution: VICE-superset over a shared capability layer
 
-**Status:** P1+P2 DONE + LIVE-TESTED (2026-06-04, master `fe3d94b0`, gate `e2e:754`
-111/111). P3 remaining: Block I (device c64|drive8), bitmap (PNG artifact),
-capability registry (Spec 760, deferred). Snapshot rename (`snap`/`unsnap`↔
-`dump`/`undump`) waits on the `.vsf` codec = Spec 755. See §3.8 for the live-test
-refinement log.
+**Status:** P1+P2+P3 DONE (2026-06-05, gate `e2e:754` 125/125). Block I read-inspect
+(`device c64|drive8`, §3.3i) + `bitmap` RAM-as-PNG (§3.3b) shipped this round.
+**Explicitly out of "754 done" (own specs):** capability registry = Spec 760
+(deferred; verbs stay direct-dispatch); snapshot rename `snap`/`unsnap`↔`dump`/`undump`
+waits on the `.vsf` codec = Spec 755; 1541-CPU single-step on `drive8` = a Spec 612
+fidelity slice; `bitmap` multicolor = v1.1. See §3.8 for the live-test refinement log.
 **Owner:** runtime monitor (`src/runtime/headless/debug/monitor-shell.ts`) +
 the workbench monitor (`ui/src/workbench/components/Monitor*.tsx`, `src/workspace-ui/ws-server.ts`)
 **Closes:** BUG-036 (no coherent pause/resume — `g` only sets PC, "Run" calls a
@@ -378,9 +379,11 @@ detach [dev]
 (read-only project `_analysis.json` via the WS `ctx.projectRead` bridge —
 `loadEffectiveSegments` overlay, BUG-034-safe; address→artifact by head-read
 range-match + optional `[stem]`). monitor-shell stays runtime-pure; the WS server
-owns the trace/project readers. **Deferred:** `bitmap` (PNG artifact — text
-monitor can't show inline); the capability **registry** (Spec 760 — monitor verbs
-stay direct dispatch). **v1 caveats:** map/taint/swimlane need a trace (`trace on`);
+owns the trace/project readers. **`bitmap` DONE (2026-06-05, §3.3b):** writes a PNG
+artifact (the text monitor can't inline) — `monitor-bitmap.ts` decodes hires/charset/
+sprite + a minimal node:zlib PNG encoder, runtime-pure (no bridge). **Deferred:** the
+capability **registry** (Spec 760 — monitor verbs stay direct dispatch). **v1 caveats:**
+map/taint/swimlane need a trace (`trace on`);
 chis vs active observers; the address→artifact gap (multiple PRGs at one address →
 use `[stem]`). The realization of §3.6 — capabilities as monitor commands over the
 same services the MCP tools call. **OQ1 RESOLVED: curated verbs only, NO generic
