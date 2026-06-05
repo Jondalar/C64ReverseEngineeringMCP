@@ -777,6 +777,37 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     }),
   );
 
+  server.tool(
+    "runtime_swap_disk_and_continue",
+    "Answer a game's \"Insert side N. (RETURN)\" prompt in ONE call, the hardware way: eject the old disk → run so the 1541 senses the removal → insert the new disk → run so it senses the insertion → press RETURN → run on so the prompt advances. Use this for a multi-disk title that WAITS for a side-swap (where the atomic runtime_media_swap fails because it gives the drive no cycles to sense the change). Read the screen first (runtime_render_screen) to know which side is asked for. Inputs: session_id, path (new image), optional confirm_input (default RETURN), settle_cycles, post_cycles. Returns: { mounted, screenBefore, screenAfter, promptCleared, advanced }.",
+    {
+      session_id: z.string(),
+      path: z.string().describe("Absolute path to the new disk image (the side to insert)"),
+      confirm_input: z.string().optional().describe("Key(s) to answer the prompt; default RETURN (\\r). Empty = no key."),
+      settle_cycles: z.number().int().optional().describe("Cycles to run after eject AND after insert so the drive senses the change (default 1.5M)"),
+      post_cycles: z.number().int().optional().describe("Cycles to run after the confirm key (default 4M)"),
+    },
+    safeHandler("runtime_swap_disk_and_continue", async ({ session_id, path, confirm_input, settle_cycles, post_cycles }) => {
+      const abs = resolveCallerMediaPath(path);
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      let result: unknown;
+      if (isDaemonMode()) {
+        result = await runtimeDaemon.swapDiskAndContinue(session_id, abs, { confirm_input, settle_cycles, post_cycles });
+      } else {
+        const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+        const session = getIntegratedSession(session_id);
+        if (!session) throw new Error(`No integrated session ${session_id}`);
+        const { RuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+        const { swapDiskAndContinue } = await import("../runtime/headless/media/swap-and-continue.js");
+        const ctrl = new RuntimeController(session_id, session, () => {});
+        try {
+          result = await swapDiskAndContinue(ctrl, { path: abs, confirmInput: confirm_input, settleCycles: settle_cycles, postCycles: post_cycles });
+        } finally { ctrl.pause(); }
+      }
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+    }),
+  );
+
   // ---- Spec 264 — Input (keyboard + joystick) tools ----
 
   server.tool(

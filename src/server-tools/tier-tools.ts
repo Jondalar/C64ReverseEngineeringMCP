@@ -70,7 +70,10 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // alternative to killing the process. Must be on the default surface next to start.
   "runtime_session_close",
   "runtime_session_snapshot", "runtime_media_browse", "runtime_media_mount",
-  "runtime_media_unmount", "runtime_media_persist", "runtime_media_swap", "runtime_type",
+  "runtime_media_unmount", "runtime_media_persist", "runtime_media_swap",
+  // BUG-027 Blocker 2 (Spec 744 §7.2) — high-level "Insert side N" answer:
+  // eject→run→insert→run→RETURN→run as ONE call (atomic swap can't be sensed).
+  "runtime_swap_disk_and_continue", "runtime_type",
   "runtime_joystick", "runtime_load_prg", "runtime_render_screen",
   // Spec 725 §3.8 — Monitor / frozen-inspect facade.
   "runtime_monitor_registers", "runtime_monitor_memory", "runtime_monitor_disasm",

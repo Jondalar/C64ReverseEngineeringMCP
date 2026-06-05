@@ -5,7 +5,7 @@
 - **Reporter:** llm
 - **Area:** runtime
 - **Severity:** high
-- **Status:** open <!-- open | investigating | fixed | wontfix | duplicate -->
+- **Status:** fixed (Blockers 1+3 done; Blocker 2 = `runtime_swap_disk_and_continue` shipped, orchestration gated — live-verify the actual game-advance on a multi-disk title) <!-- open | investigating | fixed | wontfix | duplicate -->
 - **Tracking spec:** `specs/744-runtime-session-authority-drive-to-state.md`
 
 ## Environment
@@ -174,7 +174,34 @@ high-level disk-swap-prompt flow instead of raw `run/type/swap` guessing.
   `disposeRuntimeController` (cancels the loop), drops the session. Idempotent.
 - **Gate:** `npm run probe:744-3` (9/9).
 
-### Blocker 2 — disk-swap not detected — DIAGNOSED, fix pending (Spec 744.5)
+### Blocker 2 — disk-swap not detected — FIXED 2026-06-05 (Spec 744 §7.2)
+
+- **Reframe (user):** the UI swap WORKS — so the runtime CAN sense a swap; the
+  problem was never broken 1541 timing. The atomic `runtime_media_swap`
+  (detach+attach, ZERO drive cycles between) is the wrong tool for a *waiting*
+  game: it gives the drive no cycles to sense the change. The UI works because the
+  human does the hardware sequence (eject → machine keeps running → insert → run →
+  RETURN), so real drive cycles pass and the write-protect-sense window progresses.
+- **Fix:** new default tool `runtime_swap_disk_and_continue` (the §7.2 capability)
+  does that sequence in ONE call: eject → `runFor` (drive senses removal) → insert →
+  `runFor` (senses insertion) → type RETURN (default) → `runFor` (prompt advances).
+  Each `runFor` advances the C64 AND the 1541 via IEC catch-up, so the sense window
+  actually moves while the game polls. Shared `swapDiskAndContinue(ctrl, args)`
+  (`media/swap-and-continue.ts`), daemon op `runtime/swap_disk_and_continue`
+  (ws-server, pauses the loop → runs the sequence → resumes), MCP tool + daemon
+  client. Returns a diagnostic { mounted, screenBefore, screenAfter, promptCleared,
+  advanced }.
+- **Why the speculated `diskunit_clk` trace (old 744.5) is moot:** running the C64
+  between eject and insert IS what advances the drive clock — exactly what the UI
+  (which works) does. No fidelity patch needed; the gap was a missing high-level
+  call, not broken timing.
+- **Gate:** `e2e:bug027-swap` 8/8 (mount A → swap-and-continue to B → new disk
+  mounted, round-trip, diagnostic returned, missing image throws). `probe:single-path`
+  25/25. The actual "game advances past Insert side N" on a real multi-disk title is
+  live-verified (drive it on Wasteland: read the prompt with `runtime_render_screen`,
+  call `runtime_swap_disk_and_continue` with the next side).
+
+### Blocker 2 — original diagnosis (superseded by the §7.2 fix above)
 
 - **Finding:** the facade IS VICE-faithful — `swapDisk` → `detachDisk`/`attachDisk`
   call `drive_image_detach`/`drive_image_attach`, which DO set `detach_clk` and (on

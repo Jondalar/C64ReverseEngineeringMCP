@@ -769,6 +769,30 @@ export class WsServer {
       return { c64Cycles: s.c64Cpu.cycles };
     });
 
+    // Spec 744 §7.2 / BUG-027 — high-level disk-swap-and-continue: eject → run →
+    // insert → run → confirm → run, so a game waiting on "Insert side N" senses the
+    // change (atomic media/swap gives the drive no cycles to sense). Drives the
+    // sequence synchronously; pauses the autonomous loop first, resumes after.
+    this.on("runtime/swap_disk_and_continue", async ({ session_id, path, confirm_input, settle_cycles, post_cycles }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      if (typeof path !== "string" || !path) throw new Error("path required");
+      const ctrl = controllerFor(session_id);
+      const wasRunning = ctrl.runState === "running";
+      if (wasRunning) ctrl.pause();
+      const { swapDiskAndContinue } = await import("../runtime/headless/media/swap-and-continue.js");
+      try {
+        return await swapDiskAndContinue(ctrl, {
+          path,
+          confirmInput: confirm_input as string | undefined,
+          settleCycles: settle_cycles as number | undefined,
+          postCycles: post_cycles as number | undefined,
+        });
+      } finally {
+        if (wasRunning) ctrl.continue();
+      }
+    });
+
     // ---- Spec 701 — autonomous runtime loop: debug/* command + state API.
     // The backend RuntimeController owns run/pause/pacing/breakpoints and
     // self-halts on a breakpoint. The UI sends commands and visualizes; it

@@ -279,6 +279,10 @@ class RuntimeDaemonClient {
   /** Returns { dataUrl } base64 PNG; caller writes to disk if a path is needed. */
   screenshot(sessionId: string) { return this.call<{ dataUrl?: string; width?: number; height?: number }>("session/screenshot", { session_id: sessionId }); }
   mark(sessionId: string, label: string) { return this.call("runtime/mark", { session_id: sessionId, label }); }
+  /** Spec 744 §7.2 / BUG-027 — hardware-style disk-swap-and-continue. */
+  swapDiskAndContinue<T = unknown>(sessionId: string, path: string, opts: { confirm_input?: string; settle_cycles?: number; post_cycles?: number } = {}) {
+    return this.call<T>("runtime/swap_disk_and_continue", { session_id: sessionId, path, ...opts });
+  }
 
   /** Spec 744.4c slice 2 — invoke an AgentQueryApi method on the SHARED daemon
    *  session (monitor/step/breakpoint analysis). Returns the same value the
