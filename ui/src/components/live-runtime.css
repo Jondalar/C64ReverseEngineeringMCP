@@ -576,33 +576,41 @@
 .wb-live .wb-controls-spacer { flex: 1; }
 .wb-live .wb-fps { color: var(--c64-fg-muted); font-size: 11px; }
 
-/* Spec 761.2 — ring-bound scrub timeline (rewind strip). */
+/* Spec 761.2 — ring-bound scrub timeline (video-player seekbar). */
 .wb-live .wb-scrub {
   display: flex; gap: 8px; align-items: center;
   padding: 4px 8px; margin-top: 4px;
   background: var(--c64-bg-2); border-radius: 4px;
 }
 .wb-live .wb-scrub-title { color: var(--c64-fg-muted); font-size: 11px; white-space: nowrap; }
-.wb-live .wb-scrub-track {
-  flex: 1 1 0; min-width: 0; /* min-width:0 lets flex shrink so overflow-x scrolls internally, not blowing out the page */
-  display: flex; gap: 2px; align-items: center;
-  min-height: 22px; padding: 0 2px;
+/* The bar is a FIXED-width seekbar: always 100% of the available row, never
+   scrolls (anchors are absolutely positioned by time → no overflow ever). */
+.wb-live .wb-scrub-bar {
+  position: relative; flex: 1 1 0; min-width: 0;
+  height: 20px; cursor: pointer;
   background: var(--c64-bg-1); border: 1px solid var(--c64-border);
-  border-radius: 3px; overflow-x: auto;
+  border-radius: 3px; overflow: hidden;
 }
-.wb-live .wb-scrub-empty { color: var(--c64-fg-muted); font-size: 11px; padding: 0 6px; }
-.wb-live .wb-scrub-tick {
-  background: transparent; border: none; cursor: pointer;
-  padding: 2px 1px; line-height: 0; flex: 0 0 auto;
+.wb-live .wb-scrub-bar.busy { cursor: progress; opacity: 0.7; }
+.wb-live .wb-scrub-bar:hover { border-color: var(--c64-blue-bright); }
+.wb-live .wb-scrub-empty {
+  position: absolute; left: 6px; top: 50%; transform: translateY(-50%);
+  color: var(--c64-fg-muted); font-size: 11px; pointer-events: none;
 }
-.wb-live .wb-scrub-tick .wb-scrub-pip {
-  display: inline-block; width: 6px; height: 14px; border-radius: 2px;
-  background: var(--c64-border);
+/* Each anchor = a thin time-positioned marker; dense markers read like a
+   video-timeline fill. */
+.wb-live .wb-scrub-mark {
+  position: absolute; top: 3px; bottom: 3px; width: 2px;
+  margin-left: -1px; background: var(--c64-border); pointer-events: none;
 }
-.wb-live .wb-scrub-tick:hover .wb-scrub-pip { background: var(--c64-blue-bright); }
-.wb-live .wb-scrub-tick.sel .wb-scrub-pip { background: var(--c64-blue-bright); height: 18px; }
-.wb-live .wb-scrub-tick.pinned .wb-scrub-pip { background: var(--c64-yellow); }
-.wb-live .wb-scrub-tick:disabled { cursor: not-allowed; opacity: 0.5; }
+.wb-live .wb-scrub-mark.pinned { background: var(--c64-yellow); width: 3px; margin-left: -1.5px; top: 1px; bottom: 1px; }
+.wb-live .wb-scrub-mark.sel { background: var(--c64-blue-bright); width: 3px; margin-left: -1.5px; }
+/* Playhead — the current position (selected anchor, or "now" at the right). */
+.wb-live .wb-scrub-head {
+  position: absolute; top: -1px; bottom: -1px; width: 2px; margin-left: -1px;
+  background: var(--c64-green); box-shadow: 0 0 4px var(--c64-green);
+  pointer-events: none;
+}
 .wb-live .wb-scrub-resume,
 .wb-live .wb-scrub-pin {
   background: var(--c64-bg-1); color: var(--c64-fg);

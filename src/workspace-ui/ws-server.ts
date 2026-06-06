@@ -1178,6 +1178,11 @@ export class WsServer {
           return { c64Cycles: s.c64Cpu.cycles, pc: s.c64Cpu.pc, mode: "soft" };
         }
         s.resetCold(video ?? "pal-default");
+        // Spec 761 — a cold power-cycle is a new machine: the checkpoint ring's
+        // anchors belong to the OLD timeline (pre-reset RAM/state), so scrubbing
+        // back to them would jump into a defunct session. Drop the ring; it
+        // refills from the fresh boot.
+        ctrl.checkpointRing.clear();
         // Run enough cycles for KERNAL to fully reach READY + BASIC input poll.
         // < 3M cycles eats leading chars from typeText; 5M is safe.
         s.runFor(5_000_000, { cycleBudget: 5_000_000 });

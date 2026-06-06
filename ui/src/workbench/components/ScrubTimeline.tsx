@@ -1,14 +1,15 @@
-// Spec 761.2 — ring-bound scrub timeline (the LIVE-tab rewind strip).
+// Spec 761.2 — ring-bound scrub timeline (the LIVE-tab rewind bar).
 //
-// One tick per checkpoint-ring anchor (705.B), newest right. Click a tick to
-// scrub-and-look (checkpoint/restore then:"pause" — the frozen frame shows via
-// the existing debug/stopped → grabScreenshot path). "▶ Resume here" restores
-// then runs on from that anchor (then:"run", auto-pins it per 761 OQ2). 📌
-// pins/unpins so an interesting moment survives evict-oldest.
+// A fixed-width video-player seekbar: the bar always spans 100% (never scrolls,
+// never pushes the layout). The ring anchors (705.B) are mapped onto it by
+// capture time — dense markers read like a video timeline. Click the bar to
+// seek to the nearest anchor (then:"keep" = preserve play/pause, like dragging a
+// video scrubber). "▶ Resume here" restores + runs on from the selected anchor
+// (then:"run", auto-pins per 761 OQ2). 📌 pins so a moment survives evict-oldest.
 //
-// Deliberately ONE strip — no new design language (Spec 761 §761.2). Run/pause
-// state syncs through the backend's restore broadcasts; this component only
-// issues checkpoint/* and reflects the ring.
+// After any restore we session/release_keys: a checkpoint re-presses the keys
+// that were down at capture time, which would jam live keyboard input — the
+// human's fingers are no longer on those keys, so clear them.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { getClient } from "../ws-client.js";
@@ -21,27 +22,16 @@ interface CheckpointRef {
   byteSize: number;
   createdAtMs: number;
 }
-interface RingStats {
-  count: number;
-  totalBytes: number;
-  pinnedCount: number;
-  budgetBytes?: number;
-}
+interface RingStats { count: number; totalBytes: number; pinnedCount: number; budgetBytes?: number; }
 interface Props {
   sessionId: string;
   runState: "running" | "paused" | "off";
 }
 
-function spanLabel(list: CheckpointRef[]): string {
-  if (list.length < 2) return list.length === 1 ? "1 anchor" : "no anchors yet";
-  const ms = list[list.length - 1]!.createdAtMs - list[0]!.createdAtMs;
-  const s = Math.max(0, ms / 1000);
-  return `${list.length} anchors · ${s.toFixed(1)} s window`;
-}
-function ago(ref: CheckpointRef, newestMs: number): string {
-  const d = (newestMs - ref.createdAtMs) / 1000;
-  if (d < 0.05) return "now";
-  return `-${d.toFixed(1)}s`;
+// Fraction 0..1 along the timeline for an anchor (by wall-clock capture time).
+function frac(cp: CheckpointRef, oldestMs: number, spanMs: number): number {
+  if (spanMs <= 0) return 1;
+  return Math.min(1, Math.max(0, (cp.createdAtMs - oldestMs) / spanMs));
 }
 
 export function ScrubTimeline({ sessionId, runState }: Props): React.JSX.Element | null {
@@ -50,8 +40,7 @@ export function ScrubTimeline({ sessionId, runState }: Props): React.JSX.Element
   const [stats, setStats] = useState<RingStats | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const selectedRef = useRef<string | null>(null);
-  selectedRef.current = selected;
+  const barRef = useRef<HTMLDivElement | null>(null);
 
   const reload = useCallback(async () => {
     if (!sessionId) return;
@@ -61,11 +50,11 @@ export function ScrubTimeline({ sessionId, runState }: Props): React.JSX.Element
       );
       setList(r.checkpoints ?? []);
       setStats(r.stats ?? null);
-    } catch { /* ignore — ring may not exist until first capture */ }
+      // drop a stale selection (e.g. after a power-cycle clears the ring)
+      setSelected((cur) => (cur && (r.checkpoints ?? []).some((x) => x.id === cur) ? cur : null));
+    } catch { /* ring may not exist until first capture */ }
   }, [sessionId, c]);
 
-  // Tail new anchors while running; refresh once when paused; reload on any
-  // backend checkpoint restore (another client / the monitor may scrub too).
   useEffect(() => {
     if (!sessionId) return;
     void reload();
@@ -78,12 +67,14 @@ export function ScrubTimeline({ sessionId, runState }: Props): React.JSX.Element
     return () => { off(); if (timer) clearInterval(timer); };
   }, [sessionId, runState, reload, c]);
 
-  const restore = useCallback(async (id: string, then: "pause" | "run") => {
+  const restore = useCallback(async (id: string, then: "keep" | "run") => {
     if (!sessionId || busy) return;
     setBusy(true);
     setSelected(id);
     try {
       await c.call("checkpoint/restore", { session_id: sessionId, id, then });
+      // clear keys re-pressed by the checkpoint so live typing is not jammed
+      await c.call("session/release_keys", { session_id: sessionId }).catch(() => {});
       await reload();
     } catch (e) { console.error("checkpoint/restore:", e); }
     finally { setBusy(false); }
@@ -95,43 +86,69 @@ export function ScrubTimeline({ sessionId, runState }: Props): React.JSX.Element
     catch (e) { console.error("checkpoint/pin:", e); }
   }, [sessionId, c, reload]);
 
+  // Click the bar → nearest anchor by horizontal position → seek (then:"keep").
+  const onBarClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!list.length || busy) return;
+    const el = barRef.current; if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    const oldestMs = list[0]!.createdAtMs;
+    const spanMs = list[list.length - 1]!.createdAtMs - oldestMs;
+    let best = list[0]!, bestD = Infinity;
+    for (const cp of list) {
+      const d = Math.abs(frac(cp, oldestMs, spanMs) - x);
+      if (d < bestD) { bestD = d; best = cp; }
+    }
+    void restore(best.id, "keep");
+  }, [list, busy, restore]);
+
   if (runState === "off") return null;
 
+  const oldestMs = list.length ? list[0]!.createdAtMs : 0;
   const newestMs = list.length ? list[list.length - 1]!.createdAtMs : 0;
+  const spanMs = newestMs - oldestMs;
+  const spanS = spanMs / 1000;
   const sel = list.find((x) => x.id === selected) ?? null;
+  const playPct = sel ? frac(sel, oldestMs, spanMs) * 100 : 100; // unselected playhead = "now" (right)
+  const agoS = sel ? (newestMs - sel.createdAtMs) / 1000 : 0;
 
   return (
     <div className="wb-scrub">
-      <span className="wb-scrub-title" title="Rewind over the in-memory checkpoint ring (705.B). Transient: oldest anchors are evicted.">⟲ Scrub</span>
-      <div className="wb-scrub-track" role="slider" aria-label="checkpoint timeline">
-        {list.length === 0 && <span className="wb-scrub-empty">capturing anchors…</span>}
+      <span className="wb-scrub-title" title="Rewind over the in-memory checkpoint ring (705.B). Transient: oldest anchors are evicted; a power-cycle starts a fresh ring.">⟲ Scrub</span>
+      <div
+        ref={barRef}
+        className={`wb-scrub-bar${busy ? " busy" : ""}`}
+        role="slider"
+        aria-label="checkpoint timeline"
+        title={list.length ? "Click to seek to the nearest snapshot" : "capturing snapshots…"}
+        onClick={onBarClick}
+      >
+        {list.length === 0 && <span className="wb-scrub-empty">capturing snapshots…</span>}
         {list.map((cp) => (
-          <button
+          <span
             key={cp.id}
-            className={`wb-scrub-tick${cp.id === selected ? " sel" : ""}${cp.pinned ? " pinned" : ""}`}
-            title={`${ago(cp, newestMs)} · frame ${cp.frame}${cp.pinned ? " · pinned" : ""}\nclick = scrub here (pause)`}
-            onClick={() => restore(cp.id, "pause")}
-            disabled={busy}
-          >
-            <span className="wb-scrub-pip" />
-          </button>
+            className={`wb-scrub-mark${cp.pinned ? " pinned" : ""}${cp.id === selected ? " sel" : ""}`}
+            style={{ left: `${frac(cp, oldestMs, spanMs) * 100}%` }}
+          />
         ))}
+        {list.length > 0 && <span className="wb-scrub-head" style={{ left: `${playPct}%` }} />}
       </div>
       <button
         className="wb-scrub-resume"
         disabled={!sel || busy}
-        title={sel ? "Restore this anchor and run on from here" : "Pick an anchor first"}
+        title={sel ? "Restore this snapshot and run on from here" : "Click the bar to pick a snapshot first"}
         onClick={() => sel && restore(sel.id, "run")}
       >▶ Resume here</button>
       {sel && (
         <button
           className={`wb-scrub-pin${sel.pinned ? " on" : ""}`}
-          title={sel.pinned ? "Unpin (allow eviction)" : "Pin (keep this anchor)"}
+          title={sel.pinned ? "Unpin (allow eviction)" : "Pin (keep this snapshot)"}
           onClick={() => togglePin(sel.id, sel.pinned)}
         >{sel.pinned ? "📌" : "📍"}</button>
       )}
-      <span className="wb-scrub-span" title={stats ? `${(stats.totalBytes / (1024 * 1024)).toFixed(1)} MiB used` : ""}>
-        {spanLabel(list)}{sel ? ` · at ${ago(sel, newestMs)}` : ""}
+      <span className="wb-scrub-span" title={stats ? `${(stats.totalBytes / (1024 * 1024)).toFixed(1)} MiB · ${stats.count} snapshots` : ""}>
+        {list.length < 2 ? `${list.length} snap` : `${list.length} · ${spanS.toFixed(0)}s`}
+        {sel ? ` · -${agoS.toFixed(1)}s` : " · now"}
       </span>
     </div>
   );
