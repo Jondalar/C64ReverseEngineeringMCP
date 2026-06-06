@@ -397,9 +397,16 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       const irqHw = w16(0xfffe, 0xffff), nmiHw = w16(0xfffa, 0xfffb);
       const cinv = w16(0x0314, 0x0315), nmiv = w16(0x0318, 0x0319);
       const flow = ctrl.flow.currentFlow().toUpperCase();
+      // PLA banking latches: $00 = data-direction, $01 = port value. The low 3
+      // bits of $01 select the memory map (LORAM/HIRAM/CHAREN) — crack-gold for
+      // "what's banked in right now".
+      const ddr = s.c64Bus.getCpuPortDirection() & 0xff;
+      const port = s.c64Bus.getCpuPortValue() & 0xff;
+      const loram = port & 1, hiram = (port >> 1) & 1, charen = (port >> 2) & 1;
       return { output:
         `  ADDR AC XR YR SP NV-BDIZC  flow\n` +
         `.;${hex(c.pc, 4)} ${hex(c.a)} ${hex(c.x)} ${hex(c.y)} ${hex(c.sp)} ${flagsStr}  ${flow}\n` +
+        `  port  $00=$${hex(ddr)} $01=$${hex(port)}  LORAM=${loram} HIRAM=${hiram} CHAREN=${charen}\n` +
         `  vectors  IRQ hw=$${hex(irqHw, 4)}  CINV $0314->$${hex(cinv, 4)}     NMI hw=$${hex(nmiHw, 4)}  NMIV $0318->$${hex(nmiv, 4)}` };
     }
 
