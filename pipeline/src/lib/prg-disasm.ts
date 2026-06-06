@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, parse, resolve } from "node:path";
+import { dirname, join, parse, resolve } from "node:path";
 import {
   AnalysisReport,
   CopyRoutineFact,
@@ -161,6 +161,37 @@ function maybeLoadAnalysis(prgPath: string, requestedPath?: string): AnalysisRep
 
 // Global annotation index set during rendering — used by makeLabel for semantic names
 let activeAnnotations: AnnotationsIndex | undefined;
+
+// Spec 759 P2 — cross-artifact address index (the project's OTHER analyzed
+// artifacts), loaded from the shared cache so phase-1 can name a call that
+// leaves this file (jsr into the resident engine's API table, etc.). Entries
+// overlapping THIS file's load range are excluded (those are local). Pipeline is
+// CommonJS — read the plain cache JSON, no ESM import of address-index.ts.
+interface ExternalEntry { owner: string; start: number; end: number; kind: string; label?: string }
+let activeExternalEntries: ExternalEntry[] | undefined;
+
+function loadExternalIndex(ownStart: number, ownEnd: number): ExternalEntry[] | undefined {
+  const projectDir = process.env.C64RE_PROJECT_DIR;
+  if (!projectDir) return undefined;
+  const cachePath = join(projectDir, "knowledge", ".cache", "address-index.json");
+  if (!existsSync(cachePath)) return undefined;
+  try {
+    const data = JSON.parse(readFileSync(cachePath, "utf8")) as { entries?: ExternalEntry[] };
+    return (data.entries ?? []).filter((e) => e.end < ownStart || e.start > ownEnd);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Tightest cross-file segment covering `addr` (or undefined). */
+function resolveExternal(addr: number): ExternalEntry | undefined {
+  if (!activeExternalEntries) return undefined;
+  let best: ExternalEntry | undefined;
+  for (const e of activeExternalEntries) {
+    if (addr >= e.start && addr <= e.end && (!best || (e.end - e.start) < (best.end - best.start))) best = e;
+  }
+  return best;
+}
 
 function makeLabel(address: number): string {
   const lbl = activeAnnotations?.labelsByAddress.get(address);
@@ -455,6 +486,14 @@ function generateInstructionComment(
     }
     if (C64_KERNAL[target]) {
       return `// ${C64_KERNAL[target]}`;
+    }
+    // Spec 759 P2 — a call/jump that leaves THIS file resolves to the owning
+    // artifact's label via the cross-artifact index (shift-left): `jsr $022a`
+    // gets `// → block2_engine_0200: api_table`. The operand bytes are
+    // unchanged (rebuild-safe); this is a resolution comment, not a relabel.
+    const ext = resolveExternal(target);
+    if (ext) {
+      return `// → ${ext.owner}${ext.label ? `: ${ext.label}` : ` (${ext.kind})`}`;
     }
   }
 
@@ -2654,6 +2693,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     applyAnnotationDataTables(analysisContext, prg);
   }
   activeAnnotations = analysisContext?.annotations;
+  activeExternalEntries = loadExternalIndex(prg.loadAddress, prg.loadAddress + prg.data.length - 1);
 
   if (analysisContext) {
     applyKernalAbiOperandOverrides(analysisContext);
@@ -2705,6 +2745,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   }
 
   activeAnnotations = undefined;
+  activeExternalEntries = undefined;
   const kickAsmOutput = `${lines.join("\n")}\n`;
   writeFileSync(outputPath, kickAsmOutput, "utf8");
 

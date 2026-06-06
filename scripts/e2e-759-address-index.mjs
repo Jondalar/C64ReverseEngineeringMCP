@@ -25,6 +25,10 @@ mkdirSync(join(dir, "game"), { recursive: true });
 writeFileSync(join(dir, "engine", "block2_engine_0200_analysis.json"), JSON.stringify({
   segments: [seg("pointer_table", 0x0200, 0x04ff, "api_table"), seg("code", 0x2514, 0x2540, "turn_advance")],
 }));
+// Engine annotation point labels (the named ABI entries — api_*).
+writeFileSync(join(dir, "engine", "block2_engine_0200_annotations.json"), JSON.stringify({
+  labels: [{ address: "022a", label: "api_turn_advance" }, { address: "0274", label: "api_print_string" }],
+}));
 writeFileSync(join(dir, "game", "block3_game_7E00_analysis.json"), JSON.stringify({
   segments: [seg("code", 0x7e00, 0x7e02, "block3_entry"), seg("code", 0x7e03, 0x7eff)],
   // block3 calls DOWN into the engine API table (cross-file xref).
@@ -46,6 +50,11 @@ const apiHit = resolveCrossArtifact(dir, 0x0250);
 ok("3 a cross-file address resolves to the OWNING artifact + label",
   apiHit[0]?.owner === "block2_engine_0200" && apiHit[0]?.label === "api_table" && apiHit[0]?.kind === "pointer_table",
   apiHit[0] ? `${apiHit[0].owner}:${apiHit[0].label}` : "(none)");
+
+const apiEntry = resolveCrossArtifact(dir, 0x022a);
+ok("3b an ABI point label wins the tightest-match over the covering segment",
+  apiEntry[0]?.label === "api_turn_advance" && apiEntry[0]?.kind === "label",
+  apiEntry[0] ? `${apiEntry[0].label}:${apiEntry[0].kind}` : "(none)");
 
 const tgtHit = resolveCrossArtifact(dir, 0x2520);
 ok("4 the JMP target region resolves to its routine label",

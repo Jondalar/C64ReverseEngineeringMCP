@@ -60,6 +60,21 @@ export function buildAddressIndex(projectDir: string): AddressIndexEntry[] {
     for (const g of segs) {
       entries.push({ owner: stem, start: g.start & 0xffff, end: g.end & 0xffff, kind: g.kind, label: g.label });
     }
+    // Spec 759 — also index the artifact's point labels (the named ABI entries,
+    // e.g. the engine's `api_*` jumptable labels). As zero-width entries they
+    // win the tightest-match over the coarse covering segment, so a cross-file
+    // call resolves to `api_turn_advance`, not just the segment's kind.
+    if (existsSync(annPath)) {
+      try {
+        const ann = JSON.parse(readFileSync(annPath, "utf8")) as { labels?: Array<{ address?: string | number; label?: string }> };
+        for (const l of ann.labels ?? []) {
+          if (!l.label || l.address === undefined) continue;
+          const addr = (typeof l.address === "string" ? parseInt(l.address, 16) : l.address) & 0xffff;
+          if (Number.isNaN(addr)) continue;
+          entries.push({ owner: stem, start: addr, end: addr, kind: "label", label: l.label });
+        }
+      } catch { /* labels are best-effort */ }
+    }
   }
   return entries;
 }
