@@ -584,7 +584,8 @@
 }
 .wb-live .wb-scrub-title { color: var(--c64-fg-muted); font-size: 11px; white-space: nowrap; }
 .wb-live .wb-scrub-track {
-  flex: 1; display: flex; gap: 2px; align-items: center;
+  flex: 1 1 0; min-width: 0; /* min-width:0 lets flex shrink so overflow-x scrolls internally, not blowing out the page */
+  display: flex; gap: 2px; align-items: center;
   min-height: 22px; padding: 0 2px;
   background: var(--c64-bg-1); border: 1px solid var(--c64-border);
   border-radius: 3px; overflow-x: auto;
