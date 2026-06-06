@@ -864,10 +864,12 @@ export class WsServer {
       if (!ref) throw new Error(`checkpoint/unpin: unknown id ${id}`);
       return { ref, stats: c.checkpointRing.stats() };
     });
-    this.on("checkpoint/restore", async ({ session_id, id }) => {
+    this.on("checkpoint/restore", async ({ session_id, id, then }) => {
       const c = ctrlFor(session_id);
       if (!id) throw new Error("checkpoint/restore: id required");
-      const restored = await c.restoreCheckpoint(String(id));
+      // Spec 761.1 — then: pause (scrub-and-look) | run (resume-from-X) | keep.
+      const intent = then === "pause" || then === "run" || then === "keep" ? then : undefined;
+      const restored = await c.restoreCheckpoint(String(id), { then: intent });
       return { restored, state: c.state() };
     });
 

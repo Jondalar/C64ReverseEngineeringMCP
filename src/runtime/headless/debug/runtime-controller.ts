@@ -363,11 +363,27 @@ export class RuntimeController {
    * (recorder ring + WS + worklet re-prebuffer). runState is unchanged: a
    * rewind while running keeps running from the restored state.
    */
-  async restoreCheckpoint(id: string): Promise<RuntimeCheckpointRef> {
+  /**
+   * Spec 761.1 — scrub/resume a ring anchor. `then` makes the LIVE-tab intent
+   * explicit (race-free, composed on the single restore path — no second path):
+   *   - "pause": scrub-and-look — restore, ensure paused, publish debug/stopped.
+   *   - "run":   resume-from-X — restore, then (re)start the autonomous loop.
+   *   - "keep":  inherit the current run-state (default, back-compat).
+   * On "run" the resumed-from anchor is auto-pinned (Spec 761 OQ2) so it is not
+   * evicted while the user watches the branch play out.
+   */
+  async restoreCheckpoint(
+    id: string, opts: { then?: "pause" | "run" | "keep" } = {},
+  ): Promise<RuntimeCheckpointRef> {
     const snap = this.checkpointRing.restoreSnapshot(id);
     const ref = this.checkpointRing.get(id);
     if (!snap || !ref) throw new Error(`[checkpoint] unknown id ${id}`);
-    await this.restoreFromSnapshot(snap, { ref });
+    const then = opts.then ?? "keep";
+    await this.restoreFromSnapshot(snap, { ref, pause: then === "pause" });
+    if (then === "run") {
+      this.checkpointRing.pin(id); // OQ2 — keep the branch point alive
+      this.run();
+    }
     return ref;
   }
 
