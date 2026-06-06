@@ -817,9 +817,9 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       const lo = parseAddr(loS); const hi = hiS ? parseAddr(hiS) : lo;
       if (lo === null || hi === null) return { error: `obs: bad address '${addrTok}'` };
       const action = (rest[di + 1] ?? "").toLowerCase();
-      if (action !== "break" && action !== "log") {
-        if (action === "mark" || action === "cmd" || action === "trace") return { error: `obs: action '${action}' is v1.1 — v1 supports break|log` };
-        return { error: `obs: action must be break|log, got '${action || "(none)"}'` };
+      if (!["break", "log", "mark", "cmd"].includes(action)) {
+        if (action === "trace") return { error: "obs: action 'trace <scope>' is deferred (scoped-capture lifecycle) — use 'mark' to bookmark an active trace, or start an explicit trace" };
+        return { error: `obs: action must be break|log|mark|cmd, got '${action || "(none)"}'` };
       }
       // `*`/`?` are reserved as del/on/off wildcards — keep them out of names so
       // the wildcard is unambiguous (and so a pasted *italic* name can't sneak in).
@@ -829,6 +829,8 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       // Empty list = the v1 default line. `break` takes no fields.
       const exprToks = rest.slice(di + 2);
       let logExprs: LogExpr[] | undefined;
+      let cmdSrc: string | undefined;
+      let markLabel: string | undefined;
       if (action === "log" && exprToks.length) {
         const REG_FIELDS = new Set(["a", "x", "y", "sp", "pc", "fl"]);
         logExprs = [];
@@ -840,12 +842,23 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
           if (a === null) return { error: `obs: log: bad field '${t}' (use a/x/y/sp/pc/fl or $addr[:w])` };
           logExprs.push({ kind: "mem", addr: a & 0xffff, word });
         }
+      } else if (action === "cmd") {
+        // do cmd "<monitor command>" — run on each hit (continues).
+        const m = cmd.match(/\bdo\s+cmd\s+"([^"]*)"/i);
+        if (!m || !m[1]) return { error: 'obs: cmd: usage: ... do cmd "<monitor command>"' };
+        cmdSrc = m[1];
+      } else if (action === "mark") {
+        // do mark ["label"] — bookmark the active trace; default label = name.
+        markLabel = [...cmd.matchAll(/"([^"]*)"/g)].map((x) => x[1])[0] || name;
       } else if (action === "break" && exprToks.length) {
         return { error: `obs: 'break' takes no fields (got '${exprToks.join(" ")}')` };
       }
-      const res = reg.add({ name, trigger: trig as ObsTrigger, lo, hi, condSrc, action: action as ObsAction, logExprs });
+      const res = reg.add({ name, trigger: trig as ObsTrigger, lo, hi, condSrc, action: action as ObsAction, logExprs, cmdSrc, markLabel });
       if ("error" in res) return { error: `obs: condition: ${res.error}` };
-      const doDesc = logExprs && logExprs.length ? `log ${exprToks.join(" ")}` : action;
+      const doDesc = logExprs && logExprs.length ? `log ${exprToks.join(" ")}`
+        : action === "cmd" ? `cmd "${cmdSrc}"`
+        : action === "mark" ? `mark "${markLabel}"`
+        : action;
       return { output: `obs ${name}: ${trig} $${hex(lo, 4)}${hi !== lo ? `..${hex(hi, 4)}` : ""}${condSrc ? ` if ${condSrc}` : ""} do ${doDesc}` };
     }
 
@@ -858,9 +871,13 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
     if (op === "g" || op === "x") {
       const addr = op === "g" ? parseAddr(tokens[1]) : null;
       if (addr !== null) s.c64Cpu.pc = addr & 0xffff;
-      // If parked on a breakpoint, step past it so continue doesn't re-trigger
-      // on the very first instruction (VICE skips the current op on `g`).
-      if (ctrl.bpAddrSet().has(s.c64Cpu.pc & 0xffff)) s.runFor(1);
+      // If parked on a breakpoint OR an exec observer at this PC, step past it so
+      // continue doesn't immediately re-trigger on the very first instruction
+      // (VICE skips the current op on `g`). Spec 754 §3.3e v1.1: the exec-observer
+      // case was the gap — `g` after an observer halt used to re-fire at once.
+      const gpc = s.c64Cpu.pc & 0xffff;
+      const onExecObs = !!(s.observers?.execActive && s.observers.execWatch[gpc]);
+      if (ctrl.bpAddrSet().has(gpc) || onExecObs) s.runFor(1);
       ctrl.continue();
       return { output: `continuing at .C:${hex(s.c64Cpu.pc, 4)} (running — Pause to halt)` };
     }

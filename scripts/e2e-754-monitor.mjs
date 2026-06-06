@@ -373,6 +373,32 @@ console.log("\nSpec 754 — Part F: observers (Block E)\n");
     const badField = await mon("obs Z when exec $c000 do log $fd nope");
     ok("F10f bad log field is rejected", /bad field 'nope'/.test(badField.error ?? ""), badField.error);
     await mon("obs * del");
+
+    // F11 — v1.1 actions: mark / cmd + cy cond + trace deferred.
+    setup();
+    const mkEcho = await mon('obs mk when exec $c008 do mark "bm"');
+    ok("F11a `do mark` parses + echoes", /do mark "bm"/.test(mkEcho.output ?? ""), mkEcho.output);
+    let rr = session.runFor(2000);
+    ok("F11b `do mark` does NOT halt (continues)", rr.aborted !== "observer", `aborted=${rr.aborted}`);
+    ok("F11c `do mark` queued the bookmark label", (session.observers.drainPendingMarks?.() ?? []).includes("bm"));
+    await mon("obs mk del");
+
+    setup();
+    const cmdEcho = await mon('obs cm when exec $c008 do cmd "r"');
+    ok("F11d `do cmd` parses + echoes", /do cmd "r"/.test(cmdEcho.output ?? ""), cmdEcho.output);
+    session.runFor(2000);
+    ok("F11e `do cmd` queued the command", (session.observers.drainPendingCmds?.() ?? []).includes("r"));
+    await mon("obs cm del");
+    ok("F11f `do cmd` without a quoted command is rejected", /usage/.test((await mon("obs c2 when exec $c008 do cmd")).error ?? ""));
+
+    setup();
+    await mon("obs cyt when exec $c008 if cy>0 do break");
+    rr = session.runFor(2000);
+    ok("F11g `cy` (cycle count) usable in a condition", rr.aborted === "observer", `aborted=${rr.aborted}`);
+    await mon("obs cyt del");
+
+    ok("F11h `do trace <scope>` is rejected as deferred", /deferred/.test((await mon("obs tr when exec $c008 do trace x")).error ?? ""));
+    await mon("obs * del");
   } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
 }
 

@@ -473,6 +473,33 @@ export class RuntimeController {
     const obsLog = this.session.observers?.drainPendingLog?.() ?? [];
     if (obsLog.length) this.broadcast("debug/observer_log", { session_id: this.sessionId, lines: obsLog });
 
+    // Spec 754 §3.3e v1.1 — drain `do mark` / `do cmd` side-effects (queued by
+    // fire(), run here at the chunk boundary so they never re-enter the loop).
+    const obsMarks = this.session.observers?.drainPendingMarks?.() ?? [];
+    for (const label of obsMarks) {
+      const active = this.traceRun.isActive();
+      if (active) { try { this.traceRun.mark(label); } catch { /* mark is best-effort */ } }
+      this.broadcast("debug/observer_log", {
+        session_id: this.sessionId,
+        lines: [`obs mark: "${label}"${active ? ` @ cyc ${this.session.c64Cpu.cycles}` : " (no active trace — ignored)"}`],
+      });
+    }
+    const obsCmds = this.session.observers?.drainPendingCmds?.() ?? [];
+    if (obsCmds.length) {
+      void (async () => {
+        const { runMonitorCommand } = await import("./monitor-shell.js");
+        const ctx = { session: this.session, ctrl: this, sessionId: this.sessionId, memCursors: new Map<string, number>(), disasmCursors: new Map<string, number>() };
+        for (const c of obsCmds) {
+          try {
+            const res = await runMonitorCommand(ctx, c);
+            this.broadcast("debug/observer_log", { session_id: this.sessionId, lines: [`obs cmd "${c}":`, ...String(res.output ?? res.error ?? "").split("\n")] });
+          } catch (e) {
+            this.broadcast("debug/observer_log", { session_id: this.sessionId, lines: [`obs cmd "${c}": ERROR ${e instanceof Error ? e.message : String(e)}`] });
+          }
+        }
+      })();
+    }
+
     if (r.aborted === "breakpoint") {
       this.runState = "paused";
       const num = this.bpNumForAddr(r.lastPc);

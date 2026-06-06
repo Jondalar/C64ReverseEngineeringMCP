@@ -16,7 +16,11 @@
 import type { IntegratedSession } from "../integrated-session.js";
 
 export type ObsTrigger = "exec" | "load" | "store";
-export type ObsAction = "break" | "log";
+// v1.1 adds `mark` (drop a trace bookmark on hit) and `cmd` (run a monitor
+// command on hit). Both queue a side-effect the controller drains after the run
+// chunk (running them inline mid-instruction would re-enter the CPU loop).
+// `trace <scope>` stays deferred (scoped-capture lifecycle).
+export type ObsAction = "break" | "log" | "mark" | "cmd" | "trace";
 
 /**
  * A `do log` field (Spec 754 §3.3e, 2026-06-05) — what to print per trigger.
@@ -42,6 +46,8 @@ export interface Observer {
   cond?: CondNode;
   action: ObsAction;
   logExprs?: LogExpr[]; // `do log <exprs>` fields; empty/absent = default line
+  cmdSrc?: string;      // `do cmd "<mon-cmd>"` — command run on hit (v1.1)
+  markLabel?: string;   // `do mark ["label"]` — trace bookmark on hit (v1.1)
   enabled: boolean;
   hits: number;
   ignoreLeft: number;
@@ -53,8 +59,8 @@ type CondNode =
   | { t: "id"; v: keyof CondEnv }
   | { t: "bin"; op: string; l: CondNode; r: CondNode };
 
-interface CondEnv { a: number; x: number; y: number; pc: number; sp: number; fl: number; rl: number; val: number; addr: number; }
-const ID_NAMES: ReadonlySet<string> = new Set(["a", "x", "y", "pc", "sp", "fl", "rl", "val", "addr"]);
+interface CondEnv { a: number; x: number; y: number; pc: number; sp: number; fl: number; rl: number; val: number; addr: number; cy: number; }
+const ID_NAMES: ReadonlySet<string> = new Set(["a", "x", "y", "pc", "sp", "fl", "rl", "val", "addr", "cy"]);
 
 function evalNode(n: CondNode, env: CondEnv): number {
   if (n.t === "num") return n.v;
@@ -88,7 +94,7 @@ function parseCond(src: string): CondNode {
     if (/^[0-9]+$/.test(t)) return { t: "num", v: parseInt(t, 10) };
     const id = t.toLowerCase();
     if (ID_NAMES.has(id)) return { t: "id", v: id as keyof CondEnv };
-    throw new Error(`unknown term '${t}' (use a/x/y/pc/sp/fl/rl/val/addr, $hex, == != < > <= >= && ||)`);
+    throw new Error(`unknown term '${t}' (use a/x/y/pc/sp/fl/rl/val/addr/cy, $hex, == != < > <= >= && ||)`);
   };
   const parseCmp = (): CondNode => {
     let l = parsePrimary();
@@ -121,6 +127,11 @@ export class ObserverRegistry {
   lastHalt: { name: string; message: string; pc: number } | null = null;
   readonly logs: string[] = []; // ring of recent `do log` lines (pull via `obs log`)
   private readonly pendingLog: string[] = []; // not-yet-broadcast lines (drained per run-chunk for the live stream)
+  // v1.1 side-effect queues — the controller drains these after a run chunk
+  // (mark → traceRun.mark; cmd → runMonitorCommand). Queued, not inline, so an
+  // action never re-enters the CPU loop mid-instruction.
+  private readonly pendingMarks: string[] = [];
+  private readonly pendingCmds: string[] = [];
   private observers: Observer[] = [];
   private cpu: ObservableCpu | null = null;
 
@@ -129,7 +140,7 @@ export class ObserverRegistry {
   attach(cpu: ObservableCpu): void { this.cpu = cpu; this.rebuild(); }
 
   /** Parse + register an observer. Returns the created observer or an error. */
-  add(spec: { name: string; trigger: ObsTrigger; lo: number; hi: number; condSrc?: string; action: ObsAction; logExprs?: LogExpr[] }): Observer | { error: string } {
+  add(spec: { name: string; trigger: ObsTrigger; lo: number; hi: number; condSrc?: string; action: ObsAction; logExprs?: LogExpr[]; cmdSrc?: string; markLabel?: string }): Observer | { error: string } {
     let cond: CondNode | undefined;
     if (spec.condSrc) {
       try { cond = parseCond(spec.condSrc); } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
@@ -139,6 +150,7 @@ export class ObserverRegistry {
       name: spec.name, trigger: spec.trigger, lo: spec.lo & 0xffff, hi: spec.hi & 0xffff,
       condSrc: spec.condSrc, cond, action: spec.action,
       logExprs: spec.logExprs && spec.logExprs.length ? spec.logExprs : undefined,
+      cmdSrc: spec.cmdSrc, markLabel: spec.markLabel,
       enabled: true, hits: 0, ignoreLeft: 0,
     };
     if (existing >= 0) this.observers[existing] = obs; else this.observers.push(obs);
@@ -219,7 +231,7 @@ export class ObserverRegistry {
       const c = this.session.c64Cpu;
       const peek = (a: number) => this.session.c64Bus.peek(a & 0xffff, "cpu") & 0xff;
       const rl = (peek(0xd012) | ((peek(0xd011) & 0x80) << 1)) & 0x1ff;
-      const env: CondEnv = { a: c.a & 0xff, x: c.x & 0xff, y: c.y & 0xff, pc: pc & 0xffff, sp: c.sp & 0xff, fl: c.flags & 0xff, rl, val: value & 0xff, addr: addr & 0xffff };
+      const env: CondEnv = { a: c.a & 0xff, x: c.x & 0xff, y: c.y & 0xff, pc: pc & 0xffff, sp: c.sp & 0xff, fl: c.flags & 0xff, rl, val: value & 0xff, addr: addr & 0xffff, cy: c.cycles };
       if (evalNode(o.cond, env) === 0) return false;
     }
     if (o.ignoreLeft > 0) { o.ignoreLeft--; return false; }
@@ -230,7 +242,12 @@ export class ObserverRegistry {
   /** Run the action; return true if it requests a halt (break). */
   private fire(o: Observer, pc: number, value?: number, addr?: number): boolean {
     if (o.action === "break") return true;
-    // log (= VICE tracepoint): print + continue.
+    // mark — drop a trace bookmark on hit (controller drains → traceRun.mark).
+    if (o.action === "mark") { this.pendingMarks.push(o.markLabel || o.name); return false; }
+    // cmd — run a monitor command on hit (controller drains → runMonitorCommand).
+    if (o.action === "cmd") { if (o.cmdSrc) this.pendingCmds.push(o.cmdSrc); return false; }
+    // log (= VICE tracepoint): print + continue. (`trace` falls through to a
+    // log line until the scoped-capture action ships.)
     const where = o.trigger === "exec" ? `exec $${hx4(pc)}` : `${o.trigger} $${hx4(addr ?? 0)}=$${hx2(value ?? 0)}`;
     const fields = o.logExprs && o.logExprs.length
       ? this.renderLogExprs(o.logExprs, pc)
@@ -238,6 +255,11 @@ export class ObserverRegistry {
     this.pushLog(`obs ${o.name}: ${where}  ${fields} cyc=${this.session.c64Cpu.cycles}`);
     return false;
   }
+
+  /** Drain the trace-mark labels queued by `do mark` observers since last call. */
+  drainPendingMarks(): string[] { return this.pendingMarks.splice(0, this.pendingMarks.length); }
+  /** Drain the monitor commands queued by `do cmd` observers since last call. */
+  drainPendingCmds(): string[] { return this.pendingCmds.splice(0, this.pendingCmds.length); }
 
   /** Render `do log <exprs>` fields against the current CPU + memory state. */
   private renderLogExprs(exprs: readonly LogExpr[], pc: number): string {
