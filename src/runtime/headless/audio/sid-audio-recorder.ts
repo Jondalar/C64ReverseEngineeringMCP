@@ -124,7 +124,15 @@ export class SidAudioRecorder {
     if (this.detached) return this.buffer;
     const now = this.session.c64Cpu.cycles;
     const dCycles = now - this.lastCycle;
-    if (dCycles <= 0) return this.buffer;
+    // A cold reset (resetCold / power-cycle / EF cart attach) sets c64 cycles
+    // back to 0, so `now` jumps BACKWARDS past lastCycle. resid.emit needs a
+    // positive delta; the old `dCycles <= 0 → return` left lastCycle STALE, so
+    // it stayed negative for the whole pre-reset cycle span (~seconds) → audio
+    // went permanently silent after any cold reset (the boot transient is the
+    // last thing heard). Re-sync to the new clock and skip this frame's gap;
+    // the next frame emits normally. (restore() already resyncs on scrub.)
+    if (dCycles < 0) { this.lastCycle = now; return this.buffer; }
+    if (dCycles === 0) return this.buffer;
     this.lastCycle = now;
     const samples = this.resid.emit(dCycles);
     this.buffer.write(samples);
