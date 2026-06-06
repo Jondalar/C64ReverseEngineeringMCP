@@ -406,6 +406,14 @@ export class RuntimeController {
     this.broadcast("debug/checkpoint_restored", {
       session_id: this.sessionId, ref: opts.ref ?? null, registers,
     });
+    // Spec 761 — actively PUSH the restored frame down the normal VIC-frame
+    // channel so every client's canvas shows the rolled-back screen
+    // immediately. Without this a paused scrub leaves the live frame stream
+    // idle, so the picture stays on the pre-scrub frame even though RAM/VIC
+    // already rolled back. Bulletproof: no dependency on a client-side
+    // grab-on-restore subscription.
+    this.frameCounter++;
+    try { this.presentFrame?.(this.frameCounter); } catch { /* present is best-effort */ }
     if (opts.pause) {
       this.stopInfo = { reason: "pause", pc: this.session.c64Cpu.pc, cycles: this.session.c64Cpu.cycles };
       this.broadcast("debug/stopped", { session_id: this.sessionId, stop: this.stopInfo, registers });
