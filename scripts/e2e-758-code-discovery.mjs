@@ -66,6 +66,40 @@ const reached = (res, addr) => res.instructions.some((i) => i.address === addr);
   ok("3 plain flow descent still reaches a jsr target", reached(res, 0x1010));
 }
 
+// §4 — known-routine coherence (Spec 759 map). An island that calls 3 known
+// routines but has NO inbound reference is recovered ONLY when the project index
+// is present (rebuild-safe: standalone PRGs have no index → no change).
+{
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtempSync, mkdirSync, writeFileSync: wf, readFileSync: rf } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const proj = mkdtempSync(join(tmpdir(), "c64re-758s4-"));
+  mkdirSync(join(proj, "knowledge", ".cache"), { recursive: true });
+  wf(join(proj, "knowledge", ".cache", "address-index.json"), JSON.stringify({ builtMs: 9e15, entries: [
+    { owner: "eng", start: 0x2000, end: 0x2000, kind: "code", label: "r1" },
+    { owner: "eng", start: 0x2003, end: 0x2003, kind: "code", label: "r2" },
+    { owner: "eng", start: 0x2006, end: 0x2006, kind: "code", label: "r3" },
+  ] }));
+  // PRG load $1000: entry RTS at $1000; an unreachable island at $1100 calling 3
+  // known routines + RTS; the known routines (RTS) at $2000/$2003/$2006.
+  const buf = Buffer.alloc(2 + 0x1010, 0x60);
+  buf.writeUInt16LE(0x1000, 0);
+  const put = (addr, ...b) => { for (let i = 0; i < b.length; i++) buf[2 + (addr - 0x1000) + i] = b[i]; };
+  // jsr r1/r2/r3/r1/r2 ; rts  (≥5 instr so it clears the minimum-island bar)
+  put(0x1100, 0x20, 0x00, 0x20, 0x20, 0x03, 0x20, 0x20, 0x06, 0x20, 0x20, 0x00, 0x20, 0x20, 0x03, 0x20, 0x60);
+  const prgPath = join(proj, "mod.prg");
+  wf(prgPath, buf);
+  const cli = join(ROOT, "dist/pipeline/cli.cjs");
+  const analyze = (withIndex) => {
+    const out = join(proj, withIndex ? "with.json" : "without.json");
+    execFileSync("node", [cli, "analyze-prg", prgPath, out], { env: withIndex ? { ...process.env, C64RE_PROJECT_DIR: proj } : { ...process.env, C64RE_PROJECT_DIR: "" }, stdio: "ignore" });
+    const a = JSON.parse(rf(out, "utf8"));
+    return (a.probableCodeAnalysis?.codeCandidates || []).some((s) => 0x1100 >= s.start && 0x1100 <= s.end);
+  };
+  ok("4 island calling 3 known routines is NOT recovered without the project index", analyze(false) === false);
+  ok("4b same island IS recovered with the index (known-routine coherence)", analyze(true) === true);
+}
+
 console.log(`\nSpec 758 code-discovery: ${pass} passed, ${fail.length} failed`);
 if (fail.length) { console.error("FAILED:\n  " + fail.join("\n  ")); process.exit(1); }
 console.log("ALL GREEN");

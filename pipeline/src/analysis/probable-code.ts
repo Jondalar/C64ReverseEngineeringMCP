@@ -27,6 +27,29 @@ interface ReferenceSupport {
 const MAX_ISLAND_INSTRUCTIONS = 48;
 const MAX_ISLAND_BYTES = 192;
 const MIN_ISLAND_CONFIDENCE = 0.76;
+
+// Spec 758 §4 — cross-artifact known-routine map (Spec 759 cache). A region whose
+// jsr/jmp resolve to KNOWN routines in other artifacts (the engine's api_* table)
+// is strong CODE evidence — the coherence-positive lever. Loaded once per process
+// from C64RE_PROJECT_DIR; null when there is no project index (standalone PRGs —
+// so the rebuild-green gate, which has no index, is unaffected).
+let knownRoutinesCache: Set<number> | null | undefined;
+function knownRoutines(): Set<number> | null {
+  if (knownRoutinesCache !== undefined) return knownRoutinesCache;
+  const dir = process.env.C64RE_PROJECT_DIR;
+  if (!dir) { knownRoutinesCache = null; return null; }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require("node:fs"); const path = require("node:path");
+    const set = new Set<number>();
+    const ai = path.join(dir, "knowledge", ".cache", "address-index.json");
+    if (fs.existsSync(ai)) for (const e of (JSON.parse(fs.readFileSync(ai, "utf8")).entries || [])) if (e.label) set.add(e.start & 0xffff);
+    const abi = path.join(dir, "knowledge", ".cache", "abi-index.json");
+    if (fs.existsSync(abi)) for (const a of (JSON.parse(fs.readFileSync(abi, "utf8")).abi || [])) { set.add(a.entry & 0xffff); set.add(a.target & 0xffff); }
+    knownRoutinesCache = set.size ? set : null;
+  } catch { knownRoutinesCache = null; }
+  return knownRoutinesCache;
+}
 const SUSPICIOUS_MNEMONICS = new Set(["slo", "rla", "sre", "rra", "isc", "dcp", "anc", "alr", "arr", "xaa", "ahx", "shx", "shy", "tas", "las", "lax", "sax"]);
 const ANCHOR_MNEMONICS = new Set(["lda", "ldx", "ldy", "sta", "stx", "sty", "jsr", "jmp", "cmp", "and", "ora", "inc", "dec", "nop", "sei", "cli", "clc", "sec"]);
 
@@ -114,6 +137,8 @@ function probeIsland(
   let hardwareTouchCount = 0;
   let immediateLoadCount = 0;
   let undocumentedCount = 0;
+  let knownCallCount = 0; // Spec 758 §4 — control-flow targets hitting a known routine
+  const known = knownRoutines();
 
   while (instructions.length < MAX_ISLAND_INSTRUCTIONS && bytesConsumed < MAX_ISLAND_BYTES && cursor <= regionEnd) {
     const offset = toOffset(cursor, mapping);
@@ -146,6 +171,10 @@ function probeIsland(
 
     instructions.push(fact);
     bytesConsumed += decoded.size;
+
+    if (decoded.targetAddress !== undefined && (decoded.mnemonic === "jsr" || decoded.mnemonic === "jmp") && known?.has(decoded.targetAddress & 0xffff)) {
+      knownCallCount += 1;
+    }
 
     if (decoded.targetAddress !== undefined) {
       xrefs.push({
@@ -202,7 +231,10 @@ function probeIsland(
   }
 
   const hardReferenceCount = support.directOpcodeRefs + support.vectorRefs;
-  if (hardReferenceCount === 0) {
+  // Spec 758 §4 — a region calling ≥3 known cross-artifact routines is code even
+  // with no inbound reference (overlay handlers reached only via installed vectors).
+  const strongKnownCoherence = knownCallCount >= 3;
+  if (hardReferenceCount === 0 && !strongKnownCoherence) {
     return undefined;
   }
 
@@ -212,6 +244,7 @@ function probeIsland(
 
   if (
     hardwareTouchCount === 0 &&
+    !strongKnownCoherence &&
     !(
       controlFlowCount >= 2 &&
       instructions.length >= 8 &&
@@ -243,7 +276,9 @@ function probeIsland(
       (support.branchRefs >= 1 ? 0.08 : 0) +
       (support.vectorRefs >= 1 ? 0.24 : 0) +
       (support.wordRefs >= 2 && hardReferenceCount >= 1 ? 0.05 : 0) +
-      (immediateLoadCount >= 1 ? 0.05 : 0) -
+      (immediateLoadCount >= 1 ? 0.05 : 0) +
+      (knownCallCount >= 1 ? 0.12 : 0) +
+      (knownCallCount >= 3 ? 0.1 : 0) -
       (illegalRatio > 0.2 ? 0.18 : 0),
     ),
   );
