@@ -1851,8 +1851,14 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       answered_by_finding_id: z.string().optional(),
       answer_summary: z.string().optional(),
       evidence: z.array(evidenceSchema).optional(),
+      // Spec 748.2 (BUG-032): top-level address range so the reconcile teeth
+      // (agent_propose_next) can match a question to an overlapping finding.
+      address_range: z.object({
+        start: z.number().int().min(0).max(0xffffff),
+        end: z.number().int().min(0).max(0xffffff),
+      }).optional(),
     },
-    safeHandler("save_open_question", async ({ project_dir, id, kind, title, description, status, priority, confidence, entity_ids, artifact_ids, finding_ids, source, auto_resolvable, auto_resolve_hint, answered_by_finding_id, answer_summary, evidence }) => {
+    safeHandler("save_open_question", async ({ project_dir, id, kind, title, description, status, priority, confidence, entity_ids, artifact_ids, finding_ids, source, auto_resolvable, auto_resolve_hint, answered_by_finding_id, answer_summary, evidence, address_range }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const question = service.saveOpenQuestion({
         id,
@@ -1870,6 +1876,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         autoResolveHint: auto_resolve_hint,
         answeredByFindingId: answered_by_finding_id,
         answerSummary: answer_summary,
+        addressRange: address_range,
         evidence: evidence?.map((item) => ({
           ...item,
           capturedAt: item.capturedAt ?? new Date().toISOString(),

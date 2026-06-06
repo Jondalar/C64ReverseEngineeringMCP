@@ -135,7 +135,7 @@ function textContent(text: string) {
 
 interface ProposalCandidate {
   rank: number;
-  source: "audit" | "phase" | "task" | "question" | "next-action" | "fallback" | "stale-view" | "unregistered-files" | "unimported-analysis";
+  source: "audit" | "phase" | "task" | "question" | "reconcile" | "next-action" | "fallback" | "stale-view" | "unregistered-files" | "unimported-analysis";
   reason: string;
   suggestion: string;
 }
@@ -305,8 +305,39 @@ function proposeNextActions(service: ProjectKnowledgeService, state: AgentState,
 
   // Spec 748.2 (BUG-032): only real questions become next-step candidates —
   // heuristic analyze_prg validation prompts must not bury the real ones.
-  const questions = service.listOpenQuestions({ status: "open", excludeHeuristic: true }).slice(0, 3);
-  for (const q of questions) {
+  const realOpenQuestions = service.listOpenQuestions({ status: "open", excludeHeuristic: true });
+
+  // Spec 748.2 (BUG-032) T2 — reconcile teeth. When a real open question's
+  // address range overlaps an active (non-heuristic) finding that is NOT yet
+  // linked to it, the work likely already answered it: surface a concrete,
+  // ID-prefilled reconcile step so answered questions don't rot open. Ranked
+  // above the generic "resolve open question" nudge because there is a finding
+  // ready to close it. Capped so it never floods the list.
+  const rangesOverlap = (
+    a?: { start: number; end: number },
+    b?: { start: number; end: number },
+  ): boolean => !!a && !!b && a.start <= b.end && b.start <= a.end;
+  const activeFindings = service.listFindings({ status: "active" }).slice(0, 40);
+  let reconcileEmitted = 0;
+  for (const q of realOpenQuestions) {
+    if (reconcileEmitted >= 2 || !q.addressRange) continue;
+    const f = activeFindings.find(
+      (finding) =>
+        finding.kind !== "hypothesis" &&
+        rangesOverlap(finding.addressRange, q.addressRange) &&
+        !q.findingIds.includes(finding.id),
+    );
+    if (!f) continue;
+    candidates.push({
+      rank: candidates.length,
+      source: "reconcile",
+      reason: `open question "${q.id}" overlaps active finding ${f.id} but is not linked`,
+      suggestion: `Reconcile: question "${q.title}" overlaps finding "${f.title}". If it answers it: save_open_question(id="${q.id}", status="answered", answered_by_finding_id="${f.id}"). Otherwise defer/invalidate it.`,
+    });
+    reconcileEmitted += 1;
+  }
+
+  for (const q of realOpenQuestions.slice(0, 3)) {
     candidates.push({
       rank: candidates.length,
       source: "question",

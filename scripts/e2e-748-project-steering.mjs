@@ -35,9 +35,13 @@ try {
   await m.rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e748", version: "1" } });
   m.proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
 
-  // 1 fresh project: onboard reports NO steering + points at project_steering_set.
+  // 1 fresh project: onboard self-heals (Spec 752) and injects the DEFAULT
+  //   steering — extract-first grounding + the Spec 748.2 record/reconcile block.
   const onboard0 = await m.call("agent_onboard", {});
-  ok(/Project Steering: none set/i.test(onboard0) && /project_steering_set/.test(onboard0), "1 fresh project: onboard flags missing steering + names the tool");
+  ok(/⚙ PROJECT STEERING \(always apply/.test(onboard0)
+      && /Extract-first grounding/.test(onboard0)
+      && /Record \+ reconcile discipline/.test(onboard0),
+    "1 fresh project: onboard self-heals + injects default steering (extract-first + reconcile)");
 
   // 2 set steering rules.
   const MARK = "STEER-MARKER-after-a-load-trace-derive-disk-cartography";
@@ -58,6 +62,32 @@ try {
   await m.call("project_steering_set", { rules: "- third rule appended", append: true });
   const after = readFileSync(file, "utf8");
   ok(after.includes(MARK) && after.includes("third rule appended"), "4 append keeps prior rules + adds new", "");
+
+  // ---- Spec 748.2 (BUG-032) — de-rot surface + reconcile teeth + steering ----
+
+  // 5 project_init scaffolds the record/reconcile steering block (and keeps the
+  //   hand-written rules). It is appended because the file already exists.
+  await m.call("project_init", { name: "748.2 gate" });
+  const steerAfterInit = readFileSync(file, "utf8");
+  ok(steerAfterInit.includes("Record + reconcile discipline (Spec 748.2") && steerAfterInit.includes(MARK),
+    "5 project_init adds the reconcile steering block, keeps hand-written rules");
+
+  // 6 T1 — list_open_questions hides heuristic by default + reports the count;
+  //   include_heuristic exposes them.
+  await m.call("save_open_question", { kind: "validation", title: "Validate: RAM $C000 behaves like buffer", source: "heuristic-phase1" });
+  await m.call("save_open_question", { kind: "ambiguity", title: "REAL-Q where is the copy protection", source: "human-review", priority: "high", address_range: { start: 0xfc00, end: 0xfc20 } });
+  const qDefault = await m.call("list_open_questions", {});
+  ok(/REAL-Q where is the copy protection/.test(qDefault) && !/Validate: RAM \$C000/.test(qDefault) && /heuristic.*hidden/i.test(qDefault),
+    "6 list_open_questions hides heuristic by default + surfaces the real one + reports hidden count");
+  const qAll = await m.call("list_open_questions", { include_heuristic: true });
+  ok(/Validate: RAM \$C000/.test(qAll), "6b include_heuristic=true exposes the heuristic prompts");
+
+  // 7 T2 — a finding overlapping the real question's range → agent_propose_next
+  //   surfaces a concrete, ID-prefilled reconcile step.
+  await m.call("save_finding", { kind: "confirmation", title: "FC00 routine is the protection check", status: "active", address_range: { start: 0xfc00, end: 0xfc15 } });
+  const propose = await m.call("agent_propose_next", {});
+  ok(/Reconcile:/.test(propose) && /answered_by_finding_id=/.test(propose) && /REAL-Q where is the copy protection/.test(propose),
+    "7 agent_propose_next emits a reconcile step linking the finding to the overlapping question");
 } catch (e) { console.error("FATAL", e.message); exit = 2; }
 finally { m.kill(); }
 
