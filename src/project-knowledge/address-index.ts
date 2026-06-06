@@ -167,3 +167,96 @@ export function resolveXrefs(projectDir: string, addr: number): { into: XrefEntr
     outof: idx.filter((x) => x.source === a),
   };
 }
+
+// --- ABI jumptable index (Spec 759 P3) -----------------------------------
+// A shared engine exposes its contract as a run of `JMP abs` entries (the
+// Wasteland engine: 154 entries in $0200-$04FF). Those table bytes are usually
+// classified "unknown" (not disassembled) so the entry→target link is in neither
+// the segments nor the xrefs — it must be DECODED from the artifact's PRG bytes.
+// We detect a dense run of `4C lo hi` and record entry→target, so a caller of an
+// ABI entry resolves transitively to the real routine body.
+
+export interface AbiEntry { owner: string; entry: number; target: number; }
+
+const ABI_CACHE_RELPATH = join("knowledge", ".cache", "abi-index.json");
+
+/**
+ * Decode an artifact's ABI jumptable into entry→target pairs. The named dispatch
+ * entries already have annotation point labels (the engine's 687 `api_*`); the
+ * table region itself is classified "unknown" (not disassembled) and the entries
+ * sit at irregular alignments (variable data interleaved), so a grid/run scan
+ * misses them. Instead, at each LABELED address that holds a `JMP abs` byte
+ * (`4C`), decode the target — precise, alignment-free, no false positives.
+ */
+export function buildAbiIndex(projectDir: string): AbiEntry[] {
+  const out: AbiEntry[] = [];
+  for (const p of findAnalysisJsons(projectDir)) {
+    const stem = basename(p).replace(/_analysis\.json$/, "");
+    const prgPath = join(dirname(p), `${stem}.prg`);
+    const annPath = join(dirname(p), `${stem}_annotations.json`);
+    if (!existsSync(prgPath) || !existsSync(annPath)) continue;
+    let prg: Buffer;
+    try { prg = readFileSync(prgPath); } catch { continue; }
+    if (prg.length < 5) continue;
+    const load = prg.readUInt16LE(0);
+    const body = prg.subarray(2);
+    const at = (addr: number): number | undefined => { const o = addr - load; return o >= 0 && o < body.length ? body[o] : undefined; };
+    let ann: { labels?: Array<{ address?: string | number }> };
+    try { ann = JSON.parse(readFileSync(annPath, "utf8")); } catch { continue; }
+    for (const l of ann.labels ?? []) {
+      if (l.address === undefined) continue;
+      const addr = (typeof l.address === "string" ? parseInt(l.address, 16) : l.address) & 0xffff;
+      if (Number.isNaN(addr) || at(addr) !== 0x4c || at(addr + 2) === undefined) continue;
+      out.push({ owner: stem, entry: addr, target: (at(addr + 1)! | (at(addr + 2)! << 8)) & 0xffff });
+    }
+  }
+  return out;
+}
+
+export function loadAbiIndex(projectDir: string): AbiEntry[] {
+  const cachePath = join(projectDir, ABI_CACHE_RELPATH);
+  const jsons = findAnalysisJsons(projectDir);
+  // invalidate on either the analysis OR the PRG changing.
+  const newest = jsons.reduce((m, p) => {
+    let t = m;
+    try { t = Math.max(t, statSync(p).mtimeMs); } catch { /* */ }
+    const prg = join(dirname(p), `${basename(p).replace(/_analysis\.json$/, "")}.prg`);
+    try { t = Math.max(t, statSync(prg).mtimeMs); } catch { /* */ }
+    return t;
+  }, 0);
+  try {
+    if (existsSync(cachePath)) {
+      const cached = JSON.parse(readFileSync(cachePath, "utf8")) as { builtMs: number; abi: AbiEntry[] };
+      if (cached.builtMs >= newest) return cached.abi;
+    }
+  } catch { /* rebuild */ }
+  const abi = buildAbiIndex(projectDir);
+  try {
+    mkdirSync(dirname(cachePath), { recursive: true });
+    writeFileSync(cachePath, JSON.stringify({ builtMs: Date.now(), abi }));
+  } catch { /* best-effort */ }
+  return abi;
+}
+
+export interface AbiResolution {
+  entry: CrossArtifactHit;            // the table entry (owner + api_* label)
+  isAbi: boolean;                     // entry sits in a decoded jumptable
+  targetAddr?: number;                // the entry's JMP target (the body)
+  target?: CrossArtifactHit;          // the body's owner + label, if known
+}
+
+/**
+ * Resolve an ABI jumptable entry transitively: the entry's label AND the routine
+ * its `JMP` dispatches to. Returns undefined if `addr` owns no segment.
+ */
+export function resolveAbi(projectDir: string, addr: number): AbiResolution | undefined {
+  const hits = resolveCrossArtifact(projectDir, addr);
+  if (!hits.length) return undefined;
+  const abi = loadAbiIndex(projectDir).find((x) => x.entry === (addr & 0xffff));
+  const res: AbiResolution = { entry: hits[0]!, isAbi: !!abi };
+  if (abi) {
+    res.targetAddr = abi.target;
+    res.target = resolveCrossArtifact(projectDir, abi.target)[0];
+  }
+  return res;
+}

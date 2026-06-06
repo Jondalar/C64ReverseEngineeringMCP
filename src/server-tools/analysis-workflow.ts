@@ -303,8 +303,9 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       // pipeline can resolve out-of-file calls (jsr into another artifact → its
       // api_* label). Build-on-read writes knowledge/.cache; best-effort.
       try {
-        const { loadAddressIndex } = await import("../project-knowledge/address-index.js");
+        const { loadAddressIndex, loadAbiIndex } = await import("../project-knowledge/address-index.js");
         loadAddressIndex(pd);
+        loadAbiIndex(pd); // Spec 759 P3 — ABI jumptable map for transitive resolution
       } catch { /* index is an enhancement; disasm proceeds without it */ }
       const result = await runCli("disasm-prg", args, { projectDir: pd });
       if (result.exitCode === 0) {

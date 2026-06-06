@@ -12,7 +12,7 @@ let pass = 0; const fail = [];
 const ok = (n, c, d = "") => { if (c) { pass++; console.log(`  PASS  ${n}${d ? `  (${d})` : ""}`); } else { fail.push(n); console.log(`  FAIL  ${n}${d ? `  (${d})` : ""}`); } };
 
 if (!existsSync(join(ROOT, "dist/project-knowledge/address-index.js"))) { console.error("build:mcp first"); process.exit(2); }
-const { buildAddressIndex, resolveCrossArtifact, loadAddressIndex, resolveXrefs } =
+const { buildAddressIndex, resolveCrossArtifact, loadAddressIndex, resolveXrefs, buildAbiIndex, resolveAbi } =
   await import("../dist/project-knowledge/address-index.js");
 
 console.log("Spec 759 — project address-knowledge index\n");
@@ -27,8 +27,22 @@ writeFileSync(join(dir, "engine", "block2_engine_0200_analysis.json"), JSON.stri
 }));
 // Engine annotation point labels (the named ABI entries — api_*).
 writeFileSync(join(dir, "engine", "block2_engine_0200_annotations.json"), JSON.stringify({
-  labels: [{ address: "022a", label: "api_turn_advance" }, { address: "0274", label: "api_print_string" }],
+  labels: [
+    { address: "022a", label: "api_turn_advance" },
+    { address: "0274", label: "api_print_string" },
+    { address: "2514", label: "turn_advance" },
+  ],
 }));
+// Engine PRG (load $0200) with a real JMP at each api entry → its body, so the
+// ABI decoder can read entry→target from bytes (P3).
+{
+  const buf = Buffer.alloc(2 + 0x400, 0); // load addr + body
+  buf.writeUInt16LE(0x0200, 0);
+  const put = (addr, op, lo, hi) => { const o = 2 + (addr - 0x0200); buf[o] = op; buf[o + 1] = lo; buf[o + 2] = hi; };
+  put(0x022a, 0x4c, 0x14, 0x25); // JMP $2514 (turn_advance)
+  put(0x0274, 0x4c, 0xd2, 0x1d); // JMP $1DD2 (print_string, unlabeled in this fixture)
+  writeFileSync(join(dir, "engine", "block2_engine_0200.prg"), buf);
+}
 writeFileSync(join(dir, "game", "block3_game_7E00_analysis.json"), JSON.stringify({
   segments: [seg("code", 0x7e00, 0x7e02, "block3_entry"), seg("code", 0x7e03, 0x7eff)],
   // block3 calls DOWN into the engine API table (cross-file xref).
@@ -83,6 +97,17 @@ ok("11 the caller's own out-refs list its targets",
   resolveXrefs(dir, 0x7e10).outof.some((x) => x.target === 0x0250));
 ok("12 an address with no xrefs is empty both ways",
   resolveXrefs(dir, 0x9999).into.length === 0 && resolveXrefs(dir, 0x9999).outof.length === 0);
+
+// P3 — ABI jumptable decode + transitive resolution (entry → JMP target).
+const abi = buildAbiIndex(dir);
+ok("13 ABI decoder reads entry→target from the PRG at labeled JMP entries", abi.length === 2, `${abi.length} entries`);
+const r1 = resolveAbi(dir, 0x022a);
+ok("14b resolveAbi: entry label + transitive JMP target + target label",
+  r1?.entry?.label === "api_turn_advance" && r1?.targetAddr === 0x2514 && r1?.target?.label === "turn_advance",
+  r1 ? `${r1.entry.label} → $${r1.targetAddr?.toString(16)} (${r1.target?.label})` : "(none)");
+const r2 = resolveAbi(dir, 0x0274);
+ok("14c resolveAbi: target resolved even when the body has no label",
+  r2?.entry?.label === "api_print_string" && r2?.targetAddr === 0x1dd2);
 
 // Cache: a second load returns the same data + writes the cache file.
 const cached = loadAddressIndex(dir);

@@ -169,6 +169,24 @@ let activeAnnotations: AnnotationsIndex | undefined;
 // CommonJS — read the plain cache JSON, no ESM import of address-index.ts.
 interface ExternalEntry { owner: string; start: number; end: number; kind: string; label?: string }
 let activeExternalEntries: ExternalEntry[] | undefined;
+// Spec 759 P3 — ABI jumptable entry→target map (the engine's decoded JMP table),
+// so a cross-file call resolves transitively to the routine body.
+let activeExternalAbi: Map<number, number> | undefined;
+
+function loadExternalAbi(): Map<number, number> | undefined {
+  const projectDir = process.env.C64RE_PROJECT_DIR;
+  if (!projectDir) return undefined;
+  const cachePath = join(projectDir, "knowledge", ".cache", "abi-index.json");
+  if (!existsSync(cachePath)) return undefined;
+  try {
+    const data = JSON.parse(readFileSync(cachePath, "utf8")) as { abi?: Array<{ entry: number; target: number }> };
+    const m = new Map<number, number>();
+    for (const a of data.abi ?? []) m.set(a.entry & 0xffff, a.target & 0xffff);
+    return m;
+  } catch {
+    return undefined;
+  }
+}
 
 function loadExternalIndex(ownStart: number, ownEnd: number): ExternalEntry[] | undefined {
   const projectDir = process.env.C64RE_PROJECT_DIR;
@@ -493,7 +511,15 @@ function generateInstructionComment(
     // unchanged (rebuild-safe); this is a resolution comment, not a relabel.
     const ext = resolveExternal(target);
     if (ext) {
-      return `// → ${ext.owner}${ext.label ? `: ${ext.label}` : ` (${ext.kind})`}`;
+      let line = `// → ${ext.owner}${ext.label ? `: ${ext.label}` : ` (${ext.kind})`}`;
+      // Spec 759 P3 — if the call hits an ABI jumptable entry, follow its JMP to
+      // the routine body so the caller sees both (api_print_string → print_string).
+      const body = activeExternalAbi?.get(target);
+      if (body !== undefined) {
+        const b = resolveExternal(body);
+        line += ` → ${b?.label ?? `$${formatHex16(body)}`}`;
+      }
+      return line;
     }
   }
 
@@ -2694,6 +2720,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   }
   activeAnnotations = analysisContext?.annotations;
   activeExternalEntries = loadExternalIndex(prg.loadAddress, prg.loadAddress + prg.data.length - 1);
+  activeExternalAbi = loadExternalAbi();
 
   if (analysisContext) {
     applyKernalAbiOperandOverrides(analysisContext);
@@ -2746,6 +2773,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
 
   activeAnnotations = undefined;
   activeExternalEntries = undefined;
+  activeExternalAbi = undefined;
   const kickAsmOutput = `${lines.join("\n")}\n`;
   writeFileSync(outputPath, kickAsmOutput, "utf8");
 

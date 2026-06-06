@@ -1863,7 +1863,7 @@ export class WsServer {
         // (was a single-file head-read scan, so a cross-file caller like
         // block3 → engine $0200 was invisible → empty `xref 0200`).
         const hx = (n: number) => (n & 0xffff).toString(16).padStart(4, "0");
-        const { resolveCrossArtifact, resolveXrefs } = await import("../project-knowledge/address-index.js");
+        const { resolveCrossArtifact, resolveXrefs, resolveAbi } = await import("../project-knowledge/address-index.js");
         const owners = resolveCrossArtifact(projectDir, addr);
         const { into, outof } = resolveXrefs(projectDir, addr);
         if (pop === "inspect") {
@@ -1871,6 +1871,9 @@ export class WsServer {
           if (owners.length === 0) lines.push("  (no analyzed artifact owns this address)");
           else for (const o of owners) lines.push(`  ${o.owner}: $${hx(o.start)}..$${hx(o.end)} ${o.kind}${o.label ? ` (${o.label})` : ""}`);
           if (owners.length > 1) lines.push(`  (${owners.length} owners — overlay/banking overlap)`);
+          // Spec 759 P3 — if this is an ABI jumptable entry, show the JMP target.
+          const abi = resolveAbi(projectDir, addr);
+          if (abi?.targetAddr !== undefined) lines.push(`  ABI entry → $${hx(abi.targetAddr)}${abi.target?.label ? ` (${abi.target.label})` : ""}`);
           if (into.length) { lines.push(`  callers (${into.length}):`); for (const x of into.slice(0, 8)) lines.push(`    <- ${x.owner} $${hx(x.source)} ${x.type}`); }
           return lines.join("\n");
         }
