@@ -130,6 +130,30 @@ only.
 - V3 goal = drop VICE dependency entirely (Spec 248 OQ4 + Spec 251
   c64-main VSF interop).
 
+### 1.2. Live-session control — read freely, seize only when invited
+
+The runtime is ONE shared session (human + LLM). Two drivers cannot
+steer at once, so:
+
+- **Reads are non-exclusive.** Memory / registers / disasm / render /
+  `runtime_vic_inspect_at` / checkpoint ring-scrub do not disturb a
+  running machine (they snapshot via `runExclusive` or read RAM
+  directly). Do them on a free-running session anytime, no pause, no
+  permission needed.
+- **Control is exclusive.** step / until / poke / run-to / checkpoint
+  restore all pause the machine first. Do NOT seize a session the
+  human is actively free-running **unless invited**.
+- **An explicit invite IS the handoff.** "komm in die session und mach
+  X", "übernimm", "debug das mal", "scrub zurück und schau" — once the
+  human invites you, pause and drive without asking again. You are not
+  yanking the wheel; it was handed to you.
+- **Hand back when done.** Resume the loop (or say the session is free)
+  so the human has it again.
+- When genuinely unsure whether a session is yours to drive, ask one
+  short "soll ich übernehmen?" — never a blanket "I can only control
+  when paused" refusal. The tools never hard-block control; that
+  sentence describes courtesy, not a wall.
+
 The persistent state lives in:
 
 - `knowledge/project.json`
