@@ -229,6 +229,7 @@
     "e2e:753": "npm run build:mcp && node scripts/e2e-753-trace-memory-map.mjs",
     "e2e:754": "npm run build:mcp && node scripts/e2e-754-monitor.mjs",
     "e2e:748": "npm run build:mcp && node scripts/e2e-748-project-steering.mjs",
+    "e2e:758": "npm run build:pipeline && node scripts/e2e-758-code-discovery.mjs",
     "e2e:759": "npm run build:mcp && node scripts/e2e-759-address-index.mjs",
     "e2e:746-checkpoint": "npm run build:mcp && node scripts/e2e-746-checkpoint.mjs",
     "e2e:746-13": "npm run build:mcp && node scripts/e2e-746-13-flow-focus.mjs",

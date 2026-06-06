@@ -27,6 +27,75 @@ function makeOperandText(targetAddress: number | undefined): string {
   return `$${hex16(targetAddress).toUpperCase()}`;
 }
 
+/** Read one byte at an absolute address from the image (undefined if out of range). */
+function peekByte(buffer: Buffer, mapping: MemoryMapping, address: number): number | undefined {
+  const offset = toOffset(address & 0xffff, mapping);
+  if (offset === undefined || offset < 0 || offset >= buffer.length) {
+    return undefined;
+  }
+  return buffer[offset];
+}
+
+/**
+ * Spec 758 §3.1 + §3.2 — recover code entry points that recursive descent cannot
+ * reach by following control flow:
+ *  - §3.1 single indirect `jmp ($abs)`: the 16-bit pointer stored at $abs.
+ *  - §3.2 self-modified `jmp`/`jsr` operand: `lda #lo / sta J+1 / lda #hi /
+ *    sta J+2` patches the target into a `jmp`/`jsr` instruction's operand bytes.
+ * Both yield EXACT targets (real code), so seeding them never promotes data.
+ */
+function recoverSeeds(instructions: InstructionFact[], buffer: Buffer, mapping: MemoryMapping): number[] {
+  const seeds = new Set<number>();
+  const inRange = (addr: number): boolean => addr >= mapping.startAddress && addr <= mapping.endAddress;
+
+  // §3.1 — single indirect jump: resolve the pointer at the operand address.
+  for (const ins of instructions) {
+    if (ins.mnemonic === "jmp" && ins.addressingMode === "ind" && ins.operandValue !== undefined) {
+      const base = ins.operandValue & 0xffff;
+      const lo = peekByte(buffer, mapping, base);
+      const hi = peekByte(buffer, mapping, (base + 1) & 0xffff);
+      if (lo !== undefined && hi !== undefined) {
+        const target = (lo | (hi << 8)) & 0xffff;
+        if (inRange(target)) seeds.add(target);
+      }
+    }
+  }
+
+  // §3.2 — self-modified jmp/jsr operand. Map each absolute jmp/jsr's operand
+  // byte addresses to the instruction, then watch `lda #imm` → `sta <operand byte>`.
+  const operandByteOwner = new Map<number, number>(); // operand-byte address → jmp/jsr address
+  for (const ins of instructions) {
+    if ((ins.mnemonic === "jmp" || ins.mnemonic === "jsr") && ins.addressingMode === "abs") {
+      operandByteOwner.set((ins.address + 1) & 0xffff, ins.address);
+      operandByteOwner.set((ins.address + 2) & 0xffff, ins.address);
+    }
+  }
+  const patch = new Map<number, { lo?: number; hi?: number }>(); // jmp/jsr address → patched bytes
+  const ordered = [...instructions].sort((a, b) => a.address - b.address);
+  let lastImm: number | undefined;
+  for (const ins of ordered) {
+    if (ins.mnemonic === "lda" && ins.addressingMode === "imm") {
+      lastImm = ins.operandValue;
+    } else if (ins.mnemonic === "sta" && ins.addressingMode === "abs" && ins.operandValue !== undefined && lastImm !== undefined) {
+      const owner = operandByteOwner.get(ins.operandValue & 0xffff);
+      if (owner !== undefined) {
+        const entry = patch.get(owner) ?? {};
+        if ((ins.operandValue & 0xffff) === ((owner + 1) & 0xffff)) entry.lo = lastImm;
+        else entry.hi = lastImm;
+        patch.set(owner, entry);
+      }
+    }
+  }
+  for (const [, e] of patch) {
+    if (e.lo !== undefined && e.hi !== undefined) {
+      const target = (e.lo | (e.hi << 8)) & 0xffff;
+      if (inRange(target)) seeds.add(target);
+    }
+  }
+
+  return [...seeds];
+}
+
 export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
   const queue = options.entryPoints.map((entryPoint) => entryPoint.address);
   const visitedStarts = new Set<number>();
@@ -35,6 +104,12 @@ export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
   const xrefs: CrossReference[] = [];
   const leaders = new Set<number>(queue);
 
+  // Spec 758 — recursive descent is run to a FIXED POINT: after the flow-reachable
+  // queue drains, recover extra seeds (indirect-jump pointers §3.1, self-modified
+  // jmp/jsr operands §3.2) that flow analysis can't reach, queue them, and descend
+  // again. The recovered seeds are EXACT jump targets (real code), so this stays
+  // rebuild-safe (no speculative data→code promotion — that is the coherence pass).
+  for (let iteration = 0; iteration < 8; iteration += 1) {
   while (queue.length > 0) {
     const startAddress = queue.shift()!;
     let address = startAddress;
@@ -141,6 +216,21 @@ export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
       });
 
       address = fallthroughAddress;
+    }
+  }
+
+    // Recover seeds the flow could not reach (§3.1 indirect / §3.2 self-mod).
+    const recovered = recoverSeeds(instructions, options.buffer, options.mapping);
+    let addedSeed = false;
+    for (const seed of recovered) {
+      if (!visitedStarts.has(seed) && seed >= options.mapping.startAddress && seed <= options.mapping.endAddress) {
+        queue.push(seed);
+        leaders.add(seed);
+        addedSeed = true;
+      }
+    }
+    if (!addedSeed) {
+      break;
     }
   }
 
