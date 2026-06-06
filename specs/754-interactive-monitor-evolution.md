@@ -1,7 +1,12 @@
 # Spec 754 — Interactive Monitor evolution: VICE-superset over a shared capability layer
 
-**Status:** P1+P2+P3 DONE (2026-06-05, gate `e2e:754` 125/125). Block I read-inspect
-(`device c64|drive8`, §3.3i) + `bitmap` RAM-as-PNG (§3.3b) shipped this round.
+**Status:** P1+P2+P3 DONE (2026-06-06, gate `e2e:754` 139/139). Block I read-inspect
+(`device c64|drive8`, §3.3i) + `bitmap` RAM-as-PNG (§3.3b) + **Block F symbols &
+knowledge (§3.3f)** shipped. Block F: `label`/`unlabel`/`note`/`load_labels`/
+`save_labels` over the canonical UserLabelStore; `d`/`sd`/`df` annotate with the
+label AND keep the address (the VICE weakness fixed); analysis segment labels layer
+under user labels. Remaining: level-2 label→entity write-sync (deferred), Block E
+v1.1 observer actions `mark`/`cmd`/`trace <scope>`.
 **Explicitly out of "754 done" (own specs):** capability registry = Spec 760
 (deferred; verbs stay direct-dispatch); snapshot rename `snap`/`unsnap`↔`dump`/`undump`
 waits on the `.vsf` codec = Spec 755; 1541-CPU single-step on `drive8` = a Spec 612
@@ -307,7 +312,21 @@ in-loop (stop at trigger). Rewind is the time-travel-after-stop tool. A future
 scan the trace + rewind to the nearest checkpoint + single-step to the exact cycle —
 needs ring+trace+rewind combined; a follow-up mode, not the default.
 
-### 3.3f Symbols & knowledge (Block F) — DECIDED (2026-06-03)
+### 3.3f Symbols & knowledge (Block F) — DONE v1 (2026-06-06, e2e:754 Part P)
+
+**Built:** `label <addr> <name>` / `label` (list) / `unlabel <addr|name>` /
+`note <addr> "<text>"` / `load_labels` / `save_labels "<file.sym>"` (KickAssembler
++ VICE label formats). Canonical store = the (previously dormant) `UserLabelStore`
+(`targetKind:"address"`), with a `saveUserLabel`/`listUserLabels`/`removeUserLabel`/
+`buildUserLabelIndex` service layer and a runtime-pure `projectLabels`/`labelIndex`
+bridge (ws-server → ProjectKnowledgeService). `d`/`sd`/`df` annotate via the index:
+the instruction's own address gets an asm-style `name:` line, an operand target gets
+`; → name`, and the numeric address ALWAYS stays (the VICE weakness fixed). Analysis
+effective-segment labels layer UNDER user labels (level-2 read). **Deferred:** the
+level-2 label→entity write-sync (a monitor label creating/linking a knowledge entity);
+the read direction (segment labels surfacing) ships now.
+
+Original decision (2026-06-03):
 The monitor becomes a front-end onto the knowledge layer (the §3.6 capability-layer
 idea). VICE's labels are a tiny subset of our findings/entities/symbols/xref.
 ```
