@@ -28,10 +28,13 @@ interface Props {
   runState: "running" | "paused" | "off";
 }
 
-// Fraction 0..1 along the timeline for an anchor (by wall-clock capture time).
-function frac(cp: CheckpointRef, oldestMs: number, spanMs: number): number {
-  if (spanMs <= 0) return 1;
-  return Math.min(1, Math.max(0, (cp.createdAtMs - oldestMs) / spanMs));
+// Position 0..1 along the bar = anchor INDEX, evenly spaced. NOT wall-clock
+// time — pauses make time elapse with no captures, which would punch gaps /
+// clusters into the bar. Index spacing gives a clean, continuous strip where
+// every snapshot owns an equal slot (the "fixed width represents N snapshots"
+// the user asked for).
+function pctOf(i: number, n: number): number {
+  return n <= 1 ? 100 : (i / (n - 1)) * 100;
 }
 
 export function ScrubTimeline({ sessionId, runState }: Props): React.JSX.Element | null {
@@ -86,30 +89,24 @@ export function ScrubTimeline({ sessionId, runState }: Props): React.JSX.Element
     catch (e) { console.error("checkpoint/pin:", e); }
   }, [sessionId, c, reload]);
 
-  // Click the bar → nearest anchor by horizontal position → seek (then:"keep").
+  // Click the bar → nearest anchor by horizontal position (index) → seek.
   const onBarClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!list.length || busy) return;
     const el = barRef.current; if (!el) return;
     const rect = el.getBoundingClientRect();
     const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    const oldestMs = list[0]!.createdAtMs;
-    const spanMs = list[list.length - 1]!.createdAtMs - oldestMs;
-    let best = list[0]!, bestD = Infinity;
-    for (const cp of list) {
-      const d = Math.abs(frac(cp, oldestMs, spanMs) - x);
-      if (d < bestD) { bestD = d; best = cp; }
-    }
-    void restore(best.id, "keep");
+    const idx = Math.min(list.length - 1, Math.max(0, Math.round(x * (list.length - 1))));
+    void restore(list[idx]!.id, "keep");
   }, [list, busy, restore]);
 
   if (runState === "off") return null;
 
-  const oldestMs = list.length ? list[0]!.createdAtMs : 0;
-  const newestMs = list.length ? list[list.length - 1]!.createdAtMs : 0;
-  const spanMs = newestMs - oldestMs;
-  const spanS = spanMs / 1000;
-  const sel = list.find((x) => x.id === selected) ?? null;
-  const playPct = sel ? frac(sel, oldestMs, spanMs) * 100 : 100; // unselected playhead = "now" (right)
+  const n = list.length;
+  const newestMs = n ? list[n - 1]!.createdAtMs : 0;
+  const spanS = n ? (newestMs - list[0]!.createdAtMs) / 1000 : 0;
+  const selIdx = selected ? list.findIndex((x) => x.id === selected) : -1;
+  const sel = selIdx >= 0 ? list[selIdx]! : null;
+  const playPct = selIdx >= 0 ? pctOf(selIdx, n) : 100; // unselected playhead = "now" (right)
   const agoS = sel ? (newestMs - sel.createdAtMs) / 1000 : 0;
 
   return (
@@ -123,15 +120,15 @@ export function ScrubTimeline({ sessionId, runState }: Props): React.JSX.Element
         title={list.length ? "Click to seek to the nearest snapshot" : "capturing snapshots…"}
         onClick={onBarClick}
       >
-        {list.length === 0 && <span className="wb-scrub-empty">capturing snapshots…</span>}
-        {list.map((cp) => (
+        {n === 0 && <span className="wb-scrub-empty">capturing snapshots…</span>}
+        {list.map((cp, i) => (
           <span
             key={cp.id}
             className={`wb-scrub-mark${cp.pinned ? " pinned" : ""}${cp.id === selected ? " sel" : ""}`}
-            style={{ left: `${frac(cp, oldestMs, spanMs) * 100}%` }}
+            style={{ left: `${pctOf(i, n)}%` }}
           />
         ))}
-        {list.length > 0 && <span className="wb-scrub-head" style={{ left: `${playPct}%` }} />}
+        {n > 0 && <span className="wb-scrub-head" style={{ left: `${playPct}%` }} />}
       </div>
       <button
         className="wb-scrub-resume"

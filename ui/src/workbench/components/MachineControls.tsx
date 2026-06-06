@@ -62,6 +62,9 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
         try { await c.call("session/reset", { session_id: sessionId, video: "pal-default" }); } catch { /* ignore */ }
         onSnapshotTaken();
       }
+      // Spec 761 — power-off drops the checkpoint ring; the scrub bar must be
+      // empty after switching the machine off (no pre-power-off snapshots).
+      try { await c.call("checkpoint/clear", { session_id: sessionId }); } catch { /* ignore */ }
       setRunState?.("off");
     }
   };

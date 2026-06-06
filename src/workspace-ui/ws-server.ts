@@ -864,6 +864,13 @@ export class WsServer {
       if (!ref) throw new Error(`checkpoint/unpin: unknown id ${id}`);
       return { ref, stats: c.checkpointRing.stats() };
     });
+    // Spec 761 — drop all ring anchors (UI power-off: the scrub bar must not
+    // show snapshots from before the machine was switched off).
+    this.on("checkpoint/clear", ({ session_id }) => {
+      const c = ctrlFor(session_id);
+      c.checkpointRing.clear();
+      return { stats: c.checkpointRing.stats() };
+    });
     this.on("checkpoint/restore", async ({ session_id, id, then }) => {
       const c = ctrlFor(session_id);
       if (!id) throw new Error("checkpoint/restore: id required");
