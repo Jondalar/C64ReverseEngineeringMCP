@@ -575,6 +575,45 @@
 .wb-live .wb-controls button.wb-trace-on { border-color: #e0506a; color: #e0506a; }
 .wb-live .wb-controls-spacer { flex: 1; }
 .wb-live .wb-fps { color: var(--c64-fg-muted); font-size: 11px; }
+
+/* Spec 761.2 — ring-bound scrub timeline (rewind strip). */
+.wb-live .wb-scrub {
+  display: flex; gap: 8px; align-items: center;
+  padding: 4px 8px; margin-top: 4px;
+  background: var(--c64-bg-2); border-radius: 4px;
+}
+.wb-live .wb-scrub-title { color: var(--c64-fg-muted); font-size: 11px; white-space: nowrap; }
+.wb-live .wb-scrub-track {
+  flex: 1; display: flex; gap: 2px; align-items: center;
+  min-height: 22px; padding: 0 2px;
+  background: var(--c64-bg-1); border: 1px solid var(--c64-border);
+  border-radius: 3px; overflow-x: auto;
+}
+.wb-live .wb-scrub-empty { color: var(--c64-fg-muted); font-size: 11px; padding: 0 6px; }
+.wb-live .wb-scrub-tick {
+  background: transparent; border: none; cursor: pointer;
+  padding: 2px 1px; line-height: 0; flex: 0 0 auto;
+}
+.wb-live .wb-scrub-tick .wb-scrub-pip {
+  display: inline-block; width: 6px; height: 14px; border-radius: 2px;
+  background: var(--c64-border);
+}
+.wb-live .wb-scrub-tick:hover .wb-scrub-pip { background: var(--c64-blue-bright); }
+.wb-live .wb-scrub-tick.sel .wb-scrub-pip { background: var(--c64-blue-bright); height: 18px; }
+.wb-live .wb-scrub-tick.pinned .wb-scrub-pip { background: var(--c64-yellow); }
+.wb-live .wb-scrub-tick:disabled { cursor: not-allowed; opacity: 0.5; }
+.wb-live .wb-scrub-resume,
+.wb-live .wb-scrub-pin {
+  background: var(--c64-bg-1); color: var(--c64-fg);
+  border: 1px solid var(--c64-border); padding: 3px 8px;
+  cursor: pointer; font-family: inherit; font-size: 11px; border-radius: 3px;
+  white-space: nowrap;
+}
+.wb-live .wb-scrub-resume:hover:not(:disabled) { border-color: var(--c64-green); color: var(--c64-green); }
+.wb-live .wb-scrub-resume:disabled { opacity: 0.4; cursor: not-allowed; }
+.wb-live .wb-scrub-pin.on { border-color: var(--c64-yellow); }
+.wb-live .wb-scrub-span { color: var(--c64-fg-muted); font-size: 11px; white-space: nowrap; }
+
 .wb-live-grid {
   display: grid;
   grid-template-columns: 1fr 280px;
