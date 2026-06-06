@@ -274,7 +274,14 @@ export async function ingestMedia(
   //    insert (opts.resumeIfRunning) resumes it at PAL pacing so the cart boots,
   //    while the deterministic service default stays paused (replay/branch +
   //    differential probes rely on it).
-  if (requiresPause && opts.resumeIfRunning && wasRunning) ctrl.run();
+  // A CRT attach cold-boots the machine (resetCold above) — mounting a cartridge
+  // IS powering it on, so it must RUN afterwards even if the machine was paused
+  // when mounted (otherwise the EF cold-boots but the loop never starts → "the
+  // cart doesn't boot, I have to hit Reset/re-mount"). Disk/PRG keep the prior
+  // run-state (wasRunning). The deterministic service path keeps it paused via
+  // opts.resumeIfRunning=false (replay/branch/differential probes).
+  const resumeAfter = requiresPause && opts.resumeIfRunning && (wasRunning || req.kind === "crt");
+  if (resumeAfter) ctrl.run();
   const paused = ctrl.runState === "paused";
   return { ok: true, event, paused, wasRunning, detail };
 }
