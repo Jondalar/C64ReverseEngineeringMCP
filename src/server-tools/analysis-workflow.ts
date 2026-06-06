@@ -299,6 +299,13 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       args.push(prgAbs, outAbs);
       if (entries) args.push(entries);
       if (analysis_json) args.push(resolve(pd, analysis_json));
+      // Spec 759 P2 — refresh the project cross-artifact address index so the
+      // pipeline can resolve out-of-file calls (jsr into another artifact → its
+      // api_* label). Build-on-read writes knowledge/.cache; best-effort.
+      try {
+        const { loadAddressIndex } = await import("../project-knowledge/address-index.js");
+        loadAddressIndex(pd);
+      } catch { /* index is an enhancement; disasm proceeds without it */ }
       const result = await runCli("disasm-prg", args, { projectDir: pd });
       if (result.exitCode === 0) {
         const annotationsPath = outAbs.replace(/\.asm$/i, "_annotations.json");

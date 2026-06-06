@@ -51,6 +51,10 @@ export function runCli(command: string, args: string[], options: RunCliOptions):
       [cliPath, command, ...args],
       {
         cwd: options.projectDir,
+        // Spec 759 — the pipeline reads the project's cross-artifact address
+        // index from C64RE_PROJECT_DIR; pass it explicitly (don't rely on the
+        // parent's env being set).
+        env: { ...process.env, C64RE_PROJECT_DIR: options.projectDir },
         maxBuffer: 50 * 1024 * 1024, // 50 MB — analysis JSONs can be large
         timeout: 120_000,
       },
