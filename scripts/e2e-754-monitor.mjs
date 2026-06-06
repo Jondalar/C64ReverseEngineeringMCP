@@ -763,6 +763,51 @@ console.log("\nSpec 754 — Part C: one canonical monitor (BUG-037)\n");
 }
 
 // =====================================================================
+// Part P — Block F (§3.3f): user labels + note + label-annotated disasm.
+// =====================================================================
+console.log("\nSpec 754 — Part P: symbols & knowledge (Block F)\n");
+{
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join: pjoin } = await import("node:path");
+  const { ProjectKnowledgeService } = await import("../dist/project-knowledge/service.js");
+  const dir = mkdtempSync(pjoin(tmpdir(), "c64re-754L-"));
+  const svc = new ProjectKnowledgeService(dir);
+  svc.initProject({ name: "blockF" });
+  // projectLabels/labelIndex backed by the real service (mirrors ws-server).
+  const projectLabels = async (op, a) => {
+    if (op === "set") { const r = svc.saveUserLabel({ label: String(a.name), address: Number(a.addr) & 0xffff }); return `label $${(Number(a.addr) & 0xffff).toString(16)} = ${r.label}`; }
+    if (op === "del") { const r = svc.removeUserLabel(String(a.key)); return r ? `unlabeled ${r.label}` : `no label matching "${a.key}"`; }
+    if (op === "list") { const ls = svc.listUserLabels(); return ls.length ? ls.map((l) => `$${l.addressRange.start.toString(16)}  ${l.label}`).join("\n") : "no user labels yet"; }
+    if (op === "note") { const f = svc.saveFinding({ kind: "observation", title: `note @ $${(Number(a.addr) & 0xffff).toString(16)}`, summary: String(a.text), status: "active", addressRange: { start: Number(a.addr) & 0xffff, end: Number(a.addr) & 0xffff } }); return `note saved (finding ${f.id})`; }
+    return "ok";
+  };
+  const labelIndex = async () => [...svc.buildUserLabelIndex().entries()];
+  const { session, sessionId } = startIntegratedSession({});
+  const ctx = { session, ctrl: new RuntimeController(sessionId, session, () => {}), sessionId, memCursors: new Map(), disasmCursors: new Map(), projectLabels, labelIndex, projectDir: dir };
+  const mon = (c) => runMonitorCommand(ctx, c);
+  try {
+    // JSR $C0F6 at $0810.
+    session.c64Bus.write(0x0810, 0x20); session.c64Bus.write(0x0811, 0xf6); session.c64Bus.write(0x0812, 0xc0);
+    const setOwn = (await mon("label c0f6 init_io_video")).output ?? "";
+    ok("L1 label <addr> <name> persists", /init_io_video/.test(setOwn) && svc.listUserLabels().some((l) => l.label === "init_io_video"));
+    await mon("label 0810 entry");
+    const list = (await mon("label")).output ?? "";
+    ok("L2 label (list) shows both", /entry/.test(list) && /init_io_video/.test(list));
+    const d = (await mon("d 0810 0812")).output ?? "";
+    ok("L3 d shows the own-address label line + keeps the address",
+      /entry:/.test(d) && /\$0810/.test(d), d.split("\n")[0]);
+    ok("L4 d annotates the operand target by name AND keeps the hex",
+      /JSR \$c0f6/.test(d) && /; → init_io_video/.test(d), (d.split("\n").find((x) => /JSR/.test(x)) ?? ""));
+    const un = (await mon("unlabel 0810")).output ?? "";
+    ok("L5 unlabel removes it", /unlabeled entry/.test(un) && !svc.listUserLabels().some((l) => l.label === "entry"));
+    const note = (await mon('note c000 "main loop"')).output ?? "";
+    ok("L6 note <addr> \"text\" persists a finding", /finding/.test(note) && svc.listFindings().some((f) => /main loop/.test(f.summary ?? "")));
+    ok("L7 label needs a name (usage guard)", /usage|name is required/.test((await mon("label c100")).error ?? ""));
+  } finally { stopIntegratedSession(sessionId); }
+}
+
+// =====================================================================
 console.log(`\nSpec 754 P1+B gate: ${pass} passed, ${fail.length} failed`);
 if (fail.length) { console.error("FAILED:\n  " + fail.join("\n  ")); process.exit(1); }
 console.log("ALL GREEN");

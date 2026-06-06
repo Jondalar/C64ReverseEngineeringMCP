@@ -1956,7 +1956,37 @@ export class WsServer {
         const dir = this.projectDir ?? process.env.C64RE_PROJECT_DIR;
         if (!dir) return [];
         const { ProjectKnowledgeService } = await import("../project-knowledge/service.js");
-        return [...new ProjectKnowledgeService(dir).buildUserLabelIndex().entries()];
+        const map = new Map<number, string>();
+        // Spec 754 §3.3f (Block F) level-2 read: layer the project's own analysis
+        // labels (effective-segment labels, BUG-034-safe) UNDER the user labels —
+        // so the disassembler shows the names the project already knows, and a
+        // hand-set `label` wins. Bounded walk (like projectRead("inspect")).
+        try {
+          const fs = await import("node:fs");
+          const path = await import("node:path");
+          const { loadEffectiveSegments } = await import("../project-knowledge/effective-segments.js");
+          const found: string[] = [];
+          const walk = (d: string, depth: number) => {
+            if (depth > 6 || found.length > 64) return;
+            let ents: import("node:fs").Dirent[];
+            try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+            for (const e of ents) {
+              if (e.name === "node_modules" || e.name.startsWith(".")) continue;
+              const p = path.join(d, e.name);
+              if (e.isDirectory()) walk(p, depth + 1);
+              else if (e.name.endsWith("_analysis.json")) found.push(p);
+            }
+          };
+          walk(dir, 0);
+          for (const p of found) {
+            let segs: Array<{ start: number; label?: string }>;
+            try { segs = loadEffectiveSegments(p).segments as Array<{ start: number; label?: string }>; } catch { continue; }
+            for (const g of segs) if (g.label && !map.has(g.start & 0xffff)) map.set(g.start & 0xffff, g.label);
+          }
+        } catch { /* analysis labels are best-effort; user labels still apply */ }
+        // User labels win (highest precedence).
+        for (const [a, n] of new ProjectKnowledgeService(dir).buildUserLabelIndex().entries()) map.set(a, n);
+        return [...map.entries()];
       };
       return runMonitorCommand(
         { session: s, ctrl, sessionId: session_id, memCursors: monitorMemAddr, disasmCursors: monitorDisasmAddr, traceRead, projectRead, projectLabels, labelIndex, projectDir: this.projectDir },
