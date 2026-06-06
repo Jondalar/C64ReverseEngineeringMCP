@@ -1,6 +1,27 @@
 # Spec 758 — Static code-discovery completeness (indirect dispatch · self-mod operands · coherence code/data split)
 
-**Status:** PROPOSED (2026-06-04)
+**Status:** §3.1 + §3.2 DONE (2026-06-06, gate `e2e:758` 4/4). §3.3 largely
+PRE-EXISTING; §4 = follow-up.
+- **§3.1 + §3.2 DONE:** `code-discovery.ts` runs recursive descent to a FIXED POINT
+  — after the flow queue drains, `recoverSeeds()` resolves single indirect
+  `jmp ($abs)` pointers and self-modified `jmp`/`jsr` operands (`lda #lo/sta J+1/
+  lda #hi/sta J+2`), queues those EXACT targets, and descends again. Rebuild-safe
+  (exact jump targets, no speculative promotion). Gate: self-mod + indirect
+  fixtures resolve with no trace seed. (NMOS has no `jmp ($tbl,x)` — the NMOS
+  table dispatch is the `lda tbl,x/sta vec/jmp (vec)` shape, a §4 follow-up.)
+- **§3.3 ASSESSMENT:** the code/data classifier (`probable-code.ts` `probeIsland`)
+  is already a STRUCTURAL coherence scorer, not the naïve opd threshold the spec
+  feared — it requires a structured ending (rts/rti/jmp), inbound refs, caps the
+  illegal-opcode ratio, and needs hardware-touch or control-flow+store evidence.
+  The Ranger 14 KB opd≈0.6 data is rejected by these already. So §3.3's core is in
+  place; the open refinement is the §4 known-routine signal below.
+- **§4 FOLLOW-UP (open):** feed the cross-artifact known-routine map (Spec 759's
+  `resolveCrossArtifact`/`resolveAbi`) into the island scorer as a coherence
+  POSITIVE (a region whose `jsr`/`jmp` resolve to engine `api_*` is code), and seed
+  installed callback vectors. Best validated on the real Wasteland overlays; carries
+  rebuild-safety risk (must not loosen acceptance), so deferred from this slice.
+
+PROPOSED (2026-06-04)
 **Scope:** `pipeline/src/analysis/code-discovery.ts` (recursive-descent traversal +
 xref derivation) and the code/data segmentation it feeds. This is the **discovery
 side** of the phase-1 disassembler — it decides *which bytes are code* and *where
