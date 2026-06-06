@@ -153,6 +153,11 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   // Spec 709.13 — the CART (slot 0) display is derived from backend cart_status
   // (cart.sourceName), NOT a per-tab local path, so it can't diverge across tabs.
   const [screenFocused, setScreenFocused] = useState(false);
+  // Mirror runState in a ref so async backend broadcasts can tell whether the
+  // machine is OFF (a real off state must NOT be clobbered into "paused" by the
+  // debug/paused that our own off→debug/pause produces).
+  const runStateRef = useRef(runState);
+  runStateRef.current = runState;
   const [bpSignal, setBpSignal] = useState<{ pc: number; num: number; registers: string; seq: number; observer?: string; message?: string } | null>(null);
   const [exploreSelection, setExploreSelection] = useState<{x:number;y:number;w:number;h:number} | null>(null);
   const fpsCounterRef = useRef({ frames: 0, lastT: Date.now() });
@@ -289,11 +294,13 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     });
     const offStopped = client.onNotification("debug/stopped", (p: any) => {
       if (p?.session_id && p.session_id !== sessionId) return;
+      if (runStateRef.current === "off") return; // OFF stays OFF (black), not paused
       setRunState?.("paused");
       grabScreenshot.current();
     });
     const offPaused = client.onNotification("debug/paused", (p: any) => {
       if (p?.session_id && p.session_id !== sessionId) return;
+      if (runStateRef.current === "off") return; // OFF stays OFF (black), not paused
       setRunState?.("paused");
       grabScreenshot.current();
     });

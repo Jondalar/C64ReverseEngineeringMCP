@@ -217,7 +217,7 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
         onClick={powerToggle}
         className={runState === "off" ? "wb-power-off" : "wb-power-on"}
         title={runState === "off" ? "Power ON (cold boot)" : "Power OFF (unplug)"}
-      >⏻ Power {runState === "off" ? "OFF" : "ON"}</button>
+      >⏻ Power {runState === "off" ? "ON" : "OFF"}</button>
       <button
         onClick={() => {
           if (!sessionId) return;
