@@ -50,6 +50,11 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
       const alive = await probeSession();
       if (!alive) console.warn("[power] session not responding — recycling via cold reset");
       await c.call("session/reset", { session_id: sessionId, video: "pal-default" });
+      // Power-ON = plugging the machine in → it must come up RUNNING. A cold
+      // reset from an OFF (paused) controller leaves the loop paused, so start
+      // it explicitly here rather than relying on the setRunState→effect race
+      // (otherwise the user has to hit Run after every power-on — unintuitive).
+      try { await c.call("debug/run", { session_id: sessionId, pacing: { mode: "pal" } }); } catch { /* ignore */ }
       setRunState?.("running");
       onSnapshotTaken();
     } else {
