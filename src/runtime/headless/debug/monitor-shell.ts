@@ -170,6 +170,10 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
   const projectDir = ctx.projectDir ?? process.env.C64RE_PROJECT_DIR ?? process.cwd();
   const cwd = () => fsShellCwd.get(sessionId) ?? projectDir;
   const resolveFsPath = (arg: string) => (isAbsolute(arg) ? arg : resolvePathJoin(cwd(), arg));
+  // Spec 754 §3.3f (Block F) — addr→name index (user labels over analysis
+  // segment labels), fetched on demand by the disassembly verbs (d/sd/df).
+  const getLabels = async (): Promise<Map<number, string> | undefined> =>
+    ctx.labelIndex ? new Map(await ctx.labelIndex()) : undefined;
   // Parse `<verb> "<file>" <rest...>` (file quoted or bare).
   const parseFileCmd = (): { file?: string; rest: string[] } => {
     const m = cmd.match(/^\S+\s+"([^"]+)"\s*(.*)$/) ?? cmd.match(/^\S+\s+(\S+)\s*(.*)$/);
@@ -462,7 +466,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       const read = (a: number) => readByte(a & 0xffff, lens);
       // Spec 754 §3.3f (Block F) — addr→name index (user labels over segment
       // labels) so the disassembly shows symbols alongside the addresses.
-      const labels = ctx.labelIndex ? new Map(await ctx.labelIndex()) : undefined;
+      const labels = await getLabels();
       const lines: string[] = [];
       let a = start & 0xffff;
       const MAX = 4096; // console safety bound for a huge range
@@ -491,10 +495,11 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
     // body+xcount. Non-destructive (checkpoint save/restore) when media is clean.
     if (op === "sd") {
       const n = Math.max(1, Math.min(parseInt(tokens[1] ?? "50", 10) || 50, 100000));
+      const sdLabels = await getLabels();
       let ref: { id: string } | null = null;
       try { ref = await ctrl.captureCheckpoint(); } catch { ref = null; }
       let lines: string[];
-      try { lines = stepDisasm(s, n); }
+      try { lines = stepDisasm(s, n, sdLabels); }
       finally { if (ref) { try { await ctrl.restoreCheckpoint(ref.id); } catch { /* leave advanced */ } } }
       if (!ref) lines.push("(sd: could not snapshot — machine ADVANCED; `snap` first to preserve)");
       return { output: lines.join("\n") };
@@ -514,7 +519,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       if (addrTok !== undefined && parseAddr(addrTok) !== null) { addr = parseAddr(addrTok)!; i++; }
       else addr = disasmCursors.get(sessionId) ?? s.c64Cpu.pc;
       const n = Math.max(1, Math.min(parseInt(tokens[i] ?? "200", 10) || 200, 100000));
-      return dfFinish(followDisasm(readCpu, addr & 0xffff, n, { interactive }));
+      return dfFinish(followDisasm(readCpu, addr & 0xffff, n, { interactive, labels: await getLabels() }));
     }
 
     // ---- Memory edit (Spec 754 §3.3c — word commands, not VICE symbols). ---

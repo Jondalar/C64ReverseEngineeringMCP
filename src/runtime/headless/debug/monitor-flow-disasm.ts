@@ -60,6 +60,7 @@ function classify(read: Read, addr: number): CfInfo {
 export function stepDisasm(
   s: { c64Cpu: { pc: number }; c64Bus: { peek(a: number, lens: "cpu"): number }; runFor(n: number): unknown },
   n: number,
+  labels?: Map<number, string>,
 ): string[] {
   const read: Read = (a) => s.c64Bus.peek(a & 0xffff, "cpu") & 0xff;
   const order: number[] = [];
@@ -72,7 +73,7 @@ export function stepDisasm(
   }
   const land = s.c64Cpu.pc & 0xffff;
   const out = order.map((pc) => {
-    const { line } = disasmLine(read, pc);
+    const { line } = disasmLine(read, pc, labels);
     const c = count.get(pc)!;
     return c > 1 ? `${line}   x${c}` : line;
   });
@@ -88,6 +89,7 @@ export interface DfState {
   remaining: number;
   interactive: boolean;
   pendingBranch?: { taken: number; fall: number };
+  labels?: Map<number, string>;   // Spec 754 §3.3f — addr→name annotation
 }
 export interface DfResult { lines: string[]; pending?: DfState; }
 
@@ -104,7 +106,7 @@ function walk(st: DfState, read: Read): DfResult {
     }
     st.visited.add(st.addr);
     const cf = classify(read, st.addr);
-    const { line } = disasmLine(read, st.addr);
+    const { line } = disasmLine(read, st.addr, st.labels);
     lines.push(indent(st.stack.length) + line);
     st.remaining--;
 
@@ -139,8 +141,8 @@ function walk(st: DfState, read: Read): DfResult {
   return { lines };
 }
 
-export function followDisasm(read: Read, addr: number, n: number, opts: { interactive: boolean }): DfResult {
-  return walk({ addr: addr & 0xffff, stack: [], visited: new Set(), remaining: n, interactive: opts.interactive }, read);
+export function followDisasm(read: Read, addr: number, n: number, opts: { interactive: boolean; labels?: Map<number, string> }): DfResult {
+  return walk({ addr: addr & 0xffff, stack: [], visited: new Set(), remaining: n, interactive: opts.interactive, labels: opts.labels }, read);
 }
 
 /** Resume an interactive walk at the pending branch with the user's choice. */

@@ -804,6 +804,8 @@ console.log("\nSpec 754 — Part P: symbols & knowledge (Block F)\n");
     const note = (await mon('note c000 "main loop"')).output ?? "";
     ok("L6 note <addr> \"text\" persists a finding", /finding/.test(note) && svc.listFindings().some((f) => /main loop/.test(f.summary ?? "")));
     ok("L7 label needs a name (usage guard)", /usage|name is required/.test((await mon("label c100")).error ?? ""));
+    const df = (await mon("df 0810 1")).output ?? "";
+    ok("L8 df (flow disasm) also annotates labels", /JSR \$c0f6/.test(df) && /; → init_io_video/.test(df), (df.split("\n").find((x) => /JSR/.test(x)) ?? ""));
   } finally { stopIntegratedSession(sessionId); }
 }
 
