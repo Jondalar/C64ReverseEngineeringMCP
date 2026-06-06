@@ -303,7 +303,9 @@ function proposeNextActions(service: ProjectKnowledgeService, state: AgentState,
     });
   }
 
-  const questions = service.listOpenQuestions({ status: "open" }).slice(0, 3);
+  // Spec 748.2 (BUG-032): only real questions become next-step candidates —
+  // heuristic analyze_prg validation prompts must not bury the real ones.
+  const questions = service.listOpenQuestions({ status: "open", excludeHeuristic: true }).slice(0, 3);
   for (const q of questions) {
     candidates.push({
       rank: candidates.length,

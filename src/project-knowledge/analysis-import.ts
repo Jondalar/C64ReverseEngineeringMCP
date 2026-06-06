@@ -166,6 +166,8 @@ export interface ImportedOpenQuestionDraft {
   artifactIds: string[];
   findingIds: string[];
   tags: string[];
+  // Spec 748.2: provenance so triage can filter heuristic noise.
+  source?: OpenQuestionRecord["source"];
   // Bug 29: copy the parent finding's addressRange so
   // archive_phase1_noise can match without title-regex acrobatics.
   addressRange?: { start: number; end: number; bank?: number; label?: string };
@@ -319,6 +321,10 @@ function maybeCreateOpenQuestion(
     confidence: Math.max(0.2, 1 - finding.confidence),
     status: "open",
     priority: finding.confidence < 0.55 ? "high" : "medium",
+    // Spec 748.2 (BUG-032): tag the provenance so triage surfaces can keep
+    // these auto-generated validation prompts out of the default question
+    // surface (they are heuristic noise until a human/agent confirms them).
+    source: "heuristic-phase1",
     evidence: [...finding.evidence],
     entityIds: [...finding.entityIds],
     artifactIds: [...finding.artifactIds],

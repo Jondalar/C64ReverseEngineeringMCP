@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { basename, extname, relative, resolve } from "node:path";
 import { importAnalysisKnowledge, stampImportedKnowledgeWithPayload } from "./analysis-import.js";
 import { importManifestKnowledge } from "./manifest-import.js";
+import { isHeuristicQuestion } from "./question-triage.js";
 import { buildAnnotatedListingView, buildCartridgeLayoutView, buildDiskLayoutView, buildFlowGraphView, buildLoadSequenceView, buildMediumLayoutView, buildMemoryMapView, buildProjectDashboardView } from "./view-builders.js";
 import { ProjectKnowledgeStorage, defaultProjectSlug } from "./storage.js";
 import { annotationSegmentsToOverlays, overlayCovering } from "./effective-segments.js";
@@ -4416,12 +4417,15 @@ export class ProjectKnowledgeService {
     return question;
   }
 
-  listOpenQuestions(filters?: { status?: string; priority?: string; entityId?: string; findingId?: string }): OpenQuestionRecord[] {
+  listOpenQuestions(filters?: { status?: string; priority?: string; entityId?: string; findingId?: string; excludeHeuristic?: boolean }): OpenQuestionRecord[] {
     return this.storage.loadOpenQuestions().items
       .filter((question) => !filters?.status || question.status === filters.status)
       .filter((question) => !filters?.priority || question.priority === filters.priority)
       .filter((question) => !filters?.entityId || question.entityIds.includes(filters.entityId))
       .filter((question) => !filters?.findingId || question.findingIds.includes(filters.findingId))
+      // Spec 748.2 (BUG-032): de-rot the default surface — drop heuristic
+      // analyze_prg validation prompts so the real questions are visible.
+      .filter((question) => !filters?.excludeHeuristic || !isHeuristicQuestion(question))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 

@@ -1752,24 +1752,36 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "list_open_questions",
-    "List saved open questions / ambiguities, with optional filters. Use to see what's still unresolved. Not for confirmed findings (use list_findings). Inputs: optional filters. Returns: question records (human-review sorted above heuristic noise).",
+    "List saved open questions / ambiguities, with optional filters. Use to see what's still unresolved. Not for confirmed findings (use list_findings). By default hides heuristic analyze_prg validation prompts (set include_heuristic=true to see them). Inputs: optional filters. Returns: question records + a count of hidden heuristic questions.",
     {
       project_dir: z.string().optional(),
       status: z.string().optional(),
       priority: z.string().optional(),
       entity_id: z.string().optional(),
       finding_id: z.string().optional(),
+      include_heuristic: z.boolean().optional().describe("Include auto-generated heuristic validation prompts (default false — they are hidden behind a count)."),
       limit: z.number().int().positive().max(200).optional(),
     },
-    safeHandler("list_open_questions", async ({ project_dir, status, priority, entity_id, finding_id, limit }) => {
+    safeHandler("list_open_questions", async ({ project_dir, status, priority, entity_id, finding_id, include_heuristic, limit }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
-      const questions = service.listOpenQuestions({ status, priority, entityId: entity_id, findingId: finding_id }).slice(0, limit ?? 50);
+      const questions = service.listOpenQuestions({
+        status, priority, entityId: entity_id, findingId: finding_id,
+        excludeHeuristic: !include_heuristic,
+      }).slice(0, limit ?? 50);
+      // Spec 748.2 — when hiding heuristic noise, report how many were hidden so
+      // the surface is honest about what it dropped.
+      let hiddenNote = "";
+      if (!include_heuristic) {
+        const hidden = service.listOpenQuestions({ status }).length
+          - service.listOpenQuestions({ status, excludeHeuristic: true }).length;
+        if (hidden > 0) hiddenNote = `\n\n(${hidden} heuristic validation question(s) hidden — pass include_heuristic=true to see them, or triage via auto_resolve_questions.)`;
+      }
       if (questions.length === 0) {
-        return textContent("No open questions matched the filters.");
+        return textContent(`No open questions matched the filters.${hiddenNote}`);
       }
       return textContent(questions.map((question) =>
         `${question.id} | ${question.status} | ${question.priority} | c=${question.confidence.toFixed(2)} | ${question.title}`,
-      ).join("\n"));
+      ).join("\n") + hiddenNote);
     },
 ));
 

@@ -3,6 +3,7 @@ import { basename, extname, resolve as resolvePath } from "node:path";
 import { createDiskParser, SECTORS_PER_TRACK, traceFileSectorChain, type DiskFileEntry } from "../disk/index.js";
 import { classifyArtifactInternal } from "./service.js";
 import { loadEffectiveSegments, overlayCovering, type AnnotationSegmentOverlay } from "./effective-segments.js";
+import { partitionQuestions } from "./question-triage.js";
 import { mapSegmentKindToEntityKind } from "./analysis-import.js";
 
 // Bug 26 / Spec 058 + this-session fix: legacy artifacts whose
@@ -395,9 +396,13 @@ function formatByteCount(sizeBytes: number): string {
 
 export function buildProjectDashboardView(context: ViewBuildContext): ProjectDashboardView {
   const openTasks = context.tasks.filter((task) => task.status !== "done" && task.status !== "wont_fix").sort(compareByUpdatedAt);
-  const openQuestions = context.openQuestions
+  // Spec 748.2 (BUG-032): split heuristic analyze_prg validation prompts out of
+  // the real questions so the dashboard surfaces the human-relevant ones (and
+  // counts the noise separately) instead of letting it bury the real question.
+  const activeOpenQuestions = context.openQuestions
     .filter((question) => question.status !== "answered" && question.status !== "invalidated" && question.status !== "deferred")
     .sort(compareByUpdatedAt);
+  const { real: openQuestions, heuristic: heuristicQuestions } = partitionQuestions(activeOpenQuestions);
   const activeFindings = context.findings
     .filter((finding) => finding.status !== "archived" && finding.status !== "rejected")
     .sort(compareByUpdatedAt);
@@ -422,7 +427,7 @@ export function buildProjectDashboardView(context: ViewBuildContext): ProjectDas
     {
       id: "overview-work-state",
       title: "Work State",
-      body: `${activeFindings.length} active findings, ${openTasks.length} open tasks, and ${openQuestions.length} open questions. ${latestCheckpoint ? `Latest checkpoint: ${latestCheckpoint.title}.` : "No checkpoint captured yet."}`,
+      body: `${activeFindings.length} active findings, ${openTasks.length} open tasks, and ${openQuestions.length} open questions${heuristicQuestions.length > 0 ? ` (+${heuristicQuestions.length} heuristic, untriaged)` : ""}. ${latestCheckpoint ? `Latest checkpoint: ${latestCheckpoint.title}.` : "No checkpoint captured yet."}`,
     },
     {
       id: "overview-current-focus",
