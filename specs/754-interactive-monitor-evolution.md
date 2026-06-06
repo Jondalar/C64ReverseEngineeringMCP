@@ -1,15 +1,16 @@
 # Spec 754 — Interactive Monitor evolution: VICE-superset over a shared capability layer
 
-**Status:** P1+P2+P3 DONE (2026-06-06, gate `e2e:754` 149/149). Block I read-inspect
+**Status:** P1+P2+P3 DONE (2026-06-06, gate `e2e:754` 152/152). Block I read-inspect
 (`device c64|drive8`, §3.3i) + `bitmap` RAM-as-PNG (§3.3b) + **Block F symbols &
 knowledge (§3.3f, incl. level-2 label↔entity bidirectional)** + **Block E v1.1
 observer actions** shipped. Block F: `label`/`unlabel`/`note`/`load_labels`/
 `save_labels` over the canonical UserLabelStore; `d`/`sd`/`df` annotate with the
 label AND keep the address (the VICE weakness fixed); precedence user label >
 knowledge entity > analysis segment label; a monitor label also creates a
-memory-address entity. Block E v1.1: `do mark`/`do cmd`, `cy` in conditions, `g`
-steps past an exec observer. Remaining: `do trace <scope>` (deferred — scoped
-capture lifecycle).
+memory-address entity. Block E v1.1: `do mark`/`do cmd`/`do trace [domains]|off`
+(bracket-model scoped capture), `cy` in conditions, `g` steps past an exec
+observer. **All observer actions now shipped** — only `bk`→observer facade-unify
+and observer×manual-stepping remain as minor follow-ups.
 **Explicitly out of "754 done" (own specs):** capability registry = Spec 760
 (deferred; verbs stay direct-dispatch); snapshot rename `snap`/`unsnap`↔`dump`/`undump`
 waits on the `.vsf` codec = Spec 755; 1541-CPU single-step on `drive8` = a Spec 612
@@ -246,8 +247,14 @@ trace bookmark, controller drains → `traceRun.mark`) + `do cmd "<mon-cmd>"` (r
 monitor command on hit, output streamed via `debug/observer_log`); both queued at the
 chunk boundary so they never re-enter the CPU loop, neither halts. `cy` (cycle count)
 added to the condition vocabulary. `g`/`x` step past an exec-observer at the current
-PC (not just a breakpoint). **Still deferred:** `do trace <scope>` (scoped-capture
-lifecycle); observer×manual-stepping; `bk`→observer facade-unify.
+PC (not just a breakpoint). **`do trace [domains]|off` DONE (2026-06-06, bracket
+model):** one observer starts a scoped capture (`captureAllDef` over c64-cpu/
+drive8-cpu/iec/vic/memory → `traceRun.start`), another stops it (`do trace off`);
+queued in fire(), drained at the controller chunk boundary; start no-ops if a
+trace is active, off no-ops if none. Event-bracketed hands-free capture into its
+own DuckDB — the "VICE can't do this" action. **Still deferred:**
+observer×manual-stepping; `bk`→observer facade-unify; `do trace … for <N>`
+time-boxed auto-stop (v1.2).
 
 
 The biggest "break free from VICE" decision. VICE's `break`/`watch`/`trace`/
