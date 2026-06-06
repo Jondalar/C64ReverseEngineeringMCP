@@ -1,7 +1,7 @@
 # Spec 758 — Static code-discovery completeness (indirect dispatch · self-mod operands · coherence code/data split)
 
-**Status:** §3.1 + §3.2 DONE (2026-06-06, gate `e2e:758` 4/4). §3.3 largely
-PRE-EXISTING; §4 = follow-up.
+**Status:** DONE — §3.1 + §3.2 + §4 (2026-06-06, gate `e2e:758` 6/6); §3.3 was
+already in place.
 - **§3.1 + §3.2 DONE:** `code-discovery.ts` runs recursive descent to a FIXED POINT
   — after the flow queue drains, `recoverSeeds()` resolves single indirect
   `jmp ($abs)` pointers and self-modified `jmp`/`jsr` operands (`lda #lo/sta J+1/
@@ -15,11 +15,17 @@ PRE-EXISTING; §4 = follow-up.
   illegal-opcode ratio, and needs hardware-touch or control-flow+store evidence.
   The Ranger 14 KB opd≈0.6 data is rejected by these already. So §3.3's core is in
   place; the open refinement is the §4 known-routine signal below.
-- **§4 FOLLOW-UP (open):** feed the cross-artifact known-routine map (Spec 759's
-  `resolveCrossArtifact`/`resolveAbi`) into the island scorer as a coherence
-  POSITIVE (a region whose `jsr`/`jmp` resolve to engine `api_*` is code), and seed
-  installed callback vectors. Best validated on the real Wasteland overlays; carries
-  rebuild-safety risk (must not loosen acceptance), so deferred from this slice.
+- **§4 DONE:** `probable-code.ts probeIsland` reads the cross-artifact known-routine
+  map (Spec 759 address-index + abi caches) and counts control-flow targets hitting a
+  known routine. A region calling ≥3 known routines scores higher AND is accepted with
+  no inbound reference / hardware touch (overlay handlers reached only via installed
+  engine vectors) — the coherence-positive lever. Rebuild-SAFE: the signal is null
+  without a project index, so standalone PRGs are unaffected (gate proves the
+  without-index case). Validated on a /tmp copy of the Wasteland overlays:
+  utils_overlay_7E00 code+islands 14% → 24% (+6 islands of engine-api-calling code).
+  (The "installed callback vector → seed" half of §4 — recovering handler entries the
+  overlay stores into engine vectors — is a remaining refinement; the coherence-
+  positive classification ships.)
 
 PROPOSED (2026-06-04)
 **Scope:** `pipeline/src/analysis/code-discovery.ts` (recursive-descent traversal +
