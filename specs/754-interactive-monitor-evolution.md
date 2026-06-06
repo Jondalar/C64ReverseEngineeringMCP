@@ -1,12 +1,15 @@
 # Spec 754 — Interactive Monitor evolution: VICE-superset over a shared capability layer
 
-**Status:** P1+P2+P3 DONE (2026-06-06, gate `e2e:754` 139/139). Block I read-inspect
+**Status:** P1+P2+P3 DONE (2026-06-06, gate `e2e:754` 149/149). Block I read-inspect
 (`device c64|drive8`, §3.3i) + `bitmap` RAM-as-PNG (§3.3b) + **Block F symbols &
-knowledge (§3.3f)** shipped. Block F: `label`/`unlabel`/`note`/`load_labels`/
+knowledge (§3.3f, incl. level-2 label↔entity bidirectional)** + **Block E v1.1
+observer actions** shipped. Block F: `label`/`unlabel`/`note`/`load_labels`/
 `save_labels` over the canonical UserLabelStore; `d`/`sd`/`df` annotate with the
-label AND keep the address (the VICE weakness fixed); analysis segment labels layer
-under user labels. Remaining: level-2 label→entity write-sync (deferred), Block E
-v1.1 observer actions `mark`/`cmd`/`trace <scope>`.
+label AND keep the address (the VICE weakness fixed); precedence user label >
+knowledge entity > analysis segment label; a monitor label also creates a
+memory-address entity. Block E v1.1: `do mark`/`do cmd`, `cy` in conditions, `g`
+steps past an exec observer. Remaining: `do trace <scope>` (deferred — scoped
+capture lifecycle).
 **Explicitly out of "754 done" (own specs):** capability registry = Spec 760
 (deferred; verbs stay direct-dispatch); snapshot rename `snap`/`unsnap`↔`dump`/`undump`
 waits on the `.vsf` codec = Spec 755; 1541-CPU single-step on `drive8` = a Spec 612
@@ -238,10 +241,13 @@ Motivating case (user, Wasteland loader): capture the call args at every
 `obs fcload: exec $FC00  $FD=03 $FE=00 $FF=C6 a=01 x=0E y=22 cyc=N` per call.
 Gate `e2e:754` Part F10 (a–f).
 
-**v1.1 TODO (remaining):** actions `mark`/`cmd`/`trace <scope>` (need
-controller/monitor wired into the registry); `cy` (cycle-in-line) in conditions;
-`g` skip-past an exec-observer addr (today it re-triggers); observer×manual-stepping
-interaction. `bk` stays its own breakpoint (facade-into-obs unify deferred).
+**v1.1 DONE (2026-06-06, e2e:754 Part F11):** actions `do mark ["label"]` (queues a
+trace bookmark, controller drains → `traceRun.mark`) + `do cmd "<mon-cmd>"` (runs a
+monitor command on hit, output streamed via `debug/observer_log`); both queued at the
+chunk boundary so they never re-enter the CPU loop, neither halts. `cy` (cycle count)
+added to the condition vocabulary. `g`/`x` step past an exec-observer at the current
+PC (not just a breakpoint). **Still deferred:** `do trace <scope>` (scoped-capture
+lifecycle); observer×manual-stepping; `bk`→observer facade-unify.
 
 
 The biggest "break free from VICE" decision. VICE's `break`/`watch`/`trace`/
@@ -322,9 +328,11 @@ needs ring+trace+rewind combined; a follow-up mode, not the default.
 bridge (ws-server → ProjectKnowledgeService). `d`/`sd`/`df` annotate via the index:
 the instruction's own address gets an asm-style `name:` line, an operand target gets
 `; → name`, and the numeric address ALWAYS stays (the VICE weakness fixed). Analysis
-effective-segment labels layer UNDER user labels (level-2 read). **Deferred:** the
-level-2 label→entity write-sync (a monitor label creating/linking a knowledge entity);
-the read direction (segment labels surfacing) ships now.
+effective-segment labels layer UNDER user labels. **Level-2 bidirectional DONE
+(2026-06-06):** a monitor `label` also upserts a memory-address knowledge entity
+(linked from the user label) so it shows in the UI/entity-lists/xref; conversely an
+existing entity with an address surfaces as a label in `d`/`sd`/`df`. Precedence:
+user label > knowledge entity > analysis segment label.
 
 Original decision (2026-06-03):
 The monitor becomes a front-end onto the knowledge layer (the §3.6 capability-layer
