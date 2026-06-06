@@ -1,6 +1,12 @@
 # Spec 759 — Cross-artifact symbol/ABI awareness in static disassembly (shift-left)
 
-**Status:** PROPOSED (2026-06-04) — mini-spec, user sidequest.
+**Status:** P1 DONE (2026-06-06, gate `e2e:759` 13/13). P2 (phase-1 consults) +
+P3 (ABI surfaces) open. P1 = `src/project-knowledge/address-index.ts`:
+`resolveCrossArtifact(addr)` (owner+label+kind, overlap-aware) + `resolveXrefs(addr)`
+(project-wide callers), both cached under `knowledge/.cache`, rebuilt on
+`_analysis.json` change. The Spec 754 monitor `inspect`/`xref` now use it →
+project-wide (fixed the empty `xref 0200`: cross-file callers were invisible).
+Verified on Wasteland_EF ($0200 → 6 cross-file callers, $022A → 3).
 **Scope:** the phase-1 static disassembler (`pipeline/src/analysis/code-discovery.ts`
 recursive descent + xref derivation, `pipeline/src/lib/prg-disasm.ts` rendering)
 + a NEW project-level address-knowledge index. Today phase-1 is **per-file**; this
