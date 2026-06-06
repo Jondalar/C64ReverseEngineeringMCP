@@ -30,10 +30,15 @@ because nothing makes the agent do it).
   via `project_steering_set` (default tool, cap 108→109), injected VERBATIM at the TOP
   of `agent_onboard` every session; a fresh project's onboard names the tool. Gate
   `e2e:748` 6/6.
-- **748.2 — Orchestrator teeth (OPEN).** Encode the post-action disciplines (record
-  finding + reconcile question; derive cartography after a load trace) as
-  state-derived `agent_next_step` recommendations. Closes the enforcement half of
-  BUG-032.
+- **748.2 — Orchestrator teeth (DONE, `e2e:748` 10/10).** Encodes the post-action
+  disciplines as state. T1: heuristic analyze_prg validation prompts hidden from the
+  default question surfaces behind a count (`isHeuristicQuestion`/`partitionQuestions`;
+  `listOpenQuestions({excludeHeuristic})`). T2: `agent_propose_next` emits an
+  ID-prefilled reconcile step when a real open question's address range overlaps an
+  active unlinked finding (`save_open_question status=answered
+  answered_by_finding_id=…`; `save_open_question` gained `address_range`). T3:
+  `ensureDefaultSteering` provisions the record/reconcile discipline into every
+  project's `steering.md`. Closes the enforcement half of BUG-032.
 - **748.3 — Trace→cartography extractor (OPEN).** A tool that reads a finalized
   `.c64retrace`/DuckDB, correlates drive-side sector reads (T/S) with the C64 store
   targets (load addr), and emits `loader-events` + `register_payload(medium_spans)`

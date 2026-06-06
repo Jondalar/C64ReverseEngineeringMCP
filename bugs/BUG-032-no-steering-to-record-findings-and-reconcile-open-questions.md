@@ -5,12 +5,23 @@
 - **Reporter:** llm
 - **Area:** mcp-tool / agent-steering (persona / whats-next / orchestrator)
 - **Severity:** medium
-- **Status:** partial <!-- open | investigating | fixed | wontfix | duplicate -->
-  <!-- Spec 748.1 ships the STEERING VEHICLE: <project>/knowledge/steering.md via
-  project_steering_set, injected verbatim at the top of agent_onboard every session
-  (e2e:748 6/6). That is the always-in-context place to state the record/reconcile
-  discipline. The ENFORCEMENT half (state-derived agent_next_step rules + the
-  heuristic-Q autogen lifecycle) is Spec 748.2 — still open. -->
+- **Status:** fixed <!-- open | investigating | fixed | wontfix | duplicate -->
+  <!-- Spec 748.1 shipped the STEERING VEHICLE (<project>/knowledge/steering.md via
+  project_steering_set, injected verbatim at the top of agent_onboard). Spec 748.2
+  (e2e:748 10/10) ships the ENFORCEMENT half:
+  - T1 de-rot: heuristic analyze_prg "Validate: …" prompts (source=heuristic-phase1
+    / kind=validation) are hidden from the default question surfaces behind a count
+    (isHeuristicQuestion/partitionQuestions); list_open_questions, the dashboard, and
+    the next-step candidates surface only the real questions (verified 242→10 real on
+    Wasteland_EF).
+  - T2 reconcile teeth: agent_propose_next emits a concrete, ID-prefilled reconcile
+    step when a real open question's address range overlaps an active finding not yet
+    linked to it (save_open_question status=answered answered_by_finding_id=…), so an
+    already-answered question no longer rots open. save_open_question gained
+    address_range for the match.
+  - T3 steering: ensureDefaultSteering provisions the record/reconcile discipline into
+    every project's steering.md (injected each agent_onboard).
+  Heuristic prompts remain triageable via auto_resolve_questions / archive_phase1_noise. -->
 
 ## Environment
 
