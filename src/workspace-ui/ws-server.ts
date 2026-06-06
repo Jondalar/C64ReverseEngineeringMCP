@@ -1917,8 +1917,13 @@ export class WsServer {
         }
         if (pop === "set") {
           const addr = Number(pargs.addr) & 0xffff;
-          const r = svc.saveUserLabel({ label: String(pargs.name), address: addr });
-          return `label $${labelHx(addr)} = ${r.label}`;
+          // Spec 754 §3.3f level-2 (bidirectional): a monitor label IS a knowledge
+          // entity (kind memory-address) so it shows in the UI / entity lists /
+          // xref, not just the monitor. The user-label store keeps the fast
+          // addr→name index + links to the entity.
+          const ent = svc.saveEntity({ kind: "memory-address", name: String(pargs.name), status: "active", addressRange: { start: addr, end: addr } });
+          const r = svc.saveUserLabel({ label: String(pargs.name), address: addr, targetKind: "address", targetId: ent.id });
+          return `label $${labelHx(addr)} = ${r.label}  (entity ${ent.id})`;
         }
         if (pop === "del") {
           const r = svc.removeUserLabel(String(pargs.key));
@@ -1984,8 +1989,13 @@ export class WsServer {
             for (const g of segs) if (g.label && !map.has(g.start & 0xffff)) map.set(g.start & 0xffff, g.label);
           }
         } catch { /* analysis labels are best-effort; user labels still apply */ }
+        const svc = new ProjectKnowledgeService(dir);
+        // Knowledge entities with an address surface as labels too (level-2 read).
+        for (const e of svc.listEntities()) {
+          if (e.addressRange && e.name) map.set(e.addressRange.start & 0xffff, e.name);
+        }
         // User labels win (highest precedence).
-        for (const [a, n] of new ProjectKnowledgeService(dir).buildUserLabelIndex().entries()) map.set(a, n);
+        for (const [a, n] of svc.buildUserLabelIndex().entries()) map.set(a, n);
         return [...map.entries()];
       };
       return runMonitorCommand(

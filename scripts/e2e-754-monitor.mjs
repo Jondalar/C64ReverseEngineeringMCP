@@ -801,14 +801,21 @@ console.log("\nSpec 754 — Part P: symbols & knowledge (Block F)\n");
   const svc = new ProjectKnowledgeService(dir);
   svc.initProject({ name: "blockF" });
   // projectLabels/labelIndex backed by the real service (mirrors ws-server).
+  // Mirror the ws-server bridge: set → entity + linked user label (level-2
+  // bidirectional); labelIndex aggregates entities under user labels.
   const projectLabels = async (op, a) => {
-    if (op === "set") { const r = svc.saveUserLabel({ label: String(a.name), address: Number(a.addr) & 0xffff }); return `label $${(Number(a.addr) & 0xffff).toString(16)} = ${r.label}`; }
+    if (op === "set") { const ad = Number(a.addr) & 0xffff; const e = svc.saveEntity({ kind: "memory-address", name: String(a.name), status: "active", addressRange: { start: ad, end: ad } }); const r = svc.saveUserLabel({ label: String(a.name), address: ad, targetKind: "address", targetId: e.id }); return `label $${ad.toString(16)} = ${r.label}  (entity ${e.id})`; }
     if (op === "del") { const r = svc.removeUserLabel(String(a.key)); return r ? `unlabeled ${r.label}` : `no label matching "${a.key}"`; }
     if (op === "list") { const ls = svc.listUserLabels(); return ls.length ? ls.map((l) => `$${l.addressRange.start.toString(16)}  ${l.label}`).join("\n") : "no user labels yet"; }
     if (op === "note") { const f = svc.saveFinding({ kind: "observation", title: `note @ $${(Number(a.addr) & 0xffff).toString(16)}`, summary: String(a.text), status: "active", addressRange: { start: Number(a.addr) & 0xffff, end: Number(a.addr) & 0xffff } }); return `note saved (finding ${f.id})`; }
     return "ok";
   };
-  const labelIndex = async () => [...svc.buildUserLabelIndex().entries()];
+  const labelIndex = async () => {
+    const m = new Map();
+    for (const e of svc.listEntities()) if (e.addressRange && e.name) m.set(e.addressRange.start & 0xffff, e.name);
+    for (const [ad, n] of svc.buildUserLabelIndex().entries()) m.set(ad, n);
+    return [...m.entries()];
+  };
   const { session, sessionId } = startIntegratedSession({});
   const ctx = { session, ctrl: new RuntimeController(sessionId, session, () => {}), sessionId, memCursors: new Map(), disasmCursors: new Map(), projectLabels, labelIndex, projectDir: dir };
   const mon = (c) => runMonitorCommand(ctx, c);
@@ -832,6 +839,14 @@ console.log("\nSpec 754 — Part P: symbols & knowledge (Block F)\n");
     ok("L7 label needs a name (usage guard)", /usage|name is required/.test((await mon("label c100")).error ?? ""));
     const df = (await mon("df 0810 1")).output ?? "";
     ok("L8 df (flow disasm) also annotates labels", /JSR \$c0f6/.test(df) && /; → init_io_video/.test(df), (df.split("\n").find((x) => /JSR/.test(x)) ?? ""));
+    // L9/L10 — level-2 bidirectional: label → entity, and a standalone entity
+    // surfaces as a label in the disassembly.
+    ok("L9 label set created a memory-address entity (bidirectional write)",
+      svc.listEntities().some((e) => e.kind === "memory-address" && e.name === "init_io_video" && e.addressRange?.start === 0xc0f6));
+    svc.saveEntity({ kind: "routine", name: "draw_globe", status: "active", addressRange: { start: 0x0820, end: 0x0820 } });
+    session.c64Bus.write(0x0813, 0x4c); session.c64Bus.write(0x0814, 0x20); session.c64Bus.write(0x0815, 0x08); // JMP $0820
+    const d2 = (await mon("d 0813 0815")).output ?? "";
+    ok("L10 a standalone knowledge entity surfaces as a label in d", /; → draw_globe/.test(d2), (d2.split("\n").find((x) => /JMP/.test(x)) ?? ""));
   } finally { stopIntegratedSession(sessionId); }
 }
 
