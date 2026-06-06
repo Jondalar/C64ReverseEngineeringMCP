@@ -500,6 +500,34 @@ export class RuntimeController {
       })();
     }
 
+    // Spec 754 §3.3e v1.1 — `do trace [domains]|off`: bracket-model scoped
+    // capture. One observer starts it, another stops it (explicit lifecycle).
+    const obsTrace = this.session.observers?.drainPendingTrace?.() ?? [];
+    if (obsTrace.length) {
+      void (async () => {
+        const { captureAllDef } = await import("../../../server-tools/runtime-trace-sink.js");
+        const { resolveSnapshotPath } = await import("../kernel/snapshot-persistence.js");
+        const log = (line: string) => this.broadcast("debug/observer_log", { session_id: this.sessionId, lines: [line] });
+        for (const t of obsTrace) {
+          try {
+            if (t.off) {
+              if (this.traceRun.isActive()) { const run = await this.traceRun.stop(); log(`obs ${t.name}: trace off — ${run.runId} events=${run.eventCount}`); }
+              else log(`obs ${t.name}: trace off (none active — ignored)`);
+            } else if (this.traceRun.isActive()) {
+              log(`obs ${t.name}: trace start skipped (a trace is already active)`);
+            } else {
+              const def = captureAllDef(t.domains as never);
+              const outputPath = resolveSnapshotPath(`runtime/${this.sessionId}/obs_${t.name}_${this.session.c64Cpu.cycles.toString(36)}.duckdb`);
+              const run = await this.traceRun.start(def, { controller: this, outputPath });
+              log(`obs ${t.name}: trace on — ${run.runId} domains=[${t.domains.join(",")}] → ${outputPath}`);
+            }
+          } catch (e) {
+            log(`obs ${t.name}: trace ERROR ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+      })();
+    }
+
     if (r.aborted === "breakpoint") {
       this.runState = "paused";
       const num = this.bpNumForAddr(r.lastPc);

@@ -817,9 +817,8 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       const lo = parseAddr(loS); const hi = hiS ? parseAddr(hiS) : lo;
       if (lo === null || hi === null) return { error: `obs: bad address '${addrTok}'` };
       const action = (rest[di + 1] ?? "").toLowerCase();
-      if (!["break", "log", "mark", "cmd"].includes(action)) {
-        if (action === "trace") return { error: "obs: action 'trace <scope>' is deferred (scoped-capture lifecycle) — use 'mark' to bookmark an active trace, or start an explicit trace" };
-        return { error: `obs: action must be break|log|mark|cmd, got '${action || "(none)"}'` };
+      if (!["break", "log", "mark", "cmd", "trace"].includes(action)) {
+        return { error: `obs: action must be break|log|mark|cmd|trace, got '${action || "(none)"}'` };
       }
       // `*`/`?` are reserved as del/on/off wildcards — keep them out of names so
       // the wildcard is unambiguous (and so a pasted *italic* name can't sneak in).
@@ -831,6 +830,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       let logExprs: LogExpr[] | undefined;
       let cmdSrc: string | undefined;
       let markLabel: string | undefined;
+      let traceScope: { off: boolean; domains: string[] } | undefined;
       if (action === "log" && exprToks.length) {
         const REG_FIELDS = new Set(["a", "x", "y", "sp", "pc", "fl"]);
         logExprs = [];
@@ -850,14 +850,27 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       } else if (action === "mark") {
         // do mark ["label"] — bookmark the active trace; default label = name.
         markLabel = [...cmd.matchAll(/"([^"]*)"/g)].map((x) => x[1])[0] || name;
+      } else if (action === "trace") {
+        // do trace off  |  do trace [domains...] — bracket model: one observer
+        // starts the scoped capture, another stops it (auto-stop is explicit).
+        const args = exprToks.map((t) => t.toLowerCase());
+        if (args[0] === "off") {
+          traceScope = { off: true, domains: [] };
+        } else {
+          const ALL = ["c64-cpu", "drive8-cpu", "iec", "vic", "memory"];
+          const bad = args.find((d) => !ALL.includes(d));
+          if (bad) return { error: `obs: trace: unknown domain '${bad}' (use ${ALL.join("|")} or 'off')` };
+          traceScope = { off: false, domains: args.length ? args : ["c64-cpu", "memory"] };
+        }
       } else if (action === "break" && exprToks.length) {
         return { error: `obs: 'break' takes no fields (got '${exprToks.join(" ")}')` };
       }
-      const res = reg.add({ name, trigger: trig as ObsTrigger, lo, hi, condSrc, action: action as ObsAction, logExprs, cmdSrc, markLabel });
+      const res = reg.add({ name, trigger: trig as ObsTrigger, lo, hi, condSrc, action: action as ObsAction, logExprs, cmdSrc, markLabel, traceScope });
       if ("error" in res) return { error: `obs: condition: ${res.error}` };
       const doDesc = logExprs && logExprs.length ? `log ${exprToks.join(" ")}`
         : action === "cmd" ? `cmd "${cmdSrc}"`
         : action === "mark" ? `mark "${markLabel}"`
+        : action === "trace" ? (traceScope!.off ? "trace off" : `trace ${traceScope!.domains.join(" ")}`)
         : action;
       return { output: `obs ${name}: ${trig} $${hex(lo, 4)}${hi !== lo ? `..${hex(hi, 4)}` : ""}${condSrc ? ` if ${condSrc}` : ""} do ${doDesc}` };
     }

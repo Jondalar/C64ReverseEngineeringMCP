@@ -48,6 +48,7 @@ export interface Observer {
   logExprs?: LogExpr[]; // `do log <exprs>` fields; empty/absent = default line
   cmdSrc?: string;      // `do cmd "<mon-cmd>"` — command run on hit (v1.1)
   markLabel?: string;   // `do mark ["label"]` — trace bookmark on hit (v1.1)
+  traceScope?: { off: boolean; domains: string[] }; // `do trace [domains]|off` (v1.1)
   enabled: boolean;
   hits: number;
   ignoreLeft: number;
@@ -132,6 +133,7 @@ export class ObserverRegistry {
   // action never re-enters the CPU loop mid-instruction.
   private readonly pendingMarks: string[] = [];
   private readonly pendingCmds: string[] = [];
+  private readonly pendingTrace: Array<{ off: boolean; domains: string[]; name: string }> = [];
   private observers: Observer[] = [];
   private cpu: ObservableCpu | null = null;
 
@@ -140,7 +142,7 @@ export class ObserverRegistry {
   attach(cpu: ObservableCpu): void { this.cpu = cpu; this.rebuild(); }
 
   /** Parse + register an observer. Returns the created observer or an error. */
-  add(spec: { name: string; trigger: ObsTrigger; lo: number; hi: number; condSrc?: string; action: ObsAction; logExprs?: LogExpr[]; cmdSrc?: string; markLabel?: string }): Observer | { error: string } {
+  add(spec: { name: string; trigger: ObsTrigger; lo: number; hi: number; condSrc?: string; action: ObsAction; logExprs?: LogExpr[]; cmdSrc?: string; markLabel?: string; traceScope?: { off: boolean; domains: string[] } }): Observer | { error: string } {
     let cond: CondNode | undefined;
     if (spec.condSrc) {
       try { cond = parseCond(spec.condSrc); } catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
@@ -150,7 +152,7 @@ export class ObserverRegistry {
       name: spec.name, trigger: spec.trigger, lo: spec.lo & 0xffff, hi: spec.hi & 0xffff,
       condSrc: spec.condSrc, cond, action: spec.action,
       logExprs: spec.logExprs && spec.logExprs.length ? spec.logExprs : undefined,
-      cmdSrc: spec.cmdSrc, markLabel: spec.markLabel,
+      cmdSrc: spec.cmdSrc, markLabel: spec.markLabel, traceScope: spec.traceScope,
       enabled: true, hits: 0, ignoreLeft: 0,
     };
     if (existing >= 0) this.observers[existing] = obs; else this.observers.push(obs);
@@ -246,8 +248,10 @@ export class ObserverRegistry {
     if (o.action === "mark") { this.pendingMarks.push(o.markLabel || o.name); return false; }
     // cmd — run a monitor command on hit (controller drains → runMonitorCommand).
     if (o.action === "cmd") { if (o.cmdSrc) this.pendingCmds.push(o.cmdSrc); return false; }
-    // log (= VICE tracepoint): print + continue. (`trace` falls through to a
-    // log line until the scoped-capture action ships.)
+    // trace — start/stop a scoped capture on hit (bracket model; controller
+    // drains → traceRun.start/stop). Queue both so a start+stop pair brackets it.
+    if (o.action === "trace") { if (o.traceScope) this.pendingTrace.push({ ...o.traceScope, name: o.name }); return false; }
+    // log (= VICE tracepoint): print + continue.
     const where = o.trigger === "exec" ? `exec $${hx4(pc)}` : `${o.trigger} $${hx4(addr ?? 0)}=$${hx2(value ?? 0)}`;
     const fields = o.logExprs && o.logExprs.length
       ? this.renderLogExprs(o.logExprs, pc)
@@ -260,6 +264,8 @@ export class ObserverRegistry {
   drainPendingMarks(): string[] { return this.pendingMarks.splice(0, this.pendingMarks.length); }
   /** Drain the monitor commands queued by `do cmd` observers since last call. */
   drainPendingCmds(): string[] { return this.pendingCmds.splice(0, this.pendingCmds.length); }
+  /** Drain the trace start/stop requests queued by `do trace` observers. */
+  drainPendingTrace(): Array<{ off: boolean; domains: string[]; name: string }> { return this.pendingTrace.splice(0, this.pendingTrace.length); }
 
   /** Render `do log <exprs>` fields against the current CPU + memory state. */
   private renderLogExprs(exprs: readonly LogExpr[], pc: number): string {

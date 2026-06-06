@@ -397,7 +397,17 @@ console.log("\nSpec 754 — Part F: observers (Block E)\n");
     ok("F11g `cy` (cycle count) usable in a condition", rr.aborted === "observer", `aborted=${rr.aborted}`);
     await mon("obs cyt del");
 
-    ok("F11h `do trace <scope>` is rejected as deferred", /deferred/.test((await mon("obs tr when exec $c008 do trace x")).error ?? ""));
+    // F11h–k — `do trace [domains]|off` (bracket model): parse, echo, queue.
+    setup();
+    const trOn = await mon("obs tron when exec $c008 do trace c64-cpu memory");
+    ok("F11h `do trace <domains>` parses + echoes", /do trace c64-cpu memory/.test(trOn.output ?? ""), trOn.output);
+    session.runFor(2000);
+    const tq = session.observers.drainPendingTrace?.() ?? [];
+    ok("F11i `do trace` queued a start request with the domains", tq.some((t) => !t.off && t.domains.includes("c64-cpu") && t.domains.includes("memory")));
+    await mon("obs tron del");
+    const trOff = await mon("obs troff when exec $c008 do trace off");
+    ok("F11j `do trace off` parses + echoes", /do trace off/.test(trOff.output ?? ""), trOff.output);
+    ok("F11k unknown trace domain is rejected", /unknown domain/.test((await mon("obs trbad when exec $c008 do trace bogus")).error ?? ""));
     await mon("obs * del");
   } finally { ctrl.pause(); stopIntegratedSession(sessionId); }
 }
