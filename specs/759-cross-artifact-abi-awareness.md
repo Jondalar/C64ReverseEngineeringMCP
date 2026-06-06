@@ -1,7 +1,15 @@
 # Spec 759 — Cross-artifact symbol/ABI awareness in static disassembly (shift-left)
 
-**Status:** P1 + P2 DONE (2026-06-06, gate `e2e:759` 14/14). P3 (declared ABI
-surfaces + transitive entry→JMP-target) open. P1 = `src/project-knowledge/
+**Status:** DONE — P1 + P2 + P3 (2026-06-06, gate `e2e:759` 17/17). P3 = the ABI
+jumptable decoder: `buildAbiIndex`/`resolveAbi` read entry→target from the PRG
+bytes at the named (annotation-labelled) dispatch entries (the table is "unknown"/
+not disassembled + the entries are irregularly aligned, so neither segments nor
+xrefs carry the link). The pipeline call comment + monitor inspect follow the ABI
+entry to the body. Verified on Wasteland_EF: 207 ABI entries; block3 shows 42
+transitive calls (api_turn_advance → $2514, api_print_string → print_string $1DD2,
+api_loader_entry_b → loader_entry_b). Follow-up ideas only: emit a real extern
+label in the .asm (rebuild permitting) instead of a comment; per-load-context
+overlap scoping (OQ2) when overlays clash. P1 = `src/project-knowledge/
 address-index.ts`: `resolveCrossArtifact(addr)` (owner+label+kind, overlap-aware,
 incl. annotation point labels) + `resolveXrefs(addr)` (project-wide callers),
 cached under `knowledge/.cache`, rebuilt on `_analysis.json` change. The Spec 754
