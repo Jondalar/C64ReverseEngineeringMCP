@@ -301,7 +301,16 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       if (p?.session_id && p.session_id !== sessionId) return;
       setRunState?.("running");
     });
-    return () => { offHit(); offObsHit(); offStopped(); offPaused(); offRunning(); };
+    // Spec 761 — a checkpoint restore (scrub seek with then:"keep") rolls the
+    // machine back but does NOT emit stopped/paused, so the canvas would keep
+    // showing the stale pre-scrub frame. Grab a fresh frame so the picture
+    // matches the rolled-back state. (then:"run" resumes the frame stream on
+    // its own; harmless to also grab once here.)
+    const offRestored = client.onNotification("debug/checkpoint_restored", (p: any) => {
+      if (p?.session_id && p.session_id !== sessionId) return;
+      grabScreenshot.current();
+    });
+    return () => { offHit(); offObsHit(); offStopped(); offPaused(); offRunning(); offRestored(); };
   }, [sessionId, setRunState]);
 
   // Drive + cart status poll
