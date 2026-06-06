@@ -206,6 +206,28 @@ export class RuntimeCheckpointRing {
     return ref;
   }
 
+  /**
+   * Spec 761 — drop anchors AFTER `id` (resume-from-X = a new timeline; the old
+   * future is now stale). Pinned anchors are kept (the user's marked reference
+   * points survive). Returns the number removed. No-op if `id` is unknown.
+   */
+  truncateAfter(id: string, opts: { keepPinned?: boolean } = {}): number {
+    const idx = this.entries.findIndex((x) => x.id === id);
+    if (idx < 0) return 0;
+    const keepPinned = opts.keepPinned !== false;
+    let removed = 0;
+    // walk from the newest down to just-after idx so splices don't shift the cut
+    for (let i = this.entries.length - 1; i > idx; i--) {
+      const e = this.entries[i]!;
+      if (keepPinned && e.pinned) continue;
+      this.entries.splice(i, 1);
+      this.totalBytes -= e.byteSize;
+      for (const hash of Object.values(e.blobHashes)) this.releaseDiskImage(hash);
+      removed++;
+    }
+    return removed;
+  }
+
   /** The stored MachineSnapshot for `id` (for the kernel to restore), or undefined.
    *  Spec 714.4 — rehydrate the pooled disk image into a shallow payload view so
    *  the returned snapshot carries the exact `driveDiskImage` bytes (the stored

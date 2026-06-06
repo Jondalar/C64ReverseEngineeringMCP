@@ -131,6 +131,22 @@ try {
   gate("4b restore rolls the disk content back to the anchor (mutable-wins)",
     diskRolledBack === diskAnchor && diskRolledBack !== diskAfterWrite,
     `rolledBack=${diskRolledBack.toString(16)} anchor=${diskAnchor.toString(16)}`);
+
+  // ---- Test 5: resume-from-X truncates the (now-stale) future anchors -------
+  // Capture A2, B, C; pin C; resume-from-A2 (then:run) → B is dropped (stale
+  // future) but A2 (branch point, auto-pinned) and the pinned C survive.
+  const a2 = await ctrl.captureCheckpoint();
+  session.runFor(100_000, { cycleBudget: 100_000 });
+  const b = await ctrl.captureCheckpoint();
+  session.runFor(100_000, { cycleBudget: 100_000 });
+  const cph = await ctrl.captureCheckpoint();
+  ctrl.checkpointRing.pin(cph.id);
+  await ctrl.restoreCheckpoint(a2.id, { then: "run" });
+  ctrl.pause(); // stop the loop the resume started so the test can exit
+  const ids = new Set(ctrl.checkpointRing.list().map((r) => r.id));
+  gate("5 resume-from-X drops the stale future anchor (unpinned)", !ids.has(b.id), `B present=${ids.has(b.id)}`);
+  gate("5b resume keeps the branch point (auto-pinned)", ids.has(a2.id), `A2 present=${ids.has(a2.id)}`);
+  gate("5c resume keeps a PINNED future anchor (reference point survives)", ids.has(cph.id), `C present=${ids.has(cph.id)}`);
 } finally {
   stopIntegratedSession(sessionId);
 }

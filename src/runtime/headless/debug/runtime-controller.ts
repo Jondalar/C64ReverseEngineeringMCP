@@ -382,6 +382,10 @@ export class RuntimeController {
     await this.restoreFromSnapshot(snap, { ref, pause: then === "pause" });
     if (then === "run") {
       this.checkpointRing.pin(id); // OQ2 — keep the branch point alive
+      // Spec 761 — resuming from X starts a NEW timeline; the anchors after X
+      // belong to the old future that no longer happens. Drop them (pinned
+      // reference points are kept) so the scrub bar reflects the live branch.
+      this.checkpointRing.truncateAfter(id, { keepPinned: true });
       this.run();
     }
     return ref;
