@@ -12,7 +12,7 @@ let pass = 0; const fail = [];
 const ok = (n, c, d = "") => { if (c) { pass++; console.log(`  PASS  ${n}${d ? `  (${d})` : ""}`); } else { fail.push(n); console.log(`  FAIL  ${n}${d ? `  (${d})` : ""}`); } };
 
 if (!existsSync(join(ROOT, "dist/project-knowledge/address-index.js"))) { console.error("build:mcp first"); process.exit(2); }
-const { buildAddressIndex, resolveCrossArtifact, loadAddressIndex } =
+const { buildAddressIndex, resolveCrossArtifact, loadAddressIndex, resolveXrefs } =
   await import("../dist/project-knowledge/address-index.js");
 
 console.log("Spec 759 — project address-knowledge index\n");
@@ -27,6 +27,11 @@ writeFileSync(join(dir, "engine", "block2_engine_0200_analysis.json"), JSON.stri
 }));
 writeFileSync(join(dir, "game", "block3_game_7E00_analysis.json"), JSON.stringify({
   segments: [seg("code", 0x7e00, 0x7e02, "block3_entry"), seg("code", 0x7e03, 0x7eff)],
+  // block3 calls DOWN into the engine API table (cross-file xref).
+  codeAnalysis: { xrefs: [
+    { sourceAddress: 0x7e10, targetAddress: 0x0250, type: "call", operandText: "$0250" },
+    { sourceAddress: 0x7e20, targetAddress: 0x2520, type: "jump" },
+  ] },
 }));
 // An overlay sharing $7E00 (overlap/banking case, OQ2).
 writeFileSync(join(dir, "game", "char_overlay_7E00_analysis.json"), JSON.stringify({
@@ -58,6 +63,17 @@ ok("7 an unowned address resolves to nothing", miss.length === 0);
 
 ok("8 excludeOwner drops the querying artifact (cross-file only)",
   resolveCrossArtifact(dir, 0x7e01, { excludeOwner: "char_overlay_7E00" }).every((h) => h.owner !== "char_overlay_7E00"));
+
+// P1b — project-wide xref aggregation: the engine API address sees its
+// cross-file caller in block3 (the empty `xref 0200` fix).
+const xr = resolveXrefs(dir, 0x0250);
+ok("10 cross-file caller resolves project-wide (block3 → engine $0250)",
+  xr.into.length === 1 && xr.into[0].owner === "block3_game_7E00" && xr.into[0].source === 0x7e10,
+  xr.into[0] ? `${xr.into[0].owner} $${xr.into[0].source.toString(16)}` : "(none)");
+ok("11 the caller's own out-refs list its targets",
+  resolveXrefs(dir, 0x7e10).outof.some((x) => x.target === 0x0250));
+ok("12 an address with no xrefs is empty both ways",
+  resolveXrefs(dir, 0x9999).into.length === 0 && resolveXrefs(dir, 0x9999).outof.length === 0);
 
 // Cache: a second load returns the same data + writes the cache file.
 const cached = loadAddressIndex(dir);

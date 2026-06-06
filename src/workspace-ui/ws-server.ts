@@ -1859,35 +1859,25 @@ export class WsServer {
           }
           throw new Error(`no symbol named "${name}" in the project analysis`);
         }
-        // Range-match via a small head read (avoid parsing multi-MB files).
-        let hit: string | undefined;
-        for (const p of candidates) {
-          let head = "";
-          try { const fd = fs.openSync(p, "r"); const buf = Buffer.alloc(4096); const n = fs.readSync(fd, buf, 0, 4096, 0); fs.closeSync(fd); head = buf.subarray(0, n).toString("utf8"); } catch { continue; }
-          const ms = head.match(/"startAddress"\s*:\s*(\d+)/); const me = head.match(/"endAddress"\s*:\s*(\d+)/);
-          if (!ms || !me) continue;
-          if (addr >= Number(ms[1]) && addr <= Number(me[1])) { hit = p; break; }
-        }
-        if (!hit) throw new Error(`no _analysis.json covers $${addr.toString(16)}${stem ? ` (stem ${stem})` : ""}`);
-        const { loadEffectiveSegments } = await import("../project-knowledge/effective-segments.js");
-        const report: any = JSON.parse(fs.readFileSync(hit, "utf8"));
-        const { segments } = loadEffectiveSegments(hit);
-        const xrefs: any[] = [...(report.codeAnalysis?.xrefs ?? []), ...(report.probableCodeAnalysis?.xrefs ?? [])];
-        const aStem = path.basename(hit).replace(/_analysis\.json$/, "");
+        // Spec 759 P1b — PROJECT-WIDE resolution via the address/xref index
+        // (was a single-file head-read scan, so a cross-file caller like
+        // block3 → engine $0200 was invisible → empty `xref 0200`).
         const hx = (n: number) => (n & 0xffff).toString(16).padStart(4, "0");
+        const { resolveCrossArtifact, resolveXrefs } = await import("../project-knowledge/address-index.js");
+        const owners = resolveCrossArtifact(projectDir, addr);
+        const { into, outof } = resolveXrefs(projectDir, addr);
         if (pop === "inspect") {
-          const seg = segments.find((g: any) => addr >= g.start && addr <= g.end);
-          const lines = [`inspect $${hx(addr)} — artifact ${aStem}`];
-          lines.push(seg ? `  segment $${hx(seg.start)}..$${hx(seg.end)} ${seg.kind}${seg.label ? ` (${seg.label})` : ""}` : "  (no segment at this address)");
-          const into = xrefs.filter((x) => x.targetAddress === addr).slice(0, 8);
-          if (into.length) { lines.push("  xrefs in:"); for (const x of into) lines.push(`    <- $${hx(x.sourceAddress)} ${x.type}`); }
+          const lines = [`inspect $${hx(addr)}`];
+          if (owners.length === 0) lines.push("  (no analyzed artifact owns this address)");
+          else for (const o of owners) lines.push(`  ${o.owner}: $${hx(o.start)}..$${hx(o.end)} ${o.kind}${o.label ? ` (${o.label})` : ""}`);
+          if (owners.length > 1) lines.push(`  (${owners.length} owners — overlay/banking overlap)`);
+          if (into.length) { lines.push(`  callers (${into.length}):`); for (const x of into.slice(0, 8)) lines.push(`    <- ${x.owner} $${hx(x.source)} ${x.type}`); }
           return lines.join("\n");
         }
-        const into = xrefs.filter((x) => x.targetAddress === addr);
-        const outof = xrefs.filter((x) => x.sourceAddress === addr);
-        const lines = [`xref $${hx(addr)} — artifact ${aStem}  (in:${into.length} out:${outof.length})`];
-        for (const x of into.slice(0, 16)) lines.push(`  <- $${hx(x.sourceAddress)} ${x.type}${x.operandText ? ` ${x.operandText}` : ""}`);
-        for (const x of outof.slice(0, 16)) lines.push(`  -> $${hx(x.targetAddress)} ${x.type}`);
+        const lines = [`xref $${hx(addr)}  (in:${into.length} out:${outof.length}, project-wide)`];
+        for (const x of into.slice(0, 16)) lines.push(`  <- ${x.owner} $${hx(x.source)} ${x.type}${x.operandText ? ` ${x.operandText}` : ""}`);
+        for (const x of outof.slice(0, 16)) lines.push(`  -> $${hx(x.target)} ${x.type}`);
+        if (!into.length && !outof.length) lines.push("  (no cross-references in any analyzed artifact)");
         return lines.join("\n");
       };
       // Spec 754 §3.3f (Block F) — user-label write bridge + addr→name index.

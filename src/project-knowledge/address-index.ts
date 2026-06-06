@@ -100,3 +100,55 @@ export function resolveCrossArtifact(
     .sort((x, y) => (x.end - x.start) - (y.end - y.start))
     .map((e) => ({ owner: e.owner, label: e.label, kind: e.kind, start: e.start, end: e.end }));
 }
+
+// --- cross-artifact xref index (Spec 759 §3.3 / P1b) ---------------------
+// Today the monitor `xref` only sees the file that OWNS the address, so a
+// cross-file caller (block3 → engine $0200) is invisible. This aggregates the
+// xrefs of EVERY artifact, so "who references $0200" spans the whole project.
+
+export interface XrefEntry { owner: string; source: number; target: number; type: string; operandText?: string; }
+
+const XREF_CACHE_RELPATH = join("knowledge", ".cache", "xref-index.json");
+
+export function buildXrefIndex(projectDir: string): XrefEntry[] {
+  const out: XrefEntry[] = [];
+  for (const p of findAnalysisJsons(projectDir)) {
+    const stem = basename(p).replace(/_analysis\.json$/, "");
+    let report: { codeAnalysis?: { xrefs?: unknown[] }; probableCodeAnalysis?: { xrefs?: unknown[] } };
+    try { report = JSON.parse(readFileSync(p, "utf8")); } catch { continue; }
+    const xrefs = [...(report.codeAnalysis?.xrefs ?? []), ...(report.probableCodeAnalysis?.xrefs ?? [])] as Array<{ sourceAddress?: number; targetAddress?: number; type?: string; operandText?: string }>;
+    for (const x of xrefs) {
+      if (typeof x.sourceAddress !== "number" || typeof x.targetAddress !== "number") continue;
+      out.push({ owner: stem, source: x.sourceAddress & 0xffff, target: x.targetAddress & 0xffff, type: x.type ?? "ref", operandText: x.operandText });
+    }
+  }
+  return out;
+}
+
+export function loadXrefIndex(projectDir: string): XrefEntry[] {
+  const cachePath = join(projectDir, XREF_CACHE_RELPATH);
+  const jsons = findAnalysisJsons(projectDir);
+  const newest = jsons.reduce((m, p) => { try { return Math.max(m, statSync(p).mtimeMs); } catch { return m; } }, 0);
+  try {
+    if (existsSync(cachePath)) {
+      const cached = JSON.parse(readFileSync(cachePath, "utf8")) as { builtMs: number; xrefs: XrefEntry[] };
+      if (cached.builtMs >= newest) return cached.xrefs;
+    }
+  } catch { /* rebuild */ }
+  const xrefs = buildXrefIndex(projectDir);
+  try {
+    mkdirSync(dirname(cachePath), { recursive: true });
+    writeFileSync(cachePath, JSON.stringify({ builtMs: Date.now(), xrefs }));
+  } catch { /* best-effort */ }
+  return xrefs;
+}
+
+/** Project-wide xrefs touching `addr`: `into` = callers anywhere, `outof` = its own refs. */
+export function resolveXrefs(projectDir: string, addr: number): { into: XrefEntry[]; outof: XrefEntry[] } {
+  const a = addr & 0xffff;
+  const idx = loadXrefIndex(projectDir);
+  return {
+    into: idx.filter((x) => x.target === a),
+    outof: idx.filter((x) => x.source === a),
+  };
+}
