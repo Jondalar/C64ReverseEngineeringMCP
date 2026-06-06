@@ -151,7 +151,7 @@ export function disasmLine(
   // Spec 754 §3.3f (Block F) — annotate with user/segment labels. The numeric
   // address is ALWAYS kept (operand hex stays); the name is added as a comment,
   // and the instruction's OWN address gets an asm-style `name:` line above it.
-  // Both label AND address stay visible (the VICE weakness we fix).
+  // Both the label AND the numeric address stay visible together.
   if (labels) {
     const tgt = di.target ?? (di.size === 3 ? di.operand : undefined);
     const tname = tgt !== undefined ? labels.get(tgt & 0xffff) : undefined;

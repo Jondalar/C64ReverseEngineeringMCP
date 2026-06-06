@@ -5,7 +5,7 @@
 knowledge (§3.3f, incl. level-2 label↔entity bidirectional)** + **Block E v1.1
 observer actions** shipped. Block F: `label`/`unlabel`/`note`/`load_labels`/
 `save_labels` over the canonical UserLabelStore; `d`/`sd`/`df` annotate with the
-label AND keep the address (the VICE weakness fixed); precedence user label >
+label AND keep the address (label and address stay visible together); precedence user label >
 knowledge entity > analysis segment label; a monitor label also creates a
 memory-address entity. Block E v1.1: `do mark`/`do cmd`/`do trace [domains]|off`
 (bracket-model scoped capture), `cy` in conditions, `g` steps past an exec
@@ -190,7 +190,7 @@ spec-wide principle the user set — cf. `m cpu` over `c:`): drop the bare `>`.
   a **vectors block** (variant B). Always show the vectors (crack-gold: where the
   IRQ/NMI RAM-vector actually points = what loaders/cracks hijack). Inside an
   interrupt, the flow field shows the FlowTracker frame (`IRQ ◀ from MAIN @ $E5CD
-  (entered cyc+35)`) — VICE cannot do this. Shape:
+  (entered cyc+35)`) — a capture-time fold beyond a raw trace. Shape:
   ```
   > r
     ADDR AC XR YR SP NV-BDIZC  flow
@@ -252,7 +252,7 @@ model):** one observer starts a scoped capture (`captureAllDef` over c64-cpu/
 drive8-cpu/iec/vic/memory → `traceRun.start`), another stops it (`do trace off`);
 queued in fire(), drained at the controller chunk boundary; start no-ops if a
 trace is active, off no-ops if none. Event-bracketed hands-free capture into its
-own DuckDB — the "VICE can't do this" action. **Still deferred:**
+own DuckDB — event-bracketed, hands-free scoped capture. **Still deferred:**
 observer×manual-stepping; `bk`→observer facade-unify; `do trace … for <N>`
 time-boxed auto-stop (v1.2).
 
@@ -270,7 +270,7 @@ obs <name> when <trigger> [if <cond>] do <action>      # verb `obs`, shortcut `o
 - **condition** (encapsulated, optional) = regs `a/x/y/pc/sp/fl` + `rl` (rasterline)
   + `cy` (cycle-in-line) + ops `== != < > <= >= && ||` + parens.
 - **action** = `break` (default) · `log` (print + continue = VICE tracepoint) ·
-  `trace <scope>` (event-driven scoped capture — VICE can't) · `cmd "<mon-cmd>"`
+  `trace <scope>` (event-driven scoped capture) · `cmd "<mon-cmd>"`
   (= VICE command) · `mark` (drop a trace bookmark / checkpoint mark).
 - **`bk <addr>` stays** as a convenience that creates an exec-observer with
   `do break` behind the scenes (muscle memory).
@@ -334,7 +334,7 @@ needs ring+trace+rewind combined; a follow-up mode, not the default.
 `buildUserLabelIndex` service layer and a runtime-pure `projectLabels`/`labelIndex`
 bridge (ws-server → ProjectKnowledgeService). `d`/`sd`/`df` annotate via the index:
 the instruction's own address gets an asm-style `name:` line, an operand target gets
-`; → name`, and the numeric address ALWAYS stays (the VICE weakness fixed). Analysis
+`; → name`, and the numeric address ALWAYS stays (label and address stay visible together). Analysis
 effective-segment labels layer UNDER user labels. **Level-2 bidirectional DONE
 (2026-06-06):** a monitor `label` also upserts a memory-address knowledge entity
 (linked from the user label) so it shows in the UI/entity-lists/xref; conversely an
@@ -356,7 +356,7 @@ note <addr> "<text>"    drop a finding/comment from the monitor (persists)
   entities/symbols. **Bidirectional:** a monitor `label` creates/links a knowledge
   entity; existing symbols/findings surface as monitor labels.
 - **`xref <addr>`** — callers/callees/reads/writes from `crossReferences`. A real
-  crack win VICE can't do ("who writes $d018?" → list).
+  crack win beyond a raw trace ("who writes $d018?" → list).
 - **`note`** — set a finding straight from the monitor (instead of the `save_finding`
   tool). The monitor as a knowledge front-end.
 - `d` disassembly shows labels/comments/xref **inline** (annotated, couples §3.3b) —
