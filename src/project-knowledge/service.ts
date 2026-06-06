@@ -47,6 +47,7 @@ import type {
   FindingRecord,
   FlowRecord,
   OpenQuestionRecord,
+  UserLabelOverride,
   ProjectCheckpoint,
   ProjectMetadata,
   PreferredAssembler,
@@ -4427,6 +4428,83 @@ export class ProjectKnowledgeService {
       // analyze_prg validation prompts so the real questions are visible.
       .filter((question) => !filters?.excludeHeuristic || !isHeuristicQuestion(question))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  // --- Spec 754 §3.3f (Block F) — user labels (canonical addr→name store) ---
+  // The dormant UserLabelStore (storage already had load/save) becomes the ONE
+  // place the monitor reads + writes symbols. addr→name resolution layers user
+  // labels (highest precedence) over the analysis effective-segment labels.
+
+  /** Create/replace a user label. A second label at the same start address
+   *  replaces the first (re-labelling), unless an explicit id is given. */
+  saveUserLabel(input: {
+    id?: string;
+    label: string;
+    address?: number;
+    addressRange?: { start: number; end: number; bank?: number; label?: string };
+    note?: string;
+    targetKind?: UserLabelOverride["targetKind"];
+    targetId?: string;
+  }): UserLabelOverride {
+    const store = this.storage.loadUserLabels();
+    const ts = nowIso();
+    const range =
+      input.addressRange ??
+      (input.address !== undefined ? { start: input.address & 0xffff, end: input.address & 0xffff } : undefined);
+    const targetKind = input.targetKind ?? "address";
+    const existing = input.id
+      ? store.items.find((item) => item.id === input.id)
+      : range && targetKind === "address"
+        ? store.items.find((item) => item.targetKind === "address" && item.addressRange?.start === range.start)
+        : undefined;
+    const record: UserLabelOverride = {
+      id: input.id ?? existing?.id ?? createId("label", input.label),
+      kind: "label-override",
+      label: input.label,
+      targetKind,
+      targetId: input.targetId ?? existing?.targetId,
+      addressRange: range ?? existing?.addressRange,
+      note: input.note ?? existing?.note,
+      createdAt: existing?.createdAt ?? ts,
+      updatedAt: ts,
+    };
+    this.storage.saveUserLabels({ ...store, updatedAt: ts, items: upsertRecord(store.items, record) });
+    return record;
+  }
+
+  /** All user labels, sorted by address. */
+  listUserLabels(): UserLabelOverride[] {
+    return this.storage
+      .loadUserLabels()
+      .items.slice()
+      .sort((a, b) => (a.addressRange?.start ?? 0) - (b.addressRange?.start ?? 0));
+  }
+
+  /** Remove a user label by id, exact name, or `$addr`/`addr` (hex). */
+  removeUserLabel(key: string): UserLabelOverride | undefined {
+    const store = this.storage.loadUserLabels();
+    const addr = /^\$?[0-9a-fA-F]{1,4}$/.test(key) ? parseInt(key.replace(/^\$/, ""), 16) & 0xffff : undefined;
+    const idx = store.items.findIndex(
+      (item) =>
+        item.id === key ||
+        item.label === key ||
+        (addr !== undefined && item.targetKind === "address" && item.addressRange?.start === addr),
+    );
+    if (idx < 0) return undefined;
+    const [removed] = store.items.splice(idx, 1);
+    this.storage.saveUserLabels({ ...store, updatedAt: nowIso(), items: store.items });
+    return removed;
+  }
+
+  /** addr→name index from user labels only (highest-precedence layer). */
+  buildUserLabelIndex(): Map<number, string> {
+    const map = new Map<number, string>();
+    for (const item of this.storage.loadUserLabels().items) {
+      if (item.targetKind === "address" && item.addressRange) {
+        map.set(item.addressRange.start & 0xffff, item.label);
+      }
+    }
+    return map;
   }
 
   importAnalysisArtifact(artifactId: string): AnalysisImportResult {

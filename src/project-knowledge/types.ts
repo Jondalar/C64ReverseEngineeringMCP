@@ -884,7 +884,11 @@ export const UserLabelOverrideSchema = z.object({
   id: IdSchema,
   kind: z.literal("label-override"),
   label: z.string().min(1),
-  targetKind: z.enum(["entity", "artifact", "view-item"]),
+  // Spec 754 §3.3f (Block F): "address" = a raw monitor/disassembler symbol
+  // (KickAss .sym style addr→name), the canonical user-label store the monitor
+  // reads + writes. entity/artifact/view-item remain for label overrides on
+  // existing knowledge records.
+  targetKind: z.enum(["entity", "artifact", "view-item", "address"]),
   targetId: IdSchema.optional(),
   addressRange: AddressRangeSchema.optional(),
   note: z.string().optional(),
