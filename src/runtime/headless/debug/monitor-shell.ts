@@ -60,6 +60,13 @@ export interface MonitorShellCtx {
   // The WS server scans C64RE_PROJECT_DIR for the _analysis.json covering an
   // address (loadEffectiveSegments overlay, BUG-034-safe); monitor-shell calls it.
   projectRead?: (op: "inspect" | "xref" | "sym", args: Record<string, unknown>) => Promise<string>;
+  // Spec 754 §3.3f (Block F) — user-label write bridge + addr→name index. The WS
+  // server wires these to the ProjectKnowledgeService (monitor-shell stays
+  // runtime-pure). `projectLabels` mutates/renders (label/unlabel/note/load/save);
+  // `labelIndex` returns addr→name entries (user labels over segment labels) for
+  // the disassembler to annotate.
+  projectLabels?: (op: "set" | "del" | "note" | "list" | "load" | "save", args: Record<string, unknown>) => Promise<string>;
+  labelIndex?: () => Promise<Array<[number, string]>>;
   // Spec 754 §3.3g — the FS mini-shell root (the daemon's C64RE_PROJECT_DIR).
   // load/save/bload/bsave + cd/ls resolve relative to the per-session cwd, which
   // starts here. Falls back to process.env / cwd when not provided.
@@ -227,6 +234,37 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
     // else would silently act on the C64 → block it with a clear message.
     if (device === "drive8" && !["r", "m", "d", "help", "?"].includes(op)) {
       return { error: `device drive8: read-inspect only (r/m/d). \`device c64\` first to use \`${op}\`.` };
+    }
+
+    // ---- Symbols & knowledge (Spec 754 §3.3f, Block F) — user labels +
+    // note. Labels persist as the canonical UserLabelStore (addr→name); the
+    // disassembler annotates with them. `note` drops a finding from the monitor.
+    if (op === "label" || op === "unlabel" || op === "note"
+        || op === "load_labels" || op === "ll" || op === "save_labels" || op === "sl") {
+      if (!ctx.projectLabels) return { error: `${op}: no project workspace bound (labels need a project)` };
+      if (op === "label") {
+        if (tokens.length === 1) return { output: await ctx.projectLabels("list", {}) };
+        const addr = parseAddr(tokens[1]);
+        if (addr === null) return { error: 'label: usage: label <addr> <name>  |  label (list)  |  unlabel <addr|name>' };
+        const name = tokens.slice(2).join(" ").trim();
+        if (!name) return { error: "label: a name is required — label <addr> <name>" };
+        return { output: await ctx.projectLabels("set", { addr, name }) };
+      }
+      if (op === "unlabel") {
+        if (!tokens[1]) return { error: "unlabel: usage: unlabel <addr|name>" };
+        return { output: await ctx.projectLabels("del", { key: tokens[1] }) };
+      }
+      if (op === "note") {
+        const addr = parseAddr(tokens[1]);
+        const text = [...cmd.matchAll(/"([^"]*)"/g)].map((m) => m[1])[0];
+        if (addr === null || !text) return { error: 'note: usage: note <addr> "<text>"' };
+        return { output: await ctx.projectLabels("note", { addr, text }) };
+      }
+      // load_labels / save_labels — KickAssembler/VICE .sym style addr↔name.
+      const { file } = parseFileCmd();
+      if (!file) return { error: `${op}: usage: ${op === "save_labels" || op === "sl" ? "save_labels" : "load_labels"} "<file.sym>"` };
+      const labelOp = op === "save_labels" || op === "sl" ? "save" : "load";
+      return { output: await ctx.projectLabels(labelOp, { file: resolveFsPath(file) }) };
     }
 
     // ---- Snapshots (Spec 707 / 623 §7) — one-shot, no RETURN repeat. -------
@@ -422,13 +460,16 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         return { error: `d: end $${hex(end, 4)} < start $${hex(start & 0xffff, 4)}` };
       }
       const read = (a: number) => readByte(a & 0xffff, lens);
+      // Spec 754 §3.3f (Block F) — addr→name index (user labels over segment
+      // labels) so the disassembly shows symbols alongside the addresses.
+      const labels = ctx.labelIndex ? new Map(await ctx.labelIndex()) : undefined;
       const lines: string[] = [];
       let a = start & 0xffff;
       const MAX = 4096; // console safety bound for a huge range
       let n = 0;
       if (end !== null) {
         while (a <= (end & 0xffff) && n < MAX) {
-          const { size, line } = disasmLine(read, a);
+          const { size, line } = disasmLine(read, a, labels);
           lines.push(line + (a === s.c64Cpu.pc ? " <-- PC" : ""));
           a = (a + size) & 0xffff; n++;
           if (a === 0) break; // wrapped past $FFFF
@@ -436,7 +477,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         if (a <= (end & 0xffff) && n >= MAX) lines.push(`… (truncated at $${hex(a, 4)} — \`d $${hex(a, 4)} $${hex(end & 0xffff, 4)}\` to continue)`);
       } else {
         for (; n < 16; n++) {
-          const { size, line } = disasmLine(read, a);
+          const { size, line } = disasmLine(read, a, labels);
           lines.push(line + (a === s.c64Cpu.pc ? " <-- PC" : ""));
           a = (a + size) & 0xffff;
         }

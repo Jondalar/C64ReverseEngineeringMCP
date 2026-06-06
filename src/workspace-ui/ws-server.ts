@@ -1890,8 +1890,76 @@ export class WsServer {
         for (const x of outof.slice(0, 16)) lines.push(`  -> $${hx(x.targetAddress)} ${x.type}`);
         return lines.join("\n");
       };
+      // Spec 754 §3.3f (Block F) — user-label write bridge + addr→name index.
+      // Monitor-shell stays runtime-pure; the knowledge mutations live here.
+      const labelHx = (n: number) => (n & 0xffff).toString(16).padStart(4, "0");
+      const parseSymLine = (line: string): { addr: number; name: string } | null => {
+        // VICE add-label:  `al C:0810 .setup`
+        let m = line.match(/^\s*al\s+\w?:?([0-9a-fA-F]+)\s+\.?(\S+)/i);
+        if (m) return { addr: parseInt(m[1]!, 16) & 0xffff, name: m[2]! };
+        // KickAssembler:   `.label setup=$0810`  |  `label setup = $0810`
+        m = line.match(/^\s*\.?label\s+(\S+?)\s*=\s*\$?([0-9a-fA-F]+)/i);
+        if (m) return { addr: parseInt(m[2]!, 16) & 0xffff, name: m[1]! };
+        // plain:           `setup = $0810`  |  `setup=$0810`
+        m = line.match(/^\s*([A-Za-z_]\w*)\s*=\s*\$?([0-9a-fA-F]+)\s*$/);
+        if (m) return { addr: parseInt(m[2]!, 16) & 0xffff, name: m[1]! };
+        return null;
+      };
+      const projectLabels = async (pop: string, pargs: Record<string, unknown>): Promise<string> => {
+        const dir = this.projectDir ?? process.env.C64RE_PROJECT_DIR;
+        if (!dir) throw new Error("no project workspace");
+        const { ProjectKnowledgeService } = await import("../project-knowledge/service.js");
+        const svc = new ProjectKnowledgeService(dir);
+        if (pop === "list") {
+          const ls = svc.listUserLabels();
+          if (!ls.length) return "no user labels yet — set one with: label <addr> <name>";
+          return ls.map((l) => `$${labelHx(l.addressRange?.start ?? 0)}  ${l.label}${l.note ? `  ; ${l.note}` : ""}`).join("\n");
+        }
+        if (pop === "set") {
+          const addr = Number(pargs.addr) & 0xffff;
+          const r = svc.saveUserLabel({ label: String(pargs.name), address: addr });
+          return `label $${labelHx(addr)} = ${r.label}`;
+        }
+        if (pop === "del") {
+          const r = svc.removeUserLabel(String(pargs.key));
+          return r ? `unlabeled ${r.label} ($${labelHx(r.addressRange?.start ?? 0)})` : `no label matching "${String(pargs.key)}"`;
+        }
+        if (pop === "note") {
+          const addr = Number(pargs.addr) & 0xffff;
+          const f = svc.saveFinding({
+            kind: "observation",
+            title: `note @ $${labelHx(addr)}`,
+            summary: String(pargs.text),
+            status: "active",
+            addressRange: { start: addr, end: addr },
+          });
+          return `note saved @ $${labelHx(addr)} (finding ${f.id})`;
+        }
+        if (pop === "load") {
+          const fs = await import("node:fs");
+          let n = 0;
+          for (const line of fs.readFileSync(String(pargs.file), "utf8").split(/\r?\n/)) {
+            const p = parseSymLine(line);
+            if (p && p.name) { svc.saveUserLabel({ label: p.name.replace(/^\./, ""), address: p.addr }); n += 1; }
+          }
+          return `loaded ${n} label(s) from ${String(pargs.file)}`;
+        }
+        if (pop === "save") {
+          const fs = await import("node:fs");
+          const ls = svc.listUserLabels().filter((l) => l.addressRange);
+          fs.writeFileSync(String(pargs.file), ls.map((l) => `al C:${labelHx(l.addressRange!.start)} .${l.label}`).join("\n") + "\n");
+          return `saved ${ls.length} label(s) to ${String(pargs.file)} (VICE label format)`;
+        }
+        throw new Error(`unknown label op ${pop}`);
+      };
+      const labelIndex = async (): Promise<Array<[number, string]>> => {
+        const dir = this.projectDir ?? process.env.C64RE_PROJECT_DIR;
+        if (!dir) return [];
+        const { ProjectKnowledgeService } = await import("../project-knowledge/service.js");
+        return [...new ProjectKnowledgeService(dir).buildUserLabelIndex().entries()];
+      };
       return runMonitorCommand(
-        { session: s, ctrl, sessionId: session_id, memCursors: monitorMemAddr, disasmCursors: monitorDisasmAddr, traceRead, projectRead, projectDir: this.projectDir },
+        { session: s, ctrl, sessionId: session_id, memCursors: monitorMemAddr, disasmCursors: monitorDisasmAddr, traceRead, projectRead, projectLabels, labelIndex, projectDir: this.projectDir },
         String(command ?? ""),
       );
     });

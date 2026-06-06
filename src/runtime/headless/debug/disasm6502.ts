@@ -137,12 +137,27 @@ export function disasm6502(read: (addr: number) => number, addr: number): Disasm
 /** Format one line: `$addr  bb bb bb  MNEMONIC ops`. Bytes padded to a
  *  fixed 3-byte column (max instruction length) so mnemonics align;
  *  mnemonic upper-cased, operand hex lower-case (VICE-ish). */
-export function disasmLine(read: (addr: number) => number, addr: number): { size: number; line: string } {
+export function disasmLine(
+  read: (addr: number) => number,
+  addr: number,
+  labels?: Map<number, string>,
+): { size: number; line: string } {
   const di = disasm6502(read, addr);
   const bytes: string[] = [];
   for (let i = 0; i < di.size; i++) bytes.push(hx(read((addr + i) & 0xffff) & 0xff, 2));
   const ops = di.text ? ` ${di.text}` : "";
   // "bb bb bb" = 8 chars max; pad to 8 so the mnemonic column is fixed
-  const line = `$${hx(addr, 4)}  ${bytes.join(" ").padEnd(8)}  ${di.mnemonic.toUpperCase()}${ops}`;
+  let line = `$${hx(addr, 4)}  ${bytes.join(" ").padEnd(8)}  ${di.mnemonic.toUpperCase()}${ops}`;
+  // Spec 754 §3.3f (Block F) — annotate with user/segment labels. The numeric
+  // address is ALWAYS kept (operand hex stays); the name is added as a comment,
+  // and the instruction's OWN address gets an asm-style `name:` line above it.
+  // Both label AND address stay visible (the VICE weakness we fix).
+  if (labels) {
+    const tgt = di.target ?? (di.size === 3 ? di.operand : undefined);
+    const tname = tgt !== undefined ? labels.get(tgt & 0xffff) : undefined;
+    if (tname) line += `   ; → ${tname}`;
+    const own = labels.get(addr & 0xffff);
+    if (own) line = `${own}:\n${line}`;
+  }
   return { size: di.size, line };
 }
