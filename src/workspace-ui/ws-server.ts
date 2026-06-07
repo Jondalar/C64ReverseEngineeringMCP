@@ -475,6 +475,10 @@ export class WsServer {
         c64Cycles: c.cycles,
         driveCycles: s.driveDebug().drive_clk, // Spec 704 §11 R3 — vice drive clock
         mode: s.mode,
+        // The controller's autonomous-loop run-state (running/paused). The UI
+        // mirrors this on connect/poll so the Run/Pause button reflects the
+        // DAEMON truth without ever commanding it back (no run-state echo loop).
+        runState: getRuntimeController(session_id)?.runState ?? "running",
         cpu: {
           pc: c.pc, a: c.a, x: c.x, y: c.y, sp: c.sp,
           flags: c.flags, cycles: c.cycles,

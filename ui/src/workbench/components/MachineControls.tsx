@@ -67,6 +67,10 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
         try { await c.call("session/reset", { session_id: sessionId, video: "pal-default" }); } catch { /* ignore */ }
         onSnapshotTaken();
       }
+      // OFF = unplug: halt the backend loop explicitly (no run-state echo effect
+      // does it for us anymore). The resulting debug/paused is ignored by the
+      // off-guarded mirrors, so OFF stays OFF (black, not the paused yellow).
+      try { await c.call("debug/pause", { session_id: sessionId }); } catch { /* ignore */ }
       setRunState?.("off");
       // Spec 761 — power-off drops the checkpoint ring (scrub bar empties).
       // Fire-and-forget: never await it, so an old daemon without the verb
@@ -80,12 +84,24 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
   const reset = async () => {
     if (!sessionId) return;
     await c.call("session/reset", { session_id: sessionId, mode: "soft" });
+    // Reset leaves the loop in whatever state it was; restart it so the machine
+    // comes back RUNNING (no reliance on a run-state echo effect — that is gone).
+    try { await c.call("debug/run", { session_id: sessionId, pacing: { mode: "pal" } }); } catch { /* ignore */ }
     setRunState?.("running");
     onSnapshotTaken();
   };
-  const togglePause = () => {
-    if (runState === "off") return;
-    setRunState?.(runState === "running" ? "paused" : "running");
+  const togglePause = async () => {
+    if (runState === "off" || !sessionId) return;
+    // The button is the COMMAND source — send the backend loop verb directly,
+    // then mirror local state. (There is no run-state→backend echo effect; see
+    // Live.tsx.) The debug/running|paused broadcast confirms it for every other
+    // view (App-level button, MON pop-out).
+    const next = runState === "running" ? "paused" : "running";
+    try {
+      if (next === "running") await c.call("debug/run", { session_id: sessionId, pacing: { mode: "pal" } });
+      else await c.call("debug/pause", { session_id: sessionId });
+    } catch { /* ignore */ }
+    setRunState?.(next);
   };
   // Step = exactly one instruction via the backend loop (Spec 701 §6). The
   // backend broadcasts debug/stopped, which the Live tab uses to refresh.
