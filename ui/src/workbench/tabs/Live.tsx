@@ -174,13 +174,16 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     }).catch(() => {});
   }, [sessionId, setSessionId]);
 
-  // Spec 701 — the BACKEND owns the emulation clock now. The UI no longer
-  // drives `session/run`; it sends debug/run | debug/pause and visualizes.
+  // Spec 701 — the BACKEND owns the emulation clock. The UI is a pure MIRROR of
+  // the daemon run-state: run/pause COMMANDS originate only from explicit user
+  // actions (MachineControls buttons, which call debug/run|pause themselves) and
+  // from media-ingress; the resulting debug/running|paused broadcasts flow back
+  // and set `runState`. There is deliberately NO effect that re-sends `runState`
+  // to the backend: that round-trip is an echo loop — a CRT mount broadcasts
+  // paused→running within ~10ms, the lagging UI then replays a stale command,
+  // which is a real backend transition, which broadcasts the opposite state…
+  // oscillating run↔pause forever (yellow border flicker + starved audio).
   //
-  // (A) Run-state driver: translate the UI run/pause/off into backend loop
-  //     commands. run()/pause() are idempotent on the backend (they only
-  //     broadcast on an actual transition), so the broadcast→runState→here
-  //     round-trip below cannot loop.
   // Paint a frame buffer onto the canvas. Spec 701 §7: the live transport is
   // a raw-RGBA binary WS frame ([w:u16][h:u16][fmt:u8][rsvd][cycle:u32] + RGBA),
   // blitted via putImageData — no per-frame PNG/base64 decode.
@@ -239,17 +242,6 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       img.src = r.dataUrl;
     } catch { /* ignore */ }
   };
-
-  useEffect(() => {
-    if (!sessionId) return;
-    const client = getClient();
-    if (client.getState() !== "open") return;
-    if (runState === "running") {
-      client.call("debug/run", { session_id: sessionId, pacing: { mode: "pal" } }).catch(() => {});
-    } else {
-      client.call("debug/pause", { session_id: sessionId }).catch(() => {});
-    }
-  }, [sessionId, runState]);
 
   // (B) Presentation = backend frame PUSH (Spec 701 §7). The backend streams
   //     binary RGBA frames at its presentation cadence (25fps PAL / bounded

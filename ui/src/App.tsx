@@ -1,4 +1,4 @@
-import { createContext, startTransition, useContext, useDeferredValue, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, startTransition, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { HexView } from "./components/HexView.js";
 import { AsmView, type AsmViewSource } from "./components/AsmView.js";
 import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
@@ -4027,6 +4027,12 @@ export function App() {
   // Spec 724B — Live runtime tab session state.
   const [liveSessionId, setLiveSessionId] = useState<string>("");
   const [liveRunState, setLiveRunState] = useState<"running" | "paused" | "off">("running");
+  // Mirror in a ref so async backend broadcasts can see the live value without a
+  // stale closure: a real OFF (machine unplugged, UI-only state) must NOT be
+  // clobbered into "paused" by the debug/paused that power-off's own debug/pause
+  // produces. OFF is exited only by the Power button.
+  const liveRunStateRef = useRef(liveRunState);
+  liveRunStateRef.current = liveRunState;
   const [liveConn, setLiveConn] = useState<"connecting" | "open" | "closed" | "error">("closed");
   const [liveCycle, setLiveCycle] = useState<number>(0);
   // BUG-018 — surface the runtime connection + session in the always-visible
@@ -4054,8 +4060,16 @@ export function App() {
     const tick = async () => {
       if (!alive) return;
       try {
-        const s = await getClient().call<{ c64Cycles?: number }>("session/state", { session_id: liveSessionId });
-        if (alive) setLiveCycle(s.c64Cycles ?? 0);
+        const s = await getClient().call<{ c64Cycles?: number; runState?: "running" | "paused" }>("session/state", { session_id: liveSessionId });
+        if (alive) {
+          setLiveCycle(s.c64Cycles ?? 0);
+          // Mirror the DAEMON run-state so the Run/Pause button is correct on
+          // connect/reload (broadcasts only fire on a transition, so a session
+          // already running/paused at connect would otherwise show the default).
+          // Pure backend→UI mirror — never a command (no echo loop). OFF is
+          // UI-only and must not be overwritten by the live machine's state.
+          if (s.runState && liveRunStateRef.current !== "off") setLiveRunState(s.runState);
+        }
       } catch { /* ignore */ }
       if (alive) setTimeout(tick, 1000);
     };
@@ -4073,11 +4087,14 @@ export function App() {
     if (liveConn !== "open" || !liveSessionId) return;
     const c = getClient();
     const mine = (p: any) => !p?.session_id || p.session_id === liveSessionId;
-    const offRun = c.onNotification("debug/running", (p: any) => { if (mine(p)) setLiveRunState("running"); });
-    const offStop = c.onNotification("debug/stopped", (p: any) => { if (mine(p)) setLiveRunState("paused"); });
-    const offPause = c.onNotification("debug/paused", (p: any) => { if (mine(p)) setLiveRunState("paused"); });
-    const offBp = c.onNotification("debug/breakpoint_hit", (p: any) => { if (mine(p)) setLiveRunState("paused"); });
-    const offObs = c.onNotification("debug/observer_hit", (p: any) => { if (mine(p)) setLiveRunState("paused"); });
+    // OFF stays OFF (UI-only "unplugged" state): a paused-class broadcast must not
+    // flip it to "paused" (power-off itself sends debug/pause → debug/paused).
+    const offGuard = () => liveRunStateRef.current === "off";
+    const offRun = c.onNotification("debug/running", (p: any) => { if (mine(p) && !offGuard()) setLiveRunState("running"); });
+    const offStop = c.onNotification("debug/stopped", (p: any) => { if (mine(p) && !offGuard()) setLiveRunState("paused"); });
+    const offPause = c.onNotification("debug/paused", (p: any) => { if (mine(p) && !offGuard()) setLiveRunState("paused"); });
+    const offBp = c.onNotification("debug/breakpoint_hit", (p: any) => { if (mine(p) && !offGuard()) setLiveRunState("paused"); });
+    const offObs = c.onNotification("debug/observer_hit", (p: any) => { if (mine(p) && !offGuard()) setLiveRunState("paused"); });
     return () => { offRun(); offStop(); offPause(); offBp(); offObs(); };
   }, [liveConn, liveSessionId]);
   const [listingQuery, setListingQuery] = useState("");
