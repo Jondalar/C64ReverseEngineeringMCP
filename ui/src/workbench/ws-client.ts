@@ -22,7 +22,13 @@ export class WsClient {
   private ws?: WebSocket;
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
-  private notificationHandlers = new Map<string, (params: any) => void>();
+  // A SET of handlers per method, not one: App-level and the Live tab both
+  // subscribe to debug/running|paused, and a single-handler map made the later
+  // subscriber clobber the earlier one — and unsubscribe-by-method deleted
+  // whichever happened to be registered. That silently dropped notifications
+  // (a missed debug/running left the Run/Pause button stuck on "paused" after a
+  // CRT mount). Every subscriber now gets every notification.
+  private notificationHandlers = new Map<string, Set<(params: any) => void>>();
   private binaryHandlers = new Map<number, (frame: BinaryFrame) => void>();
   private stateListeners = new Set<(s: ConnectionState) => void>();
   private state: ConnectionState = "closed";
@@ -71,8 +77,15 @@ export class WsClient {
   }
 
   onNotification(method: string, handler: (params: any) => void): () => void {
-    this.notificationHandlers.set(method, handler);
-    return () => this.notificationHandlers.delete(method);
+    let set = this.notificationHandlers.get(method);
+    if (!set) { set = new Set(); this.notificationHandlers.set(method, set); }
+    set.add(handler);
+    return () => {
+      const s = this.notificationHandlers.get(method);
+      if (!s) return;
+      s.delete(handler); // remove ONLY this subscriber, never a peer's
+      if (s.size === 0) this.notificationHandlers.delete(method);
+    };
   }
 
   onBinary(type: number, handler: (frame: BinaryFrame) => void): () => void {
@@ -111,9 +124,10 @@ export class WsClient {
       if (msg.error) p.reject(new Error(msg.error.message));
       else p.resolve(msg.result);
     } else if (msg.method) {
-      // Notification.
-      const handler = this.notificationHandlers.get(msg.method);
-      handler?.(msg.params);
+      // Notification — fan out to every subscriber. Snapshot to an array first
+      // so a handler that (un)subscribes during dispatch can't mutate the live set.
+      const set = this.notificationHandlers.get(msg.method);
+      if (set) for (const handler of [...set]) handler(msg.params);
     }
   }
 
