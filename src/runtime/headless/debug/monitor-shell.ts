@@ -24,6 +24,7 @@ import type { ObsTrigger, ObsAction, LogExpr } from "./monitor-observers.js";
 import type { RuntimeController } from "./runtime-controller.js";
 import type { IntegratedSession } from "../integrated-session.js";
 import type { MemBankLens } from "../memory-bus.js";
+import { buildBacktrace } from "./backtrace.js";
 import {
   dumpRuntimeSnapshot, undumpRuntimeSnapshot,
   formatDumpSummary, formatUndumpSummary, resolveSnapshotPath,
@@ -992,22 +993,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
     // (VICE-style best-guess after free-run) + the FlowTracker IRQ/NMI frames
     // (more than VICE). Refine the exact chain with `chis`.
     if (op === "bt") {
-      const sp = s.c64Cpu.sp & 0xff;
-      const lines: string[] = ["backtrace (live stack scan — best-effort; refine with `chis`):"];
-      let found = 0;
-      for (let a = 0x0100 + ((sp + 1) & 0xff); a <= 0x01ff && found < 16; a += 2) {
-        const lo = s.c64Bus.peek(a & 0xffff, "cpu") & 0xff;
-        const hi = s.c64Bus.peek((a + 1) & 0xffff, "cpu") & 0xff;
-        const ret = (((hi << 8) | lo) + 1) & 0xffff;
-        lines.push(`  $${hex(a, 4)}: -> $${hex(ret, 4)}  (JSR return?)`);
-        found++;
-      }
-      if (!found) lines.push("  (stack empty — SP at top)");
-      if (ctrl.flow.stack.length) {
-        lines.push("flow frames (exact, from stepping):");
-        for (const fr of ctrl.flow.stack) lines.push(`  ${fr.kind} @ $${hex(fr.enteredAtPc, 4)}`);
-      }
-      return { output: lines.join("\n") };
+      return { output: buildBacktrace(s, ctrl.flow.stack).join("\n") };
     }
     // map [cpu] — trace_memory_map: free RAM / persistence surface over the live
     // (or last) trace. Needs a trace (`trace on` first). taint/swimlane likewise.

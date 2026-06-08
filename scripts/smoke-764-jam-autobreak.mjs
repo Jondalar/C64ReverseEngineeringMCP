@@ -26,6 +26,9 @@ check("runState paused", ctrl.runState === "paused");
 check("stop pc = $C000", jam?.payload?.stop?.pc === 0xC000);
 check("stop opcode = $02", jam?.payload?.stop?.opcode === 0x02);
 check("cpu jammed", session.c64Cpu.jammed === true);
+// P2 — Info drop-in: the stop carries the backtrace (flow path) for R+BT+status.
+check("flow backtrace present", Array.isArray(jam?.payload?.flow) && jam.payload.flow.length > 0);
+check("flow first line is a backtrace header", typeof jam?.payload?.flow?.[0] === "string" && jam.payload.flow[0].includes("backtrace"));
 
 events.length = 0;
 ctrl.run();

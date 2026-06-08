@@ -25,6 +25,7 @@
 
 import type { IntegratedSession } from "../integrated-session.js";
 import { FlowTracker } from "./stepping.js";
+import { buildBacktrace } from "./backtrace.js";
 import {
   RuntimeCheckpointRing,
   type RuntimeCheckpointRef,
@@ -608,7 +609,11 @@ export class RuntimeController {
         let opcode = 0;
         try { opcode = this.session.c64Bus.peek(pc) & 0xff; } catch { /* peek best-effort */ }
         this.stopInfo = { reason: "jam", pc, cycles: this.session.c64Cpu.cycles, opcode };
-        this.broadcast("debug/stopped", { session_id: this.sessionId, stop: this.stopInfo, registers: registerDump(this.session) });
+        // Spec 764 P2 — Info drop-in: the stop carries the backtrace (= flow path
+        // that led to the JAM) so the monitor lands showing R + BT + status
+        // without the user typing, and the UI can focus on the path.
+        const flow = buildBacktrace(this.session, this.flow.stack);
+        this.broadcast("debug/stopped", { session_id: this.sessionId, stop: this.stopInfo, registers: registerDump(this.session), flow });
       }
       return; // jammed: do not advance the frame or reschedule
     }
