@@ -193,11 +193,9 @@ export interface IntegratedSessionOptions {
   // Spec 723.7b: useLiteralPortVicStall + usePerCycleBusStealing removed with
   // the cycle-lockstep scheduler (their only consumer). Bus stealing is folded
   // into the CPU's BA-low handling on the per-cycle literal path (Spec 425).
-  // Spec 282: VIC palette selection. Default = "colodore" (modern
-  // brighter look). Opt-in to "6569r3" (or any other Tobias-measured
-  // palette) for byte-exact VICE pixel-diff regression. See
-  // src/runtime/headless/vic/palettes.ts for the full list.
-  palette?: import("./vic/palettes.js").PaletteKey;
+  // NOTE: there is intentionally NO palette option. The VIC palette is fixed
+  // to colodore (VicFramebuffer.palette) — single source of truth, no way to
+  // start a session on a wrong palette. Removed by user mandate (was Spec 282).
 }
 
 export interface PrgLoadResult {
@@ -467,8 +465,7 @@ export class IntegratedSession {
     this.driveHeadStartCycles = opts.driveHeadStartCycles ?? 0;
     // Spec 309: vicRenderer is always "literal-port" (default value applies).
     void opts.vicRenderer; // accepted for backwards-compat, ignored
-    // Spec 282: bind palette to framebuffer. Default colodore (OQ1=b).
-    if (opts.palette) this.framebuffer.setPalette(opts.palette);
+    // Palette is fixed to colodore in VicFramebuffer — no per-session bind.
     // Spec 723.5c: the literal port is the unconditional product VIC path.
     // Renderer install + per-cycle interleave + literal IO reads + literal
     // IRQ + literal renderToPng are no longer gated behind opts.

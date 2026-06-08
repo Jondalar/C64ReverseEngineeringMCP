@@ -1,17 +1,14 @@
-// Spec 282 — VIC-II palette suite.
+// VIC-II palette — SINGLE SOURCE OF TRUTH.
 //
-// Ports VICE 3.7.1 vicii-color.c palette tables to TypeScript as
-// pre-computed RGB triples (per OQ2 = (a) embed not runtime YUV→RGB).
+// The entire system uses EXACTLY ONE palette: colodore, copied verbatim from
+// VICE's data/C64/colodore.vpl (VICE 3.10). This is the palette fixed on
+// 2026-06-05 (commit 5c5300a1) that renders the Wasteland intro correctly and
+// is what the live UI shows now. By user mandate there is no palette suite and
+// no selection: every consumer (live VIC, graphics-render decoder, UI decoder,
+// fidelity tests) MUST resolve to these exact 16 RGB triples.
 //
-// Sources:
-// - Colodore: colodore.com default settings (= our prior hardcoded
-//   palette, kept as default per OQ1 = (b))
-// - Pepto: pepto.de "Final Rev." widely-cited canonical RGB values
-// - 6567r56a, 6567r8, 6569r1, 6569r3, 6569r5, 8565r2: Tobias-
-//   measured tables from VICE vicii-color.c (lines 245–575) where
-//   the LUMA(volt,min,max) values are converted via VICE's
-//   YUV→RGB pipeline. Triples below are the bit-exact VICE output
-//   captured from VICE 3.7.1 default config.
+// (Was Spec 282's 8-palette selectable suite — pepto + Tobias-measured tables +
+// odd/even split. All removed: a second table is a second way to be wrong.)
 
 export type RGB = readonly [number, number, number];
 export type Palette16 = ReadonlyArray<RGB>;
@@ -20,12 +17,9 @@ export type Palette16 = ReadonlyArray<RGB>;
 // 6  Blue, 7  Yellow, 8  Orange, 9  Brown, 10 Light Red,
 // 11 Dark Grey, 12 Medium Grey, 13 Light Green, 14 Light Blue,
 // 15 Light Grey
-
-// Colodore — values copied verbatim from VICE's data/C64/colodore.vpl
-// (VICE 3.10) so our output matches the VICE oracle. The prior hardcoded
-// set was a different/older colodore-export whose chromatic colours were
-// duller than VICE's (e.g. blue $06 was 2e,2c,9b here vs 27,24,c4 in
-// VICE), which made blue-heavy screens like the Wasteland intro look wrong.
+//
+// Blue $06 = 27,24,c4 (NOT the older duller 2e,2c,9b) — the value that made
+// blue-heavy screens like the Wasteland intro correct. Do NOT change these.
 const COLODORE: Palette16 = [
   [0x00, 0x00, 0x00], [0xff, 0xff, 0xff], [0x96, 0x28, 0x2e],
   [0x5b, 0xd6, 0xce], [0x9f, 0x2d, 0xad], [0x41, 0xb9, 0x36],
@@ -35,145 +29,27 @@ const COLODORE: Palette16 = [
   [0xae, 0xae, 0xae],
 ];
 
-// Pepto "Final Rev." (pepto.de) — classic VICE palette, matches
-// VICE PEPTO_COLORS compile-time variant.
-const PEPTO: Palette16 = [
-  [0x00, 0x00, 0x00], [0xff, 0xff, 0xff], [0x68, 0x37, 0x2b],
-  [0x70, 0xa4, 0xb2], [0x6f, 0x3d, 0x86], [0x58, 0x8d, 0x43],
-  [0x35, 0x28, 0x79], [0xb8, 0xc7, 0x6f], [0x6f, 0x4f, 0x25],
-  [0x43, 0x39, 0x00], [0x9a, 0x67, 0x59], [0x44, 0x44, 0x44],
-  [0x6c, 0x6c, 0x6c], [0x9a, 0xd2, 0x84], [0x6c, 0x5e, 0xb5],
-  [0x95, 0x95, 0x95],
-];
-
-// Tobias-measured 6567R56A (NTSC ancient, 64-cycle, 5-luma).
-// VICE vicii-color.c lines 245–263. RGB extracted from VICE 3.7.1
-// default config (`-VICIIModel 0`, dump default palette).
-const T_6567R56A: Palette16 = [
-  [0x00, 0x00, 0x00], [0xff, 0xff, 0xff], [0x52, 0x42, 0x00],
-  [0xc6, 0xd2, 0x40], [0xa1, 0x39, 0xc1], [0x57, 0xae, 0x4e],
-  [0x52, 0x42, 0xc1], [0xc6, 0xd2, 0x4e], [0x52, 0x42, 0x00],
-  [0x52, 0x42, 0x00], [0xa1, 0x39, 0x00], [0x52, 0x42, 0x00],
-  [0xa1, 0xae, 0x4e], [0xc6, 0xd2, 0x4e], [0xa1, 0xae, 0xc1],
-  [0xc6, 0xd2, 0x4e],
-];
-
-// Tobias-measured 6567R8 (NTSC standard, 65-cycle, 9-luma).
-// VICE vicii-color.c lines 265–283.
-const T_6567R8: Palette16 = [
-  [0x00, 0x00, 0x00], [0xff, 0xff, 0xff], [0x80, 0x46, 0x36],
-  [0x77, 0xc4, 0xc8], [0x88, 0x4a, 0xa3], [0x60, 0xa9, 0x4f],
-  [0x39, 0x36, 0x9f], [0xc6, 0xd9, 0x6c], [0x88, 0x53, 0x21],
-  [0x53, 0x39, 0x00], [0xb1, 0x6f, 0x5e], [0x4a, 0x4a, 0x4a],
-  [0x77, 0x77, 0x77], [0xa3, 0xe0, 0x86], [0x67, 0x67, 0xc8],
-  [0xa3, 0xa3, 0xa3],
-];
-
-// Tobias-measured 6569R1 (PAL early, 5-luma). VICE lines 285–303.
-const T_6569R1: Palette16 = [
-  [0x00, 0x00, 0x00], [0xff, 0xff, 0xff], [0x4d, 0x37, 0x00],
-  [0xc7, 0xd5, 0xff], [0xa6, 0x40, 0xc8], [0x66, 0xb6, 0x4f],
-  [0x4d, 0x37, 0xc8], [0xc7, 0xd5, 0xff], [0xa6, 0x40, 0x00],
-  [0x4d, 0x37, 0x00], [0xa6, 0x40, 0x00], [0x4d, 0x37, 0x00],
-  [0xa6, 0xb6, 0x4f], [0xc7, 0xd5, 0xff], [0xa6, 0xb6, 0xc8],
-  [0xc7, 0xd5, 0xff],
-];
-
-// Tobias-measured 6569R3 (PAL standard, 9-luma) — VICE 3.7.1
-// default for PAL machines. Lines 305–323.
-const T_6569R3: Palette16 = [
-  [0x00, 0x00, 0x00], [0xff, 0xff, 0xff], [0x96, 0x4d, 0x40],
-  [0x77, 0xc4, 0xc8], [0x9c, 0x4f, 0xb4], [0x68, 0xae, 0x5b],
-  [0x46, 0x40, 0xa9], [0xd0, 0xdc, 0x76], [0x9c, 0x60, 0x29],
-  [0x66, 0x47, 0x00], [0xc7, 0x77, 0x6e], [0x53, 0x53, 0x53],
-  [0x80, 0x80, 0x80], [0xae, 0xe2, 0x91], [0x6f, 0x6c, 0xd0],
-  [0xb0, 0xb0, 0xb0],
-];
-
-// Tobias-measured 6569R5 (PAL revision r5, 9-luma).
-// VICE lines 441–459.
-const T_6569R5: Palette16 = [
-  [0x00, 0x00, 0x00], [0xff, 0xff, 0xff], [0x82, 0x39, 0x2a],
-  [0x88, 0xcc, 0xd0], [0x8a, 0x46, 0xae], [0x66, 0xb1, 0x4d],
-  [0x39, 0x36, 0xa9], [0xd5, 0xe1, 0x77], [0x8e, 0x57, 0x1c],
-  [0x55, 0x39, 0x00], [0xbf, 0x6c, 0x5e], [0x4a, 0x4a, 0x4a],
-  [0x80, 0x80, 0x80], [0xb6, 0xee, 0x9b], [0x6c, 0x67, 0xd8],
-  [0xb2, 0xb2, 0xb2],
-];
-
-// Tobias-measured 8565R2 (PAL HMOS C128, 9-luma).
-// VICE lines 515–533.
-const T_8565R2: Palette16 = [
-  [0x00, 0x00, 0x00], [0xff, 0xff, 0xff], [0xa6, 0x4d, 0x40],
-  [0x80, 0xc4, 0xc8], [0x9e, 0x4f, 0xa6], [0x6e, 0xae, 0x59],
-  [0x4d, 0x40, 0xa3], [0xd6, 0xdc, 0x77], [0xa6, 0x60, 0x29],
-  [0x6f, 0x47, 0x00], [0xcd, 0x77, 0x6e], [0x55, 0x55, 0x55],
-  [0x82, 0x82, 0x82], [0xb6, 0xe2, 0x91], [0x77, 0x6c, 0xcd],
-  [0xb0, 0xb0, 0xb0],
-];
-
+// The one and only palette. Kept as a single-entry map so the legacy API
+// surface (getPalette / PaletteKey / DEFAULT_PALETTE_KEY) keeps compiling.
 export const PALETTES = {
-  colodore:  COLODORE,
-  pepto:     PEPTO,
-  "6567r56a": T_6567R56A,
-  "6567r8":   T_6567R8,
-  "6569r1":   T_6569R1,
-  "6569r3":   T_6569R3,
-  "6569r5":   T_6569R5,
-  "8565r2":   T_8565R2,
+  colodore: COLODORE,
 } as const;
 
-// Spec 288 — odd/even line palette split. VICE TOBIAS_COLORS option
-// SEPERATE_ODD_EVEN_COLORS provides _even / _odd 16-RGB tables for
-// chips with measured per-line variation. Pepto/Colodore are computed
-// (single table; per OQ288.2=(a) skip split for those).
-//
-// Per OQ288.1=(a) auto-on for chips with split tables.
-//
-// Even/odd pairs use the BASE table modulated by ±2 per channel for a
-// subtle scanline chroma ripple. The exact chroma offsets in VICE come
-// from per-chip measurement; here we approximate as base ± 2 in
-// luminance-preserving direction. Visual effect: barely perceptible
-// on LCD; accurate for parity-trace consumers.
-
-function dim(p: Palette16, dr: number, dg: number, db: number): Palette16 {
-  return p.map(([r, g, b]) => [
-    Math.max(0, Math.min(255, r + dr)),
-    Math.max(0, Math.min(255, g + dg)),
-    Math.max(0, Math.min(255, b + db)),
-  ] as RGB);
-}
-
-export const PALETTES_EVEN_ODD: Partial<Record<PaletteKey, { even: Palette16; odd: Palette16 }>> = {
-  "6569r1": { even: dim(T_6569R1, +2, +2, -1), odd: dim(T_6569R1, -2, -2, +1) },
-  "6569r5": { even: dim(T_6569R5, +2, +2, -1), odd: dim(T_6569R5, -2, -2, +1) },
-  "8565r2": { even: dim(T_8565R2, +2, +2, -1), odd: dim(T_8565R2, -2, -2, +1) },
-};
-
-/**
- * Spec 288: pick the palette for a given raster line if odd/even split
- * is available for the active palette key. Falls back to base palette
- * for chips without split tables (= pepto / colodore / 6567r56a /
- * 6567r8 / 6569r3 — single-table chips).
- */
-export function paletteForLine(key: PaletteKey | undefined, line: number): Palette16 {
-  const baseKey = key ?? DEFAULT_PALETTE_KEY;
-  const split = PALETTES_EVEN_ODD[baseKey];
-  if (!split) return PALETTES[baseKey];
-  return (line & 1) === 0 ? split.even : split.odd;
-}
-
-export type PaletteKey = keyof typeof PALETTES;
-
-// OQ1 = (b): default = colodore (modern brighter look retained).
-// Opt-in to "6569r3" for VICE pixel-diff regression.
+export type PaletteKey = "colodore";
 export const DEFAULT_PALETTE_KEY: PaletteKey = "colodore";
 
-export function getPalette(key?: PaletteKey | string | null): Palette16 {
-  if (!key) return PALETTES[DEFAULT_PALETTE_KEY];
-  return (PALETTES as Record<string, Palette16>)[key] ?? PALETTES[DEFAULT_PALETTE_KEY];
+// All resolvers return colodore unconditionally — no key, no fallback branch,
+// no way to land on a different table.
+export function getPalette(_key?: PaletteKey | string | null): Palette16 {
+  return COLODORE;
 }
 
 export function listPalettes(): PaletteKey[] {
-  return Object.keys(PALETTES) as PaletteKey[];
+  return ["colodore"];
+}
+
+// Retained for call-site compatibility (Spec 288 odd/even split is gone — one
+// palette has no per-line variation). Always returns colodore.
+export function paletteForLine(_key: PaletteKey | undefined, _line: number): Palette16 {
+  return COLODORE;
 }
