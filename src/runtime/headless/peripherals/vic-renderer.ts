@@ -36,10 +36,10 @@ export const VISIBLE_Y = 51;
 export const VISIBLE_W = 320;
 export const VISIBLE_H = 200;
 
-// Spec 282: palette suite. VIC_PALETTE re-exported from palettes.ts
-// as the active default (= colodore per OQ1=(b)). Per-session
-// override via VicFramebuffer.setPalette().
-import { PALETTES, DEFAULT_PALETTE_KEY, type Palette16, type PaletteKey } from "../vic/palettes.js";
+// VIC_PALETTE = colodore (VICE colodore.vpl), the ONE fixed runtime palette.
+// The palette suite in palettes.ts stays as VICE-reference data for fidelity
+// unit tests, but there is no runtime selection — see VicFramebuffer.palette.
+import { PALETTES, DEFAULT_PALETTE_KEY, type Palette16 } from "../vic/palettes.js";
 export const VIC_PALETTE: Palette16 = PALETTES[DEFAULT_PALETTE_KEY];
 export type { Palette16, PaletteKey } from "../vic/palettes.js";
 export { PALETTES, DEFAULT_PALETTE_KEY, getPalette, listPalettes } from "../vic/palettes.js";
@@ -48,28 +48,19 @@ export class VicFramebuffer {
   public readonly width: number;
   public readonly height: number;
   public readonly pixels: Uint8Array; // RGBA, length = width*height*4
-  // Spec 282: per-instance palette (replaces previously hardcoded
-  // global VIC_PALETTE). Defaults to colodore but set per-session.
-  public palette: Palette16 = VIC_PALETTE;
-  // Spec 288: track the configured palette key so renderer can swap
-  // to even/odd variants per line for chips with split tables.
-  public paletteKey: PaletteKey = "colodore";
+  // The VIC palette is FIXED to colodore (the VICE colodore.vpl values).
+  // There is intentionally NO selection/override path: a single source of
+  // truth means the live daemon, MCP in-process render, and fidelity tests
+  // can never disagree on colours. The other measured tables in palettes.ts
+  // survive only as VICE-reference data for unit tests — they are not
+  // reachable by any running session. (Was Spec 282 per-session select +
+  // setPalette; removed by user mandate after a wrong-palette incident.)
+  public readonly palette: Palette16 = VIC_PALETTE;
 
   constructor(isPal: boolean = true) {
     this.width = isPal ? FB_WIDTH_PAL : FB_WIDTH_NTSC;
     this.height = isPal ? FB_HEIGHT_PAL : FB_HEIGHT_NTSC;
     this.pixels = new Uint8Array(this.width * this.height * 4);
-  }
-
-  setPalette(p: Palette16 | PaletteKey | null | undefined): void {
-    if (!p) return;
-    if (typeof p === "string") {
-      this.palette = PALETTES[p] ?? VIC_PALETTE;
-      this.paletteKey = p;
-    } else {
-      this.palette = p;
-      // p is a Palette16; keep paletteKey as-is (= manual override)
-    }
   }
 
   fill(colorIndex: number): void {

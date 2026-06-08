@@ -4,7 +4,6 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { encodePng } from "../graphics-render/png-encoder.js";
 import {
-  PALETTES,
   decodeBitmap,
   decodeCharmap,
   decodeCharset,
@@ -16,7 +15,7 @@ import type { ServerToolContext } from "./types.js";
 
 const KIND_VALUES = ["sprite", "charset", "bitmap", "charmap"] as const;
 type RenderKind = (typeof KIND_VALUES)[number];
-const PALETTE_VALUES = Object.keys(PALETTES) as PaletteName[];
+// Single system palette — colodore. No palette selection on the render tools.
 
 function parseAddress(value: string): number {
   const trimmed = value.trim().replace(/^\$/, "").replace(/^0x/i, "");
@@ -119,7 +118,6 @@ export function registerGraphicsRenderTools(server: McpServer, context: ServerTo
       address: z.string().optional().describe("C64 memory address in hex (e.g. \"0800\"). Resolved against the PRG load address."),
       length: z.string().describe("Hex byte length of the slice (e.g. \"0040\" for one sprite, \"0800\" for a 2 KB charset, \"1F40\" for a full hires bitmap)."),
       multicolor: z.boolean().optional().describe("Use C64 multicolor (4-colour 2-bit pairs) for sprite/charset/bitmap kinds."),
-      palette: z.enum(["pepto", "vice", "colodore"]).optional().describe("C64 palette to use. Default: pepto."),
       fg: z.number().int().min(0).max(15).optional().describe("Foreground colour index (default 1 = white)."),
       bg: z.number().int().min(0).max(15).optional().describe("Background colour index (default 0 = black)."),
       c1: z.number().int().min(0).max(15).optional().describe("Multicolour pair colour 1 (default 11 = dark grey)."),
@@ -139,7 +137,6 @@ export function registerGraphicsRenderTools(server: McpServer, context: ServerTo
       address,
       length,
       multicolor,
-      palette,
       fg,
       bg,
       c1,
@@ -188,7 +185,7 @@ export function registerGraphicsRenderTools(server: McpServer, context: ServerTo
           bytes,
           charsetBytes,
           multicolor: multicolor ?? false,
-          palette: palette ?? "pepto",
+          palette: "colodore",
           fg: fg ?? 1,
           bg: bg ?? 0,
           c1: c1 ?? 11,
@@ -200,7 +197,7 @@ export function registerGraphicsRenderTools(server: McpServer, context: ServerTo
 
         const stem = basename(inputAbs).replace(/\.[^.]+$/, "");
         const tag = offsetMode === "address" ? `addr-${offsetValue.toString(16).toUpperCase().padStart(4, "0")}` : `off-${offsetValue.toString(16).toUpperCase().padStart(4, "0")}`;
-        const variant = `${kind}${multicolor ? "-mc" : ""}-${palette ?? "pepto"}`;
+        const variant = `${kind}${multicolor ? "-mc" : ""}-colodore`;
         const defaultOut = join(pd, "session", "graphics-previews", `${stem}_${tag}_${variant}_${lengthBytes.toString(16).toUpperCase().padStart(4, "0")}.png`);
         const outAbs = output_path ? resolve(pd, output_path) : defaultOut;
         mkdirSync(dirname(outAbs), { recursive: true });
@@ -210,7 +207,7 @@ export function registerGraphicsRenderTools(server: McpServer, context: ServerTo
           `Rendered ${kind}${multicolor ? " (multicolor)" : ""} preview.`,
           `Input: ${inputAbs}`,
           `Slice: ${offsetMode}=${offsetMode === "address" ? "$" : ""}${offsetValue.toString(16).toUpperCase()} length=$${lengthBytes.toString(16).toUpperCase()} (${lengthBytes} bytes${bytes.length !== lengthBytes ? `, truncated to ${bytes.length} bytes at EOF` : ""})`,
-          `Palette: ${palette ?? "pepto"} fg=${fg ?? 1} bg=${bg ?? 0}${multicolor ? ` c1=${c1 ?? 11} c2=${c2 ?? 12}` : ""}`,
+          `Palette: colodore fg=${fg ?? 1} bg=${bg ?? 0}${multicolor ? ` c1=${c1 ?? 11} c2=${c2 ?? 12}` : ""}`,
           `Image: ${decoded.width}x${decoded.height}`,
           `PNG: ${outAbs}`,
           "",
@@ -239,7 +236,6 @@ export function registerGraphicsRenderTools(server: McpServer, context: ServerTo
       window: z.string().optional().describe("Hex byte length per preview (default 0100 = 4 sprites or 32 glyphs)."),
       kinds: z.array(z.enum(["sprite", "charset"])).optional().describe("Which decoders to render at each probe. Default: [sprite, charset]."),
       include_multicolor: z.boolean().optional().describe("Also render multicolor variants alongside hires. Default: true."),
-      palette: z.enum(["pepto", "vice", "colodore"]).optional().describe("C64 palette. Default: pepto."),
       run_id: z.string().optional().describe("Optional identifier to namespace the output directory; defaults to a timestamp."),
     },
     async ({
@@ -251,7 +247,6 @@ export function registerGraphicsRenderTools(server: McpServer, context: ServerTo
       window,
       kinds,
       include_multicolor,
-      palette,
       run_id,
     }) => {
       try {
@@ -266,7 +261,7 @@ export function registerGraphicsRenderTools(server: McpServer, context: ServerTo
         const windowBytes = window ? parseAddress(window) : 0x0100;
         const probeKinds = (kinds && kinds.length > 0 ? kinds : ["sprite", "charset"]) as RenderKind[];
         const includeMc = include_multicolor ?? true;
-        const palName: PaletteName = (palette ?? "pepto") as PaletteName;
+        const palName: PaletteName = "colodore";
         const runStamp = run_id ?? new Date().toISOString().replace(/[:.]/g, "-");
         const outDir = join(pd, "session", "graphics-scan", runStamp);
         mkdirSync(outDir, { recursive: true });
