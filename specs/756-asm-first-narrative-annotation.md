@@ -10,7 +10,10 @@ session — measured 2026-06-04 (see §1). The current designed flow is the
 three-phase model (CLAUDE.md): analysis → **annotation (`_annotations.json`)** →
 verification (`disasm_prg` applies annotations → KickAssembler rebuild → `cmp -l`
 byte-identical). This spec refines **phase 2**.
-**Cross-links:** Spec 752 (extract-first grounding — what a block *is* comes from
+**Cross-links:** Spec 763 (structural round-trip — the **other half**: persists
+hand-fixed entry-points + `kind=code` back into the pipeline so re-disasm improves;
+shares this spec's `extract_asm_annotations` machine), Spec 752 (extract-first
+grounding — what a block *is* comes from
 the extracted bytes; this is how you *narrate* it), Spec 751 (effective-segments
 overlay — the structural layer this keeps), Spec 055 (annotation→findings
 auto-emit — the machine-readability this must preserve), Spec 047 (code-island

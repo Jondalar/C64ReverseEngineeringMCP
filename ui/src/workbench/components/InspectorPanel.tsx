@@ -1,7 +1,7 @@
 // Spec 351 — Inspector right pane.
 // Spec 424 — Drive/Cart rows with LED indicator + inline insert/eject.
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { getClient } from "../ws-client.js";
 
 interface Drive {
@@ -116,7 +116,7 @@ function cartLedClass(c: Cart | null | undefined): string {
 }
 
 function DeviceRow({
-  label, ledClass, ledStyle, mediaList, currentPath, onMount, onEject, exts, secondLine, onPower,
+  label, ledClass, ledStyle, mediaList, currentPath, onMount, onEject, exts, secondLine, onPower, onOpen,
 }: {
   label: string;
   ledClass: string;
@@ -128,6 +128,7 @@ function DeviceRow({
   exts: string[];
   secondLine: React.ReactNode;
   onPower?: () => void;
+  onOpen?: () => void;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const filtered = mediaList.filter(m => exts.some(e => m.path.toLowerCase().endsWith(e)));
@@ -147,7 +148,7 @@ function DeviceRow({
         )}
         <button
           className={currentPath ? "wb-device-eject" : "wb-device-insert"}
-          onClick={() => setOpen(o => !o)}
+          onClick={() => setOpen(o => { if (!o) onOpen?.(); return !o; })}
           title={currentPath || "insert"}
         >{buttonLabel}</button>
       </div>
@@ -210,14 +211,22 @@ export function InspectorPanel({
     return () => { alive = false; };
   }, [sessionId]);
 
-  useEffect(() => {
+  // Refresh the recent-media list on demand. Built at connect + reconnect, and
+  // again each time a device dropdown opens (so a file added since connect shows
+  // without a reconnect). No-op while the socket is not open.
+  const refreshMedia = useCallback(() => {
     const c = getClient();
-    const fetchMedia = () => c.call<RecentMedium[]>("media/recent")
+    if (c.getState() !== "open") return;
+    c.call<RecentMedium[]>("media/recent")
       .then(r => { if (Array.isArray(r)) setMedia(r); })
       .catch(() => {});
-    if (c.getState() === "open") fetchMedia();
-    c.onState((st: string) => { if (st === "open") fetchMedia(); });
   }, []);
+
+  useEffect(() => {
+    const c = getClient();
+    if (c.getState() === "open") refreshMedia();
+    c.onState((st: string) => { if (st === "open") refreshMedia(); });
+  }, [refreshMedia]);
 
   const hex = (n: number, w = 2) => "$" + n.toString(16).padStart(w, "0").toUpperCase();
 
@@ -416,6 +425,7 @@ export function InspectorPanel({
             exts={[".d64", ".g64"]}
             secondLine={driveSecondLine(drive)}
             onPower={drivePower}
+            onOpen={refreshMedia}
           />
         </section>
       )}
@@ -432,6 +442,7 @@ export function InspectorPanel({
             onEject={() => ejectSlot(9)}
             exts={[".d64", ".g64"]}
             secondLine={driveSecondLine(drive9)}
+            onOpen={refreshMedia}
           />
         </section>
       )}
@@ -446,6 +457,7 @@ export function InspectorPanel({
           onEject={() => ejectSlot(0)}
           exts={[".crt"]}
           secondLine={cartSecondLine(cart)}
+          onOpen={refreshMedia}
         />
       </section>
 
