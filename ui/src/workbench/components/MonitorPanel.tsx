@@ -14,7 +14,7 @@ interface Props {
   // Set by the Live run-loop when emulation halts at a breakpoint OR an observer
   // `break` (then `observer` is set → an observer banner instead of "#n BREAK").
   // The changing `seq` re-triggers the in-monitor report + input focus.
-  breakpoint?: { pc: number; num: number; registers: string; seq: number; observer?: string; message?: string } | null;
+  breakpoint?: { pc: number; num: number; registers: string; seq: number; observer?: string; message?: string; reason?: "jam" | "brk"; opcode?: number } | null;
 }
 
 interface MonLine { kind: "in" | "out" | "err"; text: string; }
@@ -43,7 +43,13 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: 
   useEffect(() => {
     if (!breakpoint) return;
     const pcHex = breakpoint.pc.toString(16).padStart(4, "0").toUpperCase();
-    const banner = breakpoint.observer
+    // Spec 764 — JAM/BRK auto-break banner (drop-in like a breakpoint).
+    const opHex = breakpoint.opcode != null ? ` (op $${breakpoint.opcode.toString(16).padStart(2, "0").toUpperCase()})` : "";
+    const banner = breakpoint.reason === "jam"
+      ? `*** JAMMED at $${pcHex}${opHex} — illegal opcode; reset to recover`
+      : breakpoint.reason === "brk"
+      ? `*** BRK at $${pcHex}`
+      : breakpoint.observer
       ? `*obs ${breakpoint.observer} at $${pcHex}${breakpoint.message ? ` — ${breakpoint.message}` : ""}`
       : `#${breakpoint.num} BREAK at $${pcHex}`;
     setHistory((h) => [

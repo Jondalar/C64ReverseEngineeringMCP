@@ -42,6 +42,9 @@ export interface RuntimeStopInfo {
   pc: number;
   cycles: number;
   breakpointId?: number;
+  // Spec 764 — opcode byte at PC for a JAM (KIL) stop, so the monitor banner can
+  // read "JAMMED @ $PC (op $xx)".
+  opcode?: number;
 }
 
 // Stable-checknum breakpoint store (VICE-style — a checknum is assigned once
@@ -117,6 +120,10 @@ export class RuntimeController {
   // feeds the trace worker + recycles its 1 MiB chunk buffers; under worker
   // backpressure it can outlast a frame, so we never stack a second drain on top.
   private traceDraining = false;
+  // Spec 764 — JAM auto-break edge flag. A jammed CPU keeps cycling clk every
+  // tick; this guard fires the drop-into-monitor exactly once per JAM episode
+  // and is re-armed when the jam clears (running tick) or on an explicit run().
+  private brokeOnJam = false;
 
   // Spec 703 §8 — per-frame audio hook. Called once per COMPLETED emulated
   // frame (un-throttled, unlike presentation). The server uses it to flush the
@@ -189,6 +196,7 @@ export class RuntimeController {
     if (pacing?.ratio && pacing.ratio > 0) this.pacing.ratio = pacing.ratio;
     if (this.runState === "running") return;
     this.stepPastCurrentBreakpoint();
+    this.brokeOnJam = false; // Spec 764 — explicit run re-arms; a still-jammed CPU re-breaks once
     this.runState = "running";
     this.stopInfo = null;
     this.resetPaceEpoch();
@@ -586,6 +594,25 @@ export class RuntimeController {
       this.broadcast("debug/stopped", { session_id: this.sessionId, stop: this.stopInfo, registers: registerDump(this.session) });
       return; // loop halts itself; no reschedule
     }
+
+    // Spec 764 — JAM (KIL illegal opcode) auto-break. A jammed CPU keeps cycling
+    // clk with PC frozen (VICE-faithful), so runFor never aborts on it; detect
+    // the jammed state here. Always halt (a jammed CPU makes no progress — never
+    // leave the loop "running" but unscheduled), and drop into the monitor once
+    // per episode (brokeOnJam re-armed on run()/when the jam clears below).
+    if (this.session.c64Cpu.jammed) {
+      this.runState = "paused";
+      if (!this.brokeOnJam) {
+        this.brokeOnJam = true;
+        const pc = this.session.c64Cpu.pc;
+        let opcode = 0;
+        try { opcode = this.session.c64Bus.peek(pc) & 0xff; } catch { /* peek best-effort */ }
+        this.stopInfo = { reason: "jam", pc, cycles: this.session.c64Cpu.cycles, opcode };
+        this.broadcast("debug/stopped", { session_id: this.sessionId, stop: this.stopInfo, registers: registerDump(this.session) });
+      }
+      return; // jammed: do not advance the frame or reschedule
+    }
+    this.brokeOnJam = false; // not jammed — re-arm the edge for the next episode
 
     // Completed a chunk = one PAL frame (or one warp chunk). Count + present.
     this.frameCounter++;

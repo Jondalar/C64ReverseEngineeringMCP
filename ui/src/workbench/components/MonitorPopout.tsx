@@ -9,7 +9,7 @@ import React, { useEffect, useState } from "react";
 import { getClient, type ConnectionState } from "../ws-client.js";
 import { MonitorPanel } from "./MonitorPanel.js";
 
-type BpSignal = { pc: number; num: number; registers: string; seq: number; observer?: string; message?: string };
+type BpSignal = { pc: number; num: number; registers: string; seq: number; observer?: string; message?: string; reason?: "jam" | "brk"; opcode?: number };
 
 export function MonitorPopout({ sessionId }: { sessionId: string }): React.JSX.Element {
   const [conn, setConn] = useState<ConnectionState>("closed");
@@ -32,7 +32,16 @@ export function MonitorPopout({ sessionId }: { sessionId: string }): React.JSX.E
       if (p?.session_id && p.session_id !== sessionId) return;
       setBp({ pc: p.pc, num: -1, registers: p.registers, seq: Date.now(), observer: p.observer ?? "?", message: p.message ?? undefined });
     });
-    return () => { off(); offObs(); };
+    // Spec 764 — JAM/BRK auto-break. Same drop-into-monitor as a breakpoint, but
+    // carried on debug/stopped with reason jam/brk. Bring this window to the front.
+    const offStopped = getClient().onNotification("debug/stopped", (p: { session_id?: string; stop?: { reason?: string; pc: number; opcode?: number }; registers?: string }) => {
+      if (p?.session_id && p.session_id !== sessionId) return;
+      const reason = p?.stop?.reason;
+      if (reason !== "jam" && reason !== "brk") return;
+      setBp({ pc: p.stop!.pc, num: -1, registers: p.registers ?? "", seq: Date.now(), reason, opcode: p.stop!.opcode });
+      try { window.focus(); } catch { /* focus best-effort */ }
+    });
+    return () => { off(); offObs(); offStopped(); };
   }, [sessionId]);
 
   return (
