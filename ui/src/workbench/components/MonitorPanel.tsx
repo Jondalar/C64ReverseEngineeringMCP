@@ -14,7 +14,7 @@ interface Props {
   // Set by the Live run-loop when emulation halts at a breakpoint OR an observer
   // `break` (then `observer` is set → an observer banner instead of "#n BREAK").
   // The changing `seq` re-triggers the in-monitor report + input focus.
-  breakpoint?: { pc: number; num: number; registers: string; seq: number; observer?: string; message?: string; reason?: "jam" | "brk"; opcode?: number } | null;
+  breakpoint?: { pc: number; num: number; registers: string; seq: number; observer?: string; message?: string; reason?: "jam" | "brk"; opcode?: number; flow?: string[] } | null;
 }
 
 interface MonLine { kind: "in" | "out" | "err"; text: string; }
@@ -52,10 +52,13 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: 
       : breakpoint.observer
       ? `*obs ${breakpoint.observer} at $${pcHex}${breakpoint.message ? ` — ${breakpoint.message}` : ""}`
       : `#${breakpoint.num} BREAK at $${pcHex}`;
+    // Spec 764 P2 — Info drop-in: banner (status) + registers (R) + backtrace (BT,
+    // = the flow path that led here), all without the user typing.
     setHistory((h) => [
       ...h,
       { kind: "err", text: banner },
       ...breakpoint.registers.split(/\r?\n/).map((t) => ({ kind: "out" as const, text: t })),
+      ...(breakpoint.flow ?? []).map((t) => ({ kind: "out" as const, text: t })),
     ]);
     inputRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
