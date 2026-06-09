@@ -143,6 +143,11 @@ export class HeadlessMemoryBus {
     this.dataSetClkBit7 = 0;
     this.dataFalloffBit6 = 0;
     this.dataFalloffBit7 = 0;
+    // The expansion-port RESET line resets the cartridge too: bank + mode return
+    // to boot config so GAME/EXROM re-vector $FFFC from the cart (real HW reboots
+    // INTO the cart). Done before memPlaConfigChanged so the PLA picks up the
+    // reset lines; the CPU then fetches $FFFC through the cart-mapped vector.
+    this.cartridge?.reset?.();
     // Spec 402 — recompute PLA config index after port reset.
     this.memPlaConfigChanged();
   }
@@ -164,6 +169,9 @@ export class HeadlessMemoryBus {
     this.dataSetClkBit7 = 0;
     this.dataFalloffBit6 = 0;
     this.dataFalloffBit7 = 0;
+    // RESET line → cartridge reset (see reset() above): re-vector $FFFC from the
+    // cart on a warm reset too, so a RESET-button press reboots into the cart.
+    this.cartridge?.reset?.();
     this.memPlaConfigChanged();
   }
 

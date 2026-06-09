@@ -85,6 +85,17 @@ export interface HeadlessCartridgeMapper {
    *  mappers whose romh_read falls through to the normal CPU-port C64 map without
    *  the cart overlay (GMOD3 $E000-$FFF7 → KERNAL/BASIC/IO/RAM per $01, NOT raw RAM). */
   setReadWithoutUltimax?(read: (addr: number) => number): void;
+  /** The expansion-port RESET line. A C64 reset (RESET button or power-cycle)
+   *  also resets the cartridge: its bank + mode/control registers return to the
+   *  power-on/config value, so GAME/EXROM re-vector $FFFC from the cart (e.g.
+   *  EasyFlash → ultimax boot → the machine reboots INTO the cart, like real
+   *  hardware). VICE: cartridge_reset() re-applies each cart's config on a
+   *  machine reset. Non-volatile flash/EEPROM DATA is preserved across a reset;
+   *  only the bank/mode/line + serial-select latches reset. The memory bus calls
+   *  this from its own reset()/resetCpuPortKeepRam() BEFORE the CPU fetches the
+   *  reset vector. Optional only so minimal test-double carts may omit it; every
+   *  real mapper implements it via BaseMapper. */
+  reset?(): void;
 }
 
 export function loadCartridgeMapper(crtPath: string, mapperType?: HeadlessCartridgeMapperType): HeadlessCartridgeMapper {
@@ -393,6 +404,12 @@ abstract class BaseMapper implements HeadlessCartridgeMapper {
   }
 
   protected setControlRegister(_v: number | undefined): void { /* override in banked mappers */ }
+
+  // Default RESET-line behaviour: bank 0. Stateless 8K/16K/Ultimax carts have
+  // static GAME/EXROM (from the CRT header), so only the bank needs clearing.
+  // Banked / flash / serial mappers override to also clear their control
+  // register, mode and serial-select latches (DATA is preserved — see reset()).
+  reset(): void { this.currentBank = 0; }
 }
 
 class Normal8kMapper extends BaseMapper {}
@@ -429,6 +446,8 @@ class MagicDeskMapper extends BaseMapper {
   protected romhA000Visible(): boolean { return false; }
   protected getControlRegister(): number { return this.regval; }
   protected setControlRegister(v: number | undefined): void { this.regval = (v ?? 0) & 0xff; }
+  // VICE magicdesk_config_init: io1_store($DE00,0) → bank 0, EXROM asserted (8K).
+  reset(): void { super.reset(); this.regval = 0; }
 }
 
 // VICE magicdesk16.c — 16K-game banked cart. IO1 store: bit 7 = disable, bits
@@ -450,6 +469,8 @@ class MagicDesk16Mapper extends BaseMapper {
   }
   protected getControlRegister(): number { return this.regval; }
   protected setControlRegister(v: number | undefined): void { this.regval = (v ?? 0) & 0xff; }
+  // VICE magicdesk16_config_init: io1_store($DE00,0) → bank 0, 16K game.
+  reset(): void { super.reset(); this.regval = 0; }
 }
 
 // VICE ocean.c — banked cart, 8K bank → ROML. 512KB images use 8K-game config;
@@ -480,6 +501,8 @@ class OceanMapper extends BaseMapper {
   }
   protected getControlRegister(): number { return this.regval; }
   protected setControlRegister(v: number | undefined): void { this.regval = (v ?? 0) & 0xff; }
+  // VICE ocean_config_init: io1_store($DE00,0) → bank 0 (size-fixed lines).
+  reset(): void { super.reset(); this.regval = 0; }
 }
 
 
@@ -990,6 +1013,12 @@ class EasyFlashMapper extends BaseMapper {
     // veto and NOT mid-command — the command state is now captured.
     return this.loFlash.isDirty() || this.hiFlash.isDirty();
   }
+
+  // VICE easyflash_config_init: io1_store($DE00,0)=bank 0 + io1_store($DE02,0)=
+  // mode 0 → memconfig[jumper<<3] = ULTIMAX (exrom=1,game=0) so $E000-$FFFF maps
+  // from the cart and $FFFC re-vectors INTO the cart on reset. The physical
+  // jumper, the IO2 RAM and the (non-volatile) flash DATA are preserved.
+  reset(): void { super.reset(); this.register02 = 0x00; }
 }
 
 // VICE megabyter.c — Protovision MegaByter. 1MB Flash (MX29F800CB via
@@ -1071,6 +1100,9 @@ class MegabyterMapper extends BaseMapper {
   isWritableDirty(): boolean { return this.flash.isDirty(); }
   getWritableImage(): Uint8Array { return new Uint8Array(this.flash.getData()); }
   setWritableImage(bytes: Uint8Array): void { this.flash.loadData(bytes); }
+  // VICE megabyter_config_init: io1_store($DE00,0)=bank 0 + io1_store($DE02,0)=
+  // mode 0 → memconfig[0] = 8K game. Flash DATA preserved.
+  reset(): void { super.reset(); this.register00 = 0; this.register02 = 0; }
 }
 
 // VICE gmod2.c — Individual Computers GMOD2: 512KB Flash (29F040, TYPE_NORMAL,
@@ -1202,6 +1234,16 @@ class Gmod2Mapper extends BaseMapper {
     const flashLen = this.flash.getData().length;
     this.flash.loadData(bytes.subarray(0, flashLen));
     this.eeprom.loadData(bytes.subarray(flashLen));
+  }
+  // VICE gmod2_reset (gmod2.c): CMODE_8KGAME, eeprom_cs=0, m93c86_write_select(0).
+  // (VICE also resets the flash command FSM "anyway"; real HW does not, and the
+  // non-volatile flash DATA is preserved either way — we keep the FSM, matching HW.)
+  reset(): void {
+    super.reset();
+    this.register = 0;
+    this.cmode = "8k";
+    this.eepromCs = 0;
+    this.eeprom.write_select(0);
   }
 }
 
@@ -1345,6 +1387,19 @@ class Gmod3Mapper extends BaseMapper {
   isWritableDirty(): boolean { return this.spi.isDirty(); }
   getWritableImage(): Uint8Array { return new Uint8Array(this.rom); }
   setWritableImage(bytes: Uint8Array): void { this.rom.set(bytes.subarray(0, this.rom.length)); }
+  // VICE gmod3_reset (gmod3.c): CMODE_8KGAME, eeprom_cs=1 (SPI CS is active-low →
+  // deasserted), spi_flash_write_select(1), bitbang off, vectors off, bank 0.
+  reset(): void {
+    super.reset();
+    this.gmod3Bank = 0;
+    this.bitbang = 0;
+    this.vectors = 0;
+    this.cmode = "8k";
+    this.eepromCs = 1;
+    this.eepromClock = 0;
+    this.eepromData = 0;
+    this.spi.write_select(1);
+  }
 }
 
 // VICE c64megacart.c (martinpiper fork, vendored in vice-refs/c64megacart/).
@@ -1440,5 +1495,7 @@ class C64MegaCartMapper extends BaseMapper {
   isWritableDirty(): boolean { return this.flash.isDirty(); }
   getWritableImage(): Uint8Array { return new Uint8Array(this.flash.getData()); }
   setWritableImage(bytes: Uint8Array): void { this.flash.loadData(bytes); }
+  // No VICE reset fn (martinpiper fork) → power-on default: bank 0, 8K game.
+  reset(): void { super.reset(); this.megaBank = 0; this.regHi = 0; this.cmode = "8k"; }
 }
 
