@@ -416,10 +416,11 @@ export class HeadlessMemoryBus {
         //               (sid.ts installSid, c64sid.c). 32-byte stride.
         //   - Color RAM:$D800-$DBFF (1Kx4, low nibble valid; upper nibble
         //               is open-bus, masked to $f0 below).
-        //   - CIA1:     $DC00-$DC0F (base only — 16-fold mirror to $DC10-$DCFF
-        //               not yet installed; no in-scope game reads from a CIA
-        //               mirror. Future spec extends `installCia1` to mirror.)
-        //   - CIA2:     $DD00-$DD0F (same — base only, mirror deferred).
+        //   - CIA1:     $DC00-$DC0F mirrored 16-fold across $DC00-$DCFF
+        //               (installCia1, ciacore.c `addr &= 0xf` + c64meminit.c
+        //               full-page route). 16-byte stride.
+        //   - CIA2:     $DD00-$DD0F mirrored 16-fold across $DD00-$DDFF
+        //               (installCia2). $DD80,X folds onto $DD00 = PRA/VIC bank.
         // All mirror ranges are pre-installed at session boot, so the
         // handler lookup below already covers them; no extra masking
         // needed here.
