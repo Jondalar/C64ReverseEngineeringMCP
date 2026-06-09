@@ -161,12 +161,22 @@ export function installCia2(
   });
   cia.reset();
 
-  for (let reg = 0; reg < 16; reg++) {
-    const addr = CIA2_BASE + reg;
+  // The CIA decodes only 4 address lines, so its 16 registers mirror 16x across
+  // the whole $DD00-$DDFF I/O page. VICE: ciacore store/read/peek do `addr &= 0xf`
+  // and c64meminit.c routes the ENTIRE $DD page to CIA2 (c64meminit.c:193-194,
+  // for-j page-fill). Real hardware does the same. Registering base-only
+  // ($DD00-$DD0F) silently dropped mirror-region writes into the flat io[] array
+  // (the "mirror deferred" note in memory-bus.ts) — e.g. a store to $DD80,X folds
+  // onto $DD00 (PRA = VIC bank select) on VICE/HW but missed CIA2 for us, so a
+  // copy-loop into $DDxx ran clean for us yet stormed on VICE. Install the full
+  // 16-fold mirror, matching VIC-II / SID.
+  for (let a = 0; a < 0x100; a++) {
+    const reg = a & 0x0f;
+    const addr = CIA2_BASE + a;
     const c = cia;
     bus.registerIoHandler(addr, {
       read: () => c.read(reg),
-      write: (_a, value) => c.write(reg, value),
+      write: (_x, value) => c.write(reg, value),
       // Spec 754 §3.4 / BUG-038 — side-effect-free peek (VICE ciacore_peek).
       peek: () => c.peek(reg),
     });

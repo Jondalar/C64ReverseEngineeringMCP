@@ -133,12 +133,19 @@ export function installCia1(bus: HeadlessMemoryBus, opts: InstallCia1Options): I
   });
   cia.reset();
 
-  for (let reg = 0; reg < 16; reg++) {
-    const addr = CIA1_BASE + reg;
+  // The CIA decodes only 4 address lines, so its 16 registers mirror 16x across
+  // the whole $DC00-$DCFF I/O page. VICE: ciacore store/read/peek do `addr &= 0xf`
+  // and c64meminit.c routes the ENTIRE $DC page to CIA1 (c64meminit.c:190-191,
+  // for-j page-fill). Real hardware does the same. Base-only registration
+  // ($DC00-$DC0F) silently dropped mirror-region writes into the flat io[] array;
+  // install the full 16-fold mirror, matching VIC-II / SID and CIA2.
+  for (let a = 0; a < 0x100; a++) {
+    const reg = a & 0x0f;
+    const addr = CIA1_BASE + a;
     const c = cia;
     bus.registerIoHandler(addr, {
       read: () => c.read(reg),
-      write: (_a, value) => c.write(reg, value),
+      write: (_x, value) => c.write(reg, value),
       // Spec 754 §3.4 / BUG-038 — side-effect-free peek (VICE ciacore_peek):
       // no ICR read-to-clear, no timer-read latch effects.
       peek: () => c.peek(reg),
