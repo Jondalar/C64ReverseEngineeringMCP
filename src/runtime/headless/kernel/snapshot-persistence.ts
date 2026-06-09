@@ -46,19 +46,40 @@ interface CheckpointMediaField { diskPath?: string; imageFormat?: string }
 
 /** Gather the media to embed (Spec 707 v1: clean media embedded by role). */
 function gatherMedia(ctrl: RuntimeController, mediaField: CheckpointMediaField): NativeSnapshotMediaInput[] {
+  const out: NativeSnapshotMediaInput[] = [];
   const drive = (ctrl.session.kernel as { drive1541?: {
     getAttachedMedia?(): { kind: string; bytes: Uint8Array; readOnly: boolean } | null;
   } }).drive1541;
   const attached = drive?.getAttachedMedia?.() ?? null;
-  if (!attached) return [];
-  const sourceName = mediaField.diskPath ? basename(mediaField.diskPath) : undefined;
-  return [{
-    role: "drive8",
-    format: attached.kind || mediaField.imageFormat || "g64",
-    sourceName,
-    bytes: attached.bytes,
-    sha256: snapshotSha256(attached.bytes),
-  }];
+  if (attached) {
+    const sourceName = mediaField.diskPath ? basename(mediaField.diskPath) : undefined;
+    out.push({
+      role: "drive8",
+      format: attached.kind || mediaField.imageFormat || "g64",
+      sourceName,
+      bytes: attached.bytes,
+      sha256: snapshotSha256(attached.bytes),
+    });
+  }
+  // Spec 709.7 — embed the attached cartridge too. Previously gatherMedia only
+  // saw drive8, so dumping a CRT session listed NO cartridge media — a played
+  // cartridge vanished from the dump's media list. The original .crt bytes are
+  // the identity baseline (parallel to the disk: the restore data rides in the
+  // checkpoint's cartBytes/cartFlash blob; undump skips this role for re-attach).
+  const bus = (ctrl.session.kernel as { c64Bus?: {
+    getCartridgeMedia?(): { bytes: Uint8Array; name: string } | undefined;
+  } }).c64Bus;
+  const cartMedia = bus?.getCartridgeMedia?.();
+  if (cartMedia) {
+    out.push({
+      role: "cartridge",
+      format: "crt",
+      sourceName: cartMedia.name,
+      bytes: cartMedia.bytes,
+      sha256: snapshotSha256(cartMedia.bytes),
+    });
+  }
+  return out;
 }
 
 /**

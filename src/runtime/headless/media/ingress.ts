@@ -20,6 +20,8 @@ import { mountDiskMedia } from "./mount-disk-media.js";
 import { persistCartridgeToFile } from "./persist-cartridge.js";
 import { snapshotSha256, NATIVE_SNAPSHOT_MAGIC } from "../kernel/native-snapshot.js";
 import { loadCartridgeMapperFromBytes } from "../cartridge.js";
+import { addRecent } from "./recent-files.js";
+import type { MediaType } from "./fs-browser.js";
 
 export type MediaIngressRequest =
   | { kind: "disk"; role: "drive8"; bytes: Uint8Array; name: string; backingPath?: string }
@@ -239,6 +241,15 @@ export async function ingestMedia(
       }
     }
   });
+
+  // Spec 265 — record the played medium in the recents list so it reappears in
+  // the Media tab. The legacy mount.ts did this; the ingress service dropped it,
+  // so a played CARTRIDGE never showed up in Media (and a path-backed disk only
+  // by project scan). Only host-file-backed media (a real backingPath) is
+  // recallable — uploaded bytes with no path are skipped. PRG carries no path.
+  if ((req.kind === "disk" || req.kind === "crt") && req.backingPath) {
+    addRecent(req.backingPath, (req.kind === "crt" ? "crt" : format) as MediaType);
+  }
 
   const after = await ctrl.captureCheckpoint();
   if (before) ctrl.checkpointRing.pin(before.id);
