@@ -317,8 +317,8 @@ class RuntimeDaemonClient {
   //    the SHARED daemon session. Paths are abs-resolved on the MCP side; the
   //    daemon (localhost) reads/writes them → write-through to the caller's file
   //    is preserved (Spec 742). --
-  mediaPersist<T = unknown>(sessionId: string, slot: number) {
-    return this.call<T>("media/persist", { session_id: sessionId, slot });
+  mediaPersist<T = unknown>(sessionId: string, slot: number, role?: string) {
+    return this.call<T>("media/persist", { session_id: sessionId, slot, role });
   }
   vsfSave<T = unknown>(sessionId: string, outputPath: string) {
     return this.call<T>("vsf/save", { session_id: sessionId, output_path: outputPath });
