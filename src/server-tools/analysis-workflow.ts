@@ -11,7 +11,16 @@ import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { runAndFormatClosedLoopSweep } from "./closed-loop-sweep.js";
 import { runPayloadReverseWorkflow, runPrgReverseWorkflow, renderPrgReverseWorkflowResult } from "../lib/prg-workflow.js";
 import { safeHandler } from "./safe-handler.js";
+import { startAnalysisJob, waitForJob, getAnalysisJob } from "./analysis-jobs.js";
 import type { ServerToolContext } from "./types.js";
+
+/** BUG-039 — grace window before analyze_prg switches to job mode. Small PRGs
+ *  finish well inside it (identical UX); large ones return a job_id instead of
+ *  tripping the MCP host's ~180s stall limit (which drops the connection).
+ *  Env override C64RE_ANALYZE_GRACE_MS for tests / tighter host limits. */
+const ANALYZE_JOB_GRACE_MS = Number(process.env["C64RE_ANALYZE_GRACE_MS"]) > 0
+  ? Number(process.env["C64RE_ANALYZE_GRACE_MS"])
+  : 100_000;
 
 const PACKER_DETECTION_THRESHOLD = 0.7;
 
@@ -171,6 +180,56 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       const outAbs = output_json
         ? resolve(pd, output_json)
         : prgAbs.replace(/\.prg$/i, "_analysis.json");
+      // BUG-039 — run as a job: small PRGs settle inside the grace window and
+      // return synchronously exactly as before; a large PRG returns a job_id
+      // instead of stalling past the host's per-tool limit.
+      const job = startAnalysisJob("analyze_prg", outAbs, () =>
+        runAnalyzePrg({ pd, prgAbs, outAbs, prg_path, output_json, entry_points }));
+      const settled = await waitForJob(job, ANALYZE_JOB_GRACE_MS);
+      if (!settled) {
+        return { content: [{ type: "text" as const, text: [
+          `analyze_prg is still running (large PRG) — switched to background job mode.`,
+          `job_id: ${job.id}`,
+          `output (when done): ${outAbs}`,
+          `Poll with analysis_job_status { job_id } every ~30s. Do NOT re-run analyze_prg for this PRG.`,
+        ].join("\n") }] };
+      }
+      if (job.state === "failed") throw new Error(job.error ?? "analyze_prg failed");
+      return job.result as { content: { type: "text"; text: string }[] };
+    }),
+  );
+
+  server.tool(
+    "analysis_job_status",
+    "Poll a background analysis job started by analyze_prg (returned a job_id when the PRG was too large to finish synchronously). Returns the full original tool result once done. Inputs: job_id. Returns: running (elapsed) | done (result) | failed (error).",
+    {
+      job_id: z.string().describe("Job id returned by analyze_prg."),
+    },
+    safeHandler("analysis_job_status", async ({ job_id }) => {
+      const job = getAnalysisJob(job_id);
+      if (!job) {
+        return { content: [{ type: "text" as const, text:
+          `analysis job ${job_id} unknown — the MCP server likely restarted since it was started. ` +
+          `The pipeline writes its output to disk regardless: check for the expected _analysis.json next to the PRG.` }] };
+      }
+      if (job.state === "running") {
+        const elapsed = Math.round((Date.now() - job.startedAtMs) / 1000);
+        return { content: [{ type: "text" as const, text:
+          `${job.tool} job ${job.id}: still running (${elapsed}s elapsed).\noutput (when done): ${job.outputPath}\nPoll again in ~30s.` }] };
+      }
+      if (job.state === "failed") throw new Error(`${job.tool} job ${job.id} failed: ${job.error}`);
+      return job.result as { content: { type: "text"; text: string }[] };
+    }),
+  );
+
+  /** The original analyze_prg body (pipeline run + knowledge registration),
+   *  extracted verbatim so it can run as a background job (BUG-039). Hoisted
+   *  function declaration — the analyze_prg handler above closes over it. */
+  async function runAnalyzePrg(
+    a: { pd: string; prgAbs: string; outAbs: string; prg_path: string; output_json?: string; entry_points?: string[] },
+  ): Promise<{ content: { type: "text"; text: string }[] }> {
+    const { pd, prgAbs, outAbs, prg_path, entry_points } = a;
+    {
       const entries = entry_points?.join(",") ?? "";
       const args = [prgAbs, outAbs];
       if (entries) args.push(entries);
@@ -239,9 +298,9 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           result.stdout += `\n${packerSummary.join("\n")}`;
         }
       }
-      return context.cliResultToContent(result);
-    }),
-  );
+      return context.cliResultToContent(result) as { content: { type: "text"; text: string }[] };
+    }
+  }
 
   server.tool(
     "disasm_prg",

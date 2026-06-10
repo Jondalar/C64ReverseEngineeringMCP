@@ -65,10 +65,12 @@ export function resolveStorePath(input: string, context: ServerToolContext): str
  *  `withDuckDb` readers) does not do this itself, so an orphaned binary log — e.g.
  *  a capture whose background index never ran (BUG-035) — would otherwise be
  *  unreadable. A build failure throws (surfaced as a clear error by safeHandler).
- *  For a multi-GB log this blocks until the index is built. */
+ *  BUG-039 — BOUNDED: waits a short grace, then throws a clear retry-later error
+ *  while the build continues in the background (an unbounded wait tripped the MCP
+ *  host's ~180s stall limit and dropped the stdio connection). */
 async function ensureTraceIndex(dbPath: string): Promise<void> {
-  const { ensureIndex } = await import("../runtime/headless/trace/background-indexer.js");
-  await ensureIndex(dbPath);
+  const { ensureIndexBounded } = await import("../runtime/headless/trace/background-indexer.js");
+  await ensureIndexBounded(dbPath);
 }
 
 function fmtHex(n: number): string {
