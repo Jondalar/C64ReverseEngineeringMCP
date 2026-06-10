@@ -735,24 +735,36 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_media_persist",
-    "Write the mounted disk's in-RAM image back to its host backing file WITHOUT ejecting (flushes drive-side GCR writes → the .d64/.g64 on disk, atomically; host mtime changes). Use to save a game's disk writes (format/copy/save) while keeping it mounted. Not for ejecting the disk (use runtime_media_unmount, which persists then ejects) or for a session snapshot (use runtime_session_snapshot). Read-only media is never overwritten. Inputs: session_id. Returns: { written, path, bytes } or the reason it was skipped.",
+    "Write mounted media's in-RAM state back to its host backing file WITHOUT ejecting. role=drive8 (default): flushes drive-side GCR writes → the .d64/.g64 on disk, atomically; host mtime changes. role=cartridge: re-packs the programmed cartridge flash/EEPROM → the host .crt (EasyFlash etc.) — the only way to save flash AND keep playing, since unmounting a cartridge pulls it (cold reset). Use to save a game's disk writes (format/copy/save) or EAPI flash writes while keeping the media mounted. Not for ejecting (use runtime_media_unmount, which persists then ejects) or for a session snapshot (use runtime_session_snapshot). Read-only / non-dirty media is never overwritten. Inputs: session_id, role. Returns: { written, path, bytes } or the reason it was skipped.",
     {
       session_id: z.string(),
       slot: z.number().int().default(8),
+      role: z.enum(["drive8", "cartridge"]).default("drive8"),
     },
-    safeHandler("runtime_media_persist", async ({ session_id, slot }) => {
-      if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
+    safeHandler("runtime_media_persist", async ({ session_id, slot, role }) => {
+      if (role === "drive8" && slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
       // Spec 744.4c slice 2c — persist the shared session's disk to its host file.
       // Write-through (Spec 742) is preserved: the backing path was set absolute at
       // mount time, so the daemon (localhost) writes the CALLER's .d64/.g64.
+      // role=cartridge runs the same persistCartridgeToFile as the eject path
+      // (BUG-023-cart) — flash → host .crt, cart stays attached.
       const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
       if (isDaemonMode()) {
-        const result = await runtimeDaemon.mediaPersist(session_id, slot);
+        const result = await runtimeDaemon.mediaPersist(session_id, slot, role);
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
+      if (role === "cartridge") {
+        const bus = (session.kernel as { c64Bus?: {
+          getCartridge?(): import("../runtime/headless/media/persist-cartridge.js").CartLike | undefined;
+        } }).c64Bus;
+        const cartPath = (session as { cartPath?: string }).cartPath ?? "";
+        const { persistCartridgeToFile } = await import("../runtime/headless/media/persist-cartridge.js");
+        const result = persistCartridgeToFile(bus?.getCartridge?.(), cartPath);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
       const { persistMountedDiskToFile } = await import("../runtime/headless/media/mount.js");
       const result = persistMountedDiskToFile(session);
       return { content: [{ type: "text", text: JSON.stringify(result) }] };

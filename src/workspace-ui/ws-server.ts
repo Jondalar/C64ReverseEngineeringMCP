@@ -597,11 +597,23 @@ export class WsServer {
     // WITHOUT ejecting. CRITICAL: write-through (Spec 742) is preserved — the
     // backingPath threaded at mount time IS the caller's abs path (localhost), so
     // persisting daemon-side writes the caller's .d64/.g64.
-    this.on("media/persist", async ({ session_id, slot }) => {
-      const n = slot !== undefined ? Number(slot) : 8;
-      if (n === 9) throw new Error("media/persist: drive 9 not supported (v1 drive8-only)");
+    // role="cartridge" persists the programmed cartridge flash to its host .crt
+    // instead (same persistCartridgeToFile the eject path runs, Spec 742 /
+    // BUG-023-cart) — the only way to save flash AND keep playing, since eject
+    // pulls the cart (resetCold).
+    this.on("media/persist", async ({ session_id, slot, role }) => {
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`no session ${session_id}`);
+      if (role === "cartridge") {
+        const bus = (session.kernel as { c64Bus?: {
+          getCartridge?(): import("../runtime/headless/media/persist-cartridge.js").CartLike | undefined;
+        } }).c64Bus;
+        const cartPath = (session as { cartPath?: string }).cartPath ?? "";
+        const { persistCartridgeToFile } = await import("../runtime/headless/media/persist-cartridge.js");
+        return persistCartridgeToFile(bus?.getCartridge?.(), cartPath);
+      }
+      const n = slot !== undefined ? Number(slot) : 8;
+      if (n === 9) throw new Error("media/persist: drive 9 not supported (v1 drive8-only)");
       const { persistMountedDiskToFile } = await import("../runtime/headless/media/mount.js");
       return persistMountedDiskToFile(session);
     });
