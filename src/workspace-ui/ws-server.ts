@@ -479,6 +479,10 @@ export class WsServer {
         // mirrors this on connect/poll so the Run/Pause button reflects the
         // DAEMON truth without ever commanding it back (no run-state echo loop).
         runState: getRuntimeController(session_id)?.runState ?? "running",
+        // Spec 764 — why the loop last stopped ("jam"|"breakpoint"|…) so a UI
+        // that (re)connects to an already-jammed machine can show the red
+        // border without having seen the one-shot debug/stopped broadcast.
+        stopReason: getRuntimeController(session_id)?.stopInfo?.reason,
         cpu: {
           pc: c.pc, a: c.a, x: c.x, y: c.y, sp: c.sp,
           flags: c.flags, cycles: c.cycles,
