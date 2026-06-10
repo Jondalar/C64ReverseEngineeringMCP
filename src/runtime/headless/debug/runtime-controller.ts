@@ -34,6 +34,7 @@ import type { MachineSnapshot } from "../kernel/machine-kernel.js";
 import { TraceRunController } from "../trace/trace-run.js";
 import type { RuntimeTraceDefinition } from "../trace/trace-definition.js";
 import type { MediaIngressEvent } from "../media/ingress.js";
+import { persistCartridgeToFile } from "../media/persist-cartridge.js";
 
 export type RuntimeRunState = "running" | "paused" | "stopped";
 export type RuntimePacingMode = "pal" | "warp" | "fixed-ratio";
@@ -67,6 +68,10 @@ const PAL_FRAME_MS = (PAL_CYCLES_PER_FRAME / PAL_CYCLES_PER_SEC) * 1000; // ≈ 
 // cause of a just-seen effect; ~400 KB/checkpoint × 2/s is cheap, and the ring
 // budget (128 MiB) bounds total retention by evicting oldest-unpinned.
 const CHECKPOINT_CAPTURE_EVERY_FRAMES = 25;
+// BUG-040 — flash writes settle this long (no further mutation) before the
+// auto-persist writes the host .crt once. Long enough to coalesce an EAPI
+// write/erase burst, short enough that a crash loses little.
+const CART_AUTOPERSIST_DEBOUNCE_MS = 5_000;
 
 // Warp: run large chunks flat-out, present the latest frame at a bounded rate.
 const WARP_CHUNK_CYCLES = PAL_CYCLES_PER_FRAME * 8;
@@ -144,6 +149,16 @@ export class RuntimeController {
   readonly traceRun = new TraceRunController();
   readonly traceDefinitions = new Map<string, RuntimeTraceDefinition>();
 
+  // BUG-040 — debounced flash auto-persist: a flash-programming cart (EAPI save
+  // etc.) only reached the host .crt on eject/explicit persist; a daemon crash
+  // in between lost the delta. Per frame we read the mapper's monotonic
+  // writableGeneration(); once it stops changing for the debounce window the
+  // settled flash is written back via the same persistCartridgeToFile as eject.
+  private cartPersistSeenGen = -1;   // last generation observed
+  private cartPersistSettleAt = 0;   // wall-clock ms when it last changed
+  private cartPersistDoneGen = -1;   // generation already written to the host file
+  private cartPersistTimer: ReturnType<typeof setInterval> | undefined;
+
   // Spec 709.8 — ordered media-ingress event history (disk/PRG/CRT/eject), each
   // carrying its before/after checkpoint refs. The replayable record consumed
   // by Specs 710-712 (overlay / rewind / branch diff). ingestMedia() appends.
@@ -157,6 +172,14 @@ export class RuntimeController {
     this.session = session;
     this.broadcast = broadcast;
     this.presentFrame = presentFrame;
+    // BUG-040 — the auto-persist check runs on its OWN 1s timer, NOT in the
+    // frame tick: a paused/jammed/breakpoint-stopped loop runs no frames, but a
+    // flash delta written just before the stop must still reach the host .crt.
+    // unref'd so it never holds the process open; cleared in dispose().
+    this.cartPersistTimer = setInterval(() => {
+      try { this.maybeAutoPersistCart(); } catch { /* retry next tick */ }
+    }, 1_000);
+    (this.cartPersistTimer as { unref?: () => void }).unref?.();
   }
 
   /** Allow the server to (re)wire the broadcast sink (e.g. on reconnect). */
@@ -365,6 +388,39 @@ export class RuntimeController {
     return null;
   }
 
+  /** BUG-040 — debounced flash→host-.crt auto-persist. Called once per frame.
+   *  The mapper's monotonic writableGeneration() distinguishes "still being
+   *  written" (gen moving → re-arm the window) from "settled" (gen stable for
+   *  CART_AUTOPERSIST_DEBOUNCE_MS → write once via the eject-path's
+   *  persistCartridgeToFile, then remember the persisted gen). The EAPI burst
+   *  case therefore costs ONE host write after the burst, not one per byte.
+   *  Disable with C64RE_CART_AUTOPERSIST=0 (eject/explicit persist still work). */
+  private maybeAutoPersistCart(): void {
+    if (process.env["C64RE_CART_AUTOPERSIST"] === "0") return;
+    const bus = (this.session.kernel as {
+      c64Bus?: { getCartridge?(): import("../cartridge.js").HeadlessCartridgeMapper | undefined };
+    }).c64Bus;
+    const cart = bus?.getCartridge?.();
+    const gen = cart?.writableGeneration?.();
+    if (gen === undefined || gen === 0 || !cart?.isWritableDirty?.()) return;
+    if (gen !== this.cartPersistSeenGen) {
+      this.cartPersistSeenGen = gen;
+      this.cartPersistSettleAt = Date.now();
+      return;
+    }
+    if (gen === this.cartPersistDoneGen) return;
+    if (Date.now() - this.cartPersistSettleAt < CART_AUTOPERSIST_DEBOUNCE_MS) return;
+    const cartPath = (this.session as { cartPath?: string }).cartPath ?? "";
+    if (!cartPath) { this.cartPersistDoneGen = gen; return; } // nothing to write to
+    const r = persistCartridgeToFile(cart, cartPath);
+    this.cartPersistDoneGen = gen; // also on skip — don't re-try hot every frame
+    if (r.written) {
+      this.broadcast("media/cart_persisted", {
+        session_id: this.sessionId, path: r.path, bytes: r.bytes, auto: true,
+      });
+    }
+  }
+
   /**
    * Restore a ring checkpoint into the live machine. Goes through runExclusive
    * so the loop is idle during the mutation. kernel.restore() also drives the
@@ -436,6 +492,7 @@ export class RuntimeController {
   /** Tear down (session stop). */
   dispose(): void {
     this.cancelScheduled();
+    if (this.cartPersistTimer) { clearInterval(this.cartPersistTimer); this.cartPersistTimer = undefined; }
     this.runState = "stopped";
     this.checkpointRing.clear();
   }
