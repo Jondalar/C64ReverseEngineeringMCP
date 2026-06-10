@@ -42,6 +42,9 @@ export class SpiFlash {
 
   setImage(img: Uint8Array, size: number): void { this.data = img; this.size = size; }
   isDirty(): boolean { return this.dirty; }
+  /** BUG-040 — monotonic mutation counter for the auto-persist debounce. */
+  private generation = 0;
+  writableGeneration(): number { return this.generation; }
 
   private reset_input_shiftreg(): void { this.input_shiftreg = 0; this.input_count = 0; }
   private reset_output_shiftreg(): void { this.output_shiftreg = 0; this.output_count = 0; }
@@ -74,7 +77,7 @@ export class SpiFlash {
         case FLASH_CMD_BLOCK_ERASE:
           this.addr = (this.input_shiftreg & 0xff0000) & (this.size - 1);
           this.data.fill(0xff, this.addr, this.addr + 0x10000);
-          this.dirty = true;
+          this.dirty = true; this.generation++;
           this.command = STATUSBUSY;
           break;
         case FLASH_CMD_WRITE_ENABLE: this.write_enable_status = 1; break;
@@ -95,7 +98,7 @@ export class SpiFlash {
           if (this.command === FLASH_CMD_PAGE_PROGRAM) {
             this.addr &= (this.size - 1);
             this.data[this.addr] = (this.data[this.addr]! & this.input_shiftreg) & 0xff;
-            this.dirty = true;
+            this.dirty = true; this.generation++;
             this.addr++;
             this.reset_input_shiftreg();
           } else if (this.command === FLASH_CMD_READ_DATA) {

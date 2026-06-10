@@ -49,6 +49,9 @@ export class M93c86 {
   loadData(bytes: Uint8Array): void { this.m93c86_data.set(bytes.subarray(0, M93C86_SIZE)); }
   isDirty(): boolean { return this.dirty; }
   private dirty = false;
+  /** BUG-040 — monotonic mutation counter for the auto-persist debounce. */
+  private generation = 0;
+  writableGeneration(): number { return this.generation; }
 
   private reset_input_shiftreg(): void {
     this.input_shiftreg = 0;
@@ -175,7 +178,7 @@ export class M93c86 {
                   this.reset_input_shiftreg();
                   this.m93c86_data[(this.addr << 1)] = 0xff;
                   this.m93c86_data[(this.addr << 1) + 1] = 0xff;
-                  this.dirty = true;
+                  this.dirty = true; this.generation++;
                 }
                 break;
               case CMDERAL:
@@ -186,7 +189,7 @@ export class M93c86 {
                   this.ready_busy_status = STATUSBUSY;
                   this.reset_input_shiftreg();
                   this.m93c86_data.fill(0xff);
-                  this.dirty = true;
+                  this.dirty = true; this.generation++;
                 }
                 break;
             }
@@ -205,7 +208,7 @@ export class M93c86 {
                   this.reset_input_shiftreg();
                   this.m93c86_data[(this.addr << 1)] = data0;
                   this.m93c86_data[(this.addr << 1) + 1] = data1;
-                  this.dirty = true;
+                  this.dirty = true; this.generation++;
                 }
                 break;
               case CMDWRAL:
@@ -221,7 +224,7 @@ export class M93c86 {
                     this.m93c86_data[(a << 1)] = data0;
                     this.m93c86_data[(a << 1) + 1] = data1;
                   }
-                  this.dirty = true;
+                  this.dirty = true; this.generation++;
                 }
                 break;
             }

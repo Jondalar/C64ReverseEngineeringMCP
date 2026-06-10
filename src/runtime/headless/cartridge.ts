@@ -74,6 +74,11 @@ export interface HeadlessCartridgeMapper {
    *  from the current flash), for host-file write-back on eject/persist. Null
    *  when the mapper cannot produce one. */
   getCrtImage?(): Uint8Array | null;
+  /** BUG-040 — monotonic mutation counter over all writable devices (flash /
+   *  EEPROM / SPI). Lets the debounced auto-persist poller distinguish "still
+   *  being written" from "dirty but settled" (isDirty stays true forever after
+   *  the first write). Process-local bookkeeping, not snapshotted. */
+  writableGeneration?(): number;
   /** Spec 713 — wire the live maincpu_clk into writable hardware that needs it
    *  (flash erase busy window / status toggle). The bus calls this at attach. */
   setClock?(clk: () => number): void;
@@ -596,6 +601,9 @@ class Flash040 {
   constructor(readonly data: Uint8Array, readonly label: string, private readonly t: Flash040Type = FLASH040B) {}
 
   isDirty(): boolean { return this.dirty; }
+  /** BUG-040 — monotonic mutation counter for the auto-persist debounce. */
+  private generation = 0;
+  writableGeneration(): number { return this.generation; }
   /** "operation active" status (command sequence / erase busy). Not a snapshot
    *  veto — the full state is captured. Exposed for UI/debug. */
   isBusy(): boolean { return this.state !== "read"; }
@@ -771,14 +779,16 @@ class Flash040 {
     this.programByte = byte;
     this.data[addr] = next;
     this.dirty = true;
+    this.generation++;
     return next === byte; // false → byte_program_error (a 0->1 was requested)
   }
   private eraseSector(sector: number): void {
     const start = sector * this.t.sectorSize;
     this.data.fill(0xff, start, Math.min(start + this.t.sectorSize, this.data.length));
     this.dirty = true;
+    this.generation++;
   }
-  private eraseChip(): void { this.data.fill(0xff); this.dirty = true; }
+  private eraseChip(): void { this.data.fill(0xff); this.dirty = true; this.generation++; }
   private addSectorToEraseMask(addr: number): void {
     const s = this.sectorNum(addr);
     this.eraseMask[s >> 3]! |= (1 << (s & 7)) & 0xff;
@@ -1013,6 +1023,7 @@ class EasyFlashMapper extends BaseMapper {
     // veto and NOT mid-command — the command state is now captured.
     return this.loFlash.isDirty() || this.hiFlash.isDirty();
   }
+  writableGeneration(): number { return this.loFlash.writableGeneration() + this.hiFlash.writableGeneration(); }
 
   // VICE easyflash_config_init: io1_store($DE00,0)=bank 0 + io1_store($DE02,0)=
   // mode 0 → memconfig[jumper<<3] = ULTIMAX (exrom=1,game=0) so $E000-$FFFF maps
@@ -1098,6 +1109,7 @@ class MegabyterMapper extends BaseMapper {
 
   persistsWritableState(): boolean { return true; }
   isWritableDirty(): boolean { return this.flash.isDirty(); }
+  writableGeneration(): number { return this.flash.writableGeneration(); }
   getWritableImage(): Uint8Array { return new Uint8Array(this.flash.getData()); }
   setWritableImage(bytes: Uint8Array): void { this.flash.loadData(bytes); }
   // VICE megabyter_config_init: io1_store($DE00,0)=bank 0 + io1_store($DE02,0)=
@@ -1223,6 +1235,7 @@ class Gmod2Mapper extends BaseMapper {
 
   persistsWritableState(): boolean { return true; }
   isWritableDirty(): boolean { return this.flash.isDirty() || this.eeprom.isDirty(); }
+  writableGeneration(): number { return this.flash.writableGeneration() + this.eeprom.writableGeneration(); }
 
   getWritableImage(): Uint8Array {
     const flash = this.flash.getData(), eeprom = this.eeprom.getData();
@@ -1385,6 +1398,7 @@ class Gmod3Mapper extends BaseMapper {
 
   persistsWritableState(): boolean { return true; }
   isWritableDirty(): boolean { return this.spi.isDirty(); }
+  writableGeneration(): number { return this.spi.writableGeneration(); }
   getWritableImage(): Uint8Array { return new Uint8Array(this.rom); }
   setWritableImage(bytes: Uint8Array): void { this.rom.set(bytes.subarray(0, this.rom.length)); }
   // VICE gmod3_reset (gmod3.c): CMODE_8KGAME, eeprom_cs=1 (SPI CS is active-low →
@@ -1493,6 +1507,7 @@ class C64MegaCartMapper extends BaseMapper {
 
   persistsWritableState(): boolean { return true; }
   isWritableDirty(): boolean { return this.flash.isDirty(); }
+  writableGeneration(): number { return this.flash.writableGeneration(); }
   getWritableImage(): Uint8Array { return new Uint8Array(this.flash.getData()); }
   setWritableImage(bytes: Uint8Array): void { this.flash.loadData(bytes); }
   // No VICE reset fn (martinpiper fork) → power-on default: bank 0, 8K game.
