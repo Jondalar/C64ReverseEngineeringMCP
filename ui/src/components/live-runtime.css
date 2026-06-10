@@ -648,6 +648,8 @@
 }
 .wb-live .wb-screen.focused { border-color: var(--c64-blue-bright); }
 .wb-live .wb-screen.paused { border-color: var(--c64-yellow); cursor: crosshair; }
+/* Spec 764 — JAM stop: crashed CPU shows red, not the routine paused yellow. */
+.wb-live .wb-screen.paused.jammed { border-color: var(--c64-red); }
 .wb-live .wb-screen-empty {
   position: absolute; inset: 8px;
   display: flex; align-items: center; justify-content: center;
