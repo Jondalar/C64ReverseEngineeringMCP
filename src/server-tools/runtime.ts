@@ -101,8 +101,10 @@ export async function withDuckDb<T>(dbPath: string, fn: (conn: any, backend: any
   // read right after stop() sees the fresh store AND an orphaned store (e.g. a
   // multi-GB trace whose index never built) is recovered on first read. Throws the
   // real reason if the build failed (surfaced instead of a cryptic "not found").
-  const { ensureIndex } = await import("../runtime/headless/trace/background-indexer.js");
-  await ensureIndex(dbPath);
+  // BUG-039 — BOUNDED: an unbounded wait here (minutes on a multi-GB log) trips
+  // the MCP host's ~180s stall limit and drops the stdio connection.
+  const { ensureIndexBounded } = await import("../runtime/headless/trace/background-indexer.js");
+  await ensureIndexBounded(dbPath);
   // 1) read-only (no exclusive lock; works while the daemon holds the file).
   try {
     const inst = await (duckdb as any).DuckDBInstance.create(dbPath, { access_mode: "READ_ONLY" });

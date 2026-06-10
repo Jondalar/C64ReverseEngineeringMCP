@@ -135,6 +135,40 @@ export async function ensureIndex(duckdbPath: string | undefined): Promise<void>
   }
 }
 
+/** BUG-039 — bounded ensure for READ paths (MCP tools / WS bridges). The
+ *  unbounded ensureIndex blocks for the full index build — minutes on a
+ *  multi-GB `.c64retrace` — which trips the MCP host's per-tool stall limit
+ *  (~180s) and DROPS the whole stdio connection ("MCP disconnected"). Reads
+ *  wait a short grace (small traces stay seamless), then throw a clear
+ *  retry-later error while the build keeps running in the background. */
+export async function ensureIndexBounded(duckdbPath: string | undefined, timeoutMs = 15_000): Promise<void> {
+  if (!duckdbPath) return;
+  if (!active.has(duckdbPath) && !existsSync(duckdbPath)) {
+    const retrace = retracePathFor(duckdbPath);
+    if (existsSync(retrace)) startBackgroundIndex(retrace, duckdbPath); // lazy kick, like ensureIndex
+  }
+  const p = inFlight.get(duckdbPath);
+  if (p && active.has(duckdbPath)) {
+    const settled = await Promise.race([
+      p.then(() => true, () => true),
+      new Promise<boolean>((res) => {
+        const t = setTimeout(() => res(false), timeoutMs);
+        (t as { unref?: () => void }).unref?.();
+      }),
+    ]);
+    if (!settled) {
+      throw new Error(
+        `trace index for ${duckdbPath} is still building (background decode of the .c64retrace ` +
+        `authority — large traces take minutes). The build continues; retry this tool in ~30s.`,
+      );
+    }
+  }
+  if (!existsSync(duckdbPath)) {
+    const why = indexErrors.get(duckdbPath);
+    if (why) throw new Error(`trace index unavailable for ${duckdbPath}: ${why}`);
+  }
+}
+
 /** The last index-build failure reason for a path, if any. */
 export function indexError(duckdbPath: string | undefined): string | undefined {
   return duckdbPath ? indexErrors.get(duckdbPath) : undefined;

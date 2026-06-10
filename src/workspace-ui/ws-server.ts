@@ -1075,7 +1075,17 @@ export class WsServer {
       const c = ctrlFor(session_id);
       if (!c.traceRun.isActive()) return { run: null, status: c.traceRun.status() };
       const run = await c.traceRun.stop();
-      if (wait_index) await c.traceRun.awaitIndex();
+      if (wait_index) {
+        // BUG-039 — bound the wait (a multi-GB index takes minutes and would trip
+        // the MCP host's ~180s stall limit). On timeout the build keeps running;
+        // the caller's NEXT query waits/errs via the bounded read path.
+        const timeout = new Promise<"timeout">((res) => {
+          const t = setTimeout(() => res("timeout"), 120_000);
+          (t as { unref?: () => void }).unref?.();
+        });
+        const r = await Promise.race([c.traceRun.awaitIndex().then(() => "done"), timeout]);
+        if (r === "timeout") return { run, indexPending: true };
+      }
       return { run };
     });
     this.on("trace/run/status", ({ session_id }) => ctrlFor(session_id).traceRun.status());
@@ -1103,8 +1113,11 @@ export class WsServer {
       // .c64retrace authority, before reading. A read right after stop transparently
       // waits; an orphaned store (e.g. a multi-GB trace whose index never built) is
       // recovered here on first read. Throws the real reason if the build failed.
-      const { ensureIndex } = await import("../runtime/headless/trace/background-indexer.js");
-      await ensureIndex(duckdb_path);
+      // BUG-039 — BOUNDED (15s grace, then a clear retry-later error): this wait sat
+      // inside an MCP tool call; minutes of index build tripped the host's ~180s
+      // stall limit and dropped the whole stdio connection ("MCP disconnected").
+      const { ensureIndexBounded } = await import("../runtime/headless/trace/background-indexer.js");
+      await ensureIndexBounded(duckdb_path);
       const a = (args ?? {}) as Record<string, unknown>;
 
       // Spec 746.x — trace_store_* reader functions (queries.ts) routed IN the
@@ -1745,8 +1758,8 @@ export class WsServer {
             s.runFor(Math.ceil(toRun / 2) + 2000, { cycleBudget: toRun });
             const stopped = await ctrl.traceRun.stop();
             const storePath = stopped.evidenceRef ?? outputPath;
-            const { ensureIndex } = await import("../runtime/headless/trace/background-indexer.js");
-            await ensureIndex(storePath);
+            const { ensureIndexBounded } = await import("../runtime/headless/trace/background-indexer.js");
+            await ensureIndexBounded(storePath); // BUG-039 — bounded (inline trace is small; grace suffices)
             const { withDuckDb } = await import("../server-tools/runtime.js");
             const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
             const { renderText } = await import("../runtime/headless/v2/swimlane-render.js");
@@ -1801,8 +1814,8 @@ export class WsServer {
             storePath = listStores()[0]?.path ?? ctrl.traceRun.currentStorePath?.()?.path;
           }
           if (!storePath) return "swimlane: no trace store — run `trace on` … `trace off` first";
-          const { ensureIndex } = await import("../runtime/headless/trace/background-indexer.js");
-          await ensureIndex(storePath);
+          const { ensureIndexBounded } = await import("../runtime/headless/trace/background-indexer.js");
+          await ensureIndexBounded(storePath); // BUG-039 — bounded read-path wait
           const { withDuckDb } = await import("../server-tools/runtime.js");
           const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
           const { renderText } = await import("../runtime/headless/v2/swimlane-render.js");
@@ -1825,8 +1838,8 @@ export class WsServer {
         }
         const sp = ctrl.traceRun.currentStorePath?.();
         if (!sp?.path) throw new Error("no trace store — run `trace on` first");
-        const { ensureIndex } = await import("../runtime/headless/trace/background-indexer.js");
-        await ensureIndex(sp.path);
+        const { ensureIndexBounded } = await import("../runtime/headless/trace/background-indexer.js");
+        await ensureIndexBounded(sp.path); // BUG-039 — bounded read-path wait
         const { withDuckDb } = await import("../server-tools/runtime.js");
         return withDuckDb(sp.path, async (conn: any, backend: any) => {
           if (mop === "map") {

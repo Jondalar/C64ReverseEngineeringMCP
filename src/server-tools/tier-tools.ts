@@ -46,6 +46,9 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Analyse / disassemble
   "analyze_prg", "disasm_prg", "disasm_menu", "inspect_address_range",
   "inspect_disk", "assemble_source", "c64ref_lookup",
+  // BUG-039 — poll the background job analyze_prg returns for large PRGs (job
+  // mode prevents the >180s host stall that dropped the MCP connection).
+  "analysis_job_status",
   // Get bytes off media
   "extract_disk", "extract_crt", "disk_sector_allocation",
   // Record knowledge
@@ -124,8 +127,9 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * BUG-027 raised 106→107 (runtime_session_close — session lifecycle/close).
  * Spec 746 raised 107→108 (runtime_trace_start — the LLM's enable-trace-on-a-
  * running-session gate; its finalize/status siblings were already default).
- * Spec 748 raised 108→109 (project_steering_set — persistent project steering). */
-export const DEFAULT_TIER_CAP = 109;
+ * Spec 748 raised 108→109 (project_steering_set — persistent project steering).
+ * BUG-039 raised 109→110 (analysis_job_status — poll analyze_prg's job mode). */
+export const DEFAULT_TIER_CAP = 110;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";
