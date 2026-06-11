@@ -1141,13 +1141,51 @@ export class IntegratedSession {
       0x400,
     );
 
+    // BUG-041 — ultimax VIC fetch lane (viciisc/vicii-fetch.c:56/84): in
+    // ultimax config every VIC fetch consults the cartridge ROMH; the byte
+    // wins when (addr & $3fff) >= $3000 (incl. the $3FFF idle fetch). EAPI
+    // flash writes flip ultimax mid-frame → the VIC shows flash data/status
+    // ("stripes", real-hardware artifact). Was stubbed to "never" since 298k.
+    // Bridge = c64cartmem.c ultimax_romh_phi1/phi2_read (slot0/slot1 absent
+    // in our runtime; main-slot dispatch below). addr arrives as ROMH chip
+    // offset $1000-$1FFF.
+    const busForVic = this.c64Bus;
+    const ultimax_romh_fetch = (addr: number): number | null => {
+      const cart = busForVic.getCartridge();
+      if (!cart) return null;
+      switch (cart.getMapperType()) {
+        case "gmod3":
+          // gmod3.c:288/293 gmod3_romh_phi1/phi2_read → CART_READ_C64MEM
+          // ("fake ultimax") → c64cartmem.c returns 0 → the fetch falls
+          // through to the VIC's own RAM/chargen mapping.
+          return null;
+        case "gmod2":
+          // c64cartmem.c ultimax_romh_read_hirom GMOD2 arm — "ultimax only
+          // enabled on writes" → mem_read_without_ultimax(addr) with addr
+          // staying $1000-$1FFF (plain RAM in the no-cart map).
+          return busForVic.readWithoutUltimax(addr & 0xffff);
+        default: {
+          // c64cartmem.c default arm → ultimax_romh_read_hirom →
+          // <cart>_romh_read((addr & $1fff)) — CPU-window equivalent
+          // $E000 + (addr & $1fff). For EasyFlash this is easyflash_romh_read
+          // → flash040core_read incl. command/status state: DQ6 toggle on the
+          // VIC lane is real (the stripes flicker on hardware for the same
+          // reason). Final VICE fallback when nothing serves = open bus
+          // (vicii_read_phi1()).
+          const v = cart.read(0xe000 + (addr & 0x1fff), busForVic.getBankInfo());
+          return v === undefined ? vicii.last_read_phi1 & 0xff : v & 0xff;
+        }
+      }
+    };
     litFetch.setFetchHost({
       mem_chargen_rom_ptr: this.c64Bus.charRom,
       mem_color_ram_vicii: colorRamView,
-      export_ultimax_phi1: 0,
-      export_ultimax_phi2: 0,
-      ultimax_romh_phi1_read: () => null,
-      ultimax_romh_phi2_read: () => null,
+      // export.ultimax_phi1/phi2 (c64cartmem.c:231) — our cart families drive
+      // Φ1=Φ2 symmetric; 0 keeps the fetch on the plain RAM/chargen fast path.
+      get export_ultimax_phi1() { return busForVic.isUltimax() ? 1 : 0; },
+      get export_ultimax_phi2() { return busForVic.isUltimax() ? 1 : 0; },
+      ultimax_romh_phi1_read: ultimax_romh_fetch,
+      ultimax_romh_phi2_read: ultimax_romh_fetch,
       reg_pc: 0,
     });
     // Spec 713 §2 — open-bus value for ultimax unmapped reads ($1000-$7FFF /
