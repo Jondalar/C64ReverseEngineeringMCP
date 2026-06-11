@@ -316,6 +316,50 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       return { output: `savecrt: ${r.bytes} bytes -> ${r.path}` };
     }
 
+    // ---- io [1|addr] (BUG-044) — VICE monitor `io` (mon_display_io_regs):
+    // the I/O area as a structured per-device view over the side-effect-free
+    // peek lane (write-only cart regs show their shadows). Bare `io` = name +
+    // register hex per device; `io 1` = all devices WITH state details;
+    // `io <addr>` = only the device covering addr, with details. Details come
+    // from the mapper's dumpIoState (VICE io_source_t.dump analog).
+    if (op === "io") {
+      const cartIo = (s.c64Bus as unknown as { getCartridge?: () => { getMapperType?: () => string; dumpIoState?: () => string } | undefined }).getCartridge?.();
+      const arg = tokens[1];
+      const fAddr = arg === undefined || arg === "1" ? null : parseAddr(arg);
+      if (arg !== undefined && arg !== "1" && fAddr === null) return { error: "io: usage: io [1 | <addr>]" };
+      const wantDetails = arg !== undefined;
+      type IoBlk = { name: string; start: number; end: number; page: number; dump?: () => string };
+      const blocks: IoBlk[] = [
+        { name: "VIC-II", start: 0xd000, end: 0xd03f, page: 0xd000 },
+        { name: "SID", start: 0xd400, end: 0xd41f, page: 0xd400 },
+        { name: "CIA1", start: 0xdc00, end: 0xdc0f, page: 0xdc00 },
+        { name: "CIA2", start: 0xdd00, end: 0xdd0f, page: 0xdd00 },
+      ];
+      if (cartIo) {
+        const nm = (cartIo.getMapperType?.() ?? "cart").toUpperCase();
+        const dump = cartIo.dumpIoState ? cartIo.dumpIoState.bind(cartIo) : undefined;
+        blocks.push({ name: `${nm} (IO1)`, start: 0xde00, end: 0xde0f, page: 0xde00, dump });
+        blocks.push({ name: `${nm} (IO2)`, start: 0xdf00, end: 0xdf0f, page: 0xdf00 });
+      }
+      const lines: string[] = [];
+      for (const b of blocks) {
+        if (fAddr !== null && !(fAddr >= b.page && fAddr <= (b.page | 0xff))) continue;
+        lines.push(`${b.name}:`);
+        for (let row = b.start; row <= b.end; row += 16) {
+          const bytes: string[] = [];
+          for (let i = 0; i < 16 && row + i <= b.end; i++) bytes.push(hex(s.c64Bus.peek((row + i) & 0xffff, "io") & 0xff));
+          lines.push(`  ${hex(row, 4)}  ${bytes.join(" ")}`);
+        }
+        if (wantDetails) {
+          if (b.dump) lines.push(...b.dump().split("\n").map((l) => `  ${l}`));
+          else lines.push("  No details available.");
+        }
+        lines.push("");
+      }
+      if (!lines.length) return { error: `io: no device at $${hex(fAddr ?? 0, 4)}` };
+      return { output: lines.join("\n").trimEnd() };
+    }
+
     // ---- Live trace gate (Spec 746.9b): trace on|off|status|mark ----------
     if (op === "trace") {
       const sub = (tokens[1] ?? "status").toLowerCase();
@@ -1133,6 +1177,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "    sd [n]           step+disasm: the REAL executed path, loops folded (dynamic)\n" +
         "    df [-i] [a] [n]  follow-disasm: walk control flow (static); -i asks at branches (df t|f|b)\n" +
         "    screen           decode the 40x25 text screen (real screen pointer)\n" +
+        "    io [1|addr]      I/O area per device: register hex (peek) + state details (VICE io)\n" +
         "    bitmap <a> [w h] [hires|charset|sprite]  render a RAM range to a PNG (scrub gfx)\n" +
         "    bank [lens]      show/set the sticky default lens for m/d\n" +
         "    wr [lens] <a> <b..>  write exactly these bytes from a\n" +

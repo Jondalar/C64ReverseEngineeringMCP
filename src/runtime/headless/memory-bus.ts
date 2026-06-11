@@ -691,6 +691,7 @@ export class HeadlessMemoryBus {
   //   cart → cartridge ROM byte for the cart windows ($8000-$9FFF ROML,
   //          $A000-$BFFF / $E000-$FFFF ROMH) if a cart is attached and
   //          exposes a side-effect-free peek?(); else RAM / open-bus $FF.
+  //          BUG-044: also the cart IO pages $DE00-$DFFF (register shadows).
   //   io   → side-effect-free I/O register peek for $D000-$DFFF; else RAM.
   //   cpu  → mirror read()'s banking decision using the CURRENT memConfig
   //          windows, then peek that source side-effect-free.
@@ -725,6 +726,14 @@ export class HeadlessMemoryBus {
    *  peek?() falls back to RAM (or open-bus $FF in ultimax-mapped windows).
    *  Documented limit — see HeadlessCartridgeMapper.peek?. */
   private peekCart(n: number): number {
+    // BUG-044 — the cart lens also covers the cart IO pages: $DE00-$DFFF peeks
+    // the mapper's register shadows (VICE io_source peek lane — shows what's
+    // SET in the cart even for write-only regs), open bus when none.
+    if (n >= 0xde00 && n <= 0xdfff && this.cartridge) {
+      const cv = this.cartridge.peek?.(n, this.getBankInfo());
+      if (cv !== undefined) return cv & 0xff;
+      return this.openBusProvider() & 0xff;
+    }
     const isCartWindow =
       (n >= 0x8000 && n <= 0x9fff) || (n >= 0xa000 && n <= 0xbfff) || (n >= 0xe000 && n <= 0xffff);
     if (this.cartridge && isCartWindow) {
