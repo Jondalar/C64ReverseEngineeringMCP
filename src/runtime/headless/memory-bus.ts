@@ -891,7 +891,10 @@ export class HeadlessMemoryBus {
   /** Ultimax = GAME=0 AND EXROM=1 (VICE memconfig 16-23). In this mode
    *  $1000-$7FFF / $A000-$BFFF / $C000-$CFFF are open bus (not RAM) and
    *  ROMH maps to $E000-$FFFF. Cite: c64meminit.c c64meminit_romh_mapping. */
-  private isUltimax(): boolean { return this.memConfig.bankE === 'cart_hi_ultimax'; }
+  /** Public: the literal VIC fetch lane reads this per fetch (= export.ultimax_phi1/phi2,
+   *  c64cartmem.c:231 — VICE updates the flag at cart config change; the underlying
+   *  state only changes there, so a live read is observably identical). */
+  isUltimax(): boolean { return this.memConfig.bankE === 'cart_hi_ultimax'; }
 
   /**
    * Compute VICE-equivalent `pport.data_read` for $01.
