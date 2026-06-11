@@ -18,6 +18,8 @@
 
 import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, rmdirSync } from "node:fs";
 import { persistCartridgeToFile } from "../media/persist-cartridge.js";
+import { loadCartridgeMapperFromBytes, type HeadlessCartridgeMapper } from "../cartridge.js";
+import type { HeadlessCartridgeState } from "../types.js";
 import { isAbsolute, resolve as resolvePathJoin, basename } from "node:path";
 import { disasmLine } from "./disasm6502.js";
 import { stepDisasm, followDisasm, resumeDisasm, type DfState } from "./monitor-flow-disasm.js";
@@ -314,6 +316,54 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       const r = persistCartridgeToFile(cart, cartPath);
       if (!r.written) return { output: `savecrt: skipped — ${r.reason}` };
       return { output: `savecrt: ${r.bytes} bytes -> ${r.path}` };
+    }
+
+    // ---- swapcrt (BUG-045) — hot-swap the cartridge in the FROZEN machine,
+    // NO reset: exchange one .crt build for another to iterate fast. When the
+    // new .crt has the SAME mapper type, the banking continuation (currentBank
+    // + control register) is carried over so the running code resumes in the
+    // same bank window — flash content is the NEW build's (state passed to
+    // setState is stripped of flash/eeprom fields on purpose). Different
+    // mapper type → fresh boot-state registers. A dirty old cart is persisted
+    // to its backing file first (eject semantics). Integrity caveat is the
+    // user's, by design: running code sees different ROM bytes immediately.
+    if (op === "swapcrt") {
+      const busSw = s.c64Bus as unknown as {
+        getCartridge: () => HeadlessCartridgeMapper | undefined;
+        attachCartridge: (c: HeadlessCartridgeMapper, media?: { bytes: Uint8Array; name: string }) => void;
+      };
+      const { file } = parseFileCmd();
+      if (!file) return { error: 'swapcrt: usage: swapcrt "<new.crt>"' };
+      const p = resolveFsPath(file);
+      if (!existsSync(p)) return { error: `swapcrt: no such file: ${p}` };
+      const bytes = new Uint8Array(readFileSync(p));
+      let newCart: HeadlessCartridgeMapper;
+      try { newCart = loadCartridgeMapperFromBytes(bytes, basename(p)); }
+      catch (err) { return { error: `swapcrt: ${err instanceof Error ? err.message : String(err)}` }; }
+
+      const old = busSw.getCartridge();
+      const oldPath = (s as unknown as { cartPath?: string }).cartPath ?? "";
+      const lines: string[] = [];
+      if (old?.isWritableDirty?.() && oldPath) {
+        const pr = persistCartridgeToFile(old, oldPath);
+        if (pr.written) lines.push(`persisted old cart: ${pr.bytes} bytes -> ${pr.path}`);
+      }
+      let carried = "";
+      if (old && old.getMapperType() === newCart.getMapperType()) {
+        const os = old.getState();
+        // Stripped state: banking continuation ONLY (no flash/eeprom fields —
+        // those guards in setState must NOT clobber the new build's content).
+        newCart.setState({ mapperType: os.mapperType, currentBank: os.currentBank,
+          controlRegister: os.controlRegister } as HeadlessCartridgeState);
+        carried = `carried banking: bank=${os.currentBank ?? 0}` +
+          (os.controlRegister !== undefined ? ` ctrl=$${hex(os.controlRegister)}` : "");
+      }
+      busSw.attachCartridge(newCart, { bytes, name: basename(p) });
+      (s as unknown as { cartPath?: string }).cartPath = p;
+      lines.push(`swapped: ${old ? `${old.getMapperType()} (${basename(oldPath) || "?"})` : "(none)"} -> ${newCart.getMapperType()} (${basename(p)})`);
+      lines.push(carried || "fresh boot-state registers (no/changed mapper type)");
+      lines.push("no reset — running code sees the new ROM bytes NOW");
+      return { output: lines.join("\n") };
     }
 
     // ---- io [1|addr] (BUG-044) — VICE monitor `io` (mon_display_io_regs):
@@ -1204,6 +1254,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "  STATE / TRACE\n" +
         "    dump|undump <p>  snapshot persist/restore (.c64re, Spec 707)\n" +
         '    savecrt ["<p>"]  write live flash state to the mounted .crt (or to <p> as a copy)\n' +
+        '    swapcrt "<p>"    hot-swap the .crt, NO reset (same mapper: bank/ctrl carried) — build iteration\n' +
         "    trace on|off|status|mark   live trace gate (Spec 746)\n" +
         "    tracedb start|stop|status|mark   declarative trace (Spec 708)\n" +
         "  ANALYSIS (need a trace — `trace on` first)\n" +
