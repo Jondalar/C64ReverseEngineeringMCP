@@ -53,6 +53,9 @@ export interface HeadlessCartridgeMapper {
    *  bus then falls back to RAM / open-bus). Optional — a mapper that can
    *  only answer via a side-effecting path omits it (best-effort fallback). */
   peek?(address: number, bankInfo: HeadlessBankInfo): number | undefined;
+  /** BUG-044 — VICE io_source_t.dump analog: semantic device-state text for
+   *  the monitor `io` command (multi-line, no trailing newline). Optional. */
+  dumpIoState?(): string;
   write(address: number, value: number, bankInfo: HeadlessBankInfo): boolean;
   /** Spec 709.11b — true if writable (flash) contents were mutated since attach.
    *  Read-only mappers omit it. Used by the dump guard (v1 can't persist flash). */
@@ -978,12 +981,28 @@ class EasyFlashMapper extends BaseMapper {
   // Flash040.peek (no command-state advance / DQ status toggle). IO2 RAM is a
   // plain array read (already side-effect-free).
   peek(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
+    // BUG-044 — VICE easyflash_io1_peek: the MONITOR lane reads the write-only
+    // register shadows ((addr & 2) ? register_02 : register_00). The CPU read
+    // lane stays open-bus (io_source read = NULL — "regs are write only").
+    if (address >= 0xde00 && address <= 0xdeff) {
+      return (address & 2) ? this.register02 : this.currentBank;
+    }
     if (address >= 0xdf00 && address <= 0xdfff) return this.ioRam[address & 0xff];
     const offset = this.chipOffsetForWindow(address);
     if (address >= 0x8000 && address <= 0x9fff) return this.loFlash.peek(offset);
     if (address >= 0xa000 && address <= 0xbfff) return this.hiFlash.peek(offset);
     if (address >= 0xe000 && address <= 0xffff) return this.hiFlash.peek(offset);
     return undefined;
+  }
+
+  // BUG-044 — VICE easyflash.c easyflash_io1_dump (monitor `io` details).
+  dumpIoState(): string {
+    const modes = ["8k game", "16k game", "Off", "Ultimax"] as const; // cart_config_string
+    const cmode = EASYFLASH_MEMCONFIG[((this.jumper << 3) | (this.register02 & 0x07)) & 0x0f] ?? 2;
+    // VICE: memcmp(&romh_banks[0x1800], "eapi", 4) — EAPI signature in hi bank 0.
+    const eapi = [0x65, 0x61, 0x70, 0x69].every((c, i) => this.hiFlash.peek(0x1800 + i) === c);
+    return `Mode: ${modes[cmode]}, Bank: ${this.currentBank}, LED ${(this.register02 & 0x80) ? "on" : "off"}, jumper ${this.jumper ? "on" : "off"}\n` +
+      `EAPI found: ${eapi ? "yes" : "no"}`;
   }
 
   write(address: number, value: number, _bankInfo: HeadlessBankInfo): boolean {
@@ -1130,6 +1149,8 @@ class Gmod2Mapper extends BaseMapper {
   private register = 0;
   private cmode: Gmod2Cmode = "8k";
   private eepromCs = 0;
+  private eepromData = 0;   // VICE gmod2.c eeprom_data (last written line level)
+  private eepromClock = 0;  // VICE gmod2.c eeprom_clock
   private readonly flash: Flash040;
   private readonly eeprom: M93c86;
   private phi1: () => number = () => 0xff;
@@ -1153,6 +1174,15 @@ class Gmod2Mapper extends BaseMapper {
       case "ultimax": return { exrom: 1, game: 0 };
       case "off": return { exrom: 1, game: 1 };
     }
+  }
+
+  // BUG-044 — VICE gmod2.c gmod2_dump (monitor `io` details).
+  dumpIoState(): string {
+    const modes = ["8k game", "16k game", "Off", "Ultimax"] as const; // cart_config_string
+    const cmodeIdx = this.cmode === "8k" ? 0 : this.cmode === "off" ? 2 : 3;
+    return `GAME/EXROM status: ${modes[cmodeIdx]}${this.cmode === "ultimax" ? " (Flash mode)" : ""}\n` +
+      `ROM bank: ${this.currentBank}\n` +
+      `EEPROM CS: ${this.eepromCs} data: ${this.eepromData} clock: ${this.eepromClock}`;
   }
 
   read(address: number, _bankInfo: HeadlessBankInfo): number | undefined {
@@ -1192,12 +1222,12 @@ class Gmod2Mapper extends BaseMapper {
       else if ((value & 0x40) === 0x00) this.cmode = "8k";
       else this.cmode = "off";
       this.eepromCs = (value >> 6) & 1;
-      const eepromData = (value >> 4) & 1;
-      const eepromClock = (value >> 5) & 1;
+      this.eepromData = (value >> 4) & 1;
+      this.eepromClock = (value >> 5) & 1;
       this.eeprom.write_select(this.eepromCs);
       if (this.eepromCs) {
-        this.eeprom.write_data(eepromData);
-        this.eeprom.write_clock(eepromClock);
+        this.eeprom.write_data(this.eepromData);
+        this.eeprom.write_clock(this.eepromClock);
       }
       return true;
     }
@@ -1304,6 +1334,16 @@ class Gmod3Mapper extends BaseMapper {
       case "ultimax": return { exrom: 1, game: 0 };
       case "off": return { exrom: 1, game: 1 };
     }
+  }
+
+  // BUG-044 — VICE gmod3.c gmod3_dump (monitor `io` details; quirk preserved:
+  // VICE prints "8k Game" for everything except disabled, ultimax included).
+  dumpIoState(): string {
+    return `status: ${this.cmode === "off" ? "disabled" : "8k Game"}\n` +
+      `ROM bank: ${this.gmod3Bank}\n` +
+      `bitbang mode is ${this.bitbang ? "enabled" : "disabled"}\n` +
+      `hw vectors are ${this.vectors ? "enabled" : "disabled"}\n` +
+      `EEPROM CS: ${this.eepromCs} clock: ${this.eepromClock} data from flash: ${this.spi.read_data() & 1} data to flash: ${this.eepromData}`;
   }
 
   read(address: number, bankInfo: HeadlessBankInfo): number | undefined {
