@@ -17,6 +17,7 @@
 // `c64Bus.peek()` — so `m e000` shows KERNAL, `m d000` shows I/O, not raw RAM.
 
 import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, rmdirSync } from "node:fs";
+import { persistCartridgeToFile } from "../media/persist-cartridge.js";
 import { isAbsolute, resolve as resolvePathJoin, basename } from "node:path";
 import { disasmLine } from "./disasm6502.js";
 import { stepDisasm, followDisasm, resumeDisasm, type DfState } from "./monitor-flow-disasm.js";
@@ -290,6 +291,29 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       const r = await undumpRuntimeSnapshot(ctrl, snapPath);
       disasmCursors.set(sessionId, s.c64Cpu.pc); // bare `d` follows restored PC
       return { output: formatUndumpSummary(r) };
+    }
+
+    // ---- Cartridge persist (BUG-043) — write the live flash state back to
+    // the .crt on command. Bare `savecrt` updates the mounted backing file
+    // (same persistCartridgeToFile as eject / BUG-040 auto-persist, incl.
+    // skip-if-clean). `savecrt "<path>"` re-packs the CURRENT state to a new
+    // file regardless of dirty state (a flash snapshot copy).
+    if (op === "savecrt" || op === "savecrtstate") {
+      const bus = (s as unknown as { c64Bus?: { getCartridge?: () => { getCrtImage?: () => Uint8Array | null } | undefined } }).c64Bus;
+      const cart = bus?.getCartridge?.();
+      if (!cart) return { error: "savecrt: no cartridge attached" };
+      const { file } = parseFileCmd();
+      if (file) {
+        const target = resolveFsPath(file);
+        const img = cart.getCrtImage?.();
+        if (!img) return { error: "savecrt: this mapper cannot re-pack a .crt" };
+        writeFileSync(target, img);
+        return { output: `savecrt: ${img.length} bytes -> ${target}` };
+      }
+      const cartPath = (s as unknown as { cartPath?: string }).cartPath ?? "";
+      const r = persistCartridgeToFile(cart, cartPath);
+      if (!r.written) return { output: `savecrt: skipped — ${r.reason}` };
+      return { output: `savecrt: ${r.bytes} bytes -> ${r.path}` };
     }
 
     // ---- Live trace gate (Spec 746.9b): trace on|off|status|mark ----------
@@ -1134,6 +1158,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
         "    device [c64|drive8]  target the C64 or the 1541 CPU (drive8 = read-inspect r/m/d)\n" +
         "  STATE / TRACE\n" +
         "    dump|undump <p>  snapshot persist/restore (.c64re, Spec 707)\n" +
+        '    savecrt ["<p>"]  write live flash state to the mounted .crt (or to <p> as a copy)\n' +
         "    trace on|off|status|mark   live trace gate (Spec 746)\n" +
         "    tracedb start|stop|status|mark   declarative trace (Spec 708)\n" +
         "  ANALYSIS (need a trace — `trace on` first)\n" +
