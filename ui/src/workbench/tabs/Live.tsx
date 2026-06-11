@@ -41,6 +41,8 @@ interface CartStatus {
   type: string;
   bank: number;
   activity: "read" | "write" | "idle";
+  // BUG-042 — machine booted from this cart (green LED base state).
+  booted?: boolean;
   // Spec 709.13 — backend-owned source filename; the CART display derives from
   // this (not a per-tab local path), so Live + Media never diverge.
   sourceName?: string;

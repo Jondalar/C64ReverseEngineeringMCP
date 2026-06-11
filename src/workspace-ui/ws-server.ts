@@ -146,6 +146,9 @@ export class WsServer {
   // with zero side effects instead of constructing a session then crashing.
   private readonly readyPromise: Promise<void>;
   private handlers = new Map<string, RpcHandler>();
+  /** BUG-042 — CART LED write detection: last seen writableGeneration per
+   *  session + when it last advanced (flash/EEPROM program/erase). */
+  private cartLedTrack = new Map<string, { gen: number; lastWriteAt: number }>();
   private clients = new Set<WebSocket>();
   // Single-session FIFO op chain. Node fires each ws "message" listener
   // without awaiting the previous, so two async handlers interleave at
@@ -1391,15 +1394,30 @@ export class WsServer {
       const bus = (s.kernel as any).c64Bus;
       const info = bus?.getBankInfo?.();
       if (!info?.cartridgeAttached) return null;
-      const state = bus?.getCartridge?.()?.getState?.();
+      const cart = bus?.getCartridge?.();
+      const state = cart?.getState?.();
       // Spec 709.13 — the source filename is backend truth (from the attached
       // cartridge media), so every tab's CART display derives from here instead
       // of keeping its own per-tab local path that can diverge.
       const sourceName: string | undefined = bus?.getCartridgeMedia?.()?.name;
+      // BUG-042 — real LED signals (user direction 2026-06-11):
+      //   write = writableGeneration advanced since the last poll (the BUG-040
+      //           counter: every flash/EEPROM program/erase). Held 1.2s so the
+      //           250ms UI poll renders a steady blink through a write burst.
+      //   read  = cart currently mapped (EXROM and/or GAME asserted = "CART on").
+      //   booted = last reset had the cart mapped into the boot path.
+      const gen: number = cart?.writableGeneration?.() ?? 0;
+      const tr = this.cartLedTrack.get(session_id) ?? { gen, lastWriteAt: 0 };
+      if (gen !== tr.gen) { tr.gen = gen; tr.lastWriteAt = Date.now(); }
+      this.cartLedTrack.set(session_id, tr);
+      const mapped = info.cartridgeExrom === 0 || info.cartridgeGame === 0;
+      const activity = (Date.now() - tr.lastWriteAt < 1200) ? "write" as const
+        : mapped ? "read" as const : "idle" as const;
       return {
         type: info.cartridgeMapperType ?? "cartridge",
         bank: typeof state?.currentBank === "number" ? state.currentBank : 0,
-        activity: "idle" as const,
+        activity,
+        booted: (s as unknown as { cartBootedFrom?: boolean }).cartBootedFrom === true,
         sourceName,
       };
     });

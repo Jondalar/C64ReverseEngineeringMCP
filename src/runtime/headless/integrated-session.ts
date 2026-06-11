@@ -671,6 +671,11 @@ export class IntegratedSession {
     };
   }
 
+  /** BUG-042 — true when the last reset happened with a cartridge mapped into
+   *  the boot path (CBM80 8K/16K via EXROM, or ultimax via GAME): "the machine
+   *  booted from this cart". Feeds the UI CART LED (green base state). */
+  cartBootedFrom = false;
+
   resetCold(profile: ResetProfile = "pal-default", opts?: { keepRam?: boolean }): void {
     const spec = getResetProfile(profile);
     if (opts?.keepRam) {
@@ -727,6 +732,13 @@ export class IntegratedSession {
     this.joystick2.fire = false;
     this.c64InstructionCount = 0;
     this.drivePcTrace = [];
+    // BUG-042 — record whether this reset boots from/with the cartridge
+    // (lines sampled AFTER bus + cart are back in their reset config).
+    {
+      const lines = this.c64Bus.getBankInfo();
+      this.cartBootedFrom = !!(lines.cartridgeAttached &&
+        (lines.cartridgeExrom === 0 || lines.cartridgeGame === 0));
+    }
     // Spec 205-A c10: publish reset event to session trace channel.
     this.kernel.notifyReset(profile);
     // Spec 298k step 5: reset literal port state on cold reset so
