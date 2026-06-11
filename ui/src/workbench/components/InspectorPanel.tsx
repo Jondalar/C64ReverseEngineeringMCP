@@ -23,6 +23,8 @@ interface Cart {
   type: string;
   bank: number;
   activity: "read" | "write" | "idle";
+  // BUG-042 — machine booted from this cart (green LED base state).
+  booted?: boolean;
 }
 
 interface RecentMedium { name: string; path: string }
@@ -108,11 +110,17 @@ function driveLedStyle(d: Drive | null): React.CSSProperties | undefined {
   return { opacity: alpha };
 }
 
+// BUG-042 CART LED semantics (user direction 2026-06-11). CSS class names are
+// drive-LED colors, mapped by COLOR here: write=red, motor=yellow, read=green.
+//   red blink = flash/EEPROM writes in flight
+//   yellow    = cart mapped, being read ("CART on")
+//   green     = inserted + machine booted from it (base state)
+//   grey      = inserted but not booted from / no cart
 function cartLedClass(c: Cart | null | undefined): string {
   if (!c) return "wb-led off";
-  if (c.activity === "write") return "wb-led write";
-  if (c.activity === "read") return "wb-led read";
-  return "wb-led off";
+  if (c.activity === "write") return "wb-led write blink";
+  if (c.activity === "read") return "wb-led motor";
+  return c.booted ? "wb-led read" : "wb-led off";
 }
 
 function DeviceRow({
