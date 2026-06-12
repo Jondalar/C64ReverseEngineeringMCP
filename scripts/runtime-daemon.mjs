@@ -7,4 +7,10 @@
 // Usage: npm run runtime:daemon -- --project <dir> [--port 4312] [--dev-samples]
 import { resolve as resolvePath } from "node:path";
 const repoRoot = resolvePath(import.meta.dirname, "..");
-await import(`${repoRoot}/dist/runtime/headless/daemon/run.js`);
+// BUG-047 — run.js no longer autostarts on import (import-safety for probes);
+// wrappers call runDaemon() explicitly.
+const { runDaemon } = await import(`${repoRoot}/dist/runtime/headless/daemon/run.js`);
+runDaemon(process.argv.slice(2)).catch((e) => {
+  console.error(`[daemon] failed:`, e instanceof Error ? e.message : e);
+  process.exit(1);
+});

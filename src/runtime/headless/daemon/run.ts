@@ -6,10 +6,67 @@
 //
 // Args: --project <dir> [--port 4312] [--dev-samples].
 
-import { mkdirSync, appendFileSync } from "node:fs";
+import { mkdirSync, appendFileSync, statSync, renameSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { resolveProjectDir, hasDevSamples } from "../../../workspace-ui/resolve-project-dir.js";
 
+// BUG-047 — crash recorder, factored out for testability. Hardened against the
+// 2026-06-12 overnight incident: stderr's reader died → console.error in the
+// old recorder raised a NEW async EPIPE → uncaughtException → recorder → …
+// infinite loop appending to daemon-crash.log until the disk filled. Layers:
+//   - file write FIRST; console LAST and guarded (never throws out of here)
+//   - ISO timestamp per record
+//   - consecutive identical stacks dedupe to a counter line (2nd, then every 100th)
+//   - size cap: log > maxBytes → one-shot rotate to .1, start fresh
+//   - crash-storm breaker: > stormMax records inside stormWindowMs → write one
+//     final line + exit(1). A daemon respawn is cheap; a full disk is not.
+export function makeCrashRecorder(
+  logDir: string,
+  opts?: { exit?: (code: number) => void; maxBytes?: number; stormMax?: number; stormWindowMs?: number },
+): (kind: string, e: unknown) => void {
+  const crashLog = `${logDir}/daemon-crash.log`;
+  const maxBytes = opts?.maxBytes ?? 10 * 1024 * 1024;
+  const stormMax = opts?.stormMax ?? 100;
+  const stormWindowMs = opts?.stormWindowMs ?? 10_000;
+  const exit = opts?.exit ?? ((code: number) => process.exit(code));
+  let lastStack = "", repeatCount = 0;
+  let stormStart = 0, stormCount = 0;
+  return (kind: string, e: unknown) => {
+    const stack = e instanceof Error ? (e.stack ?? e.message) : String(e);
+    const now = Date.now();
+    if (now - stormStart > stormWindowMs) { stormStart = now; stormCount = 0; }
+    if (++stormCount > stormMax) {
+      try {
+        appendFileSync(crashLog, `\n[crash-storm] ${new Date(now).toISOString()} more than ${stormMax} records in ${stormWindowMs / 1000}s — exiting; respawn is cheaper than a full disk\n`);
+      } catch { /* best effort */ }
+      exit(1);
+      return; // injected exit in tests does not terminate
+    }
+    try {
+      mkdirSync(logDir, { recursive: true });
+      if (stack === lastStack) {
+        repeatCount++;
+        if (repeatCount === 2 || repeatCount % 100 === 0) {
+          appendFileSync(crashLog, `[repeat] ${new Date(now).toISOString()} previous error repeated ${repeatCount}x\n`);
+        }
+      } else {
+        lastStack = stack; repeatCount = 1;
+        let size = 0; try { size = statSync(crashLog).size; } catch { /* absent */ }
+        if (size > maxBytes) { try { renameSync(crashLog, `${crashLog}.1`); } catch { /* best effort */ } }
+        appendFileSync(crashLog, `\n[${kind}] ${new Date(now).toISOString()} ${stack}\n`);
+      }
+    } catch { /* best effort — the crash recorder must never throw */ }
+    try { console.error(`[daemon] ${kind} (kept alive):`, stack); } catch { /* dead pipe */ }
+  };
+}
+
 export async function runDaemon(argv: string[]): Promise<void> {
+  // BUG-047 layer 1 — a dead stdio reader (terminal / ui.sh closed) must not
+  // become an uncaughtException: without 'error' listeners, every console
+  // write to a closed pipe raises an async EPIPE error event. With them,
+  // writes to a dead pipe are no-ops — for EVERY console call in the process.
+  process.stdout.on("error", () => { /* EPIPE — reader gone */ });
+  process.stderr.on("error", () => { /* EPIPE — reader gone */ });
   const { WsServer } = await import("../../../workspace-ui/ws-server.js");
   const { runtimeSessions } = await import("../runtime-session-service.js");
   const { getIntegratedSession } = await import("../integrated-session-manager.js");
@@ -83,13 +140,7 @@ export async function runDaemon(argv: string[]): Promise<void> {
   // binary-trace-worker dying mid-swap takes the daemon down hard. Log the full
   // stack (so we can finally SEE the trace crash) but keep the process alive.
   const logDir = `${projectDir}/runtime`;
-  const crashLog = `${logDir}/daemon-crash.log`;
-  const recordCrash = (kind: string, e: unknown) => {
-    const stack = e instanceof Error ? (e.stack ?? e.message) : String(e);
-    const line = `\n[${kind}] (no-timestamp) ${stack}\n`;
-    console.error(`[daemon] ${kind} (kept alive):`, e instanceof Error ? e.stack : e);
-    try { mkdirSync(logDir, { recursive: true }); appendFileSync(crashLog, line); } catch { /* best effort */ }
-  };
+  const recordCrash = makeCrashRecorder(logDir); // BUG-047 — hardened (see above)
   process.on("uncaughtException", (e) => recordCrash("uncaughtException", e));
   process.on("unhandledRejection", (e) => recordCrash("unhandledRejection", e));
 
@@ -98,8 +149,14 @@ export async function runDaemon(argv: string[]): Promise<void> {
   process.on("SIGTERM", shutdown);
 }
 
-// Direct execution (node dist/.../run.js OR tsx src/.../run.ts).
-runDaemon(process.argv.slice(2)).catch((e) => {
-  console.error(`[daemon] failed:`, e instanceof Error ? e.message : e);
-  process.exit(1);
-});
+// Direct execution only (node dist/.../run.js OR tsx src/.../run.ts) — NOT on
+// import. BUG-047: importing makeCrashRecorder (e.g. from a probe) must not
+// boot a daemon with the importer's argv and process.exit on failure. Wrapper
+// scripts (scripts/runtime-daemon.mjs) call runDaemon() explicitly.
+const directEntry = process.argv[1];
+if (directEntry && import.meta.url === pathToFileURL(directEntry).href) {
+  runDaemon(process.argv.slice(2)).catch((e) => {
+    console.error(`[daemon] failed:`, e instanceof Error ? e.message : e);
+    process.exit(1);
+  });
+}
