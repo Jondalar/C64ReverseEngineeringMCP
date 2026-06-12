@@ -211,13 +211,22 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         // Seed the auto-spawn base so a daemon we start lives in a real project.
         runtimeDaemon.setProjectDir(mcpProject);
         const r = await runtimeDaemon.createSession({ disk_path: absDisk, device_id, pal, start_track, write_protected, trace_out: absTraceOut, trace_domains });
-        const lines = [
-          `Integrated session started (Runtime Daemon — shared with the UI).`,
-          `Session: ${r.sessionId}`,
-          `Disk: ${absDisk ?? "(none)"}`,
-          `Mode: ${r.mode}`,
-          `C64 cycles: ${r.c64Cycles}  PC: ${formatHexWord(r.pc)}`,
-        ];
+        const lines = r.attached
+          ? [
+              `Attached to the existing shared session in the Runtime Daemon (one machine per process — the human's UI and you co-drive the SAME machine).`,
+              `Session: ${r.sessionId}`,
+              `Mounted disk: ${r.diskPath || "(none)"}`,
+              `Mode: ${r.mode}`,
+              `C64 cycles: ${r.c64Cycles}  PC: ${formatHexWord(r.pc)}`,
+              ...(absDisk ? [`Requested disk "${absDisk}" was NOT auto-mounted (would power-cycle the shared machine) — mount it deliberately with runtime_media_mount.`] : []),
+            ]
+          : [
+              `Integrated session started (Runtime Daemon — shared with the UI).`,
+              `Session: ${r.sessionId}`,
+              `Disk: ${absDisk ?? "(none)"}`,
+              `Mode: ${r.mode}`,
+              `C64 cycles: ${r.c64Cycles}  PC: ${formatHexWord(r.pc)}`,
+            ];
         const t = r.trace as { outputPath?: string; domains?: string[]; runId?: string } | null;
         if (t?.runId) lines.push(`Trace: streaming → ${t.outputPath} [${(t.domains ?? []).join(",")}] run=${t.runId}`);
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
@@ -234,7 +243,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const traceProducers = trace_out ? producerOptsForDomains(traceDomains) : {};
       // Spec 723.4a: the product runtime is true-drive + microcoded
       // unconditionally — no useCycleLockstep / useMicrocodedCpu inputs.
-      const { sessionId, session } = runtimeSessions.start({
+      const { sessionId, session, attached } = runtimeSessions.start({
         diskPath: disk_path, deviceId: device_id, isPal: pal,
         startTrack: start_track, writeProtected: write_protected,
         traceIec: trace_iec ?? traceProducers.traceIec,
@@ -246,6 +255,20 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         enableKernalSerialTraps: enable_kernal_serial_traps,
         enableKernalIoTraps: enable_kernal_io_traps,
       });
+      // One-machine-per-process: an ATTACHED session is the existing shared
+      // machine — do NOT resetCold it (that wipes the human's/other agent's
+      // state). Only a freshly constructed machine cold-boots. If a disk was
+      // requested, the caller mounts it deliberately (runtime_media_mount) rather
+      // than us silently power-cycling the shared machine.
+      if (attached) {
+        const st = session.status();
+        const note = disk_path
+          ? ` Requested disk "${disk_path}" was NOT auto-mounted (would power-cycle the shared machine) — mount it deliberately with runtime_media_mount if you mean to change media.`
+          : "";
+        return { content: [{ type: "text" as const, text:
+          `Attached to the existing shared session ${sessionId} (one machine per process — the human's UI and you co-drive the SAME machine).\n` +
+          `Mounted disk: ${session.diskPath || "(none)"}  Mode: ${st.runtime.mode}  PC: ${formatHexWord(st.c64.pc)}  C64 cycles: ${session.c64Cpu.cycles}.${note}` }] };
+      }
       session.resetCold();
       // Spec 726: start streaming the trace AFTER cold reset (cycleStart = post-reset).
       let traceLine = "";
@@ -779,12 +802,23 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const projectRoot = resolveHeadlessProjectDir(context, project_dir);
       // Spec 723.7b: lockstep is gone; diagnose_mm runs the product event-catchup
       // path with full IEC/drive trace channels enabled (debug-vice-compare).
-      const { sessionId, session } = runtimeSessions.start({
+      const { sessionId, session, attached } = runtimeSessions.start({
         diskPath: disk_path, deviceId: device_id, isPal: pal,
         mode: "debug-vice-compare",
         traceIec: true, traceIecCapacity: 4096,
         traceDrive: true, traceDriveCapacity: 2048,
       });
+      // One-machine-per-process: this one-shot diagnostic needs its OWN isolated
+      // machine (it cold-resets + closes the session). If a machine already
+      // exists in this process, attaching + resetCold/close would WIPE and kill
+      // the shared session — refuse instead. Run the diagnostic from a separate
+      // backend process. (docs/headless-runtime-singleton-audit.md)
+      if (attached) {
+        throw new Error(
+          `runtime_diagnose_mm needs an isolated machine, but one already exists in this process (${sessionId}). ` +
+          `One machine per process: cold-resetting/closing it would wipe the shared session. Run this diagnostic from a separate backend process.`,
+        );
+      }
       session.resetCold();
       let report;
       try {

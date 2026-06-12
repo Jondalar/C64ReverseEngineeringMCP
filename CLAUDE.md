@@ -250,21 +250,23 @@ in module-level globals (`setFetchHost` / `setIrqHost` / `*_install_hooks`).
 This is deliberate and Spec-612-faithful (VICE is single-machine-per-process).
 
 **Therefore: one daemon process = exactly ONE live machine, shared.** Human
-and LLM co-drive the **same** session (Spec 744 shared-attach). Constructing
-a **second** `IntegratedSession` in the same process **rebinds the global VIC
-+ drive hooks onto it (last-writer-wins) and corrupts the first** — even after
-the second is closed. Symptom: a session looks wrong in the UI (e.g. boot text
-renders black) until the process restarts.
+and LLM co-drive the **same** session (Spec 744 shared-attach). **Enforced
+(Option A, 2026-06-12):** `runtimeSessions.start` — the choke point every start
+path (daemon default / MCP `runtime_session_start` / UI `session/create`) goes
+through — **attaches** to the existing machine when one is present (`attached:
+true`) instead of constructing a second. Callers must NOT `resetCold` an
+attached session (would wipe the shared machine); only a freshly constructed one
+cold-boots. A requested disk on attach is NOT auto-mounted — mount it
+deliberately with `runtime_media_mount`.
 
 - Need an **isolated** machine (e.g. a throwaway build test) → use a **separate
   backend process**, never a 2nd in-process session (this is the "No scripts on
   the live UI session / use a separate backend" rule).
+- Do NOT call `startIntegratedSession` directly in product code — go through
+  `runtimeSessions.start` (the guard). The raw primitive is unguarded by design.
 - Full audit + the process-global inventory: `docs/headless-runtime-singleton-audit.md`.
-- Gate: `scripts/probe-session-isolation.mjs` (RED today = bug present; runs with
-  `EXPECT_ISOLATED=1` to assert the fixed one-machine-per-process contract).
-- Remediation depth (enforce-single-machine vs context-swap vs per-session
-  instancing vs process-per-session) is an open architectural decision — see the
-  audit's "Remediation options".
+- Gate: `scripts/probe-session-isolation.mjs` (6/6 — asserts the one-machine
+  contract via `runtimeSessions.start`; also demonstrates the raw-primitive hazard).
 
 ## Traces (Mandatory 2026-05-12)
 

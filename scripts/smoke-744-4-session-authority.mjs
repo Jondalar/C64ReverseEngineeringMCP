@@ -38,11 +38,14 @@ runtimeSessions.pause(mcp.sessionId);                    // "UI clicks Pause"
 ok(runtimeSessions.status(mcp.sessionId).runState === "paused", "pause() (UI) flips shared runState back");
 ok(runtimeSessions.status(mcp.sessionId).cycles >= before, "both surfaces read the same cycle counter", `${before}→${runtimeSessions.status(mcp.sessionId).cycles}`);
 
-// --- A UI-created session is equally visible/controllable as MCP would see it.
+// --- ONE MACHINE PER PROCESS (Option A, docs/headless-runtime-singleton-audit.md):
+// a "second" start() does NOT build a second machine (that would rebind the
+// process-global VIC/drive and corrupt the first) — it ATTACHES to the existing
+// one (shared-attach). The UI and MCP co-drive the SAME machine.
 const uiSess = runtimeSessions.start({ mode: "true-drive", driveDispatchMode: "vice-whole-instruction" });
-ok(uiSess.sessionId !== mcp.sessionId, "second (UI-created) session gets a distinct id", uiSess.sessionId);
-ok(!!runtimeSessions.get(uiSess.sessionId) && !!runtimeSessions.status(uiSess.sessionId),
-  "MCP can get/status the UI-created session by id");
+ok(uiSess.sessionId === mcp.sessionId, "second start() ATTACHES to the same machine (no second machine)", uiSess.sessionId);
+ok(uiSess.attached === true, "second start() reports attached=true");
+ok(runtimeSessions.list().length === 1, "exactly ONE machine in the process", `${runtimeSessions.list().length}`);
 
 // --- close releases through the authority (idempotent).
 const closed = await runtimeSessions.close(mcp.sessionId);
@@ -51,7 +54,6 @@ ok(closed.released.includes("session") && closed.released.includes("controller")
 ok(runtimeSessions.get(mcp.sessionId) === undefined, "closed session is gone from the authority");
 const again = await runtimeSessions.close(mcp.sessionId);
 ok(again.existed === false, "close() is idempotent");
-await runtimeSessions.close(uiSess.sessionId);
 
 // --- No product INTERACTIVE entry point constructs a private session outside the
 //     authority: the MCP runtime_session_start tool and the UI bootstrap must call

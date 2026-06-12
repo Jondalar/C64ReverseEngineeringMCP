@@ -1,8 +1,10 @@
 # Headless Runtime — Single-Machine-Per-Process Audit
 
-**Status:** audit complete, root cause empirically proven, remediation deferred to
-a joint decision (see "Remediation options"). **Date:** 2026-06-12.
-**Gate:** `scripts/probe-session-isolation.mjs` (RED today = bug present).
+**Status:** audit complete, root cause empirically proven, **Option A implemented**
+(2026-06-12) — `runtimeSessions.start` enforces one machine per process by
+attaching instead of constructing a second. **Date:** 2026-06-12.
+**Gate:** `scripts/probe-session-isolation.mjs` (6/6 green — asserts the fixed
+contract; Part 2 still demonstrates the raw-primitive hazard the guard prevents).
 
 ## Why this exists
 
@@ -104,26 +106,35 @@ real defect of B is that `runtimeSessions.start` has **no single-machine guard**
   `_close` / `_status`) imply freely startable, isolated sessions and never warn
   that a second in-process session corrupts the first. Tool descriptions are docs.
 
-## Remediation options (next decision — not yet executed)
+## Remediation — Option A (IMPLEMENTED 2026-06-12)
 
-- **A (recommended) — enforce one machine per process.** `runtimeSessions.start` /
-  `session/create` do not build a second machine in the same process; they
-  **attach** to the existing one (Spec 744 shared-attach: human + LLM on the
-  **same** session). An isolated machine = a separate process (matches the
-  "separate backend" rule). Keeps the module-globals (Spec-612-faithful), smallest
-  change, fixes the exact pain.
-- **B — context-swap** the global VIC + hosts + draw-cycle + drive state on session
-  switch (mechanics partly exist: `vicii_snapshot_write/read`, draw-cycle get/set).
-  N sessions, one active at a time. Fragile (every global from the table must be in
-  the swap set).
-- **C — full per-session instancing** (thread `vicii_t` + hosts through every
-  literal-port + vice1541 function). True N-parallel machines. **Violates Spec
-  612**, huge, highest risk.
-- **D — process-per-session** (each machine in its own worker; globals stay). Clean
-  isolation, heavy infra (the daemon already has WS transport).
+**Chosen: A — enforce one machine per process.** `runtimeSessions.start`
+(`runtime/headless/runtime-session-service.ts`) — the single choke point all start
+paths go through (daemon default, MCP `runtime_session_start`, UI `session/create`)
+— now: if a live machine already exists in the process, it **attaches** to it
+(returns the existing handle with `attached: true`, re-wires the broadcast sink)
+instead of constructing a second. Human + LLM co-drive the **same** machine
+(Spec 744 shared-attach). An isolated machine = a separate process.
+
+Caller changes so attach is non-destructive:
+- `ws-server.ts session/create` + `headless.ts runtime_session_start`: only
+  `resetCold()` a **freshly constructed** session, never an attached one (cold-reset
+  would wipe the shared machine). Both report `attached` + a note that a requested
+  disk is NOT auto-mounted (use `runtime_media_mount` deliberately).
+- `headless.ts runtime_diagnose_mm` (advanced, one-shot, cold-resets + closes its
+  session): refuses to attach — it needs an isolated machine, so it errors and
+  points at a separate backend process.
+
+Module-globals are kept (Spec-612-faithful). The other options were not taken:
+**B** context-swap (fragile — every global must be in the swap set), **C** full
+per-session instancing (violates Spec 612, huge), **D** process-per-session (clean
+but heavy infra). True concurrent multi-machine, if ever needed, is **D** later.
 
 ## Verification
 
-- `node scripts/probe-session-isolation.mjs` → RED today (corruption after the 2nd
-  constructor). After a fix lands, run with `EXPECT_ISOLATED=1` → asserts session A
-  is byte-identical before/after session B (GREEN = contract held).
+- `node scripts/probe-session-isolation.mjs` → 6/6 (Part 1: two
+  `runtimeSessions.start` → one machine, same id, session A render unchanged; Part 2
+  demonstrates the raw-primitive hazard).
+- `node scripts/smoke-744-4-session-authority.mjs` 17/17 (second start attaches),
+  `e2e:744-4c` 10/10 + `-race` 11/11 + `-autostart` 5/5 (MCP/UI share the one
+  machine), `proof:product` 8/8, `probe-single-path` 25/25.

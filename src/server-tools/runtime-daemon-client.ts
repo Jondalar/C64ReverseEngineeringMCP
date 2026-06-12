@@ -265,7 +265,7 @@ class RuntimeDaemonClient {
 
   // -- typed wrappers over the V3 protocol (the acceptance-critical surface) --
   createSession(p: { disk_path?: string; device_id?: number; pal?: boolean; start_track?: number; write_protected?: boolean; trace_out?: string; trace_domains?: string[] }) {
-    return this.call<{ sessionId: string; mode: string; diskPath: string; c64Cycles: number; pc: number; trace: unknown }>("session/create", p);
+    return this.call<{ sessionId: string; mode: string; diskPath: string; c64Cycles: number; pc: number; trace: unknown; attached?: boolean }>("session/create", p);
   }
   listSessions() { return this.call<Array<{ sessionId: string; mode: string; diskPath: string; c64Cycles: number }>>("session/list"); }
   state(sessionId: string) { return this.call<{ c64Cycles: number; mode: string; cpu: { pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number } }>("session/state", { session_id: sessionId }); }

@@ -75,14 +75,14 @@ try {
   await sleep(800); // let any loser daemons finish backing off
   ok(listenerCount() === 1, "8 exactly ONE daemon owns the port (no duplicates from the race)", `listeners=${listenerCount()}`);
 
-  // every MCP creates a session; all must live in the ONE shared daemon.
+  // One machine per process: every MCP start ATTACHES to the daemon's one shared
+  // machine — all N return the SAME session id (no second machine from the race).
   const ids = [];
   for (const m of mcps) { const t = m.text(await m.call("runtime_session_start", { disk_path: DISK, write_protected: true })); const s = (t.match(/Session:\s*(\S+)/) || [])[1]; if (s) ids.push(s); }
-  ok(ids.length === N, `9 all ${N} MCPs created a session in the daemon`, ids.join(","));
-  let allShared = true;
-  for (const s of ids) { const st = mcps[0].text(await mcps[0].call("runtime_session_status", { session_id: s })); if (!/cycles=\d+/.test(st)) allShared = false; }
-  ok(allShared, "10 one MCP can status EVERY session — all share the single daemon");
-  for (const s of ids) { try { await mcps[0].call("runtime_session_close", { session_id: s }); } catch {} }
+  ok(ids.length === N && new Set(ids).size === 1, `9 all ${N} concurrent MCP starts attached to the ONE shared machine (same id)`, [...new Set(ids)].join(","));
+  const st = mcps[0].text(await mcps[0].call("runtime_session_status", { session_id: ids[0] }));
+  ok(/cycles=\d+/.test(st), "10 the shared machine is statusable from any MCP", ids[0]);
+  try { await mcps[0].call("runtime_session_close", { session_id: ids[0] }); } catch {}
 } catch (e) {
   console.error("FATAL", e.message); exit = 2;
 } finally {

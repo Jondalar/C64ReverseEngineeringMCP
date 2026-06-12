@@ -58,7 +58,9 @@ try {
   await mcpReady(mcp1);
   const start = mcp1.text(await mcp1.call("runtime_session_start", { disk_path: DISK, write_protected: true }));
   const S = (start.match(/Session:\s*(\S+)/) || [])[1];
-  ok(!!S && /Runtime Daemon/.test(start), "4 MCP creates a session IN THE DAEMON", S);
+  // One machine per process: the daemon already has its default session, so the
+  // MCP start ATTACHES to it (shared-attach) rather than building a second.
+  ok(!!S && /Runtime Daemon/.test(start), "4 MCP attaches to the daemon's shared session", S);
 
   // ---- UI sees the MCP session ----
   const ui = await wsConnect();
@@ -76,10 +78,10 @@ try {
   ok(mcpAfterRun > mcpCyc0, "5 UI debug/run advanced the SAME session MCP reads (UI→MCP)", `${mcpCyc0} → ${mcpAfterRun}`);
   await wsRpc(ui, "debug/pause", { session_id: S }, wsId++);
 
-  // ---- UI-side default session visible/controllable from MCP ----
-  const defId = ids.find((x) => x !== S);
-  ok(!!defId && /cycles=\d+/.test(mcp1.text(await mcp1.call("runtime_session_status", { session_id: defId }))),
-    "6 MCP can status the UI-booted default session (UI→MCP)", defId || "none");
+  // ---- one machine per process: the MCP "session" IS the daemon's shared
+  // default — there is NO separate second session (Option A, audit). ----
+  ok(ids.length === 1 && ids[0] === S,
+    "6 one machine per process: MCP start attached to the shared default (no second session)", ids.join(","));
 
   // ---- MCP reconnect must NOT reset the session ----
   mcp1.kill();

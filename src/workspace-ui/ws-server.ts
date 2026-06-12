@@ -542,20 +542,23 @@ export class WsServer {
         await import("../server-tools/runtime-trace-sink.js");
       const domains = trace_out ? (trace_domains ?? DEFAULT_TRACE_DOMAINS) : [];
       const tp = trace_out ? producerOptsForDomains(domains) : {};
-      const { sessionId, session } = runtimeSessions.start({
+      const { sessionId, session, attached } = runtimeSessions.start({
         diskPath: disk_path, deviceId: device_id, isPal: pal,
         startTrack: start_track, writeProtected: write_protected,
         traceIec: tp.traceIec, traceDrive: tp.traceDrive,
         enableBusAccessTrace: tp.enableBusAccessTrace,
       } as never);
-      session.resetCold();
+      // One-machine-per-process: do NOT resetCold an ATTACHED session — that would
+      // wipe the shared machine the human/LLM is already on. Only a freshly
+      // constructed machine gets the cold boot. (runtime-session-service.start.)
+      if (!attached) session.resetCold();
       let trace: unknown = null;
       if (trace_out) {
         const out = resolveTraceOut(trace_out, this.projectDir);
         trace = await startSessionTrace(sessionId, session, out, domains as never);
       }
       return {
-        sessionId, mode: session.mode, diskPath: session.diskPath,
+        sessionId, mode: session.mode, diskPath: session.diskPath, attached,
         c64Cycles: session.c64Cpu.cycles, pc: session.c64Cpu.pc, trace,
       };
     });

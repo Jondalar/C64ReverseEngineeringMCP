@@ -49,6 +49,10 @@ export interface RuntimeSessionHandle {
   sessionId: string;
   session: IntegratedSession;
   controller: RuntimeController;
+  /** True when this start ATTACHED to a pre-existing in-process machine instead
+   *  of constructing a new one (one-machine-per-process, see start()). The caller
+   *  MUST NOT resetCold an attached session — that would wipe the shared machine. */
+  attached: boolean;
 }
 
 export interface RuntimeSessionSummary {
@@ -70,9 +74,25 @@ class RuntimeSessionService {
     broadcast: BroadcastFn = NO_BROADCAST,
     presentFrame?: (frameNum: number) => void,
   ): RuntimeSessionHandle {
+    // ONE MACHINE PER PROCESS (docs/headless-runtime-singleton-audit.md). The
+    // literal-port VIC (vicii-types.ts `export const vicii`) and the whole
+    // vice1541 drive stack keep state in process-global module singletons
+    // (Spec-612-faithful). Constructing a SECOND IntegratedSession here would
+    // rebind those globals onto it (setFetchHost/setIrqHost + vicii.regs +
+    // *_install_hooks, last-writer-wins) and silently corrupt the first session's
+    // rendering — and never restore it on close. So when a machine already exists
+    // in this process we ATTACH to it (shared-attach, Spec 744 §2.3: human + LLM
+    // co-drive the SAME session) instead of building a second machine. A truly
+    // isolated machine = a separate process (the "use a separate backend" rule).
+    // Guard: `scripts/probe-session-isolation.mjs`.
+    const existing = listIntegratedSessions()[0];
+    if (existing) {
+      const controller = ensureRuntimeController(existing.sessionId, existing.session, broadcast, presentFrame);
+      return { sessionId: existing.sessionId, session: existing.session, controller, attached: true };
+    }
     const { sessionId, session } = startIntegratedSession(opts);
     const controller = ensureRuntimeController(sessionId, session, broadcast, presentFrame);
-    return { sessionId, session, controller };
+    return { sessionId, session, controller, attached: false };
   }
 
   /** Resolve a session id to its handle (session + controller), or undefined. */
@@ -82,7 +102,7 @@ class RuntimeSessionService {
     // Controller may not exist yet if the session was created before this service
     // (legacy path); create it lazily with a no-op sink so both surfaces share one.
     const controller = ensureRuntimeController(sessionId, session, NO_BROADCAST);
-    return { sessionId, session, controller };
+    return { sessionId, session, controller, attached: true };
   }
 
   /**
@@ -98,7 +118,7 @@ class RuntimeSessionService {
     const session = getIntegratedSession(sessionId);
     if (!session) return undefined;
     const controller = ensureRuntimeController(sessionId, session, broadcast, presentFrame);
-    return { sessionId, session, controller };
+    return { sessionId, session, controller, attached: true };
   }
 
   /** All live sessions (visible to both surfaces). */
