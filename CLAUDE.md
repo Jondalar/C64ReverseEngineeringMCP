@@ -239,6 +239,33 @@ any runtime change). Do not reintroduce a removed flag/path to "make a
 test pass" — retire the test (Fork B: fidelity tests must not keep a
 dead runtime path alive).
 
+## One Machine Per Process (Session Isolation, 2026-06-12)
+
+**Single-Path ≠ Session-Isolation.** The "one execution path" above is
+about *which* CPU/VIC/drive pipeline runs — NOT about running multiple
+machines at once. The runtime **core is single-machine-per-process**: the
+literal-port VIC is a module-global singleton (`vic/literal/vicii-types.ts`
+`export const vicii`) and the VIC + whole vice1541 drive stack keep state
+in module-level globals (`setFetchHost` / `setIrqHost` / `*_install_hooks`).
+This is deliberate and Spec-612-faithful (VICE is single-machine-per-process).
+
+**Therefore: one daemon process = exactly ONE live machine, shared.** Human
+and LLM co-drive the **same** session (Spec 744 shared-attach). Constructing
+a **second** `IntegratedSession` in the same process **rebinds the global VIC
++ drive hooks onto it (last-writer-wins) and corrupts the first** — even after
+the second is closed. Symptom: a session looks wrong in the UI (e.g. boot text
+renders black) until the process restarts.
+
+- Need an **isolated** machine (e.g. a throwaway build test) → use a **separate
+  backend process**, never a 2nd in-process session (this is the "No scripts on
+  the live UI session / use a separate backend" rule).
+- Full audit + the process-global inventory: `docs/headless-runtime-singleton-audit.md`.
+- Gate: `scripts/probe-session-isolation.mjs` (RED today = bug present; runs with
+  `EXPECT_ISOLATED=1` to assert the fixed one-machine-per-process contract).
+- Remediation depth (enforce-single-machine vs context-swap vs per-session
+  instancing vs process-per-session) is an open architectural decision — see the
+  audit's "Remediation options".
+
 ## Traces (Mandatory 2026-05-12)
 
 **Always trace broadly + abundantly + into DuckDB. Never write

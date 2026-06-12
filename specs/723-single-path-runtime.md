@@ -3,6 +3,13 @@
 **Status:** DONE (2026-05-29 CEST) — all slices 723.1-723.8 landed on master;
 single runtime path enforced by `scripts/probe-single-path.mjs` (25 checks);
 runtime:proof 7/7 after every execution-internal slice.
+
+> **Correction note (2026-06-12):** "Single execution PATH" here is about *which*
+> CPU/VIC/drive pipeline runs — it is NOT a session-isolation guarantee. The
+> runtime core is **single-machine-per-process** (module-global VIC singleton +
+> drive hooks, Spec-612-faithful). A second `IntegratedSession` in the same
+> process corrupts the first. See `docs/headless-runtime-singleton-audit.md` and
+> `scripts/probe-session-isolation.mjs`.
 **Owner:** Runtime / execution-path contract
 **Scope:** Collapse the headless runtime to ONE C64 execution path —
 `true-drive` + C64 `Cpu65xxVice` + vice1541 + per-cycle vice-shaped chips — and

@@ -10,6 +10,16 @@ showed that the binary trace path, media write-through and Live UI can each be p
 correct while the product still cannot drive a real multi-disk game to an observable
 state through MCP.
 
+> **Correction note (2026-06-12):** the §2.3 shared-attach promise ("both surfaces
+> see the same CPU/VIC/CIA/SID/1541 state") holds ONLY because the runtime is
+> **single-machine-per-process** — there is exactly ONE live machine and both
+> surfaces co-drive it. It is NOT a guarantee that N isolated sessions can coexist:
+> a second `IntegratedSession` in the same process rebinds the process-global VIC /
+> drive hooks and corrupts the first (boot text renders black until restart). The
+> daemon must hold at most one machine per process; an isolated machine = a separate
+> process. Full audit: `docs/headless-runtime-singleton-audit.md`; gate:
+> `scripts/probe-session-isolation.mjs`.
+
 **Owner:** runtime session service / MCP runtime facade / Live UI backend /
 media orchestration / trace startup packaging
 **Depends on:** Specs 724, 726.B, 742, 743
