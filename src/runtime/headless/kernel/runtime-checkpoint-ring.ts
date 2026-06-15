@@ -168,10 +168,28 @@ export class RuntimeCheckpointRing {
     for (let i = this.slotCount - 1; i >= 0; i--) this.freeSlots.push(i);
   }
 
-  /** Lazily allocate the flat slab on first capture (see `slab` doc). */
+  /** Lazily allocate the flat slab on first use (see `slab` doc). On the fresh
+   *  allocation it also PAGES IN the slab — one write per 4 KiB page — so the OS
+   *  faults the pages here, not lazily on the first captures (which, unwarmed,
+   *  would fault ~mid-boot and show as the power-on fps dip). Idempotent. */
   private ensureSlab(): Uint8Array {
-    if (this.slab === null) this.slab = new Uint8Array(this.slotCount * SLOT_BYTES);
+    if (this.slab === null) {
+      const s = new Uint8Array(this.slotCount * SLOT_BYTES);
+      for (let i = 0; i < s.length; i += 4096) s[i] = 0; // touch → fault pages in now
+      this.slab = s;
+    }
     return this.slab;
+  }
+
+  /**
+   * Spec 765 §8 — allocate + page in the slab NOW (idempotent). The controller
+   * calls this at power-on (run start), BEFORE the first frame + audio, so the
+   * one-time ~32 MiB alloc + page-fault cost is paid while nothing competes —
+   * not lazily on the first auto-capture ~1 s into the CPU-heavy boot (which
+   * showed as a power-on fps dip).
+   */
+  prewarm(): void {
+    this.ensureSlab();
   }
 
   /**

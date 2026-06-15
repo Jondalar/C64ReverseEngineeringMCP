@@ -234,6 +234,12 @@ export class RuntimeController {
     if (pacing?.mode) this.pacing.mode = pacing.mode;
     if (pacing?.ratio && pacing.ratio > 0) this.pacing.ratio = pacing.ratio;
     if (this.runState === "running") return;
+    // Spec 765 §8 — power-on prewarm: allocate + page in the checkpoint slab NOW,
+    // before the first frame + audio, so the one-time ~32 MiB alloc cost is paid
+    // while nothing competes — not lazily on the first auto-capture mid-boot
+    // (which showed as the power-on fps dip). Idempotent; skip when auto-capture
+    // is off (the slab then stays lazy for a rare manual capture).
+    if (CHECKPOINT_AUTOCAPTURE) this.checkpointRing.prewarm();
     this.stepPastCurrentBreakpoint();
     this.brokeOnJam = false; // Spec 764 — explicit run re-arms; a still-jammed CPU re-breaks once
     this.runState = "running";
