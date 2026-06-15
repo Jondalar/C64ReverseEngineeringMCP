@@ -20,7 +20,6 @@ import type { TabProps } from "./Live.types.js";
 // stays (the pop-out renders it).
 import { InspectorPanel } from "../components/InspectorPanel.js";
 import { MachineControls } from "../components/MachineControls.js";
-import { ScrubTimeline } from "../components/ScrubTimeline.js";
 import { ExploreOverlay } from "../components/ExploreOverlay.js";
 
 interface DriveStatus {
@@ -455,8 +454,9 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
         onSnapshotTaken={snapshot}
         statusSlot={statusSlot}
       />
-      {/* Spec 761.2 — ring-bound scrub timeline (rewind→resume over 705.B). */}
-      <ScrubTimeline sessionId={sessionId} runState={runState} />
+      {/* BUG-049 — scrub timeline removed pending the checkpoint-ring re-spec
+          (its 1s checkpoint/list poll + the always-on ring auto-capture drove
+          the audio kratzen). Re-introduced by the new zero-alloc-ring spec. */}
       <div className="wb-live-grid">
         <div className="wb-screen-wrap">
           {runState === "off" ? (

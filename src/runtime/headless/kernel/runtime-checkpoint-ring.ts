@@ -71,7 +71,12 @@ export interface RuntimeCheckpointRingStats {
   diskPoolBytes: number;
 }
 
-export const DEFAULT_CHECKPOINT_RING_BUDGET_BYTES = 128 * 1024 * 1024;
+// BUG-049 — 32 MiB (was 128). The retained ring is a graph of ~hundreds of
+// nested snapshot objects (~400 KB each); a bigger old-gen graph = costlier +
+// more frequent major-GC → fps dips. 32 MiB ≈ ~80 checkpoints (≈80 s rewind at
+// the 1 s cadence) — plenty for scrub/inspect. (Proper fix: zero-alloc flat ring,
+// spec'd follow-up.)
+export const DEFAULT_CHECKPOINT_RING_BUDGET_BYTES = 32 * 1024 * 1024;
 
 /**
  * Estimate the retained byte size of a checkpoint by walking its payload:

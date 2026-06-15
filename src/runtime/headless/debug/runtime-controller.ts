@@ -67,7 +67,18 @@ const PAL_FRAME_MS = (PAL_CYCLES_PER_FRAME / PAL_CYCLES_PER_SEC) * 1000; // ≈ 
 // every N completed frames (~0.5 s @ 50 Hz PAL). Fine enough to rewind to the
 // cause of a just-seen effect; ~400 KB/checkpoint × 2/s is cheap, and the ring
 // budget (128 MiB) bounds total retention by evicting oldest-unpinned.
-const CHECKPOINT_CAPTURE_EVERY_FRAMES = 25;
+// BUG-049 — 1s cadence (was 25 = 0.5s). The snapshot compute is cheap (~0.15ms),
+// but retaining ~400 KB/capture in the ring grows old-gen → periodic major-GC →
+// fps dips. Halving the cadence halves that pressure. (Proper zero-alloc ring is
+// the spec'd follow-up; this is the low-risk interim. Scrub granularity → 1s.)
+const CHECKPOINT_CAPTURE_EVERY_FRAMES = 50;
+// BUG-049 — the in-loop auto-capture is PARKED (default OFF) pending the
+// zero-alloc checkpoint-ring re-spec. Retaining ~400 KB/capture in the ring grew
+// old-gen → periodic major-GC → audio kratzen. The ring + manual
+// captureCheckpoint/restoreCheckpoint + trace-checkpoint policies STAY; only the
+// always-on per-frame cadence is off. Re-enable for A/B with
+// C64RE_CHECKPOINT_AUTOCAPTURE=1. The scrub UI was removed (re-spec).
+const CHECKPOINT_AUTOCAPTURE = process.env.C64RE_CHECKPOINT_AUTOCAPTURE === "1";
 // BUG-040 — flash writes settle this long (no further mutation) before the
 // auto-persist writes the host .crt once. Long enough to coalesce an EAPI
 // write/erase burst, short enough that a crash loses little.
@@ -692,7 +703,7 @@ export class RuntimeController {
     // loop is the only thing running (single-threaded, between chunks), so
     // kernel.snapshot()'s boundary contract holds. Isolated like audio/present:
     // a capture failure must never kill the loop.
-    if (++this.framesSinceCheckpoint >= CHECKPOINT_CAPTURE_EVERY_FRAMES) {
+    if (CHECKPOINT_AUTOCAPTURE && ++this.framesSinceCheckpoint >= CHECKPOINT_CAPTURE_EVERY_FRAMES) {
       this.framesSinceCheckpoint = 0;
       // Spec 709.13 (policy B) — skip the auto-capture while any mounted medium
       // is dirty + non-persistable (dirty disk OR dirty writable CRT). A

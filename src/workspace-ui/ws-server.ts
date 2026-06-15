@@ -200,6 +200,14 @@ export class WsServer {
   // Spec 724.3 — opt-in repo `samples/` scan (dev only). Off in production.
   private readonly devSamples: boolean;
 
+  // BUG-049 — pooled present-frame buffers. The live frame path is a linear,
+  // synchronous single flow (pushFrame → broadcastFrame → ws.send), so reusing
+  // buffers across frames removes ~206 KiB/frame of per-frame GC churn (fps dips).
+  private _framePayload: Uint8Array | null = null;
+  private _framePayloadDv: DataView | null = null;
+  private _frameEncPool: Array<Uint8Array> = [];
+  private _frameEncIdx = 0;
+
   constructor(opts: { port?: number; host?: string; projectDir: string; devSamples?: boolean }) {
     const port = opts.port ?? WS_PORT;
     const host = opts.host ?? WS_HOST;
@@ -260,7 +268,16 @@ export class WsServer {
    * never accumulates a WebSocket backlog (the next frame supersedes it).
    */
   broadcastFrame(seq: number, payload: Uint8Array): void {
-    const buf = encodeBinaryFrame(BIN_TYPE_VIC_FRAME, seq, payload);
+    // BUG-049 — encode into a 3-slot rotating pool instead of a fresh ~104 KiB
+    // Uint8Array per frame (per-frame GC churn). A slot is reused only ~3 frames
+    // (~60ms) later, after ws.send drained it on localhost (bufferedAmount≈0).
+    const need = 5 + payload.length;
+    let buf = this._frameEncPool[this._frameEncIdx];
+    if (!buf || buf.length !== need) { buf = new Uint8Array(need); this._frameEncPool[this._frameEncIdx] = buf; }
+    this._frameEncIdx = (this._frameEncIdx + 1) % 3;
+    buf[0] = BIN_TYPE_VIC_FRAME & 0xff;
+    buf[1] = seq & 0xff; buf[2] = (seq >> 8) & 0xff; buf[3] = (seq >> 16) & 0xff; buf[4] = (seq >>> 24) & 0xff;
+    buf.set(payload, 5);
     const maxBuffered = payload.length * 2;
     for (const ws of this.clients) {
       if (ws.readyState !== WebSocket.OPEN) continue;
@@ -418,17 +435,23 @@ export class WsServer {
       if (!f) return;
       // header: [w:u16][h:u16][fmt:u8][rsvd:u8][c64cycle:u32], all LE.
       // fmt 1 = palette-indexed: header + 48-byte RGB palette + w*h indices.
-      const header = new Uint8Array(10);
-      const dv = new DataView(header.buffer);
+      // BUG-049 — header inline into a pooled payload buffer (no per-frame
+      // header/payload alloc). broadcastFrame copies it into a separately pooled
+      // wire buffer, so reusing payload next frame is safe.
+      const need = 10 + f.palette.length + f.indices.length;
+      if (!this._framePayload || this._framePayload.length !== need) {
+        this._framePayload = new Uint8Array(need);
+        this._framePayloadDv = new DataView(this._framePayload.buffer);
+      }
+      const payload = this._framePayload;
+      const dv = this._framePayloadDv!;
       dv.setUint16(0, f.width, true);
       dv.setUint16(2, f.height, true);
-      header[4] = 1; // fmt 1 = palette-indexed
-      header[5] = 0;
+      payload[4] = 1; // fmt 1 = palette-indexed
+      payload[5] = 0;
       dv.setUint32(6, sess.c64Cpu.cycles >>> 0, true);
-      const payload = new Uint8Array(header.length + f.palette.length + f.indices.length);
-      payload.set(header, 0);
-      payload.set(f.palette, header.length);
-      payload.set(f.indices, header.length + f.palette.length);
+      payload.set(f.palette, 10);
+      payload.set(f.indices, 10 + f.palette.length);
       this.broadcastFrame(frameNum >>> 0, payload);
       } catch { /* a transport error must never kill the loop */ }
     };

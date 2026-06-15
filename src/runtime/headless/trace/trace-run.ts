@@ -187,6 +187,9 @@ export class TraceRunController {
     // we capture via the observer, not the ring).
     const prior = channels.map((name) => ({ name, was: trace.isEnabled(name) }));
     for (const c of channels) if (!trace.isEnabled(c)) trace.configureChannel(c, { mode: "ring", capacity: 8 });
+    // BUG-049 — turn the C64 CPU per-access bus-trace ON only while a bus_access
+    // trace is actually live (cpu.emit() allocs+dispatches per memory access).
+    ctrl.session.c64Cpu.enableBusTrace(trace.isEnabled("bus_access"));
 
     // Start checkpoint per policy (705.B capture).
     let startCheckpointId: string | undefined;
@@ -380,6 +383,8 @@ export class TraceRunController {
         try { a.dispose(); } catch { /* noop */ }
         try { trace.setCpuBinarySink(null); } catch { /* noop */ }
         try { for (const p of a.prior) if (!p.was) trace.configureChannel(p.name, { mode: "off" }); } catch { /* noop */ }
+        // BUG-049 — drop the per-access C64 bus-trace tax on abort too.
+        try { a.ctx.controller.session.c64Cpu.enableBusTrace(trace.isEnabled("bus_access")); } catch { /* noop */ }
         this.lastError = err;
         this.active = null;
       }
@@ -436,6 +441,8 @@ export class TraceRunController {
     const trace = a.ctx.controller.session.kernel.trace();
     try { trace.setCpuBinarySink(null); } catch { /* noop */ } // release the firehose sink
     try { for (const p of a.prior) if (!p.was) trace.configureChannel(p.name, { mode: "off" }); } catch { /* noop */ }
+    // BUG-049 — drop the per-access C64 bus-trace tax once bus_access is no longer live.
+    try { a.ctx.controller.session.c64Cpu.enableBusTrace(trace.isEnabled("bus_access")); } catch { /* noop */ }
 
     try {
       if (a.def.checkpointPolicy === "at-stop") {

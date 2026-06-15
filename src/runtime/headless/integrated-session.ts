@@ -268,6 +268,11 @@ export class IntegratedSession {
   // line 0 = full frame just finished). renderLiteralPortToPng reads
   // from stable buffer so it never sees a half-filled frame.
   public literalPortFbStable: Uint8Array | null = null;
+  // BUG-049 — pooled present-render buffers (reused across frames; see
+  // renderLiteralPortIndexed). A fresh ~102 KiB indices + 48 B palette per frame
+  // at 50fps was per-frame GC churn → fps dips. Single synchronous caller.
+  private _presentIdxBuf: Uint8Array | null = null;
+  private _presentPalBuf: Uint8Array | null = null;
   private litStableFrameCount: number = 0;
   // Spec 710.4 — optional same-frame provenance sidecar (per raster line:
   // $D011/$D016/$D018 + VIC bank). OFF by default; when off, tickLitVic does
@@ -541,7 +546,13 @@ export class IntegratedSession {
           producer.emitC64Access({ op: "read", addr: ev.addr, value: ev.value });
         }
       });
-      this.c64Cpu.enableBusTrace(true);
+      // BUG-049 — do NOT enable busTrace here. The C64 listener above is wired
+      // permanently, but cpu.emit() allocates a BusEvent + dispatches PER memory
+      // access while busTraceEnabled is true. Enabling it unconditionally at
+      // session setup (Spec 753, 2026-06-03) taxed EVERY access even with no live
+      // trace → ~1-2M allocs/s → 51fps→45fps → audio under-delivered → browser
+      // underrun. busTrace is now toggled by the trace lifecycle (trace-run.ts
+      // start/stop) to mirror trace.isEnabled("bus_access") — zero-cost when idle.
     }
   }
 
@@ -1564,7 +1575,12 @@ export class IntegratedSession {
     const fb = this.literalPortFbStable ?? this.literalPortFb!;
     const pal = this.framebuffer.palette;
     const CANVAS_X0 = 104, CANVAS_W = 384, CANVAS_Y0 = 16, CANVAS_H = 272;
-    const indices = new Uint8Array(CANVAS_W * CANVAS_H);
+    // BUG-049 — pool the indices buffer. Every canvas cell maps to an in-range
+    // src pixel below (CANVAS fits inside FB), so the loop writes all cells → no
+    // stale-data clear needed. Sole caller (ws-server pushFrame) is synchronous.
+    const N = CANVAS_W * CANVAS_H;
+    if (!this._presentIdxBuf || this._presentIdxBuf.length !== N) this._presentIdxBuf = new Uint8Array(N);
+    const indices = this._presentIdxBuf;
     for (let cy = 0; cy < CANVAS_H; cy++) {
       const srcY = cy + CANVAS_Y0;
       if (srcY >= FB_H_INTERNAL) continue;
@@ -1574,7 +1590,7 @@ export class IntegratedSession {
         indices[cy * CANVAS_W + cx] = fb[srcY * FB_W_INTERNAL + srcX]! & 0x0f;
       }
     }
-    const palette = new Uint8Array(48);
+    const palette = (this._presentPalBuf ??= new Uint8Array(48)); // BUG-049 — pooled
     for (let i = 0; i < 16; i++) {
       const [r, g, b] = pal[i] ?? [0, 0, 0];
       palette[i * 3] = r; palette[i * 3 + 1] = g; palette[i * 3 + 2] = b;

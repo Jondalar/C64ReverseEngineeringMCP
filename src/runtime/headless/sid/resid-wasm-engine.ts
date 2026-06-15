@@ -66,6 +66,11 @@ type ResidBindings = {
 export interface ResidWasmOptions extends ResidEmitOptions {
   /** 6581 (default) or 8580. */
   model?: "6581" | "8580";
+  /** Enable the SID analog filter (reSID enable_filter). Default OFF — matches
+   *  the user's VICE ("Enable SID filter emulation" unchecked); the 6581 filter
+   *  curve was judged to sound wrong. Set true (or C64RE_SID_FILTER=1) for the
+   *  authentic filtered sound. */
+  filter?: boolean;
 }
 
 export class ResidWasm implements AudioSidLike {
@@ -76,6 +81,8 @@ export class ResidWasm implements AudioSidLike {
 
   /** Filter DC bias passed to reSID (VICE units: mV/1000). */
   private readonly filterBias: number;
+  /** Whether the SID analog filter is emulated (default OFF — see options). */
+  private readonly filterEnabled: boolean;
 
   /** WASM bindings once the module has loaded; undefined until then. */
   private b: ResidBindings | undefined;
@@ -98,6 +105,11 @@ export class ResidWasm implements AudioSidLike {
     const envBias = Number(process.env["C64RE_SID_FILTER_BIAS"]);
     const defaultBiasMv = this.model === MODEL_8580 ? 0 : 500;
     this.filterBias = (Number.isFinite(envBias) ? envBias : defaultBiasMv) / 1000;
+    // BUG-049 follow-on — SID filter default OFF (user A/B: the 6581 filter
+    // sounded wrong; matches their VICE "Enable SID filter emulation" unchecked).
+    // C64RE_SID_FILTER=1 (or opts.filter) re-enables the authentic filtered sound.
+    const envFilter = (process.env["C64RE_SID_FILTER"] || "").toLowerCase();
+    this.filterEnabled = opts.filter ?? (envFilter === "1" || envFilter === "on" || envFilter === "true");
     // Kick off the background load; emit() yields silence until it resolves.
     this.loadPromise = this.load().catch((e) => {
       this.loadFailed = e instanceof Error ? e : new Error(String(e));
@@ -174,7 +186,7 @@ export class ResidWasm implements AudioSidLike {
     const gain = 0.97;
     b.setChipModel(this.model);
     b.setVoiceMask(0x07); // all three voices (single SID)
-    b.enableFilter(1);
+    b.enableFilter(this.filterEnabled ? 1 : 0); // BUG-049 follow-on — default OFF
     b.adjustFilterBias(this.filterBias);
     b.enableExternalFilter(1);
     b.setSampling(this.clockFreq, this.sampleRate, SAMPLE_RESAMPLE, passband, gain);
