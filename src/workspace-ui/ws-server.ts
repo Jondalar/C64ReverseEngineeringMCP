@@ -207,6 +207,12 @@ export class WsServer {
   private _framePayloadDv: DataView | null = null;
   private _frameEncPool: Array<Uint8Array> = [];
   private _frameEncIdx = 0;
+  // BUG-049 — pooled audio ship buffers: a reused mono-sample buffer + a 3-slot
+  // rotating wire buffer (mono→stereo s16le built inline), so the per-frame audio
+  // push allocates nothing.
+  private _audioSamples: Int16Array | null = null;
+  private _audioWirePool: Array<Uint8Array> = [];
+  private _audioWireIdx = 0;
 
   constructor(opts: { port?: number; host?: string; projectDir: string; devSamples?: boolean }) {
     const port = opts.port ?? WS_PORT;
@@ -303,6 +309,17 @@ export class WsServer {
       if (ws.readyState !== WebSocket.OPEN) continue;
       if (ws.bufferedAmount > AUDIO_WS_HIGH_WATER_BYTES) continue; // stuck client
       ws.send(buf, { binary: true });
+    }
+  }
+
+  /** BUG-049 — send a pre-encoded audio wire frame from a pooled buffer (no
+   *  per-frame alloc). `wire[0..len)` is the full [type][seq][s16le payload]. */
+  private broadcastAudioWire(wire: Uint8Array, len: number): void {
+    const view = wire.subarray(0, len);
+    for (const ws of this.clients) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
+      if (ws.bufferedAmount > AUDIO_WS_HIGH_WATER_BYTES) continue; // stuck client
+      ws.send(view, { binary: true });
     }
   }
 
@@ -1521,10 +1538,28 @@ export class WsServer {
         // ring; its small live cap (Fix A) then drops the STALE excess at the
         // source — so this defers without ever emitting a gap.
         const ship = Math.min(avail, MAX_AUDIO_SHIP_SAMPLES);
-        const { samples } = recorder.buffer.read(cursorId, ship);
-        if (samples.length === 0) return;
-        const stereo = monoToStereoLR(samples);
-        this.broadcastAudio(state.seq++, int16ToLeBytes(stereo));
+        // BUG-049 — read mono into a pooled buffer, build the [type][seq][stereo
+        // s16le] wire frame inline into a 3-slot rotating buffer. No per-frame
+        // alloc (was: read slice + monoToStereoLR + int16ToLeBytes + encode).
+        if (!this._audioSamples) this._audioSamples = new Int16Array(MAX_AUDIO_SHIP_SAMPLES);
+        const n = recorder.buffer.readInto(cursorId, ship, this._audioSamples);
+        if (n === 0) return;
+        const samples = this._audioSamples;
+        const wireLen = 5 + n * 4; // n mono → n stereo frames → 4 bytes each (L,R s16le)
+        let wire = this._audioWirePool[this._audioWireIdx];
+        if (!wire || wire.length < wireLen) {
+          wire = new Uint8Array(5 + MAX_AUDIO_SHIP_SAMPLES * 4);
+          this._audioWirePool[this._audioWireIdx] = wire;
+        }
+        this._audioWireIdx = (this._audioWireIdx + 1) % 3;
+        const seq = state.seq++;
+        wire[0] = BIN_TYPE_AUDIO_BUFFER & 0xff;
+        wire[1] = seq & 0xff; wire[2] = (seq >> 8) & 0xff; wire[3] = (seq >> 16) & 0xff; wire[4] = (seq >>> 24) & 0xff;
+        for (let i = 0; i < n; i++) {
+          const s = samples[i]!; const lo = s & 0xff, hi = (s >> 8) & 0xff; const o = 5 + i * 4;
+          wire[o] = lo; wire[o + 1] = hi; wire[o + 2] = lo; wire[o + 3] = hi; // L, R
+        }
+        this.broadcastAudioWire(wire, wireLen);
       };
       return { streaming: true, sample_rate: recorder.resid.sampleRate };
     });

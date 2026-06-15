@@ -106,6 +106,22 @@ export class AudioRingBuffer {
     return { samples: out, overflowed: ov };
   }
 
+  /**
+   * BUG-049 — like read(), but fills the caller's reusable `out` buffer instead
+   * of allocating a fresh slice. Returns the sample count written (≤ out.length).
+   * Advances the cursor + clears the overflow flag, same as read().
+   */
+  readInto(id: string, max: number, out: Int16Array): number {
+    const c = this.consumers.get(id);
+    if (!c) throw new Error(`unknown consumer ${id}`);
+    const avail = this.writePos - c.readPos;
+    const n = Math.min(max, avail, out.length);
+    for (let i = 0; i < n; i++) out[i] = this.buf[(c.readPos + i) & this.mask]!;
+    c.readPos += n;
+    c.overflowed = false;
+    return n;
+  }
+
   /** True if last read for this consumer dropped samples. */
   lastReadOverflowed(id: string): boolean {
     const c = this.consumers.get(id);
