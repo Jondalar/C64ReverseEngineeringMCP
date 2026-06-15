@@ -26,7 +26,12 @@ export interface MachineKernel {
   driveClock(device: number): number;
   runCycles(n: number): void;
   runInstructions(n: number): void;
-  snapshot(): MachineSnapshot;
+  // Spec 765 — `shallow` returns LIVE big-buffer refs (RAM + VIC framebuffers)
+  // instead of detached `.slice()` copies, for the checkpoint ring's zero-alloc
+  // capture path (the ring copies them into its flat slab immediately, before
+  // the loop runs again). Default (detached) is required for any caller that
+  // retains the snapshot beyond the capture call (e.g. an out-of-band dump).
+  snapshot(opts?: { shallow?: boolean }): MachineSnapshot;
   restore(snap: MachineSnapshot): void;
   mountMedia(device: number, media: MountedMedia): void;
   trace(): KernelTraceController;

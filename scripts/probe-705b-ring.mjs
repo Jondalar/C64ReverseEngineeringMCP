@@ -21,6 +21,7 @@ import {
 } from "../dist/runtime/headless/integrated-session-manager.js";
 import {
   RuntimeCheckpointRing,
+  SLOT_BYTES,
 } from "../dist/runtime/headless/kernel/runtime-checkpoint-ring.js";
 import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
 
@@ -56,20 +57,24 @@ function sigEqual(a, b) {
 }
 function sigStr(s) { return `pc=${s.pc.toString(16)} cyc=${s.cycles} ry=${s.rasterLine} ram=${s.ramHash.toString(16)} fr=${s.frameHash.toString(16)} drv=${s.drive}`; }
 
-// synthetic ~100 KB checkpoint with a controlled byte size
-function fakeSnap() { return { schemaVersion: 1, payload: { ram: new Uint8Array(100 * 1024) } }; }
+// Spec 765 — synthetic checkpoint with the REAL big-buffer shape (RAM 64 KiB;
+// framebuffers omitted = null, valid). The flat ring copies RAM into its slab,
+// so the fixture must be the real size (the ring rejects others).
+function fakeSnap() { return { schemaVersion: 1, payload: { ram: new Uint8Array(0x10000) } }; }
 
-console.log("Spec 705.B — checkpoint ring + pin/restore lifecycle");
+console.log("Spec 705.B / 765 — checkpoint ring + pin/restore lifecycle");
 
 // ---- Part A: ring policy (synthetic, deterministic) ------------------------
+// Spec 765 — the ring is now a fixed flat slab of N = floor(budget / SLOT_BYTES)
+// slots; eviction reclaims the OLDEST unpinned slot (same semantics as the old
+// bytes-budget model, just slot-granular). Budget sized for exactly 4 slots.
 {
-  const PER = 100 * 1024 + 16;       // estimateCheckpointBytes of fakeSnap
-  const ring = new RuntimeCheckpointRing({ budgetBytes: PER * 4 + 1 }); // ~4 entries
+  const ring = new RuntimeCheckpointRing({ budgetBytes: SLOT_BYTES * 4 }); // 4 slots
   const refs = [];
   for (let i = 0; i < 10; i++) refs.push(ring.capture(fakeSnap(), i, i * 1000));
   const s = ring.stats();
-  gate("A1 bytes-budget eviction keeps total ≤ budget", s.totalBytes <= ring.budgetBytes,
-    `${(s.totalBytes / 1024).toFixed(0)} KB ≤ ${(ring.budgetBytes / 1024).toFixed(0)} KB, count=${s.count}`);
+  gate("A1 slot-budget eviction keeps total ≤ budget", s.totalBytes <= ring.budgetBytes && s.slotCount === 4,
+    `${(s.totalBytes / 1024).toFixed(0)} KB ≤ ${(ring.budgetBytes / 1024).toFixed(0)} KB, slots=${s.slotCount}, count=${s.count}`);
   gate("A1 oldest evicted, newest retained",
     !ring.has(refs[0].id) && ring.has(refs[9].id) && s.count === 4,
     `count=${s.count}, oldest present=${ring.has(refs[0].id)}, newest present=${ring.has(refs[9].id)}`);

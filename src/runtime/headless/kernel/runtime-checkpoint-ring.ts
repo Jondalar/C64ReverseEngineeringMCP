@@ -1,22 +1,43 @@
 // Spec 705.B — always-on bounded in-memory checkpoint ring + pin lifecycle.
+// Spec 765 — flat-backed storage (the BUG-049 zero-alloc re-storage).
 //
 // Built on the green 705.A native RuntimeCheckpoint (kernel.snapshot/restore).
 // The ring is TRANSIENT (in-memory only): it lets pause/inspect rewind into the
 // recent past without prior preparation (the user often discovers an
 // interesting visible result only after its cause). It is NOT persistence — no
-// dump/undump (a later slice), no replay event-log (Spec 705 §3.5, later), no
-// rewind UI (API-first; the WS RPC surface lands separately).
+// dump/undump (Spec 707 does that), no replay event-log, no rewind UI here
+// (the WS RPC + scrub seekbar are a separate surface).
 //
-// Binding decisions (Spec 705 §3.3, resolved 2026-05-23 by measurement):
-//   - capacity policy: BYTES, default budget 128 MiB. A real checkpoint ≈ 400 KB
-//     (vicPresentation framebuffer ~317 KB + 64 KB RAM dominate), so 128 MiB ≈
-//     ~320 checkpoints. Evict OLDEST first; PINNED entries are exempt.
-//   - capture interval: every 25 PAL frames (~0.5 s) — driven by the controller
-//     loop, NOT here (this module is policy + storage only).
+// === Spec 765 storage model (supersedes 705.B's storage, NOT its capability) ===
 //
-// Pin (§3.4) is the only durability primitive in 705.B: a pinned checkpoint
-// survives ring eviction and returns a stable ref. Promote-to-Experiment needs
-// the Experiment object model (§3.1) and is a later slice.
+// BUG-049 root cause (measured 2026-06-15): the old ring retained a GRAPH of
+// hundreds of nested snapshot objects, each ~400 KB (RAM 64 KB + 2 VIC
+// framebuffers ~317 KB dominate), allocated fresh every ~0.5-1 s. Growing that
+// old-gen object graph → periodic major-GC pauses → daemon dips under 50 fps →
+// audio under-delivered → worklet ring underrun → "kratzen".
+//
+// Fix (the "Mittelweg", user-ratified 2026-06-15): pre-allocate ONE flat
+// `ArrayBuffer` slab at construction, divided into N fixed-size slots. The
+// dominant BIG buffers (RAM + the two literal-port framebuffers) are COPIED into
+// the next free slot via `.set()` and the stored entry references slab SUBARRAY
+// VIEWS (tiny objects, no backing alloc) instead of detached `.slice()` copies.
+// → the slab is a handful of GC objects of FIXED size that never grow, so the
+//   major GC has ~nothing to retain/scan (V8 does not scan typed-array bytes).
+// The small scalar chip state (cpu/cia/sid/iec/alarms/…) stays a per-slot JS
+// object — it is ~a few KB, never caused the churn, and keeping it as-is means
+// `kernel.restore()` is UNCHANGED → the probe-705b / 7-game fidelity gates carry
+// zero new risk (the only place the Spec 620 C→TS bug families could re-enter
+// would be a byte-codec rewrite of that state, which we deliberately avoid).
+//
+// Pairs with `kernel.snapshot({ shallow: true })` for the auto-capture path:
+// shallow returns the LIVE big-buffer refs (no `.slice()`), the ring copies them
+// once into the slab → genuinely zero-alloc on the hot capture path. Detached
+// (default) snapshots still work — the ring copies whatever big buffers it is
+// handed; the RETAINED entry always points at slab views either way.
+//
+// Binding decisions carried over from 705.B:
+//   - capture interval: driven by the controller loop, NOT here (policy + storage only).
+//   - Pin (§3.4): a pinned slot is exempt from round-robin reuse; survives eviction.
 
 import { createHash } from "node:crypto";
 import type { MachineSnapshot } from "./machine-kernel.js";
@@ -30,7 +51,7 @@ export interface RuntimeCheckpointRef {
   cycles: number;
   /** Pinned entries are exempt from eviction. */
   pinned: boolean;
-  /** Estimated retained bytes (see estimateCheckpointBytes). */
+  /** Estimated retained bytes (the fixed slot size + small wrapper). */
   byteSize: number;
   /** Wall-clock capture time (ms since epoch). */
   createdAtMs: number;
@@ -44,17 +65,44 @@ export interface RuntimeCheckpointRef {
  */
 const POOLED_BLOB_SLOTS = ["driveDiskImage", "cartBytes", "cartFlash"] as const;
 
+// === Spec 765 flat-slot layout ===
+// The big per-checkpoint buffers, packed at fixed offsets in each slab slot.
+// Sizes are the PAL single-path constants:
+//   RAM           = 64 KiB                      (HeadlessC64Bus.ram)
+//   literalPortFb = 65*8 × 312 = 162240 bytes   (mid-frame accumulator)
+//   ...Stable     = 65*8 × 312 = 162240 bytes   (immediately-visible freeze image)
+// Both framebuffers are OPTIONAL (null when present-capture is off); their slot
+// regions are simply unused in that case. A capture whose buffers do not match
+// these sizes is rejected (throws) rather than silently truncated (PL-7) — the
+// controller catches it as a dropped checkpoint (a ring gap, never a crash).
+const RAM_BYTES = 0x10000; // 65536
+const FB_BYTES = 65 * 8 * 312; // 162240
+/** Fixed bytes per slab slot: RAM + both framebuffers. Exported for the gate. */
+export const SLOT_BYTES = RAM_BYTES + FB_BYTES + FB_BYTES; // 390016 ≈ 381 KiB
+const OFF_RAM = 0;
+const OFF_FB = RAM_BYTES;
+const OFF_FBSTABLE = RAM_BYTES + FB_BYTES;
+
 interface RingEntry extends RuntimeCheckpointRef {
-  snapshot: MachineSnapshot;
-  /** Spec 714.4/714.5 — pooled-slot → content hash for each large media blob
-   *  present on this entry. The bytes are NOT stored on the entry's snapshot
-   *  payload (the slot is nulled there); they live once in the pool and are
-   *  rehydrated by restoreSnapshot(). */
+  /** Index of the slab slot holding this entry's big buffers. */
+  slotIdx: number;
+  /** Whether literalPortFb / literalPortFbStable were present at capture. */
+  hasFb: boolean;
+  hasFbStable: boolean;
+  /**
+   * The SMALL scalar payload graph (cpu/cia/sid/iec/alarms/keyboard/…) with the
+   * big fields (ram, vicPresentation.literalPortFb/Stable) replaced by slab
+   * subarray VIEWS at capture time, and the pooled media slots nulled (their
+   * bytes live once in `diskPool`, rehydrated on restore).
+   */
+  payload: Record<string, unknown>;
+  schemaVersion: number;
+  /** Spec 714.4/714.5 — pooled-slot → content hash for each large media blob. */
   blobHashes: Record<string, string>;
 }
 
 export interface RuntimeCheckpointRingOptions {
-  /** Memory budget in bytes; evict oldest unpinned once exceeded. Default 128 MiB. */
+  /** Slab size in bytes; N = floor(budget / slot). Default 32 MiB ≈ ~86 slots. */
   budgetBytes?: number;
 }
 
@@ -69,51 +117,35 @@ export interface RuntimeCheckpointRingStats {
    *  pool (shared across entries), and their total deduplicated byte size. */
   diskImageVersions: number;
   diskPoolBytes: number;
+  /** Spec 765 — flat-slab telemetry. */
+  slotBytes: number;
+  slotCount: number;
+  freeSlots: number;
 }
 
-// BUG-049 — 32 MiB (was 128). The retained ring is a graph of ~hundreds of
-// nested snapshot objects (~400 KB each); a bigger old-gen graph = costlier +
-// more frequent major-GC → fps dips. 32 MiB ≈ ~80 checkpoints (≈80 s rewind at
-// the 1 s cadence) — plenty for scrub/inspect. (Proper fix: zero-alloc flat ring,
-// spec'd follow-up.)
+// Spec 765 — 32 MiB slab default. At SLOT_BYTES ≈ 381 KiB that is ~86 slots ≈
+// ~86 s of rewind at the 1 s auto-cadence — plenty for scrub/inspect. The slab
+// is allocated ONCE; capture never grows it, so the old-gen footprint is
+// constant (BUG-049: the growth was the major-GC trigger).
 export const DEFAULT_CHECKPOINT_RING_BUDGET_BYTES = 32 * 1024 * 1024;
 
 /**
- * Estimate the retained byte size of a checkpoint by walking its payload:
- * typed arrays contribute byteLength, numbers 8, strings their length, arrays
- * and plain objects recurse. This is the same shape the 705.B sizing
- * measurement used; it is an estimate for the eviction budget, not an exact
- * heap accounting (V8 overhead per object is ignored).
+ * Legacy estimate kept for API compatibility (no external caller depends on the
+ * exact value). With the flat slab a checkpoint's retained big-buffer cost is
+ * the fixed slot size; the small scalar graph is negligible.
  */
-export function estimateCheckpointBytes(snap: MachineSnapshot): number {
-  return walk(snap.payload) + 16; // + small fixed wrapper overhead
-}
-
-function walk(v: unknown): number {
-  if (v == null) return 0;
-  // typed arrays / ArrayBuffer views
-  const bl = (v as { byteLength?: number }).byteLength;
-  if (typeof bl === "number") return bl;
-  if (Array.isArray(v)) {
-    let n = 0;
-    for (const x of v) n += typeof x === "number" ? 8 : walk(x);
-    return n;
-  }
-  if (typeof v === "object") {
-    let n = 0;
-    for (const x of Object.values(v as Record<string, unknown>)) n += walk(x);
-    return n;
-  }
-  if (typeof v === "number") return 8;
-  if (typeof v === "string") return v.length;
-  if (typeof v === "boolean") return 4;
-  return 0;
+export function estimateCheckpointBytes(_snap: MachineSnapshot): number {
+  return SLOT_BYTES;
 }
 
 export class RuntimeCheckpointRing {
   readonly budgetBytes: number;
+  /** Spec 765 — the one pre-allocated flat slab. ONE GC object, fixed size. */
+  private readonly slab: Uint8Array;
+  private readonly slotCount: number;
+  /** Free slot indices (LIFO). A slot is free when no live entry references it. */
+  private freeSlots: number[];
   private entries: RingEntry[] = []; // oldest first
-  private totalBytes = 0; // sum of entry core byteSizes (excludes pooled disk images)
   private seq = 0;
   // Spec 714.4 — content-addressed disk-image pool: identical disk versions are
   // stored ONCE (refcounted across entries); pinned entries keep their version
@@ -123,64 +155,101 @@ export class RuntimeCheckpointRing {
 
   constructor(opts: RuntimeCheckpointRingOptions = {}) {
     this.budgetBytes = opts.budgetBytes ?? DEFAULT_CHECKPOINT_RING_BUDGET_BYTES;
+    this.slotCount = Math.max(1, Math.floor(this.budgetBytes / SLOT_BYTES));
+    this.slab = new Uint8Array(this.slotCount * SLOT_BYTES);
+    this.freeSlots = [];
+    for (let i = this.slotCount - 1; i >= 0; i--) this.freeSlots.push(i);
   }
 
   /**
-   * Append a fresh checkpoint and evict oldest-unpinned until within budget.
-   * The caller owns the capture cadence + the instruction-boundary contract
-   * (kernel.snapshot() must be taken at an atomic boundary with the loop idle).
+   * Append a fresh checkpoint. The big buffers (RAM + the two framebuffers) are
+   * copied into the next free slab slot; the stored entry holds slab VIEWS for
+   * them + the small scalar graph + a content-addressed ref for pooled media.
    *
-   * Spec 714.4: the snapshot's `driveDiskImage` is extracted into the
-   * content-addressed pool (deduped by sha256) and replaced on the stored entry
-   * with a hash ref, so an unchanged disk costs one stored image across many
-   * checkpoints. restoreSnapshot() rehydrates the exact bytes.
+   * Contract (unchanged): the caller owns the capture cadence + the
+   * instruction-boundary contract (kernel.snapshot() taken at an atomic boundary
+   * with the loop idle). The snapshot may be `shallow` (live big-buffer refs) or
+   * detached (sliced); the ring copies either into the slab regardless.
+   *
+   * Throws if no slot is free AND every entry is pinned (the user pinned more
+   * than the ring can hold), or if a big buffer's size is unexpected. Both are
+   * caught by the controller as a dropped checkpoint (a ring gap), never a crash.
    */
   capture(snapshot: MachineSnapshot, frame: number, cycles: number): RuntimeCheckpointRef {
     const payload = snapshot.payload as Record<string, unknown>;
+
+    // Validate the big buffers up front (before mutating any ring state).
+    const ram = payload["ram"];
+    if (!(ram instanceof Uint8Array) || ram.length !== RAM_BYTES) {
+      throw new Error(`[checkpoint] capture: RAM must be ${RAM_BYTES} bytes, got ${(ram as Uint8Array)?.length}`);
+    }
+    const vp = (payload["vicPresentation"] ?? null) as { literalPortFb?: Uint8Array | null; literalPortFbStable?: Uint8Array | null } | null;
+    const fb = vp?.literalPortFb ?? null;
+    const fbStable = vp?.literalPortFbStable ?? null;
+    if (fb && fb.length !== FB_BYTES) throw new Error(`[checkpoint] capture: literalPortFb must be ${FB_BYTES} bytes, got ${fb.length}`);
+    if (fbStable && fbStable.length !== FB_BYTES) throw new Error(`[checkpoint] capture: literalPortFbStable must be ${FB_BYTES} bytes, got ${fbStable.length}`);
+
+    // Acquire a slot (evict the oldest unpinned entry if the slab is full).
+    const slotIdx = this.acquireSlot();
+
+    // Copy the big buffers into the slab slot and build detached views.
+    const base = slotIdx * SLOT_BYTES;
+    this.slab.set(ram, base + OFF_RAM);
+    const ramView = this.slab.subarray(base + OFF_RAM, base + OFF_RAM + RAM_BYTES);
+    payload["ram"] = ramView;
+    if (fb) {
+      this.slab.set(fb, base + OFF_FB);
+      (vp as Record<string, unknown>)["literalPortFb"] = this.slab.subarray(base + OFF_FB, base + OFF_FB + FB_BYTES);
+    }
+    if (fbStable) {
+      this.slab.set(fbStable, base + OFF_FBSTABLE);
+      (vp as Record<string, unknown>)["literalPortFbStable"] = this.slab.subarray(base + OFF_FBSTABLE, base + OFF_FBSTABLE + FB_BYTES);
+    }
+
+    // Spec 714.4/714.5 — extract pooled media blobs (content-addressed dedup).
     const blobHashes: Record<string, string> = {};
     for (const slot of POOLED_BLOB_SLOTS) {
       const v = payload[slot];
       if (v instanceof Uint8Array && v.byteLength > 0) {
         const hash = createHash("sha256").update(v).digest("hex");
         const pooled = this.diskPool.get(hash);
-        if (pooled) {
-          pooled.refs++;
-        } else {
-          this.diskPool.set(hash, { bytes: v, refs: 1 });
-          this.diskPoolBytes += v.byteLength;
-        }
+        if (pooled) pooled.refs++;
+        else { this.diskPool.set(hash, { bytes: v, refs: 1 }); this.diskPoolBytes += v.byteLength; }
         blobHashes[slot] = hash;
         payload[slot] = null; // stored entry keeps only the hash ref
       }
     }
-    const byteSize = estimateCheckpointBytes(snapshot);
+
     const entry: RingEntry = {
       id: `cp_${frame}_${this.seq++}`,
-      frame, cycles, pinned: false, byteSize, createdAtMs: Date.now(),
-      snapshot, blobHashes,
+      frame, cycles, pinned: false, byteSize: SLOT_BYTES, createdAtMs: Date.now(),
+      slotIdx, hasFb: !!fb, hasFbStable: !!fbStable,
+      payload, schemaVersion: snapshot.schemaVersion, blobHashes,
     };
     this.entries.push(entry);
-    this.totalBytes += byteSize;
-    this.evict();
     return toRef(entry);
   }
 
-  /** Combined retained bytes: entry cores + the deduplicated disk-image pool. */
-  private retainedBytes(): number {
-    return this.totalBytes + this.diskPoolBytes;
+  /** Get a free slot, evicting the oldest unpinned entry if the slab is full. */
+  private acquireSlot(): number {
+    if (this.freeSlots.length === 0) {
+      const idx = this.entries.findIndex((e) => !e.pinned);
+      if (idx < 0) {
+        throw new Error(
+          `[checkpoint] ring full: all ${this.slotCount} slots pinned — cannot capture without evicting a pinned anchor`,
+        );
+      }
+      this.removeEntryAt(idx); // frees its slot back to freeSlots
+    }
+    return this.freeSlots.pop()!;
   }
 
-  /** Evict oldest UNPINNED entries until within budget (or only pinned remain).
-   *  Each eviction releases the entry's disk-image pool reference (freeing the
-   *  pooled bytes only when the last referencing entry is gone). */
-  private evict(): void {
-    while (this.retainedBytes() > this.budgetBytes) {
-      const idx = this.entries.findIndex((e) => !e.pinned);
-      if (idx < 0) break; // everything left is pinned — honor the user's intent
-      const [gone] = this.entries.splice(idx, 1);
-      this.totalBytes -= gone!.byteSize;
-      for (const hash of Object.values(gone!.blobHashes)) this.releaseDiskImage(hash);
-    }
+  /** Remove the entry at `idx`, release its slot + pooled disk refs. */
+  private removeEntryAt(idx: number): void {
+    const [gone] = this.entries.splice(idx, 1);
+    if (!gone) return;
+    this.freeSlots.push(gone.slotIdx);
+    for (const hash of Object.values(gone.blobHashes)) this.releaseDiskImage(hash);
   }
 
   /** Spec 714.4 — drop one reference to a pooled disk image; free it at zero. */
@@ -201,14 +270,12 @@ export class RuntimeCheckpointRing {
     return toRef(e);
   }
 
-  /** Unpin; re-runs eviction since the entry is now reclaimable. */
+  /** Unpin; the slot becomes reclaimable again on the next full-slab capture. */
   unpin(id: string): RuntimeCheckpointRef | undefined {
     const e = this.entries.find((x) => x.id === id);
     if (!e) return undefined;
     e.pinned = false;
-    const ref = toRef(e);
-    this.evict();
-    return ref;
+    return toRef(e);
   }
 
   /**
@@ -223,31 +290,32 @@ export class RuntimeCheckpointRing {
     let removed = 0;
     // walk from the newest down to just-after idx so splices don't shift the cut
     for (let i = this.entries.length - 1; i > idx; i--) {
-      const e = this.entries[i]!;
-      if (keepPinned && e.pinned) continue;
-      this.entries.splice(i, 1);
-      this.totalBytes -= e.byteSize;
-      for (const hash of Object.values(e.blobHashes)) this.releaseDiskImage(hash);
+      if (keepPinned && this.entries[i]!.pinned) continue;
+      this.removeEntryAt(i);
       removed++;
     }
     return removed;
   }
 
-  /** The stored MachineSnapshot for `id` (for the kernel to restore), or undefined.
-   *  Spec 714.4 — rehydrate the pooled disk image into a shallow payload view so
-   *  the returned snapshot carries the exact `driveDiskImage` bytes (the stored
-   *  entry holds only the hash ref). */
+  /**
+   * The stored MachineSnapshot for `id` (for the kernel to restore), or undefined.
+   *
+   * The returned payload references slab VIEWS for the big buffers (valid until
+   * the slot is reused) and rehydrates pooled media into a shallow payload view.
+   * Contract: consume it synchronously (kernel.restore copies out immediately) —
+   * do not hold it across a subsequent capture, which may overwrite the slot.
+   */
   restoreSnapshot(id: string): MachineSnapshot | undefined {
     const e = this.entries.find((x) => x.id === id);
     if (!e) return undefined;
     const slots = Object.keys(e.blobHashes);
-    if (slots.length === 0) return e.snapshot;
-    const payload = { ...(e.snapshot.payload as Record<string, unknown>) };
+    if (slots.length === 0) return { schemaVersion: e.schemaVersion, payload: e.payload };
+    const payload = { ...e.payload };
     for (const slot of slots) {
       const pooled = this.diskPool.get(e.blobHashes[slot]!);
       payload[slot] = pooled ? pooled.bytes : null;
     }
-    return { schemaVersion: e.snapshot.schemaVersion, payload } as MachineSnapshot;
+    return { schemaVersion: e.schemaVersion, payload };
   }
 
   get(id: string): RuntimeCheckpointRef | undefined {
@@ -266,7 +334,8 @@ export class RuntimeCheckpointRing {
 
   clear(): void {
     this.entries = [];
-    this.totalBytes = 0;
+    this.freeSlots = [];
+    for (let i = this.slotCount - 1; i >= 0; i--) this.freeSlots.push(i);
     this.diskPool.clear();
     this.diskPoolBytes = 0;
   }
@@ -277,12 +346,15 @@ export class RuntimeCheckpointRing {
     return {
       count: this.entries.length,
       pinnedCount,
-      totalBytes: this.retainedBytes(),
+      totalBytes: this.entries.length * SLOT_BYTES + this.diskPoolBytes,
       budgetBytes: this.budgetBytes,
       oldestFrame: this.entries.length ? this.entries[0]!.frame : null,
       newestFrame: this.entries.length ? this.entries[this.entries.length - 1]!.frame : null,
       diskImageVersions: this.diskPool.size,
       diskPoolBytes: this.diskPoolBytes,
+      slotBytes: SLOT_BYTES,
+      slotCount: this.slotCount,
+      freeSlots: this.freeSlots.length,
     };
   }
 }

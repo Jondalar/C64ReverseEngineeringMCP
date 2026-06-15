@@ -67,18 +67,17 @@ const PAL_FRAME_MS = (PAL_CYCLES_PER_FRAME / PAL_CYCLES_PER_SEC) * 1000; // ≈ 
 // every N completed frames (~0.5 s @ 50 Hz PAL). Fine enough to rewind to the
 // cause of a just-seen effect; ~400 KB/checkpoint × 2/s is cheap, and the ring
 // budget (128 MiB) bounds total retention by evicting oldest-unpinned.
-// BUG-049 — 1s cadence (was 25 = 0.5s). The snapshot compute is cheap (~0.15ms),
-// but retaining ~400 KB/capture in the ring grows old-gen → periodic major-GC →
-// fps dips. Halving the cadence halves that pressure. (Proper zero-alloc ring is
-// the spec'd follow-up; this is the low-risk interim. Scrub granularity → 1s.)
+// Spec 765 — 1s auto-cadence (50 PAL frames). Capture is now zero-alloc: the
+// ring copies the live RAM + framebuffers into its flat slab (no per-capture
+// .slice retained), so the old-gen footprint is constant and the BUG-049 major-
+// GC pressure is gone. Scrub granularity = 1s.
 const CHECKPOINT_CAPTURE_EVERY_FRAMES = 50;
-// BUG-049 — the in-loop auto-capture is PARKED (default OFF) pending the
-// zero-alloc checkpoint-ring re-spec. Retaining ~400 KB/capture in the ring grew
-// old-gen → periodic major-GC → audio kratzen. The ring + manual
-// captureCheckpoint/restoreCheckpoint + trace-checkpoint policies STAY; only the
-// always-on per-frame cadence is off. Re-enable for A/B with
-// C64RE_CHECKPOINT_AUTOCAPTURE=1. The scrub UI was removed (re-spec).
-const CHECKPOINT_AUTOCAPTURE = process.env.C64RE_CHECKPOINT_AUTOCAPTURE === "1";
+// Spec 765 — the always-on auto-capture is RE-ENABLED (default ON) now that the
+// checkpoint ring is flat-backed (zero-alloc capture, fixed old-gen footprint).
+// It was parked under BUG-049 only because the old object-graph ring grew old-gen
+// → periodic major-GC → audio kratzen; the flat slab removes that. Disable for
+// an A/B with C64RE_CHECKPOINT_AUTOCAPTURE=0.
+const CHECKPOINT_AUTOCAPTURE = process.env.C64RE_CHECKPOINT_AUTOCAPTURE !== "0";
 // BUG-040 — flash writes settle this long (no further mutation) before the
 // auto-persist writes the host .crt once. Long enough to coalesce an EAPI
 // write/erase burst, short enough that a crash loses little.
@@ -363,7 +362,9 @@ export class RuntimeController {
     // so it rides the ring / .c64re / restore. Inspect reads it from the payload.
     const take = (): RuntimeCheckpointRef =>
       this.checkpointRing.capture(
-        this.session.kernel.snapshot(), this.frameCounter, this.session.c64Cpu.cycles,
+        // Spec 765 — shallow: the ring copies the live buffers into its flat slab
+        // synchronously (we are at an idle boundary), so no detached slice is made.
+        this.session.kernel.snapshot({ shallow: true }), this.frameCounter, this.session.c64Cpu.cycles,
       );
     return this.runState === "running" ? this.runExclusive(take) : take();
   }
@@ -713,7 +714,8 @@ export class RuntimeController {
       if (!this.nonPersistableDirtyMedia()) {
         try {
           this.checkpointRing.capture(
-            this.session.kernel.snapshot(), this.frameCounter, this.session.c64Cpu.cycles,
+            // Spec 765 — shallow zero-alloc capture (ring copies into the slab).
+            this.session.kernel.snapshot({ shallow: true }), this.frameCounter, this.session.c64Cpu.cycles,
           );
         } catch { /* drop this checkpoint; the ring stays consistent */ }
       }

@@ -1519,10 +1519,13 @@ export class IntegratedSession {
    * immediately-visible freeze image. Copies, so the checkpoint is detached
    * from the live buffers.
    */
-  captureVicPresentation(): RuntimeCheckpointVicPresentation {
+  captureVicPresentation(shallow = false): RuntimeCheckpointVicPresentation {
+    // Spec 765 — shallow hands the LIVE framebuffer refs to the checkpoint ring,
+    // which copies them into its flat slab immediately (zero-alloc capture). All
+    // other callers get detached `.slice()` copies (default).
     return {
-      literalPortFb: this.literalPortFb ? this.literalPortFb.slice() : null,
-      literalPortFbStable: this.literalPortFbStable ? this.literalPortFbStable.slice() : null,
+      literalPortFb: this.literalPortFb ? (shallow ? this.literalPortFb : this.literalPortFb.slice()) : null,
+      literalPortFbStable: this.literalPortFbStable ? (shallow ? this.literalPortFbStable : this.literalPortFbStable.slice()) : null,
       litLastRasterLine: this.litLastRasterLine,
       lastLitBaLow: this.lastLitBaLow,
       litStableFrameCount: this.litStableFrameCount,

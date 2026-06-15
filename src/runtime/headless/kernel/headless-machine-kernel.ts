@@ -920,7 +920,11 @@ export class HeadlessMachineKernel implements MachineKernel {
   // mid-instruction `inst` is null at a boundary, so register/clk capture is
   // deterministic). reSID PCM is the explicit follow-on (step 4); SID
   // software-visible registers ARE captured.
-  snapshot(): MachineSnapshot {
+  snapshot(opts?: { shallow?: boolean }): MachineSnapshot {
+    // Spec 765 — shallow: hand the ring the LIVE RAM + framebuffers (no slice).
+    // The ring copies them into its flat slab synchronously, so the live buffers
+    // are never retained. Detached (default) is unchanged for every other caller.
+    const shallow = opts?.shallow === true;
     const cpu = this.c64Cpu as unknown as {
       pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number;
       maincpu_ba_low_flags?: number; soLine?: number; jammed?: boolean;
@@ -935,7 +939,7 @@ export class HeadlessMachineKernel implements MachineKernel {
         pc: cpu.pc, a: cpu.a, x: cpu.x, y: cpu.y, sp: cpu.sp, flags: cpu.flags, cycles: cpu.cycles,
         maincpu_ba_low_flags: cpu.maincpu_ba_low_flags, soLine: cpu.soLine, jammed: cpu.jammed,
       },
-      ram: this.c64Bus.ram.slice(),
+      ram: shallow ? this.c64Bus.ram : this.c64Bus.ram.slice(),
       cpuPortDirection: this.c64Bus.getCpuPortDirection(),
       cpuPortValue: this.c64Bus.getCpuPortValue(),
       cia1: this.cia1.snapshot(),
@@ -958,7 +962,7 @@ export class HeadlessMachineKernel implements MachineKernel {
       joystick2: { up: j2.up, down: j2.down, left: j2.left, right: j2.right, fire: j2.fire },
       paddles: Array.from(this.paddles),
       vic: vicii_snapshot_write(this.colorRamView()),
-      vicPresentation: this.session.captureVicPresentation(),
+      vicPresentation: this.session.captureVicPresentation(shallow),
       // Spec 710.4/710.5 — same-frame raster/FLI provenance for THIS frozen
       // frame (null when capture off). Rides the payload so it is durable across
       // ring / .c64re / restore; inspect reads it from the checkpoint.
