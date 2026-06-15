@@ -225,6 +225,19 @@ export class Vice1541Facade implements Drive1541 {
   private attachedMedia: { kind: string; bytes: Uint8Array; readOnly: boolean } | null = null;
   private mediaBaselineGcrHash: number | null = null;
 
+  // Spec 766.3 — monotonic disk-write generation for the recorder medium gen-gate.
+  // Bridge-side, READ-ONLY on the port (Spec 612 PL-5 / rule 6 — bridge bookkeeping,
+  // no core edit). Mirrors the cartridge mappers' writableGeneration(): a counter
+  // that increases whenever the in-RAM disk image content changed, so the recorder
+  // producer can ship the (big) GCR bytes only on a gen change instead of every
+  // 0.5 s anchor. Lazy edge-detect: GCR_dirty_track (set in the core at each GCR
+  // byte write, rotation.ts) rising 0→nonzero bumps the gen once per dirty episode;
+  // a writeback (persistDirtyTracks) also bumps because it commits + clears the
+  // flag. Over-counting is harmless (one redundant medium send), under-counting is
+  // not (stale disk in a dump) — so both edges bump.
+  private diskGeneration = 0;
+  private diskDirtyEdge = false;
+
   constructor() {
     // T3.2-fix-I: drive_6510core.ts reads InterruptCpuStatus via VICE
     // snake_case names (global_pending_int, irq_clk, nmi_clk,
@@ -462,6 +475,30 @@ export class Vice1541Facade implements Drive1541 {
    */
   persistDirtyTracks(): void {
     drive_gcr_data_writeback_all();
+    // Spec 766.3 — a writeback commits dirty GCR back to the image bytes and
+    // clears GCR_dirty_track; bump the gen so the recorder re-ships the medium.
+    this.diskGeneration = (this.diskGeneration + 1) >>> 0;
+    this.diskDirtyEdge = false;
+  }
+
+  /**
+   * Spec 766.3 — monotonic disk-write generation (recorder medium gen-gate).
+   * O(1), bridge-side, READ-ONLY on the port (Spec 612 PL-5 / rule 6). The
+   * cartridge side has the analogous writableGeneration(); this is the disk
+   * equivalent. The value increases whenever the in-RAM disk image content
+   * changed since the previous change; the recorder ships the GCR bytes only on
+   * a change. Lazy edge-detect on each call: a 0→nonzero transition of the core
+   * GCR_dirty_track flag (set per GCR byte write) bumps once per dirty episode.
+   */
+  diskWriteGeneration(): number {
+    const dirty = this.drive.GCR_dirty_track !== 0;
+    if (dirty && !this.diskDirtyEdge) {
+      this.diskGeneration = (this.diskGeneration + 1) >>> 0;
+      this.diskDirtyEdge = true;
+    } else if (!dirty) {
+      this.diskDirtyEdge = false;
+    }
+    return this.diskGeneration;
   }
 
   /**

@@ -93,4 +93,8 @@ export interface Drive1541 {
   /** BUG-023 — flush all dirty GCR tracks into the in-RAM media bytes (no
    *  detach) so the bridge can write them back to the host backing file. */
   persistDirtyTracks?(): void;
+  /** Spec 766.3 — monotonic disk-write generation for the recorder medium
+   *  gen-gate (O(1), bridge-side). Increases whenever the in-RAM disk image
+   *  content changed; the disk analogue of the cartridge writableGeneration(). */
+  diskWriteGeneration?(): number;
 }
