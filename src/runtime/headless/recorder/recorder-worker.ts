@@ -28,33 +28,47 @@ import {
 if (!parentPort) throw new Error("recorder-worker: must run as a worker_thread");
 const port = parentPort;
 
-const { sab, layout, capacityBytes, mediumKeep, drainIntervalMs } = workerData as {
+const { sab, layout, mediumSab, mediumLayout, capacityBytes, mediumKeep, drainIntervalMs } = workerData as {
   sab: SharedArrayBuffer;
   layout: RecorderRingLayout;
+  mediumSab?: SharedArrayBuffer;
+  mediumLayout?: RecorderRingLayout;
   capacityBytes?: number;
   mediumKeep?: number;
   drainIntervalMs?: number;
 };
 
 const consumer = new RecorderRingConsumer(sab, layout);
+// Medium images travel on their own (big-but-rare) ring so the anchor ring slots
+// stay small. Optional — single-ring callers (the 766.4 store probe) omit it.
+const mediumConsumer = mediumSab && mediumLayout ? new RecorderRingConsumer(mediumSab, mediumLayout) : null;
 const store = new AnchorStore(capacityBytes ?? 32 * 1024 * 1024, mediumKeep ?? 3);
 const batch: RecorderRecord[] = [];
+
+function applyRecord(rec: RecorderRecord): void {
+  const p = rec.payload;
+  if (rec.type === REC_ANCHOR) {
+    if (p.length < ANCHOR_HEADER_BYTES) return;
+    store.putAnchor(readAnchorHeader(p, 0), p.subarray(ANCHOR_HEADER_BYTES));
+  } else if (rec.type === REC_MEDIUM) {
+    if (p.length < MEDIUM_HEADER_BYTES) return;
+    const h = readMediumHeader(p, 0);
+    store.putMedium(h.kind, h.generation, p.subarray(MEDIUM_HEADER_BYTES), h.wallMs);
+  }
+}
 
 function drainOnce(): number {
   batch.length = 0;
   consumer.drain(batch);
-  for (const rec of batch) {
-    const p = rec.payload;
-    if (rec.type === REC_ANCHOR) {
-      if (p.length < ANCHOR_HEADER_BYTES) continue;
-      store.putAnchor(readAnchorHeader(p, 0), p.subarray(ANCHOR_HEADER_BYTES));
-    } else if (rec.type === REC_MEDIUM) {
-      if (p.length < MEDIUM_HEADER_BYTES) continue;
-      const h = readMediumHeader(p, 0);
-      store.putMedium(h.kind, h.generation, p.subarray(MEDIUM_HEADER_BYTES), h.wallMs);
-    }
+  for (const rec of batch) applyRecord(rec);
+  let n = batch.length;
+  if (mediumConsumer) {
+    batch.length = 0;
+    mediumConsumer.drain(batch);
+    for (const rec of batch) applyRecord(rec);
+    n += batch.length;
   }
-  return batch.length;
+  return n;
 }
 
 const timer = setInterval(drainOnce, drainIntervalMs ?? 50);

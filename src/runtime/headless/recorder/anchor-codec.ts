@@ -63,6 +63,18 @@ export class AnchorEncoder {
     return this.buf.subarray(0, this.off);
   }
 
+  /** Like encode(), but leaves `reserve` bytes free at the front for a fixed
+   *  record header the caller fills in place (e.g. writeAnchorHeader). Returns a
+   *  subarray view of [0, reserve + encodedLen). Zero-alloc after warmup — the
+   *  whole [header | codec] record is contiguous in the scratch, ready for one
+   *  ring memcpy. */
+  encodeWithReserve(reserve: number, value: unknown): Uint8Array {
+    this.ensure(reserve);
+    this.off = reserve;
+    this.writeValue(value);
+    return this.buf.subarray(0, this.off);
+  }
+
   private ensure(extra: number): void {
     const need = this.off + extra;
     if (need <= this.buf.length) return;
