@@ -1,7 +1,22 @@
 # Spec 765 — Zero-Alloc Checkpoint Ring + re-thought Scrub
 
-Status: PROPOSED (2026-06-15). Supersedes the storage model of Spec 705.B (not
-its capability). Anchor: `docs/runtime-live-arc42.md` §5/§6.1.
+Status: IMPLEMENTED (2026-06-15) — the "Mittelweg" (§6 OQ1) on branch
+`bug-049-audio-perf` (commits 8c52acd flat ring + 055dec4 scrub re-intro).
+Supersedes the storage model of Spec 705.B (not its capability). Anchor:
+`docs/runtime-live-arc42.md` §5/§6.1.
+
+**Decision (§6 OQ1, user-ratified):** the *Mittelweg* — a flat `ArrayBuffer`
+slab holds only the DOMINANT big buffers (RAM 64 KiB + the two literal-port
+framebuffers ~317 KiB), copied per-slot via `.set()`, the entry holding slab
+subarray VIEWS. The small scalar chip state stays a per-slot JS object so
+`kernel.restore()` is UNCHANGED → no byte-codec rewrite → zero new fidelity-gate
+risk (no Spec 620 C→TS surface). Full-flat (pack subsystem state too) is the
+escalation if the Mittelweg ever proves insufficient — it buys ~nothing GC-wise
+(the small state never churned) and is where the gate risk would live.
+
+**Gates passed:** probe-705b 7/7, probe-707 10/10, probe-single-path 25/25,
+e2e-761 11/11. Remaining acceptance bar (§5 perf): user ear — daemon holds ~50
+fps with auto-capture ON + audio underrun-free for 60 s on the live UI.
 
 ## 1. Why
 
@@ -108,10 +123,12 @@ costs ~0 fps. Keep capture/restore byte-exact (Spec 705 fidelity).
 
 ## 6. Open questions
 
-- Flat `ArrayBuffer` slots vs a pre-warmed pool of reusable typed-array sets
-  (simpler, restore-unchanged, but still N JS objects to scan — cheaper than now
-  but not as cheap as one flat buffer). Pick in design.
-- Cadence + depth defaults (0.5 s deep history vs 1 s lighter).
+- ~~Flat `ArrayBuffer` slots vs a pre-warmed pool of reusable typed-array sets.~~
+  **RESOLVED — the Mittelweg (see Status):** flat slab for the big buffers, small
+  scalar state stays a per-slot JS object. Restore unchanged, lowest gate risk.
+  Full-flat is the escalation only if needed.
+- Cadence + depth defaults: shipped at **1 s cadence**, **32 MiB slab ≈ 86
+  slots ≈ 86 s** rewind. Revisit if deeper history is wanted.
 - Whether both `literalPortFb` (mid-frame accumulator) and `literalPortFbStable`
   are needed every slot, or one can be reconstructed on restore (halves the
   framebuffer cost).
