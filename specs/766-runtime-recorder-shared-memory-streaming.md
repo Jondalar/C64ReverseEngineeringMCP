@@ -215,7 +215,33 @@ the hot path.
   pin + resume-auto-pin are dropped when scrub/resume re-points onto the worker
   (resume = restore + continue; the stale future just rolls out of the window).
 
-## 10. Non-goals
+## 10. Planned follow-up — the TRACE rides the same shared memory (user, 2026-06-15)
+
+Once the recorder's shared-memory firehose stands, the binary trace (726.B)
+should be rebuilt to consume the SAME stream — one cheap producer in the main
+loop, multiple consumers:
+
+```
+MainLoop ──► shared-memory firehose ◄── RingBuffer worker (always — scrub anchors)
+                                    ◄── Trace store (on command)
+```
+
+Today the trace is a SECOND producer on the emu thread with its own
+drain/backpressure — exactly the coupling that pulls fps. Folding it into the
+one shared-memory stream removes that.
+
+**The tension to resolve in that follow-up spec (NOT here):** the recorder is
+**lossy** (fps-first — an overrun is a benign history gap), but the trace is
+**no-drop** (726.B: the recorded CPU stream is the truth anchor for port-debug).
+A lossy ring would drop cpu_steps → trace gaps. Resolvable — e.g. trace-on
+enables backpressure/no-drop on the shared stream (the user opted into the trace,
+so the fps cost is a fair, explicit trade) — but it is a real design decision.
+
+Sequencing: build 766 (recorder) fully first (it fixes BUG-049); the trace
+unification is its own complete spec after. The trace works today (726.B); this
+is unification, not a missing feature.
+
+## 11. Non-goals
 
 - NOT moving the CPU firehose / DuckDB onto the hot path (726.B stays; the worker
   here is the checkpoint/anchor worker).
