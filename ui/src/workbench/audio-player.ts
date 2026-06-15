@@ -17,8 +17,13 @@ const STREAM_RATE = 44100;
 // above target before a trim fires (so steady state never trims). Prebuffer
 // sits just above target so playback starts at the governed level without an
 // immediate trim. Was 0.25 s flat (banked permanently — Spec 706 §3).
-const PREBUFFER_SEC = 0.12;    // ~120 ms startup headroom
-const LIVE_TARGET_SEC = 0.10;  // ~100 ms steady-state fill target
+// BUG-049 cushion experiment (2026-06-15): bumped 100→180 ms steady-state to
+// ride the sub-50fps dips on visually complex (multicolor) screens where the
+// VIC literal-port per-cycle draw cost blows the 20 ms frame budget and the
+// daemon under-delivers PCM. +80 ms latency is the trade. Revert to 0.12/0.10
+// if the VIC draw hot path is optimized instead.
+const PREBUFFER_SEC = 0.20;    // ~200 ms startup headroom (just above target)
+const LIVE_TARGET_SEC = 0.18;  // ~180 ms steady-state fill target
 const LIVE_MARGIN_SEC = 0.05;  // trim when fill exceeds target + 50 ms
 
 export class WebAudioPlayer {
