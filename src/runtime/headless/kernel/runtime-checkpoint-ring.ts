@@ -77,23 +77,28 @@ const POOLED_BLOB_SLOTS = ["driveDiskImage", "cartBytes", "cartFlash"] as const;
 // controller catches it as a dropped checkpoint (a ring gap, never a crash).
 const RAM_BYTES = 0x10000; // 65536
 const FB_BYTES = 65 * 8 * 312; // 162240
-/** Fixed bytes per slab slot: RAM + both framebuffers. Exported for the gate. */
-export const SLOT_BYTES = RAM_BYTES + FB_BYTES + FB_BYTES; // 390016 ≈ 381 KiB
+/**
+ * Fixed bytes per slab slot. Spec 765 (BUG-049 §8): the slab holds ONLY RAM —
+ * the dominant per-second cost was the two VIC framebuffers (~317 KiB), but a
+ * framebuffer is a DERIVABLE shadow (pure function of RAM + VIC regs + raster),
+ * NOT reconstruction state ("only the CPU writes RAM", 746 §1). So the always-on
+ * perma-anchor omits it (controller passes `omitFramebuffer`), and a scrub/dump
+ * regenerates it by running one frame. The rare anchor that DOES carry a
+ * framebuffer (an explicit/dump capture, for .c64re full-fidelity) keeps it as a
+ * detached JS slice ON THE ENTRY — off the hot per-second path. Exported for the
+ * gate.
+ */
+export const SLOT_BYTES = RAM_BYTES; // 65536 — RAM only
 const OFF_RAM = 0;
-const OFF_FB = RAM_BYTES;
-const OFF_FBSTABLE = RAM_BYTES + FB_BYTES;
 
 interface RingEntry extends RuntimeCheckpointRef {
-  /** Index of the slab slot holding this entry's big buffers. */
+  /** Index of the slab slot holding this entry's RAM. */
   slotIdx: number;
-  /** Whether literalPortFb / literalPortFbStable were present at capture. */
-  hasFb: boolean;
-  hasFbStable: boolean;
   /**
-   * The SMALL scalar payload graph (cpu/cia/sid/iec/alarms/keyboard/…) with the
-   * big fields (ram, vicPresentation.literalPortFb/Stable) replaced by slab
-   * subarray VIEWS at capture time, and the pooled media slots nulled (their
-   * bytes live once in `diskPool`, rehydrated on restore).
+   * The SMALL scalar payload graph (cpu/cia/sid/iec/alarms/keyboard/…) with
+   * `ram` replaced by the slab subarray VIEW at capture time, the framebuffers
+   * either null (perma-anchor) or detached JS slices (explicit/dump anchor), and
+   * the pooled media slots nulled (their bytes live once in `diskPool`).
    */
   payload: Record<string, unknown>;
   schemaVersion: number;
@@ -123,10 +128,11 @@ export interface RuntimeCheckpointRingStats {
   freeSlots: number;
 }
 
-// Spec 765 — 32 MiB slab default. At SLOT_BYTES ≈ 381 KiB that is ~86 slots ≈
-// ~86 s of rewind at the 1 s auto-cadence — plenty for scrub/inspect. The slab
-// is allocated ONCE; capture never grows it, so the old-gen footprint is
-// constant (BUG-049: the growth was the major-GC trigger).
+// Spec 765 — 32 MiB slab default. At SLOT_BYTES = 64 KiB (RAM only, framebuffers
+// no longer stored — §8) that is ~512 slots ≈ ~8.5 min of rewind at the 1 s
+// auto-cadence. The slab is allocated ONCE (lazily); capture never grows it, so
+// the old-gen footprint is constant (BUG-049: the growth was the major-GC
+// trigger).
 export const DEFAULT_CHECKPOINT_RING_BUDGET_BYTES = 32 * 1024 * 1024;
 
 /**
@@ -169,9 +175,10 @@ export class RuntimeCheckpointRing {
   }
 
   /**
-   * Append a fresh checkpoint. The big buffers (RAM + the two framebuffers) are
-   * copied into the next free slab slot; the stored entry holds slab VIEWS for
-   * them + the small scalar graph + a content-addressed ref for pooled media.
+   * Append a fresh checkpoint. RAM is copied into the next free slab slot; the
+   * stored entry holds a slab VIEW for it + the small scalar graph + a
+   * content-addressed ref for pooled media. Framebuffers, when present (an
+   * explicit/dump anchor), are detached onto the entry off the slab.
    *
    * Contract (unchanged): the caller owns the capture cadence + the
    * instruction-boundary contract (kernel.snapshot() taken at an atomic boundary
@@ -190,6 +197,10 @@ export class RuntimeCheckpointRing {
     if (!(ram instanceof Uint8Array) || ram.length !== RAM_BYTES) {
       throw new Error(`[checkpoint] capture: RAM must be ${RAM_BYTES} bytes, got ${(ram as Uint8Array)?.length}`);
     }
+    // Framebuffers (optional): null on the always-on perma-anchor (cheap), or a
+    // pair of buffers on an explicit/dump anchor. Either way they DON'T ride the
+    // RAM slab — when present they are detached (.slice) onto the entry, off the
+    // per-second path. Validate size only when present.
     const vp = (payload["vicPresentation"] ?? null) as { literalPortFb?: Uint8Array | null; literalPortFbStable?: Uint8Array | null } | null;
     const fb = vp?.literalPortFb ?? null;
     const fbStable = vp?.literalPortFbStable ?? null;
@@ -200,18 +211,15 @@ export class RuntimeCheckpointRing {
     const slab = this.ensureSlab();
     const slotIdx = this.acquireSlot();
 
-    // Copy the big buffers into the slab slot and build detached views.
+    // Copy RAM into the slab slot; the stored entry references a slab VIEW.
     const base = slotIdx * SLOT_BYTES;
     slab.set(ram, base + OFF_RAM);
-    const ramView = slab.subarray(base + OFF_RAM, base + OFF_RAM + RAM_BYTES);
-    payload["ram"] = ramView;
-    if (fb) {
-      slab.set(fb, base + OFF_FB);
-      (vp as Record<string, unknown>)["literalPortFb"] = slab.subarray(base + OFF_FB, base + OFF_FB + FB_BYTES);
-    }
-    if (fbStable) {
-      slab.set(fbStable, base + OFF_FBSTABLE);
-      (vp as Record<string, unknown>)["literalPortFbStable"] = slab.subarray(base + OFF_FBSTABLE, base + OFF_FBSTABLE + FB_BYTES);
+    payload["ram"] = slab.subarray(base + OFF_RAM, base + OFF_RAM + RAM_BYTES);
+    // Detach the framebuffers onto the entry (only when an explicit/dump anchor
+    // carried them — the perma-anchor omits them and this is a no-op).
+    if (vp) {
+      if (fb) (vp as Record<string, unknown>)["literalPortFb"] = fb.slice();
+      if (fbStable) (vp as Record<string, unknown>)["literalPortFbStable"] = fbStable.slice();
     }
 
     // Spec 714.4/714.5 — extract pooled media blobs (content-addressed dedup).
@@ -230,9 +238,10 @@ export class RuntimeCheckpointRing {
 
     const entry: RingEntry = {
       id: `cp_${frame}_${this.seq++}`,
-      frame, cycles, pinned: false, byteSize: SLOT_BYTES, createdAtMs: Date.now(),
-      slotIdx, hasFb: !!fb, hasFbStable: !!fbStable,
-      payload, schemaVersion: snapshot.schemaVersion, blobHashes,
+      frame, cycles, pinned: false,
+      byteSize: SLOT_BYTES + (fb ? FB_BYTES : 0) + (fbStable ? FB_BYTES : 0),
+      createdAtMs: Date.now(),
+      slotIdx, payload, schemaVersion: snapshot.schemaVersion, blobHashes,
     };
     this.entries.push(entry);
     return toRef(entry);
