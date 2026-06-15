@@ -1,6 +1,16 @@
+> # 🛑 PARTIALLY SUPERSEDED — the checkpoint-RING storage is OBSOLETE 🛑
+> # ➡️ The checkpoint **ring storage/capture model (§4.10, 705.B) is REPLACED by Spec 766**
+> #    (runtime recorder, shared-memory data-streaming). DO NOT implement the
+> #    705.B in-process object-graph ring — it caused BUG-049 (heavy work on the
+> #    emu thread). The 705.A RuntimeCheckpoint *concept* + the broader
+> #    evidence/intervention/replay *contract* still hold; only the RING STORAGE
+> #    is overhauled by 766 (anchors via memcpy → async worker; no pin).
+> ---
+
 # Spec 705 - Interactive Runtime Evidence, Intervention and Replay Contract
 
 Status: REFINEMENT (2026-05-23 CEST) — slices **705.A DONE** (§4.9) + **705.B DONE** (§4.10)
+**[705.B ring storage SUPERSEDED by Spec 766, 2026-06-15.]**
 Created: 2026-05-23 CEST
 Depends: Specs 600/601, 616-618, 623, 701-704
 Owner: runtime / debugger / v3 UI / project-knowledge

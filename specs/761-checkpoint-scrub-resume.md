@@ -1,6 +1,16 @@
+> # 🛑 SUPERSEDED STORAGE + NO MORE PIN — see Spec 766 🛑
+> # ➡️ The scrub/resume FEATURE survives, but it now rides the **Spec 766** recorder
+> #    (shared-memory anchors + async worker), NOT the 705.B in-process ring (that
+> #    caused BUG-049). **PIN + resume-auto-pin are REMOVED** (766 RQ4: pure
+> #    overwrite-oldest rolling window; durability = explicit dump to .c64re only).
+> #    Resume = restore + continue; the stale future just rolls out of the window.
+> #    Treat 766 as the authority for storage + retention; this spec's pin/ring
+> #    mechanics are OBSOLETE.
+> ---
+
 # Spec 761 — Checkpoint Scrub + Resume (ring-bound rewind, then run on)
 
-**Status:** PROPOSED (2026-06-06).
+**Status:** PROPOSED (2026-06-06) — **storage + pin SUPERSEDED by Spec 766 (2026-06-15).**
 **Realizes:** Spec 746 charter §0 "Scrubbing — rewind→forward over the
 checkpoint ring" + build-list item 746.11 (ring-bound scrub timeline) — the
 first user-facing slice of it.

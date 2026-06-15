@@ -1,4 +1,9 @@
-# Spec 765 — Zero-Alloc Checkpoint Ring + re-thought Scrub
+> # 🛑🛑🛑 OUTDATED / SUPERSEDED — DO NOT IMPLEMENT 🛑🛑🛑
+> # ➡️ The authority is **Spec 766** (runtime recorder, shared-memory streaming).
+> # This entire spec is OBSOLETE. It is kept only as a trail of the dead end.
+> ---
+
+# Spec 765 — ~~Zero-Alloc Checkpoint Ring + re-thought Scrub~~ (OBSOLETE)
 
 > **SUPERSEDED (2026-06-15) by Spec 766.** This was the in-process "Mittelweg"
 > (flat slab for the big buffers, small state stays JS, capture on the emu
