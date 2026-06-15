@@ -17,6 +17,7 @@
 
 import { Vice1541Facade } from "../dist/runtime/headless/drive1541/vice1541-facade.js";
 import { collectMediumDescriptors } from "../dist/runtime/headless/recorder/medium-source.js";
+import { decodeCartMedium } from "../dist/runtime/headless/recorder/anchor-record.js";
 
 const failures = [];
 let passes = 0;
@@ -80,14 +81,16 @@ console.log("Spec 766.3 — recorder medium gen-gate");
   const d = driveOf(f);
 
   // a structural cartridge mapper (real flash path proven by BUG-040; here we
-  // only assert the gen-gate plumbing surfaces it)
+  // only assert the gen-gate plumbing surfaces it). New restore-format: the cart
+  // descriptor bundles the constant .crt bytes + the mutable flash image.
   let cartGen = 7;
-  const cartImg = new Uint8Array([0x43, 0x36, 0x34, 0x20]); // "C64 "
-  const cart = {
-    writableGeneration: () => cartGen,
-    getCrtImage: () => cartImg,
+  const cartRom = new Uint8Array([0x43, 0x36, 0x34, 0x20, 0xaa, 0xbb]); // "C64 " + payload
+  const cartFlash = new Uint8Array([0x11, 0x22]);
+  const cart = { writableGeneration: () => cartGen, getWritableImage: () => cartFlash };
+  const kernel = {
+    drive1541: f,
+    c64Bus: { getCartridge: () => cart, getCartridgeMedia: () => ({ name: "test.crt", bytes: cartRom }) },
   };
-  const kernel = { drive1541: f, c64Bus: { getCartridge: () => cart } };
 
   const m0 = collectMediumDescriptors(kernel);
   const disk0 = m0.find((x) => x.kind === "disk");
@@ -95,11 +98,15 @@ console.log("Spec 766.3 — recorder medium gen-gate");
   gate("B both media surface as descriptors", !!disk0 && !!cart0, `kinds=[${m0.map((x) => x.kind).join(",")}]`);
   gate("B cart gen reflects mapper", cart0?.generation === 7, `cart.gen=${cart0?.generation}`);
 
-  // getBytes lazy + correct
+  // cart getBytes = encodeCartMedium(rom, flash); decode → rom+flash recovered
   const cb = cart0?.getBytes();
-  gate("B cart getBytes returns the crt image", cb instanceof Uint8Array && cb.length === 4 && cb[0] === 0x43, `len=${cb?.length}`);
+  const dec = cb ? decodeCartMedium(cb) : null;
+  gate("B cart getBytes bundles rom+flash (decodes back)",
+    !!dec && dec.rom.length === 6 && dec.rom[0] === 0x43 && dec.flash?.length === 2 && dec.flash[0] === 0x11,
+    `rom=${dec?.rom?.length} flash=${dec?.flash?.length}`);
+  // disk getBytes = the GCRIMAGE snapshot blob (restore-format), non-empty
   const db = disk0?.getBytes();
-  gate("B disk getBytes returns image bytes", db instanceof Uint8Array && db.length === 683 * 256, `len=${db?.length}`);
+  gate("B disk getBytes returns the GCRIMAGE snapshot blob", db instanceof Uint8Array && db.length > 0, `len=${db?.length}`);
 
   // C — gen-gate: no change → identical gen (ship nothing)
   const m1 = collectMediumDescriptors(kernel);

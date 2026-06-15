@@ -21,10 +21,10 @@ import { dirname, resolve } from "node:path";
 import {
   RecorderRingProducer, createRecorderRingSab, type RecorderRingLayout,
 } from "./recorder-ring.js";
-import { AnchorEncoder } from "./anchor-codec.js";
+import { AnchorEncoder, decodeAnchor } from "./anchor-codec.js";
 import {
   REC_ANCHOR, REC_MEDIUM, ANCHOR_HEADER_BYTES, writeAnchorHeader,
-  encodeMediumRecord, MEDIUM_KIND_DISK, MEDIUM_KIND_CART,
+  encodeMediumRecord, decodeCartMedium, MEDIUM_KIND_DISK, MEDIUM_KIND_CART,
 } from "./anchor-record.js";
 import {
   collectMediumDescriptors, type MediumKernelLike, type MediumDescriptor,
@@ -47,7 +47,7 @@ const DEFAULT_ANCHOR_LAYOUT: RecorderRingLayout = { slotPayloadBytes: 384 * 1024
 const DEFAULT_MEDIUM_LAYOUT: RecorderRingLayout = { slotPayloadBytes: 2 * 1024 * 1024, slotCount: 4 };
 
 export interface RecorderAnchorRef {
-  seq: number; cycle: number; wallMs: number; diskGen: number; cartGen: number;
+  seq: number; cycle: number; wallMs: number; diskGen: number; cartGen: number; schemaVersion: number;
 }
 export interface RecorderStats {
   anchorCount: number; oldestCycle: number | null; newestCycle: number | null;
@@ -110,7 +110,7 @@ export class RuntimeRecorder {
    * payload (shallow + omitFramebuffer). `kernel` is read O(1) for the medium
    * generations; a medium image is shipped only when its generation changed.
    */
-  captureAnchor(payload: unknown, cycle: number, wallMs: number, kernel: MediumKernelLike): void {
+  captureAnchor(payload: unknown, cycle: number, wallMs: number, schemaVersion: number, kernel: MediumKernelLike): void {
     if (this.disposed) return;
     const media = collectMediumDescriptors(kernel);
     let diskGen = 0, cartGen = 0;
@@ -119,7 +119,7 @@ export class RuntimeRecorder {
     // Anchor: encode into the reused scratch with a header reserve, fill the
     // header in place, one ring memcpy. Zero-alloc after warmup.
     const rec = this.enc.encodeWithReserve(ANCHOR_HEADER_BYTES, payload);
-    writeAnchorHeader(rec, 0, { cycle, wallMs, diskGen, cartGen });
+    writeAnchorHeader(rec, 0, { cycle, wallMs, diskGen, cartGen, schemaVersion });
     if (this.anchorProducer.write(REC_ANCHOR, rec)) this.produced++;
 
     // Medium gen-gate: ship bytes only on a content-generation change.
@@ -171,6 +171,39 @@ export class RuntimeRecorder {
   async getMedium(kind: number, gen: number): Promise<{ kind: number; generation: number; bytes: Uint8Array } | null> {
     const r = await this.req<{ kind: number; generation: number; bytes: Uint8Array }>("getMedium", { kind, gen });
     return r.ok ? r.value : null;
+  }
+
+  /**
+   * Spec 766.5b — reassemble a full restorable MachineSnapshot from a stored
+   * anchor: decode the core payload, then re-inject the LARGE medium fields it
+   * referenced (disk GCRIMAGE, cart .crt + flash) from the medium store. Returns
+   * null if the anchor was evicted, or if a referenced medium is no longer
+   * retained (a too-old scrub target). The small cart bank/control state already
+   * rides the anchor's `media` metadata.
+   */
+  async reconstruct(seq: number): Promise<{ ref: RecorderAnchorRef; schemaVersion: number; payload: Record<string, unknown> } | null> {
+    const got = await this.getAnchor(seq);
+    if (!got) return null;
+    const payload = decodeAnchor(new Uint8Array(got.bytes)) as Record<string, unknown>;
+    const header = got.header;
+    const ref: RecorderAnchorRef = { ...header, seq };
+
+    if (header.diskGen > 0) {
+      const m = await this.getMedium(MEDIUM_KIND_DISK, header.diskGen);
+      if (!m) return null; // disk version evicted → cannot faithfully restore
+      payload.driveDiskImage = new Uint8Array(m.bytes);
+    }
+    // A cartridge is present iff the anchor metadata carries it; cartGen alone is
+    // ambiguous (gen 0 = "no flash writes yet", not "no cart").
+    const media = payload.media as { cartridge?: unknown } | undefined;
+    if (media?.cartridge) {
+      const m = await this.getMedium(MEDIUM_KIND_CART, header.cartGen);
+      if (!m) return null;
+      const { rom, flash } = decodeCartMedium(new Uint8Array(m.bytes));
+      payload.cartBytes = rom;
+      payload.cartFlash = flash;
+    }
+    return { ref, schemaVersion: header.schemaVersion, payload };
   }
 
   dispose(): void {

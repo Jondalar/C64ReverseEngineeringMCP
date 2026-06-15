@@ -8,30 +8,43 @@
 // and otherwise carries just the gen-key for the worker to match against what
 // it already stored.
 //
-// Both media expose an O(1), bridge-side generation:
+// Both media expose an O(1)-ish, bridge-side generation:
 //   - cartridge: HeadlessCartridgeMapper.writableGeneration()  (pre-existing)
 //   - disk:      Vice1541Facade.diskWriteGeneration()          (Spec 766.3)
 //
+// The bytes a descriptor yields are the SAME restore-format the kernel snapshot
+// embeds (Spec 714.4/714.5), so reconstruct can re-inject them verbatim:
+//   - disk: drive1541.snapshotDiskImage()  (the GCRIMAGE blob restoreDiskImage eats)
+//   - cart: a bundle of the constant .crt bytes + the mutable flash image
+//           (encodeCartMedium), keyed by writableGeneration so a flash write
+//           re-ships both together. The small cart bank/control STATE rides the
+//           anchor (snapshot `media` metadata), NOT here.
+//
 // This module is OUTSIDE vice1541/ (bridge layer) — it only reads the public
-// facade/mapper surface, never the VICE core (Spec 612 PL-5).
+// facade/mapper/bus surface, never the VICE core (Spec 612 PL-5).
+
+import { encodeCartMedium } from "./anchor-record.js";
 
 /** A drive exposing the Spec 707/766 media surface (structural — the facade). */
 interface MediumDrive {
   diskWriteGeneration?(): number;
   getAttachedMedia?(): { kind: string; bytes: Uint8Array; readOnly: boolean } | null;
-  persistDirtyTracks?(): void;
+  snapshotDiskImage?(): Uint8Array | null;
 }
 
 /** A cartridge mapper exposing the writable-state surface (structural). */
 interface MediumCart {
   writableGeneration?(): number;
-  getCrtImage?(): Uint8Array | null;
+  getWritableImage?(): Uint8Array | null;
 }
 
 /** The kernel surface this helper reads (structural — no hard import). */
 export interface MediumKernelLike {
   drive1541?: MediumDrive;
-  c64Bus?: { getCartridge?(): MediumCart | undefined };
+  c64Bus?: {
+    getCartridge?(): MediumCart | undefined;
+    getCartridgeMedia?(): { name: string; bytes: Uint8Array } | undefined;
+  };
 }
 
 export type MediumKind = "disk" | "cart";
@@ -61,27 +74,25 @@ export function collectMediumDescriptors(kernel: MediumKernelLike): MediumDescri
   const out: MediumDescriptor[] = [];
 
   const drive = kernel.drive1541;
-  if (drive?.diskWriteGeneration && drive.getAttachedMedia) {
-    const media = drive.getAttachedMedia();
-    if (media !== null) {
-      out.push({
-        kind: "disk",
-        generation: drive.diskWriteGeneration(),
-        getBytes: () => {
-          // Commit dirty GCR → image bytes so the captured medium is current.
-          drive.persistDirtyTracks?.();
-          return drive.getAttachedMedia?.()?.bytes ?? null;
-        },
-      });
-    }
+  if (drive?.diskWriteGeneration && drive.snapshotDiskImage && drive.getAttachedMedia?.() != null) {
+    out.push({
+      kind: "disk",
+      generation: drive.diskWriteGeneration(),
+      // The GCRIMAGE snapshot blob (includes the live dirty track); restore feeds
+      // it to restoreDiskImage(). snapshotDiskImage copies, so it is current.
+      getBytes: () => drive.snapshotDiskImage?.() ?? null,
+    });
   }
 
   const cart = kernel.c64Bus?.getCartridge?.();
-  if (cart?.writableGeneration && cart.getCrtImage) {
+  const cartMedia = kernel.c64Bus?.getCartridgeMedia?.();
+  if (cart?.writableGeneration && cartMedia) {
     out.push({
       kind: "cart",
       generation: cart.writableGeneration(),
-      getBytes: () => cart.getCrtImage?.() ?? null,
+      // Constant .crt bytes + the mutable flash image, bundled so reconstruct
+      // gets both. The bank/control state rides the anchor's `media` metadata.
+      getBytes: () => encodeCartMedium(cartMedia.bytes, cart.getWritableImage?.() ?? null),
     });
   }
 

@@ -66,9 +66,9 @@ try {
   let lastSnap = null, lastCycle = 0;
   for (let i = 0; i < 6; i++) {
     session.runFor(50_000, { cycleBudget: 50_000 });
-    lastSnap = session.kernel.snapshot({ shallow: true, omitFramebuffer: true });
+    lastSnap = session.kernel.snapshot({ shallow: true, omitFramebuffer: true, omitMedia: true });
     lastCycle = session.c64Cpu.cycles;
-    recorder.captureAnchor(lastSnap.payload, lastCycle, i * 500, session.kernel);
+    recorder.captureAnchor(lastSnap.payload, lastCycle, i * 500, lastSnap.schemaVersion, session.kernel);
   }
   const sigAtCp = machineSig(session);
 
@@ -99,8 +99,8 @@ try {
   // D — producer hot-path: repeated captures reuse the scratch
   if (global.gc) global.gc();
   const before = process.memoryUsage().heapUsed;
-  const snap = session.kernel.snapshot({ shallow: true, omitFramebuffer: true });
-  for (let i = 0; i < 500; i++) recorder.captureAnchor(snap.payload, 2_000_000 + i, i, session.kernel);
+  const snap = session.kernel.snapshot({ shallow: true, omitFramebuffer: true, omitMedia: true });
+  for (let i = 0; i < 500; i++) recorder.captureAnchor(snap.payload, 2_000_000 + i, i, snap.schemaVersion, session.kernel);
   if (global.gc) global.gc();
   const grewMiB = (process.memoryUsage().heapUsed - before) / (1024 * 1024);
   gate("D 500 captures reuse the encoder scratch (~no heap growth)",

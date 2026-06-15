@@ -35,7 +35,7 @@ import { TraceRunController } from "../trace/trace-run.js";
 import type { RuntimeTraceDefinition } from "../trace/trace-definition.js";
 import type { MediaIngressEvent } from "../media/ingress.js";
 import { persistCartridgeToFile } from "../media/persist-cartridge.js";
-import { RuntimeRecorder } from "../recorder/runtime-recorder.js";
+import { RuntimeRecorder, type RecorderAnchorRef } from "../recorder/runtime-recorder.js";
 import type { MediumKernelLike } from "../recorder/medium-source.js";
 
 export type RuntimeRunState = "running" | "paused" | "stopped";
@@ -499,6 +499,28 @@ export class RuntimeController {
   }
 
   /**
+   * Spec 766.5b — restore from a RECORDER anchor (worker-store, shared-memory
+   * path) by seq. Reassembles the core payload + the gen-gated medium it
+   * referenced (disk/cart) off-thread, then drives the same restore path as the
+   * 765 ring. Returns the anchor ref, or null if the anchor/medium was evicted.
+   * Runs alongside restoreCheckpoint (765) until 5c re-points the public API.
+   */
+  async restoreFromRecorder(
+    seq: number, opts: { then?: "pause" | "run" | "keep" } = {},
+  ): Promise<RecorderAnchorRef | null> {
+    if (!this.recorder) return null;
+    const recon = await this.recorder.reconstruct(seq);
+    if (!recon) return null;
+    const then = opts.then ?? "keep";
+    await this.restoreFromSnapshot(
+      { schemaVersion: recon.schemaVersion, payload: recon.payload } as unknown as MachineSnapshot,
+      { pause: then === "pause" },
+    );
+    if (then === "run") this.run();
+    return recon.ref;
+  }
+
+  /**
    * Restore an arbitrary MachineSnapshot (ring entry OR a deserialized native
    * .c64re snapshot — Spec 707 undump). Goes through runExclusive so the loop
    * is idle; kernel.restore() drives the 705.A audio provider → the 706.8
@@ -751,15 +773,19 @@ export class RuntimeController {
           // per-second capture is ~a 64 KiB RAM memcpy + small chip blobs,
           // cheap enough to share the audio thread without a tick.
           const snap = this.session.kernel.snapshot({ shallow: true, omitFramebuffer: true });
-          // Spec 766.5a — feed the shared-memory recorder FIRST with the pristine
-          // payload (encode is read-only), then the 765 ring. Additive: the ring
-          // still serves restore/scrub until 766.5b. The recorder does a zero-alloc
-          // encode + one ring memcpy + O(1) medium gen checks — no per-second hash.
-          this.recorder?.captureAnchor(
-            snap.payload, this.session.c64Cpu.cycles, Date.now(),
-            this.session.kernel as unknown as MediumKernelLike,
-          );
           this.checkpointRing.capture(snap, this.frameCounter, this.session.c64Cpu.cycles);
+          // Spec 766.5b — feed the shared-memory recorder a CORE-ONLY anchor
+          // (omitMedia): the disk GCR image / cart bytes ride the recorder's
+          // separate gen-gated medium stream, not the per-second anchor. This
+          // extra snapshot is cheap (no medium copy); the 765 ring above keeps the
+          // full snapshot until 5c retires it. Zero-alloc encode + one ring memcpy.
+          if (this.recorder) {
+            const a = this.session.kernel.snapshot({ shallow: true, omitFramebuffer: true, omitMedia: true });
+            this.recorder.captureAnchor(
+              a.payload, this.session.c64Cpu.cycles, Date.now(), a.schemaVersion,
+              this.session.kernel as unknown as MediumKernelLike,
+            );
+          }
         } catch { /* drop this checkpoint; the ring stays consistent */ }
       }
     }

@@ -920,7 +920,7 @@ export class HeadlessMachineKernel implements MachineKernel {
   // mid-instruction `inst` is null at a boundary, so register/clk capture is
   // deterministic). reSID PCM is the explicit follow-on (step 4); SID
   // software-visible registers ARE captured.
-  snapshot(opts?: { shallow?: boolean; omitFramebuffer?: boolean }): MachineSnapshot {
+  snapshot(opts?: { shallow?: boolean; omitFramebuffer?: boolean; omitMedia?: boolean }): MachineSnapshot {
     // Spec 765 — shallow: hand the ring the LIVE RAM + framebuffers (no slice).
     // The ring copies RAM into its flat slab synchronously, so the live buffers
     // are never retained. omitFramebuffer: drop the framebuffers (perma-anchor;
@@ -928,6 +928,14 @@ export class HeadlessMachineKernel implements MachineKernel {
     // for every other caller (.c64re dump etc).
     const shallow = opts?.shallow === true;
     const omitFramebuffer = opts?.omitFramebuffer === true;
+    // Spec 766.5 — omitMedia: drop the LARGE medium byte fields (disk GCR image,
+    // cart .crt bytes, cart flash) from the payload; they ride the recorder's
+    // separate gen-gated medium stream and are re-injected on reconstruct. The
+    // small `media` metadata (disk path, cart name/mapper/state — bank+control)
+    // is KEPT so the core payload still carries the bank-switch state. So a
+    // recorder anchor is core-only (~89 KiB) regardless of a mounted 1 MiB cart
+    // or disk — that is the BUG-049 win (no per-second 1 MiB copy in the anchor).
+    const omitMedia = opts?.omitMedia === true;
     const cpu = this.c64Cpu as unknown as {
       pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number;
       maincpu_ba_low_flags?: number; soLine?: number; jammed?: boolean;
@@ -973,12 +981,12 @@ export class HeadlessMachineKernel implements MachineKernel {
       drive1541: this.drive1541 ? this.drive1541.snapshot() : null,
       // Spec 714.4 — capture the mutable disk image apart from the core blob so
       // the ring can content-address + dedup it (one copy per disk identity).
-      driveDiskImage: this.drive1541?.snapshotDiskImage?.() ?? null,
+      driveDiskImage: omitMedia ? null : (this.drive1541?.snapshotDiskImage?.() ?? null),
       // Spec 714.5 — large cartridge byte payloads captured apart from the media
       // metadata so the ring dedups them (the original .crt is constant; flash
-      // varies only on writes).
-      cartBytes: this.captureCartBytes(),
-      cartFlash: this.captureCartFlash(),
+      // varies only on writes). Spec 766.5 omitMedia → null (ride the medium stream).
+      cartBytes: omitMedia ? null : this.captureCartBytes(),
+      cartFlash: omitMedia ? null : this.captureCartFlash(),
       media: this.captureMediaCheckpoint(),
       alarmsMaincpu: this.alarms.maincpu ? alarmContextCaptureSchedule(this.alarms.maincpu) : [],
       // Spec 705.A step 4 — optional reSID audio slice when a recorder is

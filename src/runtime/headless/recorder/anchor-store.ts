@@ -23,14 +23,15 @@ import {
 } from "./anchor-record.js";
 
 export interface AnchorIndexEntry {
-  seq: number;       // monotonic store sequence (stable id, survives eviction checks)
-  cycle: number;     // capture machine clock
-  wallMs: number;    // capture wall-clock ms
-  diskGen: number;   // referenced disk medium generation
-  cartGen: number;   // referenced cart medium generation
-  absStart: number;  // absolute byte position of the codec body
-  phys: number;      // physical slab offset of the codec body
-  len: number;       // codec body byte length
+  seq: number;           // monotonic store sequence (stable id, survives eviction checks)
+  cycle: number;         // capture machine clock
+  wallMs: number;        // capture wall-clock ms
+  diskGen: number;       // referenced disk medium generation
+  cartGen: number;       // referenced cart medium generation
+  schemaVersion: number; // RuntimeCheckpoint schema (for restore)
+  absStart: number;      // absolute byte position of the codec body
+  phys: number;          // physical slab offset of the codec body
+  len: number;           // codec body byte length
 }
 
 export interface StoredMedium { kind: number; generation: number; bytes: Uint8Array; wallMs: number; }
@@ -80,7 +81,8 @@ export class AnchorStore {
 
     const entry: AnchorIndexEntry = {
       seq: this.nextSeq++, cycle: header.cycle, wallMs: header.wallMs,
-      diskGen: header.diskGen, cartGen: header.cartGen, absStart, phys, len,
+      diskGen: header.diskGen, cartGen: header.cartGen, schemaVersion: header.schemaVersion,
+      absStart, phys, len,
     };
     this.entries.push(entry);
 
@@ -116,7 +118,7 @@ export class AnchorStore {
   getAnchorHeader(seq: number): AnchorHeader | null {
     const e = this.entries.find((x) => x.seq === seq);
     if (!e) return null;
-    return { cycle: e.cycle, wallMs: e.wallMs, diskGen: e.diskGen, cartGen: e.cartGen };
+    return { cycle: e.cycle, wallMs: e.wallMs, diskGen: e.diskGen, cartGen: e.cartGen, schemaVersion: e.schemaVersion };
   }
 
   /** The newest stored anchor at or before `cycle`, or null. */
