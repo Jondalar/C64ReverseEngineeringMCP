@@ -228,15 +228,24 @@ export class Vice1541Facade implements Drive1541 {
   // Spec 766.3 — monotonic disk-write generation for the recorder medium gen-gate.
   // Bridge-side, READ-ONLY on the port (Spec 612 PL-5 / rule 6 — bridge bookkeeping,
   // no core edit). Mirrors the cartridge mappers' writableGeneration(): a counter
-  // that increases whenever the in-RAM disk image content changed, so the recorder
-  // producer can ship the (big) GCR bytes only on a gen change instead of every
-  // 0.5 s anchor. Lazy edge-detect: GCR_dirty_track (set in the core at each GCR
-  // byte write, rotation.ts) rising 0→nonzero bumps the gen once per dirty episode;
-  // a writeback (persistDirtyTracks) also bumps because it commits + clears the
-  // flag. Over-counting is harmless (one redundant medium send), under-counting is
-  // not (stale disk in a dump) — so both edges bump.
+  // that increases iff the in-RAM disk image content changed, so the recorder
+  // producer ships the GCR bytes only on a change instead of every 0.5 s anchor.
+  //
+  // Why a content hash and not the GCR_dirty_track flag: the core CLEARS that flag
+  // on every internal head-step writeback (drive.ts drive_gcr_data_writeback) —
+  // which is in-core and NOT bridge-hookable — so flag-edge polling at the 0.5 s
+  // anchor cadence would MISS writes that were internally flushed between polls
+  // (under-count → a stale disk in a dump). Instead: pristine fast-path (a disk
+  // never written, flag clear → gen 0, O(1), the common case for read-only loads);
+  // once written, the gen is a cheap fnv1a over the live GCR track buffers, which
+  // already include the un-flushed current track AND survive internal writebacks
+  // (each half-track has its own persistent buffer in drive.gcr.tracks[]). The hash
+  // is paid only AFTER the first write, ~0.1 ms over a 174 KiB D64 at 2 Hz — far
+  // cheaper than shipping the image to the worker to dedup there, and nothing like
+  // the BUG-049 per-second 1 MiB cart sha256 (the cart side stays O(1)).
   private diskGeneration = 0;
-  private diskDirtyEdge = false;
+  private diskEverDirty = false;
+  private diskLastHash = 0;
 
   constructor() {
     // T3.2-fix-I: drive_6510core.ts reads InterruptCpuStatus via VICE
@@ -448,6 +457,11 @@ export class Vice1541Facade implements Drive1541 {
     // Spec 707 — record the re-attachable media + clean GCR baseline.
     this.attachedMedia = { kind: media.kind, bytes: media.bytes, readOnly: media.readOnly };
     this.mediaBaselineGcrHash = this.gcrImageHash();
+    // Spec 766.3 — a fresh image: reset the disk-write generation tracking so the
+    // recorder treats the new disk as a new (pristine) medium version.
+    this.diskGeneration = (this.diskGeneration + 1) >>> 0;
+    this.diskEverDirty = false;
+    this.diskLastHash = 0;
   }
 
   detachDisk(): void {
@@ -474,29 +488,32 @@ export class Vice1541Facade implements Drive1541 {
    * Uint8Array the writeback mutates, so it reflects the writes after this call.
    */
   persistDirtyTracks(): void {
+    // No gen bump here: persist just materializes the live track buffers into
+    // the image bytes (same content); diskWriteGeneration()'s content hash
+    // already tracks the change. A bump here would re-ship the medium forever.
     drive_gcr_data_writeback_all();
-    // Spec 766.3 — a writeback commits dirty GCR back to the image bytes and
-    // clears GCR_dirty_track; bump the gen so the recorder re-ships the medium.
-    this.diskGeneration = (this.diskGeneration + 1) >>> 0;
-    this.diskDirtyEdge = false;
   }
 
   /**
    * Spec 766.3 — monotonic disk-write generation (recorder medium gen-gate).
-   * O(1), bridge-side, READ-ONLY on the port (Spec 612 PL-5 / rule 6). The
-   * cartridge side has the analogous writableGeneration(); this is the disk
-   * equivalent. The value increases whenever the in-RAM disk image content
-   * changed since the previous change; the recorder ships the GCR bytes only on
-   * a change. Lazy edge-detect on each call: a 0→nonzero transition of the core
-   * GCR_dirty_track flag (set per GCR byte write) bumps once per dirty episode.
+   * Bridge-side, READ-ONLY on the port (Spec 612 PL-5 / rule 6). The cartridge
+   * side has the analogous writableGeneration(); this is the disk equivalent.
+   * The value increases iff the disk image content changed. See the field
+   * comment for why this is a content hash (gated on first write) rather than a
+   * flag edge — the core clears GCR_dirty_track on internal writebacks, so a
+   * flag edge would under-count and leave a stale disk in a dump.
    */
   diskWriteGeneration(): number {
-    const dirty = this.drive.GCR_dirty_track !== 0;
-    if (dirty && !this.diskDirtyEdge) {
+    if (!this.diskEverDirty) {
+      // Pristine fast path: nothing attached or never written → gen unchanged,
+      // O(1), no hash. Once we first observe the dirty flag, switch to hashing.
+      if (this.attachedMedia === null || this.drive.GCR_dirty_track === 0) return this.diskGeneration;
+      this.diskEverDirty = true;
+    }
+    const h = this.gcrImageHash();
+    if (h !== this.diskLastHash) {
+      this.diskLastHash = h;
       this.diskGeneration = (this.diskGeneration + 1) >>> 0;
-      this.diskDirtyEdge = true;
-    } else if (!dirty) {
-      this.diskDirtyEdge = false;
     }
     return this.diskGeneration;
   }

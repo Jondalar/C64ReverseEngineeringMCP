@@ -2,9 +2,11 @@
 // Spec 766.3 — recorder medium gen-gate.
 //
 //   A) DISK gen (facade, deterministic): diskWriteGeneration() is stable while
-//      the image is untouched, bumps once per dirty episode (rising edge of the
-//      core GCR_dirty_track flag), holds while it stays dirty, and bumps on a
-//      writeback (persistDirtyTracks). O(1) — no image hashing.
+//      the image content is untouched, bumps once per content change (content
+//      hash over the live GCR track buffers), holds when nothing changed, and
+//      — crucially — does NOT lose/spuriously move when the core clears the
+//      GCR_dirty_track flag on an internal writeback (the under-count trap).
+//      persistDirtyTracks() does NOT bump (it only materializes same content).
 //   B) MEDIUM-SOURCE helper: collectMediumDescriptors() surfaces the attached
 //      disk + cartridge as gen-gated descriptors; the generation reflects the
 //      underlying medium; getBytes() is lazy and returns the current bytes; a
@@ -25,9 +27,19 @@ function gate(name, ok, detail) {
 
 const driveOf = (f) => f.diskunit.drives[0];
 
+// Flip a byte in the first available live GCR track buffer to simulate a real
+// write (rotation.write_next_bit mutates exactly these buffers).
+function mutateTrack(d, delta) {
+  const tracks = d.gcr?.tracks ?? [];
+  for (const trk of tracks) {
+    if (trk?.data && trk.data.length > 0) { trk.data[0] = (trk.data[0] + delta) & 0xff; return true; }
+  }
+  return false;
+}
+
 console.log("Spec 766.3 — recorder medium gen-gate");
 
-// ---- A: disk generation, deterministic via the core dirty flag --------------
+// ---- A: disk generation via content hash (survives the writeback flag clear) -
 {
   const f = new Vice1541Facade();
   f.attachDisk({ kind: "d64", bytes: new Uint8Array(683 * 256), readOnly: false });
@@ -35,28 +47,30 @@ console.log("Spec 766.3 — recorder medium gen-gate");
 
   const g0 = f.diskWriteGeneration();
   const g0b = f.diskWriteGeneration();
-  gate("A clean disk: gen stable across reads", g0 === g0b, `gen=${g0}`);
+  gate("A pristine disk: gen stable across reads", g0 === g0b, `gen=${g0}`);
 
-  // simulate the core setting GCR_dirty_track on a GCR byte write (rotation.ts)
-  d.GCR_dirty_track = 1;
+  // a real write: content changes + the core sets the dirty flag
+  mutateTrack(d, 1); d.GCR_dirty_track = 1;
   const g1 = f.diskWriteGeneration();
-  gate("A first write: rising edge bumps gen once", g1 === g0 + 1, `${g0}→${g1}`);
+  gate("A first write: content change bumps gen once", g1 === g0 + 1, `${g0}→${g1}`);
 
   const g1b = f.diskWriteGeneration();
-  gate("A still dirty: edge held, no further bump", g1b === g1, `gen=${g1b}`);
+  gate("A no further change: gen held", g1b === g1, `gen=${g1b}`);
 
-  // flag clears (writeback drained it) then a NEW write episode
+  // the UNDER-COUNT TRAP: the core clears the flag on an internal writeback, but
+  // the content is unchanged → gen must NOT move (and must not be lost).
   d.GCR_dirty_track = 0;
   const g1c = f.diskWriteGeneration();
-  gate("A flag clears: no bump on falling edge", g1c === g1, `gen=${g1c}`);
+  gate("A internal writeback clears flag, content same: gen steady", g1c === g1, `gen=${g1c}`);
 
-  d.GCR_dirty_track = 1;
+  // a NEW write AFTER the flag was cleared still bumps (the trap: flag-edge would miss this)
+  mutateTrack(d, 1); d.GCR_dirty_track = 0; // note: flag stays 0, only content changed
   const g2 = f.diskWriteGeneration();
-  gate("A second write episode: bumps again", g2 === g1 + 1, `${g1}→${g2}`);
+  gate("A write after writeback (flag still 0): content hash still catches it", g2 === g1 + 1, `${g1}→${g2}`);
 
-  // explicit writeback commits + bumps
+  // explicit writeback materializes same content → NO bump
   const g3 = (f.persistDirtyTracks(), f.diskWriteGeneration());
-  gate("A persistDirtyTracks bumps (commit) ", g3 > g2, `${g2}→${g3}`);
+  gate("A persistDirtyTracks does NOT bump (same content)", g3 === g2, `${g2}→${g3}`);
 }
 
 // ---- B + C: medium-source helper over a structural kernel -------------------
@@ -99,7 +113,7 @@ console.log("Spec 766.3 — recorder medium gen-gate");
   gate("C no change: cart gen steady", cart1?.generation === 7, `cart.gen=${cart1?.generation}`);
 
   // a disk write moves the gen → producer would re-ship
-  d.GCR_dirty_track = 1;
+  mutateTrack(d, 1); d.GCR_dirty_track = 1;
   const m3 = collectMediumDescriptors(kernel);
   const disk3 = m3.find((x) => x.kind === "disk");
   gate("C disk write: gen advances (re-ship)", disk3.generation > disk2.generation, `${disk2?.generation}→${disk3?.generation}`);
