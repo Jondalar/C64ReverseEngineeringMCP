@@ -15,8 +15,35 @@ escalation if the Mittelweg ever proves insufficient — it buys ~nothing GC-wis
 (the small state never churned) and is where the gate risk would live.
 
 **Gates passed:** probe-705b 7/7, probe-707 10/10, probe-single-path 25/25,
-e2e-761 11/11. Remaining acceptance bar (§5 perf): user ear — daemon holds ~50
-fps with auto-capture ON + audio underrun-free for 60 s on the live UI.
+e2e-761 11/11.
+
+**Perf reality (§5, user ear 2026-06-15):** the flat ring fixed the RETENTION
+half (no more growing old-gen object graph → no major-GC dips). But turning
+**always-on auto-capture ON regressed** the live audio: kratzen clearly worse +
+fps → ~30 at power-on recovering over 3-6 s. Two costs — (a) an eager 32 MiB
+slab alloc at power-on (FIXED: slab now allocated lazily on first capture), and
+(b) the per-second capture COMPUTE spike on the single emu thread (snapshot
+build + ~390 KB slab copy + disk sha256, ~few ms once/sec) that tips an
+already-near-budget frame over → one late frame/sec → an audio tick, worst
+during boot. (b) is **structural to capturing on the audio thread**, not GC.
+
+So **auto-capture is DEFAULT OFF** (`C64RE_CHECKPOINT_AUTOCAPTURE=1` to A/B on)
+and the **scrub UI is unmounted** — the ring writes in the background only when
+enabled. The flat-ring + lazy slab + shallow capture stay (manual capture,
+trace-checkpoints, .c64re all use them, gated green). Running capture always-on
+without an audio tick needs the §8 work below.
+
+## 8. Deferred — make always-on capture audio-silent (the "rest")
+
+The single emu thread runs CPU + per-cycle VIC + drive + reSID + present + WS;
+a once/sec multi-ms capture chunk on it is audible. Options to revisit:
+- **Amortize** the ~390 KB slab copy + blob builds across several frames
+  (copy RAM this frame, fb next, …) so no single frame eats the whole spike.
+- **Capture in the VIC v-blank slack** (the idle tail of a frame) rather than at
+  the frame boundary where the audio chunk also ships.
+- **Skip the per-capture disk sha256 when the disk is unchanged** (needs a drive
+  write-generation; most games are read-only so this removes the biggest slice).
+- **Off-thread** the copy (worker) — hard: the snapshot reads live machine state.
 
 ## 1. Why
 
