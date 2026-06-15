@@ -140,8 +140,10 @@ export function estimateCheckpointBytes(_snap: MachineSnapshot): number {
 
 export class RuntimeCheckpointRing {
   readonly budgetBytes: number;
-  /** Spec 765 — the one pre-allocated flat slab. ONE GC object, fixed size. */
-  private readonly slab: Uint8Array;
+  /** Spec 765 — the one flat slab. ONE GC object, fixed size. Allocated LAZILY
+   *  on first capture (not in the ctor) so a session that never auto-captures —
+   *  the default — pays NOTHING, and power-on takes no 32 MiB zero-fill hit. */
+  private slab: Uint8Array | null = null;
   private readonly slotCount: number;
   /** Free slot indices (LIFO). A slot is free when no live entry references it. */
   private freeSlots: number[];
@@ -156,9 +158,14 @@ export class RuntimeCheckpointRing {
   constructor(opts: RuntimeCheckpointRingOptions = {}) {
     this.budgetBytes = opts.budgetBytes ?? DEFAULT_CHECKPOINT_RING_BUDGET_BYTES;
     this.slotCount = Math.max(1, Math.floor(this.budgetBytes / SLOT_BYTES));
-    this.slab = new Uint8Array(this.slotCount * SLOT_BYTES);
     this.freeSlots = [];
     for (let i = this.slotCount - 1; i >= 0; i--) this.freeSlots.push(i);
+  }
+
+  /** Lazily allocate the flat slab on first capture (see `slab` doc). */
+  private ensureSlab(): Uint8Array {
+    if (this.slab === null) this.slab = new Uint8Array(this.slotCount * SLOT_BYTES);
+    return this.slab;
   }
 
   /**
@@ -190,20 +197,21 @@ export class RuntimeCheckpointRing {
     if (fbStable && fbStable.length !== FB_BYTES) throw new Error(`[checkpoint] capture: literalPortFbStable must be ${FB_BYTES} bytes, got ${fbStable.length}`);
 
     // Acquire a slot (evict the oldest unpinned entry if the slab is full).
+    const slab = this.ensureSlab();
     const slotIdx = this.acquireSlot();
 
     // Copy the big buffers into the slab slot and build detached views.
     const base = slotIdx * SLOT_BYTES;
-    this.slab.set(ram, base + OFF_RAM);
-    const ramView = this.slab.subarray(base + OFF_RAM, base + OFF_RAM + RAM_BYTES);
+    slab.set(ram, base + OFF_RAM);
+    const ramView = slab.subarray(base + OFF_RAM, base + OFF_RAM + RAM_BYTES);
     payload["ram"] = ramView;
     if (fb) {
-      this.slab.set(fb, base + OFF_FB);
-      (vp as Record<string, unknown>)["literalPortFb"] = this.slab.subarray(base + OFF_FB, base + OFF_FB + FB_BYTES);
+      slab.set(fb, base + OFF_FB);
+      (vp as Record<string, unknown>)["literalPortFb"] = slab.subarray(base + OFF_FB, base + OFF_FB + FB_BYTES);
     }
     if (fbStable) {
-      this.slab.set(fbStable, base + OFF_FBSTABLE);
-      (vp as Record<string, unknown>)["literalPortFbStable"] = this.slab.subarray(base + OFF_FBSTABLE, base + OFF_FBSTABLE + FB_BYTES);
+      slab.set(fbStable, base + OFF_FBSTABLE);
+      (vp as Record<string, unknown>)["literalPortFbStable"] = slab.subarray(base + OFF_FBSTABLE, base + OFF_FBSTABLE + FB_BYTES);
     }
 
     // Spec 714.4/714.5 — extract pooled media blobs (content-addressed dedup).

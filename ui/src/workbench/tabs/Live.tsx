@@ -20,7 +20,6 @@ import type { TabProps } from "./Live.types.js";
 // stays (the pop-out renders it).
 import { InspectorPanel } from "../components/InspectorPanel.js";
 import { MachineControls } from "../components/MachineControls.js";
-import { ScrubTimeline } from "../components/ScrubTimeline.js";
 import { ExploreOverlay } from "../components/ExploreOverlay.js";
 
 interface DriveStatus {
@@ -455,10 +454,10 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
         onSnapshotTaken={snapshot}
         statusSlot={statusSlot}
       />
-      {/* Spec 765 — ring-bound scrub timeline, re-introduced over the flat-backed
-          zero-alloc checkpoint ring (the BUG-049 GC churn that forced its removal
-          is gone; auto-capture is cheap again). */}
-      <ScrubTimeline sessionId={sessionId} runState={runState} />
+      {/* Scrub timeline intentionally NOT mounted — the checkpoint ring writes in
+          the background (Spec 765 flat ring); no Live-tab UI for it (user
+          decision 2026-06-15: "der Buffer darf schreiben im Hintergrund und den
+          rest sehen wir dann"). */}
       <div className="wb-live-grid">
         <div className="wb-screen-wrap">
           {runState === "off" ? (

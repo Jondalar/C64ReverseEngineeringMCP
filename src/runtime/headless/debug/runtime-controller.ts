@@ -72,12 +72,19 @@ const PAL_FRAME_MS = (PAL_CYCLES_PER_FRAME / PAL_CYCLES_PER_SEC) * 1000; // ≈ 
 // .slice retained), so the old-gen footprint is constant and the BUG-049 major-
 // GC pressure is gone. Scrub granularity = 1s.
 const CHECKPOINT_CAPTURE_EVERY_FRAMES = 50;
-// Spec 765 — the always-on auto-capture is RE-ENABLED (default ON) now that the
-// checkpoint ring is flat-backed (zero-alloc capture, fixed old-gen footprint).
-// It was parked under BUG-049 only because the old object-graph ring grew old-gen
-// → periodic major-GC → audio kratzen; the flat slab removes that. Disable for
-// an A/B with C64RE_CHECKPOINT_AUTOCAPTURE=0.
-const CHECKPOINT_AUTOCAPTURE = process.env.C64RE_CHECKPOINT_AUTOCAPTURE !== "0";
+// Spec 765 — the flat ring fixed the RING RETENTION half of BUG-049 (no more
+// growing old-gen object graph → no major-GC dips on restore/scrub). But
+// always-on auto-capture ALSO adds a per-second COMPUTE spike on the single emu
+// thread (snapshot build + ~390 KB slab copy + disk sha256, ~few ms once/sec)
+// that tips an already-near-budget frame over → one late frame/sec → audio tick
+// ("rhythmic kratzen"), worst during the CPU-heavy boot (fps → ~30, recovers as
+// boot settles). That spike is structural to running capture on the audio
+// thread, NOT the GC, so auto-capture stays DEFAULT OFF (back to the known-good
+// audio state). The flat ring + manual capture + trace-checkpoints stay live;
+// enable always-on for an A/B with C64RE_CHECKPOINT_AUTOCAPTURE=1. Making it
+// cheap enough to run always-on (amortize the copy across frames / capture in
+// the VIC v-blank slack / move off-thread) is the "rest we'll see later".
+const CHECKPOINT_AUTOCAPTURE = process.env.C64RE_CHECKPOINT_AUTOCAPTURE === "1";
 // BUG-040 — flash writes settle this long (no further mutation) before the
 // auto-persist writes the host .crt once. Long enough to coalesce an EAPI
 // write/erase burst, short enough that a crash loses little.
