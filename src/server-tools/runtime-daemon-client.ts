@@ -388,6 +388,16 @@ class RuntimeDaemonClient {
   checkpointRestore<T = unknown>(sessionId: string, id: string) {
     return this.call<T>("checkpoint/restore", { session_id: sessionId, id });
   }
+  // Spec 766.5 — shared-memory recorder (worker-store scrub history).
+  recorderStatus<T = unknown>(sessionId: string) {
+    return this.call<T>("recorder/status", { session_id: sessionId });
+  }
+  recorderList<T = unknown>(sessionId: string) {
+    return this.call<T>("recorder/list", { session_id: sessionId });
+  }
+  recorderDump<T = unknown>(sessionId: string, seq: number, path: string) {
+    return this.call<T>("recorder/dump", { session_id: sessionId, seq, path });
+  }
 }
 
 /** Singleton client (one connection per MCP process). */

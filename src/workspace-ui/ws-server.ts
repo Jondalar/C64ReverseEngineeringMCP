@@ -27,7 +27,7 @@ import {
 } from "../runtime/headless/debug/runtime-controller.js";
 import { SidAudioRecorder, AudioExportSession, LIVE_RECORDER_BUFFER_SAMPLES } from "../runtime/headless/audio/sid-audio-recorder.js";
 import {
-  dumpRuntimeSnapshot, undumpRuntimeSnapshot, resolveSnapshotPath,
+  dumpRuntimeSnapshot, undumpRuntimeSnapshot, resolveSnapshotPath, dumpRecorderAnchorSnapshot,
 } from "../runtime/headless/kernel/snapshot-persistence.js";
 // Spec 754 — the one canonical monitor command processor (BUG-037).
 import { runMonitorCommand } from "../runtime/headless/debug/monitor-shell.js";
@@ -944,6 +944,27 @@ export class WsServer {
       const intent = then === "pause" || then === "run" || then === "keep" ? then : undefined;
       const restored = await c.restoreCheckpoint(String(id), { then: intent });
       return { restored, state: c.state() };
+    });
+
+    // ---- Spec 766.5 — shared-memory recorder (worker-store scrub history).
+    // Separate from the 765 checkpoint ring above (which still serves live
+    // scrub/inspect); these expose the off-thread recorder for dumping a past
+    // anchor to .c64re (the recorder's unique value: minutes of cheap history).
+    this.on("recorder/status", async ({ session_id }) => {
+      const c = ctrlFor(session_id);
+      if (!c.recorder) return { active: false };
+      return { active: true, stats: await c.recorder.stats(), produced: c.recorder.produced, mediumShipped: c.recorder.mediumShipped };
+    });
+    this.on("recorder/list", async ({ session_id }) => {
+      const c = ctrlFor(session_id);
+      if (!c.recorder) return { active: false, anchors: [] };
+      return { active: true, anchors: await c.recorder.list() };
+    });
+    this.on("recorder/dump", async ({ session_id, seq, path }) => {
+      const c = ctrlFor(session_id);
+      if (seq === undefined || seq === null) throw new Error("recorder/dump: seq required");
+      if (!path) throw new Error("recorder/dump: path required");
+      return await dumpRecorderAnchorSnapshot(c, Number(seq), String(path));
     });
 
     // ---- Spec 710 — frozen-VIC inspect on the checkpoint model.

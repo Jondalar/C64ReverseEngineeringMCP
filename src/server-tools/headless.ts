@@ -1002,6 +1002,49 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
+    "runtime_recorder_status",
+    "Spec 766 — the shared-memory recorder's status: anchor count, oldest/newest cycle, scrub depth, medium generations, dropped count. The recorder is the off-thread streaming capture (separate from the checkpoint ring) that holds minutes of cheap scrub history. Use to see how much history is retained. Inputs: session_id. Returns: recorder stats.",
+    { session_id: z.string() },
+    safeHandler("runtime_recorder_status", async ({ session_id }) => {
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const r = isDaemonMode()
+        ? await runtimeDaemon.recorderStatus(session_id)
+        : await (async () => { const c = await cpInProc(session_id); return c.recorder ? { active: true, stats: await c.recorder.stats() } : { active: false }; })();
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    },
+));
+
+  server.tool(
+    "runtime_recorder_list",
+    "Spec 766 — list the recorder's stored anchors (seq, cycle, wallMs, disk/cart generation). Each is a restorable scrub point in the off-thread history. Use to pick a seq to dump with runtime_recorder_dump. Inputs: session_id. Returns: anchor list.",
+    { session_id: z.string() },
+    safeHandler("runtime_recorder_list", async ({ session_id }) => {
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const r = isDaemonMode()
+        ? await runtimeDaemon.recorderList(session_id)
+        : await (async () => { const c = await cpInProc(session_id); return c.recorder ? { active: true, anchors: await c.recorder.list() } : { active: false, anchors: [] }; })();
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    },
+));
+
+  server.tool(
+    "runtime_recorder_dump",
+    "Spec 766 — dump a recorder anchor (a past scrub point, by seq from runtime_recorder_list) to a durable .c64re snapshot file. The recorder's unique value: persist a point from MINUTES of cheap history, then undump it (runtime_session_undump) and replay it with tracing on. Not for the live moment (use the checkpoint/dump path). Inputs: session_id, seq, path. Returns: dump result (file bytes, embedded media, cycle/pc).",
+    { session_id: z.string(), seq: z.number(), path: z.string() },
+    safeHandler("runtime_recorder_dump", async ({ session_id, seq, path }) => {
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const r = isDaemonMode()
+        ? await runtimeDaemon.recorderDump(session_id, seq, path)
+        : await (async () => {
+            const c = await cpInProc(session_id);
+            const { dumpRecorderAnchorSnapshot } = await import("../runtime/headless/kernel/snapshot-persistence.js");
+            return await dumpRecorderAnchorSnapshot(c, seq, path);
+          })();
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    },
+));
+
+  server.tool(
     "runtime_drive_session_save_vsf",
     "Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
     {

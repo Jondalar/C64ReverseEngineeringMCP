@@ -144,6 +144,63 @@ export async function dumpRuntimeSnapshot(ctrl: RuntimeController, path: string)
 }
 
 /**
+ * Spec 766.5c-1 — dump a RECORDER anchor (a past scrub point in the shared-memory
+ * worker store) to a native .c64re snapshot. Same serializer as dumpRuntimeSnapshot
+ * (no second persistence model), but the snapshot comes from recorder.reconstruct()
+ * — the core payload + the gen-gated medium (disk GCRIMAGE, cart .crt+flash) it
+ * referenced — instead of an in-process 765-ring capture. This is the recorder's
+ * unique value: dump a point from MINUTES of cheap scrub history, then replay it
+ * with tracing on. The source/identity media baseline is the live mounted disk
+ * (its identity is constant within a session; the mutable content rides the
+ * anchor's GCRIMAGE blob). The framebuffer is omitted (derivable — undump
+ * re-renders the first frame).
+ */
+export async function dumpRecorderAnchorSnapshot(
+  ctrl: RuntimeController, seq: number, path: string,
+): Promise<DumpResult> {
+  const abs = resolveSnapshotPath(path);
+  if (!ctrl.recorder) throw new Error("dump-anchor: recorder not active (C64RE_RECORDER=0)");
+
+  // Same dirty-writable-cart reject as the live dump (mapper persistence port).
+  const cart = (ctrl.session.kernel as { c64Bus?: { getCartridge?(): { isWritableDirty?(): boolean; persistsWritableState?(): boolean } | undefined } }).c64Bus?.getCartridge?.();
+  if (cart?.isWritableDirty?.() && !cart?.persistsWritableState?.()) {
+    throw new Error(
+      "dump-anchor: writable cartridge state not persistable — the attached cartridge's " +
+      "writable hardware changed since attach and this mapper has no Spec 713/714.5 " +
+      "persistence port. Aborting rather than restoring a stale image.",
+    );
+  }
+
+  const recon = await ctrl.recorder.reconstruct(seq);
+  if (!recon) throw new Error(`dump-anchor: anchor seq ${seq} was evicted or its medium is no longer retained`);
+
+  const snapshot = { schemaVersion: recon.schemaVersion, payload: recon.payload } as unknown as {
+    schemaVersion: number; payload: Record<string, unknown>;
+  };
+  (snapshot.payload as { mediaEvents?: unknown }).mediaEvents = ctrl.mediaEvents.map((e) => ({ ...e }));
+
+  const mediaField = (snapshot.payload as { media?: CheckpointMediaField }).media ?? {};
+  const media = gatherMedia(ctrl, mediaField);
+
+  const bytes = writeNativeSnapshot({
+    snapshot: snapshot as never, media, runtimeVersion: RUNTIME_VERSION, machineModel: "c64-pal",
+    provenance: { checkpointId: `recorder:${seq}` },
+  });
+  mkdirSync(dirname(abs), { recursive: true });
+  writeFileSync(abs, bytes);
+
+  return {
+    path: abs, cycle: recon.ref.cycle, pc: (snapshot.payload as { cpu?: { pc?: number } }).cpu?.pc ?? 0,
+    machine: "c64-pal",
+    media: media.map((m) => ({
+      role: m.role, format: m.format, sourceName: m.sourceName,
+      sha256: m.sha256 ?? "", bytes: m.bytes?.length ?? 0,
+    })),
+    fileBytes: bytes.length, breakpoints: ctrl.listBreakpoints().length,
+  };
+}
+
+/**
  * `undump` — read + validate a native .c64re snapshot, re-establish its media,
  * and restore through the 705.B path (pausing, publishing restored debug state,
  * running the 706.8 audio transport flush). Rejects version/integrity/media
