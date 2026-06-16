@@ -86,10 +86,13 @@ const CHECKPOINT_CAPTURE_EVERY_FRAMES = 50;
 // is the deferred Slice B if disk games tick.)
 const CHECKPOINT_AUTOCAPTURE = process.env.C64RE_CHECKPOINT_AUTOCAPTURE !== "0";
 // Spec 766.5 — the shared-memory recorder (producer + worker). Fed from the SAME
-// auto-capture site as the 765 ring; additive for now (766.5a) so the 765 ring
-// keeps serving restore/scrub until the worker-backed read path (766.5b) is
-// proven green. Default ON (it is the BUG-049 fix); A/B off with C64RE_RECORDER=0.
-const RECORDER_ENABLED = process.env.C64RE_RECORDER !== "0";
+// auto-capture site as the 765 ring; additive (the 765 ring still serves live
+// scrub/inspect). Default OFF (opt-in with C64RE_RECORDER=1): while the 765 ring
+// is NOT yet retired (5c-2 deferred), running both per 0.5s is pure overhead, and
+// the live audio "kratzen" is the VIC multicolor draw cost, not the checkpoint —
+// so the quiet default is both capture paths off. Turn on to use dump-from-anchor
+// / build the recorder history. Becomes the always-on path when 5c-2 retires 765.
+const RECORDER_ENABLED = process.env.C64RE_RECORDER === "1";
 // BUG-040 — flash writes settle this long (no further mutation) before the
 // auto-persist writes the host .crt once. Long enough to coalesce an EAPI
 // write/erase burst, short enough that a crash loses little.

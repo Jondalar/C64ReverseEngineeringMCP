@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
 import { mountMedia } from "../dist/runtime/headless/media/mount.js";
 import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
+import { RuntimeRecorder } from "../dist/runtime/headless/recorder/runtime-recorder.js";
 import { dumpRecorderAnchorSnapshot, undumpRuntimeSnapshot } from "../dist/runtime/headless/kernel/snapshot-persistence.js";
 
 const failures = [];
@@ -44,9 +45,10 @@ let sigAtCp;
     mode: "true-drive", useMicrocodedCpu: true, vicRenderer: "literal-port", drive1541: "vice",
   });
   const ctrl = new RuntimeController(sessionId, session, () => {});
+  // Recorder default is opt-in (C64RE_RECORDER=1); the probe forces it explicitly
+  // so it does not depend on the env flag.
+  ctrl.recorder = new RuntimeRecorder({ capacityBytes: 8 * 1024 * 1024 });
   try {
-    ctrl.run();        // spawns the recorder worker
-    ctrl.pause();      // stop the autonomous loop; capture manually below
     session.resetCold("pal-default");
     session.runFor(5_000_000, { cycleBudget: 5_000_000 });
     await mountMedia(session, 8, d64);
