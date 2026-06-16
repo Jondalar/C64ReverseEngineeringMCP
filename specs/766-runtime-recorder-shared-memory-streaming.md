@@ -1,6 +1,17 @@
 # Spec 766 — Runtime Recorder: shared-memory data-streaming (anchors + async worker)
 
-**Status:** DRAFT (2026-06-15) — for refinement with the user, THEN build.
+**Status:** BUILT (2026-06-16) — recorder architecture + dump-from-anchor landed
+on branch `bug-049-audio-perf` (commits 87f1f43 766.3-fix, 3a8c2a3 766.4,
+a4eb2d0 766.5a, 419787f 766.5b, 6f983dd 766.5c-1). Decision **A**: the 765 ring
+retirement (5c-2) is DEFERRED to its own spec — its perf motive evaporated (the
+live "kratzen" at 47fps is the **VIC literal-port multicolor-bitmap draw cost**,
+verified with BOTH capture paths OFF, NOT the checkpoint), and retiring 765 is a
+large 710/711/712/761 inspect/scrub migration. The recorder runs additive
+(default ON, `C64RE_RECORDER=0` to disable) as the off-thread streaming-capture
+architecture; dump-from-anchor gives the user payoff (scrub point → .c64re →
+replay with trace). Gates: probe-766-{ring,codec,medium-gen,store,recorder,
+recorder-medium,anchor-dump} + 705b/707/single-path/e2e-761 all green.
+Prior: DRAFT (2026-06-15) — refined with the user, then built.
 **Supersedes:** Spec 765 (the interim flat in-process ring / "Mittelweg" — it kept
 heavy work on the emu thread and never reached the clean model; this is the
 real design). 765's framebuffer-is-derivable insight carries over.
