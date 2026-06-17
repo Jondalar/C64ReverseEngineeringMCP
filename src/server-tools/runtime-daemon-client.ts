@@ -398,6 +398,10 @@ class RuntimeDaemonClient {
   recorderDump<T = unknown>(sessionId: string, seq: number, path: string) {
     return this.call<T>("recorder/dump", { session_id: sessionId, seq, path });
   }
+  // One-tool monitor remote-control: run any monitor command string, get its text.
+  monitorExec<T = unknown>(sessionId: string, command: string) {
+    return this.call<T>("monitor/exec", { session_id: sessionId, command });
+  }
 }
 
 /** Singleton client (one connection per MCP process). */

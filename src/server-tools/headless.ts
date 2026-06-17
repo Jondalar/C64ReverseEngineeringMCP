@@ -1045,6 +1045,35 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
+    "runtime_monitor",
+    "Remote-control the interactive runtime monitor: run ANY monitor command string against the shared session and get its text output back. This is the WHOLE monitor REPL in ONE tool — prefer it for any monitor-style interaction. Commands include: m/d (memory hex / disasm), r (registers), bp/del/enable (breakpoints), obs (observers — incl `obs <n> when exec|load|store <lo..hi> do break|log|trace` for non-halting scoped capture; `obs <n> del`), trace / dump / undump, n/z/step/g (run control), sym/inspect/xref, df (flow disasm), label/note, device c64|drive8, sidefx, bank. Run `help` for the verb list or `<verb> help` for one verb's syntax. The session is the shared live machine (human + LLM co-drive the same one). Inputs: session_id, command (e.g. \"m 0400 042f\", \"obs t when exec ab01 do trace c64-cpu memory\", \"r\"). Returns: the monitor's text output (or its error string).",
+    { session_id: z.string(), command: z.string() },
+    safeHandler("runtime_monitor", async ({ session_id, command }) => {
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      let r: { output?: string; error?: string };
+      if (isDaemonMode()) {
+        r = await runtimeDaemon.monitorExec<{ output?: string; error?: string }>(session_id, command);
+      } else {
+        const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+        const session = getIntegratedSession(session_id);
+        if (!session) throw new Error(`No integrated session ${session_id}`);
+        const ctrl = await cpInProc(session_id);
+        const { runMonitorCommand } = await import("../runtime/headless/debug/monitor-shell.js");
+        r = await runMonitorCommand(
+          {
+            session, ctrl, sessionId: session_id,
+            memCursors: new Map(), disasmCursors: new Map(),
+            projectDir: process.env["C64RE_PROJECT_DIR"],
+          },
+          String(command ?? ""),
+        );
+      }
+      const text = r.error ? `error: ${r.error}` : (r.output ?? "");
+      return { content: [{ type: "text" as const, text }] };
+    },
+));
+
+  server.tool(
     "runtime_drive_session_save_vsf",
     "Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
     {
