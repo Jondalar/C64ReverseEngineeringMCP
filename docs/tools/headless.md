@@ -57,6 +57,21 @@ isolating media or VIA behavior from a full C64 boot.
 | Tool | Description |
 |---|---|
 | `headless_render_screen` | Render the current VIC framebuffer to a PNG artifact. |
+| `runtime_monitor` | **One tool = the whole interactive monitor REPL.** Pass any command string (`m`/`d`, `r`, `bp`/`del`, `obs`, `trace`/`dump`/`undump`, `n`/`z`/`g`, `sym`/`inspect`/`xref`, `df`, `label`/`note`, `device`, …) and get its text output. The LLM drives the monitor exactly like a human at the prompt — prefer it over per-verb tools. Daemon mode routes to the `monitor/exec` WS handler (full ctx incl. trace-store/project bridges); in-proc builds a minimal ctx. |
+| `runtime_recorder_status` / `_list` / `_dump` | The off-thread shared-memory recorder (Spec 766; opt-in `C64RE_RECORDER=1`). `_list` shows the scrub-history anchors; `_dump <seq> <path>` persists a past anchor to a durable `.c64re` (reconstructs core + gen-gated medium) so it can be undumped and replayed with tracing on. |
+| `runtime_checkpoint_list` / `_capture` / `_pin` / `_unpin` / `_restore` | The in-process 705.B checkpoint ring (auto-captured ~0.5 s) for live rewind/scrub. |
+
+**Non-halting scoped trace via observers** — start/stop a trace on PC hits without
+breakpoints, e.g. from `runtime_monitor`:
+
+```
+obs trstart when exec ab01 do trace c64-cpu memory   # PC=$AB01 → trace on, prints runId
+obs trstop  when exec ab04 do trace off              # PC=$AB04 → trace off, prints runId + events
+```
+
+The exec observer fires-and-continues (no halt); the trace runId is written back to
+the monitor on both start and stop. Address ranges use `lo..hi` (e.g.
+`obs w when store 3400..59ff do log`).
 
 ## Emulator UI - Visualization Of The Headless Core
 
