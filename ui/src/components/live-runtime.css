@@ -650,6 +650,9 @@
 .wb-live .wb-screen.paused { border-color: var(--c64-yellow); cursor: crosshair; }
 /* Spec 764 — JAM stop: crashed CPU shows red, not the routine paused yellow. */
 .wb-live .wb-screen.paused.jammed { border-color: var(--c64-red); }
+/* Spec 767 — the LLM is co-driving the live session (machine keeps running; reads
+ * /obs don't pause). Green border = "LLM is in" so the human can watch it work. */
+.wb-live .wb-screen.llm { border-color: var(--c64-green, #5cdb5c); box-shadow: 0 0 0 1px var(--c64-green, #5cdb5c) inset; }
 .wb-live .wb-screen-empty {
   position: absolute; inset: 8px;
   display: flex; align-items: center; justify-content: center;

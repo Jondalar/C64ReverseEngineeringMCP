@@ -272,10 +272,11 @@ class RuntimeDaemonClient {
   closeSession(sessionId: string) { return this.call<{ existed: boolean; released: string[] }>("session/close", { session_id: sessionId }); }
   /** Bounded run (cycles), tool-mode. The V3 session/run advances by a cycle budget. */
   run(sessionId: string, cycles: number) { return this.call<{ state: unknown }>("session/run", { session_id: sessionId, cycles }); }
-  /** Live continuous run (UI Live mode). */
-  runLive(sessionId: string, pacing?: unknown) { return this.call("debug/run", { session_id: sessionId, pacing }); }
-  pause(sessionId: string) { return this.call("debug/pause", { session_id: sessionId }); }
-  resume(sessionId: string) { return this.call("debug/continue", { session_id: sessionId }); }
+  /** Live continuous run (UI Live mode). Spec 767 — source="llm": these come from
+   *  the MCP/agent side (the UI talks WS directly, not via this client). */
+  runLive(sessionId: string, pacing?: unknown) { return this.call("debug/run", { session_id: sessionId, pacing, source: "llm" }); }
+  pause(sessionId: string) { return this.call("debug/pause", { session_id: sessionId, source: "llm" }); }
+  resume(sessionId: string) { return this.call("debug/continue", { session_id: sessionId, source: "llm" }); }
   /** Returns { dataUrl } base64 PNG; caller writes to disk if a path is needed. */
   screenshot(sessionId: string) { return this.call<{ dataUrl?: string; width?: number; height?: number }>("session/screenshot", { session_id: sessionId }); }
   mark(sessionId: string, label: string) { return this.call("runtime/mark", { session_id: sessionId, label }); }
@@ -400,7 +401,8 @@ class RuntimeDaemonClient {
   }
   // One-tool monitor remote-control: run any monitor command string, get its text.
   monitorExec<T = unknown>(sessionId: string, command: string) {
-    return this.call<T>("monitor/exec", { session_id: sessionId, command });
+    // Spec 767 — source="llm" so the UI shows the LLM is co-driving (green border).
+    return this.call<T>("monitor/exec", { session_id: sessionId, command, source: "llm" });
   }
 }
 

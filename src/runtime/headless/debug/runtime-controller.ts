@@ -174,6 +174,13 @@ export class RuntimeController {
   // worker does all the heavy work off-thread (BUG-049 fix).
   recorder?: RuntimeRecorder;
 
+  // Spec 767 — who is currently driving the shared session: "human" (UI) or
+  // "llm" (MCP / agent). Sticky: set when a side issues a control/observe command,
+  // broadcast on change as `debug/control` so the UI can show a GREEN "LLM is in"
+  // border (vs the human-paused yellow). This is a SIGNAL only — it never gates
+  // access (both co-drive the one machine; reads/obs never pause).
+  controlOwner: "human" | "llm" = "human";
+
   // Spec 708 — declarative trace runs + per-session definition registry. The
   // run controller taps the existing kernel trace channels (no parallel path).
   readonly traceRun = new TraceRunController();
@@ -319,6 +326,14 @@ export class RuntimeController {
   }
 
   /** Current state snapshot for debug/state. */
+  /** Spec 767 — set the driving side; broadcast `debug/control` on change so the
+   *  UI reflects who's in (green = llm). Signal only, never gates access. */
+  setControlOwner(owner: "human" | "llm"): void {
+    if (this.controlOwner === owner) return;
+    this.controlOwner = owner;
+    this.broadcast("debug/control", { session_id: this.sessionId, owner });
+  }
+
   state(): {
     runState: RuntimeRunState;
     pacing: { mode: RuntimePacingMode; ratio: number };
@@ -327,6 +342,7 @@ export class RuntimeController {
     frame: number;
     breakpoints: Array<{ num: number; addr: number }>;
     stop: RuntimeStopInfo | null;
+    controlOwner: "human" | "llm";
   } {
     return {
       runState: this.runState,
@@ -336,6 +352,7 @@ export class RuntimeController {
       frame: this.frameCounter,
       breakpoints: this.listBreakpoints(),
       stop: this.stopInfo,
+      controlOwner: this.controlOwner,
     };
   }
 

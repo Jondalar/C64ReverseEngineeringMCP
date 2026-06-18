@@ -873,16 +873,21 @@ export class WsServer {
     const ctrlFor = controllerFor; // Spec 701 §7 — same wiring (incl. frame push)
     const PACING_MODES: RuntimePacingMode[] = ["pal", "warp", "fixed-ratio"];
 
-    this.on("debug/run", ({ session_id, pacing }) => {
+    // Spec 767 — `source` tags who issued the control op ("llm" via the MCP
+    // daemon-client; absent = the UI = "human"). Sets the sticky control-owner so
+    // the UI shows who's driving (green = llm). Signal only; never gates.
+    this.on("debug/run", ({ session_id, pacing, source }) => {
       const ctrl = ctrlFor(session_id);
+      ctrl.setControlOwner(source === "llm" ? "llm" : "human");
       const mode = pacing?.mode && PACING_MODES.includes(pacing.mode) ? pacing.mode : undefined;
       ctrl.run({ mode, ratio: pacing?.ratio });
       return ctrl.state();
     });
-    this.on("debug/pause", ({ session_id }) => { const c = ctrlFor(session_id); c.freezeWithProvenance(); return c.state(); }); // 710.6c capture-on-freeze
-    this.on("debug/continue", ({ session_id }) => { const c = ctrlFor(session_id); c.continue(); return c.state(); });
-    this.on("debug/step", ({ session_id }) => {
+    this.on("debug/pause", ({ session_id, source }) => { const c = ctrlFor(session_id); c.setControlOwner(source === "llm" ? "llm" : "human"); c.freezeWithProvenance(); return c.state(); }); // 710.6c capture-on-freeze
+    this.on("debug/continue", ({ session_id, source }) => { const c = ctrlFor(session_id); c.setControlOwner(source === "llm" ? "llm" : "human"); c.continue(); return c.state(); });
+    this.on("debug/step", ({ session_id, source }) => {
       const c = ctrlFor(session_id);
+      c.setControlOwner(source === "llm" ? "llm" : "human");
       const stop = c.step();
       monitorDisasmAddr.set(session_id, stop.pc); // bare `d` follows the step
       return c.state();
@@ -1827,10 +1832,13 @@ export class WsServer {
     // the ONE canonical command processor (BUG-037, monitor-shell.ts). All
     // command logic — lifecycle (g/x/until, BUG-036), bank-lens m/d (BUG-038),
     // stepping, breakpoints, trace, snapshots — lives in runMonitorCommand.
-    this.on("monitor/exec", async ({ session_id, command }) => {
+    this.on("monitor/exec", async ({ session_id, command, source }) => {
       const s = getIntegratedSession(session_id);
       if (!s) return { error: `no session ${session_id}` };
       const ctrl = controllerFor(session_id);
+      // Spec 767 — tag the driver (MCP runtime_monitor sends source="llm"; the UI
+      // monitor sends none = "human") so the UI border shows who's in (green=llm).
+      ctrl.setControlOwner(source === "llm" ? "llm" : "human");
       // Spec 754 §3.3h — the trace-store read bridge (map/taint/swimlane). The WS
       // server owns the daemon trace readers + currentStorePath; monitor-shell
       // stays runtime-pure and calls ctx.traceRead. In-daemon read-only open

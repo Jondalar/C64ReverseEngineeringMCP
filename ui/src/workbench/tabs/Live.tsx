@@ -163,6 +163,8 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   // Spec 764 — true while the last stop was a JAM (KIL): screen border goes
   // red instead of the paused yellow. Cleared by the next debug/running.
   const [jammed, setJammed] = useState(false);
+  // Spec 767 — who is driving the shared session (green border when the LLM is in).
+  const [controlOwner, setControlOwner] = useState<"human" | "llm">("human");
   const [exploreSelection, setExploreSelection] = useState<{x:number;y:number;w:number;h:number} | null>(null);
   const fpsCounterRef = useRef({ frames: 0, lastT: Date.now() });
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -276,9 +278,17 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     // Spec 764 — seed the JAM flag for a UI that (re)connects to an already-
     // jammed machine: the one-shot debug/stopped broadcast is long gone, but
     // session/state carries the controller's last stopReason.
-    client.call<{ runState?: string; stopReason?: string }>("session/state", { session_id: sessionId })
-      .then((s) => { if (s?.runState === "paused" && s?.stopReason === "jam") setJammed(true); })
+    client.call<{ runState?: string; stopReason?: string; controlOwner?: "human" | "llm" }>("session/state", { session_id: sessionId })
+      .then((s) => {
+        if (s?.runState === "paused" && s?.stopReason === "jam") setJammed(true);
+        if (s?.controlOwner) setControlOwner(s.controlOwner); // Spec 767 — seed who's in
+      })
       .catch(() => { /* state poll best-effort */ });
+    // Spec 767 — control-owner handoff: green border when the LLM is co-driving.
+    const offControl = client.onNotification("debug/control", (p: any) => {
+      if (p?.session_id && p.session_id !== sessionId) return;
+      if (p?.owner === "human" || p?.owner === "llm") setControlOwner(p.owner);
+    });
     const offHit = client.onNotification("debug/breakpoint_hit", (p: any) => {
       if (p?.session_id && p.session_id !== sessionId) return;
       setBpSignal({ pc: p.pc, num: p.num, registers: p.registers, seq: Date.now() });
@@ -323,7 +333,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       if (p?.session_id && p.session_id !== sessionId) return;
       grabScreenshot.current();
     });
-    return () => { offHit(); offObsHit(); offStopped(); offPaused(); offRunning(); offRestored(); };
+    return () => { offHit(); offObsHit(); offStopped(); offPaused(); offRunning(); offRestored(); offControl(); };
   }, [sessionId, setRunState]);
 
   // Drive + cart status poll
@@ -480,7 +490,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
                 onFocus={() => setScreenFocused(true)}
                 onBlur={() => setScreenFocused(false)}
                 onClick={(e) => runState === "running" && e.currentTarget.focus()}
-                className={`wb-screen ${runState === "paused" ? (jammed ? "paused jammed" : "paused") : ""} ${screenFocused ? "focused" : ""}`}
+                className={`wb-screen ${jammed ? "paused jammed" : controlOwner === "llm" ? "llm" : runState === "paused" ? "paused" : ""} ${screenFocused ? "focused" : ""}`}
                 style={{ imageRendering: "pixelated" }}
               />
               {!hasFrame && (

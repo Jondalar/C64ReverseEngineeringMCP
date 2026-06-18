@@ -1058,6 +1058,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         const session = getIntegratedSession(session_id);
         if (!session) throw new Error(`No integrated session ${session_id}`);
         const ctrl = await cpInProc(session_id);
+        ctrl.setControlOwner("llm"); // Spec 767 — LLM is co-driving (UI green border)
         const { runMonitorCommand } = await import("../runtime/headless/debug/monitor-shell.js");
         r = await runMonitorCommand(
           {
