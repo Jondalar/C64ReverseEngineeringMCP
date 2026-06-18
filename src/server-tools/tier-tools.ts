@@ -79,6 +79,9 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "runtime_swap_disk_and_continue", "runtime_type",
   "runtime_joystick", "runtime_load_prg", "runtime_render_screen",
   // Spec 725 §3.8 — Monitor / frozen-inspect facade.
+  // Spec 766 — runtime_monitor: the one-tool monitor REPL (whole interactive
+  // monitor in one call). A default product tool, not advanced.
+  "runtime_monitor",
   "runtime_monitor_registers", "runtime_monitor_memory", "runtime_monitor_disasm",
   "runtime_step_into", "runtime_step_over", "runtime_until",
   "runtime_resolve_pc", "runtime_vic_inspect_at",
