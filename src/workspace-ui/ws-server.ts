@@ -629,6 +629,10 @@ export class WsServer {
       }
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`no session ${session_id}`);
+      // Spec 767 — api/call is the MCP per-verb bridge (registers/memory/disasm/
+      // step/…); the UI never uses it. So ANY api/call = the LLM is in the session
+      // → flip the control-owner so the live screen shows the green border.
+      getRuntimeController(session_id)?.setControlOwner("llm");
       const { createAgentQueryApi } = await import("../runtime/headless/v2/agent-api.js");
       const api = createAgentQueryApi({ session }) as unknown as Record<string, (...a: unknown[]) => unknown>;
       const fn = api[method];
