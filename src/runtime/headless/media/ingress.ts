@@ -285,13 +285,16 @@ export async function ingestMedia(
   //    insert (opts.resumeIfRunning) resumes it at PAL pacing so the cart boots,
   //    while the deterministic service default stays paused (replay/branch +
   //    differential probes rely on it).
-  // A CRT attach cold-boots the machine (resetCold above) — mounting a cartridge
-  // IS powering it on, so it must RUN afterwards even if the machine was paused
-  // when mounted (otherwise the EF cold-boots but the loop never starts → "the
-  // cart doesn't boot, I have to hit Reset/re-mount"). Disk/PRG keep the prior
-  // run-state (wasRunning). The deterministic service path keeps it paused via
-  // opts.resumeIfRunning=false (replay/branch/differential probes).
-  const resumeAfter = requiresPause && opts.resumeIfRunning && (wasRunning || req.kind === "crt");
+  // A CARTRIDGE op is a POWER-CYCLE: you cannot hot-swap a cart on a real C64 —
+  // VICE does the same — so BOTH insert AND eject cold-boot the machine (resetCold
+  // above), and a power-cycle ends RUNNING regardless of the prior state (powered
+  // on = runs). This is the consistency fix: previously only CRT *insert* ran
+  // after (`|| kind === "crt"`) while CRT *eject* fell through to stuck-paused
+  // (yellow). Now both cart ops run-after on the live UI path. Disk/PRG keep the
+  // prior run-state (wasRunning). The deterministic service path still stays
+  // paused via opts.resumeIfRunning=false (replay/branch/differential probes).
+  const isCartPowerCycle = req.kind === "crt" || (req.kind === "eject" && req.role === "cartridge");
+  const resumeAfter = requiresPause && !!opts.resumeIfRunning && (wasRunning || isCartPowerCycle);
   if (resumeAfter) ctrl.run();
   const paused = ctrl.runState === "paused";
   return { ok: true, event, paused, wasRunning, detail };

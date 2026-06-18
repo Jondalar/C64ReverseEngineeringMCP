@@ -1686,7 +1686,10 @@ export class WsServer {
       const n = slot !== undefined ? Number(slot) : 8;
       if (n === 9) throw new Error("media/unmount: drive 9 not supported (v1 drive8-only)");
       const ejectRole: "cartridge" | "drive8" = (role === "cartridge" || n === 0) ? "cartridge" : "drive8";
-      return await ingestMedia(ctrlFor(session_id), { kind: "eject", role: ejectRole });
+      // A cartridge eject is a power-cycle (Spec 709.12, VICE-faithful) → resume
+      // running after so it doesn't leave the machine stuck paused (yellow). A
+      // disk eject is a live device op (never paused).
+      return await ingestMedia(ctrlFor(session_id), { kind: "eject", role: ejectRole }, { resumeIfRunning: ejectRole === "cartridge" });
     });
 
     this.on("media/recent", async () => {
