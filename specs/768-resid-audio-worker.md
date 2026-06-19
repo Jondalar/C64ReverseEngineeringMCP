@@ -1,6 +1,13 @@
 # Spec 768 — reSID audio on a backend worker thread (off the emu budget)
 
-**Status:** PROPOSED (2026-06-19) — scoped, not built. Refine → build.
+**Status:** IN PROGRESS (2026-06-19) — 768.1–768.3 BUILT + gated on branch
+`spec-768-resid-worker` (not merged): the write-stream ring, the off-thread worker
+(PCM byte-identical to inline reSID — probe-768-worker), and the live wiring behind
+`C64RE_RESID_WORKER=1` (probe-768-host). TESTABLE: set the flag on the daemon, play
+with audio → fps should hold ~50 (reSID off the emu loop), audio plays. NOT yet:
+768.4 (sample-exact scrub/restore — the worker reSID state round-trip; today a
+scrub flushes + re-syncs from current state, a small blip) + 768.5 (user-ear
+acceptance). Default path (flag off) unchanged. Prior: PROPOSED.
 **Why now:** the live fps dip with audio is the backend reSID render competing in
 the single emulation thread. Measured (probe-resid-cost.mjs, M4 Pro): reSID render
 = **~2.1 ms/frame**; baseline (no audio) 14.7 ms/frame, +reSID 16.8 ms/frame. In
