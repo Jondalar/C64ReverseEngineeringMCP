@@ -37,6 +37,7 @@ import type { MediaIngressEvent } from "../media/ingress.js";
 import { persistCartridgeToFile } from "../media/persist-cartridge.js";
 import { RuntimeRecorder, type RecorderAnchorRef } from "../recorder/runtime-recorder.js";
 import type { MediumKernelLike } from "../recorder/medium-source.js";
+import { makeCheckpointThumbnail, type CheckpointThumbnail } from "../inspect/checkpoint-thumbnail.js";
 
 export type RuntimeRunState = "running" | "paused" | "stopped";
 export type RuntimePacingMode = "pal" | "warp" | "fixed-ratio";
@@ -173,6 +174,12 @@ export class RuntimeController {
   // The emu thread only fire-and-forget memcpy's anchors into its ring; the
   // worker does all the heavy work off-thread (BUG-049 fix).
   recorder?: RuntimeRecorder;
+
+  // Spec 769.5a — per-checkpoint scrub-filmstrip thumbnails (downscaled copy of
+  // the live frame at capture; tiny, no extra render). Keyed by checkpoint id,
+  // capped (the ring itself bounds restorable checkpoints).
+  private readonly checkpointThumbs = new Map<string, CheckpointThumbnail>();
+  private static readonly MAX_THUMBS = 1024;
 
   // Spec 767 — who is currently driving the shared session: "human" (UI) or
   // "llm" (MCP / agent). Sticky: set when a side issues a control/observe command,
@@ -408,15 +415,41 @@ export class RuntimeController {
     // Spec 710.4/710.5 — provenance is NOT bound here: kernel.snapshot() embeds
     // the same-frame provenance into the checkpoint payload (cp.vicProvenance),
     // so it rides the ring / .c64re / restore. Inspect reads it from the payload.
-    const take = (): RuntimeCheckpointRef =>
-      this.checkpointRing.capture(
+    const take = (): RuntimeCheckpointRef => {
+      const ref = this.checkpointRing.capture(
         // Spec 765 — an EXPLICIT capture (manual / the .c64re dump path) KEEPS the
         // framebuffer (no omitFramebuffer) so the dump is full-fidelity (707) and
         // undump shows the screen immediately. shallow → the ring detaches it.
         // This path is rare (user-triggered), so the ~317 KiB copy is fine.
         this.session.kernel.snapshot({ shallow: true }), this.frameCounter, this.session.c64Cpu.cycles,
       );
+      this.captureThumb(ref.id);
+      return ref;
+    };
     return this.runState === "running" ? this.runExclusive(take) : take();
+  }
+
+  /** Spec 769.5a — store a downscaled thumbnail of the current live frame for a
+   *  checkpoint id (scrub filmstrip). Cheap (no extra render); capped. */
+  private captureThumb(id: string): void {
+    const t = makeCheckpointThumbnail(this.session as unknown as { renderLiteralPortIndexed?(): { width: number; height: number; indices: Uint8Array; palette: Uint8Array } | null });
+    if (!t) return;
+    this.checkpointThumbs.set(id, t);
+    if (this.checkpointThumbs.size > RuntimeController.MAX_THUMBS) {
+      const oldest = this.checkpointThumbs.keys().next().value;
+      if (oldest !== undefined) this.checkpointThumbs.delete(oldest);
+    }
+  }
+
+  /** Spec 769.5a — the scrub filmstrip: live checkpoints (ring order) each with
+   *  its thumbnail. Only entries that still have both a ring ref AND a thumb. */
+  filmstrip(): Array<{ id: string; cycles: number; frame: number; pinned: boolean; width: number; height: number; palette: Uint8Array; indices: Uint8Array }> {
+    const out: Array<{ id: string; cycles: number; frame: number; pinned: boolean; width: number; height: number; palette: Uint8Array; indices: Uint8Array }> = [];
+    for (const ref of this.checkpointRing.list()) {
+      const t = this.checkpointThumbs.get(ref.id);
+      if (t) out.push({ id: ref.id, cycles: ref.cycles, frame: ref.frame, pinned: ref.pinned, width: t.width, height: t.height, palette: t.palette, indices: t.indices });
+    }
+    return out;
   }
 
   /**
@@ -793,7 +826,7 @@ export class RuntimeController {
           // per-second capture is ~a 64 KiB RAM memcpy + small chip blobs,
           // cheap enough to share the audio thread without a tick.
           const snap = this.session.kernel.snapshot({ shallow: true, omitFramebuffer: true });
-          this.checkpointRing.capture(snap, this.frameCounter, this.session.c64Cpu.cycles);
+          this.captureThumb(this.checkpointRing.capture(snap, this.frameCounter, this.session.c64Cpu.cycles).id);
           // Spec 766.5b — feed the shared-memory recorder a CORE-ONLY anchor
           // (omitMedia): the disk GCR image / cart bytes ride the recorder's
           // separate gen-gated medium stream, not the per-second anchor. This

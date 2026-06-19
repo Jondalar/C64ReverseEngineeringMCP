@@ -997,6 +997,19 @@ export class WsServer {
       const c = ctrlFor(session_id);
       return { checkpoints: c.checkpointRing.list(), stats: c.checkpointRing.stats() };
     });
+    // Spec 769.5a — the scrub filmstrip: live checkpoints each with a small
+    // palette-indexed thumbnail (captured at checkpoint time; the UI renders it
+    // like the live canvas). Fetched on Pause/Freeze when the filmstrip opens.
+    this.on("checkpoint/thumbnails", ({ session_id }) => {
+      const c = ctrlFor(session_id);
+      const thumbnails = c.filmstrip().map((e) => ({
+        id: e.id, cycles: e.cycles, frame: e.frame, pinned: e.pinned,
+        width: e.width, height: e.height,
+        palette: Buffer.from(e.palette).toString("base64"),
+        indices: Buffer.from(e.indices).toString("base64"),
+      }));
+      return { thumbnails };
+    });
     this.on("checkpoint/capture", async ({ session_id }) => {
       const c = ctrlFor(session_id);
       const ref = await c.captureCheckpoint();
