@@ -241,9 +241,13 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       const img = new Image();
       img.onload = () => {
         const ctx = cv.getContext("2d"); if (!ctx) return;
-        if (cv.width !== img.width) cv.width = img.width;
-        if (cv.height !== img.height) cv.height = img.height;
-        ctx.drawImage(img, 0, 0);
+        // Keep the canvas at the live VIC size (384x272) and SCALE the PNG into it
+        // — resizing the canvas to the PNG's native dims broke the layout (the
+        // canvas overflowed the container in paused/scrub mode). 769.5.
+        const W = 384, H = 272;
+        if (cv.width !== W) cv.width = W;
+        if (cv.height !== H) cv.height = H;
+        ctx.drawImage(img, 0, 0, W, H);
         setHasFrame(true);
       };
       img.src = r.dataUrl;

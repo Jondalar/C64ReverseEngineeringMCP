@@ -1632,7 +1632,11 @@ export class WsServer {
       // desync. Live play is exact.)
       if (process.env["C64RE_RESID_WORKER"] !== "0") {
         const { SidAudioWorkerHost } = await import("../runtime/headless/audio/sid-audio-worker-host.js");
-        const workerHost = new SidAudioWorkerHost(s, { pcmSamples: 1 << 16 });
+        // Spec 768 latency fix — a SMALL PCM ring (~93 ms, matching the inline
+        // recorder's LIVE buffer): drop-oldest keeps audio FRESH instead of banking
+        // seconds of latency when the emu briefly out-produces realtime (the 0.25-5 s
+        // lag). The browser worklet cushion (706) handles the rest.
+        const workerHost = new SidAudioWorkerHost(s, { pcmSamples: 1 << 12 });
         const state = { workerHost, seq: 0 };
         this.audioStreams.set(session_id, state);
         workerHost.onRestore = () => { state.seq = 0; this.broadcast("audio/flush", { session_id }); };
