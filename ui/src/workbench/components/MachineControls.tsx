@@ -118,12 +118,16 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
     setWarp(next);
     try { await c.call("session/set_pacing", { session_id: sessionId, mode: next ? "warp" : "pal" }); } catch { /* ignore */ }
   };
+  // Spec 769.5 — the top button is "Dump" (a durable .c64re state dump), not a
+  // camera screenshot. Dumps the current machine state (= the scrubbed-to anchor
+  // when the user clicked a filmstrip frame, since that restores the machine).
   const snapshot = async () => {
     if (!sessionId) return;
     try {
-      const r = await c.call<{ id: string; path: string }>("session/snapshot_save", { session_id: sessionId });
-      console.log("snapshot:", r.id, r.path);
-    } catch (e) { console.error("snapshot:", e); }
+      const path = `dumps/dump-${Date.now()}.c64re`;
+      const r = await c.call<{ path: string; fileBytes: number }>("snapshot/dump", { session_id: sessionId, path });
+      console.log("dump →", r.path, `(${r.fileBytes} bytes)`);
+    } catch (e) { console.error("dump:", e); }
     onSnapshotTaken();
   };
 
@@ -250,7 +254,7 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
         {runState === "running" ? "⏸ Pause" : "▶ Run"}
       </button>
       <button onClick={step} disabled={runState !== "paused"} title="Step one instruction">⤳ Step</button>
-      <button onClick={snapshot} title="Save snapshot">📷 Snapshot</button>
+      <button onClick={snapshot} title="Dump machine state to a durable .c64re file">⬇ Dump</button>
       <button
         onClick={toggleTrace}
         disabled={runState === "off"}

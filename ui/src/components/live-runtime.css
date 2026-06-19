@@ -873,3 +873,18 @@
    Monitor stays visible — no full-page scroll, no 56vh cap. Nothing to override
    here anymore; this note documents why the earlier cap was removed.
    ============================================================================ */
+
+/* Spec 769.5 — scrub filmstrip (functional pass; look refined via annotate). */
+.wb-filmstrip { margin-top: 8px; padding: 6px 8px; background: #15151c; border: 1px solid rgba(108,92,231,0.35); border-radius: 6px; }
+.wb-filmstrip.empty { color: #666; font-size: 12px; padding: 10px; text-align: center; }
+.wb-filmstrip.busy { opacity: 0.55; pointer-events: none; }
+.wb-film-strip { display: flex; gap: 3px; overflow-x: auto; padding-bottom: 4px; }
+.wb-film-thumb { width: 96px; height: 68px; flex: 0 0 auto; border: 2px solid transparent; border-radius: 3px; cursor: pointer; image-rendering: pixelated; background: #000; }
+.wb-film-thumb:hover { border-color: #58a6ff; }
+.wb-film-thumb.sel { border-color: var(--c64-green, #5cdb5c); }
+.wb-film-thumb.pin { box-shadow: 0 0 0 2px var(--c64-yellow, #ffd44a) inset; }
+.wb-film-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.wb-film-hint { color: #888; font-size: 12px; margin-right: auto; font-family: monospace; }
+.wb-film-actions button { padding: 3px 10px; font-size: 12px; border-radius: 4px; background: #232331; color: #ddd; border: 1px solid rgba(108,92,231,0.45); cursor: pointer; }
+.wb-film-actions button:disabled { opacity: 0.4; cursor: default; }
+.wb-film-actions button:hover:not(:disabled) { border-color: #58a6ff; }
