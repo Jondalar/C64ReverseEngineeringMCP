@@ -48,7 +48,7 @@ if (recPath) {
   const isMp4 = /\.mp4$/i.test(recPath);
   const ffaIdx = process.argv.indexOf("--ffargs");
   const extraFf = ffaIdx >= 0 ? (process.argv[ffaIdx + 1] ?? "").split(/\s+/).filter(Boolean) : [];
-  const vcodec = isMp4 ? ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "20"] : ["-c:v", "rawvideo"];
+  const vcodec = isMp4 ? ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "20", "-movflags", "+faststart"] : ["-c:v", "rawvideo"];
   const acodec = isMp4 ? ["-c:a", "aac", "-b:a", "192k"] : ["-c:a", "pcm_s16le"];
   const FV = "/tmp/c64tap_v.rgba", FA = "/tmp/c64tap_a.pcm";
   try { execSync(`rm -f '${FV}' '${FA}'; mkfifo '${FV}' '${FA}'`); }
@@ -66,7 +66,18 @@ if (recPath) {
   videoWrite = (_w, _h, rgba) => { try { vs.write(rgba); } catch { /* ffmpeg gone */ } };
   audioWrite = (buf) => { try { as.write(buf); } catch { /* ffmpeg gone */ } };
   console.log(`[tap] RECORDING A+V → ${recPath} (${isMp4 ? "H264+AAC" : "rawvideo+pcm"}, ${VW}x${VH} native${extraFf.length ? `, ffargs: ${extraFf.join(" ")}` : ""}). Ctrl-C to finalize.`);
-  process.on("SIGINT", () => { try { vs.end(); as.end(); } catch {} console.log("\n[tap] finalizing…"); setTimeout(() => { try { execSync(`rm -f '${FV}' '${FA}'`); } catch {} process.exit(0); }, 1200); });
+  // Finalize: close the fifo writers → ffmpeg sees EOF → flushes + writes the mp4
+  // moov atom. MUST wait for ffmpeg to EXIT before quitting (a fixed timeout +
+  // process.exit truncated the file → unplayable mp4 = no moov). 30s hang-guard.
+  let finalizing = false;
+  process.on("SIGINT", () => {
+    if (finalizing) return; finalizing = true;
+    console.log("\n[tap] finalizing — waiting for ffmpeg to write the moov…");
+    try { vs.end(); as.end(); } catch { /* ignore */ }
+    const done = () => { try { execSync(`rm -f '${FV}' '${FA}'`); } catch { /* ignore */ } process.exit(0); };
+    ff.on("close", (code) => { console.log(`[tap] ffmpeg done (exit ${code}) → ${recPath}`); done(); });
+    setTimeout(() => { console.error("[tap] ffmpeg didn't exit in 30s — killing (file may be partial)"); try { ff.kill("SIGKILL"); } catch { /* ignore */ } done(); }, 30_000);
+  });
 } else {
   // --- audio sink: ffplay (live) or a raw .pcm file ------------------------
   if (wavPath) {
