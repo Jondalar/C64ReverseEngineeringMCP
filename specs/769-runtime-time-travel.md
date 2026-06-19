@@ -1,7 +1,11 @@
 # Spec 769 — Runtime time-travel: scrub UX + code-overlay debug loop
 
-**Status:** PROPOSED (2026-06-19) — requirements locked with the user (UX-first,
-NOT "ich bau mal"). Build API-first; the human filmstrip UI lands LAST.
+**Status:** IN PROGRESS (2026-06-19) — 769.1 (runtime_rewind, L1-L3) + 769.2
+(runtime_overlay_run, L7 — the headline code-overlay loop) BUILT + gated on branch
+`spec-769-time-travel` (not merged). API-first, no UI, no audio → risk-free; the
+LLM can time-travel + iterate code patches via MCP. REMAINING: 769.3 (diff/bisect,
+optional), 769.4 (audio-on-continue = 768.4), 769.5 (human filmstrip UI — LAST,
+own UX pass). Requirements locked with the user (UX-first, NOT "ich bau mal").
 **Builds on:** 705.A (RuntimeCheckpoint), 761 (scrub/restore + then=pause|run|keep),
 766 (shared-mem recorder + anchors + dump-from-anchor), 707 (.c64re dump/undump),
 754 (monitor poke/assemble), the bundled assembler (`assemble_source`).
