@@ -39,11 +39,17 @@ let audioWrite = () => {};
 let videoWrite = null, vW = 0, vH = 0;
 
 if (recPath) {
-  // --- RECORD uncompressed A+V into ONE file via ffmpeg + 2 named fifos.
-  // -use_wallclock_as_timestamps stamps each frame/chunk by ARRIVAL time, so the
-  // file faithfully preserves the real timing (the ~45fps slowness + any stutter
-  // gaps), not a re-paced 50fps. Codecs: rawvideo + pcm_s16le = NO compression.
-  // Use a .mkv/.mov/.nut/.avi extension (mp4 does NOT support rawvideo).
+  // --- RECORD live A+V into ONE file via ffmpeg + 2 named fifos. Native res
+  // (VW×VH, NO upscale). Codecs by extension:
+  //   .mp4  → H264 (yuv420p) + AAC  — compact, macOS/QuickTime-friendly (default goal)
+  //   else  → rawvideo + pcm_s16le  — uncompressed (.mkv/.mov/.nut/.avi), huge
+  // Extra ffmpeg flags pass through via `--ffargs "<flags>"` (inserted before the
+  // output), e.g. `--ffargs "-crf 18 -preset slow"` or `--ffargs "-vf scale=768:544"`.
+  const isMp4 = /\.mp4$/i.test(recPath);
+  const ffaIdx = process.argv.indexOf("--ffargs");
+  const extraFf = ffaIdx >= 0 ? (process.argv[ffaIdx + 1] ?? "").split(/\s+/).filter(Boolean) : [];
+  const vcodec = isMp4 ? ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "fast", "-crf", "20"] : ["-c:v", "rawvideo"];
+  const acodec = isMp4 ? ["-c:a", "aac", "-b:a", "192k"] : ["-c:a", "pcm_s16le"];
   const FV = "/tmp/c64tap_v.rgba", FA = "/tmp/c64tap_a.pcm";
   try { execSync(`rm -f '${FV}' '${FA}'; mkfifo '${FV}' '${FA}'`); }
   catch (e) { console.error("[tap] mkfifo failed:", e.message); process.exit(1); }
@@ -51,7 +57,7 @@ if (recPath) {
     "-y",
     "-f", "rawvideo", "-pixel_format", "rgba", "-video_size", `${VW}x${VH}`, "-framerate", "50", "-i", FV,
     "-f", "s16le", "-ar", String(SR), "-ac", "2", "-i", FA,
-    "-c:v", "rawvideo", "-c:a", "pcm_s16le",
+    ...vcodec, ...acodec, ...extraFf,
     recPath,
   ], { stdio: ["ignore", "inherit", "inherit"] });
   ff.on("error", (e) => { console.error("[tap] ffmpeg failed:", e.message); process.exit(1); });
@@ -59,7 +65,7 @@ if (recPath) {
   vW = VW; vH = VH;
   videoWrite = (_w, _h, rgba) => { try { vs.write(rgba); } catch { /* ffmpeg gone */ } };
   audioWrite = (buf) => { try { as.write(buf); } catch { /* ffmpeg gone */ } };
-  console.log(`[tap] RECORDING uncompressed A+V → ${recPath} (rawvideo+pcm_s16le, REAL arrival timing). ~${(VW * VH * 4 * 45 / 1e6).toFixed(0)} MB/s. Ctrl-C to finalize.`);
+  console.log(`[tap] RECORDING A+V → ${recPath} (${isMp4 ? "H264+AAC" : "rawvideo+pcm"}, ${VW}x${VH} native${extraFf.length ? `, ffargs: ${extraFf.join(" ")}` : ""}). Ctrl-C to finalize.`);
   process.on("SIGINT", () => { try { vs.end(); as.end(); } catch {} console.log("\n[tap] finalizing…"); setTimeout(() => { try { execSync(`rm -f '${FV}' '${FA}'`); } catch {} process.exit(0); }, 1200); });
 } else {
   // --- audio sink: ffplay (live) or a raw .pcm file ------------------------
