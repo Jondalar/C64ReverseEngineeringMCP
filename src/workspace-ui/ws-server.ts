@@ -189,8 +189,11 @@ export class WsServer {
   // video smooth) and streamed as BIN_TYPE_AUDIO_BUFFER. The browser plays it
   // through an AudioWorklet ring.
   private audioStreams = new Map<string, {
-    recorder: SidAudioRecorder;
-    cursorId: string;
+    // Spec 768.3 — either the inline recorder (default) OR the off-thread worker
+    // host (C64RE_RESID_WORKER=1). Exactly one is set.
+    recorder?: SidAudioRecorder;
+    cursorId?: string;
+    workerHost?: import("../runtime/headless/audio/sid-audio-worker-host.js").SidAudioWorkerHost;
     seq: number;
   }>();
 
@@ -328,8 +331,9 @@ export class WsServer {
       for (const [sessId, s] of this.audioStreams) {
         const c = getRuntimeController(sessId);
         if (c) c.onAudioFrame = undefined;
-        try { s.recorder.buffer.detach(s.cursorId); } catch {}
-        try { s.recorder.detach(); } catch {}
+        try { if (s.cursorId) s.recorder?.buffer.detach(s.cursorId); } catch {}
+        try { s.recorder?.detach(); } catch {}
+        try { s.workerHost?.detach(); } catch {}
       }
       this.audioStreams.clear();
       for (const ws of this.clients) ws.close();
@@ -391,10 +395,35 @@ export class WsServer {
     if (!stream) return false;
     const c = getRuntimeController(session_id);
     if (c) c.onAudioFrame = undefined;
-    try { stream.recorder.buffer.detach(stream.cursorId); } catch { /* ignore */ }
-    try { stream.recorder.detach(); } catch { /* ignore */ }
+    try { if (stream.cursorId) stream.recorder?.buffer.detach(stream.cursorId); } catch { /* ignore */ }
+    try { stream.recorder?.detach(); } catch { /* ignore */ }
+    try { stream.workerHost?.detach(); } catch { /* ignore */ }
     this.audioStreams.delete(session_id);
     return true;
+  }
+
+  /** Spec 768.3 — build the [type][seq][stereo s16le] wire frame from the first
+   *  `n` mono samples in the pooled `_audioSamples` and broadcast it. Shared by
+   *  the inline-recorder and worker-host audio paths. No per-frame alloc (3-slot
+   *  rotating wire pool; BUG-049). */
+  private shipAudioPcm(state: { seq: number }, n: number): void {
+    if (n <= 0) return;
+    const samples = this._audioSamples!;
+    const wireLen = 5 + n * 4; // n mono → n stereo frames → 4 bytes each (L,R s16le)
+    let wire = this._audioWirePool[this._audioWireIdx];
+    if (!wire || wire.length < wireLen) {
+      wire = new Uint8Array(5 + MAX_AUDIO_SHIP_SAMPLES * 4);
+      this._audioWirePool[this._audioWireIdx] = wire;
+    }
+    this._audioWireIdx = (this._audioWireIdx + 1) % 3;
+    const seq = state.seq++;
+    wire[0] = BIN_TYPE_AUDIO_BUFFER & 0xff;
+    wire[1] = seq & 0xff; wire[2] = (seq >> 8) & 0xff; wire[3] = (seq >> 16) & 0xff; wire[4] = (seq >>> 24) & 0xff;
+    for (let i = 0; i < n; i++) {
+      const v = samples[i]!; const lo = v & 0xff, hi = (v >> 8) & 0xff; const o = 5 + i * 4;
+      wire[o] = lo; wire[o + 1] = hi; wire[o + 2] = lo; wire[o + 3] = hi; // L, R
+    }
+    this.broadcastAudioWire(wire, wireLen);
   }
 
   private async dispatch(req: JsonRpcRequest, ctx: ClientContext): Promise<void> {
@@ -1515,7 +1544,7 @@ export class WsServer {
     // Spec 703 §8 — backend renders reSID PCM in the per-frame hook (same loop
     // + cadence as the video push) and streams it. Audio inherits the steady
     // frame clock that already makes video smooth.
-    this.on("audio/start", ({ session_id }) => {
+    this.on("audio/start", async ({ session_id }) => {
       const s = getIntegratedSession(session_id) as any;
       if (!s) throw new Error(`no session ${session_id}`);
       // Audio-restart fix: if a stream already exists (e.g. a reloaded UI whose
@@ -1529,9 +1558,31 @@ export class WsServer {
         return { already_streaming: true, reprimed: true };
       }
 
-      // Spec 706.2 (Fix A) — LIVE stream uses the small recorder buffer so a
-      // catch-up flush drops stale excess at the source instead of banking
-      // permanent latency. (Offline export keeps the large buffer.)
+      if (!this._audioSamples) this._audioSamples = new Int16Array(MAX_AUDIO_SHIP_SAMPLES);
+      const controller = ensureRuntimeController(session_id, s, (m, p) => this.broadcast(m, p), undefined);
+
+      // Spec 768.3 — opt-in: render reSID on a WORKER thread (off the emu loop)
+      // so audio doesn't cost the ~2.1 ms/frame that drops live fps. Same reSID,
+      // same PCM (byte-identical, probe-768-worker). Default OFF (the inline
+      // recorder below) until 768.4 lands the scrub state round-trip.
+      if (process.env["C64RE_RESID_WORKER"] === "1") {
+        const { SidAudioWorkerHost } = await import("../runtime/headless/audio/sid-audio-worker-host.js");
+        const workerHost = new SidAudioWorkerHost(s, { pcmSamples: 1 << 16 });
+        const state = { workerHost, seq: 0 };
+        this.audioStreams.set(session_id, state);
+        workerHost.onRestore = () => { state.seq = 0; this.broadcast("audio/flush", { session_id }); };
+        controller.onAudioFrame = () => {
+          workerHost.boundary();                       // push this frame's emit span to the worker
+          const avail = workerHost.pcmAvailable();     // ship whatever the worker has rendered
+          if (avail <= 0) return;
+          const n = workerHost.pcmReadInto(Math.min(avail, MAX_AUDIO_SHIP_SAMPLES), this._audioSamples!);
+          this.shipAudioPcm(state, n);
+        };
+        return { streaming: true, sample_rate: workerHost.sampleRate, engine: "worker" };
+      }
+
+      // Default (Spec 703/706) — inline reSID render in the recorder (small live
+      // buffer so a catch-up flush drops stale excess at the source).
       const recorder = new SidAudioRecorder(s, {
         sampleRate: 44100, bufferSamples: LIVE_RECORDER_BUFFER_SAMPLES,
       });
@@ -1542,54 +1593,14 @@ export class WsServer {
       recorder.buffer.attach(cursorId);
       const state = { recorder, cursorId, seq: 0 };
       this.audioStreams.set(session_id, state);
-
-      // Spec 706.8 — on a RuntimeCheckpoint restore the recorder flushes its PCM
-      // ring (transport state) and fires this hook. Start a new stream epoch:
-      // reset the send seq and tell the browser to flush its worklet ring +
-      // re-prebuffer from the restored reSID state (no old-timeline playback).
-      recorder.onRestore = () => {
-        state.seq = 0;
-        this.broadcast("audio/flush", { session_id });
-      };
-
-      const controller = ensureRuntimeController(
-        session_id, s, (m, p) => this.broadcast(m, p), undefined,
-      );
-      // One PCM frame per completed emulated frame (~882 samples @ PAL) →
-      // steady ~20ms delivery, locked to the video frame cadence.
+      recorder.onRestore = () => { state.seq = 0; this.broadcast("audio/flush", { session_id }); };
       controller.onAudioFrame = () => {
         recorder.flush();
         const avail = recorder.buffer.available(cursorId);
         if (avail <= 0) return;
-        // Spec 706.4 (Fix C) — bound how much we ship per frame to ~realtime+
-        // slack. Steady state ships ~882; this only bites during a catch-up
-        // burst, where shipping the whole backlog at once would flood the WS +
-        // worklet (permanent latency). Unshipped samples stay in the recorder
-        // ring; its small live cap (Fix A) then drops the STALE excess at the
-        // source — so this defers without ever emitting a gap.
         const ship = Math.min(avail, MAX_AUDIO_SHIP_SAMPLES);
-        // BUG-049 — read mono into a pooled buffer, build the [type][seq][stereo
-        // s16le] wire frame inline into a 3-slot rotating buffer. No per-frame
-        // alloc (was: read slice + monoToStereoLR + int16ToLeBytes + encode).
-        if (!this._audioSamples) this._audioSamples = new Int16Array(MAX_AUDIO_SHIP_SAMPLES);
-        const n = recorder.buffer.readInto(cursorId, ship, this._audioSamples);
-        if (n === 0) return;
-        const samples = this._audioSamples;
-        const wireLen = 5 + n * 4; // n mono → n stereo frames → 4 bytes each (L,R s16le)
-        let wire = this._audioWirePool[this._audioWireIdx];
-        if (!wire || wire.length < wireLen) {
-          wire = new Uint8Array(5 + MAX_AUDIO_SHIP_SAMPLES * 4);
-          this._audioWirePool[this._audioWireIdx] = wire;
-        }
-        this._audioWireIdx = (this._audioWireIdx + 1) % 3;
-        const seq = state.seq++;
-        wire[0] = BIN_TYPE_AUDIO_BUFFER & 0xff;
-        wire[1] = seq & 0xff; wire[2] = (seq >> 8) & 0xff; wire[3] = (seq >> 16) & 0xff; wire[4] = (seq >>> 24) & 0xff;
-        for (let i = 0; i < n; i++) {
-          const s = samples[i]!; const lo = s & 0xff, hi = (s >> 8) & 0xff; const o = 5 + i * 4;
-          wire[o] = lo; wire[o + 1] = hi; wire[o + 2] = lo; wire[o + 3] = hi; // L, R
-        }
-        this.broadcastAudioWire(wire, wireLen);
+        const n = recorder.buffer.readInto(cursorId, ship, this._audioSamples!);
+        this.shipAudioPcm(state, n);
       };
       return { streaming: true, sample_rate: recorder.resid.sampleRate };
     });
