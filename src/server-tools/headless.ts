@@ -1080,6 +1080,50 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
+    "runtime_overlay_run",
+    "Spec 769 — code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. RAM-only (no banked ROM yet). Leaves the machine paused. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
+    {
+      session_id: z.string(),
+      anchor_cycle: z.number().optional(),
+      anchor_id: z.string().optional(),
+      patches: z.array(z.object({ addr: z.number(), bytes: z.array(z.number()).optional(), read: z.boolean().optional() })),
+      run_cycles: z.number().optional(),
+      until_pc: z.number().optional(),
+    },
+    safeHandler("runtime_overlay_run", async ({ session_id, anchor_cycle, anchor_id, patches, run_cycles, until_pc }) => {
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      let r: unknown;
+      if (isDaemonMode()) {
+        r = await runtimeDaemon.overlayRun(session_id, { anchor_cycle, anchor_id, patches, run_cycles, until_pc });
+      } else {
+        const ctrl = await cpInProc(session_id);
+        const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+        const s = getIntegratedSession(session_id);
+        if (!s) throw new Error(`No integrated session ${session_id}`);
+        const cps = ctrl.checkpointRing.list();
+        if (!cps.length) throw new Error("runtime_overlay_run: no checkpoints to anchor on");
+        let id = anchor_id;
+        if (!id) {
+          if (anchor_cycle === undefined) id = cps[cps.length - 1]!.id;
+          else { let ab: { id: string; cycles: number } | undefined, best = cps[0]!, bd = Infinity; for (const c of cps) { if (c.cycles <= anchor_cycle && (!ab || c.cycles > ab.cycles)) ab = c; const d = Math.abs(c.cycles - anchor_cycle); if (d < bd) { bd = d; best = c; } } id = (ab ?? best).id; }
+        }
+        await ctrl.restoreCheckpoint(id, { then: "pause" });
+        const ram = (s as unknown as { c64Bus: { ram: Uint8Array } }).c64Bus.ram;
+        const applied: Array<{ addr: number; len: number }> = [];
+        for (const p of patches) { const a = p.addr & 0xffff; const b = p.bytes ?? []; for (let i = 0; i < b.length; i++) ram[(a + i) & 0xffff] = b[i]! & 0xff; applied.push({ addr: a, len: b.length }); }
+        let hitPc: number | null = null;
+        const rc = run_cycles || 0;
+        if (rc > 0) { const bps = until_pc !== undefined ? new Set([until_pc & 0xffff]) : undefined; const rr = (s as unknown as { runFor(n: number, o: unknown): { aborted?: string; lastPc: number } }).runFor(Math.ceil(rc / 2) + 1000, { cycleBudget: rc, breakpoints: bps }); if (rr.aborted === "breakpoint") hitPc = rr.lastPc; }
+        const c = (s as unknown as { c64Cpu: Record<string, number> }).c64Cpu;
+        const reads: Record<string, number> = {};
+        for (const p of patches) if (p.read) { const a = p.addr & 0xffff; reads[`$${a.toString(16).padStart(4, "0")}`] = ram[a]!; }
+        r = { anchorId: id, applied, ranCycles: rc, hitPc, reads, registers: { pc: c.pc, a: c.a, x: c.x, y: c.y, sp: c.sp, flags: c.flags, cycles: c.cycles } };
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    },
+));
+
+  server.tool(
     "runtime_monitor",
     "Remote-control the interactive runtime monitor: run ANY monitor command string against the shared session and get its text output back. This is the WHOLE monitor REPL in ONE tool — prefer it for any monitor-style interaction. Commands include: m/d (memory hex / disasm), r (registers), bp/del/enable (breakpoints), obs (observers — incl `obs <n> when exec|load|store <lo..hi> do break|log|trace` for non-halting scoped capture; `obs <n> del`), trace / dump / undump, n/z/step/g (run control), sym/inspect/xref, df (flow disasm), label/note, device c64|drive8, sidefx, bank. Run `help` for the verb list or `<verb> help` for one verb's syntax. The session is the shared live machine (human + LLM co-drive the same one). Inputs: session_id, command (e.g. \"m 0400 042f\", \"obs t when exec ab01 do trace c64-cpu memory\", \"r\"). Returns: the monitor's text output (or its error string).",
     { session_id: z.string(), command: z.string() },

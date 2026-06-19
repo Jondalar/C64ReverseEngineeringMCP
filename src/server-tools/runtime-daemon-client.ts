@@ -399,6 +399,10 @@ class RuntimeDaemonClient {
   recorderDump<T = unknown>(sessionId: string, seq: number, path: string) {
     return this.call<T>("recorder/dump", { session_id: sessionId, seq, path });
   }
+  // Spec 769.2 — code-overlay debug loop: rewind→patch→run→observe.
+  overlayRun<T = unknown>(sessionId: string, params: Record<string, unknown>) {
+    return this.call<T>("runtime/overlay_run", { session_id: sessionId, ...params });
+  }
   // One-tool monitor remote-control: run any monitor command string, get its text.
   monitorExec<T = unknown>(sessionId: string, command: string) {
     // Spec 767 — source="llm" so the UI shows the LLM is co-driving (green border).

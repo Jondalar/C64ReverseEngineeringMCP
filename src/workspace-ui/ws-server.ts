@@ -906,6 +906,54 @@ export class WsServer {
     const ctrlFor = controllerFor; // Spec 701 §7 — same wiring (incl. frame push)
     const PACING_MODES: RuntimePacingMode[] = ["pal", "warp", "fixed-ratio"];
 
+    // Spec 769.2 — code-overlay debug loop: rewind to an anchor, apply a RAM
+    // patch, run, observe. Repeatable — each call restores fresh (the prior patch
+    // is rolled back by the restore), so the LLM iterates a fix from a fixed point
+    // without rebuild/reboot. RAM-only patches (OQ3). Leaves the machine paused.
+    this.on("runtime/overlay_run", async ({ session_id, anchor_cycle, anchor_id, patches, run_cycles, until_pc }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      const ctrl = controllerFor(session_id);
+      const cps = ctrl.checkpointRing.list();
+      if (!cps.length) throw new Error("runtime/overlay_run: no checkpoints to anchor on");
+      // pick the anchor: explicit id, else nearest at/before anchor_cycle, else most recent
+      let id = anchor_id ? String(anchor_id) : undefined;
+      if (!id) {
+        if (anchor_cycle === undefined) id = cps[cps.length - 1]!.id;
+        else {
+          let atBefore: { id: string; cycles: number } | undefined, best = cps[0]!, bestD = Infinity;
+          for (const c of cps) { if (c.cycles <= anchor_cycle && (!atBefore || c.cycles > atBefore.cycles)) atBefore = c; const d = Math.abs(c.cycles - anchor_cycle); if (d < bestD) { bestD = d; best = c; } }
+          id = (atBefore ?? best).id;
+        }
+      }
+      await ctrl.restoreCheckpoint(id, { then: "pause" });
+      // apply RAM patches (the overlay)
+      const applied: Array<{ addr: number; len: number }> = [];
+      const list = Array.isArray(patches) ? patches : [];
+      for (const p of list) {
+        const addr = Number(p.addr) & 0xffff;
+        const bytes: number[] = Array.isArray(p.bytes) ? p.bytes : [];
+        for (let i = 0; i < bytes.length; i++) s.c64Bus.ram[(addr + i) & 0xffff] = bytes[i]! & 0xff;
+        applied.push({ addr, len: bytes.length });
+      }
+      // run forward (bounded; optional breakpoint at until_pc)
+      let hitPc: number | undefined;
+      const rc = Number(run_cycles) || 0;
+      if (rc > 0) {
+        const bps = until_pc !== undefined ? new Set([Number(until_pc) & 0xffff]) : undefined;
+        const r = s.runFor(Math.ceil(rc / 2) + 1000, { cycleBudget: rc, breakpoints: bps });
+        if (r.aborted === "breakpoint") hitPc = r.lastPc;
+      }
+      // observe: registers + read-back of any patch addr flagged `read`
+      const c = s.c64Cpu;
+      const reads: Record<string, number> = {};
+      for (const p of list) if (p.read) { const a = Number(p.addr) & 0xffff; reads[`$${a.toString(16).padStart(4, "0")}`] = s.c64Bus.ram[a]!; }
+      return {
+        anchorId: id, applied, ranCycles: rc, hitPc: hitPc ?? null, reads,
+        registers: { pc: c.pc, a: c.a, x: c.x, y: c.y, sp: c.sp, flags: c.flags, cycles: c.cycles },
+      };
+    });
+
     // Spec 767 — `source` tags who issued the control op ("llm" via the MCP
     // daemon-client; absent = the UI = "human"). Sets the sticky control-owner so
     // the UI shows who's driving (green = llm). Signal only; never gates.
