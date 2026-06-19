@@ -533,13 +533,15 @@ export class RuntimeController {
    * evicted while the user watches the branch play out.
    */
   async restoreCheckpoint(
-    id: string, opts: { then?: "pause" | "run" | "keep" } = {},
+    id: string, opts: { then?: "pause" | "run" | "keep"; render?: boolean } = {},
   ): Promise<RuntimeCheckpointRef> {
     const snap = this.checkpointRing.restoreSnapshot(id);
     const ref = this.checkpointRing.get(id);
     if (!snap || !ref) throw new Error(`[checkpoint] unknown id ${id}`);
     const then = opts.then ?? "keep";
-    await this.restoreFromSnapshot(snap, { ref, pause: then === "pause" });
+    // Spec 769.5 — `render` re-sims 1 frame on a paused scrub so the canvas shows
+    // the picture (framebuffer-less anchors). Only meaningful when landing paused.
+    await this.restoreFromSnapshot(snap, { ref, pause: then === "pause", render: opts.render && then !== "run" });
     if (then === "run") {
       this.checkpointRing.pin(id); // OQ2 — keep the branch point alive
       // Spec 761 — resuming from X starts a NEW timeline; the anchors after X
@@ -581,13 +583,22 @@ export class RuntimeController {
    * execution and publishes the restored paused/debug state (undump default).
    */
   async restoreFromSnapshot(
-    snap: MachineSnapshot, opts: { ref?: RuntimeCheckpointRef; pause?: boolean } = {},
+    snap: MachineSnapshot, opts: { ref?: RuntimeCheckpointRef; pause?: boolean; render?: boolean } = {},
   ): Promise<void> {
     if (opts.pause && this.runState === "running") this.pause();
     await this.runExclusive(() => {
       this.session.kernel.restore(snap);
       this.framesSinceCheckpoint = 0; // re-base the auto-capture cadence
     });
+    // Spec 769.5 — `render`: an auto-capture anchor OMITS the framebuffer (BUG-049
+    // — it is a derivable shadow), so a paused restore would present a black/stale
+    // screen. Re-simulate ONE frame to regenerate literalPortFbStable so the live
+    // canvas shows the rolled-back picture. The human filmstrip-scrub uses this
+    // (a ~1-frame advance is invisible in a preview); the LLM exact-state path
+    // (runtime_rewind) does NOT, so its restored cycle stays exact.
+    if (opts.render) {
+      await this.runExclusive(() => { this.session.runFor(PAL_CYCLES_PER_FRAME, { cycleBudget: PAL_CYCLES_PER_FRAME }); });
+    }
     const registers = registerDump(this.session);
     this.broadcast("debug/checkpoint_restored", {
       session_id: this.sessionId, ref: opts.ref ?? null, registers,

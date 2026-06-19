@@ -1036,12 +1036,14 @@ export class WsServer {
       c.checkpointRing.clear();
       return { stats: c.checkpointRing.stats() };
     });
-    this.on("checkpoint/restore", async ({ session_id, id, then }) => {
+    this.on("checkpoint/restore", async ({ session_id, id, then, render }) => {
       const c = ctrlFor(session_id);
       if (!id) throw new Error("checkpoint/restore: id required");
       // Spec 761.1 — then: pause (scrub-and-look) | run (resume-from-X) | keep.
       const intent = then === "pause" || then === "run" || then === "keep" ? then : undefined;
-      const restored = await c.restoreCheckpoint(String(id), { then: intent });
+      // Spec 769.5 — render: re-sim 1 frame so the canvas shows the picture (the
+      // scrub filmstrip sets this; framebuffer-less anchors are black otherwise).
+      const restored = await c.restoreCheckpoint(String(id), { then: intent, render: render === true });
       return { restored, state: c.state() };
     });
 

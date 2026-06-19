@@ -63,7 +63,9 @@ export function Filmstrip(
   const restore = async (id: string, then: "pause" | "run") => {
     setBusy(true);
     try {
-      await getClient().call("checkpoint/restore", { session_id: sessionId, id, then });
+      // render:true on a paused scrub → backend re-sims 1 frame so the canvas
+      // shows the picture (auto-anchors omit the framebuffer). 769.5.
+      await getClient().call("checkpoint/restore", { session_id: sessionId, id, then, render: then === "pause" });
       setSel(id);
       if (then === "run") setRunState?.("running");
     } finally { setBusy(false); }
