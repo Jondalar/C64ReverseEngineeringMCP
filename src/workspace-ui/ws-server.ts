@@ -1561,11 +1561,13 @@ export class WsServer {
       if (!this._audioSamples) this._audioSamples = new Int16Array(MAX_AUDIO_SHIP_SAMPLES);
       const controller = ensureRuntimeController(session_id, s, (m, p) => this.broadcast(m, p), undefined);
 
-      // Spec 768.3 — opt-in: render reSID on a WORKER thread (off the emu loop)
-      // so audio doesn't cost the ~2.1 ms/frame that drops live fps. Same reSID,
-      // same PCM (byte-identical, probe-768-worker). Default OFF (the inline
-      // recorder below) until 768.4 lands the scrub state round-trip.
-      if (process.env["C64RE_RESID_WORKER"] === "1") {
+      // Spec 768 — render reSID on a WORKER thread (off the emu loop) so audio
+      // doesn't cost the ~2.1 ms/frame that drops live fps. Same reSID, same PCM
+      // (byte-identical, probe-768-worker); user-confirmed stable 50 fps + synced
+      // audio. DEFAULT ON; C64RE_RESID_WORKER=0 reverts to the inline recorder.
+      // (Scrub/rewind audio is not yet sample-exact — 768.4; a brief blip, no
+      // desync. Live play is exact.)
+      if (process.env["C64RE_RESID_WORKER"] !== "0") {
         const { SidAudioWorkerHost } = await import("../runtime/headless/audio/sid-audio-worker-host.js");
         const workerHost = new SidAudioWorkerHost(s, { pcmSamples: 1 << 16 });
         const state = { workerHost, seq: 0 };
