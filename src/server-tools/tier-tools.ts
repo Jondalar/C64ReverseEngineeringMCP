@@ -82,6 +82,8 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Spec 766 — runtime_monitor: the one-tool monitor REPL (whole interactive
   // monitor in one call). A default product tool, not advanced.
   "runtime_monitor",
+  // Spec 769 — time-travel rewind (seek+restore a past checkpoint).
+  "runtime_rewind",
   "runtime_monitor_registers", "runtime_monitor_memory", "runtime_monitor_disasm",
   "runtime_step_into", "runtime_step_over", "runtime_until",
   "runtime_resolve_pc", "runtime_vic_inspect_at",

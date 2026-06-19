@@ -386,8 +386,8 @@ class RuntimeDaemonClient {
   checkpointUnpin<T = unknown>(sessionId: string, id: string) {
     return this.call<T>("checkpoint/unpin", { session_id: sessionId, id });
   }
-  checkpointRestore<T = unknown>(sessionId: string, id: string) {
-    return this.call<T>("checkpoint/restore", { session_id: sessionId, id });
+  checkpointRestore<T = unknown>(sessionId: string, id: string, then?: "pause" | "run" | "keep") {
+    return this.call<T>("checkpoint/restore", { session_id: sessionId, id, then });
   }
   // Spec 766.5 — shared-memory recorder (worker-store scrub history).
   recorderStatus<T = unknown>(sessionId: string) {

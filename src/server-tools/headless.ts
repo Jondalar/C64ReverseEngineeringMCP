@@ -1045,6 +1045,41 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 ));
 
   server.tool(
+    "runtime_rewind",
+    "Spec 769 — time-travel: rewind the shared session to a past checkpoint, optionally continue from there. Seek by `cycle` (nearest checkpoint at/before it) or explicit `id`; default = the most recent. `then`: pause (land + inspect, default) | run (continue forward from there) | keep. Use to jump to a past machine state for inspection, or to re-run from a known point (e.g. the code-overlay debug loop: rewind → patch RAM via runtime_monitor → run → observe → repeat). The human at the UI sees the same jump (one shared session). Inputs: session_id, optional cycle, optional id, optional then. Returns: the restored checkpoint ref + machine state.",
+    { session_id: z.string(), cycle: z.number().optional(), id: z.string().optional(), then: z.enum(["pause", "run", "keep"]).optional() },
+    safeHandler("runtime_rewind", async ({ session_id, cycle, id, then }) => {
+      const pick = (cps: Array<{ id: string; cycles: number }>): string | undefined => {
+        if (id) return id;
+        if (!cps.length) return undefined;
+        if (cycle === undefined) return cps[cps.length - 1]!.id; // most recent
+        let atBefore: { id: string; cycles: number } | undefined;
+        let best = cps[0]!, bestD = Infinity;
+        for (const c of cps) {
+          if (c.cycles <= cycle && (!atBefore || c.cycles > atBefore.cycles)) atBefore = c;
+          const d = Math.abs(c.cycles - cycle); if (d < bestD) { bestD = d; best = c; }
+        }
+        return (atBefore ?? best).id;
+      };
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      let r: unknown;
+      if (isDaemonMode()) {
+        const list = await runtimeDaemon.checkpointList<{ checkpoints: Array<{ id: string; cycles: number }> }>(session_id);
+        const target = pick(list.checkpoints ?? []);
+        if (!target) throw new Error("runtime_rewind: no checkpoints to rewind to");
+        r = await runtimeDaemon.checkpointRestore(session_id, target, then);
+      } else {
+        const c = await cpInProc(session_id);
+        const target = pick(c.checkpointRing.list());
+        if (!target) throw new Error("runtime_rewind: no checkpoints to rewind to");
+        const restored = await c.restoreCheckpoint(target, { then });
+        r = { restored, state: c.state() };
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    },
+));
+
+  server.tool(
     "runtime_monitor",
     "Remote-control the interactive runtime monitor: run ANY monitor command string against the shared session and get its text output back. This is the WHOLE monitor REPL in ONE tool — prefer it for any monitor-style interaction. Commands include: m/d (memory hex / disasm), r (registers), bp/del/enable (breakpoints), obs (observers — incl `obs <n> when exec|load|store <lo..hi> do break|log|trace` for non-halting scoped capture; `obs <n> del`), trace / dump / undump, n/z/step/g (run control), sym/inspect/xref, df (flow disasm), label/note, device c64|drive8, sidefx, bank. Run `help` for the verb list or `<verb> help` for one verb's syntax. The session is the shared live machine (human + LLM co-drive the same one). Inputs: session_id, command (e.g. \"m 0400 042f\", \"obs t when exec ab01 do trace c64-cpu memory\", \"r\"). Returns: the monitor's text output (or its error string).",
     { session_id: z.string(), command: z.string() },
