@@ -348,6 +348,11 @@ class RuntimeDaemonClient {
     return this.call<T>("session/load_prg", { session_id: sessionId, prg_path: prgPath, load_address: loadAddress });
   }
 
+  // Spec 769 — load + autostart a .prg (BASIC RUN / machine-code g <entry>).
+  runPrg<T = unknown>(sessionId: string, prgPath: string, run?: number) {
+    return this.call<T>("runtime/run_prg", { session_id: sessionId, prg_path: prgPath, run });
+  }
+
   // -- Spec 746.2/746.3 — live trace control on the SHARED session (the three-gate
   //    control: this MCP path + the UI button + the Monitor command all converge on
   //    the daemon's trace/* WS methods). The default session is built producers-on

@@ -709,13 +709,10 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       if (isDaemonMode()) {
         const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
         const abs = resolve(mcpProject ?? process.cwd(), prg_path);
-        // Load via media-ingress (its loadPrgBytes sets the BASIC VARTAB $2D/$2E,
-        // which a raw loadPrgIntoRam does not — so RUN works for a BASIC program).
-        const ing = await runtimeDaemon.mediaIngress<{ detail?: { loadAddress?: number } }>(session_id, { kind: "prg", path: abs, mode: "load" });
-        loadAddress = ing?.detail?.loadAddress ?? 0;
-        if (entry !== undefined) { await runtimeDaemon.monitorExec(session_id, `g ${entry.toString(16)}`); action = `g $${formatHexWord(entry)}`; }
-        else if (loadAddress === 0x0801) { await runtimeDaemon.runLive(session_id); await runtimeDaemon.typeText(session_id, "RUN\r"); action = "BASIC RUN"; }
-        else { await runtimeDaemon.monitorExec(session_id, `g ${loadAddress.toString(16)}`); action = `g $${formatHexWord(loadAddress)} (default = load address)`; }
+        // The shared backend macro (runtime/run_prg) — same path the UI .prg-drop
+        // uses: loadPrgBytes (sets BASIC VARTAB) + autostart (BASIC RUN / g entry).
+        const r = await runtimeDaemon.runPrg<{ loadAddress: number; action: string }>(session_id, abs, entry);
+        loadAddress = r.loadAddress; action = r.action;
       } else {
         const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
         const session = getIntegratedSession(session_id);

@@ -303,7 +303,7 @@ export async function ingestMedia(
 // Byte-based PRG load (mirrors session.loadPrgIntoRam, no file path). Writes the
 // payload at the header load address; sets the BASIC end-of-program pointers
 // when loaded at the standard BASIC start ($0801) so a subsequent RUN works.
-function loadPrgBytes(ctrl: RuntimeController, bytes: Uint8Array): { loadAddress: number; endAddress: number } {
+export function loadPrgBytes(ctrl: RuntimeController, bytes: Uint8Array): { loadAddress: number; endAddress: number } {
   if (bytes.length < 2) throw new Error("media-ingress: PRG too short (need 2-byte load header)");
   const loadAddress = (bytes[0]! | (bytes[1]! << 8)) & 0xffff;
   const ram = (ctrl.session.c64Bus as { ram: Uint8Array }).ram;

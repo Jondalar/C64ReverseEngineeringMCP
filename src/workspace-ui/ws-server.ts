@@ -763,6 +763,29 @@ export class WsServer {
       return { loadAddress: r.loadAddress, endAddress: r.endAddress, bytesLoaded: r.bytesLoaded, path: prg_path };
     });
 
+    // Spec 769 — runtime/run_prg: load AND autostart a .prg (the shared macro the
+    // MCP tool + the UI .prg-drop both call). BASIC ($0801) → resume + type RUN
+    // (loadPrgBytes set VARTAB so RUN works); machine code → set PC + continue
+    // (entry = `run` if given, else the load address). Accepts a path or bytes.
+    this.on("runtime/run_prg", async ({ session_id, prg_path, bytes_b64, run }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      const ctrl = ctrlFor(session_id);
+      const { loadPrgBytes } = await import("../runtime/headless/media/ingress.js");
+      let bytes: Uint8Array;
+      if (bytes_b64) bytes = new Uint8Array(Buffer.from(String(bytes_b64), "base64"));
+      else if (prg_path) { const { readFileSync } = await import("node:fs"); bytes = new Uint8Array(readFileSync(String(prg_path))); }
+      else throw new Error("runtime/run_prg: prg_path or bytes_b64 required");
+      const { loadAddress } = loadPrgBytes(ctrl, bytes);
+      const entry = run !== undefined && run !== null ? (Number(run) & 0xffff) : undefined;
+      // pause→set PC→continue so the PC write is atomic against the async loop.
+      let action: string;
+      if (entry !== undefined) { ctrl.pause(); (s.c64Cpu as { pc: number }).pc = entry; ctrl.continue(); action = `g $${entry.toString(16).padStart(4, "0")}`; }
+      else if (loadAddress === 0x0801) { ctrl.continue(); s.typeText("RUN\r"); action = "BASIC RUN"; }
+      else { ctrl.pause(); (s.c64Cpu as { pc: number }).pc = loadAddress; ctrl.continue(); action = `g $${loadAddress.toString(16).padStart(4, "0")} (default = load address)`; }
+      return { loadAddress, action };
+    });
+
     // vic/inspect/at_capture — frozen-pixel provenance. Captures + pins a checkpoint
     // if none given (the in-process tool's behaviour), then resolves the node.
     this.on("vic/inspect/at_capture", async ({ session_id, x, y, checkpoint_id }) => {
