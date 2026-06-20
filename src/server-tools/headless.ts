@@ -695,6 +695,44 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
 ));
 
+  // Spec 769 — load + AUTOSTART a .prg in one call (a monitor macro). BASIC
+  // ($0801) → RUN; machine-code → `g <entry>` (default entry = load address, or
+  // pass `run` for an explicit "g $1000").
+  server.tool(
+    "runtime_run_prg",
+    "Load AND start a .prg in one shot (the macro that was missing). Loads the PRG into the shared session, then autostarts: a BASIC program (load address $0801) → types RUN; machine code → `g <entry>` (continue at the entry; default = the load address, or pass `run` for an explicit entry like a SYS target). Use to just-run a .prg without disk/monitor steps. Inputs: session_id, prg_path, optional run (hex entry address for machine code). Returns: load address + the autostart action taken.",
+    { session_id: z.string(), prg_path: z.string(), run: z.string().optional().describe("Machine-code entry (hex, e.g. '1000' or '$1000'). Omit for BASIC autostart / default load-address entry.") },
+    safeHandler("runtime_run_prg", async ({ session_id, prg_path, run }) => {
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const entry = run ? parseHexWord(run) : undefined;
+      let loadAddress = 0, action = "";
+      if (isDaemonMode()) {
+        const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+        const abs = resolve(mcpProject ?? process.cwd(), prg_path);
+        // Load via media-ingress (its loadPrgBytes sets the BASIC VARTAB $2D/$2E,
+        // which a raw loadPrgIntoRam does not — so RUN works for a BASIC program).
+        const ing = await runtimeDaemon.mediaIngress<{ detail?: { loadAddress?: number } }>(session_id, { kind: "prg", path: abs, mode: "load" });
+        loadAddress = ing?.detail?.loadAddress ?? 0;
+        if (entry !== undefined) { await runtimeDaemon.monitorExec(session_id, `g ${entry.toString(16)}`); action = `g $${formatHexWord(entry)}`; }
+        else if (loadAddress === 0x0801) { await runtimeDaemon.runLive(session_id); await runtimeDaemon.typeText(session_id, "RUN\r"); action = "BASIC RUN"; }
+        else { await runtimeDaemon.monitorExec(session_id, `g ${loadAddress.toString(16)}`); action = `g $${formatHexWord(loadAddress)} (default = load address)`; }
+      } else {
+        const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+        const session = getIntegratedSession(session_id);
+        if (!session) throw new Error(`No integrated session ${session_id}`);
+        const ctrl = await cpInProc(session_id);
+        const r = session.loadPrgIntoRam(prg_path);
+        loadAddress = r.loadAddress;
+        const ram = (session as unknown as { c64Bus: { ram: Uint8Array } }).c64Bus.ram;
+        if (loadAddress === 0x0801) { const end = (r.endAddress + 1) & 0xffff; ram[0x2d] = end & 0xff; ram[0x2e] = (end >> 8) & 0xff; }
+        if (entry !== undefined) { (session.c64Cpu as { pc: number }).pc = entry & 0xffff; ctrl.continue(); action = `g $${formatHexWord(entry)}`; }
+        else if (loadAddress === 0x0801) { ctrl.continue(); session.typeText("RUN\r"); action = "BASIC RUN"; }
+        else { (session.c64Cpu as { pc: number }).pc = loadAddress & 0xffff; ctrl.continue(); action = `g $${formatHexWord(loadAddress)} (default = load address)`; }
+      }
+      return { content: [{ type: "text" as const, text: `Loaded ${prg_path} @ ${formatHexWord(loadAddress)} → started: ${action}` }] };
+    },
+));
+
   // Sprint 93.1: queue text typing through CIA1 keyboard matrix.
   server.tool(
     "runtime_type",
