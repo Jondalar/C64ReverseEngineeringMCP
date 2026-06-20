@@ -348,6 +348,11 @@ class RuntimeDaemonClient {
     return this.call<T>("session/load_prg", { session_id: sessionId, prg_path: prgPath, load_address: loadAddress });
   }
 
+  // Spec 769 — load + autostart a .prg (BASIC RUN / machine-code g <entry>).
+  runPrg<T = unknown>(sessionId: string, prgPath: string, run?: number) {
+    return this.call<T>("runtime/run_prg", { session_id: sessionId, prg_path: prgPath, run });
+  }
+
   // -- Spec 746.2/746.3 — live trace control on the SHARED session (the three-gate
   //    control: this MCP path + the UI button + the Monitor command all converge on
   //    the daemon's trace/* WS methods). The default session is built producers-on
@@ -386,8 +391,8 @@ class RuntimeDaemonClient {
   checkpointUnpin<T = unknown>(sessionId: string, id: string) {
     return this.call<T>("checkpoint/unpin", { session_id: sessionId, id });
   }
-  checkpointRestore<T = unknown>(sessionId: string, id: string) {
-    return this.call<T>("checkpoint/restore", { session_id: sessionId, id });
+  checkpointRestore<T = unknown>(sessionId: string, id: string, then?: "pause" | "run" | "keep") {
+    return this.call<T>("checkpoint/restore", { session_id: sessionId, id, then });
   }
   // Spec 766.5 — shared-memory recorder (worker-store scrub history).
   recorderStatus<T = unknown>(sessionId: string) {
@@ -398,6 +403,10 @@ class RuntimeDaemonClient {
   }
   recorderDump<T = unknown>(sessionId: string, seq: number, path: string) {
     return this.call<T>("recorder/dump", { session_id: sessionId, seq, path });
+  }
+  // Spec 769.2 — code-overlay debug loop: rewind→patch→run→observe.
+  overlayRun<T = unknown>(sessionId: string, params: Record<string, unknown>) {
+    return this.call<T>("runtime/overlay_run", { session_id: sessionId, ...params });
   }
   // One-tool monitor remote-control: run any monitor command string, get its text.
   monitorExec<T = unknown>(sessionId: string, command: string) {

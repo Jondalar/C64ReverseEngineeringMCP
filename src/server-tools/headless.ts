@@ -695,6 +695,41 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
 ));
 
+  // Spec 769 — load + AUTOSTART a .prg in one call (a monitor macro). BASIC
+  // ($0801) → RUN; machine-code → `g <entry>` (default entry = load address, or
+  // pass `run` for an explicit "g $1000").
+  server.tool(
+    "runtime_run_prg",
+    "Load AND start a .prg in one shot (the macro that was missing). Loads the PRG into the shared session, then autostarts: a BASIC program (load address $0801) → types RUN; machine code → `g <entry>` (continue at the entry; default = the load address, or pass `run` for an explicit entry like a SYS target). Use to just-run a .prg without disk/monitor steps. Inputs: session_id, prg_path, optional run (hex entry address for machine code). Returns: load address + the autostart action taken.",
+    { session_id: z.string(), prg_path: z.string(), run: z.string().optional().describe("Machine-code entry (hex, e.g. '1000' or '$1000'). Omit for BASIC autostart / default load-address entry.") },
+    safeHandler("runtime_run_prg", async ({ session_id, prg_path, run }) => {
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const entry = run ? parseHexWord(run) : undefined;
+      let loadAddress = 0, action = "";
+      if (isDaemonMode()) {
+        const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+        const abs = resolve(mcpProject ?? process.cwd(), prg_path);
+        // The shared backend macro (runtime/run_prg) — same path the UI .prg-drop
+        // uses: loadPrgBytes (sets BASIC VARTAB) + autostart (BASIC RUN / g entry).
+        const r = await runtimeDaemon.runPrg<{ loadAddress: number; action: string }>(session_id, abs, entry);
+        loadAddress = r.loadAddress; action = r.action;
+      } else {
+        const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+        const session = getIntegratedSession(session_id);
+        if (!session) throw new Error(`No integrated session ${session_id}`);
+        const ctrl = await cpInProc(session_id);
+        const r = session.loadPrgIntoRam(prg_path);
+        loadAddress = r.loadAddress;
+        const ram = (session as unknown as { c64Bus: { ram: Uint8Array } }).c64Bus.ram;
+        if (loadAddress === 0x0801) { const end = (r.endAddress + 1) & 0xffff; ram[0x2d] = end & 0xff; ram[0x2e] = (end >> 8) & 0xff; }
+        if (entry !== undefined) { (session.c64Cpu as { pc: number }).pc = entry & 0xffff; ctrl.continue(); action = `g $${formatHexWord(entry)}`; }
+        else if (loadAddress === 0x0801) { ctrl.continue(); session.typeText("RUN\r"); action = "BASIC RUN"; }
+        else { (session.c64Cpu as { pc: number }).pc = loadAddress & 0xffff; ctrl.continue(); action = `g $${formatHexWord(loadAddress)} (default = load address)`; }
+      }
+      return { content: [{ type: "text" as const, text: `Loaded ${prg_path} @ ${formatHexWord(loadAddress)} → started: ${action}` }] };
+    },
+));
+
   // Sprint 93.1: queue text typing through CIA1 keyboard matrix.
   server.tool(
     "runtime_type",
@@ -1040,6 +1075,85 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
             const { dumpRecorderAnchorSnapshot } = await import("../runtime/headless/kernel/snapshot-persistence.js");
             return await dumpRecorderAnchorSnapshot(c, seq, path);
           })();
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    },
+));
+
+  server.tool(
+    "runtime_rewind",
+    "Spec 769 — time-travel: rewind the shared session to a past checkpoint, optionally continue from there. Seek by `cycle` (nearest checkpoint at/before it) or explicit `id`; default = the most recent. `then`: pause (land + inspect, default) | run (continue forward from there) | keep. Use to jump to a past machine state for inspection, or to re-run from a known point (e.g. the code-overlay debug loop: rewind → patch RAM via runtime_monitor → run → observe → repeat). The human at the UI sees the same jump (one shared session). Inputs: session_id, optional cycle, optional id, optional then. Returns: the restored checkpoint ref + machine state.",
+    { session_id: z.string(), cycle: z.number().optional(), id: z.string().optional(), then: z.enum(["pause", "run", "keep"]).optional() },
+    safeHandler("runtime_rewind", async ({ session_id, cycle, id, then }) => {
+      const pick = (cps: Array<{ id: string; cycles: number }>): string | undefined => {
+        if (id) return id;
+        if (!cps.length) return undefined;
+        if (cycle === undefined) return cps[cps.length - 1]!.id; // most recent
+        let atBefore: { id: string; cycles: number } | undefined;
+        let best = cps[0]!, bestD = Infinity;
+        for (const c of cps) {
+          if (c.cycles <= cycle && (!atBefore || c.cycles > atBefore.cycles)) atBefore = c;
+          const d = Math.abs(c.cycles - cycle); if (d < bestD) { bestD = d; best = c; }
+        }
+        return (atBefore ?? best).id;
+      };
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      let r: unknown;
+      if (isDaemonMode()) {
+        const list = await runtimeDaemon.checkpointList<{ checkpoints: Array<{ id: string; cycles: number }> }>(session_id);
+        const target = pick(list.checkpoints ?? []);
+        if (!target) throw new Error("runtime_rewind: no checkpoints to rewind to");
+        r = await runtimeDaemon.checkpointRestore(session_id, target, then);
+      } else {
+        const c = await cpInProc(session_id);
+        const target = pick(c.checkpointRing.list());
+        if (!target) throw new Error("runtime_rewind: no checkpoints to rewind to");
+        const restored = await c.restoreCheckpoint(target, { then });
+        r = { restored, state: c.state() };
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    },
+));
+
+  server.tool(
+    "runtime_overlay_run",
+    "Spec 769 — code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. RAM-only (no banked ROM yet). Leaves the machine paused. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
+    {
+      session_id: z.string(),
+      anchor_cycle: z.number().optional(),
+      anchor_id: z.string().optional(),
+      patches: z.array(z.object({ addr: z.number(), bytes: z.array(z.number()).optional(), read: z.boolean().optional() })),
+      run_cycles: z.number().optional(),
+      until_pc: z.number().optional(),
+    },
+    safeHandler("runtime_overlay_run", async ({ session_id, anchor_cycle, anchor_id, patches, run_cycles, until_pc }) => {
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      let r: unknown;
+      if (isDaemonMode()) {
+        r = await runtimeDaemon.overlayRun(session_id, { anchor_cycle, anchor_id, patches, run_cycles, until_pc });
+      } else {
+        const ctrl = await cpInProc(session_id);
+        const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+        const s = getIntegratedSession(session_id);
+        if (!s) throw new Error(`No integrated session ${session_id}`);
+        const cps = ctrl.checkpointRing.list();
+        if (!cps.length) throw new Error("runtime_overlay_run: no checkpoints to anchor on");
+        let id = anchor_id;
+        if (!id) {
+          if (anchor_cycle === undefined) id = cps[cps.length - 1]!.id;
+          else { let ab: { id: string; cycles: number } | undefined, best = cps[0]!, bd = Infinity; for (const c of cps) { if (c.cycles <= anchor_cycle && (!ab || c.cycles > ab.cycles)) ab = c; const d = Math.abs(c.cycles - anchor_cycle); if (d < bd) { bd = d; best = c; } } id = (ab ?? best).id; }
+        }
+        await ctrl.restoreCheckpoint(id, { then: "pause" });
+        const ram = (s as unknown as { c64Bus: { ram: Uint8Array } }).c64Bus.ram;
+        const applied: Array<{ addr: number; len: number }> = [];
+        for (const p of patches) { const a = p.addr & 0xffff; const b = p.bytes ?? []; for (let i = 0; i < b.length; i++) ram[(a + i) & 0xffff] = b[i]! & 0xff; applied.push({ addr: a, len: b.length }); }
+        let hitPc: number | null = null;
+        const rc = run_cycles || 0;
+        if (rc > 0) { const bps = until_pc !== undefined ? new Set([until_pc & 0xffff]) : undefined; const rr = (s as unknown as { runFor(n: number, o: unknown): { aborted?: string; lastPc: number } }).runFor(Math.ceil(rc / 2) + 1000, { cycleBudget: rc, breakpoints: bps }); if (rr.aborted === "breakpoint") hitPc = rr.lastPc; }
+        const c = (s as unknown as { c64Cpu: Record<string, number> }).c64Cpu;
+        const reads: Record<string, number> = {};
+        for (const p of patches) if (p.read) { const a = p.addr & 0xffff; reads[`$${a.toString(16).padStart(4, "0")}`] = ram[a]!; }
+        r = { anchorId: id, applied, ranCycles: rc, hitPc, reads, registers: { pc: c.pc, a: c.a, x: c.x, y: c.y, sp: c.sp, flags: c.flags, cycles: c.cycles } };
+      }
       return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
     },
 ));

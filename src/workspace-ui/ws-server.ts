@@ -763,6 +763,29 @@ export class WsServer {
       return { loadAddress: r.loadAddress, endAddress: r.endAddress, bytesLoaded: r.bytesLoaded, path: prg_path };
     });
 
+    // Spec 769 — runtime/run_prg: load AND autostart a .prg (the shared macro the
+    // MCP tool + the UI .prg-drop both call). BASIC ($0801) → resume + type RUN
+    // (loadPrgBytes set VARTAB so RUN works); machine code → set PC + continue
+    // (entry = `run` if given, else the load address). Accepts a path or bytes.
+    this.on("runtime/run_prg", async ({ session_id, prg_path, bytes_b64, run }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      const ctrl = ctrlFor(session_id);
+      const { loadPrgBytes } = await import("../runtime/headless/media/ingress.js");
+      let bytes: Uint8Array;
+      if (bytes_b64) bytes = new Uint8Array(Buffer.from(String(bytes_b64), "base64"));
+      else if (prg_path) { const { readFileSync } = await import("node:fs"); bytes = new Uint8Array(readFileSync(String(prg_path))); }
+      else throw new Error("runtime/run_prg: prg_path or bytes_b64 required");
+      const { loadAddress } = loadPrgBytes(ctrl, bytes);
+      const entry = run !== undefined && run !== null ? (Number(run) & 0xffff) : undefined;
+      // pause→set PC→continue so the PC write is atomic against the async loop.
+      let action: string;
+      if (entry !== undefined) { ctrl.pause(); (s.c64Cpu as { pc: number }).pc = entry; ctrl.continue(); action = `g $${entry.toString(16).padStart(4, "0")}`; }
+      else if (loadAddress === 0x0801) { ctrl.continue(); s.typeText("RUN\r"); action = "BASIC RUN"; }
+      else { ctrl.pause(); (s.c64Cpu as { pc: number }).pc = loadAddress; ctrl.continue(); action = `g $${loadAddress.toString(16).padStart(4, "0")} (default = load address)`; }
+      return { loadAddress, action };
+    });
+
     // vic/inspect/at_capture — frozen-pixel provenance. Captures + pins a checkpoint
     // if none given (the in-process tool's behaviour), then resolves the node.
     this.on("vic/inspect/at_capture", async ({ session_id, x, y, checkpoint_id }) => {
@@ -906,6 +929,54 @@ export class WsServer {
     const ctrlFor = controllerFor; // Spec 701 §7 — same wiring (incl. frame push)
     const PACING_MODES: RuntimePacingMode[] = ["pal", "warp", "fixed-ratio"];
 
+    // Spec 769.2 — code-overlay debug loop: rewind to an anchor, apply a RAM
+    // patch, run, observe. Repeatable — each call restores fresh (the prior patch
+    // is rolled back by the restore), so the LLM iterates a fix from a fixed point
+    // without rebuild/reboot. RAM-only patches (OQ3). Leaves the machine paused.
+    this.on("runtime/overlay_run", async ({ session_id, anchor_cycle, anchor_id, patches, run_cycles, until_pc }) => {
+      const s = getIntegratedSession(session_id);
+      if (!s) throw new Error(`no session ${session_id}`);
+      const ctrl = controllerFor(session_id);
+      const cps = ctrl.checkpointRing.list();
+      if (!cps.length) throw new Error("runtime/overlay_run: no checkpoints to anchor on");
+      // pick the anchor: explicit id, else nearest at/before anchor_cycle, else most recent
+      let id = anchor_id ? String(anchor_id) : undefined;
+      if (!id) {
+        if (anchor_cycle === undefined) id = cps[cps.length - 1]!.id;
+        else {
+          let atBefore: { id: string; cycles: number } | undefined, best = cps[0]!, bestD = Infinity;
+          for (const c of cps) { if (c.cycles <= anchor_cycle && (!atBefore || c.cycles > atBefore.cycles)) atBefore = c; const d = Math.abs(c.cycles - anchor_cycle); if (d < bestD) { bestD = d; best = c; } }
+          id = (atBefore ?? best).id;
+        }
+      }
+      await ctrl.restoreCheckpoint(id, { then: "pause" });
+      // apply RAM patches (the overlay)
+      const applied: Array<{ addr: number; len: number }> = [];
+      const list = Array.isArray(patches) ? patches : [];
+      for (const p of list) {
+        const addr = Number(p.addr) & 0xffff;
+        const bytes: number[] = Array.isArray(p.bytes) ? p.bytes : [];
+        for (let i = 0; i < bytes.length; i++) s.c64Bus.ram[(addr + i) & 0xffff] = bytes[i]! & 0xff;
+        applied.push({ addr, len: bytes.length });
+      }
+      // run forward (bounded; optional breakpoint at until_pc)
+      let hitPc: number | undefined;
+      const rc = Number(run_cycles) || 0;
+      if (rc > 0) {
+        const bps = until_pc !== undefined ? new Set([Number(until_pc) & 0xffff]) : undefined;
+        const r = s.runFor(Math.ceil(rc / 2) + 1000, { cycleBudget: rc, breakpoints: bps });
+        if (r.aborted === "breakpoint") hitPc = r.lastPc;
+      }
+      // observe: registers + read-back of any patch addr flagged `read`
+      const c = s.c64Cpu;
+      const reads: Record<string, number> = {};
+      for (const p of list) if (p.read) { const a = Number(p.addr) & 0xffff; reads[`$${a.toString(16).padStart(4, "0")}`] = s.c64Bus.ram[a]!; }
+      return {
+        anchorId: id, applied, ranCycles: rc, hitPc: hitPc ?? null, reads,
+        registers: { pc: c.pc, a: c.a, x: c.x, y: c.y, sp: c.sp, flags: c.flags, cycles: c.cycles },
+      };
+    });
+
     // Spec 767 — `source` tags who issued the control op ("llm" via the MCP
     // daemon-client; absent = the UI = "human"). Sets the sticky control-owner so
     // the UI shows who's driving (green = llm). Signal only; never gates.
@@ -949,6 +1020,19 @@ export class WsServer {
       const c = ctrlFor(session_id);
       return { checkpoints: c.checkpointRing.list(), stats: c.checkpointRing.stats() };
     });
+    // Spec 769.5a — the scrub filmstrip: live checkpoints each with a small
+    // palette-indexed thumbnail (captured at checkpoint time; the UI renders it
+    // like the live canvas). Fetched on Pause/Freeze when the filmstrip opens.
+    this.on("checkpoint/thumbnails", ({ session_id }) => {
+      const c = ctrlFor(session_id);
+      const thumbnails = c.filmstrip().map((e) => ({
+        id: e.id, cycles: e.cycles, frame: e.frame, pinned: e.pinned,
+        width: e.width, height: e.height,
+        palette: Buffer.from(e.palette).toString("base64"),
+        indices: Buffer.from(e.indices).toString("base64"),
+      }));
+      return { thumbnails };
+    });
     this.on("checkpoint/capture", async ({ session_id }) => {
       const c = ctrlFor(session_id);
       const ref = await c.captureCheckpoint();
@@ -975,12 +1059,14 @@ export class WsServer {
       c.checkpointRing.clear();
       return { stats: c.checkpointRing.stats() };
     });
-    this.on("checkpoint/restore", async ({ session_id, id, then }) => {
+    this.on("checkpoint/restore", async ({ session_id, id, then, render }) => {
       const c = ctrlFor(session_id);
       if (!id) throw new Error("checkpoint/restore: id required");
       // Spec 761.1 — then: pause (scrub-and-look) | run (resume-from-X) | keep.
       const intent = then === "pause" || then === "run" || then === "keep" ? then : undefined;
-      const restored = await c.restoreCheckpoint(String(id), { then: intent });
+      // Spec 769.5 — render: re-sim 1 frame so the canvas shows the picture (the
+      // scrub filmstrip sets this; framebuffer-less anchors are black otherwise).
+      const restored = await c.restoreCheckpoint(String(id), { then: intent, render: render === true });
       return { restored, state: c.state() };
     });
 
@@ -1569,7 +1655,11 @@ export class WsServer {
       // desync. Live play is exact.)
       if (process.env["C64RE_RESID_WORKER"] !== "0") {
         const { SidAudioWorkerHost } = await import("../runtime/headless/audio/sid-audio-worker-host.js");
-        const workerHost = new SidAudioWorkerHost(s, { pcmSamples: 1 << 16 });
+        // Spec 768 latency fix — a SMALL PCM ring (~93 ms, matching the inline
+        // recorder's LIVE buffer): drop-oldest keeps audio FRESH instead of banking
+        // seconds of latency when the emu briefly out-produces realtime (the 0.25-5 s
+        // lag). The browser worklet cushion (706) handles the rest.
+        const workerHost = new SidAudioWorkerHost(s, { pcmSamples: 1 << 12 });
         const state = { workerHost, seq: 0 };
         this.audioStreams.set(session_id, state);
         workerHost.onRestore = () => { state.seq = 0; this.broadcast("audio/flush", { session_id }); };

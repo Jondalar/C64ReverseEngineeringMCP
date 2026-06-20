@@ -264,10 +264,14 @@ export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
   const dropMedia = useCallback(async (file: File) => {
     if (!sessionId) { setStatus("No active session — start a session first"); return; }
     const ext = file.name.toLowerCase().split(".").pop() ?? "";
+    // .prg → load + AUTOSTART via the shared runtime/run_prg macro (BASIC RUN /
+    // machine-code g <load-addr>), NOT media/ingress inject-run (which jumped to
+    // $0801 for BASIC = wrong). Other media → media/ingress as before.
+    const isPrg = ext === "prg";
     let req: Record<string, unknown> | undefined;
     if (ext === "d64" || ext === "g64") req = { kind: "disk" };
     else if (ext === "crt") req = { kind: "crt", resetPolicy: "power-cycle" };
-    else if (ext === "prg") req = { kind: "prg", mode: "inject-run" };
+    else if (isPrg) req = { kind: "prg" };
     else if (ext === "c64re") { setStatus(`${file.name}: .c64re is a snapshot — use Snapshots ▸ Undump, not media`); return; }
     else { setStatus(`Unsupported file type: .${ext} (drop .d64/.g64/.crt/.prg)`); return; }
     try {
@@ -277,6 +281,14 @@ export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
       let bin = "";
       for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
       const bytes_b64 = btoa(bin);
+      if (isPrg) {
+        const r = await client.call<{ loadAddress: number; action: string }>(
+          "runtime/run_prg", { session_id: sessionId, bytes_b64 });
+        client.call<RecentEntry[]>("media/recent").then(setRecent).catch(() => {});
+        const la = (r?.loadAddress ?? 0).toString(16).padStart(4, "0");
+        setStatus(`Ran ${file.name} @ $${la} → ${r?.action ?? "started"}`);
+        return;
+      }
       const res = await client.call<{ event?: { format?: string; sha256?: string }; detail?: { mapperType?: string } }>(
         "media/ingress", { session_id: sessionId, name: file.name, bytes_b64, ...req });
       client.call<RecentEntry[]>("media/recent").then(setRecent).catch(() => {});

@@ -21,6 +21,7 @@ import type { TabProps } from "./Live.types.js";
 import { InspectorPanel } from "../components/InspectorPanel.js";
 import { MachineControls } from "../components/MachineControls.js";
 import { ExploreOverlay } from "../components/ExploreOverlay.js";
+import { Filmstrip } from "../components/Filmstrip.js";
 
 interface DriveStatus {
   device: number;
@@ -240,9 +241,13 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       const img = new Image();
       img.onload = () => {
         const ctx = cv.getContext("2d"); if (!ctx) return;
-        if (cv.width !== img.width) cv.width = img.width;
-        if (cv.height !== img.height) cv.height = img.height;
-        ctx.drawImage(img, 0, 0);
+        // Keep the canvas at the live VIC size (384x272) and SCALE the PNG into it
+        // — resizing the canvas to the PNG's native dims broke the layout (the
+        // canvas overflowed the container in paused/scrub mode). 769.5.
+        const W = 384, H = 272;
+        if (cv.width !== W) cv.width = W;
+        if (cv.height !== H) cv.height = H;
+        ctx.drawImage(img, 0, 0, W, H);
         setHasFrame(true);
       };
       img.src = r.dataUrl;
@@ -464,10 +469,9 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
         onSnapshotTaken={snapshot}
         statusSlot={statusSlot}
       />
-      {/* Scrub timeline intentionally NOT mounted — the checkpoint ring writes in
-          the background (Spec 765 flat ring); no Live-tab UI for it (user
-          decision 2026-06-15: "der Buffer darf schreiben im Hintergrund und den
-          rest sehen wir dann"). */}
+      {/* Spec 769.5 — the scrub filmstrip is now mounted, but ONLY on Pause/Freeze
+          (see below the grid). The checkpoint ring writes in the background while
+          running; the filmstrip surfaces it only when the user freezes. */}
       <div className="wb-live-grid">
         <div className="wb-screen-wrap">
           {runState === "off" ? (
@@ -532,6 +536,9 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           pressedKeys={pressedKeys}
         />
       </div>
+      {/* Spec 769.5 — scrub filmstrip: ONLY on Pause/Freeze. Click a frame to
+          rewind the full machine to that point; Continue / Dump from there. */}
+      {runState === "paused" && <Filmstrip sessionId={sessionId} setRunState={setRunState} />}
     </div>
   );
 }

@@ -469,6 +469,14 @@ button {
   display: block;
   min-height: 0;
   height: 100%;
+  /* Spec 769.5 — break the horizontal max-content cascade. As a grid item this
+     defaults to min-width:auto (= min-content), so the paused filmstrip's ~70
+     thumbnails (each ~96px) sum to a max-content width of ~5800px and drag the
+     whole cockpit (screen canvas included) far past the viewport, clipping the
+     C64 screen off the right edge. min-width:0 lets the 1fr track shrink to the
+     available width so the filmstrip's flex-squeeze actually engages. */
+  min-width: 0;
+  overflow: hidden;
 }
 
 .workspace-main,

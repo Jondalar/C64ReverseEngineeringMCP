@@ -55,7 +55,9 @@ export class SidAudioWorkerHost implements AudioCheckpointProvider {
 
   constructor(private readonly session: HostSession, opts: SidAudioWorkerHostOptions = {}) {
     const writeLayout: SidWriteRingLayout = { recordCount: opts.writeRecords ?? (1 << 16) };
-    const pcmLayout: SidPcmRingLayout = { capacitySamples: opts.pcmSamples ?? (1 << 16) };
+    // Spec 768 latency — small ring (~93 ms): drop-oldest keeps audio fresh, no
+    // banked latency (the inline path's LIVE buffer is ~80 ms for the same reason).
+    const pcmLayout: SidPcmRingLayout = { capacitySamples: opts.pcmSamples ?? (1 << 12) };
     const writeRingSab = createSidWriteRingSab(writeLayout);
     const pcmRingSab = createSidPcmRingSab(pcmLayout);
     this.writeProd = new SidWriteRingProducer(writeRingSab, writeLayout);
