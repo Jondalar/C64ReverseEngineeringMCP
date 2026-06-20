@@ -32,6 +32,19 @@ import {
   serializeIecBus, deserializeIecBus,
 } from "./module-mapping.js";
 import type { IntegratedSession } from "../integrated-session.js";
+import { loadViceVsf } from "./vice-vsf-load.js";
+
+// Spec 770.2 — discriminate a genuine VICE snapshot from a c64re-own VSF.
+// Several names collide because c64re writes VICE-shaped chunks (Spec 612 PL-9):
+// the VIC module is "VIC-II" in both, and c64re even emits "DRIVE8".."DRIVE11" /
+// "DRIVECPU0". The one clean, verified difference is the SID module name: VICE
+// 3.7+ writes "SIDEXTENDED", c64re writes "SID". An 11-byte name is
+// collision-proof against raw RAM bytes, so a "SIDEXTENDED" marker ⟹ a real
+// VICE file → use the VIC-IISC-aware loader.
+const VICE_MARKER_SIDEXTENDED = Buffer.from("SIDEXTENDED", "ascii");
+function isViceVsf(bytes: Buffer): boolean {
+  return bytes.includes(VICE_MARKER_SIDEXTENDED);
+}
 
 export interface SessionVsfSaveResult {
   outputPath: string;
@@ -44,6 +57,10 @@ export interface SessionVsfLoadResult {
   loadedModules: string[];
   ignoredModules: string[];
   errors: Array<{ module: string; error: string }>;
+  // Spec 770.2 — which loader handled the file. "vice-x64sc" = a real VICE
+  // snapshot loaded via the dedicated VIC-IISC-aware parser; "c64re" = our own
+  // round-trip format.
+  source?: "vice-x64sc" | "c64re";
 }
 
 // Spec 405 / OQ-405-3 — VSF module write order. Doc anchor:
@@ -131,6 +148,29 @@ export function saveSessionVsf(session: IntegratedSession, outputPath: string): 
 
 export function loadSessionVsf(session: IntegratedSession, inputPath: string): SessionVsfLoadResult {
   const bytes = readFileSync(inputPath);
+
+  // Spec 770.2 — auto-detect a REAL VICE x64sc snapshot vs our own round-trip
+  // format BEFORE the generic parser runs. VICE x64sc serializes its VIC as a
+  // "VIC-IISC" module (full per-cycle pipeline state) and carries a fuller
+  // module set than our readVsf() understands (readVsf throws on it). c64re
+  // writes a simpler "VIC-II" module. So a raw "VIC-IISC" marker ⟹ a genuine
+  // VICE file → hand it to the dedicated VICE loader (full 64K RAM + MAINCPU +
+  // VIC-IISC internals + CIA1/2). c64re-own files fall through unchanged.
+  if (isViceVsf(bytes)) {
+    const vice = loadViceVsf(session, inputPath);
+    return {
+      inputPath,
+      loadedModules: [
+        "MAINCPU", "C64MEM", "VIC-IISC",
+        ...(vice.cia1Found ? ["CIA1"] : []),
+        ...(vice.cia2Found ? ["CIA2"] : []),
+      ],
+      ignoredModules: [],
+      errors: [],
+      source: "vice-x64sc",
+    };
+  }
+
   const file = readVsf(new Uint8Array(bytes));
 
   // Spec 251 OQ1: VICE 3.7+ only. File-level version 2.0 = current
@@ -228,5 +268,6 @@ export function loadSessionVsf(session: IntegratedSession, inputPath: string): S
   // Spec 704 §11 R3 — vice drive re-arm is handled inside
   // drive1541.restore; legacy session.drive.enable removed.
 
+  result.source = "c64re";
   return result;
 }

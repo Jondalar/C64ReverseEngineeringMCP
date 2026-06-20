@@ -342,7 +342,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_load_vsf",
-    "Spec 251 — restore full session state from VSF file.",
+    "Spec 251/770.2 — restore full session state from a VSF file. Auto-detects a REAL VICE x64sc snapshot (VIC-IISC module → full 64K RAM + MAINCPU + VIC-IISC pipeline + CIA1/2 injected) vs a c64re-own VSF, and dispatches to the right loader.",
     {
       session_id: z.string(),
       input_path: z.string(),
@@ -353,14 +353,16 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       const abs = resolveCallerMediaPath(input_path);
       const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
       if (isDaemonMode()) {
-        const r = await runtimeDaemon.vsfLoad<{ loadedPath: string; bytes: number }>(session_id, abs);
-        return { content: [{ type: "text", text: `loaded ${r.bytes} bytes from ${r.loadedPath}` }] };
+        const r = await runtimeDaemon.vsfLoad<{ loadedPath: string; bytes: number; source?: string; loadedModules?: string[] }>(session_id, abs);
+        const origin = r.source === "vice-x64sc" ? "VICE x64sc snapshot" : "c64re snapshot";
+        return { content: [{ type: "text", text: `loaded ${r.bytes} bytes from ${r.loadedPath} (${origin}${r.loadedModules ? `; modules: ${r.loadedModules.join(", ")}` : ""})` }] };
       }
       const api = await getApi(session_id);
       const { readFileSync } = await import("node:fs");
       const bytes = new Uint8Array(readFileSync(abs));
-      api.loadVsf(bytes);
-      return { content: [{ type: "text", text: `loaded ${bytes.length} bytes from ${abs}` }] };
+      const res = api.loadVsf(bytes);
+      const origin = res.source === "vice-x64sc" ? "VICE x64sc snapshot" : "c64re snapshot";
+      return { content: [{ type: "text", text: `loaded ${bytes.length} bytes from ${abs} (${origin}; modules: ${res.loadedModules.join(", ")})` }] };
     }),
   );
 
