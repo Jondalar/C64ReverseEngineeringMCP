@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 // spans + optional cross-refs), so the only thing the per-medium wrapper
 // has to do is shape its domain object into these props.
 
-export type FileInspectorMediumKind = "disk" | "cartridge";
+export type FileInspectorMediumKind = "disk" | "cartridge" | "payload";
 
 export interface FileInspectorActionButton {
   label: string;
@@ -58,6 +58,7 @@ export interface FileInspectorProps {
 const HEADER_LABEL: Record<FileInspectorMediumKind, string> = {
   disk: "Disk file",
   cartridge: "Cartridge file",
+  payload: "Payload",
 };
 
 export function FileInspector({
@@ -139,6 +140,7 @@ export function FileInspector({
           ))}
         </div>
       </div>
+      {spans.length > 0 ? (
       <div className="inspector-block">
         <h4>{spansLabel}</h4>
         <div className="record-stack compact">
@@ -170,6 +172,7 @@ export function FileInspector({
           ))}
         </div>
       </div>
+      ) : null}
       {extraSections}
     </section>
   );

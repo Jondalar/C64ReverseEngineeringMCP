@@ -2953,18 +2953,160 @@ function ListingPanel({
   );
 }
 
+// Spec 770 — file-centric inspector for a payload/blob (option B). Reuses the
+// shared FileInspector shell (mediumKind="payload"), like Disk/Cartridge files.
+// A payload entity carries no sector chain, so the spans block is empty (the
+// shell hides it); the actions are mon (raw) / mon (depacked) / asm / reverse
+// workflow, plus +task / +question.
+function PayloadFileInspector({
+  snapshot,
+  payload,
+  onClose,
+  onOpenHex,
+  onOpenAsm,
+  onRunPayloadWorkflow,
+  onCreateTask,
+  onCreateQuestion,
+  onReloadWorkspace,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  payload: WorkspaceUiSnapshot["entities"][number];
+  onClose: () => void;
+  onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
+  onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
+  onRunPayloadWorkflow: (payloadId: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
+  onReloadWorkspace: () => void | Promise<void>;
+} & LlmTodoActions) {
+  const [workflowBusy, setWorkflowBusy] = useState(false);
+  const artifactById = useMemo(() => new Map(snapshot.artifacts.map((a) => [a.id, a])), [snapshot.artifacts]);
+  const sourceArtifact = payload.payloadSourceArtifactId ? artifactById.get(payload.payloadSourceArtifactId) : undefined;
+  const depackedArtifact = payload.payloadDepackedArtifactId ? artifactById.get(payload.payloadDepackedArtifactId) : undefined;
+  const asmArtifacts = (payload.payloadAsmArtifactIds ?? [])
+    .map((id) => artifactById.get(id))
+    .filter((a): a is typeof snapshot.artifacts[number] => Boolean(a));
+  const asmSources = bestAsmSourcesForArtifacts(asmArtifacts, snapshot.artifactVersionGroups ?? []);
+
+  const load = payload.payloadLoadAddress ?? payload.addressRange?.start;
+  // NOTE: a payload entity's addressRange is the load-address POINT, not the
+  // byte length — deriving a size from it would read "1 bytes". True size needs
+  // the source artifact's bytes, which the user reaches via mon (raw).
+
+  const headlineExtras: FileInspectorHeadlineExtra[] = [
+    { key: "kind", text: payload.kind },
+  ];
+  if (load !== undefined) headlineExtras.push({ key: "load", text: `load ${hex(load)}` });
+
+  const metaRows: FileInspectorMetaRow[] = [];
+  if (load !== undefined) metaRows.push({ key: "load", label: "load address", value: hex(load) });
+  if (sourceArtifact) metaRows.push({ key: "source", label: "source", value: sourceArtifact.relativePath });
+  if (depackedArtifact) metaRows.push({ key: "depacked", label: "depacked", value: depackedArtifact.relativePath });
+
+  const primaryAction: FileInspectorActionButton | undefined = sourceArtifact ? {
+    label: "mon (raw)",
+    title: `Open hex view of ${sourceArtifact.relativePath}`,
+    enabled: true,
+    onClick: () => onOpenHex(sourceArtifact.relativePath, { title: `${payload.name} (raw)`, baseAddress: load }),
+  } : undefined;
+
+  const secondaryActions: FileInspectorActionButton[] = [];
+  if (depackedArtifact) {
+    secondaryActions.push({
+      label: "mon (depacked)",
+      title: `Open hex view of depacked bytes ${depackedArtifact.relativePath}`,
+      enabled: true,
+      onClick: () => onOpenHex(depackedArtifact.relativePath, { title: `${payload.name} (depacked)`, baseAddress: load }),
+    });
+  }
+  if (asmSources.length > 0) {
+    secondaryActions.push({
+      label: `asm${asmSources.some((s) => s.dialect === "64tass") ? "/.tass" : ""}`,
+      title: `Open disassembly (${asmSources.map((s) => s.label).join(" / ")})`,
+      enabled: true,
+      onClick: () => onOpenAsm(payload.name, asmSources),
+    });
+  }
+  const canRunWorkflow = Boolean(sourceArtifact || depackedArtifact) && (payload.payloadFormat === "prg" || load !== undefined);
+  secondaryActions.push({
+    label: workflowBusy ? "running..." : "reverse workflow",
+    title: load !== undefined ? `Run analyze + disasm + reports on ${payload.name}` : "Set a load address before running the workflow",
+    enabled: !workflowBusy && canRunWorkflow,
+    onClick: () => {
+      setWorkflowBusy(true);
+      onRunPayloadWorkflow(payload.id, "full")
+        .then((result) => window.alert(`Workflow ${result.status}.\nImported entities=${result.importedCounts.entities} findings=${result.importedCounts.findings}.\nNext: ${result.nextRequiredAction}`))
+        .catch((error) => window.alert(`Workflow failed: ${error instanceof Error ? error.message : String(error)}`))
+        .finally(() => setWorkflowBusy(false));
+    },
+  });
+  const taskArtifactIds = [sourceArtifact?.id, depackedArtifact?.id, ...asmArtifacts.map((a) => a.id)].filter((x): x is string => Boolean(x));
+  secondaryActions.push({
+    label: "+ task",
+    title: `Create an LLM follow-up task for ${payload.name}`,
+    enabled: true,
+    onClick: () => onCreateTask({
+      title: `Investigate ${payload.name}`,
+      description: `${load !== undefined ? `Load address: ${hex(load)}\n` : ""}${payload.payloadFormat ? `Format: ${payload.payloadFormat}\n` : ""}\nNext step:`,
+      entityIds: [payload.id],
+      artifactIds: taskArtifactIds,
+    }),
+  });
+  secondaryActions.push({
+    label: "+ question",
+    title: `Create an open question for ${payload.name}`,
+    enabled: true,
+    onClick: () => onCreateQuestion({
+      title: `What is the role of ${payload.name}?`,
+      description: `${load !== undefined ? `Load address: ${hex(load)}\n` : ""}${payload.payloadFormat ? `Format: ${payload.payloadFormat}\n` : ""}\nQuestion:`,
+      entityIds: [payload.id],
+      artifactIds: taskArtifactIds,
+    }),
+  });
+
+  return (
+    <FileInspector
+      mediumKind="payload"
+      title={payload.name}
+      packer={payload.payloadPacker}
+      format={payload.payloadFormat}
+      notes={payload.summary ? [payload.summary] : undefined}
+      headlineExtras={headlineExtras}
+      metaRows={metaRows}
+      primaryAction={primaryAction}
+      secondaryActions={secondaryActions}
+      spansLabel=""
+      spans={[]}
+      extraSections={
+        asmArtifacts.length > 0 ? (
+          <ArtifactVersionsSection
+            candidates={asmArtifacts}
+            versionGroups={snapshot.artifactVersionGroups ?? []}
+            projectDir={snapshot.project.rootPath}
+            onOpenAsm={onOpenAsm}
+            onReload={onReloadWorkspace}
+          />
+        ) : undefined
+      }
+      onClose={onClose}
+    />
+  );
+}
+
 function PayloadsPanel({
   snapshot,
   onOpenHex,
   onOpenAsm,
   onRunPayloadWorkflow,
   onReloadWorkspace,
+  selectedPayloadId,
+  onSelectPayload,
 }: {
   snapshot: WorkspaceUiSnapshot;
   onOpenHex: (path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number> }) => void;
   onOpenAsm: (title: string, sources: AsmViewSource[]) => void;
   onRunPayloadWorkflow: (payloadId: string, mode?: "quick" | "full") => Promise<PrgReverseWorkflowResponse>;
   onReloadWorkspace: () => void | Promise<void>;
+  selectedPayloadId: string | null;
+  onSelectPayload: (payloadId: string) => void;
 }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [errorPerId, setErrorPerId] = useState<Record<string, string>>({});
@@ -3048,7 +3190,12 @@ function PayloadsPanel({
           // through payloadSourceArtifactId or first artifactId).
           const sourceArtifactForBadge = artifactById.get(payload.payloadSourceArtifactId ?? payload.artifactIds[0] ?? "");
           return (
-            <article key={payload.id} className="payload-card">
+            <article
+              key={payload.id}
+              className={`payload-card${selectedPayloadId === payload.id ? " active-record" : ""}`}
+              onClick={() => onSelectPayload(payload.id)}
+              style={{ cursor: "pointer" }}
+            >
               <header>
                 <strong>{payload.name}</strong>
                 {sourceArtifactForBadge ? <PhaseBadge phase={sourceArtifactForBadge.phase} frozen={sourceArtifactForBadge.phaseFrozen} /> : null}
@@ -4126,6 +4273,10 @@ export function App() {
   }
   const [selectedCartChunk, setSelectedCartChunk] = useState<CartChunkSelection | null>(null);
   const [selectedDiskFile, setSelectedDiskFile] = useState<DiskFileSelection | null>(null);
+  // Spec 770 — the Payloads tab now drives a file-centric FileInspector
+  // (mediumKind="payload"), like Disk/Cartridge. Clicking a payload card sets
+  // this; the right aside renders PayloadFileInspector for it.
+  const [selectedPayloadId, setSelectedPayloadId] = useState<string | null>(null);
 
   function openHexOverlay(path: string, options?: { title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number>; markers?: Array<{ offset: number; label: string }> }) {
     setHexOverlay({
@@ -4440,6 +4591,7 @@ export function App() {
 
   const selectedEntity = snapshot?.entities.find((entity) => entity.id === selectedEntityId);
   const selectedQuestion = snapshot?.openQuestions.find((question) => question.id === selectedQuestionId);
+  const selectedPayload = snapshot?.entities.find((entity) => entity.id === selectedPayloadId);
   // Bug 24 + Bug 26: filter to latest version per lineage AND drop
   // infrastructure files (manifests, FACTS reports etc.). Toggles override.
   const docs = useMemo(() => {
@@ -4479,6 +4631,16 @@ export function App() {
     setTabSelections((current) => ({ ...current, [tabId]: entityId }));
     setSelectedCartChunk(null);
     setSelectedDiskFile(null);
+    setSelectedPayloadId(null);
+  }
+
+  // Spec 770 — pick a payload blob (file-centric inspector). Mirrors the disk/
+  // cart selectors: it owns the right aside, so clear the competing selections.
+  function handleSelectPayload(payloadId: string) {
+    setSelectedPayloadId(payloadId);
+    setSelectedCartChunk(null);
+    setSelectedDiskFile(null);
+    setSelectedQuestionId(null);
   }
 
   function handleSelectQuestion(questionId: string) {
@@ -4494,6 +4656,7 @@ export function App() {
     if (nextEntityId) setTabSelections((current) => ({ ...current, dashboard: nextEntityId }));
     setSelectedCartChunk(null);
     setSelectedDiskFile(null);
+    setSelectedPayloadId(null);
   }
 
   function currentFocusEntityId(): string | null {
@@ -4502,6 +4665,8 @@ export function App() {
   }
 
   function handleOpenTab(nextTab: TabId) {
+    // Spec 770 — payload selection is scoped to the Payloads tab; drop it on leave.
+    if (nextTab !== "payloads") setSelectedPayloadId(null);
     if (!snapshot) {
       setActiveTab(nextTab);
       return;
@@ -4740,6 +4905,8 @@ export function App() {
                 onOpenAsm={openAsmOverlay}
                 onRunPayloadWorkflow={runPayloadWorkflowFromInspector}
                 onReloadWorkspace={() => loadWorkspace(snapshot.project.rootPath)}
+                selectedPayloadId={selectedPayloadId}
+                onSelectPayload={handleSelectPayload}
               />
             ) : null}
             {/* Spec 059 / UX1: standalone Load Sequence tab folded
@@ -4795,6 +4962,18 @@ export function App() {
                   onCreateQuestion={createQuestionFromUi}
                   onRunPrgWorkflow={runPrgWorkflowFromInspector}
                   onRunPayloadWorkflow={runPayloadWorkflowFromInspector}
+                  onReloadWorkspace={() => loadWorkspace(snapshot.project.rootPath)}
+                />
+              ) : (activeTab === "payloads" && selectedPayload) ? (
+                <PayloadFileInspector
+                  snapshot={snapshot}
+                  payload={selectedPayload}
+                  onClose={() => setSelectedPayloadId(null)}
+                  onOpenHex={openHexOverlay}
+                  onOpenAsm={openAsmOverlay}
+                  onRunPayloadWorkflow={runPayloadWorkflowFromInspector}
+                  onCreateTask={createTaskFromUi}
+                  onCreateQuestion={createQuestionFromUi}
                   onReloadWorkspace={() => loadWorkspace(snapshot.project.rootPath)}
                 />
               ) : selectedQuestion ? (
