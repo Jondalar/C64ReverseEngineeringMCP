@@ -295,12 +295,14 @@ export class AgentQueryApi {
     saveSessionVsf(this.session, path);
     return new Uint8Array(readFileSync(path));
   }
-  loadVsf(bytes: Uint8Array): void {
+  // Spec 770.2 — returns the load result (incl. `source`: vice-x64sc | c64re)
+  // so callers can report which loader handled the file.
+  loadVsf(bytes: Uint8Array): ReturnType<typeof loadSessionVsf> {
     const tmp = join(tmpdir(), "c64re-agent-api-vsf");
     if (!existsSync(tmp)) mkdirSync(tmp, { recursive: true });
     const path = join(tmp, `load-${process.pid}-${Date.now()}.vsf`);
     writeFileSync(path, bytes);
-    loadSessionVsf(this.session, path);
+    return loadSessionVsf(this.session, path);
   }
 
   // ---- Status / introspection ----

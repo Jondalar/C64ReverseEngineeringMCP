@@ -721,8 +721,10 @@ export class WsServer {
       const { loadSessionVsf } = await import("../runtime/headless/vsf/session-vsf.js");
       const { statSync } = await import("node:fs");
       const bytes = statSync(input_path).size;
-      loadSessionVsf(session, input_path);
-      return { loadedPath: input_path, bytes };
+      // Spec 770.2 — loadSessionVsf auto-detects a real VICE x64sc snapshot
+      // (VIC-IISC module) vs our own format and returns which it used.
+      const res = loadSessionVsf(session, input_path);
+      return { loadedPath: input_path, bytes, source: res.source, loadedModules: res.loadedModules };
     });
 
     // debug/memory_access_map — per-region read/write liveness over a run window.
