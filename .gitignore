@@ -7,6 +7,13 @@ ui/dist-v3/
 .DS_Store
 /analysis/
 monitor.log
+
+# Copyrighted disk/cart images — NEVER commit (Spec 771 incident: motm.g64 had
+# leaked to the public repo root). Real game images stay local-only; only the
+# synthetic test data under the samples/ whitelist below is tracked.
+*.g64
+*.d64
+*.crt
 samples/*
 !samples/test-manifest.json
 !samples/test-manifest.schema.json
