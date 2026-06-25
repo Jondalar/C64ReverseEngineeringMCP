@@ -1,9 +1,9 @@
 import { resolve } from "node:path";
-import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { WebSocket } from "ws";
+import { resolveDaemonSpawn } from "../src/runtime/headless/daemon/resolve-daemon-spawn";
 
 // Spec 744.4c (Trigger 2) — starting the UI brings the runtime up if it isn't.
 // The browser can't spawn a process, but the vite DEV-SERVER (Node) can: on boot
@@ -32,26 +32,18 @@ function ensureRuntimeDaemon(): Plugin {
         const repo = resolve(__dirname, "..");
         const port = (endpoint.match(/^wss?:\/\/[^/:]+:(\d+)/)?.[1]) ?? "4312";
         const projectDir = process.env.C64RE_PROJECT_DIR ?? repo;
-        // PERF (Spec 744.4c) — prefer node/dist: tsx-from-src runs the ~1MHz loop
-        // ~12× slower (4fps vs 50fps). Only fall back to tsx if dist is unbuilt.
-        const srcEntry = resolve(repo, "src/runtime/headless/daemon/run.ts");
-        const distEntry = resolve(repo, "dist/runtime/headless/daemon/run.js");
-        let cmd: string; let args: string[];
-        if (existsSync(distEntry)) {
-          cmd = process.execPath;
-          args = [distEntry, "--project", projectDir, "--port", port];
-        } else if (existsSync(srcEntry)) {
-          console.warn(`[ui] runtime daemon falling back to tsx-from-src — ~12× slower (≈4fps). Run \`npm run build:mcp\` for full speed.`);
-          cmd = resolve(repo, "node_modules/.bin/tsx");
-          args = [srcEntry, "--project", projectDir, "--port", port];
-        } else { console.warn(`[ui] cannot warm-start runtime daemon — no daemon entry found`); return; }
+        // Spec 771.1 — shared resolver picks the backend (external C64RE_RUNTIME_BIN /
+        // TRX64, else built dist, else tsx). Imported from src so UI dev needs no dist.
+        const plan = resolveDaemonSpawn({ repoRoot: repo, projectDir, port });
+        if (plan.mode === "none") { console.warn(`[ui] cannot warm-start runtime daemon — no daemon entry found`); return; }
+        if (plan.warn) console.warn(`[ui] ${plan.warn}`);
         try {
-          const child = spawn(cmd, args, {
+          const child = spawn(plan.cmd, plan.args, {
             cwd: repo, detached: true, stdio: "ignore",
             env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_DAEMON_PORT: port },
           });
           child.unref();
-          console.log(`[ui] runtime daemon warm-started at ${endpoint} (project ${projectDir})`);
+          console.log(`[ui] runtime daemon warm-started (${plan.mode}) at ${endpoint} (project ${projectDir})`);
         } catch (e) {
           console.warn(`[ui] runtime daemon warm-start failed:`, e);
         }

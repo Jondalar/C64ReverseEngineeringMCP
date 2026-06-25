@@ -13,9 +13,9 @@
 
 import { WebSocket } from "ws";
 import { spawn, execSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve as resolvePath, dirname } from "node:path";
+import { resolveDaemonSpawn } from "../runtime/headless/daemon/resolve-daemon-spawn.js";
 
 /** The product Runtime Daemon always listens here unless overridden. The UI
  *  targets this directly even when the MCP env has no endpoint configured. */
@@ -109,27 +109,13 @@ function spawnDaemonDetached(endpoint: string, projectDirArg?: string): boolean 
   // Repo root from this module: <repo>/{src|dist}/server-tools/runtime-daemon-client.{ts|js}
   const here = fileURLToPath(import.meta.url);
   const repo = resolvePath(dirname(here), "..", "..");
-  // PERF (Spec 744.4c) — the daemon is a long-lived ~1MHz emulation loop. Under
-  // tsx-from-src it runs ~12× SLOWER (measured: 80k vs 985k cyc/s = 4fps vs 50fps),
-  // because tsx transpiles without V8's optimizing tiers warming the hot path the
-  // same way. So ALWAYS prefer the built node/dist entry — EVEN when this MCP itself
-  // runs under tsx (the MCP is I/O-bound, the daemon is CPU-bound; they need not match
-  // runtimes). Fall back to tsx only if dist is absent, with a loud slow-mode warning.
-  const distEntry = resolvePath(repo, "dist/runtime/headless/daemon/run.js");
-  let cmd: string; let args: string[];
-  if (existsSync(distEntry)) {
-    cmd = process.execPath;
-    args = [distEntry, "--project", projectDir, "--port", port];
-  } else {
-    const tsxBin = resolvePath(repo, "node_modules", ".bin", "tsx");
-    const srcEntry = resolvePath(repo, "src/runtime/headless/daemon/run.ts");
-    if (!existsSync(tsxBin) || !existsSync(srcEntry)) return false;
-    console.error(`[c64-re mcp] WARNING: runtime daemon falling back to tsx-from-src — ~12× slower (≈4fps). Run \`npm run build:mcp\` for full-speed (50fps).`);
-    cmd = tsxBin;
-    args = [srcEntry, "--project", projectDir, "--port", port];
-  }
+  // Spec 771.1 — ONE resolver picks the backend: external bin (C64RE_RUNTIME_BIN,
+  // e.g. the TRX64 Rust daemon) > built dist > tsx fallback. TS daemon = default.
+  const plan = resolveDaemonSpawn({ repoRoot: repo, projectDir, port });
+  if (plan.mode === "none") return false;
+  if (plan.warn) console.error(`[c64-re mcp] WARNING: ${plan.warn}`);
   try {
-    const child = spawn(cmd, args, {
+    const child = spawn(plan.cmd, plan.args, {
       cwd: repo, detached: true, stdio: "ignore",
       env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_DAEMON_PORT: port },
     });

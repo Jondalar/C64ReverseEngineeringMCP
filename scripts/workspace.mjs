@@ -61,7 +61,20 @@ start("http", "node", [`${repoRoot}/dist/workspace-ui/server.js`, "--port", http
 if (process.env.C64RE_RUNTIME_ENDPOINT || process.env.C64RE_RUNTIME_WS) {
   console.log(`[workspace] Live runtime WS is the Runtime Daemon (${process.env.C64RE_RUNTIME_ENDPOINT ?? "co-host"}); not starting a standalone WS. Run \`npm run runtime:daemon\`.`);
 } else {
-  // Spec 757 — ONE WS-start path: the Runtime Daemon entry (the same WsServer),
-  // not a second standalone bootstrap. Was scripts/start-v3-server.mjs (retired).
-  start("ws", "node", [`${repoRoot}/dist/runtime/headless/daemon/run.js`, "--port", "4312", ...childArgs]);
+  // Spec 757 — ONE WS-start path: the Runtime Daemon entry (the same WsServer).
+  // Spec 771.1 — the shared resolver picks the backend (external C64RE_RUNTIME_BIN /
+  // TRX64, else built dist). It re-derives --project/--port itself so the external bin
+  // never receives the TS-only --dev-samples flag.
+  const { resolveDaemonSpawn } = await import(
+    `${repoRoot}/dist/runtime/headless/daemon/resolve-daemon-spawn.js`
+  );
+  const plan = resolveDaemonSpawn({ repoRoot, projectDir, port: "4312", devSamples });
+  if (plan.warn) console.warn(`[workspace] ${plan.warn}`);
+  if (plan.mode === "none") {
+    console.error("[workspace] no runtime daemon entry found");
+    shutdown();
+  } else {
+    console.log(`[workspace] WS backend = ${plan.mode}`);
+    start("ws", plan.cmd, plan.args);
+  }
 }
