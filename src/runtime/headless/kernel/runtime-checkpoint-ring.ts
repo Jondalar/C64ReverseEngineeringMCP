@@ -109,6 +109,33 @@ interface RingEntry extends RuntimeCheckpointRef {
 export interface RuntimeCheckpointRingOptions {
   /** Slab size in bytes; N = floor(budget / slot). Default 32 MiB ≈ ~86 slots. */
   budgetBytes?: number;
+  /**
+   * Spec 772 — max LIVE entries the ring retains (the UI-scrub-filmstrip cap).
+   * The effective capacity is `min(byteSlotCount, maxEntries)`: eviction fires on
+   * WHICHEVER bound is hit first (oldest-unpinned, pin-exempt — same policy as the
+   * byte budget). Derived by the controller from C64RE_CHECKPOINT_RING_SECONDS +
+   * the capture cadence (`ceil(seconds / (cadenceFrames/50))`, default 20).
+   * Omitted → no extra cap (byte budget only, legacy behaviour).
+   */
+  maxEntries?: number;
+}
+
+/**
+ * Spec 772 — the ring is the SHORT live-scrub buffer, not deep history. Default
+ * retention = 10s; deep history is the Spec 766 recorder. Env-overridable.
+ */
+export const DEFAULT_CHECKPOINT_RING_SECONDS = 10;
+
+/**
+ * Spec 772 — derive the max-entries cap from a retention-seconds budget and the
+ * capture cadence (frames between captures, PAL 50fps). `ceil(seconds /
+ * (cadenceFrames/50))`; at the 10s/25-frame default that is **20**. Clamped to ≥1.
+ */
+export function checkpointRingMaxEntries(seconds: number, cadenceFrames: number): number {
+  const sec = Number.isFinite(seconds) && seconds > 0 ? seconds : DEFAULT_CHECKPOINT_RING_SECONDS;
+  const cad = Number.isFinite(cadenceFrames) && cadenceFrames >= 1 ? cadenceFrames : 25;
+  const secondsPerCapture = cad / 50; // PAL 50fps
+  return Math.max(1, Math.ceil(sec / secondsPerCapture));
 }
 
 export interface RuntimeCheckpointRingStats {
@@ -129,10 +156,13 @@ export interface RuntimeCheckpointRingStats {
 }
 
 // Spec 765 — 32 MiB slab default. At SLOT_BYTES = 64 KiB (RAM only, framebuffers
-// no longer stored — §8) that is ~512 slots ≈ ~8.5 min of rewind at the 1 s
-// auto-cadence. The slab is allocated ONCE (lazily); capture never grows it, so
-// the old-gen footprint is constant (BUG-049: the growth was the major-GC
-// trigger).
+// no longer stored — §8) that is ~512 slots. The slab is allocated ONCE (lazily);
+// capture never grows it, so the old-gen footprint is constant (BUG-049: the
+// growth was the major-GC trigger).
+// Spec 772 — the byte budget is now the SECONDARY bound: the ring is sized for the
+// UI scrub-filmstrip via a max-entries cap (default 20 = 10s @ 0.5s cadence, see
+// `checkpointRingMaxEntries`), so in practice only ~20 slots are ever live. The
+// 32 MiB slab is the safety ceiling; eviction fires on whichever bound hits first.
 export const DEFAULT_CHECKPOINT_RING_BUDGET_BYTES = 32 * 1024 * 1024;
 
 /**
@@ -146,6 +176,8 @@ export function estimateCheckpointBytes(_snap: MachineSnapshot): number {
 
 export class RuntimeCheckpointRing {
   readonly budgetBytes: number;
+  /** Spec 772 — max LIVE entries (the UI-scrub cap), or Infinity = byte-budget only. */
+  readonly maxEntries: number;
   /** Spec 765 — the one flat slab. ONE GC object, fixed size. Allocated LAZILY
    *  on first capture (not in the ctor) so a session that never auto-captures —
    *  the default — pays NOTHING, and power-on takes no 32 MiB zero-fill hit. */
@@ -163,6 +195,7 @@ export class RuntimeCheckpointRing {
 
   constructor(opts: RuntimeCheckpointRingOptions = {}) {
     this.budgetBytes = opts.budgetBytes ?? DEFAULT_CHECKPOINT_RING_BUDGET_BYTES;
+    this.maxEntries = opts.maxEntries && opts.maxEntries >= 1 ? Math.floor(opts.maxEntries) : Infinity;
     this.slotCount = Math.max(1, Math.floor(this.budgetBytes / SLOT_BYTES));
     this.freeSlots = [];
     for (let i = this.slotCount - 1; i >= 0; i--) this.freeSlots.push(i);
@@ -265,8 +298,22 @@ export class RuntimeCheckpointRing {
     return toRef(entry);
   }
 
-  /** Get a free slot, evicting the oldest unpinned entry if the slab is full. */
+  /**
+   * Get a free slot, evicting the oldest unpinned entry on WHICHEVER bound is hit
+   * first (Spec 772): the byte-budget slot count OR the max-entries cap. The cap
+   * keeps the LIVE entry count below `maxEntries` so that after this capture it is
+   * ≤ maxEntries (the ring is the short UI-scrub buffer; deep history = recorder).
+   * Pinned entries are exempt from both bounds (as before).
+   */
   private acquireSlot(): number {
+    // Spec 772 — entry-count cap: evict oldest-unpinned until adding one more keeps
+    // the live count ≤ maxEntries. (No-op when maxEntries is Infinity.)
+    while (this.entries.length + 1 > this.maxEntries) {
+      const idx = this.entries.findIndex((e) => !e.pinned);
+      if (idx < 0) break; // all remaining entries pinned — let the byte budget decide
+      this.removeEntryAt(idx);
+    }
+    // Byte-budget bound: a full slab evicts the oldest unpinned entry to free a slot.
     if (this.freeSlots.length === 0) {
       const idx = this.entries.findIndex((e) => !e.pinned);
       if (idx < 0) {
