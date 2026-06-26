@@ -185,6 +185,8 @@ export class WsServer {
     "runtime/who_wrote",
     "runtime/crash_triage",
     "trace/build_from_ring",
+    "trace/index",
+    "runtime/set_reverse_depth",
   ]);
 
   // Spec 744.4c slice 2 — AgentQueryApi methods reachable via the api/call bridge.
