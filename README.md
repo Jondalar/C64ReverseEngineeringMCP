@@ -27,17 +27,29 @@ the point.
 
 ## The Runtime
 
-A TypeScript C64 + 1541 + cartridge runtime, controllable and inspectable
-in ways neither real hardware nor a normal emulator offers:
+A controllable, inspectable C64 + 1541 + cartridge runtime — in ways
+neither real hardware nor a normal emulator offers:
 
 - **time travel** — snapshot / `.c64re` persistence, checkpoint ring,
   rewind & replay
+- **reverse-debug** — an always-on ring keeps the last ~10 s of
+  instructions + writes: step backwards (`rstep`), ask *who wrote this
+  address* (`whowrote` — the stack-crash shortcut), auto-triage a JAM
+  into its causal chain (crash → wild jump → stack corruptor), and carve
+  a trace for an exact cycle window straight from the scrub bar
 - **code overlay** — map live execution onto disassembly and findings
 - **observation** — DuckDB traces, swimlanes, monitor, frozen-frame
   exploration
 - **live browser workbench** — the backend owns the clock, monitor,
   media, trace, and audio; the browser commands and visualizes
 - **frame-locked audio**, media ingress, mutable disks & cartridges
+
+Two interchangeable backends serve the same WebSocket protocol and the
+same `.c64re` / `.c64retrace` formats: the original **TypeScript** runtime,
+and **[TRX64](https://github.com/Jondalar/TRX64)** — a native (Rust),
+cycle-exact port of VICE that runs far faster and is the home of the
+reverse-debug features above (the TS runtime declines those cleanly).
+Select TRX64 with `TRX64=1 ./ui.sh restart`.
 
 It already boots real scene software end-to-end — multi-stage cracks,
 custom fastloaders, EasyFlash cartridges — and its fidelity is gated on
