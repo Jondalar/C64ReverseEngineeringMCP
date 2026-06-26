@@ -1,8 +1,11 @@
-// Spec 769.5b — scrub filmstrip (human UI). Shows ONLY on Pause/Freeze. Fetches
-// per-checkpoint thumbnails (769.5a), renders them as a horizontal strip; clicking
-// a frame restores the FULL machine to that point (screen + cycles jump back,
-// stays paused). Per selected frame: Continue (run on from there) or Dump (.c64re).
-// No range/trim. FUNCTIONAL first pass — the look is refined via the annotate loop.
+// Spec 769.5b + reverse-debug 1c — scrub filmstrip (human UI). Shows ONLY on
+// Pause/Freeze. Fetches per-checkpoint thumbnails (769.5a), renders them as a
+// horizontal strip; clicking a frame restores the FULL machine to that point
+// (screen + cycles jump back, stays paused). Per selected frame: Continue (run on)
+// or Dump (.c64re). SHIFT-click a second frame to mark a RANGE [a..b]; "Build trace"
+// then carves a `.c64retrace` for EXACTLY those cycles out of the always-on delta
+// ring (trace/build_from_ring, Phase 1c) — readable via swimlane/map/taint.
+// FUNCTIONAL first pass — the look is refined via the annotate loop.
 
 import React, { useEffect, useRef, useState } from "react";
 import { getClient } from "../ws-client.js";
@@ -19,7 +22,10 @@ function b64ToU8(s: string): Uint8Array {
   return u;
 }
 
-function ThumbCanvas({ t, selected, onClick }: { t: Thumb; selected: boolean; onClick: () => void }): React.JSX.Element {
+function ThumbCanvas(
+  { t, selected, inRange, onClick }:
+  { t: Thumb; selected: boolean; inRange: boolean; onClick: (shift: boolean) => void },
+): React.JSX.Element {
   const ref = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
     const c = ref.current;
@@ -36,10 +42,10 @@ function ThumbCanvas({ t, selected, onClick }: { t: Thumb; selected: boolean; on
   return (
     <canvas
       ref={ref}
-      className={`wb-film-thumb${selected ? " sel" : ""}${t.pinned ? " pin" : ""}`}
-      title={`cycle ${t.cycles}`}
-      onClick={onClick}
-      style={{ imageRendering: "pixelated" }}
+      className={`wb-film-thumb${selected ? " sel" : ""}${inRange ? " in-range" : ""}${t.pinned ? " pin" : ""}`}
+      title={`cycle ${t.cycles}${selected ? " — selected (shift-click another for a range)" : ""}`}
+      onClick={(e) => onClick(e.shiftKey || e.metaKey || e.ctrlKey)}
+      style={{ imageRendering: "pixelated", ...(inRange && !selected ? { outline: "2px solid #5bd6ff", outlineOffset: "-2px" } : {}) }}
     />
   );
 }
@@ -48,8 +54,10 @@ export function Filmstrip(
   { sessionId, setRunState }: { sessionId: string; setRunState?: (s: "running" | "paused" | "off") => void },
 ): React.JSX.Element | null {
   const [thumbs, setThumbs] = useState<Thumb[]>([]);
-  const [sel, setSel] = useState<string | null>(null);
+  const [sel, setSel] = useState<string | null>(null);   // anchor frame (a)
+  const [selB, setSelB] = useState<string | null>(null); // range end (b) — set by shift-click
   const [busy, setBusy] = useState(false);
+  const [built, setBuilt] = useState<string | null>(null);
 
   // Load the strip when it opens (on pause). One-shot — the ring is static while paused.
   useEffect(() => {
@@ -73,12 +81,39 @@ export function Filmstrip(
   const dump = async (id: string) => {
     setBusy(true);
     try {
-      // restore to the point (so "current" = that anchor), then dump current state
       await getClient().call("checkpoint/restore", { session_id: sessionId, id, then: "pause" });
       setSel(id);
       const path = `dumps/scrub-${id}-${Date.now()}.c64re`;
       const r = await getClient().call<{ path: string }>("snapshot/dump", { session_id: sessionId, path });
       console.log("[filmstrip] dumped →", r?.path ?? path);
+    } finally { setBusy(false); }
+  };
+
+  // Click: plain = rewind to that frame (clears any range). Shift/Cmd/Ctrl = mark the
+  // second endpoint of a range [a..b] for "Build trace" (no rewind).
+  const handleClick = (id: string, withModifier: boolean) => {
+    if (withModifier && sel && sel !== id) { setSelB(id); setBuilt(null); return; }
+    setSelB(null);
+    void restore(id, "pause");
+  };
+
+  const cycOf = (id: string | null) => (id ? thumbs.find((x) => x.id === id)?.cycles ?? null : null);
+  const cA = cycOf(sel), cB = cycOf(selB);
+  const lo = cA != null && cB != null ? Math.min(cA, cB) : null;
+  const hi = cA != null && cB != null ? Math.max(cA, cB) : null;
+  const rangeCount = lo != null && hi != null ? thumbs.filter((t) => t.cycles >= lo && t.cycles <= hi).length : 0;
+  const inRange = (t: Thumb) => lo != null && hi != null && t.cycles >= lo && t.cycles <= hi;
+
+  const buildTrace = async () => {
+    if (lo == null || hi == null) return;
+    setBusy(true);
+    try {
+      const r = await getClient().call<{ retrace_path: string; event_count: number }>(
+        "trace/build_from_ring", { session_id: sessionId, cycle_start: lo, cycle_end: hi });
+      const file = (r?.retrace_path ?? "").split("/").pop() ?? "trace";
+      setBuilt(`✓ built ${r?.event_count ?? 0} events from cycles ${lo}–${hi} → ${file} · read it with \`swimlane ${lo} ${hi}\` / map / taint`);
+    } catch (e) {
+      setBuilt(`✕ build trace failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally { setBusy(false); }
   };
 
@@ -88,14 +123,31 @@ export function Filmstrip(
     <div className={`wb-filmstrip${busy ? " busy" : ""}`}>
       <div className="wb-film-strip">
         {thumbs.map((t) => (
-          <ThumbCanvas key={t.id} t={t} selected={sel === t.id} onClick={() => restore(t.id, "pause")} />
+          <ThumbCanvas
+            key={t.id}
+            t={t}
+            selected={sel === t.id || selB === t.id}
+            inRange={inRange(t)}
+            onClick={(shift) => handleClick(t.id, shift)}
+          />
         ))}
       </div>
       <div className="wb-film-actions">
-        <span className="wb-film-hint">{sel ? `@ cycle ${thumbs.find((x) => x.id === sel)?.cycles ?? "?"}` : "click a frame to rewind"}</span>
-        <button disabled={!sel || busy} onClick={() => sel && restore(sel, "run")}>▶ Continue</button>
-        <button disabled={!sel || busy} onClick={() => sel && dump(sel)}>⬇ Dump .c64re</button>
+        {selB ? (
+          <>
+            <span className="wb-film-hint">range {lo}–{hi} · {rangeCount} frames</span>
+            <button disabled={busy} onClick={() => void buildTrace()}>🎬 Build trace</button>
+            <button disabled={busy} onClick={() => { setSelB(null); setBuilt(null); }}>✕ clear range</button>
+          </>
+        ) : (
+          <>
+            <span className="wb-film-hint">{sel ? `@ cycle ${cycOf(sel) ?? "?"} · shift-click a 2nd frame for a range` : "click a frame to rewind · shift-click a 2nd for a range"}</span>
+            <button disabled={!sel || busy} onClick={() => sel && restore(sel, "run")}>▶ Continue</button>
+            <button disabled={!sel || busy} onClick={() => sel && dump(sel)}>⬇ Dump .c64re</button>
+          </>
+        )}
       </div>
+      {built && <div className="wb-film-built">{built}</div>}
     </div>
   );
 }
