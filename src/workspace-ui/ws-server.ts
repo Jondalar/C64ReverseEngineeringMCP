@@ -173,6 +173,20 @@ export class WsServer {
     "api/call",
   ]);
 
+  // TRX64-superset reverse-debug methods. These are delivered ONLY by the TRX64
+  // (Rust) runtime — they read TRX64's always-on full-delta / CPU-history rings,
+  // which the TypeScript runtime does not have. Rather than return the generic
+  // -32601 "method not found" (which reads as a bug / missing route) or match an
+  // arbitrary throw, decline them cleanly so the UI can show a clear "use the
+  // TRX64 runtime" message and the conformance gate can assert a recognizable
+  // refusal. Checked BEFORE the generic method-not-found path in dispatch().
+  private static readonly TRX64_ONLY_METHODS = new Set<string>([
+    "runtime/reverse_step",
+    "runtime/who_wrote",
+    "runtime/crash_triage",
+    "trace/build_from_ring",
+  ]);
+
   // Spec 744.4c slice 2 — AgentQueryApi methods reachable via the api/call bridge.
   // Extended per slice as each group is verified to round-trip + format identically.
   // Slice 2a = monitor read + single-step + breakpoints.
@@ -429,6 +443,24 @@ export class WsServer {
   private async dispatch(req: JsonRpcRequest, ctx: ClientContext): Promise<void> {
     const handler = this.handlers.get(req.method);
     if (!handler) {
+      // TRX64-superset reverse-debug methods: a clean, recognizable decline
+      // ("use the TRX64 runtime") instead of the generic -32601 method-not-found.
+      // The `data.trx64Only` marker lets the UI / conformance gate match the
+      // refusal robustly without string-matching the message.
+      if (WsServer.TRX64_ONLY_METHODS.has(req.method)) {
+        if (req.id !== undefined) {
+          ctx.send({
+            jsonrpc: "2.0",
+            error: {
+              code: -32050,
+              message: `${req.method}: not supported by the TypeScript runtime — use the TRX64 runtime`,
+              data: { trx64Only: true },
+            },
+            id: req.id,
+          });
+        }
+        return;
+      }
       if (req.id !== undefined) {
         ctx.send({
           jsonrpc: "2.0",
