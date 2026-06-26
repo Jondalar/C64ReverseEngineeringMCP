@@ -12,7 +12,7 @@ built by a human and an LLM **together** — the LLM proposes structure and
 meaning, the human steers and confirms, and the runtime proves or refutes
 every claim against a real execution.
 
-## The Killer Combination
+## The Combination is more than sum of its parts
 
 Semantic disassembly tells you what code *means*. A controllable runtime
 lets you *watch it happen*. C64RE puts both on one timeline:
