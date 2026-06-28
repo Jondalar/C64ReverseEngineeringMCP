@@ -109,8 +109,9 @@ function spawnDaemonDetached(endpoint: string, projectDirArg?: string): boolean 
   // Repo root from this module: <repo>/{src|dist}/server-tools/runtime-daemon-client.{ts|js}
   const here = fileURLToPath(import.meta.url);
   const repo = resolvePath(dirname(here), "..", "..");
-  // Spec 771.1 — ONE resolver picks the backend: external bin (C64RE_RUNTIME_BIN,
-  // e.g. the TRX64 Rust daemon) > built dist > tsx fallback. TS daemon = default.
+  // Spec 771.1 — ONE resolver picks the backend: explicit C64RE_RUNTIME_BIN > the TRX64
+  // sibling daemon (the DEFAULT) > built TS dist > tsx fallback. C64RE_RUNTIME_TS=1
+  // forces the TS oracle.
   const plan = resolveDaemonSpawn({ repoRoot: repo, projectDir, port });
   if (plan.mode === "none") return false;
   if (plan.warn) console.error(`[c64-re mcp] WARNING: ${plan.warn}`);

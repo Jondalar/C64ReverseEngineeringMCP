@@ -1,11 +1,14 @@
 // Spec 771.1 — the ONE place that decides HOW to launch the runtime daemon process.
 //
-// Default = the TS daemon (built `dist/` preferred for full V8 speed, `tsx`-from-src
-// fallback). Override with `C64RE_RUNTIME_BIN=<path>` to launch an EXTERNAL daemon
-// binary instead — e.g. the TRX64 Rust daemon, which speaks the same WS JSON-RPC 2.0
-// on `--port` and accepts `--project` (ADR-066: the drop-in boundary is the daemon
-// PROCESS, not an in-process core swap). The TS runtime stays the default + golden
-// oracle; the swap is A/B-able by setting/unsetting one env var.
+// Default = the TRX64 Rust daemon (the sibling `../TRX64/target/release/trx64-daemon`,
+// launched with `--stream` for the UI A/V hub). It speaks the same WS JSON-RPC 2.0 on
+// `--port` and accepts `--project` (ADR-066: the drop-in boundary is the daemon PROCESS,
+// not an in-process core swap). The TS daemon is now the FALLBACK + golden oracle:
+//   - `C64RE_RUNTIME_TS=1`        → force the TS daemon (A/B against the oracle).
+//   - `C64RE_RUNTIME_BIN=<path>`  → launch a specific external daemon binary (highest).
+//   - `C64RE_TRX64_BIN=<path>`    → a TRX64 daemon elsewhere than the sibling default.
+// If no TRX64 binary is found (and TS isn't forced) it falls back to the built TS `dist/`
+// (preferred for V8 speed) then `tsx`-from-src.
 //
 // All three spawn sites — the MCP client (`runtime-daemon-client.ts`), the workspace
 // bootstrap (`scripts/workspace.mjs`), and the UI dev plugin (`ui/vite.config.ts`) —
@@ -61,15 +64,32 @@ export function resolveDaemonSpawn(opts: {
     return { cmd: bin, args: [...stdArgs, ...extra], mode: "external-bin" };
   }
 
+  // 2) TRX64 is the DEFAULT runtime — the sibling release daemon, with `--stream` so the
+  //    UI gets the A/V hub. `C64RE_RUNTIME_TS=1` forces the TS oracle instead; the path
+  //    is overridable via `C64RE_TRX64_BIN`. Falls through to the TS daemon if no TRX64
+  //    binary is built yet.
+  const forceTs = process.env.C64RE_RUNTIME_TS?.trim() === "1";
+  if (!forceTs) {
+    const trx64 =
+      process.env.C64RE_TRX64_BIN?.trim() ||
+      resolvePath(repoRoot, "..", "TRX64", "target", "release", "trx64-daemon");
+    if (existsSync(trx64)) {
+      const extra = (process.env.C64RE_RUNTIME_BIN_ARGS?.trim() || "")
+        .split(/\s+/)
+        .filter(Boolean);
+      return { cmd: trx64, args: [...stdArgs, "--stream", ...extra], mode: "external-bin" };
+    }
+  }
+
   const tsArgs = [...stdArgs, ...(devSamples ? ["--dev-samples"] : [])];
 
-  // 2) built TS daemon (preferred — tsx-from-src runs the ~1MHz loop ~12× slower).
+  // 3) built TS daemon (fallback / forced oracle — tsx-from-src runs ~12× slower).
   const distEntry = resolvePath(repoRoot, "dist/runtime/headless/daemon/run.js");
   if (existsSync(distEntry)) {
     return { cmd: process.execPath, args: [distEntry, ...tsArgs], mode: "dist" };
   }
 
-  // 3) tsx-from-src fallback (loud — ≈4fps vs 50fps).
+  // 4) tsx-from-src fallback (loud — ≈4fps vs 50fps).
   const tsxBin = resolvePath(repoRoot, "node_modules", ".bin", "tsx");
   const srcEntry = resolvePath(repoRoot, "src/runtime/headless/daemon/run.ts");
   if (existsSync(tsxBin) && existsSync(srcEntry)) {
