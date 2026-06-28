@@ -44,12 +44,14 @@ neither real hardware nor a normal emulator offers:
   media, trace, and audio; the browser commands and visualizes
 - **frame-locked audio**, media ingress, mutable disks & cartridges
 
-Two interchangeable backends serve the same WebSocket protocol and the
-same `.c64re` / `.c64retrace` formats: the original **TypeScript** runtime,
-and **[TRX64](https://github.com/Jondalar/TRX64)** — a native (Rust),
-cycle-exact port of VICE that runs far faster and is the home of the
-reverse-debug features above (the TS runtime declines those cleanly).
-Select TRX64 with `TRX64=1 ./ui.sh restart`.
+**[TRX64](https://github.com/Jondalar/TRX64)** — a native (Rust), cycle-exact
+port of VICE — is the **default** runtime: far faster, and the home of the
+reverse-debug features above. The original **TypeScript** runtime is now the
+fallback + parity oracle (it declines the TRX64-only features cleanly); force
+it with `C64RE_RUNTIME_TS=1 ./ui.sh restart`. Both serve the same WebSocket
+protocol and the same `.c64re` / `.c64retrace` formats. (TRX64 is auto-found as
+the sibling `../TRX64/target/release/trx64-daemon`; `C64RE_RUNTIME_BIN` /
+`C64RE_TRX64_BIN` point elsewhere.)
 
 It already boots real scene software end-to-end — multi-stage cracks,
 custom fastloaders, EasyFlash cartridges — and its fidelity is gated on

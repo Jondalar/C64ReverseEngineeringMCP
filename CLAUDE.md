@@ -196,6 +196,13 @@ action.** VICE is fallback / oracle only.
 
 ## Single-Path Runtime (Spec 723, Mandatory 2026-05-29)
 
+> **Backend default (Spec 771, 2026-06-28): the default runtime backend is now
+> TRX64** (the Rust daemon — `resolveDaemonSpawn` auto-finds the sibling
+> `../TRX64/target/release/trx64-daemon --stream`). The TypeScript runtime described
+> in this section is now the **fallback + parity oracle** — force it with
+> `C64RE_RUNTIME_TS=1` (or `C64RE_RUNTIME_BIN` / `C64RE_TRX64_BIN` to point elsewhere).
+> The single-path rules below still govern the TS runtime.
+
 **The headless runtime has exactly ONE execution path. There is no
 mode/toggle to pick an alternate path.** Starting a session
 (`startIntegratedSession({})` / `headless_integrated_session_start`)
