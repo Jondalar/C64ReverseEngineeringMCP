@@ -167,10 +167,42 @@ const UTILITY_TABS = new Set<TabId>(["dashboard", "questions"]);
 // controlled writes). Sparse state produces a concrete NEXT ACTION, never an empty box.
 interface PhaseHomeModel {
   intent: string;
-  known: Array<{ label: string; value: string; ok?: boolean }>;
+  known: Array<{ label: string; value: string; ok?: boolean; group?: string }>;
   missing: string[];
   next: string;
   tools: Array<{ label: string; phase: Phase; tab: TabId }>;
+}
+
+// Spec 773 polish — pragmatic, transparent phase classification for the cockpit
+// question glance. Matches on question kind + title keywords. The full Triage utility
+// is unaffected (it still shows ALL questions with its own filters/sort/bulk actions).
+const PHASE_QUESTION_KEYWORDS: Record<Phase, string[]> = {
+  onboarding: ["goal", "mission", "workflow", "scope", "approach", "strategy", "decide", "decision", "which title", "objective"],
+  discovery: ["loader", "packer", "depack", "depacker", "media", "disk", "crt", "cartridge", "payload", "extract", "sector", "track", "gcr", "bam", "directory"],
+  re: ["validate", "validation", "annotat", "routine", "label", "memory", "ram", "region", "flow", "listing", "disassembl", "semantic", "symbol", "behaves like"],
+  build: ["build", "target", "transform", "patch", "assemble", "relocat", "loader-replace", "replace loader", "feature", "eeprom write", "flash write"],
+  release: ["qa", "test", "tester", "release", "known issue", "known-issue", "package", "ship", "regression", "rc "],
+};
+function questionMatchesPhase(q: OpenQuestionRecord, phase: Phase): boolean {
+  const hay = `${q.kind} ${q.title} ${q.description ?? ""}`.toLowerCase();
+  return PHASE_QUESTION_KEYWORDS[phase].some((kw) => hay.includes(kw));
+}
+function phaseQuestions(snapshot: WorkspaceUiSnapshot, phase: Phase): OpenQuestionRecord[] {
+  return snapshot.openQuestions.filter((q) => questionMatchesPhase(q, phase));
+}
+
+// Spec 773 polish — availability for a cockpit tool link (mirrors the phase-strip
+// filter). Hides dead buttons: e.g. Cartridge on a disk-only project, Disk on a
+// cart-only project, or a Listing/Flow/Memory link before that view has any data.
+function cockpitToolAvailable(snapshot: WorkspaceUiSnapshot, tab: TabId): boolean {
+  switch (tab) {
+    case "disk": return snapshot.views.diskLayout.disks.length > 0;
+    case "cartridge": return snapshot.views.cartridgeLayout.cartridges.length > 0;
+    case "memory": return snapshot.views.memoryMap.cells.length > 0;
+    case "listing": return snapshot.views.annotatedListing.entries.length > 0;
+    case "flow": return snapshot.views.flowGraph.nodes.length > 0 || snapshot.views.loadSequence.items.length > 0;
+    default: return true; // payloads / graphics / docs / live / questions / home
+  }
 }
 
 function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeModel | null {
@@ -303,10 +335,10 @@ function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeM
     return {
       intent: "Turn bytes into meaning: disassemble, annotate routines, classify payloads, and validate the interpretation against TRX64 runtime evidence.",
       known: [
-        { label: "Annotated listing", value: hasListing ? "available" : "not built yet", ok: hasListing },
-        { label: "Findings", value: String(findings), ok: findings > 0 },
-        { label: "Version groups", value: `${versionGroups}`, ok: versionGroups > 0 },
-        { label: "Runtime evidence", value: "TRX64 — trace / scrub via Live", ok: true },
+        { label: "Annotated listing", value: hasListing ? "available" : "not built yet", ok: hasListing, group: "Interpretation (C64RE)" },
+        { label: "Findings", value: String(findings), ok: findings > 0, group: "Interpretation (C64RE)" },
+        { label: "Version groups", value: `${versionGroups}`, ok: versionGroups > 0, group: "Interpretation (C64RE)" },
+        { label: "Runtime evidence", value: "TRX64 — trace / scrub via Live", ok: true, group: "Evidence (TRX64)" },
       ],
       missing: [
         ...(hasListing ? [] : ["Annotated listing not built (run disasm)"]),
@@ -519,7 +551,9 @@ function OnboardingKickoffCockpit({
   const profile = snapshot.projectProfile;
   const team = resolveTeam(snapshot);
   const assumptions = profile?.assumptions ?? [];
-  const topQuestions = snapshot.openQuestions.slice(0, 5);
+  const relQuestions = phaseQuestions(snapshot, "onboarding");
+  const topQuestions = relQuestions.slice(0, 5);
+  const totalQuestions = snapshot.openQuestions.length;
   const [copied, setCopied] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const kickoffPrompt = buildKickoffPrompt(snapshot);
@@ -606,17 +640,22 @@ function OnboardingKickoffCockpit({
             <p className="phase-home-clear">Brief looks complete for this phase.</p>
           )}
         </div>
-        {topQuestions.length ? (
+        {totalQuestions ? (
           <div className="kickoff-block">
             <div className="section-heading">
               <h3>Open questions</h3>
               <button type="button" className="ghost-button" onClick={() => onNavigate("onboarding", "questions")}>
-                all {snapshot.openQuestions.length} →
+                all {totalQuestions} →
               </button>
             </div>
-            <ul className="phase-home-questions">
-              {topQuestions.map((q) => <li key={q.id}>{q.title}</li>)}
-            </ul>
+            <p className="cockpit-q-count">Showing {relQuestions.length} onboarding-relevant · {totalQuestions} total</p>
+            {topQuestions.length ? (
+              <ul className="phase-home-questions">
+                {topQuestions.map((q) => <li key={q.id}>{q.title}</li>)}
+              </ul>
+            ) : (
+              <p className="phase-home-clear">No onboarding-relevant open questions — see all in Triage.</p>
+            )}
           </div>
         ) : null}
         <p className="kickoff-next"><strong>Next:</strong> {model.next}</p>
@@ -665,6 +704,31 @@ function OnboardingKickoffCockpit({
   );
 }
 
+// Spec 773 polish — persistent project-goal chip in the header, visible in EVERY phase
+// (the goal is the spine of a goal-driven workflow). Falls back to a capture prompt that
+// routes to Onboarding when no goal is set yet.
+function GoalChip({ profile, onCapture }: {
+  profile: WorkspaceUiSnapshot["projectProfile"];
+  onCapture: () => void;
+}) {
+  const goal = profile?.mission || profile?.goalType;
+  if (goal) {
+    return (
+      <div className="goal-chip" title={profile?.strategy || goal}>
+        <span className="goal-chip-label">Goal</span>
+        <span className="goal-chip-value">{goal}</span>
+        {profile?.goalType && profile?.mission ? <span className="goal-chip-type">{profile.goalType}</span> : null}
+      </div>
+    );
+  }
+  return (
+    <button type="button" className="goal-chip goal-chip-empty" onClick={onCapture} title="Capture the project goal in Onboarding">
+      <span className="goal-chip-label">Goal</span>
+      <span className="goal-chip-value">not captured — capture in Onboarding →</span>
+    </button>
+  );
+}
+
 function PhaseHomePanel({
   phase,
   snapshot,
@@ -692,7 +756,11 @@ function PhaseHomePanel({
   }
   const model = phaseHomeModel(phase, snapshot);
   if (!model) return null;
-  const topQuestions = snapshot.openQuestions.slice(0, 4);
+  const relQuestions = phaseQuestions(snapshot, phase);
+  const topQuestions = relQuestions.slice(0, 4);
+  const totalQuestions = snapshot.openQuestions.length;
+  const availableTools = model.tools.filter((tool) => cockpitToolAvailable(snapshot, tool.tab));
+  const knownGroups = Array.from(new Set(model.known.map((fact) => fact.group).filter(Boolean))) as string[];
   return (
     <div className="phase-home">
       <div className="panel-card phase-home-intro">
@@ -703,15 +771,32 @@ function PhaseHomePanel({
       <div className="phase-home-grid">
         <div className="panel-card">
           <div className="section-heading"><h2>Known</h2></div>
-          <div className="phase-home-facts">
-            {model.known.map((fact) => (
-              <div key={fact.label} className="phase-home-fact">
-                <span className={fact.ok ? "phase-home-dot ok" : "phase-home-dot"} />
-                <span className="phase-home-fact-label">{fact.label}</span>
-                <span className="phase-home-fact-value">{fact.value}</span>
+          {knownGroups.length ? (
+            knownGroups.map((groupLabel) => (
+              <div key={groupLabel} className="phase-home-known-group">
+                <div className="phase-home-group-label">{groupLabel}</div>
+                <div className="phase-home-facts">
+                  {model.known.filter((fact) => fact.group === groupLabel).map((fact) => (
+                    <div key={fact.label} className="phase-home-fact">
+                      <span className={fact.ok ? "phase-home-dot ok" : "phase-home-dot"} />
+                      <span className="phase-home-fact-label">{fact.label}</span>
+                      <span className="phase-home-fact-value">{fact.value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
-          </div>
+            ))
+          ) : (
+            <div className="phase-home-facts">
+              {model.known.map((fact) => (
+                <div key={fact.label} className="phase-home-fact">
+                  <span className={fact.ok ? "phase-home-dot ok" : "phase-home-dot"} />
+                  <span className="phase-home-fact-label">{fact.label}</span>
+                  <span className="phase-home-fact-value">{fact.value}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="panel-card">
@@ -730,7 +815,7 @@ function PhaseHomePanel({
         <div className="section-heading"><h2>Next action</h2></div>
         <p>{model.next}</p>
         <div className="phase-home-tools">
-          {model.tools.map((tool) => (
+          {availableTools.map((tool) => (
             <button key={tool.label} type="button" className="tab-button" onClick={() => onNavigate(tool.phase, tool.tab)}>
               {tool.label}
             </button>
@@ -738,17 +823,22 @@ function PhaseHomePanel({
         </div>
       </div>
 
-      {topQuestions.length ? (
+      {totalQuestions ? (
         <div className="panel-card">
           <div className="section-heading">
             <h2>Open questions</h2>
             <button type="button" className="ghost-button" onClick={() => onNavigate(phase, "questions")}>
-              all {snapshot.openQuestions.length} →
+              all {totalQuestions} →
             </button>
           </div>
-          <ul className="phase-home-questions">
-            {topQuestions.map((q) => <li key={q.id}>{q.title}</li>)}
-          </ul>
+          <p className="cockpit-q-count">Showing {relQuestions.length} {PHASE_LABELS[phase].toLowerCase()}-relevant · {totalQuestions} total</p>
+          {topQuestions.length ? (
+            <ul className="phase-home-questions">
+              {topQuestions.map((q) => <li key={q.id}>{q.title}</li>)}
+            </ul>
+          ) : (
+            <p className="phase-home-clear">No {PHASE_LABELS[phase].toLowerCase()}-relevant open questions — see all in Triage.</p>
+          )}
         </div>
       ) : null}
     </div>
@@ -5240,6 +5330,18 @@ export function App() {
     }
   }, [activeTab, visibleTabs]);
 
+  // Spec 773 polish — in Reverse Engineering the CORE RE tools lead the strip; the
+  // carried-over Discovery tools (Disk/Payloads/Memory) trail so they don't push
+  // Listing/Flow/Scrub to the far right. Other phases keep the natural allTabs order.
+  const RE_TAB_PRIMACY: TabId[] = ["home", "live", "docs", "listing", "flow", "scrub", "graphics", "disk", "payloads", "memory"];
+  const orderedTabs = activePhase === "re"
+    ? [...visibleTabs].sort((a, b) => {
+        const ia = RE_TAB_PRIMACY.indexOf(a.id);
+        const ib = RE_TAB_PRIMACY.indexOf(b.id);
+        return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+      })
+    : visibleTabs;
+
   // Spec 773 — on first project load, land on the recommended lifecycle phase
   // (derived from workflow state). One-shot: never override the user's navigation.
   useEffect(() => {
@@ -5407,6 +5509,7 @@ export function App() {
               <span className="hero-name">{snapshot?.project.name ?? "Project"}</span>
               <span className="hero-brand">C64RE · by DKL/TREX</span>
             </div>
+            {snapshot ? <GoalChip profile={snapshot.projectProfile} onCapture={() => handlePhaseChange("onboarding")} /> : null}
           </header>
 
       {error ? <div className="error-banner">{error}</div> : null}
@@ -5416,9 +5519,9 @@ export function App() {
           <div className="panel-card empty-state">{loading ? "Loading workspace snapshot..." : "No snapshot loaded."}</div>
         </main>
       ) : (
-        <main className={activeTab === "docs" || activeTab === "live" ? "app-main-grid docs-mode" : "app-main-grid"}>
+        <main className={activeTab === "docs" || activeTab === "live" || activeTab === "home" ? "app-main-grid docs-mode" : "app-main-grid"}>
           <nav className="tab-strip" aria-label="Workspace views">
-            {visibleTabs.map((tab) => (
+            {orderedTabs.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
@@ -5624,7 +5727,7 @@ export function App() {
                 widget folds into the Dashboard. */}
           </section>
 
-          {activeTab !== "docs" && activeTab !== "live" ? (
+          {activeTab !== "docs" && activeTab !== "live" && activeTab !== "home" ? (
             <aside className="workspace-side">
               {selectedCartChunk ? (
                 <CartChunkInspector

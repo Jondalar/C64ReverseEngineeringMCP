@@ -163,6 +163,28 @@ peers; every phase lands on its own cockpit; Disk/Cartridge first-class in Disco
 Questions functionality intact as Triage; Dashboard reduced to Project Health; 0 console
 errors.
 
+## Simplification loop (post-restructure polish, no architecture change)
+
+Removed remaining old-app friction so the cockpits read cleanly before Build/Release writes:
+
+- **Phase-aware question glance.** The cockpit question list is filtered by a simple,
+  transparent kind/title keyword heuristic per phase (`questionMatchesPhase`); it shows
+  "Showing X <phase>-relevant · Y total" and, when zero, points to Triage. Onboarding no
+  longer floods with 570 RE-validation questions. The Triage utility is unchanged (all
+  questions, full filters/sort/bulk).
+- **Persistent goal chip.** A compact "Goal: …" chip in the header (mission/goalType) is
+  visible in every phase; when unset it routes to Onboarding to capture it.
+- **No dead tool buttons.** Cockpit tool links are filtered by availability
+  (`cockpitToolAvailable`) — e.g. Cartridge is hidden on a disk-only project (and Disk on a
+  cart-only project) rather than silently no-op'ing.
+- **Inspector hidden on the phase cockpit (`home`).** The right Inspector column is dropped
+  on Overview/cockpit views (empty there) so the cockpit uses the full width; it still
+  shows on tool tabs where a selection exists.
+- **RE tool primacy.** In Reverse Engineering the strip leads with Annotated Listing / Flow
+  / Scrub / Graphics; carried-over Discovery tools (Disk/Payloads/Memory) trail.
+- **RE Known split** into "Interpretation (C64RE)" vs "Evidence (TRX64)" — reinforces the
+  Leitregel Capability→TRX64, Meaning/Memory→C64RE.
+
 ## Scope / non-goals
 
 Thin lifecycle axis + crosswalk + phase cockpit + Onboarding/Build/Release surfaces over

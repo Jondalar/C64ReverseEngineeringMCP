@@ -146,6 +146,38 @@ button {
   margin-bottom: 0.35rem;
 }
 .phase-home-intent { margin: 0; color: var(--muted, #9aa4b2); line-height: 1.5; }
+
+/* Spec 773 polish — cockpit question-glance count line + grouped Known facts +
+   persistent header goal chip. */
+.cockpit-q-count { margin: 0 0 0.5rem; font-size: 0.72rem; color: var(--muted, #9aa4b2); }
+.phase-home-known-group + .phase-home-known-group { margin-top: 0.8rem; }
+.phase-home-group-label {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted, #9aa4b2); margin-bottom: 0.4rem; opacity: 0.85;
+}
+.goal-chip {
+  margin-left: auto;
+  display: inline-flex; align-items: baseline; gap: 0.5rem;
+  max-width: 46vw;
+  padding: 0.28rem 0.7rem; border-radius: 8px;
+  background: rgba(108, 92, 231, 0.1); border: 1px solid rgba(108, 92, 231, 0.35);
+  font-size: 0.8rem;
+}
+.goal-chip-label {
+  font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: #a99cff; flex: none;
+}
+.goal-chip-value {
+  color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.goal-chip-type {
+  flex: none; font-size: 0.66rem; color: var(--muted, #9aa4b2);
+  border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 5px; padding: 0.02rem 0.35rem;
+}
+.goal-chip-empty { cursor: pointer; color: var(--muted, #9aa4b2); }
+.goal-chip-empty:hover { border-color: rgba(108, 92, 231, 0.6); }
+.goal-chip-empty .goal-chip-value { color: #fbbf24; white-space: normal; }
+
 .phase-home-grid {
   display: grid;
   gap: 1rem;
