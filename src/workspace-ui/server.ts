@@ -714,6 +714,8 @@ const server = createServer((req, res) => {
           complexity?: string;
           workflow?: string;
           goals?: string[];
+          assumptions?: string[];
+          team?: Array<{ role: string; label: string; status: string; why: string; source?: string }>;
         };
         const projectDir = payload.projectDir ?? options.projectDir;
         const service = new ProjectKnowledgeService(projectDir);
@@ -725,6 +727,8 @@ const server = createServer((req, res) => {
         if (payload.complexity !== undefined) patch.complexity = payload.complexity;
         if (payload.workflow !== undefined) patch.workflow = payload.workflow;
         if (payload.goals !== undefined) patch.goals = payload.goals;
+        if (payload.assumptions !== undefined) patch.assumptions = payload.assumptions;
+        if (payload.team !== undefined) patch.team = payload.team;
         const profile = service.saveProjectProfile(patch as never);
         send(res, jsonResponse(200, { profile }));
       } catch (error) {

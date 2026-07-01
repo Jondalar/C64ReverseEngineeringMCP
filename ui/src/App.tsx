@@ -40,6 +40,7 @@ import type {
   ProjectAuditFinding,
   ProjectRepairOperation,
   ProjectRepairResponse,
+  ProjectTeamMember,
   RelationRecord,
   WorkspaceUiSnapshot,
 } from "./types";
@@ -347,17 +348,291 @@ function OnboardingGoalForm({
   );
 }
 
+// Spec 773 Onboarding redirect — rule-based SUGGESTED agent team, derived from the
+// captured goal + media. Shown only until the harness persists a team via
+// saveProjectProfile (profile.team[]); the persisted team then wins.
+const TEAM_ROLE_LABELS: Record<ProjectTeamMember["role"], string> = {
+  "re-lead": "RE Lead / Orchestrator",
+  "runtime-forensics": "Runtime Forensics (TRX64)",
+  "media-cartographer": "Media Cartographer",
+  "loader-packer": "Loader / Packer Analyst",
+  "semantic-annotator": "Semantic RE Annotator",
+  "build-engineer": "Build / Transformation Engineer",
+  "qa-release": "QA / Release",
+};
+
+function suggestedTeam(snapshot: WorkspaceUiSnapshot): ProjectTeamMember[] {
+  const goalType = (snapshot.projectProfile?.goalType ?? "").toLowerCase();
+  const hasDisk = snapshot.views.diskLayout.disks.length > 0;
+  const hasCart = snapshot.views.cartridgeLayout.cartridges.length > 0;
+  const hasMedia = hasDisk || hasCart || snapshot.artifacts.some((a) => a.kind === "prg");
+  const docsOnly = /doc/.test(goalType);
+  const wantsBuild = /port|loader|enhanc|cheat|train|bug|fix|crack/.test(goalType);
+  const loaderFocus = /loader|port|crack/.test(goalType) || hasDisk || hasCart;
+  const mk = (
+    role: ProjectTeamMember["role"],
+    status: ProjectTeamMember["status"],
+    why: string,
+  ): ProjectTeamMember => ({ role, label: TEAM_ROLE_LABELS[role], status, why, source: "suggested" });
+  return [
+    mk("re-lead", "active", "Drives the workflow, owns the brief and the decisions."),
+    mk("runtime-forensics", "active", "Boots the title in TRX64 to observe behaviour and gather runtime evidence."),
+    mk(
+      "media-cartographer",
+      hasMedia ? "active" : "planned",
+      hasMedia ? "Inventories the disk / CRT / payload layout." : "Maps the medium once input is registered.",
+    ),
+    mk("loader-packer", loaderFocus ? "active" : "planned", "Analyses the loader / packer / depacker chain."),
+    mk("semantic-annotator", "planned", "Names routines and classifies payloads during Reverse Engineering."),
+    mk(
+      "build-engineer",
+      docsOnly ? "not-needed" : wantsBuild ? "planned" : "later",
+      docsOnly ? "No build output needed for a documentation goal." : "Assembles the modified medium / loader / feature in Build.",
+    ),
+    mk("qa-release", "later", "Runs local QA and packages the release near the end."),
+  ];
+}
+
+function resolveTeam(snapshot: WorkspaceUiSnapshot): {
+  members: ProjectTeamMember[];
+  source: "suggested" | "agent-authored";
+} {
+  const persisted = snapshot.projectProfile?.team ?? [];
+  if (persisted.length) return { members: persisted, source: "agent-authored" };
+  return { members: suggestedTeam(snapshot), source: "suggested" };
+}
+
+// A ready-to-paste prompt that starts the onboarding dialogue in the attached coding
+// agent (Claude Code / Codex). The conversation + reasoning live in the harness; C64RE
+// only records + visualizes the resulting brief. Pure template — no LLM in the WebUI.
+function buildKickoffPrompt(snapshot: WorkspaceUiSnapshot): string {
+  const name = snapshot.project.name;
+  const disks = snapshot.views.diskLayout.disks.length;
+  const carts = snapshot.views.cartridgeLayout.cartridges.length;
+  const prgs = snapshot.artifacts.filter((a) => a.kind === "prg").length;
+  const media =
+    [disks ? `${disks} disk` : "", carts ? `${carts} cart` : "", prgs ? `${prgs} PRG` : ""]
+      .filter(Boolean)
+      .join(", ") || "none registered yet";
+  const profile = snapshot.projectProfile;
+  const goal = profile?.mission || profile?.goalType || "not captured yet";
+  const workflow = profile?.workflow || "not selected";
+  return [
+    `You are the C64RE lead agent for the reverse-engineering project "${name}".`,
+    `Runtime backend: TRX64. Persist everything through the C64RE MCP tools`,
+    `(save_project_profile, save_open_question, save_finding, save_entity) — do not keep it only in chat.`,
+    ``,
+    `Project state so far:`,
+    `- Input media: ${media}`,
+    `- Goal: ${goal}`,
+    `- Workflow profile: ${workflow}`,
+    `- Open questions: ${snapshot.openQuestions.length}`,
+    ``,
+    `Run a kickoff conversation with me to build the Project Brief. Ask ONE question at a time:`,
+    `1. What do we want to achieve with this title? (port / cheat-trainer / enhancement / loader-replacement / bugfix / documentation / other — free text)`,
+    `2. Should we first play/watch it together in TRX64 (the Live tab)?`,
+    `3. What makes this game/project interesting or risky?`,
+    `4. What output counts as success?`,
+    ``,
+    `As we go, capture goalType, mission, strategy, complexity and assumptions into the`,
+    `project profile. Then propose a BMAD-style agent team (re-lead, runtime-forensics,`,
+    `media-cartographer, loader-packer, semantic-annotator, build-engineer, qa-release) —`,
+    `which are active now, which planned later, and why — and persist it via`,
+    `save_project_profile (profile.team[], source "agent-authored").`,
+  ].join("\n");
+}
+
+// Spec 773 Onboarding redirect — the Kickoff Cockpit. ONE guided surface (not a
+// dashboard of equal cards): harness note + kickoff prompt, then Project Brief, then
+// Agent Team, then Play/Watch, and finally the editable summary form (collapsed). The
+// onboarding CONVERSATION happens in the coding-agent harness via MCP; this cockpit
+// records + visualizes the resulting brief. No LLM / chat in the WebUI.
+function OnboardingKickoffCockpit({
+  snapshot,
+  onNavigate,
+  onSaveGoal,
+  onRefresh,
+}: {
+  snapshot: WorkspaceUiSnapshot;
+  onNavigate: (phase: Phase, tab: TabId) => void;
+  onSaveGoal: (patch: Record<string, unknown>) => Promise<void>;
+  onRefresh: () => Promise<void>;
+}) {
+  const model = phaseHomeModel("onboarding", snapshot);
+  const profile = snapshot.projectProfile;
+  const team = resolveTeam(snapshot);
+  const assumptions = profile?.assumptions ?? [];
+  const topQuestions = snapshot.openQuestions.slice(0, 5);
+  const [copied, setCopied] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const kickoffPrompt = buildKickoffPrompt(snapshot);
+
+  async function copyPrompt() {
+    try {
+      await navigator.clipboard.writeText(kickoffPrompt);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  async function refresh() {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  if (!model) return null;
+
+  return (
+    <div className="kickoff">
+      {/* 1 — Harness dialogue note + kickoff prompt affordance (primary) */}
+      <div className="panel-card kickoff-harness">
+        <div className="kickoff-harness-head">
+          <span className="kickoff-badge">Kickoff</span>
+          <p className="kickoff-harness-note">
+            The onboarding conversation runs in your coding agent (Claude&nbsp;Code / Codex) via MCP —
+            C64RE records &amp; visualizes the resulting brief. This is a cockpit, not a chat.
+          </p>
+        </div>
+        <div className="kickoff-actions">
+          <button type="button" className="primary-button" onClick={copyPrompt}>
+            {copied ? "Copied ✓" : "Copy kickoff prompt"}
+          </button>
+          <button type="button" className="tab-button" onClick={refresh} disabled={refreshing}>
+            {refreshing ? "Refreshing…" : "Refresh state"}
+          </button>
+          <button type="button" className="tab-button" onClick={() => onNavigate("onboarding", "live")}>
+            Open Live ▸ Play / Watch
+          </button>
+        </div>
+        <details className="kickoff-prompt-preview">
+          <summary>Preview kickoff prompt</summary>
+          <pre>{kickoffPrompt}</pre>
+        </details>
+      </div>
+
+      {/* 2 — Project Brief */}
+      <div className="panel-card kickoff-brief">
+        <div className="section-heading">
+          <h2>Project Brief</h2>
+          <span className="kickoff-sub">assembled from project state</span>
+        </div>
+        <div className="phase-home-facts">
+          {model.known.map((fact) => (
+            <div key={fact.label} className="phase-home-fact">
+              <span className={fact.ok ? "phase-home-dot ok" : "phase-home-dot"} />
+              <span className="phase-home-fact-label">{fact.label}</span>
+              <span className="phase-home-fact-value">{fact.value}</span>
+            </div>
+          ))}
+        </div>
+        {assumptions.length ? (
+          <div className="kickoff-block">
+            <h3>Assumptions</h3>
+            <ul className="phase-home-questions">
+              {assumptions.map((a) => <li key={a}>{a}</li>)}
+            </ul>
+          </div>
+        ) : null}
+        <div className="kickoff-block">
+          <h3>Open / needed</h3>
+          {model.missing.length ? (
+            <ul className="phase-home-missing">
+              {model.missing.map((m) => <li key={m}>{m}</li>)}
+            </ul>
+          ) : (
+            <p className="phase-home-clear">Brief looks complete for this phase.</p>
+          )}
+        </div>
+        {topQuestions.length ? (
+          <div className="kickoff-block">
+            <div className="section-heading">
+              <h3>Open questions</h3>
+              <button type="button" className="ghost-button" onClick={() => onNavigate("onboarding", "questions")}>
+                all {snapshot.openQuestions.length} →
+              </button>
+            </div>
+            <ul className="phase-home-questions">
+              {topQuestions.map((q) => <li key={q.id}>{q.title}</li>)}
+            </ul>
+          </div>
+        ) : null}
+        <p className="kickoff-next"><strong>Next:</strong> {model.next}</p>
+      </div>
+
+      {/* 3 — Agent Team */}
+      <div className="panel-card kickoff-team">
+        <div className="section-heading">
+          <h2>Agent team</h2>
+          <span className="kickoff-sub">
+            {team.source === "agent-authored" ? "selected by harness" : "suggested — the harness can override via MCP"}
+          </span>
+        </div>
+        <div className="kickoff-team-list">
+          {team.members.map((m) => (
+            <div key={m.role} className={`kickoff-team-member s-${m.status}`}>
+              <div className="kickoff-team-head">
+                <span className="kickoff-team-label">{m.label}</span>
+                <span className={`kickoff-team-status st-${m.status}`}>{m.status}</span>
+                {m.source === "suggested" ? <span className="kickoff-team-tag">suggested</span> : null}
+              </div>
+              <p className="kickoff-team-why">{m.why}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 4 — Play / Watch with TRX64 */}
+      <div className="panel-card kickoff-playwatch">
+        <div className="section-heading"><h2>Play / Watch with TRX64</h2></div>
+        <p className="kickoff-playwatch-note">
+          Boot the title in the TRX64 runtime to form a first complexity impression and capture
+          screenshots / traces / observations — then feed them back into the brief.
+        </p>
+        <button type="button" className="primary-button" onClick={() => onNavigate("onboarding", "live")}>
+          Open Live ▸
+        </button>
+      </div>
+
+      {/* 5 — Editable summary form (secondary, collapsed) */}
+      <details className="kickoff-form-wrap">
+        <summary>Editable brief summary (manual override)</summary>
+        <OnboardingGoalForm profile={profile} onSave={onSaveGoal} />
+      </details>
+    </div>
+  );
+}
+
 function PhaseHomePanel({
   phase,
   snapshot,
   onNavigate,
   onSaveGoal,
+  onRefresh,
 }: {
   phase: Phase;
   snapshot: WorkspaceUiSnapshot;
   onNavigate: (phase: Phase, tab: TabId) => void;
   onSaveGoal: (patch: Record<string, unknown>) => Promise<void>;
+  onRefresh: () => Promise<void>;
 }) {
+  // Onboarding gets its dedicated dialogue-driven Kickoff Cockpit (Spec 773 redirect);
+  // Build/Release keep the generic phase-home layout below.
+  if (phase === "onboarding") {
+    return (
+      <OnboardingKickoffCockpit
+        snapshot={snapshot}
+        onNavigate={onNavigate}
+        onSaveGoal={onSaveGoal}
+        onRefresh={onRefresh}
+      />
+    );
+  }
   const model = phaseHomeModel(phase, snapshot);
   if (!model) return null;
   const topQuestions = snapshot.openQuestions.slice(0, 4);
@@ -367,8 +642,6 @@ function PhaseHomePanel({
         <div className="phase-home-title">{PHASE_LABELS[phase]}</div>
         <p className="phase-home-intent">{model.intent}</p>
       </div>
-
-      {phase === "onboarding" ? <OnboardingGoalForm profile={snapshot.projectProfile} onSave={onSaveGoal} /> : null}
 
       <div className="phase-home-grid">
         <div className="panel-card">
@@ -5140,6 +5413,7 @@ export function App() {
                   handleOpenTab(nextTab);
                 }}
                 onSaveGoal={handleSaveGoal}
+                onRefresh={async () => { await loadWorkspace(snapshot.project.rootPath); }}
               />
             ) : null}
             {activeTab === "live" ? (

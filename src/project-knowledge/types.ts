@@ -183,6 +183,28 @@ export const ArtifactRecordSchema = z.object({
 // Container sub-entry (Spec 025 R23 fold-in). A disk file may contain
 // named subentries that are not separate BAM/LUT files. Each sub-entry
 // is also represented as a normal artifact via derivedFrom = parentId.
+// Spec 773 Onboarding redirect — a BMAD-style agent-team member. `source`
+// distinguishes a UI rule-based SUGGESTION from a harness/agent-authored
+// selection; once the harness persists a team here, the persisted team is the
+// source of truth (the UI stops showing its suggestion). Persisted via the
+// existing project-profile write path — no parallel store.
+export const TeamMemberSchema = z.object({
+  role: z.enum([
+    "re-lead",
+    "runtime-forensics",
+    "media-cartographer",
+    "loader-packer",
+    "semantic-annotator",
+    "build-engineer",
+    "qa-release",
+  ]),
+  label: z.string(),
+  status: z.enum(["active", "planned", "later", "not-needed"]),
+  why: z.string(),
+  source: z.enum(["suggested", "agent-authored"]).optional(),
+});
+export type TeamMember = z.infer<typeof TeamMemberSchema>;
+
 // Spec 026 project profile: structured project-specific bootstrap.
 export const ProjectProfileSchema = z.object({
   goals: z.array(z.string()).default([]),
@@ -196,6 +218,11 @@ export const ProjectProfileSchema = z.object({
   mission: z.string().optional(),
   strategy: z.string().optional(),
   complexity: z.string().optional(),
+  // Spec 773 Onboarding redirect — kickoff brief extras. `assumptions` = working
+  // assumptions gathered during the harness kickoff dialogue; `team` = the
+  // selected BMAD-style agent team (empty ⇒ the UI shows a rule-based suggestion).
+  assumptions: z.array(z.string()).default([]),
+  team: z.array(TeamMemberSchema).default([]),
   hardwareConstraints: z.array(z.object({
     resource: z.string(),
     constraint: z.string(),

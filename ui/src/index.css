@@ -269,6 +269,74 @@ button {
   .goal-form-grid { grid-template-columns: 1fr; }
 }
 
+/* Spec 773 Onboarding redirect — the Kickoff Cockpit. ONE guided vertical surface
+   (harness note → brief → team → play/watch → collapsed form), NOT a card grid. */
+.kickoff { display: grid; gap: 1rem; align-content: start; max-width: 920px; }
+.kickoff h3 { margin: 0 0 0.5rem; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted, #9aa4b2); }
+.kickoff-sub { font-size: 0.72rem; color: var(--muted, #9aa4b2); }
+.kickoff-block { margin-top: 0.9rem; }
+
+/* 1 — harness note + kickoff prompt (primary) */
+.kickoff-harness { border-color: rgba(108, 92, 231, 0.45); background: rgba(108, 92, 231, 0.06); }
+.kickoff-harness-head { display: flex; gap: 0.7rem; align-items: flex-start; }
+.kickoff-badge {
+  flex: none; align-self: flex-start;
+  background: rgba(108, 92, 231, 0.9); color: #fff;
+  font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 0.2rem 0.5rem; border-radius: 6px;
+}
+.kickoff-harness-note { margin: 0; color: var(--ink); line-height: 1.5; }
+.kickoff-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.9rem; }
+.kickoff-prompt-preview { margin-top: 0.8rem; font-size: 0.8rem; color: var(--muted, #9aa4b2); }
+.kickoff-prompt-preview summary { cursor: pointer; }
+.kickoff-prompt-preview pre {
+  margin: 0.6rem 0 0; padding: 0.8rem; border-radius: 8px;
+  background: rgba(8, 18, 29, 0.8); border: 1px solid rgba(92, 92, 128, 0.28);
+  color: var(--ink); white-space: pre-wrap; font-size: 0.78rem; line-height: 1.5;
+}
+
+/* 2 — brief */
+.kickoff-next { margin: 0.9rem 0 0; color: var(--ink); line-height: 1.5; }
+
+/* 3 — agent team */
+.kickoff-team-list { display: grid; gap: 0.6rem; }
+.kickoff-team-member {
+  padding: 0.7rem 0.8rem; border-radius: 8px;
+  background: rgba(8, 18, 29, 0.5); border: 1px solid rgba(92, 92, 128, 0.2);
+  border-left: 3px solid rgba(92, 92, 128, 0.4);
+}
+.kickoff-team-member.s-active { border-left-color: #4ade80; }
+.kickoff-team-member.s-planned { border-left-color: #60a5fa; }
+.kickoff-team-member.s-later { border-left-color: #fbbf24; }
+.kickoff-team-member.s-not-needed { border-left-color: rgba(148, 163, 184, 0.4); opacity: 0.6; }
+.kickoff-team-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.kickoff-team-label { font-weight: 600; color: var(--ink); }
+.kickoff-team-status {
+  font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 0.1rem 0.4rem; border-radius: 5px; border: 1px solid transparent;
+}
+.kickoff-team-status.st-active { color: #4ade80; border-color: rgba(74, 222, 128, 0.4); }
+.kickoff-team-status.st-planned { color: #60a5fa; border-color: rgba(96, 165, 250, 0.4); }
+.kickoff-team-status.st-later { color: #fbbf24; border-color: rgba(251, 191, 36, 0.4); }
+.kickoff-team-status.st-not-needed { color: var(--muted, #9aa4b2); border-color: rgba(148, 163, 184, 0.3); }
+.kickoff-team-tag {
+  font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted, #9aa4b2); border: 1px dashed rgba(148, 163, 184, 0.4);
+  padding: 0.05rem 0.35rem; border-radius: 5px;
+}
+.kickoff-team-why { margin: 0.35rem 0 0; color: var(--muted, #9aa4b2); font-size: 0.85rem; line-height: 1.45; }
+
+/* 4 — play/watch */
+.kickoff-playwatch-note { margin: 0 0 0.9rem; color: var(--muted, #9aa4b2); line-height: 1.5; }
+
+/* 5 — editable summary form (secondary/collapsed) */
+.kickoff-form-wrap {
+  border: 1px dashed rgba(92, 92, 128, 0.3); border-radius: 10px;
+  padding: 0.7rem 0.9rem; background: rgba(8, 18, 29, 0.25);
+}
+.kickoff-form-wrap > summary { cursor: pointer; color: var(--muted, #9aa4b2); font-size: 0.85rem; }
+.kickoff-form-wrap .goal-form { border: none; background: transparent; padding: 0.6rem 0 0; margin-top: 0.4rem; }
+
 .hero-copy {
   /* Two columns: title block (eyebrow + h1) stays LEFT; the metric tiles +
      meta-line go to the RIGHT edge, compact. */

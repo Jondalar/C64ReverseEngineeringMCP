@@ -510,6 +510,40 @@ export interface ArtifactVersionGroup {
   updatedAt: string;
 }
 
+// Spec 773 — the captured project brief the Onboarding cockpit reads. The full
+// profile lives server-side (ProjectProfileSchema); this mirrors the subset the
+// UI consumes. Written back only via the existing project-profile write path.
+export interface ProjectTeamMember {
+  role:
+    | "re-lead"
+    | "runtime-forensics"
+    | "media-cartographer"
+    | "loader-packer"
+    | "semantic-annotator"
+    | "build-engineer"
+    | "qa-release";
+  label: string;
+  status: "active" | "planned" | "later" | "not-needed";
+  why: string;
+  source?: "suggested" | "agent-authored";
+}
+
+export interface ProjectProfileBrief {
+  goals?: string[];
+  goalType?: string;
+  mission?: string;
+  strategy?: string;
+  complexity?: string;
+  workflow?: string;
+  loaderModel?: string;
+  build?: { command: string };
+  test?: { command: string };
+  assumptions?: string[];
+  team?: ProjectTeamMember[];
+}
+
+export type LifecyclePhaseId = "onboarding" | "discovery" | "re" | "build" | "release";
+
 export interface WorkspaceUiSnapshot {
   generatedAt: string;
   project: ProjectMetadata;
@@ -534,6 +568,9 @@ export interface WorkspaceUiSnapshot {
     loadSequence: LoadSequenceView;
     flowGraph: FlowGraphView;
   };
+  // Spec 773 — derived recommended lifecycle phase + captured project brief.
+  lifecyclePhase?: LifecyclePhaseId;
+  projectProfile?: ProjectProfileBrief;
 }
 
 export type ProjectAuditSeverity = "ok" | "low" | "medium" | "high";

@@ -71,12 +71,11 @@ capture, Build assembly, Release packaging (thin, over existing primitives).
   Build / Release — intent (JTBD), known facts from existing state, missing/blockers,
   phase-relevant open questions, a concrete NEXT ACTION, and tool/evidence links. READ-ONLY:
   sparse state yields next-action guidance, never an empty box. No new write paths.
-- **Loop 4:** controlled Onboarding writes — goal capture becomes first-class (goal type:
-  EF port / cheat-trainer / enhancement / loader-replacement / bugfix / documentation /
-  other; short mission statement; strategy notes; optional complexity impression from
-  play/watch; suggested/selected workflow profile). Persist via the existing project/profile/
-  MCP contract (`save_project_profile`) — no parallel store. Document the contract first,
-  implement narrowly, Chrome-test.
+- **Loop 4:** controlled Onboarding writes — goal capture (goal type / mission / strategy /
+  complexity / workflow) via the existing project/profile/MCP contract
+  (`save_project_profile`), no parallel store. **DONE, then redirected:** a static form is
+  not onboarding. Superseded by the **Onboarding Kickoff Cockpit** (see below) — the form
+  survives only as a collapsed editable summary.
 - **Loop 5:** controlled Build planning writes — target medium, transformation/loader
   strategy, feature/patch plan, validation criteria. No direct build execution unless the
   backend contract is already solid.
@@ -87,33 +86,53 @@ capture, Build assembly, Release packaging (thin, over existing primitives).
 + testable; no ambiguous MVP hole. Write-path work documents the contract, implements
 narrowly, and Chrome-tests the UI.
 
-## Loop 4 write contract (goal capture) — contract-first
+## Onboarding Kickoff Cockpit (redirect of Loop 4) — contract-first
 
-The first controlled UI write. Persists through the EXISTING project-profile / MCP
-contract (`ProjectKnowledgeService.saveProjectProfile`, backed by
-`save_project_profile`) — NO parallel store.
+**Product boundary (binding).** C64RE must NOT become a second LLM runtime or
+agent-network product. Layer split: the attached coding-agent harness (Claude Code /
+Codex) owns the conversation + reasoning + BMAD-loop + tool calls; **C64RE = durable
+project memory (MCP) + workflow state + UI cockpit; TRX64 = forensic runtime.** The
+onboarding dialogue happens in the harness via MCP — there is **no LLM / chat in the
+WebUI**. Framing: *"The form is the artifact. The onboarding conversation happens in the
+attached agent harness; C64RE records and visualizes the resulting brief, decisions,
+questions, team, and evidence."*
 
-**Model (extend `ProjectProfileSchema`, all optional, additive):**
-- `goalType`: FREE string (any RE goal the LLM/human expresses). The UI offers common
-  ones — EasyFlash port / cheat-trainer / enhancement / loader-replacement / bugfix /
-  documentation — as datalist SUGGESTIONS only; it is never an enforced enum.
-- `mission`: short one-line mission statement
-- `strategy`: free-text strategy notes
-- `complexity`: optional impression from human+LLM play/watch
-- (reuse existing `workflow` enum as the suggested/selected analysis profile; `goals[]` stays)
+**Onboarding UI = a Kickoff Cockpit, not a chat app and not a dashboard of equal cards.**
+ONE guided vertical surface, in this priority order:
+1. Harness dialogue note + **kickoff-prompt affordance** (Copy kickoff prompt / Refresh
+   state / Open Live).
+2. **Project Brief** — mission / goal type / workflow / media readiness / assumptions /
+   open questions / next recommended action (all read from the snapshot).
+3. **Agent Team** (BMAD-style, C64-adapted).
+4. **Play / Watch with TRX64** — first-class entry to Live.
+5. **Editable summary form** — the Loop-4 form, secondary / collapsed.
 
-**Server endpoint (narrow, the one new write route):** `POST /api/project/profile`
-- body: `{ goalType?, mission?, strategy?, complexity?, workflow?, goals? }` (a `Partial<ProjectProfile>` subset)
-- handler: validate → `service.saveProjectProfile(patch)` (merges onto existing) → return the updated profile.
-- This is the only write path added in Loop 4; reads stay on `/api/workspace`.
+**Model (extend `ProjectProfileSchema`, additive; persists via `saveProjectProfile` — the
+existing write path, NO new endpoint beyond the Loop-4 `POST /api/project/profile`):**
+- `goalType` (FREE string; UI offers common ones as datalist suggestions only), `mission`,
+  `strategy`, `complexity`, reuse `workflow` + `goals[]` (Loop 4).
+- `assumptions: string[]` — working assumptions gathered during the kickoff dialogue.
+- `team: TeamMember[]` where `TeamMember = { role: "re-lead" | "runtime-forensics" |
+  "media-cartographer" | "loader-packer" | "semantic-annotator" | "build-engineer" |
+  "qa-release", label, status: "active" | "planned" | "later" | "not-needed", why,
+  source?: "suggested" | "agent-authored" }`.
 
-**UI:** the Onboarding phase-home gains a goal-capture form (goal type select, mission,
-strategy, complexity, workflow) that POSTs the patch and reloads the snapshot. When a goal
-is already captured the phase-home shows it (Known) and the form pre-fills for edit. The
-agent path (`save_project_profile`) remains equally valid — same contract, no duplication.
+**Agent-team logic (decision c).** The UI derives a rule-based **suggested** team from
+`goalType` / `workflow` / media so the cockpit is never empty (each item `source:
+"suggested"`). Once the harness persists `profile.team[]` (via `saveProjectProfile`,
+`source: "agent-authored"`), the **persisted team wins** and the suggestion is dropped.
+Team display is read-only for now (a form can come later, not in this loop).
 
-**Verify:** Chrome — capture a goal in the UI → it persists (survives reload), the
-Onboarding "Known"/"Missing" update, and `/api/workspace` reflects the new profile.
+**Server:** the Loop-4 `POST /api/project/profile` whitelist gains `assumptions` + `team`.
+No new endpoint. Reads stay on `/api/workspace` (which already carries `projectProfile`).
+
+**Do NOT build (this loop):** embedded LLM chat, a new LLM backend endpoint, a worker
+queue, an autonomous agent scheduler, or Build/Release writes.
+
+**Verify:** Chrome — the Onboarding cockpit shows the 5 sections in priority order; the
+suggested team is marked "suggested"; POST a `team[]` through the existing write path →
+it shows as "selected by harness" (no suggested tags) and assumptions appear in the Brief;
+survives reload; `/api/workspace` reflects it; 0 console errors.
 
 ## Scope / non-goals
 

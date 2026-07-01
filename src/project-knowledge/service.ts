@@ -2079,6 +2079,7 @@ export class ProjectKnowledgeService {
     const existing = this.storage.loadProjectProfile() ?? {
       goals: [], nonGoals: [], hardwareConstraints: [], destructiveOperations: [],
       dangerZones: [], glossary: [], antiPatterns: [], crackerOverrides: [],
+      assumptions: [], team: [],
       updatedAt: nowIso(),
     };
     const merged: ProjectProfile = {
@@ -2106,6 +2107,9 @@ export class ProjectKnowledgeService {
       mission: patch.mission ?? existing.mission,
       strategy: patch.strategy ?? existing.strategy,
       complexity: patch.complexity ?? existing.complexity,
+      // Spec 773 Onboarding redirect — kickoff brief extras (assumptions + agent team).
+      assumptions: patch.assumptions ?? existing.assumptions ?? [],
+      team: patch.team ?? existing.team ?? [],
       updatedAt: nowIso(),
     };
     return this.storage.saveProjectProfile(merged);
