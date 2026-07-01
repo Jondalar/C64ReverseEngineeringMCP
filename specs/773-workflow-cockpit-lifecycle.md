@@ -76,9 +76,13 @@ capture, Build assembly, Release packaging (thin, over existing primitives).
   (`save_project_profile`), no parallel store. **DONE, then redirected:** a static form is
   not onboarding. Superseded by the **Onboarding Kickoff Cockpit** (see below) — the form
   survives only as a collapsed editable summary.
-- **Loop 5:** controlled Build planning writes — target medium, transformation/loader
-  strategy, feature/patch plan, validation criteria. No direct build execution unless the
-  backend contract is already solid.
+- **Loop 5 (DONE):** controlled Build **PLANNING** writes — `targetMedium`,
+  `transformStrategy`, `patchPlan`, `validationCriteria`, `buildBlocker` (5 additive optional
+  ProjectProfile strings), persisted via the existing `saveProjectProfile` path (same
+  `POST /api/project/profile`, no new endpoint). The Build cockpit gains a `BuildPlanForm`
+  and its Known/Missing/Next read the fields; empty-string reads as unset (`|| undefined`),
+  and the form sends trimmed values verbatim so a field (e.g. a resolved blocker) can be
+  cleared from the UI. NO build execution (the `build` execution config is untouched).
 - **Loop 6:** controlled Release/QA writes — local QA state, tester feedback, RC/final
   artifact refs, known issues / release notes.
 

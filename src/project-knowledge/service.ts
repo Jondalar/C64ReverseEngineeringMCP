@@ -2110,6 +2110,12 @@ export class ProjectKnowledgeService {
       // Spec 773 Onboarding redirect — kickoff brief extras (assumptions + agent team).
       assumptions: patch.assumptions ?? existing.assumptions ?? [],
       team: patch.team ?? existing.team ?? [],
+      // Spec 773 Loop 5 — Build planning fields.
+      targetMedium: patch.targetMedium ?? existing.targetMedium,
+      transformStrategy: patch.transformStrategy ?? existing.transformStrategy,
+      patchPlan: patch.patchPlan ?? existing.patchPlan,
+      validationCriteria: patch.validationCriteria ?? existing.validationCriteria,
+      buildBlocker: patch.buildBlocker ?? existing.buildBlocker,
       updatedAt: nowIso(),
     };
     return this.storage.saveProjectProfile(merged);

@@ -180,7 +180,7 @@ const PHASE_QUESTION_KEYWORDS: Record<Phase, string[]> = {
   onboarding: ["goal", "mission", "workflow", "scope", "approach", "strategy", "decide", "decision", "which title", "objective"],
   discovery: ["loader", "packer", "depack", "depacker", "media", "disk", "crt", "cartridge", "payload", "extract", "sector", "track", "gcr", "bam", "directory"],
   re: ["validate", "validation", "annotat", "routine", "label", "memory", "ram", "region", "flow", "listing", "disassembl", "semantic", "symbol", "behaves like"],
-  build: ["build", "target", "transform", "patch", "assemble", "relocat", "loader-replace", "replace loader", "feature", "eeprom write", "flash write"],
+  build: ["build ", "target medium", "transformation", "patch plan", "assemble", "relocat", "loader-replace", "replace loader", "eeprom write", "flash write"],
   release: ["qa", "test", "tester", "release", "known issue", "known-issue", "package", "ship", "regression", "rc "],
 };
 function questionMatchesPhase(q: OpenQuestionRecord, phase: Phase): boolean {
@@ -213,7 +213,6 @@ function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeM
   const goals = snapshot.projectProfile?.goals ?? [];
   const workflow = snapshot.projectProfile?.workflow;
   const loaderModel = snapshot.projectProfile?.loaderModel;
-  const buildCmd = snapshot.projectProfile?.build?.command;
   const testCmd = snapshot.projectProfile?.test?.command;
   const openQ = snapshot.openQuestions.length;
   const findings = snapshot.counts.findings;
@@ -258,23 +257,35 @@ function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeM
   }
 
   if (phase === "build") {
+    // `|| undefined` so an empty-string field (e.g. cleared) reads as unset everywhere.
+    const targetMedium = snapshot.projectProfile?.targetMedium || undefined;
+    const transformStrategy = snapshot.projectProfile?.transformStrategy || undefined;
+    const patchPlan = snapshot.projectProfile?.patchPlan || undefined;
+    const validationCriteria = snapshot.projectProfile?.validationCriteria || undefined;
+    const buildBlocker = snapshot.projectProfile?.buildBlocker || undefined;
     return {
-      intent: "Turn the reverse-engineering knowledge into a modified target artifact — decide target medium, loader strategy, and the feature/patch plan, then assemble + validate.",
+      intent: "Plan the transformation into a modified target artifact — decide target medium, loader/transformation strategy, the feature/patch plan and how you'll validate. (Planning only; build execution is a later loop.)",
       known: [
+        { label: "Target medium", value: targetMedium ?? "not decided", ok: !!targetMedium },
+        { label: "Loader / transform strategy", value: transformStrategy ?? "not defined", ok: !!transformStrategy },
+        { label: "Feature / patch plan", value: patchPlan ? "captured" : "not defined", ok: !!patchPlan },
+        { label: "Validation criteria", value: validationCriteria ? "captured" : "not set", ok: !!validationCriteria },
         { label: "Candidate source", value: `${prgs} PRG · ${versionGroups} version group${versionGroups === 1 ? "" : "s"}`, ok: prgs > 0 },
         { label: "Annotated listing", value: hasListing ? "available" : "not built yet", ok: hasListing },
-        { label: "Build command", value: buildCmd ?? "not set", ok: !!buildCmd },
-        { label: "Loader model", value: loaderModel ?? "not defined", ok: !!loaderModel },
       ],
       missing: [
-        "Target medium (decide)",
-        "Loader / transformation strategy",
-        "Feature / patch plan",
-        ...(buildCmd ? [] : ["Build/validation command not set"]),
+        ...(targetMedium ? [] : ["Target medium not decided"]),
+        ...(transformStrategy ? [] : ["Loader / transformation strategy not defined"]),
+        ...(patchPlan ? [] : ["Feature / patch plan not defined"]),
+        ...(validationCriteria ? [] : ["Validation criteria not set"]),
       ],
-      next: !hasListing
-        ? "Reach a solid annotated listing in Reverse Engineering first, then decide the build target with the agent."
-        : "Decide the target medium + loader strategy with the agent, then assemble the modified artifact (workflow runner).",
+      next: buildBlocker
+        ? `Current blocker: ${buildBlocker}`
+        : !hasListing
+          ? "Reach a solid annotated listing in Reverse Engineering first, then capture the build plan below."
+          : targetMedium && transformStrategy
+            ? "Build plan captured — assemble the modified artifact with the agent (build execution is a later loop)."
+            : "Capture the build plan below (target medium, strategy, patch plan, validation) — you or the agent.",
       tools: [
         { label: "Annotated Listing", phase: "re", tab: "listing" },
         { label: "Payloads", phase: "re", tab: "payloads" },
@@ -729,6 +740,78 @@ function GoalChip({ profile, onCapture }: {
   );
 }
 
+// Spec 773 Loop 5 — Build PLANNING capture (NOT build execution). Free-text planning
+// fields persisted through the same project-profile write path as the goal (onSave →
+// POST /api/project/profile → saveProjectProfile); the agent (save_project_profile)
+// writes the identical fields.
+function BuildPlanForm({ profile, onSave }: {
+  profile: WorkspaceUiSnapshot["projectProfile"];
+  onSave: (patch: Record<string, unknown>) => Promise<void>;
+}) {
+  const [targetMedium, setTargetMedium] = useState(profile?.targetMedium ?? "");
+  const [transformStrategy, setTransformStrategy] = useState(profile?.transformStrategy ?? "");
+  const [patchPlan, setPatchPlan] = useState(profile?.patchPlan ?? "");
+  const [validationCriteria, setValidationCriteria] = useState(profile?.validationCriteria ?? "");
+  const [buildBlocker, setBuildBlocker] = useState(profile?.buildBlocker ?? "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const captured = Boolean(profile?.targetMedium || profile?.transformStrategy || profile?.patchPlan);
+
+  async function submit() {
+    setSaving(true);
+    setSaved(false);
+    setErr(null);
+    try {
+      // The build plan is a single editable surface: what's in the form IS the plan, so we
+      // send trimmed values verbatim — an emptied field is saved as "" and the read side
+      // (`|| undefined`) treats it as unset. This lets the human clear a field (e.g. a
+      // resolved blocker) from the UI, unlike the onboarding form's "blank = don't touch".
+      await onSave({
+        targetMedium: targetMedium.trim(),
+        transformStrategy: transformStrategy.trim(),
+        patchPlan: patchPlan.trim(),
+        validationCriteria: validationCriteria.trim(),
+        buildBlocker: buildBlocker.trim(),
+      });
+      setSaved(true);
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="panel-card goal-form">
+      <div className="section-heading"><h2>{captured ? "Build plan (edit)" : "Capture the build plan"}</h2></div>
+      <div className="goal-form-grid">
+        <label className="goal-form-wide">Target medium
+          <input value={targetMedium} onChange={(e) => setTargetMedium(e.target.value)} placeholder="e.g. single EasyFlash cartridge / D64 + fastloader" />
+        </label>
+        <label className="goal-form-wide">Loader / transformation strategy
+          <textarea value={transformStrategy} onChange={(e) => setTransformStrategy(e.target.value)} rows={2} placeholder="how the loader / format is transformed" />
+        </label>
+        <label className="goal-form-wide">Feature / patch plan
+          <textarea value={patchPlan} onChange={(e) => setPatchPlan(e.target.value)} rows={3} placeholder="what to change / patch / add" />
+        </label>
+        <label className="goal-form-wide">Validation criteria
+          <textarea value={validationCriteria} onChange={(e) => setValidationCriteria(e.target.value)} rows={2} placeholder="what counts as success (boots to menu, all files load, cycle-parity, …)" />
+        </label>
+        <label className="goal-form-wide">Current blocker / next action
+          <input value={buildBlocker} onChange={(e) => setBuildBlocker(e.target.value)} placeholder="optional — current blocker or immediate next step" />
+        </label>
+      </div>
+      <div className="goal-form-actions">
+        <button type="button" className="primary-button" onClick={submit} disabled={saving}>{saving ? "Saving…" : "Save build plan"}</button>
+        {saved ? <span className="goal-form-ok">saved ✓</span> : null}
+        {err ? <span className="goal-form-err">{err}</span> : null}
+      </div>
+      <p className="goal-form-note">Build PLANNING only — same project-profile contract (you or the agent). Build execution is a later loop.</p>
+    </div>
+  );
+}
+
 function PhaseHomePanel({
   phase,
   snapshot,
@@ -767,6 +850,8 @@ function PhaseHomePanel({
         <div className="phase-home-title">{PHASE_LABELS[phase]}</div>
         <p className="phase-home-intent">{model.intent}</p>
       </div>
+
+      {phase === "build" ? <BuildPlanForm profile={snapshot.projectProfile} onSave={onSaveGoal} /> : null}
 
       <div className="phase-home-grid">
         <div className="panel-card">

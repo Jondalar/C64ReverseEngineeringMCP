@@ -540,6 +540,12 @@ export interface ProjectProfileBrief {
   test?: { command: string };
   assumptions?: string[];
   team?: ProjectTeamMember[];
+  // Spec 773 Loop 5 — Build planning fields.
+  targetMedium?: string;
+  transformStrategy?: string;
+  patchPlan?: string;
+  validationCriteria?: string;
+  buildBlocker?: string;
 }
 
 export type LifecyclePhaseId = "onboarding" | "discovery" | "re" | "build" | "release";

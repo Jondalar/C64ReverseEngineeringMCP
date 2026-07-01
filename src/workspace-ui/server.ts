@@ -698,9 +698,10 @@ const server = createServer((req, res) => {
     return;
   }
 
-  // Spec 773 Loop 4 — the one controlled write for Onboarding goal capture. Persists
-  // through the EXISTING project-profile contract (saveProjectProfile → save_project_profile),
-  // no parallel store. Only whitelisted goal fields are accepted.
+  // Spec 773 Loop 4/5 — the one controlled UI write for project-profile capture
+  // (Onboarding goal + Build planning). Persists through the EXISTING project-profile
+  // contract (saveProjectProfile → save_project_profile), no parallel store. Only
+  // whitelisted profile fields are accepted.
   if (requestUrl.pathname === "/api/project/profile" && req.method === "POST") {
     let body = "";
     req.on("data", (chunk) => { body += chunk; });
@@ -716,6 +717,11 @@ const server = createServer((req, res) => {
           goals?: string[];
           assumptions?: string[];
           team?: Array<{ role: string; label: string; status: string; why: string; source?: string }>;
+          targetMedium?: string;
+          transformStrategy?: string;
+          patchPlan?: string;
+          validationCriteria?: string;
+          buildBlocker?: string;
         };
         const projectDir = payload.projectDir ?? options.projectDir;
         const service = new ProjectKnowledgeService(projectDir);
@@ -729,6 +735,11 @@ const server = createServer((req, res) => {
         if (payload.goals !== undefined) patch.goals = payload.goals;
         if (payload.assumptions !== undefined) patch.assumptions = payload.assumptions;
         if (payload.team !== undefined) patch.team = payload.team;
+        if (payload.targetMedium !== undefined) patch.targetMedium = payload.targetMedium;
+        if (payload.transformStrategy !== undefined) patch.transformStrategy = payload.transformStrategy;
+        if (payload.patchPlan !== undefined) patch.patchPlan = payload.patchPlan;
+        if (payload.validationCriteria !== undefined) patch.validationCriteria = payload.validationCriteria;
+        if (payload.buildBlocker !== undefined) patch.buildBlocker = payload.buildBlocker;
         const profile = service.saveProjectProfile(patch as never);
         send(res, jsonResponse(200, { profile }));
       } catch (error) {

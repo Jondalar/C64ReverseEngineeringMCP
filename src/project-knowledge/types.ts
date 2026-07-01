@@ -223,6 +223,14 @@ export const ProjectProfileSchema = z.object({
   // selected BMAD-style agent team (empty ⇒ the UI shows a rule-based suggestion).
   assumptions: z.array(z.string()).default([]),
   team: z.array(TeamMemberSchema).default([]),
+  // Spec 773 Loop 5 — Build PLANNING writes (NOT build execution; the `build` object
+  // above stays the execution config). Free strings captured by human or harness via
+  // saveProjectProfile; the Build cockpit reads them. All additive + optional.
+  targetMedium: z.string().optional(),
+  transformStrategy: z.string().optional(),
+  patchPlan: z.string().optional(),
+  validationCriteria: z.string().optional(),
+  buildBlocker: z.string().optional(),
   hardwareConstraints: z.array(z.object({
     resource: z.string(),
     constraint: z.string(),
