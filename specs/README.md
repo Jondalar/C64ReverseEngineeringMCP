@@ -50,6 +50,7 @@ Small by design — only specs with concrete next implementation work.
 | 750 | Disk + Cartridge Cartography Visualization (payloads · addressing · loaders) | The STATIC strand made REAL in the two EXISTING views (no new tab). Wires the existing schemas (`LoaderEntryPoint`/`ContainerEntry`/`loads`/`writes`), uses 721's `mediumRef`. Render-first: **750.1** = mediumRef + the views render payloads@position (closes BUG-031); then addressing overlay (750.2) + loader/mutator edges (750.3) + extractors (750.4–.6). |
 | 771 | TRX64 Runtime Backend + VICE Deprecation | ACTIVE (branch `spec-771-trx64-core`): TRX64 = strategic Rust runtime base + the DEFAULT backend process; owns runtime/instrument/reverse-debug/trace/checkpoints (`.c64re`/`.c64retrace`), daemon/FFI/CLI; the TS Headless runtime becomes fallback/parity oracle; native VICE + `vice_*` move behind "extended" and are deprecated. |
 | 772 | Checkpoint-Ring: Cadence + Retention (UI-scrub-sized) | PROPOSED — size the checkpoint ring for the UI scrub filmstrip (0.5 s cadence / 10 s = 20 snapshots, env-parametrized); deep history stays on the recorder (Spec 766). |
+| 773 | Workflow Cockpit: the 5-phase RE project lifecycle | ACTIVE — reframe C64RE from a data/relations browser into a workflow workbench: Onboarding · Discovery · Reverse Engineering · Build · Release as the first-level experience; existing views repositioned as phase tools (Disk + CRT/Cartridge stay FIRST-CLASS in Discovery+RE); thin lifecycle axis + crosswalk over the existing engines (no rebuild); TRX64 = forensic runtime backend. Anchor: product-vision §2A. |
 
 ## GOVERNING / DOCTRINE (rules + umbrella contracts — still binding, not active implementation)
 
@@ -111,7 +112,7 @@ _None currently on the board — 600/601 (→ 715) and 745 (→ 757), 765 (→ 7
 
 ## Counts
 
-- ACTIVE: 8 (721, 726.B, 742, 744, 748, 750, 771, 772)
+- ACTIVE: 9 (721, 726.B, 742, 744, 748, 750, 771, 772, 773)
 - GOVERNING / DOCTRINE: 7 (610, 612, 620, 705, 715, 723, 746)
 - DONE: 5 (622, 703, 704, 726, 740.1) — DONE specs with open children / active continuations kept on the board; fully-closed DONE specs are archived
 - BACKLOG: 12

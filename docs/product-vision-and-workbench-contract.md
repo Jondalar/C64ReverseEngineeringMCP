@@ -66,6 +66,61 @@ The canonical first-run experience is conversational and agent-directed:
 At each stage the MCP/agent proposes the next valid action; the user steers
 intent and approves meaningful branches of work.
 
+## 2A. Project Lifecycle — the first-level experience (BINDING)
+
+C64RE is a **workflow workbench**, not a data/relations browser. The product's
+first-level structure is a five-phase reverse-engineering **project lifecycle**.
+The human + LLM move **forward and backward** through it and iterate; the workbench
+exposes, per phase, the relevant **tools, evidence, decisions, open questions, agent
+roles, next actions, and outputs**. TRX64 is the forensic runtime backend throughout
+(Leitregel §3); C64RE owns meaning/workflow/knowledge.
+
+The five phases (this replaces "12 flat data tabs" as the top-level concept):
+
+1. **Onboarding** — start/resume a project; optionally play/watch the title together
+   (via TRX64); capture the actual human **goal** (EasyFlash port, cheat, trainer,
+   enhancement, loader replacement, bugfix, docs, crack, general analysis). *Outputs:*
+   goal brief, initial complexity impression, project strategy + selected workflow
+   profile. *Tools:* onboarding/project-init, goal capture, runtime "just run it" beat,
+   Docs.
+2. **Discovery** — media extraction + payload inventory; loader analysis; packer/depacker
+   detection + select/build; define the agent team + workflow profile. *Outputs:*
+   inventory, loader hypothesis, payload map, workflow profile. *First-class tools:*
+   **Disk** and **CRT/Cartridge** forensic surfaces (see below), Payloads, Memory Map,
+   Graphics, depacker tools.
+3. **Reverse Engineering** — disassembly; semantic annotation; payload classification
+   (code/engine, helper, level, asset+type, loader, tables, data blobs); TRX64 runtime
+   evidence, but **C64RE owns interpretation**. *Outputs:* annotated knowledge, verified
+   findings, open questions, semantic map. *Tools:* Annotated Listing, Flow/Load-sequence,
+   Scrub, **Disk + Cartridge** (still first-class here), Payloads, runtime evidence.
+4. **Build** — build the new target medium / new loader / target feature in loops;
+   preserve traceability between decisions, code/data changes, and runtime validation.
+   *Outputs:* working modified artifact. *Tools:* workflow runner, source/versions,
+   rebuilt-prg, build pipelines / patch recipes. (The code-overlay patch/validate loop is
+   Spec 711 — currently a follow-on.)
+5. **Release Management** — local test/QA; external tester loops; test notes, release
+   candidates, known issues, final package. *Outputs:* release-ready artifact + docs.
+   *Tools:* Docs/reports, audit, version "final", packaging/export.
+
+**Disk and CRT/Cartridge are first-class expert surfaces (binding).** They carry high-value
+forensic information and their information density + visual design are keepers. They belong
+prominently to **Discovery and Reverse Engineering** and must remain **directly reachable**
+as phase tools — never buried behind a dashboard or a low-priority "more tools" menu. They
+may be repositioned/contextualized as phase surfaces, but not demoted or replaced.
+
+**How the existing pipelines nest (reconciles §5):** the lifecycle is the top human/project
+axis. The existing **7-phase per-artifact analysis pipeline** (`docs/re-phases.md`) lives
+*inside* it — analysis phases 1-2 (extraction, loader) under **Discovery**, phases 3-7
+(disasm → segment → semantic V1 → meta → semantic V2) under **Reverse Engineering**. The
+project-service **workflow-state phases** (`docs/workflow.md`, `defaultWorkflowPhases`) are
+the persisted substrate; the deterministic **step orchestrator** (`workflow-model.ts`) steps
+are tagged with their lifecycle stage. No engine is rebuilt; the lifecycle is a thin top
+axis + crosswalk (see `specs/773-workflow-cockpit-lifecycle.md`).
+
+**Navigation, not a hard gate.** The UI lets the human move freely across phases; a derived
+badge marks the recommended/current phase from workflow state. Per-artifact phase gating
+(Model A) stays as the RE-internal discipline; the lifecycle itself is not gated.
+
 ## 3. Binding Product Decisions
 
 **Leitregel: Capability → TRX64, Meaning/Memory → C64RE.** TRX64 is the strategic runtime base and the default backend process (the Rust daemon, auto-discovered/spawned) — it produces bytes, events and machine-state and owns runtime, instrument, reverse-debug, trace, checkpoints (`.c64re`/`.c64retrace`), daemon/FFI/CLI. C64RE is the reverse-engineering workbench — project knowledge, method/memory, analysis pipeline, semantic disassembly, findings/entities/questions, UI/orchestration, curation — it turns those bytes/events/state into knowledge. The TypeScript runtime in C64RE is a fallback / parity oracle, not the strategic base. Endstate: two MCP servers — `trx64-mcp` (instrument/runtime) and `c64re-mcp` (workbench/knowledge); today's C64RE `runtime_*` tools are a transition/proxy to the TRX64 backend, not their permanent home.

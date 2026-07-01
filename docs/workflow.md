@@ -1,5 +1,14 @@
 # Reverse-Engineering Workflow Contract
 
+> **Scope (2026-07-01):** this is the **persisted workflow/data substrate** (the
+> `defaultWorkflowPhases` state machine + knowledge stores). It sits *underneath* the
+> binding five-phase project **lifecycle** (Onboarding · Discovery · Reverse Engineering ·
+> Build · Release) defined in
+> [`product-vision-and-workbench-contract.md`](product-vision-and-workbench-contract.md)
+> §2A + [`../specs/773-workflow-cockpit-lifecycle.md`](../specs/773-workflow-cockpit-lifecycle.md).
+> Its data-transform-named phases (structural-enrichment, runtime-aggregation, view-build,
+> …) are the persistence substrate, NOT the human-facing top-level structure.
+
 This document defines the persisted workflow/data model. The canonical
 end-to-end user journey and unified workbench direction are defined in
 [`product-vision-and-workbench-contract.md`](product-vision-and-workbench-contract.md).

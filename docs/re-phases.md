@@ -1,5 +1,14 @@
 # Seven-Phase Reverse-Engineering Workflow
 
+> **Scope (2026-07-01):** these seven phases are the **per-artifact analysis pipeline**
+> that lives *inside* the project lifecycle — analysis phases 1-2 (extraction, loader)
+> run under the lifecycle **Discovery** stage, phases 3-7 (disasm → segment → semantic
+> V1 → meta → semantic V2) under **Reverse Engineering**. They are NOT the top-level
+> product structure. The binding first-level experience is the five-phase project
+> lifecycle (Onboarding · Discovery · Reverse Engineering · Build · Release) in
+> [`product-vision-and-workbench-contract.md`](product-vision-and-workbench-contract.md)
+> §2A and [`../specs/773-workflow-cockpit-lifecycle.md`](../specs/773-workflow-cockpit-lifecycle.md).
+
 This file is the agent-facing definition of the seven phases C64RE
 work moves through. Each phase has a narrow scope, an explicit
 allowed-tool set, and a "done" criterion. Skip phases at your own
