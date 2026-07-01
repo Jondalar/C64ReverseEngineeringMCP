@@ -135,25 +135,31 @@ const ALL_PHASES: Phase[] = PHASE_ORDER;
 // Shorter labels for the narrow vertical rail (full names live in PHASE_LABELS).
 const PHASE_RAIL_LABELS: Record<Phase, string> = { ...PHASE_LABELS, re: "Reverse Eng." };
 
-// Each tab is a phase tool. Disk + Cartridge are FIRST-CLASS expert surfaces in
-// Discovery + RE (hard constraint — directly reachable, never buried). Dashboard /
-// Live / Questions / Docs are cross-phase (available in every phase).
+// Each tab is a phase tool. EVERY phase lands on its own Overview cockpit; Disk +
+// Cartridge are FIRST-CLASS expert surfaces in Discovery + RE (hard constraint —
+// directly reachable, never buried). Overview / Live / Docs are cross-phase.
+// Dashboard→"Health" and Questions→"Triage" are DEMOTED to utilities (Spec 773
+// redirect): phases: [] ⇒ never in the phase-tools strip; reached via the right-side
+// utility cluster + cockpit links. Their panels are preserved intact.
 const allTabs: Array<{ id: TabId; label: string; phases: Phase[] }> = [
-  // Phase-home cockpit for the phases without a rich data-view of their own.
-  { id: "home", label: "Overview", phases: ["onboarding", "build", "release"] },
+  { id: "home", label: "Overview", phases: ALL_PHASES },
   { id: "live", label: "Live", phases: ALL_PHASES }, // TRX64 runtime evidence — cross-phase, not a lifecycle stage
-  { id: "dashboard", label: "Dashboard", phases: ALL_PHASES },
-  { id: "questions", label: "Questions", phases: ALL_PHASES },
   { id: "docs", label: "Docs", phases: ALL_PHASES },
-  { id: "memory", label: "Memory Map", phases: ["discovery", "re"] },
-  { id: "graphics", label: "Graphics", phases: ["discovery", "re"] },
-  { id: "scrub", label: "Scrub", phases: ["re"] },
   { id: "disk", label: "Disk", phases: ["discovery", "re"] },
   { id: "cartridge", label: "Cartridge", phases: ["discovery", "re"] },
   { id: "payloads", label: "Payloads", phases: ["discovery", "re"] },
-  { id: "flow", label: "Flow Graph", phases: ["re"] },
+  { id: "memory", label: "Memory Map", phases: ["discovery", "re"] },
+  { id: "graphics", label: "Graphics", phases: ["discovery", "re"] },
   { id: "listing", label: "Annotated Listing", phases: ["re"] },
+  { id: "flow", label: "Flow Graph", phases: ["re"] },
+  { id: "scrub", label: "Scrub", phases: ["re"] },
+  // Utilities — NOT phase peers. Reached via the utility cluster + cockpit links.
+  { id: "dashboard", label: "Health", phases: [] },
+  { id: "questions", label: "Triage", phases: [] },
 ];
+// Utility tabs live outside the phase-tools strip; they must survive the
+// "keep a valid tab selected" re-select effect instead of being reset away.
+const UTILITY_TABS = new Set<TabId>(["dashboard", "questions"]);
 
 // Spec 773 Loop 3 — opinionated (not placeholder) phase-home cockpits for the phases
 // that have no rich data-view of their own (Onboarding / Build / Release). READ-ONLY:
@@ -241,7 +247,7 @@ function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeM
         { label: "Annotated Listing", phase: "re", tab: "listing" },
         { label: "Payloads", phase: "re", tab: "payloads" },
         { label: "Docs", phase: "build", tab: "docs" },
-        { label: "Questions", phase: "build", tab: "questions" },
+        { label: "Triage", phase: "build", tab: "questions" },
       ],
     };
   }
@@ -261,13 +267,64 @@ function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeM
         : "Run local QA and capture results, then package a release candidate (via the agent).",
       tools: [
         { label: "Docs / reports", phase: "release", tab: "docs" },
-        { label: "Questions", phase: "release", tab: "questions" },
+        { label: "Triage", phase: "release", tab: "questions" },
         { label: "Validate (Live)", phase: "release", tab: "live" },
       ],
     };
   }
 
-  return null; // discovery + re use their rich tool views, not a phase-home
+  if (phase === "discovery") {
+    return {
+      intent: "Open up the medium: extract and inventory every payload, map the loader / packer chain, and decide the analysis approach. Disk and Cartridge are the primary surfaces here.",
+      known: [
+        { label: "Input media", value: mediaSummary, ok: hasMedia },
+        ...(disks ? [{ label: "Disk images", value: `${disks} mounted`, ok: true }] : []),
+        ...(carts ? [{ label: "Cartridges", value: `${carts} mapped`, ok: true }] : []),
+        { label: "Loader model", value: loaderModel ?? "not identified", ok: !!loaderModel },
+        { label: "Findings so far", value: String(findings), ok: findings > 0 },
+      ],
+      missing: [
+        ...(hasMedia ? [] : ["No input media registered"]),
+        ...(loaderModel ? [] : ["Loader / packer chain not identified"]),
+      ],
+      next: !hasMedia
+        ? "Register and extract the input media first."
+        : "Inventory the medium in Disk / Cartridge / Payloads, then identify the loader/packer chain — move to Reverse Engineering once payloads are mapped.",
+      tools: [
+        { label: "Disk", phase: "discovery", tab: "disk" },
+        { label: "Cartridge", phase: "discovery", tab: "cartridge" },
+        { label: "Payloads", phase: "discovery", tab: "payloads" },
+        { label: "Memory Map", phase: "discovery", tab: "memory" },
+      ],
+    };
+  }
+
+  if (phase === "re") {
+    return {
+      intent: "Turn bytes into meaning: disassemble, annotate routines, classify payloads, and validate the interpretation against TRX64 runtime evidence.",
+      known: [
+        { label: "Annotated listing", value: hasListing ? "available" : "not built yet", ok: hasListing },
+        { label: "Findings", value: String(findings), ok: findings > 0 },
+        { label: "Version groups", value: `${versionGroups}`, ok: versionGroups > 0 },
+        { label: "Runtime evidence", value: "TRX64 — trace / scrub via Live", ok: true },
+      ],
+      missing: [
+        ...(hasListing ? [] : ["Annotated listing not built (run disasm)"]),
+        ...(findings > 0 ? [] : ["No routine/payload findings yet"]),
+      ],
+      next: !hasListing
+        ? "Build the annotated listing (disasm) first, then annotate routines and classify payloads."
+        : "Annotate routines + classify payloads in the Listing, cross-check with runtime evidence (Live/Scrub), then move to Build.",
+      tools: [
+        { label: "Annotated Listing", phase: "re", tab: "listing" },
+        { label: "Flow Graph", phase: "re", tab: "flow" },
+        { label: "Scrub", phase: "re", tab: "scrub" },
+        { label: "Graphics", phase: "re", tab: "graphics" },
+      ],
+    };
+  }
+
+  return null;
 }
 
 // Spec 773 Loop 4 — Onboarding goal-capture form. goalType is FREE text (datalist
@@ -2282,9 +2339,12 @@ function DashboardPanel({
 }) {
   return (
     <div className="dashboard-shell">
+      {/* Spec 773 redirect — Dashboard demoted to a Project Health utility. Next-action /
+          focus / open-questions glance now live in the phase cockpits + Triage; this
+          surface keeps the UNIQUE bits: project state, tasks, docs, audit/repair. */}
       <section className="panel-card overview-panel">
         <div className="section-heading">
-          <h3>Overall State</h3>
+          <h3>Project Health</h3>
           <span>{snapshot.project.status}</span>
         </div>
         <div className="overview-grid">
@@ -2293,26 +2353,6 @@ function DashboardPanel({
               <h4>{item.title}</h4>
               <p>{item.body}</p>
             </article>
-          ))}
-        </div>
-      </section>
-      <section className="panel-card">
-        <div className="section-heading">
-          <h3>Open Questions</h3>
-          <span>{snapshot.openQuestions.filter((q) => q.status === "open" || q.status === "researching").length} open · click to inspect</span>
-        </div>
-        <div className="record-stack">
-          {snapshot.views.projectDashboard.openQuestions.length === 0 ? (
-            <div className="empty-inline">No open questions in the dashboard view. Run build_all_views or rebuild from the audit panel below.</div>
-          ) : null}
-          {snapshot.views.projectDashboard.openQuestions.slice(0, 8).map((question) => (
-            <button key={question.id} type="button" className="record-card" onClick={() => onSelectQuestion(question.id)}>
-              <div className="record-topline">
-                <span>{question.title}</span>
-                <span className="record-status">{question.status}</span>
-              </div>
-              {question.summary ? <p>{question.summary}</p> : null}
-            </button>
           ))}
         </div>
       </section>
@@ -4736,7 +4776,7 @@ export function App() {
   const [hideRejectedGraphics, setHideRejectedGraphics] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabId>("dashboard");
+  const [activeTab, setActiveTab] = useState<TabId>("home");
   // Spec 773 — the active lifecycle phase (the phase-strip). Navigation only, not a gate.
   const [activePhase, setActivePhase] = useState<Phase>("discovery");
   const [railCollapsed, setRailCollapsed] = useState(false);
@@ -5173,9 +5213,9 @@ export function App() {
   const visibleTabs = snapshot
     ? allTabs.filter((tab) => {
         // Spec 773 — only show a tab if it is a tool of the active lifecycle phase.
+        // Utility tabs (dashboard→Health, questions→Triage) have phases: [] and are
+        // filtered out here; they are reached via the utility cluster, not the strip.
         if (!tab.phases.includes(activePhase)) return false;
-        if (tab.id === "dashboard") return true;
-        if (tab.id === "questions") return snapshot.openQuestions.length > 0;
         if (tab.id === "docs") return docs.length > 0;
         if (tab.id === "memory") return snapshot.views.memoryMap.cells.length > 0;
         if (tab.id === "graphics") return graphicsItems.length > 0;
@@ -5192,8 +5232,11 @@ export function App() {
     : allTabs;
 
   useEffect(() => {
+    // Utility tabs (Health / Triage) live outside the phase strip — don't reset them
+    // away just because they aren't in visibleTabs.
+    if (UTILITY_TABS.has(activeTab)) return;
     if (!visibleTabs.some((tab) => tab.id === activeTab)) {
-      setActiveTab(visibleTabs[0]?.id ?? "dashboard");
+      setActiveTab(visibleTabs[0]?.id ?? "home");
     }
   }, [activeTab, visibleTabs]);
 
@@ -5245,16 +5288,12 @@ export function App() {
   }
 
   // Spec 773 — switching lifecycle phase. Onboarding/Build/Release land on their
-  // phase-home "Overview"; the tool-rich phases keep the current tab when it's valid,
-  // else fall back to the Dashboard overview.
+  // phase Overview cockpit (Spec 773 redirect: EVERY phase lands on its own cockpit,
+  // never on the generic Dashboard). The "home" tab renders the phase-appropriate
+  // cockpit; from there the phase's tool tabs are one click away.
   function handlePhaseChange(nextPhase: Phase) {
     setActivePhase(nextPhase);
-    if (nextPhase === "onboarding" || nextPhase === "build" || nextPhase === "release") {
-      setActiveTab("home");
-      return;
-    }
-    const current = allTabs.find((tab) => tab.id === activeTab);
-    if (!current || !current.phases.includes(nextPhase)) setActiveTab("dashboard");
+    setActiveTab("home");
   }
 
   // Spec 773 Loop 4 — the one controlled write: persist the captured goal through the
@@ -5389,9 +5428,27 @@ export function App() {
                 {tab.label}
               </button>
             ))}
-            {/* Spec 773 — the visibility filters moved out of the (removed) fat header
-                into a small unobtrusive control at the right end of the tool row. */}
+            {/* Spec 773 — demoted utilities (Triage / Health) + visibility filters live
+                in a small unobtrusive cluster at the right end of the tool row, NOT as
+                phase-peer tabs. */}
             <div className="tab-strip-controls">
+              <button
+                type="button"
+                className={activeTab === "questions" ? "utility-button active" : "utility-button"}
+                title="Open questions & decisions — triage / filter / bulk-revaluate"
+                onClick={() => handleOpenTab("questions")}
+              >
+                Triage{snapshot.openQuestions.length ? ` (${snapshot.openQuestions.length})` : ""}
+              </button>
+              <button
+                type="button"
+                className={activeTab === "dashboard" ? "utility-button active" : "utility-button"}
+                title="Project health — audit, repair, stale/missing views, counts"
+                onClick={() => handleOpenTab("dashboard")}
+              >
+                Health
+              </button>
+              <span className="tab-strip-sep" aria-hidden="true" />
               <label className="tab-toggle" title="Show V0..V(n-1) per lineage (default: latest only)">
                 <input type="checkbox" checked={showAllVersions} onChange={(event) => setShowAllVersions(event.target.checked)} />
                 all versions

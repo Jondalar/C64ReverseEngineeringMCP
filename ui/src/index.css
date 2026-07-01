@@ -108,6 +108,33 @@ button {
 }
 .tab-toggle:hover { opacity: 0.9; }
 
+/* Spec 773 redirect — demoted utilities (Triage / Health): visible but clearly
+   secondary to the phase tool tabs. */
+.utility-button {
+  font-size: 0.72rem;
+  color: var(--ink);
+  opacity: 0.6;
+  background: transparent;
+  border: 1px solid rgba(92, 92, 128, 0.28);
+  border-radius: 6px;
+  padding: 0.22rem 0.55rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.utility-button:hover { opacity: 0.95; border-color: rgba(108, 92, 231, 0.5); }
+.utility-button.active {
+  opacity: 1;
+  color: #cfc7ff;
+  border-color: rgba(108, 92, 231, 0.7);
+  background: rgba(108, 92, 231, 0.14);
+}
+.tab-strip-sep {
+  width: 1px;
+  height: 1.1rem;
+  background: rgba(92, 92, 128, 0.3);
+  margin: 0 0.15rem;
+}
+
 /* Spec 773 Loop 3 — phase-home cockpit (Onboarding / Build / Release). */
 .phase-home { display: grid; gap: 1rem; align-content: start; }
 .phase-home-intro { padding: 1rem 1.1rem; }

@@ -134,6 +134,35 @@ suggested team is marked "suggested"; POST a `team[]` through the existing write
 it shows as "selected by harness" (no suggested tags) and assumptions appear in the Brief;
 survives reload; `/api/workspace` reflects it; 0 console errors.
 
+## Cockpit restructure — every phase has a cockpit; Dashboard/Questions demoted
+
+Dashboard + Questions were old-app leftovers sitting as primary top-level peers. They are
+**repositioned, not deleted** (functionality preserved intact):
+
+- **Every phase lands on its own Overview cockpit.** Discovery + RE previously fell back
+  to the generic Dashboard — exactly why Dashboard felt necessary. `phaseHomeModel` now
+  returns Discovery + RE cockpits too (media inventory / loader-packer for Discovery;
+  listing / flow / scrub / semantic for RE), and `handlePhaseChange` sends every phase to
+  the `home` cockpit. Onboarding keeps its dedicated Kickoff Cockpit.
+- **Disk + Cartridge stay first-class** — prominent in the Discovery + RE tool strips
+  (Disk/Cartridge listed right after the cross-phase Overview/Live/Docs) and linked as the
+  primary tools from the Discovery cockpit. (Cartridge tab shows when a CRT is present.)
+- **Dashboard → "Health" utility.** `DashboardPanel` trimmed to its unique bits — project
+  shape, work state, tasks, key documents, audit/repair. Redundant next-action /
+  open-questions glance dropped (they live in the phase cockpits). Not a landing, not a
+  phase peer.
+- **Questions → "Triage" utility.** Full `QuestionsPanel` kept intact (search / filter /
+  sort / bulk-revaluate). Reached from the utility cluster, cockpit "all N →" links, and
+  inspector links. Phase-aware filtering = a later follow-on.
+- Both live in a small right-aligned **utility cluster** in the tool-row controls (ghost
+  buttons `Triage (N)` + `Health`), never as phase-peer tabs. `phases: []` keeps them out
+  of the phase strip; they are exempt from the "keep a valid tab selected" reset.
+
+Acceptance (all met, Chrome-verified on MotM): the top row shows no Dashboard/Questions
+peers; every phase lands on its own cockpit; Disk/Cartridge first-class in Discovery/RE;
+Questions functionality intact as Triage; Dashboard reduced to Project Health; 0 console
+errors.
+
 ## Scope / non-goals
 
 Thin lifecycle axis + crosswalk + phase cockpit + Onboarding/Build/Release surfaces over
