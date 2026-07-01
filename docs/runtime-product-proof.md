@@ -12,6 +12,11 @@ It supersedes the Spec 600/601 "seven disk games = whole runtime proof" framing.
 The seven-game gate (and every other big suite) is now a **focused** gate, run
 only when its subsystem changes.
 
+This baseline runs against the TypeScript integrated-session **parity oracle**
+(Spec 771), and TRX64 — now the default runtime backend — is validated against
+this baseline; so "vice1541" / "integrated session" here denotes the oracle path,
+not the default product runtime.
+
 ## Commands
 
 ```bash

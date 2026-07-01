@@ -1,5 +1,11 @@
 # Spec 724B — v1 → v3 One-UI migration inventory
 
+> **Historical (record).** The v1/v3 split was retired (Spec 757 — one UI bundle)
+> and the UI is now the Spec 773 workflow cockpit (left phase rail + per-phase
+> Overview cockpits; Dashboard → "Health" utility, Questions → "Triage" utility).
+> This migration inventory is kept as provenance; the tab-group model below no
+> longer matches the shipped shell.
+
 Read-only consolidation. Every v1 screen's data is already exposed by the
 workspace-ui HTTP API (`/api/workspace` snapshot views + `/api/docs` +
 `/api/graphics`), so the v3 tabs render the SAME project model — no new heavy

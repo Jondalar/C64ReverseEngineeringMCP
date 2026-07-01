@@ -52,8 +52,10 @@ The contract is:
   possible on its own
 - raw runtime traces are source artifacts; compact runtime summaries are
   a later phase
-- VICE, Headless Runtime, trace stores, and V3 UI captures are evidence
-  providers for the same project model, not separate side projects
+- TRX64 (native Rust daemon, the default runtime backend), the in-repo
+  TypeScript Headless Runtime (fallback / parity oracle), VICE, trace
+  stores, and V3 UI captures are evidence providers for the same project
+  model, not separate side projects
 
 `project_init` should create this contract up front, and
 `project_status` should explain where the project currently sits inside
@@ -118,14 +120,25 @@ So the intended model is:
 
 ## Runtime Evidence Providers
 
-C64RE has two runtime sources:
+C64RE has three runtime sources, in priority order:
 
-- **VICE** — compatibility oracle, external debugger, monitor, and trace
-  reference.
-- **Headless Runtime** — TypeScript C64 + 1541 runtime used by MCP tools,
-  automated tests, trace stores, snapshots, and the V3 Emulator UI.
+- **TRX64** — the **default runtime backend** (native Rust daemon,
+  auto-discovered / spawned as the sibling `../TRX64/target/release/trx64-daemon
+  --stream`, Spec 771). It produces the bytes, events, and machine-state that
+  drive analysis, and owns the runtime / instrument / trace / checkpoint stack
+  (`.c64re` snapshots, `.c64retrace` timelines).
+- **Headless Runtime** — the in-repo TypeScript C64 + 1541 runtime, now the
+  **fallback / parity oracle** for TRX64 (force it with `C64RE_RUNTIME_TS=1`).
+  It still backs automated tests, trace stores, snapshots, and the V3 Emulator
+  UI when TRX64 is unavailable.
+- **VICE** — compatibility / correctness oracle, external debugger, monitor,
+  and trace reference. Never the primary tool.
 
-Both are project evidence sources. A runtime run is only useful to the
+Leitregel (Spec 771): **Capability → TRX64, Meaning / Memory → C64RE.** The
+MCP `runtime_*` tools are backed by TRX64 by default (the TypeScript runtime
+serves as the parity oracle behind them).
+
+All three are project evidence sources. A runtime run is only useful to the
 workflow when its output is registered or summarized into durable project
 artifacts:
 

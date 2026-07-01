@@ -80,6 +80,27 @@ data / statistics — extract, disassemble, analyse first.
 
 ---
 
+## 0.7 Product lifecycle (where these rules operate)
+
+The product is a **five-phase lifecycle** — **Onboarding · Discovery ·
+Reverse Engineering · Build · Release** — with free navigation between
+phases. This 5-phase model is the first-level frame; the **7-phase
+per-artifact pipeline** (extraction → loader → heuristic disasm → segment
+analysis → semantic V1 → meta connections → semantic V2) nests **inside
+Discovery (phases 1-2) + Reverse Engineering (phases 3-7)**.
+
+The onboarding / knowledge / finding rules in this doc operate **within
+Discovery + RE**. Onboarding itself is a dialogue that runs in the
+coding-agent harness (Claude Code / Codex) via MCP; C64RE **records the
+brief** — it is not a second in-process LLM runtime.
+
+**Persisted substrate:** phase / lifecycle state lives in
+`workflow-state.json`. Controlled UI writes for the project brief
+(goal / build / release) persist through **`saveProjectProfile`** — the
+single controlled-write contract; there is no parallel store.
+
+---
+
 ## 1. Core Rule
 
 Never keep important reverse-engineering knowledge only in chat. Whenever you discover, confirm, refine, or reject something, update the project knowledge layer.
@@ -115,20 +136,26 @@ Minimum persistence contract after a substantive step:
 knowledge before re-deriving it. `project_wiki_lint` is the default way to find
 important records that still lack wiki coverage.
 
-### 1.1. Headless over VICE (2026-05-09)
+### 1.1. Runtime facade over VICE (2026-05-09; backend updated Spec 771)
 
-**Default to headless for every action.** VICE is fallback / oracle
-only.
+**Runtime backend (Spec 771).** The default runtime backend is the
+**TRX64 native Rust daemon**. The in-repo **TypeScript runtime is the
+fallback / parity oracle**, and **VICE is a correctness oracle only**.
+Leitregel: **Capability → TRX64, Meaning/Memory → C64RE.**
 
-- Tool selection: prefer `runtime_*` / `headless_*` MCP tools over
-  `vice_*` for runtime evidence, traces, snapshots, monitor ops.
+**Prefer the runtime facade (TRX64-backed) over VICE for every action.**
+
+- Tool selection: prefer `runtime_*` MCP tools over `vice_*` for
+  runtime evidence, traces, snapshots, monitor ops. (The former
+  `headless_*` tools were merged into `runtime_*`.)
 - Use `vice_*` only when (a) scenario absent from baseline corpus
   and divergence diagnosis genuinely needs the oracle, or (b)
   spec/skill explicitly requests it.
-- Workflow framing: state the answer from headless first; consult
-  VICE only if headless cannot answer or output looks wrong.
-- V3 goal = drop VICE dependency entirely (Spec 248 OQ4 + Spec 251
-  c64-main VSF interop).
+- Workflow framing: state the answer from the runtime first; consult
+  VICE only if the runtime cannot answer or output looks wrong.
+- The Leitregel governs the split, not a deprecation countdown:
+  capability / execution lives in TRX64; meaning, memory, and the
+  knowledge layer live in C64RE.
 
 ### 1.2. Live-session control — read freely, seize only when invited
 

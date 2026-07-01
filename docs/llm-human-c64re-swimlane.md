@@ -17,6 +17,8 @@ This part is largely linear. It makes sure the LLM knows where it is, what the g
 
 From here on the flow is deliberately non-linear. The LLM picks the next sensible step based on the project goal, the current finding, and human feedback.
 
+> Note: this iterative workspace is the RE-phase work strand — it nests inside the 5-phase product lifecycle (Onboarding · Discovery · Reverse Engineering · Build · Release), covering the loops that live under Discovery and Reverse Engineering.
+
 Possible cycles:
 
 - `Trace -> Disassemble -> Change`
@@ -35,7 +37,7 @@ Possible cycles:
 | Link asset semantically | Marks logo/sprite/charset/screen region, or asks about it. | Matches visible data against RAM, file/payload, and code. | `save_finding`, `save_entity`, `link_entities` | `runtime_vic_inspect_at`, `runtime_monitor_memory` | Evidence record shows the source. | Overlay/inspector shows the ref. |
 | Change / patch / intervention | Decides: crack, patch, EF port, fix, code overlay, test branch. | Creates or describes the change, records assumptions and risk. | `save_finding`, `save_open_question`, `agent_record_step` | Later: code-overlay/patch-branch runtime tools. | Before/after evidence. | Branch/change UI later. |
 | Validation | Tests the result or gives new input. | Reproduces via runtime, trace, or views; decides the next cycle. | `agent_propose_next`, `agent_record_step`, `build_memory_map`, `build_project_dashboard`, `build_annotated_listing_view`, `build_all_views`, `render_docs` | `runtime_session_run`, `runtime_render_screen`, `runtime_session_snapshot` | Trace/checkpoint comparison. | Project state visible. |
-| VICE oracle | Requests a VICE comparison only on genuine divergence. | Uses VICE deliberately as an oracle, not as the standard workflow. | Finding with an oracle reference. | Headless stays the primary path. | VICE diff as evidence. |  |
+| VICE oracle | Requests a VICE comparison only on genuine divergence. | Uses VICE deliberately as an oracle, not as the standard workflow. | Finding with an oracle reference. | The default runtime backend is TRX64 (the Rust daemon, Spec 771); the in-repo TypeScript runtime is the fallback / parity oracle. The `runtime_*` tools / "Headless Runtime" lane route to TRX64 by default. | VICE diff as evidence. |  |
 
 ## 3. Loop rule
 

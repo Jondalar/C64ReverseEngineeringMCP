@@ -9,7 +9,7 @@ inventory.
 
 1. Persist important results in project knowledge, not only in chat (save_finding / save_entity / save_open_question).
 2. After each substantive step, call agent_record_step and propose the next action.
-3. Use the C64RE Headless runtime for product work. VICE is internal-dev-only and never a fallback for user projects.
+3. The default runtime backend is TRX64 (native Rust daemon); the in-repo TypeScript runtime is the fallback / parity oracle. Use the runtime_* tools for product work; VICE is a correctness oracle only, never a fallback for user projects. Leitregel: Capability -> TRX64, Meaning/Memory -> C64RE.
 4. Do not enable C64RE_FULL_TOOLS as a normal solution.
 5. Do not call the V3 WebSocket directly when an MCP tool exists.
 6. Never assume repo-relative samples/ or process cwd for user media; take absolute or project-relative paths from the user.
@@ -150,7 +150,7 @@ inventory.
 
 **Steps:**
 
-1. _(llm)_ Start Headless with durable capture (trace_out to a project-relative or absolute .duckdb).
+1. _(llm)_ Start the runtime (TRX64 default) with durable capture (trace_out to a project-relative or absolute .duckdb).
    - tools: `runtime_session_start`
    - persist: session, trace.duckdb
    ```text
@@ -318,7 +318,7 @@ inventory.
 
 **Steps:**
 
-1. _(llm)_ Start Headless with trace_out.
+1. _(llm)_ Start the runtime (TRX64 default) with trace_out.
    - tools: `runtime_session_start`
    - persist: trace.duckdb
 2. _(human)_ Tell the LLM what to press / when to continue / which disk.

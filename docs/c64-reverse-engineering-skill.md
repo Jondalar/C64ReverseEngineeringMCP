@@ -1,19 +1,34 @@
 # C64 Reverse Engineering Workflow Skill
 
-This document is the canonical reverse-engineering workflow for this MCP. It mirrors the strict 3-phase playbook used by local skills and prompt-driven clients.
+This document is the **per-artifact static-analysis pass** for a single
+`.prg` (or an extracted payload). It is NOT the canonical top-level
+workflow. C64RE's product spine is the **5-phase lifecycle** —
+Onboarding · Discovery · Reverse Engineering · Build · Release (free
+navigation between phases). This strict 3-phase playbook nests *inside*
+that spine: it runs during **Discovery** (surveying an extracted PRG)
+and **Reverse Engineering** (annotating it down to a byte-identical
+rebuild). The 7-phase per-artifact pipeline likewise nests inside
+Discovery (phases 1-2) and Reverse Engineering (phases 3-7).
 
 Use this when reverse-engineering any `.prg`, `.crt`, `.d64`, or `.g64` with the `c64re` MCP tools.
 
-## Headless over VICE (Mandatory framing 2026-05-09)
+## Runtime backend: TRX64 by default (Spec 771)
 
-Default to headless for every step. VICE = fallback / oracle only.
+The default runtime backend is **TRX64** (the native Rust daemon). The
+in-repo TypeScript runtime is the **fallback / parity oracle**; VICE is
+the **correctness oracle only**. Leitregel: Capability → TRX64,
+Meaning/Memory → C64RE.
 
-- Use `runtime_*` / `headless_*` MCP tools for runtime evidence,
-  traces, snapshots, monitor operations.
-- Use `vice_*` only when scenario is absent from baseline corpus
-  AND divergence diagnosis genuinely needs the oracle.
-- State answers from headless first; consult VICE only if headless
-  cannot answer or output looks wrong.
+- Use `runtime_*` MCP tools for runtime evidence, traces, snapshots,
+  and monitor operations — they proxy to the TRX64 backend through the
+  runtime facade.
+- Route trace validation through the runtime facade rather than any
+  single engine; the facade resolves TRX64 first and falls back to the
+  TS runtime as the parity oracle.
+- Use `vice_*` only when a scenario is absent from the baseline corpus
+  AND divergence diagnosis genuinely needs the correctness oracle.
+- State answers from the runtime facade first; consult VICE only if the
+  runtime cannot answer or the output looks wrong.
 
 ## Core Rule
 
@@ -27,18 +42,25 @@ Do not skip phases. Do not parallelize across phases.
 
 ## Available MCP Tools
 
+Default tier:
+
 ```text
 analyze_prg
 disasm_prg
 ram_report
-pointer_report
 read_artifact
 list_artifacts
-build_tools
 assemble_source
 extract_crt
 inspect_disk
 extract_disk
+```
+
+Advanced tier (only when the default pass is insufficient):
+
+```text
+pointer_report
+build_tools
 ```
 
 ## Phase 1: Heuristic Analysis

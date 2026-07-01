@@ -9,6 +9,12 @@ Drawn to reason about the live/client behaviour deliberately — especially the
 per-frame loop and the broadcast fan-out (open: BUG-049 audio stutter, located in
 the delivery/hosting path, not the emulation).
 
+> **Backend-scope note (Spec 771):** the **default** runtime backend is now
+> **TRX64** (the native Rust daemon). This arc42 describes the in-repo
+> **TypeScript** live runtime — the fallback / parity-oracle that powers the
+> Live tab. Read the node daemon here as the TS oracle path, **not** the
+> product default; VICE remains a correctness oracle only.
+
 ---
 
 ## §1 Scope

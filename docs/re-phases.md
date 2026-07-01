@@ -38,8 +38,9 @@ disk?
   `declare_loader_entrypoint`, `list_loader_entrypoints`,
   `record_loader_event`, `register_load_context`,
   `register_container_entry`, `list_container_entries`,
-  `vice_session_*`, `vice_trace_*`, `headless_session_*`,
-  `headless_trace_*`, `save_flow`, `link_payload_to_runtime`.
+  `runtime_session_*`, `runtime_trace_*` (TRX64-backed by default,
+  Spec 771; `vice_*` is a correctness oracle only, not the primary
+  path), `save_flow`, `link_payload_to_runtime`.
 - **Done when**: the load chain is documented as a flow; loader entry
   points exist for every routed call; load contexts cover any file
   whose runtime address differs from the on-disk PRG header.

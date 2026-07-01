@@ -89,10 +89,19 @@ open questions — durable knowledge that survives across sessions, not
 console logs. The Workspace UI renders that knowledge; it never becomes a
 second analysis engine.
 
+The first-level product model is a **five-phase project lifecycle** —
+**Onboarding · Discovery · Reverse Engineering · Build · Release** — navigated
+freely (a rail, not a hard gate). The older seven-phase per-artifact analysis
+pipeline nests inside it (Discovery = analysis phases 1-2, Reverse Engineering
+= phases 3-7). Onboarding is agent-led: the kickoff dialogue happens in the
+attached coding-agent harness (Claude Code / Codex) via MCP, and C64RE records
+and visualizes the resulting brief — C64RE is not a second LLM runtime.
+
 See [docs/workflow.md](docs/workflow.md) (workflow contract),
 [docs/agent-doctrine.md](docs/agent-doctrine.md) (roles), and
-[docs/re-phases.md](docs/re-phases.md) (seven-phase model). The canonical
-end-to-end product and unified-workbench direction is defined in
+[docs/re-phases.md](docs/re-phases.md) (the nested seven-phase per-artifact
+pipeline). The canonical end-to-end product and unified-workbench direction —
+including the five-phase lifecycle (§2A) — is defined in
 [docs/product-vision-and-workbench-contract.md](docs/product-vision-and-workbench-contract.md).
 
 ## Architecture
@@ -123,15 +132,16 @@ end-to-end product and unified-workbench direction is defined in
                                │ view models / runtime streams
                                ▼
 ┌───────────────────────────────────────────────────────────────┐
-│ User Interfaces                                                │
-│                                                               │
-│ Emulator UI / Workbench                                        │
-│ - live C64 screen · media · monitor · inspector                │
-│ - keyboard / joystick · trace swimlanes · frozen explore       │
-│                                                               │
-│ Workspace UI                                                   │
-│ - dashboard · docs · memory · cartridge · disk                 │
-│ - load sequence · flow graph · annotated listing · activity    │
+│ User Interfaces — ONE workbench bundle (Spec 757)              │
+│                                                                │
+│ Workflow cockpit — left phase rail:                            │
+│   Onboarding / Discovery / Reverse Eng / Build / Release       │
+│   (collapsible; C64RE emblem) + per-phase Overview cockpit     │
+│ Phase tools: Disk / Cartridge / Payloads / Memory Map /        │
+│   Listing / Flow / Scrub / Graphics / Docs                     │
+│ Live: C64 screen · media · monitor · inspector · swimlanes     │
+│   (TRX64 runtime evidence, cross-phase)                        │
+│ Utilities: Health (audit / repair) · Triage (questions)        │
 └───────────────────────────────────────────────────────────────┘
 ```
 

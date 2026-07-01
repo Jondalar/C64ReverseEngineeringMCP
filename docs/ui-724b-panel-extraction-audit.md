@@ -1,5 +1,10 @@
 # BUG-011/012 — v1 visualization panel extraction audit
 
+> **Historical (record).** The v1/v3 UI split was retired (Spec 757); the UI is now
+> the Spec 773 workflow cockpit. The extracted shared visualization panels (MemoryMap
+> / Cartridge / Disk / Flow) persist, but the v1/v3 import framing below is provenance
+> only.
+
 Goal: extract the real v1 SVG/heatmap/grid visualizations from the monolithic
 `ui/src/App.tsx` into shared components both v1 and v3 import. Variant A
 (extraction). No runtime/backend/VICE change.

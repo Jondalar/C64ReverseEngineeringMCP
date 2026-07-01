@@ -4,7 +4,7 @@
   "globalRules": [
     "Persist important results in project knowledge, not only in chat (save_finding / save_entity / save_open_question).",
     "After each substantive step, call agent_record_step and propose the next action.",
-    "Use the C64RE Headless runtime for product work. VICE is internal-dev-only and never a fallback for user projects.",
+    "The default runtime backend is TRX64 (native Rust daemon); the in-repo TypeScript runtime is the fallback / parity oracle. Use the runtime_* tools for product work; VICE is a correctness oracle only, never a fallback for user projects. Leitregel: Capability -> TRX64, Meaning/Memory -> C64RE.",
     "Do not enable C64RE_FULL_TOOLS as a normal solution.",
     "Do not call the V3 WebSocket directly when an MCP tool exists.",
     "Never assume repo-relative samples/ or process cwd for user media; take absolute or project-relative paths from the user.",
@@ -353,7 +353,7 @@
       "steps": [
         {
           "actor": "llm",
-          "action": "Start Headless with durable capture (trace_out to a project-relative or absolute .duckdb).",
+          "action": "Start the runtime (TRX64 default) with durable capture (trace_out to a project-relative or absolute .duckdb).",
           "tools": [
             "runtime_session_start"
           ],
@@ -700,7 +700,7 @@
       "steps": [
         {
           "actor": "llm",
-          "action": "Start Headless with trace_out.",
+          "action": "Start the runtime (TRX64 default) with trace_out.",
           "tools": [
             "runtime_session_start"
           ],

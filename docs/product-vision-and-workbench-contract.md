@@ -2,7 +2,7 @@
 
 Status: CANONICAL PRODUCT DIRECTION (2026-05-25 CEST)  
 Scope: agent workflow, runtime evidence, semantic disassembly, and human UI  
-Implements through: `docs/agent-doctrine.md`, `docs/re-phases.md`, Specs 705, 708, 710-712, 720-721
+Implements through: `docs/agent-doctrine.md`, `docs/re-phases.md`, Specs 705, 708, 710-712, 720-721, 744.4c, 746, 757, 771, 773
 
 ## 1. Product Purpose
 
@@ -120,6 +120,16 @@ axis + crosswalk (see `specs/773-workflow-cockpit-lifecycle.md`).
 **Navigation, not a hard gate.** The UI lets the human move freely across phases; a derived
 badge marks the recommended/current phase from workflow state. Per-artifact phase gating
 (Model A) stays as the RE-internal discipline; the lifecycle itself is not gated.
+
+**Shipped UI shell (Spec 773).** The lifecycle is presented as a **left phase rail**
+(C64RE emblem) + **per-phase Overview cockpits** + a **tool-tab row** per phase. The
+**Onboarding Kickoff Cockpit** carries the harness-note (the onboarding dialogue runs
+in the coding-agent harness — Claude Code / Codex — over MCP; C64RE records the brief
+rather than hosting a second LLM runtime), the **Project Brief**, a **BMAD-style agent
+team**, **Play/Watch** the title together (via TRX64 / Live), and an **editable summary
+form**. Controlled UI writes (goal/build/release) persist via `saveProjectProfile`
+(§3.1 — no parallel store). Former top-level views are demoted to utilities:
+**Dashboard → "Health"**, **Questions → "Triage"**.
 
 ## 3. Binding Product Decisions
 
@@ -339,10 +349,16 @@ Required alignment:
 
 ## 7. Immediate Consequences for Active Work
 
+**Status (Spec 773): delivered.** The unified workbench UX and the five-phase
+lifecycle cockpits described in §2A are implemented — all 6 loops (Spec 773) ship
+in the current UI: a left phase rail + per-phase Overview cockpits + tool-tab row.
+The items below now record the contract each piece satisfies rather than pending
+direction.
+
 ### 7.1 Spec 710 UI Integration
 
-The Frozen Inspect UI is useful and should proceed, but it must be implemented
-as a workbench capability:
+The Frozen Inspect UI is integrated as a workbench capability (Spec 773). It
+continues to honor this contract:
 
 - use the completed checkpoint-bound inspect backend;
 - display honest `sprite_bounds` semantics;
@@ -350,16 +366,26 @@ as a workbench capability:
 - avoid adding a second evidence inbox or knowledge database;
 - leave an integration path for monitor, disassembly, trace marks, and rewind.
 
-### 7.2 Unified UI Refinement
+### 7.2 Unified UI — Delivered
 
-Before building many independent panels, write/refine the unified workbench UX
-against this document. It should supersede the product split implied by
-archived UX drafts and settle:
+The unified workbench UX is implemented (Spec 773, all 6 loops). Rather than many
+independent panels, the UI is a **left phase rail** (C64RE emblem) with **per-phase
+Overview cockpits** and a **tool-tab row** per phase, superseding the product split
+implied by archived UX drafts. It settles what earlier drafts left open:
 
-- navigation and layout for project/runtime/disassembly/trace views;
-- active project context and service boundaries;
-- shared selection/evidence navigation;
-- the UI route from live observation to persisted finding/annotation/branch.
+- navigation and layout: the phase rail is the top axis; each phase opens on its
+  Overview cockpit, with its first-class tools as tabs beneath it;
+- active project context and service boundaries: one project model over one runtime
+  backend (TRX64 by default);
+- shared selection/evidence navigation across cockpits and tool tabs;
+- the UI route from live observation to persisted finding/annotation/branch;
+- controlled UI writes (goal/build/release fields, e.g. the Onboarding Kickoff
+  Cockpit summary form) persist through `saveProjectProfile` — one authority, no
+  parallel store (§3.1).
+
+The former **Dashboard** is demoted to a **"Health"** utility and the former
+**Questions** view to a **"Triage"** utility; both are utilities behind the phase
+cockpits, not the top-level structure.
 
 ### 7.3 Semantic Pipeline Refinement
 

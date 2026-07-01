@@ -18,7 +18,7 @@ const viceTools = inv.tools.map((t) => t.name).filter((n) => n.startsWith("vice_
 const GLOBAL_RULES = [
   "Persist important results in project knowledge, not only in chat (save_finding / save_entity / save_open_question).",
   "After each substantive step, call agent_record_step and propose the next action.",
-  "Use the C64RE Headless runtime for product work. VICE is internal-dev-only and never a fallback for user projects.",
+  "The default runtime backend is TRX64 (native Rust daemon); the in-repo TypeScript runtime is the fallback / parity oracle. Use the runtime_* tools for product work; VICE is a correctness oracle only, never a fallback for user projects. Leitregel: Capability -> TRX64, Meaning/Memory -> C64RE.",
   "Do not enable C64RE_FULL_TOOLS as a normal solution.",
   "Do not call the V3 WebSocket directly when an MCP tool exists.",
   "Never assume repo-relative samples/ or process cwd for user media; take absolute or project-relative paths from the user.",
@@ -96,7 +96,7 @@ const PLAYBOOKS = [
     userIntentExamples: ["Run the game first and trace what executes.", "Boot ./game.d64 and capture a trace."],
     preconditions: ["A project exists.", "A bootable .d64/.g64/.crt path is known.", "Spec 726 live trace sink is available."],
     steps: [
-      { actor: "llm", action: "Start Headless with durable capture (trace_out to a project-relative or absolute .duckdb).", tools: ["runtime_session_start"], persist: ["session", "trace.duckdb"],
+      { actor: "llm", action: "Start the runtime (TRX64 default) with durable capture (trace_out to a project-relative or absolute .duckdb).", tools: ["runtime_session_start"], persist: ["session", "trace.duckdb"],
         snippet: 'runtime_session_start({ disk_path: "<user/project .d64 or .g64>", trace_out: "traces/<run>.duckdb", trace_domains: ["c64-cpu","drive8-cpu","iec","memory"] })' },
       { actor: "runtime", action: "Run to a stable BASIC READY screen.", tools: ["runtime_session_run", "runtime_until"], persist: [],
         snippet: 'runtime_session_run({ session_id, max_instructions: 2000000, until: { kind: "stable_screen", frames_stable: 3 } })' },
@@ -171,7 +171,7 @@ const PLAYBOOKS = [
     userIntentExamples: ["Press fire when I tell you and trace the loader.", "It asks for a password / disk flip."],
     preconditions: ["A session with trace_out is running.", "The human can provide input on request."],
     steps: [
-      { actor: "llm", action: "Start Headless with trace_out.", tools: ["runtime_session_start"], persist: ["trace.duckdb"] },
+      { actor: "llm", action: "Start the runtime (TRX64 default) with trace_out.", tools: ["runtime_session_start"], persist: ["trace.duckdb"] },
       { actor: "human", action: "Tell the LLM what to press / when to continue / which disk.", tools: [], persist: [], askHumanWhen: "interaction is required (fire, menu, password, disk swap)" },
       { actor: "llm", action: "Drive input and stamp marks for human-observed phases.", tools: ["runtime_type", "runtime_joystick", "runtime_media_swap", "runtime_mark"], persist: ["marks"] },
       { actor: "tracedb", action: "Query IEC / $DD00 / drive PC / bus around the marks.", tools: ["trace_store_bus_find", "runtime_swimlane_slice", "runtime_profile_loader", "runtime_query_events"], persist: ["loader evidence"] },
