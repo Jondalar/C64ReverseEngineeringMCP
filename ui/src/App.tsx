@@ -5640,6 +5640,18 @@ export function App() {
             confusion). VS-Code activity-bar pattern; the tool-strip stays at the top of
             the content column. */}
         <nav className="phase-rail" aria-label="Project lifecycle">
+          {/* Spec 773 — C64RE emblem at the rail head; it scales with the rail (full
+              width when expanded, shrinks to a small mark when collapsed). Click = the
+              current phase's Overview cockpit. */}
+          <button
+            type="button"
+            className="rail-logo"
+            onClick={() => setActiveTab("home")}
+            aria-label="C64RE — go to Overview"
+            title="C64RE — Overview"
+          >
+            <img src="/c64re-logo.png" alt="C64RE" />
+          </button>
           <button
             type="button"
             className="rail-collapse"

@@ -228,6 +228,21 @@ button {
   top: 0.5rem;
 }
 .rail-collapsed .phase-rail { width: 54px; }
+/* Spec 773 — rail-head emblem. width:100% makes it scale WITH the rail: full when
+   expanded, shrinks to a small mark when the rail collapses. */
+.rail-logo {
+  display: block;
+  width: 100%;
+  padding: 0.1rem;
+  margin-bottom: 0.15rem;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  line-height: 0;
+}
+.rail-logo:hover { background: rgba(124, 108, 238, 0.12); }
+.rail-logo img { width: 100%; height: auto; display: block; border-radius: 8px; }
 .rail-collapse {
   align-self: flex-end;
   background: transparent;
