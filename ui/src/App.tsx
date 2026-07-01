@@ -5650,7 +5650,7 @@ export function App() {
             aria-label="C64RE — go to Overview"
             title="C64RE — Overview"
           >
-            <img src="/c64re-logo.png" alt="C64RE" />
+            <img src="/C64RE_logo.png" alt="C64RE" />
           </button>
           <button
             type="button"
