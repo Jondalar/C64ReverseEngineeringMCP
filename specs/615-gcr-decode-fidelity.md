@@ -144,7 +144,7 @@ Spec is DONE when ALL of:
 1. `LOAD"$",8` against `samples/POLARBEAR.d64` shows the disk's directory listing on screen (real filenames, not `?FILE NOT FOUND`).
 2. `LOAD"<first-prg-name>",8,1` against POLARBEAR.d64 transfers bytes into c64 RAM (verify by reading `$801..$80F` post-load and matching the D64 raw sector bytes).
 3. The 6-game screenshot tests (`feedback_game_screenshot_test_set.md`) — `motm`, `MM`, `IM2`, `LNR`, `Scramble`, `Pawn` — pass in `drive1541="vice"` mode with their canonical in-game visual assertion.
-4. `npm run runtime:proof` ≥ LEGACY1541 baseline (`5/7` GREEN per `specs/601-baseline-truth-table.md`) when `drive1541Implementation="vice"`.
+4. `npm run runtime:proof` ≥ LEGACY1541 baseline (`5/7` GREEN per `specs/_archive/601-baseline-truth-table.md`) when `drive1541Implementation="vice"`.
 5. `npm run check:1541-fidelity` 0 FAIL.
 6. Spec 612 FC-7 amendment + PL-11 amendment land in this branch if not already on `codex/612`. Re-run scan, all hits classified.
 

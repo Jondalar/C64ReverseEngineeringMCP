@@ -184,7 +184,7 @@ into Runtime-owned shared memory**, NOT inline work on the tick loop.
 - The 128 MiB is **never read/evaluated on the emu thread**. Coarse scrub =
   restore an anchor (worker API) + run one frame to repaint. Fine stepping = the
   separate CPU firehose / "⏺ Trace" + the `.c64re`-dump-from-anchor → replay-with-
-  trace flow (726.B / 746 / 707). See `specs/766-runtime-recorder-shared-memory-streaming.md`.
+  trace flow (726.B / 746 / 707). See `specs/_archive/766-runtime-recorder-shared-memory-streaming.md`.
   Spec 765 (the in-process flat ring) is the superseded interim.
 
 ---
@@ -204,5 +204,5 @@ into Runtime-owned shared memory**, NOT inline work on the tick loop.
   `resid-worklet.js` — audio path.
 - `ui/src/workbench/components/ScrubTimeline.tsx` — scrub seekbar.
 - `scripts/workspace.mjs` / project `ui.sh` — launch (HTTP :4310 + WS :4312).
-- `specs/766-runtime-recorder-shared-memory-streaming.md` — the Recorder (§6.2);
+- `specs/_archive/766-runtime-recorder-shared-memory-streaming.md` — the Recorder (§6.2);
   `specs/765-*` (superseded interim); `specs/746-*` (anchor+firehose charter).

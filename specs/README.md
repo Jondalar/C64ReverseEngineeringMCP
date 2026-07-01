@@ -32,7 +32,7 @@ this board wins until the header is reconciled.
    internal/debug tools. `C64RE_FULL_TOOLS` is not a normal solution.
 
 Older, fully-superseded + shipped-and-closed work lives under `specs/_archive/`
-(~130 historical specs). It is read-only history.
+(~150 historical specs). It is read-only history.
 
 ---
 
@@ -71,16 +71,9 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 | Spec | Title | Note |
 |---|---|---|
 | 740.1 | Project Wiki + Knowledge Retrieval MVP | `project_search`/`find_related`/`reindex`/`wiki_lint` + wiki skeleton; deterministic index (no embeddings), `smoke-740` 28/28. 740.2 (authoring) BACKLOG. |
-| 425 | C64 VIC-II CLK_INC contract | In the frozen runtime-green baseline. |
-| 426 | C64 VIC bank switch contract | Same baseline. |
-| 427 | IM2 IEC divergence | RESOLVED via 428 Phase D. |
-| 616 | KERNAL Load Fidelity | Byte-fidelity proven (15/16 + 1 expected-FAIL carve-out). |
-| 617 | KERNAL Save Fidelity | Byte-fidelity proven (9/9 strict + 9/9 round-trip). |
-| 618 | Fastloader via $DD00 | Resolved by 622 §4.0. |
 | 622 | vice-mode Headless Performance | §4.0 implemented + merged (`2d9e4de`); §4.1–4.3 optimization candidates remain (not gating). |
 | 703 | SID reSID WASM Audio | Merged master `fb27a7d`. 703.5 (WAV export) BACKLOG. |
 | 704 | Runtime Codebase Cleanup | §11 legacy-1541 retirement merged; §704.2/.5/.6/.7 open (non-gating cleanup). |
-| 708 | Declarative Trace Definitions + TraceDB | **FEATURE + GATE both green** — `probe-708-trace` 19/19; the 708.8 overflow regression was cleared 2026-06-02 (binary-default flip + G11 re-baselined onto the legacy JSON path it actually tests). |
 | 726 | Headless Trace Sink + Marks | Current DuckDB sink + marks shipped; binary `.c64retrace` (the timeline authority) + rebuildable DuckDB index is the product path (§2c). Endless/rewind-grade extension tracked as 726.B (ACTIVE). |
 
 ## BACKLOG (planned, not started)
@@ -102,10 +95,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 
 ## SUPERSEDED (replaced by a later spec — kept here as breadcrumbs; bodies archived)
 
-| Spec | Title | Superseded by |
-|---|---|---|
-| 600 | Runtime Proof Gates | 715 (product-baseline authority) |
-| 601 | Baseline Truth Table | 715 |
+_None currently on the board — 600/601 (→ 715) and 745 (→ 757), 765 (→ 766) are archived under `specs/_archive/`._
 
 ## NEEDS-RECONCILE (a decision/verification is open — not a free-form status)
 
@@ -123,8 +113,8 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 
 - ACTIVE: 8 (721, 726.B, 742, 744, 748, 750, 771, 772)
 - GOVERNING / DOCTRINE: 7 (610, 612, 620, 705, 715, 723, 746)
-- DONE: 12 (425, 426, 427, 616, 617, 618, 622, 703, 704, 708, 726, 740.1)
+- DONE: 5 (622, 703, 704, 726, 740.1) — DONE specs with open children / active continuations kept on the board; fully-closed DONE specs are archived
 - BACKLOG: 12
-- SUPERSEDED: 2 (600, 601)
+- SUPERSEDED: 0 (600, 601 → archived)
 - NEEDS-RECONCILE: 5 (428, 613, 614, 615, 713)
-- ARCHIVED: ~130 historical specs in `specs/_archive/` (incl. the 25 done/superseded specs archived 2026-06-02)
+- ARCHIVED: ~150 historical specs in `specs/_archive/` (incl. 20 done/superseded specs archived 2026-07-01: 425 426 427 600 601 616 617 618 708 745 751 752 753 754 757 758 759 765 766 768)

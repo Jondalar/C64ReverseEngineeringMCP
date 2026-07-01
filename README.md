@@ -287,7 +287,7 @@ living only as console logs or loose markdown.
   — the active product proof authority (the single "is this green" source).
   Run `npm run proof:product` (full) or `npm run proof:capability -- <cap>`
   (focused); `npm run proof:list` shows the manifest. Specs
-  [600](specs/600-runtime-proof-gates.md)/[601](specs/601-baseline-truth-table.md)
+  [600](specs/_archive/600-runtime-proof-gates.md)/[601](specs/_archive/601-baseline-truth-table.md)
   are retained as the historical seven-game 1541 bring-up gate, superseded as
   product authority.
 - [CLAUDE.md](CLAUDE.md) — working doctrine for contributors and agents

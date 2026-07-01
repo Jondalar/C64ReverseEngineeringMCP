@@ -41,7 +41,7 @@ sequencing). Folding the vice-drive variant into the canonical
 / 12 WARN / 0 FAIL; 616 load 15/16 exit 0; 616 chain 7618/7618; 617 save 9/9.)
 
 **MANDATORY before ANY $DD00 trace or step-debug (Spec 620 RFL-first):** complete §4 RFL gates 618.2–618.5 IN ORDER and post the `[RFL-CHECK …]` block for each. Verify polarity, active-low arbitration, input OR-masks (bits 0/2/6/7), CIA2 PA propagation timing (next-cycle vs immediate). Only AFTER all four RFL gates pass → motm/MM fastloader step-debug. No `$DD00` traces beforehand. Note: `iecbus_drive_port` is machine-specific (c64iec.c → c64iec.ts, Spec 621.2) — bus arbitration reads route through there, NOT iecbus.ts.
-**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/615-gcr-decode-fidelity.md`, `specs/616-kernal-load-fidelity.md`, `specs/617-kernal-save-fidelity.md`
+**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/615-gcr-decode-fidelity.md`, `specs/_archive/616-kernal-load-fidelity.md`, `specs/_archive/617-kernal-save-fidelity.md`
 **Base commit:** post-617-DONE + 621.1/621.2 (`dc848c7`).
 **Branch:** `codex/618-fastloader-dd00` (stacked on 617).
 
@@ -251,6 +251,6 @@ Spec is DONE when ALL of:
 - `specs/612-1541-port-fidelity-rules.md`
 - `specs/620-port-bug-forensic-doctrine.md`
 - `specs/615-gcr-decode-fidelity.md`
-- `specs/616-kernal-load-fidelity.md`
+- `specs/_archive/616-kernal-load-fidelity.md`
 - `specs/422-fastiec-jiffydos-stub-policy.md` (if exists — fastloader policy demarcation)
 - Memory: `project_motm_via1_ca1.md`, `project_mm_motm_regression_2026_05_06.md`, `feedback_step_debug_for_stalls.md`, `feedback_port_reading_first.md`, `feedback_c_to_ts_diff_test.md`.

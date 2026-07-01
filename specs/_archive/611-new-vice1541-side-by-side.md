@@ -7,8 +7,8 @@ operational strategy updated 2026-05-17." **Replaces** the prior Spec 611 "rotat
 retry" direction defined in `specs/610-1541-parity-rebuild-charter.md`.
 **Branch:** `codex/611-vice1541-side-by-side`
 **Baseline:** `runtime-green-2026-05-16` = master `87b4957`.
-**Doctrine:** `specs/600-runtime-proof-gates.md`.
-**Truth table:** `specs/601-baseline-truth-table.md`.
+**Doctrine:** `specs/_archive/600-runtime-proof-gates.md`.
+**Truth table:** `specs/_archive/601-baseline-truth-table.md`.
 **Charter:** `specs/610-1541-parity-rebuild-charter.md`.
 **Doc anchors:** `docs/vice-1541-arch.md`, `docs/vice-iec-arc42.md`.
 **Operational override (2026-05-17):** the side-by-side architecture,

@@ -454,7 +454,7 @@ speculative fix:
 
 ## Files touched
 
-- specs/427-im2-iec-divergence.md (this)
+- specs/_archive/427-im2-iec-divergence.md (this)
 - scripts/vice-im2-trace.mjs (new — VICE binmon trace)
 - samples/vice-trace-im2/samples.json (output, gitignored or
   small enough to commit)

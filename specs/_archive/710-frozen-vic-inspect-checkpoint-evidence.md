@@ -236,7 +236,7 @@ The overlay is HTML/SVG above the canvas. It never modifies frame pixels.
 - `specs/702-paused-vic-inspect-overlay.md`
 - `specs/705-interactive-runtime-evidence-intervention-replay-contract.md`
 - `specs/707-native-snapshot-persistence-dump-undump.md`
-- `specs/708-declarative-trace-definitions-tracedb-control.md`
+- `specs/_archive/708-declarative-trace-definitions-tracedb-control.md`
 - `specs/709-reproducible-media-ingress.md`
 - `src/runtime/headless/integrated-session.ts`
 - `src/runtime/headless/kernel/runtime-checkpoint.ts`

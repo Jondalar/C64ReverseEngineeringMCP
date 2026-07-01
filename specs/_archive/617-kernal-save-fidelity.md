@@ -1,7 +1,7 @@
 # Spec 617 — KERNAL Save Fidelity
 
 **Status:** DONE (2026-05-19) — KERNAL SAVE byte-fidelity proven 9/9 strict + 9/9 round-trip. `tests/spec-617/kernal-save-byte-fidelity.test.ts` exits 0. BAM behavior verified 1:1 against VICE x64sc 3.10 + real 1541 ROM (commit `f1265c7`): exact-fit SAVE leaves orphan pre-allocation in BAM — documented CBM DOS behavior (VALIDATE command exists to clean it). Oracle accepts this canonical real-ROM quirk. VICE cross-check (§6.3) remains DEFERRED. Spec 618 (fastloader/$DD00) GATED on Spec 616 also reaching exit 0.
-**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/615-gcr-decode-fidelity.md`, `specs/616-kernal-load-fidelity.md`
+**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/615-gcr-decode-fidelity.md`, `specs/_archive/616-kernal-load-fidelity.md`
 **Base commit:** post-616-DONE.
 **Branch:** `codex/617-kernal-save-fidelity` (stacked on 616).
 
@@ -270,8 +270,8 @@ Implementation notes:
 - `specs/611-new-vice1541-side-by-side.md`
 - `specs/612-1541-port-fidelity-rules.md` — NL / PL / FC
 - `specs/615-gcr-decode-fidelity.md` — DECODE path closed; ENCODE pending here
-- `specs/616-kernal-load-fidelity.md` — prerequisite; round-trip oracle depends on it
-- `specs/618-fastloader-dd00.md` — DEFERRED until this spec + 616 done
+- `specs/_archive/616-kernal-load-fidelity.md` — prerequisite; round-trip oracle depends on it
+- `specs/_archive/618-fastloader-dd00.md` — DEFERRED until this spec + 616 done
 - `specs/620-port-bug-forensic-doctrine.md` — RFL gate + conversion-bug families + DTH
 - `specs/621-port-hygiene-backlog.md` — P0 PL-10 dedupes
 - Memory: `feedback_step_debug_for_stalls.md`, `feedback_port_reading_first.md`, `feedback_c_to_ts_diff_test.md`.

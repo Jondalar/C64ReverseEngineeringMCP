@@ -140,7 +140,7 @@ persistent/pinned artifacts.
 
 - `specs/705-interactive-runtime-evidence-intervention-replay-contract.md`
 - `specs/707-native-snapshot-persistence-dump-undump.md`
-- `specs/708-declarative-trace-definitions-tracedb-control.md`
+- `specs/_archive/708-declarative-trace-definitions-tracedb-control.md`
 - `specs/709-reproducible-media-ingress.md`
 - `specs/710-frozen-vic-inspect-checkpoint-evidence.md`
 - `specs/711-code-overlay-intervention-branches.md`

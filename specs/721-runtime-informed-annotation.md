@@ -1,7 +1,7 @@
 # Spec 721 — Visual-Origin Join (Frozen Inspect ↔ Extraction / Medium / Trace / Disassembly)
 
 **Status:** DRAFT — refined 2026-05-25 (re-scoped from the general "runtime-informed annotation" draft onto the central join).
-**Parent specs:** `specs/710-frozen-vic-inspect-checkpoint-evidence.md` (DONE — the visual side + `FrozenInspectEvidence`/`MemoryRef`), `specs/708-declarative-trace-definitions-tracedb-control.md` (retained DuckDB trace runs/marks), `specs/709-reproducible-media-ingress.md` (media identity), `specs/720-disasm-output-quality.md` (static labels), `specs/042-*` (`propose_annotations`). Revives `specs/_archive/249-*` (runtime tables) + `specs/_archive/235-*` (runtime↔disasm link) as the annotation OUTPUT of the join.
+**Parent specs:** `specs/710-frozen-vic-inspect-checkpoint-evidence.md` (DONE — the visual side + `FrozenInspectEvidence`/`MemoryRef`), `specs/_archive/708-declarative-trace-definitions-tracedb-control.md` (retained DuckDB trace runs/marks), `specs/709-reproducible-media-ingress.md` (media identity), `specs/720-disasm-output-quality.md` (static labels), `specs/042-*` (`propose_annotations`). Revives `specs/_archive/249-*` (runtime tables) + `specs/_archive/235-*` (runtime↔disasm link) as the annotation OUTPUT of the join.
 **Scope:** ONE join — a visible object selected in Frozen Inspect resolves to its ORIGIN: the extracted asset, its file/medium location, the trace chain that put it on screen, and the code that uses it. No large implementation in this spec — data model + two small PoCs first.
 
 ## 1. The central join (why this spec)
@@ -182,7 +182,7 @@ suite. J1 is deterministic + needs no runtime trace; J2 needs a retained trace.
 ## 9. References
 
 - `specs/710-frozen-vic-inspect-checkpoint-evidence.md` — `FrozenInspectEvidence` / `MemoryRef` / `VisualNode` (the visual input).
-- `specs/708-declarative-trace-definitions-tracedb-control.md` — retained `traceRun`/marks (writer/source/copy/depack chains).
+- `specs/_archive/708-declarative-trace-definitions-tracedb-control.md` — retained `traceRun`/marks (writer/source/copy/depack chains).
 - `specs/709-reproducible-media-ingress.md` — media identity (`MediaRegion`).
 - `specs/720-disasm-output-quality.md` — static labels (`Routine`).
 - `specs/042-*` — `propose_annotations` (consumes the join's proposals).

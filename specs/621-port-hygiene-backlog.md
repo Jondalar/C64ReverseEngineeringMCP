@@ -194,8 +194,8 @@ Spec 621 closes when P0 + P1 land. P2 carries forward into ongoing maintenance.
 - `specs/612-1541-port-fidelity-todo.md` — historical task list; superseded for new work by this spec.
 - `specs/620-port-bug-forensic-doctrine.md` — RFL, conversion-bug families, DTH, first-divergence tool, profiling-tool quarantine.
 - `specs/615-gcr-decode-fidelity.md` — disk read path closed (LOAD"$",8 GREEN).
-- `specs/616-kernal-load-fidelity.md` — KERNAL LOAD,8,1 stall (consumes P0.1 + P0.2 + P1.3).
-- `specs/617-kernal-save-fidelity.md` — SAVE round-trip (consumes P1.3).
-- `specs/618-fastloader-dd00.md` — fastloader (consumes P0.2 + P1.3).
+- `specs/_archive/616-kernal-load-fidelity.md` — KERNAL LOAD,8,1 stall (consumes P0.1 + P0.2 + P1.3).
+- `specs/_archive/617-kernal-save-fidelity.md` — SAVE round-trip (consumes P1.3).
+- `specs/_archive/618-fastloader-dd00.md` — fastloader (consumes P0.2 + P1.3).
 - FC-11 scan results: commit `20689c2` (Spec 612 FC-7 — initial scan results, 4 hits).
 - Memory: `feedback_c_to_ts_diff_test.md`, `feedback_port_reading_first.md`, `feedback_trace_into_duckdb.md`.

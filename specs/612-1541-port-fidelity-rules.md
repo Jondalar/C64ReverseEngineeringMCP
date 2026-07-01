@@ -146,7 +146,7 @@ Build bottom-up. **Each layer is GREEN before the next layer is touched.** GREEN
 14. `iecbus.ts` + `c64iec.ts` + `iec.ts`
 15. `drive_snapshot.ts`
 
-Only after 1–15 are GREEN: integrate behind the `Drive1541` facade ("vice" branch) and run the runtime proof gates (`specs/600-runtime-proof-gates.md`).
+Only after 1–15 are GREEN: integrate behind the `Drive1541` facade ("vice" branch) and run the runtime proof gates (`specs/_archive/600-runtime-proof-gates.md`).
 
 ## 5. Per-Function Line-Map (FM-block)
 
@@ -272,6 +272,6 @@ This spec is DONE when:
 
 - `specs/610-1541-parity-rebuild-charter.md` — charter.
 - `specs/611-new-vice1541-side-by-side.md` — side-by-side build.
-- `specs/600-runtime-proof-gates.md` — proof gates.
+- `specs/_archive/600-runtime-proof-gates.md` — proof gates.
 - `docs/vice-1541-arch.md` — VICE 1541 arch.
 - 2026-05-17 audit (this branch) — quantified drift evidence.

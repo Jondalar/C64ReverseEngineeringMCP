@@ -7,8 +7,8 @@ VICE 1:1").
 (governance commits only on top of green baseline; no emulator
 changes).
 **Run date:** 2026-05-16.
-**Doctrine:** `specs/600-runtime-proof-gates.md`.
-**Truth table source:** `specs/601-baseline-truth-table.md` (this doc
+**Doctrine:** `specs/_archive/600-runtime-proof-gates.md`.
+**Truth table source:** `specs/_archive/601-baseline-truth-table.md` (this doc
 records the actual baseline run that backs Spec 601).
 
 ## How this doc is used

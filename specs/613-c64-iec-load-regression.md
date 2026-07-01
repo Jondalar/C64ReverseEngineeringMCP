@@ -111,5 +111,5 @@ Required per `feedback_read_vice_first` rule. Run VICE with same blank.d64 + `LO
 ## Cross-link
 
 - `specs/612-1541-port-fidelity-todo.md` T3.4, T3.5, T3.7, T3.8 — Spec 612 partial diagnostic threads that converge here.
-- `specs/600-runtime-proof-gates.md` — VICE binmon side-by-side doctrine.
+- `specs/_archive/600-runtime-proof-gates.md` — VICE binmon side-by-side doctrine.
 - `docs/vice-iec-arc42.md` — IEC handshake reference + ADR-1 push-flush.
