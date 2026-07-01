@@ -2116,6 +2116,12 @@ export class ProjectKnowledgeService {
       patchPlan: patch.patchPlan ?? existing.patchPlan,
       validationCriteria: patch.validationCriteria ?? existing.validationCriteria,
       buildBlocker: patch.buildBlocker ?? existing.buildBlocker,
+      // Spec 773 Loop 6 — Release / QA planning fields.
+      qaState: patch.qaState ?? existing.qaState,
+      testerFeedback: patch.testerFeedback ?? existing.testerFeedback,
+      releaseArtifact: patch.releaseArtifact ?? existing.releaseArtifact,
+      knownIssues: patch.knownIssues ?? existing.knownIssues,
+      releaseNotes: patch.releaseNotes ?? existing.releaseNotes,
       updatedAt: nowIso(),
     };
     return this.storage.saveProjectProfile(merged);

@@ -231,6 +231,13 @@ export const ProjectProfileSchema = z.object({
   patchPlan: z.string().optional(),
   validationCriteria: z.string().optional(),
   buildBlocker: z.string().optional(),
+  // Spec 773 Loop 6 — Release / QA planning writes. Same additive-string contract; the
+  // Release cockpit reads them. Captured by human or harness via saveProjectProfile.
+  qaState: z.string().optional(),
+  testerFeedback: z.string().optional(),
+  releaseArtifact: z.string().optional(),
+  knownIssues: z.string().optional(),
+  releaseNotes: z.string().optional(),
   hardwareConstraints: z.array(z.object({
     resource: z.string(),
     constraint: z.string(),

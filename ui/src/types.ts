@@ -546,6 +546,12 @@ export interface ProjectProfileBrief {
   patchPlan?: string;
   validationCriteria?: string;
   buildBlocker?: string;
+  // Spec 773 Loop 6 — Release / QA planning fields.
+  qaState?: string;
+  testerFeedback?: string;
+  releaseArtifact?: string;
+  knownIssues?: string;
+  releaseNotes?: string;
 }
 
 export type LifecyclePhaseId = "onboarding" | "discovery" | "re" | "build" | "release";

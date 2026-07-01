@@ -213,11 +213,8 @@ function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeM
   const goals = snapshot.projectProfile?.goals ?? [];
   const workflow = snapshot.projectProfile?.workflow;
   const loaderModel = snapshot.projectProfile?.loaderModel;
-  const testCmd = snapshot.projectProfile?.test?.command;
   const openQ = snapshot.openQuestions.length;
   const findings = snapshot.counts.findings;
-  const checkpoints = snapshot.checkpoints.length;
-  const keyDocs = snapshot.views.projectDashboard.keyDocuments.length;
   const hasListing = snapshot.views.annotatedListing.entries.length > 0;
   const versionGroups = snapshot.artifactVersionGroups.length;
   const mediaSummary = hasMedia
@@ -296,18 +293,35 @@ function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeM
   }
 
   if (phase === "release") {
+    // `|| undefined` so an emptied field reads as unset everywhere.
+    const qaState = snapshot.projectProfile?.qaState || undefined;
+    const testerFeedback = snapshot.projectProfile?.testerFeedback || undefined;
+    const releaseArtifact = snapshot.projectProfile?.releaseArtifact || undefined;
+    const knownIssues = snapshot.projectProfile?.knownIssues || undefined;
+    const releaseNotes = snapshot.projectProfile?.releaseNotes || undefined;
     return {
-      intent: "Stabilize, test, package and hand off the finished artifact — local QA, tester loops, release notes, final package.",
+      intent: "Stabilize, test, package and hand off the finished artifact — local QA, tester loops, known issues, release notes, and the final package.",
       known: [
-        { label: "Docs / reports", value: keyDocs ? `${keyDocs} key document${keyDocs === 1 ? "" : "s"}` : "none yet", ok: keyDocs > 0 },
-        { label: "Test command", value: testCmd ?? "not set", ok: !!testCmd },
+        { label: "Local QA state", value: qaState ?? "not run", ok: !!qaState },
+        { label: "Tester feedback", value: testerFeedback ? "captured" : "none yet", ok: !!testerFeedback },
+        { label: "Release artifact (RC/final)", value: releaseArtifact ?? "none", ok: !!releaseArtifact },
+        { label: "Known issues", value: knownIssues ? "captured" : "none noted", ok: !knownIssues },
+        { label: "Release notes", value: releaseNotes ? "captured" : "not written", ok: !!releaseNotes },
         { label: "Open issues (questions)", value: String(openQ), ok: openQ === 0 },
-        { label: "Checkpoints", value: String(checkpoints), ok: checkpoints > 0 },
       ],
-      missing: ["Local QA run", "Tester feedback", "Release candidate / final package", "Release notes"],
-      next: openQ > 0
-        ? `Resolve the ${openQ} open question${openQ === 1 ? "" : "s"} / known issues, run local QA, then package a release candidate (via the agent).`
-        : "Run local QA and capture results, then package a release candidate (via the agent).",
+      missing: [
+        ...(qaState ? [] : ["Local QA not run"]),
+        ...(testerFeedback ? [] : ["No tester feedback"]),
+        ...(releaseArtifact ? [] : ["No release candidate / final artifact"]),
+        ...(releaseNotes ? [] : ["Release notes not written"]),
+      ],
+      next: !qaState
+        ? "Run local QA and capture the result below, then loop in testers."
+        : !releaseArtifact
+          ? "Capture the release candidate / final artifact ref below, then write the release notes."
+          : releaseNotes
+            ? "Release plan captured — hand off the final package (release execution is out of scope here)."
+            : "Write the release notes + known issues below, then package the final artifact.",
       tools: [
         { label: "Docs / reports", phase: "release", tab: "docs" },
         { label: "Triage", phase: "release", tab: "questions" },
@@ -812,6 +826,73 @@ function BuildPlanForm({ profile, onSave }: {
   );
 }
 
+// Spec 773 Loop 6 — Release / QA capture. Same project-profile write path as goal + build
+// plan; agent (save_project_profile) writes the identical fields. Sends trimmed values
+// verbatim so a field can be cleared from the UI (read side normalizes "" → unset).
+function ReleasePlanForm({ profile, onSave }: {
+  profile: WorkspaceUiSnapshot["projectProfile"];
+  onSave: (patch: Record<string, unknown>) => Promise<void>;
+}) {
+  const [qaState, setQaState] = useState(profile?.qaState ?? "");
+  const [testerFeedback, setTesterFeedback] = useState(profile?.testerFeedback ?? "");
+  const [releaseArtifact, setReleaseArtifact] = useState(profile?.releaseArtifact ?? "");
+  const [knownIssues, setKnownIssues] = useState(profile?.knownIssues ?? "");
+  const [releaseNotes, setReleaseNotes] = useState(profile?.releaseNotes ?? "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const captured = Boolean(profile?.qaState || profile?.releaseArtifact || profile?.releaseNotes);
+
+  async function submit() {
+    setSaving(true);
+    setSaved(false);
+    setErr(null);
+    try {
+      await onSave({
+        qaState: qaState.trim(),
+        testerFeedback: testerFeedback.trim(),
+        releaseArtifact: releaseArtifact.trim(),
+        knownIssues: knownIssues.trim(),
+        releaseNotes: releaseNotes.trim(),
+      });
+      setSaved(true);
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="panel-card goal-form">
+      <div className="section-heading"><h2>{captured ? "Release / QA (edit)" : "Capture release / QA"}</h2></div>
+      <div className="goal-form-grid">
+        <label className="goal-form-wide">Local QA state
+          <input value={qaState} onChange={(e) => setQaState(e.target.value)} placeholder="e.g. 6/7 gates pass; Pawn s1 still fails" />
+        </label>
+        <label className="goal-form-wide">Tester feedback
+          <textarea value={testerFeedback} onChange={(e) => setTesterFeedback(e.target.value)} rows={2} placeholder="feedback from external testers" />
+        </label>
+        <label className="goal-form-wide">Release artifact (RC / final)
+          <input value={releaseArtifact} onChange={(e) => setReleaseArtifact(e.target.value)} placeholder="e.g. motm_ef_rc2.crt" />
+        </label>
+        <label className="goal-form-wide">Known issues
+          <textarea value={knownIssues} onChange={(e) => setKnownIssues(e.target.value)} rows={2} placeholder="open issues shipping with this release" />
+        </label>
+        <label className="goal-form-wide">Release notes
+          <textarea value={releaseNotes} onChange={(e) => setReleaseNotes(e.target.value)} rows={3} placeholder="what's in this release / changelog" />
+        </label>
+      </div>
+      <div className="goal-form-actions">
+        <button type="button" className="primary-button" onClick={submit} disabled={saving}>{saving ? "Saving…" : "Save release / QA"}</button>
+        {saved ? <span className="goal-form-ok">saved ✓</span> : null}
+        {err ? <span className="goal-form-err">{err}</span> : null}
+      </div>
+      <p className="goal-form-note">Release PLANNING / QA capture — same project-profile contract (you or the agent). Release execution / packaging is out of scope here.</p>
+    </div>
+  );
+}
+
 function PhaseHomePanel({
   phase,
   snapshot,
@@ -852,6 +933,7 @@ function PhaseHomePanel({
       </div>
 
       {phase === "build" ? <BuildPlanForm profile={snapshot.projectProfile} onSave={onSaveGoal} /> : null}
+      {phase === "release" ? <ReleasePlanForm profile={snapshot.projectProfile} onSave={onSaveGoal} /> : null}
 
       <div className="phase-home-grid">
         <div className="panel-card">

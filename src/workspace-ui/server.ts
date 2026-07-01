@@ -722,6 +722,11 @@ const server = createServer((req, res) => {
           patchPlan?: string;
           validationCriteria?: string;
           buildBlocker?: string;
+          qaState?: string;
+          testerFeedback?: string;
+          releaseArtifact?: string;
+          knownIssues?: string;
+          releaseNotes?: string;
         };
         const projectDir = payload.projectDir ?? options.projectDir;
         const service = new ProjectKnowledgeService(projectDir);
@@ -740,6 +745,11 @@ const server = createServer((req, res) => {
         if (payload.patchPlan !== undefined) patch.patchPlan = payload.patchPlan;
         if (payload.validationCriteria !== undefined) patch.validationCriteria = payload.validationCriteria;
         if (payload.buildBlocker !== undefined) patch.buildBlocker = payload.buildBlocker;
+        if (payload.qaState !== undefined) patch.qaState = payload.qaState;
+        if (payload.testerFeedback !== undefined) patch.testerFeedback = payload.testerFeedback;
+        if (payload.releaseArtifact !== undefined) patch.releaseArtifact = payload.releaseArtifact;
+        if (payload.knownIssues !== undefined) patch.knownIssues = payload.knownIssues;
+        if (payload.releaseNotes !== undefined) patch.releaseNotes = payload.releaseNotes;
         const profile = service.saveProjectProfile(patch as never);
         send(res, jsonResponse(200, { profile }));
       } catch (error) {

@@ -83,8 +83,13 @@ capture, Build assembly, Release packaging (thin, over existing primitives).
   and its Known/Missing/Next read the fields; empty-string reads as unset (`|| undefined`),
   and the form sends trimmed values verbatim so a field (e.g. a resolved blocker) can be
   cleared from the UI. NO build execution (the `build` execution config is untouched).
-- **Loop 6:** controlled Release/QA writes — local QA state, tester feedback, RC/final
-  artifact refs, known issues / release notes.
+- **Loop 6 (DONE):** controlled Release/QA writes — `qaState`, `testerFeedback`,
+  `releaseArtifact`, `knownIssues`, `releaseNotes` (5 additive optional ProjectProfile
+  strings), persisted via the existing `saveProjectProfile` path (same
+  `POST /api/project/profile`, no new endpoint). The Release cockpit gains a
+  `ReleasePlanForm`; Known/Missing/Next read the fields (empty-string reads as unset;
+  form sends trimmed values so a field can be cleared from the UI). Release execution /
+  packaging is out of scope. **All 6 loops complete; the write-path staging is done.**
 
 "B" (in-UI writes) is NOT "someday" — it is Loops 4-6, staged. Each loop must be complete
 + testable; no ambiguous MVP hole. Write-path work documents the contract, implements
