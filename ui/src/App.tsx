@@ -131,6 +131,8 @@ const PHASE_LABELS: Record<Phase, string> = {
   release: "Release",
 };
 const ALL_PHASES: Phase[] = PHASE_ORDER;
+// Shorter labels for the narrow vertical rail (full names live in PHASE_LABELS).
+const PHASE_RAIL_LABELS: Record<Phase, string> = { ...PHASE_LABELS, re: "Reverse Eng." };
 
 // Each tab is a phase tool. Disk + Cartridge are FIRST-CLASS expert surfaces in
 // Discovery + RE (hard constraint — directly reachable, never buried). Dashboard /
@@ -4378,6 +4380,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   // Spec 773 — the active lifecycle phase (the phase-strip). Navigation only, not a gate.
   const [activePhase, setActivePhase] = useState<Phase>("discovery");
+  const [railCollapsed, setRailCollapsed] = useState(false);
   const phaseAutoInit = useRef(false);
   // Spec 724B — Live runtime tab session state.
   const [liveSessionId, setLiveSessionId] = useState<string>("");
@@ -4956,62 +4959,49 @@ export function App() {
     <InternalVisibilityContext.Provider value={internalVisibilityValue}>
     <LineageVisibilityContext.Provider value={lineageVisibilityValue}>
     <div className={activeTab === "live" ? "app-root live-mode" : "app-root"}>
-      {/* Spec 773 / compact top bar — one thin row: project ident (left) + the
-          5-phase lifecycle strip (right). Metric tiles + status/updated moved out
-          (metrics live in the Dashboard); the visibility toggles moved to the
-          tab-strip row. Reclaims the vertical the old fat hero+phase bands ate. */}
-      <header className="hero-shell hero-compact">
-        <div className="hero-ident">
-          <span className="hero-name">{snapshot?.project.name ?? "Project"}</span>
-          <span className="hero-brand">C64RE · by DKL/TREX</span>
-        </div>
-        {snapshot ? (
-          <nav className="phase-strip" aria-label="Project lifecycle">
-            <button
-              type="button"
-              className="phase-arrow"
-              disabled={PHASE_ORDER.indexOf(activePhase) === 0}
-              onClick={() => {
-                const i = PHASE_ORDER.indexOf(activePhase);
-                if (i > 0) handlePhaseChange(PHASE_ORDER[i - 1]);
-              }}
-              aria-label="Previous phase"
-            >
-              ‹
-            </button>
-            {PHASE_ORDER.map((phase, idx) => {
-              const isActive = phase === activePhase;
-              const isRecommended = snapshot.lifecyclePhase === phase;
-              return (
-                <button
-                  key={phase}
-                  type="button"
-                  className={isActive ? "phase-button active" : "phase-button"}
-                  aria-current={isActive ? "step" : undefined}
-                  onClick={() => handlePhaseChange(phase)}
-                  title={isRecommended ? `${PHASE_LABELS[phase]} — recommended by workflow state` : PHASE_LABELS[phase]}
-                >
-                  <span className="phase-index">{idx + 1}</span>
-                  <span className="phase-label">{PHASE_LABELS[phase]}</span>
-                  {isRecommended ? <span className="phase-reco" aria-label="recommended">●</span> : null}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              className="phase-arrow"
-              disabled={PHASE_ORDER.indexOf(activePhase) === PHASE_ORDER.length - 1}
-              onClick={() => {
-                const i = PHASE_ORDER.indexOf(activePhase);
-                if (i < PHASE_ORDER.length - 1) handlePhaseChange(PHASE_ORDER[i + 1]);
-              }}
-              aria-label="Next phase"
-            >
-              ›
-            </button>
-          </nav>
-        ) : null}
-      </header>
+      <div className={`app-shell${railCollapsed ? " rail-collapsed" : ""}`}>
+        {/* Spec 773 — phases as a LEFT vertical rail (collapsible), so the phase axis is
+            spatially distinct from the tool row (fixes the "two horizontal button bands"
+            confusion). VS-Code activity-bar pattern; the tool-strip stays at the top of
+            the content column. */}
+        <nav className="phase-rail" aria-label="Project lifecycle">
+          <button
+            type="button"
+            className="rail-collapse"
+            onClick={() => setRailCollapsed((value) => !value)}
+            aria-label={railCollapsed ? "Expand phases" : "Collapse phases"}
+            title={railCollapsed ? "Expand phases" : "Collapse phases"}
+          >
+            {railCollapsed ? "»" : "«"}
+          </button>
+          {PHASE_ORDER.map((phase, idx) => {
+            const isActive = phase === activePhase;
+            const isRecommended = snapshot?.lifecyclePhase === phase;
+            return (
+              <button
+                key={phase}
+                type="button"
+                className={isActive ? "rail-phase active" : "rail-phase"}
+                aria-current={isActive ? "step" : undefined}
+                onClick={() => handlePhaseChange(phase)}
+                title={`${idx + 1}. ${PHASE_LABELS[phase]}${isRecommended ? " — recommended by workflow state" : ""}`}
+              >
+                <span className="rail-badge">
+                  {idx + 1}
+                  {isRecommended ? <span className="rail-reco" aria-label="recommended">●</span> : null}
+                </span>
+                <span className="rail-label">{PHASE_RAIL_LABELS[phase]}</span>
+              </button>
+            );
+          })}
+        </nav>
+        <div className="app-column">
+          <header className="hero-shell hero-compact">
+            <div className="hero-ident">
+              <span className="hero-name">{snapshot?.project.name ?? "Project"}</span>
+              <span className="hero-brand">C64RE · by DKL/TREX</span>
+            </div>
+          </header>
 
       {error ? <div className="error-banner">{error}</div> : null}
 
@@ -5279,6 +5269,8 @@ export function App() {
           ) : null}
         </main>
       )}
+        </div>{/* app-column */}
+      </div>{/* app-shell */}
       {hexOverlay ? (
         <HexView
           path={hexOverlay.path}
