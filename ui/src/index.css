@@ -56,6 +56,58 @@ button {
   margin-bottom: 1rem;
 }
 
+/* Spec 773 — compact top bar: project ident (left) + phase-strip (right) on ONE
+   thin row. Replaces the old fat hero (title + 4 metric tiles + meta-line). */
+.hero-shell.hero-compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+  padding: 0.35rem 0.2rem;
+}
+.hero-ident {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+}
+.hero-name {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: white;
+}
+.hero-brand {
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+}
+/* In the compact header the phase-strip is a flex child, not a grid row. */
+.hero-compact .phase-strip {
+  margin: 0;
+  flex: 0 1 auto;
+}
+/* Visibility filters, tucked at the right end of the tool row. */
+.tab-strip-controls {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+.tab-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--ink);
+  opacity: 0.6;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tab-toggle:hover { opacity: 0.9; }
+
 .hero-copy {
   /* Two columns: title block (eyebrow + h1) stays LEFT; the metric tiles +
      meta-line go to the RIGHT edge, compact. */
@@ -637,6 +689,87 @@ button {
   border-color: rgba(108, 92, 231, 0.35);
   background: rgba(108, 92, 231, 0.18);
   color: white;
+}
+
+/* Spec 773 — the lifecycle phase-strip: the first-level project axis, sitting above
+   the phase-tools (tab-strip). More prominent than the tab-strip; free forward/back. */
+.phase-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  grid-column: 1 / -1;
+  padding: 0.35rem;
+  border-radius: 14px;
+  background: rgba(8, 18, 29, 0.55);
+  border: 1px solid rgba(92, 92, 128, 0.18);
+}
+
+.phase-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.phase-button:hover {
+  background: rgba(124, 108, 238, 0.10);
+}
+
+.phase-button.active {
+  background: linear-gradient(180deg, rgba(108, 92, 231, 0.30), rgba(108, 92, 231, 0.18));
+  border-color: rgba(108, 92, 231, 0.55);
+  color: white;
+}
+
+.phase-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  background: rgba(124, 108, 238, 0.18);
+  color: var(--ink);
+}
+
+.phase-button.active .phase-index {
+  background: rgba(255, 255, 255, 0.22);
+  color: white;
+}
+
+.phase-label {
+  white-space: nowrap;
+}
+
+.phase-reco {
+  color: #4ade80;
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.phase-arrow {
+  padding: 0 0.6rem;
+  border-radius: 10px;
+  background: transparent;
+  border: 1px solid rgba(92, 92, 128, 0.18);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.phase-arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 .dashboard-grid,

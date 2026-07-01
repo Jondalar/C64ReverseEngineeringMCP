@@ -117,19 +117,37 @@ interface TodoComposerState {
 type DiskFileSelection = { diskArtifactId: string; fileId: string };
 type CartChunkSelection = { cartridgeArtifactId: string; chunk: CartridgeLutChunk };
 
-const allTabs: Array<{ id: TabId; label: string }> = [
-  { id: "live", label: "Live" },
-  { id: "dashboard", label: "Dashboard" },
-  { id: "questions", label: "Questions" },
-  { id: "docs", label: "Docs" },
-  { id: "memory", label: "Memory Map" },
-  { id: "graphics", label: "Graphics" },
-  { id: "scrub", label: "Scrub" },
-  { id: "disk", label: "Disk" },
-  { id: "cartridge", label: "Cartridge" },
-  { id: "payloads", label: "Payloads" },
-  { id: "flow", label: "Flow Graph" },
-  { id: "listing", label: "Annotated Listing" },
+// Spec 773 — the 5-phase RE project lifecycle (the first-level experience).
+// The phase-strip is NAVIGATION (free forward/back), not a hard gate; the tab-strip
+// below it is the phase-tools row for the active phase. Mirrors
+// src/agent-orchestrator/lifecycle.ts + docs/product-vision §2A.
+type Phase = "onboarding" | "discovery" | "re" | "build" | "release";
+const PHASE_ORDER: Phase[] = ["onboarding", "discovery", "re", "build", "release"];
+const PHASE_LABELS: Record<Phase, string> = {
+  onboarding: "Onboarding",
+  discovery: "Discovery",
+  re: "Reverse Engineering",
+  build: "Build",
+  release: "Release",
+};
+const ALL_PHASES: Phase[] = PHASE_ORDER;
+
+// Each tab is a phase tool. Disk + Cartridge are FIRST-CLASS expert surfaces in
+// Discovery + RE (hard constraint — directly reachable, never buried). Dashboard /
+// Live / Questions / Docs are cross-phase (available in every phase).
+const allTabs: Array<{ id: TabId; label: string; phases: Phase[] }> = [
+  { id: "live", label: "Live", phases: ALL_PHASES }, // TRX64 runtime evidence — cross-phase, not a lifecycle stage
+  { id: "dashboard", label: "Dashboard", phases: ALL_PHASES },
+  { id: "questions", label: "Questions", phases: ALL_PHASES },
+  { id: "docs", label: "Docs", phases: ALL_PHASES },
+  { id: "memory", label: "Memory Map", phases: ["discovery", "re"] },
+  { id: "graphics", label: "Graphics", phases: ["discovery", "re"] },
+  { id: "scrub", label: "Scrub", phases: ["re"] },
+  { id: "disk", label: "Disk", phases: ["discovery", "re"] },
+  { id: "cartridge", label: "Cartridge", phases: ["discovery", "re"] },
+  { id: "payloads", label: "Payloads", phases: ["discovery", "re"] },
+  { id: "flow", label: "Flow Graph", phases: ["re"] },
+  { id: "listing", label: "Annotated Listing", phases: ["re"] },
 ];
 
 // Files we want to open in the (mon) hex viewer. Anything else (.json,
@@ -4171,6 +4189,9 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
+  // Spec 773 — the active lifecycle phase (the phase-strip). Navigation only, not a gate.
+  const [activePhase, setActivePhase] = useState<Phase>("discovery");
+  const phaseAutoInit = useRef(false);
   // Spec 724B — Live runtime tab session state.
   const [liveSessionId, setLiveSessionId] = useState<string>("");
   const [liveRunState, setLiveRunState] = useState<"running" | "paused" | "off">("running");
@@ -4602,6 +4623,8 @@ export function App() {
   }, [snapshot, discoveredDocs, showAllVersions, showInternal]);
   const visibleTabs = snapshot
     ? allTabs.filter((tab) => {
+        // Spec 773 — only show a tab if it is a tool of the active lifecycle phase.
+        if (!tab.phases.includes(activePhase)) return false;
         if (tab.id === "dashboard") return true;
         if (tab.id === "questions") return snapshot.openQuestions.length > 0;
         if (tab.id === "docs") return docs.length > 0;
@@ -4624,6 +4647,14 @@ export function App() {
       setActiveTab(visibleTabs[0]?.id ?? "dashboard");
     }
   }, [activeTab, visibleTabs]);
+
+  // Spec 773 — on first project load, land on the recommended lifecycle phase
+  // (derived from workflow state). One-shot: never override the user's navigation.
+  useEffect(() => {
+    if (!snapshot || phaseAutoInit.current) return;
+    phaseAutoInit.current = true;
+    if (snapshot.lifecyclePhase) setActivePhase(snapshot.lifecyclePhase as Phase);
+  }, [snapshot]);
 
   function handleSelectEntity(entityId: string, tabId: TabId = activeTab) {
     setSelectedEntityId(entityId);
@@ -4725,44 +4756,61 @@ export function App() {
     <InternalVisibilityContext.Provider value={internalVisibilityValue}>
     <LineageVisibilityContext.Provider value={lineageVisibilityValue}>
     <div className={activeTab === "live" ? "app-root live-mode" : "app-root"}>
-      <header className="hero-shell">
-        <div className="hero-copy panel-card">
-          <div className="eyebrow">C64RE (by DKL/TREX)</div>
-          <h1>{snapshot?.project.name ?? "Project"}</h1>
-          {snapshot ? (
-            <div className="hero-metrics">
-              {snapshot.views.projectDashboard.metrics.map((metric) => (
-                <MetricTile key={metric.id} title={metric.title} value={metric.value} tone={metric.emphasis} />
-              ))}
-            </div>
-          ) : null}
-          {snapshot ? (
-            <div className="hero-meta-line">
-              <span>{snapshot.project.status}</span>
-              <span>updated {shortTime(snapshot.generatedAt)}</span>
-              {/* Bug 24: default = latest version per lineage everywhere.
-                  Toggle exposes V0..V(n-1) for debugging. */}
-              <label style={{ display: "inline-flex", alignItems: "center", gap: "4px", cursor: "pointer", opacity: 0.75 }}>
-                <input
-                  type="checkbox"
-                  checked={showAllVersions}
-                  onChange={(event) => setShowAllVersions(event.target.checked)}
-                />
-                Show all versions
-              </label>
-              {/* Bug 26 / Spec 058: default hide infrastructure files.
-                  Toggle exposes manifests / analysis JSONs / etc. */}
-              <label style={{ display: "inline-flex", alignItems: "center", gap: "4px", cursor: "pointer", opacity: 0.75 }}>
-                <input
-                  type="checkbox"
-                  checked={showInternal}
-                  onChange={(event) => setShowInternal(event.target.checked)}
-                />
-                Show internal files
-              </label>
-            </div>
-          ) : null}
+      {/* Spec 773 / compact top bar — one thin row: project ident (left) + the
+          5-phase lifecycle strip (right). Metric tiles + status/updated moved out
+          (metrics live in the Dashboard); the visibility toggles moved to the
+          tab-strip row. Reclaims the vertical the old fat hero+phase bands ate. */}
+      <header className="hero-shell hero-compact">
+        <div className="hero-ident">
+          <span className="hero-name">{snapshot?.project.name ?? "Project"}</span>
+          <span className="hero-brand">C64RE · by DKL/TREX</span>
         </div>
+        {snapshot ? (
+          <nav className="phase-strip" aria-label="Project lifecycle">
+            <button
+              type="button"
+              className="phase-arrow"
+              disabled={PHASE_ORDER.indexOf(activePhase) === 0}
+              onClick={() => {
+                const i = PHASE_ORDER.indexOf(activePhase);
+                if (i > 0) setActivePhase(PHASE_ORDER[i - 1]);
+              }}
+              aria-label="Previous phase"
+            >
+              ‹
+            </button>
+            {PHASE_ORDER.map((phase, idx) => {
+              const isActive = phase === activePhase;
+              const isRecommended = snapshot.lifecyclePhase === phase;
+              return (
+                <button
+                  key={phase}
+                  type="button"
+                  className={isActive ? "phase-button active" : "phase-button"}
+                  aria-current={isActive ? "step" : undefined}
+                  onClick={() => setActivePhase(phase)}
+                  title={isRecommended ? `${PHASE_LABELS[phase]} — recommended by workflow state` : PHASE_LABELS[phase]}
+                >
+                  <span className="phase-index">{idx + 1}</span>
+                  <span className="phase-label">{PHASE_LABELS[phase]}</span>
+                  {isRecommended ? <span className="phase-reco" aria-label="recommended">●</span> : null}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className="phase-arrow"
+              disabled={PHASE_ORDER.indexOf(activePhase) === PHASE_ORDER.length - 1}
+              onClick={() => {
+                const i = PHASE_ORDER.indexOf(activePhase);
+                if (i < PHASE_ORDER.length - 1) setActivePhase(PHASE_ORDER[i + 1]);
+              }}
+              aria-label="Next phase"
+            >
+              ›
+            </button>
+          </nav>
+        ) : null}
       </header>
 
       {error ? <div className="error-banner">{error}</div> : null}
@@ -4784,6 +4832,18 @@ export function App() {
                 {tab.label}
               </button>
             ))}
+            {/* Spec 773 — the visibility filters moved out of the (removed) fat header
+                into a small unobtrusive control at the right end of the tool row. */}
+            <div className="tab-strip-controls">
+              <label className="tab-toggle" title="Show V0..V(n-1) per lineage (default: latest only)">
+                <input type="checkbox" checked={showAllVersions} onChange={(event) => setShowAllVersions(event.target.checked)} />
+                all versions
+              </label>
+              <label className="tab-toggle" title="Show manifests / analysis JSON / internal files (default: hidden)">
+                <input type="checkbox" checked={showInternal} onChange={(event) => setShowInternal(event.target.checked)} />
+                internal
+              </label>
+            </div>
           </nav>
 
           <section className="workspace-main">
