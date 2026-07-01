@@ -17,12 +17,16 @@ this board wins until the header is reconciled.
 
 **Two product rules a fresh LLM must internalize:**
 
+0. **Leitregel: Capability → TRX64, Meaning/Memory → C64RE.** TRX64 is the strategic runtime base and the default backend process (the Rust daemon, auto-discovered/spawned) — it produces bytes, events and machine-state and owns runtime, instrument, reverse-debug, trace, checkpoints (`.c64re`/`.c64retrace`), daemon/FFI/CLI. C64RE is the reverse-engineering workbench — project knowledge, method/memory, analysis pipeline, semantic disassembly, findings/entities/questions, UI/orchestration, curation — it turns those bytes/events/state into knowledge. The TypeScript runtime in C64RE is a fallback / parity oracle, not the strategic base. Endstate: two MCP servers — `trx64-mcp` (instrument/runtime) and `c64re-mcp` (workbench/knowledge); today's C64RE `runtime_*` tools are a transition/proxy to the TRX64 backend, not their permanent home.
+
 1. **VICE is internal-dev oracle only.** It is NOT part of the normal external/
    consuming-LLM workflow. `vice_*` tools are advanced + internal-dev-only; product
    work uses the Headless runtime + trace tools.
-2. **The Runtime strand is our emulator product for LLMs.** It is not a thin
+2. **The Runtime strand is TRX64 — the emulator backend C64RE drives for LLMs**,
+   not an emulator product C64RE itself owns. It is not a thin
    VICE launcher and not a constrained demo path. External LLMs must be able to
-   run, inspect, trace, rewind and intervene inside our own Headless runtime.
+   run, inspect, trace, rewind and intervene inside the runtime (TRX64 by default;
+   the TS Headless runtime is the fallback/parity oracle) through the C64RE workbench.
 3. **External LLMs work through the default MCP façade + the playbooks**
    (`docs/mcp-tool-usecase-matrix.md`, `docs/mcp-llm-playbooks.md`), not through old
    internal/debug tools. `C64RE_FULL_TOOLS` is not a normal solution.
@@ -44,6 +48,8 @@ Small by design — only specs with concrete next implementation work.
 | 744 | Runtime Session Authority + Drive-to-State Orchestration | **744.4c Runtime Daemon DONE (shipped 2026-05-31)** — process-stable daemon authority; UI + MCP are clients. One-runtime/one-read-path trace hardening shipped (746.x). Next: §7 drive-to-state / disk-swap flow. |
 | 748 | Project Steering + Agent Discipline | **748.1 + 748.2 DONE** (`e2e:748` 10/10) — 748.1: project `knowledge/steering.md` via `project_steering_set`, injected at top of `agent_onboard`. 748.2 (BUG-032 fixed): heuristic question de-rot (hidden behind a count), reconcile teeth in `agent_propose_next` (ID-prefilled answer step on finding↔question overlap), record/reconcile default steering. Next: 748.3 trace→cartography extractor (feeds BUG-031). |
 | 750 | Disk + Cartridge Cartography Visualization (payloads · addressing · loaders) | The STATIC strand made REAL in the two EXISTING views (no new tab). Wires the existing schemas (`LoaderEntryPoint`/`ContainerEntry`/`loads`/`writes`), uses 721's `mediumRef`. Render-first: **750.1** = mediumRef + the views render payloads@position (closes BUG-031); then addressing overlay (750.2) + loader/mutator edges (750.3) + extractors (750.4–.6). |
+| 771 | TRX64 Runtime Backend + VICE Deprecation | ACTIVE (branch `spec-771-trx64-core`): TRX64 = strategic Rust runtime base + the DEFAULT backend process; owns runtime/instrument/reverse-debug/trace/checkpoints (`.c64re`/`.c64retrace`), daemon/FFI/CLI; the TS Headless runtime becomes fallback/parity oracle; native VICE + `vice_*` move behind "extended" and are deprecated. |
+| 772 | Checkpoint-Ring: Cadence + Retention (UI-scrub-sized) | PROPOSED — size the checkpoint ring for the UI scrub filmstrip (0.5 s cadence / 10 s = 20 snapshots, env-parametrized); deep history stays on the recorder (Spec 766). |
 
 ## GOVERNING / DOCTRINE (rules + umbrella contracts — still binding, not active implementation)
 
@@ -115,7 +121,7 @@ implementation task. Sub-children that ARE open are listed under BACKLOG/ACTIVE.
 
 ## Counts
 
-- ACTIVE: 6 (721, 726.B, 742, 744, 748, 750)
+- ACTIVE: 8 (721, 726.B, 742, 744, 748, 750, 771, 772)
 - GOVERNING / DOCTRINE: 7 (610, 612, 620, 705, 715, 723, 746)
 - DONE: 12 (425, 426, 427, 616, 617, 618, 622, 703, 704, 708, 726, 740.1)
 - BACKLOG: 12

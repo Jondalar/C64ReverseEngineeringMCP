@@ -12,6 +12,8 @@ built by a human and an LLM **together** — the LLM proposes structure and
 meaning, the human steers and confirms, and the runtime proves or refutes
 every claim against a real execution.
 
+Leitregel: Capability → TRX64, Meaning/Memory → C64RE.
+
 ## The Combination is more than sum of its parts
 
 Semantic disassembly tells you what code *means*. A controllable runtime
@@ -106,7 +108,8 @@ end-to-end product and unified-workbench direction is defined in
 │ C64RE MCP Server                                               │
 │                                                               │
 │ runtime evidence                                               │
-│ - Headless TS C64 + 1541 + cartridge runtime                   │
+│ - TRX64 runtime backend (default, native Rust daemon)          │
+│ - TypeScript runtime (fallback / parity oracle)                │
 │ - snapshots · checkpoint ring · rewind / replay                │
 │ - DuckDB trace store · swimlanes · monitor                     │
 │ - VICE oracle / monitor / traces (correctness reference)       │
@@ -250,7 +253,8 @@ Per-area docs:
 | BWC bit-stream codec | `src/bwc-bitstream-ts/` |
 | C64Ref BASIC/KERNAL/ROM lookup | [docs/tools/c64ref.md](docs/tools/c64ref.md) |
 | VICE runtime, monitor, debugger, trace oracle | [docs/tools/vice.md](docs/tools/vice.md) |
-| Headless TS C64 + 1541 runtime | [docs/tools/headless.md](docs/tools/headless.md) |
+| TRX64 runtime — default backend (native Rust daemon) | [docs/tools/headless.md](docs/tools/headless.md) |
+| TypeScript runtime — fallback / parity oracle | [docs/tools/headless.md](docs/tools/headless.md) |
 | 6502 sandbox | [docs/tools/sandbox.md](docs/tools/sandbox.md) |
 | Project knowledge tools | [docs/tools/knowledge.md](docs/tools/knowledge.md) |
 | Artifact access | [docs/tools/artifacts.md](docs/tools/artifacts.md) |

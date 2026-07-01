@@ -11,7 +11,8 @@ software. Its product value is not simply extracting binaries or running a C64.
 It joins:
 
 - a persistent project knowledge store;
-- a faithful, inspectable C64/1541/cartridge runtime;
+- a faithful, inspectable C64/1541/cartridge runtime (provided by the TRX64
+  backend, which C64RE orchestrates rather than owns);
 - durable full-trace evidence and focused runtime queries;
 - disassembly and semantic annotation;
 - one human workbench in which runtime observations link back to bytes, media,
@@ -66,6 +67,8 @@ At each stage the MCP/agent proposes the next valid action; the user steers
 intent and approves meaningful branches of work.
 
 ## 3. Binding Product Decisions
+
+**Leitregel: Capability → TRX64, Meaning/Memory → C64RE.** TRX64 is the strategic runtime base and the default backend process (the Rust daemon, auto-discovered/spawned) — it produces bytes, events and machine-state and owns runtime, instrument, reverse-debug, trace, checkpoints (`.c64re`/`.c64retrace`), daemon/FFI/CLI. C64RE is the reverse-engineering workbench — project knowledge, method/memory, analysis pipeline, semantic disassembly, findings/entities/questions, UI/orchestration, curation — it turns those bytes/events/state into knowledge. The TypeScript runtime in C64RE is a fallback / parity oracle, not the strategic base. Endstate: two MCP servers — `trx64-mcp` (instrument/runtime) and `c64re-mcp` (workbench/knowledge); today's C64RE `runtime_*` tools are a transition/proxy to the TRX64 backend, not their permanent home.
 
 ### 3.1 The Project Is the Persistent Authority
 
@@ -167,8 +170,9 @@ unverifiable prose.
 
 ### 3.6 There Is One Human Workbench
 
-The target user experience is one C64RE workbench, not a Knowledge product and
-an unrelated Emulator product.
+The target user experience is one C64RE workbench UI over a single TRX64 runtime
+backend — one product from the user's side. TRX64 owns the runtime; C64RE owns
+knowledge, semantics, and orchestration.
 
 The workbench contains coordinated views for:
 
@@ -197,7 +201,7 @@ through the existing project knowledge authority.
 
 The screen is the primary live-machine view. It includes media state, machine
 controls, runtime status, audio, monitor access, and trace status. The backend
-owns emulator timing; the browser controls and visualizes it.
+(TRX64 by default) owns emulator timing; the browser controls and visualizes it.
 
 ### 4.2 Monitor and Disassembly
 

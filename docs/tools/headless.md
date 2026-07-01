@@ -1,15 +1,22 @@
-# Headless TS C64 + 1541 Runtime
+# C64 Runtime — TRX64 backend (default) + TypeScript Headless (fallback / parity oracle)
 
-The Headless Runtime is the TypeScript emulator subsystem used by MCP
-tools, agents, regression scripts, and the Emulator UI. It is no
-longer just a loader/depacker harness.
+The runtime backend that MCP tools, agents, regression scripts, and the
+Emulator UI drive is **TRX64** by default — the native (Rust) daemon,
+auto-discovered/spawned as the sibling `../TRX64/target/release/trx64-daemon`.
+The **TypeScript Headless runtime** documented here is now the **fallback /
+parity oracle** (force it with `C64RE_RUNTIME_TS=1`); it is no longer just a
+loader/depacker harness. Both serve the same WS protocol and the same `.c64re`
+/ `.c64retrace` formats.
+
+Leitregel: Capability → TRX64, Meaning/Memory → C64RE.
 
 It remains part of the larger C64RE MCP project:
 
 - C64RE owns the project knowledge, artifacts, specs, workflow, and UI.
 - VICE remains the compatibility oracle and useful external debugger.
-- Headless provides deterministic, scriptable runtime evidence for
-  agents and browser clients.
+- The runtime (TRX64 by default; the TypeScript Headless runtime as
+  fallback / parity oracle) provides deterministic, scriptable runtime
+  evidence for agents and browser clients.
 
 ## Runtime Modes
 
@@ -54,6 +61,11 @@ isolating media or VIA behavior from a full C64 boot.
 
 ## Monitor, Interrupts, And Rendering
 
+> The `runtime_*` / monitor / recorder / checkpoint MCP tools are a
+> transition/proxy to the TRX64 backend (endstate: a dedicated `trx64-mcp`
+> instrument server). The TS daemon / in-proc paths documented here are the
+> fallback / parity oracle.
+
 | Tool | Description |
 |---|---|
 | `headless_render_screen` | Render the current VIC framebuffer to a PNG artifact. |
@@ -75,7 +87,8 @@ the monitor on both start and stop. Address ranges use `lo..hi` (e.g.
 
 ## Emulator UI - Visualization Of The Headless Core
 
-The **headless runtime, not the UI, owns the machine clock.** The browser is a
+The **runtime backend, not the UI, owns the machine clock** (TRX64 by default;
+the TypeScript headless runtime described here is the fallback). The browser is a
 visualization and command layer on top of a backend-driven loop.
 
 ### Backend owns the loop
@@ -139,7 +152,7 @@ The screen is a **binary VIC frame stream**, not per-frame PNG/base64:
 ### Run it
 
 ```bash
-npm run runtime:daemon -- --project <dir>   # headless runtime WS backend (port 4312)
+npm run runtime:daemon -- --project <dir>   # TS headless WS backend — the fallback (TRX64 is the default backend), port 4312
 npm run ui:dev                              # UI dev server (vite; warm-starts the daemon)
 ```
 

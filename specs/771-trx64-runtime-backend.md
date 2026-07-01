@@ -5,6 +5,17 @@
 **Cross-link:** `../TRX64/HANDOVER.md`, `../TRX64/loop/decisions.md`
 (ADR-066 Drop-in-Boundary = WS-Daemon-Prozess, ADR-053 Behavioral-Parity, ADR-087 feature-complete)
 
+> **SUPERSEDED / HISTORICAL.** This spec recorded the transitional stage where
+> TRX64 was only a *selectable* runtime backend and the TypeScript core stayed the
+> default + golden oracle. That is no longer the target: TRX64 is now the
+> **default**, auto-discovered/spawned backend and the TS runtime is the
+> **fallback / parity oracle**. The "späterer Flip" contemplated in OFFENE
+> FRAGEN #4 below has landed.
+
+**Leitregel: Capability → TRX64, Meaning/Memory → C64RE.** TRX64 is the strategic runtime base and the default backend process (the Rust daemon, auto-discovered/spawned) — it produces bytes, events and machine-state and owns runtime, instrument, reverse-debug, trace, checkpoints (`.c64re`/`.c64retrace`), daemon/FFI/CLI. C64RE is the reverse-engineering workbench — project knowledge, method/memory, analysis pipeline, semantic disassembly, findings/entities/questions, UI/orchestration, curation — it turns those bytes/events/state into knowledge. The TypeScript runtime in C64RE is a fallback / parity oracle, not the strategic base. Endstate: two MCP servers — `trx64-mcp` (instrument/runtime) and `c64re-mcp` (workbench/knowledge); today's C64RE `runtime_*` tools are a transition/proxy to the TRX64 backend, not their permanent home.
+
+Read everything below as historical record.
+
 ## Ziel
 
 TRX64 (Rust-Headless-Runtime, feature-complete vs TS-Headless per ADR-087) als
@@ -105,5 +116,6 @@ deprecated-markiert; `probe-tool-surface.mjs` grün.
    `C64RE_TOOLS_EXTENDED` → nach VICE-Tool-Inventur entscheiden.
 4. **Default-Wechsel:** TS bleibt Default in dieser Spec; späterer Flip (TRX64 default,
    TS Oracle) = eigene Spec.
+   - RESOLVED (post-split): der Flip ist erfolgt — TRX64 ist jetzt der Default (auto-discovered/spawned Rust-Daemon), der TS-Core = Fallback/Parity-Oracle (`C64RE_RUNTIME_TS=1` erzwingt TS). Siehe Leitregel oben + README/CLAUDE.md.
 5. **Swift-UI (Zukunft):** WS-Client sofort möglich; FFI-Core (cbindgen über
    `trx64-core`) = eigene spätere Spec.

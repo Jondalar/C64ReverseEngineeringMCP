@@ -2,6 +2,16 @@
 
 Status: binding design for Spec 744.4c.
 
+> **SUPERSEDED / HISTORICAL.** This design specified a **C64RE-hosted** Runtime
+> Daemon as the single emulator authority for a project. That ownership is
+> superseded by the TRX64 split: the runtime authority is now the **TRX64**
+> backend (the default, auto-discovered/spawned Rust daemon), with C64RE as the
+> workbench that drives it.
+
+**Leitregel: Capability → TRX64, Meaning/Memory → C64RE.** TRX64 is the strategic runtime base and the default backend process (the Rust daemon, auto-discovered/spawned) — it produces bytes, events and machine-state and owns runtime, instrument, reverse-debug, trace, checkpoints (`.c64re`/`.c64retrace`), daemon/FFI/CLI. C64RE is the reverse-engineering workbench — project knowledge, method/memory, analysis pipeline, semantic disassembly, findings/entities/questions, UI/orchestration, curation — it turns those bytes/events/state into knowledge. The TypeScript runtime in C64RE is a fallback / parity oracle, not the strategic base. Endstate: two MCP servers — `trx64-mcp` (instrument/runtime) and `c64re-mcp` (workbench/knowledge); today's C64RE `runtime_*` tools are a transition/proxy to the TRX64 backend, not their permanent home.
+
+The binary trace-format / index details described below remain accurate; only their ownership now lives in TRX64.
+
 ## Goal
 
 There is exactly one running C64 Headless Runtime authority for a project.

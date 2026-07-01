@@ -178,6 +178,8 @@ not source of truth for new work.
 
 ## Headless over VICE (Mandatory framing 2026-05-09)
 
+(Spec 771) "headless" now means the TRX64 Rust daemon by default; the in-repo TS headless runtime is the fallback/parity oracle; `runtime_*`/`headless_*` MCP tools are a transition/proxy to the TRX64 backend.
+
 **Default to headless for every workflow, tool, skill, and agent
 action.** VICE is fallback / oracle only.
 
@@ -311,6 +313,8 @@ These rules apply to project work. They do **not** apply to ordinary edits to th
 ## Project Overview
 
 MCP server for LLM-powered Commodore 64 reverse engineering. Bundles the TRXDis analysis pipeline to provide heuristic disassembly, semantic annotation, and dual-assembler output (KickAssembler + 64tass) for C64 PRG files, disk images (D64/G64), and CRT cartridges.
+
+C64RE is the reverse-engineering workbench, not the emulator: the runtime backend is TRX64 (see Spec 771), and the TypeScript runtime in this repo is the fallback / parity oracle. Leitregel: Capability → TRX64, Meaning/Memory → C64RE.
 
 ## Build & Run
 
