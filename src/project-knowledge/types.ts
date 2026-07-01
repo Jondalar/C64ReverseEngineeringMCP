@@ -1598,6 +1598,10 @@ export const WorkspaceUiSnapshotSchema = z.object({
   counts: ProjectCountsSchema,
   workflowPlan: WorkflowPlanSchema.optional(),
   workflowState: WorkflowStateSchema.optional(),
+  // Spec 773 — the recommended 5-phase lifecycle stage, derived from
+  // workflowState.currentPhaseId via the crosswalk (agent-orchestrator/lifecycle.ts).
+  // The UI phase-strip reads this for its "recommended/current" badge.
+  lifecyclePhase: z.enum(["onboarding", "discovery", "re", "build", "release"]).optional(),
   recentTimeline: z.array(TimelineEventSchema),
   artifacts: z.array(ArtifactRecordSchema),
   entities: z.array(EntityRecordSchema),

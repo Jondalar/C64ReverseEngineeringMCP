@@ -14,6 +14,7 @@
     "build:c64ref": "tsx src/c64ref-rom-knowledge.ts",
     "bootstrap:workspace": "npm run build:mcp && node scripts/bootstrap-existing-re-workspace.mjs",
     "test:project-knowledge": "npm run build:mcp && node scripts/project-knowledge-smoke.mjs",
+    "test:lifecycle": "npm run build:mcp && node scripts/lifecycle-crosswalk-smoke.mjs",
     "ui:api": "tsx src/workspace-ui/server.ts --api-only",
     "ui:dev": "vite --config ui/vite.config.ts --host 0.0.0.0 --port 4311",
     "ui:build": "vite build --config ui/vite.config.ts",
