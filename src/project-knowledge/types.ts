@@ -1602,6 +1602,10 @@ export const WorkspaceUiSnapshotSchema = z.object({
   // workflowState.currentPhaseId via the crosswalk (agent-orchestrator/lifecycle.ts).
   // The UI phase-strip reads this for its "recommended/current" badge.
   lifecyclePhase: z.enum(["onboarding", "discovery", "re", "build", "release"]).optional(),
+  // Spec 773 — read-only project profile (goals/workflow/loader/build/test) so the
+  // Onboarding/Build phase-home surfaces can DISPLAY the captured goal + strategy.
+  // Mutations stay agent-led (save_project_profile); the UI never writes it.
+  projectProfile: ProjectProfileSchema.optional(),
   recentTimeline: z.array(TimelineEventSchema),
   artifacts: z.array(ArtifactRecordSchema),
   entities: z.array(EntityRecordSchema),

@@ -108,6 +108,49 @@ button {
 }
 .tab-toggle:hover { opacity: 0.9; }
 
+/* Spec 773 Loop 3 — phase-home cockpit (Onboarding / Build / Release). */
+.phase-home { display: grid; gap: 1rem; align-content: start; }
+.phase-home-intro { padding: 1rem 1.1rem; }
+.phase-home-title {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 0.35rem;
+}
+.phase-home-intent { margin: 0; color: var(--muted, #9aa4b2); line-height: 1.5; }
+.phase-home-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.phase-home-facts { display: grid; gap: 0.55rem; }
+.phase-home-fact {
+  display: grid;
+  grid-template-columns: 0.7rem minmax(120px, auto) 1fr;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.9rem;
+}
+.phase-home-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: #6b7280;
+}
+.phase-home-dot.ok { background: #4ade80; }
+.phase-home-fact-label { color: var(--muted, #9aa4b2); }
+.phase-home-fact-value { color: var(--ink); }
+.phase-home-missing { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.3rem; color: #fbbf24; }
+.phase-home-clear { margin: 0; color: #4ade80; }
+.phase-home-next { border-color: rgba(108, 92, 231, 0.35); }
+.phase-home-next p { margin: 0 0 0.8rem; color: var(--ink); line-height: 1.5; }
+.phase-home-tools { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.phase-home-questions { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.35rem; color: var(--ink); }
+@media (max-width: 900px) {
+  .phase-home-grid { grid-template-columns: 1fr; }
+}
+
 .hero-copy {
   /* Two columns: title block (eyebrow + h1) stays LEFT; the metric tiles +
      meta-line go to the RIGHT edge, compact. */

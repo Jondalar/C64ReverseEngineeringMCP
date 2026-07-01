@@ -48,7 +48,7 @@ import type {
 // findings/entities/flows/relations (record-list tabs — surface inside
 // inspector instead), load (folded into Flow sub-mode), activity
 // (folded into Dashboard).
-type TabId = "live" | "dashboard" | "questions" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "flow" | "listing";
+type TabId = "home" | "live" | "dashboard" | "questions" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "flow" | "listing";
 
 interface UiConfig {
   defaultProjectDir: string;
@@ -136,6 +136,8 @@ const ALL_PHASES: Phase[] = PHASE_ORDER;
 // Discovery + RE (hard constraint — directly reachable, never buried). Dashboard /
 // Live / Questions / Docs are cross-phase (available in every phase).
 const allTabs: Array<{ id: TabId; label: string; phases: Phase[] }> = [
+  // Phase-home cockpit for the phases without a rich data-view of their own.
+  { id: "home", label: "Overview", phases: ["onboarding", "build", "release"] },
   { id: "live", label: "Live", phases: ALL_PHASES }, // TRX64 runtime evidence — cross-phase, not a lifecycle stage
   { id: "dashboard", label: "Dashboard", phases: ALL_PHASES },
   { id: "questions", label: "Questions", phases: ALL_PHASES },
@@ -149,6 +151,191 @@ const allTabs: Array<{ id: TabId; label: string; phases: Phase[] }> = [
   { id: "flow", label: "Flow Graph", phases: ["re"] },
   { id: "listing", label: "Annotated Listing", phases: ["re"] },
 ];
+
+// Spec 773 Loop 3 — opinionated (not placeholder) phase-home cockpits for the phases
+// that have no rich data-view of their own (Onboarding / Build / Release). READ-ONLY:
+// facts come from existing project state; mutations stay agent-led (Loops 4-6 add the
+// controlled writes). Sparse state produces a concrete NEXT ACTION, never an empty box.
+interface PhaseHomeModel {
+  intent: string;
+  known: Array<{ label: string; value: string; ok?: boolean }>;
+  missing: string[];
+  next: string;
+  tools: Array<{ label: string; phase: Phase; tab: TabId }>;
+}
+
+function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeModel | null {
+  const disks = snapshot.views.diskLayout.disks.length;
+  const carts = snapshot.views.cartridgeLayout.cartridges.length;
+  const prgs = snapshot.artifacts.filter((a) => a.kind === "prg").length;
+  const hasMedia = disks + carts + prgs > 0;
+  const goals = snapshot.projectProfile?.goals ?? [];
+  const workflow = snapshot.projectProfile?.workflow;
+  const loaderModel = snapshot.projectProfile?.loaderModel;
+  const buildCmd = snapshot.projectProfile?.build?.command;
+  const testCmd = snapshot.projectProfile?.test?.command;
+  const openQ = snapshot.openQuestions.length;
+  const findings = snapshot.counts.findings;
+  const checkpoints = snapshot.checkpoints.length;
+  const keyDocs = snapshot.views.projectDashboard.keyDocuments.length;
+  const hasListing = snapshot.views.annotatedListing.entries.length > 0;
+  const versionGroups = snapshot.artifactVersionGroups.length;
+  const mediaSummary = hasMedia
+    ? [disks ? `${disks} disk` : "", carts ? `${carts} cart` : "", prgs ? `${prgs} PRG` : ""].filter(Boolean).join(" · ")
+    : "none registered";
+
+  if (phase === "onboarding") {
+    const hasGoal = goals.length > 0;
+    return {
+      intent: "Start the project: capture the goal, get oriented, and — if useful — play/watch the title with TRX64 before diving in.",
+      known: [
+        { label: "Goal / mission", value: hasGoal ? goals.join(" · ") : "not captured yet", ok: hasGoal },
+        { label: "Workflow profile", value: workflow ?? "not selected", ok: !!workflow },
+        { label: "Input media", value: mediaSummary, ok: hasMedia },
+        { label: "Runtime", value: "TRX64 backend — play/watch via Live", ok: true },
+      ],
+      missing: [
+        ...(hasGoal ? [] : ["Goal / mission not captured"]),
+        ...(workflow ? [] : ["Workflow profile not selected"]),
+        ...(hasMedia ? [] : ["No input media registered"]),
+      ],
+      next: !hasGoal
+        ? "Ask the agent to capture the project goal (EasyFlash port / cheat-trainer / enhancement / loader-replacement / bugfix / documentation) into the project profile."
+        : hasMedia
+          ? "Play/watch the title in Live to form an initial complexity impression, then move to Discovery."
+          : "Register the input media, then run extraction in Discovery.",
+      tools: [
+        { label: "Play / watch (Live)", phase: "onboarding", tab: "live" },
+        { label: "Docs", phase: "onboarding", tab: "docs" },
+        { label: "Go to Discovery →", phase: "discovery", tab: "disk" },
+      ],
+    };
+  }
+
+  if (phase === "build") {
+    return {
+      intent: "Turn the reverse-engineering knowledge into a modified target artifact — decide target medium, loader strategy, and the feature/patch plan, then assemble + validate.",
+      known: [
+        { label: "Candidate source", value: `${prgs} PRG · ${versionGroups} version group${versionGroups === 1 ? "" : "s"}`, ok: prgs > 0 },
+        { label: "Annotated listing", value: hasListing ? "available" : "not built yet", ok: hasListing },
+        { label: "Build command", value: buildCmd ?? "not set", ok: !!buildCmd },
+        { label: "Loader model", value: loaderModel ?? "not defined", ok: !!loaderModel },
+      ],
+      missing: [
+        "Target medium (decide)",
+        "Loader / transformation strategy",
+        "Feature / patch plan",
+        ...(buildCmd ? [] : ["Build/validation command not set"]),
+      ],
+      next: !hasListing
+        ? "Reach a solid annotated listing in Reverse Engineering first, then decide the build target with the agent."
+        : "Decide the target medium + loader strategy with the agent, then assemble the modified artifact (workflow runner).",
+      tools: [
+        { label: "Annotated Listing", phase: "re", tab: "listing" },
+        { label: "Payloads", phase: "re", tab: "payloads" },
+        { label: "Docs", phase: "build", tab: "docs" },
+        { label: "Questions", phase: "build", tab: "questions" },
+      ],
+    };
+  }
+
+  if (phase === "release") {
+    return {
+      intent: "Stabilize, test, package and hand off the finished artifact — local QA, tester loops, release notes, final package.",
+      known: [
+        { label: "Docs / reports", value: keyDocs ? `${keyDocs} key document${keyDocs === 1 ? "" : "s"}` : "none yet", ok: keyDocs > 0 },
+        { label: "Test command", value: testCmd ?? "not set", ok: !!testCmd },
+        { label: "Open issues (questions)", value: String(openQ), ok: openQ === 0 },
+        { label: "Checkpoints", value: String(checkpoints), ok: checkpoints > 0 },
+      ],
+      missing: ["Local QA run", "Tester feedback", "Release candidate / final package", "Release notes"],
+      next: openQ > 0
+        ? `Resolve the ${openQ} open question${openQ === 1 ? "" : "s"} / known issues, run local QA, then package a release candidate (via the agent).`
+        : "Run local QA and capture results, then package a release candidate (via the agent).",
+      tools: [
+        { label: "Docs / reports", phase: "release", tab: "docs" },
+        { label: "Questions", phase: "release", tab: "questions" },
+        { label: "Validate (Live)", phase: "release", tab: "live" },
+      ],
+    };
+  }
+
+  return null; // discovery + re use their rich tool views, not a phase-home
+}
+
+function PhaseHomePanel({
+  phase,
+  snapshot,
+  onNavigate,
+}: {
+  phase: Phase;
+  snapshot: WorkspaceUiSnapshot;
+  onNavigate: (phase: Phase, tab: TabId) => void;
+}) {
+  const model = phaseHomeModel(phase, snapshot);
+  if (!model) return null;
+  const topQuestions = snapshot.openQuestions.slice(0, 4);
+  return (
+    <div className="phase-home">
+      <div className="panel-card phase-home-intro">
+        <div className="phase-home-title">{PHASE_LABELS[phase]}</div>
+        <p className="phase-home-intent">{model.intent}</p>
+      </div>
+
+      <div className="phase-home-grid">
+        <div className="panel-card">
+          <div className="section-heading"><h2>Known</h2></div>
+          <div className="phase-home-facts">
+            {model.known.map((fact) => (
+              <div key={fact.label} className="phase-home-fact">
+                <span className={fact.ok ? "phase-home-dot ok" : "phase-home-dot"} />
+                <span className="phase-home-fact-label">{fact.label}</span>
+                <span className="phase-home-fact-value">{fact.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="panel-card">
+          <div className="section-heading"><h2>Missing / blockers</h2></div>
+          {model.missing.length ? (
+            <ul className="phase-home-missing">
+              {model.missing.map((m) => <li key={m}>{m}</li>)}
+            </ul>
+          ) : (
+            <p className="phase-home-clear">Nothing blocking in this phase.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="panel-card phase-home-next">
+        <div className="section-heading"><h2>Next action</h2></div>
+        <p>{model.next}</p>
+        <div className="phase-home-tools">
+          {model.tools.map((tool) => (
+            <button key={tool.label} type="button" className="tab-button" onClick={() => onNavigate(tool.phase, tool.tab)}>
+              {tool.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {topQuestions.length ? (
+        <div className="panel-card">
+          <div className="section-heading">
+            <h2>Open questions</h2>
+            <button type="button" className="ghost-button" onClick={() => onNavigate(phase, "questions")}>
+              all {snapshot.openQuestions.length} →
+            </button>
+          </div>
+          <ul className="phase-home-questions">
+            {topQuestions.map((q) => <li key={q.id}>{q.title}</li>)}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 // Files we want to open in the (mon) hex viewer. Anything else (.json,
 // .md, .asm, .tass, .sym, etc.) is text the listing/docs panes already
@@ -4653,7 +4840,7 @@ export function App() {
   useEffect(() => {
     if (!snapshot || phaseAutoInit.current) return;
     phaseAutoInit.current = true;
-    if (snapshot.lifecyclePhase) setActivePhase(snapshot.lifecyclePhase as Phase);
+    if (snapshot.lifecyclePhase) handlePhaseChange(snapshot.lifecyclePhase as Phase);
   }, [snapshot]);
 
   function handleSelectEntity(entityId: string, tabId: TabId = activeTab) {
@@ -4693,6 +4880,19 @@ export function App() {
   function currentFocusEntityId(): string | null {
     if (!snapshot) return selectedEntityId;
     return selectedEntityId ?? diskSelectionEntityId(snapshot, selectedDiskFile);
+  }
+
+  // Spec 773 — switching lifecycle phase. Onboarding/Build/Release land on their
+  // phase-home "Overview"; the tool-rich phases keep the current tab when it's valid,
+  // else fall back to the Dashboard overview.
+  function handlePhaseChange(nextPhase: Phase) {
+    setActivePhase(nextPhase);
+    if (nextPhase === "onboarding" || nextPhase === "build" || nextPhase === "release") {
+      setActiveTab("home");
+      return;
+    }
+    const current = allTabs.find((tab) => tab.id === activeTab);
+    if (!current || !current.phases.includes(nextPhase)) setActiveTab("dashboard");
   }
 
   function handleOpenTab(nextTab: TabId) {
@@ -4773,7 +4973,7 @@ export function App() {
               disabled={PHASE_ORDER.indexOf(activePhase) === 0}
               onClick={() => {
                 const i = PHASE_ORDER.indexOf(activePhase);
-                if (i > 0) setActivePhase(PHASE_ORDER[i - 1]);
+                if (i > 0) handlePhaseChange(PHASE_ORDER[i - 1]);
               }}
               aria-label="Previous phase"
             >
@@ -4788,7 +4988,7 @@ export function App() {
                   type="button"
                   className={isActive ? "phase-button active" : "phase-button"}
                   aria-current={isActive ? "step" : undefined}
-                  onClick={() => setActivePhase(phase)}
+                  onClick={() => handlePhaseChange(phase)}
                   title={isRecommended ? `${PHASE_LABELS[phase]} — recommended by workflow state` : PHASE_LABELS[phase]}
                 >
                   <span className="phase-index">{idx + 1}</span>
@@ -4803,7 +5003,7 @@ export function App() {
               disabled={PHASE_ORDER.indexOf(activePhase) === PHASE_ORDER.length - 1}
               onClick={() => {
                 const i = PHASE_ORDER.indexOf(activePhase);
-                if (i < PHASE_ORDER.length - 1) setActivePhase(PHASE_ORDER[i + 1]);
+                if (i < PHASE_ORDER.length - 1) handlePhaseChange(PHASE_ORDER[i + 1]);
               }}
               aria-label="Next phase"
             >
@@ -4847,6 +5047,16 @@ export function App() {
           </nav>
 
           <section className="workspace-main">
+            {activeTab === "home" ? (
+              <PhaseHomePanel
+                phase={activePhase}
+                snapshot={snapshot}
+                onNavigate={(nextPhase, nextTab) => {
+                  setActivePhase(nextPhase);
+                  handleOpenTab(nextTab);
+                }}
+              />
+            ) : null}
             {activeTab === "live" ? (
               <LiveTab
                 sessionId={liveSessionId}

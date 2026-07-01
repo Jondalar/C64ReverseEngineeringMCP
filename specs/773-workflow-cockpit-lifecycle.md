@@ -62,6 +62,31 @@ capture, Build assembly, Release packaging (thin, over existing primitives).
    phase state.
 4. TRX64/C64RE boundary intact; no runtime capability moved into C64RE.
 
+## Staged plan (binding order; each loop ends in a complete, testable product state)
+
+- **Loop 0-2 (DONE):** docs canon (lifecycle binding) · lifecycle crosswalk + derived
+  snapshot field · phase cockpit + compact top bar. Discovery+RE reposition the existing
+  expert views (Disk/Cartridge first-class). Chrome-verified.
+- **Loop 3 (DONE):** opinionated (not placeholder) phase-home cockpits for Onboarding /
+  Build / Release — intent (JTBD), known facts from existing state, missing/blockers,
+  phase-relevant open questions, a concrete NEXT ACTION, and tool/evidence links. READ-ONLY:
+  sparse state yields next-action guidance, never an empty box. No new write paths.
+- **Loop 4:** controlled Onboarding writes — goal capture becomes first-class (goal type:
+  EF port / cheat-trainer / enhancement / loader-replacement / bugfix / documentation /
+  other; short mission statement; strategy notes; optional complexity impression from
+  play/watch; suggested/selected workflow profile). Persist via the existing project/profile/
+  MCP contract (`save_project_profile`) — no parallel store. Document the contract first,
+  implement narrowly, Chrome-test.
+- **Loop 5:** controlled Build planning writes — target medium, transformation/loader
+  strategy, feature/patch plan, validation criteria. No direct build execution unless the
+  backend contract is already solid.
+- **Loop 6:** controlled Release/QA writes — local QA state, tester feedback, RC/final
+  artifact refs, known issues / release notes.
+
+"B" (in-UI writes) is NOT "someday" — it is Loops 4-6, staged. Each loop must be complete
++ testable; no ambiguous MVP hole. Write-path work documents the contract, implements
+narrowly, and Chrome-tests the UI.
+
 ## Scope / non-goals
 
 Thin lifecycle axis + crosswalk + phase cockpit + Onboarding/Build/Release surfaces over
