@@ -187,11 +187,15 @@ function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeM
     : "none registered";
 
   if (phase === "onboarding") {
-    const hasGoal = goals.length > 0;
+    const goalType = snapshot.projectProfile?.goalType;
+    const mission = snapshot.projectProfile?.mission;
+    const hasGoal = Boolean(goalType || mission || goals.length);
+    const goalText = mission || goalType || (goals.length ? goals.join(" · ") : "not captured yet");
     return {
       intent: "Start the project: capture the goal, get oriented, and — if useful — play/watch the title with TRX64 before diving in.",
       known: [
-        { label: "Goal / mission", value: hasGoal ? goals.join(" · ") : "not captured yet", ok: hasGoal },
+        { label: "Goal / mission", value: goalText, ok: hasGoal },
+        ...(goalType && mission ? [{ label: "Goal type", value: goalType, ok: true }] : []),
         { label: "Workflow profile", value: workflow ?? "not selected", ok: !!workflow },
         { label: "Input media", value: mediaSummary, ok: hasMedia },
         { label: "Runtime", value: "TRX64 backend — play/watch via Live", ok: true },
@@ -265,14 +269,94 @@ function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeM
   return null; // discovery + re use their rich tool views, not a phase-home
 }
 
+// Spec 773 Loop 4 — Onboarding goal-capture form. goalType is FREE text (datalist
+// suggestions only); writes through the existing project-profile contract via onSave.
+const GOAL_TYPE_SUGGESTIONS = ["EasyFlash port", "cheat-trainer", "enhancement", "loader-replacement", "bugfix", "documentation"];
+const WORKFLOW_OPTIONS = ["full-re", "cracker-only", "analyst-deep", "targeted-routine", "bugfix"];
+
+function OnboardingGoalForm({
+  profile,
+  onSave,
+}: {
+  profile: WorkspaceUiSnapshot["projectProfile"];
+  onSave: (patch: Record<string, unknown>) => Promise<void>;
+}) {
+  const [goalType, setGoalType] = useState(profile?.goalType ?? "");
+  const [mission, setMission] = useState(profile?.mission ?? "");
+  const [strategy, setStrategy] = useState(profile?.strategy ?? "");
+  const [complexity, setComplexity] = useState(profile?.complexity ?? "");
+  const [workflow, setWorkflow] = useState<string>(profile?.workflow ?? "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const captured = Boolean(profile?.mission || profile?.goalType);
+
+  async function submit() {
+    setSaving(true);
+    setSaved(false);
+    setErr(null);
+    try {
+      await onSave({
+        goalType: goalType.trim() || undefined,
+        mission: mission.trim() || undefined,
+        strategy: strategy.trim() || undefined,
+        complexity: complexity.trim() || undefined,
+        workflow: workflow || undefined,
+      });
+      setSaved(true);
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="panel-card goal-form">
+      <div className="section-heading"><h2>{captured ? "Goal (edit)" : "Capture the goal"}</h2></div>
+      <div className="goal-form-grid">
+        <label>Goal type
+          <input list="goal-type-suggestions" value={goalType} onChange={(e) => setGoalType(e.target.value)} placeholder="e.g. EasyFlash port — free text" />
+          <datalist id="goal-type-suggestions">
+            {GOAL_TYPE_SUGGESTIONS.map((s) => <option key={s} value={s} />)}
+          </datalist>
+        </label>
+        <label>Workflow profile
+          <select value={workflow} onChange={(e) => setWorkflow(e.target.value)}>
+            <option value="">—</option>
+            {WORKFLOW_OPTIONS.map((w) => <option key={w} value={w}>{w}</option>)}
+          </select>
+        </label>
+        <label className="goal-form-wide">Mission
+          <input value={mission} onChange={(e) => setMission(e.target.value)} placeholder="one-line goal statement" />
+        </label>
+        <label className="goal-form-wide">Strategy
+          <textarea value={strategy} onChange={(e) => setStrategy(e.target.value)} rows={2} placeholder="how you'll approach it" />
+        </label>
+        <label className="goal-form-wide">Complexity impression
+          <input value={complexity} onChange={(e) => setComplexity(e.target.value)} placeholder="from play/watch — optional" />
+        </label>
+      </div>
+      <div className="goal-form-actions">
+        <button type="button" className="primary-button" onClick={submit} disabled={saving}>{saving ? "Saving…" : "Save goal"}</button>
+        {saved ? <span className="goal-form-ok">saved ✓</span> : null}
+        {err ? <span className="goal-form-err">{err}</span> : null}
+      </div>
+      <p className="goal-form-note">Free-form — you or the agent can capture/update this (same project-profile contract).</p>
+    </div>
+  );
+}
+
 function PhaseHomePanel({
   phase,
   snapshot,
   onNavigate,
+  onSaveGoal,
 }: {
   phase: Phase;
   snapshot: WorkspaceUiSnapshot;
   onNavigate: (phase: Phase, tab: TabId) => void;
+  onSaveGoal: (patch: Record<string, unknown>) => Promise<void>;
 }) {
   const model = phaseHomeModel(phase, snapshot);
   if (!model) return null;
@@ -283,6 +367,8 @@ function PhaseHomePanel({
         <div className="phase-home-title">{PHASE_LABELS[phase]}</div>
         <p className="phase-home-intent">{model.intent}</p>
       </div>
+
+      {phase === "onboarding" ? <OnboardingGoalForm profile={snapshot.projectProfile} onSave={onSaveGoal} /> : null}
 
       <div className="phase-home-grid">
         <div className="panel-card">
@@ -4898,6 +4984,14 @@ export function App() {
     if (!current || !current.phases.includes(nextPhase)) setActiveTab("dashboard");
   }
 
+  // Spec 773 Loop 4 — the one controlled write: persist the captured goal through the
+  // existing project-profile contract, then reload the snapshot so the cockpit reflects it.
+  async function handleSaveGoal(patch: Record<string, unknown>) {
+    if (!snapshot) return;
+    await postJson("/api/project/profile", { projectDir: snapshot.project.rootPath, ...patch });
+    await loadWorkspace(snapshot.project.rootPath);
+  }
+
   function handleOpenTab(nextTab: TabId) {
     // Spec 770 — payload selection is scoped to the Payloads tab; drop it on leave.
     if (nextTab !== "payloads") setSelectedPayloadId(null);
@@ -5045,6 +5139,7 @@ export function App() {
                   setActivePhase(nextPhase);
                   handleOpenTab(nextTab);
                 }}
+                onSaveGoal={handleSaveGoal}
               />
             ) : null}
             {activeTab === "live" ? (

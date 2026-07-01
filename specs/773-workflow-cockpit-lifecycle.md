@@ -87,6 +87,34 @@ capture, Build assembly, Release packaging (thin, over existing primitives).
 + testable; no ambiguous MVP hole. Write-path work documents the contract, implements
 narrowly, and Chrome-tests the UI.
 
+## Loop 4 write contract (goal capture) — contract-first
+
+The first controlled UI write. Persists through the EXISTING project-profile / MCP
+contract (`ProjectKnowledgeService.saveProjectProfile`, backed by
+`save_project_profile`) — NO parallel store.
+
+**Model (extend `ProjectProfileSchema`, all optional, additive):**
+- `goalType`: FREE string (any RE goal the LLM/human expresses). The UI offers common
+  ones — EasyFlash port / cheat-trainer / enhancement / loader-replacement / bugfix /
+  documentation — as datalist SUGGESTIONS only; it is never an enforced enum.
+- `mission`: short one-line mission statement
+- `strategy`: free-text strategy notes
+- `complexity`: optional impression from human+LLM play/watch
+- (reuse existing `workflow` enum as the suggested/selected analysis profile; `goals[]` stays)
+
+**Server endpoint (narrow, the one new write route):** `POST /api/project/profile`
+- body: `{ goalType?, mission?, strategy?, complexity?, workflow?, goals? }` (a `Partial<ProjectProfile>` subset)
+- handler: validate → `service.saveProjectProfile(patch)` (merges onto existing) → return the updated profile.
+- This is the only write path added in Loop 4; reads stay on `/api/workspace`.
+
+**UI:** the Onboarding phase-home gains a goal-capture form (goal type select, mission,
+strategy, complexity, workflow) that POSTs the patch and reloads the snapshot. When a goal
+is already captured the phase-home shows it (Known) and the form pre-fills for edit. The
+agent path (`save_project_profile`) remains equally valid — same contract, no duplication.
+
+**Verify:** Chrome — capture a goal in the UI → it persists (survives reload), the
+Onboarding "Known"/"Missing" update, and `/api/workspace` reflects the new profile.
+
 ## Scope / non-goals
 
 Thin lifecycle axis + crosswalk + phase cockpit + Onboarding/Build/Release surfaces over

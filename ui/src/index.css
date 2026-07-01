@@ -229,6 +229,46 @@ button {
 .app-root.live-mode .app-column > .app-main-grid { flex: 1 1 auto; min-height: 0; }
 .app-root.live-mode .phase-rail { position: static; }
 
+/* Spec 773 Loop 4 — Onboarding goal-capture form. */
+.goal-form { border-color: rgba(108, 92, 231, 0.35); }
+.goal-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem 1rem;
+}
+.goal-form-wide { grid-column: 1 / -1; }
+.goal-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--muted, #9aa4b2);
+}
+.goal-form input,
+.goal-form select,
+.goal-form textarea {
+  background: rgba(8, 18, 29, 0.7);
+  border: 1px solid rgba(92, 92, 128, 0.28);
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-family: inherit;
+}
+.goal-form textarea { resize: vertical; }
+.goal-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-top: 0.9rem;
+}
+.goal-form-ok { color: #4ade80; font-size: 0.85rem; }
+.goal-form-err { color: #f87171; font-size: 0.85rem; }
+.goal-form-note { margin: 0.6rem 0 0; font-size: 0.72rem; color: var(--muted, #9aa4b2); opacity: 0.8; }
+@media (max-width: 900px) {
+  .goal-form-grid { grid-template-columns: 1fr; }
+}
+
 .hero-copy {
   /* Two columns: title block (eyebrow + h1) stays LEFT; the metric tiles +
      meta-line go to the RIGHT edge, compact. */

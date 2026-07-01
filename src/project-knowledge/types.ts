@@ -187,6 +187,15 @@ export const ArtifactRecordSchema = z.object({
 export const ProjectProfileSchema = z.object({
   goals: z.array(z.string()).default([]),
   nonGoals: z.array(z.string()).default([]),
+  // Spec 773 Loop 4 — goal capture (Onboarding). Persisted via saveProjectProfile;
+  // the agent path (save_project_profile) writes the same fields. `goalType` is a
+  // FREE string (the LLM/human can express any RE goal) — the UI only offers common
+  // ones (EasyFlash port / cheat-trainer / enhancement / loader-replacement / bugfix /
+  // documentation) as suggestions, never as an enforced set.
+  goalType: z.string().optional(),
+  mission: z.string().optional(),
+  strategy: z.string().optional(),
+  complexity: z.string().optional(),
   hardwareConstraints: z.array(z.object({
     resource: z.string(),
     constraint: z.string(),

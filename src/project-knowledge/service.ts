@@ -2101,6 +2101,11 @@ export class ProjectKnowledgeService {
       defaultRole: patch.defaultRole ?? existing.defaultRole,
       workflow: patch.workflow ?? existing.workflow,
       workflowSelectedAt: patch.workflowSelectedAt ?? existing.workflowSelectedAt,
+      // Spec 773 Loop 4 — structured goal capture.
+      goalType: patch.goalType ?? existing.goalType,
+      mission: patch.mission ?? existing.mission,
+      strategy: patch.strategy ?? existing.strategy,
+      complexity: patch.complexity ?? existing.complexity,
       updatedAt: nowIso(),
     };
     return this.storage.saveProjectProfile(merged);

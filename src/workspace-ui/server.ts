@@ -698,6 +698,42 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Spec 773 Loop 4 — the one controlled write for Onboarding goal capture. Persists
+  // through the EXISTING project-profile contract (saveProjectProfile → save_project_profile),
+  // no parallel store. Only whitelisted goal fields are accepted.
+  if (requestUrl.pathname === "/api/project/profile" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      try {
+        const payload = JSON.parse(body) as {
+          projectDir?: string;
+          goalType?: string;
+          mission?: string;
+          strategy?: string;
+          complexity?: string;
+          workflow?: string;
+          goals?: string[];
+        };
+        const projectDir = payload.projectDir ?? options.projectDir;
+        const service = new ProjectKnowledgeService(projectDir);
+        // Whitelist the goal-capture fields; ignore anything else in the body.
+        const patch: Record<string, unknown> = {};
+        if (payload.goalType !== undefined) patch.goalType = payload.goalType;
+        if (payload.mission !== undefined) patch.mission = payload.mission;
+        if (payload.strategy !== undefined) patch.strategy = payload.strategy;
+        if (payload.complexity !== undefined) patch.complexity = payload.complexity;
+        if (payload.workflow !== undefined) patch.workflow = payload.workflow;
+        if (payload.goals !== undefined) patch.goals = payload.goals;
+        const profile = service.saveProjectProfile(patch as never);
+        send(res, jsonResponse(200, { profile }));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+      }
+    });
+    return;
+  }
+
   // Spec 710.3/710.5 — persist a frozen-VIC inspect evidence record into the
   // ONE project knowledge store (saveArtifact). The UI gets the FrozenInspectEvidence
   // from WS vic/inspect/promote and POSTs it here; the WS server never owns
