@@ -967,10 +967,24 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
         })
         .filter((x) => x.applicable.length > 0)
         .map(({ e, applicable }) => {
-          // chain = union of every applicable span's sectors (each span: ceil(len/254)
-          // sectors from its start), re-indexed into one contiguous chain.
-          const merged = applicable.flatMap((span) =>
-            synthSectorChain(span.track, span.sector, Math.max(1, Math.ceil((span.length || 1) / 254))));
+          // chain = union of every applicable span's sectors, re-indexed into one
+          // contiguous chain. Custom loaders read RAW 256-byte sectors (no CBM
+          // 2-byte link), so a per-sector span (offsetInSector+length ≤ 256) is
+          // exactly ONE cell — ceil(len/254) here minted a phantom second sector
+          // per 256-byte span (and 254·n byte totals) on every raw-registered
+          // payload. Longer spans still fall back to sequential synthesis, at
+          // 256 B/sector; bytesUsed carries the actual payload bytes per cell.
+          const merged = applicable.flatMap((span) => {
+            const off = span.offsetInSector ?? 0;
+            const count = Math.max(1, Math.ceil((off + (span.length || 1)) / 256));
+            let remaining = span.length || 0;
+            return synthSectorChain(span.track, span.sector, count).map((c, i) => {
+              const cap = i === 0 ? 256 - off : 256;
+              const used = Math.max(0, Math.min(cap, remaining));
+              remaining -= used;
+              return { ...c, bytesUsed: used };
+            });
+          });
           const sectorChain = merged.map((c, i) => ({ ...c, index: i, isLast: i === merged.length - 1 }));
           const first = applicable[0];
           const totalBytes = applicable.reduce((acc, s) => acc + (s.length ?? 0), 0);
