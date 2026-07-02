@@ -482,7 +482,11 @@ export function CartridgeMemoryGrid({
           Bank size {formatHexByte(bankSize >> 8)}00 · slot bar fills relative to bank size
           {visibleChunks.length ? ` · showing ${visibleChunks.length} file chunks (${bytesPretty(totalChunkBytes)})` : ""}
           {sharedChunkCount > 0 ? ` · ${sharedChunkCount} shared across LUTs` : ""}
-          {payloadChunks?.length ? ` · ${payloadChunks.length} registered payload${payloadChunks.length === 1 ? "" : "s"}${payloadChunks.some((c) => c.unscoped) ? " (some unscoped)" : ""}` : ""}
+          {payloadChunks?.length ? (() => {
+            // one chunk per (payload, slot) → count distinct payload entities.
+            const distinct = new Set(payloadChunks.map((c) => c.entityId)).size;
+            return ` · ${distinct} registered payload${distinct === 1 ? "" : "s"}${payloadChunks.some((c) => c.unscoped) ? " (some unscoped)" : ""}`;
+          })() : ""}
         </span>
       </footer>
     </div>

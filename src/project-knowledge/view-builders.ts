@@ -1906,38 +1906,50 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
         const spans = c.spans?.length ? c.spans : [{ bank: c.bank, offsetInBank: c.offsetInBank, length: c.length }];
         for (const s of spans) lutClaimed.add(`${s.bank}:${c.slot}:${s.offsetInBank}`);
       }
+      // A cart span carries a SLOT (ROML/ROMH/ULTIMAX_ROMH/EEPROM/OTHER) — a
+      // dimension the disk sector overlay lacks. A single payload can legitimately
+      // straddle slots (a 16K EF bank = 8K ROML + 8K ROMH; a blob with an EEPROM
+      // save + a ROML loader). Emit ONE chunk per (payload, slot) group — never
+      // merge across slots (that would draw the ROMH half on the ROML bar, or
+      // drop a ROML payload whose first span happens to be EEPROM). Multi-BANK
+      // within one slot still groups into a single chunk with multiple spans.
       const payloadChunks = context.entities
         .filter((e) => e.kind !== "chip")
-        .map((e) => {
-          const slotSpans = (e.mediumSpans ?? []).filter((sp): sp is Extract<typeof sp, { kind: "slot" }> => sp.kind === "slot");
-          const applicable = slotSpans
+        .flatMap((e) => {
+          const applicable = (e.mediumSpans ?? [])
+            .filter((sp): sp is Extract<typeof sp, { kind: "slot" }> => sp.kind === "slot")
             .filter((span) => (span.mediumRef ? span.mediumRef === artifact.id : true))
             .filter((span) => !lutClaimed.has(`${span.bank}:${span.slot}:${span.offsetInBank}`));
-          return { e, applicable };
-        })
-        .filter((x) => x.applicable.length > 0)
-        .map(({ e, applicable }) => {
-          const spans = applicable.map((s) => ({ bank: s.bank, offsetInBank: s.offsetInBank, length: s.length }));
-          const first = applicable[0];
-          const totalBytes = applicable.reduce((acc, s) => acc + (s.length ?? 0), 0);
-          const unscoped = applicable.every((s) => !s.mediumRef);
-          const scopedRef = applicable.find((s) => s.mediumRef)?.mediumRef;
-          return {
-            entityId: e.id,
-            name: e.name,
-            slot: first.slot,
-            bank: first.bank,
-            offsetInBank: first.offsetInBank,
-            length: totalBytes || first.length,
-            spans,
-            loadAddress: e.payloadLoadAddress,
-            format: e.payloadFormat,
-            packer: e.payloadPacker,
-            color: fnvHslColor([artifact.id, "payload", e.id, "custom"]),
-            mediumRef: scopedRef,
-            unscoped,
-            notes: [`registered payload (origin=custom), ${spans.length} slot span(s)${unscoped ? " — UNSCOPED: image not yet attributed (no mediumRef)" : ""}`],
-          };
+          if (applicable.length === 0) return [];
+          const bySlot = new Map<string, typeof applicable>();
+          for (const sp of applicable) {
+            const bucket = bySlot.get(sp.slot) ?? [];
+            bucket.push(sp);
+            bySlot.set(sp.slot, bucket);
+          }
+          return [...bySlot.values()].map((slotSpans) => {
+            const spans = slotSpans.map((s) => ({ bank: s.bank, offsetInBank: s.offsetInBank, length: s.length }));
+            const first = slotSpans[0];
+            const totalBytes = slotSpans.reduce((acc, s) => acc + (s.length ?? 0), 0);
+            const unscoped = slotSpans.every((s) => !s.mediumRef);
+            const scopedRef = slotSpans.find((s) => s.mediumRef)?.mediumRef;
+            return {
+              entityId: e.id,
+              name: e.name,
+              slot: first.slot,
+              bank: first.bank,
+              offsetInBank: first.offsetInBank,
+              length: totalBytes || first.length,
+              spans,
+              loadAddress: e.payloadLoadAddress,
+              format: e.payloadFormat,
+              packer: e.payloadPacker,
+              color: fnvHslColor([artifact.id, "payload", e.id, first.slot, "custom"]),
+              mediumRef: scopedRef,
+              unscoped,
+              notes: [`registered payload (origin=custom), ${first.slot}, ${spans.length} span(s)${unscoped ? " — UNSCOPED: image not yet attributed (no mediumRef)" : ""}`],
+            };
+          });
         });
       return {
         artifactId: artifact.id,

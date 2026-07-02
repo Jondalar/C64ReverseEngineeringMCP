@@ -60,6 +60,22 @@ svc.saveEntity({ kind: "payload", name: "cartB_only",
 svc.saveEntity({ kind: "payload", name: "eeprom_save",
   mediumSpans: [{ kind: "slot", bank: 0, slot: "EEPROM", offsetInBank: 0, length: 0x80, mediumRef: cartA.id }],
   payloadFormat: "raw" });
+// cross-slot payload: a 16K EF bank = 8K ROML + 8K ROMH on ONE entity. Must
+// split into TWO chunks (one per slot), NOT collapse onto ROML (review finding).
+svc.saveEntity({ kind: "payload", name: "bank2_16k",
+  mediumSpans: [
+    { kind: "slot", bank: 2, slot: "ROML", offsetInBank: 0, length: 0x2000, mediumRef: cartA.id },
+    { kind: "slot", bank: 2, slot: "ROMH", offsetInBank: 0, length: 0x2000, mediumRef: cartA.id },
+  ],
+  payloadLoadAddress: 0x8000, payloadFormat: "prg" });
+// EEPROM-FIRST + ROML on one entity: the ROML half must still render (must not
+// inherit slot=EEPROM from the first span and vanish from the grid).
+svc.saveEntity({ kind: "payload", name: "mixed_ee_roml",
+  mediumSpans: [
+    { kind: "slot", bank: 3, slot: "EEPROM", offsetInBank: 0, length: 0x40, mediumRef: cartA.id },
+    { kind: "slot", bank: 3, slot: "ROML", offsetInBank: 0x1000, length: 0x0800, mediumRef: cartA.id },
+  ],
+  payloadFormat: "raw" });
 
 let buildErr = "";
 try { svc.buildAllViews(); } catch (e) { buildErr = e instanceof Error ? e.message : String(e); }
@@ -98,12 +114,28 @@ ok(pB.some((p) => p.name === "cartB_only"), "4d B-scoped payload shows on B");
 const ee = pA.find((p) => p.name === "eeprom_save");
 ok(!!ee && ee.slot === "EEPROM", "5 EEPROM-slot payload listed (slot=EEPROM)", ee ? ee.slot : "missing");
 
-// 6 entityId wired for click-through.
-ok(!!engine?.entityId, "6 payload chunk carries entityId (click-through)", engine?.entityId ?? "none");
+// 6 cross-slot payload (ROML+ROMH on one entity) → TWO chunks, one per slot.
+const bank16k = pA.filter((p) => p.name === "bank2_16k");
+const slots16k = new Set(bank16k.map((p) => p.slot));
+ok(bank16k.length === 2 && slots16k.has("ROML") && slots16k.has("ROMH"),
+  "6 ROML+ROMH payload splits into 2 chunks (one per slot, not collapsed onto ROML)",
+  `chunks=${bank16k.length} slots=[${[...slots16k]}]`);
+ok(bank16k.every((p) => p.entityId === bank16k[0].entityId),
+  "6b both slot chunks keep the same entityId (click-through)");
 
-// 7 disk view unaffected (no disks here → empty, no crash).
+// 7 EEPROM-first + ROML on one entity → the ROML half still renders (own chunk).
+const mixed = pA.filter((p) => p.name === "mixed_ee_roml");
+const mixedSlots = new Set(mixed.map((p) => p.slot));
+ok(mixed.length === 2 && mixedSlots.has("ROML") && mixedSlots.has("EEPROM"),
+  "7 EEPROM-first payload still yields a ROML chunk (not dropped as EEPROM)",
+  `chunks=${mixed.length} slots=[${[...mixedSlots]}]`);
+
+// 9 entityId wired for click-through.
+ok(!!engine?.entityId, "9 payload chunk carries entityId (click-through)", engine?.entityId ?? "none");
+
+// 8 disk view unaffected (no disks here → empty, no crash).
 const diskView = svc.buildWorkspaceUiSnapshot().views?.diskLayout;
-ok(Array.isArray(diskView?.disks), "7 disk view still builds (empty)", `disks=${diskView?.disks?.length}`);
+ok(Array.isArray(diskView?.disks), "8 disk view still builds (empty)", `disks=${diskView?.disks?.length}`);
 
 console.log(`\nproject: ${projectDir}`);
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} 750.1b: ${pass} pass, ${fail} fail.`);
