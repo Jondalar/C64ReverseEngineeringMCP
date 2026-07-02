@@ -117,6 +117,12 @@ verification. Render docs. Mark the artifact "ship-ready" or
 (`projectProfile.phaseGateStrict = true`) keep work on-phase. Skip a
 phase only with explicit `agent_advance_phase(toPhase, evidence=...)`.
 
+> The per-phase **"Allowed tools"** lists above are guidance. The
+> authoritative gate is `PHASE_TOOLS` + `isToolAllowedInPhase()` in
+> `src/agent-orchestrator/phase-tools.ts` — a **prefix match** admitting any
+> tool tagged `<= currentPhase + 1`, plus `PHASE_AGNOSTIC_TOOLS` (always
+> allowed). Read the code for the exact allow-list.
+
 ## Cracker Freeze
 
 For asset PRGs that have no relevance to the crack / port, set
@@ -124,6 +130,24 @@ For asset PRGs that have no relevance to the crack / port, set
 artifact stays at its frozen phase, counts as "done" for
 completion-percentage math, and is skipped by `propose_next`
 unless the user opts back in.
+
+## Workflow Templates (Spec 046)
+
+`start_re_workflow` sets `ProjectProfile.workflow`, which filters the **required**
+phases in the per-artifact status checklist and the phase rows `agent_propose_next`
+surfaces (`src/agent-orchestrator/workflows.ts` — `requiredPhasesFor` /
+`visiblePhasesFor`). Roles other than `analyst` / `cracker` fall back to `analyst`.
+
+| Workflow | Required phases | Notes |
+|---|---|---|
+| `full-re` (default) | 1-7 | Full multi-PRG reverse. Cracker + `asset` PRG → 1-3 only. |
+| `cracker-only` | 1-7 | Crack / port focus; `asset` PRGs → 1-3 (auto-frozen at phase 3). |
+| `analyst-deep` | 1-7 | Single-PRG deep dive; extra phase 4-5 iteration. |
+| `targeted-routine` | 3-5 | Fix one routine; no project-wide audit pressure. |
+| `bugfix` | 1, 5, 7 | Reproduce a known bug, patch, verify. |
+
+The template only changes which phases are *required* / *surfaced*; the PHASE_TOOLS
+allow-lists (Spec 034) are unchanged.
 
 ## Master + Worker Pattern (Spec 035)
 

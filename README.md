@@ -89,20 +89,15 @@ open questions — durable knowledge that survives across sessions, not
 console logs. The Workspace UI renders that knowledge; it never becomes a
 second analysis engine.
 
-The first-level product model is a **five-phase project lifecycle** —
-**Onboarding · Discovery · Reverse Engineering · Build · Release** — navigated
-freely (a rail, not a hard gate). The older seven-phase per-artifact analysis
-pipeline nests inside it (Discovery = analysis phases 1-2, Reverse Engineering
-= phases 3-7). Onboarding is agent-led: the kickoff dialogue happens in the
-attached coding-agent harness (Claude Code / Codex) via MCP, and C64RE records
-and visualizes the resulting brief — C64RE is not a second LLM runtime.
+The first-level model is a **five-phase lifecycle** — Onboarding · Discovery ·
+Reverse Engineering · Build · Release — navigated freely via the left rail (not a
+gate); the seven-phase per-artifact pipeline nests inside Discovery + RE.
+Onboarding is agent-led: the dialogue runs in the coding harness (Claude Code /
+Codex) over MCP and C64RE records the brief — it is not a second LLM runtime.
 
-See [docs/workflow.md](docs/workflow.md) (workflow contract),
-[docs/agent-doctrine.md](docs/agent-doctrine.md) (roles), and
-[docs/re-phases.md](docs/re-phases.md) (the nested seven-phase per-artifact
-pipeline). The canonical end-to-end product and unified-workbench direction —
-including the five-phase lifecycle (§2A) — is defined in
-[docs/product-vision-and-workbench-contract.md](docs/product-vision-and-workbench-contract.md).
+Details: [workflow](docs/workflow.md) · [roles](docs/agent-doctrine.md) ·
+[per-artifact pipeline](docs/re-phases.md) ·
+[product vision](docs/product-vision-and-workbench-contract.md).
 
 ## Architecture
 
@@ -194,18 +189,11 @@ Add `.mcp.json` at the RE-project root:
 
 Use a full path to `npx` if your shell uses `nvm`.
 
-Spec 744.4c is the binding product architecture: a separate **C64RE Runtime Daemon**
-owns the emulator sessions; MCP and the UI are clients. With `C64RE_RUNTIME_ENDPOINT`
-set, start the daemon and both surfaces share one live runtime:
-
-```bash
-npm run runtime:daemon -- --project /path/to/your/re-project   # the shared runtime authority (ws://127.0.0.1:4312)
-```
-
-The LLM's `runtime_session_start` then creates the session inside the daemon, the
-human UI (connected to the same `:4312`) sees and drives it, and an MCP reconnect or
-browser reload does NOT reset it. Do not use `C64RE_RUNTIME_WS` (the retired 744.4b
-co-host). See [docs/runtime-daemon-solution-design.md](docs/runtime-daemon-solution-design.md).
+With `C64RE_RUNTIME_ENDPOINT` set, the MCP and the browser UI are clients of one
+shared **Runtime Daemon** (Spec 744.4c, auto-started on first use — see
+[Running The UI](#running-the-ui)); an MCP reconnect or browser reload never resets a
+session. Do not use the retired `C64RE_RUNTIME_WS`. Design:
+[docs/runtime-daemon-solution-design.md](docs/runtime-daemon-solution-design.md).
 
 ### Codex
 
@@ -216,39 +204,24 @@ args = ["-lc", "cd /path/to/C64ReverseEngineeringMCP && NODE_NO_WARNINGS=1 ./nod
 env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 ```
 
-## Running The Workbenches
+## Running The UI
 
-**Runtime Workbench** — the live emulator/debugger. Per Spec 744.4c, the product
-backend is a Runtime Daemon that owns C64/1541 clock, monitor state, media state,
-trace capture and checkpoints. The browser UI and MCP tools are clients of that
-daemon. A browser reload or MCP reconnect does not reset runtime sessions.
-
-Set `C64RE_RUNTIME_ENDPOINT=ws://127.0.0.1:4312` in the `.mcp.json` (see above). The
-MCP **auto-starts the daemon (detached) on first use** — you do not launch the backend
-by hand. Open the browser UI against the same port; the human and the LLM then share
-one live runtime. For an explicit foreground launch:
+One workbench bundle (Spec 757) — the workflow cockpit (project knowledge:
+artifacts, findings, memory maps, media, disassembly) and the Live runtime view
+are the same app. The backend is a **Runtime Daemon** (Spec 744.4c) that owns the
+C64/1541 clock, monitor, media, trace and checkpoints; the browser UI and MCP tools
+are clients, so a reload or MCP reconnect never resets a session. With
+`C64RE_RUNTIME_ENDPOINT` set (see above) the MCP **auto-starts the daemon on first
+use** — you don't launch the backend by hand.
 
 ```bash
-npm run runtime:daemon -- --project <dir>   # optional — the MCP auto-starts it otherwise
-```
-
-The UI is built/served as ONE bundle (Spec 757 — no separate "v3" build):
-
-```bash
-npm run ui:dev              # UI dev server (vite; warm-starts the runtime daemon)
-npm run ui:build            # production UI bundle (ui/dist, served at / by the workspace server)
-```
-
-Runtime / backend / UI details: [docs/tools/headless.md](docs/tools/headless.md).
-
-**Workspace UI** — the project-knowledge browser: artifacts, findings,
-relations, memory maps, media views, disassembly context, and activity.
-
-```bash
-npm run ui:build
-npm run ui:serve            # API + bundled UI on http://127.0.0.1:4310
+npm run ui:serve            # API + built UI on http://127.0.0.1:4310
 npm run ui:dev              # Vite live reload on http://127.0.0.1:4311
+npm run ui:build            # rebuild the production bundle (ui/dist)
+npm run runtime:daemon -- --project <dir>   # optional explicit/foreground daemon
 ```
+
+Backend / runtime / UI details: [docs/tools/headless.md](docs/tools/headless.md).
 
 ## Tool Surface
 
@@ -284,9 +257,9 @@ Project-first:
 7. aggregate traces/snapshots into reusable artifacts
 8. rebuild UI views
 
-Headless and VICE runs are evidence providers. Their output should be
-registered as artifacts and linked back to findings/entities instead of
-living only as console logs or loose markdown.
+Runtime (TRX64 by default) and VICE runs are evidence providers. Their output
+should be registered as artifacts and linked back to findings/entities instead
+of living only as console logs or loose markdown.
 
 ## Planning & Status
 

@@ -242,7 +242,10 @@ If knowledge files are missing, initialize the project with `project_init`. If a
 
 ## 3. Agent Modes
 
-Operate explicitly in one of these cognitive modes. Set with `agent_set_role`.
+Operate explicitly in one of these cognitive modes. Set with `agent_set_role`. The
+session-role enum has **six** values — `analyst`, `cartographer`, `implementer`,
+`archivist`, `cracker`, `unset` (default). See **Role system — gating vs labels**
+at the end of this section for what each actually affects.
 
 ### Analyst
 
@@ -374,6 +377,24 @@ Writes primarily to:
 - agent-state (`agent_record_step`)
 - project dashboard (`build_project_dashboard`)
 
+### Role system — gating vs labels
+
+Two role concepts exist in code; do not conflate them:
+
+- **Session role** — `AgentRoleSchema` (6 values above), persisted to
+  `knowledge/agent-state.json`, set by `agent_set_role`. It biases what
+  `agent_propose_next` ranks and the onboarding text: a *cognitive label*.
+- **Profile role** — `ProjectProfile.defaultRole`, only `analyst` | `cracker`.
+  This (with `ProjectProfile.workflow`) drives the required-phases / completion
+  math (`requiredPhasesFor`, per-artifact status checklist).
+
+**Only `analyst` and `cracker` change phase-gating / completion.** `cartographer`,
+`implementer`, `archivist` are session labels with no dedicated gating — they fall
+back to `analyst` for the completion math. Source of truth:
+`src/server-tools/agent-workflow.ts` (`AgentRoleSchema`),
+`src/project-knowledge/types.ts` (`defaultRole`),
+`src/agent-orchestrator/workflows.ts` (`requiredPhasesFor`).
+
 ---
 
 ## 4. Artifact Discipline
@@ -489,6 +510,24 @@ Each workflow should end with:
 - task status updates
 - open questions
 - next recommended action (queued via `agent_record_step`'s `next_action`)
+
+### 7.1 Two ways to get the next step
+
+Two loops coexist — use either:
+
+- **Prose loop** (the rest of this doc): `agent_onboard` → `agent_propose_next`
+  (ranked suggestions) → do the work → `agent_record_step` → `c64re_whats_next`.
+  Judgment-led.
+- **Deterministic step orchestrator** (Spec 730.4): `agent_next_step` returns the ONE
+  next step (id, actor, tool, branches, `blockedBy`, `doNotCall`, machine-readable JSON)
+  from the typed **15-step** table in `src/agent-orchestrator/workflow-model.ts`
+  (`C64RE_WORKFLOW_STEPS`; actors `mcp | llm | human | runtime`; `project-init` …
+  `change-validate`). `agent_run_step` executes the in-process MCP steps (e.g.
+  inventory-sync) and otherwise directs you to the product tool. `workflow-model.ts`
+  is the single source of truth for step / actor / tool / branch data.
+
+Use the orchestrator for a single deterministic instruction; use `agent_propose_next`
+when you want ranked options to choose from.
 
 ---
 

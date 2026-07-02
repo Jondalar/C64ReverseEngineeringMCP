@@ -550,7 +550,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
 
   server.tool(
     "agent_set_role",
-    "Set the working role for this session — analyst, cartographer, or implementer — which biases what agent_propose_next recommends. Use when you begin focused work in one of those modes. Not for recording progress (use agent_record_step). Inputs: role. Returns: confirmation + persisted role.",
+    "Set the working role for this session — analyst, cartographer, implementer, archivist, cracker, or unset — which biases what agent_propose_next recommends (only analyst/cracker also change phase-gating/completion). Use when you begin focused work in one of those modes. Not for recording progress (use agent_record_step). Inputs: role. Returns: confirmation + persisted role.",
     {
       project_dir: z.string().optional(),
       role: AgentRoleSchema.describe("analyst (disasm/control flow), cartographer (memory/bank maps), implementer (MCP tooling/host code), archivist (continuity, tasks, checkpoints, artifact registration), cracker (modifying target C64 binaries: patches, trainers, bug fixes, ports), or unset"),
