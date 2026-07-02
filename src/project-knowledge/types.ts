@@ -1354,6 +1354,32 @@ export const CartridgeStartupInfoSchema = z.object({
   notes: z.array(z.string()).default([]),
 });
 
+// Spec 750.1b — a registered payload projected onto the cartridge bank/slot
+// grid (the cart twin of the disk `origin=custom` file overlay). Built from
+// entity `mediumSpans` of kind "slot", scoped per image by `mediumRef` (the
+// crt-manifest artifact id). EEPROM/OTHER slots list but do not draw on the
+// ROML/ROMH bars. `unscoped` = no mediumRef (shown on every cart image, badged).
+export const CartridgePayloadChunkSchema = z.object({
+  entityId: IdSchema,
+  name: z.string().min(1),
+  slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH", "EEPROM", "OTHER"]),
+  // Origin (first span) — flat fields for the legend + backwards-compat.
+  bank: z.number().int().nonnegative(),
+  offsetInBank: z.number().int().nonnegative(),
+  length: z.number().int().nonnegative(),
+  // Per-bank physical placement (multi-entry when the payload crosses banks).
+  spans: z.array(CartridgeLutChunkSpanSchema).default([]),
+  loadAddress: z.number().int().min(0).max(0xffff).optional(),
+  format: z.string().optional(),
+  packer: z.string().optional(),
+  color: z.string().optional(),
+  // Spec 750.1 scoping: which cart IMAGE (crt-manifest artifact id) this chunk
+  // is on; absent ⇒ unscoped (shown on every cart, badged).
+  mediumRef: z.string().optional(),
+  unscoped: z.boolean().optional(),
+  notes: z.array(z.string()).default([]),
+});
+
 export const CartridgeLayoutCartridgeSchema = z.object({
   artifactId: IdSchema,
   title: z.string().min(1),
@@ -1365,6 +1391,7 @@ export const CartridgeLayoutCartridgeSchema = z.object({
   banks: z.array(CartridgeBankViewSchema),
   slotLayout: CartridgeSlotLayoutSchema.optional(),
   lutChunks: z.array(CartridgeLutChunkSchema).optional(),
+  payloadChunks: z.array(CartridgePayloadChunkSchema).optional(),
   emptyRegions: z.array(CartridgeEmptyRegionSchema).optional(),
   segments: z.array(CartridgeSegmentSchema).optional(),
   startup: CartridgeStartupInfoSchema.optional(),

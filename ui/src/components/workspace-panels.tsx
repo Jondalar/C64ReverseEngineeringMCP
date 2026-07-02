@@ -550,6 +550,7 @@ export function CartridgePanel({
               banks={cartridge.banks}
               slotLayout={cartridge.slotLayout}
               lutChunks={cartridge.lutChunks}
+              payloadChunks={cartridge.payloadChunks}
               emptyRegions={cartridge.emptyRegions}
               segments={cartridge.segments}
               startup={cartridge.startup}
@@ -562,6 +563,7 @@ export function CartridgePanel({
                 if (entity) onSelectEntity(entity.id);
               }}
               onSelectLutChunk={(chunk) => onSelectChunk(cartridge.artifactId, chunk)}
+              onSelectPayloadChunk={(chunk) => onSelectEntity(chunk.entityId)}
               onSelectSegment={(segment) => {
                 // Synthesize a CartridgeLutChunk from the segment so the
                 // existing CartChunkInspector renders for it. Segments do

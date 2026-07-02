@@ -67,9 +67,17 @@ Both the Disk wheel and the Cartridge bank/slot grid, scoped per image (`mediumR
   `image`→`mediumRef` resolver (id or basename) + `buildDiskLayoutView` per-span
   scoping (`unscoped` flag for no-mediumRef) + `DiskPanel` `custom`/`unscoped` badges +
   v3 bundle built. `e2e:bug031` 10/10 (scoped-to-A, excluded-from-A-when-pinned-B,
-  unscoped-on-all, CBM-dedup, geometry). **CART symmetric follow-up open (750.1b):**
-  the slot-span `mediumRef` schema is in; `buildCartridgeLayoutView` overlay +
-  `CartridgePanel` render of payload slot-spans not yet wired.
+  unscoped-on-all, CBM-dedup, geometry). Also fixed 2026-07-02: raw payload spans
+  are 256-byte sectors (`ceil((off+len)/256)`), not CBM `ceil(len/254)` — no phantom
+  cells; verified against the 186 Wasteland area imports.
+  **CART DONE (750.1b, 2026-07-02):** `CartridgePayloadChunkSchema` + `payloadChunks`
+  on the cart view; `buildCartridgeLayoutView` overlays entity slot-spans scoped by
+  `mediumRef` (unscoped flag, LUT-cell dedup, one chunk-per-payload-per-image with
+  multi-bank spans, EEPROM/OTHER listed but off-grid); `CartridgeMemoryGrid`
+  renderPayloadSegments overlay (dashed edge, amber for unscoped) + footer count;
+  `CartridgePanel` click→entity. `e2e:750-cart` 13/13 (scoped, multi-bank=one-chunk,
+  unscoped-on-all, excluded-when-pinned-other, EEPROM-listed, click-through).
+  Chrome-verified on a throwaway EF cart.
 - **750.2 — addressing overlay (the table of contents).** Surface `LoaderEntryPoint`
   (kinds) + `ContainerEntry.subKey` index→position so the two views draw the LUT /
   dispatch as edges. BAM + custom-LUT as `kind=lut`. Manual `declare_loader_entrypoint`

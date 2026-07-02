@@ -2357,6 +2357,19 @@ button {
   filter: brightness(1.25);
 }
 
+/* Spec 750.1b — registered-payload overlay on the cart bank/slot bars (the
+   cart twin of the disk origin=custom overlay). Dashed edge distinguishes a
+   payload from a LUT chunk; unscoped (no mediumRef) gets a warning-tint. */
+.cart-payload-segment {
+  border-style: dashed;
+  border-color: rgba(210, 160, 255, 0.9);
+}
+
+.cart-payload-segment-unscoped {
+  border-color: rgba(240, 200, 120, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(240, 200, 120, 0.35);
+}
+
 .cart-empty-overlay {
   position: absolute;
   inset: 0;

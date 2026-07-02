@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { CartridgeBankView, CartridgeChipView, CartridgeEmptyRegion, CartridgeLutChunk, CartridgeSegment, CartridgeSlotLayout, CartridgeStartupInfo } from "../types.js";
+import type { CartridgeBankView, CartridgeChipView, CartridgeEmptyRegion, CartridgeLutChunk, CartridgePayloadChunk, CartridgeSegment, CartridgeSlotLayout, CartridgeStartupInfo } from "../types.js";
 
 interface ChipClickHandler {
   (chip: CartridgeChipView, role: "ROML" | "ROMH" | "EEPROM"): void;
@@ -18,6 +18,7 @@ interface CartridgeMemoryGridProps {
   banks: CartridgeBankView[];
   slotLayout?: CartridgeSlotLayout;
   lutChunks?: CartridgeLutChunk[];
+  payloadChunks?: CartridgePayloadChunk[];
   emptyRegions?: CartridgeEmptyRegion[];
   segments?: CartridgeSegment[];
   startup?: CartridgeStartupInfo;
@@ -27,6 +28,7 @@ interface CartridgeMemoryGridProps {
   onOpenEepromHex?: () => void;
   onSelectLutChunk?: (chunk: CartridgeLutChunk) => void;
   onSelectSegment?: (segment: CartridgeSegment) => void;
+  onSelectPayloadChunk?: (chunk: CartridgePayloadChunk) => void;
   onOpenBankHex?: (bank: CartridgeBankView, chip: CartridgeChipView | undefined) => void;
 }
 
@@ -57,6 +59,7 @@ export function CartridgeMemoryGrid({
   banks,
   slotLayout,
   lutChunks,
+  payloadChunks,
   emptyRegions,
   segments,
   startup,
@@ -66,6 +69,7 @@ export function CartridgeMemoryGrid({
   onOpenEepromHex,
   onSelectLutChunk,
   onSelectSegment,
+  onSelectPayloadChunk,
   onOpenBankHex,
 }: CartridgeMemoryGridProps) {
   // "all" = no filter; otherwise show only chunks where this LUT appears
@@ -254,17 +258,76 @@ export function CartridgeMemoryGrid({
     );
   }
 
+  // Spec 750.1b — registered payloads projected onto the bank/slot grid (the
+  // cart twin of the disk origin=custom overlay). One overlay span per (bank,
+  // slot); clicking any span selects the whole payload entity. Only ROML/ROMH
+  // draw here — EEPROM/OTHER payloads are listed in the footer, not on a bar.
+  type PayloadSpanEntry = { chunk: CartridgePayloadChunk; offsetInBank: number; length: number };
+  const payloadIndex = new Map<string, PayloadSpanEntry[]>();
+  for (const chunk of payloadChunks ?? []) {
+    if (chunk.slot !== "ROML" && chunk.slot !== "ROMH" && chunk.slot !== "ULTIMAX_ROMH") continue;
+    const slotKey = chunk.slot === "ROML" ? "ROML" : "ROMH";
+    const spans = chunk.spans?.length ? chunk.spans : [{ bank: chunk.bank, offsetInBank: chunk.offsetInBank, length: chunk.length }];
+    for (const span of spans) {
+      const key = `${span.bank}:${slotKey}`;
+      const bucket = payloadIndex.get(key) ?? [];
+      bucket.push({ chunk, offsetInBank: span.offsetInBank, length: span.length });
+      payloadIndex.set(key, bucket);
+    }
+  }
+
+  function renderPayloadSegments(role: "ROML" | "ROMH", bank: number) {
+    const key = `${bank}:${role}`;
+    const entries = payloadIndex.get(key);
+    if (!entries || entries.length === 0) return null;
+    const ordered = [...entries].sort((a, b) => b.length - a.length);
+    return (
+      <div className="cart-chunk-overlay">
+        {ordered.map((entry, idx) => {
+          const leftPercent = Math.max(0, Math.min(100, (entry.offsetInBank / bankSize) * 100));
+          const widthPercent = Math.max(0.5, Math.min(100 - leftPercent, (entry.length / bankSize) * 100));
+          const destFragment = entry.chunk.loadAddress !== undefined ? ` → ${formatHexWord(entry.chunk.loadAddress)}` : "";
+          const scopeFragment = entry.chunk.unscoped ? " · UNSCOPED (image not attributed)" : "";
+          const tooltip = `${entry.chunk.name} · bank ${entry.chunk.bank} ${entry.chunk.slot} off $${entry.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} (${bytesPretty(entry.length)})${destFragment}${scopeFragment}`;
+          const clickable = Boolean(onSelectPayloadChunk);
+          const className = entry.chunk.unscoped
+            ? "cart-chunk-segment cart-payload-segment cart-payload-segment-unscoped"
+            : "cart-chunk-segment cart-payload-segment";
+          return (
+            <div
+              key={`${entry.chunk.entityId}-${entry.offsetInBank}-${idx}`}
+              className={clickable ? `${className} cart-segment-clickable` : className}
+              style={{
+                left: `${leftPercent}%`,
+                width: `${widthPercent}%`,
+                top: 0,
+                height: "100%",
+                background: entry.chunk.color ?? "rgba(210,160,255,0.7)",
+              }}
+              title={tooltip}
+              onClick={clickable ? (event) => {
+                event.stopPropagation();
+                onSelectPayloadChunk?.(entry.chunk);
+              } : undefined}
+            />
+          );
+        })}
+      </div>
+    );
+  }
+
   function renderSlotBar(chip: CartridgeChipView | undefined, color: string, role: "ROML" | "ROMH", bank: number) {
     if (!chip) {
       return (
         <div className="cart-slot-bar cart-slot-bar-empty" style={{ background: EMPTY_COLOR }} title="empty">
           {renderEmptySegments(role, bank)}
           {renderChunkSegments(role, bank)}
+          {renderPayloadSegments(role, bank)}
         </div>
       );
     }
     const widthPercent = Math.min(100, Math.max(4, (chip.size / bankSize) * 100));
-    const hasChunks = chunkIndex.has(`${bank}:${role}`);
+    const hasChunks = chunkIndex.has(`${bank}:${role}`) || payloadIndex.has(`${bank}:${role}`);
     const targetAddress = role === "ROMH" && isUltimax ? 0xe000 : (role === "ROMH" ? 0xa000 : 0x8000);
     const tooltip = `${role} bank ${chip.bank} → ${formatHexWord(targetAddress)} (${bytesPretty(chip.size)}${chip.file ? ` · ${chip.file}` : ""})`;
     return (
@@ -278,6 +341,7 @@ export function CartridgeMemoryGrid({
         {renderEmptySegments(role, bank)}
         {renderResidentSegments(role, bank)}
         {renderChunkSegments(role, bank)}
+        {renderPayloadSegments(role, bank)}
         <span className="cart-slot-bar-label">{role}</span>
       </button>
     );
@@ -418,6 +482,7 @@ export function CartridgeMemoryGrid({
           Bank size {formatHexByte(bankSize >> 8)}00 · slot bar fills relative to bank size
           {visibleChunks.length ? ` · showing ${visibleChunks.length} file chunks (${bytesPretty(totalChunkBytes)})` : ""}
           {sharedChunkCount > 0 ? ` · ${sharedChunkCount} shared across LUTs` : ""}
+          {payloadChunks?.length ? ` · ${payloadChunks.length} registered payload${payloadChunks.length === 1 ? "" : "s"}${payloadChunks.some((c) => c.unscoped) ? " (some unscoped)" : ""}` : ""}
         </span>
       </footer>
     </div>

@@ -1892,6 +1892,53 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
         startup,
         slotLayoutBase.hardwareTypeName,
       );
+      // Spec 750.1b — overlay registered payloads whose mediumSpans are
+      // slot-kind onto the bank/slot grid (the cart twin of the disk
+      // origin=custom overlay, BUG-031). Scope PER SPAN by mediumRef (which
+      // cart image this span is on): span.mediumRef === this cart → scoped;
+      // set to a different cart → skip; none → unscoped (shown on every cart,
+      // badged). A payload already represented as a LUT chunk at the same
+      // bank/slot/offset is not double-listed. ONE chunk per payload per image;
+      // its bytes may cross banks → multi-span. EEPROM/OTHER slots list but do
+      // not draw on the ROML/ROMH bars (the grid renders those two slots only).
+      const lutClaimed = new Set<string>();
+      for (const c of lutChunks ?? []) {
+        const spans = c.spans?.length ? c.spans : [{ bank: c.bank, offsetInBank: c.offsetInBank, length: c.length }];
+        for (const s of spans) lutClaimed.add(`${s.bank}:${c.slot}:${s.offsetInBank}`);
+      }
+      const payloadChunks = context.entities
+        .filter((e) => e.kind !== "chip")
+        .map((e) => {
+          const slotSpans = (e.mediumSpans ?? []).filter((sp): sp is Extract<typeof sp, { kind: "slot" }> => sp.kind === "slot");
+          const applicable = slotSpans
+            .filter((span) => (span.mediumRef ? span.mediumRef === artifact.id : true))
+            .filter((span) => !lutClaimed.has(`${span.bank}:${span.slot}:${span.offsetInBank}`));
+          return { e, applicable };
+        })
+        .filter((x) => x.applicable.length > 0)
+        .map(({ e, applicable }) => {
+          const spans = applicable.map((s) => ({ bank: s.bank, offsetInBank: s.offsetInBank, length: s.length }));
+          const first = applicable[0];
+          const totalBytes = applicable.reduce((acc, s) => acc + (s.length ?? 0), 0);
+          const unscoped = applicable.every((s) => !s.mediumRef);
+          const scopedRef = applicable.find((s) => s.mediumRef)?.mediumRef;
+          return {
+            entityId: e.id,
+            name: e.name,
+            slot: first.slot,
+            bank: first.bank,
+            offsetInBank: first.offsetInBank,
+            length: totalBytes || first.length,
+            spans,
+            loadAddress: e.payloadLoadAddress,
+            format: e.payloadFormat,
+            packer: e.payloadPacker,
+            color: fnvHslColor([artifact.id, "payload", e.id, "custom"]),
+            mediumRef: scopedRef,
+            unscoped,
+            notes: [`registered payload (origin=custom), ${spans.length} slot span(s)${unscoped ? " — UNSCOPED: image not yet attributed (no mediumRef)" : ""}`],
+          };
+        });
       return {
         artifactId: artifact.id,
         title: artifact.title,
@@ -1906,6 +1953,7 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
           eeprom,
         },
         lutChunks,
+        payloadChunks,
         emptyRegions,
         segments,
         startup,

@@ -371,6 +371,23 @@ export interface CartridgeLutChunk {
   notes?: string[];
 }
 
+export interface CartridgePayloadChunk {
+  entityId: string;
+  name: string;
+  slot: "ROML" | "ROMH" | "ULTIMAX_ROMH" | "EEPROM" | "OTHER";
+  bank: number;
+  offsetInBank: number;
+  length: number;
+  spans?: CartridgeLutChunkSpan[];
+  loadAddress?: number;
+  format?: string;
+  packer?: string;
+  color?: string;
+  mediumRef?: string;
+  unscoped?: boolean;
+  notes?: string[];
+}
+
 export interface CartridgeLayoutView {
   cartridges: Array<{
     artifactId: string;
@@ -383,6 +400,7 @@ export interface CartridgeLayoutView {
     banks: CartridgeBankView[];
     slotLayout?: CartridgeSlotLayout;
     lutChunks?: CartridgeLutChunk[];
+    payloadChunks?: CartridgePayloadChunk[];
     emptyRegions?: CartridgeEmptyRegion[];
     segments?: CartridgeSegment[];
     startup?: CartridgeStartupInfo;
