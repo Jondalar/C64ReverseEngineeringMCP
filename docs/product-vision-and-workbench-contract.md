@@ -135,6 +135,14 @@ form**. Controlled UI writes (goal/build/release) persist via `saveProjectProfil
 
 **Leitregel: Capability → TRX64, Meaning/Memory → C64RE.** TRX64 is the strategic runtime base and the default backend process (the Rust daemon, auto-discovered/spawned) — it produces bytes, events and machine-state and owns runtime, instrument, reverse-debug, trace, checkpoints (`.c64re`/`.c64retrace`), daemon/FFI/CLI. C64RE is the reverse-engineering workbench — project knowledge, method/memory, analysis pipeline, semantic disassembly, findings/entities/questions, UI/orchestration, curation — it turns those bytes/events/state into knowledge. The TypeScript runtime in C64RE is a fallback / parity oracle, not the strategic base. Endstate: two MCP servers — `trx64-mcp` (instrument/runtime) and `c64re-mcp` (workbench/knowledge); today's C64RE `runtime_*` tools are a transition/proxy to the TRX64 backend, not their permanent home.
 
+*Refinement (capability cut, Spec 774 / `TRX64/docs/capability-cut-decisions.md`,
+DECIDED 2026-06-29):* "analysis pipeline" above reads through the cut — the static
+decode/parse/classify **capability** migrates phased into TRX64's `trx64-static`
+crate (step 1 shipped 2026-07-02: shared 6502 decode + `trx64cli disasm`, golden
+parity vs the TS oracle); the **semantic** layer (SegmentKind mapping, firehose
+gate, findings, annotations, semantic disasm + xref + lineage, KickAsm/byte-verify
+rebuild) is C64RE forever. Each step retires the TS path only after parity.
+
 ### 3.1 The Project Is the Persistent Authority
 
 Chat context is not the project database. All durable progress belongs in the

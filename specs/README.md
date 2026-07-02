@@ -18,6 +18,7 @@ this board wins until the header is reconciled.
 **Two product rules a fresh LLM must internalize:**
 
 0. **Leitregel: Capability → TRX64, Meaning/Memory → C64RE.** TRX64 is the strategic runtime base and the default backend process (the Rust daemon, auto-discovered/spawned) — it produces bytes, events and machine-state and owns runtime, instrument, reverse-debug, trace, checkpoints (`.c64re`/`.c64retrace`), daemon/FFI/CLI. C64RE is the reverse-engineering workbench — project knowledge, method/memory, analysis pipeline, semantic disassembly, findings/entities/questions, UI/orchestration, curation — it turns those bytes/events/state into knowledge. The TypeScript runtime in C64RE is a fallback / parity oracle, not the strategic base. Endstate: two MCP servers — `trx64-mcp` (instrument/runtime) and `c64re-mcp` (workbench/knowledge); today's C64RE `runtime_*` tools are a transition/proxy to the TRX64 backend, not their permanent home.
+   *Refinement (capability cut, Spec 774):* "analysis pipeline" above reads through `TRX64/docs/capability-cut-decisions.md` — the static decode/parse/classify **capability** migrates phased into the `trx64-static` crate (step 1 shipped: shared 6502 decode + `trx64cli disasm`); the **semantic** layer (schema-map, firehose gate, findings, annotations, semantic disasm, KickAsm/byte-verify rebuild) is C64RE forever.
 
 1. **VICE is internal-dev oracle only.** It is NOT part of the normal external/
    consuming-LLM workflow. `vice_*` tools are advanced + internal-dev-only; product
@@ -51,6 +52,7 @@ Small by design — only specs with concrete next implementation work.
 | 771 | TRX64 Runtime Backend + VICE Deprecation | ACTIVE (branch `spec-771-trx64-core`): TRX64 = strategic Rust runtime base + the DEFAULT backend process; owns runtime/instrument/reverse-debug/trace/checkpoints (`.c64re`/`.c64retrace`), daemon/FFI/CLI; the TS Headless runtime becomes fallback/parity oracle; native VICE + `vice_*` move behind "extended" and are deprecated. |
 | 772 | Checkpoint-Ring: Cadence + Retention (UI-scrub-sized) | PROPOSED — size the checkpoint ring for the UI scrub filmstrip (0.5 s cadence / 10 s = 20 snapshots, env-parametrized); deep history stays on the recorder (Spec 766). |
 | 773 | Workflow Cockpit: the 5-phase RE project lifecycle | ACTIVE — reframe C64RE from a data/relations browser into a workflow workbench: Onboarding · Discovery · Reverse Engineering · Build · Release as the first-level experience; existing views repositioned as phase tools (Disk + CRT/Cartridge stay FIRST-CLASS in Discovery+RE); thin lifecycle axis + crosswalk over the existing engines (no rebuild); TRX64 = forensic runtime backend. Anchor: product-vision §2A. |
+| 774 | Capability Cut: static capability → `trx64-static` | ACTIVE (cross-repo) — registers `TRX64/docs/capability-cut-decisions.md` (DECIDED 2026-06-29) on the C64RE side: decode/parse/classify capability migrates phased into the `trx64-static` crate; schema-map + firehose gate + findings + semantic disasm + KickAsm/byte-verify rebuild stay C64RE forever. **Step 1 DONE 2026-07-02** (shared 6502 decode + `trx64cli disasm`, golden parity vs `disasm6502.ts`); next: media format-parse (step 2), classifiers (step 3). |
 
 ## GOVERNING / DOCTRINE (rules + umbrella contracts — still binding, not active implementation)
 
@@ -112,7 +114,7 @@ _None currently on the board — 600/601 (→ 715) and 745 (→ 757), 765 (→ 7
 
 ## Counts
 
-- ACTIVE: 9 (721, 726.B, 742, 744, 748, 750, 771, 772, 773)
+- ACTIVE: 10 (721, 726.B, 742, 744, 748, 750, 771, 772, 773, 774)
 - GOVERNING / DOCTRINE: 7 (610, 612, 620, 705, 715, 723, 746)
 - DONE: 5 (622, 703, 704, 726, 740.1) — DONE specs with open children / active continuations kept on the board; fully-closed DONE specs are archived
 - BACKLOG: 12
