@@ -4,6 +4,7 @@ import { AsmView, type AsmViewSource } from "./components/AsmView.js";
 import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
 import { latestArtifactsByLineage, lineageVersionCount, isLatestInLineage } from "./lib/lineage.js";
 import { isInternalArtifact, isInternalEntity } from "./lib/internal.js";
+import { dedupeEntities, dedupeFindings, dedupeQuestions } from "./lib/dedupe.js";
 
 // Bug 24: nested panels read this to filter artifact lists to latest-only
 // (default) or pass through (when "Show all versions" toggle is on).
@@ -18,6 +19,7 @@ import {
   MemoryMapPanel, CartridgePanel, DiskPanel, FlowPanel, EntityInspector,
   LineageVisibilityContext, useLineageVisibility,
   InternalVisibilityContext, useInternalVisibility,
+  ContentDedupContext, useContentDedup,
 } from "./components/workspace-panels.js";
 // Spec 724B: the v3 Live C64 runtime tab, embedded into the product workbench.
 // Self-contained (its own screen/controls/monitor/inspector via the WS client);
@@ -1974,11 +1976,16 @@ function QuestionsPanel({
   onSelectQuestion: (questionId: string) => void;
   onReloadWorkspace: () => Promise<void>;
 }) {
+  const { dedupeQuestions: dedupeQ } = useContentDedup();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<QuestionStatusFilter>("open");
   const [priorityFilter, setPriorityFilter] = useState<QuestionPriorityFilter>("all");
   const [kindFilter, setKindFilter] = useState("");
   const [sort, setSort] = useState<QuestionSort>("updatedDesc");
+  // Firehose dedup base: collapse re-run duplicate questions (display-only) —
+  // the filter list + the "of M" denominator use this; raw total stays via
+  // snapshot.openQuestions.length. Lookups elsewhere still use the full array.
+  const dedupedQuestions = useMemo(() => dedupeQ(snapshot.openQuestions), [dedupeQ, snapshot.openQuestions]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2020,7 +2027,7 @@ function QuestionsPanel({
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    let list = snapshot.openQuestions.filter((q) => {
+    let list = dedupedQuestions.filter((q) => {
       if (statusFilter !== "all" && q.status !== statusFilter) return false;
       if (priorityFilter !== "all" && q.priority !== priorityFilter) return false;
       if (kindFilter && q.kind !== kindFilter) return false;
@@ -2040,7 +2047,7 @@ function QuestionsPanel({
       }
     });
     return list;
-  }, [snapshot.openQuestions, search, statusFilter, priorityFilter, kindFilter, sort]);
+  }, [dedupedQuestions, search, statusFilter, priorityFilter, kindFilter, sort]);
 
   const visible = filtered.slice(0, 500);
   const allVisibleSelected = visible.length > 0 && visible.every((q) => selected.has(q.id));
@@ -2140,7 +2147,11 @@ function QuestionsPanel({
     <section className="panel-card questions-panel">
       <div className="section-heading">
         <h3>Questions</h3>
-        <span>{filtered.length} of {snapshot.openQuestions.length} | selected {selected.size}</span>
+        <span>
+          {filtered.length} of {dedupedQuestions.length}
+          {dedupedQuestions.length !== snapshot.openQuestions.length ? ` · ${snapshot.openQuestions.length} raw` : ""}
+          {" "}| selected {selected.size}
+        </span>
       </div>
       <div className="inspector-chip-row">
         <input
@@ -2266,10 +2277,12 @@ function FindingsPanel({
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
 }) {
+  const { dedupeFindings: dedupeF } = useContentDedup();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [kindFilter, setKindFilter] = useState("");
   const [sort, setSort] = useState<"updatedDesc" | "updatedAsc" | "confidenceDesc" | "confidenceAsc">("updatedDesc");
+  const dedupedFindings = useMemo(() => dedupeF(snapshot.findings), [dedupeF, snapshot.findings]);
   const kinds = useMemo(() => {
     const set = new Set<string>();
     for (const f of snapshot.findings) set.add(f.kind);
@@ -2277,7 +2290,7 @@ function FindingsPanel({
   }, [snapshot.findings]);
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    let list = snapshot.findings.filter((f) => {
+    let list = dedupedFindings.filter((f) => {
       if (statusFilter !== "all" && f.status !== statusFilter) return false;
       if (kindFilter && f.kind !== kindFilter) return false;
       if (needle) {
@@ -2295,13 +2308,16 @@ function FindingsPanel({
       }
     });
     return list;
-  }, [snapshot.findings, search, statusFilter, kindFilter, sort]);
+  }, [dedupedFindings, search, statusFilter, kindFilter, sort]);
   const { visible, truncated } = visibleSlice(filtered);
   return (
     <section className="panel-card questions-panel">
       <div className="section-heading">
         <h3>Findings</h3>
-        <span>{filtered.length} of {snapshot.findings.length}</span>
+        <span>
+          {filtered.length} of {dedupedFindings.length}
+          {dedupedFindings.length !== snapshot.findings.length ? ` · ${snapshot.findings.length} raw` : ""}
+        </span>
       </div>
       <div className="inspector-chip-row">
         <input type="search" placeholder="Search title / summary" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -2365,9 +2381,11 @@ function EntitiesPanel({
   snapshot: WorkspaceUiSnapshot;
   onSelectEntity: (entityId: string) => void;
 }) {
+  const { dedupeEntities: dedupeE } = useContentDedup();
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState("");
   const [sort, setSort] = useState<"name" | "addressAsc" | "confidenceDesc">("name");
+  const dedupedEntities = useMemo(() => dedupeE(snapshot.entities), [dedupeE, snapshot.entities]);
   const kinds = useMemo(() => {
     const set = new Set<string>();
     for (const e of snapshot.entities) set.add(e.kind);
@@ -2375,7 +2393,7 @@ function EntitiesPanel({
   }, [snapshot.entities]);
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    let list = snapshot.entities.filter((e) => {
+    let list = dedupedEntities.filter((e) => {
       if (kindFilter && e.kind !== kindFilter) return false;
       if (needle) {
         const hay = `${e.name} ${e.summary ?? ""}`.toLowerCase();
@@ -2391,13 +2409,16 @@ function EntitiesPanel({
       }
     });
     return list;
-  }, [snapshot.entities, search, kindFilter, sort]);
+  }, [dedupedEntities, search, kindFilter, sort]);
   const { visible, truncated } = visibleSlice(filtered);
   return (
     <section className="panel-card questions-panel">
       <div className="section-heading">
         <h3>Entities</h3>
-        <span>{filtered.length} of {snapshot.entities.length}</span>
+        <span>
+          {filtered.length} of {dedupedEntities.length}
+          {dedupedEntities.length !== snapshot.entities.length ? ` · ${snapshot.entities.length} raw` : ""}
+        </span>
       </div>
       <div className="inspector-chip-row">
         <input type="search" placeholder="Search name / summary" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -3971,6 +3992,7 @@ function PayloadsPanel({
   selectedPayloadId: string | null;
   onSelectPayload: (payloadId: string) => void;
 }) {
+  const { dedupeEntities: dedupeE } = useContentDedup();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [errorPerId, setErrorPerId] = useState<Record<string, string>>({});
 
@@ -3998,19 +4020,19 @@ function PayloadsPanel({
   // chunk inspector; once they get entity records they will appear
   // here too.
   const payloads = useMemo(() => {
-    return snapshot.entities
+    return dedupeE(snapshot.entities
       .filter((entity) =>
         entity.kind === "payload" ||
         entity.kind === "disk-file" ||
         entity.payloadLoadAddress !== undefined
-      )
+      ))
       .sort((a, b) => {
         const la = a.payloadLoadAddress ?? a.addressRange?.start ?? 0xffff;
         const lb = b.payloadLoadAddress ?? b.addressRange?.start ?? 0xffff;
         if (la !== lb) return la - lb;
         return a.name.localeCompare(b.name);
       });
-  }, [snapshot.entities]);
+  }, [snapshot.entities, dedupeE]);
 
   const artifactById = useMemo(() => new Map(snapshot.artifacts.map((a) => [a.id, a])), [snapshot.artifacts]);
 
@@ -5129,6 +5151,9 @@ export function App() {
   const [showAllVersions, setShowAllVersions] = useState<boolean>(false);
   // Bug 26 / Spec 058: default hide infrastructure files. Toggle for debug.
   const [showInternal, setShowInternal] = useState<boolean>(false);
+  // Firehose content-dedup: default collapse re-run duplicates in the list
+  // panels (display-only, store untouched). Toggle reveals the raw records.
+  const [showDuplicates, setShowDuplicates] = useState<boolean>(false);
   const visibleArtifacts = useMemo(
     () => (snapshot ? (showAllVersions ? snapshot.artifacts : latestArtifactsByLineage(snapshot.artifacts)) : []),
     [snapshot, showAllVersions],
@@ -5630,7 +5655,28 @@ export function App() {
     [showInternal],
   );
 
+  // Triage badge reflects the deduped total (the actionable count), matching
+  // the panel denominator; `duplicates` toggle reverts it to raw.
+  const dedupedQuestionCount = useMemo(
+    () => (snapshot ? (showDuplicates ? snapshot.openQuestions.length : dedupeQuestions(snapshot.openQuestions).length) : 0),
+    [snapshot, showDuplicates],
+  );
+
+  const contentDedupValue = useMemo(
+    () => ({
+      showDuplicates,
+      dedupeEntities: <T extends EntityRecord>(items: T[]): T[] =>
+        showDuplicates ? items : dedupeEntities(items),
+      dedupeFindings: <T extends { id: string; title?: string; status?: string; confidence?: number; updatedAt?: string }>(items: T[]): T[] =>
+        showDuplicates ? items : dedupeFindings(items),
+      dedupeQuestions: <T extends { id: string; title?: string; status?: string; confidence?: number; updatedAt?: string }>(items: T[]): T[] =>
+        showDuplicates ? items : dedupeQuestions(items),
+    }),
+    [showDuplicates],
+  );
+
   return (
+    <ContentDedupContext.Provider value={contentDedupValue}>
     <InternalVisibilityContext.Provider value={internalVisibilityValue}>
     <LineageVisibilityContext.Provider value={lineageVisibilityValue}>
     <div className={activeTab === "live" ? "app-root live-mode" : "app-root"}>
@@ -5720,7 +5766,7 @@ export function App() {
                 title="Open questions & decisions — triage / filter / bulk-revaluate"
                 onClick={() => handleOpenTab("questions")}
               >
-                Triage{snapshot.openQuestions.length ? ` (${snapshot.openQuestions.length})` : ""}
+                Triage{dedupedQuestionCount ? ` (${dedupedQuestionCount})` : ""}
               </button>
               <button
                 type="button"
@@ -5738,6 +5784,10 @@ export function App() {
               <label className="tab-toggle" title="Show manifests / analysis JSON / internal files (default: hidden)">
                 <input type="checkbox" checked={showInternal} onChange={(event) => setShowInternal(event.target.checked)} />
                 internal
+              </label>
+              <label className="tab-toggle" title="Show every re-run duplicate record (default: collapsed to one per content). Display-only — the store keeps all.">
+                <input type="checkbox" checked={showDuplicates} onChange={(event) => setShowDuplicates(event.target.checked)} />
+                duplicates
               </label>
             </div>
           </nav>
@@ -6019,5 +6069,6 @@ export function App() {
     </div>
     </LineageVisibilityContext.Provider>
     </InternalVisibilityContext.Provider>
+    </ContentDedupContext.Provider>
   );
 }

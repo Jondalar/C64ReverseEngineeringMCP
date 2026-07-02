@@ -27,6 +27,7 @@ import { BootTracePanel } from "./BootTracePanel.js";
 import { CartridgeMemoryGrid } from "./CartridgeMemoryGrid.js";
 import { latestArtifactsByLineage, lineageVersionCount } from "../lib/lineage.js";
 import { isInternalArtifact, isInternalEntity } from "../lib/internal.js";
+import { dedupeEntities, dedupeFindings, dedupeQuestions } from "../lib/dedupe.js";
 
 // Inspector/visibility infra (extracted from App.tsx; defaults work with NO
 // Provider — e.g. in the v3 shell). v1 still wraps these contexts with its
@@ -58,6 +59,23 @@ export const InternalVisibilityContext = createContext<{
   visibleEntities: (items, byId) => items.filter((e) => !isInternalEntity(e, byId)),
 });
 export function useInternalVisibility() { return useContext(InternalVisibilityContext); }
+// Firehose content-dedup (display-only). Default ON (collapsed) — analysis
+// re-runs re-emit identical content under fresh run-token ids, so the raw lists
+// are ~5-6x duplicated. `showDuplicates` reveals the raw records. The dedupe*
+// helpers return a SUBSET of the input (same object refs), never a merge, so
+// clicking a row still opens a real record and id-lookups run on the full list.
+export const ContentDedupContext = createContext<{
+  showDuplicates: boolean;
+  dedupeEntities: <T extends EntityRecord>(items: T[]) => T[];
+  dedupeFindings: <T extends { id: string; title?: string; status?: string; confidence?: number; updatedAt?: string }>(items: T[]) => T[];
+  dedupeQuestions: <T extends { id: string; title?: string; status?: string; confidence?: number; updatedAt?: string }>(items: T[]) => T[];
+}>({
+  showDuplicates: false,
+  dedupeEntities: (items) => dedupeEntities(items),
+  dedupeFindings: (items) => dedupeFindings(items),
+  dedupeQuestions: (items) => dedupeQuestions(items),
+});
+export function useContentDedup() { return useContext(ContentDedupContext); }
 
 export interface LlmTodoActions {
   onCreateTask: (defaults: { title: string; description?: string; entityIds?: string[]; artifactIds?: string[] }) => void;
