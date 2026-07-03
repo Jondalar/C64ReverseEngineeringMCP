@@ -72,6 +72,9 @@ export interface ImportedManifestKnowledge {
     payloadFormat?: EntityRecord["payloadFormat"];
     payloadSourceArtifactId?: string;
     payloadContentHash?: string;
+    // Keystone: block→payload placement on the medium + which representation
+    // derived it (kernal-directory / custom-lut / cart-lut).
+    mediumSpans?: EntityRecord["mediumSpans"];
   }>;
   findings: Array<{
     id: string;
@@ -106,6 +109,18 @@ function stableId(prefix: string, artifactId: string, suffix: string): string {
 
 function bankLabel(bank: string | number): string {
   return String(bank).padStart(2, "0");
+}
+
+// Safe STANDARD C64 cartridge slot derivation from a chip's load address.
+// Deterministic hardware mapping (ROML=$8000, ROMH=$A000, Ultimax-ROMH=$E000) —
+// NOT a title/hardware guess. Any other/absent address stays OTHER (honest).
+function slotForLoadAddress(load: number | undefined): "ROML" | "ROMH" | "ULTIMAX_ROMH" | "OTHER" {
+  switch (load) {
+    case 0x8000: return "ROML";
+    case 0xa000: return "ROMH";
+    case 0xe000: return "ULTIMAX_ROMH";
+    default: return "OTHER";
+  }
 }
 
 function buildArtifactEvidence(artifact: ArtifactRecord, title: string, excerpt?: string): EvidenceRef {
@@ -145,6 +160,32 @@ export function importManifestKnowledge(artifact: ArtifactRecord): ImportedManif
       // whitespace-only as "no name" and fall back; keep the raw name in summary.
       const fileName = (typeof file.name === "string" && file.name.trim().length > 0) ? file.name : undefined;
       const fallbackName = fileName ?? file.relativePath ?? `disk_file_${index + 1}`;
+      // Keystone: derive the block→payload placement. `origin` is a data field the
+      // extractor set (kernal = BAM directory, custom = on-disk LUT) — NOT a title
+      // branch. `length` = payload DATA bytes in the block, not physical occupancy.
+      const derivedBy = file.origin === "custom" ? ("custom-lut" as const) : ("kernal-directory" as const);
+      const mediumSpans: EntityRecord["mediumSpans"] =
+        file.sectorChain && file.sectorChain.length > 0
+          ? file.sectorChain.map((cell) => ({
+              kind: "sector" as const,
+              track: cell.track,
+              sector: cell.sector,
+              offsetInSector: 0,
+              length: cell.bytesUsed, // exact data bytes used in this sector
+              mediumRef: artifact.id,
+              derivedBy,
+            }))
+          : file.track !== undefined && file.sector !== undefined
+            ? [{
+                kind: "sector" as const,
+                track: file.track,
+                sector: file.sector,
+                offsetInSector: 0,
+                length: 254, // fallback: linked-sector data capacity (256 − 2 T/S link bytes)
+                mediumRef: artifact.id,
+                derivedBy,
+              }]
+            : [];
       return {
         id: stableId("entity", artifact.id, `disk-file-${index}-${file.relativePath ?? fileName ?? "file"}`),
         kind: "disk-file" as const,
@@ -168,6 +209,7 @@ export function importManifestKnowledge(artifact: ArtifactRecord): ImportedManif
         payloadFormat: file.type === "PRG" ? ("prg" as const) : ("raw" as const),
         payloadSourceArtifactId: artifact.id,
         payloadContentHash: contentHash,
+        mediumSpans,
         tags: ["manifest-import", "disk-file", "payload", file.type ?? "unknown"],
       };
     });
@@ -209,6 +251,21 @@ export function importManifestKnowledge(artifact: ArtifactRecord): ImportedManif
       addressRange: chip.load_address !== undefined && chip.size !== undefined
         ? { start: chip.load_address, end: chip.load_address + Math.max(chip.size - 1, 0), bank: chip.bank }
         : undefined,
+      // Keystone: block placement of this chip on the cartridge medium. Only when
+      // bank + size are explicit in the manifest (never invented); slot from the
+      // safe standard address map. A chip is a BLOCK, so it stays a chip entity —
+      // no payload entity is fabricated here.
+      mediumSpans: chip.bank !== undefined && chip.size !== undefined
+        ? [{
+            kind: "slot" as const,
+            bank: chip.bank,
+            slot: slotForLoadAddress(chip.load_address),
+            offsetInBank: 0,
+            length: chip.size,
+            mediumRef: artifact.id,
+            derivedBy: "cart-lut" as const,
+          }]
+        : [],
       tags: ["manifest-import", "crt-chip"],
       },
     }));

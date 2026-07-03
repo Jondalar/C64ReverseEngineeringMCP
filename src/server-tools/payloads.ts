@@ -142,8 +142,8 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         summary: args.summary,
         addressRange,
         mediumSpans: args.medium_spans?.map((span) => span.kind === "sector"
-          ? { kind: "sector", track: span.track, sector: span.sector, offsetInSector: span.offsetInSector ?? 0, length: span.length, mediumRef: resolveImage(span.image) }
-          : { kind: "slot", bank: span.bank, slot: span.slot, offsetInBank: span.offsetInBank, length: span.length, mediumRef: resolveImage(span.image) }),
+          ? { kind: "sector", track: span.track, sector: span.sector, offsetInSector: span.offsetInSector ?? 0, length: span.length, mediumRef: resolveImage(span.image), derivedBy: "registered" as const }
+          : { kind: "slot", bank: span.bank, slot: span.slot, offsetInBank: span.offsetInBank, length: span.length, mediumRef: resolveImage(span.image), derivedBy: "registered" as const }),
         payloadLoadAddress: args.load_address,
         payloadFormat: args.format,
         payloadPacker: args.packer,

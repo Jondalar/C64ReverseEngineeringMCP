@@ -647,6 +647,13 @@ export const EntityKindSchema = z.enum([
 // resident region to actual sectors/banks instead of only a 16-bit
 // addressRange. The disk- and cart-layout adapters surface entries with
 // `mediumSpans` set as MediumResidentRegion so the medium UI shows them.
+// Which representation/loader derived the block→payload relation this span records
+// (keystone provenance). kernal-directory = 1541 DOS/BAM directory; custom-lut = a
+// custom on-disk look-up table; cart-lut = cartridge chip/bank map; registered = a
+// hand-registered payload (register_payload). Absent ⇒ unknown/legacy. Provenance
+// lives on the SPAN because the span IS the derived relation.
+export const MediumDerivationSchema = z.enum(["kernal-directory", "custom-lut", "cart-lut", "registered"]);
+
 export const EntityMediumSpanSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("sector"),
@@ -658,6 +665,7 @@ export const EntityMediumSpanSchema = z.discriminatedUnion("kind", [
     // = Spec 721 mediumRef / 709 identity). Absent ⇒ unscoped (shown on every image
     // of its kind, badged). The SAME content on multiple images = multiple spans.
     mediumRef: z.string().optional(),
+    derivedBy: MediumDerivationSchema.optional(),
   }),
   z.object({
     kind: z.literal("slot"),
@@ -666,6 +674,7 @@ export const EntityMediumSpanSchema = z.discriminatedUnion("kind", [
     offsetInBank: z.number().int().nonnegative(),
     length: z.number().int().nonnegative(),
     mediumRef: z.string().optional(), // Spec 750 — which cart image (crt-manifest artifact id)
+    derivedBy: MediumDerivationSchema.optional(),
   }),
 ]);
 
@@ -1446,6 +1455,7 @@ export const MediumFileOriginSchema = z.enum([
   "custom-lut",
   "breadcrumb",
   "lut-chunk",
+  "registered-payload",
   "static",
   "unknown",
 ]);

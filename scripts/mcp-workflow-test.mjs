@@ -81,5 +81,34 @@ for (const fx of FIXTURES) {
   console.log();
 }
 
+// ── Substrate corpus proof: a REAL manifest re-import fills the neutral
+//    Medium/Payload substrate (mediumSpans + representation provenance). NOT a
+//    disk-count/view test. Light-copy only knowledge/ (the manifest is read via
+//    the artifact path, read-only); entities are written to the copy.
+console.log("# Substrate — real manifest -> Medium/Payload spans (not view/count)");
+const SUBSTRATE = [
+  { name: "Murder (MotM) / BAM", dir: join(CRACKING, "Murder"), rep: "kernal-directory" },
+];
+for (const fx of SUBSTRATE) {
+  if (!existsSync(join(fx.dir, "knowledge", "artifacts.json"))) { skip++; console.log(`  SKIP  ${fx.name} absent\n`); continue; }
+  const tmp = mkdtempSync(join(tmpdir(), "c64re-substrate-"));
+  try {
+    cpSync(join(fx.dir, "knowledge"), join(tmp, "proj", "knowledge"), { recursive: true });
+    const svc = new ProjectKnowledgeService(join(tmp, "proj"));
+    const manifests = svc.listArtifacts().filter((a) => a.role === "disk-manifest");
+    if (!manifests.length) { skip++; console.log(`  SKIP  ${fx.name} no disk-manifest\n`); continue; }
+    for (const m of manifests) svc.importManifestArtifact(m.id);
+    const df = svc.listEntities({ kind: "disk-file" });
+    ok(df.length > 0, `${fx.name}: disk payload entities imported`, `${df.length}`);
+    ok(df.every((e) => (e.mediumSpans ?? []).length > 0), `${fx.name}: every disk payload carries mediumSpans`);
+    ok(df.every((e) => (e.mediumSpans ?? []).every((s) => s.derivedBy === fx.rep)), `${fx.name}: derivedBy = ${fx.rep} (representation, no title branch)`);
+    ok(df.some((e) => (e.mediumSpans ?? []).some((s) => s.kind === "sector" && s.track > 0)), `${fx.name}: spans are real sector placements`);
+    const before = svc.listEntities({ kind: "disk-file" }).length;
+    for (const m of manifests) svc.importManifestArtifact(m.id);
+    ok(svc.listEntities({ kind: "disk-file" }).length === before, `${fx.name}: re-import idempotent (no payload dup)`);
+  } finally { rmSync(tmp, { recursive: true, force: true }); }
+}
+console.log();
+
 console.log(`${fail === 0 ? "GREEN" : "RED"}  mcp-workflow: ${pass} pass, ${fail} fail, ${skip} skip.`);
 process.exit(fail === 0 ? 0 : 1);
