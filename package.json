@@ -223,6 +223,7 @@
     "e2e:bug031": "npm run build:mcp && node scripts/e2e-bug031-disk-payload-spans.mjs",
     "e2e:750-cart": "npm run build:mcp && node scripts/e2e-750-cart-payload-slots.mjs",
     "e2e:firehose-dedupe": "tsx scripts/e2e-firehose-dedupe.mjs",
+    "test:mcp-workflow": "node scripts/mcp-workflow-test.mjs",
     "e2e:bug027-swap": "npm run build:mcp && node scripts/e2e-bug027-swap-continue.mjs",
     "e2e:checkpoint-pin-leak": "npm run build:mcp && node scripts/e2e-checkpoint-pin-leak.mjs",
     "e2e:bug033": "npm run build:mcp && node scripts/e2e-bug033-version-reconcile.mjs",

@@ -25,6 +25,12 @@ const mkDisk = (stem, name, files) => {
   writeFileSync(join(projectDir, `${stem}.json`), JSON.stringify({ format: "d64", diskName: name, sourceFileName: `${stem}.d64`, files }, null, 2));
   const art = svc.saveArtifact({ kind: "manifest", scope: "analysis", title: `${stem}.json`, path: `${stem}.json`, role: "disk-manifest" });
   svc.importManifestArtifact(art.id);
+  // Keystone S1 (docs/redesign/keystone-schema.md): the disk view is MEDIUM-driven —
+  // one disk per disk-IMAGE artifact, not per manifest. Register the disk-IMAGE the
+  // manifest attaches to (matched by `${stem}.d64` basename); without it the medium
+  // renders 0 disks. The manifest still supplies the CBM directory + is the mediumRef
+  // target for the scoped payload spans below.
+  svc.saveArtifact({ kind: "d64", scope: "input", title: `${stem}.d64`, path: `${stem}.d64`, role: "disk-image" });
   return art;
 };
 const diskA = mkDisk("wlA", "WASTELAND-A", [

@@ -773,20 +773,47 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
     annotationCommentsByStage.set(binaryStem, summary.comments);
   }
 
+  // Keystone S1 (docs/redesign/keystone-schema.md) — the disk view is
+  // MEDIUM-driven, not manifest-driven. Candidate CBM directory manifests are
+  // matched TO a disk-image below; a per-track G64 extraction metadata (numeric
+  // top-level `track`) is NOT a directory manifest, so it is excluded here and
+  // can never be matched to an image (it is also kind=report, not g64/d64, so it
+  // is never itself a disk source).
+  const manifestCandidates = context.artifacts
+    .filter((candidate) => candidate.role === "disk-manifest")
+    .map((candidate) => ({
+      artifact: candidate,
+      manifest: readJsonIfExists(candidate.path) as { track?: unknown; sourceImage?: string; sourceFileName?: string } | undefined,
+    }))
+    .filter((entry) => !(entry.manifest && typeof entry.manifest.track === "number"));
+
+  // One disk per disk-IMAGE artifact = one disk per medium side (Wasteland → 4
+  // sides, The Pawn → 2 sides), medium-agnostic. Never one-per-manifest, never 0
+  // for a custom-GCR image with no CBM directory.
   const disks = context.artifacts
-    .filter((artifact) => artifact.role === "disk-manifest")
-    .filter((artifact) => {
-      // A per-track G64 extraction metadata (has a numeric `track`) is NOT a disk
-      // directory manifest — rendering one "disk" per track produced 70 phantom
-      // disks for a 2-side image. Exclude it here. New g64 metadata is
-      // role=g64-extraction and never reaches this filter; this guard also heals
-      // stores written before that fix (no re-sync needed).
-      const m = readJsonIfExists(artifact.path) as { track?: unknown } | undefined;
-      return !(m && typeof m.track === "number");
-    })
+    .filter((artifact) => artifact.kind === "g64" || artifact.kind === "d64")
     .sort(compareByRelativePath)
-    .map((artifact) => {
-      const manifest = readJsonIfExists(artifact.path) as {
+    .map((imageArtifact) => {
+      // Match a CBM directory manifest to THIS image: resolved-absolute
+      // sourceImage path first, else disk-image basename. Undefined for a
+      // custom-GCR image whose extract_disk produced no valid manifest.
+      const imageAbs = resolvePath(imageArtifact.path);
+      const imageBase = basename(imageArtifact.path).toLowerCase();
+      const matchedManifest = manifestCandidates.find(({ manifest: candidateManifest }) => {
+        const src = candidateManifest?.sourceImage;
+        if (src && resolvePath(src) === imageAbs) return true;
+        const srcBase = (src ? basename(src) : candidateManifest?.sourceFileName)?.toLowerCase();
+        return srcBase !== undefined && srcBase === imageBase;
+      });
+      const manifestArtifact = matchedManifest?.artifact;
+      // Disk IDENTITY = the disk-IMAGE artifact; the CBM directory files and the
+      // registered payloads stay keyed to the manifest artifact id (that is where
+      // importManifestArtifact / register_payload linked them), so keep both: the
+      // disk shape uses the image id, entity/payload lookups the manifest id.
+      const diskArtifactId = imageArtifact.id;
+      const manifestArtifactId = manifestArtifact?.id;
+      const diskRefIds = new Set<string>([diskArtifactId, ...(manifestArtifactId ? [manifestArtifactId] : [])]);
+      const manifest = manifestArtifact ? (readJsonIfExists(manifestArtifact.path) as {
         sourceImage?: string;
         sourceFileName?: string;
         format?: string;
@@ -828,10 +855,18 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
         // file overrides it.
         defaultPacker?: string;
         defaultFormat?: string;
-      } | undefined;
-      let parser = manifest?.sourceImage && existsSync(manifest.sourceImage)
-        ? createDiskParser(new Uint8Array(readFileSync(manifest.sourceImage)))
-        : null;
+      } | undefined) : undefined;
+      // Load the parser from the IMAGE itself (not manifest.sourceImage), so it
+      // works WITH or WITHOUT a manifest. Guard construction: an unsupported /
+      // unreadable image must degrade to geometry-only, never crash the view.
+      let parser: ReturnType<typeof createDiskParser> = null;
+      try {
+        parser = existsSync(imageArtifact.path)
+          ? createDiskParser(new Uint8Array(readFileSync(imageArtifact.path)))
+          : null;
+      } catch {
+        parser = null;
+      }
       // getDirectory() (and directory sector-chain tracing) parses the CBM
       // directory via the BAM at 18/0. A custom-GCR / copy-protected image (or a
       // non-disk manifest whose sourceImage isn't a standard CBM disk) has no
@@ -854,8 +889,8 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
       const manifestFiles = [...(manifest?.files ?? [])]
         .sort((left, right) => (left.index ?? 0) - (right.index ?? 0))
         .map((file, index) => {
-          const entity = diskFileEntities.find((candidate) =>
-            candidate.artifactIds.includes(artifact.id) &&
+          const entity = manifestArtifactId === undefined ? undefined : diskFileEntities.find((candidate) =>
+            candidate.artifactIds.includes(manifestArtifactId) &&
             (
               candidate.name === file.name ||
               candidate.name === file.relativePath ||
@@ -904,16 +939,16 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
           // distinct family in the disk-layout grid: kernal gets the
           // existing hash-derived hue, custom shifts it 180° around the
           // wheel.
-          const colorKey: Array<string | number> = [artifact.id, index, title, file.track ?? 0, file.sector ?? 0];
+          const colorKey: Array<string | number> = [diskArtifactId, index, title, file.track ?? 0, file.sector ?? 0];
           if (origin === "custom") colorKey.push("custom");
           const color = fnvHslColor(colorKey);
           return {
-            id: `${artifact.id}-file-${index}`,
+            id: `${diskArtifactId}-file-${index}`,
             title,
             type: file.type ?? "unknown",
             origin,
             unscoped: false as boolean,            // CBM/manifest files are scoped to this image
-            mediumRef: artifact.id as string | undefined,
+            mediumRef: diskArtifactId as string | undefined,
             sizeSectors: file.sizeSectors,
             sizeBytes: file.sizeBytes,
             track: file.track,
@@ -987,7 +1022,7 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
         .map((e) => {
           const sectorSpans = (e.mediumSpans ?? []).filter((sp): sp is Extract<typeof sp, { kind: "sector" }> => sp.kind === "sector");
           const applicable = sectorSpans
-            .filter((span) => (span.mediumRef ? span.mediumRef === artifact.id : true)) // scoped here, or unscoped
+            .filter((span) => (span.mediumRef ? diskRefIds.has(span.mediumRef) : true)) // scoped here (image id or its manifest id), or unscoped
             .filter((span) => !claimedCells.has(`${span.track}:${span.sector}`));        // CBM-cell dedup
           return { e, applicable };
         })
@@ -1016,9 +1051,9 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
           const totalBytes = applicable.reduce((acc, s) => acc + (s.length ?? 0), 0);
           const unscoped = applicable.every((s) => !s.mediumRef); // not explicitly scoped to this image
           const scopedRef = applicable.find((s) => s.mediumRef)?.mediumRef;
-          const colorKey: Array<string | number> = [artifact.id, "payload", e.id, "custom"];
+          const colorKey: Array<string | number> = [diskArtifactId, "payload", e.id, "custom"];
           return {
-            id: `${artifact.id}-payload-${e.id}`,
+            id: `${diskArtifactId}-payload-${e.id}`,
             title: e.name,
             type: e.payloadFormat ?? e.kind ?? "payload",
             origin: "custom" as const,
@@ -1135,7 +1170,7 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
               category = "orphan_allocated";
             }
             return {
-              id: `${artifact.id}-track-${track}-sector-${sector}`,
+              id: `${diskArtifactId}-track-${track}-sector-${sector}`,
               track,
               sector,
               angleStart: (sector / sectorCount) * Math.PI * 2,
@@ -1149,24 +1184,16 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             };
           });
         });
-      // Prefer the filesystem filename the operator knows (e.g.
-      // "lykia_disk1.d64") over the BAM label or the manifest's own
-      // name. Falls back through sourceFileName → basename(sourceImage)
-      // → basename(relativePath).
-      const imageFileName = manifest?.sourceFileName
-        ?? (manifest?.sourceImage ? basename(manifest.sourceImage) : undefined);
-      const imageRelativePath = (() => {
-        const src = manifest?.sourceImage;
-        if (!src) return undefined;
-        const projectRoot = context.project.rootPath.replace(/\/$/, "");
-        if (src.startsWith(projectRoot + "/")) return src.slice(projectRoot.length + 1);
-        if (src.startsWith(projectRoot)) return src.slice(projectRoot.length + 1);
-        return undefined;
-      })();
+      // Image-driven: filename + project-relative path come from the disk-IMAGE
+      // artifact itself (not manifest.sourceImage), so they resolve WITH or
+      // WITHOUT a manifest and always address the real medium.
+      const imageFileName = basename(imageArtifact.relativePath);
+      const imageRelativePath = imageArtifact.relativePath;
       return {
-        artifactId: artifact.id,
-        title: artifact.title,
-        format: manifest?.format ?? artifact.format ?? "unknown",
+        artifactId: diskArtifactId,
+        // Title/format from the manifest when present, else derived from the image.
+        title: manifestArtifact?.title ?? imageArtifact.title ?? imageFileName,
+        format: manifest?.format ?? imageArtifact.format ?? imageArtifact.kind.toUpperCase(),
         diskName: manifest?.diskName,
         diskId: manifest?.diskId,
         imageFileName,
