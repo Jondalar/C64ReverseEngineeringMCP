@@ -35,6 +35,7 @@ export const DEFAULT_PATTERNS: RegistrationPattern[] = [
   { glob: "input/cart/*.crt", kind: "crt", scope: "input", role: "source-cart" },
   { glob: "input/prg/*.prg", kind: "prg", scope: "input", role: "source-prg" },
   { glob: "analysis/**/manifest.json", kind: "manifest", scope: "analysis", role: "disk-manifest", format: "json" },
+  { glob: "analysis/g64/**/track-metadata.json", kind: "report", scope: "analysis", role: "g64-extraction", format: "json" },
   { glob: "analysis/**/*_analysis.json", kind: "analysis-run", scope: "analysis", role: "prg-analysis", format: "json" },
   { glob: "analysis/**/*_annotations.json", kind: "report", scope: "analysis", role: "annotations", format: "json" },
   { glob: "analysis/**/*_disasm.asm", kind: "listing", scope: "analysis", role: "disasm", format: "asm" },

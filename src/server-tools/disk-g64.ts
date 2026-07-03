@@ -1,10 +1,11 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { createDiskParser, G64Parser } from "../disk/index.js";
 import type { G64LutReference } from "../disk/g64-parser.js";
 import { runCli } from "../run-cli.js";
+import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import type { ServerToolContext } from "./types.js";
 
 function g64SectorDefaultOutputDir(context: ServerToolContext, imagePath: string, track: number, projectDir?: string): string {
@@ -460,6 +461,29 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
             path: written[index],
           })),
         }, null, 2)}\n`, "utf8");
+
+        // Register the extraction manifest as a knowledge artifact (role=g64-extraction)
+        // so the deterministic-extraction phase credits the G64 path — without this the
+        // phase state depended on WHICH extraction tool you happened to use. NOT tagged
+        // `disk-manifest`: that role feeds the disk-layout view-builder (which expects a
+        // CBM directory + a standard BAM) and would choke on a custom-GCR image; and it
+        // must NOT satisfy structural-enrichment (which legitimately needs analysis-json).
+        // Soft-fail: the extraction succeeded even if registration hiccups.
+        try {
+          new ProjectKnowledgeService(pd).saveArtifact({
+            kind: "report",
+            scope: "analysis",
+            role: "g64-extraction",
+            format: "json",
+            title: `G64 extraction manifest — ${basename(imageAbs)} track ${track}`,
+            path: relative(pd, metadataPath).replace(/\\/g, "/"),
+            producedByTool: "extract_g64_sectors",
+            description: `Decoded ${decoded.length} sectors from track ${track}.`,
+            tags: ["g64", "extraction"],
+          });
+        } catch {
+          // best-effort: extraction output is already on disk
+        }
 
         const lines = [
           `Image: ${imageAbs}`,

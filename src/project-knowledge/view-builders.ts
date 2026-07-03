@@ -775,6 +775,15 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
 
   const disks = context.artifacts
     .filter((artifact) => artifact.role === "disk-manifest")
+    .filter((artifact) => {
+      // A per-track G64 extraction metadata (has a numeric `track`) is NOT a disk
+      // directory manifest — rendering one "disk" per track produced 70 phantom
+      // disks for a 2-side image. Exclude it here. New g64 metadata is
+      // role=g64-extraction and never reaches this filter; this guard also heals
+      // stores written before that fix (no re-sync needed).
+      const m = readJsonIfExists(artifact.path) as { track?: unknown } | undefined;
+      return !(m && typeof m.track === "number");
+    })
     .sort(compareByRelativePath)
     .map((artifact) => {
       const manifest = readJsonIfExists(artifact.path) as {
@@ -820,11 +829,28 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
         defaultPacker?: string;
         defaultFormat?: string;
       } | undefined;
-      const parser = manifest?.sourceImage && existsSync(manifest.sourceImage)
+      let parser = manifest?.sourceImage && existsSync(manifest.sourceImage)
         ? createDiskParser(new Uint8Array(readFileSync(manifest.sourceImage)))
         : null;
-      const directoryEntries = parser?.getDirectory().files ?? [];
-      const directoryChain = parser ? traceDirectorySectorChain((track, sector) => parser.getSector(track, sector)) : [{ track: 18, sector: 1 }];
+      // getDirectory() (and directory sector-chain tracing) parses the CBM
+      // directory via the BAM at 18/0. A custom-GCR / copy-protected image (or a
+      // non-disk manifest whose sourceImage isn't a standard CBM disk) has no
+      // standard BAM and throws "Cannot read BAM sector (18/0)". Degrade to an
+      // empty directory for THIS disk instead of throwing — a single bad image
+      // must never crash the view build (which would blank the whole workspace
+      // snapshot AND fail project_inventory_sync's view rebuild).
+      let directoryEntries: ReturnType<NonNullable<typeof parser>["getDirectory"]>["files"] = [];
+      let directoryChain: ReturnType<typeof traceDirectorySectorChain> = [{ track: 18, sector: 1 }];
+      try {
+        directoryEntries = parser?.getDirectory().files ?? [];
+        directoryChain = parser
+          ? traceDirectorySectorChain((track, sector) => parser!.getSector(track, sector))
+          : [{ track: 18, sector: 1 }];
+      } catch {
+        parser = null; // no standard directory (custom format) — skip directory-derived data
+        directoryEntries = [];
+        directoryChain = [{ track: 18, sector: 1 }];
+      }
       const manifestFiles = [...(manifest?.files ?? [])]
         .sort((left, right) => (left.index ?? 0) - (right.index ?? 0))
         .map((file, index) => {

@@ -4876,7 +4876,7 @@ export class ProjectKnowledgeService {
           summary = completed ? "Tracked source inputs are registered as project artifacts." : "No source media or analysis targets are registered yet.";
           break;
         case "deterministic-extraction":
-          progressSignals = artifacts.filter((artifact) => ["analysis-json", "disk-manifest", "crt-manifest", "kickassembler-source", "64tass-source", "ram-report", "pointer-report"].includes(artifact.role ?? "")).length;
+          progressSignals = artifacts.filter((artifact) => ["analysis-json", "disk-manifest", "g64-extraction", "crt-manifest", "kickassembler-source", "64tass-source", "ram-report", "pointer-report"].includes(artifact.role ?? "")).length;
           completed = progressSignals > 0;
           summary = completed ? "Deterministic manifests/reports exist." : "No deterministic analysis/manifests have been recorded yet.";
           break;
@@ -4885,20 +4885,34 @@ export class ProjectKnowledgeService {
           completed = bundle.entities.length > 0 || bundle.relations.length > 0;
           summary = completed ? `${bundle.entities.length} entities and ${bundle.relations.length} relations are persisted.` : "No structural entities/relations persisted yet.";
           break;
-        case "semantic-enrichment":
-          progressSignals = bundle.findings.length + bundle.tasks.length + bundle.openQuestions.length;
-          completed = bundle.findings.length > 0 || bundle.tasks.length > 0 || bundle.openQuestions.length > 0;
-          summary = completed ? `${bundle.findings.length} findings, ${bundle.tasks.length} tasks, ${bundle.openQuestions.length} open questions.` : "No semantic findings or questions saved yet.";
+        case "semantic-enrichment": {
+          // NOT count-of-any-record. "semantic-enrichment" = actual interpretation
+          // of code/data at a location → require a finding grounded to an
+          // addressRange. Kickoff/meta prose (no address), open questions (the
+          // opposite of done), and format/medium observations (evidence but no code
+          // address — those belong to Discovery) do NOT complete it.
+          const semanticFindings = bundle.findings.filter((f) => Boolean(f.addressRange));
+          progressSignals = semanticFindings.length;
+          completed = semanticFindings.length > 0;
+          summary = completed
+            ? `${semanticFindings.length} address-grounded semantic findings (of ${bundle.findings.length} total).`
+            : bundle.findings.length > 0
+              ? `${bundle.findings.length} findings exist but none are grounded to a code/data address — no semantic classification done yet.`
+              : "No semantic findings saved yet.";
           break;
-        case "semantic-feedback-refinement":
-          progressSignals = bundle.findings.length + bundle.relations.length + bundle.flows.length + artifacts.filter((artifact) =>
+        }
+        case "semantic-feedback-refinement": {
+          // Same gate: refinement needs address-grounded semantic findings, not any record.
+          const semanticFindings = bundle.findings.filter((f) => Boolean(f.addressRange));
+          progressSignals = semanticFindings.length + bundle.relations.length + bundle.flows.length + artifacts.filter((artifact) =>
             ["semantic-annotations", "refined-analysis-json", "payload-link-map"].includes(artifact.role ?? ""),
           ).length;
-          completed = bundle.findings.length > 0 && (bundle.relations.length > 0 || bundle.flows.length > 0);
+          completed = semanticFindings.length > 0 && (bundle.relations.length > 0 || bundle.flows.length > 0);
           summary = completed
-            ? "Semantic feedback has strengthened structure, relationships, or targeted refinements beyond the first heuristic cut."
-            : "No semantically-driven refinement pass has been captured yet.";
+            ? "Grounded semantic feedback has strengthened structure/relationships beyond the first heuristic cut."
+            : "No grounded semantically-driven refinement pass has been captured yet.";
           break;
+        }
         case "runtime-capture":
           progressSignals = artifacts.filter((artifact) =>
             artifact.kind === "trace" || (artifact.role ?? "").startsWith("runtime-trace-"),
@@ -4965,17 +4979,30 @@ export class ProjectKnowledgeService {
   }
 
   private composeViews(bundle: ReturnType<ProjectKnowledgeService["loadBundle"]>) {
-    const diskLayout = buildDiskLayoutView(bundle);
-    const cartridgeLayout = buildCartridgeLayoutView(bundle);
+    // A single view-builder crashing (e.g. a custom-GCR disk with no standard BAM
+    // at 18/0) must NEVER blank the whole workbench snapshot. Each view degrades
+    // independently to an empty-but-valid view (built from an empty-artifact bundle)
+    // on failure, and the error is logged rather than propagated.
+    const emptyBundle = { ...bundle, artifacts: [] };
+    const safe = <T>(label: string, build: (b: typeof bundle) => T): T => {
+      try {
+        return build(bundle);
+      } catch (error) {
+        console.error(`[composeViews] ${label} failed, degrading to empty view: ${error instanceof Error ? error.message : String(error)}`);
+        return build(emptyBundle);
+      }
+    };
+    const diskLayout = safe("diskLayout", buildDiskLayoutView);
+    const cartridgeLayout = safe("cartridgeLayout", buildCartridgeLayoutView);
     return {
-      projectDashboard: buildProjectDashboardView(bundle),
-      memoryMap: buildMemoryMapView(bundle),
+      projectDashboard: safe("projectDashboard", buildProjectDashboardView),
+      memoryMap: safe("memoryMap", buildMemoryMapView),
       diskLayout,
       cartridgeLayout,
-      mediumLayout: buildMediumLayoutView(bundle, diskLayout, cartridgeLayout),
-      loadSequence: buildLoadSequenceView(bundle),
-      flowGraph: buildFlowGraphView(bundle),
-      annotatedListing: buildAnnotatedListingView(bundle),
+      mediumLayout: safe("mediumLayout", (b) => buildMediumLayoutView(b, diskLayout, cartridgeLayout)),
+      loadSequence: safe("loadSequence", buildLoadSequenceView),
+      flowGraph: safe("flowGraph", buildFlowGraphView),
+      annotatedListing: safe("annotatedListing", buildAnnotatedListingView),
     };
   }
 
