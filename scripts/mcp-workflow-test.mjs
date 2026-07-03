@@ -77,6 +77,35 @@ for (const fx of FIXTURES) {
     if (fx.name === "Wasteland_EF" && disks.length > 0) {
       ok(disks.some((d) => (d.files ?? []).length > 0), `BAM disk preserves its CBM directory (files present)`);
     }
+
+    // (f) Discovery→RE block-coverage gate (Spec 773). REPORT the real signal —
+    //     lifecyclePhase + per-medium unclaimed-data — so we see empirically
+    //     whether custom-GCR (no BAM) surfaces unclaimed data or hides it.
+    const cov = snap.mediumCoverage ?? [];
+    console.log(`    · lifecyclePhase=${snap.lifecyclePhase}  currentPhaseId=${snap.workflowState?.currentPhaseId ?? "?"}`);
+    for (const c of cov) {
+      console.log(`    · coverage[${c.mediumKind} ${c.mediumLabel}] data=${c.dataBlocks} attributed=${c.attributedBlocks} unclaimed=${c.unclaimedBlocks}`);
+    }
+    if (cov.length === 0) console.log(`    · coverage: (no media parsed)`);
+
+    // (g) THE gate: a medium with unclaimed data must not let the lifecycle past
+    //     Discovery. Empirically the Model-B phase (currentPhaseId) can already be
+    //     an RE phase — the block-coverage gate caps it back to Discovery.
+    if (cov.some((c) => c.unclaimedBlocks > 0)) {
+      ok(snap.lifecyclePhase === "discovery" || snap.lifecyclePhase === "onboarding",
+        `unclaimed data present → lifecycle held at Discovery (gate)`,
+        `phase=${snap.lifecyclePhase} currentPhaseId=${snap.workflowState?.currentPhaseId ?? "?"}`);
+    }
+    // (h) custom-GCR must surface its data (BAM-independent) — else the gate is
+    //     blind to exactly the disks it must hold. Pawn = no CBM dir / no BAM.
+    if (fx.name === "The Pawn") {
+      ok(cov.length > 0 && cov.every((c) => c.unclaimedBlocks > 100),
+        `custom-GCR surfaces unclaimed data via lenient decode (not read as empty)`,
+        cov.map((c) => `${c.unclaimedBlocks}`).join(","));
+      ok(snap.lifecyclePhase === "discovery",
+        `custom-GCR with undecoded payloads is held in Discovery (not jumped to RE)`,
+        `phase=${snap.lifecyclePhase}`);
+    }
   });
   console.log();
 }

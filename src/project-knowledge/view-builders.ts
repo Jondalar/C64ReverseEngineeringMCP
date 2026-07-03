@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { basename, extname, resolve as resolvePath } from "node:path";
 import { createDiskParser, SECTORS_PER_TRACK, traceFileSectorChain, type DiskFileEntry } from "../disk/index.js";
+import { decodeGCRTrack } from "../disk/gcr.js";
 import { classifyArtifactInternal } from "./service.js";
 import { loadEffectiveSegments, overlayCovering, type AnnotationSegmentOverlay } from "./effective-segments.js";
 import { partitionQuestions } from "./question-triage.js";
@@ -882,7 +883,11 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
           ? traceDirectorySectorChain((track, sector) => parser!.getSector(track, sector))
           : [{ track: 18, sector: 1 }];
       } catch {
-        parser = null; // no standard directory (custom format) — skip directory-derived data
+        // No standard CBM directory (custom-GCR / copy-protected). The DIRECTORY
+        // is gone, but the parser can still GCR-decode raw track/sector content —
+        // the CBM directory/BAM is just ONE index, not a prerequisite for reading
+        // the disk. Keep the parser alive so content-based sector classification
+        // still sees the data (otherwise a whole custom disk reads as "free").
         directoryEntries = [];
         directoryChain = [{ track: 18, sector: 1 }];
       }
@@ -1113,12 +1118,50 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
         }
       }
 
+      // Lenient GCR content probe: a custom-GCR image (Pawn et al) has a valid
+      // SYNC + header + data-nibble sequence but a non-standard data-block header/
+      // CRC, so parser.getSector() returns null. decodeGCRTrack() reads the same
+      // payload the extract_g64_sectors MCP tool dumps (as .invalid.bin) — that is
+      // how the disk's data becomes visible without the CBM directory/BAM. Cached
+      // per track (decode is per-track, this function is called per sector).
+      const lenient = parser as unknown as { getRawTrackBytes?: (track: number) => Uint8Array | null };
+      const decodedZeroCache = new Map<number, Map<number, boolean>>();
+      function decodedZeroFor(track: number, sector: number): boolean | undefined {
+        if (typeof lenient.getRawTrackBytes !== "function") return undefined;
+        let bySector = decodedZeroCache.get(track);
+        if (!bySector) {
+          bySector = new Map<number, boolean>();
+          let raw: Uint8Array | null = null;
+          try { raw = lenient.getRawTrackBytes(track); } catch { raw = null; }
+          if (raw) {
+            let decoded: ReturnType<typeof decodeGCRTrack> = [];
+            try { decoded = decodeGCRTrack(raw); } catch { decoded = []; }
+            for (const s of decoded) {
+              if (!s.data || s.data.length === 0) continue;
+              const allZero = s.data.every((byte) => byte === 0);
+              // a protected track can list a sector twice — data-present wins.
+              if (!bySector.has(s.sector) || bySector.get(s.sector) === true) bySector.set(s.sector, allZero);
+            }
+          }
+          decodedZeroCache.set(track, bySector);
+        }
+        return bySector.get(sector);
+      }
+
       function sectorAllZero(track: number, sector: number): boolean | undefined {
         if (!parser) return undefined;
-        const data = parser.getSector(track, sector);
-        if (!data) return undefined;
-        for (let i = 0; i < data.length; i += 1) if (data[i] !== 0) return false;
-        return true;
+        let data: ReturnType<NonNullable<typeof parser>["getSector"]>;
+        try {
+          data = parser.getSector(track, sector);
+        } catch {
+          data = null;
+        }
+        if (data) {
+          for (let i = 0; i < data.length; i += 1) if (data[i] !== 0) return false;
+          return true;
+        }
+        // getSector failed (custom-GCR framing) — fall back to the lenient decode.
+        return decodedZeroFor(track, sector);
       }
       // BUG-017 — the track count must reflect the PHYSICAL image (so extended/
       // protected 42-track G64s expose tracks 36-42), not just the tracks that
@@ -1161,8 +1204,15 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             if (match) category = "file";
             else if (isBam) category = "bam";
             else if (isDirectory) category = "directory";
-            else if (!bamKnown) category = "free";
-            else if (freeInBam) {
+            else if (!bamKnown) {
+              // No BAM (custom-GCR / no CBM directory). The BAM is just ONE
+              // allocation index — read the sector CONTENT directly instead:
+              // non-zero = data-bearing but unclaimed, zero = empty,
+              // undecodable = unknown. This is what makes the coverage gate see
+              // a custom disk's payload data before any loader is decoded.
+              const allZero = sectorAllZero(track, sector);
+              category = allZero === false ? "free_data" : allZero === true ? "free_zero" : "free";
+            } else if (freeInBam) {
               const allZero = sectorAllZero(track, sector);
               category = allZero === false ? "free_data" : "free_zero";
             } else {
@@ -2884,7 +2934,7 @@ function cartridgeLayoutToMediums(view: CartridgeLayoutView, entities: EntityRec
       romhChipIndex: bank.romhChipIndex,
     }));
 
-    const files: MediumFile[] = (cart.lutChunks ?? []).map((chunk, index) => {
+    const lutChunkFiles: MediumFile[] = (cart.lutChunks ?? []).map((chunk, index) => {
       const spans: MediumSpan[] = (chunk.spans.length > 0
         ? chunk.spans
         : [{ bank: chunk.bank, offsetInBank: chunk.offsetInBank, length: chunk.length }]
@@ -2913,6 +2963,37 @@ function cartridgeLayoutToMediums(view: CartridgeLayoutView, entities: EntityRec
         fileRelativePath: chunk.fileRelativePath,
       };
     });
+    const payloadFiles: MediumFile[] = (cart.payloadChunks ?? []).map((chunk, index) => {
+      const spans: MediumSpan[] = (chunk.spans.length > 0
+        ? chunk.spans
+        : [{ bank: chunk.bank, offsetInBank: chunk.offsetInBank, length: chunk.length }]
+      ).map((span) => ({
+        kind: "slot",
+        bank: span.bank,
+        slot: chunk.slot,
+        offsetInBank: span.offsetInBank,
+        length: span.length,
+        mediumRef: chunk.mediumRef,
+      }));
+      return {
+        id: `cart-payload-${cart.artifactId}-${chunk.entityId}-${index}`,
+        name: chunk.name,
+        color: chunk.color,
+        origin: "registered-payload",
+        spans,
+        loadAddress: chunk.loadAddress,
+        length: chunk.length,
+        packer: chunk.packer,
+        format: chunk.format,
+        notes: chunk.notes ?? [],
+        sourceRefs: [
+          `payload:${chunk.entityId}`,
+          chunk.unscoped ? "scope:unscoped" : undefined,
+        ].filter((value): value is string => Boolean(value)),
+        sourceId: chunk.entityId,
+      };
+    });
+    const files: MediumFile[] = [...lutChunkFiles, ...payloadFiles];
 
     const empty: MediumEmptyRegion[] = (cart.emptyRegions ?? []).map((region, index) => ({
       id: `cart-empty-${cart.artifactId}-${index}`,

@@ -1690,6 +1690,22 @@ export const WorkspaceUiSnapshotSchema = z.object({
   // workflowState.currentPhaseId via the crosswalk (agent-orchestrator/lifecycle.ts).
   // The UI phase-strip reads this for its "recommended/current" badge.
   lifecyclePhase: z.enum(["onboarding", "discovery", "re", "build", "release"]).optional(),
+  // Spec 773 — uniform block-coverage per medium (disk + cart, one shape), the
+  // signal behind the Discovery→RE gate. unclaimedBlocks>0 = data-bearing blocks
+  // no payload/region has claimed yet → the Discovery cockpit surfaces
+  // "disassemble to attribute". Derived (medium-coverage.ts); UI never writes it.
+  mediumCoverage: z
+    .array(
+      z.object({
+        mediumRef: z.string(),
+        mediumKind: z.enum(["disk", "cartridge"]),
+        mediumLabel: z.string(),
+        dataBlocks: z.number().int().nonnegative(),
+        attributedBlocks: z.number().int().nonnegative(),
+        unclaimedBlocks: z.number().int().nonnegative(),
+      }),
+    )
+    .optional(),
   // Spec 773 — read-only project profile (goals/workflow/loader/build/test) so the
   // Onboarding/Build phase-home surfaces can DISPLAY the captured goal + strategy.
   // Mutations stay agent-led (save_project_profile); the UI never writes it.

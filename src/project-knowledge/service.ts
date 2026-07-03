@@ -8,7 +8,8 @@ import { isHeuristicQuestion } from "./question-triage.js";
 import { buildAnnotatedListingView, buildCartridgeLayoutView, buildDiskLayoutView, buildFlowGraphView, buildLoadSequenceView, buildMediumLayoutView, buildMemoryMapView, buildProjectDashboardView } from "./view-builders.js";
 import { ProjectKnowledgeStorage, defaultProjectSlug } from "./storage.js";
 import { annotationSegmentsToOverlays, overlayCovering } from "./effective-segments.js";
-import { recommendedLifecyclePhase } from "../agent-orchestrator/lifecycle.js";
+import { recommendedLifecyclePhase, applyDiscoveryCoverageGate } from "../agent-orchestrator/lifecycle.js";
+import { computeDiscoveryCoverage, discoveryCoverageComplete } from "./medium-coverage.js";
 import {
   isVersionedSourceArtifact,
   memberFromCandidate,
@@ -718,6 +719,7 @@ export interface BuildAllViewsResult {
   memoryMap: { path: string; view: ReturnType<typeof buildMemoryMapView> };
   diskLayout: { path: string; view: ReturnType<typeof buildDiskLayoutView> };
   cartridgeLayout: { path: string; view: ReturnType<typeof buildCartridgeLayoutView> };
+  mediumLayout: { path: string; view: ReturnType<typeof buildMediumLayoutView> };
   loadSequence: { path: string; view: ReturnType<typeof buildLoadSequenceView> };
   flowGraph: { path: string; view: ReturnType<typeof buildFlowGraphView> };
   annotatedListing: { path: string; view: AnnotatedListingView };
@@ -4742,6 +4744,14 @@ export class ProjectKnowledgeService {
     return this.persistView("Cartridge layout view built", this.storage.saveCartridgeLayoutView(view), view);
   }
 
+  buildMediumLayoutView(): { path: string; view: ReturnType<typeof buildMediumLayoutView> } {
+    const bundle = this.loadBundle();
+    const diskLayout = buildDiskLayoutView(bundle);
+    const cartridgeLayout = buildCartridgeLayoutView(bundle);
+    const view = buildMediumLayoutView(bundle, diskLayout, cartridgeLayout);
+    return this.persistView("Medium layout view built", this.storage.saveMediumLayoutView(view), view);
+  }
+
   buildLoadSequenceView(): { path: string; view: ReturnType<typeof buildLoadSequenceView> } {
     const bundle = this.loadBundle();
     const view = buildLoadSequenceView(bundle);
@@ -4761,11 +4771,16 @@ export class ProjectKnowledgeService {
   }
 
   buildAllViews(): BuildAllViewsResult {
+    const diskLayout = this.buildDiskLayoutView();
+    const cartridgeLayout = this.buildCartridgeLayoutView();
+    const bundle = this.loadBundle();
+    const mediumLayoutView = buildMediumLayoutView(bundle, diskLayout.view, cartridgeLayout.view);
     return {
       projectDashboard: this.buildProjectDashboardView(),
       memoryMap: this.buildMemoryMapView(),
-      diskLayout: this.buildDiskLayoutView(),
-      cartridgeLayout: this.buildCartridgeLayoutView(),
+      diskLayout,
+      cartridgeLayout,
+      mediumLayout: this.persistView("Medium layout view built", this.storage.saveMediumLayoutView(mediumLayoutView), mediumLayoutView),
       loadSequence: this.buildLoadSequenceView(),
       flowGraph: this.buildFlowGraphView(),
       annotatedListing: this.buildAnnotatedListingView(),
@@ -4777,6 +4792,14 @@ export class ProjectKnowledgeService {
     const views = this.composeViews(bundle);
     const workflowPlan = this.storage.loadWorkflowPlan();
     const workflowState = this.syncWorkflowState(workflowPlan);
+    // Discovery→RE content gate: hold the lifecycle in Discovery until every
+    // data-bearing block on every medium is claimed (uniform block-coverage
+    // over the substrate — no disk/cart branch here). Spec 773 §Discovery.
+    const mediumCoverage = computeDiscoveryCoverage(views.mediumLayout);
+    const lifecyclePhase = applyDiscoveryCoverageGate(
+      recommendedLifecyclePhase(workflowState?.currentPhaseId),
+      discoveryCoverageComplete(mediumCoverage),
+    );
     return {
       generatedAt: nowIso(),
       project: bundle.project,
@@ -4792,7 +4815,8 @@ export class ProjectKnowledgeService {
       },
       workflowPlan,
       workflowState,
-      lifecyclePhase: recommendedLifecyclePhase(workflowState?.currentPhaseId),
+      lifecyclePhase,
+      mediumCoverage,
       projectProfile: this.getProjectProfile(),
       recentTimeline: [...bundle.timeline].sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 24),
       artifacts: [...bundle.artifacts].sort((left, right) => left.title.localeCompare(right.title)),
@@ -4849,6 +4873,7 @@ export class ProjectKnowledgeService {
       this.storage.paths.viewMemoryMap,
       this.storage.paths.viewDiskLayout,
       this.storage.paths.viewCartridgeLayout,
+      this.storage.paths.viewMediumLayout,
       this.storage.paths.viewAnnotatedListing,
       this.storage.paths.viewLoadSequence,
       this.storage.paths.viewFlowGraph,

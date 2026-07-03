@@ -32,7 +32,12 @@ export const WORKFLOW_PHASE_TO_LIFECYCLE: Record<string, LifecyclePhase> = {
   "workspace-init": "onboarding",
   "input-registration": "discovery",
   "deterministic-extraction": "discovery",
-  "structural-enrichment": "re",
+  // Building entities/relations IS the payload inventory — a Discovery task
+  // (Spec 773 §Discovery: "media extraction + payload inventory"). RE begins at
+  // semantic enrichment (disassembly / annotation), not when the first entity
+  // exists. The block-coverage gate (applyDiscoveryCoverageGate) additionally
+  // holds the lifecycle in Discovery until every data-bearing block is claimed.
+  "structural-enrichment": "discovery",
   "semantic-enrichment": "re",
   "semantic-feedback-refinement": "re",
   "runtime-capture": "re",
@@ -82,4 +87,23 @@ export function lifecycleForStep(stepId: string | undefined | null): LifecyclePh
 /** The recommended/current lifecycle phase from the persisted workflow state's currentPhaseId. */
 export function recommendedLifecyclePhase(currentPhaseId: string | undefined | null): LifecyclePhase {
   return lifecycleForWorkflowPhaseId(currentPhaseId) ?? "onboarding";
+}
+
+/**
+ * Discovery→RE content gate. Reverse Engineering (and everything after it) may
+ * not begin while a medium still has a data-bearing block no payload/region has
+ * claimed — the medium is not yet inventoried (Spec 773 §Discovery). This caps
+ * the *derived* recommendation; it never advances a project (onboarding stays
+ * onboarding), and it is a no-op once coverage is complete. Medium-agnostic:
+ * `discoveryComplete` comes from the uniform block-coverage over the substrate
+ * (medium-coverage.ts), not from any disk/cart branch here.
+ */
+export function applyDiscoveryCoverageGate(
+  recommended: LifecyclePhase,
+  discoveryComplete: boolean,
+): LifecyclePhase {
+  if (discoveryComplete) return recommended;
+  const discoveryIndex = LIFECYCLE_ORDER.indexOf("discovery");
+  const recommendedIndex = LIFECYCLE_ORDER.indexOf(recommended);
+  return recommendedIndex > discoveryIndex ? "discovery" : recommended;
 }
