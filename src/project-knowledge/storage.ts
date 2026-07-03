@@ -70,6 +70,8 @@ import {
   type JsonValue,
   type MemoryMapView,
   MemoryMapViewSchema,
+  type MediumLayoutView,
+  MediumLayoutViewSchema,
   OpenQuestionStoreSchema,
   type OpenQuestionRecord,
   type OpenQuestionStore,
@@ -160,6 +162,7 @@ export interface ProjectKnowledgePaths {
   viewMemoryMap: string;
   viewDiskLayout: string;
   viewCartridgeLayout: string;
+  viewMediumLayout: string;
   viewAnnotatedListing: string;
   viewLoadSequence: string;
   viewFlowGraph: string;
@@ -628,6 +631,12 @@ export class ProjectKnowledgeStorage {
     return this.paths.viewCartridgeLayout;
   }
 
+  saveMediumLayoutView(view: MediumLayoutView): string {
+    const parsed = MediumLayoutViewSchema.parse(view);
+    writeJsonAtomically(this.paths.viewMediumLayout, parsed as unknown as JsonValue);
+    return this.paths.viewMediumLayout;
+  }
+
   saveFlowGraphView(view: FlowGraphView): string {
     const parsed = FlowGraphViewSchema.parse(view);
     writeJsonAtomically(this.paths.viewFlowGraph, parsed as unknown as JsonValue);
@@ -737,6 +746,7 @@ export function createProjectKnowledgePaths(projectRoot: string): ProjectKnowled
     viewMemoryMap: join(root, "views", "memory-map.json"),
     viewDiskLayout: join(root, "views", "disk-layout.json"),
     viewCartridgeLayout: join(root, "views", "cartridge-layout.json"),
+    viewMediumLayout: join(root, "views", "medium-layout.json"),
     viewAnnotatedListing: join(root, "views", "annotated-listing.json"),
     viewLoadSequence: join(root, "views", "load-sequence.json"),
     viewFlowGraph: join(root, "views", "flow-graph.json"),

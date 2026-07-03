@@ -2323,6 +2323,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Memory map: ${result.memoryMap.path}`,
         `Disk layout: ${result.diskLayout.path}`,
         `Cartridge layout: ${result.cartridgeLayout.path}`,
+        `Medium layout: ${result.mediumLayout.path}`,
         `Load sequence: ${result.loadSequence.path}`,
         `Flow graph: ${result.flowGraph.path}`,
         `Annotated listing: ${result.annotatedListing.path}`,

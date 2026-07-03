@@ -5,7 +5,7 @@
 //   • no span.mediumRef            → UNSCOPED: shown on every cart image, flagged.
 // Same artifact on multiple carts = multiple spans. LUT-chunk cells deduped.
 // The cart twin of e2e-bug031-disk-payload-spans.mjs.
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -78,8 +78,10 @@ svc.saveEntity({ kind: "payload", name: "mixed_ee_roml",
   payloadFormat: "raw" });
 
 let buildErr = "";
-try { svc.buildAllViews(); } catch (e) { buildErr = e instanceof Error ? e.message : String(e); }
+let buildResult;
+try { buildResult = svc.buildAllViews(); } catch (e) { buildErr = e instanceof Error ? e.message : String(e); }
 ok(!buildErr, "0 build_all_views ok", buildErr || "ok");
+ok(!!buildResult?.mediumLayout?.path && existsSync(buildResult.mediumLayout.path), "0b medium-layout.json persisted by build_all_views", buildResult?.mediumLayout?.path ?? "missing");
 
 const cartView = svc.buildWorkspaceUiSnapshot().views?.cartridgeLayout;
 const cA = (cartView?.cartridges ?? []).find((c) => c.title?.includes("efA"));
@@ -133,9 +135,20 @@ ok(mixed.length === 2 && mixedSlots.has("ROML") && mixedSlots.has("EEPROM"),
 // 9 entityId wired for click-through.
 ok(!!engine?.entityId, "9 payload chunk carries entityId (click-through)", engine?.entityId ?? "none");
 
-// 8 disk view unaffected (no disks here → empty, no crash).
+const mediumView = buildResult?.mediumLayout?.path && existsSync(buildResult.mediumLayout.path)
+  ? JSON.parse(readFileSync(buildResult.mediumLayout.path, "utf8"))
+  : undefined;
+const mediumA = (mediumView?.mediums ?? []).find((m) => m.mediumKind === "cartridge" && m.mediumLabel === "EF-A");
+ok((mediumView?.mediums ?? []).filter((m) => m.mediumKind === "cartridge").length === 2,
+  "10 medium-layout has one medium per cartridge image",
+  `cartMediums=${(mediumView?.mediums ?? []).filter((m) => m.mediumKind === "cartridge").length}`);
+ok((mediumA?.files ?? []).some((f) => f.name === "engine_8000" && f.origin === "registered-payload" && f.spans?.[0]?.slot === "ROML"),
+  "11 medium-layout projects cart payload slot spans through the unified MediumFile path",
+  (mediumA?.files ?? []).map((f) => `${f.name}:${f.origin}`).join(","));
+
+// 12 disk view unaffected (no disks here → empty, no crash).
 const diskView = svc.buildWorkspaceUiSnapshot().views?.diskLayout;
-ok(Array.isArray(diskView?.disks), "8 disk view still builds (empty)", `disks=${diskView?.disks?.length}`);
+ok(Array.isArray(diskView?.disks), "12 disk view still builds (empty)", `disks=${diskView?.disks?.length}`);
 
 console.log(`\nproject: ${projectDir}`);
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} 750.1b: ${pass} pass, ${fail} fail.`);

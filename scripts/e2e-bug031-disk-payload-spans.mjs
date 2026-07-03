@@ -5,7 +5,7 @@
 //   • no span.mediumRef            → UNSCOPED: shown on every disk image, flagged
 //     `unscoped` so the UI badges it (never silently fanned-as-confirmed).
 // Same artifact on multiple images = multiple spans. CBM-cell overlaps deduped.
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -62,8 +62,10 @@ svc.saveEntity({ kind: "payload", name: "shadow_of_prodos",
   payloadLoadAddress: 0x0801, payloadFormat: "prg" });
 
 let buildErr = "";
-try { svc.buildAllViews(); } catch (e) { buildErr = e instanceof Error ? e.message : String(e); }
+let buildResult;
+try { buildResult = svc.buildAllViews(); } catch (e) { buildErr = e instanceof Error ? e.message : String(e); }
 ok(!buildErr, "0 build_all_views ok", buildErr || "ok");
+ok(!!buildResult?.mediumLayout?.path && existsSync(buildResult.mediumLayout.path), "0b medium-layout.json persisted by build_all_views", buildResult?.mediumLayout?.path ?? "missing");
 
 const diskView = svc.buildWorkspaceUiSnapshot().views?.diskLayout;
 const dA = (diskView?.disks ?? []).find((d) => d.title?.includes("wlA")) ?? diskView?.disks?.[0];
@@ -106,6 +108,15 @@ const t8 = (dA?.sectors ?? []).find((s) => s.track === 8 && s.sector === 0);
 ok(t8 && t8.category === "file" && !!t8.fileId, "6 geometry: T8/S0 occupied 'file' cell (drawn on wheel)", t8 ? `cat=${t8.category}` : "no cell");
 // disk A = 2 CBM + utils(unscoped) + block2(scoped) = 4
 ok(fA.length === 4, "7 disk A files = 2 CBM + 2 overlaid", `count=${fA.length}`);
+
+const mediumView = buildResult?.mediumLayout?.path && existsSync(buildResult.mediumLayout.path)
+  ? JSON.parse(readFileSync(buildResult.mediumLayout.path, "utf8"))
+  : undefined;
+const mediumA = (mediumView?.mediums ?? []).find((m) => m.artifactId === "artifact-wla-d64" || m.mediumLabel?.includes("wlA")) ?? mediumView?.mediums?.[0];
+ok((mediumView?.mediums?.length ?? 0) === 2, "8 medium-layout has one medium per disk image", `mediums=${mediumView?.mediums?.length ?? 0}`);
+ok((mediumA?.files ?? []).some((f) => f.name === "block2_engine_0200" && f.origin === "custom-lut" && f.spans?.length === 3),
+  "9 medium-layout projects disk payload spans through the unified MediumFile path",
+  (mediumA?.files ?? []).map((f) => `${f.name}:${f.origin}`).join(","));
 
 console.log(`\nproject: ${projectDir}`);
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} BUG-031/750.1: ${pass} pass, ${fail} fail.`);
