@@ -316,6 +316,10 @@ MCP server for LLM-powered Commodore 64 reverse engineering. Bundles the TRXDis 
 
 C64RE is the reverse-engineering workbench, not the emulator: the runtime backend is TRX64 (see Spec 771), and the TypeScript runtime in this repo is the fallback / parity oracle. Leitregel: Capability → TRX64, Meaning/Memory → C64RE.
 
+**Ownership:** the agent working here owns and stewards **both** repos — C64RE and the sibling TRX64 (`../TRX64`). The Leitregel split is an internal division of **one owner's** work, **not a handoff to a separate party**: when a capability moves "→ TRX64" (e.g. the TS runtime is deprecating and its live capabilities — trace, intervention, rewind, checkpoints, drive-to-state, monitor — migrate), delivering it there is in scope, carried across, not deferred to someone else. Cross-repo edits + commits in both repos are normal.
+
+**Spec numbering is cross-repo (2026-07-03):** C64RE + TRX64 share **one** number range; the single registry is `specs/README.md` (this board). A new spec in **either** repo takes the next free number there. TRX64 spec files live under `../TRX64/docs/` and keep descriptive names — their numbers are assigned on the board (776–782 so far; the new `776-overlay-intervention-diff.md` was created pre-numbered).
+
 ## Build & Run
 
 ```bash

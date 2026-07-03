@@ -101,44 +101,72 @@ Details: [workflow](docs/workflow.md) · [roles](docs/agent-doctrine.md) ·
 
 ## Architecture
 
+Two repos, two roles — the Leitregel split. C64RE turns bytes/events/state into
+**meaning**; TRX64 (a separate Rust process) provides the runtime **capability**.
+
 ```text
-┌───────────────────────────────────────────────────────────────┐
-│ LLM clients / human users                                      │
-│ Claude Code · Codex · Cursor · Browser UI                     │
-└──────────────────────────────┬────────────────────────────────┘
-                               │ MCP tools / HTTP / WebSocket
-                               ▼
-┌───────────────────────────────────────────────────────────────┐
-│ C64RE MCP Server                                               │
-│                                                               │
-│ runtime evidence                                               │
-│ - TRX64 runtime backend (default, native Rust daemon)          │
-│ - TypeScript runtime (fallback / parity oracle)                │
-│ - snapshots · checkpoint ring · rewind / replay                │
-│ - DuckDB trace store · swimlanes · monitor                     │
-│ - VICE oracle / monitor / traces (correctness reference)       │
-│                                                               │
-│ disassembly + project knowledge                                │
-│ - TRXDis analysis / heuristic + semantic disassembly           │
-│ - CRT, disk, G64, compression, BWC helpers                     │
-│ - artifacts · entities · findings · relations                  │
-│ - flows · tasks · open questions · views                       │
-└──────────────────────────────┬────────────────────────────────┘
-                               │ view models / runtime streams
-                               ▼
-┌───────────────────────────────────────────────────────────────┐
-│ User Interfaces — ONE workbench bundle (Spec 757)              │
-│                                                                │
-│ Workflow cockpit — left phase rail:                            │
-│   Onboarding / Discovery / Reverse Eng / Build / Release       │
-│   (collapsible; C64RE emblem) + per-phase Overview cockpit     │
-│ Phase tools: Disk / Cartridge / Payloads / Memory Map /        │
-│   Listing / Flow / Scrub / Graphics / Docs                     │
-│ Live: C64 screen · media · monitor · inspector · swimlanes     │
-│   (TRX64 runtime evidence, cross-phase)                        │
-│ Utilities: Health (audit / repair) · Triage (questions)        │
-└───────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│ Human + LLM                                                         │
+│   Claude Code · Codex · Cursor   run the agents/flows + onboarding   │
+│   Browser Workbench UI           visualizes knowledge; not an LLM    │
+└──────────────┬──────────────────────────────────┬───────────────────┘
+               │ MCP: knowledge / workflow          │ MCP + WebSocket: runtime
+               ▼                                     ▼
+┌────────────────────────────────┐   ┌───────────────────────────────────┐
+│ c64re-mcp — MEANING (this repo)│   │ trx64-mcp / Runtime Daemon         │
+│                                │   │   — CAPABILITY  (../TRX64, Rust)   │
+│ · disasm pipeline: extract →   │   │                                    │
+│   heuristic → semantic →       │◄─►│ · cycle-exact C64 + 1541 + cart    │
+│   byte-verify rebuild          │WS │ · trace · reverse-debug · rewind   │
+│ · findings/entities/relations  │   │ · checkpoint ring · snapshots      │
+│ · flows/tasks/open-questions   │   │ · .c64re / .c64retrace             │
+│ · project memory · UI views    │   │ · DuckDB trace store · monitor     │
+│ · agents/flows (BMAD, private) │   │                                    │
+└────────────────────────────────┘   │  TS runtime = fallback / oracle    │
+   Meaning / Memory → C64RE          │  VICE       = internal-dev oracle  │
+                                      └───────────────────────────────────┘
+                                         Capability → TRX64
 ```
+
+Today the split is mid-transition (Spec 771): `c64re-mcp` still hosts the
+`runtime_*` tools as a thin **proxy** to the Runtime Daemon; a separate
+`trx64-mcp` server is the endstate. The daemon (WS `:4312`, Spec 744.4c) is
+already the one runtime both the UI and MCP are clients of — TRX64 by default,
+the TS runtime as fallback/parity oracle, VICE as internal-dev correctness
+oracle only.
+
+The flow across the lifecycle — which actor acts in each phase, and the handoffs
+between them (renders on GitHub):
+
+```mermaid
+flowchart LR
+    subgraph HU["🧑 Human"]
+        direction LR
+        H1[set goal] --> H2[steer / confirm] --> H3[sign-off]
+    end
+    subgraph LL["🤖 LLM + Harness — Claude Code / Codex"]
+        direction LR
+        L1[kickoff dialogue] --> L2[disasm + annotate] --> L3[build loops] --> L4[QA]
+    end
+    subgraph CR["📚 C64RE — meaning / memory"]
+        direction LR
+        C1[record brief] --> C2[findings / payloads] --> C3[byte-verify rebuild] --> C4[package]
+    end
+    subgraph TX["⚙️ TRX64 — runtime capability"]
+        direction LR
+        T1[play / watch] --> T2[trace / reverse-debug] --> T3[runtime-validate] --> T4[quality gate]
+    end
+
+    H1 -. goal .-> L1
+    L1 ==> C1
+    T2 -. evidence .-> L2
+    L2 ==> C2
+    T3 -. validate .-> C3
+    C4 -. release .-> H3
+```
+
+Lanes = actors; left → right = the five phases (Onboarding · Discovery · Reverse
+Engineering · Build · Release).
 
 ## Setup
 
@@ -157,6 +185,7 @@ The bundled TRXDis pipeline is built automatically.
 |---|---|---|
 | `C64RE_PROJECT_DIR` | Working directory for the RE project | Yes |
 | `C64RE_RUNTIME_ENDPOINT` | WS endpoint of the product Runtime Daemon (Spec 744.4c) — e.g. `ws://127.0.0.1:4312`. When set, MCP `runtime_*` tools are clients of the daemon (the same runtime the UI uses). **The MCP auto-starts the daemon (detached) on first use — you do NOT start the backend by hand;** it outlives the MCP, so reconnect / browser reload do not reset sessions. `npm run runtime:daemon` is an optional explicit/foreground launch. Unset → in-process runtime (dev/test, no UI sharing). | Recommended for shared human+LLM runtime |
+| `C64RE_RUNTIME_ENDPOINT` daemon backend | The daemon resolver picks: `C64RE_RUNTIME_BIN` (explicit) > the sibling **TRX64** daemon (default) > built TS dist > tsx. `C64RE_RUNTIME_TS=1` forces the TS parity oracle; `C64RE_TRX64_BIN` points at a TRX64 daemon elsewhere. | No |
 | `C64RE_RUNTIME_AUTOSTART` | Set to `0` to disable the MCP auto-starting the daemon (then run `npm run runtime:daemon` yourself). | No |
 | `C64RE_RUNTIME_WS` | RETIRED 744.4b MCP co-host port. It reset sessions on MCP reconnect — superseded by the Runtime Daemon (`C64RE_RUNTIME_ENDPOINT`). Setting it now only logs a deprecation. | No (retired) |
 | `C64RE_TOOLS_DIR` | Override: external TRXDis build instead of bundled | No |
@@ -164,7 +193,7 @@ The bundled TRXDis pipeline is built automatically.
 | `C64RE_64TASS_BIN` | Override path to `64tass` | No |
 | `C64RE_EXOMIZER_BIN` | Override path to `exomizer` | No |
 | `C64RE_BYTEBOOZER_BIN` | Override path to `b2` / ByteBoozer 2 | No |
-| `C64RE_VICE_BIN` | Override path to `x64sc` | No |
+| `C64RE_VICE_BIN` | Override path to `x64sc` (internal-dev oracle only) | No |
 | `C64RE_VICE_CONFIG_PATH` | Override source `vicerc` copied into VICE sessions | No |
 | `C64RE_VICE_CONFIG_DIR` | Override source VICE config dir, with `vicerc` inside | No |
 
@@ -223,51 +252,63 @@ npm run runtime:daemon -- --project <dir>   # optional explicit/foreground daemo
 
 Backend / runtime / UI details: [docs/tools/headless.md](docs/tools/headless.md).
 
-## Tool Surface
+## Tools by lifecycle phase
 
-Per-area docs:
+Tools serve the phases, not a flat catalog — **Disk and Cartridge stay
+first-class and directly reachable**. Per-area reference docs linked below.
 
-| Area | Doc |
+| Phase | Tools + evidence |
 |---|---|
-| Analysis pipeline (`analyze_prg`, `disasm_prg`, `assemble_source`, reports) | [docs/tools/analysis.md](docs/tools/analysis.md) |
-| CRT cartridges and bank layouts | [docs/tools/crt.md](docs/tools/crt.md) |
-| Disk images, D64/G64 extraction, low-level media data | [docs/tools/disk.md](docs/tools/disk.md) |
-| Compression and depack triage | [docs/tools/compression.md](docs/tools/compression.md) |
-| BWC bit-stream codec | `src/bwc-bitstream-ts/` |
-| C64Ref BASIC/KERNAL/ROM lookup | [docs/tools/c64ref.md](docs/tools/c64ref.md) |
-| VICE runtime, monitor, debugger, trace oracle | [docs/tools/vice.md](docs/tools/vice.md) |
-| TRX64 runtime — default backend (native Rust daemon) | [docs/tools/headless.md](docs/tools/headless.md) |
-| TypeScript runtime — fallback / parity oracle | [docs/tools/headless.md](docs/tools/headless.md) |
-| 6502 sandbox | [docs/tools/sandbox.md](docs/tools/sandbox.md) |
-| Project knowledge tools | [docs/tools/knowledge.md](docs/tools/knowledge.md) |
-| Artifact access | [docs/tools/artifacts.md](docs/tools/artifacts.md) |
-| Agent workflow doctrine | [docs/agent-doctrine.md](docs/agent-doctrine.md), [docs/re-phases.md](docs/re-phases.md) |
-| Product vision and unified workbench contract | [docs/product-vision-and-workbench-contract.md](docs/product-vision-and-workbench-contract.md) |
+| **Onboarding** | project init / audit · goal capture · agent-team (BMAD) · play & watch via TRX64 |
+| **Discovery** | media extraction (CRT / D64 / G64) · payload inventory · loader + packer/depack analysis · **disk & cartridge forensics** (first-class) |
+| **Reverse Eng** | heuristic + semantic disassembly · annotation · flow / xref · payload classification · runtime evidence (trace / reverse-debug / code-overlay, from TRX64) |
+| **Build** | assemble (KickAssembler / 64tass) · byte-verify rebuild · patch-recipes · new medium / loader |
+| **Release** | QA gates · docs / reports · package & export |
+| **Cross-phase** | project knowledge (findings / entities / relations / questions) · artifacts · inspector · memory maps |
 
-## Workflow
+Per-area reference docs: [analysis](docs/tools/analysis.md) ·
+[disk](docs/tools/disk.md) · [CRT](docs/tools/crt.md) ·
+[compression](docs/tools/compression.md) · [c64ref](docs/tools/c64ref.md) ·
+[TRX64 runtime](docs/tools/headless.md) · [VICE oracle](docs/tools/vice.md) ·
+[6502 sandbox](docs/tools/sandbox.md) · [knowledge](docs/tools/knowledge.md) ·
+[artifacts](docs/tools/artifacts.md) ·
+[agent doctrine](docs/agent-doctrine.md) ·
+[product vision](docs/product-vision-and-workbench-contract.md).
 
-Project-first:
+## Workflow — the RE lifecycle
 
-1. initialize or audit a project workspace
-2. register real input media and source artifacts
-3. run deterministic extraction/disassembly
-4. import outputs into project knowledge
-5. record semantic findings, tasks, open questions, and relations
-6. collect runtime evidence only when it answers a concrete question
-7. aggregate traces/snapshots into reusable artifacts
-8. rebuild UI views
+The first-level experience is a five-phase project lifecycle, navigated freely
+via the left rail (navigation, not a hard gate):
 
-Runtime (TRX64 by default) and VICE runs are evidence providers. Their output
-should be registered as artifacts and linked back to findings/entities instead
-of living only as console logs or loose markdown.
+1. **Onboarding** — start / audit the project; play & watch with TRX64; capture
+   the goal (EF port · cheat / trainer · enhancement · loader-replacement · docs).
+   Agent-led kickoff over the coding harness; C64RE records the brief.
+2. **Discovery** — media extraction + payload inventory; loader + packer analysis;
+   define the agent team + flows. Disk & cartridge forensics live here.
+3. **Reverse Engineering** — heuristic + semantic disassembly; annotation; payload
+   classification; TRX64 runtime evidence, C64RE owns the interpretation.
+4. **Build** — new medium / loader / feature in loops; decision ↔ code ↔
+   runtime-validation, byte-verified rebuild.
+5. **Release** — local QA gates; external-tester loops; reports; final package.
+
+The seven-phase per-artifact analysis pipeline nests inside Discovery + RE.
+Runtime evidence (TRX64 by default; VICE as internal oracle) is registered as
+**artifacts** and linked to findings/entities — never left as loose logs or
+console output.
+
+Details: [product vision](docs/product-vision-and-workbench-contract.md) ·
+[workflow](docs/workflow.md) · [per-artifact pipeline](docs/re-phases.md) ·
+[lifecycle spec 773](specs/773-workflow-cockpit-lifecycle.md).
 
 ## Planning & Status
 
 - [PLAN.md](PLAN.md) — roadmap + working baseline + step gates
-- `specs/` — implementation specs and ADR follow-ups
+- [specs/README.md](specs/README.md) — the cross-repo spec board (C64RE + TRX64
+  share one number range; the single registry of what's ACTIVE / DONE / CLOSED)
 - [specs/715-runtime-product-proof-baseline.md](specs/715-runtime-product-proof-baseline.md)
   + [docs/runtime-product-baseline-2026-05-24.md](docs/runtime-product-baseline-2026-05-24.md)
-  — the active product proof authority (the single "is this green" source).
+  — the current product proof authority (the single "is this green" source; migrates
+  to the enforced TRX64 quality gate, Spec 783).
   Run `npm run proof:product` (full) or `npm run proof:capability -- <cap>`
   (focused); `npm run proof:list` shows the manifest. Specs
   [600](specs/_archive/600-runtime-proof-gates.md)/[601](specs/_archive/601-baseline-truth-table.md)

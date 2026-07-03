@@ -50,3 +50,6 @@ dist/runtime/headless/sid/wasm/
 
 # scratch / probe outputs (never commit)
 .tmp/
+
+# EF-port candidate scan (research scratch, untracked)
+ef-port-candidates/
