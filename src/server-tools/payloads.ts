@@ -277,6 +277,73 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 ));
 
   server.tool(
+    "validate_extraction",
+    "Spec 784 — validate a per-project extractor's manifest against the loader-lens landing map (the ground truth the REAL loader produced). Flags manifest spans that claim a sector the loader never read (the wrong-interpretation bug class) and loader landings the manifest missed. Records a validation finding (confirmation on pass, refutation on fail) with an evidence link to the capture. Run after register_payloads_from_manifest to prove the bulk registration is trustworthy. Inputs: capture_path (.c64retrace from a drive-mechanism trace), manifest_path. Cart (slot) spans are validated by Spec 785.",
+    {
+      project_dir: z.string().optional(),
+      capture_path: z.string().describe("Path to the loader-lens .c64retrace capture (drive-mechanism domain)."),
+      manifest_path: z.string().describe("Path to the extractor manifest JSON."),
+      min_run_len: z.number().int().positive().optional(),
+    },
+    safeHandler("validate_extraction", async (args) => {
+      const projectRoot = ctx.projectDir(args.project_dir);
+      const service = new ProjectKnowledgeService(projectRoot);
+
+      const manifestAbs = resolve(projectRoot, args.manifest_path);
+      if (!existsSync(manifestAbs)) throw new Error(`manifest_path not found: ${manifestAbs}`);
+      const mres = validateManifest(JSON.parse(readFileSync(manifestAbs, "utf8")));
+      if (!mres.ok || !mres.manifest) throw new Error(`invalid manifest:\n- ${mres.errors.join("\n- ")}`);
+
+      const captureAbs = resolve(projectRoot, args.capture_path);
+      if (!existsSync(captureAbs)) throw new Error(`capture_path not found: ${captureAbs}`);
+      const { landingMapFromCaptureFile } = await import("../runtime/headless/trace/loader-lens.js");
+      const landingMap = landingMapFromCaptureFile(captureAbs, args.min_run_len ? { minRunLen: args.min_run_len } : {});
+
+      const { validateExtraction } = await import("./validate-extraction.js");
+      const result = validateExtraction(landingMap, mres.manifest);
+
+      // Register the capture as an evidence artifact (soft — never break the verdict).
+      let captureArtifactId: string | undefined;
+      try {
+        ctx.tryRegisterKnowledgeArtifacts(projectRoot, {
+          toolName: "validate_extraction",
+          title: `Loader-lens capture: ${basename(captureAbs)}`,
+          parameters: { extractor: mres.manifest.extractor },
+          inputs: [],
+          outputs: [{ path: captureAbs, kind: "manifest", scope: "analysis", role: "loader-lens-capture", format: "json", producedByTool: "validate_extraction" }],
+        });
+        captureArtifactId = service.listArtifacts().find((a) => a.path === captureAbs)?.id;
+      } catch { /* soft */ }
+
+      // Record the verdict as a finding (soft).
+      try {
+        service.saveFinding({
+          kind: result.verdict === "pass" ? "confirmation" : "refutation",
+          title: `Extraction ${result.verdict}: ${mres.manifest.extractor} (${result.matchedSpans} matched, ${result.mismatched.length} mismatched)`,
+          summary: [
+            `Manifest ${basename(manifestAbs)} vs loader-lens ${basename(captureAbs)}.`,
+            `Matched sector spans ${result.matchedSpans}; mismatched ${result.mismatched.length}; unclaimed landings ${result.unclaimed.length}; slot spans skipped (Spec 785) ${result.skippedSlotSpans}.`,
+            ...result.mismatched.slice(0, 20).map((m) => `  MISMATCH ${m.payload} T${m.track}/S${m.sector}: ${m.reason}`),
+          ].join("\n"),
+          evidence: captureArtifactId ? [{ kind: "artifact" as const, title: "loader-lens capture", artifactId: captureArtifactId, capturedAt: new Date().toISOString() }] : undefined,
+          tags: ["extraction-validation", `verdict:${result.verdict}`],
+        });
+      } catch { /* soft */ }
+
+      const lines = [
+        `Extraction validation: ${result.verdict.toUpperCase()}`,
+        `Manifest: ${mres.manifest.extractor} (${basename(manifestAbs)})`,
+        `Landing map: ${landingMap.length} run(s) from ${basename(captureAbs)}`,
+        `Matched sector spans: ${result.matchedSpans}  Mismatched: ${result.mismatched.length}  Unclaimed landings: ${result.unclaimed.length}`,
+        ...(result.skippedSlotSpans ? [`Slot (cart) spans skipped — Spec 785: ${result.skippedSlotSpans}`] : []),
+        ...result.mismatched.slice(0, 30).map((m) => `  ✗ ${m.payload} T${m.track}/S${m.sector} — ${m.reason}`),
+        ...result.unclaimed.slice(0, 15).map((u) => `  ? unclaimed landing T${u.track}/S${u.sector} → $${u.c64Dest.toString(16)}`),
+      ];
+      return textContent(lines.join("\n"));
+    },
+));
+
+  server.tool(
     "list_loader_models",
     "List the recovered LoaderModels (Spec 784) for the project — the per-medium loaders (id, kind, index location, backing disasm) that produced the registered payloads. A medium hosts N; each payload's derivedBy references one. Use to see how a medium's blocks are attributed across its distinct loaders.",
     {
