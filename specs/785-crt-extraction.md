@@ -8,11 +8,12 @@
 
 ## 1. Relationship to 784 (most of it is REUSE)
 
-Spec 784 established the uniform model — **Medium → blocks → LoaderModel →
-payloads → meaning** — plus the per-project Python extractor, the loader-lens
-trace-validate, and bulk-register, for **disk**. This spec is the **cartridge**
-pendant. Because everything **above the block layer is uniform**, the bulk of 784
-is reused unchanged:
+Spec 784 is the **abstract, medium-agnostic extraction tooling** (manifest →
+register with full spans+derivedBy+coverage + loader-lens validate), built + proven
+on **disk**. 785 is **not a second tooling** — it is the **cartridge proof surface**
+of the *same* tooling: the `+$DE00` banking lane in the loader-scoped capture, cart
+LoaderModel records, and the real-sample harness (Lykia + Mike's CRTs). Because
+everything **above the block layer is uniform**, the bulk of 784 is reused unchanged:
 
 | 784 deliverable | cart status |
 |---|---|

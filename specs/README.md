@@ -150,8 +150,8 @@ the new 776 was created pre-numbered.
 | 781 | `spec-cross-platform-linux-windows.md` | Cross-platform TRX64: Linux + Windows |
 | 782 | `spec-c64re-trx64-split-charter.md` | Charter — split C64RE into TRX64 (runtime+MCP) and C64RE (workbench) [governing] |
 | 783 | `783-local-quality-gate-enforcement.md` | Local Quality-Gate Enforcement (no cloud CI) — `gate.sh` + pre-push hook + mandatory-before-pin; **being built**. Green here → then retire oracle/715/723 doctrine. |
-| 784 | `784-loader-lens-extraction.md` | Per-project Python extractor + loader-lens TRX64 trace-validation + full-span bulk-register (disk). PROPOSED, loop-buildable. |
-| 785 | `785-crt-extraction.md` | CRT pendant of 784 — cart LoaderModel + trace-validation; mostly reuse (uniform above blocks). PROPOSED skeleton, cart-specifics await user input. |
+| 784 | `784-loader-lens-extraction.md` | **Abstract medium/index-agnostic extraction tooling** — manifest→register(full spans+derivedBy+coverage) + loader-lens TRX64 trace-validate. Proven on disk (Accolade B-side + Pawn A-side). Corpus campaign is a SEPARATE track, not a 784 gate. PROPOSED, building. |
+| 785 | `785-crt-extraction.md` | Cart **proof surface** of 784's tooling (not a 2nd tooling) — `+$DE00` banking lane + cart LoaderModels + real-sample harness (Lykia + Mike's CRTs). PROPOSED skeleton, cart-specifics await user input. |
 
 ---
 
