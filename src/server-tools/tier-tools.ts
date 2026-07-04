@@ -58,6 +58,11 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // payload (load addr + format + source .prg + medium spans) so it renders on the
   // disk/memory views like a CBM/LUT-extracted payload. Common in cracks.
   "register_payload",
+  // Spec 784 — the loader-lens extraction chain: a per-project extractor's manifest
+  // bulk-registers as first-class payloads (FULL medium spans + derivedBy + LoaderModel
+  // records), trace-validated against what the real loader actually read. Product
+  // default surface — the crack Discovery workflow calls these directly.
+  "register_payloads_from_manifest", "validate_extraction", "list_loader_models",
   // Build views / docs
   "build_all_views", "build_project_dashboard", "build_memory_map",
   "build_annotated_listing_view", "render_docs",
@@ -102,6 +107,9 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // (BUG: it was omitted, so a default-surface agent reported "no tool to start a
   // trace" while the UI toggle worked). Spec 746 makes this the LLM's live-trace gate.
   "runtime_trace_start", "runtime_mark", "runtime_trace_finalize", "runtime_trace_status",
+  // Spec 784 — read a loader-lens capture's landing map (drive-sector→C64-dest), the
+  // ground truth validate_extraction diffs a manifest against.
+  "runtime_loader_lens",
   // Spec 730.1 — promote disk/G64 + cartridge RE tools to the default surface.
   // Disk / G64 raw-inspection product tools:
   "list_g64_slots", "inspect_g64_track", "inspect_g64_blocks", "inspect_g64_syncs",
@@ -135,8 +143,10 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * Spec 746 raised 107→108 (runtime_trace_start — the LLM's enable-trace-on-a-
  * running-session gate; its finalize/status siblings were already default).
  * Spec 748 raised 108→109 (project_steering_set — persistent project steering).
- * BUG-039 raised 109→110 (analysis_job_status — poll analyze_prg's job mode). */
-export const DEFAULT_TIER_CAP = 110;
+ * BUG-039 raised 109→110 (analysis_job_status — poll analyze_prg's job mode).
+ * Spec 784 raised 110→114 (the loader-lens extraction chain: register_payloads_from_
+ * manifest + validate_extraction + list_loader_models + runtime_loader_lens). */
+export const DEFAULT_TIER_CAP = 114;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";
