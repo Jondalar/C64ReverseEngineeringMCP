@@ -13,8 +13,9 @@
 // (short, scattered) are filtered by a minimum run length. Sector 0xff = head between
 // sectors (rotation gap) — carried as the last VALID sector.
 
-import { TraceOp, ACCESS_WRITE, type DecodedEvent } from "./binary-format.js";
+import { TraceOp, ACCESS_WRITE, decodeFileHeader, decodeEventStream, type DecodedEvent } from "./binary-format.js";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 export interface LandingMapEntry {
   /** Where the bytes came FROM on the medium. */
@@ -110,4 +111,17 @@ export function buildLandingMap(events: DecodedEvent[], opts: LandingMapOptions 
   }
   flush();
   return out;
+}
+
+/**
+ * Build the landing map from a `.c64retrace` binary capture file (the loader-lens
+ * capture: a trace armed with the drive-mechanism + drive8-cpu + memory domains).
+ * Reads + decodes the whole event stream, then correlates (see buildLandingMap).
+ */
+export function landingMapFromCaptureFile(path: string, opts: LandingMapOptions = {}): LandingMapEntry[] {
+  // Copy into a fresh 0-offset buffer (Node Buffer pools share an ArrayBuffer).
+  const buf = new Uint8Array(readFileSync(path));
+  const { version, headerLen } = decodeFileHeader(buf);
+  const events = decodeEventStream(buf, headerLen, version);
+  return buildLandingMap(events, opts);
 }

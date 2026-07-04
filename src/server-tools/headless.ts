@@ -450,8 +450,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Start a streaming trace on a RUNNING session (no need to pre-declare trace_out at session_start). Use to begin capturing the live shared session's execution into a .c64retrace binary timeline (the authority) + a queryable trace.duckdb index. Pick domains (default c64-cpu+memory; add drive8-cpu/iec/vic for the full picture). Then drive with runtime_session_run, stamp phases with runtime_mark, finalize with runtime_trace_finalize, and read the swimlane/offline-stepping with runtime_swimlane_slice / query with trace_store_*. Not for a one-shot scenario (use runtime_session_start trace_out=). Inputs: session_id, optional domains, optional output path. Returns: runId + store path + domains.",
     {
       session_id: z.string(),
-      domains: z.array(z.enum(["c64-cpu", "drive8-cpu", "iec", "vic", "sid", "memory"])).optional()
-        .describe("Trace domains. Default ['c64-cpu','memory']. The CPU firehose is the swimlane truth; add drive8-cpu/iec for IEC-bus + drive stepping, vic for raster."),
+      domains: z.array(z.enum(["c64-cpu", "drive8-cpu", "iec", "vic", "sid", "memory", "drive-mechanism"])).optional()
+        .describe("Trace domains. Default ['c64-cpu','memory']. The CPU firehose is the swimlane truth; add drive8-cpu/iec for IEC-bus + drive stepping, vic for raster. Spec 784: 'drive-mechanism' arms the 1541 head (track/sector) lane for a loader-lens capture — read it with runtime_loader_lens."),
       output: z.string().optional().describe("Path (abs or under the project) for the trace store. Default traces/live_<ts>.duckdb."),
     },
     safeHandler("runtime_trace_start", async ({ session_id, domains, output }) => {
@@ -558,6 +558,30 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const ctrl = getRuntimeController(session_id);
       const s = ctrl?.traceRun.status() ?? { active: false };
       return { content: [{ type: "text" as const, text: JSON.stringify(s, null, 2) }] };
+    },
+));
+
+  server.tool(
+    "runtime_loader_lens",
+    "Spec 784 — read a loader-lens capture's landing map: which medium block (track/sector) each landed payload came FROM and where it came to rest in C64 RAM. Point it at a .c64retrace captured with the drive-mechanism lane armed (runtime_trace_start domains=['memory','drive8-cpu','drive-mechanism'] on the daemon, then drive + finalize). Returns per landed run {source:{track,sector,halftrack}, c64Dest, len, sha256} — the ground truth validate_extraction diffs a per-project extractor manifest against. Reads a finalized .c64retrace; not a live capture.",
+    {
+      capture_path: z.string().describe("Path (abs or under the project) to the .c64retrace binary capture."),
+      min_run_len: z.number().int().positive().optional().describe("Min contiguous RAM-write run counted as a payload landing (default 16 — filters scratch)."),
+    },
+    safeHandler("runtime_loader_lens", async ({ capture_path, min_run_len }) => {
+      const { landingMapFromCaptureFile } = await import("../runtime/headless/trace/loader-lens.js");
+      const { resolve, isAbsolute } = await import("node:path");
+      const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+      const abs = isAbsolute(capture_path) ? capture_path : resolve(proj ?? process.cwd(), capture_path);
+      const map = landingMapFromCaptureFile(abs, min_run_len ? { minRunLen: min_run_len } : {});
+      const lines = [
+        `Loader-lens landing map — ${map.length} landed run(s)`,
+        `Capture: ${abs}`,
+        ...map.slice(0, 200).map((e) =>
+          `  T${e.source.track}/S${e.source.sector} (ht${e.source.halftrack}) → $${e.c64Dest.toString(16).padStart(4, "0")} len ${e.len} sha ${e.sha256.slice(0, 12)}`),
+        ...(map.length > 200 ? [`  … +${map.length - 200} more`] : []),
+      ];
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     },
 ));
 
