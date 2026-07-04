@@ -42,7 +42,7 @@ range; **this board is the single registry across both repos.** A new spec in
 either repo takes the next free number here. TRX64 spec files live under
 `../TRX64/docs/` and keep their descriptive names (board = truth; existing files
 are not renamed) — their numbers are assigned in the **TRX64 specs** section
-below. **Next free number: 784.**
+below. **Next free number: 786.**
 
 ---
 
@@ -150,6 +150,8 @@ the new 776 was created pre-numbered.
 | 781 | `spec-cross-platform-linux-windows.md` | Cross-platform TRX64: Linux + Windows |
 | 782 | `spec-c64re-trx64-split-charter.md` | Charter — split C64RE into TRX64 (runtime+MCP) and C64RE (workbench) [governing] |
 | 783 | `783-local-quality-gate-enforcement.md` | Local Quality-Gate Enforcement (no cloud CI) — `gate.sh` + pre-push hook + mandatory-before-pin; **being built**. Green here → then retire oracle/715/723 doctrine. |
+| 784 | `784-loader-lens-extraction.md` | Per-project Python extractor + loader-lens TRX64 trace-validation + full-span bulk-register (disk). PROPOSED, loop-buildable. |
+| 785 | `785-crt-extraction.md` | CRT pendant of 784 — cart LoaderModel + trace-validation; mostly reuse (uniform above blocks). PROPOSED skeleton, cart-specifics await user input. |
 
 ---
 
@@ -162,5 +164,6 @@ the new 776 was created pre-numbered.
 - CLOSED — WON'T-DO (2026-07-03 sweep): 17 (422, 428, 613, 614, 615, 619, 621, 623, 700, 705, 711, 712, 713, 726.B, 744, 747, 772)
 - SUPERSEDED: 0 (600, 601 → archived)
 - NEEDS-RECONCILE: 0 — one doctrine-timing decision open (715/723 + CLAUDE.md)
-- TRX64 (shared range): 8 (776–783, files under `../TRX64/docs/`) — **next free number: 784**
+- TRX64 (shared range): 8 (776–783, files under `../TRX64/docs/`) — **next free number: 786**
+- PROPOSED (cross-repo, loop-buildable): 2 (784 disk, 785 CRT — files in `specs/`)
 - ARCHIVED: ~150 historical specs in `specs/_archive/` (incl. 20 done/superseded specs archived 2026-07-01: 425 426 427 600 601 616 617 618 708 745 751 752 753 754 757 758 759 765 766 768)
