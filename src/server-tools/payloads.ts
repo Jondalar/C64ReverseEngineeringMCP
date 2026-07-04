@@ -278,7 +278,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
   server.tool(
     "validate_extraction",
-    "Spec 784 — validate a per-project extractor's manifest against the loader-lens landing map (the ground truth the REAL loader produced). Flags manifest spans that claim a sector the loader never read (the wrong-interpretation bug class) and loader landings the manifest missed. Records a validation finding (confirmation on pass, refutation on fail) with an evidence link to the capture. Run after register_payloads_from_manifest to prove the bulk registration is trustworthy. Inputs: capture_path (.c64retrace from a drive-mechanism trace), manifest_path. Cart (slot) spans are validated by Spec 785.",
+    "Spec 784 — validate a per-project extractor's manifest against the loader-lens READ-SET (the ground truth the REAL loader produced: which physical track/sector the drive actually latched GCR bytes off, in read order — BLOCK_READ). Flags manifest spans that claim a sector the loader never read (the wrong-interpretation bug class) and read blocks the manifest missed. The read-set is drive-side truth (read_pra/GCR_read), immune to the write-time buffering that made the old landing-map source lie. Records a validation finding (confirmation on pass, refutation on fail) with an evidence link to the capture. Run after register_payloads_from_manifest to prove the bulk registration is trustworthy. Inputs: capture_path (.c64retrace from a drive-mechanism trace), manifest_path. Cart (slot) spans are validated by Spec 785.",
     {
       project_dir: z.string().optional(),
       capture_path: z.string().describe("Path to the loader-lens .c64retrace capture (drive-mechanism domain)."),
@@ -296,11 +296,11 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
       const captureAbs = resolve(projectRoot, args.capture_path);
       if (!existsSync(captureAbs)) throw new Error(`capture_path not found: ${captureAbs}`);
-      const { landingMapFromCaptureFile } = await import("../runtime/headless/trace/loader-lens.js");
-      const landingMap = landingMapFromCaptureFile(captureAbs, args.min_run_len ? { minRunLen: args.min_run_len } : {});
+      const { readSetFromCaptureFile } = await import("../runtime/headless/trace/loader-lens.js");
+      const readSet = readSetFromCaptureFile(captureAbs);
 
       const { validateExtraction } = await import("./validate-extraction.js");
-      const result = validateExtraction(landingMap, mres.manifest);
+      const result = validateExtraction(readSet, mres.manifest);
 
       // Register the capture as an evidence artifact (soft — never break the verdict).
       let captureArtifactId: string | undefined;
@@ -333,11 +333,11 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       const lines = [
         `Extraction validation: ${result.verdict.toUpperCase()}`,
         `Manifest: ${mres.manifest.extractor} (${basename(manifestAbs)})`,
-        `Landing map: ${landingMap.length} run(s) from ${basename(captureAbs)}`,
-        `Matched sector spans: ${result.matchedSpans}  Mismatched: ${result.mismatched.length}  Unclaimed landings: ${result.unclaimed.length}`,
+        `Read-set: ${readSet.length} block-read(s) from ${basename(captureAbs)}`,
+        `Matched sector spans: ${result.matchedSpans}  Mismatched: ${result.mismatched.length}  Unclaimed reads: ${result.unclaimed.length}`,
         ...(result.skippedSlotSpans ? [`Slot (cart) spans skipped — Spec 785: ${result.skippedSlotSpans}`] : []),
         ...result.mismatched.slice(0, 30).map((m) => `  ✗ ${m.payload} T${m.track}/S${m.sector} — ${m.reason}`),
-        ...result.unclaimed.slice(0, 15).map((u) => `  ? unclaimed landing T${u.track}/S${u.sector} → $${u.c64Dest.toString(16)}`),
+        ...result.unclaimed.slice(0, 15).map((u) => `  ? unclaimed read T${u.track}/S${u.sector} (${u.bytes} B)`),
       ];
       return textContent(lines.join("\n"));
     },

@@ -48,6 +48,7 @@ export enum TraceOp {
   VIA_REG_WRITE = 0x32,   // RESERVED (no live producer)
   GCR_EVENT = 0x33,       // RESERVED (no live producer)
   DRIVE_HEAD = 0x34,      // Spec 784 — 1541 disk-mechanism head (halftrack+sector), loader-lens armed-only
+  BLOCK_READ = 0x35,      // Spec 784 — 1541 read-set (halftrack+sector+bytes read off it), loader-lens armed-only
   MEDIA_WRITE = 0x40,     // RESERVED (no live producer)
 }
 
@@ -70,6 +71,7 @@ const SIZE: Record<number, number> = {
   [TraceOp.VIA_REG_WRITE]: 12,    // reserved
   [TraceOp.GCR_EVENT]: 12,        // reserved
   [TraceOp.DRIVE_HEAD]: 10,       // Spec 784 — cycle f64(8) + halftrack(1) + sector(1)
+  [TraceOp.BLOCK_READ]: 12,       // Spec 784 — cycle f64(8) + halftrack(1) + sector(1) + bytes u16(2)
   [TraceOp.MEDIA_WRITE]: -1,      // reserved (variable)
 };
 
@@ -220,6 +222,19 @@ export function encodeSidWrite(
   return off;
 }
 
+/** Spec 784 — BLOCK_READ (0x35): op(1) cycle(f64) halftrack(u8) sector(u8) bytes(u16). */
+export function encodeBlockRead(
+  dv: DataView, off: number, cap: number, cycle: number, halftrack: number, sector: number, bytes: number,
+): number {
+  if (!fits(off, 1 + 12, cap)) return -1;
+  dv.setUint8(off, TraceOp.BLOCK_READ); off += 1;
+  dv.setFloat64(off, cycle, true); off += 8;
+  dv.setUint8(off, halftrack & 0xff); off += 1;
+  dv.setUint8(off, sector & 0xff); off += 1;
+  dv.setUint16(off, bytes & 0xffff, true); off += 2;
+  return off;
+}
+
 /** MARK label is capped at 200 bytes (UTF-8) to keep MAX_EVENT_BYTES bounded. */
 export function encodeMark(
   dv: DataView, off: number, cap: number, cycle: number, label: string,
@@ -248,7 +263,8 @@ export interface DecodedEvent {
   b1?: number; b2?: number;
   addr?: number; value?: number; access?: number; oldValue?: number;
   lines?: number; rasterY?: number; kindCode?: number; reg?: number;
-  halftrack?: number; sector?: number; // Spec 784 DRIVE_HEAD (0x34)
+  halftrack?: number; sector?: number; // Spec 784 DRIVE_HEAD (0x34) + BLOCK_READ (0x35)
+  bytes?: number;                       // Spec 784 BLOCK_READ (0x35) — GCR bytes read off the sector
   label?: string;
 }
 
@@ -324,6 +340,13 @@ export function decodeEvent(buf: Uint8Array, off: number, version: number = C64R
       const halftrack = buf[o++];
       const sector = buf[o++];
       return { ev: { op, cycle, halftrack, sector }, next: o };
+    }
+    case TraceOp.BLOCK_READ: {
+      // Spec 784 — 1541 read-set: `bytes` GCR bytes read off (halftrack, sector).
+      const halftrack = buf[o++];
+      const sector = buf[o++];
+      const bytes = dv.getUint16(o, true); o += 2;
+      return { ev: { op, cycle, halftrack, sector, bytes }, next: o };
     }
     case TraceOp.MARK: {
       const len = dv.getUint16(o, true); o += 2;

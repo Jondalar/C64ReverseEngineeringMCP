@@ -563,7 +563,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_loader_lens",
-    "Spec 784 — read a loader-lens capture's landing map: which medium block (track/sector) each landed payload came FROM and where it came to rest in C64 RAM. Point it at a .c64retrace captured with the drive-mechanism lane armed (runtime_trace_start domains=['memory','drive8-cpu','drive-mechanism'] on the daemon, then drive + finalize). Returns per landed run {source:{track,sector,halftrack}, c64Dest, len, sha256} — the ground truth validate_extraction diffs a per-project extractor manifest against. Reads a finalized .c64retrace; not a live capture.",
+    "Spec 784 — read a loader-lens capture's landing map: which medium block (track/sector) each transferred payload came FROM and where it came to rest in C64 RAM. Point it at a .c64retrace captured with the drive-mechanism lane armed (runtime_trace_start domains=['memory','drive8-cpu','drive-mechanism'] on the daemon, then drive + finalize). Option A rebuild: a run counts as a disk-landing only if transfer reads ($DD00) occurred in its window (memory-copy / relocation runs have none → dropped), and its source block is FIFO-matched to the BLOCK_READ read-set by read time (not head-at-write-time). Returns per landed run {source:{track,sector,halftrack}|null, c64Dest, len, sha256, transferReads}. The read-set (what validate_extraction diffs against) is the authority; this map is the DEST-side human view. Reads a finalized .c64retrace; not a live capture.",
     {
       capture_path: z.string().describe("Path (abs or under the project) to the .c64retrace binary capture."),
       min_run_len: z.number().int().positive().optional().describe("Min contiguous RAM-write run counted as a payload landing (default 16 — filters scratch)."),
@@ -577,8 +577,10 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const lines = [
         `Loader-lens landing map — ${map.length} landed run(s)`,
         `Capture: ${abs}`,
-        ...map.slice(0, 200).map((e) =>
-          `  T${e.source.track}/S${e.source.sector} (ht${e.source.halftrack}) → $${e.c64Dest.toString(16).padStart(4, "0")} len ${e.len} sha ${e.sha256.slice(0, 12)}`),
+        ...map.slice(0, 200).map((e) => {
+          const src = e.source ? `T${e.source.track}/S${e.source.sector} (ht${e.source.halftrack})` : `T?/S? (no block-read)`;
+          return `  ${src} → $${e.c64Dest.toString(16).padStart(4, "0")} len ${e.len} rd ${e.transferReads} sha ${e.sha256.slice(0, 12)}`;
+        }),
         ...(map.length > 200 ? [`  … +${map.length - 200} more`] : []),
       ];
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };

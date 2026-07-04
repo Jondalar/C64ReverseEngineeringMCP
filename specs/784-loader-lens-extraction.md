@@ -190,6 +190,47 @@ correlation is not unique, tag each drive-decoded block with its `(track,sector)
 existing provenance mechanism, today used for VIC). *AC:* landing map is exact on
 Pawn (custom-CRC) where correlation alone was ambiguous.
 
+### A2/A3/B4 — Option A rebuild (READ-SET lane), 2026-07-04 — SUPERSEDES write-time correlation
+
+**Why.** The Pawn belastungstest exposed A2's write-time correlation as the exact
+Accolade/Wasteland bug class the spike was meant to CATCH: attributing a landed run
+to `sector_under_head()` at WRITE time. Under any buffered transfer the head has
+rotated far past the sector whose bytes are landing (a 254-byte block over KERNAL
+serial ≈ 3 revolutions), so the sector label is a rotated-past coincidence. On Pawn,
+all 78 "landings" attributed to **T35** — but they were the **copy-loader** (16–18
+cyc/byte, memory→memory, zero disk reads) relocating already-loaded bytes to $6000,
+while the head idled on the last chain block. Three compounding defects: (1) the run
+builder flushed at the first non-contiguous write, so the real (KERNAL-jiffy-
+interleaved) landings fragmented below `minRunLen` and were dropped; (2) no filter
+distinguished a disk-fed landing from a memory-copy; (3) source = head-at-write.
+
+**Fix (drive-side truth, not time correlation):**
+
+- **READ-SET lane — the authority.** TRX64 emits **BLOCK_READ (0x35)** =
+  `{cycle, halftrack, sector, bytes}`, one record per physical block the drive
+  actually LATCHED GCR bytes off (`read_pra`/`GCR_read` consume point in
+  `rotation.byte_read` → per-sector delta at the head-sample boundary in
+  `run_for_full_capped_dbg`). Loader-agnostic (custom-GCR reads the byte port too)
+  and buffering-proof (drive-side, independent of when the C64 wrote). `buildReadSet`
+  is the ordered read-set. **`validate_extraction` now diffs the manifest against the
+  read-set**, NOT the landing-map source — so a manifest span claiming a sector the
+  loader never physically read is caught truthfully. This replaces A3 (no ambiguous
+  value/time correlation to fall back from — the drive tells us directly).
+- **Landing map (`buildLandingMap`) rebuilt** as the DEST-side human view only:
+  (a) multi-stream run builder — a landing survives interleaved scratch writes;
+  (b) **dataflow gate** — a run counts as a disk-landing only if transfer reads
+  ($DD00 accesses) occurred in its cycle window (a memory-copy has none → dropped,
+  binary, no threshold tuning); (c) source = FIFO-matched to the BLOCK_READ read-set
+  by read time.
+
+*AC (met):* trace unit + gating (trx64-trace `write/emit_block_read`), TS behavioral
+(`e2e-loader-lens` — multi-stream survival + memory-copy dropped + read-time source),
+Rust integration (`loader_head_trace --ignored` on real motm.g64 LOAD: read-set lane
+populated 277 records, 58 at directory T18), `validate_extraction` diffs against the
+read-set. The BLOCK_READ lane is armed-only (drive-mechanism domain), never in parity
+traces. Pawn fresh-capture confirmation (78×T35 → real T33/T34/T35 chain) is a
+project-side re-capture — the tooling is proven; the disk is the user's to re-run.
+
 ### Part C — Doctrine
 
 **C1 — Extend the boot-chain crawl.** Add to `docs/agent-doctrine.md §0.7` +
