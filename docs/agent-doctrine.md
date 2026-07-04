@@ -107,6 +107,17 @@ RE-depth activity that legitimately runs inside Discovery; payload RE
 the LUT — the block→payload model stays medium-uniform; this is Discovery
 start-order, not a BAM branch.)
 
+**Then validate the extraction — don't trust it (Spec 784).** Once the loader is
+annotated, author a small per-project extractor that emits a manifest (full
+medium_spans + derivedBy) — the fast bulk path over N disks. Trace-validate it
+against the real loader with a loader-lens capture: `runtime_trace_start` domains
+`['memory','drive8-cpu','drive-mechanism']` → drive the boot → finalize →
+`runtime_loader_lens` → `validate_extraction`. The landing map is what the REAL
+loader read, so a wrong static interpretation is caught (the Accolade/Wasteland
+bug class). Only then `register_payloads_from_manifest` bulk-registers the
+validated payloads with derivedBy. Emulation is the validation oracle /
+physics-blocked fallback — never the default bulk path.
+
 The onboarding / knowledge / finding rules in this doc operate **within
 Discovery + RE**. Onboarding itself is a dialogue that runs in the
 coding-agent harness (Claude Code / Codex) via MCP; C64RE **records the

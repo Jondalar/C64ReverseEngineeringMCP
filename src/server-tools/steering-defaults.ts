@@ -68,7 +68,19 @@ export const CRACK_DISCOVERY_STEERING = `${CRACK_DISCOVERY_TOKEN}
   tables tell you which custom tracks carry which payload — attribute the
   remaining tracks from that, never by blind decode. The BAM is just one index
   like the LUT; the block→payload model stays medium-uniform — this is Discovery
-  start-order, not a BAM branch.`;
+  start-order, not a BAM branch.
+- **After the loader is annotated: author a per-project extractor, then
+  trace-validate + bulk-register (Spec 784).** Write a small per-project extractor
+  (any language) from the annotated loader that emits the manifest (loaderModels[]
+  + payloads[] with **full** medium_spans + derivedBy) — the fast bulk path. Do NOT
+  hand-pass start-sectors. Then: (a) \`runtime_trace_start\` domains
+  \`['memory','drive8-cpu','drive-mechanism']\` → drive the boot → \`runtime_trace_finalize\`
+  = a loader-lens capture; (b) \`runtime_loader_lens\` + \`validate_extraction\` diff the
+  manifest against what the REAL loader read (catches wrong interpretation — the
+  Accolade/Wasteland bug class); (c) \`register_payloads_from_manifest\` bulk-registers
+  the validated payloads with derivedBy. Physics (bits→blocks) is per-medium; the
+  block→payload model above is uniform. **Emulation is the validation oracle /
+  physics-blocked fallback — never the default bulk path.**`;
 
 interface SteeringBlock { token: string; marker: string; body: string; }
 const STEERING_BLOCKS: SteeringBlock[] = [
