@@ -16,7 +16,7 @@ export const PHASE_TITLES: Record<PhaseNumber, string> = {
 
 export const PHASE_NARRATIVES: Record<PhaseNumber, string> = {
   1: "Pull bytes off the medium and register every produced artifact. Done when every payload visible on the medium has a registered artifact and the audit reports zero unregistered files.",
-  2: "Understand how the title actually loads. KERNAL or custom fastloader? Container with sub-entries? Where do bytes land at runtime vs on disk? Done when the load chain is documented as a flow with loader entry points and load contexts.",
+  2: "Understand how the title actually loads. A bootable disk ALWAYS starts at the stock DOS directory (track 18) — the first KERNAL-loadable file is the loader stub; it uploads custom drive-code + the $dd00 handshake before any custom-GCR is read. Disassemble the loader files at full function breadth and semantically annotate them HERE (the drivecode track→payload tables are byte tables, meaningless until the indexing code is read) — loader RE belongs to Discovery, not deferred to phase 3. KERNAL or custom fastloader? Container with sub-entries? Where do bytes land at runtime vs on disk? Done when the load chain is documented as a flow with loader entry points and load contexts, and the loader files are disassembled + annotated.",
   3: "Run the deterministic Phase-1 analysis and a non-semantic first-pass disasm per relevant artifact. No LLM annotations yet. Done when every artifact has *_analysis.json + *_disasm.asm and rebuild verification has been attempted.",
   4: "Inspect every non-trivial segment by hand. Classify, hypothesize, look up hardware references. Open questions welcome. Done when every non-trivial segment is either understood or tracked in an open question.",
   5: "Merge the inspection findings into entities, write annotations, re-disassemble. Done when the disasm rebuilds byte-identical with annotations and ≥1 finding references the artifact.",
@@ -36,6 +36,11 @@ export const PHASE_TOOLS: Record<PhaseNumber, string[]> = {
     "scan_registration_delta", "list_artifacts", "list_payloads",
   ],
   2: [
+    // Loader RE is a Discovery activity: the loader stub is a standard KERNAL-
+    // loaded .prg and its drivecode tables must be disassembled + annotated to
+    // understand the load chain — so analyze/disasm are first-class here, not
+    // deferred to phase 3. (Doctrine: docs/agent-doctrine.md §0.7.)
+    "analyze_prg", "disasm_prg",
     "analyze_g64_anomalies",
     "declare_loader_entrypoint", "list_loader_entrypoints",
     "record_loader_event", "list_loader_events",

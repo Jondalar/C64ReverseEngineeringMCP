@@ -5,6 +5,8 @@
 //
 // - Spec 752: the extract-first grounding doctrine.
 // - Spec 748.2 (BUG-032): the record + reconcile discipline.
+// - Disk crack Discovery boot-chain (docs/agent-doctrine.md §0.7): start at the
+//   stock DOS directory → loader stub → full loader RE inside Discovery.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -47,10 +49,32 @@ export const RECONCILE_STEERING = `${RECONCILE_TOKEN}
   \`archive_phase1_noise\` to confirm or invalidate them. The real questions are what
   \`c64re_whats_next\` surfaces — act on those first.`;
 
+/** Disk crack Discovery — boot-chain first (docs/agent-doctrine.md §0.7). */
+export const CRACK_DISCOVERY_MARKER = "Disk crack Discovery — boot-chain first";
+export const CRACK_DISCOVERY_TOKEN = "<!-- crack-discovery-bootchain-v1 -->";
+export const CRACK_DISCOVERY_STEERING = `${CRACK_DISCOVERY_TOKEN}
+## ${CRACK_DISCOVERY_MARKER} — always apply on a booting disk)
+- **Boot disk ALWAYS has a stock DOS BAM + directory.** The 1541 powers up on
+  stock DOS, so the first load can only be **KERNAL LOAD over standard GCR**:
+  track 18 directory → first file = the **loader stub**. Start Discovery there —
+  read the stock directory, identify the stub. Never begin at the custom-GCR.
+- **Loader files get full RE inside Discovery.** Disassemble the stub + custom
+  drive-code + $dd00 handshake at **full function breadth and semantically
+  annotate them now** — the drivecode track/sector→payload tables are byte
+  tables, meaningless until the indexing code is annotated. Do NOT defer loader
+  disasm to the RE phase; it is the one RE-depth activity that belongs to
+  Discovery. Payload RE (engine/assets) still waits for RE.
+- **Custom-GCR / custom-LUT is stage 2, reached through the stub.** The stub's
+  tables tell you which custom tracks carry which payload — attribute the
+  remaining tracks from that, never by blind decode. The BAM is just one index
+  like the LUT; the block→payload model stays medium-uniform — this is Discovery
+  start-order, not a BAM branch.`;
+
 interface SteeringBlock { token: string; marker: string; body: string; }
 const STEERING_BLOCKS: SteeringBlock[] = [
   { token: EXTRACT_FIRST_TOKEN, marker: EXTRACT_FIRST_MARKER, body: EXTRACT_FIRST_STEERING },
   { token: RECONCILE_TOKEN, marker: RECONCILE_MARKER, body: RECONCILE_STEERING },
+  { token: CRACK_DISCOVERY_TOKEN, marker: CRACK_DISCOVERY_MARKER, body: CRACK_DISCOVERY_STEERING },
 ];
 
 /**

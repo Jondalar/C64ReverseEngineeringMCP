@@ -89,6 +89,24 @@ per-artifact pipeline** (extraction → loader → heuristic disasm → segment
 analysis → semantic V1 → meta connections → semantic V2) nests **inside
 Discovery (phases 1-2) + Reverse Engineering (phases 3-7)**.
 
+**Disk crack Discovery starts at the boot chain.** A bootable disk ALWAYS has
+a stock DOS BAM + directory — the 1541 powers up on stock DOS, so the first
+thing loaded can only come via **KERNAL LOAD over standard GCR**: track 18
+directory, first file = a small **loader stub**. The stub uploads custom
+drive-code into floppy RAM ($0300–$07FF) and installs the $dd00 fastload
+handshake; only then does the **custom-GCR** protection get read. So the
+cracker/analyst Discovery crawl is fixed: (1) read the stock DOS directory,
+(2) the stub is the first / KERNAL-loadable file, (3) **disassemble the loader
+files at full function breadth AND semantically annotate them — in Discovery,
+not deferred to RE** (the drivecode track/sector→payload tables are byte tables,
+meaningless until the indexing code is annotated), (4) the tables then attribute
+the remaining custom-GCR tracks. Custom-GCR / custom-LUT is stage 2, always
+reached *through* the stub — never blind. This loader-only full-RE is the one
+RE-depth activity that legitimately runs inside Discovery; payload RE
+(engine/assets) still waits for the RE phase. (The BAM is just one index like
+the LUT — the block→payload model stays medium-uniform; this is Discovery
+start-order, not a BAM branch.)
+
 The onboarding / knowledge / finding rules in this doc operate **within
 Discovery + RE**. Onboarding itself is a dialogue that runs in the
 coding-agent harness (Claude Code / Codex) via MCP; C64RE **records the
