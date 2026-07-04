@@ -66,7 +66,18 @@ try {
   const totalPayloads = service.listEntities().filter((e) => e.kind === "payload").length;
   ok(totalPayloads === 2, "2 payloads total across disk + cart", `${totalPayloads}`);
 
-  console.log(`\n${fail === 0 ? "GREEN" : "RED"}  manifest-register B2: ${pass} pass, ${fail} fail.`);
+  // B3 — LoaderModel keystone records persisted + payload links resolve.
+  const models = service.listLoaderModels();
+  ok(models.length === 2, "2 LoaderModels persisted (sector-stream + cart-lut)", models.map((m) => `${m.id}:${m.kind}`).join(","));
+  const pawnFinal = service.listEntities().find((e) => e.name === "PAWN.PRG");
+  const lykFinal = service.listEntities().find((e) => e.name === "lykia_file_042");
+  ok(pawnFinal?.payloadLoaderModelId === "pawn-serial", "disk payload links to its LoaderModel (payloadLoaderModelId)");
+  ok(lykFinal?.payloadLoaderModelId === "lykia-runtime", "cart payload links to its LoaderModel");
+  ok(models.every((m) => !!m.createdAt && !!m.updatedAt), "each LoaderModel carries timestamps");
+  registerManifestPayloads({ service, projectRoot: root, manifest: disk.manifest, resolveImage: () => undefined });
+  ok(service.listLoaderModels().length === 2, "LoaderModel upsert idempotent (still 2)", `${service.listLoaderModels().length}`);
+
+  console.log(`\n${fail === 0 ? "GREEN" : "RED"}  manifest-register B2+B3: ${pass} pass, ${fail} fail.`);
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

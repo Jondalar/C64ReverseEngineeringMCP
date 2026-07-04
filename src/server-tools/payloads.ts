@@ -277,6 +277,29 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 ));
 
   server.tool(
+    "list_loader_models",
+    "List the recovered LoaderModels (Spec 784) for the project — the per-medium loaders (id, kind, index location, backing disasm) that produced the registered payloads. A medium hosts N; each payload's derivedBy references one. Use to see how a medium's blocks are attributed across its distinct loaders.",
+    {
+      project_dir: z.string().optional(),
+    },
+    safeHandler("list_loader_models", async (args) => {
+      const service = new ProjectKnowledgeService(ctx.projectDir(args.project_dir));
+      const models = service.listLoaderModels();
+      if (!models.length) {
+        return textContent("No LoaderModels recorded. Register payloads via register_payloads_from_manifest.");
+      }
+      const payloads = service.listEntities().filter((e) => e.kind === "payload");
+      const lines = [`${models.length} LoaderModel(s):`];
+      for (const m of models) {
+        const n = payloads.filter((p) => p.payloadLoaderModelId === m.id).length;
+        lines.push(`- ${m.id} (${m.kind})${m.indexLocation ? ` @ ${m.indexLocation}` : ""} — ${n} payload(s)${m.disasmArtifactId ? `, disasm ${m.disasmArtifactId}` : ""}`);
+        if (m.notes) lines.push(`    ${m.notes}`);
+      }
+      return textContent(lines.join("\n"));
+    },
+));
+
+  server.tool(
     "link_payload_to_asm",
     "Attach an ASM artifact to a payload entity when the automatic stem-match is wrong. Use after registering a disassembly that covers a payload's bytes. Not for creating the payload (use the extraction tools) or generic entity links (use link_entities). Inputs: payload id, asm artifact id. Returns: updated payload. Idempotent.",
     {

@@ -19,6 +19,9 @@ import {
   LoaderEntryPointStoreSchema,
   type LoaderEntryPoint,
   type LoaderEntryPointStore,
+  LoaderModelStoreSchema,
+  type LoaderModel,
+  type LoaderModelStore,
   LoaderEventStoreSchema,
   type LoaderEvent,
   type LoaderEventStore,
@@ -140,6 +143,7 @@ export interface ProjectKnowledgePaths {
   knowledgeOpenQuestions: string;
   knowledgeContainers: string;
   knowledgeLoaderEntryPoints: string;
+  knowledgeLoaderModels: string;
   knowledgeLoaderEvents: string;
   knowledgeProjectProfile: string;
   knowledgeAntiPatterns: string;
@@ -267,6 +271,7 @@ export class ProjectKnowledgeStorage {
     this.ensureJsonFile(this.paths.knowledgeOpenQuestions, emptyStore<OpenQuestionRecord>());
     this.ensureJsonFile(this.paths.knowledgeContainers, emptyStore<ContainerEntry>());
     this.ensureJsonFile(this.paths.knowledgeLoaderEntryPoints, emptyStore<LoaderEntryPoint>());
+    this.ensureJsonFile(this.paths.knowledgeLoaderModels, emptyStore<LoaderModel>());
     this.ensureJsonFile(this.paths.knowledgeLoaderEvents, emptyStore<LoaderEvent>());
     this.ensureJsonFile(this.paths.knowledgeAntiPatterns, emptyStore<AntiPattern>());
     this.ensureJsonFile(this.paths.knowledgePatches, emptyStore<PatchRecipe>());
@@ -335,6 +340,16 @@ export class ProjectKnowledgeStorage {
   saveLoaderEntryPoints(store: LoaderEntryPointStore): LoaderEntryPointStore {
     const parsed = LoaderEntryPointStoreSchema.parse(store);
     writeJsonAtomically(this.paths.knowledgeLoaderEntryPoints, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadLoaderModels(): LoaderModelStore {
+    return LoaderModelStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeLoaderModels, emptyStore<LoaderModel>()));
+  }
+
+  saveLoaderModels(store: LoaderModelStore): LoaderModelStore {
+    const parsed = LoaderModelStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeLoaderModels, parsed as unknown as JsonValue);
     return parsed;
   }
 
@@ -724,6 +739,7 @@ export function createProjectKnowledgePaths(projectRoot: string): ProjectKnowled
     knowledgeOpenQuestions: join(root, "knowledge", "open-questions.json"),
     knowledgeContainers: join(root, "knowledge", "containers.json"),
     knowledgeLoaderEntryPoints: join(root, "knowledge", "loader-entry-points.json"),
+    knowledgeLoaderModels: join(root, "knowledge", "loader-models.json"),
     knowledgeLoaderEvents: join(root, "knowledge", "loader-events.json"),
     knowledgeProjectProfile: join(root, "knowledge", "project-profile.json"),
     knowledgeAntiPatterns: join(root, "knowledge", "anti-patterns.json"),

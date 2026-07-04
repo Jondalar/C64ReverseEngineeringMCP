@@ -501,6 +501,22 @@ export const LoaderEntryPointSchema = z.object({
   updatedAt: TimestampSchema,
 });
 
+// Spec 784 — a recovered LoaderModel: the loader + its chaining rule that turns
+// this medium's blocks into payloads. THE keystone pluggable adapter; `kind` is an
+// OPEN string (a new loader family needs no code change). A medium hosts N of these
+// (e.g. DOS + a custom fastloader). Each payload's payloadLoaderModelId references one.
+export const LoaderModelSchema = z.object({
+  id: IdSchema,
+  kind: z.string().min(1), // open: dos|custom-fastloader|sector-stream|cart-lut|cross-bank-packer seeded
+  indexLocation: z.string().optional(), // where its INDEX lives (e.g. "T01/S02 4-byte records")
+  disasmArtifactId: IdSchema.optional(), // backing loader disassembly
+  mediumRef: z.string().optional(), // which medium image it operates on (Spec 750)
+  notes: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
 export const LoaderEventSchema = z.object({
   id: IdSchema,
   scenarioId: IdSchema.optional(),
@@ -715,6 +731,8 @@ export const EntityRecordSchema = z.object({
   payloadDepackedArtifactId: IdSchema.optional(),
   payloadAsmArtifactIds: z.array(IdSchema).default([]),
   payloadContentHash: z.string().optional(),
+  // Spec 784 — the LoaderModel (loader-models.json) that produced this payload.
+  payloadLoaderModelId: IdSchema.optional(),
   // Spec 037: payload-level disk-hint surfaces protection /
   // drive-code / raw-unanalyzed sectors as colour overlay on the
   // disk heatmap. Set automatically by inspect / extract tools or
@@ -1749,6 +1767,9 @@ export const ArtifactStoreSchema = createRecordListSchema(ArtifactRecordSchema);
 export const ContainerEntryStoreSchema = createRecordListSchema(ContainerEntrySchema);
 export const LoaderEntryPointStoreSchema = createRecordListSchema(LoaderEntryPointSchema);
 export const LoaderEventStoreSchema = createRecordListSchema(LoaderEventSchema);
+export const LoaderModelStoreSchema = createRecordListSchema(LoaderModelSchema);
+export type LoaderModel = z.infer<typeof LoaderModelSchema>;
+export type LoaderModelStore = z.infer<typeof LoaderModelStoreSchema>;
 export const AntiPatternStoreSchema = createRecordListSchema(AntiPatternSchema);
 export const PatchRecipeStoreSchema = createRecordListSchema(PatchRecipeSchema);
 export const ResourceRegionStoreSchema = createRecordListSchema(ResourceRegionSchema);

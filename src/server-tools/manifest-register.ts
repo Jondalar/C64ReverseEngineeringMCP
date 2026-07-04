@@ -33,6 +33,19 @@ export function registerManifestPayloads(opts: {
   const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "x";
   const capturedAt = new Date().toISOString();
 
+  // Persist the recovered LoaderModels (keystone records) so each payload's
+  // payloadLoaderModelId / derivedBy resolves. Idempotent by id.
+  for (const lm of manifest.loaderModels) {
+    service.saveLoaderModel({
+      id: lm.id,
+      kind: lm.kind,
+      indexLocation: lm.indexLocation,
+      disasmArtifactId: lm.disasmArtifactId,
+      mediumRef: resolveImage(manifest.sourceImage),
+      notes: lm.notes,
+    });
+  }
+
   let registered = 0;
   const perModel: Record<string, number> = {};
 
@@ -67,6 +80,7 @@ export function registerManifestPayloads(opts: {
       payloadPacker: p.packer ?? undefined,
       payloadSourceArtifactId: sourceArtifactId,
       payloadContentHash: p.contentHash ?? undefined,
+      payloadLoaderModelId: p.derivedBy,
       artifactIds: sourceArtifactId ? [sourceArtifactId] : undefined,
       evidence: manifestArtifactId
         ? [{ kind: "artifact" as const, title: `extraction manifest (${manifest.extractor})`, artifactId: manifestArtifactId, capturedAt }]

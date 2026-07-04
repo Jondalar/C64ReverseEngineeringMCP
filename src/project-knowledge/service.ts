@@ -32,6 +32,7 @@ import type {
   LoadContext,
   LoaderEntryPoint,
   LoaderEvent,
+  LoaderModel,
   Operation,
   PatchRecipe,
   ProjectProfile,
@@ -534,6 +535,7 @@ export interface SaveEntityInput {
   payloadDepackedArtifactId?: string;
   payloadAsmArtifactIds?: string[];
   payloadContentHash?: string;
+  payloadLoaderModelId?: string;
   tags?: string[];
   // Spec 060 / Bug 31: alternate names for the same payload entity.
   // Folded by saveEntity payload-dedup when an existing entity matches
@@ -2041,6 +2043,30 @@ export class ProjectKnowledgeService {
     const store = this.storage.loadLoaderEntryPoints();
     const items = store.items.slice().sort((a, b) => a.address - b.address);
     return artifactId ? items.filter((item) => item.artifactId === artifactId) : items;
+  }
+
+  // Spec 784: persist/upsert a recovered LoaderModel (keystone type). Idempotent
+  // by id — re-registering the same manifest updates in place.
+  saveLoaderModel(input: Omit<LoaderModel, "createdAt" | "updatedAt" | "tags"> & { tags?: string[] }): LoaderModel {
+    const store = this.storage.loadLoaderModels();
+    const timestamp = nowIso();
+    const existing = store.items.find((item) => item.id === input.id);
+    const record: LoaderModel = {
+      ...input,
+      tags: input.tags ?? existing?.tags ?? [],
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.storage.saveLoaderModels({
+      ...store,
+      updatedAt: timestamp,
+      items: upsertRecord(store.items, record),
+    });
+    return record;
+  }
+
+  listLoaderModels(): LoaderModel[] {
+    return this.storage.loadLoaderModels().items.slice().sort((a, b) => a.id.localeCompare(b.id));
   }
 
   // Spec 028: persist one observed loader call (static or trace).
@@ -4064,6 +4090,7 @@ export class ProjectKnowledgeService {
       payloadDepackedArtifactId: input.payloadDepackedArtifactId ?? existing?.payloadDepackedArtifactId,
       payloadAsmArtifactIds: uniqueStrings([...(input.payloadAsmArtifactIds ?? []), ...(existing?.payloadAsmArtifactIds ?? [])]),
       payloadContentHash: input.payloadContentHash ?? existing?.payloadContentHash,
+      payloadLoaderModelId: input.payloadLoaderModelId ?? existing?.payloadLoaderModelId,
       tags: uniqueStrings([...(input.tags ?? []), ...(existing?.tags ?? [])]),
       aliases: [...aliasUnion].sort(),
       internal: derivedInternal === true ? true : undefined,
