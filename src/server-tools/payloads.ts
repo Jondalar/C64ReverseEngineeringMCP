@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, statSync, readFileSync } from "node:fs";
 import { resolve, basename } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -7,6 +7,8 @@ import { subjectIdForArtifact } from "../project-knowledge/artifact-versions.js"
 import { autoAnalyzeExtractedPayloads, summarizeAutoChain } from "../lib/extract-auto-chain.js";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
+import { validateManifest, mediumDerivationForKind } from "./loader-manifest.js";
+import { registerManifestPayloads } from "./manifest-register.js";
 
 const PAYLOAD_FORMATS = [
   "raw", "prg",
@@ -17,6 +19,10 @@ const PAYLOAD_FORMATS = [
   "pucrunch",
   "unknown",
 ] as const;
+
+// Span-level provenance enum (mirrors MediumDerivationSchema in project-knowledge/
+// types.ts): which representation/loader derived this block→payload relation.
+const MEDIUM_DERIVATIONS = ["kernal-directory", "custom-lut", "cart-lut", "registered"] as const;
 
 const mediumSpanSchema = z.union([
   z.object({
@@ -29,6 +35,8 @@ const mediumSpanSchema = z.union([
     // image basename, resolved to the id). Omit for a single-disk project or when the
     // image isn't yet attributed (it shows on all disks, badged "unscoped").
     image: z.string().optional(),
+    // Spec 784 — the LoaderModel-derived provenance for this span. Default "registered".
+    derivedBy: z.enum(MEDIUM_DERIVATIONS).optional(),
   }),
   z.object({
     kind: z.literal("slot"),
@@ -37,11 +45,36 @@ const mediumSpanSchema = z.union([
     offsetInBank: z.number().int().nonnegative(),
     length: z.number().int().nonnegative(),
     image: z.string().optional(), // Spec 750 — which cart image (crt-manifest artifact id or basename)
+    derivedBy: z.enum(MEDIUM_DERIVATIONS).optional(), // Spec 784
   }),
 ]);
 
 function textContent(text: string) {
   return { content: [{ type: "text" as const, text }] };
+}
+
+// Spec 750 image resolver — resolve a span's `image` (disk-/crt-manifest artifact
+// id OR the image's basename/dir) to the manifest artifact id stored as mediumRef.
+// Shared by register_payloads_from_manifest; register_payload keeps its own inline
+// copy (closure over its already-loaded artifact list).
+function makeImageResolver(service: ProjectKnowledgeService): (image?: string) => string | undefined {
+  const mediumArtifacts = service.listArtifacts().filter((a) => a.role === "disk-manifest" || a.role === "crt-manifest");
+  const normKey = (s: string) => s.toLowerCase().replace(/\.[^.]+$/, "").replace(/[^a-z0-9]/g, "");
+  const imageKey = (a: { relativePath?: string; path?: string; title?: string }) => {
+    const p = a.relativePath ?? a.path ?? "";
+    const parts = p.split("/").filter(Boolean);
+    return parts.length >= 2 ? parts[parts.length - 2] : (a.title ?? "");
+  };
+  return (image?: string): string | undefined => {
+    if (!image) return undefined;
+    if (mediumArtifacts.some((a) => a.id === image)) return image;
+    const want = normKey(image);
+    const hit = mediumArtifacts.find((a) => {
+      const k = normKey(imageKey(a)), t = normKey(a.title ?? "");
+      return k.includes(want) || want.includes(k) || t.includes(want);
+    });
+    return hit?.id;
+  };
 }
 
 export function registerPayloadTools(server: McpServer, ctx: ServerToolContext): void {
@@ -142,8 +175,8 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         summary: args.summary,
         addressRange,
         mediumSpans: args.medium_spans?.map((span) => span.kind === "sector"
-          ? { kind: "sector", track: span.track, sector: span.sector, offsetInSector: span.offsetInSector ?? 0, length: span.length, mediumRef: resolveImage(span.image), derivedBy: "registered" as const }
-          : { kind: "slot", bank: span.bank, slot: span.slot, offsetInBank: span.offsetInBank, length: span.length, mediumRef: resolveImage(span.image), derivedBy: "registered" as const }),
+          ? { kind: "sector", track: span.track, sector: span.sector, offsetInSector: span.offsetInSector ?? 0, length: span.length, mediumRef: resolveImage(span.image), derivedBy: span.derivedBy ?? "registered" }
+          : { kind: "slot", bank: span.bank, slot: span.slot, offsetInBank: span.offsetInBank, length: span.length, mediumRef: resolveImage(span.image), derivedBy: span.derivedBy ?? "registered" }),
         payloadLoadAddress: args.load_address,
         payloadFormat: args.format,
         payloadPacker: args.packer,
@@ -167,6 +200,78 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         `Source artifact: ${entity.payloadSourceArtifactId ?? "(none)"}`,
         `Depacked artifact: ${entity.payloadDepackedArtifactId ?? "(none)"}`,
         `ASM artifacts: ${(entity.payloadAsmArtifactIds ?? []).length}`,
+      ].join("\n"));
+    },
+));
+
+  server.tool(
+    "register_payloads_from_manifest",
+    "Bulk-register every payload from a loader-extraction manifest (Spec 784) — the medium-agnostic path from a per-project extractor's output to first-class C64RE payloads. Reads + validates the manifest JSON (loaderModels[] + payloads[] each with derivedBy=LoaderModel-id and its FULL ordered medium spans), then registers each payload with its full medium_spans (never start-only — the Pawn 168/1329 bug), the span-level provenance derived from its LoaderModel kind, a content hash, its source blob, and an evidence link to the manifest. Idempotent (stable per-name id + hash dedup). Disk-sector and cart-slot spans register through the SAME path. Use after authoring a per-project extractor; not for a single hand-carved block (use register_payload).",
+    {
+      project_dir: z.string().optional(),
+      manifest_path: z.string().describe("Path (relative to the project) to the extractor manifest JSON."),
+    },
+    safeHandler("register_payloads_from_manifest", async (args) => {
+      const projectRoot = ctx.projectDir(args.project_dir);
+      const service = new ProjectKnowledgeService(projectRoot);
+      const manifestAbs = resolve(projectRoot, args.manifest_path);
+      if (!existsSync(manifestAbs)) throw new Error(`manifest_path not found: ${manifestAbs}`);
+
+      let raw: unknown;
+      try {
+        raw = JSON.parse(readFileSync(manifestAbs, "utf8"));
+      } catch (e) {
+        throw new Error(`manifest is not valid JSON: ${(e as Error).message}`);
+      }
+      const result = validateManifest(raw);
+      if (!result.ok || !result.manifest) {
+        throw new Error(`invalid manifest:\n- ${result.errors.join("\n- ")}`);
+      }
+      const manifest = result.manifest;
+
+      // Register the manifest file itself as an aggregator artifact so each payload
+      // carries an evidence link back to it.
+      ctx.tryRegisterKnowledgeArtifacts(projectRoot, {
+        toolName: "register_payloads_from_manifest",
+        title: `Loader manifest: ${basename(manifestAbs)}`,
+        parameters: { extractor: manifest.extractor },
+        inputs: [],
+        outputs: [{
+          path: manifestAbs, kind: "manifest", scope: "analysis",
+          role: "extraction-manifest", format: "json",
+          producedByTool: "register_payloads_from_manifest",
+        }],
+      });
+      const manifestArtifactId = service.listArtifacts().find((a) => a.path === manifestAbs)?.id;
+
+      const resolveImage = makeImageResolver(service);
+      const registerSourceArtifact = (bytesAbs: string, format: "prg" | "raw", name: string): string | undefined => {
+        ctx.tryRegisterKnowledgeArtifacts(projectRoot, {
+          toolName: "register_payloads_from_manifest",
+          title: `Payload source: ${basename(bytesAbs)}`,
+          parameters: { name },
+          inputs: [],
+          outputs: [{
+            path: bytesAbs, kind: "prg", scope: "generated",
+            role: "payload-source", format, producedByTool: "register_payloads_from_manifest",
+          }],
+        });
+        return service.listArtifacts().find((a) => a.path === bytesAbs)?.id;
+      };
+
+      const { registered, perModel } = registerManifestPayloads({
+        service, projectRoot, manifest, manifestArtifactId, resolveImage, registerSourceArtifact,
+      });
+
+      const modelLines = manifest.loaderModels.map((lm) =>
+        `  - ${lm.id} (${lm.kind})${lm.indexLocation ? ` @ ${lm.indexLocation}` : ""}: ${perModel[lm.id] ?? 0} payload(s)`);
+      return textContent([
+        `Registered ${registered} payload(s) from ${basename(manifestAbs)}.`,
+        `Extractor: ${manifest.extractor}`,
+        `LoaderModels (${manifest.loaderModels.length}):`,
+        ...modelLines,
+        `Manifest artifact: ${manifestArtifactId ?? "(unregistered)"}`,
+        `Idempotent: re-run updates in place (stable per-name id + content-hash dedup).`,
       ].join("\n"));
     },
 ));
