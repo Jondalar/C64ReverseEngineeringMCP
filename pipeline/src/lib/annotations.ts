@@ -116,8 +116,13 @@ export interface AnnotationsIndex {
   immediatesByAddress: Map<number, ImmediateIndexEntry>;
 }
 
-function parseHex(hex: string): number {
-  return parseInt(hex.replace(/^\$/, ""), 16);
+// Total (never throws): a manual annotation JSON may omit an address field, so
+// `hex` can be undefined at runtime despite the type. Returns NaN on missing /
+// unparseable input; callers skip that one entry (see buildAnnotationsIndex) so
+// the remaining hand-written annotations still apply instead of the whole
+// pipeline dying on `parseHex(undefined)`.
+function parseHex(hex: string | undefined): number {
+  return parseInt(String(hex ?? "").replace(/^\$/, ""), 16);
 }
 
 // A routine's `name` is descriptive prose ("Turn advance"); turn it into a valid
@@ -140,16 +145,29 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
   for (const seg of annotations.segments) {
     const start = parseHex(seg.start);
     const end = parseHex(seg.end);
+    if (Number.isNaN(start) || Number.isNaN(end)) {
+      console.warn(`[annotations] skipping segment with unparseable range: start=${seg.start} end=${seg.end}`);
+      continue;
+    }
     segmentsByStart.set(start, seg);
     segmentAnnotations.push({ start, end, annotation: seg });
   }
   const usedLabels = new Set<string>();
   for (const lbl of annotations.labels) {
-    labelsByAddress.set(parseHex(lbl.address), lbl);
+    const addr = parseHex(lbl.address);
+    if (Number.isNaN(addr)) {
+      console.warn(`[annotations] skipping label with unparseable address: ${lbl.address} (${lbl.label})`);
+      continue;
+    }
+    labelsByAddress.set(addr, lbl);
     usedLabels.add(lbl.label);
   }
   for (const rt of annotations.routines) {
     const addr = parseHex(rt.address);
+    if (Number.isNaN(addr)) {
+      console.warn(`[annotations] skipping routine with unparseable address: ${rt.address} (${rt.name ?? "?"})`);
+      continue;
+    }
     routinesByAddress.set(addr, rt);
     // BUG-033 (secondary): a named routine RENAMES the auto-label (`WC000:` →
     // `turn_advance:`), matching reloc `subSegments[].label`. The descriptive name
@@ -166,24 +184,40 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
     }
   }
   for (const pt of annotations.pointerTables ?? []) {
+    const start = parseHex(pt.start);
+    const end = parseHex(pt.end);
+    if (Number.isNaN(start) || Number.isNaN(end)) {
+      console.warn(`[annotations] skipping pointer-table with unparseable range: start=${pt.start} end=${pt.end}`);
+      continue;
+    }
     pointerTables.push({
-      start: parseHex(pt.start),
-      end: parseHex(pt.end),
+      start,
+      end,
       stride: pt.stride ?? 2,
       endian: pt.endian ?? "little",
       annotation: pt,
     });
   }
   for (const jt of annotations.jumpTables ?? []) {
+    const start = parseHex(jt.start);
+    const end = parseHex(jt.end);
+    if (Number.isNaN(start) || Number.isNaN(end)) {
+      console.warn(`[annotations] skipping jump-table with unparseable range: start=${jt.start} end=${jt.end}`);
+      continue;
+    }
     jumpTables.push({
-      start: parseHex(jt.start),
-      end: parseHex(jt.end),
+      start,
+      end,
       kind: jt.kind,
       annotation: jt,
     });
   }
   for (const imm of annotations.immediates ?? []) {
     const address = parseHex(imm.address);
+    if (Number.isNaN(address)) {
+      console.warn(`[annotations] skipping immediate with unparseable address: ${imm.address}`);
+      continue;
+    }
     immediatesByAddress.set(address, {
       address,
       kind: imm.kind,
