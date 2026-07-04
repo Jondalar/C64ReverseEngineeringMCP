@@ -47,6 +47,7 @@ export enum TraceOp {
   DRIVE_RAM_WRITE = 0x31, // 1541 memory bus access (op byte = read/write)
   VIA_REG_WRITE = 0x32,   // RESERVED (no live producer)
   GCR_EVENT = 0x33,       // RESERVED (no live producer)
+  DRIVE_HEAD = 0x34,      // Spec 784 — 1541 disk-mechanism head (halftrack+sector), loader-lens armed-only
   MEDIA_WRITE = 0x40,     // RESERVED (no live producer)
 }
 
@@ -68,6 +69,7 @@ const SIZE: Record<number, number> = {
   [TraceOp.CIA_EVENT]: 12,        // reserved
   [TraceOp.VIA_REG_WRITE]: 12,    // reserved
   [TraceOp.GCR_EVENT]: 12,        // reserved
+  [TraceOp.DRIVE_HEAD]: 10,       // Spec 784 — cycle f64(8) + halftrack(1) + sector(1)
   [TraceOp.MEDIA_WRITE]: -1,      // reserved (variable)
 };
 
@@ -246,6 +248,7 @@ export interface DecodedEvent {
   b1?: number; b2?: number;
   addr?: number; value?: number; access?: number; oldValue?: number;
   lines?: number; rasterY?: number; kindCode?: number; reg?: number;
+  halftrack?: number; sector?: number; // Spec 784 DRIVE_HEAD (0x34)
   label?: string;
 }
 
@@ -315,6 +318,12 @@ export function decodeEvent(buf: Uint8Array, off: number, version: number = C64R
       const reg = dv.getUint16(o, true); o += 2;
       const value = buf[o++];
       return { ev: { op, cycle, reg, value }, next: o };
+    }
+    case TraceOp.DRIVE_HEAD: {
+      // Spec 784 — 1541 disk-mechanism head. sector 0xff = between sectors.
+      const halftrack = buf[o++];
+      const sector = buf[o++];
+      return { ev: { op, cycle, halftrack, sector }, next: o };
     }
     case TraceOp.MARK: {
       const len = dv.getUint16(o, true); o += 2;
