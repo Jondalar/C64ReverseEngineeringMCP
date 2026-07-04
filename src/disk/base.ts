@@ -90,7 +90,12 @@ export function parseDirectory(getSector: (t: number, s: number) => Uint8Array |
   const files: DiskFileEntry[] = [];
   const bamSector = getSector(18, 0);
   if (!bamSector) {
-    throw new Error("Cannot read BAM sector (18/0)");
+    // Fail-soft: the DOS directory is ONE resolver (KERNAL/1541-DOS/BAM), not the
+    // substrate. A non-DOS / custom-framed disk (custom-GCR, own catalog) has no
+    // standard BAM at 18/0 — return an EMPTY directory instead of crashing the read.
+    // The raw blocks stay readable via getSector; the custom loader (per-project
+    // extractor / loader-lens) resolves payloads on top. NEVER throw here.
+    return { name: "UNTITLED", id: "", files: [] };
   }
 
   let diskName = "";

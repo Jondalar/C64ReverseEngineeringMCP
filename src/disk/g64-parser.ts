@@ -702,24 +702,27 @@ export class G64Parser implements DiskImage {
     const sectors = this.decodeTrack(track);
     let result: Uint8Array | null = null;
 
+    // Dumb read (bottom layer): return the decoded plaintext bytes for this sector
+    // REGARDLESS of the data-block CRC. The CRC is a 1541-DOS integrity artifact — a
+    // don't-care for extraction: a custom-/bad-CRC sector is still the plaintext the
+    // loader wrote. Prefer a CRC-valid decode, fall back to an invalid one. (The
+    // header must still be GCR-decodable so we know which sector this is.)
     for (const decoded of sectors) {
-      if (decoded.track === track && decoded.sector === sector && decoded.dataValid) {
+      if (decoded.track === track && decoded.sector === sector && decoded.data.length > 0) {
         result = decoded.data;
-        break;
+        if (decoded.dataValid) break; // a valid decode wins; else keep as fallback
       }
     }
 
+    // Warm the cache for the whole track — bytes regardless of CRC.
     for (const decoded of sectors) {
       const key = `${decoded.track}:${decoded.sector}`;
-      if (!this.sectorCache.has(key) && decoded.dataValid) {
+      if (!this.sectorCache.has(key) && decoded.data.length > 0) {
         this.sectorCache.set(key, decoded.data);
       }
     }
 
-    if (!this.sectorCache.has(cacheKey)) {
-      this.sectorCache.set(cacheKey, null);
-    }
-
+    this.sectorCache.set(cacheKey, result);
     return result;
   }
 
