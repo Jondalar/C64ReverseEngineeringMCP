@@ -8,7 +8,7 @@ import { isHeuristicQuestion } from "./question-triage.js";
 import { buildAnnotatedListingView, buildCartridgeLayoutView, buildDiskLayoutView, buildFlowGraphView, buildLoadSequenceView, buildMediumLayoutView, buildMemoryMapView, buildProjectDashboardView } from "./view-builders.js";
 import { ProjectKnowledgeStorage, defaultProjectSlug } from "./storage.js";
 import { annotationSegmentsToOverlays, overlayCovering } from "./effective-segments.js";
-import { recommendedLifecyclePhase, applyDiscoveryCoverageGate } from "../agent-orchestrator/lifecycle.js";
+import { recommendedLifecyclePhase, applyDiscoveryCoverageGate, applyMediaFloor } from "../agent-orchestrator/lifecycle.js";
 import { computeDiscoveryCoverage, discoveryCoverageComplete } from "./medium-coverage.js";
 import {
   isVersionedSourceArtifact,
@@ -4796,8 +4796,15 @@ export class ProjectKnowledgeService {
     // data-bearing block on every medium is claimed (uniform block-coverage
     // over the substrate — no disk/cart branch here). Spec 773 §Discovery.
     const mediumCoverage = computeDiscoveryCoverage(views.mediumLayout);
+    // A project with registered media is at least in Discovery even when the
+    // workflow state has no explicit phase yet (else a media-loaded project reads
+    // as "onboarding"). Floor raises onboarding→discovery; the coverage gate then
+    // caps from above (holds Discovery while data-bearing blocks are unclaimed).
+    const hasMedia =
+      (views.mediumLayout?.mediums?.length ?? 0) > 0 ||
+      bundle.artifacts.some((artifact) => artifact.kind === "prg");
     const lifecyclePhase = applyDiscoveryCoverageGate(
-      recommendedLifecyclePhase(workflowState?.currentPhaseId),
+      applyMediaFloor(recommendedLifecyclePhase(workflowState?.currentPhaseId), hasMedia),
       discoveryCoverageComplete(mediumCoverage),
     );
     return {

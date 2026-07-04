@@ -90,6 +90,20 @@ export function recommendedLifecyclePhase(currentPhaseId: string | undefined | n
 }
 
 /**
+ * Media floor: a project with registered input media is at least in Discovery,
+ * even when the workflow state has no explicit phase yet (recommendedLifecyclePhase
+ * then defaults to onboarding). Onboarding = "capture the goal + register media";
+ * once media is registered the work IS Discovery. Raise-only: it lifts
+ * onboarding→discovery but never lowers a later phase and never skips ahead. The
+ * coverage gate caps from above afterwards. Without media, unchanged.
+ */
+export function applyMediaFloor(recommended: LifecyclePhase, hasMedia: boolean): LifecyclePhase {
+  if (!hasMedia) return recommended;
+  const discoveryIndex = LIFECYCLE_ORDER.indexOf("discovery");
+  return LIFECYCLE_ORDER.indexOf(recommended) < discoveryIndex ? "discovery" : recommended;
+}
+
+/**
  * Discovery→RE content gate. Reverse Engineering (and everything after it) may
  * not begin while a medium still has a data-bearing block no payload/region has
  * claimed — the medium is not yet inventoried (Spec 773 §Discovery). This caps

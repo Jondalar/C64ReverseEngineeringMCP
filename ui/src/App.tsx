@@ -333,22 +333,33 @@ function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeM
   }
 
   if (phase === "discovery") {
+    // Block-coverage gate signal — display only (never triggers work). Aggregate
+    // over every medium; the per-medium detail rides in `missing` when unclaimed.
+    const coverage = snapshot.mediumCoverage ?? [];
+    const dataBlocks = coverage.reduce((n, c) => n + c.dataBlocks, 0);
+    const unclaimed = coverage.reduce((n, c) => n + c.unclaimedBlocks, 0);
+    const coverageComplete = coverage.length > 0 && unclaimed === 0;
+    const worst = [...coverage].filter((c) => c.unclaimedBlocks > 0).sort((a, b) => b.unclaimedBlocks - a.unclaimedBlocks);
     return {
       intent: "Open up the medium: extract and inventory every payload, map the loader / packer chain, and decide the analysis approach. Disk and Cartridge are the primary surfaces here.",
       known: [
         { label: "Input media", value: mediaSummary, ok: hasMedia },
         ...(disks ? [{ label: "Disk images", value: `${disks} mounted`, ok: true }] : []),
         ...(carts ? [{ label: "Cartridges", value: `${carts} mapped`, ok: true }] : []),
+        ...(coverage.length ? [{ label: "Block coverage", value: `${dataBlocks - unclaimed}/${dataBlocks} data blocks attributed${unclaimed ? ` · ${unclaimed} unclaimed` : ""}`, ok: coverageComplete }] : []),
         { label: "Loader model", value: loaderModel ?? "not identified", ok: !!loaderModel },
         { label: "Findings so far", value: String(findings), ok: findings > 0 },
       ],
       missing: [
         ...(hasMedia ? [] : ["No input media registered"]),
         ...(loaderModel ? [] : ["Loader / packer chain not identified"]),
+        ...worst.map((c) => `${c.unclaimedBlocks} data block${c.unclaimedBlocks === 1 ? "" : "s"} unclaimed on ${c.mediumLabel}`),
       ],
       next: !hasMedia
         ? "Register and extract the input media first."
-        : "Inventory the medium in Disk / Cartridge / Payloads, then identify the loader/packer chain — move to Reverse Engineering once payloads are mapped.",
+        : unclaimed > 0
+          ? `${unclaimed} data block${unclaimed === 1 ? "" : "s"} still unclaimed — start at the stock DOS directory, disassemble the loader files (full breadth), and let its drivecode tables attribute the remaining tracks. Discovery completes at 0 unclaimed.`
+          : "Inventory mapped — identify the loader/packer chain, then move to Reverse Engineering once payloads are mapped.",
       tools: [
         { label: "Disk", phase: "discovery", tab: "disk" },
         { label: "Cartridge", phase: "discovery", tab: "cartridge" },

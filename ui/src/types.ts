@@ -600,7 +600,19 @@ export interface WorkspaceUiSnapshot {
   };
   // Spec 773 — derived recommended lifecycle phase + captured project brief.
   lifecyclePhase?: LifecyclePhaseId;
+  // Discovery→RE block-coverage gate signal, uniform over disk + cart. Display
+  // only: shows why Discovery is (in)complete; it never triggers work itself.
+  mediumCoverage?: MediumBlockCoverage[];
   projectProfile?: ProjectProfileBrief;
+}
+
+export interface MediumBlockCoverage {
+  mediumRef: string;
+  mediumKind: "disk" | "cartridge";
+  mediumLabel: string;
+  dataBlocks: number;
+  attributedBlocks: number;
+  unclaimedBlocks: number;
 }
 
 export type ProjectAuditSeverity = "ok" | "low" | "medium" | "high";

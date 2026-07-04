@@ -5,7 +5,7 @@
 // chips resolve to the same {dataBlocks, attributed, unclaimed} shape — no
 // disk/cart branch above the block. Run: npm run e2e:medium-coverage (build:mcp first).
 import { computeDiscoveryCoverage, discoveryCoverageComplete } from "../dist/project-knowledge/medium-coverage.js";
-import { applyDiscoveryCoverageGate } from "../dist/agent-orchestrator/lifecycle.js";
+import { applyDiscoveryCoverageGate, applyMediaFloor } from "../dist/agent-orchestrator/lifecycle.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
@@ -70,6 +70,11 @@ ok(discoveryCoverageComplete(cov) === false, "unclaimed data present → discove
 ok(applyDiscoveryCoverageGate("re", false) === "discovery", "gate caps re→discovery while incomplete");
 ok(applyDiscoveryCoverageGate("re", true) === "re", "gate is a no-op once complete");
 ok(applyDiscoveryCoverageGate("onboarding", false) === "onboarding", "gate never advances onboarding→discovery");
+// media floor: a media-loaded project reads as Discovery even with no explicit phase.
+ok(applyMediaFloor("onboarding", true) === "discovery", "media floor raises onboarding→discovery");
+ok(applyMediaFloor("onboarding", false) === "onboarding", "no media → floor is a no-op");
+ok(applyMediaFloor("re", true) === "re", "floor never lowers a later phase");
+ok(applyDiscoveryCoverageGate(applyMediaFloor("onboarding", true), false) === "discovery", "floor+gate: media + unclaimed → Discovery (the Pawn/onboarding case)");
 
 // complete case: drop the unclaimed sectors + fully claim chip1.
 const done = JSON.parse(JSON.stringify(view));
