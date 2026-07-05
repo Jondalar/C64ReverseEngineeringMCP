@@ -82,11 +82,31 @@ export const CRACK_DISCOVERY_STEERING = `${CRACK_DISCOVERY_TOKEN}
   block→payload model above is uniform. **Emulation is the validation oracle /
   physics-blocked fallback — never the default bulk path.**`;
 
+/** Tooling discipline — MCP disconnect + reuse, don't reimplement (2026-07-05). */
+export const TOOLING_DISCIPLINE_MARKER = "Tooling discipline — MCP disconnect + reuse";
+export const TOOLING_DISCIPLINE_TOKEN = "<!-- tooling-discipline-v1 -->";
+export const TOOLING_DISCIPLINE_STEERING = `${TOOLING_DISCIPLINE_TOKEN}
+## ${TOOLING_DISCIPLINE_MARKER} — always apply)
+- **MCP disconnected ⇒ STOP + reconnect.** If the c64-re MCP drops mid-work, halt and ask
+  the user to \`/mcp\` reconnect. Do NOT keep going on your own. The MCP disconnecting is a
+  known, recurring hiccup — treat it as "pause", never "improvise".
+- **Never reimplement what the tooling already ships.** Do not hand-write your own
+  disassembler / extractor / packer (Python or anything) to route around a dropped MCP or
+  a missing tool. The pipeline delivers it byte-identical already
+  (\`pipeline/src/lib/prg-disasm.ts\`: Spec 720 function-boxes, auto-labels, cross-refs).
+  Reflexively rebuilding it = double work + new bugs (byte-loss, unresolved symbols). If
+  work truly must continue while disconnected, run the EXISTING pipeline scripts directly
+  (node/tsx \`pipeline/\`) — never a reimplementation.
+- **This is a flight-reflex.** Reaching for your own quick build under friction is the
+  same reflex as reaching for a trace instead of reading the code — the fast, wrong path.
+  Stop, reconnect, reuse.`;
+
 interface SteeringBlock { token: string; marker: string; body: string; }
 const STEERING_BLOCKS: SteeringBlock[] = [
   { token: EXTRACT_FIRST_TOKEN, marker: EXTRACT_FIRST_MARKER, body: EXTRACT_FIRST_STEERING },
   { token: RECONCILE_TOKEN, marker: RECONCILE_MARKER, body: RECONCILE_STEERING },
   { token: CRACK_DISCOVERY_TOKEN, marker: CRACK_DISCOVERY_MARKER, body: CRACK_DISCOVERY_STEERING },
+  { token: TOOLING_DISCIPLINE_TOKEN, marker: TOOLING_DISCIPLINE_MARKER, body: TOOLING_DISCIPLINE_STEERING },
 ];
 
 /**
