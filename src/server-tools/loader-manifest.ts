@@ -159,3 +159,33 @@ export function mediumDerivationForKind(kind: string): MediumDerivation {
       return "custom-lut";
   }
 }
+
+// Spec 784 GAP 4 — chain-completeness. Sum the DATA bytes the SECTOR spans cover (cart
+// slot spans are Spec 785, excluded) and count them.
+export function sectorSpanCoverage(spans: ReadonlyArray<{ kind: string; length: number }>): { bytes: number; sectors: number } {
+  let bytes = 0;
+  let sectors = 0;
+  for (const s of spans) {
+    if (s.kind === "sector") { bytes += s.length; sectors++; }
+  }
+  return { bytes, sectors };
+}
+
+// Soft chain guard (Spec 784 GAP 4): a payload whose extracted blob has MORE bytes than
+// its declared sector spans cover has an INCOMPLETE chain — the start-only case is the
+// Pawn 168/1329 bug, and the disk view / validate_extraction then see fewer sectors than
+// the payload occupies. Returns a warning string, or undefined when nothing to flag (no
+// sector spans, unknown blob size, or full coverage). NEVER blocks registration.
+export function chainCoverageWarning(
+  name: string,
+  fileBytes: number | undefined,
+  spans: ReadonlyArray<{ kind: string; length: number }>,
+): string | undefined {
+  if (fileBytes === undefined || fileBytes <= 0) return undefined;
+  const { bytes: coverage, sectors } = sectorSpanCoverage(spans);
+  if (sectors === 0) return undefined; // cart/slot-only or no disk spans — not a chain
+  if (fileBytes > coverage) {
+    return `${name}: extracted blob is ${fileBytes} bytes but its ${sectors} declared sector span(s) cover only ${coverage} — the block chain looks incomplete (start-only?). Declare the FULL sector chain so the disk view + validate_extraction see every sector.`;
+  }
+  return undefined;
+}

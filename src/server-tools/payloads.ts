@@ -7,7 +7,7 @@ import { subjectIdForArtifact } from "../project-knowledge/artifact-versions.js"
 import { autoAnalyzeExtractedPayloads, summarizeAutoChain } from "../lib/extract-auto-chain.js";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
-import { validateManifest, mediumDerivationForKind } from "./loader-manifest.js";
+import { validateManifest, mediumDerivationForKind, chainCoverageWarning } from "./loader-manifest.js";
 import { registerManifestPayloads } from "./manifest-register.js";
 
 const PAYLOAD_FORMATS = [
@@ -97,7 +97,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       address_start: z.number().int().min(0).max(0xffff).optional().describe("Start of the runtime range covered by this payload. Defaults to load_address."),
       address_end: z.number().int().min(0).max(0xffff).optional().describe("End of the runtime range. Defaults to load_address + length - 1 if depacked."),
       bank: z.number().int().nonnegative().optional(),
-      medium_spans: z.array(mediumSpanSchema).optional().describe("Where this payload lives on its source medium. Use sector{track,sector,length} for disk, slot{bank,slot,length} for cart."),
+      medium_spans: z.array(mediumSpanSchema).optional().describe("Where this payload lives on its source medium — the FULL sector chain, not just the start (a custom-fastloader chain has no auto-traversal; compute + pass every sector). Use sector{track,sector,length} for disk, slot{bank,slot,length} for cart. If the source blob has more bytes than the spans cover, a soft chain-coverage warning is emitted (start-only = the Pawn 168/1329 bug)."),
       tags: z.array(z.string()).optional(),
     },
     safeHandler("register_payload", async (args) => {
@@ -191,6 +191,15 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         ],
         tags: args.tags,
       });
+      // Spec 784 GAP 4 — soft chain-completeness guard: if the extracted source blob has
+      // MORE bytes than the declared sector spans cover, the chain is incomplete
+      // (start-only = the Pawn 168/1329 bug). Warn; never block the registration.
+      let fileBytes: number | undefined;
+      if (sourceArtifactId) {
+        const srcPath = service.listArtifacts().find((a) => a.id === sourceArtifactId)?.path;
+        if (srcPath && existsSync(srcPath)) fileBytes = statSync(srcPath).size;
+      }
+      const coverageWarn = chainCoverageWarning(entity.name, fileBytes, args.medium_spans ?? []);
       return textContent([
         `Payload registered.`,
         `ID: ${entity.id}`,
@@ -200,6 +209,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         `Source artifact: ${entity.payloadSourceArtifactId ?? "(none)"}`,
         `Depacked artifact: ${entity.payloadDepackedArtifactId ?? "(none)"}`,
         `ASM artifacts: ${(entity.payloadAsmArtifactIds ?? []).length}`,
+        ...(coverageWarn ? [``, `⚠ Chain coverage: ${coverageWarn}`] : []),
       ].join("\n"));
     },
 ));
@@ -264,7 +274,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         return service.listArtifacts().find((a) => a.path === bytesAbs)?.id;
       };
 
-      const { registered, perModel } = registerManifestPayloads({
+      const { registered, perModel, warnings } = registerManifestPayloads({
         service, projectRoot, manifest, manifestArtifactId, resolveImage, registerSourceArtifact,
       });
 
@@ -277,6 +287,8 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         ...modelLines,
         `Manifest artifact: ${manifestArtifactId ?? "(unregistered)"}`,
         `Idempotent: re-run updates in place (stable per-name id + content-hash dedup).`,
+        // Spec 784 GAP 4 — surface incomplete-chain warnings (soft; registration stood).
+        ...(warnings.length ? [``, `⚠ Chain coverage (${warnings.length}):`, ...warnings.map((w) => `  - ${w}`)] : []),
       ].join("\n"));
     },
 ));

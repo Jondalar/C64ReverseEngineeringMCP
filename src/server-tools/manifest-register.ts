@@ -1,7 +1,7 @@
 import { resolve, basename } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import type { ProjectKnowledgeService } from "../project-knowledge/service.js";
-import { mediumDerivationForKind, type LoaderManifest } from "./loader-manifest.js";
+import { mediumDerivationForKind, chainCoverageWarning, type LoaderManifest } from "./loader-manifest.js";
 
 // Spec 784 B2 — the medium-agnostic manifest→payload registration core.
 // Extracted from the register_payloads_from_manifest tool handler so it is testable
@@ -18,6 +18,9 @@ export type RegisterSourceArtifactFn = (
 export interface ManifestRegisterResult {
   registered: number;
   perModel: Record<string, number>;
+  // Spec 784 GAP 4 — soft chain-completeness warnings (payload blob bigger than its
+  // declared sector spans cover). Never blocks registration.
+  warnings: string[];
 }
 
 export function registerManifestPayloads(opts: {
@@ -48,18 +51,27 @@ export function registerManifestPayloads(opts: {
 
   let registered = 0;
   const perModel: Record<string, number> = {};
+  const warnings: string[] = [];
 
   for (const p of manifest.payloads) {
     const model = modelById.get(p.derivedBy)!; // validateManifest guarantees this resolves
     const spanDerivedBy = mediumDerivationForKind(model.kind);
 
     let sourceArtifactId: string | undefined;
-    if (p.bytesPath && registerSourceArtifact) {
+    // Prefer the real blob size on disk; fall back to the manifest's declared length.
+    let fileBytes: number | undefined = p.length ?? undefined;
+    if (p.bytesPath) {
       const bytesAbs = resolve(projectRoot, p.bytesPath);
       if (existsSync(bytesAbs)) {
-        sourceArtifactId = registerSourceArtifact(bytesAbs, p.format === "prg" ? "prg" : "raw", p.name);
+        fileBytes = statSync(bytesAbs).size;
+        if (registerSourceArtifact) {
+          sourceArtifactId = registerSourceArtifact(bytesAbs, p.format === "prg" ? "prg" : "raw", p.name);
+        }
       }
     }
+    // Spec 784 GAP 4 — soft chain-completeness check (blob bytes vs sector coverage).
+    const coverageWarn = chainCoverageWarning(p.name, fileBytes, p.spans);
+    if (coverageWarn) warnings.push(coverageWarn);
 
     const addrStart = p.addressStart ?? p.loadAddress ?? undefined;
     const addrEnd = p.addressEnd ?? undefined;
@@ -91,5 +103,5 @@ export function registerManifestPayloads(opts: {
     perModel[model.id] = (perModel[model.id] ?? 0) + 1;
   }
 
-  return { registered, perModel };
+  return { registered, perModel, warnings };
 }
