@@ -79,6 +79,12 @@ export function convertKickAsmToTass(kickAsm: string): string {
       converted = converted.replace(/\/\*\s*(.*?)\s*\*\//, "; $1");
     }
 
+    // Forced-absolute mnemonic: KickAss `sta.abs $0074` → 64tass `sta @w $0074`.
+    // Anchored to a leading-indent + 3-letter mnemonic so a comment mentioning ".abs"
+    // is never touched. Both force the 3-byte absolute form on a zeropage operand
+    // (byte-identity for e.g. 8D 74 00 that would otherwise shrink to 85 74).
+    converted = converted.replace(/^(\s+)([A-Za-z]{3})\.abs\b/, "$1$2 @w");
+
     // Line comments: // → ;
     converted = convertLineComment(converted);
 

@@ -635,19 +635,17 @@ function requiresExactWidthRendering(
   );
 }
 
-function renderInstructionBytesWithDecodedComment(
-  instruction: Pick<InstructionFact, "bytes" | "mnemonic" | "addressingMode" | "operandValue" | "targetAddress">,
-  labels: Set<number>,
-  instructionOwnerByAddress: Map<number, number>,
-  segmentOwnerByAddress: Map<number, number>,
-): { asm: string; comment: string } {
-  const asm = `.byte ${instruction.bytes.map((value) => `$${formatHex8(value)}`).join(", ")}`;
-  const operand = operandTextFromFact(instruction, labels, instructionOwnerByAddress, segmentOwnerByAddress);
-  const decoded = operand ? `${instruction.mnemonic} ${operand}` : instruction.mnemonic;
-  return {
-    asm,
-    comment: `// exact-width ${decoded}`,
-  };
+// Render an instruction's asm, forcing the ABSOLUTE (3-byte) form when the original
+// encoding was absolute but the operand is in zeropage range ($00-$FF) — e.g.
+// `STA $0074` (8D 74 00), which a naive reassembly would shrink to the 2-byte ZP form
+// (85 74) and break byte-identity + shift every following label. KickAss forces it with
+// the `.abs` mnemonic suffix (`sta.abs $0074`); the tass-converter maps `.abs` → 64tass
+// `@w`. This keeps the line READABLE code instead of the old `.byte $8D,$74,$00` blob —
+// a big chunk of what read as `.byte` noise before. `exactWidth` =
+// requiresExactWidthRendering for the instruction.
+function renderMnemonicAsm(mnemonic: string, operand: string | undefined, exactWidth: boolean): string {
+  if (!operand) return mnemonic;
+  return exactWidth ? `${mnemonic}.abs ${operand}` : `${mnemonic.padEnd(5)}${operand}`;
 }
 
 function renderUndocumentedInstructionBytes(instruction: Pick<InstructionFact, "bytes" | "mnemonic" | "opcode">): { asm: string; comment: string } {
@@ -2247,15 +2245,6 @@ function renderCodeSegment(
       const rendered = renderUndocumentedInstructionBytes(instruction);
       asm = rendered.asm;
       targetComment = rendered.comment;
-    } else if (requiresExactWidthRendering(instruction)) {
-      const rendered = renderInstructionBytesWithDecodedComment(
-        instruction,
-        context.labelSet,
-        context.instructionOwnerByAddress,
-        context.segmentOwnerByAddress,
-      );
-      asm = rendered.asm;
-      targetComment = rendered.comment;
     } else {
       const operand = operandTextFromFact(
         instruction,
@@ -2264,7 +2253,9 @@ function renderCodeSegment(
         context.segmentOwnerByAddress,
         context.operandOverrides.get(instruction.address),
       );
-      asm = operand ? `${instruction.mnemonic.padEnd(5)}${operand}` : instruction.mnemonic;
+      // Exact-width (abs form with a zeropage operand) forces `.abs` so the rebuild
+      // stays byte-identical while remaining readable code, not a .byte blob.
+      asm = renderMnemonicAsm(instruction.mnemonic, operand, requiresExactWidthRendering(instruction));
       targetComment = generateInstructionComment(instruction, prevInstruction, context);
       // Fall back to simple IO comment if generator returned empty
       if (!targetComment) {
@@ -2352,17 +2343,15 @@ function renderLegacy(prg: PrgImage, entryPoints: number[], lines: string[]): vo
           if (requiresUndocumentedByteRendering(instruction)) {
             return renderUndocumentedInstructionBytes(instruction).asm;
           }
-          const operand = operandTextFromFact(
-            {
-              addressingMode: instruction.mode,
-              operandValue: instruction.operand,
-              targetAddress: instruction.targetAddress,
-            },
-            labels,
-            ownerByAddress,
-            ownerByAddress,
-          );
-          return operand ? `${instruction.mnemonic.padEnd(5)}${operand}` : instruction.mnemonic;
+          const factShape = {
+            addressingMode: instruction.mode,
+            operandValue: instruction.operand,
+            targetAddress: instruction.targetAddress,
+          };
+          const operand = operandTextFromFact(factShape, labels, ownerByAddress, ownerByAddress);
+          // Force `.abs` for the abs-with-zeropage-operand case — otherwise KickAss/64tass
+          // shrink it to the 2-byte ZP form and byte-identity breaks (the segment-override bug).
+          return renderMnemonicAsm(instruction.mnemonic, operand, requiresExactWidthRendering(factShape));
         })();
     const comment = instruction.isUnknown
       ? ""
@@ -2548,13 +2537,10 @@ function emitRelocCodeRange(
       : requiresUndocumentedByteRendering(instruction)
         ? renderUndocumentedInstructionBytes(instruction).asm
         : (() => {
-            const operand = operandTextFromFact(
-              { addressingMode: instruction.mode, operandValue: instruction.operand, targetAddress: instruction.targetAddress },
-              labels,
-              ownerByAddress,
-              ownerByAddress,
-            );
-            return operand ? `${instruction.mnemonic.padEnd(5)}${operand}` : instruction.mnemonic;
+            const factShape = { addressingMode: instruction.mode, operandValue: instruction.operand, targetAddress: instruction.targetAddress };
+            const operand = operandTextFromFact(factShape, labels, ownerByAddress, ownerByAddress);
+            // Force `.abs` for abs-with-zeropage-operand so the relocated rebuild stays byte-identical.
+            return renderMnemonicAsm(instruction.mnemonic, operand, requiresExactWidthRendering(factShape));
           })();
     let comment = instruction.isUnknown
       ? ""
