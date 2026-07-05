@@ -447,14 +447,20 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // daemon session is built producers-on (Spec 746.1) so iec/drive/memory have data.
   server.tool(
     "runtime_trace_start",
-    "Start a streaming trace on a RUNNING session (no need to pre-declare trace_out at session_start). Use to begin capturing the live shared session's execution into a .c64retrace binary timeline (the authority) + a queryable trace.duckdb index. Pick domains (default c64-cpu+memory; add drive8-cpu/iec/vic for the full picture). Then drive with runtime_session_run, stamp phases with runtime_mark, finalize with runtime_trace_finalize, and read the swimlane/offline-stepping with runtime_swimlane_slice / query with trace_store_*. Not for a one-shot scenario (use runtime_session_start trace_out=). Inputs: session_id, optional domains, optional output path. Returns: runId + store path + domains.",
+    "Start a streaming trace on a RUNNING session (no need to pre-declare trace_out at session_start). Use to begin capturing the live shared session's execution into a .c64retrace binary timeline (the authority) + a queryable trace.duckdb index. Pick domains (default c64-cpu+memory; add drive8-cpu/iec/vic for the full picture). Then drive with runtime_session_run, stamp phases with runtime_mark, finalize with runtime_trace_finalize, and read the swimlane/offline-stepping with runtime_swimlane_slice / query with trace_store_*. Not for a one-shot scenario (use runtime_session_start trace_out=). DISCIPLINE: a broad trace CONFIRMS a hypothesis you formed by READING the code — it is not a way to find structure. You MUST pass `hypothesis` (a concrete $address + what you read that points there) or the call is refused. Inputs: session_id, hypothesis, optional domains, optional output path. Returns: runId + store path + domains.",
     {
       session_id: z.string(),
+      hypothesis: z.string().optional().describe("REQUIRED (read-before-trace gate): the read-derived reason for this trace — a concrete $address you are investigating + what you READ that points there (a routine, annotation, or finding). E.g. \"$C000 should hold the manual-check result; input routine at $B800 stores the typed word there\". Fishing (no address / no rationale) is refused — read the code first (disasm_prg / inspect_address_range / project_search), form the hypothesis, THEN trace to confirm it."),
       domains: z.array(z.enum(["c64-cpu", "drive8-cpu", "iec", "vic", "sid", "memory", "drive-mechanism"])).optional()
         .describe("Trace domains. Default ['c64-cpu','memory']. The CPU firehose is the swimlane truth; add drive8-cpu/iec for IEC-bus + drive stepping, vic for raster. Spec 784: 'drive-mechanism' arms the 1541 head (track/sector) lane for a loader-lens capture — read it with runtime_loader_lens."),
       output: z.string().optional().describe("Path (abs or under the project) for the trace store. Default traces/live_<ts>.duckdb."),
     },
-    safeHandler("runtime_trace_start", async ({ session_id, domains, output }) => {
+    safeHandler("runtime_trace_start", async ({ session_id, hypothesis, domains, output }) => {
+      // Read-before-trace discipline gate: refuse a fished trace (no read-derived
+      // hypothesis). Runtime confirms a hypothesis; it does not find one.
+      const { checkTraceDiscipline } = await import("./discipline-gate.js");
+      const gate = checkTraceDiscipline(hypothesis);
+      if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const doms = domains ?? ["c64-cpu", "memory"];
       const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
       if (isDaemonMode()) {
