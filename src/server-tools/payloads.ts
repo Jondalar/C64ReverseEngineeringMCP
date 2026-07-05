@@ -206,7 +206,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
   server.tool(
     "register_payloads_from_manifest",
-    "Bulk-register every payload from a loader-extraction manifest (Spec 784) — the medium-agnostic path from a per-project extractor's output to first-class C64RE payloads. Reads + validates the manifest JSON (loaderModels[] + payloads[] each with derivedBy=LoaderModel-id and its FULL ordered medium spans), then registers each payload with its full medium_spans (never start-only — the Pawn 168/1329 bug), the span-level provenance derived from its LoaderModel kind, a content hash, its source blob, and an evidence link to the manifest. Idempotent (stable per-name id + hash dedup). Disk-sector and cart-slot spans register through the SAME path. Use after authoring a per-project extractor; not for a single hand-carved block (use register_payload).",
+    "Bulk-register every payload from a loader-extraction manifest (Spec 784) — the medium-agnostic path from a per-project extractor's output to first-class C64RE payloads. Reads + validates the manifest JSON (loaderModels[] + payloads[] each with derivedBy=LoaderModel-id and its FULL ordered medium spans), then registers each payload with its full medium_spans (never start-only — the Pawn 168/1329 bug), the span-level provenance derived from its LoaderModel kind, a content hash, its source blob, and an evidence link to the manifest. Idempotent (stable per-name id + hash dedup). Disk-sector and cart-slot spans register through the SAME path. Full manifest field reference + a worked example: docs/spec784-manifest-reference.md. extract_disk auto-emits this shape for the stock-DOS layer (manifest.spec784.json). Use after authoring a per-project extractor; not for a single hand-carved block (use register_payload).",
     {
       project_dir: z.string().optional(),
       manifest_path: z.string().describe("Path (relative to the project) to the extractor manifest JSON."),
@@ -225,7 +225,12 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       }
       const result = validateManifest(raw);
       if (!result.ok || !result.manifest) {
-        throw new Error(`invalid manifest:\n- ${result.errors.join("\n- ")}`);
+        throw new Error(
+          `invalid manifest:\n- ${result.errors.join("\n- ")}\n\n` +
+          `Shape: { manifestVersion:1, extractor, loaderModels[{id,kind}], payloads[{name, derivedBy=<a loaderModels[].id>, spans[{kind:"sector",track,sector,length}] }] }.\n` +
+          `Full field reference + a worked example: docs/spec784-manifest-reference.md. ` +
+          `extract_disk auto-emits this shape for the stock-DOS layer as manifest.spec784.json.`,
+        );
       }
       const manifest = result.manifest;
 
@@ -355,7 +360,11 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       if (!models.length) {
         return textContent("No LoaderModels recorded. Register payloads via register_payloads_from_manifest.");
       }
-      const payloads = service.listEntities().filter((e) => e.kind === "payload");
+      // Spec 784 (GAP 2): count every payload-bearing entity kind (a DOS file is a
+      // `disk-file`, a cart chunk `cart-chunk`, etc.), not only `payload` — else a
+      // kernal-directory model's DOS files read as 0.
+      const payloadKinds = new Set(["payload", "disk-file", "cart-chunk", "chip"]);
+      const payloads = service.listEntities().filter((e) => payloadKinds.has(e.kind));
       const lines = [`${models.length} LoaderModel(s):`];
       for (const m of models) {
         const n = payloads.filter((p) => p.payloadLoaderModelId === m.id).length;

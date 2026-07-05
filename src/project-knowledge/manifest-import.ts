@@ -75,6 +75,10 @@ export interface ImportedManifestKnowledge {
     // Keystone: block→payload placement on the medium + which representation
     // derived it (kernal-directory / custom-lut / cart-lut).
     mediumSpans?: EntityRecord["mediumSpans"];
+    // Spec 784 (GAP 2): the LoaderModel that produced this payload (= the span-level
+    // `derivedBy`). The service creates the matching LoaderModel record on import so the
+    // DOS files show under list_loader_models with kernal-directory provenance.
+    payloadLoaderModelId?: string;
   }>;
   findings: Array<{
     id: string;
@@ -210,6 +214,10 @@ export function importManifestKnowledge(artifact: ArtifactRecord): ImportedManif
         payloadSourceArtifactId: artifact.id,
         payloadContentHash: contentHash,
         mediumSpans,
+        // Spec 784 (GAP 2): link the file to its LoaderModel (kernal-directory for a
+        // stock directory entry, custom-lut for an on-disk LUT entry). The service
+        // creates the matching LoaderModel record so it appears in list_loader_models.
+        payloadLoaderModelId: derivedBy,
         tags: ["manifest-import", "disk-file", "payload", file.type ?? "unknown"],
       };
     });

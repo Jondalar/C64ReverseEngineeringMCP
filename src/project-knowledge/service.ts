@@ -4632,6 +4632,22 @@ export class ProjectKnowledgeService {
     for (const entity of imported.entities) {
       this.saveEntity(entity);
     }
+    // Spec 784 (GAP 2): create the LoaderModel record(s) the imported payloads reference
+    // via payloadLoaderModelId, so a disk extraction's DOS files show under
+    // list_loader_models with kernal-directory provenance (idempotent by id).
+    const seededModels: Record<string, { kind: string; indexLocation?: string; notes?: string }> = {
+      "kernal-directory": { kind: "dos", indexLocation: "track 18 (BAM + directory)", notes: "Stock CBM-DOS directory + sector-linked files (KERNAL-loadable)." },
+      "custom-lut": { kind: "custom-lut", notes: "On-disk look-up-table entries (non-directory)." },
+    };
+    const referencedModelIds = new Set(
+      imported.entities
+        .map((e) => (e as { payloadLoaderModelId?: string }).payloadLoaderModelId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    );
+    for (const modelId of referencedModelIds) {
+      const seed = seededModels[modelId] ?? { kind: modelId };
+      this.saveLoaderModel({ id: modelId, kind: seed.kind, indexLocation: seed.indexLocation, notes: seed.notes });
+    }
     for (const finding of imported.findings) {
       this.saveFinding(finding);
     }

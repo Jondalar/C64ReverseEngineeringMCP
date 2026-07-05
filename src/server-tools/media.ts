@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runCli } from "../run-cli.js";
 import { extractDiskImage, readDiskDirectory } from "../disk-extractor.js";
+import { writeDiskSpec784Manifest } from "./disk-spec784-manifest.js";
 import { diskSectorAllocation, extractDiskCustomLut, suggestDiskLutSector } from "../disk-custom-lut.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { autoAnalyzeExtractedPayloads, summarizeAutoChain, linkExtractedPayloadFiles } from "../lib/extract-auto-chain.js";
@@ -133,6 +134,15 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
           ? resolve(pd, output_dir)
           : diskDefaultOutputDir(pd, imageAbs);
         const manifest = extractDiskImage(imageAbs, outAbs);
+        // Spec 784 (GAP 2) — emit a Spec-784 manifest for the stock-DOS layer alongside
+        // the legacy manifest, so validate_extraction can diff the DOS files against the
+        // loader-lens read-set and they carry an explicit kernal-directory LoaderModel.
+        // Soft: a failure here never breaks the extraction.
+        let spec784Path: string | undefined;
+        try {
+          const s784 = writeDiskSpec784Manifest(manifest, pd);
+          spec784Path = s784?.path;
+        } catch { /* soft — legacy manifest + entity import still land */ }
         const knowledgeRegistration = context.tryRegisterKnowledgeArtifacts(pd, {
           toolName: "extract_disk",
           title: `Extract disk: ${basename(imageAbs)}`,
@@ -164,6 +174,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
           `Disk: ${manifest.diskName} [${manifest.diskId}]`,
           `Output: ${manifest.outputDir}`,
           `Manifest: ${manifest.manifestPath}`,
+          ...(spec784Path ? [`Spec-784 manifest: ${spec784Path} (register_payloads_from_manifest / validate_extraction ready)`] : []),
           `Knowledge written to: ${join(pd, "knowledge")}`,
           "",
           ...manifest.files.map((file) => {
