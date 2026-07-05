@@ -2441,6 +2441,7 @@ function emptyAnnotationsIndex(): AnnotationsIndex {
     pointerTables: [],
     jumpTables: [],
     immediatesByAddress: new Map(),
+    skipped: [],
   };
 }
 
@@ -2714,7 +2715,21 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     ?? (outputPath ? loadAnnotations(resolve(outputPath)) : undefined)
     ?? (options.analysisPath ? loadAnnotations(resolve(options.analysisPath)) : undefined);
   if (annotationsFile && analysisContext) {
-    analysisContext.annotations = buildAnnotationsIndex(annotationsFile);
+    const idx = buildAnnotationsIndex(annotationsFile);
+    analysisContext.annotations = idx;
+    // GAP 3 — make tolerant-skip visible: one ordered summary of what applied vs what
+    // was dropped (a mistyped field key like `addr`/`name` drops the entry silently
+    // otherwise). Goes to the pipeline stdout the disasm_prg tool returns.
+    const applied = idx.labelsByAddress.size + idx.segmentAnnotations.length + idx.routinesByAddress.size
+      + idx.pointerTables.length + idx.jumpTables.length + idx.immediatesByAddress.size;
+    if (idx.skipped.length > 0) {
+      console.log(`[annotations] applied ${applied}, skipped ${idx.skipped.length}:`);
+      for (const s of idx.skipped) {
+        console.log(`  - ${s.section}: ${s.reason}${s.hint ? ` — ${s.hint}` : ""}`);
+      }
+    } else {
+      console.log(`[annotations] applied ${applied}, skipped 0`);
+    }
     applyAnnotationSegmentSplits(analysisContext);
     applyAnnotationDataTables(analysisContext, prg);
   }

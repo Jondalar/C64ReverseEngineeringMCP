@@ -106,6 +106,15 @@ export interface ImmediateIndexEntry {
   annotation: ImmediateAnnotation;
 }
 
+// One annotation entry the loader could not apply (tolerant skip — the rest still
+// apply). `hint` names the likely fix (e.g. a mistyped field key) so the drop is
+// actionable in the tool output instead of silently lost.
+export interface SkippedAnnotation {
+  section: "segment" | "label" | "routine" | "pointerTable" | "jumpTable" | "immediate";
+  reason: string;
+  hint?: string;
+}
+
 export interface AnnotationsIndex {
   segmentsByStart: Map<number, SegmentAnnotation>;
   segmentAnnotations: Array<{ start: number; end: number; annotation: SegmentAnnotation }>;
@@ -114,6 +123,9 @@ export interface AnnotationsIndex {
   pointerTables: PointerTableIndexEntry[];
   jumpTables: JumpTableIndexEntry[];
   immediatesByAddress: Map<number, ImmediateIndexEntry>;
+  // Entries dropped during indexing (tolerant skip). Surfaced by disasm_prg so a
+  // mistyped field key (`addr`/`name`) is visible, not silently lost.
+  skipped: SkippedAnnotation[];
 }
 
 // Total (never throws): a manual annotation JSON may omit an address field, so
@@ -123,6 +135,16 @@ export interface AnnotationsIndex {
 // pipeline dying on `parseHex(undefined)`.
 function parseHex(hex: string | undefined): number {
   return parseInt(String(hex ?? "").replace(/^\$/, ""), 16);
+}
+
+// When a required field is missing, look for a COMMON mistyped key on the raw entry
+// (the analyst wrote `addr` for `address`, `name` for a label's `label`, etc.) and
+// return a targeted "did you mean" hint. Returns undefined when nothing obvious.
+function mistypedKeyHint(entry: unknown, expected: string, aliases: string[]): string | undefined {
+  if (!entry || typeof entry !== "object") return undefined;
+  const present = aliases.find((a) => a in (entry as Record<string, unknown>));
+  if (present) return `field "${present}" should be "${expected}"`;
+  return `missing "${expected}"`;
 }
 
 // A routine's `name` is descriptive prose ("Turn advance"); turn it into a valid
@@ -141,31 +163,54 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
   const pointerTables: PointerTableIndexEntry[] = [];
   const jumpTables: JumpTableIndexEntry[] = [];
   const immediatesByAddress = new Map<number, ImmediateIndexEntry>();
+  const skipped: SkippedAnnotation[] = [];
+  // Collect only; the caller (prg-disasm) prints one ordered summary so the drop is
+  // visible in the disasm_prg tool output, not scattered across the pipeline log.
+  const noteSkip = (s: SkippedAnnotation) => { skipped.push(s); };
 
-  for (const seg of annotations.segments) {
+  // Tolerant skip: a manual annotations JSON may omit a whole section (`?? []`) or a
+  // required field per entry — the bad entry is dropped (recorded in `skipped`) and the
+  // rest still apply, instead of the pipeline dying on `.segments is not iterable`.
+  for (const seg of annotations.segments ?? []) {
     const start = parseHex(seg.start);
     const end = parseHex(seg.end);
     if (Number.isNaN(start) || Number.isNaN(end)) {
-      console.warn(`[annotations] skipping segment with unparseable range: start=${seg.start} end=${seg.end}`);
+      noteSkip({
+        section: "segment",
+        reason: `unparseable range start=${seg.start} end=${seg.end}`,
+        hint: Number.isNaN(start) ? mistypedKeyHint(seg, "start", ["from", "begin", "addr", "address"]) : mistypedKeyHint(seg, "end", ["to", "stop"]),
+      });
       continue;
     }
     segmentsByStart.set(start, seg);
     segmentAnnotations.push({ start, end, annotation: seg });
   }
   const usedLabels = new Set<string>();
-  for (const lbl of annotations.labels) {
+  for (const lbl of annotations.labels ?? []) {
     const addr = parseHex(lbl.address);
     if (Number.isNaN(addr)) {
-      console.warn(`[annotations] skipping label with unparseable address: ${lbl.address} (${lbl.label})`);
+      noteSkip({
+        section: "label",
+        reason: `unparseable address=${lbl.address} (label=${lbl.label ?? "?"})`,
+        hint: mistypedKeyHint(lbl, "address", ["addr", "offset", "pc"]),
+      });
+      continue;
+    }
+    if (!lbl.label) {
+      noteSkip({ section: "label", reason: `address ${lbl.address} has no label`, hint: mistypedKeyHint(lbl, "label", ["name", "ident", "symbol"]) });
       continue;
     }
     labelsByAddress.set(addr, lbl);
     usedLabels.add(lbl.label);
   }
-  for (const rt of annotations.routines) {
+  for (const rt of annotations.routines ?? []) {
     const addr = parseHex(rt.address);
     if (Number.isNaN(addr)) {
-      console.warn(`[annotations] skipping routine with unparseable address: ${rt.address} (${rt.name ?? "?"})`);
+      noteSkip({
+        section: "routine",
+        reason: `unparseable address=${rt.address} (name=${rt.name ?? "?"})`,
+        hint: mistypedKeyHint(rt, "address", ["addr", "offset", "pc"]),
+      });
       continue;
     }
     routinesByAddress.set(addr, rt);
@@ -187,7 +232,7 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
     const start = parseHex(pt.start);
     const end = parseHex(pt.end);
     if (Number.isNaN(start) || Number.isNaN(end)) {
-      console.warn(`[annotations] skipping pointer-table with unparseable range: start=${pt.start} end=${pt.end}`);
+      noteSkip({ section: "pointerTable", reason: `unparseable range start=${pt.start} end=${pt.end}` });
       continue;
     }
     pointerTables.push({
@@ -202,7 +247,7 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
     const start = parseHex(jt.start);
     const end = parseHex(jt.end);
     if (Number.isNaN(start) || Number.isNaN(end)) {
-      console.warn(`[annotations] skipping jump-table with unparseable range: start=${jt.start} end=${jt.end}`);
+      noteSkip({ section: "jumpTable", reason: `unparseable range start=${jt.start} end=${jt.end}` });
       continue;
     }
     jumpTables.push({
@@ -215,7 +260,7 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
   for (const imm of annotations.immediates ?? []) {
     const address = parseHex(imm.address);
     if (Number.isNaN(address)) {
-      console.warn(`[annotations] skipping immediate with unparseable address: ${imm.address}`);
+      noteSkip({ section: "immediate", reason: `unparseable address=${imm.address}`, hint: mistypedKeyHint(imm, "address", ["addr", "offset", "pc"]) });
       continue;
     }
     immediatesByAddress.set(address, {
@@ -236,6 +281,26 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
     pointerTables,
     jumpTables,
     immediatesByAddress,
+    skipped,
+  };
+}
+
+// Normalize a hand-written annotations JSON into a safe shape: a non-object file or a
+// missing required section (segments / labels / routines) is coerced to [] so the
+// indexer never dies on `.labels is not iterable`. Individual bad ENTRIES are dropped
+// later (tolerant skip, recorded in AnnotationsIndex.skipped).
+function normalizeAnnotationsFile(raw: unknown): AnnotationsFile {
+  const obj = (raw && typeof raw === "object") ? (raw as Record<string, unknown>) : {};
+  const arr = (v: unknown) => (Array.isArray(v) ? v : []);
+  return {
+    version: typeof obj.version === "number" ? obj.version : 1,
+    binary: typeof obj.binary === "string" ? obj.binary : "",
+    segments: arr(obj.segments) as SegmentAnnotation[],
+    labels: arr(obj.labels) as LabelAnnotation[],
+    routines: arr(obj.routines) as RoutineAnnotation[],
+    pointerTables: arr(obj.pointerTables) as PointerTableAnnotation[],
+    jumpTables: arr(obj.jumpTables) as JumpTableAnnotation[],
+    immediates: arr(obj.immediates) as ImmediateAnnotation[],
   };
 }
 
@@ -243,7 +308,7 @@ export function loadAnnotations(prgPath: string, explicitPath?: string): Annotat
   if (explicitPath) {
     const p = resolve(explicitPath);
     if (existsSync(p)) {
-      return JSON.parse(readFileSync(p, "utf8")) as AnnotationsFile;
+      return normalizeAnnotationsFile(JSON.parse(readFileSync(p, "utf8")));
     }
   }
 
@@ -255,7 +320,7 @@ export function loadAnnotations(prgPath: string, explicitPath?: string): Annotat
 
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
-      return JSON.parse(readFileSync(candidate, "utf8")) as AnnotationsFile;
+      return normalizeAnnotationsFile(JSON.parse(readFileSync(candidate, "utf8")));
     }
   }
 
