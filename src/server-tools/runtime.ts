@@ -396,7 +396,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Snapshot diff between two VSF files ----
   server.tool(
     "runtime_diff_snapshots",
-    "Spec 246 — semantic diff between two VSF snapshot files. Returns RAM changedRanges + CPU/CIA/VIC/SID/PLA chip diffs.",
+    "Use to see exactly what changed between two VSF snapshot files — RAM changedRanges plus CPU/CIA/VIC/SID/PLA chip diffs. Not for a live memory read (use runtime_monitor_memory) or capturing a snapshot (use runtime_session_snapshot).",
     {
       a_path: z.string(),
       b_path: z.string(),
@@ -828,7 +828,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_input_load_vicerc",
-    "Spec 264 — Parse ~/.config/vice/vicerc and return joystick keyset bindings (KeySet2*, JoyDevice2). Bootstrap config from VICE settings.",
+    "Use to parse a VICE vicerc and read its joystick keyset bindings (KeySet2*, JoyDevice2) to bootstrap a config from existing VICE settings. Not for the c64re config file (use runtime_input_load_config) or saving (use runtime_input_save_config).",
     { vicerc_path: z.string().optional() },
     safeHandler("runtime_input_load_vicerc", async ({ vicerc_path }) => {
       const { loadVicerc } = await import("../runtime/headless/input/vicerc-loader.js");
@@ -839,7 +839,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_input_load_config",
-    "Spec 264 — Load InputConfig from ~/.config/c64re/joystick.json, bootstrapping from vicerc if file absent.",
+    "Use to load the joystick/keyboard InputConfig (from ~/.config/c64re/joystick.json, bootstrapping from vicerc if the file is absent) before driving input. Not for saving it (use runtime_input_save_config) or parsing a raw vicerc (use runtime_input_load_vicerc).",
     {
       config_path: z.string().optional(),
       vicerc_path: z.string().optional(),
@@ -853,7 +853,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_input_save_config",
-    "Spec 264 — Save InputConfig to ~/.config/c64re/joystick.json. Never touches vicerc.",
+    "Use to save the joystick/keyboard InputConfig to ~/.config/c64re/joystick.json (never touches vicerc). Not for loading it (use runtime_input_load_config).",
     {
       config: z.object({
         version: z.literal(1),
@@ -938,7 +938,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_snapshot_tree",
-    "Spec 268 — return the full branch tree for a rewind session. Requires session with active RewindManager.",
+    "Use to see the full branch tree of a rewind session — which checkpoints branch where. Not for capturing a checkpoint (use runtime_checkpoint_capture) or seeking/restoring one (use runtime_rewind). Requires a session with an active RewindManager.",
     { session_id: z.string() },
     safeHandler("runtime_snapshot_tree", async ({ session_id }) => {
       // Spec 744.4c slice 2c — route to the daemon's runtime/snapshot_tree (which
@@ -970,7 +970,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_promote_branch",
-    "Spec 268 — promote a transient rewind branch to a persistent Scenario record.",
+    "Use to keep a transient rewind branch as a persistent, replayable Scenario record. Not for a durable machine-state file (use runtime_session_snapshot) or capturing a checkpoint (use runtime_checkpoint_capture).",
     { session_id: z.string(), branch_id: z.string() },
     safeHandler("runtime_promote_branch", async ({ session_id, branch_id }) => {
       // Spec 744.4c slice 2c — route to the daemon's runtime/promote_branch.
@@ -1075,7 +1075,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_export_screenshot",
-    "Spec 269 — export PNG screenshot for a scenario. Runs scenario from start to atCycle (or end). Scale 1/2/4 for pixel-art upscale.",
+    "Use to export a PNG of a scenario's screen at a given cycle (runs the scenario from start to atCycle, or end; scale 1/2/4 for pixel-art upscale). Not for the live session screen (use runtime_render_screen) or moving video (use runtime_export_video).",
     {
       scenario_id: z.string(),
       out_path: z.string(),
@@ -1094,7 +1094,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_export_video",
-    "Spec 269 — export MP4 video for a scenario via ffmpeg (must be installed). PAL 50fps, RGBA + s16le piped to ffmpeg.",
+    "Use to export an MP4 of a scenario via ffmpeg (must be installed; PAL 50fps, RGBA + s16le piped to ffmpeg). Not for a single frame (use runtime_export_screenshot) or audio only (use runtime_export_audio).",
     {
       scenario_id: z.string(),
       out_path: z.string(),

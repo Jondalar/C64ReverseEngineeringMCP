@@ -39,9 +39,10 @@ ok(leak(/^headless_/).length === 0, "5 no headless_* in default", leak(/^headles
 ok(leak(/^runtime_drive(_session)?_|^runtime_diagnose_/).length === 0,
   "5a no runtime_drive_*/runtime_diagnose_* in default", leak(/^runtime_drive/).join(",") || "none");
 
-// 5b. no maintenance / bulk / sandbox in default.
-// Exception (Spec 730.1): bulk_create_cart_chunk_payloads is a product RE tool explicitly promoted.
-const BULK_EXCEPTIONS_730 = new Set(["bulk_create_cart_chunk_payloads"]);
+// 5b. no maintenance / bulk in default. Exceptions: product RE tools explicitly
+// promoted — bulk_create_cart_chunk_payloads (Spec 730.1) and the sandbox 6502 depack
+// tools (2026-07-05; run a game's own depacker — core loader/crypto RE, not maintenance).
+const BULK_EXCEPTIONS_730 = new Set(["bulk_create_cart_chunk_payloads", "sandbox_depack", "sandbox_6502_run"]);
 const bulk5b = leak(/^(backfill_|dedupe_|sandbox_|bulk_)|_(backfill|dedupe|repair)/).filter((n) => !BULK_EXCEPTIONS_730.has(n));
 ok(bulk5b.length === 0,
   "5b no maintenance/bulk/sandbox in default (bulk_create_cart_chunk_payloads excepted per Spec 730.1)", bulk5b.join(",") || "none");

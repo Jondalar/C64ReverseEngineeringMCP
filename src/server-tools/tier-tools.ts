@@ -129,6 +129,22 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Spec 748 (BUG-032) — persistent project STEERING (the steering-file analogue):
   // always-apply rules injected at the top of agent_onboard every session.
   "project_steering_set",
+  // 2026-07-05 — promote wrongly-hidden CORE RE tools. These were "advanced" only as
+  // bloat-collateral, but both clients (Claude Code + Codex) defer schemas, so hiding
+  // them cost discoverability for no gain (sandbox_depack was invisible even to search).
+  // The internal/maintenance plumbing stays advanced (facade discipline unchanged).
+  // Sandbox 6502 depack — run a game's OWN depacker/decryptor over packed bytes.
+  "sandbox_depack", "sandbox_6502_run",
+  // Time-travel / recorder (Specs 765/766/769) — checkpoints, dump-from-anchor, branch.
+  "runtime_checkpoint_capture", "runtime_checkpoint_list", "runtime_checkpoint_pin",
+  "runtime_checkpoint_restore", "runtime_checkpoint_unpin",
+  "runtime_recorder_dump", "runtime_recorder_list", "runtime_recorder_status",
+  "runtime_snapshot_tree", "runtime_promote_branch", "runtime_diff_snapshots",
+  // Runtime export + input-config (TRX64-runtime capabilities): render audio/video/
+  // screenshot from a run; load a keyboard/joystick config or a vicerc.
+  "runtime_export_audio", "runtime_export_video", "runtime_export_screenshot",
+  "runtime_session_export_audio", "runtime_input_load_config", "runtime_input_save_config",
+  "runtime_input_load_vicerc",
 ]);
 
 /** Documented cap on the default surface (probe fails if exceeded). Spec 725
@@ -146,7 +162,7 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * BUG-039 raised 109→110 (analysis_job_status — poll analyze_prg's job mode).
  * Spec 784 raised 110→114 (the loader-lens extraction chain: register_payloads_from_
  * manifest + validate_extraction + list_loader_models + runtime_loader_lens). */
-export const DEFAULT_TIER_CAP = 114;
+export const DEFAULT_TIER_CAP = 134;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

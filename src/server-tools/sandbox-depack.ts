@@ -27,7 +27,7 @@ function textContent(text: string) {
 export function registerSandboxDepackTool(server: McpServer, ctx: ServerToolContext): void {
   server.tool(
     "sandbox_depack",
-    "Generic sandbox-driven depacker. Run ANY 6502 depacker (the resident routine inside a custom loader) against ANY packed byte-blob without an MCP code change for each variant. The BWC bit-stream sandbox-depack helper is a domain-specific shim over this engine; new packer formats only need entry_pc + zeropage source-pointer convention. The depacker runs to sentinel RTS / stop_pc / max_steps in the sandbox CPU; the contiguous run of writes at dest_address (or the largest contiguous run anywhere) is returned as the unpacked bytes.",
+    "Run a game's OWN 6502 depacker/decryptor over packed bytes and get the plaintext back — the sandbox CPU executes the resident routine against ANY packed blob, no MCP code change per variant. Use when a payload is self-decrypting (XOR / RLE / custom crypto) so disasm_prg sees real code: point it at the resident loader, the depack entry_pc, and the zeropage source-pointer convention (default $52/$53). It runs to sentinel RTS / stop_pc / max_steps; the contiguous run of writes at dest_address (or the largest contiguous run) is returned as the unpacked bytes. Not for a standard packer (use try_depack / suggest_depacker); not for running arbitrary code (use sandbox_6502_run).",
     {
       project_dir: z.string().optional(),
       input_path: z.string().describe("Path to the packed source bytes (chip dump, disk file, raw blob)."),
