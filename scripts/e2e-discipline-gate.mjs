@@ -1,6 +1,13 @@
-// Read-before-runtime discipline gate — every flight-to-runtime door refuses a fished
-// call (no read-derived hypothesis). Run after build:mcp.
+// Read-before-runtime discipline gate — Tier 1 (form) every flight-to-runtime door refuses
+// a fished call; Tier 2 (substrate) the payload-extraction doors refuse a standard-GCR
+// static-depack. Run after build:mcp.
 import { checkTraceDiscipline, checkRuntimeDiscipline } from "../dist/server-tools/discipline-gate.js";
+import { checkSubstrateDiscipline } from "../dist/server-tools/substrate-gate.js";
+import { deriveSubstratePosture } from "../dist/project-knowledge/types.js";
+import { ProjectKnowledgeService } from "../dist/project-knowledge/service.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
@@ -47,6 +54,47 @@ ok(/falsifiab/i.test(rr), "runtime refusal explains falsifiability");
 // The tailored `act` clause appears (so each door reads distinctly) ---
 const r2 = checkRuntimeDiscipline(undefined, { tool: "trace_store_top_pcs", act: "ranking the hottest PCs (statistics)" }).refusal ?? "";
 ok(/ranking the hottest PCs/.test(r2) && /trace_store_top_pcs refused/.test(r2), "act clause is tool-tailored");
+
+// Tier 2 — substrate posture (pure) --------------------------------------------------------
+console.log("\ndiscipline-gate — Tier 2 substrate posture (pure)\n");
+const TS = "2026-07-06T00:00:00.000Z";
+const mkFile = (subs) => ({
+  media: Object.fromEntries(subs.map(([s, src], i) => [`d${i}.g64`, { substrate: s, evidence: "x", source: src ?? "auto", recordedBy: "t", at: TS }])),
+  updatedAt: TS,
+});
+ok(deriveSubstratePosture(undefined) === "unknown", "no file → unknown");
+ok(deriveSubstratePosture(mkFile([])) === "unknown", "empty media → unknown");
+ok(deriveSubstratePosture(mkFile([["standard-gcr"], ["standard-gcr"]])) === "standard-gcr", "all standard-gcr → standard-gcr");
+ok(deriveSubstratePosture(mkFile([["standard-gcr"], ["custom-gcr"]])) === "protected", "any protected → protected");
+ok(deriveSubstratePosture(mkFile([["weak-bits"]])) === "protected", "weak-bits → protected");
+ok(deriveSubstratePosture(mkFile([["unknown"]])) === "unknown", "only unknown → unknown");
+
+// Tier 2 — substrate gate (integration, temp project) --------------------------------------
+console.log("\ndiscipline-gate — Tier 2 substrate gate (integration)\n");
+ok((await checkSubstrateDiscipline(undefined, { tool: "runtime_loader_lens" })).allowed, "no project → allowed (Tier 2 is project-scoped)");
+
+const dir1 = mkdtempSync(join(tmpdir(), "c64re-sub-"));
+try {
+  const svc = new ProjectKnowledgeService(dir1);
+  svc.recordSubstrateVerdict("cybernoid.g64", { substrate: "standard-gcr", evidence: "standard DOS dir, 2 files", source: "auto", recordedBy: "inspect_disk", fileCount: 2 });
+  const g = await checkSubstrateDiscipline(dir1, { tool: "runtime_loader_lens" });
+  ok(!g.allowed, "standard-gcr project → loader_lens refused (the Cybernoid block)");
+  ok(/static depack/.test(g.refusal ?? "") && /sandbox_depack/.test(g.refusal ?? ""), "refusal redirects to sandbox_depack");
+  // manual custom-gcr override unlocks (read the drivecode → it really is custom-GCR)
+  svc.recordSubstrateVerdict("cybernoid.g64", { substrate: "custom-gcr", evidence: "drivecode uses custom codec", source: "manual", recordedBy: "inspect_disk" });
+  ok((await checkSubstrateDiscipline(dir1, { tool: "runtime_loader_lens" })).allowed, "manual custom-gcr override → allowed");
+  // an auto standard-gcr re-parse must NOT clobber the manual override
+  svc.recordSubstrateVerdict("cybernoid.g64", { substrate: "standard-gcr", evidence: "re-parse", source: "auto", recordedBy: "extract_disk", fileCount: 2 });
+  ok((await checkSubstrateDiscipline(dir1, { tool: "runtime_loader_lens" })).allowed, "auto does not clobber manual → still allowed");
+} finally { rmSync(dir1, { recursive: true, force: true }); }
+
+const dir2 = mkdtempSync(join(tmpdir(), "c64re-sub-"));
+try {
+  new ProjectKnowledgeService(dir2); // scaffold, no verdict recorded
+  const g = await checkSubstrateDiscipline(dir2, { tool: "runtime_loader_lens" });
+  ok(!g.allowed, "no substrate verdict → refused");
+  ok(/characterize the medium first/i.test(g.refusal ?? ""), "refusal says characterize first");
+} finally { rmSync(dir2, { recursive: true, force: true }); }
 
 console.log(`\n${fail === 0 ? "GREEN" : "RED"}  discipline-gate: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

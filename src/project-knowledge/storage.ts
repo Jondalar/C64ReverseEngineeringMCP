@@ -26,6 +26,8 @@ import {
   type LoaderEvent,
   type LoaderEventStore,
   ProjectProfileSchema,
+  SubstrateVerdictFileSchema,
+  type SubstrateVerdictFile,
   type ProjectProfile,
   AntiPatternStoreSchema,
   type AntiPattern,
@@ -146,6 +148,7 @@ export interface ProjectKnowledgePaths {
   knowledgeLoaderModels: string;
   knowledgeLoaderEvents: string;
   knowledgeProjectProfile: string;
+  knowledgeSubstrateVerdict: string;
   knowledgeAntiPatterns: string;
   knowledgePatches: string;
   knowledgeResources: string;
@@ -376,6 +379,22 @@ export class ProjectKnowledgeStorage {
   saveProjectProfile(profile: ProjectProfile): ProjectProfile {
     const parsed = ProjectProfileSchema.parse(profile);
     writeJsonAtomically(this.paths.knowledgeProjectProfile, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  loadSubstrateVerdictFile(): SubstrateVerdictFile | undefined {
+    if (!existsSync(this.paths.knowledgeSubstrateVerdict)) return undefined;
+    try {
+      const raw = JSON.parse(readFileSync(this.paths.knowledgeSubstrateVerdict, "utf8"));
+      return SubstrateVerdictFileSchema.parse(raw);
+    } catch {
+      return undefined;
+    }
+  }
+
+  saveSubstrateVerdictFile(file: SubstrateVerdictFile): SubstrateVerdictFile {
+    const parsed = SubstrateVerdictFileSchema.parse(file);
+    writeJsonAtomically(this.paths.knowledgeSubstrateVerdict, parsed as unknown as JsonValue);
     return parsed;
   }
 
@@ -742,6 +761,7 @@ export function createProjectKnowledgePaths(projectRoot: string): ProjectKnowled
     knowledgeLoaderModels: join(root, "knowledge", "loader-models.json"),
     knowledgeLoaderEvents: join(root, "knowledge", "loader-events.json"),
     knowledgeProjectProfile: join(root, "knowledge", "project-profile.json"),
+    knowledgeSubstrateVerdict: join(root, "knowledge", "substrate-verdict.json"),
     knowledgeAntiPatterns: join(root, "knowledge", "anti-patterns.json"),
     knowledgePatches: join(root, "knowledge", "patches.json"),
     knowledgeResources: join(root, "knowledge", "resources.json"),

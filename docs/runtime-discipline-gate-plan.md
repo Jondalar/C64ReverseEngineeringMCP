@@ -77,38 +77,52 @@ address; gating breaks normal use.
 
 ---
 
-## Tier 2 — the substrate discriminator (the category-error killer)
+## Tier 2 — the substrate discriminator (the category-error killer) — BUILT
 
-This is the one that would have **actually stopped Cybernoid**. Form can't do it; it needs
-a recorded fact.
+The one that **actually stops Cybernoid**. Form can't do it; it reads a recorded fact.
 
-**The check:** for the Stage-2 extraction doors (`runtime_loader_lens`, and the
-loader-trace arm when `domains` includes `drive-mechanism`), the gate reads the medium's
-**substrate verdict**. If `standard-GCR` (KERNAL/DOS-readable) → **refuse**: "standard GCR,
-this payload is a depack — use `sandbox_depack` / `try_depack`, not runtime." Only
-`custom-GCR` / `weak-bits` / `unknown` lets the runtime extraction door open.
+**Scope (tighter than Tier 1):** ONLY the payload-extraction-FROM-MEDIUM doors —
+`runtime_loader_lens` (reads the landing map) and `runtime_trace_start` when `domains`
+includes `drive-mechanism` (arms the loader-lens capture). The general trace-analysis doors
+(taint / follow_path / profile / hotspots / …) are stage-3/6 debugging where runtime is
+legit even on a standard-GCR disk — they keep the form gate only.
 
-**Data dependency (honest):** the verdict must be **on record** and queryable. Today it is
-not, in a machine-checkable form — the drivecode read that proves standard-GCR lives in
-prose, not a field. Tier 2 therefore needs a small feature, not just wiring:
+**The record** (`src/project-knowledge/types.ts`, stored `knowledge/substrate-verdict.json`,
+singleton mirroring `project-profile.json`): a per-medium verdict
+`{ substrate: standard-gcr | custom-gcr | weak-bits | mixed | unknown, evidence, source:
+auto|manual, recordedBy, diskId?, fileCount?, at }`. Written at the **characterize-medium**
+step (Stage-2 sub-step 1):
+- **auto** — `inspect_disk` / `extract_disk` parse the DOS directory at 18/0: populated ⇒
+  `standard-gcr`, `UNTITLED`/0 files ⇒ `custom-gcr` candidate (`recordDiskSubstrate` in
+  `media.ts`).
+- **manual** — `inspect_disk(substrate_override=…)` after an agent READ the drivecode; a
+  `manual` verdict outranks `auto` (`recordSubstrateVerdict` never lets auto clobber it).
 
-1. a recorded per-medium `substrate: standard-gcr | custom-gcr | weak-bits | unknown`
-   (a finding/entity field the **characterize-medium** step writes — Stage 2's first
-   sub-step, which the model already puts first).
-2. the gate reads it; absent verdict = refuse with "characterize the medium first"
-   (forces the read-first ordering structurally).
-3. `standard-gcr` ⇒ extraction-runtime doors locked for that medium.
+**Project posture** (`deriveSubstratePosture`): no verdicts ⇒ `unknown`; any protected
+medium ⇒ `protected`; all `standard-gcr` ⇒ `standard-gcr`. The gate
+(`src/server-tools/substrate-gate.ts`, `checkSubstrateDiscipline`):
+- `unknown` → refuse **"characterize the medium first"** (structural read-first ordering).
+- `standard-gcr` → refuse **"static depack, use `sandbox_depack`"** + the escape hatch.
+- `protected` → allow (runtime earns it).
+- no project context → allow (Tier 2 is project-scoped; ad-hoc runtime keeps the form gate).
+
+**Escape hatch** for a standard directory whose payload is really in custom-GCR tracks:
+read the drivecode, then `inspect_disk(substrate_override="custom-gcr")` — the override
+*requires* having read the protection, which is the doctrine.
 
 This encodes the process model exactly: **you cannot reach for runtime extraction until
-characterize-medium has recorded a verdict, and if the substrate is readable the door
-never opens.** The rationalization has nowhere to go — there is no prose field to spin.
+characterize-medium has recorded a verdict, and if the substrate is readable the door never
+opens.** The rationalization has nowhere to go — there is no prose field to spin.
+
+`e2e-discipline-gate` 32/32 (Tier 1 19/19 + Tier 2 posture 6/6 + integration 7/7, incl. the
+standard-gcr → loader_lens-refused Cybernoid block and the manual-override unlock).
 
 ---
 
-## Recommended sequencing
+## Status
 
-- **Tier 1 now**: mechanical, closes the weakly-/un-gated doors, ships today, zero data
-  dependency. Raises the bar on every fishing door.
-- **Tier 2 next**: the real fix for the category error, but it needs the substrate-verdict
-  record (a small Stage-2 feature). Do it as a focused follow-up so it lands complete
-  (record → gate → lock), not half-wired.
+- **Tier 1** — BUILT (commit `e1eb95f6`). Form gate on 8 discover-structure doors.
+- **Tier 2** — BUILT. Substrate discriminator on the 2 payload-extraction doors.
+- **Persona / gatekeeper layer** — designed, not built (see
+  `project_runtime_discipline_enforcement_architecture` memory). The gate is the floor the
+  whole persona stack rests on; both tiers are that floor.

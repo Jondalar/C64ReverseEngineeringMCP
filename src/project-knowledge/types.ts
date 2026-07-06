@@ -287,6 +287,54 @@ export const ProjectProfileSchema = z.object({
   updatedAt: TimestampSchema,
 });
 
+// Tier 2 runtime-discipline substrate verdict (docs/runtime-discipline-gate-plan.md).
+// Records whether a medium is DOS/KERNAL-readable (standard-gcr) or protected
+// (custom-gcr / weak-bits / mixed). The runtime payload-extraction doors (loader_lens +
+// the drive-mechanism trace arm) read the PROJECT posture derived from these: standard-gcr
+// => the payload is a static depack (sandbox_depack) and the door refuses; protected =>
+// runtime earns its place. This is the SUBSTANCE check the form gate (discipline-gate.ts)
+// cannot do — it would have stopped Cybernoid (standard directory => standard-gcr => refuse).
+export const SubstrateKindSchema = z.enum(["standard-gcr", "custom-gcr", "weak-bits", "mixed", "unknown"]);
+export type SubstrateKind = z.infer<typeof SubstrateKindSchema>;
+
+export const SubstrateVerdictSchema = z.object({
+  substrate: SubstrateKindSchema,
+  evidence: z.string(),
+  // 'manual' (an agent read the drivecode and recorded the real substrate) always wins over
+  // an 'auto' verdict (BAM-parse heuristic) — auto-record must not clobber a manual override.
+  source: z.enum(["auto", "manual"]),
+  recordedBy: z.string(),
+  diskId: z.string().optional(),
+  fileCount: z.number().int().optional(),
+  at: TimestampSchema,
+});
+export type SubstrateVerdict = z.infer<typeof SubstrateVerdictSchema>;
+
+export const SubstrateVerdictFileSchema = z.object({
+  // keyed by medium key (image basename)
+  media: z.record(z.string(), SubstrateVerdictSchema).default({}),
+  updatedAt: TimestampSchema,
+});
+export type SubstrateVerdictFile = z.infer<typeof SubstrateVerdictFileSchema>;
+
+export type SubstratePosture = "unknown" | "standard-gcr" | "protected";
+
+/** Derive the PROJECT-level runtime-extraction posture from the per-medium verdicts.
+ *  - no verdicts (or only 'unknown') => 'unknown' — the medium is not characterized yet.
+ *  - any protected medium (custom-gcr / weak-bits / mixed) => 'protected' — runtime may earn it.
+ *  - every characterized medium is standard-gcr => 'standard-gcr' — payloads are a static depack.
+ *  Permissive on 'protected' (one protected medium unlocks): a false-unlock only costs a
+ *  hypothesis (the form gate still applies); a false-lock would block legit runtime work. */
+export function deriveSubstratePosture(file: SubstrateVerdictFile | undefined): SubstratePosture {
+  const verdicts = file ? Object.values(file.media) : [];
+  if (verdicts.length === 0) return "unknown";
+  if (verdicts.some((v) => v.substrate === "custom-gcr" || v.substrate === "weak-bits" || v.substrate === "mixed")) {
+    return "protected";
+  }
+  if (verdicts.every((v) => v.substrate === "standard-gcr")) return "standard-gcr";
+  return "unknown";
+}
+
 // Spec 031 negative knowledge: anti-pattern record.
 export const AntiPatternSchema = z.object({
   id: IdSchema,

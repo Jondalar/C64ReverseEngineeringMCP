@@ -14,6 +14,54 @@ function diskDefaultOutputDir(projectDir: string, imagePath: string): string {
   return join(projectDir, "analysis", "disk", basename(imagePath, extname(imagePath)));
 }
 
+// Tier 2 runtime-discipline substrate verdict (docs/runtime-discipline-gate-plan.md).
+// Records whether a disk is DOS/KERNAL-readable (standard-gcr) — its payloads are a static
+// depack — or a custom-GCR candidate. inspect_disk / extract_disk call this at the
+// characterize-medium step so the runtime payload-extraction doors (loader_lens + the
+// drive-mechanism trace arm) can refuse a static-depack-as-runtime. `override` records the
+// real substrate after an agent READ the drivecode (a 'manual' verdict outranks auto).
+// Soft: a failure here never breaks the disk read. Returns a short human note.
+function recordDiskSubstrate(
+  projectDir: string,
+  imageAbs: string,
+  manifest: { diskName: string; diskId: string; files: readonly unknown[] },
+  recordedBy: string,
+  override?: "standard-gcr" | "custom-gcr" | "weak-bits" | "mixed" | "unknown",
+): string | undefined {
+  try {
+    const svc = new ProjectKnowledgeService(projectDir);
+    const key = basename(imageAbs);
+    const diskId = manifest.diskId || undefined;
+    if (override) {
+      const rec = svc.recordSubstrateVerdict(key, {
+        substrate: override,
+        evidence: `manual override via ${recordedBy} (drivecode read)`,
+        source: "manual",
+        recordedBy,
+        diskId,
+        fileCount: manifest.files.length,
+      });
+      return `${rec.substrate} (manual override)`;
+    }
+    const dosReadable = manifest.files.length > 0 && manifest.diskName !== "UNTITLED";
+    const rec = svc.recordSubstrateVerdict(key, {
+      substrate: dosReadable ? "standard-gcr" : "custom-gcr",
+      evidence: dosReadable
+        ? `standard DOS directory parsed at 18/0 (${manifest.files.length} files)`
+        : `no standard BAM/directory at 18/0 (custom-GCR candidate)`,
+      source: "auto",
+      recordedBy,
+      diskId,
+      fileCount: manifest.files.length,
+    });
+    return dosReadable
+      ? `${rec.substrate} — DOS-readable (runtime payload-extraction locked; payloads are a static depack)`
+      : `${rec.substrate} — no standard directory (runtime extraction available)`;
+  } catch {
+    return undefined;
+  }
+}
+
 export function registerMediaTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "extract_crt",
@@ -92,16 +140,23 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from image_path to knowledge/phase-plan.json."),
       image_path: z.string().describe("Path to the .d64 or .g64 image"),
+      substrate_override: z.enum(["standard-gcr", "custom-gcr", "weak-bits", "mixed", "unknown"]).optional()
+        .describe("Tier 2 runtime-discipline override: record the medium's true substrate after READING the drivecode (docs/runtime-discipline-gate-plan.md). Use when the auto-parse is wrong — e.g. a standard directory but the payload lives in custom-GCR tracks: pass 'custom-gcr' to unlock the loader-lens runtime door. A 'manual' verdict outranks the auto BAM-parse. Omit for a plain read-only peek."),
     },
-    async ({ project_dir, image_path }) => {
+    async ({ project_dir, image_path, substrate_override }) => {
       try {
         const pd = context.projectDir(project_dir ?? image_path, true);
         const imageAbs = resolve(pd, image_path);
         const manifest = readDiskDirectory(imageAbs);
+        // Tier 2 substrate verdict — characterize-medium records whether the disk is
+        // DOS-readable (standard-gcr) or a custom-GCR candidate, so the runtime
+        // payload-extraction doors can refuse a static-depack-as-runtime. Soft: never breaks inspect.
+        const substrateNote = recordDiskSubstrate(pd, imageAbs, manifest, "inspect_disk", substrate_override);
         const lines = [
           `Image: ${imageAbs}`,
           `Format: ${manifest.format.toUpperCase()}`,
           `Disk: ${manifest.diskName} [${manifest.diskId}]`,
+          ...(substrateNote ? [`Substrate: ${substrateNote}`] : []),
           "",
           ...manifest.files.map((file) =>
             `${String(file.index + 1).padStart(2, "0")}. ${file.name} (${file.type}) - ${file.sizeSectors} blocks @ ${file.track}/${file.sector}`,
@@ -134,6 +189,8 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
           ? resolve(pd, output_dir)
           : diskDefaultOutputDir(pd, imageAbs);
         const manifest = extractDiskImage(imageAbs, outAbs);
+        // Tier 2 substrate verdict (docs/runtime-discipline-gate-plan.md) — same as inspect_disk.
+        const substrateNote = recordDiskSubstrate(pd, imageAbs, manifest, "extract_disk");
         // Spec 784 (GAP 2) — emit a Spec-784 manifest for the stock-DOS layer alongside
         // the legacy manifest, so validate_extraction can diff the DOS files against the
         // loader-lens read-set and they carry an explicit kernal-directory LoaderModel.
@@ -172,6 +229,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
           `Image: ${imageAbs}`,
           `Format: ${manifest.format.toUpperCase()}`,
           `Disk: ${manifest.diskName} [${manifest.diskId}]`,
+          ...(substrateNote ? [`Substrate: ${substrateNote}`] : []),
           `Output: ${manifest.outputDir}`,
           `Manifest: ${manifest.manifestPath}`,
           ...(spec784Path ? [`Spec-784 manifest: ${spec784Path} (register_payloads_from_manifest / validate_extraction ready)`] : []),

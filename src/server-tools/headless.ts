@@ -462,6 +462,15 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const gate = checkTraceDiscipline(hypothesis);
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const doms = domains ?? ["c64-cpu", "memory"];
+      // Tier 2 substrate gate — the drive-mechanism lane arms a loader-lens capture
+      // (payload-extraction-from-medium). Gate it like loader_lens itself: standard-GCR =>
+      // the payload is a static depack, so don't capture a landing-map trace for it.
+      if (doms.includes("drive-mechanism")) {
+        const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+        const { checkSubstrateDiscipline } = await import("./substrate-gate.js");
+        const sub = await checkSubstrateDiscipline(proj, { tool: "runtime_trace_start (drive-mechanism / loader-lens capture)" });
+        if (!sub.allowed) return { content: [{ type: "text" as const, text: sub.refusal! }] };
+      }
       const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
       if (isDaemonMode()) {
         // resolve the output path against the caller's project (project-agnostic daemon)
@@ -582,6 +591,11 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const { landingMapFromCaptureFile } = await import("../runtime/headless/trace/loader-lens.js");
       const { resolve, isAbsolute } = await import("node:path");
       const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+      // Tier 2 substrate gate — the landing map is payload-extraction-from-medium: if the
+      // medium is standard-GCR the payload is a static depack, not a runtime job (the Cybernoid block).
+      const { checkSubstrateDiscipline } = await import("./substrate-gate.js");
+      const sub = await checkSubstrateDiscipline(proj, { tool: "runtime_loader_lens" });
+      if (!sub.allowed) return { content: [{ type: "text" as const, text: sub.refusal! }] };
       const abs = isAbsolute(capture_path) ? capture_path : resolve(proj ?? process.cwd(), capture_path);
       const map = landingMapFromCaptureFile(abs, min_run_len ? { minRunLen: min_run_len } : {});
       const lines = [

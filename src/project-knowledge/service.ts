@@ -18,6 +18,7 @@ import {
   subjectIdForArtifact,
   topRankIsTied,
 } from "./artifact-versions.js";
+import { deriveSubstratePosture } from "./types.js";
 import type {
   AnnotatedListingView,
   AntiPattern,
@@ -36,6 +37,9 @@ import type {
   Operation,
   PatchRecipe,
   ProjectProfile,
+  SubstrateVerdict,
+  SubstrateVerdictFile,
+  SubstratePosture,
   ResourceRegion,
   RuntimeScenario,
   RuntimeEvent,
@@ -2101,6 +2105,31 @@ export class ProjectKnowledgeService {
   // Spec 026 project profile.
   getProjectProfile(): ProjectProfile | undefined {
     return this.storage.loadProjectProfile();
+  }
+
+  // Tier 2 runtime-discipline substrate verdict (docs/runtime-discipline-gate-plan.md).
+  getSubstrateVerdictFile(): SubstrateVerdictFile | undefined {
+    return this.storage.loadSubstrateVerdictFile();
+  }
+
+  /** PROJECT-level runtime-extraction posture: 'unknown' (not characterized),
+   *  'standard-gcr' (payloads are a static depack — lock loader-lens), or 'protected'
+   *  (custom-gcr/weak-bits/mixed — runtime may earn it). Read by the substrate gate. */
+  getSubstratePosture(): SubstratePosture {
+    return deriveSubstratePosture(this.storage.loadSubstrateVerdictFile());
+  }
+
+  /** Upsert a per-medium substrate verdict. An 'auto' verdict never clobbers a 'manual'
+   *  one (an agent that read the drivecode outranks the BAM-parse heuristic). */
+  recordSubstrateVerdict(mediumKey: string, verdict: Omit<SubstrateVerdict, "at">): SubstrateVerdict {
+    const file: SubstrateVerdictFile = this.storage.loadSubstrateVerdictFile() ?? { media: {}, updatedAt: nowIso() };
+    const existing = file.media[mediumKey];
+    if (existing && existing.source === "manual" && verdict.source === "auto") return existing;
+    const rec: SubstrateVerdict = { ...verdict, at: nowIso() };
+    file.media[mediumKey] = rec;
+    file.updatedAt = nowIso();
+    this.storage.saveSubstrateVerdictFile(file);
+    return rec;
   }
 
   saveProjectProfile(patch: Partial<Omit<ProjectProfile, "updatedAt">>): ProjectProfile {
