@@ -569,12 +569,16 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_loader_lens",
-    "Spec 784 — read a loader-lens capture's landing map: which medium block (track/sector) each transferred payload came FROM and where it came to rest in C64 RAM. Point it at a .c64retrace captured with the drive-mechanism lane armed (runtime_trace_start domains=['memory','drive8-cpu','drive-mechanism'] on the daemon, then drive + finalize). Option A rebuild: a run counts as a disk-landing only if transfer reads ($DD00) occurred in its window (memory-copy / relocation runs have none → dropped), and its source block is FIFO-matched to the BLOCK_READ read-set by read time (not head-at-write-time). Returns per landed run {source:{track,sector,halftrack}|null, c64Dest, len, sha256, transferReads}. The read-set (what validate_extraction diffs against) is the authority; this map is the DEST-side human view. Reads a finalized .c64retrace; not a live capture.",
+    "Use to read a loader-lens capture's landing map: which medium block (track/sector) each transferred payload came FROM and where it came to rest in C64 RAM. Point it at a .c64retrace captured with the drive-mechanism lane armed (runtime_trace_start domains=['memory','drive8-cpu','drive-mechanism'] on the daemon, then drive + finalize). Option A rebuild: a run counts as a disk-landing only if transfer reads ($DD00) occurred in its window (memory-copy / relocation runs have none → dropped), and its source block is FIFO-matched to the BLOCK_READ read-set by read time (not head-at-write-time). Returns per landed run {source:{track,sector,halftrack}|null, c64Dest, len, sha256, transferReads}. The read-set (what validate_extraction diffs against) is the authority; this map is the DEST-side human view. Reads a finalized .c64retrace; not a live capture (use runtime_trace_start to capture one first). DISCIPLINE: the landing map CONFIRMS a payload you already located by READING — it is not how you discover one. If the medium is standard-GCR (KERNAL/DOS-readable), the payload is a static depack (sandbox_depack), not a runtime job. You MUST pass `hypothesis` (a concrete $address + what you read that points there) or the call is refused.",
     {
       capture_path: z.string().describe("Path (abs or under the project) to the .c64retrace binary capture."),
+      hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): the read-derived reason — a concrete $address (the payload/routine you already located by reading the drivecode disasm / an entity / a finding) + what pointed you there. Fishing (no address / no rationale) is refused. If the disk is standard-GCR the payload is a static depack — read + sandbox_depack, not the loader-lens."),
       min_run_len: z.number().int().positive().optional().describe("Min contiguous RAM-write run counted as a payload landing (default 16 — filters scratch)."),
     },
-    safeHandler("runtime_loader_lens", async ({ capture_path, min_run_len }) => {
+    safeHandler("runtime_loader_lens", async ({ capture_path, hypothesis, min_run_len }) => {
+      const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
+      const gate = checkRuntimeDiscipline(hypothesis, { tool: "runtime_loader_lens", act: "reading a loader-lens landing map (which block a payload came from)" });
+      if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const { landingMapFromCaptureFile } = await import("../runtime/headless/trace/loader-lens.js");
       const { resolve, isAbsolute } = await import("node:path");
       const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
@@ -732,7 +736,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // pass `run` for an explicit "g $1000").
   server.tool(
     "runtime_run_prg",
-    "Load AND start a .prg in one shot (the macro that was missing). Loads the PRG into the shared session, then autostarts: a BASIC program (load address $0801) → types RUN; machine code → `g <entry>` (continue at the entry; default = the load address, or pass `run` for an explicit entry like a SYS target). Use to just-run a .prg without disk/monitor steps. Inputs: session_id, prg_path, optional run (hex entry address for machine code). Returns: load address + the autostart action taken.",
+    "Load AND start a .prg in one shot (the macro that was missing). Loads the PRG into the shared session, then autostarts: a BASIC program (load address $0801) → types RUN; machine code → `g <entry>` (continue at the entry; default = the load address, or pass `run` for an explicit entry like a SYS target). Use to just-run a .prg without disk/monitor steps; not for loading without starting (use runtime_load_prg). Inputs: session_id, prg_path, optional run (hex entry address for machine code). Returns: load address + the autostart action taken.",
     { session_id: z.string(), prg_path: z.string(), run: z.string().optional().describe("Machine-code entry (hex, e.g. '1000' or '$1000'). Omit for BASIC autostart / default load-address entry.") },
     safeHandler("runtime_run_prg", async ({ session_id, prg_path, run }) => {
       const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
@@ -1044,7 +1048,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_checkpoint_unpin",
-    "Unpin a checkpoint (let the ring reclaim it under the byte budget again). Use to release a retained state you no longer need. Inputs: session_id, checkpoint id. Returns: ref + stats.",
+    "Unpin a checkpoint (let the ring reclaim it under the byte budget again). Use to release a retained state you no longer need; not for pinning one (use runtime_checkpoint_pin). Inputs: session_id, checkpoint id. Returns: ref + stats.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_checkpoint_unpin", async ({ session_id, id }) => {
       const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
@@ -1070,7 +1074,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_recorder_status",
-    "Spec 766 — the shared-memory recorder's status: anchor count, oldest/newest cycle, scrub depth, medium generations, dropped count. The recorder is the off-thread streaming capture (separate from the checkpoint ring) that holds minutes of cheap scrub history. Use to see how much history is retained. Inputs: session_id. Returns: recorder stats.",
+    "The shared-memory recorder's status: anchor count, oldest/newest cycle, scrub depth, medium generations, dropped count. The recorder is the off-thread streaming capture (separate from the checkpoint ring) that holds minutes of cheap scrub history. Use to see how much history is retained; not for the anchor list (use runtime_recorder_list). Inputs: session_id. Returns: recorder stats.",
     { session_id: z.string() },
     safeHandler("runtime_recorder_status", async ({ session_id }) => {
       const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
@@ -1083,7 +1087,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_recorder_list",
-    "Spec 766 — list the recorder's stored anchors (seq, cycle, wallMs, disk/cart generation). Each is a restorable scrub point in the off-thread history. Use to pick a seq to dump with runtime_recorder_dump. Inputs: session_id. Returns: anchor list.",
+    "List the recorder's stored anchors (seq, cycle, wallMs, disk/cart generation). Each is a restorable scrub point in the off-thread history. Use to pick a seq to dump (use runtime_recorder_dump). Inputs: session_id. Returns: anchor list.",
     { session_id: z.string() },
     safeHandler("runtime_recorder_list", async ({ session_id }) => {
       const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
@@ -1096,7 +1100,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_recorder_dump",
-    "Spec 766 — dump a recorder anchor (a past scrub point, by seq from runtime_recorder_list) to a durable .c64re snapshot file. The recorder's unique value: persist a point from MINUTES of cheap history, then undump it (runtime_session_undump) and replay it with tracing on. Not for the live moment (use the checkpoint/dump path). Inputs: session_id, seq, path. Returns: dump result (file bytes, embedded media, cycle/pc).",
+    "Dump a recorder anchor (a past scrub point, by seq from runtime_recorder_list) to a durable .c64re snapshot file. The recorder's unique value: persist a point from MINUTES of cheap history, then undump it (runtime_session_undump) and replay it with tracing on. Not for the live moment (use the checkpoint/dump path). Inputs: session_id, seq, path. Returns: dump result (file bytes, embedded media, cycle/pc).",
     { session_id: z.string(), seq: z.number(), path: z.string() },
     safeHandler("runtime_recorder_dump", async ({ session_id, seq, path }) => {
       const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
@@ -1113,7 +1117,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_rewind",
-    "Spec 769 — time-travel: rewind the shared session to a past checkpoint, optionally continue from there. Seek by `cycle` (nearest checkpoint at/before it) or explicit `id`; default = the most recent. `then`: pause (land + inspect, default) | run (continue forward from there) | keep. Use to jump to a past machine state for inspection, or to re-run from a known point (e.g. the code-overlay debug loop: rewind → patch RAM via runtime_monitor → run → observe → repeat). The human at the UI sees the same jump (one shared session). Inputs: session_id, optional cycle, optional id, optional then. Returns: the restored checkpoint ref + machine state.",
+    "Time-travel: rewind the shared session to a past checkpoint, optionally continue from there. Seek by `cycle` (nearest checkpoint at/before it) or explicit `id`; default = the most recent. `then`: pause (land + inspect, default) | run (continue forward from there) | keep. Use to jump to a past machine state for inspection, or to re-run from a known point (e.g. the code-overlay debug loop: rewind → patch RAM via runtime_monitor → run → observe → repeat). Not for a plain forward run (use runtime_session_run). The human at the UI sees the same jump (one shared session). Inputs: session_id, optional cycle, optional id, optional then. Returns: the restored checkpoint ref + machine state.",
     { session_id: z.string(), cycle: z.number().optional(), id: z.string().optional(), then: z.enum(["pause", "run", "keep"]).optional() },
     safeHandler("runtime_rewind", async ({ session_id, cycle, id, then }) => {
       const pick = (cps: Array<{ id: string; cycles: number }>): string | undefined => {
@@ -1148,7 +1152,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_overlay_run",
-    "Spec 769 — code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. RAM-only (no banked ROM yet). Leaves the machine paused. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
+    "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. RAM-only (no banked ROM yet); not for a persistent change (use runtime_monitor to poke and keep it). Leaves the machine paused. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
     {
       session_id: z.string(),
       anchor_cycle: z.number().optional(),
@@ -1192,7 +1196,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_monitor",
-    "Remote-control the interactive runtime monitor: run ANY monitor command string against the shared session and get its text output back. This is the WHOLE monitor REPL in ONE tool — prefer it for any monitor-style interaction. Commands include: m/d (memory hex / disasm), r (registers), bp/del/enable (breakpoints), obs (observers — incl `obs <n> when exec|load|store <lo..hi> do break|log|trace` for non-halting scoped capture; `obs <n> del`), trace, `dump <path>` (= `snapshot <path>` — writes a .c64re state snapshot; our snapshot IS the dump) / `undump <path>` (= `restore`/`loadsnapshot` — loads one), n/z/step/g (run control), sym/inspect/xref, df (flow disasm), label/note, device c64|drive8, sidefx, bank. Run `help` for the verb list or `<verb> help` for one verb's syntax. The session is the shared live machine (human + LLM co-drive the same one). Inputs: session_id, command (e.g. \"m 0400 042f\", \"obs t when exec ab01 do trace c64-cpu memory\", \"r\"). Returns: the monitor's text output (or its error string).",
+    "Remote-control the interactive runtime monitor: run ANY monitor command string against the shared session and get its text output back. Use it for any monitor-style interaction — this is the WHOLE monitor REPL in ONE tool. Commands include: m/d (memory hex / disasm), r (registers), bp/del/enable (breakpoints), obs (observers — incl `obs <n> when exec|load|store <lo..hi> do break|log|trace` for non-halting scoped capture; `obs <n> del`), trace, `dump <path>` (= `snapshot <path>` — writes a .c64re state snapshot; our snapshot IS the dump) / `undump <path>` (= `restore`/`loadsnapshot` — loads one), n/z/step/g (run control), sym/inspect/xref, df (flow disasm), label/note, device c64|drive8, sidefx, bank. Run `help` for the verb list or `<verb> help` for one verb's syntax. The session is the shared live machine (human + LLM co-drive the same one); not for silent scripted batch runs on the live session (use a separate backend). Inputs: session_id, command (e.g. \"m 0400 042f\", \"obs t when exec ab01 do trace c64-cpu memory\", \"r\"). Returns: the monitor's text output (or its error string).",
     { session_id: z.string(), command: z.string() },
     safeHandler("runtime_monitor", async ({ session_id, command }) => {
       const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");

@@ -141,8 +141,12 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
       path: z.string().describe("Path to trace.duckdb or its parent directory."),
       cpu: z.enum(["c64", "drive8"]).describe("CPU side."),
       limit: z.number().int().positive().max(200).optional().describe("Max rows (default 20)."),
+      hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. Hotspot ranking is the archetypal 'reached for statistics instead of reading the code' — it CONFIRMS where a routine you already located spends time; it is not how you find structure. Fishing (no address / no rationale) is refused — read first (disasm_prg / inspect_address_range / project_search)."),
     },
-    safeHandler("trace_store_top_pcs", async ({ path, cpu, limit }) => {
+    safeHandler("trace_store_top_pcs", async ({ path, cpu, limit, hypothesis }) => {
+      const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
+      const gate = checkRuntimeDiscipline(hypothesis, { tool: "trace_store_top_pcs", act: "ranking the hottest PCs (statistics)" });
+      if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const dbPath = resolveStorePath(path, context);
       const rows = await routeStoreRead("topPcs", dbPath, { cpu, limit: limit ?? 20 }, () => topPcs(dbPath, cpu, limit ?? 20));
       const lines = [`top ${rows.length} PCs for cpu=${cpu}:`, ``];
@@ -202,7 +206,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
   // persistence footprint for porting, NOT "what a block is".
   server.tool(
     "trace_memory_map",
-    "Reconstruct a per-page RAM memory map from a trace store: which pages are CODE (executed), DATA-W (written — incl. indirect STA (zp),Y targets the decode path can't see), DATA-R (read-only), or untouched; per-region write/read/mutation counts (old≠new = the persistence surface) + writer-PC count; and a 'provably free' free-hole list (untouched this run AND not static-occupied). For porting/footprint work (free EF-legal RAM, what mutates). Optional static_ranges reconciles with the module load-map. Coverage = THIS RUN ONLY (a trace is one path) — this is runtime behaviour, NOT identity grounding (Spec 752). Not for 'what is this block' (extract+disasm). Inputs: store path, cpu, optional static_ranges. Returns: ASCII page map + region table + free holes.",
+    "Reconstruct a per-page RAM memory map from a trace store: which pages are CODE (executed), DATA-W (written — incl. indirect STA (zp),Y targets the decode path can't see), DATA-R (read-only), or untouched; per-region write/read/mutation counts (old≠new = the persistence surface) + writer-PC count; and a 'provably free' free-hole list (untouched this run AND not static-occupied). Use for porting/footprint work (free EF-legal RAM, what mutates). Optional static_ranges reconciles with the module load-map. Coverage = THIS RUN ONLY (a trace is one path) — this is runtime behaviour, NOT identity grounding. Not for 'what is this block' (extract+disasm). Inputs: store path, cpu, optional static_ranges. Returns: ASCII page map + region table + free holes.",
     {
       path: z.string().describe("Path to trace.duckdb or its parent directory."),
       cpu: z.enum(["c64", "drive8"]).optional().describe("CPU side (default c64)."),
@@ -212,8 +216,12 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
         label: z.string().optional().describe("Owner label (module / segment)."),
       })).optional().describe("Statically-owned address ranges (module load-map / analysis-json). Pages overlapping these are reconciled: a static-owned page untouched in the run is flagged NOT provably free."),
       run_label: z.string().optional().describe("Optional run label for the header."),
+      hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. The page map CONFIRMS a free-RAM/footprint hypothesis for porting; it is runtime behaviour for ONE path, NOT identity grounding, and not how you discover what a block is. Fishing (no address / no rationale) is refused — read first (disasm_prg / inspect_address_range / project_search)."),
     },
-    safeHandler("trace_memory_map", async ({ path, cpu, static_ranges, run_label }) => {
+    safeHandler("trace_memory_map", async ({ path, cpu, static_ranges, run_label, hypothesis }) => {
+      const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
+      const gate = checkRuntimeDiscipline(hypothesis, { tool: "trace_memory_map", act: "reconstructing a per-page RAM map" });
+      if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const dbPath = resolveStorePath(path, context);
       // BUG-035 / Spec 753 — self-heal: if the .duckdb is missing but its
       // .c64retrace authority exists (orphaned capture whose background index never

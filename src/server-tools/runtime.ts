@@ -196,8 +196,12 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       cycles: z.number().default(2_000_000).describe("CPU cycles to observe (the workload window)"),
       classes: z.array(z.enum(["unused", "read-only", "dead", "live"])).default(["dead", "unused"]).describe("region classes to report"),
       min_bytes: z.number().default(256).describe("minimum region size to report"),
+      hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address you are investigating + what you READ that points there. The liveness map CONFIRMS a free/dead-RAM hypothesis; it is not how you discover structure. Fishing (no address / no rationale) is refused — read first (disasm_prg / inspect_address_range / project_search)."),
     },
-    safeHandler("runtime_memory_access_map", async ({ session_id, cycles, classes, min_bytes }) => {
+    safeHandler("runtime_memory_access_map", async ({ session_id, cycles, classes, min_bytes, hypothesis }) => {
+      const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
+      const gate = checkRuntimeDiscipline(hypothesis, { tool: "runtime_memory_access_map", act: "mapping live RAM read/write liveness" });
+      if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const hx = (n: number) => "$" + (n & 0xffff).toString(16).padStart(4, "0");
       const renderMap = (tally: Record<string, number>, regions: Array<{ start: number; end: number; cls: string; reads: number; writes: number }>) => {
         const rows = regions.map(r => `  ${hx(r.start)}-${hx(r.end)}  ${r.cls.padEnd(9)} r=${r.reads} w=${r.writes}`);
@@ -401,8 +405,12 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       a_path: z.string(),
       b_path: z.string(),
       enrich: z.boolean().default(false),
+      hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. The snapshot delta CONFIRMS a hypothesis about what a step changed; it is not how you discover the payload. Fishing (no address / no rationale) is refused — read first (disasm_prg / inspect_address_range / project_search)."),
     },
-    safeHandler("runtime_diff_snapshots", async ({ a_path, b_path, enrich }) => {
+    safeHandler("runtime_diff_snapshots", async ({ a_path, b_path, enrich, hypothesis }) => {
+      const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
+      const gate = checkRuntimeDiscipline(hypothesis, { tool: "runtime_diff_snapshots", act: "diffing two machine snapshots" });
+      if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const { readFileSync } = await import("node:fs");
       const { diffSnapshots, formatDiff } = await import("../runtime/headless/v2/snapshot-diff.js");
       const a = new Uint8Array(readFileSync(a_path));
@@ -459,8 +467,12 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       max_depth: z.number().default(50),
       cycle_window: z.number().default(100_000),
       cross_domain: z.boolean().default(true),
+      hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. Following a path CONFIRMS a control-flow hypothesis you formed by reading; it is not how you discover it. Fishing (no address / no rationale) is refused — read first (disasm_prg / inspect_address_range / project_search)."),
     },
     safeHandler("runtime_follow_path", async (args) => {
+      const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
+      const gate = checkRuntimeDiscipline(args.hypothesis, { tool: "runtime_follow_path", act: "reconstructing the call/branch chain to an event" });
+      if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const q = {
         runId: args.run_id,
         endEventCycle: args.end_event_cycle,
@@ -525,8 +537,12 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       start_addr: z.number(),
       max_depth: z.number().default(100),
       cycle_window: z.number().default(1_000_000),
+      hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. Taint CONFIRMS a data-flow hypothesis you formed by reading; it is not how you discover where a value comes from. Fishing (no address / no rationale) is refused — read first (disasm_prg / inspect_address_range / project_search)."),
     },
     safeHandler("runtime_trace_taint", async (args) => {
+      const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
+      const gate = checkRuntimeDiscipline(args.hypothesis, { tool: "runtime_trace_taint", act: "following data-flow taint" });
+      if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const q = { runId: args.run_id, startCycle: args.start_cycle, startAddr: args.start_addr, maxDepth: args.max_depth, cycleWindow: args.cycle_window };
       const graph = await daemonTraceRead<any>("taint", args.duckdb_path, q, async () => {
         const { traceTaint } = await import("../runtime/headless/v2/taint.js");
@@ -545,8 +561,12 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       scenario_id: z.string(),
       cycle_start: z.number(),
       cycle_end: z.number(),
+      hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. A loader profile CONFIRMS a hypothesis about a phase you already located by reading; it is not how you discover the loader's structure. Fishing (no address / no rationale) is refused — read first (disasm_prg / inspect_address_range / project_search)."),
     },
     safeHandler("runtime_profile_loader", async (args) => {
+      const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
+      const gate = checkRuntimeDiscipline(args.hypothesis, { tool: "runtime_profile_loader", act: "profiling loader phases/hotspots" });
+      if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const profile = await daemonTraceRead<any>(
         "profile_loader", args.duckdb_path,
         { scenario_id: args.scenario_id, cycle_start: args.cycle_start, cycle_end: args.cycle_end },
@@ -795,7 +815,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_swap_disk_and_continue",
-    "Answer a game's \"Insert side N. (RETURN)\" prompt in ONE call, the hardware way: eject the old disk → run so the 1541 senses the removal → insert the new disk → run so it senses the insertion → press RETURN → run on so the prompt advances. Use this for a multi-disk title that WAITS for a side-swap (where the atomic runtime_media_swap fails because it gives the drive no cycles to sense the change). Read the screen first (runtime_render_screen) to know which side is asked for. Inputs: session_id, path (new image), optional confirm_input (default RETURN), settle_cycles, post_cycles. Returns: { mounted, screenBefore, screenAfter, promptCleared, advanced }.",
+    "Answer a game's \"Insert side N. (RETURN)\" prompt in ONE call, the hardware way: eject the old disk → run so the 1541 senses the removal → insert the new disk → run so it senses the insertion → press RETURN → run on so the prompt advances. Use this for a multi-disk title that WAITS for a side-swap. Not for a title that isn't waiting (use runtime_media_swap for the atomic path, which gives the drive no cycles to sense the change). Read the screen first (runtime_render_screen) to know which side is asked for. Inputs: session_id, path (new image), optional confirm_input (default RETURN), settle_cycles, post_cycles. Returns: { mounted, screenBefore, screenAfter, promptCleared, advanced }.",
     {
       session_id: z.string(),
       path: z.string().describe("Absolute path to the new disk image (the side to insert)"),
