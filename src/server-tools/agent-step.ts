@@ -600,9 +600,9 @@ export interface AgentRunStepResult {
   nextStepHint: string;
 }
 
-function runInventorySyncStep(service: ProjectKnowledgeService, projectRoot: string): AgentRunStepResult {
+async function runInventorySyncStep(service: ProjectKnowledgeService, projectRoot: string): Promise<AgentRunStepResult> {
   const before = new Set(service.listArtifacts().map((a) => a.relativePath));
-  const sync = runProjectInventorySync(service, projectRoot);
+  const sync = await runProjectInventorySync(service, projectRoot);
   const afterArtifacts = service.listArtifacts();
   const created = afterArtifacts.filter((a) => !before.has(a.relativePath)).map((a) => a.relativePath);
 
@@ -634,7 +634,7 @@ function blockedRun(stepId: string, status: "blocked" | "failed", message: strin
   };
 }
 
-export function runStep(service: ProjectKnowledgeService, projectRoot: string, stepId: string): AgentRunStepResult {
+export async function runStep(service: ProjectKnowledgeService, projectRoot: string, stepId: string): Promise<AgentRunStepResult> {
   const step = workflowStep(stepId);
   if (!step) {
     return blockedRun(
@@ -646,7 +646,7 @@ export function runStep(service: ProjectKnowledgeService, projectRoot: string, s
 
   // Implemented: the inventory / media-sync step.
   if (stepId === "inventory-sync") {
-    return runInventorySyncStep(service, projectRoot);
+    return await runInventorySyncStep(service, projectRoot);
   }
 
   // project-init is owned by the project_init tool (it creates the project
@@ -750,7 +750,7 @@ export function registerAgentStepTools(server: McpServer, ctx: ServerToolContext
         return textContent(renderRunStep(result));
       }
       const service = new ProjectKnowledgeService(projectRoot);
-      const result = runStep(service, projectRoot, step_id);
+      const result = await runStep(service, projectRoot, step_id);
       return textContent(renderRunStep(result));
     }),
   );

@@ -42,10 +42,18 @@ export interface ProjectInventorySyncResult {
 // Run the full inventory sync against an already-resolved project root.
 // Pure orchestration over service methods — returns the Spec 730.3 result
 // shape. Safe to call repeatedly.
-export function runProjectInventorySync(
+//
+// ASYNC + cooperatively scheduled (Spec 730.3 fix): the phases (register /
+// import / reconcile / view-rebuild) are each CPU-bound and, run back-to-back
+// synchronously, block the node event loop for several seconds on a large
+// project. When this runs inside an MCP tool that talks stdio JSON-RPC, the
+// blocked loop can't service the transport and the client drops the connection
+// as unresponsive. Yielding (`breathe()`) between phases keeps the loop alive.
+export async function runProjectInventorySync(
   service: ProjectKnowledgeService,
   projectRoot: string,
-): ProjectInventorySyncResult {
+): Promise<ProjectInventorySyncResult> {
+  const breathe = () => new Promise<void>((resolve) => setImmediate(resolve));
   const skipped: Array<{ path: string; reason: string }> = [];
   const remainingProblems: string[] = [];
 
@@ -58,6 +66,7 @@ export function runProjectInventorySync(
   for (const err of reg.errors) {
     skipped.push({ path: err.relativePath, reason: `could not register: ${err.error}` });
   }
+  await breathe();
 
   // 3. Import disk/CRT/PRG manifests when present. importManifestArtifact uses
   // stable ids + a purge-then-resave, so re-importing the same manifest is a
@@ -75,6 +84,9 @@ export function runProjectInventorySync(
         reason: `manifest not imported: ${e instanceof Error ? e.message : String(e)}`,
       });
     }
+    // Yield between manifests — a single import is ~0.5s on a large manifest, so
+    // importing several back-to-back would block the event loop (Spec 730.3 fix).
+    await breathe();
   }
 
   // 3b. Spec 730 §7.3 — reconcile artifact version groups so the "current best
@@ -86,20 +98,22 @@ export function runProjectInventorySync(
   let versionGroupsUpdated = 0;
   let versionGroupsNeedDecision = 0;
   try {
-    const vg = service.reconcileArtifactVersionGroups();
+    const vg = await service.reconcileArtifactVersionGroups();
     versionGroupsCreated = vg.created;
     versionGroupsUpdated = vg.updated;
     versionGroupsNeedDecision = vg.needsDecision;
   } catch (e) {
     remainingProblems.push(`Version reconciliation issue: ${e instanceof Error ? e.message : String(e)}`);
   }
+  await breathe();
 
   // 4. Full rebuild of project views (MVP: always full, correctness over
-  // incremental invalidation — §9).
+  // incremental invalidation — §9). Cooperative variant yields between views so
+  // the MCP stdio transport stays serviced during the rebuild (Spec 730.3 fix).
   const rebuiltViews: string[] = [];
   let status: ProjectInventorySyncResult["status"] = "done";
   try {
-    const views = service.buildAllViews();
+    const views = await service.buildAllViewsCooperative();
     rebuiltViews.push(
       views.projectDashboard.path,
       views.memoryMap.path,
@@ -190,7 +204,7 @@ export function registerInventorySyncTool(server: McpServer, ctx: ServerToolCont
     safeHandler("project_inventory_sync", async ({ project_dir }: { project_dir?: string }) => {
       const projectRoot = ctx.projectDir(project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
-      const result = runProjectInventorySync(service, projectRoot);
+      const result = await runProjectInventorySync(service, projectRoot);
       return textContent(renderResult(projectRoot, result));
     }),
   );

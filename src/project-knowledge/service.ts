@@ -3908,7 +3908,13 @@ export class ProjectKnowledgeService {
   //   - never overwrite a manual current;
   //   - on a genuine rank tie, set needsDecision + open one question (no guess).
   // Returns counts for the sync report. Never deletes files.
-  reconcileArtifactVersionGroups(): { created: number; updated: number; needsDecision: number } {
+  // Spec 730.3 fix — async + cooperatively scheduled. The per-subject loop does
+  // one disk write (persistArtifactVersionGroup) per versioned subject; on a
+  // large project that is the single biggest synchronous span (~1.7s) and would
+  // block the MCP stdio transport. Yield to the event loop every few subjects so
+  // the transport stays serviced. Only caller is project_inventory_sync (async).
+  async reconcileArtifactVersionGroups(): Promise<{ created: number; updated: number; needsDecision: number }> {
+    const breathe = () => new Promise<void>((resolve) => setImmediate(resolve));
     const bySubject = new Map<string, ReturnType<typeof rankCandidate>[]>();
     for (const a of this.listArtifacts()) {
       if (!isVersionedSourceArtifact(a)) continue;
@@ -3920,7 +3926,10 @@ export class ProjectKnowledgeService {
     let created = 0;
     let updated = 0;
     let needsDecisionCount = 0;
+    let subjectsProcessed = 0;
     for (const [subject, cands] of bySubject) {
+      // Yield every 20 subjects (~150ms chunks) so the loop never blocks long.
+      if (++subjectsProcessed % 20 === 0) await breathe();
       const ordered = orderCandidatesBestFirst(cands);
       const existing = this.getArtifactVersionGroup(subject);
       const tied = topRankIsTied(ordered);
@@ -4828,6 +4837,29 @@ export class ProjectKnowledgeService {
       flowGraph: this.buildFlowGraphView(),
       annotatedListing: this.buildAnnotatedListingView(),
     };
+  }
+
+  /** Spec 730.3 fix — `buildAllViews`, but yielding to the event loop between
+   *  each view. The synchronous version blocks the node event loop for several
+   *  seconds on a large project (LN3: ~1.5k entities / findings), so an MCP
+   *  server can't service its stdio transport during the rebuild and the client
+   *  drops the connection as unresponsive. Identical views, same order; only
+   *  cooperatively scheduled. Used by the async tool paths
+   *  (`project_inventory_sync`, `agent_run_step`). */
+  async buildAllViewsCooperative(): Promise<BuildAllViewsResult> {
+    const breathe = () => new Promise<void>((resolve) => setImmediate(resolve));
+    const diskLayout = this.buildDiskLayoutView(); await breathe();
+    const cartridgeLayout = this.buildCartridgeLayoutView(); await breathe();
+    const bundle = this.loadBundle();
+    const mediumLayoutView = buildMediumLayoutView(bundle, diskLayout.view, cartridgeLayout.view);
+    const mediumLayout = this.persistView("Medium layout view built", this.storage.saveMediumLayoutView(mediumLayoutView), mediumLayoutView);
+    await breathe();
+    const projectDashboard = this.buildProjectDashboardView(); await breathe();
+    const memoryMap = this.buildMemoryMapView(); await breathe();
+    const loadSequence = this.buildLoadSequenceView(); await breathe();
+    const flowGraph = this.buildFlowGraphView(); await breathe();
+    const annotatedListing = this.buildAnnotatedListingView();
+    return { projectDashboard, memoryMap, diskLayout, cartridgeLayout, mediumLayout, loadSequence, flowGraph, annotatedListing };
   }
 
   buildWorkspaceUiSnapshot(): WorkspaceUiSnapshot {
