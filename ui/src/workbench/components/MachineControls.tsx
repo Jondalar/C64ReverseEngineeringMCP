@@ -23,16 +23,15 @@ interface Props {
 export function MachineControls({ sessionId, runState, setRunState, fps, onSnapshotTaken, statusSlot }: Props): React.JSX.Element {
   const c = getClient();
   const [warp, setWarp] = useState(false);
-  // Power = ON/OFF toggle (NOT reset).
-  //   OFF → ON: simulate plugging in C64 = cold reset + start running.
-  //   ON  → OFF: simulate unplugging = stop polling, freeze state.
-  // Use Reset to restart without "unplugging".
-  // Spec 746.x — Power = cold power-cycle, AND a session-recycle if the session is
-  // wedged. A hung session won't answer session/state; we probe it with a short
-  // timeout and, responsive or not, drive a cold reset (resetWarm via session/reset)
-  // to recover — even from a JAMmed game / frozen loop. (A DEAD DAEMON PROCESS is a
-  // different failure: the MCP-side stall-heal kills+respawns it; this button talks
-  // WS to the daemon, so it can only recycle the SESSION, not the process.)
+  // Power = ON/OFF toggle (NOT reset) — Spec 786, a first-class daemon primitive.
+  //   OFF → ON: session/power {op:"on"} = full init (fresh machine, inserted
+  //             media re-attached), comes up RUNNING. Recovers a wedged/JAMmed
+  //             session inherently (it rebuilds the machine from scratch).
+  //   ON  → OFF: session/power {op:"off"} = everything off, no live state. The
+  //             daemon blanks the machine, drops the checkpoint ring + flushes
+  //             audio server-side. (A DEAD DAEMON PROCESS is a different failure:
+  //             the MCP-side stall-heal kills+respawns it; this button talks WS
+  //             to the daemon, so it can only recycle the SESSION, not the process.)
   const probeSession = async (timeoutMs = 2000): Promise<boolean> => {
     try {
       await Promise.race([
@@ -45,37 +44,20 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
   const powerToggle = async () => {
     if (!sessionId) return;
     if (runState === "off") {
-      // OFF → ON: cold power-cycle. If the session was wedged, the cold reset
-      // recovers it; probe is informational (we reset either way).
+      // OFF → ON: full power-on. probe is informational (power_on re-inits either way).
       const alive = await probeSession();
-      if (!alive) console.warn("[power] session not responding — recycling via cold reset");
-      await c.call("session/reset", { session_id: sessionId, video: "pal-default" });
-      // Power-ON = plugging the machine in → it must come up RUNNING. A cold
-      // reset from an OFF (paused) controller leaves the loop paused, so start
-      // it explicitly here rather than relying on the setRunState→effect race
-      // (otherwise the user has to hit Run after every power-on — unintuitive).
+      if (!alive) console.warn("[power] session not responding — power-on will re-init it");
+      try { await c.call("session/power", { session_id: sessionId, op: "on" }); } catch (e) { console.error("[power] on:", e); }
+      // power_on comes up running server-side; also drive debug/run so the pump
+      // pacing is armed (idempotent) and the loop can't sit paused.
       try { await c.call("debug/run", { session_id: sessionId, pacing: { mode: "pal" } }); } catch { /* ignore */ }
       setRunState?.("running");
       onSnapshotTaken();
     } else {
-      // ON → OFF: stop polling. But if the session is WEDGED while "on" (frozen
-      // screen, no frames), a plain OFF leaves it stuck — so recycle it with a cold
-      // reset first, then mark off, so the next ON comes up clean.
-      const alive = await probeSession();
-      if (!alive) {
-        console.warn("[power] session wedged — recycling (cold reset) before power-off");
-        try { await c.call("session/reset", { session_id: sessionId, video: "pal-default" }); } catch { /* ignore */ }
-        onSnapshotTaken();
-      }
-      // OFF = unplug: halt the backend loop explicitly (no run-state echo effect
-      // does it for us anymore). The resulting debug/paused is ignored by the
-      // off-guarded mirrors, so OFF stays OFF (black, not the paused yellow).
-      try { await c.call("debug/pause", { session_id: sessionId }); } catch { /* ignore */ }
+      // ON → OFF: real power-off. The daemon blanks the machine + drops the ring
+      // (scrub bar empties) + flushes audio — no client-side cleanup needed.
+      try { await c.call("session/power", { session_id: sessionId, op: "off" }); } catch (e) { console.error("[power] off:", e); }
       setRunState?.("off");
-      // Spec 761 — power-off drops the checkpoint ring (scrub bar empties).
-      // Fire-and-forget: never await it, so an old daemon without the verb
-      // can't hang the power toggle.
-      c.call("checkpoint/clear", { session_id: sessionId }).catch(() => { /* ignore */ });
     }
   };
   // Reset = SYS 64738 soft reset (jump to $FCE2 KERNAL reset vector),
@@ -249,7 +231,7 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
         disabled={!sessionId}
         title="Open the monitor in a separate window (drag it to a second screen)"
       >▣ MON</button>
-      <button onClick={reset} disabled={runState === "off"} title="Reset (RESTORE key / cold reset, machine stays powered)">↺ Reset</button>
+      <button onClick={reset} disabled={runState === "off"} title="Reset (RESET key → $FCE2 warm reset; RAM + media kept, machine stays powered)">↺ Reset</button>
       <button onClick={togglePause} disabled={runState === "off"} title="Run / Pause">
         {runState === "running" ? "⏸ Pause" : "▶ Run"}
       </button>

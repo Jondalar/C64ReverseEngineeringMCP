@@ -152,6 +152,7 @@ the new 776 was created pre-numbered.
 | 783 | `783-local-quality-gate-enforcement.md` | Local Quality-Gate Enforcement (no cloud CI) — `gate.sh` + pre-push hook + mandatory-before-pin; **being built**. Green here → then retire oracle/715/723 doctrine. |
 | 784 | `784-loader-lens-extraction.md` | **Abstract medium/index-agnostic extraction tooling** — manifest→register(full spans+derivedBy+coverage) + loader-lens TRX64 trace-validate. Proven on disk (Accolade B-side + Pawn A-side). Corpus campaign is a SEPARATE track, not a 784 gate. PROPOSED, building. |
 | 785 | `785-crt-extraction.md` | Cart **proof surface** of 784's tooling (not a 2nd tooling) — `+$DE00` banking lane + cart LoaderModels + real-sample harness (Lykia + Mike's CRTs). PROPOSED skeleton, cart-specifics await user input. |
+| 786 | `../TRX64/docs/spec-power-lifecycle.md` | **Power lifecycle** — 3 guarded primitives (`power_on`/`power_off`/`warm_reset`) + `powered` flag in `trx64-session`; reset cold/eject/insert/monitor all compose them. Fixes stale VIC/CIA surviving cold power-cycles ("CRT jammed after reset"). Core→daemon→cli→monitor→C64RE UI. building. |
 
 ---
 
@@ -164,6 +165,6 @@ the new 776 was created pre-numbered.
 - CLOSED — WON'T-DO (2026-07-03 sweep): 17 (422, 428, 613, 614, 615, 619, 621, 623, 700, 705, 711, 712, 713, 726.B, 744, 747, 772)
 - SUPERSEDED: 0 (600, 601 → archived)
 - NEEDS-RECONCILE: 0 — one doctrine-timing decision open (715/723 + CLAUDE.md)
-- TRX64 (shared range): 8 (776–783, files under `../TRX64/docs/`) — **next free number: 786**
+- TRX64 (shared range): 9 (776–783 + 786, files under `../TRX64/docs/`) — **next free number: 787**
 - PROPOSED (cross-repo, loop-buildable): 2 (784 disk, 785 CRT — files in `specs/`)
 - ARCHIVED: ~150 historical specs in `specs/_archive/` (incl. 20 done/superseded specs archived 2026-07-01: 425 426 427 600 601 616 617 618 708 745 751 752 753 754 757 758 759 765 766 768)
