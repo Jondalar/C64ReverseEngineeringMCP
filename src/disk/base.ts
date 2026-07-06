@@ -109,8 +109,20 @@ export function parseDirectory(getSector: (t: number, s: number) => Uint8Array |
 
   let dirTrack = 18;
   let dirSector = 1;
+  // Cycle guard — MUST match extractFileFromChain / traceFileSectorChain. A
+  // protected/custom disk (e.g. Hewson Cybernoid) can have a self-referencing or
+  // looping directory T/S chain (sector[0]/[1] points back into the chain).
+  // Without this the while-loop follows it forever and files.push() grows the
+  // heap until the process OOM-ABORTS — an uncatchable crash. inspect_disk reads
+  // this via getDirectory, so a single bad G64 tore down the whole MCP stdio
+  // server (all tools "Connection closed"). Break on a revisited sector.
+  const visited = new Set<string>();
 
   while (dirTrack !== 0) {
+    const key = `${dirTrack}:${dirSector}`;
+    if (visited.has(key)) break;
+    visited.add(key);
+
     const sector = getSector(dirTrack, dirSector);
     if (!sector) break;
 
