@@ -153,6 +153,11 @@ interface ProjectSignals {
   unsavedHint: boolean;              // analysis exists but no findings recorded yet
   findings: number;
   ungroundedFindings: number;        // Spec 752 L1 — findings tagged `ungrounded`
+  // Static-first doctrine (§9 ladder + discipline-gate.ts): a runtime trace is proposed as
+  // the next step ONLY once the loader is read+annotated AND a read-derived hypothesis
+  // exists — the engine must not steer to runtime before the static work is done.
+  loaderReadAnnotated: boolean;      // a loader model / entry point / routine|annotation finding exists
+  hasReadHypothesis: boolean;        // a `hypothesis`-kind finding is on record
 }
 
 function gatherSignals(service: ProjectKnowledgeService, projectRoot: string, initialized: boolean): ProjectSignals {
@@ -163,6 +168,7 @@ function gatherSignals(service: ProjectKnowledgeService, projectRoot: string, in
       mediaArtifacts: 0, hasG64: false, hasCrt: false, extractedPayloads: 0,
       analysisArtifacts: 0, sourceArtifacts: 0, annotationArtifacts: 0, traceArtifacts: 0,
       openQuestions: 0, unsavedHint: false, findings: 0, ungroundedFindings: 0,
+      loaderReadAnnotated: false, hasReadHypothesis: false,
     };
   }
 
@@ -208,6 +214,14 @@ function gatherSignals(service: ProjectKnowledgeService, projectRoot: string, in
   const findings = allFindings.length;
   const ungroundedFindings = allFindings.filter((f) => (f.tags ?? []).includes("ungrounded")).length;
   const openQuestions = service.listOpenQuestions({ status: "open" }).length;
+  // Static-first signals: is the loader read+annotated, and is a read-derived hypothesis
+  // on record? The §9 ladder guard uses these to refuse proposing a runtime trace before
+  // the static work is done — the ranking-time half of the runtime-tool discipline gate.
+  const loaderReadAnnotated =
+    service.listLoaderModels().length > 0
+    || service.listLoaderEntryPoints().length > 0
+    || allFindings.some((f) => (f.tags ?? []).some((t) => t === "routine" || t === "annotation"));
+  const hasReadHypothesis = allFindings.some((f) => (f as { kind?: string }).kind === "hypothesis");
 
   return {
     initialized: true,
@@ -225,6 +239,8 @@ function gatherSignals(service: ProjectKnowledgeService, projectRoot: string, in
     openQuestions,
     findings,
     ungroundedFindings,
+    loaderReadAnnotated,
+    hasReadHypothesis,
     // unsaved facts: structural analysis exists but nothing has been recorded.
     unsavedHint: analysisArtifacts > 0 && findings === 0,
   };
@@ -258,7 +274,9 @@ interface LadderOutcome {
   blockedBy: Array<{ id: string; prompt: string; choices?: string[] }>;
 }
 
-function pickPrimary(signals: ProjectSignals, projectDir: string): LadderOutcome {
+// Exported as a test seam (scripts/e2e-static-first-ranking.mjs) — the §9 static-first gate
+// is pure over ProjectSignals, so it is asserted directly without scaffolding a project.
+export function pickPrimary(signals: ProjectSignals, projectDir: string): LadderOutcome {
   const blockedBy: Array<{ id: string; prompt: string; choices?: string[] }> = [];
 
   // 1. Project missing → project-init.
@@ -381,12 +399,33 @@ function pickPrimary(signals: ProjectSignals, projectDir: string): LadderOutcome
     };
   }
 
-  // 9. Runtime questions / unknown loader behavior → runtime-trace.
+  // 9. Open questions with no trace yet. STATIC-FIRST DOCTRINE (discipline-gate.ts): a
+  // runtime trace CONFIRMS a read-derived hypothesis about an annotated loader — it does
+  // not DISCOVER structure. So propose a trace ONLY once the loader is read+annotated AND a
+  // read-derived hypothesis is on record; otherwise the doctrine-next is to READ the loader,
+  // not capture a trace. This is the ranking-time half of the gate the runtime tools already
+  // enforce at call time — the engine stops PROPOSING runtime before the static work is done,
+  // instead of relying on the session to override it (Winter Games, 2026-07-06).
   if (signals.openQuestions > 0 && signals.traceArtifacts === 0) {
+    if (signals.loaderReadAnnotated && signals.hasReadHypothesis) {
+      return {
+        primary: suggestStep(
+          "runtime-trace",
+          `${signals.openQuestions} open question(s), the loader is read+annotated, and a read-derived hypothesis is on record. Capture a trace to CONFIRM that hypothesis (not to discover structure).`,
+          { project_dir: projectDir },
+        ),
+        blockedBy,
+      };
+    }
+    // Static-first redirect: read+annotate the loader / record a hypothesis BEFORE any trace.
+    const missing = !signals.loaderReadAnnotated
+      ? "the loader is not yet read + annotated (no loader model / entry point / routine finding)"
+      : "no read-derived hypothesis is on record";
+    const redirectId = !signals.loaderReadAnnotated ? "semantic-annotate" : "record-knowledge";
     return {
       primary: suggestStep(
-        "runtime-trace",
-        `${signals.openQuestions} open question(s) remain and no runtime trace has been captured. Run Headless and capture a trace to gather evidence.`,
+        redirectId,
+        `${signals.openQuestions} open question(s) remain, but ${missing}. Disassemble + annotate the loader and record a read-derived hypothesis (a concrete $address + what you READ that points there) FIRST — runtime only CONFIRMS a hypothesis, it never discovers structure. Do NOT capture a trace yet (static-first doctrine).`,
         { project_dir: projectDir },
       ),
       blockedBy,
@@ -440,9 +479,16 @@ function buildBranches(primary: AgentStepSuggestion, signals: ProjectSignals, pr
   const step = workflowStep(primary.stepId);
   if (!step) return [];
   const out: AgentStepSuggestion[] = [];
+  // Static-first: mirror the §9 primary gate — do not offer a runtime/trace/visual branch
+  // as a secondary action before the loader is read+annotated AND a read-derived hypothesis
+  // exists. Otherwise `runtime-trace` leaks as a secondary right after disassembly.
+  const staticFirstBlocksRuntime = !(signals.loaderReadAnnotated && signals.hasReadHypothesis);
   for (const branchId of step.branches) {
     const b = workflowStep(branchId);
     if (!b) continue;
+    if (staticFirstBlocksRuntime && (b.phase === "runtime-trace" || b.phase === "visual-inspect" || (b.defaultTool ?? "").startsWith("runtime_"))) {
+      continue;
+    }
     let why: string;
     if (b.blockedUntil) {
       why = `Iterative alternative — blocked until ${b.blockedUntil} (patch/validate loop not yet available from the product surface).`;
@@ -453,7 +499,6 @@ function buildBranches(primary: AgentStepSuggestion, signals: ProjectSignals, pr
     }
     out.push(mkSuggestion(b, why, b.defaultTool ? { project_dir: projectDir } : undefined));
   }
-  void signals;
   return out;
 }
 
