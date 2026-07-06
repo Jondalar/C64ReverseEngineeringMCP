@@ -6,8 +6,8 @@
 // Layered outside safeHandler — refusal short-circuits before the
 // inner handler runs.
 
-import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
+import { hasProjectMarker } from "../project-root.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { isToolAllowedInPhase, PHASE_TITLES, type PhaseNumber } from "../agent-orchestrator/phase-tools.js";
 
@@ -40,7 +40,9 @@ function refuseOutput(args: {
 }
 
 function isProjectInitialised(projectDir: string): boolean {
-  return existsSync(join(projectDir, "knowledge", "phase-plan.json"));
+  // Canonical marker (phase-plan.json OR workflow-state.json) — must match the
+  // resolver + c64re_whats_next, not the old phase-plan-only strict check.
+  return hasProjectMarker(projectDir);
 }
 
 function resolveArtifactFromArgs(service: ProjectKnowledgeService, projectDir: string, args: unknown): { id: string; title: string; phase: PhaseNumber } | undefined {

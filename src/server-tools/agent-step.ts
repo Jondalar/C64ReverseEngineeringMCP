@@ -14,6 +14,7 @@
 
 import { existsSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { hasProjectMarker } from "../project-root.js";
 
 // Knowledge / view file sets used for the orchestrator's own stale-view signal.
 // We compute staleness with a grace window because project_inventory_sync's view
@@ -72,8 +73,9 @@ import type { ServerToolContext } from "./types.js";
 // here.) The agreed marker is knowledge/phase-plan.json (see src/project-root.ts
 // hasProjectMarker; workflow-state.json is the secondary marker).
 function projectInitialized(projectRoot: string): boolean {
-  return existsSync(join(projectRoot, "knowledge", "phase-plan.json"))
-    || existsSync(join(projectRoot, "knowledge", "workflow-state.json"));
+  // Canonical marker predicate (phase-plan.json OR workflow-state.json), shared
+  // with the resolver + c64re_whats_next so no init-check drifts stricter.
+  return hasProjectMarker(projectRoot);
 }
 
 function textContent(text: string) {

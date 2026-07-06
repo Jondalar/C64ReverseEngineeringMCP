@@ -15,14 +15,17 @@ export function nextStepError(toolName: string, message: string, recommended: st
 }
 
 export function isProjectInitialised(projectDir: string): boolean {
-  // The presence of knowledge/phase-plan.json is the agreed
-  // initialised marker (see src/project-root.ts).
+  // Delegate to the ONE canonical marker predicate (project-root.hasProjectMarker
+  // = knowledge/phase-plan.json OR knowledge/workflow-state.json — the SAME check
+  // resolveProjectDir / agent_onboard use). Previously this checked phase-plan.json
+  // ONLY, so it drifted STRICTER than the resolver: a workflow-state-only project
+  // resolved + onboarded fine but c64re_whats_next refused it as "not initialised".
   try {
-    // Lazy require to avoid pulling fs into module load critical path.
+    // Lazy require avoids pulling project-root (and its fs import) into this leaf
+    // module's load-critical path.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fs = require("node:fs") as typeof import("node:fs");
-    const path = require("node:path") as typeof import("node:path");
-    return fs.existsSync(path.join(projectDir, "knowledge", "phase-plan.json"));
+    const { hasProjectMarker } = require("../project-root.js") as typeof import("../project-root.js");
+    return hasProjectMarker(projectDir);
   } catch {
     return false;
   }
