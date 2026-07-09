@@ -13,7 +13,7 @@
 // already is, or was never indexed in this process).
 
 import { Worker } from "node:worker_threads";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve as resolvePath, sep } from "node:path";
 import type { IndexResult } from "./binary-log-indexer.js";
@@ -50,6 +50,20 @@ function retracePathFor(duckdbPath: string): string {
   return duckdbPath.endsWith(".duckdb")
     ? duckdbPath.slice(0, -".duckdb".length) + ".c64retrace"
     : duckdbPath + ".c64retrace";
+}
+
+/** Adaptive read-wait bound for a lazy index build, scaled to the `.c64retrace`
+ *  size — a FIXED 15s cliff meant the first read of any non-trivial trace failed
+ *  (empirically ~29s / 135 MB / 7.7M events, so 15s < build). Budget ≈ 12s base +
+ *  0.25s/MB, floored at 15s (small traces stay snappy) and capped at 150s (stays
+ *  under the MCP host's ~180s per-tool stall limit — beyond the cap the reader
+ *  still returns the retry-later error while the build finishes in the background).
+ *  Callers may pass an explicit bound to override (e.g. the UI wants a short grace). */
+function adaptiveIndexTimeoutMs(retracePath: string): number {
+  try {
+    const mb = statSync(retracePath).size / (1024 * 1024);
+    return Math.max(15_000, Math.min(150_000, Math.round(12_000 + mb * 250)));
+  } catch { return 15_000; } // no authority to size → conservative floor
 }
 
 /** Kick a DuckDB index build on a worker thread. Fire-and-forget: returns the
@@ -141,10 +155,12 @@ export async function ensureIndex(duckdbPath: string | undefined): Promise<void>
  *  (~180s) and DROPS the whole stdio connection ("MCP disconnected"). Reads
  *  wait a short grace (small traces stay seamless), then throw a clear
  *  retry-later error while the build keeps running in the background. */
-export async function ensureIndexBounded(duckdbPath: string | undefined, timeoutMs = 15_000): Promise<void> {
+export async function ensureIndexBounded(duckdbPath: string | undefined, timeoutMs?: number): Promise<void> {
   if (!duckdbPath) return;
+  const retrace = retracePathFor(duckdbPath);
+  // Adaptive bound (scaled to the authority's size) unless the caller pinned one.
+  const bound = timeoutMs ?? adaptiveIndexTimeoutMs(retrace);
   if (!active.has(duckdbPath) && !existsSync(duckdbPath)) {
-    const retrace = retracePathFor(duckdbPath);
     if (existsSync(retrace)) startBackgroundIndex(retrace, duckdbPath); // lazy kick, like ensureIndex
   }
   const p = inFlight.get(duckdbPath);
@@ -152,14 +168,15 @@ export async function ensureIndexBounded(duckdbPath: string | undefined, timeout
     const settled = await Promise.race([
       p.then(() => true, () => true),
       new Promise<boolean>((res) => {
-        const t = setTimeout(() => res(false), timeoutMs);
+        const t = setTimeout(() => res(false), bound);
         (t as { unref?: () => void }).unref?.();
       }),
     ]);
     if (!settled) {
       throw new Error(
         `trace index for ${duckdbPath} is still building (background decode of the .c64retrace ` +
-        `authority — large traces take minutes). The build continues; retry this tool in ~30s.`,
+        `authority — waited ${Math.round(bound / 1000)}s, large traces take longer). The build ` +
+        `continues on a worker thread; retry this tool in ~30s and it will read the finished store.`,
       );
     }
   }
