@@ -4,10 +4,10 @@
 // Tools accept session_id + scenario context, return structured
 // JSON suitable for save_finding / save_open_question pipeline.
 //
-// Headless-over-VICE framing (2026-05-09): every tool description
-// recommends headless as the default. VICE consult only via
-// `runtime_compare_with_vice` and only when scenario absent from
-// baseline corpus.
+// Runtime-only framing (2026-07-09): the c64re runtime is the ONLY runtime a
+// tool description may name. External emulators are not an option for RE work
+// and must not appear on this surface. The single exception is the `.vsf`
+// interchange format, which is labelled LEGACY / DEPRECATED where it appears.
 
 import { isAbsolute, resolve as resolvePath } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -285,7 +285,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Breakpoints (Spec 241) ----
   server.tool(
     "runtime_breakpoint_add",
-    "Spec 241 — add PC breakpoint with VICE-style action (halt/log/snapshot/trace_burst).",
+    "Spec 241 — add PC breakpoint with an action (halt/log/snapshot/trace_burst).",
     {
       session_id: z.string(),
       id: z.string(),
@@ -321,7 +321,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Snapshot diff (Spec 246) ----
   server.tool(
     "runtime_save_vsf",
-    "Spec 251 — save full session state as VICE Snapshot Format bytes.",
+    "Spec 251 — save full session state as .vsf bytes (VICE Snapshot Format — LEGACY, DEPRECATED; kept only for interchange with external emulators). For a durable c64re snapshot use runtime_session_snapshot (.c64re).",
     {
       session_id: z.string(),
       output_path: z.string(),
@@ -346,7 +346,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_load_vsf",
-    "Spec 251/770.2 — restore full session state from a VSF file. Auto-detects a REAL VICE x64sc snapshot (VIC-IISC module → full 64K RAM + MAINCPU + VIC-IISC pipeline + CIA1/2 injected) vs a c64re-own VSF, and dispatches to the right loader.",
+    "Spec 251/770.2 — restore full session state from a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED; interchange only). Auto-detects a foreign x64sc-written .vsf (VIC-IISC module → full 64K RAM + MAINCPU + VIC-IISC pipeline + CIA1/2 injected) vs a c64re-own .vsf, and dispatches to the right loader.",
     {
       session_id: z.string(),
       input_path: z.string(),
@@ -358,14 +358,14 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
       if (isDaemonMode()) {
         const r = await runtimeDaemon.vsfLoad<{ loadedPath: string; bytes: number; source?: string; loadedModules?: string[] }>(session_id, abs);
-        const origin = r.source === "vice-x64sc" ? "VICE x64sc snapshot" : "c64re snapshot";
+        const origin = r.source === "vice-x64sc" ? "foreign .vsf (legacy VICE Snapshot Format)" : "c64re snapshot";
         return { content: [{ type: "text", text: `loaded ${r.bytes} bytes from ${r.loadedPath} (${origin}${r.loadedModules ? `; modules: ${r.loadedModules.join(", ")}` : ""})` }] };
       }
       const api = await getApi(session_id);
       const { readFileSync } = await import("node:fs");
       const bytes = new Uint8Array(readFileSync(abs));
       const res = api.loadVsf(bytes);
-      const origin = res.source === "vice-x64sc" ? "VICE x64sc snapshot" : "c64re snapshot";
+      const origin = res.source === "vice-x64sc" ? "foreign .vsf (legacy VICE Snapshot Format)" : "c64re snapshot";
       return { content: [{ type: "text", text: `loaded ${bytes.length} bytes from ${abs} (${origin}; modules: ${res.loadedModules.join(", ")})` }] };
     }),
   );
@@ -848,7 +848,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_input_load_vicerc",
-    "Use to parse a VICE vicerc and read its joystick keyset bindings (KeySet2*, JoyDevice2) to bootstrap a config from existing VICE settings. Not for the c64re config file (use runtime_input_load_config) or saving (use runtime_input_save_config).",
+    "ADVANCED. Use to parse a legacy `vicerc` emulator config and read its joystick keyset bindings (KeySet2*, JoyDevice2), to bootstrap a c64re config from pre-existing settings. Not for the c64re config file (use runtime_input_load_config) or saving (use runtime_input_save_config).",
     { vicerc_path: z.string().optional() },
     safeHandler("runtime_input_load_vicerc", async ({ vicerc_path }) => {
       const { loadVicerc } = await import("../runtime/headless/input/vicerc-loader.js");
@@ -859,7 +859,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_input_load_config",
-    "Use to load the joystick/keyboard InputConfig (from ~/.config/c64re/joystick.json, bootstrapping from vicerc if the file is absent) before driving input. Not for saving it (use runtime_input_save_config) or parsing a raw vicerc (use runtime_input_load_vicerc).",
+    "Use to load the joystick/keyboard InputConfig (from ~/.config/c64re/joystick.json) before driving input. Not for saving it (use runtime_input_save_config).",
     {
       config_path: z.string().optional(),
       vicerc_path: z.string().optional(),

@@ -105,53 +105,12 @@ ${doctrineText}`,
     },
   );
 
-  server.prompt(
-    "debug_workflow",
-    "Guidance for using the VICE runtime tools for breakpoint-driven debugging and runtime tracing.",
-    {
-      goal: z.string().optional().describe("Optional debugging goal, e.g. find depacker entry, inspect IRQ setup, trace title loop"),
-    },
-    async ({ goal }) => ({
-      messages: [{
-        role: "user" as const,
-        content: {
-          type: "text" as const,
-          text: `# VICE Debug Workflow
-
-Goal: ${goal ?? "Inspect and debug the currently loaded program"}
-
-Use the VICE tools in this order:
-
-1. If VICE is not running yet, start it with \`vice_session_start\` or \`vice_trace_runtime_start\`.
-2. Use \`vice_session_status\` to confirm the active session and media.
-3. Choose the mode:
-   - Use \`vice_trace_runtime_start\` when the user wants to interact manually and analyze a full runtime afterwards.
-   - Use \`vice_debug_run\` when you know one or more candidate addresses and want to stop precisely at them.
-4. After a breakpoint hit or a manual stop, inspect state with:
-   - \`vice_monitor_registers\`
-   - \`vice_monitor_backtrace\` (heuristic stack-derived call chain)
-   - \`vice_monitor_memory\`
-   - \`vice_monitor_bank\`
-5. Move execution with:
-   - \`vice_monitor_step\` to step into
-   - \`vice_monitor_next\` to step over
-   - \`vice_monitor_continue\` to resume
-6. Persist interesting state with:
-   - \`vice_monitor_snapshot\`
-   - \`vice_monitor_save\`
-   - \`vice_monitor_binary_save\`
-7. For broad execution analysis after a user-driven run, use \`vice_trace_analyze_last_session\`.
-
-Practical advice:
-- Prefer runtime tracing first when loader, timing, or user interaction matters.
-- Prefer \`vice_debug_run\` once you have hot PCs from runtime trace or disassembly.
-- Treat \`vice_monitor_backtrace\` as heuristic: it is inferred from the 6502 stack page, not provided directly by the binary monitor protocol.
-- Use bank IDs from \`vice_monitor_bank\` with memory-read and memory-save tools when ROM/RAM/I/O views matter.
-- Save snapshots before risky stepping if you may want to return to the same machine state.`,
-        },
-      }],
-    }),
-  );
+  // `debug_workflow` removed (2026-07-09): it walked the caller through a
+  // breakpoint/trace session on an external emulator, using tools the default
+  // tier does not even register, and opened with "prefer runtime tracing first"
+  // — the exact flight-to-runtime the static-first doctrine exists to stop.
+  // `c64re_agent_doctrine` + `c64re_cracker_doctrine` carry the debugging flow;
+  // the runtime_monitor / runtime_step_* tools carry the mechanics.
 
   server.prompt(
     "c64re_get_skill",

@@ -5,7 +5,7 @@
 // Inspector can mirror the same model. Every tool takes a single subjectId (or
 // subject + artifact) — none dumps every version of every artifact into context.
 //
-// Capability-first descriptions, no Spec numbers / VICE references (probe gate).
+// Capability-first descriptions, no Spec numbers / emulator references (probe gate).
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";

@@ -15,20 +15,18 @@ Use this when reverse-engineering any `.prg`, `.crt`, `.d64`, or `.g64` with the
 ## Runtime backend: TRX64 by default (Spec 771)
 
 The default runtime backend is **TRX64** (the native Rust daemon). The
-in-repo TypeScript runtime is the **fallback / parity oracle**; VICE is
-the **correctness oracle only**. Leitregel: Capability → TRX64,
-Meaning/Memory → C64RE.
+in-repo TypeScript runtime is the **fallback / parity check**. Leitregel:
+Capability → TRX64, Meaning/Memory → C64RE.
 
 - Use `runtime_*` MCP tools for runtime evidence, traces, snapshots,
   and monitor operations — they proxy to the TRX64 backend through the
   runtime facade.
 - Route trace validation through the runtime facade rather than any
   single engine; the facade resolves TRX64 first and falls back to the
-  TS runtime as the parity oracle.
-- Use `vice_*` only when a scenario is absent from the baseline corpus
-  AND divergence diagnosis genuinely needs the correctness oracle.
-- State answers from the runtime facade first; consult VICE only if the
-  runtime cannot answer or the output looks wrong.
+  TS runtime as the parity check.
+- **There is no second emulator to consult.** If `runtime_*` cannot
+  answer a question, go back and read the code (see Core Rule) — that
+  is the answer path, not another engine.
 
 ## Core Rule
 

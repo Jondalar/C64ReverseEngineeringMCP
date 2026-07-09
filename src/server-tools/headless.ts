@@ -155,7 +155,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // Path to Murder boot trace.
   server.tool(
     "runtime_session_start",
-    "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, VICE-shaped 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). Not for the VICE oracle (use vice_*, advanced). ONE MACHINE PER PROCESS: a daemon process runs exactly ONE live machine — the human's UI and you co-drive the SAME session (shared-attach). Before starting, list/status existing sessions and attach to one instead; a SECOND in-process session is NOT isolated — it rebinds the process-global VIC/drive and corrupts the first session's rendering (boot text goes black) until a process restart. For a truly isolated machine (e.g. a throwaway build test) use a SEPARATE backend process. Inputs: disk_path; optional device_id, pal, trace_out, trace_domains. Returns: session id + resolved config + trace status when streaming.",
+    "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, cycle-accurate 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). ONE MACHINE PER PROCESS: a daemon process runs exactly ONE live machine — the human's UI and you co-drive the SAME session (shared-attach). Before starting, list/status existing sessions and attach to one instead; a SECOND in-process session is NOT isolated — it rebinds the process-global VIC/drive and corrupts the first session's rendering (boot text goes black) until a process restart. For a truly isolated machine (e.g. a throwaway build test) use a SEPARATE backend process. Inputs: disk_path; optional device_id, pal, trace_out, trace_domains. Returns: session id + resolved config + trace status when streaming.",
     {
       disk_path: z.string(),
       device_id: z.number().int().min(8).max(11).optional(),
@@ -613,7 +613,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_session_snapshot",
-    "Capture a structured, round-trippable state snapshot of a session (CPU+RAM+IEC+drive+keyboard+joystick). Use to save/compare machine state. Not for VICE-format bytes (use runtime_save_vsf, advanced) or the rewind tree (use runtime_snapshot_tree, advanced). Inputs: session_id, optional include=['ram']. Returns: structured snapshot.",
+    "Capture a structured, round-trippable state snapshot of a session (CPU+RAM+IEC+drive+keyboard+joystick). Use to save/compare machine state. Not for legacy `.vsf` interchange bytes (use runtime_save_vsf, advanced) or the rewind tree (use runtime_snapshot_tree, advanced). Inputs: session_id, optional include=['ram']. Returns: structured snapshot.",
     {
       session_id: z.string(),
       include: z.array(z.enum(["ram", "tracks"])).optional().describe("Optional include sections."),
@@ -1240,7 +1240,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_drive_session_save_vsf",
-    "Spec 062 Sprint 64: save the drive session's full state as a VICE Snapshot Format (VSF) file. Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
+    "Spec 062 Sprint 64: save the drive session's full state as a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED; interchange only). Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
     {
       session_id: z.string(),
       output_path: z.string(),
@@ -1267,7 +1267,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_drive_session_load_vsf",
-    "Spec 062 Sprint 64: load a VSF file into a drive session. Modules the headless drive runtime owns are restored; modules it doesn't model (VIC, SID, CIA1, KEYBOARD, etc.) are reported as ignored. Use to resume a previous trace or to import VICE-saved state.",
+    "Spec 062 Sprint 64: load a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED) into a drive session. Modules the headless drive runtime owns are restored; modules it doesn't model (VIC, SID, CIA1, KEYBOARD, etc.) are reported as ignored. Use to resume a previous trace or to import externally saved state.",
     {
       session_id: z.string(),
       input_path: z.string(),

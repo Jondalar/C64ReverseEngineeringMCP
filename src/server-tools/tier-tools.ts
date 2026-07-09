@@ -5,9 +5,15 @@
 // NOT "static-only" (Spec 722 overcorrected; Spec 725 promotes the curated
 // Headless Runtime + Monitor/Inspect + TraceDB facades to default).
 //
-// ADVANCED (only with `C64RE_FULL_TOOLS`): VICE oracle, drive-only debug,
-// maintenance / backfill / dedupe / repair / bulk, raw scenario batch/debug,
-// input-config, audio/video export, format-forensics, sandbox.
+// ADVANCED (only with `C64RE_FULL_TOOLS`): the external-emulator oracle used
+// during runtime development, drive-only debug, maintenance / backfill / dedupe
+// / repair / bulk, raw scenario batch/debug, legacy input-config, audio/video
+// export, format-forensics, sandbox.
+//
+// A RE-facing tool description must not name an external emulator (2026-07-09):
+// it is not an option for RE work, and naming it invites the flight-to-runtime
+// the static-first doctrine exists to stop. Only the `.vsf` interchange format
+// may name it, and only when marked LEGACY / DEPRECATED.
 //
 // Unknown / untagged tools resolve to "advanced" (NEVER silently default), so a
 // newly-added tool stays out of the lean surface until explicitly promoted +
@@ -141,10 +147,12 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "runtime_recorder_dump", "runtime_recorder_list", "runtime_recorder_status",
   "runtime_snapshot_tree", "runtime_promote_branch", "runtime_diff_snapshots",
   // Runtime export + input-config (TRX64-runtime capabilities): render audio/video/
-  // screenshot from a run; load a keyboard/joystick config or a vicerc.
+  // screenshot from a run; load/save the c64re keyboard/joystick config.
+  // `runtime_input_load_vicerc` is deliberately ADVANCED — it parses a legacy
+  // foreign emulator config, is a one-off bootstrap, and its name would put an
+  // external emulator back on the RE surface.
   "runtime_export_audio", "runtime_export_video", "runtime_export_screenshot",
   "runtime_session_export_audio", "runtime_input_load_config", "runtime_input_save_config",
-  "runtime_input_load_vicerc",
 ]);
 
 /** Documented cap on the default surface (probe fails if exceeded). Spec 725
@@ -161,8 +169,13 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * Spec 748 raised 108→109 (project_steering_set — persistent project steering).
  * BUG-039 raised 109→110 (analysis_job_status — poll analyze_prg's job mode).
  * Spec 784 raised 110→114 (the loader-lens extraction chain: register_payloads_from_
- * manifest + validate_extraction + list_loader_models + runtime_loader_lens). */
-export const DEFAULT_TIER_CAP = 134;
+ * manifest + validate_extraction + list_loader_models + runtime_loader_lens).
+ * 2026-07-05 raised 114→141: promoted the group-11 disk/G64 + group-14 TRX64
+ * runtime surface (checkpoint/recorder/rewind/overlay/monitor/run_prg + the
+ * sandbox depack pair) to default — see collectToolInventory() in server.ts,
+ * which the tool-surface gate reads live (no more frozen inventory drift).
+ * 2026-07-09 lowered 141→140: runtime_input_load_vicerc demoted to advanced. */
+export const DEFAULT_TIER_CAP = 140;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

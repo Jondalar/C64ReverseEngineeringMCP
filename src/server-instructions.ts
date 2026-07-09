@@ -18,6 +18,6 @@ WHEN a repo contains C64 media (.g64/.d64/.d81/.crt/.prg/.t64/.tap) OR you are a
 
 THE DOCTRINE IS STATIC-FIRST (docs/agent-doctrine.md §0.5):
 - Disassemble + understand the code, and do disk/G64/D64 forensics, FIRST. Follow the loader breadcrumb statically. Reimplement decoders/depackers from what you READ and apply them to the bytes (sandbox_depack, extract_disk_custom_lut) — that is the static path.
-- Runtime is ONLY to VERIFY a result you derived by reading — never to discover structure. And you rarely even need it: the emulator is a deterministic function of static inputs (the image bits + the known C64/1541 ROMs + the known CPUs), so anything VICE/TRX64 can PLAY from a .g64/.d64, disassembly + forensics can crack. "Custom-GCR" and "packed" are more static WORK, not "needs runtime".
+- Runtime is ONLY to VERIFY a result you derived by reading — never to discover structure. And you rarely even need it: the emulator is a deterministic function of static inputs (the image bits + the known C64/1541 ROMs + the known CPUs), so anything an emulator can PLAY from a .g64/.d64, disassembly + forensics can crack. "Custom-GCR" and "packed" are more static WORK, not "needs runtime".
 
 Accordingly this server REFUSES runtime discovery shortcuts: runtime_loader_lens, runtime_trace_start and the trace-analysis tools require a read-derived hypothesis (a concrete $address + what you read that points there), and the payload-extraction doors refuse a standard-GCR medium (it is a static depack). Read the code first; trace, if at all, only to confirm.`;

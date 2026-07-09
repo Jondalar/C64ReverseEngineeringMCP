@@ -44,7 +44,7 @@ This MCP already provides:
 - artifact access
 - a persistent project knowledge layer
 - workspace UI views
-- CRT / disk / G64 / VICE / trace tooling
+- CRT / disk / G64 / runtime / trace tooling
 - semantic annotation workflows
 
 Your first responsibility is **not** to answer quickly. Your first responsibility is to keep the project knowledge and UI state correct.
@@ -115,8 +115,9 @@ against the real loader with a loader-lens capture: `runtime_trace_start` domain
 `runtime_loader_lens` → `validate_extraction`. The landing map is what the REAL
 loader read, so a wrong static interpretation is caught (the Accolade/Wasteland
 bug class). Only then `register_payloads_from_manifest` bulk-registers the
-validated payloads with derivedBy. Emulation is the validation oracle /
-physics-blocked fallback — never the default bulk path.
+validated payloads with derivedBy. Running the machine only CONFIRMS what the
+extractor already produced, or substitutes for it where the physics genuinely
+blocks a static read — never the default bulk path.
 
 The onboarding / knowledge / finding rules in this doc operate **within
 Discovery + RE**. Onboarding itself is a dialogue that runs in the
@@ -165,23 +166,21 @@ Minimum persistence contract after a substantive step:
 knowledge before re-deriving it. `project_wiki_lint` is the default way to find
 important records that still lack wiki coverage.
 
-### 1.1. Runtime facade over VICE (2026-05-09; backend updated Spec 771)
+### 1.1. There is exactly one runtime (2026-05-09; backend updated Spec 771)
 
 **Runtime backend (Spec 771).** The default runtime backend is the
 **TRX64 native Rust daemon**. The in-repo **TypeScript runtime is the
-fallback / parity oracle**, and **VICE is a correctness oracle only**.
-Leitregel: **Capability → TRX64, Meaning/Memory → C64RE.**
+fallback / parity check**. Leitregel: **Capability → TRX64,
+Meaning/Memory → C64RE.**
 
-**Prefer the runtime facade (TRX64-backed) over VICE for every action.**
+**The `runtime_*` MCP tools are the only runtime you have.** There is no
+external emulator to fall back on, no second opinion to consult, and no
+tool that offers one. If a runtime question cannot be answered by
+`runtime_*`, that is not a signal to reach for another emulator — it is a
+signal to go back and read the code (§0.5).
 
-- Tool selection: prefer `runtime_*` MCP tools over `vice_*` for
-  runtime evidence, traces, snapshots, monitor ops. (The former
-  `headless_*` tools were merged into `runtime_*`.)
-- Use `vice_*` only when (a) scenario absent from baseline corpus
-  and divergence diagnosis genuinely needs the oracle, or (b)
-  spec/skill explicitly requests it.
-- Workflow framing: state the answer from the runtime first; consult
-  VICE only if the runtime cannot answer or output looks wrong.
+- Tool selection: `runtime_*` for runtime evidence, traces, snapshots,
+  monitor ops. (The former `headless_*` tools were merged into `runtime_*`.)
 - The Leitregel governs the split, not a deprecation countdown:
   capability / execution lives in TRX64; meaning, memory, and the
   knowledge layer live in C64RE.
@@ -352,7 +351,7 @@ Thinking style:
 - **Smallest change first, rewrite second.** Byte-patch when surgery suffices. Replace whole routines only when surgery isn't enough (legitimate bug, port to different hardware, broken routine). Greenfield only inside an existing target — never from scratch.
 - **Byte-precision tracking.** Every change at address granularity. Original bytes documented before overwrite — even when the change is a full-routine rewrite.
 - **Reversibility.** Every patch / rewrite reversible from artifacts alone. No "I'll remember it" patches.
-- **Verify by execution.** Sandbox or headless run before declaring a change good. VICE for visual / timing-sensitive checks. Trace replay is ground truth, not disasm comments.
+- **Verify by execution.** Sandbox (`sandbox_6502_run` / `sandbox_depack`) or a `runtime_*` run before declaring a change good — the sandbox is the stronger check: run the title's OWN routine over its OWN bytes and demand a 0-diff against your reimplementation, never "looks right". `runtime_render_screen` covers visual / timing-sensitive checks. Trace replay is ground truth, not disasm comments.
 - **Hardware constraints non-negotiable.** VIC raster timing, IRQ chains, banking, KERNAL / IO map, CIA timers. Replacement routines must respect the same constraints as the original.
 - **Trust no labels.** Analyzer / annotation names are starting points, not facts. Re-derive behavior from bytes + trace before changing.
 - **Hypothesis discipline.** "This routine *does* X" — a **behaviour** hypothesis about already-extracted, already-disassembled code — stays a hypothesis until a trace confirms it. Trace confirms **behaviour**, not **identity**: never use a trace to ground *what a block IS* (that is L1's extract-first rule, §0.5). Patches built on hypotheses are tagged risky.
@@ -373,7 +372,7 @@ Writes primarily to:
 
 - annotations (`<name>_annotations.json` with `// PATCH` / `// REWRITE` markers)
 - findings (`save_finding` — `kind=confirmation` after trace verifies, `kind=hypothesis` when guessing)
-- tasks (`save_task` — verification steps: VICE run, sandbox run, trace, A/B compare)
+- tasks (`save_task` — verification steps: runtime run, sandbox run, trace, A/B compare)
 - artifacts (`save_artifact` — patched PRG / CRT, diff against original, runtime traces proving the patch)
 - open questions (`save_open_question` — unresolved side-effects: "does patch survive next IRQ?", "does loader re-load original bytes over patch?")
 
@@ -439,7 +438,7 @@ Examples:
 - disk manifests
 - extracted bank binaries
 - G64 raw tracks / sectors
-- VICE traces
+- runtime traces
 - screenshots / display captures
 - rebuilt PRGs
 - reports
