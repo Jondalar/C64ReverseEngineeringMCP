@@ -153,6 +153,8 @@ the new 776 was created pre-numbered.
 | 784 | `784-loader-lens-extraction.md` | **Abstract medium/index-agnostic extraction tooling** — manifest→register(full spans+derivedBy+coverage) + loader-lens TRX64 trace-validate. Proven on disk (Accolade B-side + Pawn A-side). Corpus campaign is a SEPARATE track, not a 784 gate. PROPOSED, building. |
 | 785 | `785-crt-extraction.md` | Cart **proof surface** of 784's tooling (not a 2nd tooling) — `+$DE00` banking lane + cart LoaderModels + real-sample harness (Lykia + Mike's CRTs). PROPOSED skeleton, cart-specifics await user input. |
 | 786 | `../TRX64/docs/spec-power-lifecycle.md` | **Power lifecycle** — 3 guarded primitives (`power_on`/`power_off`/`warm_reset`) + `powered` flag in `trx64-session`; reset cold/eject/insert/monitor all compose them. Fixes stale VIC/CIA surviving cold power-cycles ("CRT jammed after reset"). Core→daemon→cli→monitor→C64RE UI. building. |
+| 787 | `787-scoped-trx64-instances.md` | **Scoped TRX64 instances** (foundation) — one live machine under the C64RE UI (shared-attach) + N throwaway **scratch** instances (sandbox/oracle/targeted runs). The "one machine" limit was a TS module-global artifact; the Rust `Machine` is instantiable/cloneable. v1 = separate short-lived process; **V2 = in-process clone = C64RE Scenarios substrate**. Single-path (723) preserved; scoped ≠ modes. Scratch seed = cold+load or `.c64re` file, never live. CLI(780) for scratch / `runtime_*` MCP for live; no new server. PROPOSED. |
+| 788 | `788-real-core-execution-sandbox.md` | **Real-core execution sandbox** (consumer of 787) — retire the standalone TS `Cpu6502` (orphaned 3rd 6502: flat 64K, no IO/banking, refs the deleted `cpu6510.ts`); run depack/oracle on the authoritative core in a 787 scratch instance; `run_routine_to_sentinel(seed, entry, sentinel, harvest)` — self-gating static-first (inputs = read-derived hypothesis). Capability→TRX64, verdict→C64RE. PROPOSED. |
 
 ---
 
@@ -165,6 +167,6 @@ the new 776 was created pre-numbered.
 - CLOSED — WON'T-DO (2026-07-03 sweep): 17 (422, 428, 613, 614, 615, 619, 621, 623, 700, 705, 711, 712, 713, 726.B, 744, 747, 772)
 - SUPERSEDED: 0 (600, 601 → archived)
 - NEEDS-RECONCILE: 0 — one doctrine-timing decision open (715/723 + CLAUDE.md)
-- TRX64 (shared range): 9 (776–783 + 786, files under `../TRX64/docs/`) — **next free number: 787**
-- PROPOSED (cross-repo, loop-buildable): 2 (784 disk, 785 CRT — files in `specs/`)
+- TRX64 (shared range): 9 (776–783 + 786, files under `../TRX64/docs/`) — **next free number: 789**
+- PROPOSED (cross-repo, loop-buildable): 4 (784 disk, 785 CRT, 787 scoped-instances, 788 real-core-sandbox — files in `specs/`)
 - ARCHIVED: ~150 historical specs in `specs/_archive/` (incl. 20 done/superseded specs archived 2026-07-01: 425 426 427 600 601 616 617 618 708 745 751 752 753 754 757 758 759 765 766 768)
