@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { runSandbox, type SandboxLoad } from "../sandbox/index.js";
+import { runSandboxRealCore, type SandboxLoad } from "../sandbox/index.js";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 
@@ -114,7 +114,7 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
           ? { start: parseHexWord(args.return_writes_start), end: parseHexWord(args.return_writes_end) }
           : undefined;
 
-        const result = runSandbox({
+        const result = runSandboxRealCore({
           loads,
           initialPc: parseHexWord(args.initial_pc),
           initialZp,

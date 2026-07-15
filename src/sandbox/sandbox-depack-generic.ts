@@ -24,9 +24,13 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve as resolvePath } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { runSandbox, type SandboxLoad } from "./sandbox-runner.js";
+import { hexToBytes, hx2, hx4, repoRoot, resolveTrx64Cli } from "./trx64cli.js";
+
+// Re-export for back-compat: resolveTrx64Cli was originally defined here and is
+// imported from this module by the Spec 788 tests. It now lives in ./trx64cli.
+export { resolveTrx64Cli };
 
 export interface SandboxDepackOptions {
   // Packed bytes to depack. Routed into the sandbox at sourceLoadAddress
@@ -140,32 +144,6 @@ function checkLayout(opts: SandboxDepackOptions, sourceLoad: number, residentEnd
     );
   }
 }
-
-// The c64re repo root, from this module's location
-// (<repo>/{dist,src}/sandbox/sandbox-depack-generic.{js,ts} → ../.. = <repo>).
-// Mirrors runtime-daemon-client.ts's repo-root derivation.
-function repoRoot(): string {
-  return resolvePath(dirname(fileURLToPath(import.meta.url)), "..", "..");
-}
-
-// Resolve the sibling TRX64 `trx64cli` binary, mirroring resolveDaemonSpawn's
-// sibling resolution for `trx64-daemon`. `C64RE_TRX64CLI_BIN` overrides.
-export function resolveTrx64Cli(): string {
-  const override = process.env.C64RE_TRX64CLI_BIN?.trim();
-  if (override) return override;
-  return resolvePath(repoRoot(), "..", "TRX64", "target", "release", "trx64cli");
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const out = new Uint8Array(hex.length >> 1);
-  for (let i = 0; i < out.length; i++) {
-    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return out;
-}
-
-const hx4 = (n: number): string => `$${(n & 0xffff).toString(16).padStart(4, "0")}`;
-const hx2 = (n: number): string => `$${(n & 0xff).toString(16).padStart(2, "0")}`;
 
 // ── DEFAULT engine: run the depacker on the TRX64 real 6502 core. ──────────
 export function genericSandboxDepack(opts: SandboxDepackOptions): SandboxDepackResult {
