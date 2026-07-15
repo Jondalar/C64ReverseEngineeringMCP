@@ -1,13 +1,12 @@
-// Spec 788 Slice 1 piece B — sandbox_depack engine reroute PARITY cross-check.
+// Spec 788 Slice 1 piece B — sandbox_depack real-core CORRECTNESS.
 //
-// One-time migration cross-check: the `sandbox_depack` engine
-// (`genericSandboxDepack`) was rerouted OFF the flat-64K TS `Cpu6502` shadow
-// ONTO the TRX64 real 6502 core (`trx64cli sandbox`). This asserts the two
-// engines produce BYTE-IDENTICAL unpacked bytes — and identical tool prose —
-// on synthetic depacker fixtures, while the shadow is being replaced.
-//
-// Doctrine note: TS + VICE are retired as eternal oracles; this is a
-// migration cross-check, not a standing parity mandate.
+// Originally a one-time migration cross-check that compared the rerouted
+// `sandbox_depack` engine (`genericSandboxDepack`, on the TRX64 real 6502 core)
+// against the flat-64K TS `Cpu6502` shadow (`genericSandboxDepackTs`). Spec 788
+// tail piece C deleted the shadow, so this is now a standalone CORRECTNESS
+// assertion: the synthetic depacker fixtures (XOR-copy + RLE) have deterministic
+// KNOWN unpacked bytes, computed independently in-test — the real-core engine
+// must reproduce them byte-for-byte, and the tool prose must reflect them.
 //
 // Run:
 //   npx tsx tests/spec-788/depack-reroute-parity.test.ts
@@ -18,7 +17,6 @@
 import { strict as assert } from "node:assert";
 import {
   genericSandboxDepack,
-  genericSandboxDepackTs,
   resolveTrx64Cli,
   type SandboxDepackOptions,
   type SandboxDepackResult,
@@ -102,37 +100,43 @@ function renderProse(result: SandboxDepackResult, fx: FixedProse): string {
   ].join("\n");
 }
 
-function assertParity(name: string, opts: SandboxDepackOptions, expected: Uint8Array): void {
+// Assert the real-core engine reproduces the independently-computed expected
+// bytes, and that the tool prose reflects the known result facts.
+function assertCorrect(
+  name: string,
+  opts: SandboxDepackOptions,
+  expected: Uint8Array,
+  expectedDest: number,
+): void {
   const real = genericSandboxDepack(opts);
-  const shadow = genericSandboxDepackTs(opts);
 
   // 1) unpacked bytes byte-identical to the independently-computed expectation.
   assert.deepEqual(Array.from(real.unpacked), Array.from(expected), `${name}: real-core unpacked != expected`);
-  assert.deepEqual(Array.from(shadow.unpacked), Array.from(expected), `${name}: shadow unpacked != expected`);
 
-  // 2) real-core unpacked byte-identical to the shadow (the migration cross-check).
-  assert.equal(Buffer.compare(Buffer.from(real.unpacked), Buffer.from(shadow.unpacked)), 0,
-    `${name}: real-core vs shadow unpacked bytes differ`);
+  // 2) engine-visible result fields have their known-correct values.
+  assert.equal(real.destAddress, expectedDest, `${name}: destAddress`);
+  assert.equal(real.entryPc, opts.entryPc, `${name}: entryPc`);
+  assert.equal(real.stopReason, "sentinel_rts", `${name}: stopReason`);
+  assert.equal(real.writes.length, expected.length, `${name}: writes.length == unpacked length`);
 
-  // 3) engine-visible result fields the tool prose depends on match.
-  assert.equal(real.destAddress, shadow.destAddress, `${name}: destAddress`);
-  assert.equal(real.entryPc, shadow.entryPc, `${name}: entryPc`);
-  assert.equal(real.stopReason, shadow.stopReason, `${name}: stopReason`);
-  assert.equal(real.steps, shadow.steps, `${name}: steps`);
-  assert.equal(real.writes.length, shadow.writes.length, `${name}: writes.length`);
-
-  // 4) the sandbox_depack tool output prose is byte-identical.
+  // 3) the sandbox_depack tool output prose renders and reflects the known facts.
   const fx: FixedProse = {
     inputAbs: "/proj/input.bin", offset: 0, packedLen: opts.packed.length,
     residentAbs: "/proj/resident.bin", residentLoadAddress: opts.residentLoadAddress,
     residentLen: opts.residentLoader.length, outPath: "/proj/analysis/depack/input-0000.prg",
   };
-  assert.equal(renderProse(real, fx), renderProse(shadow, fx), `${name}: tool prose differs`);
+  const prose = renderProse(real, fx);
+  assert.ok(prose.startsWith("sandbox_depack finished."), `${name}: prose header`);
+  assert.ok(
+    prose.includes(`Dest: $${expectedDest.toString(16)} unpacked=${expected.length}`),
+    `${name}: prose dest/unpacked line`,
+  );
+  assert.ok(prose.includes("stop=sentinel_rts"), `${name}: prose stop reason`);
 }
 
 // ── Cases. ─────────────────────────────────────────────────────────────────
 
-test("XOR-decrypt copy — byte-identical, prose-identical (no captureRange, auto-dest)", () => {
+test("XOR-decrypt copy — real-core bytes match known expectation (no captureRange, auto-dest)", () => {
   const packed = Uint8Array.from([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]);
   const key = 0x5a;
   const opts: SandboxDepackOptions = {
@@ -144,10 +148,10 @@ test("XOR-decrypt copy — byte-identical, prose-identical (no captureRange, aut
     // destAddress unset → exercise largest-contiguous-run auto-detect.
   };
   const expected = Uint8Array.from(Array.from(packed, (b) => b ^ key));
-  assertParity("xor-copy", opts, expected);
+  assertCorrect("xor-copy", opts, expected, 0x4000);
 });
 
-test("RLE decruncher — variable-length output, captureRange path", () => {
+test("RLE decruncher — variable-length output matches known expectation (captureRange path)", () => {
   const pairs = [3, 0x41, 2, 0x42, 4, 0x43, 5, 0xff, 0]; // AAA BB CCCC (0xff)x5
   const packed = Uint8Array.from(pairs);
   const expected = rleExpand(pairs);
@@ -159,10 +163,10 @@ test("RLE decruncher — variable-length output, captureRange path", () => {
     entryPc: 0xc000,
     initialZp: { 0xfb: dst & 0xff, 0xfc: (dst >> 8) & 0xff },
     // captureRange confines the write-set to the dest window (drops the ZP
-    // pointer-advance writes) so both engines report the same total-writes.
+    // pointer-advance writes) so the reported total-writes == unpacked length.
     captureRange: { start: dst, end: dst + expected.length - 1 },
   };
-  assertParity("rle", opts, expected);
+  assertCorrect("rle", opts, expected, dst);
 });
 
 // ── Runner. ──────────────────────────────────────────────────────────────

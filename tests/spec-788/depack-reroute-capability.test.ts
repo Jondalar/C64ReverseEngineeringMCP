@@ -1,10 +1,11 @@
 // Spec 788 Slice 1 piece B — sandbox_depack real-core CAPABILITY.
 //
 // Proves the rerouted engine harvests correct bytes for a depacker whose dest
-// lands in the $E000-$FFFF banking region, and demonstrates the class of
-// behaviour the flat-64K TS shadow structurally could NOT do: reading real
-// KERNAL ROM. On the real core, $E000 under the standard $37 memory config is
-// KERNAL ROM; on the flat shadow $E000 is plain (unloaded → zero) RAM.
+// lands in the $E000-$FFFF banking region, and that on the real core $E000
+// under the standard $37 memory config reads real KERNAL ROM — a class of
+// behaviour the deleted flat-64K TS shadow structurally could not do (on the
+// flat shadow $E000 was plain, unloaded → zero, RAM). The shadow is gone (Spec
+// 788 tail piece C); these are now standalone real-core assertions.
 //
 // Run:
 //   npx tsx tests/spec-788/depack-reroute-capability.test.ts
@@ -17,11 +18,9 @@ import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   genericSandboxDepack,
-  genericSandboxDepackTs,
   resolveTrx64Cli,
   type SandboxDepackOptions,
 } from "../../src/sandbox/sandbox-depack-generic.js";
-import { runSandbox } from "../../src/sandbox/sandbox-runner.js";
 
 interface Case { name: string; run: () => void }
 const cases: Case[] = [];
@@ -56,17 +55,10 @@ test("depacker writing to $E000 dest — real core harvests correct bytes", () =
   assert.equal(real.destAddress, 0xe000, "dest $E000");
   assert.deepEqual(Array.from(real.unpacked), Array.from(expected), "real-core $E000 harvest");
   assert.equal(real.stopReason, "sentinel_rts");
-
-  // Under --io $34 (all-RAM) the shadow also serves $E000 as RAM, so it agrees
-  // here — this case proves the new path handles the high region, NOT a
-  // divergence. The divergence (real ROM at $E000) is Case 2.
-  const shadow = genericSandboxDepackTs(opts);
-  assert.deepEqual(Array.from(shadow.unpacked), Array.from(real.unpacked),
-    "shadow all-RAM agrees on the $E000 dest");
 });
 
-// ── Case 2: read REAL KERNAL ROM at $E000 — the flat shadow cannot. ─────────
-test("real KERNAL ROM at $E000 under $37 — shadow structurally cannot", () => {
+// ── Case 2: read REAL KERNAL ROM at $E000 — a real-core-only capability. ────
+test("real core reads real KERNAL ROM at $E000 under $37", () => {
   if (!existsSync(kernalPath)) {
     throw new Error(`kernal ROM missing at ${kernalPath}`);
   }
@@ -100,19 +92,9 @@ test("real KERNAL ROM at $E000 under $37 — shadow structurally cannot", () => 
     rmSync(tmp, { recursive: true, force: true });
   }
 
-  // Flat-64K TS shadow: $E000 is unloaded RAM → reads 0, stores 0 to $C000.
-  const shadowRun = runSandbox({
-    loads: [{ bytes: routine, address: 0xc000 }],
-    initialPc: 0xc000,
-    maxSteps: 1000,
-  });
-  assert.equal(shadowRun.stopReason, "sentinel_rts");
-  const shadowByte = shadowRun.writtenMap[0xc000];
-
-  // The real core sees the actual KERNAL byte; the flat shadow sees 0.
+  // The real core sees the actual KERNAL byte at $E000 (the deleted flat shadow
+  // would have read 0 there — unloaded RAM). This is the real-core capability.
   assert.equal(realByte, kernalByte0, `real core reads KERNAL $E000 = $${kernalByte0.toString(16)}`);
-  assert.equal(shadowByte, 0x00, "flat shadow has no KERNAL at $E000 → reads 0");
-  assert.notEqual(realByte, shadowByte, "real-core ROM read differs from the shadow");
 });
 
 // ── Runner. ──────────────────────────────────────────────────────────────

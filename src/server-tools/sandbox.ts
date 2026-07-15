@@ -139,12 +139,9 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
           `Stream pos: ${result.streamPos}`,
           `Writes returned: ${result.writes.length}`,
         ];
-        if (result.unimplementedOpcode) {
-          const { describeOpcode } = await import("../sandbox/opcode-table.js");
-          const mn = describeOpcode(result.unimplementedOpcode.opcode);
-          const mnText = mn === "unknown" ? "" : ` (${mn})`;
-          lines.push(`Unimplemented opcode: $${formatHexByte(result.unimplementedOpcode.opcode)}${mnText} @ $${formatHexWord(result.unimplementedOpcode.pc)}`);
-        }
+        // (The real core implements the full ISA, so runSandboxRealCore never
+        // reports an unimplemented opcode — the old formatting branch that
+        // imported opcode-table.ts was dead and was removed with the shadow.)
         if (result.writtenSpan) {
           lines.push(`Write span: $${formatHexWord(result.writtenSpan.start)}-$${formatHexWord(result.writtenSpan.end)} (${result.writtenSpan.bytes.length} bytes)`);
         }

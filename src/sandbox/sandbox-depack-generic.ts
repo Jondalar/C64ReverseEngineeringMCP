@@ -14,18 +14,15 @@
 // overrides). The tool contract (`sandbox_depack` input schema + output
 // prose) is unchanged.
 //
-// The old TS-shadow engine is retained verbatim as `genericSandboxDepackTs`
-// for the ONE-TIME migration cross-check (`tests/spec-788/*`). It is NOT a
-// runtime fallback — a missing `trx64cli` is an actionable error, not a
-// silent drop back onto the shadow (single-path doctrine). `runSandbox` /
-// `cpu6502.ts` stay intact; they still back `sandbox_6502_run` + the BWC
-// bit-stream depacker (those remain on the shadow, phase 2).
+// A missing `trx64cli` is an actionable error, not a silent drop back onto a
+// TS shadow (single-path doctrine). Spec 788 tail piece C (2026-07-15) deleted
+// the flat-64K TS `Cpu6502` shadow and the `genericSandboxDepackTs` migration
+// cross-check that used it; the real core is now the only engine.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runSandbox, type SandboxLoad } from "./sandbox-runner.js";
 import { hexToBytes, hx2, hx4, repoRoot, resolveTrx64Cli } from "./trx64cli.js";
 
 // Re-export for back-compat: resolveTrx64Cli was originally defined here and is
@@ -274,66 +271,4 @@ export function genericSandboxDepack(opts: SandboxDepackOptions): SandboxDepackR
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
-}
-
-// ── Retained TS-shadow engine (migration cross-check ONLY; NOT a runtime
-// fallback). Same behaviour as the pre-788 `genericSandboxDepack`. ─────────
-export function genericSandboxDepackTs(opts: SandboxDepackOptions): SandboxDepackResult {
-  const residentEnd = opts.residentLoadAddress + opts.residentLoader.length;
-  const sourceLoad = opts.sourceLoadAddress ?? residentEnd;
-  checkLayout(opts, sourceLoad, residentEnd);
-
-  const zpLow = opts.sourceZpLow ?? 0x52;
-  const zpHigh = opts.sourceZpHigh ?? 0x53;
-  const initialZp = {
-    ...(opts.initialZp ?? {}),
-    [zpLow]: sourceLoad & 0xff,
-    [zpHigh]: (sourceLoad >> 8) & 0xff,
-  };
-
-  const loads: SandboxLoad[] = [
-    { bytes: opts.residentLoader, address: opts.residentLoadAddress },
-    // Plain RAM so LZ self-references reach freshly-written bytes.
-    { bytes: opts.packed, address: sourceLoad, mapping: "ram" },
-  ];
-
-  const result = runSandbox({
-    loads,
-    initialPc: opts.entryPc & 0xffff,
-    initialZp,
-    initialA: opts.initialA,
-    initialX: opts.initialX,
-    initialY: opts.initialY,
-    initialSp: opts.initialSp,
-    initialFlags: opts.initialFlags,
-    stopPc: opts.stopPc,
-    maxSteps: opts.maxSteps ?? 5_000_000,
-    returnWritesRange: opts.captureRange,
-  });
-
-  if (result.stopReason !== "sentinel_rts" && result.stopReason !== "stop_pc") {
-    throw new GenericSandboxDepackError(
-      `depacker stopped with ${result.stopReason} after ${result.steps} steps (final PC $${result.finalState.pc.toString(16)})`,
-    );
-  }
-
-  const writeMap = new Map<number, number>();
-  for (const w of result.writes) writeMap.set(w.address, w.value);
-
-  const { dest, len } = pickDestRun(writeMap.keys(), opts.destAddress);
-  if (len === 0) {
-    throw new GenericSandboxDepackError(`no contiguous write run found at dest $${dest.toString(16)}`);
-  }
-
-  const bytes: number[] = [];
-  for (let i = 0; i < len; i++) bytes.push(writeMap.get((dest + i) & 0xffff)!);
-
-  return {
-    unpacked: Uint8Array.from(bytes),
-    destAddress: dest,
-    steps: result.steps,
-    stopReason: result.stopReason,
-    entryPc: opts.entryPc,
-    writes: result.writes,
-  };
 }

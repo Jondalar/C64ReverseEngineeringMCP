@@ -35,8 +35,15 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { CpuWrite, SandboxCpuState, StopReason } from "./cpu6502.js";
-import type { LoadMapping, SandboxLoad, SandboxRunOptions, SandboxRunResult } from "./sandbox-runner.js";
+import type {
+  CpuWrite,
+  LoadMapping,
+  SandboxCpuState,
+  SandboxLoad,
+  SandboxRunOptions,
+  SandboxRunResult,
+  StopReason,
+} from "./sandbox-types.js";
 import { hexToBytes, hx2, hx4, resolveTrx64Cli, runTrx64Sandbox } from "./trx64cli.js";
 
 // A single load resolved to raw bytes + address (files read, PRG headers
