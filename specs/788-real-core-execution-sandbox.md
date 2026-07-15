@@ -136,10 +136,21 @@ this. Then:
 - Not a second execution path or a new emulator. Fewer 6502s, not more.
 - Not the scrub timeline (761) or ring/storage (766).
 
-## 8. Open questions
+## 8. Decided
 
-- **OQ1:** does the scratch seed for a depack come from a **cold boot + load** of
-  the packed bytes, or from a **`.c64re` seed** of a mid-run state (787 OQ1's
-  poor-man's clone)? Cold+load is simplest and covers most depackers; a mid-run
-  seed is needed only when the depacker depends on prior loader state. Decide per
-  first real target.
+- **OQ1 → cold+load is the DEFAULT + the gate; `.c64re` mid-run seed is the
+  ESCALATION** (2026-07-15). The `seed_ref` stays **polymorphic** (cold+load
+  recipe | `.c64re` | checkpoint) — this is a "which default + what to gate on"
+  call, not exclusive. Rationale:
+  - **Cold+load (A)** covers the majority (self-contained depackers: packed bytes
+    in → unpacked out, own ZP scratch) and is static-first-faithful (packed
+    location + entry + sentinel are read-derived). It is deterministic /
+    N-times-mintable / byte-comparable.
+  - **`.c64re` (B)** is only for depackers that depend on state set by an *earlier*
+    loader stage (ZP/IO/banking/tables). Drop-in via the same `seed_ref` (707
+    undump already exists); used only when a real target proves A insufficient
+    (crash / wrong bytes). Costs nothing to keep available; not a 788 gate blocker.
+  - **First gate target = a cart/EF-resident depacker via cold + attach-cart +
+    run-its-own-entry** — one A-case that proves BOTH parity (self-contained) AND
+    the capability the flat-64K TS shadow cannot do (banking / `$DE00` / cart
+    flash). A is thus both the common path and the capability proof.

@@ -447,7 +447,7 @@ Use `save_artifact` with meaningful `role` and `scope`.
 
 ### 4a. Bulk operations and artifact registration
 
-When you call any of the c64re library entry points directly — Node imports of `dist/bwc-bitstream-ts/*`, `dist/graphics-render/*`, the pipeline CLI (`dist/pipeline/cli.cjs`), or shell-loop wrappers around them — you may bypass the MCP artifact-registration step. The pipeline CLI now auto-registers when it detects `knowledge/phase-plan.json` in the CWD ancestry, but other library imports do not. The same applies to files written by the `Write` tool (markdown docs, hand-emitted JSON) and shell-emitted output.
+When you call any of the c64re library entry points directly — Node imports of `dist/exomizer-ts/*`, `dist/graphics-render/*`, the pipeline CLI (`dist/pipeline/cli.cjs`), or shell-loop wrappers around them — you may bypass the MCP artifact-registration step. The pipeline CLI now auto-registers when it detects `knowledge/phase-plan.json` in the CWD ancestry, but other library imports do not. The same applies to files written by the `Write` tool (markdown docs, hand-emitted JSON) and shell-emitted output.
 
 **Every such call must be followed by `project_inventory_sync` (or `save_artifact` for a single file) covering the affected outputs**, or the files become invisible to the workspace UI and to future sessions.
 
