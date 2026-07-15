@@ -1,5 +1,7 @@
 # Spec 715 - Runtime Product Proof Baseline and Tiered Gate Policy
 
+> **Status: ÜBERHOLT (superseded 2026-07-15)** — VICE/TS as authority retired; TRX64 standalone. VICE = Vorlage only. See board doctrine line + [[project_ts_vice_oracle_retired]].
+
 **Status:** DONE (2026-05-24 CEST) — small canary baseline implemented + frozen
 **Owner:** Runtime / quality contract
 **Scope:** Product-level regression authority and gate scheduling; no emulator behavior changes

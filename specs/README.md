@@ -122,7 +122,7 @@ feature-complete-vs-TS 2026-06-25). Disposition per row:
 | 623 | VICE-compat monitor / debugger | **→ TRX64 (already there)** — monitor + reverse-debug in TRX64 (`MONITOR.md`); C64RE-facing part via Spec 754 (archived) done. |
 | 711 | Code/Data Overlay + Controlled Intervention Branches | **→ merged into TRX64** `docs/776-overlay-intervention-diff.md`. |
 | 712 | Rewind, Replay and Branch Diff | **→ merged into TRX64** `docs/776-overlay-intervention-diff.md` (rewind/snapshot-diff already in `spec-time-travel-tooling.md`; the new part = overlay-intervention + outcome-diff). |
-| 713 | VICE Cartridge Fidelity (CRT mapping/banking/writable) | **dropped** — TS-runtime cart-fidelity; TS deprecating + TRX64 already has faithful cart families (Normal/MagicDesk/Ocean read-only + flash-writable EasyFlash/GMOD/MegaCart, proven vs VICE). Branch `spec-713-cart-families` no longer present (nothing to merge). Real-sample **GMOD3 + C64MegaCart** verification → **TRX64 cart test harness when Mike's 2 CRTs arrive** (deferred). |
+| 713 | VICE Cartridge Fidelity (CRT mapping/banking/writable) | **dropped** — TS-runtime cart-fidelity; TS deprecating + TRX64 already has faithful cart families (Normal/MagicDesk/Ocean read-only + flash-writable EasyFlash/GMOD/MegaCart, proven vs VICE). Branch `spec-713-cart-families` no longer present (nothing to merge). Real-sample **GMOD3 + C64MegaCart** verification → **TRX64 cart test harness when the 2 real CRTs arrive** (deferred). |
 
 ## SUPERSEDED (replaced by a later spec — kept here as breadcrumbs; bodies archived)
 
@@ -151,22 +151,24 @@ the new 776 was created pre-numbered.
 | 782 | `spec-c64re-trx64-split-charter.md` | Charter — split C64RE into TRX64 (runtime+MCP) and C64RE (workbench) [governing] |
 | 783 | `783-local-quality-gate-enforcement.md` | Local Quality-Gate Enforcement (no cloud CI) — `gate.sh` + pre-push hook + mandatory-before-pin; **being built**. Green here → then retire oracle/715/723 doctrine. |
 | 784 | `784-loader-lens-extraction.md` | **Abstract medium/index-agnostic extraction tooling** — manifest→register(full spans+derivedBy+coverage) + loader-lens TRX64 trace-validate. Proven on disk (Accolade B-side + Pawn A-side). Corpus campaign is a SEPARATE track, not a 784 gate. PROPOSED, building. |
-| 785 | `785-crt-extraction.md` | Cart **proof surface** of 784's tooling (not a 2nd tooling) — `+$DE00` banking lane + cart LoaderModels + real-sample harness (Lykia + Mike's CRTs). PROPOSED skeleton, cart-specifics await user input. |
+| 785 | `785-crt-extraction.md` | Cart **proof surface** of 784's tooling (not a 2nd tooling) — `+$DE00` banking lane + cart LoaderModels + real-sample harness (Lykia + real CRT samples). PROPOSED skeleton, cart-specifics await user input. |
 | 786 | `../TRX64/docs/spec-power-lifecycle.md` | **Power lifecycle** — 3 guarded primitives (`power_on`/`power_off`/`warm_reset`) + `powered` flag in `trx64-session`; reset cold/eject/insert/monitor all compose them. Fixes stale VIC/CIA surviving cold power-cycles ("CRT jammed after reset"). Core→daemon→cli→monitor→C64RE UI. building. |
 | 787 | `787-scoped-trx64-instances.md` | **Scoped TRX64 instances** (foundation) — one live machine under the C64RE UI (shared-attach) + N throwaway **scratch** instances (sandbox/oracle/targeted runs). The "one machine" limit was a TS module-global artifact; the Rust `Machine` is instantiable/cloneable. v1 = separate short-lived process; **V2 = in-process clone = C64RE Scenarios substrate**. Single-path (723) preserved; scoped ≠ modes. Scratch seed = cold+load or `.c64re` file, never live. CLI(780) for scratch / `runtime_*` MCP for live; no new server. PROPOSED. |
 | 788 | `788-real-core-execution-sandbox.md` | **Real-core execution sandbox** (consumer of 787) — retire the standalone TS `Cpu6502` (orphaned 3rd 6502: flat 64K, no IO/banking, refs the deleted `cpu6510.ts`); run depack/oracle on the authoritative core in a 787 scratch instance; `run_routine_to_sentinel(seed, entry, sentinel, harvest)` — self-gating static-first (inputs = read-derived hypothesis). Capability→TRX64, verdict→C64RE. PROPOSED. |
+| 789 | `../TRX64/docs/789-trace-under-armed-observers.md` | **Trace under armed observers** — a live trace records events even while an observer/breakpoint is armed (the `run_until_break` debug path didn't feed `trace.buf`). `TraceAndGate` composite Observer + `TracingObserver::drain_events`. Verified 145,537 events under an armed observer (was 0). Built on branch `spec-789-trace-under-observers` (off main), not yet merged. |
+| 790 | `../TRX64/docs/790-bin-cartridge-typed-attach.md` | **Raw `.bin` cartridge attach + mandatory type param** — start a `.bin` (full linear flash image, every bank present) with the cartridge type passed out-of-band (CLI `--cart-type <id\|mnemonic>` / API `cart_type`), no UI prompt (VICE's `cartridge_attach_image(type,file)` model). `parse_bin` builds the SAME `ParsedCartridgeImage` as `parse_crt` → all existing mappers reused unchanged. Capability→TRX64. PROPOSED. |
 
 ---
 
 ## Counts
 
 - ACTIVE: 7 (721, 748, 750, 771, 773, 774, 775)
-- GOVERNING / DOCTRINE: 6 (610, 612, 620, 715, 723, 746) — TS-oracle doctrines dormant; retirement + CLAUDE.md pending
+- GOVERNING / DOCTRINE: 3 active (610, 723, 746) + 3 **ÜBERHOLT 2026-07-15** (612, 620, 715) — TS runtime + VICE-as-oracle officially retired; TRX64 standalone/authoritative, VICE = occasional Vorlage only (no hard 1:1 mandate). 612 (port-fidelity "exactly as VICE") + 620 (port-bug forensic) + 715 (product-proof *oracle* role → superseded by 783 local quality gate) are superseded. 723 (single-path) stays — it's TRX64-internal architecture, not an oracle.
 - DONE: 6 (622, 703, 704, 726, 740.1, 742) — kept on the board for open children / active continuations
 - BACKLOG: 4 (424, 716, 720, 740.2)
 - CLOSED — WON'T-DO (2026-07-03 sweep): 17 (422, 428, 613, 614, 615, 619, 621, 623, 700, 705, 711, 712, 713, 726.B, 744, 747, 772)
 - SUPERSEDED: 0 (600, 601 → archived)
 - NEEDS-RECONCILE: 0 — one doctrine-timing decision open (715/723 + CLAUDE.md)
-- TRX64 (shared range): 9 (776–783 + 786, files under `../TRX64/docs/`) — **next free number: 789**
+- TRX64 (shared range): 11 (776–783 + 786 + 789 + 790, files under `../TRX64/docs/`) — **next free number: 791**
 - PROPOSED (cross-repo, loop-buildable): 4 (784 disk, 785 CRT, 787 scoped-instances, 788 real-core-sandbox — files in `specs/`)
 - ARCHIVED: ~150 historical specs in `specs/_archive/` (incl. 20 done/superseded specs archived 2026-07-01: 425 426 427 600 601 616 617 618 708 745 751 752 753 754 757 758 759 765 766 768)

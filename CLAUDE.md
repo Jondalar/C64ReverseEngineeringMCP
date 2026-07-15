@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Runtime Proof Gates (Mandatory 2026-05-16)
 
+> **⚠️ ÜBERHOLT / superseded 2026-07-15.** TS runtime + VICE-as-oracle officially retired; TRX64 is standalone/authoritative. VICE = occasional *Vorlage* (reference), not a 1:1 mandate — "must match VICE/TS exactly" is no longer binding. The engineering *techniques* below stay useful as technique (read before hypothesizing, first-divergence over stats, faithful naming); the VICE/TS-as-authority *mandate* does not. Regression protection = TRX64's own gates (Spec 783). NOTE: single-path (Spec 723) is NOT superseded.
+
 **Single source of truth for "is this green":** the Runtime Product
 Proof Baseline in `specs/715-runtime-product-proof-baseline.md`
 (manifest-driven runner `scripts/runtime-product-proof.mjs`, tag
@@ -34,6 +36,8 @@ drive, or the disk image layer.
 
 ## VICE Traces — Secondary, On-Demand Only (2026-05-16)
 
+> **⚠️ ÜBERHOLT / superseded 2026-07-15.** TS runtime + VICE-as-oracle officially retired; TRX64 is standalone/authoritative. VICE = occasional *Vorlage* (reference), not a 1:1 mandate — "must match VICE/TS exactly" is no longer binding. The engineering *techniques* below stay useful as technique (read before hypothesizing, first-divergence over stats, faithful naming); the VICE/TS-as-authority *mandate* does not. Regression protection = TRX64's own gates (Spec 783). NOTE: single-path (Spec 723) is NOT superseded.
+
 VICE-binmon traces are **not** the primary merge gate. The primary
 gate is the Runtime Proof Gate stack above.
 
@@ -61,6 +65,8 @@ Trace workflow when needed:
 - No patch lands before first divergence is identified.
 
 ## 1541 Port Fidelity Doctrine (Spec 612, Mandatory 2026-05-17)
+
+> **⚠️ ÜBERHOLT / superseded 2026-07-15.** TS runtime + VICE-as-oracle officially retired; TRX64 is standalone/authoritative. VICE = occasional *Vorlage* (reference), not a 1:1 mandate — "must match VICE/TS exactly" is no longer binding. The engineering *techniques* below stay useful as technique (read before hypothesizing, first-divergence over stats, faithful naming); the VICE/TS-as-authority *mandate* does not. Regression protection = TRX64's own gates (Spec 783). NOTE: single-path (Spec 723) is NOT superseded.
 
 All work under `src/runtime/headless/vice1541/**` follows
 `specs/612-1541-port-fidelity-rules.md`. Four prior port attempts
@@ -103,6 +109,8 @@ Cross-link: `specs/612-1541-port-fidelity-rules.md` (rules) +
 `specs/612-1541-port-fidelity-todo.md` (rebuild task list).
 
 ## Port-Bug Forensic Doctrine (Spec 620, Mandatory 2026-05-18)
+
+> **⚠️ ÜBERHOLT / superseded 2026-07-15.** TS runtime + VICE-as-oracle officially retired; TRX64 is standalone/authoritative. VICE = occasional *Vorlage* (reference), not a 1:1 mandate — "must match VICE/TS exactly" is no longer binding. The engineering *techniques* below stay useful as technique (read before hypothesizing, first-divergence over stats, faithful naming); the VICE/TS-as-authority *mandate* does not. Regression protection = TRX64's own gates (Spec 783). NOTE: single-path (Spec 723) is NOT superseded.
 
 **Bugs suspected in `src/runtime/headless/vice1541/**` are 99%
 C→TS conversion errors, not algorithmic divergence.** The
@@ -177,6 +185,8 @@ not source of truth for new work.
 **Seven-phase workflow + Master/Worker pattern (Specs 034 + 035).** Project work moves through 7 phases (extraction → loader → heuristic disasm → segment analysis → semantic V1 → meta connections → semantic V2). Phases are tracked per artifact (`phase` field). Tools are tagged with their phase via `src/agent-orchestrator/phase-tools.ts`. The master agent reads `agent_propose_next`, spawns a Task subagent with the `c64re_worker_phase(phase, artifact_id, role)` prompt for each phase-bound action, then calls `agent_record_step` and loops. See `docs/re-phases.md`.
 
 ## Headless over VICE (Mandatory framing 2026-05-09)
+
+> **⚠️ ÜBERHOLT / superseded 2026-07-15.** TS runtime + VICE-as-oracle officially retired; TRX64 is standalone/authoritative. VICE = occasional *Vorlage* (reference), not a 1:1 mandate — "must match VICE/TS exactly" is no longer binding. The engineering *techniques* below stay useful as technique (read before hypothesizing, first-divergence over stats, faithful naming); the VICE/TS-as-authority *mandate* does not. Regression protection = TRX64's own gates (Spec 783). NOTE: single-path (Spec 723) is NOT superseded.
 
 (Spec 771) "headless" now means the TRX64 Rust daemon by default; the in-repo TS headless runtime is the fallback/parity oracle; `runtime_*`/`headless_*` MCP tools are a transition/proxy to the TRX64 backend.
 

@@ -1,5 +1,7 @@
 # Spec 620 — Port-Bug Forensic Doctrine
 
+> **Status: ÜBERHOLT (superseded 2026-07-15)** — VICE/TS as authority retired; TRX64 standalone. VICE = Vorlage only. See board doctrine line + [[project_ts_vice_oracle_retired]].
+
 **Status:** ACTIVE (2026-05-18, renumbered from Spec 613 → 620 on 2026-05-19 — Spec 613 slot held by `c64-iec-load-regression`, predates this doctrine).
 **Parent:** `specs/612-1541-port-fidelity-rules.md`
 **Scope:** debugging any bug whose suspected root cause is in `src/runtime/headless/vice1541/**` (a VICE C→TS port). Applies to the 1541 rebuild and to any future 1:1 port (CIA, VIC, SID).

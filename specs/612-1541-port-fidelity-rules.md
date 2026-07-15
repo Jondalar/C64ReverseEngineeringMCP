@@ -1,5 +1,7 @@
 # Spec 612 — 1541 Port Fidelity Rules
 
+> **Status: ÜBERHOLT (superseded 2026-07-15)** — VICE/TS as authority retired; TRX64 standalone. VICE = Vorlage only. See board doctrine line + [[project_ts_vice_oracle_retired]].
+
 **Status:** ACTIVE (2026-05-17, resync 2026-05-19, FC-7+PL-11 amended — see FC-11 + PL-13 below)
 **Branch:** any branch touching `src/runtime/headless/vice1541/**`
 **Replaces row 612 in:** `specs/610-1541-parity-rebuild-charter.md` ("(superseded by Spec 611 phases)" — that row is reclaimed by this spec).
