@@ -26,7 +26,7 @@
  *     decoding past end_addr. A gamma-0 long-match length also terminates.
  *
  * The goal of this port is byte-exact parity with the real 6502 decoder
- * on all 87 of Mike's VICE-extracted Lykia payloads.
+ * on all 87 of the VICE-extracted Lykia payloads.
  */
 
 /** Result of the Lykia decompressor. */

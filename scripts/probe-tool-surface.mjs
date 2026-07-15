@@ -87,8 +87,11 @@ ok(true, `8 unrecognised-namespace advanced tools (informational)`, unrecognised
 
 // --- 722.5a: default-tool description quality (capability-first, no history) ---
 const dfull = (n) => fullDescByName.get(n) || "";
-// 9. no `Spec NNN` in any default description.
-const specInDefault = defaultNames.filter((n) => /Spec\s*\d/i.test(dfull(n)));
+// 9. no `Spec NNN` citation in any default description. Matches the citation form
+//    (the word "Spec" + whitespace + a number, e.g. "Spec 784", "(Spec 741)") but NOT
+//    a resource path that embeds the token with no space (docs/spec784-manifest-
+//    reference.md, manifest.spec784.json) — those are legitimate pointers, not history.
+const specInDefault = defaultNames.filter((n) => /\bSpec\s+\d/i.test(dfull(n)));
 ok(specInDefault.length === 0, "9 no Spec NNN in default descriptions", specInDefault.join(",") || "none");
 // 10. no default description starts with "Spec" or a phase prefix.
 const badStart = defaultNames.filter((n) => /^\s*(Spec\b|\[Phase)/i.test(dfull(n)));

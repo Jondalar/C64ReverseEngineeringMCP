@@ -661,7 +661,7 @@ export async function suggestDepackers(options: {
       suggestions.push({
         format: "rle",
         confidence: ratio <= 8 ? 0.85 : 0.55,
-        reason: `Data is structurally valid Mike-RLE and terminates cleanly after ${rle.consumedBytes} input bytes.`,
+        reason: `Data is structurally valid custom-RLE and terminates cleanly after ${rle.consumedBytes} input bytes.`,
         offset,
         length: data.length,
         unpackedSize: rle.byteCount,

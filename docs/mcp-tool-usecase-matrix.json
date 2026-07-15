@@ -1,9 +1,9 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 287,
-  "defaultCount": 106,
-  "advancedCount": 181,
+  "total": 303,
+  "defaultCount": 138,
+  "advancedCount": 165,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
     "runtime-explore": "start/run Headless, mount, input, render",
@@ -177,6 +177,22 @@
         "start_re_workflow",
         "agent_onboard"
       ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "analysis_job_status",
+      "namespace": "analysis",
+      "sourceFile": "server-tools/analysis-workflow.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
       "e2eUseCases": [
         "E2E-A"
       ],
@@ -717,60 +733,6 @@
       "keepDecision": "keep-advanced",
       "pathMode": "repo-dev-only",
       "useInstead": "runtime_session_start"
-    },
-    {
-      "name": "depack_bwc_bitstream",
-      "namespace": "depack",
-      "sourceFile": "server-tools/bwc-bitstream.ts",
-      "tier": "advanced",
-      "role": "static-analysis",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
-      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
-      "adjacentTools": [
-        "try_depack",
-        "suggest_depacker"
-      ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "try_depack"
-    },
-    {
-      "name": "depack_bwc_chunk",
-      "namespace": "depack",
-      "sourceFile": "server-tools/bwc-bitstream.ts",
-      "tier": "advanced",
-      "role": "static-analysis",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
-      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
-      "adjacentTools": [
-        "try_depack",
-        "suggest_depacker"
-      ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "try_depack"
-    },
-    {
-      "name": "depack_bwc_raw",
-      "namespace": "depack",
-      "sourceFile": "server-tools/bwc-bitstream.ts",
-      "tier": "advanced",
-      "role": "static-analysis",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
-      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
-      "adjacentTools": [
-        "try_depack",
-        "suggest_depacker"
-      ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "try_depack"
     },
     {
       "name": "depack_byteboozer",
@@ -1492,6 +1454,22 @@
       "pathMode": "no-path"
     },
     {
+      "name": "list_loader_models",
+      "namespace": "list",
+      "sourceFile": "server-tools/payloads.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "list_open_questions",
       "namespace": "list",
       "sourceFile": "project-knowledge/mcp-tools.ts",
@@ -1644,42 +1622,6 @@
       "e2eUseCases": [],
       "keepDecision": "keep-advanced",
       "pathMode": "no-path"
-    },
-    {
-      "name": "pack_bwc_bitstream",
-      "namespace": "pack",
-      "sourceFile": "server-tools/bwc-bitstream.ts",
-      "tier": "advanced",
-      "role": "static-analysis",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
-      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
-      "adjacentTools": [
-        "try_depack",
-        "suggest_depacker"
-      ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "try_depack"
-    },
-    {
-      "name": "pack_bwc_raw",
-      "namespace": "pack",
-      "sourceFile": "server-tools/bwc-bitstream.ts",
-      "tier": "advanced",
-      "role": "static-analysis",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Advanced packer/depacker codec helper for a specific compression format.",
-      "notFor": "Normal depack workflow — use suggest_depacker + try_depack.",
-      "adjacentTools": [
-        "try_depack",
-        "suggest_depacker"
-      ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "try_depack"
     },
     {
       "name": "pack_byteboozer",
@@ -1836,6 +1778,24 @@
       "pathMode": "no-path"
     },
     {
+      "name": "project_find_related",
+      "namespace": "project",
+      "sourceFile": "server-tools/project-search-tools.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Project lifecycle operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "project_init",
       "namespace": "project",
       "sourceFile": "project-knowledge/mcp-tools.ts",
@@ -1878,6 +1838,24 @@
       "pathMode": "no-path"
     },
     {
+      "name": "project_reindex_search",
+      "namespace": "project",
+      "sourceFile": "server-tools/project-search-tools.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Project lifecycle operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "project_repair",
       "namespace": "project",
       "sourceFile": "project-knowledge/mcp-tools.ts",
@@ -1891,6 +1869,24 @@
       ],
       "e2eUseCases": [],
       "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "project_search",
+      "namespace": "project",
+      "sourceFile": "server-tools/project-search-tools.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Project lifecycle operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {
@@ -1909,6 +1905,42 @@
       "e2eUseCases": [
         "E2E-A",
         "E2E-H"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "project_steering_set",
+      "namespace": "project",
+      "sourceFile": "server-tools/agent-workflow.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Project lifecycle operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "project_wiki_lint",
+      "namespace": "project",
+      "sourceFile": "server-tools/project-search-tools.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Project lifecycle operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"
@@ -2195,6 +2227,22 @@
       "pathMode": "no-path"
     },
     {
+      "name": "register_payloads_from_manifest",
+      "namespace": "register",
+      "sourceFile": "server-tools/payloads.ts",
+      "tier": "default",
+      "role": "maintenance",
+      "swimlane": "operator-maintenance",
+      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
+      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-G"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "register_resource_region",
       "namespace": "register",
       "sourceFile": "project-knowledge/mcp-tools.ts",
@@ -2423,6 +2471,96 @@
       "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
     },
     {
+      "name": "runtime_checkpoint_capture",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_checkpoint_list",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_checkpoint_pin",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_checkpoint_restore",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_checkpoint_unpin",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "runtime_diagnose_mm",
       "namespace": "runtime",
       "sourceFile": "server-tools/headless.ts",
@@ -2443,13 +2581,15 @@
       "name": "runtime_diff_snapshots",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "runtime-inspect",
       "swimlane": "internal-dev-only",
       "useWhen": "Legacy pre-facade variant; retained only for backward-compat tooling.",
       "notFor": "New work — the Spec 725/726 default facade supersedes it.",
       "adjacentTools": [],
-      "e2eUseCases": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
       "keepDecision": "merge",
       "pathMode": "no-path",
       "useInstead": "runtime_swimlane_slice (before/after)"
@@ -2543,7 +2683,7 @@
       "name": "runtime_export_audio",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "view-docs",
       "swimlane": "operator-maintenance",
       "useWhen": "Advanced: export audio/video/frame artifacts from a session.",
@@ -2551,8 +2691,10 @@
       "adjacentTools": [
         "runtime_render_screen"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path",
       "useInstead": "runtime_render_screen"
     },
@@ -2560,7 +2702,7 @@
       "name": "runtime_export_screenshot",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "view-docs",
       "swimlane": "operator-maintenance",
       "useWhen": "Advanced: export audio/video/frame artifacts from a session.",
@@ -2568,8 +2710,10 @@
       "adjacentTools": [
         "runtime_render_screen"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path",
       "useInstead": "runtime_render_screen"
     },
@@ -2577,7 +2721,7 @@
       "name": "runtime_export_video",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "view-docs",
       "swimlane": "operator-maintenance",
       "useWhen": "Advanced: export audio/video/frame artifacts from a session.",
@@ -2585,8 +2729,10 @@
       "adjacentTools": [
         "runtime_render_screen"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path",
       "useInstead": "runtime_render_screen"
     },
@@ -2629,7 +2775,7 @@
       "name": "runtime_input_load_config",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "maintenance",
       "swimlane": "operator-maintenance",
       "useWhen": "Advanced: configure input/keymap for a session.",
@@ -2637,8 +2783,10 @@
       "adjacentTools": [
         "runtime_type"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path",
       "useInstead": "runtime_type"
     },
@@ -2663,7 +2811,7 @@
       "name": "runtime_input_save_config",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "maintenance",
       "swimlane": "operator-maintenance",
       "useWhen": "Advanced: configure input/keymap for a session.",
@@ -2671,8 +2819,10 @@
       "adjacentTools": [
         "runtime_type"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path",
       "useInstead": "runtime_type"
     },
@@ -2727,6 +2877,24 @@
       "keepDecision": "merge",
       "pathMode": "no-path",
       "useInstead": "runtime_session_snapshot"
+    },
+    {
+      "name": "runtime_loader_lens",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "runtime_mark",
@@ -2806,6 +2974,24 @@
       "pathMode": "project-or-absolute-ok"
     },
     {
+      "name": "runtime_media_persist",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "runtime_media_swap",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
@@ -2855,6 +3041,24 @@
       "keepDecision": "merge",
       "pathMode": "no-path",
       "useInstead": "runtime_query_events / trace_store_bus_find"
+    },
+    {
+      "name": "runtime_monitor",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "runtime_monitor_disasm",
@@ -2914,6 +3118,24 @@
       "pathMode": "no-path"
     },
     {
+      "name": "runtime_overlay_run",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "runtime_profile_loader",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
@@ -2938,18 +3160,19 @@
       "name": "runtime_promote_branch",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "runtime-control",
-      "swimlane": "internal-dev-only",
-      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
-      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
       "adjacentTools": [
         "runtime_session_start"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "runtime_query_events",
@@ -2972,6 +3195,60 @@
       "pathMode": "project-or-absolute-ok",
       "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
       "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
+    },
+    {
+      "name": "runtime_recorder_dump",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_recorder_list",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_recorder_status",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "runtime_regression_capture_baseline",
@@ -3042,6 +3319,42 @@
       ],
       "e2eUseCases": [
         "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_rewind",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "runtime_run_prg",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"
@@ -3169,10 +3482,29 @@
       "useInstead": "runtime_session_start"
     },
     {
+      "name": "runtime_session_close",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Close a session when finished — stops the run loop (else it pegs a core ~100%), finalizes an active trace, frees the session. The clean alternative to killing the process.",
+      "notFor": "Pausing to inspect then resuming — keep the session and use runtime_session_run; finalizing only a trace — use runtime_trace_finalize.",
+      "adjacentTools": [
+        "runtime_session_start",
+        "runtime_trace_finalize"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "runtime_session_export_audio",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "view-docs",
       "swimlane": "operator-maintenance",
       "useWhen": "Advanced: export audio/video/frame artifacts from a session.",
@@ -3180,8 +3512,10 @@
       "adjacentTools": [
         "runtime_render_screen"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path",
       "useInstead": "runtime_render_screen"
     },
@@ -3201,25 +3535,6 @@
       "e2eUseCases": [
         "E2E-B",
         "E2E-C"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "no-path"
-    },
-    {
-      "name": "runtime_session_close",
-      "namespace": "runtime",
-      "sourceFile": "server-tools/headless.ts",
-      "tier": "default",
-      "role": "runtime-control",
-      "swimlane": "runtime-explore",
-      "useWhen": "Close a session when finished — stops the run loop (else it pegs a core ~100%), finalizes an active trace, frees the session. The clean alternative to killing the process.",
-      "notFor": "Pausing to inspect then resuming — keep the session and use runtime_session_run; finalizing only a trace — use runtime_trace_finalize.",
-      "adjacentTools": [
-        "runtime_session_start",
-        "runtime_trace_finalize"
-      ],
-      "e2eUseCases": [
-        "E2E-B"
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"
@@ -3291,18 +3606,19 @@
       "name": "runtime_snapshot_tree",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "runtime-control",
-      "swimlane": "internal-dev-only",
-      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
-      "notFor": "Normal workflow — the default runtime facade covers session start/run/snapshot.",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
       "adjacentTools": [
         "runtime_session_start"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "runtime_session_start / runtime_session_run / runtime_session_snapshot"
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "runtime_status",
@@ -3357,6 +3673,24 @@
       "pathMode": "no-path"
     },
     {
+      "name": "runtime_swap_disk_and_continue",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "runtime_swimlane_slice",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
@@ -3397,6 +3731,24 @@
       "pathMode": "no-path",
       "schemaContract": "trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)",
       "notes": "Trace writer: produces trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)."
+    },
+    {
+      "name": "runtime_trace_start",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/headless.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "VICE oracle work — that is advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "runtime_trace_status",
@@ -3499,7 +3851,7 @@
       "name": "sandbox_6502_run",
       "namespace": "sandbox",
       "sourceFile": "server-tools/sandbox.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "maintenance",
       "swimlane": "operator-maintenance",
       "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
@@ -3508,14 +3860,14 @@
       "e2eUseCases": [
         "E2E-G"
       ],
-      "keepDecision": "keep-advanced",
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {
       "name": "sandbox_depack",
       "namespace": "sandbox",
       "sourceFile": "server-tools/sandbox-depack.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "maintenance",
       "swimlane": "operator-maintenance",
       "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
@@ -3524,7 +3876,7 @@
       "e2eUseCases": [
         "E2E-G"
       ],
-      "keepDecision": "keep-advanced",
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {
@@ -3875,6 +4227,24 @@
       "pathMode": "no-path"
     },
     {
+      "name": "trace_memory_map",
+      "namespace": "trace",
+      "sourceFile": "server-tools/trace-store.ts",
+      "tier": "default",
+      "role": "trace-query",
+      "swimlane": "trace-analysis",
+      "useWhen": "Trace evidence query.",
+      "notFor": "Raw SQL by default — prefer the convenience readers.",
+      "adjacentTools": [
+        "trace_store_info"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "trace_store_anchor_find",
       "namespace": "trace",
       "sourceFile": "server-tools/trace-store.ts",
@@ -4030,6 +4400,22 @@
       "adjacentTools": [],
       "e2eUseCases": [],
       "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "validate_extraction",
+      "namespace": "validate",
+      "sourceFile": "server-tools/payloads.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {
@@ -4878,96 +5264,6 @@
       "keepDecision": "keep-advanced",
       "pathMode": "no-path",
       "useInstead": "runtime_session_start + trace readers"
-    },
-    {
-      "name": "project_search",
-      "namespace": "project",
-      "sourceFile": "server-tools/project-search-tools.ts",
-      "tier": "default",
-      "role": "workflow",
-      "swimlane": "entry-project-baseline",
-      "useWhen": "Project lifecycle operation.",
-      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
-      "adjacentTools": [
-        "project_status"
-      ],
-      "e2eUseCases": [
-        "E2E-A"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "no-path"
-    },
-    {
-      "name": "project_find_related",
-      "namespace": "project",
-      "sourceFile": "server-tools/project-search-tools.ts",
-      "tier": "default",
-      "role": "workflow",
-      "swimlane": "entry-project-baseline",
-      "useWhen": "Project lifecycle operation.",
-      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
-      "adjacentTools": [
-        "project_status"
-      ],
-      "e2eUseCases": [
-        "E2E-A"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "no-path"
-    },
-    {
-      "name": "project_reindex_search",
-      "namespace": "project",
-      "sourceFile": "server-tools/project-search-tools.ts",
-      "tier": "default",
-      "role": "workflow",
-      "swimlane": "entry-project-baseline",
-      "useWhen": "Project lifecycle operation.",
-      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
-      "adjacentTools": [
-        "project_status"
-      ],
-      "e2eUseCases": [
-        "E2E-A"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "no-path"
-    },
-    {
-      "name": "project_wiki_lint",
-      "namespace": "project",
-      "sourceFile": "server-tools/project-search-tools.ts",
-      "tier": "default",
-      "role": "workflow",
-      "swimlane": "entry-project-baseline",
-      "useWhen": "Project lifecycle operation.",
-      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
-      "adjacentTools": [
-        "project_status"
-      ],
-      "e2eUseCases": [
-        "E2E-A"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "no-path"
-    },
-    {
-      "name": "runtime_media_persist",
-      "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
-      "tier": "default",
-      "role": "runtime-control",
-      "swimlane": "runtime-explore",
-      "useWhen": "Part of the Headless runtime facade.",
-      "notFor": "VICE oracle work — that is advanced.",
-      "adjacentTools": [
-        "runtime_session_start"
-      ],
-      "e2eUseCases": [
-        "E2E-B"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "no-path"
     }
   ]
 }

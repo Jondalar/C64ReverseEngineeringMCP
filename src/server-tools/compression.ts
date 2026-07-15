@@ -121,7 +121,7 @@ function summarizeSharedEncodingManifestSet(
 export function registerCompressionTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "pack_rle",
-    "Compress a binary blob with the built-in C64 RLE format used by Mike's loader.",
+    "Compress a binary blob with the built-in custom C64 RLE loader format.",
     {
       input_path: z.string().describe("Path to the input file to compress"),
       output_path: z.string().optional().describe("Optional output path for the packed data"),
@@ -169,7 +169,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
 
   server.tool(
     "depack_rle",
-    "Decompress the built-in C64 RLE format used by Mike's loader.",
+    "Decompress the built-in custom C64 RLE loader format.",
     {
       input_path: z.string().describe("Path to the packed RLE file"),
       output_path: z.string().optional().describe("Optional output path for the unpacked data"),

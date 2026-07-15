@@ -216,7 +216,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
   server.tool(
     "register_payloads_from_manifest",
-    "Bulk-register every payload from a loader-extraction manifest (Spec 784) — the medium-agnostic path from a per-project extractor's output to first-class C64RE payloads. Reads + validates the manifest JSON (loaderModels[] + payloads[] each with derivedBy=LoaderModel-id and its FULL ordered medium spans), then registers each payload with its full medium_spans (never start-only — the Pawn 168/1329 bug), the span-level provenance derived from its LoaderModel kind, a content hash, its source blob, and an evidence link to the manifest. Idempotent (stable per-name id + hash dedup). Disk-sector and cart-slot spans register through the SAME path. Full manifest field reference + a worked example: docs/spec784-manifest-reference.md. extract_disk auto-emits this shape for the stock-DOS layer (manifest.spec784.json). Use after authoring a per-project extractor; not for a single hand-carved block (use register_payload).",
+    "Bulk-register every payload from a loader-extraction manifest — the medium-agnostic path from a per-project extractor's output to first-class C64RE payloads. Reads + validates the manifest JSON (loaderModels[] + payloads[] each with derivedBy=LoaderModel-id and its FULL ordered medium spans), then registers each payload with its full medium_spans (never start-only — the Pawn 168/1329 bug), the span-level provenance derived from its LoaderModel kind, a content hash, its source blob, and an evidence link to the manifest. Idempotent (stable per-name id + hash dedup). Disk-sector and cart-slot spans register through the SAME path. Full manifest field reference + a worked example: docs/spec784-manifest-reference.md. extract_disk auto-emits this shape for the stock-DOS layer (manifest.spec784.json). Use after authoring a per-project extractor; not for a single hand-carved block (use register_payload).",
     {
       project_dir: z.string().optional(),
       manifest_path: z.string().describe("Path (relative to the project) to the extractor manifest JSON."),
@@ -295,7 +295,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
   server.tool(
     "validate_extraction",
-    "Spec 784 — validate a per-project extractor's manifest against the loader-lens READ-SET (the ground truth the REAL loader produced: which physical track/sector the drive actually latched GCR bytes off, in read order — BLOCK_READ). Flags manifest spans that claim a sector the loader never read (the wrong-interpretation bug class) and read blocks the manifest missed. The read-set is drive-side truth (read_pra/GCR_read), immune to the write-time buffering that made the old landing-map source lie. Records a validation finding (confirmation on pass, refutation on fail) with an evidence link to the capture. Run after register_payloads_from_manifest to prove the bulk registration is trustworthy. Inputs: capture_path (.c64retrace from a drive-mechanism trace), manifest_path. Cart (slot) spans are validated by Spec 785.",
+    "Use to validate a per-project extractor's manifest against the loader-lens READ-SET (the ground truth the REAL loader produced: which physical track/sector the drive actually latched GCR bytes off, in read order — BLOCK_READ). Flags manifest spans that claim a sector the loader never read (the wrong-interpretation bug class) and read blocks the manifest missed. The read-set is drive-side truth (read_pra/GCR_read), immune to the write-time buffering that made the old landing-map source lie. Records a validation finding (confirmation on pass, refutation on fail) with an evidence link to the capture. Run after register_payloads_from_manifest (use it first to register) to prove the bulk registration is trustworthy. Inputs: capture_path (.c64retrace from a drive-mechanism trace), manifest_path. Cart (slot) spans are validated by the cartridge path.",
     {
       project_dir: z.string().optional(),
       capture_path: z.string().describe("Path to the loader-lens .c64retrace capture (drive-mechanism domain)."),
@@ -362,7 +362,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
   server.tool(
     "list_loader_models",
-    "List the recovered LoaderModels (Spec 784) for the project — the per-medium loaders (id, kind, index location, backing disasm) that produced the registered payloads. A medium hosts N; each payload's derivedBy references one. Use to see how a medium's blocks are attributed across its distinct loaders.",
+    "List the recovered LoaderModels for the project — the per-medium loaders (id, kind, index location, backing disasm) that produced the registered payloads. A medium hosts N; each payload's derivedBy references one. Use to see how a medium's blocks are attributed across its distinct loaders; not for creating them (use register_payloads_from_manifest).",
     {
       project_dir: z.string().optional(),
     },
