@@ -1166,12 +1166,20 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_overlay_run",
-    "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. RAM-only (no banked ROM yet); not for a persistent change (use runtime_monitor to poke and keep it). Leaves the machine paused. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
+    "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?, space?, bank?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. `space` targets RAM (default) or a cart bank (Spec 795): space:\"roml\"|\"romh\" + `bank` + `addr`=the CPU window address ($8000-$9FFF / $A000-$BFFF) overlays code into an EasyFlash bank, ephemeral like the RAM patch (rolled back next restore). Cart overlay needs the TRX64 backend. Not for a persistent change (use runtime_monitor to poke and keep it). Leaves the machine paused. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
     {
       session_id: z.string(),
       anchor_cycle: z.number().optional(),
       anchor_id: z.string().optional(),
-      patches: z.array(z.object({ addr: z.number(), bytes: z.array(z.number()).optional(), read: z.boolean().optional() })),
+      patches: z.array(z.object({
+        addr: z.number(),
+        bytes: z.array(z.number()).optional(),
+        read: z.boolean().optional(),
+        // Spec 795 — target space: "ram" (default) or a cart bank. For roml/romh give
+        // `bank` and `addr` as the CPU window address ($8000-$9FFF / $A000-$BFFF).
+        space: z.enum(["ram", "roml", "romh"]).optional(),
+        bank: z.number().optional(),
+      })),
       run_cycles: z.number().optional(),
       until_pc: z.number().optional(),
     },
@@ -1195,7 +1203,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         await ctrl.restoreCheckpoint(id, { then: "pause" });
         const ram = (s as unknown as { c64Bus: { ram: Uint8Array } }).c64Bus.ram;
         const applied: Array<{ addr: number; len: number }> = [];
-        for (const p of patches) { const a = p.addr & 0xffff; const b = p.bytes ?? []; for (let i = 0; i < b.length; i++) ram[(a + i) & 0xffff] = b[i]! & 0xff; applied.push({ addr: a, len: b.length }); }
+        for (const p of patches) { if (p.space && p.space !== "ram") throw new Error("runtime_overlay_run: cart-bank overlay (space roml/romh, Spec 795) requires the TRX64 backend; the in-proc TS runtime is RAM-only"); const a = p.addr & 0xffff; const b = p.bytes ?? []; for (let i = 0; i < b.length; i++) ram[(a + i) & 0xffff] = b[i]! & 0xff; applied.push({ addr: a, len: b.length }); }
         let hitPc: number | null = null;
         const rc = run_cycles || 0;
         if (rc > 0) { const bps = until_pc !== undefined ? new Set([until_pc & 0xffff]) : undefined; const rr = (s as unknown as { runFor(n: number, o: unknown): { aborted?: string; lastPc: number } }).runFor(Math.ceil(rc / 2) + 1000, { cycleBudget: rc, breakpoints: bps }); if (rr.aborted === "breakpoint") hitPc = rr.lastPc; }
