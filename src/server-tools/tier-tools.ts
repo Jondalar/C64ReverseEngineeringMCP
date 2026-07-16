@@ -146,6 +146,7 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "runtime_checkpoint_restore", "runtime_checkpoint_unpin",
   "runtime_recorder_dump", "runtime_recorder_list", "runtime_recorder_status",
   "runtime_snapshot_tree", "runtime_promote_branch", "runtime_diff_snapshots",
+  "runtime_component_diff",
   // Runtime export + input-config (TRX64-runtime capabilities): render audio/video/
   // screenshot from a run; load/save the c64re keyboard/joystick config.
   // `runtime_input_load_vicerc` is deliberately ADVANCED — it parses a legacy

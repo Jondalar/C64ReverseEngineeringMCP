@@ -421,6 +421,64 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     }),
   );
 
+  // ---- Whitebox component-diff of two .c64re snapshots (Spec 794) ----
+  server.tool(
+    "runtime_component_diff",
+    "Whitebox component-diff of two .c64re snapshots (Spec 794): a per-component equivalence VERDICT (cpu/ram/colorram/cia/vic/sid/drive incl. Floppy RAM + internal chip state) with a caller exclusion mask. Use to SCORE a candidate snapshot against a baseline — the sandbox fan-out eval step, a refactor-equivalence check, or which component a change actually moved. Not a live memory read (use runtime_monitor_memory), not the VSF-file diff (use runtime_diff_snapshots).",
+    {
+      a_path: z.string().describe("Baseline .c64re snapshot"),
+      b_path: z.string().describe("Candidate .c64re snapshot"),
+      exclude: z
+        .object({
+          components: z.array(z.string()).optional().describe("Whole components to exclude, e.g. sid, drive.ram, vic"),
+          lanes: z.array(z.string()).optional().describe("Volatile lanes: cycles|raster|sid_noise|open_bus|framebuffer"),
+          presets: z.array(z.string()).optional().describe("Named presets: equivalence (mask all volatile lanes)"),
+          ranges: z
+            .array(z.object({ space: z.string(), from: z.string(), to: z.string() }))
+            .optional()
+            .describe("Address windows to exclude; space = c64ram|colorram|driveram|drivezp (Floppy RAM = driveram $0000-$07FF)"),
+        })
+        .optional(),
+      hypothesis: z
+        .string()
+        .optional()
+        .describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. The diff CONFIRMS what a change moved; it is not how you discover the payload."),
+    },
+    safeHandler("runtime_component_diff", async ({ a_path, b_path, exclude, hypothesis }) => {
+      const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
+      const gate = checkRuntimeDiscipline(hypothesis, {
+        tool: "runtime_component_diff",
+        act: "diffing two machine snapshots at component granularity",
+      });
+      if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
+
+      const { resolveTrx64Cli, runTrx64CliJson } = await import("../sandbox/trx64cli.js");
+      const cli = resolveTrx64Cli();
+      const ex = exclude ?? {};
+      const args: string[] = ["diff", a_path, b_path, "--json"];
+      for (const c of ex.components ?? []) args.push("--component", c);
+      for (const l of ex.lanes ?? []) args.push("--lane", l);
+      for (const p of ex.presets ?? []) args.push("--preset", p);
+      for (const r of ex.ranges ?? []) args.push("--exclude", `${r.space}:${r.from}-${r.to}`);
+
+      let diff: any;
+      try {
+        diff = runTrx64CliJson(cli, args);
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `runtime_component_diff: ${(e as Error).message}` }] };
+      }
+      const v = diff?.verdict ?? {};
+      const head = [
+        `VERDICT: ${v.identical ? "IDENTICAL" : "DIFFERS"}`,
+        v.differing?.length ? `differing: ${v.differing.join(", ")}` : "",
+        v.excluded?.length ? `excluded: ${v.excluded.join(", ")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      return { content: [{ type: "text" as const, text: `${head}\n\n${JSON.stringify(diff, null, 2)}` }] };
+    }),
+  );
+
   // ---- Trace store query (Spec 232) ----
   server.tool(
     "runtime_query_events",

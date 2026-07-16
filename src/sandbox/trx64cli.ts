@@ -84,3 +84,29 @@ export function runTrx64Sandbox(cli: string, args: string[]): Trx64SandboxJson {
   }
   return JSON.parse(stdout) as Trx64SandboxJson;
 }
+
+// Run any `trx64cli … --json` subcommand and return the parsed JSON (generic — e.g.
+// `diff A.c64re B.c64re --json`, Spec 794). Throws Trx64CliError on a missing binary
+// or non-zero exit (surfacing stderr).
+export function runTrx64CliJson(cli: string, args: string[]): unknown {
+  if (!existsSync(cli)) {
+    throw new Trx64CliError(
+      `trx64cli not found at ${cli}. Build it with ` +
+        `\`cargo build --release --bin trx64cli\` in the sibling TRX64 repo, ` +
+        `or point C64RE_TRX64CLI_BIN at the binary.`,
+    );
+  }
+  let stdout: string;
+  try {
+    stdout = execFileSync(cli, args, {
+      env: { ...process.env, C64RE_ROOT: process.env.C64RE_ROOT ?? repoRoot() },
+      maxBuffer: 64 * 1024 * 1024,
+      encoding: "utf8",
+    });
+  } catch (e) {
+    const err = e as { stderr?: Buffer | string; message?: string };
+    const stderr = err.stderr ? String(err.stderr).trim() : "";
+    throw new Trx64CliError(`trx64cli ${args[0] ?? ""} failed: ${stderr || err.message || "unknown error"}`);
+  }
+  return JSON.parse(stdout);
+}
