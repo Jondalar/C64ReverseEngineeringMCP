@@ -575,6 +575,25 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     }),
   );
 
+  server.tool(
+    "runtime_candidate_derive_delta",
+    "Spec 797 — derive the FINAL CODE DELTA from a candidate: turn its exported source-patch-set into a build-ready delta on disk — one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md. The code that goes into the real build (the meaning-bridge payoff). Inputs: session_id, id, out_dir? (default <project>/delta-<id>). Returns: outDir + written files + manifest.",
+    { session_id: z.string(), id: z.string(), out_dir: z.string().optional() },
+    safeHandler("runtime_candidate_derive_delta", async ({ session_id, id, out_dir }) => {
+      const d = await candidateDaemon();
+      const exp = (await d.call("runtime/candidate_export", { session_id, id })) as {
+        id: string;
+        patches: { space: string; bank?: number | null; addr: number; source: string }[];
+      };
+      const { writeDelta } = await import("../candidate-delta.js");
+      const { resolve } = await import("node:path");
+      const projectDir = process.env.C64RE_PROJECT_DIR ?? process.cwd();
+      const outDir = out_dir ? resolve(projectDir, out_dir) : resolve(projectDir, `delta-${exp.id}`);
+      const res = writeDelta({ id: exp.id, patches: exp.patches ?? [] }, outDir);
+      return { content: [{ type: "text" as const, text: JSON.stringify(res, null, 2) }] };
+    }),
+  );
+
   // ---- Trace store query (Spec 232) ----
   server.tool(
     "runtime_query_events",

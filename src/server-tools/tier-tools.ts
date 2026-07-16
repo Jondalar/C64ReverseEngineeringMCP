@@ -150,7 +150,7 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Candidate model (Spec 796) — live scenario-bound overlay branches.
   "runtime_candidate_create", "runtime_candidate_patch", "runtime_candidate_run",
   "runtime_candidate_remove_patch", "runtime_candidate_list", "runtime_candidate_delete",
-  "runtime_candidate_export",
+  "runtime_candidate_export", "runtime_candidate_derive_delta",
   // Runtime export + input-config (TRX64-runtime capabilities): render audio/video/
   // screenshot from a run; load/save the c64re keyboard/joystick config.
   // `runtime_input_load_vicerc` is deliberately ADVANCED — it parses a legacy
