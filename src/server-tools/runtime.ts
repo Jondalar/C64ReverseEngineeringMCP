@@ -479,6 +479,102 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     }),
   );
 
+  // ---- Candidate model (Spec 796) — live scenario-bound overlay branches ----
+  const candidateDaemon = async () => {
+    const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+    if (!isDaemonMode()) throw new Error("candidate model (Spec 796) requires the TRX64 backend");
+    return runtimeDaemon;
+  };
+
+  server.tool(
+    "runtime_candidate_create",
+    "Spec 796 — create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set. Runs the NO-PATCH scenario once to cache the equivalence baseline. Start an iterate-your-own-code loop on a fixed snapshot. Inputs: session_id, anchor (checkpoint id), scenario {inputs, cycleBudget}. Returns: the candidate {id, ...}.",
+    { session_id: z.string(), anchor: z.string(), scenario: z.object({ inputs: z.array(z.any()).optional(), cycleBudget: z.number().optional() }).optional() },
+    safeHandler("runtime_candidate_create", async ({ session_id, anchor, scenario }) => {
+      const d = await candidateDaemon();
+      const r = await d.call("runtime/candidate_create", { session_id, anchor, scenario: scenario ?? {} });
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_candidate_patch",
+    "Spec 796 — add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step). Give `source_path` (an .asm/.tass file, assembled here → bytes) OR pre-assembled `bytes`. `space` ram|roml|romh + `bank` + `addr` (CPU window addr) target RAM or a cart bank (795). Re-adding at the same target REPLACES (iterate a fix). Inputs: session_id, id, addr, space?, bank?, source_path?|bytes?. Returns: the candidate.",
+    { session_id: z.string(), id: z.string(), addr: z.number(), space: z.enum(["ram", "roml", "romh"]).optional(), bank: z.number().optional(), source_path: z.string().optional(), bytes: z.array(z.number()).optional() },
+    safeHandler("runtime_candidate_patch", async ({ session_id, id, addr, space, bank, source_path, bytes }) => {
+      let src = "";
+      let b = bytes;
+      if (source_path && (!b || b.length === 0)) {
+        const projectDir = process.env.C64RE_PROJECT_DIR ?? process.cwd();
+        const { assembleSource } = await import("../assemble-source.js");
+        const res = await assembleSource({ projectDir, sourcePath: source_path, assembler: "auto" });
+        if (res.exitCode !== 0) throw new Error(`assemble failed: ${res.stderr || res.stdout}`);
+        const { readFileSync } = await import("node:fs");
+        const prg = readFileSync(res.outputPath);
+        b = Array.from(prg.subarray(2)); // strip the 2-byte PRG load address
+        src = readFileSync(res.sourcePath, "utf8");
+      }
+      const d = await candidateDaemon();
+      const r = await d.call("runtime/candidate_patch", { session_id, id, addr, space: space ?? "ram", bank, source: src, bytes: b ?? [] });
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_candidate_run",
+    "Spec 796 — run a candidate: restore its baseline anchor, apply ALL its patches, play the bound scenario (deterministic), and AUTO-DIFF (794) vs the no-patch baseline → the verdict 'what did my code change / is it equivalent'. Ephemeral (anchor untouched). Inputs: session_id, id. Returns: {registers, verdict, ranCycles, diff}.",
+    { session_id: z.string(), id: z.string() },
+    safeHandler("runtime_candidate_run", async ({ session_id, id }) => {
+      const d = await candidateDaemon();
+      const r = await d.call("runtime/candidate_run", { session_id, id });
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_candidate_remove_patch",
+    "Spec 796 — remove the overlay patch at (space, bank, addr) from a candidate. Inputs: session_id, id, addr, space?, bank?. Returns: the candidate + removed:bool.",
+    { session_id: z.string(), id: z.string(), addr: z.number(), space: z.enum(["ram", "roml", "romh"]).optional(), bank: z.number().optional() },
+    safeHandler("runtime_candidate_remove_patch", async ({ session_id, id, addr, space, bank }) => {
+      const d = await candidateDaemon();
+      const r = await d.call("runtime/candidate_remove_patch", { session_id, id, addr, space: space ?? "ram", bank });
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_candidate_list",
+    "Spec 796 — list candidates (id omitted) or show one candidate's patches + last verdict. Inputs: session_id, id?. Returns: candidate(s).",
+    { session_id: z.string(), id: z.string().optional() },
+    safeHandler("runtime_candidate_list", async ({ session_id, id }) => {
+      const d = await candidateDaemon();
+      const r = await d.call("runtime/candidate_list", { session_id, id });
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_candidate_delete",
+    "Spec 796 — delete a candidate from the session store. Inputs: session_id, id. Returns: {id, deleted}.",
+    { session_id: z.string(), id: z.string() },
+    safeHandler("runtime_candidate_delete", async ({ session_id, id }) => {
+      const d = await candidateDaemon();
+      const r = await d.call("runtime/candidate_delete", { session_id, id });
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_candidate_export",
+    "Spec 796 — export a candidate's accumulated source-patch-set = the delta seed (the code that goes into the real build; the final-delta shaping is a later step). Inputs: session_id, id. Returns: {id, patches:[{space,bank,addr,source}]}.",
+    { session_id: z.string(), id: z.string() },
+    safeHandler("runtime_candidate_export", async ({ session_id, id }) => {
+      const d = await candidateDaemon();
+      const r = await d.call("runtime/candidate_export", { session_id, id });
+      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+    }),
+  );
+
   // ---- Trace store query (Spec 232) ----
   server.tool(
     "runtime_query_events",
