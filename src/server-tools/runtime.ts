@@ -594,6 +594,27 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     }),
   );
 
+  server.tool(
+    "runtime_find_cheat",
+    "Spec 798 — cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. The FINDER half of the cheat loop; verify a candidate by freezing an address (runtime_candidate_patch at that addr with its original value) + runtime_candidate_run to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
+    { session_id: z.string(), before: z.string(), after: z.string(), max: z.number().optional() },
+    safeHandler("runtime_find_cheat", async ({ session_id, before, after, max }) => {
+      const d = await candidateDaemon();
+      const r = (await d.call("runtime/find_cheat_candidates", { session_id, before, after, max: max ?? 32 })) as {
+        count: number;
+        candidates: { addr: number; before: number; after: number; delta: number }[];
+      };
+      const top = (r.candidates ?? [])
+        .slice(0, 8)
+        .map((c) => `  $${(c.addr & 0xffff).toString(16).padStart(4, "0")}: ${c.before} → ${c.after} (−${c.delta})`)
+        .join("\n");
+      const hint = r.count
+        ? `\n\nNext: freeze the likeliest counter — create a candidate, runtime_candidate_patch(id, addr, bytes:[<original>]), then runtime_candidate_run to confirm it holds across the scenario.`
+        : `\n\nNo RAM decreased between the two anchors — check they bracket the life-loss.`;
+      return { content: [{ type: "text" as const, text: `${r.count} cheat candidate(s):\n${top}${hint}\n\n${JSON.stringify(r, null, 2)}` }] };
+    }),
+  );
+
   // ---- Trace store query (Spec 232) ----
   server.tool(
     "runtime_query_events",
