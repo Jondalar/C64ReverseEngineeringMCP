@@ -324,9 +324,16 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       if (isDaemonMode()) {
         if (until) throw new Error("runtime_session_run with `until` conditions is not yet routed through the Runtime Daemon (744.4c slice 2). Use cycle_budget / max_instructions.");
         const cycles = cycle_budget ?? Math.max(1, (max_instructions ?? 100_000) * 2);
-        await runtimeDaemon.run(session_id, cycles);
-        const { c64Cycles, cpu } = await runtimeDaemon.state(session_id);
-        return { content: [{ type: "text" as const, text: `Ran up to ~${cycles} cycles (Runtime Daemon). cycles=${c64Cycles} pc=${formatHexWord(cpu.pc)}` }] };
+        // Spec 767 slice 2 — when a stream pump is attached (--stream, the shared UI
+        // session), advance via the LIVE capped run so the UI keeps RUNNING (every rendered
+        // frame is streamed) instead of freezing on the blocking session/run; it auto-pauses
+        // at the cap. Headless daemons (no pump) fall back to the blocking bounded run.
+        const s0 = await runtimeDaemon.state(session_id);
+        const after = s0.streamPump
+          ? await runtimeDaemon.runCapped(session_id, cycles, "warp")
+          : (await runtimeDaemon.run(session_id, cycles), await runtimeDaemon.state(session_id));
+        const { c64Cycles, cpu } = after;
+        return { content: [{ type: "text" as const, text: `Ran up to ~${cycles} cycles (Runtime Daemon${s0.streamPump ? ", live-streamed" : ""}). cycles=${c64Cycles} pc=${formatHexWord(cpu.pc)}` }] };
       }
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);

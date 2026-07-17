@@ -255,7 +255,7 @@ class RuntimeDaemonClient {
     return this.call<{ sessionId: string; mode: string; diskPath: string; c64Cycles: number; pc: number; trace: unknown; attached?: boolean }>("session/create", p);
   }
   listSessions() { return this.call<Array<{ sessionId: string; mode: string; diskPath: string; c64Cycles: number }>>("session/list"); }
-  state(sessionId: string) { return this.call<{ c64Cycles: number; mode: string; cpu: { pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number } }>("session/state", { session_id: sessionId }); }
+  state(sessionId: string) { return this.call<{ c64Cycles: number; mode: string; runState?: string; controlOwner?: string; streamPump?: boolean; cpu: { pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number } }>("session/state", { session_id: sessionId }); }
   closeSession(sessionId: string) { return this.call<{ existed: boolean; released: string[] }>("session/close", { session_id: sessionId }); }
   /** Bounded run (cycles), tool-mode. The V3 session/run advances by a cycle budget. */
   run(sessionId: string, cycles: number) { return this.call<{ state: unknown }>("session/run", { session_id: sessionId, cycles, source: "llm" }); }
@@ -273,6 +273,23 @@ class RuntimeDaemonClient {
       pacing: opts?.pacing,
       source: "llm",
     });
+  }
+  /** Spec 767 slice 2 — a bounded advance that STREAMS live to the UI via the daemon pump
+   *  (warp), then auto-pauses at the cap. Starts the capped run and waits for the auto-pause
+   *  so the caller gets the after-state, while the UI shows the machine RUNNING the whole
+   *  time (no freeze). Requires the stream pump (--stream) — callers gate on
+   *  state().streamPump and fall back to the blocking run() when it's a headless daemon. */
+  async runCapped(sessionId: string, cycles: number, pace = "warp") {
+    await this.runLive(sessionId, { cycles, pace });
+    // Poll until the pump auto-pauses at the cap (runState leaves "running"), or a bp/jam
+    // stops it. Generous wall-clock deadline: warp advances a few M cyc/s, plus margin.
+    const deadline = Date.now() + Math.min(120_000, 3_000 + cycles / 3_000);
+    for (;;) {
+      const s = await this.state(sessionId);
+      if (s.runState !== "running") return s;
+      if (Date.now() > deadline) return s;
+      await new Promise((r) => setTimeout(r, 25));
+    }
   }
   pause(sessionId: string) { return this.call("debug/pause", { session_id: sessionId, source: "llm" }); }
   resume(sessionId: string) { return this.call("debug/continue", { session_id: sessionId, source: "llm" }); }
