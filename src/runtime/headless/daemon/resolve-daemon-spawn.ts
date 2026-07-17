@@ -77,7 +77,11 @@ export function resolveDaemonSpawn(opts: {
       const extra = (process.env.C64RE_RUNTIME_BIN_ARGS?.trim() || "")
         .split(/\s+/)
         .filter(Boolean);
-      return { cmd: trx64, args: [...stdArgs, "--stream", ...extra], mode: "external-bin" };
+      // Spec 767 — the TRX64 daemon streams BY DEFAULT (the C64's work is always visible;
+      // presentation is no longer gated behind `--stream`). So no flag here; `--headless`
+      // would be the opt-out (byte-exact oracle / silent tool daemons), which the UI never
+      // wants. Legacy `--stream` is still accepted by the daemon as a no-op.
+      return { cmd: trx64, args: [...stdArgs, ...extra], mode: "external-bin" };
     }
   }
 
