@@ -258,7 +258,7 @@ class RuntimeDaemonClient {
   state(sessionId: string) { return this.call<{ c64Cycles: number; mode: string; cpu: { pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number } }>("session/state", { session_id: sessionId }); }
   closeSession(sessionId: string) { return this.call<{ existed: boolean; released: string[] }>("session/close", { session_id: sessionId }); }
   /** Bounded run (cycles), tool-mode. The V3 session/run advances by a cycle budget. */
-  run(sessionId: string, cycles: number) { return this.call<{ state: unknown }>("session/run", { session_id: sessionId, cycles }); }
+  run(sessionId: string, cycles: number) { return this.call<{ state: unknown }>("session/run", { session_id: sessionId, cycles, source: "llm" }); }
   /** Live continuous run (UI Live mode). Spec 767 — source="llm": these come from
    *  the MCP/agent side (the UI talks WS directly, not via this client). */
   runLive(sessionId: string, pacing?: unknown) { return this.call("debug/run", { session_id: sessionId, pacing, source: "llm" }); }
@@ -291,7 +291,7 @@ class RuntimeDaemonClient {
     mode?: "load" | "inject-run"; entry?: number;
     resetPolicy?: "reset" | "power-cycle"; role?: "drive8" | "cartridge";
   }) {
-    return this.call<T>("media/ingress", { session_id: sessionId, ...req });
+    return this.call<T>("media/ingress", { session_id: sessionId, ...req, source: "llm" });
   }
 
   // -- Spec 744.4c slice 2c — rewind/branch on the SHARED daemon session --
@@ -325,14 +325,14 @@ class RuntimeDaemonClient {
   //    render) were daemon-routed but these write/drive tools were not, so the LLM
   //    could see the human's session but not type/joystick/mark/load into it. --
   typeText<T = unknown>(sessionId: string, text: string, holdCycles?: number, gapCycles?: number) {
-    return this.call<T>("session/type", { session_id: sessionId, text, hold_cycles: holdCycles, gap_cycles: gapCycles });
+    return this.call<T>("session/type", { session_id: sessionId, text, hold_cycles: holdCycles, gap_cycles: gapCycles, source: "llm" });
   }
   joystickSet<T = unknown>(sessionId: string, port: number, state: { up?: boolean; down?: boolean; left?: boolean; right?: boolean; fire?: boolean }) {
-    return this.call<T>("session/joystick_set", { session_id: sessionId, port, ...state });
+    return this.call<T>("session/joystick_set", { session_id: sessionId, port, ...state, source: "llm" });
   }
   // (mark() already exists above — runtime/mark — reused by runtime_mark.)
   loadPrg<T = unknown>(sessionId: string, prgPath: string, loadAddress?: number) {
-    return this.call<T>("session/load_prg", { session_id: sessionId, prg_path: prgPath, load_address: loadAddress });
+    return this.call<T>("session/load_prg", { session_id: sessionId, prg_path: prgPath, load_address: loadAddress, source: "llm" });
   }
 
   // Spec 769 — load + autostart a .prg (BASIC RUN / machine-code g <entry>).
@@ -370,7 +370,7 @@ class RuntimeDaemonClient {
     return this.call<T>("checkpoint/list", { session_id: sessionId });
   }
   checkpointCapture<T = unknown>(sessionId: string) {
-    return this.call<T>("checkpoint/capture", { session_id: sessionId });
+    return this.call<T>("checkpoint/capture", { session_id: sessionId, source: "llm" });
   }
   checkpointPin<T = unknown>(sessionId: string, id: string) {
     return this.call<T>("checkpoint/pin", { session_id: sessionId, id });
@@ -379,7 +379,7 @@ class RuntimeDaemonClient {
     return this.call<T>("checkpoint/unpin", { session_id: sessionId, id });
   }
   checkpointRestore<T = unknown>(sessionId: string, id: string, then?: "pause" | "run" | "keep") {
-    return this.call<T>("checkpoint/restore", { session_id: sessionId, id, then });
+    return this.call<T>("checkpoint/restore", { session_id: sessionId, id, then, source: "llm" });
   }
   // Spec 766.5 — shared-memory recorder (worker-store scrub history).
   recorderStatus<T = unknown>(sessionId: string) {
