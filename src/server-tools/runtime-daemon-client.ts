@@ -261,7 +261,19 @@ class RuntimeDaemonClient {
   run(sessionId: string, cycles: number) { return this.call<{ state: unknown }>("session/run", { session_id: sessionId, cycles, source: "llm" }); }
   /** Live continuous run (UI Live mode). Spec 767 — source="llm": these come from
    *  the MCP/agent side (the UI talks WS directly, not via this client). */
-  runLive(sessionId: string, pacing?: unknown) { return this.call("debug/run", { session_id: sessionId, pacing, source: "llm" }); }
+  // Live continuous run (UI Live mode) — Spec 767. With `cycles`, a BOUNDED run that
+  // still streams every rendered frame through the daemon stream pump and auto-pauses at
+  // the cap (Spec 767 slice 2); `pace: "warp"` runs it fast (restored on auto-pause).
+  // Without `cycles`, an uncapped free-run. source="llm" so the UI border goes green.
+  runLive(sessionId: string, opts?: { cycles?: number; pace?: string; pacing?: unknown }) {
+    return this.call("debug/run", {
+      session_id: sessionId,
+      cycles: opts?.cycles,
+      pace: opts?.pace,
+      pacing: opts?.pacing,
+      source: "llm",
+    });
+  }
   pause(sessionId: string) { return this.call("debug/pause", { session_id: sessionId, source: "llm" }); }
   resume(sessionId: string) { return this.call("debug/continue", { session_id: sessionId, source: "llm" }); }
   /** Returns { dataUrl } base64 PNG; caller writes to disk if a path is needed. */
