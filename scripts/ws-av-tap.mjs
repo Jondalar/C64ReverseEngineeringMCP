@@ -38,6 +38,15 @@ const VW = 384, VH = 272; // C64 live canvas (fmt 1 = palette-indexed)
 let audioWrite = () => {};
 let videoWrite = null, vW = 0, vH = 0;
 
+// --- ONE mode-dependent shutdown ------------------------------------------
+// Shutdown differs per sink: `--rec` MUST wait for ffmpeg to flush + write the mp4
+// moov atom; every other sink can exit at once. Previously there were TWO SIGINT
+// handlers — the recorder's finalizer started an async wait and the plain one right
+// after it called process.exit(0), killing the process mid-flush. That is the
+// "Ctrl-C does nothing and the file is unusable" bug (mp4 with no moov). Now the
+// active sink installs its own `shutdown`, and there is exactly one signal handler.
+let shutdown = () => { try { ws.close(); } catch { /* not open yet */ } process.exit(0); };
+
 if (recPath) {
   // --- RECORD live A+V into ONE file via ffmpeg + 2 named fifos. Native res
   // (VW×VH, NO upscale). Codecs by extension:
@@ -70,14 +79,28 @@ if (recPath) {
   // moov atom. MUST wait for ffmpeg to EXIT before quitting (a fixed timeout +
   // process.exit truncated the file → unplayable mp4 = no moov). 30s hang-guard.
   let finalizing = false;
-  process.on("SIGINT", () => {
-    if (finalizing) return; finalizing = true;
-    console.log("\n[tap] finalizing — waiting for ffmpeg to write the moov…");
+  // Track an EARLY ffmpeg exit (crash / bad args): otherwise a finalize that registers
+  // `ff.on("close")` after the fact would never fire and only the 30s guard would end it.
+  let ffExited = null;
+  ff.on("close", (code) => { ffExited = code ?? 0; });
+  shutdown = () => {
+    // A 2nd Ctrl-C during finalize is IGNORED on purpose — killing ffmpeg mid-write is
+    // exactly what corrupted the file before.
+    if (finalizing) { console.log("[tap] still finalizing — hang on, don't kill it…"); return; }
+    finalizing = true;
+    console.log("\n[tap] finalizing — waiting for ffmpeg to write the moov… (do NOT press Ctrl-C again)");
+    // Stop taking new frames first, then EOF the fifos so ffmpeg drains + closes cleanly.
+    try { ws.close(); } catch { /* ignore */ }
     try { vs.end(); as.end(); } catch { /* ignore */ }
-    const done = () => { try { execSync(`rm -f '${FV}' '${FA}'`); } catch { /* ignore */ } process.exit(0); };
-    ff.on("close", (code) => { console.log(`[tap] ffmpeg done (exit ${code}) → ${recPath}`); done(); });
-    setTimeout(() => { console.error("[tap] ffmpeg didn't exit in 30s — killing (file may be partial)"); try { ff.kill("SIGKILL"); } catch { /* ignore */ } done(); }, 30_000);
-  });
+    const done = (code) => {
+      console.log(`[tap] ffmpeg done (exit ${code}) → ${recPath}`);
+      try { execSync(`rm -f '${FV}' '${FA}'`); } catch { /* ignore */ }
+      process.exit(0);
+    };
+    if (ffExited !== null) { done(ffExited); return; }
+    ff.on("close", (code) => done(code ?? 0));
+    setTimeout(() => { console.error("[tap] ffmpeg didn't exit in 30s — killing (file may be partial)"); try { ff.kill("SIGKILL"); } catch { /* ignore */ } done("killed"); }, 30_000);
+  };
 } else {
   // --- audio sink: ffplay (live) or a raw .pcm file ------------------------
   if (wavPath) {
@@ -135,7 +158,10 @@ const ws = new WebSocket(URL);
 ws.binaryType = "nodebuffer";
 ws.on("open", () => console.log("[tap] connected (passive — no commands sent). If silent: make sure audio is ON in the browser."));
 ws.on("error", (e) => { console.error("[tap] ws error:", e.message); process.exit(1); });
-ws.on("close", () => { console.log("[tap] ws closed."); process.exit(0); });
+// Route through `shutdown`, never a bare exit: in --rec mode a dropped daemon must
+// FINALIZE the mp4 (flush + moov), otherwise it truncates the file exactly like the
+// old Ctrl-C path did.
+ws.on("close", () => { console.log("[tap] ws closed."); shutdown(); });
 ws.on("message", (data, isBinary) => {
   if (!isBinary || data.length < 5) return;
   const type = data[0];
@@ -145,4 +171,8 @@ ws.on("message", (data, isBinary) => {
   else if (type === BIN_VIC) { vFrames++; }
 });
 
-process.on("SIGINT", () => { try { ws.close(); } catch {} process.exit(0); });
+// EXACTLY ONE signal handler, dispatching to the active sink's `shutdown` (plain exit,
+// or the recorder's ffmpeg-flushing finalize). SIGTERM too, so `kill <pid>` finalizes a
+// recording the same way Ctrl-C does.
+process.on("SIGINT", () => shutdown());
+process.on("SIGTERM", () => shutdown());
