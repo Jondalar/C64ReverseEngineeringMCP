@@ -12,13 +12,16 @@
 //   node scripts/ws-av-tap.mjs                 # tap audio → ffplay (listen)
 //   node scripts/ws-av-tap.mjs --video         # also tap video → 2nd ffplay
 //   node scripts/ws-av-tap.mjs --wav out.pcm   # record raw PCM instead of play
+//   node scripts/ws-av-tap.mjs --rec out.mp4   # RECORD A+V into one file (q to stop)
 //   WS=ws://127.0.0.1:4313 node scripts/ws-av-tap.mjs   # alt daemon port
 //
 // Test configs:
 //   A) tap ALONE (close the browser): daemon → only the tap. Clean ffplay =
 //      daemon stream is fine; the stutter was browser-side or multi-client load.
 //   B) tap + browser both: does adding a client degrade either?
-// Stop with Ctrl-C.
+// Stop: press `q` (recording finalizes cleanly). Ctrl-C works too — while recording the
+// tap runs stdin in RAW mode so Ctrl-C arrives as a byte, NOT as a process-group signal
+// that would also hit ffmpeg and truncate the file.
 
 import WebSocket from "ws";
 import { spawn, execSync } from "node:child_process";
@@ -45,7 +48,36 @@ let videoWrite = null, vW = 0, vH = 0;
 // after it called process.exit(0), killing the process mid-flush. That is the
 // "Ctrl-C does nothing and the file is unusable" bug (mp4 with no moov). Now the
 // active sink installs its own `shutdown`, and there is exactly one signal handler.
-let shutdown = () => { try { ws.close(); } catch { /* not open yet */ } process.exit(0); };
+let shutdown = () => { try { ws.close(); } catch { /* not open yet */ } restoreTty(); process.exit(0); };
+// Set once a finalize is in flight, so the WS-close we cause ourselves (and a 2nd
+// keypress) don't re-enter or spam the log.
+let finalizing = false;
+
+// --- stop key: `q` (raw-mode stdin) ---------------------------------------
+// Ctrl-C is a TERMINAL signal: it goes to the whole foreground PROCESS GROUP, so the
+// spawned ffmpeg got SIGINT too ("Exiting normally, received signal 2") and quit mid-
+// drain, racing our finalize. In raw mode ISIG is off, so Ctrl-C arrives here as byte
+// 0x03 instead — the signal never reaches ffmpeg, and WE decide when it stops (EOF on
+// the fifos). `q` does the same. Must restore the tty before exiting or the shell is
+// left in raw mode.
+let ttyRaw = false;
+function restoreTty() {
+  if (!ttyRaw) return;
+  ttyRaw = false;
+  try { process.stdin.setRawMode(false); process.stdin.pause(); } catch { /* ignore */ }
+}
+function installStopKey() {
+  if (!process.stdin.isTTY) return false; // piped/background → rely on SIGINT/SIGTERM
+  try { process.stdin.setRawMode(true); } catch { return false; }
+  ttyRaw = true;
+  process.stdin.resume();
+  process.stdin.on("data", (b) => {
+    for (const ch of b) {
+      if (ch === 0x71 || ch === 0x51 || ch === 0x03) shutdown(); // q | Q | Ctrl-C
+    }
+  });
+  return true;
+}
 
 if (recPath) {
   // --- RECORD live A+V into ONE file via ffmpeg + 2 named fifos. Native res
@@ -68,27 +100,37 @@ if (recPath) {
     "-f", "s16le", "-ar", String(SR), "-ac", "2", "-i", FA,
     ...vcodec, ...acodec, ...extraFf,
     recPath,
-  ], { stdio: ["ignore", "inherit", "inherit"] });
+    // `detached` = its OWN process group, so a terminal SIGINT can never reach ffmpeg
+    // (belt-and-braces for the non-TTY path where the raw-mode stop key isn't available).
+    // ffmpeg must stop ONLY on EOF of the fifos, or it quits mid-drain and truncates.
+  ], { stdio: ["ignore", "inherit", "inherit"], detached: true });
   ff.on("error", (e) => { console.error("[tap] ffmpeg failed:", e.message); process.exit(1); });
   const vs = createWriteStream(FV), as = createWriteStream(FA);
+  // A fifo whose reader (ffmpeg) went away raises EPIPE ASYNCHRONOUSLY as an 'error'
+  // event — the try/catch around .write() cannot catch that, and an unhandled 'error'
+  // on a stream THROWS and kills the process before `done()` can finish + clean up.
+  vs.on("error", () => { /* ffmpeg gone — nothing left to write */ });
+  as.on("error", () => { /* ditto */ });
   vW = VW; vH = VH;
   videoWrite = (_w, _h, rgba) => { try { vs.write(rgba); } catch { /* ffmpeg gone */ } };
   audioWrite = (buf) => { try { as.write(buf); } catch { /* ffmpeg gone */ } };
-  console.log(`[tap] RECORDING A+V → ${recPath} (${isMp4 ? "H264+AAC" : "rawvideo+pcm"}, ${VW}x${VH} native${extraFf.length ? `, ffargs: ${extraFf.join(" ")}` : ""}). Ctrl-C to finalize.`);
+  const stopKey = installStopKey();
+  console.log(`[tap] RECORDING A+V → ${recPath} (${isMp4 ? "H264+AAC" : "rawvideo+pcm"}, ${VW}x${VH} native${extraFf.length ? `, ffargs: ${extraFf.join(" ")}` : ""}).`);
+  console.log(stopKey ? "[tap] press  q  to stop + finalize (Ctrl-C works too)." : "[tap] not a TTY — stop with Ctrl-C / kill (SIGINT/SIGTERM).");
   // Finalize: close the fifo writers → ffmpeg sees EOF → flushes + writes the mp4
   // moov atom. MUST wait for ffmpeg to EXIT before quitting (a fixed timeout +
   // process.exit truncated the file → unplayable mp4 = no moov). 30s hang-guard.
-  let finalizing = false;
   // Track an EARLY ffmpeg exit (crash / bad args): otherwise a finalize that registers
   // `ff.on("close")` after the fact would never fire and only the 30s guard would end it.
   let ffExited = null;
   ff.on("close", (code) => { ffExited = code ?? 0; });
   shutdown = () => {
-    // A 2nd Ctrl-C during finalize is IGNORED on purpose — killing ffmpeg mid-write is
+    // A 2nd keypress during finalize is IGNORED on purpose — killing ffmpeg mid-write is
     // exactly what corrupted the file before.
     if (finalizing) { console.log("[tap] still finalizing — hang on, don't kill it…"); return; }
     finalizing = true;
-    console.log("\n[tap] finalizing — waiting for ffmpeg to write the moov… (do NOT press Ctrl-C again)");
+    restoreTty(); // hand the terminal back; the rest is just waiting on ffmpeg
+    console.log("\n[tap] finalizing — waiting for ffmpeg to write the moov…");
     // Stop taking new frames first, then EOF the fifos so ffmpeg drains + closes cleanly.
     try { ws.close(); } catch { /* ignore */ }
     try { vs.end(); as.end(); } catch { /* ignore */ }
@@ -161,7 +203,11 @@ ws.on("error", (e) => { console.error("[tap] ws error:", e.message); process.exi
 // Route through `shutdown`, never a bare exit: in --rec mode a dropped daemon must
 // FINALIZE the mp4 (flush + moov), otherwise it truncates the file exactly like the
 // old Ctrl-C path did.
-ws.on("close", () => { console.log("[tap] ws closed."); shutdown(); });
+ws.on("close", () => {
+  if (finalizing) return; // we closed it ourselves as part of finalize — not news
+  console.log("[tap] ws closed.");
+  shutdown();
+});
 ws.on("message", (data, isBinary) => {
   if (!isBinary || data.length < 5) return;
   const type = data[0];
