@@ -280,7 +280,12 @@ deliberately with `runtime_media_mount`.
 
 - Need an **isolated** machine (e.g. a throwaway build test) → use a **separate
   backend process**, never a 2nd in-process session (this is the "No scripts on
-  the live UI session / use a separate backend" rule).
+  the live UI session / use a separate backend" rule). **How, concretely:**
+  `docs/runtime-sandbox.md` — spawn `trx64-daemon --port <own>` (+ `--headless`
+  for a silent deterministic machine) and drive it over raw WebSocket. The MCP
+  `runtime_*` tools cannot do this: they are pinned to `:4312` and
+  `runtime_session_start` attaches instead of building a second machine. Never
+  power-cycle the shared session to make room for a test.
 - Do NOT call `startIntegratedSession` directly in product code — go through
   `runtimeSessions.start` (the guard). The raw primitive is unguarded by design.
 - Full audit + the process-global inventory: `docs/headless-runtime-singleton-audit.md`.

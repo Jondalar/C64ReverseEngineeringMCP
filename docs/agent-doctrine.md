@@ -208,6 +208,15 @@ steer at once, so:
   short "soll ich übernehmen?" — never a blanket "I can only control
   when paused" refusal. The tools never hard-block control; that
   sentence describes courtesy, not a wall.
+- **Need to test something that would disturb the live session** (other
+  CRT, cold boot, risky poke, run a scenario to the end)? Do NOT
+  power-cycle the shared machine, and do NOT expect
+  `runtime_session_start` to give you a second one — it deliberately
+  ATTACHES to the existing machine (one machine per process). Start
+  your OWN daemon on your OWN port and drive it over raw WebSocket:
+  **`docs/runtime-sandbox.md`** (copy-paste recipe). The human's
+  session on `:4312` stays untouched; you neither need their
+  permission nor their help to get a sandbox.
 
 The persistent state lives in:
 
