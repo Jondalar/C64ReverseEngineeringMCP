@@ -112,6 +112,17 @@ hand-building Rust on that box. Hence: an official TRX64 Docker image.
 
 ## 5. Consumer contract
 
+> **Full contract + shipped client (2026-07-25):** the byte-exact, frozen consumer
+> surface lives in TRX64 `docs/wl-trx64-play-api.md` (transport, control methods, BIN_VIC /
+> BIN_AUDIO frame formats, PETSCII key names, auth, healthcheck). TRX64 also **ships the
+> browser client** — the framework-free `<trx64-player>` web component
+> (`../TRX64/web/trx64-player.js`, harness `web/demo.html`) that implements that whole
+> contract (decode + key map + audio + reconnect). A consumer (the Wasteland editor)
+> **embeds the component** and does not re-implement the protocol; the editor itself stays
+> untouched. Verified end-to-end 2026-07-25: the component boots the Wasteland EF cart in a
+> plain browser page (canvas render + `playing` state) against a local streaming daemon.
+> The summary below is the doctrine-level view; the API doc is authoritative.
+
 1. **Media**: write the image file into the shared volume, then
    `swapcrt "/play/<name>.crt"` (or mount RPC) over WS — the path is the
    *container-side* path, identical in both containers by convention.
