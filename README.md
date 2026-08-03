@@ -12,7 +12,19 @@ built by a human and an LLM **together** — the LLM proposes structure and
 meaning, the human steers and confirms, and the runtime proves or refutes
 every claim against a real execution.
 
-Leitregel: Capability → TRX64, Meaning/Memory → C64RE.
+Overall Rule: Capability → TRX64, Meaning/Memory → C64RE.
+
+## What to expect
+
+This is my (dkl / Jondalar) personal Reverse Engineering Toolbox packaged
+along my own needs when to reverse engineer C64 games. 
+
+You might need different features or things - and you invited to contribute. 
+Use PR mechanisms here on GitHub please.
+
+I will not answer feature requests without code / structured requirements and I 
+am not able to give support.
+
 
 ## The Combination is more than sum of its parts
 
