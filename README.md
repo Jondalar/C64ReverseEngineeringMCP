@@ -17,7 +17,7 @@ Overall Rule: Capability → TRX64, Meaning/Memory → C64RE.
 ## What to expect
 
 This is my (dkl / Jondalar) personal Reverse Engineering Toolbox packaged
-along my own needs when to reverse engineer C64 games. 
+along my own needs when reverse engineering C64 games. 
 
 You might need different features or things - and you invited to contribute. 
 Use PR mechanisms here on GitHub please.
