@@ -12,14 +12,14 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 /** Human-readable heading marker. */
-export const EXTRACT_FIRST_MARKER = "Extract-first grounding (Spec 752";
+export const EXTRACT_FIRST_MARKER = "Extract-first grounding";
 /** Stable hidden token idempotency keys on (survives a heading hand-edit). */
 export const EXTRACT_FIRST_TOKEN = "<!-- spec752-steering-v1 -->";
 
 /** The per-project operational rule (L2 + the L1 reminder). The universal law
  *  lives in docs/agent-doctrine.md; this is the always-in-context steering. */
 export const EXTRACT_FIRST_STEERING = `${EXTRACT_FIRST_TOKEN}
-## ${EXTRACT_FIRST_MARKER} — always apply)
+## ${EXTRACT_FIRST_MARKER} — always apply
 - **Extract-first grounding (L1).** Every finding about a file/payload MUST cite a
   backing **extract artifact** via \`artifact_ids\` (the extracted bytes / its
   \`_disasm.asm\` / \`_analysis.json\`). A trace \`runId+cycle\` or a heuristic is NOT
@@ -32,10 +32,10 @@ export const EXTRACT_FIRST_STEERING = `${EXTRACT_FIRST_TOKEN}
   disassembly. Do not reach for tracing/statistics to ground a file/payload claim.`;
 
 /** Spec 748.2 (BUG-032) — the record + reconcile discipline. */
-export const RECONCILE_MARKER = "Record + reconcile discipline (Spec 748.2";
+export const RECONCILE_MARKER = "Record + reconcile discipline";
 export const RECONCILE_TOKEN = "<!-- spec748-2-steering-v1 -->";
 export const RECONCILE_STEERING = `${RECONCILE_TOKEN}
-## ${RECONCILE_MARKER} — always apply)
+## ${RECONCILE_MARKER} — always apply
 - **Record after every step.** After an analysis/trace step that establishes
   something, \`save_finding\` it (grounded per the extract-first rule) — do not leave
   knowledge only in chat. Link it: \`entity_ids\`, \`artifact_ids\`, and the
