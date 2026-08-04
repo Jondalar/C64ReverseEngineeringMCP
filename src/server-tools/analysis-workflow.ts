@@ -311,7 +311,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       output_asm: z.string().optional().describe("Output path for the .asm file"),
       entry_points: z.array(z.string()).optional().describe("Hex entry point addresses"),
       analysis_json: z.string().optional().describe("Path to a prior analysis JSON for segment-aware disassembly"),
-      platform: z.enum(["c64", "c1541"]).optional().describe("Spec 048: target platform for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side disassembly."),
+      platform: z.enum(["c64", "c1541"]).optional().describe("target platform for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side disassembly."),
       relocations: z.array(z.object({
         fileStart: z.union([z.string(), z.number()]).describe("Stored/file address of the region's first byte (inclusive). Hex string ($FC00/0xFC00) or number."),
         fileEnd: z.union([z.string(), z.number()]).describe("Stored/file address of the region's last byte (inclusive)."),
@@ -324,7 +324,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           label: z.string().optional(),
           comment: z.string().optional(),
         })).optional().describe("Runtime-addressed code/data kind hints inside the region (applied in a later slice; carried through for now)."),
-      })).optional().describe("Spec 741: relocated regions, rendered as KickAssembler .pseudopc / 64tass .logical blocks at their runtime PC while the stored bytes stay byte-exact. Omit for normal disassembly."),
+      })).optional().describe("relocated regions, rendered as KickAssembler .pseudopc / 64tass .logical blocks at their runtime PC while the stored bytes stay byte-exact. Omit for normal disassembly."),
     },
     safeHandler("disasm_prg", async ({ project_dir, prg_path, output_asm, entry_points, analysis_json, platform, relocations }) => {
       const pd = context.projectDir(project_dir ?? prg_path, true);

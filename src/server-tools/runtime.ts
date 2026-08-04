@@ -285,7 +285,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Breakpoints (Spec 241) ----
   server.tool(
     "runtime_breakpoint_add",
-    "Spec 241 — add PC breakpoint with an action (halt/log/snapshot/trace_burst).",
+    "Add PC breakpoint with an action (halt/log/snapshot/trace_burst).",
     {
       session_id: z.string(),
       id: z.string(),
@@ -300,7 +300,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_breakpoint_list",
-    "Spec 241 — list all registered breakpoints.",
+    "List all registered breakpoints.",
     { session_id: z.string() },
     safeHandler("runtime_breakpoint_list", async ({ session_id }) => {
       const list = await callApi(session_id, "listBreakpoints");
@@ -310,7 +310,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_breakpoint_remove",
-    "Spec 241 — remove breakpoint by id.",
+    "Remove breakpoint by id.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_breakpoint_remove", async ({ session_id, id }) => {
       const ok = await callApi<boolean>(session_id, "removeBreakpoint", id);
@@ -321,7 +321,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Snapshot diff (Spec 246) ----
   server.tool(
     "runtime_save_vsf",
-    "Spec 251 — save full session state as .vsf bytes (VICE Snapshot Format — LEGACY, DEPRECATED; kept only for interchange with external emulators). For a durable c64re snapshot use runtime_session_snapshot (.c64re).",
+    "Save full session state as .vsf bytes (VICE Snapshot Format — LEGACY, DEPRECATED; kept only for interchange with external emulators). For a durable c64re snapshot use runtime_session_snapshot (.c64re).",
     {
       session_id: z.string(),
       output_path: z.string(),
@@ -346,7 +346,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_load_vsf",
-    "Spec 251/770.2 — restore full session state from a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED; interchange only). Auto-detects a foreign x64sc-written .vsf (VIC-IISC module → full 64K RAM + MAINCPU + VIC-IISC pipeline + CIA1/2 injected) vs a c64re-own .vsf, and dispatches to the right loader.",
+    "Restore full session state from a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED; interchange only). Auto-detects a foreign x64sc-written .vsf (VIC-IISC module → full 64K RAM + MAINCPU + VIC-IISC pipeline + CIA1/2 injected) vs a c64re-own .vsf, and dispatches to the right loader.",
     {
       session_id: z.string(),
       input_path: z.string(),
@@ -389,7 +389,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Status ----
   server.tool(
     "runtime_status",
-    "Spec 237 — AgentQueryApi facade introspection. Reports what V2 surface is available + session cycle counts.",
+    "AgentQueryApi facade introspection. Reports what V2 surface is available + session cycle counts.",
     { session_id: z.string() },
     safeHandler("runtime_status", async ({ session_id }) => {
       const s = await callApi(session_id, "status");
@@ -424,7 +424,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Whitebox component-diff of two .c64re snapshots (Spec 794) ----
   server.tool(
     "runtime_component_diff",
-    "Whitebox component-diff of two .c64re snapshots (Spec 794): a per-component equivalence VERDICT (cpu/ram/colorram/cia/vic/sid/drive incl. Floppy RAM + internal chip state) with a caller exclusion mask. Use to SCORE a candidate snapshot against a baseline — the sandbox fan-out eval step, a refactor-equivalence check, or which component a change actually moved. Not a live memory read (use runtime_monitor_memory), not the VSF-file diff (use runtime_diff_snapshots).",
+    "Whitebox component-diff of two .c64re snapshots: a per-component equivalence VERDICT (cpu/ram/colorram/cia/vic/sid/drive incl. Floppy RAM + internal chip state) with a caller exclusion mask. Use to SCORE a candidate snapshot against a baseline — the sandbox fan-out eval step, a refactor-equivalence check, or which component a change actually moved. Not a live memory read (use runtime_monitor_memory), not the VSF-file diff (use runtime_diff_snapshots).",
     {
       a_path: z.string().describe("Baseline .c64re snapshot"),
       b_path: z.string().describe("Candidate .c64re snapshot"),
@@ -482,13 +482,13 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Candidate model (Spec 796) — live scenario-bound overlay branches ----
   const candidateDaemon = async () => {
     const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-    if (!isDaemonMode()) throw new Error("candidate model (Spec 796) requires the TRX64 backend");
+    if (!isDaemonMode()) throw new Error("candidate model requires the TRX64 backend");
     return runtimeDaemon;
   };
 
   server.tool(
     "runtime_candidate_create",
-    "Spec 796 — create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set. Runs the NO-PATCH scenario once to cache the equivalence baseline. Start an iterate-your-own-code loop on a fixed snapshot. Inputs: session_id, anchor (checkpoint id), scenario {inputs, cycleBudget}. Returns: the candidate {id, ...}.",
+    "Create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set. Runs the NO-PATCH scenario once to cache the equivalence baseline. Start an iterate-your-own-code loop on a fixed snapshot. Inputs: session_id, anchor (checkpoint id), scenario {inputs, cycleBudget}. Returns: the candidate {id, ...}.",
     { session_id: z.string(), anchor: z.string(), scenario: z.object({ inputs: z.array(z.any()).optional(), cycleBudget: z.number().optional() }).optional() },
     safeHandler("runtime_candidate_create", async ({ session_id, anchor, scenario }) => {
       const d = await candidateDaemon();
@@ -499,7 +499,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_patch",
-    "Spec 796 — add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step). Give `source_path` (an .asm/.tass file, assembled here → bytes) OR pre-assembled `bytes`. `space` ram|roml|romh + `bank` + `addr` (CPU window addr) target RAM or a cart bank (795). Re-adding at the same target REPLACES (iterate a fix). Inputs: session_id, id, addr, space?, bank?, source_path?|bytes?. Returns: the candidate.",
+    "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step). Give `source_path` (an .asm/.tass file, assembled here → bytes) OR pre-assembled `bytes`. `space` ram|roml|romh + `bank` + `addr` (CPU window addr) target RAM or a cart bank (795). Re-adding at the same target REPLACES (iterate a fix). Inputs: session_id, id, addr, space?, bank?, source_path?|bytes?. Returns: the candidate.",
     { session_id: z.string(), id: z.string(), addr: z.number(), space: z.enum(["ram", "roml", "romh"]).optional(), bank: z.number().optional(), source_path: z.string().optional(), bytes: z.array(z.number()).optional() },
     safeHandler("runtime_candidate_patch", async ({ session_id, id, addr, space, bank, source_path, bytes }) => {
       let src = "";
@@ -522,7 +522,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_run",
-    "Spec 796 — run a candidate: restore its baseline anchor, apply ALL its patches, play the bound scenario (deterministic), and AUTO-DIFF (794) vs the no-patch baseline → the verdict 'what did my code change / is it equivalent'. Ephemeral (anchor untouched). Inputs: session_id, id. Returns: {registers, verdict, ranCycles, diff}.",
+    "Run a candidate: restore its baseline anchor, apply ALL its patches, play the bound scenario (deterministic), and AUTO-DIFF (794) vs the no-patch baseline → the verdict 'what did my code change / is it equivalent'. Ephemeral (anchor untouched). Inputs: session_id, id. Returns: {registers, verdict, ranCycles, diff}.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_candidate_run", async ({ session_id, id }) => {
       const d = await candidateDaemon();
@@ -533,7 +533,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_remove_patch",
-    "Spec 796 — remove the overlay patch at (space, bank, addr) from a candidate. Inputs: session_id, id, addr, space?, bank?. Returns: the candidate + removed:bool.",
+    "Remove the overlay patch at (space, bank, addr) from a candidate. Inputs: session_id, id, addr, space?, bank?. Returns: the candidate + removed:bool.",
     { session_id: z.string(), id: z.string(), addr: z.number(), space: z.enum(["ram", "roml", "romh"]).optional(), bank: z.number().optional() },
     safeHandler("runtime_candidate_remove_patch", async ({ session_id, id, addr, space, bank }) => {
       const d = await candidateDaemon();
@@ -544,7 +544,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_list",
-    "Spec 796 — list candidates (id omitted) or show one candidate's patches + last verdict. Inputs: session_id, id?. Returns: candidate(s).",
+    "List candidates (id omitted) or show one candidate's patches + last verdict. Inputs: session_id, id?. Returns: candidate(s).",
     { session_id: z.string(), id: z.string().optional() },
     safeHandler("runtime_candidate_list", async ({ session_id, id }) => {
       const d = await candidateDaemon();
@@ -555,7 +555,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_delete",
-    "Spec 796 — delete a candidate from the session store. Inputs: session_id, id. Returns: {id, deleted}.",
+    "Delete a candidate from the session store. Inputs: session_id, id. Returns: {id, deleted}.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_candidate_delete", async ({ session_id, id }) => {
       const d = await candidateDaemon();
@@ -566,7 +566,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_export",
-    "Spec 796 — export a candidate's accumulated source-patch-set = the delta seed (the code that goes into the real build; the final-delta shaping is a later step). Inputs: session_id, id. Returns: {id, patches:[{space,bank,addr,source}]}.",
+    "Export a candidate's accumulated source-patch-set = the delta seed (the code that goes into the real build; the final-delta shaping is a later step). Inputs: session_id, id. Returns: {id, patches:[{space,bank,addr,source}]}.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_candidate_export", async ({ session_id, id }) => {
       const d = await candidateDaemon();
@@ -577,7 +577,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_derive_delta",
-    "Spec 797 — derive the FINAL CODE DELTA from a candidate: turn its exported source-patch-set into a build-ready delta on disk — one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md. The code that goes into the real build (the meaning-bridge payoff). Inputs: session_id, id, out_dir? (default <project>/delta-<id>). Returns: outDir + written files + manifest.",
+    "Derive the FINAL CODE DELTA from a candidate: turn its exported source-patch-set into a build-ready delta on disk — one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md. The code that goes into the real build (the meaning-bridge payoff). Inputs: session_id, id, out_dir? (default <project>/delta-<id>). Returns: outDir + written files + manifest.",
     { session_id: z.string(), id: z.string(), out_dir: z.string().optional() },
     safeHandler("runtime_candidate_derive_delta", async ({ session_id, id, out_dir }) => {
       const d = await candidateDaemon();
@@ -596,7 +596,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_find_cheat",
-    "Spec 798 — cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. The FINDER half of the cheat loop; verify a candidate by freezing an address (runtime_candidate_patch at that addr with its original value) + runtime_candidate_run to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
+    "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. The FINDER half of the cheat loop; verify a candidate by freezing an address (runtime_candidate_patch at that addr with its original value) + runtime_candidate_run to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
     { session_id: z.string(), before: z.string(), after: z.string(), max: z.number().optional() },
     safeHandler("runtime_find_cheat", async ({ session_id, before, after, max }) => {
       const d = await candidateDaemon();
@@ -694,7 +694,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       cycle_start: z.number(),
       cycle_end: z.number(),
       compact: z.boolean().default(true),
-      focus: z.enum(["main", "irq", "nmi"]).optional().describe("Spec 746.13 — keep only rows in this execution-context lane."),
+      focus: z.enum(["main", "irq", "nmi"]).optional().describe("keep only rows in this execution-context lane."),
       nmi_vector: z.number().optional().describe("Optional $FFFA target to sharpen NMI-vs-IRQ for an NMI taken from main flow."),
     },
     safeHandler("runtime_swimlane_slice", async (args) => {
@@ -776,7 +776,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Fingerprint scan (Spec 247) ----
   server.tool(
     "runtime_scan_fingerprints",
-    "Spec 247 — match routine bytes against bundled/TREX/local fingerprint libraries. Lookup chain via C64RE_FINGERPRINT_LIBS env.",
+    "Match routine bytes against bundled/TREX/local fingerprint libraries. Lookup chain via C64RE_FINGERPRINT_LIBS env.",
     {
       artifact_id: z.string(),
       bytes_hex: z.string().describe("Hex-encoded artifact bytes (no 0x prefix, no spaces)"),
@@ -801,7 +801,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Bookmarks (Spec 242) ----
   server.tool(
     "runtime_bookmark_add",
-    "Spec 242 — add trace bookmark with bind mode (cycle/event-key/both). Persisted in trace store DuckDB.",
+    "Add trace bookmark with bind mode (cycle/event-key/both). Persisted in trace store DuckDB.",
     {
       duckdb_path: z.string(),
       run_id: z.string(),
@@ -829,7 +829,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_bookmark_list",
-    "Spec 242 — list bookmarks for a run.",
+    "List bookmarks for a run.",
     {
       duckdb_path: z.string(),
       run_id: z.string(),
@@ -849,7 +849,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Regression (Spec 250) ----
   server.tool(
     "runtime_regression_capture_baseline",
-    "Spec 250 — LLM-explicit baseline capture for a scenario. Writes baseline.duckdb + ram-end.bin + screenshot.png + meta.json.",
+    "LLM-explicit baseline capture for a scenario. Writes baseline.duckdb + ram-end.bin + screenshot.png + meta.json.",
     {
       scenario_id: z.string(),
     },
@@ -862,7 +862,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_regression_compare",
-    "Spec 250 — compare current scenario run against captured baseline. Returns no_drift / minor_drift / structural_change / broken classification.",
+    "Compare current scenario run against captured baseline. Returns no_drift / minor_drift / structural_change / broken classification.",
     {
       scenario_id: z.string(),
     },
@@ -902,7 +902,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Media browser + mount (Spec 265) ----
   server.tool(
     "runtime_media_list_paths",
-    "Spec 265 — list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
+    "List configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
     {},
     safeHandler("runtime_media_list_paths", async () => {
       const { listFsRoots } = await import("../runtime/headless/media/fs-browser.js");
@@ -1102,7 +1102,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_scenario_list",
-    "Spec 268 — list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. Returns summaries sorted by date.",
+    "List scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. Returns summaries sorted by date.",
     {},
     safeHandler("runtime_scenario_list", async () => {
       const { listScenarios } = await import("../runtime/headless/v2/scenario-registry.js");
@@ -1113,7 +1113,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_scenario_save",
-    "Spec 268 — save a scenario JSON to project dir (or samples if no project dir). Returns file path.",
+    "Save a scenario JSON to project dir (or samples if no project dir). Returns file path.",
     {
       id: z.string(),
       diskPath: z.string(),
@@ -1136,7 +1136,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_scenario_load",
-    "Spec 268 — load a single scenario by id. Checks project dir first, then samples.",
+    "Load a single scenario by id. Checks project dir first, then samples.",
     { id: z.string() },
     safeHandler("runtime_scenario_load", async ({ id }) => {
       const { loadScenario } = await import("../runtime/headless/v2/scenario-registry.js");
@@ -1148,7 +1148,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_scenario_delete",
-    "Spec 268 — delete a scenario JSON by id. Returns true if found and removed.",
+    "Delete a scenario JSON by id. Returns true if found and removed.",
     { id: z.string() },
     safeHandler("runtime_scenario_delete", async ({ id }) => {
       const { deleteScenario } = await import("../runtime/headless/v2/scenario-registry.js");
@@ -1213,7 +1213,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_run_scenario",
-    "Spec 268 / 231 — replay a saved scenario by id, returns ReplayResult hashes.",
+    "Replay a saved scenario by id, returns ReplayResult hashes.",
     { id: z.string() },
     safeHandler("runtime_run_scenario", async ({ id }) => {
       const { loadScenario } = await import("../runtime/headless/v2/scenario-registry.js");
@@ -1235,7 +1235,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_run_scenarios_parallel",
-    "Spec 271 — run multiple scenarios in parallel via worker_threads. Returns batchId for polling.",
+    "Run multiple scenarios in parallel via worker_threads. Returns batchId for polling.",
     {
       scenario_ids: z.array(z.string()).min(1),
       worker_count: z.number().int().min(1).optional(),
@@ -1266,7 +1266,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_batch_status",
-    "Spec 271 — poll progress of a parallel batch. Returns completed / total and status.",
+    "Poll progress of a parallel batch. Returns completed / total and status.",
     { batch_id: z.string() },
     safeHandler("runtime_batch_status", async ({ batch_id }) => {
       const { getBatch, serialiseBatch } = await import("../runtime/headless/parallel/batch-store.js");
@@ -1278,7 +1278,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_batch_results",
-    "Spec 271 — collect ReplayResult per scenario once batch is done. Errors per-scenario included.",
+    "Collect ReplayResult per scenario once batch is done. Errors per-scenario included.",
     { batch_id: z.string() },
     safeHandler("runtime_batch_results", async ({ batch_id }) => {
       const { getBatch, serialiseBatch, serialiseResults } = await import("../runtime/headless/parallel/batch-store.js");

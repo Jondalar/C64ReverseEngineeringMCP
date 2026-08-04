@@ -64,7 +64,7 @@ ${doctrineText}`,
 
   server.prompt(
     "c64re_worker_phase",
-    "Spec 035: return a worker briefing for a single phase task on a single artifact. Hand the returned text to a Task subagent (or to a freshly spawned Claude Code subagent). The worker stops when its hand-off contract is met and returns control to the master.",
+    "Return a worker briefing for a single phase task on a single artifact. Hand the returned text to a Task subagent (or to a freshly spawned Claude Code subagent). The worker stops when its hand-off contract is met and returns control to the master.",
     {
       phase: z.string().describe("Phase number (1..7)."),
       artifact_id: z.string().describe("Target artifact id."),
@@ -94,7 +94,7 @@ ${doctrineText}`,
 
   server.prompt(
     "c64re_cracker_doctrine",
-    "Return the cracker-mode doctrine (Spec 033). Read once when agent_set_role(role='cracker') is called.",
+    "Return the cracker-mode doctrine. Read once when agent_set_role(role='cracker') is called.",
     {},
     async () => {
       const doctrinePath = `${context.repoRoot}/docs/cracker-doctrine.md`;

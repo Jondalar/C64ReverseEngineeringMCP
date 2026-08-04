@@ -179,7 +179,7 @@ export function renderMemoryMap(m: MemMapResult, opts: { runLabel?: string } = {
   L.push("⚠ COVERAGE = THIS RUN ONLY. A trace is ONE path. \"untouched\" ≠ \"free\":");
   L.push("  untested paths (other levels, battles, utils/save) may use a hole. Reconcile");
   L.push("  with the static module load-map / analysis-json before treating a hole as free.");
-  L.push("  This is runtime BEHAVIOUR (Spec 753), NOT identity grounding (Spec 752 L1).");
+  L.push("  This is runtime BEHAVIOUR, NOT identity grounding.");
   L.push("");
   L.push(`totals: code=${m.totals.codePages}p  written=${m.totals.writtenPages}p  read-only=${m.totals.readPages}p  ` +
          `untouched=${m.totals.untouchedPages}p  mutated=${m.totals.mutatedPages}p  provably-free=${m.totals.freePages}p`);

@@ -57,7 +57,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // to <image>_session.g64.
   server.tool(
     "runtime_drive_session_start",
-    "Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image. Returns a session id usable with the other headless_drive_* tools. Drive emulation runs cycle-accurately with full 6522 VIA + IEC bus modelling. The drive boots via its bundled DOS ROM (resources/roms/dos1541-...bin). For test/runtime tracing of custom loaders and save-game RE.",
+    "Open a standalone 1541 drive emulation session backed by a G64 image. Returns a session id usable with the other headless_drive_* tools. Drive emulation runs cycle-accurately with full 6522 VIA + IEC bus modelling. The drive boots via its bundled DOS ROM (resources/roms/dos1541-...bin). For test/runtime tracing of custom loaders and save-game RE.",
     {
       disk_path: z.string().describe("Path to the G64 disk image."),
       start_track: z.number().int().min(1).max(40).optional().describe("Starting track for the head (default 18)."),
@@ -92,7 +92,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_drive_status",
-    "Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits. Use after running drive code to verify state.",
+    "Snapshot of a drive session's CPU registers + head position + IRQ pending bits. Use after running drive code to verify state.",
     {
       session_id: z.string(),
     },
@@ -120,7 +120,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_iec_bus_state",
-    "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. Useful for debugging custom loader bit-bang protocols.",
+    "Dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. Useful for debugging custom loader bit-bang protocols.",
     {
       session_id: z.string(),
     },
@@ -459,7 +459,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       session_id: z.string(),
       hypothesis: z.string().optional().describe("REQUIRED (read-before-trace gate): the read-derived reason for this trace — a concrete $address you are investigating + what you READ that points there (a routine, annotation, or finding). E.g. \"$C000 should hold the manual-check result; input routine at $B800 stores the typed word there\". Fishing (no address / no rationale) is refused — read the code first (disasm_prg / inspect_address_range / project_search), form the hypothesis, THEN trace to confirm it."),
       domains: z.array(z.enum(["c64-cpu", "drive8-cpu", "iec", "vic", "sid", "memory", "drive-mechanism"])).optional()
-        .describe("Trace domains. Default ['c64-cpu','memory']. The CPU firehose is the swimlane truth; add drive8-cpu/iec for IEC-bus + drive stepping, vic for raster. Spec 784: 'drive-mechanism' arms the 1541 head (track/sector) lane for a loader-lens capture — read it with runtime_loader_lens."),
+        .describe("Trace domains. Default ['c64-cpu','memory']. The CPU firehose is the swimlane truth; add drive8-cpu/iec for IEC-bus + drive stepping, vic for raster. 'drive-mechanism' arms the 1541 head (track/sector) lane for a loader-lens capture — read it with runtime_loader_lens."),
       output: z.string().optional().describe("Path (abs or under the project) for the trace store. Default traces/live_<ts>.duckdb."),
     },
     safeHandler("runtime_trace_start", async ({ session_id, hypothesis, domains, output }) => {
@@ -870,7 +870,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // Spec 093: Maniac Mansion G64 lockstep regression diagnostic.
   server.tool(
     "runtime_diagnose_mm",
-    "Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at $46A7, drive PC repeats, cycle budget exhausted). Writes a registered JSON artifact under analysis/headless/ and returns a one-line verdict + key blame. Cycle-lockstep + microcoded CPU enforced; tool will refuse misleading success.",
+    "Open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at $46A7, drive PC repeats, cycle budget exhausted). Writes a registered JSON artifact under analysis/headless/ and returns a one-line verdict + key blame. Cycle-lockstep + microcoded CPU enforced; tool will refuse misleading success.",
     {
       disk_path: z.string().describe("Disk image path (G64 expected)."),
       project_dir: z.string().optional(),
@@ -1173,7 +1173,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_overlay_run",
-    "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?, space?, bank?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. `space` targets RAM (default) or a cart bank (Spec 795): space:\"roml\"|\"romh\" + `bank` + `addr`=the CPU window address ($8000-$9FFF / $A000-$BFFF) overlays code into an EasyFlash bank, ephemeral like the RAM patch (rolled back next restore). Cart overlay needs the TRX64 backend. Not for a persistent change (use runtime_monitor to poke and keep it). Leaves the machine paused. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
+    "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?, space?, bank?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. `space` targets RAM (default) or a cart bank: space:\"roml\"|\"romh\" + `bank` + `addr`=the CPU window address ($8000-$9FFF / $A000-$BFFF) overlays code into an EasyFlash bank, ephemeral like the RAM patch (rolled back next restore). Cart overlay needs the TRX64 backend. Not for a persistent change (use runtime_monitor to poke and keep it). Leaves the machine paused. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
     {
       session_id: z.string(),
       anchor_cycle: z.number().optional(),
@@ -1210,7 +1210,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         await ctrl.restoreCheckpoint(id, { then: "pause" });
         const ram = (s as unknown as { c64Bus: { ram: Uint8Array } }).c64Bus.ram;
         const applied: Array<{ addr: number; len: number }> = [];
-        for (const p of patches) { if (p.space && p.space !== "ram") throw new Error("runtime_overlay_run: cart-bank overlay (space roml/romh, Spec 795) requires the TRX64 backend; the in-proc TS runtime is RAM-only"); const a = p.addr & 0xffff; const b = p.bytes ?? []; for (let i = 0; i < b.length; i++) ram[(a + i) & 0xffff] = b[i]! & 0xff; applied.push({ addr: a, len: b.length }); }
+        for (const p of patches) { if (p.space && p.space !== "ram") throw new Error("runtime_overlay_run: cart-bank overlay (space roml/romh) requires the TRX64 backend; the in-proc TS runtime is RAM-only"); const a = p.addr & 0xffff; const b = p.bytes ?? []; for (let i = 0; i < b.length; i++) ram[(a + i) & 0xffff] = b[i]! & 0xff; applied.push({ addr: a, len: b.length }); }
         let hitPc: number | null = null;
         const rc = run_cycles || 0;
         if (rc > 0) { const bps = until_pc !== undefined ? new Set([until_pc & 0xffff]) : undefined; const rr = (s as unknown as { runFor(n: number, o: unknown): { aborted?: string; lastPc: number } }).runFor(Math.ceil(rc / 2) + 1000, { cycleBudget: rc, breakpoints: bps }); if (rr.aborted === "breakpoint") hitPc = rr.lastPc; }
@@ -1255,7 +1255,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_drive_session_save_vsf",
-    "Spec 062 Sprint 64: save the drive session's full state as a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED; interchange only). Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
+    "Save the drive session's full state as a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED; interchange only). Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
     {
       session_id: z.string(),
       output_path: z.string(),
@@ -1282,7 +1282,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_drive_session_load_vsf",
-    "Spec 062 Sprint 64: load a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED) into a drive session. Modules the headless drive runtime owns are restored; modules it doesn't model (VIC, SID, CIA1, KEYBOARD, etc.) are reported as ignored. Use to resume a previous trace or to import externally saved state.",
+    "Load a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED) into a drive session. Modules the headless drive runtime owns are restored; modules it doesn't model (VIC, SID, CIA1, KEYBOARD, etc.) are reported as ignored. Use to resume a previous trace or to import externally saved state.",
     {
       session_id: z.string(),
       input_path: z.string(),
@@ -1311,7 +1311,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_drive_persist_writes",
-    "Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64. Original image untouched. Returns paths + modified track list. Save-game RE workflow trigger.",
+    "Write modified GCR tracks back to disk as <image>_session.g64. Original image untouched. Returns paths + modified track list. Save-game RE workflow trigger.",
     {
       session_id: z.string(),
       output_path: z.string().optional().describe("Optional override for the session-G64 output path."),

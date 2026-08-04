@@ -463,7 +463,7 @@ export function pickPrimary(signals: ProjectSignals, projectDir: string): Ladder
   blockedBy.push({
     id: "next-objective",
     prompt: signals.findings > 0 || signals.sourceArtifacts > 0
-      ? "The linear pipeline has no obvious next product step. Decide the next objective (deeper disassembly, a runtime trace, a visual check, or a change/validate task once Spec 711 lands)."
+      ? "The linear pipeline has no obvious next product step. Decide the next objective (deeper disassembly, a runtime trace, a visual check, or a change/validate task once that lands)."
       : "No media, payloads, or analysis to advance. Add input media (.d64/.g64/.crt/.prg) under the project, or state the objective.",
   });
   return {
