@@ -83,7 +83,10 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // RuntimeController stops ticking (otherwise it pegs a core ~100%); the clean
   // alternative to killing the process. Must be on the default surface next to start.
   "runtime_session_close",
-  "runtime_session_snapshot", "runtime_media_browse", "runtime_media_mount",
+  // runtime_session_snapshot demoted to advanced: it returns a TS-structured JSON snapshot
+  // (not the daemon's snapshot/dump file) — off the customer surface until it is backed by a
+  // TRX64 structured-state method. Customers use checkpoints / component_diff for state.
+  "runtime_media_browse", "runtime_media_mount",
   "runtime_media_unmount", "runtime_media_persist", "runtime_media_swap",
   // BUG-027 Blocker 2 (Spec 744 §7.2) — high-level "Insert side N" answer:
   // eject→run→insert→run→RETURN→run as ONE call (atomic swap can't be sensed).
@@ -157,7 +160,9 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // `runtime_input_load_vicerc` is deliberately ADVANCED — it parses a legacy
   // foreign emulator config, is a one-off bootstrap, and its name would put an
   // external emulator back on the RE surface.
-  "runtime_export_audio", "runtime_export_video", "runtime_export_screenshot",
+  // runtime_export_{audio,video,screenshot} demoted to advanced: they replay a SCENARIO in
+  // an in-process TS machine (bypassing the daemon) — off the customer surface until scenario
+  // render runs on TRX64. runtime_session_export_audio stays (wired to the daemon audio/export).
   "runtime_session_export_audio", "runtime_input_load_config", "runtime_input_save_config",
 ]);
 

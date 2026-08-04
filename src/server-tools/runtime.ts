@@ -881,6 +881,13 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       duration_sec: z.number(),
     },
     safeHandler("runtime_session_export_audio", async ({ session_id, out_path, duration_sec }) => {
+      // Runs on the shared TRX64 machine (the same session the UI drives). The in-process
+      // TS path below is dev-only (C64RE_ALLOW_INPROC_RUNTIME=1).
+      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      if (isDaemonMode()) {
+        const r = await runtimeDaemon.call("audio/export", { session_id, out_path, duration_sec });
+        return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+      }
       const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
