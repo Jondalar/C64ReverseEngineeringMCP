@@ -64,15 +64,20 @@ export function resolveDaemonSpawn(opts: {
     return { cmd: bin, args: [...stdArgs, ...extra], mode: "external-bin" };
   }
 
-  // 2) TRX64 is the DEFAULT runtime — the sibling release daemon, with `--stream` so the
-  //    UI gets the A/V hub. `C64RE_RUNTIME_TS=1` forces the TS oracle instead; the path
-  //    is overridable via `C64RE_TRX64_BIN`. Falls through to the TS daemon if no TRX64
-  //    binary is built yet.
+  // 2) TRX64 is the DEFAULT + ONLY customer runtime — the sibling release daemon. The TS
+  //    daemon (tiers 3/4 below) is dev/oracle-only and reachable ONLY behind
+  //    `C64RE_RUNTIME_TS=1`, NEVER as a silent fallback: a missing TRX64 binary returns
+  //    `"none"` so the caller emits the actionable "start the daemon" error instead of
+  //    leaking the TS runtime onto the MCP customer surface. Path overridable via
+  //    `C64RE_TRX64_BIN` (on Windows the .exe suffix is added / accepted automatically).
   const forceTs = process.env.C64RE_RUNTIME_TS?.trim() === "1";
   if (!forceTs) {
-    const trx64 =
+    const winExe = process.platform === "win32" ? ".exe" : "";
+    let trx64 =
       process.env.C64RE_TRX64_BIN?.trim() ||
-      resolvePath(repoRoot, "..", "TRX64", "target", "release", "trx64-daemon");
+      resolvePath(repoRoot, "..", "TRX64", "target", "release", `trx64-daemon${winExe}`);
+    // Accept an explicit C64RE_TRX64_BIN given without the .exe suffix on Windows.
+    if (winExe && !existsSync(trx64) && existsSync(trx64 + winExe)) trx64 += winExe;
     if (existsSync(trx64)) {
       const extra = (process.env.C64RE_RUNTIME_BIN_ARGS?.trim() || "")
         .split(/\s+/)
@@ -83,11 +88,17 @@ export function resolveDaemonSpawn(opts: {
       // wants. Legacy `--stream` is still accepted by the daemon as a no-op.
       return { cmd: trx64, args: [...stdArgs, ...extra], mode: "external-bin" };
     }
+    // TRX64 wanted but not built → do NOT silently spawn the TS daemon. "none" makes the
+    // caller surface the actionable error; the TS runtime stays a dev-only opt-in.
+    return { cmd: "", args: [], mode: "none" };
   }
 
+  // ---- DEV / ORACLE ONLY (C64RE_RUNTIME_TS=1) ----------------------------------------
+  // The in-repo TypeScript daemon. Never the customer default; this is the A/B parity
+  // oracle + fidelity harness for TRX64 development. Unreachable by the LLM (env-gated).
   const tsArgs = [...stdArgs, ...(devSamples ? ["--dev-samples"] : [])];
 
-  // 3) built TS daemon (fallback / forced oracle — tsx-from-src runs ~12× slower).
+  // 3) built TS daemon.
   const distEntry = resolvePath(repoRoot, "dist/runtime/headless/daemon/run.js");
   if (existsSync(distEntry)) {
     return { cmd: process.execPath, args: [distEntry, ...tsArgs], mode: "dist" };
@@ -102,8 +113,8 @@ export function resolveDaemonSpawn(opts: {
       args: [srcEntry, ...tsArgs],
       mode: "tsx",
       warn:
-        "runtime daemon falling back to tsx-from-src — ~12× slower (≈4fps). " +
-        "Run `npm run build:mcp` for full speed (50fps).",
+        "TS runtime daemon (C64RE_RUNTIME_TS=1) falling back to tsx-from-src — ~12× slower " +
+        "(≈4fps). Run `npm run build:mcp` for full speed (50fps).",
     };
   }
 

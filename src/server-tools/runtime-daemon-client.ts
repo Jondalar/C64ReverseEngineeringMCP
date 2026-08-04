@@ -23,7 +23,14 @@ export const DEFAULT_RUNTIME_ENDPOINT = "ws://127.0.0.1:4312";
 
 export function runtimeEndpoint(): string | undefined {
   const e = process.env.C64RE_RUNTIME_ENDPOINT;
-  return e && e.trim() ? e.trim() : undefined;
+  if (e && e.trim()) return e.trim();
+  // The MCP customer surface always runs on the TRX64 daemon: with no explicit endpoint we
+  // still return the default so isDaemonMode() is true and every runtime tool routes to the
+  // daemon. The in-process TypeScript runtime is dev/oracle-only and out of reach for the
+  // LLM — a developer opts into it deliberately with C64RE_ALLOW_INPROC_RUNTIME=1 (tests /
+  // parity harness), which is the ONLY way an in-process machine is ever constructed.
+  if (process.env.C64RE_ALLOW_INPROC_RUNTIME === "1") return undefined;
+  return DEFAULT_RUNTIME_ENDPOINT;
 }
 
 export function isDaemonMode(): boolean {
