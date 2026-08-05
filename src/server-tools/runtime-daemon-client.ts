@@ -59,6 +59,10 @@ function tryOpen(endpoint: string, timeoutMs = 2500): Promise<WebSocket> {
  *   "stall"    — connected (port held) but NO pong → a wedged daemon
  *   "down"     — could not connect at all (no daemon)
  */
+/** Product build seen by the last successful liveness ping (the pong carries it). Lets the
+ *  health probe report WHICH daemon build answered without opening a second connection. */
+let lastProbedBuild: string | undefined;
+
 async function probeLiveness(endpoint: string, pingTimeoutMs = 3000): Promise<"healthy" | "stall" | "down"> {
   let ws: WebSocket;
   try { ws = await tryOpen(endpoint, Math.min(1500, pingTimeoutMs)); }
@@ -68,7 +72,16 @@ async function probeLiveness(endpoint: string, pingTimeoutMs = 3000): Promise<"h
       const timer = setTimeout(() => resolve(false), pingTimeoutMs);
       const id = 999999;
       const onMsg = (data: unknown) => {
-        try { const m = JSON.parse(String(data)); if (m.id === id) { clearTimeout(timer); ws.off("message", onMsg as never); resolve(true); } } catch { /* ignore */ }
+        try {
+          const m = JSON.parse(String(data));
+          if (m.id === id) {
+            // The pong carries the daemon's product build (and its protocol epoch) — keep
+            // the build so the health probe can name it. Compatibility is gated elsewhere.
+            const v = m?.result?.version;
+            if (typeof v === "string" && v) lastProbedBuild = v;
+            clearTimeout(timer); ws.off("message", onMsg as never); resolve(true);
+          }
+        } catch { /* ignore */ }
       };
       ws.on("message", onMsg as never);
       ws.send(JSON.stringify({ jsonrpc: "2.0", id, method: "ping", params: {} }));
@@ -184,6 +197,8 @@ class RuntimeDaemonClient {
   setProjectDir(dir: string | undefined): void { if (dir) this.projectDir = dir; }
 
   private protocolOk = false;
+  /** Product build reported by the connected daemon (see handshakeProtocol). */
+  private runtimeBuild: string | undefined;
 
   private async connect(): Promise<WebSocket> {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) return this.ws;
@@ -227,18 +242,27 @@ class RuntimeDaemonClient {
    *  (predates the handshake, same wire epoch) is tolerated. */
   private async handshakeProtocol(): Promise<void> {
     if (this.protocolOk) return;
-    let pong: { runtime_version?: string } | undefined;
-    try { pong = await this.call<{ runtime_version?: string }>("ping", {}, 5000); }
+    let pong: { runtime_version?: string; version?: string } | undefined;
+    try { pong = await this.call<{ runtime_version?: string; version?: string }>("ping", {}, 5000); }
     catch { return; } // liveness already confirmed; do not block on a flaky ping
+    // The daemon reports TWO independent numbers: the wire-protocol epoch (hard-checked)
+    // and its PRODUCT build version (informational). Two builds can share an epoch and
+    // still differ, so surface the build — it answers "is this an ancient daemon?".
+    this.runtimeBuild = pong?.version;
     const got = parseRuntimeProtocol(pong?.runtime_version);
     if (got == null) { this.protocolOk = true; return; }
     if (got !== EXPECTED_RUNTIME_PROTOCOL) {
       throw new Error(runtimeSetupRecipe(
-        `runtime protocol mismatch — the daemon speaks trx64-runtime/${got}, but this C64RE ` +
-        `needs trx64-runtime/${EXPECTED_RUNTIME_PROTOCOL}. Rebuild/restart the runtime.`));
+        `runtime protocol mismatch — the daemon (build ${pong?.version ?? "unknown"}) speaks ` +
+        `trx64-runtime/${got}, but this C64RE needs trx64-runtime/${EXPECTED_RUNTIME_PROTOCOL}. ` +
+        `Rebuild/restart the runtime.`));
     }
     this.protocolOk = true;
   }
+
+  /** The connected daemon's PRODUCT build (e.g. "0.1.0"), or undefined if it predates the
+   *  handshake. Informational — the epoch is what gates compatibility. */
+  get runtimeBuildVersion(): string | undefined { return this.runtimeBuild; }
 
   private wire(ws: WebSocket): WebSocket {
     ws.on("message", (data) => this.onMessage(data.toString()));
@@ -470,15 +494,17 @@ export const runtimeDaemon = new RuntimeDaemonClient();
  * runtime backend is named.
  */
 export async function runtimeHealth(): Promise<
-  { ok: true } | { ok: false; reason: string; recipe: string }
+  { ok: true; build?: string } | { ok: false; reason: string; recipe: string }
 > {
   const endpoint = runtimeEndpoint();
   if (!endpoint) return { ok: true }; // in-process dev mode (C64RE_ALLOW_INPROC_RUNTIME=1)
   let ensured: string;
   try { ensured = await ensureDaemon({ endpoint }); }
   catch { ensured = "failed"; }
-  if (ensured === "already-up" || ensured === "spawned") return { ok: true };
-  if ((await probeLiveness(endpoint, 1500)) === "healthy") return { ok: true };
+  // `build` = the daemon's PRODUCT version, learned during the ping handshake (undefined
+  // for a daemon that predates it). Informational: compatibility is gated on the epoch.
+  if (ensured === "already-up" || ensured === "spawned") return { ok: true, build: runtimeDaemon.runtimeBuildVersion ?? lastProbedBuild };
+  if ((await probeLiveness(endpoint, 1500)) === "healthy") return { ok: true, build: runtimeDaemon.runtimeBuildVersion ?? lastProbedBuild };
   const reason = `no runtime daemon reachable at ${endpoint} and none could be started`;
   return { ok: false, reason, recipe: runtimeSetupRecipe(reason) };
 }

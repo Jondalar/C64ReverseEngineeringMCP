@@ -122,6 +122,25 @@ is unavailable.
 - Cross-repo: confirm the version is present in a connect-time response (`ping` /
   `session/create`); add it TRX64-side if it is not (minor).
 
+### 4.5 §E — Product version vs protocol epoch (two independent numbers)
+
+The epoch alone cannot answer *"is this an ancient daemon?"* — two builds can share an epoch
+and still differ (e.g. the Highpool colour-restore fix changed behaviour without touching the
+wire). So the runtime carries a **product version** next to the epoch:
+
+- **One version for the whole TRX64 workspace** (`[workspace.package] version`, every crate
+  inherits it). The crates are never consumed separately, so per-crate semver would be pure
+  bookkeeping. Bump freely — 0.x: minor for features, patch for fixes.
+- **Surfaced** at: `--version` on both binaries, the daemon's start log
+  (`TRX64 0.1.0 (trx64-runtime/1)`), the `ping` payload (`version` next to
+  `runtime_version`), and the container image tag + OCI `version` label.
+- **The epoch stays independent** and is bumped ONLY on a wire-breaking change, in lockstep
+  with `EXPECTED_RUNTIME_PROTOCOL`. The `.c64re` `schemaVersion` likewise keeps its own count.
+- **C64RE consumes it informationally**: the handshake still hard-gates on the epoch, but the
+  daemon's build is recorded (`runtimeDaemon.runtimeBuildVersion`, and via the liveness ping
+  for `runtimeHealth().build`) and named in the mismatch error, so an ancient daemon is
+  visible at a glance.
+
 ## 5. Acceptance
 
 1. **grep clean:** no backend brand or "Leitregel" in agent-facing strings or the doctrine
