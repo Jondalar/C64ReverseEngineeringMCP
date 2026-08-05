@@ -166,12 +166,7 @@ Minimum persistence contract after a substantive step:
 knowledge before re-deriving it. `project_wiki_lint` is the default way to find
 important records that still lack wiki coverage.
 
-### 1.1. There is exactly one runtime (2026-05-09; backend updated Spec 771)
-
-**Runtime backend (Spec 771).** The default runtime backend is the
-**TRX64 native Rust daemon**. The in-repo **TypeScript runtime is the
-fallback / parity check**. Leitregel: **Capability → TRX64,
-Meaning/Memory → C64RE.**
+### 1.1. There is exactly one runtime
 
 **The `runtime_*` MCP tools are the only runtime you have.** There is no
 external emulator to fall back on, no second opinion to consult, and no
@@ -180,10 +175,9 @@ tool that offers one. If a runtime question cannot be answered by
 signal to go back and read the code (§0.5).
 
 - Tool selection: `runtime_*` for runtime evidence, traces, snapshots,
-  monitor ops. (The former `headless_*` tools were merged into `runtime_*`.)
-- The Leitregel governs the split, not a deprecation countdown:
-  capability / execution lives in TRX64; meaning, memory, and the
-  knowledge layer live in C64RE.
+  monitor ops.
+- If a runtime tool reports the runtime is unavailable, relay its setup
+  guidance to the user — do not try to stand up a runtime yourself.
 
 ### 1.2. Live-session control — read freely, seize only when invited
 

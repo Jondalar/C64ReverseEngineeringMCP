@@ -482,7 +482,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Candidate model (Spec 796) — live scenario-bound overlay branches ----
   const candidateDaemon = async () => {
     const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-    if (!isDaemonMode()) throw new Error("candidate model requires the TRX64 backend");
+    if (!isDaemonMode()) throw new Error("candidate model requires the runtime daemon");
     return runtimeDaemon;
   };
 
