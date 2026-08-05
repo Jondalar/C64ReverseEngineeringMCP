@@ -1,6 +1,9 @@
 # Spec 800 — The runtime is invisible to the RE-agent (setup-guided, version-checked)
 
-**Status:** PROPOSED
+**Status:** BUILT (§A–§D implemented; C64RE typecheck + TRX64 `cargo check` green; the
+version-parse + handshake decisions unit-verified: `v1`→OK, `v2`→hard-fail+recipe,
+missing→tolerate). Live handshake exercises on the next daemon rebuild + MCP reconnect (the
+running daemon predates the ping version → tolerated, no breakage).
 **Repos:** cross-repo — C64RE primary (doctrine + tool strings + client handshake +
 setup probe); TRX64 already exposes a runtime version string (verify it is returned at
 connect; a tiny addition at most).

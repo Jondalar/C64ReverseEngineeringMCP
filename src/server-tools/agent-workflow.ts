@@ -422,6 +422,17 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         lines.push(`No \`knowledge/steering.md\`. Set persistent project rules (the discipline the agent must always apply — e.g. "after a load trace, derive the disk-T/S↔load cartography and register_payload the spans"; "after each action, record a finding + reconcile the related open question") with \`project_steering_set\`.`);
         lines.push(``);
       }
+      // Spec 800 §C — runtime availability probe (every session). Surface the per-OS setup
+      // recipe ONLY when the runtime is unavailable and cannot be auto-started; this is the
+      // one place the runtime backend is named to the agent, and only at the setup boundary.
+      try {
+        const { runtimeHealth } = await import("./runtime-daemon-client.js");
+        const health = await runtimeHealth();
+        if (!health.ok) {
+          lines.push(``, `## ⚠ Runtime not available`, health.recipe, ``, `---`);
+        }
+      } catch { /* best-effort — never block onboarding on the probe */ }
+
       if (autoImport.imported > 0) {
         lines.push(`Auto-imported ${autoImport.imported} analysis-run artifact(s): ${autoImport.entities} entities, ${autoImport.findings} findings, ${autoImport.relations} relations, ${autoImport.flows} flows, ${autoImport.questions} open questions.`);
         lines.push(``);

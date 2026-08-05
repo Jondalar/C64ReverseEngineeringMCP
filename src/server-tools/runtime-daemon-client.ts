@@ -16,6 +16,7 @@ import { spawn, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve as resolvePath, dirname } from "node:path";
 import { resolveDaemonSpawn } from "../runtime/headless/daemon/resolve-daemon-spawn.js";
+import { EXPECTED_RUNTIME_PROTOCOL, parseRuntimeProtocol, runtimeSetupRecipe } from "./runtime-setup-recipe.js";
 
 /** The product Runtime Daemon always listens here unless overridden. The UI
  *  targets this directly even when the MCP env has no endpoint configured. */
@@ -182,6 +183,8 @@ class RuntimeDaemonClient {
    *  daemon serves that project even when C64RE_PROJECT_DIR is not in the env. */
   setProjectDir(dir: string | undefined): void { if (dir) this.projectDir = dir; }
 
+  private protocolOk = false;
+
   private async connect(): Promise<WebSocket> {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) return this.ws;
     if (this.connecting) return this.connecting;
@@ -196,7 +199,9 @@ class RuntimeDaemonClient {
     //    the port but never answers; ping it before trusting the connection.)
     const health = await probeLiveness(endpoint);
     if (health === "healthy") {
-      try { return this.wire(await tryOpen(endpoint)); } catch { /* fall through to respawn */ }
+      let ws: WebSocket | null = null;
+      try { ws = this.wire(await tryOpen(endpoint)); } catch { /* fall through to respawn */ }
+      if (ws) { await this.handshakeProtocol(); return ws; }
     } else if (health === "stall") {
       console.error(`[c64-re mcp] runtime daemon at ${endpoint} is STALLED — killing it + respawning.`);
       killStalledDaemon(endpoint);
@@ -208,20 +213,36 @@ class RuntimeDaemonClient {
     const start = Date.now();
     while (Date.now() - start < deadlineMs) {
       await sleep(400);
-      try { return this.wire(await tryOpen(endpoint)); } catch { /* keep polling */ }
+      let ws: WebSocket | null = null;
+      try { ws = this.wire(await tryOpen(endpoint)); } catch { /* keep polling */ }
+      if (ws) { await this.handshakeProtocol(); return ws; }
     }
-    throw new Error(
-      `Runtime daemon not reachable at ${endpoint}` +
-      (spawned ? ` (auto-started it but it did not come up in time — check \`npm run runtime:daemon\`).`
-               : `. Start it with \`npm run runtime:daemon\` (it owns the shared C64 runtime ` +
-                 `the LLM and the UI both attach to — Spec 744.4c). ` +
-                 (process.env.C64RE_PROJECT_DIR ? "" : "Also set C64RE_PROJECT_DIR.")),
-    );
+    throw new Error(runtimeSetupRecipe(
+      `no runtime daemon reachable at ${endpoint}` +
+      (spawned ? " (auto-start was attempted but it did not come up in time)" : "")));
+  }
+
+  /** Spec 800 §D — verify the daemon speaks our exact protocol epoch, once per connection.
+   *  A confirmed mismatch hard-fails with the setup recipe; a daemon that reports no version
+   *  (predates the handshake, same wire epoch) is tolerated. */
+  private async handshakeProtocol(): Promise<void> {
+    if (this.protocolOk) return;
+    let pong: { runtime_version?: string } | undefined;
+    try { pong = await this.call<{ runtime_version?: string }>("ping", {}, 5000); }
+    catch { return; } // liveness already confirmed; do not block on a flaky ping
+    const got = parseRuntimeProtocol(pong?.runtime_version);
+    if (got == null) { this.protocolOk = true; return; }
+    if (got !== EXPECTED_RUNTIME_PROTOCOL) {
+      throw new Error(runtimeSetupRecipe(
+        `runtime protocol mismatch — the daemon speaks trx64-runtime/${got}, but this C64RE ` +
+        `needs trx64-runtime/${EXPECTED_RUNTIME_PROTOCOL}. Rebuild/restart the runtime.`));
+    }
+    this.protocolOk = true;
   }
 
   private wire(ws: WebSocket): WebSocket {
     ws.on("message", (data) => this.onMessage(data.toString()));
-    ws.on("close", () => { this.ws = null; this.failAll(new Error("runtime daemon connection closed")); });
+    ws.on("close", () => { this.ws = null; this.protocolOk = false; this.failAll(new Error("runtime daemon connection closed")); });
     ws.on("error", () => { /* surfaced per-call via timeouts / failAll */ });
     this.ws = ws;
     return ws;
@@ -440,3 +461,24 @@ class RuntimeDaemonClient {
 
 /** Singleton client (one connection per MCP process). */
 export const runtimeDaemon = new RuntimeDaemonClient();
+
+/**
+ * Spec 800 §C — a software-owned runtime availability probe for the setup boundary
+ * (agent_onboard, first-run). Warm-starts a daemon if one can be started; reports
+ * "unavailable" + the per-OS setup recipe ONLY when nothing is reachable and nothing can be
+ * started. Never throws. The RE-agent relays the recipe to the user — it is the one place the
+ * runtime backend is named.
+ */
+export async function runtimeHealth(): Promise<
+  { ok: true } | { ok: false; reason: string; recipe: string }
+> {
+  const endpoint = runtimeEndpoint();
+  if (!endpoint) return { ok: true }; // in-process dev mode (C64RE_ALLOW_INPROC_RUNTIME=1)
+  let ensured: string;
+  try { ensured = await ensureDaemon({ endpoint }); }
+  catch { ensured = "failed"; }
+  if (ensured === "already-up" || ensured === "spawned") return { ok: true };
+  if ((await probeLiveness(endpoint, 1500)) === "healthy") return { ok: true };
+  const reason = `no runtime daemon reachable at ${endpoint} and none could be started`;
+  return { ok: false, reason, recipe: runtimeSetupRecipe(reason) };
+}
