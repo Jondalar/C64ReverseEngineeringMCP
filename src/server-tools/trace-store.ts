@@ -8,35 +8,45 @@ import { resolve as resolvePath, isAbsolute } from "node:path";
 import { existsSync, statSync, writeFileSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import {
-  findAnchor,
-  findBusEvents,
-  getInfo,
-  listAnchors,
-  safeQuery,
-  topPcs,
-} from "../runtime/trace-store/queries.js";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
+import { traceStoreFn } from "./trace-read.js";
 import { buildMemoryMapText } from "./trace-memory-map.js";
 
+// Spec 802 — ONE read path, no exception. The store is read INSIDE the runtime
+// (it owns the format and the index; clients ask, they never open it themselves).
+// The old `localFn` branch — this process opening the same DuckDB with C64RE's own
+// `queries.ts` — is gone: it was a second implementation of the same read, and the
+// only reason the runtime could ship without being able to read what it wrote.
+// The runtime also runs a bounded index-ensure before every `store_fn`, so a store
+// whose index never built is recovered there (no caller-side ensureIndex needed).
+//
+// The wire shapes below are the `store_fn` contract (TRX64 `trx64-traceindex`
+// `queries.rs`), mirroring the TS reader's return types 1:1. Numeric columns may
+// arrive as JS numbers or as numeric strings (i64 crossing JSON), so every consumer
+// below stays tolerant — `String(v)` for display, `Number(v)` where arithmetic is done.
+
+type StoreInfo = {
+  meta: Record<string, string>;
+  tableCounts: Record<string, number | string>;
+  masterClockRange?: { min: number | string; max: number | string } | null;
+};
+type AnchorRow = { name: string; cpu: string; pc: number; occurrences: number | string; firstClock: number | string; lastClock: number | string };
+type AnchorOccurrenceRow = { occurrence: number | string; pc: number; clock: number | string; seq: number | string };
+type TopPcRow = { pc: number; count: number | string };
+type BusEventRow = { seq: number | string; cpu: string; kind: string; clock: number | string; pc: number | null; value: number | null };
+type QueryRow = unknown[];
+
+// Path resolution STAYS caller-side: the runtime is project-agnostic, so a
+// project-relative path must be made absolute here or it would resolve against the
+// runtime's cwd (wrong project).
+//
 // Bug-fix (post-Spec 726): `input` is a PATH to a trace.duckdb (or a directory
 // holding one), NOT a project hint. The previous implementation passed `input`
 // as `hintPath` to `context.projectDir()`, which used it only to pick a project
 // root and then discarded it — every non-root path failed with "directory has
 // no trace.duckdb". Resolve the input itself: absolute as-is, relative under
 // the project dir.
-// Spec 746.x — ONE read path. In daemon mode the store is read INSIDE the daemon
-// process (the runtime owns the store; clients ask, they don't open it themselves),
-// which also picks up the daemon-side awaitIndex so a read right after stop() sees
-// the fresh, atomically-published index. Out of daemon mode (tests/standalone) the
-// index worker lives in this process, so the local queries.ts call is correct.
-async function routeStoreRead<T>(fn: string, dbPath: string, args: Record<string, unknown>, localFn: () => Promise<T>): Promise<T> {
-  const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-  if (isDaemonMode()) return runtimeDaemon.traceRead<T>("store_fn", dbPath, { fn, args });
-  return localFn();
-}
-
 export function resolveStorePath(input: string, context: ServerToolContext): string {
   const proj = (() => { try { return context.projectDir(undefined, false); } catch { return undefined; } })();
   const abs = isAbsolute(input) ? resolvePath(input) : resolvePath(proj ?? process.cwd(), input);
@@ -59,19 +69,11 @@ export function resolveStorePath(input: string, context: ServerToolContext): str
   return abs;
 }
 
-/** BUG-035 — lazily (re)build a missing DuckDB index from its `.c64retrace`
- *  authority before a trace_store read. No-op if the store already exists or has
- *  no sibling `.c64retrace`. The `withConn`/`safeQuery` reader (unlike the
- *  `withDuckDb` readers) does not do this itself, so an orphaned binary log — e.g.
- *  a capture whose background index never ran (BUG-035) — would otherwise be
- *  unreadable. A build failure throws (surfaced as a clear error by safeHandler).
- *  BUG-039 — BOUNDED: waits a short grace, then throws a clear retry-later error
- *  while the build continues in the background (an unbounded wait tripped the MCP
- *  host's ~180s stall limit and dropped the stdio connection). */
-async function ensureTraceIndex(dbPath: string): Promise<void> {
-  const { ensureIndexBounded } = await import("../runtime/headless/trace/background-indexer.js");
-  await ensureIndexBounded(dbPath);
-}
+// BUG-035's caller-side `ensureTraceIndex` (a wrapper over C64RE's TS
+// background-indexer) is REMOVED with Spec 802: indexing now lives next to the
+// writer, in the runtime, and `store_fn` runs the same bounded ensure before every
+// dispatch. An orphaned binary log is still recovered on first read — one
+// implementation instead of two, and an index failure surfaces at capture time.
 
 function fmtHex(n: number): string {
   return "$" + (n & 0xffff).toString(16).padStart(4, "0").toUpperCase();
@@ -86,7 +88,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     },
     safeHandler("trace_store_info", async ({ path }) => {
       const dbPath = resolveStorePath(path, context);
-      const info = await routeStoreRead("getInfo", dbPath, {}, () => getInfo(dbPath));
+      const info = await traceStoreFn<StoreInfo>("getInfo", dbPath);
       const lines = [`trace_store_info: ${dbPath}`, ``, `meta:`];
       for (const [k, v] of Object.entries(info.meta)) lines.push(`  ${k} = ${v}`);
       lines.push(``, `tables:`);
@@ -106,7 +108,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     },
     safeHandler("trace_store_anchor_list", async ({ path }) => {
       const dbPath = resolveStorePath(path, context);
-      const rows = await routeStoreRead("listAnchors", dbPath, {}, () => listAnchors(dbPath));
+      const rows = await traceStoreFn<AnchorRow[]>("listAnchors", dbPath);
       const lines = [`anchors (${rows.length}):`, ``];
       lines.push(`name\tcpu\tpc\toccurrences\tfirst_clock\tlast_clock`);
       for (const r of rows) {
@@ -126,7 +128,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     },
     safeHandler("trace_store_anchor_find", async ({ path, name, limit }) => {
       const dbPath = resolveStorePath(path, context);
-      const rows = await routeStoreRead("findAnchor", dbPath, { name, limit: limit ?? 200 }, () => findAnchor(dbPath, name, limit ?? 200));
+      const rows = await traceStoreFn<AnchorOccurrenceRow[]>("findAnchor", dbPath, { name, limit: limit ?? 200 });
       const lines = [`occurrences of '${name}' (${rows.length}):`, ``];
       lines.push(`occ\tpc\tclock\tseq`);
       for (const r of rows) lines.push(`${r.occurrence}\t${fmtHex(r.pc)}\t${r.clock}\t${r.seq}`);
@@ -148,7 +150,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
       const gate = checkRuntimeDiscipline(hypothesis, { tool: "trace_store_top_pcs", act: "ranking the hottest PCs (statistics)" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const dbPath = resolveStorePath(path, context);
-      const rows = await routeStoreRead("topPcs", dbPath, { cpu, limit: limit ?? 20 }, () => topPcs(dbPath, cpu, limit ?? 20));
+      const rows = await traceStoreFn<TopPcRow[]>("topPcs", dbPath, { cpu, limit: limit ?? 20 });
       const lines = [`top ${rows.length} PCs for cpu=${cpu}:`, ``];
       for (const r of rows) lines.push(`${fmtHex(r.pc)}\t${r.count}`);
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
@@ -172,7 +174,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
       } else {
         n = Number(addr);
       }
-      const rows = await routeStoreRead("findBusEvents", dbPath, { addr: n, limit: limit ?? 100 }, () => findBusEvents(dbPath, n, limit ?? 100));
+      const rows = await traceStoreFn<BusEventRow[]>("findBusEvents", dbPath, { addr: n, limit: limit ?? 100 });
       const lines = [`bus_events at ${fmtHex(n)} (${rows.length}):`, ``, `seq\tcpu\tkind\tclock\tpc\tvalue`];
       for (const r of rows) {
         lines.push(`${r.seq}\t${r.cpu}\t${r.kind}\t${r.clock}\t${r.pc !== null ? fmtHex(r.pc) : ""}\t${r.value ?? ""}`);
@@ -191,7 +193,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     },
     safeHandler("trace_store_query", async ({ path, sql, limit }) => {
       const dbPath = resolveStorePath(path, context);
-      const rows = await routeStoreRead("safeQuery", dbPath, { sql, limit: limit ?? 200 }, () => safeQuery(dbPath, sql, limit ?? 200));
+      const rows = await traceStoreFn<QueryRow[]>("safeQuery", dbPath, { sql, limit: limit ?? 200 });
       const lines = [`query (${rows.length} rows):`, ``];
       for (const r of rows) {
         lines.push(r.map((c) => typeof c === "bigint" ? c.toString() : String(c)).join("\t"));
@@ -223,14 +225,14 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
       const gate = checkRuntimeDiscipline(hypothesis, { tool: "trace_memory_map", act: "reconstructing a per-page RAM map" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const dbPath = resolveStorePath(path, context);
-      // BUG-035 / Spec 753 — self-heal: if the .duckdb is missing but its
-      // .c64retrace authority exists (orphaned capture whose background index never
-      // ran), build the index lazily before querying. `safeQuery`/`withConn` does
-      // NOT do this (only the `withDuckDb` readers did), so without this a perfectly
-      // good binary log is unreadable by this tool.
-      await ensureTraceIndex(dbPath);
+      // Spec 802 — the two SQL passes run inside the runtime (`store_fn`/`safeQuery`,
+      // which self-heals an orphaned `.c64retrace` via its own bounded index-ensure —
+      // the old BUG-035 caller-side ensureTraceIndex is no longer needed). Only the
+      // RENDERING is local, and rendering a remote result is not a second reader.
+      // Kept on safeQuery rather than the runtime's finished `map` text so this tool
+      // keeps `static_ranges` + `run_label` + its structured `res.map` totals.
       const side = cpu ?? "c64";
-      const runQuery = (sql: string) => routeStoreRead("safeQuery", dbPath, { sql, limit: 300 }, () => safeQuery(dbPath, sql, 300));
+      const runQuery = (sql: string) => traceStoreFn<QueryRow[]>("safeQuery", dbPath, { sql, limit: 300 });
       const res = await buildMemoryMapText(runQuery, { cpu: side, staticRanges: static_ranges, runLabel: run_label });
       const text = res ? res.text : `trace_memory_map: no memory accesses captured for cpu=${side}. Re-run the trace with the 'memory' domain (captures mem-row) to populate bus_events.`;
       return { content: [{ type: "text" as const, text }] };
@@ -250,8 +252,9 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
 export async function writeTraceMemoryMapSidecar(storePathRef: string, context: ServerToolContext, runLabel?: string): Promise<string | null> {
   try {
     const dbPath = resolveStorePath(storePathRef, context);
-    await ensureTraceIndex(dbPath); // BUG-035 — build a missing index from .c64retrace
-    const runQuery = (sql: string) => routeStoreRead("safeQuery", dbPath, { sql, limit: 300 }, () => safeQuery(dbPath, sql, 300));
+    // Spec 802 — runtime-side query (its `store_fn` ensures the index itself, so the
+    // BUG-035 self-heal survives without a caller-side indexer).
+    const runQuery = (sql: string) => traceStoreFn<QueryRow[]>("safeQuery", dbPath, { sql, limit: 300 });
     const res = await buildMemoryMapText(runQuery, { cpu: "c64", runLabel });
     if (!res) return null; // no memory capture → no sidecar
     const sidecar = dbPath.endsWith(".duckdb") ? dbPath.slice(0, -".duckdb".length) + ".memorymap.md" : dbPath + ".memorymap.md";

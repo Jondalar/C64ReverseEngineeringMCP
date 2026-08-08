@@ -437,9 +437,14 @@ class RuntimeDaemonClient {
   traceStatus<T = unknown>(sessionId: string) {
     return this.call<T>("trace/run/status", { session_id: sessionId });
   }
-  /** BUG-029 — read a trace store IN the daemon process (the only one that can open
-   *  a store the live daemon holds a lock on). op = swimlane|query_events|follow_path|
-   *  taint|sql. `duckdbPath` must be absolute (caller-resolved). */
+  /** Spec 802 — read a trace store IN the runtime process, which owns the format and
+   *  reads it natively. This is the ONLY trace-read path C64RE has; go through
+   *  `server-tools/trace-read.ts` rather than calling this directly.
+   *  op = index | store_fn | map | swimlane | swimlane_text | taint | taint_text
+   *       (+ query_events | follow_path | profile_loader — on the wire contract, no
+   *        native reader yet; the runtime answers those with an explicit error).
+   *  The raw `sql` op is DROPPED (Spec 802 OQ1) — use store_fn/safeQuery.
+   *  `duckdbPath` must be absolute (caller-resolved). */
   traceRead<T = unknown>(op: string, duckdbPath: string, args: Record<string, unknown>) {
     return this.call<T>("trace/read", { op, duckdb_path: duckdbPath, args });
   }

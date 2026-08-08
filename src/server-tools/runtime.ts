@@ -78,7 +78,15 @@ async function callApi<T = unknown>(session_id: string, method: string, ...args:
   return api[method](...args) as T;
 }
 
-/** Spec 726-fix — every trace-store reader handler must open the DuckDB file
+/** NOT a trace-read path (Spec 802). Every trace-store READ in C64RE now goes
+ *  through `./trace-read.js` → the runtime's native reader. What is left here is
+ *  the BOOKMARK pair (`runtime_bookmark_add` — a WRITE, which no `trace/read` op
+ *  covers — and `runtime_bookmark_list`), both advanced-tier (absent from
+ *  DEFAULT_TOOLS), plus the internal TS parity oracle (`workspace-ui/ws-server.ts`).
+ *  It stays exported for those two consumers only; do NOT reintroduce it as a
+ *  fallback under a reader.
+ *
+ *  Spec 726-fix — every trace-store reader handler must open the DuckDB file
  *  with try/finally CLOSE, otherwise the file's per-process lock leaks across
  *  calls (next reader call on the same file fails with "Conflicting lock is
  *  held"). Also installs the Spec 726 compat layer on open so 726 stores
@@ -131,25 +139,22 @@ export async function withDuckDb<T>(dbPath: string, fn: (conn: any, backend: any
 }
 
 /**
- * BUG-029 — read a trace store, routing the read INTO the daemon process when one is
- * configured (the only process that can open a store the live daemon holds a lock on;
- * a DuckDB read-write handle takes a cross-process lock). The daemon opens its own
- * store read-only in-process and returns rows. Out of daemon mode, runs `localFn`
- * against `withDuckDb` directly. The path is resolved absolute caller-side so the
- * project-agnostic daemon reads the caller's file.
+ * Spec 802 — read a trace store THROUGH the runtime, always. One path.
+ *
+ * BUG-029 originally routed reads into the daemon because it is the only process
+ * that can open a store the live runtime holds a lock on; the `localFn` escape
+ * hatch behind it was a second, independent reader for the same bytes. It is gone:
+ * the runtime reads its own format natively and C64RE carries no reader at all.
+ * A missing/unreachable runtime now fails with the setup recipe (see
+ * `./trace-read.js`) instead of silently answering from other code.
  */
 async function daemonTraceRead<T>(
   op: string,
   duckdbPath: string,
   args: Record<string, unknown>,
-  localFn: () => Promise<T>,
 ): Promise<T> {
-  const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-  if (isDaemonMode()) {
-    const abs = isAbsolute(duckdbPath) ? duckdbPath : resolvePath(process.env.C64RE_PROJECT_DIR ?? process.cwd(), duckdbPath);
-    return runtimeDaemon.traceRead<T>(op, abs, args);
-  }
-  return localFn();
+  const { traceRead } = await import("./trace-read.js");
+  return traceRead<T>(op, duckdbPath, args);
 }
 
 export function registerRuntimeTools(server: McpServer, _context: ServerToolContext): void {
@@ -636,14 +641,8 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       if (args.cycle_start !== undefined && args.cycle_end !== undefined) q.cycleRange = [args.cycle_start, args.cycle_end];
       if (args.pc_start !== undefined && args.pc_end !== undefined) q.pcRange = [args.pc_start, args.pc_end];
       if (args.addr_start !== undefined && args.addr_end !== undefined) q.addrRange = [args.addr_start, args.addr_end];
-      // BUG-029 — daemon-side read.
-      const rows = await daemonTraceRead<any[]>(
-        "query_events", args.duckdb_path, q,
-        async () => {
-          const { queryEvents } = await import("../runtime/headless/v2/query-events.js");
-          return withDuckDb(args.duckdb_path, async (_conn, backend) => queryEvents(backend, q));
-        },
-      );
+      // Spec 802 — the runtime reads its own store; C64RE has no local reader.
+      const rows = await daemonTraceRead<any[]>("query_events", args.duckdb_path, q);
       return { content: [{ type: "text", text: `${rows.length} rows\n${JSON.stringify(rows.slice(0, 200), null, 2)}` }] };
     }),
   );
@@ -676,10 +675,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
         cycleWindow: args.cycle_window,
         crossDomain: args.cross_domain,
       };
-      const chain = await daemonTraceRead<any>("follow_path", args.duckdb_path, q, async () => {
-        const { followPath } = await import("../runtime/headless/v2/follow-path.js");
-        return withDuckDb(args.duckdb_path, async (_conn, backend) => followPath(backend, q));
-      });
+      const chain = await daemonTraceRead<any>("follow_path", args.duckdb_path, q);
       return { content: [{ type: "text", text: JSON.stringify(chain, null, 2) }] };
     }),
   );
@@ -698,22 +694,12 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       nmi_vector: z.number().optional().describe("Optional $FFFA target to sharpen NMI-vs-IRQ for an NMI taken from main flow."),
     },
     safeHandler("runtime_swimlane_slice", async (args) => {
+      // Spec 802 — the SLICE comes from the runtime (structured); the markdown
+      // rendering stays here. Formatting a remote result is not a second reader.
       const { renderMarkdown } = await import("../runtime/headless/v2/swimlane-render.js");
-      // BUG-029 — daemon-side read so a live-daemon store lock doesn't block us.
       const slice = await daemonTraceRead<any>(
         "swimlane", args.duckdb_path,
         { run_id: args.run_id, cycle_start: args.cycle_start, cycle_end: args.cycle_end, compact: args.compact, focus: args.focus, nmi_vector: args.nmi_vector },
-        async () => {
-          const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
-          return withDuckDb(args.duckdb_path, async (_conn, backend) =>
-            swimlaneSlice(backend, {
-              runId: args.run_id,
-              cycleRange: [args.cycle_start, args.cycle_end],
-              compact: args.compact,
-              ...(args.focus ? { focus: args.focus } : {}),
-              ...(args.nmi_vector !== undefined ? { nmiVector: args.nmi_vector } : {}),
-            }));
-        },
       );
       const md = renderMarkdown(slice, { maxRows: 200 });
       return { content: [{ type: "text", text: md }] };
@@ -738,10 +724,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       const gate = checkRuntimeDiscipline(args.hypothesis, { tool: "runtime_trace_taint", act: "following data-flow taint" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const q = { runId: args.run_id, startCycle: args.start_cycle, startAddr: args.start_addr, maxDepth: args.max_depth, cycleWindow: args.cycle_window };
-      const graph = await daemonTraceRead<any>("taint", args.duckdb_path, q, async () => {
-        const { traceTaint } = await import("../runtime/headless/v2/taint.js");
-        return withDuckDb(args.duckdb_path, async (_conn, backend) => traceTaint(backend, q));
-      });
+      const graph = await daemonTraceRead<any>("taint", args.duckdb_path, q);
       return { content: [{ type: "text", text: JSON.stringify(graph, null, 2) }] };
     }),
   );
@@ -764,10 +747,6 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       const profile = await daemonTraceRead<any>(
         "profile_loader", args.duckdb_path,
         { scenario_id: args.scenario_id, cycle_start: args.cycle_start, cycle_end: args.cycle_end },
-        async () => {
-          const { profileLoader } = await import("../runtime/headless/v2/loader-profile.js");
-          return withDuckDb(args.duckdb_path, async (_conn, backend) => profileLoader(backend, args.scenario_id, [args.cycle_start, args.cycle_end]));
-        },
       );
       return { content: [{ type: "text", text: JSON.stringify(profile, null, 2) }] };
     }),

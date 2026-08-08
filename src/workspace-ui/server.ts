@@ -351,13 +351,17 @@ const server = createServer((req, res) => {
     return;
   }
 
-  // Spec 724B — read-only trace artifact + reader endpoints for the One-UI shell.
-  // These mirror the MCP convenience readers (queries.ts) for the browser: list
-  // the project's trace.duckdb stores + their marks, and run the same
-  // info / top-pcs / events readers. The UI never runs raw SQL by default and
-  // never reaches the WS runtime for these — they are durable project evidence.
-  // Project path comes from the 724A resolver (?projectDir= explicit, else the
-  // server's resolved --project), never a silent cwd/samples fallback.
+  // Spec 724B — read-only trace artifact + reader endpoints for the One-UI shell:
+  // list the project's trace.duckdb stores + their marks, and run the same
+  // info / top-pcs / events readers the MCP tools expose. The UI never runs raw
+  // SQL by default. Project path comes from the 724A resolver (?projectDir=
+  // explicit, else the server's resolved --project), never a silent cwd fallback.
+  //
+  // Spec 802 — these are a CUSTOMER path (the browser workbench's trace panel), so
+  // they read THROUGH the runtime like every other trace read. They used to import
+  // `runtime/trace-store/queries.js` and open `@duckdb/node-api` directly in this
+  // HTTP process: a third reader for the same bytes, in a process that is not even
+  // the store's owner. Response shapes are unchanged — only the reader moved.
   if (requestUrl.pathname === "/api/traces") {
     const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
       ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
@@ -367,16 +371,16 @@ const server = createServer((req, res) => {
         const tracesDir = join(projectDir, "traces");
         const out: Array<{ name: string; path: string; sizeBytes: number; runId?: string; marks?: Array<{ label: string; cycle: number }>; events?: number; error?: string }> = [];
         if (existsSync(tracesDir)) {
-          const q = await import("../runtime/trace-store/queries.js");
+          const { traceStoreFn } = await import("../server-tools/trace-read.js");
           for (const entry of readdirSync(tracesDir).sort()) {
             if (!entry.endsWith(".duckdb")) continue;
             const full = join(tracesDir, entry);
             const rec: typeof out[number] = { name: entry, path: full, sizeBytes: statSync(full).size };
             try {
-              const info = await q.getInfo(full);
+              const info = await traceStoreFn<{ meta: Record<string, string>; tableCounts: Record<string, number | string> }>("getInfo", full);
               rec.runId = info.meta.run_id;
               rec.events = Number(info.tableCounts["events:total"] ?? 0);
-              const anchors = await q.listAnchors(full);
+              const anchors = await traceStoreFn<Array<{ name: string; firstClock: number | string | null }>>("listAnchors", full);
               rec.marks = anchors.map((a) => ({ label: a.name, cycle: Number(a.firstClock ?? 0) }));
             } catch (e) { rec.error = e instanceof Error ? e.message : String(e); }
             out.push(rec);
@@ -401,9 +405,13 @@ const server = createServer((req, res) => {
           : options.projectDir;
         const abs = tracePath.startsWith("/") ? tracePath : resolve(projectDir, tracePath);
         if (!existsSync(abs)) throw new Error(`trace not found: ${abs}`);
-        const q = await import("../runtime/trace-store/queries.js");
+        const { traceRead, traceStoreFn } = await import("../server-tools/trace-read.js");
         if (requestUrl.pathname === "/api/trace/info") {
-          const info = await q.getInfo(abs);
+          const info = await traceStoreFn<{
+            meta: Record<string, string>;
+            tableCounts: Record<string, number | string>;
+            masterClockRange?: { min: number | string; max: number | string } | null;
+          }>("getInfo", abs);
           send(res, jsonResponse(200, {
             path: abs, meta: info.meta,
             tableCounts: Object.fromEntries(Object.entries(info.tableCounts).map(([k, v]) => [k, Number(v)])),
@@ -413,37 +421,24 @@ const server = createServer((req, res) => {
         } else if (requestUrl.pathname === "/api/trace/top-pcs") {
           const cpu = requestUrl.searchParams.get("cpu") === "drive8" ? "drive8" : "c64";
           const limit = Math.max(1, Math.min(200, Number(requestUrl.searchParams.get("limit") ?? 20)));
-          const pcs = await q.topPcs(abs, cpu, limit);
+          const pcs = await traceStoreFn<Array<{ pc: number; count: number | string }>>("topPcs", abs, { cpu, limit });
           send(res, jsonResponse(200, { path: abs, cpu, pcs }));
         } else {
-          // events: map family→channel via the same backend the MCP tool uses.
+          // events: the runtime's `query_events` op — the same read the MCP
+          // `runtime_query_events` tool makes, against the same store.
           const runId = requestUrl.searchParams.get("run_id");
           const family = requestUrl.searchParams.get("family") ?? "cpu_step";
           if (!runId) throw new Error("run_id is required for /api/trace/events");
           const limit = Math.max(1, Math.min(5000, Number(requestUrl.searchParams.get("limit") ?? 200)));
-          const { queryEvents } = await import("../runtime/headless/v2/query-events.js");
-          const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
-          const duckdb = await import("@duckdb/node-api");
-          // Spec 746.x — READ_ONLY (was an exclusive default open): the workspace-ui
-          // HTTP server is a SEPARATE process from the Runtime Daemon, so it cannot
-          // reach the in-process index await; an exclusive open could collide with
-          // the daemon's index worker. READ_ONLY takes no exclusive lock, and the
-          // indexer's temp-file + atomic rename means this only ever opens a
-          // complete, published store. (Reads a static artifact, never the live runtime.)
-          const inst = await (duckdb as any).DuckDBInstance.create(abs, { access_mode: "READ_ONLY" });
-          try {
-            const conn = await inst.connect();
-            const backend = new DuckDbQueryBackend(conn);
-            const qy: any = { runId, family, limit };
-            const cs = requestUrl.searchParams.get("cycle_start"), ce = requestUrl.searchParams.get("cycle_end");
-            if (cs && ce) qy.cycleRange = [Number(cs), Number(ce)];
-            const ps = requestUrl.searchParams.get("pc_start"), pe = requestUrl.searchParams.get("pc_end");
-            if (ps && pe) qy.pcRange = [Number(ps), Number(pe)];
-            const as = requestUrl.searchParams.get("addr_start"), ae = requestUrl.searchParams.get("addr_end");
-            if (as && ae) qy.addrRange = [Number(as), Number(ae)];
-            const rows = await queryEvents(backend, qy);
-            send(res, jsonResponse(200, { path: abs, runId, family, count: rows.length, rows: rows.slice(0, limit) }));
-          } finally { (inst as any).closeSync?.(); }
+          const qy: Record<string, unknown> = { runId, family, limit };
+          const cs = requestUrl.searchParams.get("cycle_start"), ce = requestUrl.searchParams.get("cycle_end");
+          if (cs && ce) qy.cycleRange = [Number(cs), Number(ce)];
+          const ps = requestUrl.searchParams.get("pc_start"), pe = requestUrl.searchParams.get("pc_end");
+          if (ps && pe) qy.pcRange = [Number(ps), Number(pe)];
+          const as = requestUrl.searchParams.get("addr_start"), ae = requestUrl.searchParams.get("addr_end");
+          if (as && ae) qy.addrRange = [Number(as), Number(ae)];
+          const rows = await traceRead<unknown[]>("query_events", abs, qy);
+          send(res, jsonResponse(200, { path: abs, runId, family, count: rows.length, rows: rows.slice(0, limit) }));
         }
       } catch (error) {
         send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));

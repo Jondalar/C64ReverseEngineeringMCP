@@ -142,11 +142,13 @@ try {
   ok(liveDuringIndex >= 4, "8b daemon RESPONSIVE during the background index (worker thread, no event-loop block)", `${liveDuringIndex}/5 pings`);
 
   // 9 the deferred index DOES complete + the store becomes queryable. trace/read
-  //   (op sql) awaits the background index transparently, then queries the rows.
+  //   awaits the background index transparently, then queries the rows.
+  //   Spec 802 — the raw `sql` op is DROPPED with the native port; store_fn/safeQuery
+  //   (SELECT/WITH gate + row cap) is the query door and returns the rows directly.
   let rowCount = -1;
   try {
-    const res = await wsRpc(ws, "trace/read", { op: "sql", duckdb_path: outPath, args: { sql: "SELECT count(*) FROM trace_event", limit: 5 } }, 180000);
-    rowCount = Number(res?.rows?.[0]?.[0] ?? -1);
+    const res = await wsRpc(ws, "trace/read", { op: "store_fn", duckdb_path: outPath, args: { fn: "safeQuery", args: { sql: "SELECT count(*) FROM trace_event", limit: 5 } } }, 180000);
+    rowCount = Number(res?.[0]?.[0] ?? -1);
   } catch (e) { dlog += "\nREAD ERR " + e.message; }
   ok(rowCount > 1_000_000, "9 background index completed + store queryable (trace/read awaits it)", `trace_event rows=${rowCount}`);
 
