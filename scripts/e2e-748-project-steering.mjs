@@ -69,8 +69,16 @@ try {
   //   hand-written rules). It is appended because the file already exists.
   await m.call("project_init", { name: "748.2 gate" });
   const steerAfterInit = readFileSync(file, "utf8");
-  ok(steerAfterInit.includes("Record + reconcile discipline (Spec 748.2") && steerAfterInit.includes(MARK),
-    "5 project_init adds the reconcile steering block, keeps hand-written rules");
+  // Assert the MARKER the provisioner actually keys on, not the prose around it.
+  // This read `"Record + reconcile discipline (Spec 748.2"` and went red when the
+  // spec number was dropped from the heading — the block was provisioned the whole
+  // time. A gate that fails on a doc edit teaches people to ignore it.
+  const { RECONCILE_MARKER } = await import(
+    join(ROOT, "dist/server-tools/steering-defaults.js")
+  );
+  ok(steerAfterInit.includes(RECONCILE_MARKER) && steerAfterInit.includes(MARK),
+    "5 project_init adds the reconcile steering block, keeps hand-written rules",
+    `marker=${JSON.stringify(RECONCILE_MARKER)}`);
 
   // 6 T1 — list_open_questions hides heuristic by default + reports the count;
   //   include_heuristic exposes them.

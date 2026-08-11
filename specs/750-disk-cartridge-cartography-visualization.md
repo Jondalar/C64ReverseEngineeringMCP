@@ -82,6 +82,39 @@ Both the Disk wheel and the Cartridge bank/slot grid, scoped per image (`mediumR
   (kinds) + `ContainerEntry.subKey` index→position so the two views draw the LUT /
   dispatch as edges. BAM + custom-LUT as `kind=lut`. Manual `declare_loader_entrypoint`
   / `record_loader_event` populate it for now.
+
+  **Measured 2026-08-11, and it changes what this slice is.** Decision 2 says *"the
+  stores already exist — they are just EMPTY; we populate them."* Only the first half
+  holds. In both real cartridge projects `loader-entry-points` and `loader-events` are
+  empty; `declare_loader_entrypoint` and `record_loader_event` are **not in
+  `DEFAULT_TOOLS`**, so no agent can fill them from the standard surface; and no view
+  builder reads either store, so a filled store would render nowhere. Two halves
+  built, the seam between them never — the same shape as the loader-model banner that
+  Spec 785 §6 closed. Nothing populates them because **nobody is ever asked to**: the
+  steering block tells an agent to disassemble the loader, author an extractor, emit a
+  manifest, validate and register — and says nothing about recording the pointer. That
+  instruction is the missing piece, not the rendering, and it is what 784 C1 did for
+  the payload side.
+
+  `loader-events` arrives here from **Spec 748.3**, which was superseded by 784 and
+  closed 2026-08-11; the event records were the one part of it that was never this
+  spec's subject to begin with.
+
+  **This slice is what the whole spec is really about, and its framing was inverted.**
+  784's manifest already carries the *resolved* half — payload, full ordered spans,
+  `derivedBy`, medium-agnostic. What is missing is the **row itself**: "table A row 30,
+  at bank 1 `$80f0`, is what claims this". The pointer as a record with its own address
+  on the medium is what turns an index into something you can find, check, patch and
+  draw — instead of a prose sentence in a free-text field. Three projects currently
+  hold the same four fields (source, bank, length, destination) in three private JSON
+  formats, each with its own hand-written parser.
+
+  **BLOCKED 2026-08-11 — waiting on a meta format authored outside this repo.** The
+  build side is defining it, and C64RE will either adopt it verbatim or merely
+  recognise it; that call comes when the format exists. Do NOT invent a fourth format
+  here in the meantime. When adopting it, the C64RE-side description is the *reading*
+  half only — position, bank, length, destination — and carries nothing about how a
+  cartridge is built.
 - **750.3 — loader/mutator edges.** Render `loads` / `writes` relations on the views
   (payload ↔ routine). Manual `link_entities` for now.
 - **750.4 — extractor: code-embedded T/S.** Scan a payload's disasm for hardcoded

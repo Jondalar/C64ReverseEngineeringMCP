@@ -1,6 +1,8 @@
 # Spec 748 — Project Steering + Agent Discipline
 
-**Status:** ACTIVE (2026-06-02) — Slice 1 (steering file) DONE; slices 2–3 open.
+**Status:** DONE — closed 2026-08-11. 748.1 and 748.2 shipped (`e2e:748` 10/10);
+**748.3 is SUPERSEDED by Spec 784**, which reversed its direction rather than
+delivering it. See §748.3 below for the decision and what survives of it.
 
 The KIRO "steering file" analogue for a C64RE project: persistent, project-scoped,
 always-in-context rules that steer the consuming LLM every session, so disciplines
@@ -39,11 +41,30 @@ because nothing makes the agent do it).
   answered_by_finding_id=…`; `save_open_question` gained `address_range`). T3:
   `ensureDefaultSteering` provisions the record/reconcile discipline into every
   project's `steering.md`. Closes the enforcement half of BUG-032.
-- **748.3 — Trace→cartography extractor (OPEN).** A tool that reads a finalized
-  `.c64retrace`/DuckDB, correlates drive-side sector reads (T/S) with the C64 store
-  targets (load addr), and emits `loader-events` + `register_payload(medium_spans)`
-  so the reversed disk cartography lands in the disk-layout view automatically
-  (the durable fix behind BUG-031's "register the spans" manual step).
+- **748.3 — Trace→cartography extractor (SUPERSEDED by Spec 784, 2026-08-11).**
+  As written, this wanted a tool that reads a finalized `.c64retrace`/DuckDB,
+  correlates drive-side sector reads with the C64 store targets, and emits
+  `loader-events` + `register_payload(medium_spans)` so the cartography lands in
+  the view **automatically**.
+
+  784 built the correlation and the bulk registration — `buildReadSet`,
+  `buildLandingMap`, `register_payloads_from_manifest` with full ordered spans,
+  `validate_extraction` — and then **decided against the automatic direction this
+  slice assumed** (784 §4): *"No full-emulation bulk extraction as the default —
+  emulation is the validation oracle / physics-blocked fallback, never the default
+  bulk path."*
+
+  The reason is not taste, it is the Pawn belastungstest. Attributing landed bytes
+  to the sector under the head at write time **was the exact bug class the
+  automation was meant to catch**: all 78 "landings" attributed to T35, when they
+  were the copy-loader relocating already-loaded bytes while the head idled on the
+  last chain block. So the extraction now comes from a per-project extractor
+  written off the loader disassembly, and the trace only validates it — drive-side
+  truth (`BLOCK_READ`), not time correlation.
+
+  **What survives:** `loader-events` as first-class records. That was never this
+  spec's subject — it is the pointer model of **Spec 750**, which is where it now
+  lives. Nothing else of 748.3 is outstanding.
 
 ## Cross-links
 
