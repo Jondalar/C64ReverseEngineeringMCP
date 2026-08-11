@@ -100,8 +100,11 @@ export function CartridgeMemoryGrid({
   }
   const visibleChunks = (lutChunks ?? []).filter(chunkMatchesActiveLut);
 
-  // Empty (=$FF and not LUT-covered) regions per bank+slot — rendered
-  // underneath the LUT chunks as a dark-grey "free to program" overlay.
+  // Spec 785 B3 — No-Data regions per bank+slot, scanned straight off the chip
+  // bytes ($ff erased / $00 never written) and NOT reduced by the loader's
+  // index: what the bytes are and what the loader fetches are separate axes.
+  // Rendered underneath every other overlay, so an index entry pointing at an
+  // erased range still draws on top of it.
   const emptyIndex = new Map<string, CartridgeEmptyRegion[]>();
   for (const region of emptyRegions ?? []) {
     const key = `${region.bank}:${region.slot === "ROML" ? "ROML" : "ROMH"}`;
@@ -171,7 +174,8 @@ export function CartridgeMemoryGrid({
         {regions.map((region, idx) => {
           const leftPercent = Math.max(0, Math.min(100, (region.offsetInBank / bankSize) * 100));
           const widthPercent = Math.max(0.5, Math.min(100 - leftPercent, (region.length / bankSize) * 100));
-          const tooltip = `free: bank ${region.bank} ${region.slot} off $${region.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} (${region.length} B, $FF)`;
+          const fill = region.fill === "00" ? "$00 never written" : "$FF erased";
+          const tooltip = `empty (No Data): bank ${region.bank} ${region.slot} off $${region.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} (${bytesPretty(region.length)}, ${fill})`;
           return (
             <div
               key={`${region.offsetInBank}-${idx}`}

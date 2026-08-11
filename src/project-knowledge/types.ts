@@ -1399,11 +1399,16 @@ export const CartridgeSlotLayoutSchema = z.object({
     .optional(),
 });
 
+// Spec 785 B3 — a No-Data run found by scanning the chip bytes. `fill` names
+// which byte it is made of: $ff = erased flash, $00 = never written. Derived
+// from the bytes on every cartridge, flashable or not — never from whatever an
+// extractor happened to report.
 export const CartridgeEmptyRegionSchema = z.object({
   bank: z.number().int().nonnegative(),
   slot: z.enum(["ROML", "ROMH", "ULTIMAX_ROMH"]).default("ROML"),
   offsetInBank: z.number().int().nonnegative(),
   length: z.number().int().nonnegative(),
+  fill: z.enum(["ff", "00"]).default("ff"),
 });
 
 export const CartridgeSegmentSchema = z.object({
@@ -1570,6 +1575,9 @@ export const MediumResidentRegionSchema = z.object({
 export const MediumEmptyReasonSchema = z.enum([
   "free-bam",
   "flash-empty-ff",
+  // Spec 785 B3 — $00 runs are No Data too ("never written"), the cart twin of
+  // the disk `free_zero` sector.
+  "flash-empty-00",
   "unknown",
 ]);
 

@@ -319,6 +319,8 @@ export interface CartridgeEmptyRegion {
   slot: "ROML" | "ROMH" | "ULTIMAX_ROMH";
   offsetInBank: number;
   length: number;
+  // Spec 785 B3 — which fill byte the run is made of: $ff erased, $00 never written.
+  fill?: "ff" | "00";
 }
 
 export interface CartridgeSegment {

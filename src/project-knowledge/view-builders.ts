@@ -1582,17 +1582,28 @@ function loadLutChunks(
   return chunks;
 }
 
-// Minimum $FF run length that counts as "erased / free to program".
+// Minimum fill-byte run length that counts as "No Data".
 // Shorter runs are treated as legitimate data padding (e.g. a short
 // alignment gap inside a packed stream) and stay coloured with the
 // chip's base bar.
 const EMPTY_RUN_MIN_LENGTH = 256;
+
+// Spec 785 §3 / B3 — No Data is a property of the BYTES. On flash $ff is
+// erased and $00 is never written; on a masked ROM both are padding. Both are
+// therefore scanned for, on every cartridge, whether or not the part is
+// flashable and whether or not an extractor reported any empty region: one
+// proof project reported a single empty region across 520 KB and the other
+// none at all, purely because `canFlash` was false.
+const EMPTY_FILL_BYTES = [0xff, 0x00] as const;
+
+type EmptyFill = "ff" | "00";
 
 interface EmptyRegion {
   bank: number;
   slot: "ROML" | "ROMH" | "ULTIMAX_ROMH";
   offsetInBank: number;
   length: number;
+  fill: EmptyFill;
 }
 
 interface LutCoverageSegment {
@@ -1633,21 +1644,67 @@ function buildLutCoverageMap(
   return map;
 }
 
-function findEmptyRunsInChip(bytes: Buffer | Uint8Array, minLength: number): LutCoverageSegment[] {
-  const runs: LutCoverageSegment[] = [];
-  let runStart = -1;
-  for (let i = 0; i <= bytes.length; i += 1) {
-    const inRun = i < bytes.length && bytes[i] === 0xff;
-    if (inRun && runStart < 0) {
-      runStart = i;
-    } else if (!inRun && runStart >= 0) {
-      const length = i - runStart;
-      if (length >= minLength) {
-        runs.push({ offsetInBank: runStart, length });
-      }
-      runStart = -1;
+interface EmptyRun extends LutCoverageSegment {
+  fill: EmptyFill;
+}
+
+interface ChipBytes {
+  chip: { bank: number; slot?: string };
+  slot: "ROML" | "ROMH" | "ULTIMAX_ROMH";
+  bytes: Buffer;
+}
+
+/** Read every chip dump referenced by the manifest ONCE, keyed `bank:slot`.
+ *  The Data/No-Data scan and the resident-segment scan both walk the same
+ *  bytes, so they must not disagree about what is in them. */
+function loadChipBytes(
+  chips: Array<{ bank: number; slot?: string; file?: string }>,
+  manifestPath: string,
+): Map<string, ChipBytes> {
+  const manifestDir = manifestPath.includes("/")
+    ? manifestPath.slice(0, manifestPath.lastIndexOf("/"))
+    : "";
+  const map = new Map<string, ChipBytes>();
+  for (const chip of chips) {
+    if (!chip.file) continue;
+    const slot: "ROML" | "ROMH" | "ULTIMAX_ROMH" = chip.slot === "ROMH"
+      ? "ROMH"
+      : chip.slot === "ULTIMAX_ROMH"
+        ? "ULTIMAX_ROMH"
+        : "ROML";
+    const chipPath = resolvePath(manifestDir, chip.file);
+    if (!existsSync(chipPath)) continue;
+    try {
+      map.set(`${chip.bank}:${slot}`, { chip, slot, bytes: readFileSync(chipPath) });
+    } catch {
+      continue;
     }
   }
+  return map;
+}
+
+/** Spec 785 B3 — the No-Data scan: every run of a fill byte ($ff erased, $00
+ *  never written) at least `minLength` long. Exact, cheap, and independent of
+ *  any extractor having reported an empty region. */
+function findEmptyRunsInChip(bytes: Buffer | Uint8Array, minLength: number): EmptyRun[] {
+  const runs: EmptyRun[] = [];
+  for (const fillByte of EMPTY_FILL_BYTES) {
+    const fill: EmptyFill = fillByte === 0xff ? "ff" : "00";
+    let runStart = -1;
+    for (let i = 0; i <= bytes.length; i += 1) {
+      const inRun = i < bytes.length && bytes[i] === fillByte;
+      if (inRun && runStart < 0) {
+        runStart = i;
+      } else if (!inRun && runStart >= 0) {
+        const length = i - runStart;
+        if (length >= minLength) {
+          runs.push({ offsetInBank: runStart, length, fill });
+        }
+        runStart = -1;
+      }
+    }
+  }
+  runs.sort((a, b) => a.offsetInBank - b.offsetInBank);
   return runs;
 }
 
@@ -1686,39 +1743,23 @@ function subtractCoverage(
   return result;
 }
 
+/** Spec 785 B3 — the Data / No-Data axis, straight off the bytes.
+ *
+ *  Deliberately NOT gated on `canFlash` and deliberately NOT reduced by the
+ *  loader's index: whether a byte range holds data is a property of the bytes,
+ *  and whether the loader fetches it is the separate Used axis. A LUT entry
+ *  pointing at an erased range is a real and interesting state (785 §2, the
+ *  "model error / padding read" row), not a reason to hide the range. */
 function computeEmptyRegions(
-  canFlash: boolean,
-  chips: Array<{ bank: number; slot?: string; file?: string }>,
-  manifestPath: string,
-  lutChunks: ResolvedLutChunk[] | undefined,
+  chipBytes: Map<string, { chip: { bank: number; slot?: string }; slot: "ROML" | "ROMH" | "ULTIMAX_ROMH"; bytes: Buffer }>,
 ): EmptyRegion[] | undefined {
-  if (!canFlash) return undefined;
-  const manifestDir = manifestPath.includes("/")
-    ? manifestPath.slice(0, manifestPath.lastIndexOf("/"))
-    : "";
-  const coverage = buildLutCoverageMap(lutChunks);
   const regions: EmptyRegion[] = [];
-  for (const chip of chips) {
-    if (!chip.file) continue;
-    const slot: "ROML" | "ROMH" | "ULTIMAX_ROMH" = (chip.slot === "ROMH" || chip.slot === "ULTIMAX_ROMH")
-      ? (chip.slot as "ROMH" | "ULTIMAX_ROMH")
-      : "ROML";
-    const chipPath = resolvePath(manifestDir, chip.file);
-    if (!existsSync(chipPath)) continue;
-    let bytes: Buffer;
-    try {
-      bytes = readFileSync(chipPath);
-    } catch {
-      continue;
-    }
-    const emptyRuns = findEmptyRunsInChip(bytes, EMPTY_RUN_MIN_LENGTH);
-    if (emptyRuns.length === 0) continue;
-    const segments = coverage.get(`${chip.bank}:${slot}`) ?? [];
-    const remainder = subtractCoverage(emptyRuns, segments);
-    for (const region of remainder) {
-      regions.push({ bank: chip.bank, slot, offsetInBank: region.offsetInBank, length: region.length });
+  for (const { chip, slot, bytes } of chipBytes.values()) {
+    for (const run of findEmptyRunsInChip(bytes, EMPTY_RUN_MIN_LENGTH)) {
+      regions.push({ bank: chip.bank, slot, offsetInBank: run.offsetInBank, length: run.length, fill: run.fill });
     }
   }
+  if (regions.length === 0) return undefined;
   regions.sort((a, b) => a.bank - b.bank || a.offsetInBank - b.offsetInBank);
   return regions;
 }
@@ -1793,49 +1834,22 @@ function detectCartridgeStartup(
 }
 
 function computeCartridgeSegments(
-  canFlash: boolean,
-  chips: Array<{ bank: number; slot?: string; file?: string; loadAddress: number }>,
-  manifestPath: string,
+  chipBytes: Map<string, ChipBytes>,
   lutChunks: ResolvedLutChunk[] | undefined,
   startup: CartridgeStartupSnapshot,
   hardwareTypeName: string | undefined,
 ): CartridgeSegment[] | undefined {
-  const manifestDir = manifestPath.includes("/")
-    ? manifestPath.slice(0, manifestPath.lastIndexOf("/"))
-    : "";
   const coverage = buildLutCoverageMap(lutChunks);
   const segments: CartridgeSegment[] = [];
-  for (const chip of chips) {
-    if (!chip.file) continue;
-    const slot: "ROML" | "ROMH" | "ULTIMAX_ROMH" = chip.slot === "ROMH"
-      ? "ROMH"
-      : chip.slot === "ULTIMAX_ROMH"
-        ? "ULTIMAX_ROMH"
-        : "ROML";
-    const chipPath = resolvePath(manifestDir, chip.file);
-    if (!existsSync(chipPath)) continue;
-    let bytes: Buffer;
-    try {
-      bytes = readFileSync(chipPath);
-    } catch {
-      continue;
-    }
-    // Find runs of non-$FF bytes (data); for flash carts we already
-    // know erased space is $FF, for masked ROMs we still want to
-    // surface "covered by data, not by LUT" as segments because that's
-    // the resident code area (CBM80 startup, EAPI, etc.).
-    type DataRun = { offsetInBank: number; length: number };
-    const dataRuns: DataRun[] = [];
-    let runStart = -1;
-    for (let i = 0; i <= bytes.length; i += 1) {
-      const isData = i < bytes.length && (canFlash ? bytes[i] !== 0xff : true);
-      if (isData && runStart < 0) runStart = i;
-      else if (!isData && runStart >= 0) {
-        const length = i - runStart;
-        if (length >= SEGMENT_MIN_LENGTH) dataRuns.push({ offsetInBank: runStart, length });
-        runStart = -1;
-      }
-    }
+  for (const { chip, slot, bytes } of chipBytes.values()) {
+    // Data = the chip minus its No-Data runs, using the SAME scan that feeds
+    // the empty regions (785 B3) so the two layers can never contradict each
+    // other. What is left after also subtracting the loader's index is the
+    // "resident" area — CBM80 startup, EAPI, loader code, anything the index
+    // does not address.
+    const emptyRuns = findEmptyRunsInChip(bytes, EMPTY_RUN_MIN_LENGTH);
+    const dataRuns = subtractCoverage([{ offsetInBank: 0, length: bytes.length }], emptyRuns)
+      .filter((run) => run.length >= SEGMENT_MIN_LENGTH);
     // Subtract LUT-covered ranges; what's left is "resident" data.
     const segs = subtractCoverage(dataRuns, coverage.get(`${chip.bank}:${slot}`) ?? []);
     for (const seg of segs) {
@@ -1980,17 +1994,11 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
         file: manifest.eeprom.file,
       } : (profile?.hasEeprom ? { kindHint: profile.eepromKindHint } : undefined);
       const lutChunks = loadLutChunks(context.artifacts, artifact, context.project.rootPath, slotLayoutBase.bankSize);
-      const emptyRegions = computeEmptyRegions(
-        slotLayoutBase.canFlash,
-        chips,
-        artifact.path,
-        lutChunks,
-      );
+      const chipBytes = loadChipBytes(chips, artifact.path);
+      const emptyRegions = computeEmptyRegions(chipBytes);
       const startup = detectCartridgeStartup(chips, artifact.path);
       const segments = computeCartridgeSegments(
-        slotLayoutBase.canFlash,
-        chips,
-        artifact.path,
+        chipBytes,
         lutChunks,
         startup,
         slotLayoutBase.hardwareTypeName,
@@ -2997,7 +3005,7 @@ function cartridgeLayoutToMediums(view: CartridgeLayoutView, entities: EntityRec
 
     const empty: MediumEmptyRegion[] = (cart.emptyRegions ?? []).map((region, index) => ({
       id: `cart-empty-${cart.artifactId}-${index}`,
-      reason: "flash-empty-ff",
+      reason: region.fill === "00" ? "flash-empty-00" : "flash-empty-ff",
       spans: [{
         kind: "slot",
         bank: region.bank,
