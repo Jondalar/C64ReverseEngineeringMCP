@@ -17,7 +17,7 @@ Numbers are **shared with TRX64** (`../../TRX64/docs/`) — one range, one regis
 | 774 | [Capability Cut → `trx64-static`](774-capability-cut-static-migration.md) | READY | Step 1 shipped. Open: media format-parse (2), classifiers (3). | 2026-07-02 |
 | 775 | [Decoupled Agent/Flow Layer (BMAD)](775-decoupled-agent-flow-layer-bmad.md) | READY | Private in-repo module; docks onto 773. Gate: pin the V6 schema first. | 2026-07-03 |
 | 784 | [Loader-lens extraction](784-loader-lens-extraction.md) | READY | Per-project extractor + trace-validated loader lens. Buildable now. | 2026-07-04 |
-| 785 | [CRT extraction](785-crt-extraction.md) | BLOCKED | Needs a real cartridge sample. | 2026-07-04 |
+| 785 | [CRT extraction](785-crt-extraction.md) | READY | Unblocked 2026-08-11: two 1 MB samples of the same game in two mappers arrived, and the banking scheme is readable by diff — 335 bytes across 2 of 128 banks (§3.1). Nothing built yet: bank-select lane in the loader capture (A1′), cart LoaderModel records (B1′), real-sample harness (B2′). LUT variant still unseen; GMod3 has no sample at all and belongs to TRX64 803. | 2026-08-11 |
 | 800 | [Runtime invisible to the RE agent](800-runtime-invisible-setup-guided.md) | READY | §A–§D built; handshake decisions unit-verified. Open: the guided setup probe, now including **goal 4 — the recipe fetches the runtime itself**. One TypeScript step for all three OSes instead of a scoop manifest and a winget PR; never silent, checksum-verified, pinned to the epoch the handshake expects. Also answers the Windows install gap 801 left behind. | 2026-08-11 |
 
 **READY** = the next step is written down; someone could start tomorrow.

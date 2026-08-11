@@ -1,6 +1,6 @@
 # Spec 785 — CRT Extraction: LoaderModel + Trace Validation (cartridge pendant of 784)
 
-**Status:** PROPOSED — skeleton; cart-specifics pending user input.
+**Status:** READY 2026-08-11 — unblocked by real samples (see §3.1). Nothing built yet.
 **Repos:** cross-repo — Part A = TRX64 (`../TRX64`), Parts B/C = C64RE.
 **Number:** 785 (shared board `specs/README.md`). **Pendant of** Spec 784.
 
@@ -43,9 +43,46 @@ The chaining/index for carts varies per title/loader:
 - **LUT-in-a-bank:** a table maps logical file/asset → `bank + offset`.
 - Others differ.
 
-> **OPEN — user provides input:** the concrete cart loader schemes (Mike's
-> cross-bank packer format, the LUT layout) and real `.crt` samples. See
-> `project_mike_crts_trx64_cart_test` (deferred GMOD3 / C64MegaCart samples).
+### 3.1 Samples arrived 2026-08-11 — and the scheme is readable, not secret
+
+Two 1 MB raw images of the **same game** in **two different mappers**
+(`gp_cars_ptv_c64megacart[ptv].bin`, `gp_cars_ptv_megab8r[ptv].bin`). That pairing is
+worth more than either alone: 128 banks each, 21 occupied, 107 `$ff`-erased — and only
+**335 bytes differ, in 2 banks**. The payload is identical; only the banking code moves.
+So the container can be separated from the content by diff, without a vendor explaining
+anything.
+
+What the diff already answers, disassembled with our own `trx64cli disasm`:
+
+```
+$8873  78        SEI
+$8874  a9 37     LDA #$37
+$8876  85 01     STA $01
+$8878  a9 00     LDA #$00
+$887a  8d 00 df  STA $df00     ← C64MegaCart
+       8d 02 de  STA $de02     ← MegaByter
+$887d  a9 00     LDA #$00
+$887f  8d 00 de  STA $de00     ← both
+$8882  20 f9 85  JSR $85f9
+```
+
+`$de00` takes the **bank number** in both (`$8888: STX $de00`, X from the zero-page bank
+variable `$f0`). The second register is where the mappers part: MegaByter `$de02`,
+C64MegaCart `$df00`.
+
+This also gives the open **MegaByter bank-width question** (7 vs 8 bits) something real to
+measure against instead of a question to the vendor: 1 MB = 128 banks needs 7 bits, and
+the bank travels as a whole byte from zero page into `$de00`.
+
+**Handling:** the samples are Protovision's, treated like the ROMs — analysed locally,
+never committed, never in an artifact.
+
+**Note on format:** these are raw `.bin`, not `.crt`. TRX64 attaches them via the typed
+`.bin` path (Spec 790), so the harness below should say `.bin | .crt`, not `.crt` alone.
+
+**Still open from the original blocker:** the LUT-in-a-bank variant. These two samples are
+the cross-bank packer shape; a LUT title has not been seen. **GMod3: no sample exists at
+all** — that gap belongs to TRX64 803, not here.
 
 ## 4. Deliverables (delta over 784)
 
