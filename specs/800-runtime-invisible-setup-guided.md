@@ -176,7 +176,18 @@ wire). So the runtime carries a **product version** next to the epoch:
 ## 5. Acceptance
 
 1. **grep clean:** no backend brand or "Leitregel" in agent-facing strings or the doctrine
-   (code comments / `CLAUDE.md` exempt).
+   (code comments / `CLAUDE.md` exempt). **Gated 2026-08-11:**
+   `npm run check:runtime-invisible` walks 64 agent-facing surfaces — every string
+   literal in the tool/prompt modules plus `docs/agent-doctrine.md` — and also checks
+   the epoch and the per-OS recipe (acceptance 3). Two exemptions it makes explicit:
+   `runtime-setup-recipe.ts`, the one module that MAY name the backend, and the wire
+   token `trx64-runtime/N`, which a version-mismatch error has to quote verbatim or it
+   is not actionable.
+
+   It was red when written. A trace-domain description had gained *"both served by the
+   TRX64 daemon"* the same day, hours after this assertion was last believed to hold —
+   which is the whole argument for the gate: this property decays with every new tool
+   description, and nothing was checking it.
 2. **Fresh box, no daemon:** `agent_onboard` and the first `runtime_*` call return the
    complete per-OS setup recipe; the backend is named only there.
 3. **Version mismatch:** the client fails loudly with rebuild guidance.
