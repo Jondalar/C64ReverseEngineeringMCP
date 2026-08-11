@@ -237,6 +237,27 @@ export function encodeBlockRead(
   return off;
 }
 
+/** Spec 785 C1 — CART_READ (0x36): op(1) cycle(f64) bank(u16) slot(u8) offLo(u16)
+ *  offHi(u16) bytes(u32). Byte-identical to the TRX64 producer's `write_cart_read`
+ *  (crates/trx64-trace) — this repo does not emit the lane in production (TRX64 does);
+ *  the encoder exists so a gate can build a capture without a cartridge, exactly as
+ *  `encodeBlockRead` does for the disk lane. `bytes` is u32 on purpose: a bank being
+ *  EXECUTED out of serves millions of reads in one residency. */
+export function encodeCartRead(
+  dv: DataView, off: number, cap: number, cycle: number, bank: number, slot: number,
+  offLo: number, offHi: number, bytes: number,
+): number {
+  if (!fits(off, 1 + 19, cap)) return -1;
+  dv.setUint8(off, TraceOp.CART_READ); off += 1;
+  dv.setFloat64(off, cycle, true); off += 8;
+  dv.setUint16(off, bank & 0xffff, true); off += 2;
+  dv.setUint8(off, slot & 0xff); off += 1;
+  dv.setUint16(off, offLo & 0xffff, true); off += 2;
+  dv.setUint16(off, offHi & 0xffff, true); off += 2;
+  dv.setUint32(off, bytes >>> 0, true); off += 4;
+  return off;
+}
+
 /** MARK label is capped at 200 bytes (UTF-8) to keep MAX_EVENT_BYTES bounded. */
 export function encodeMark(
   dv: DataView, off: number, cap: number, cycle: number, label: string,

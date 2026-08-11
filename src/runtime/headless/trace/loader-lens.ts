@@ -1,4 +1,4 @@
-// Spec 784 A2 — the loader-lens landing map + read-set.
+// Spec 784 A2 — the loader-lens landing map + read-set.  Spec 785 C2 — the CART lane.
 //
 // THE net-new linkage: recover, from a loader-scoped capture, WHICH physical medium
 // block the REAL loader read and WHERE its bytes came to rest in C64 RAM — the ground
@@ -6,13 +6,33 @@
 // loader decides, a wrong STATIC interpretation (relocator / depacker / copy-loop) is
 // caught.
 //
-// Two lanes, two truths:
+// **WHAT A READ-SET PROVES (Spec 785 §2.1 — binding on every caller).** It proves USED
+// and it never proves UNUSED. A run that did not reach level 90 says nothing about the
+// block level 90 needs. It is a LOWER BOUND on ONE run, so every surface built on it
+// says "used in run X" / "not seen in run X" — never a bare "used" / "unused".
 //
-//  1. READ-SET (buildReadSet) — the AUTHORITY. From the BLOCK_READ (0x35) stream the
-//     TRX64 drive emits: one record per physical (track, sector) the drive actually
-//     LATCHED GCR bytes off (read_pra/GCR_read), in read order. This is what
-//     validate_extraction diffs a manifest against. It does NOT depend on the C64-side
-//     write timeline, so buffering / relocation cannot corrupt it.
+// Three lanes, three truths:
+//
+//  1. DISK READ-SET (buildReadSet) — the disk AUTHORITY. From the BLOCK_READ (0x35)
+//     stream the TRX64 drive emits: one record per physical (track, sector) the drive
+//     actually LATCHED GCR bytes off (read_pra/GCR_read), in read order. This is what
+//     validate_extraction diffs a disk manifest against. It does NOT depend on the
+//     C64-side write timeline, so buffering / relocation cannot corrupt it.
+//
+//  1b. CART READ-SET (buildCartReadSet) — the cartridge AUTHORITY, Spec 785 C1/C2. From
+//     the CART_READ (0x36) stream: one record per BANK RESIDENCY — while `bank` served
+//     `slot`, the CPU read `bytes` bytes out of it, touching window offsets
+//     offLo..=offHi. Chip-side truth at the read, so it does not care whether or when
+//     the C64 copied anything anywhere. Two producer facts every reader must honour:
+//       (a) `offLo..offHi` is a BOUNDING range, not a coverage set. The residency
+//           records the min/max offset touched; offsets inside it are NOT individually
+//           proven read. When `bytes` < the range width the residency is SPARSE (a LUT
+//           scan is the canonical case) and containment inside the range is a weak
+//           signal, not proof — `cartBankUsage` flags it.
+//       (b) The producer DRAINS periodically, closing live residencies, so one
+//           uninterrupted walk through a bank arrives as several consecutive records
+//           for the same (bank, slot) whose ranges abut. Aggregate by (bank, slot)
+//           before drawing any conclusion — `cartBankUsage` does.
 //
 //  2. LANDING MAP (buildLandingMap) — the DEST-side human view (runtime_loader_lens):
 //     which RAM address each transferred payload landed at. Rebuilt (Spec 784 Option A)
@@ -27,7 +47,7 @@
 //           BLOCK_READ stream by cycle, NOT the head position at WRITE time (which,
 //           under buffering, is a rotated-past sector, not the one that was read).
 
-import { TraceOp, ACCESS_WRITE, ACCESS_READ, decodeFileHeader, decodeEventStream, type DecodedEvent } from "./binary-format.js";
+import { TraceOp, ACCESS_WRITE, ACCESS_READ, decodeFileHeader, decodeEventStream, type DecodedEvent, type TraceFileMeta } from "./binary-format.js";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
@@ -42,10 +62,41 @@ export interface ReadSetEntry {
   cycle: number;
 }
 
+/** One CART bank residency the CPU actually read out of (Spec 785 C1, CART_READ 0x36).
+ *  Producer semantics — see the file header: `offLo..offHi` BOUNDS the offsets touched
+ *  (it is not a coverage set), `bytes` counts SERVED reads including repeats and opcode
+ *  fetches, and one walk may arrive as several consecutive records because the producer
+ *  drains periodically. Aggregate with `cartBankUsage` before concluding anything. */
+export interface CartReadSetEntry {
+  /** Bank that served the window during this residency. */
+  bank: number;
+  /** 0 = ROML $8000-$9FFF, 1 = ROMH $A000-$BFFF / $E000-$FFFF (ultimax). */
+  slot: number;
+  /** `slot` rendered — "ROML" / "ROMH" / "slot<n>". */
+  slotName: string;
+  /** Lowest / highest 8K-window offset touched, inclusive. A BOUNDING range. */
+  offLo: number;
+  offHi: number;
+  /** Served reads during the residency (repeats + opcode fetches included). */
+  bytes: number;
+  /** C64 master clock of the residency's FIRST served read. */
+  cycle: number;
+}
+
+/** Where a landed run's bytes came from. Tagged so a consumer can tell the media
+ *  apart without sniffing fields (Spec 785 C2 — before this it was disk-shaped only).
+ *  The disk variant carries exactly the fields it always did. */
+export type LandingSource =
+  | { medium: "disk"; halftrack: number; track: number; sector: number }
+  | { medium: "cart"; bank: number; slot: number; slotName: string; offLo: number; offHi: number };
+
 export interface LandingMapEntry {
-  /** Where the bytes came FROM on the medium (FIFO-matched read-set block; null if
-   *  no block-read preceded this landing — e.g. a capture without the BLOCK_READ lane). */
-  source: { halftrack: number; track: number; sector: number } | null;
+  /** Where the bytes came FROM on the medium (FIFO-matched read-set entry; null if
+   *  no medium read preceded this landing — e.g. a capture without the BLOCK_READ /
+   *  CART_READ lane). Disk is matched first (a run that passed the $DD00 dataflow gate
+   *  IS a disk landing); the cart residency active at the run's start is the fallback
+   *  when the capture carries no disk lane at all. */
+  source: LandingSource | null;
   /** Where they LANDED in C64 RAM (start address of the run). */
   c64Dest: number;
   /** Byte length of the run. */
@@ -100,6 +151,149 @@ export function buildReadSet(events: DecodedEvent[]): ReadSetEntry[] {
   return out;
 }
 
+/** Lane slot code → name. 0/1 are the only codes the producer emits. */
+export function cartSlotName(slot: number): string {
+  return slot === 0 ? "ROML" : slot === 1 ? "ROMH" : `slot${slot}`;
+}
+
+/**
+ * Build the CART READ-SET (the cartridge authority) from a decoded event stream: the
+ * ordered list of bank residencies the CPU actually read out of (CART_READ 0x36,
+ * Spec 785 C1). Chip-side truth, loader-agnostic — it does not depend on the C64 ever
+ * copying the bytes anywhere, so a depacker or a relocator cannot corrupt it.
+ *
+ * RAW records, in producer order. It proves USED-IN-THIS-RUN and never UNUSED (§2.1),
+ * and it is not a coverage set: see the file header for the bounding-range and
+ * drain-splitting caveats, and use `cartBankUsage` to aggregate.
+ */
+export function buildCartReadSet(events: DecodedEvent[]): CartReadSetEntry[] {
+  const out: CartReadSetEntry[] = [];
+  for (const ev of events) {
+    if (ev.op !== TraceOp.CART_READ) continue;
+    if (ev.bank === undefined || ev.slot === undefined) continue;
+    if (ev.offLo === undefined || ev.offHi === undefined) continue;
+    out.push({
+      bank: ev.bank,
+      slot: ev.slot,
+      slotName: cartSlotName(ev.slot),
+      offLo: ev.offLo,
+      offHi: ev.offHi,
+      bytes: ev.bytes ?? 0,
+      cycle: ev.cycle,
+    });
+  }
+  return out;
+}
+
+export interface CartOffsetRange { offLo: number; offHi: number }
+
+/** What one (bank, slot) was read as, across the whole capture.
+ *
+ *  TWO range sets, because one cannot carry both meanings and the difference between
+ *  them decides what a caller is allowed to conclude:
+ *
+ *   - `ranges` is the OUTER BOUND. Every offset read in this run lies inside it, so a
+ *     span outside it was definitely not read. It is a hull, not a coverage set: the
+ *     producer records min/max per residency, so scattered reads at $0700 and $1054
+ *     arrive as one range spanning everything between.
+ *   - `solidRanges` is the LOWER BOUND — merged from only those residencies that served
+ *     at least as many reads as their range spans, which is what a contiguous sweep
+ *     looks like. This is the only evidence strong enough to say the loader WALKED a
+ *     region; a hull overlap can be coincidence.
+ *
+ *  Measured, and the reason this split exists: on one proof cartridge four residencies
+ *  in one bank each served ~60-240 reads over a ~2200-offset hull, 13 million cycles
+ *  after the loader's chunk stream had finished. Their hull overlapped an unrelated
+ *  payload's span, and treating that as "the run read this payload" flagged a
+ *  byte-verified manifest as wrong. */
+export interface CartBankUsage {
+  bank: number;
+  slot: number;
+  slotName: string;
+  /** Merged, disjoint, ascending BOUNDING ranges (the outer bound). Abutting
+   *  residencies — the producer's drain split, or a walk resumed at the next
+   *  offset — collapse into one. */
+  ranges: CartOffsetRange[];
+  /** Merged ranges of the residencies that look like full sweeps (the lower bound). */
+  solidRanges: CartOffsetRange[];
+  /** Served reads summed over every residency of this (bank, slot). */
+  bytes: number;
+  /** Residency records that fed this entry. */
+  residencies: number;
+  /** Of those, how many looked like full sweeps. */
+  solidResidencies: number;
+  /** Total width of `ranges` in window offsets. */
+  rangeWidth: number;
+  /** Total width of `solidRanges`. */
+  solidWidth: number;
+  /** `bytes` < `rangeWidth` — fewer reads were served than the bounding range spans, so
+   *  the range is demonstrably NOT fully covered (a LUT scan reading scattered rows is
+   *  the canonical case). Containment inside a sparse range is a weak signal, not proof. */
+  sparse: boolean;
+  firstCycle: number;
+  lastCycle: number;
+}
+
+/** Merge overlapping AND abutting (`offLo === last.offHi + 1`) ranges: a walk resumed
+ *  after a producer drain is one read, not two. Input need not be sorted. */
+function mergeRanges(input: CartOffsetRange[]): CartOffsetRange[] {
+  const sorted = [...input].sort((a, b) => a.offLo - b.offLo || a.offHi - b.offHi);
+  const out: CartOffsetRange[] = [];
+  for (const e of sorted) {
+    const last = out[out.length - 1];
+    if (last && e.offLo <= last.offHi + 1) {
+      if (e.offHi > last.offHi) last.offHi = e.offHi;
+    } else {
+      out.push({ offLo: e.offLo, offHi: e.offHi });
+    }
+  }
+  return out;
+}
+
+const width = (rs: CartOffsetRange[]) => rs.reduce((n, r) => n + (r.offHi - r.offLo + 1), 0);
+
+/**
+ * Aggregate a raw cart read-set by (bank, slot): merge the bounding ranges, separate out
+ * the full-sweep ones, sum the served reads. This is the form every consumer should
+ * reason over — it undoes the producer's drain-splitting (see the file header) and it is
+ * what `validate_extraction` diffs a manifest's slot spans against.
+ */
+export function cartBankUsage(entries: CartReadSetEntry[]): CartBankUsage[] {
+  const byKey = new Map<string, CartReadSetEntry[]>();
+  for (const e of entries) {
+    const key = `${e.bank}/${e.slot}`;
+    const list = byKey.get(key);
+    if (list) list.push(e); else byKey.set(key, [e]);
+  }
+  const out: CartBankUsage[] = [];
+  for (const list of byKey.values()) {
+    const ranges = mergeRanges(list);
+    // A residency serving at least as many reads as its range spans is consistent with
+    // a contiguous sweep; one serving far fewer is a hull around scattered reads.
+    const solid = list.filter((e) => e.bytes >= e.offHi - e.offLo + 1);
+    const solidRanges = mergeRanges(solid);
+    const bytes = list.reduce((n, e) => n + e.bytes, 0);
+    const rangeWidth = width(ranges);
+    out.push({
+      bank: list[0].bank,
+      slot: list[0].slot,
+      slotName: list[0].slotName,
+      ranges,
+      solidRanges,
+      bytes,
+      residencies: list.length,
+      solidResidencies: solid.length,
+      rangeWidth,
+      solidWidth: width(solidRanges),
+      sparse: bytes < rangeWidth,
+      firstCycle: Math.min(...list.map((e) => e.cycle)),
+      lastCycle: Math.max(...list.map((e) => e.cycle)),
+    });
+  }
+  out.sort((a, b) => a.firstCycle - b.firstCycle || a.bank - b.bank || a.slot - b.slot);
+  return out;
+}
+
 interface Run {
   startAddr: number;
   nextAddr: number;
@@ -137,6 +331,9 @@ export function buildLandingMap(events: DecodedEvent[], opts: LandingMapOptions 
   const transferCycles: number[] = [];
   // Read-set (for FIFO source attribution), cycles ascending.
   const readSet = buildReadSet(events);
+  // Spec 785 C2 — cart residencies, for source attribution on a capture with no disk
+  // lane. Empty on every disk capture, so the disk path below is bit-for-bit unchanged.
+  const cartReadSet = buildCartReadSet(events);
 
   const complete = (run: Run) => {
     if (run.bytes.length >= minRunLen) completed.push(run);
@@ -209,10 +406,10 @@ export function buildLandingMap(events: DecodedEvent[], opts: LandingMapOptions 
     // Dataflow gate: no transfer reads in the window ⇒ this is a memory-copy /
     // relocation of already-resident bytes, not a disk landing. Drop it.
     if (transferReads < minTransferReads) continue;
-    const source = nearestPrecedingRead(readSet, run.cycleStart);
+    const source = landingSource(readSet, cartReadSet, run.cycleStart);
     const buf = Uint8Array.from(run.bytes);
     out.push({
-      source: source ? { halftrack: source.halftrack, track: source.track, sector: source.sector } : null,
+      source,
       c64Dest: run.startAddr,
       len: run.bytes.length,
       sha256: createHash("sha256").update(buf).digest("hex"),
@@ -232,6 +429,46 @@ function nearestPrecedingRead(readSet: ReadSetEntry[], cycle: number): ReadSetEn
     else break; // readSet is cycle-ascending
   }
   return best;
+}
+
+/** The cart residency that had already started by `cycle` (largest start cycle ≤ it).
+ *  Max-scan rather than first-past-the-post so it does not assume record order. */
+function activeCartResidency(cartReadSet: CartReadSetEntry[], cycle: number): CartReadSetEntry | null {
+  let best: CartReadSetEntry | null = null;
+  for (const r of cartReadSet) {
+    if (r.cycle <= cycle && (best === null || r.cycle > best.cycle)) best = r;
+  }
+  return best;
+}
+
+/**
+ * Attribute a landed run to a medium. Disk wins whenever a BLOCK_READ preceded the run:
+ * the run only got here by passing the $DD00 dataflow gate, which IS the disk-transfer
+ * evidence. The cart residency is the fallback for a capture carrying no disk lane.
+ *
+ * Spec 785 C2, stated because it bounds what this can mean: a cart landing has no
+ * dataflow gate of its own. On disk, "$DD00 was read in this window" separates a
+ * transfer from a memory-copy; on a cartridge the equivalent question — "was a bank
+ * being read while this run filled" — is answered YES for every cycle of a title that
+ * EXECUTES out of a bank, so it separates nothing. Cart source attribution here is
+ * therefore a hint (which bank was live), never the proof the disk path's is; the cart
+ * READ-SET, not this map, is what validate_extraction diffs a cart manifest against.
+ */
+function landingSource(
+  readSet: ReadSetEntry[], cartReadSet: CartReadSetEntry[], cycle: number,
+): LandingSource | null {
+  const disk = nearestPrecedingRead(readSet, cycle);
+  if (disk) {
+    return { medium: "disk", halftrack: disk.halftrack, track: disk.track, sector: disk.sector };
+  }
+  const cart = activeCartResidency(cartReadSet, cycle);
+  if (cart) {
+    return {
+      medium: "cart", bank: cart.bank, slot: cart.slot, slotName: cart.slotName,
+      offLo: cart.offLo, offHi: cart.offHi,
+    };
+  }
+  return null;
 }
 
 /** First index with arr[i] >= x. */
@@ -256,6 +493,27 @@ export function readSetFromCaptureFile(path: string): ReadSetEntry[] {
   const { version, headerLen } = decodeFileHeader(buf);
   const events = decodeEventStream(buf, headerLen, version);
   return buildReadSet(events);
+}
+
+/**
+ * Read the CART READ-SET from a `.c64retrace` binary capture file — a trace armed with
+ * the `cart-read` domain (`trx64cli boot --trace <path> --trace-domains cart-read`, or
+ * `runtime_trace_start domains=[...,'cart-read']` on the daemon). The cartridge
+ * authority for validate_extraction. Empty on a capture that never armed the lane.
+ */
+export function cartReadSetFromCaptureFile(path: string): CartReadSetEntry[] {
+  const buf = new Uint8Array(readFileSync(path));
+  const { version, headerLen } = decodeFileHeader(buf);
+  const events = decodeEventStream(buf, headerLen, version);
+  return buildCartReadSet(events);
+}
+
+/** The capture's own identity block (`TraceFileMeta`) — used to say WHICH run a
+ *  "used in run X" claim refers to, and to catch a manifest bound to a different
+ *  image than the one that ran (Spec 785 §4.1). */
+export function captureMetaFromFile(path: string): TraceFileMeta {
+  const buf = new Uint8Array(readFileSync(path));
+  return decodeFileHeader(buf).meta;
 }
 
 /**

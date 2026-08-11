@@ -295,10 +295,10 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
   server.tool(
     "validate_extraction",
-    "Use to validate a per-project extractor's manifest against the loader-lens READ-SET (the ground truth the REAL loader produced: which physical track/sector the drive actually latched GCR bytes off, in read order — BLOCK_READ). Flags manifest spans that claim a sector the loader never read (the wrong-interpretation bug class) and read blocks the manifest missed. The read-set is drive-side truth (read_pra/GCR_read), immune to the write-time buffering that made the old landing-map source lie. Records a validation finding (confirmation on pass, refutation on fail) with an evidence link to the capture. Run after register_payloads_from_manifest (use it first to register) to prove the bulk registration is trustworthy. Inputs: capture_path (.c64retrace from a drive-mechanism trace), manifest_path. Cart (slot) spans are validated by the cartridge path.",
+    "Use to validate a per-project extractor's manifest against the loader-lens READ-SET — the ground truth the REAL loader produced, one lane per medium. DISK (BLOCK_READ, `drive-mechanism` domain): which physical track/sector the drive actually latched GCR bytes off, in read order; drive-side truth, immune to the write-time buffering that made the old landing-map source lie. Flags spans claiming a sector the loader never read (the wrong-interpretation bug class) and read blocks the manifest missed. CART (CART_READ, `cart-read` domain, Spec 785): which bank served which window and over which offsets while the CPU read out of it; chip-side truth. WHAT THE READ-SET PROVES: used-in-THIS-run, never unused — a run that did not reach level 90 says nothing about level 90's bank. So a slot span this run did not touch is reported 'not seen in this run' and NEVER fails the verdict. The cart branch fails only on what a run can actually contradict: the run demonstrably read a payload and read PAST a span it never read. Sparse observations (fewer served reads than the bounding range spans) are marked as the weak matches they are. Cart reads no span claims are reported too — code executing out of a bank lands there, so they are leads, not defects. Records a validation finding (confirmation on pass, refutation on fail) with an evidence link to the capture, and warns if the manifest's imageIdentity names a different image than the capture ran. Run after register_payloads_from_manifest. Inputs: capture_path (.c64retrace armed with drive-mechanism and/or cart-read), manifest_path.",
     {
       project_dir: z.string().optional(),
-      capture_path: z.string().describe("Path to the loader-lens .c64retrace capture (drive-mechanism domain)."),
+      capture_path: z.string().describe("Path to the loader-lens .c64retrace capture (drive-mechanism domain for disk spans, cart-read domain for cart slot spans; both may be armed in one capture)."),
       manifest_path: z.string().describe("Path to the extractor manifest JSON."),
       min_run_len: z.number().int().positive().optional(),
     },
@@ -313,11 +313,34 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
       const captureAbs = resolve(projectRoot, args.capture_path);
       if (!existsSync(captureAbs)) throw new Error(`capture_path not found: ${captureAbs}`);
-      const { readSetFromCaptureFile } = await import("../runtime/headless/trace/loader-lens.js");
+      const { readSetFromCaptureFile, cartReadSetFromCaptureFile, captureMetaFromFile } =
+        await import("../runtime/headless/trace/loader-lens.js");
       const readSet = readSetFromCaptureFile(captureAbs);
+      // Spec 785 C2 — the cart lane out of the SAME capture. Empty unless the trace
+      // armed the `cart-read` domain; then slot spans are skipped as they were before.
+      const cartReadSet = cartReadSetFromCaptureFile(captureAbs);
+      const captureMeta = captureMetaFromFile(captureAbs);
+      // Spec 785 C3 — name the run in every claim; a lower bound is only meaningful
+      // with its capture attached.
+      const runLabel = `run ${basename(captureAbs)}`;
 
       const { validateExtraction } = await import("./validate-extraction.js");
-      const result = validateExtraction(readSet, mres.manifest);
+      const result = validateExtraction(readSet, mres.manifest, { cartReadSet, runLabel });
+
+      // Spec 785 §4.1 — a manifest can describe a different image than the one that ran.
+      // `imageIdentity` is an unknown key the schema strips, so read it off the raw JSON.
+      const rawManifest = JSON.parse(readFileSync(manifestAbs, "utf8")) as {
+        imageIdentity?: { sha256?: string; file?: string; path?: string };
+      };
+      const manifestSha = rawManifest.imageIdentity?.sha256;
+      const imageWarnings: string[] = [];
+      if (manifestSha && captureMeta.mediaSha && manifestSha !== captureMeta.mediaSha) {
+        imageWarnings.push(
+          `⚠ IMAGE MISMATCH — the manifest's spans address ${rawManifest.imageIdentity?.file ?? rawManifest.imageIdentity?.path ?? "another image"} (sha256 ${manifestSha.slice(0, 16)}…) but ${runLabel} ran ${captureMeta.mediaName ?? "an image"} (sha256 ${captureMeta.mediaSha.slice(0, 16)}…). Every result below compares spans of one image against reads of another.`);
+      } else if (manifestSha && !captureMeta.mediaSha) {
+        imageWarnings.push(
+          `Note: the manifest is bound to ${rawManifest.imageIdentity?.file ?? rawManifest.imageIdentity?.path ?? "an image"} (sha256 ${manifestSha.slice(0, 16)}…); the capture carries no media identity, so THAT the run used the same image is unverified here.`);
+      }
 
       // Register the capture as an evidence artifact (soft — never break the verdict).
       let captureArtifactId: string | undefined;
@@ -339,22 +362,49 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
           title: `Extraction ${result.verdict}: ${mres.manifest.extractor} (${result.matchedSpans} matched, ${result.mismatched.length} mismatched)`,
           summary: [
             `Manifest ${basename(manifestAbs)} vs loader-lens ${basename(captureAbs)}.`,
-            `Matched sector spans ${result.matchedSpans}; mismatched ${result.mismatched.length}; unclaimed landings ${result.unclaimed.length}; slot spans skipped (Spec 785) ${result.skippedSlotSpans}.`,
+            `Matched sector spans ${result.matchedSpans}; mismatched ${result.mismatched.length}; unclaimed landings ${result.unclaimed.length}.`,
+            ...(result.cart.evaluated
+              // Spec 785 C3 — every cart count is a statement about THIS run.
+              ? [`Cart slot spans ${result.cart.slotSpans}: ${result.cart.confirmedSpans} read in ${runLabel}, ${result.cart.partialSpans} partly read, ${result.cart.notSeenSpans} NOT SEEN in ${runLabel} (not a refutation — the read-set proves used, never unused), ${result.cart.conflicts.length} contradicted by ${runLabel}.`]
+              : [`Cart slot spans skipped: ${result.skippedSlotSpans} (${result.cart.reason}).`]),
+            ...imageWarnings,
             ...result.mismatched.slice(0, 20).map((m) => `  MISMATCH ${m.payload} T${m.track}/S${m.sector}: ${m.reason}`),
+            ...result.cart.conflicts.slice(0, 20).map((c) => `  CONFLICT ${c.payload} bank ${c.bank} ${c.slot}: ${c.reason}`),
           ].join("\n"),
           evidence: captureArtifactId ? [{ kind: "artifact" as const, title: "loader-lens capture", artifactId: captureArtifactId, capturedAt: new Date().toISOString() }] : undefined,
           tags: ["extraction-validation", `verdict:${result.verdict}`],
         });
       } catch { /* soft */ }
 
+      const c = result.cart;
+      const h = (n: number) => `$${n.toString(16).toUpperCase().padStart(4, "0")}`;
       const lines = [
         `Extraction validation: ${result.verdict.toUpperCase()}`,
         `Manifest: ${mres.manifest.extractor} (${basename(manifestAbs)})`,
-        `Read-set: ${readSet.length} block-read(s) from ${basename(captureAbs)}`,
-        `Matched sector spans: ${result.matchedSpans}  Mismatched: ${result.mismatched.length}  Unclaimed reads: ${result.unclaimed.length}`,
-        ...(result.skippedSlotSpans ? [`Slot (cart) spans skipped — Spec 785: ${result.skippedSlotSpans}`] : []),
+        `Capture: ${basename(captureAbs)} — ${readSet.length} block-read(s), ${cartReadSet.length} cart residenc(ies)`,
+        ...imageWarnings,
+        ``,
+        `DISK (BLOCK_READ)  matched sector spans ${result.matchedSpans}  mismatched ${result.mismatched.length}  unclaimed reads ${result.unclaimed.length}`,
         ...result.mismatched.slice(0, 30).map((m) => `  ✗ ${m.payload} T${m.track}/S${m.sector} — ${m.reason}`),
         ...result.unclaimed.slice(0, 15).map((u) => `  ? unclaimed read T${u.track}/S${u.sector} (${u.bytes} B)`),
+        ``,
+        ...(c.evaluated
+          ? [
+              // Spec 785 C3 — the run is named on every line that reports a read-set fact.
+              `CART (CART_READ)  ${c.banksReadInRun} (bank, slot) pair(s) read in ${runLabel}, ${c.residencies} residenc(ies), ${c.servedReads} served read(s)`,
+              `  slot spans ${c.slotSpans} over ${c.payloadsTotal} payload(s); ${c.payloadsSeenInRun} payload(s) seen in ${runLabel} (${c.payloadsSolidInRun} on a full-sweep read)`,
+              `  ✓ read in ${runLabel}:        ${c.confirmedSpans}${c.weakConfirmedSpans ? ` (${c.weakConfirmedSpans} backed only by a bounding hull — WEAK, not proof)` : ""}`,
+              `  ~ partly read in ${runLabel}:  ${c.partialSpans}`,
+              `  · NOT SEEN in ${runLabel}:     ${c.notSeenSpans}  — the read-set proves used, never unused: this is not a refutation`,
+              ...(c.unmappableSpans ? [`  – no lane counterpart (EEPROM/OTHER): ${c.unmappableSpans}`] : []),
+              `  ✗ contradicted by ${runLabel}: ${c.conflicts.length}`,
+              ...c.conflicts.slice(0, 30).map((x) => `      ✗ ${x.payload} bank ${x.bank} ${x.slot} ${h(x.offsetInBank)}+${x.length} — ${x.reason}`),
+              ...(c.truncated.length ? [`  ! trailing span(s) of a seen payload not read (${runLabel} may have ended mid-payload): ${c.truncated.length}`] : []),
+              ...c.truncated.slice(0, 10).map((x) => `      ! ${x.payload} bank ${x.bank} ${x.slot} ${h(x.offsetInBank)}+${x.length}`),
+              `  ? read in ${runLabel}, claimed by no span: ${c.unclaimedReads.length} range(s) — code executing out of a bank lands here too, so these are leads, not defects`,
+              ...c.unclaimedReads.slice(0, 15).map((u) => `      ? bank ${u.bank} ${u.slotName} ${h(u.offLo)}-${h(u.offHi)}${u.sparse ? " (sparse observation)" : ""}`),
+            ]
+          : [`CART (CART_READ)  ${result.skippedSlotSpans} slot span(s) NOT validated — ${c.reason}`]),
       ];
       return textContent(lines.join("\n"));
     },

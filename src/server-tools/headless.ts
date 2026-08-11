@@ -458,8 +458,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     {
       session_id: z.string(),
       hypothesis: z.string().optional().describe("REQUIRED (read-before-trace gate): the read-derived reason for this trace — a concrete $address you are investigating + what you READ that points there (a routine, annotation, or finding). E.g. \"$C000 should hold the manual-check result; input routine at $B800 stores the typed word there\". Fishing (no address / no rationale) is refused — read the code first (disasm_prg / inspect_address_range / project_search), form the hypothesis, THEN trace to confirm it."),
-      domains: z.array(z.enum(["c64-cpu", "drive8-cpu", "iec", "vic", "sid", "memory", "drive-mechanism"])).optional()
-        .describe("Trace domains. Default ['c64-cpu','memory']. The CPU firehose is the swimlane truth; add drive8-cpu/iec for IEC-bus + drive stepping, vic for raster. 'drive-mechanism' arms the 1541 head (track/sector) lane for a loader-lens capture — read it with runtime_loader_lens."),
+      domains: z.array(z.enum(["c64-cpu", "drive8-cpu", "iec", "vic", "sid", "memory", "drive-mechanism", "cart-read"])).optional()
+        .describe("Trace domains. Default ['c64-cpu','memory']. The CPU firehose is the swimlane truth; add drive8-cpu/iec for IEC-bus + drive stepping, vic for raster. Two ARMED-ONLY read-set lanes, both served by the TRX64 daemon (they have no in-process producer, exactly as before): 'drive-mechanism' arms the 1541 head + block-read (track/sector) lane for a loader-lens capture — read it with runtime_loader_lens; 'cart-read' arms the cartridge bank residency lane (Spec 785) — feed it to validate_extraction to diff a manifest's cart slot spans. Neither belongs in a parity trace."),
       output: z.string().optional().describe("Path (abs or under the project) for the trace store. Default traces/live_<ts>.duckdb."),
     },
     safeHandler("runtime_trace_start", async ({ session_id, hypothesis, domains, output }) => {
@@ -609,7 +609,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         `Loader-lens landing map — ${map.length} landed run(s)`,
         `Capture: ${abs}`,
         ...map.slice(0, 200).map((e) => {
-          const src = e.source ? `T${e.source.track}/S${e.source.sector} (ht${e.source.halftrack})` : `T?/S? (no block-read)`;
+          // Spec 785 C2 — `source` is a tagged union now (disk block / cart bank window).
+          const s = e.source;
+          const src = s === null
+            ? `T?/S? (no medium read)`
+            : s.medium === "disk"
+              ? `T${s.track}/S${s.sector} (ht${s.halftrack})`
+              : `bank ${s.bank} ${s.slotName} $${s.offLo.toString(16).padStart(4, "0")}-$${s.offHi.toString(16).padStart(4, "0")}`;
           return `  ${src} → $${e.c64Dest.toString(16).padStart(4, "0")} len ${e.len} rd ${e.transferReads} sha ${e.sha256.slice(0, 12)}`;
         }),
         ...(map.length > 200 ? [`  … +${map.length - 200} more`] : []),
