@@ -1,7 +1,8 @@
 # Spec 785 — Cartridge Extraction: coverage that tells the truth, + the cart read-set
 
-**Status:** IN BUILD 2026-08-11 — Part B (B1–B4) and A4 built and measured on
-copies of both proof projects. A1–A3 and Part C open.
+**Status:** IN BUILD 2026-08-11 — **Parts A and B built** and measured on copies of
+both proof projects; **C1 built in TRX64** and proved on both proof cartridges.
+**C2/C3 are the remaining work.**
 **Repos:** cross-repo — Part C = TRX64 (`../TRX64`), Parts A/B/D = C64RE.
 **Number:** 785 (shared board `specs/README.md`). **Pendant of** Spec 784.
 
@@ -165,6 +166,22 @@ the reverse engineering is already done and verified.
 *AC:* each emitter's output passes the B1 validator unchanged; span count equals
 index entry count; cross-bank entries emit one span per bank touched, in order.
 
+**BUILT 2026-08-11.** `cross-bank-packer`: 135 entries → 135 payloads / 180 spans,
+42 cross a bank boundary, banks 1–46. `cart-lut`: 554 → 554 payloads / 675 spans, 98
+cross a boundary, banks 1–123. Both validate clean.
+
+*The lesson this deliverable taught, kept because it will recur:* the chunk-stream
+spans were first derived at the index's recorded source address and **verified by
+reproducing all 134 successor addresses**. They were wrong by four bytes — covering
+the record header and stopping four bytes short of the payload. Successor arithmetic
+is invariant to a constant offset, so that check could not possibly have caught it.
+The byte comparison could, and did: **0 of 135 blobs matched at `src`, 135 of 135 at
+`src+4`**. Both emitters now re-run a byte identity check against the project's own
+carved blobs on every invocation, and the chunk emitter additionally reads the record
+header back out of the cartridge and asserts it yields the index's destination and a
+length field of `len+2`. **A derivation is proven against the bytes it claims to
+describe, never against its own arithmetic.**
+
 **A2 — Prove `register_payloads_from_manifest` on slot spans.** The tool claims one
 path for sector and slot spans. It has never been run on a cartridge. Run it on a
 **copy** of each project.
@@ -172,13 +189,37 @@ path for sector and slot spans. It has never been run on a cartridge. Run it on 
 re-run is idempotent; a payload spanning banks keeps its spans in order; no code
 path branched on medium.
 
+**BUILT 2026-08-11**, on copies. 135 and 554 payloads, full ordered spans identical
+to the manifest in every case, `derivedBy` on all, idempotent re-run (entity, model
+and relation stores byte-identical modulo timestamps). No medium branch:
+`manifest-register.ts:87-89` switches on `span.kind` and nothing else.
+
+*Two store defects this surfaced — both outside 785, neither worked around:*
+1. **Content-hash dedup overwrites a caller-supplied name.** `service.ts:4048`
+   consults the hash lookup even when an explicit `id` was supplied and did not
+   match, then takes `name: existing?.name ?? input.name`. Payloads with identical
+   content therefore display a twin's name: 1 of 135 and **77 of 554**. Ids, spans,
+   hashes and `derivedBy` are all correct; the intended name survives in `aliases[]`.
+   Display only, and still wrong.
+2. **Re-running grows `tool-run-record` artifacts** by one per payload per run
+   (+136 / +555). The payload-source artifacts are properly idempotent.
+
 **A3 — LoaderModel records.** One per project: `cart-lut`, `cross-bank-packer`.
 Reserve `cart-chain` for the index-less case (no code — `kind` is an open string).
 The record names where the index lives and cites the backing disassembly artifact.
 The *format* of a project's index stays in that project; this repo records that
 there is one, of which kind, and where.
-*AC:* "Loader model not identified" is gone in both projects; each payload's
-`derivedBy` resolves to a record.
+*AC:* `list_loader_models` reports one model per project and every payload's
+`derivedBy` resolves to it. **Both projects reached this 2026-08-11** (0 → 1 model,
+135 and 554 payloads resolving).
+
+*AC correction, 2026-08-11:* this originally read *"'Loader model not identified' is
+gone in both projects"*, which A3 cannot deliver. That banner (`ui/src/App.tsx:359`)
+renders `projectProfile.loaderModel` — a free-text profile field with no connection to
+the LoaderModel store, and not writable from the default MCP surface
+(`save_project_profile` is not in `DEFAULT_TOOLS`). Two records of one fact with
+nothing reconciling them, which is the failure mode this spec exists to attack. Making
+the banner read the store is **B4/D work**, not A3.
 
 **A4 — Cartridge identity on the layout.** Persist hash + hardware type + bank count
 + image size with the imported layout, and surface a mismatch against the artifact
@@ -262,14 +303,52 @@ not from the missing file.
 
 ### Part C — TRX64 + C64RE: the cart read-set
 
-**C1 — `CART_READ` lane (TRX64).** The bank analogue of `BLOCK_READ (0x35)`: while
-armed, count reads served out of cart space and flush one record per bank residency
-on a bank switch — `{cycle, bank, slot, off_lo, off_hi, bytes}`. Cart-side truth at
-the chip read, independent of when or whether the C64 copied anything, and
-loader-agnostic. Armed-only, on its own channel, never in a parity trace. Mirrors the
-existing per-sector delta at the head-sample boundary.
+**C1 — `CART_READ` lane (TRX64). BUILT 2026-08-11.** The bank analogue of
+`BLOCK_READ (0x35)`: while armed, count reads served out of cart space and flush one
+record per bank residency on a bank switch — `{cycle, bank, slot, off_lo, off_hi,
+bytes}`. Cart-side truth at the chip read, independent of when or whether the C64
+copied anything, and loader-agnostic. Armed-only, on its own channel, never in a
+parity trace. Mirrors the existing per-sector delta at the head-sample boundary.
 *AC:* on a multi-bank cartridge the lane records the banks the title actually read,
 with the active bank tracked correctly across a `$de00` switch.
+
+*As built:* `TraceOp::CartRead = 0x36`, 20 bytes — op(1) cycle(f64) bank(u16)
+slot(u8) off_lo(u16) off_hi(u16) bytes(**u32**). Own domain `cart-read` → own
+channel → own `cart-read-row` capture kind; `Machine::arm_cart_reads` /
+`drain_cart_reads`; the accumulator is `cart::CartReadSet`, fed from the ONE bus
+chokepoint `FullBus::cart_read`. Four things the build learned that this section had
+assumed away:
+
+1. **One residency per SLOT, not per bank.** A title reading ROML and ROMH of the
+   same bank alternately would ping-pong a single residency into thousands of
+   records. Each window closes only when its OWN bank changes.
+2. **`bytes` is 32-bit.** A sector caps at ~300 latched bytes; a bank being
+   EXECUTED out of serves millions of reads in one residency (measured: 1.84 M in a
+   30 s boot). A u16 would have reported a wrong number, not a big one.
+3. **There is no `current_bank` to read.** MegaByter keeps its bank in
+   `register00`, C64MegaCart assembles 14 bits from `$DE00`+`$DF00`, GMod4 keeps a
+   separate bank per window per banking context with `$E000` unbanked — and
+   `get_state()`, the one place a bank was already exposed, CLONES the whole flash
+   array to produce it. Hence `CartMapper::active_bank(addr)`, a field read, taking
+   the ADDRESS so each family answers the way its own `read()` resolves it.
+4. **A store must not fabricate a read.** The store path reads the pre-write byte
+   for the trace/undo old value, and `$8000-$BFFF` is inside that window — so a
+   write to RAM *under* a banked-in ROM looked like a cart read. Accounting is
+   suspended around that instrumentation read.
+
+*Evidence (2026-08-11, both proof cartridges, isolated `trx64cli boot --trace`):*
+`cross-bank-packer` title, EasyFlash hw 32 — 536 records, 45 distinct (bank, slot),
+321 bank transitions; the level load reads bank 17 `$163A-$1FFF` then bank 18
+`$0000-$0C67`, one gapless stream of 5678 bytes crossing the bank boundary. `cart-lut`
+title, MegaByter hw 86 — 12 records: bank 15 `$1777-$1FFF` → bank 16 `$0000-$1FFF` →
+bank 17 `$0000-$1FFF` → bank 18 `$0000-$0047`, every record's `off_lo` exactly the
+previous record's `off_hi + 1`, byte count equal to span length throughout. Both
+walks reconstruct byte-exactly from the lane alone.
+
+*Note for C2:* the C64RE reader now knows the opcode (`binary-format.ts` — enum,
+size, decode), so a capture containing the lane is readable; it previously threw
+`cannot skip opcode 0x36`. The `loader-lens` / `validate-extraction` widening is
+still C2's work.
 
 **C2 — Widen the C64RE side.** `source` in `loader-lens.ts` becomes
 `{halftrack,track,sector} | {bank,slot,offset}`; `validate-extraction.ts` gains the

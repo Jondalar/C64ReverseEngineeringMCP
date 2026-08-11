@@ -49,6 +49,7 @@ export enum TraceOp {
   GCR_EVENT = 0x33,       // RESERVED (no live producer)
   DRIVE_HEAD = 0x34,      // Spec 784 — 1541 disk-mechanism head (halftrack+sector), loader-lens armed-only
   BLOCK_READ = 0x35,      // Spec 784 — 1541 read-set (halftrack+sector+bytes read off it), loader-lens armed-only
+  CART_READ = 0x36,       // Spec 785 C1 — CARTRIDGE read-set (bank+slot+offset range+served reads), armed-only
   MEDIA_WRITE = 0x40,     // RESERVED (no live producer)
 }
 
@@ -72,6 +73,7 @@ const SIZE: Record<number, number> = {
   [TraceOp.GCR_EVENT]: 12,        // reserved
   [TraceOp.DRIVE_HEAD]: 10,       // Spec 784 — cycle f64(8) + halftrack(1) + sector(1)
   [TraceOp.BLOCK_READ]: 12,       // Spec 784 — cycle f64(8) + halftrack(1) + sector(1) + bytes u16(2)
+  [TraceOp.CART_READ]: 19,        // Spec 785 — cycle f64(8) + bank u16(2) + slot(1) + offLo u16(2) + offHi u16(2) + bytes u32(4)
   [TraceOp.MEDIA_WRITE]: -1,      // reserved (variable)
 };
 
@@ -264,7 +266,11 @@ export interface DecodedEvent {
   addr?: number; value?: number; access?: number; oldValue?: number;
   lines?: number; rasterY?: number; kindCode?: number; reg?: number;
   halftrack?: number; sector?: number; // Spec 784 DRIVE_HEAD (0x34) + BLOCK_READ (0x35)
-  bytes?: number;                       // Spec 784 BLOCK_READ (0x35) — GCR bytes read off the sector
+  bytes?: number;                       // BLOCK_READ (0x35) GCR bytes off the sector / CART_READ (0x36) served reads
+  // Spec 785 C1 CART_READ (0x36): the bank residency — which bank served which
+  // window (0 = ROML $8000-$9FFF, 1 = ROMH $A000-$BFFF / $E000-$FFFF), and the
+  // inclusive range of 8K-window offsets it was read at.
+  bank?: number; slot?: number; offLo?: number; offHi?: number;
   label?: string;
 }
 
@@ -347,6 +353,18 @@ export function decodeEvent(buf: Uint8Array, off: number, version: number = C64R
       const sector = buf[o++];
       const bytes = dv.getUint16(o, true); o += 2;
       return { ev: { op, cycle, halftrack, sector, bytes }, next: o };
+    }
+    case TraceOp.CART_READ: {
+      // Spec 785 C1 — cart read-set: while `bank` served `slot`, the CPU read
+      // `bytes` bytes out of it, touching window offsets offLo..=offHi. `cycle`
+      // is the C64 clock of the residency's FIRST served read. This lane proves
+      // USED and never UNUSED — a lower bound on ONE run (785 §2.1).
+      const bank = dv.getUint16(o, true); o += 2;
+      const slot = buf[o++];
+      const offLo = dv.getUint16(o, true); o += 2;
+      const offHi = dv.getUint16(o, true); o += 2;
+      const bytes = dv.getUint32(o, true); o += 4;
+      return { ev: { op, cycle, bank, slot, offLo, offHi, bytes }, next: o };
     }
     case TraceOp.MARK: {
       const len = dv.getUint16(o, true); o += 2;
