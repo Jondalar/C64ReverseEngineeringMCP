@@ -1,30 +1,38 @@
-# Spec 716 - Installation, Versioning, and Distribution
+# Spec 716 — C64RE distribution: npm package + install docs
 
-**Status:** DRAFT  
-**Owner:** Runtime / product infrastructure  
-**Scope:** Installation and distribution documentation only; no emulator-fidelity or feature work  
-**Depends on:** Current GPL licensing and committed runtime assets (`README.md`, `LICENSE`, `package.json`, committed reSID WASM)  
-**Deliverable:** A root-level `INSTALL.md` next to `README.md`, plus an explicit versioning and npm-publication decision
+**Status:** SCOPED 2026-08-11 (was DRAFT 2026-05-24). **Repo:** C64RE.
+**Counterpart:** [801](../specs/_archive/801-artifact-distribution.md) did the same job for
+TRX64 and is closed. This is the C64RE half it deferred.
+
+## 0. What changed since the draft
+
+The draft was written when nothing shipped anywhere. Since then TRX64 solved the same
+problem end to end, and its answers are the template — do not re-derive them:
+
+- **Versioning**: one version for the whole workspace, and the artifact tag equals what
+  the binary reports (`--version`). A mismatch fails the build. §2.2 below still holds;
+  TRX64 proved it is workable.
+- **Publishing**: tag-driven, from CI, per platform, with checksums beside each artifact.
+- **The package manager is the install doc.** `brew install trx64` replaced a page of
+  per-OS instructions. Whatever §3 and §4 below say about a matrix of environments, the
+  cheapest version of it is a package that carries its own prerequisites.
+- **What people actually hit** is worth more than a complete matrix: a missing
+  prerequisite must fail with a message that says what to do (see the ROM-missing
+  messages TRX64 grew on 2026-08-11), and a fresh clone must not silently lack something
+  a gitignored directory used to provide.
 
 ## 1. Problem
 
-C64RE is now presented as an MCP server, runtime, and browser workbench, but
-installation is still documented as a short source-checkout snippet in the
-README. That is insufficient for an external user or a fresh LLM session:
+C64RE runs **only from a source checkout**: clone, `npm install`, run through `tsx`. That
+is fine for its author and wrong for everyone else.
 
-- macOS, native Windows/PowerShell, Windows/WSL, Linux, and container use are
-  materially different launch environments;
-- MCP host configuration needs platform-correct command/path examples;
-- the committed reSID WASM means normal users do **not** need Emscripten, while
-  maintainers changing the SID source do;
-- the project already declares `version: 0.1.0` but has no stated release
-  policy;
-- an npm registry installation is not yet a supported product surface because
-  the package currently has no `bin`, no `engines`, no publish allowlist, and
-  no proven package-install smoke.
+801 §C.4 deferred npm with an explicit condition — *revisit when someone needs to run
+C64RE without a checkout*. That condition is now met:
 
-The installation surface must become deliberate before runtime/monitor/rewind
-work makes the product wider and harder to package later.
+- an external contributor hit a bug caused by exactly this shape (a gitignored
+  `node_modules/` meant a fresh clone silently had no trace reader — Spec 802);
+- TRX64 is installable in one line while the workbench that consumes it is not;
+- an MCP host config has to point at a checkout path, which differs per machine.
 
 ## 2. Decision Summary
 
@@ -41,41 +49,29 @@ Create `INSTALL.md` at repository root. Use uppercase to match `README.md`,
 
 ### 2.2 Versioning
 
-Introduce formal semantic versioning now.
+Semantic versioning, `0.x` while the APIs, checkpoint formats and monitor surface are
+still moving. Minor versions may break; patch versions do not intentionally change MCP
+tool schemas, `.c64re` compatibility, or command-line invocation. One authoritative
+version surface: `package.json`, with the release tag `v<version>`. TRX64 additionally
+fails its build when the tag and the binary disagree — worth copying.
 
-- Keep the current line in the `0.x` range while APIs, checkpoint formats, and
-  runtime/monitor features remain in active development.
-- Treat minor versions (`0.2.0`, `0.3.0`) as potentially breaking until
-  `1.0.0`, but document incompatibilities in release notes.
-- Treat patch versions as fixes that do not intentionally change public MCP
-  tool schemas, `.c64re` format compatibility, or command-line invocation.
-- Add a single authoritative version surface: `package.json` plus release tag
-  `v<package-version>`.
-- The first documented install baseline may remain `0.1.0`; this spec does not
-  require publishing a release.
+### 2.3 npm — now the point of this spec
 
-### 2.3 npm Registry Strategy
+Publish a scoped package so C64RE can be installed without a checkout:
 
-Do **not** publish the current package as-is. Prepare for an npm package, then
-make publication a gated follow-up decision.
+- `@c64re/mcp`, if the namespace is free;
+- an executable `c64re-mcp` via `package.json` `bin`, so an MCP host config is one
+  command rather than a machine-specific path;
+- source-checkout installation stays supported for contributors and UI work.
 
-Recommended target:
+**First step, before any publishing:** make the package installable at all. It currently
+depends on a checkout — the pipeline is built by `tsc` into `dist/`, `tsx` is a runtime
+dependency, and the analysis pipeline is a sibling directory. Determine what a published
+tarball must actually contain and whether the entry point runs from `node_modules`
+without a repo around it. That is the gate; publishing is a decision after it.
 
-- a scoped public package, e.g. `@c64re/mcp`, if the namespace is available;
-- an executable command such as `c64re-mcp` exposed through `package.json`
-  `bin`;
-- source-checkout installation remains supported for contributors and local
-  runtime/UI development.
-
-Rationale:
-
-- `npx @c64re/mcp` is the cleanest cross-platform MCP-host configuration;
-- package publication without `bin`, asset verification, license inventory, and
-  installed-package tests would only move today’s installation ambiguity into
-  the registry;
-- the GPL-licensed reSID/VICE-derived content may be distributed, but the
-  package must carry the license/provenance files and corresponding sources or
-  source references required by the repository policy.
+**Non-goals.** Bundling ROMs (Commodore's property — see the ROM handling TRX64 settled).
+A GUI installer. Publishing the Rust crates (801 settled that: no crates.io).
 
 ## 3. User-Facing Install Matrix
 

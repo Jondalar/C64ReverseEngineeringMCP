@@ -9,7 +9,7 @@ Numbers are **shared with TRX64** (`../../TRX64/docs/`) — one range, one regis
 
 | # | Spec | Status | What is left | Touched |
 |---|---|---|---|---|
-| 716 | [Installation, Versioning, Distribution](716-installation-versioning-distribution.md) | NEEDS SCOPING | DRAFT. Largely overtaken: versioning, releases and distribution now exist for TRX64 (799/801). What remains is the C64RE half. | 2026-05-24 |
+| 716 | [C64RE distribution: npm + install docs](716-installation-versioning-distribution.md) | READY | The C64RE counterpart 801 deferred, now scoped. First step is a gate, not a publish: work out what a published tarball must contain and whether the entry point runs from `node_modules` without a repo around it. TRX64's answers (one version, tag = `--version`, tag-driven CI, the package manager as the install doc) are the template. | 2026-08-11 |
 | 720 | [Disassembly Output Quality](720-disasm-output-quality.md) | READY | DRAFT. Heuristic auto-labels + box headers in the phase-1 disassembler. Core C64RE meaning. | 2026-05-23 |
 | 740 | [Project Wiki + Knowledge Retrieval](740-semantic-search-vector-index.md) | READY | 740.1 shipped. Open: **740.2** wiki authoring (`project_wiki_update`). | 2026-05-31 |
 | 748 | [Project Steering + Agent Discipline](748-project-steering-and-agent-discipline.md) | READY | 748.1 + 748.2 shipped (`e2e:748` 10/10). Open: **748.3** trace→cartography extractor. | 2026-06-06 |
@@ -20,7 +20,6 @@ Numbers are **shared with TRX64** (`../../TRX64/docs/`) — one range, one regis
 | 784 | [Loader-lens extraction](784-loader-lens-extraction.md) | READY | Per-project extractor + trace-validated loader lens. Buildable now. | 2026-07-04 |
 | 785 | [CRT extraction](785-crt-extraction.md) | BLOCKED | Needs a real cartridge sample. | 2026-07-04 |
 | 800 | [Runtime invisible to the RE agent](800-runtime-invisible-setup-guided.md) | READY | Env-gated barrier shipped. Open: guided setup probe + protocol-version handshake. | 2026-08-05 |
-| 801 | [Artifact distribution](801-artifact-distribution.md) | NEEDS SCOPING | Overtaken in parts — ROM-less image, tag-driven publishing, per-platform binaries all shipped by other routes. Open: whether the GHCR plan is still wanted at all. | 2026-08-05 |
 
 **READY** = the next step is written down; someone could start tomorrow.
 **NEEDS SCOPING** = something is open but nobody has said what, so the first task is to

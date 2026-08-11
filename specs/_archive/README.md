@@ -12,7 +12,7 @@ was binding doctrine, no longer is (the surviving rules live in `../../DOCTRINE.
 
 ## Recorded
 
-The 9966 specs below carry the decision that closed them.
+The 0 specs below carry the decision that closed them.
 
 | # | Verdict | Spec | Decision / what shipped |
 |---|---|---|---|
@@ -57,3 +57,4 @@ searchable, referenced from commit messages and code comments — but carry no p
 decision record, and reading one is not evidence that anything in it still holds.
 Check `../README.md` and `../../DOCTRINE.md` first; if a rule is not in either, it does
 not bind.
+| 801 | **DONE** | [Artifact distribution](801-artifact-distribution.md) | TRX64-primary by design; the C64RE/npm half was explicitly deferred in §C.4. Delivered 2026-08-10/11 by other routes than the ones written down: ROM-less image, tag-driven publishing, per-platform binaries for five targets, a Homebrew tap that updates itself on release, and version discipline (one workspace version, image tag = binary `--version`). Of the three open questions, multi-arch is **built** (arm64 for Linux and Windows) and release notes are **hand-written per tag**. GHCR was NOT used — images build on the self-hosted runner and go to a private registry. The deferred C64RE/npm half moved to **716**, whose revisit condition ("someone needs to run C64RE without a checkout") is now met. |
