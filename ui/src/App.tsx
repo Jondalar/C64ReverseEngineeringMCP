@@ -340,6 +340,14 @@ function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeM
     const unclaimed = coverage.reduce((n, c) => n + c.unclaimedBlocks, 0);
     const coverageComplete = coverage.length > 0 && unclaimed === 0;
     const worst = [...coverage].filter((c) => c.unclaimedBlocks > 0).sort((a, b) => b.unclaimedBlocks - a.unclaimedBlocks);
+    // Spec 785 B1 — bytes, not just blocks: a block 1 % claimed and one 99 %
+    // claimed both read "unclaimed", so the block count alone cannot say how
+    // much work is left. Used = payload claims; Identified = disassembly.
+    const dataBytes = coverage.reduce((n, c) => n + (c.dataBytes ?? 0), 0);
+    const usedBytes = coverage.reduce((n, c) => n + (c.usedBytes ?? 0), 0);
+    const identifiedBytes = coverage.reduce((n, c) => n + (c.identifiedBytes ?? 0), 0);
+    const pct = (n: number) => (dataBytes > 0 ? `${Math.round((n / dataBytes) * 100)} %` : "—");
+    const kib = (n: number) => (n >= 1024 ? `${(n / 1024).toFixed(1)} KiB` : `${n} B`);
     return {
       intent: "Open up the medium: extract and inventory every payload, map the loader / packer chain, and decide the analysis approach. Disk and Cartridge are the primary surfaces here.",
       known: [
@@ -347,6 +355,7 @@ function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeM
         ...(disks ? [{ label: "Disk images", value: `${disks} mounted`, ok: true }] : []),
         ...(carts ? [{ label: "Cartridges", value: `${carts} mapped`, ok: true }] : []),
         ...(coverage.length ? [{ label: "Block coverage", value: `${dataBlocks - unclaimed}/${dataBlocks} data blocks attributed${unclaimed ? ` · ${unclaimed} unclaimed` : ""}`, ok: coverageComplete }] : []),
+        ...(dataBytes > 0 ? [{ label: "Bytes used / identified", value: `${pct(usedBytes)} fetched by the loader · ${pct(identifiedBytes)} identified (of ${kib(dataBytes)} data)`, ok: usedBytes >= dataBytes }] : []),
         { label: "Loader model", value: loaderModel ?? "not identified", ok: !!loaderModel },
         { label: "Findings so far", value: String(findings), ok: findings > 0 },
       ],

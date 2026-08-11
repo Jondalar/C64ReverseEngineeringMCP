@@ -4,7 +4,7 @@
 // assert the neutral MediumBlockCoverage. THE point: disk sectors and cart
 // chips resolve to the same {dataBlocks, attributed, unclaimed} shape — no
 // disk/cart branch above the block. Run: npm run e2e:medium-coverage (build:mcp first).
-import { computeDiscoveryCoverage, discoveryCoverageComplete } from "../dist/project-knowledge/medium-coverage.js";
+import { computeDiscoveryCoverage, computeMediumCoverage, discoveryCoverageComplete } from "../dist/project-knowledge/medium-coverage.js";
 import { applyDiscoveryCoverageGate, applyMediaFloor } from "../dist/agent-orchestrator/lifecycle.js";
 
 let pass = 0, fail = 0;
@@ -83,6 +83,64 @@ done.mediums[1].files[1].spans = [slotSpan(1, 0, 8192)];
 ok(discoveryCoverageComplete(computeDiscoveryCoverage(done)) === true, "all data claimed → discovery complete");
 // no media at all → vacuously complete (nothing to inventory).
 ok(discoveryCoverageComplete(computeDiscoveryCoverage({ mediums: [] })) === true, "no media → vacuously complete");
+
+// ---------------------------------------------------------------------------
+// Spec 785 B1 + B2 — three axes in bytes, payload claims apart from meaning.
+// ---------------------------------------------------------------------------
+console.log("\nSpec 785 — Data / Used / Identified\n");
+
+const cartMedium = (id, files, resident, empty, chips) => ({
+  id, mediumKind: "cartridge", mediumLabel: id, artifactId: id,
+  capacityBytes: 8192 * chips.length, blockSize: 8192,
+  grid: {
+    kind: "bank-grid",
+    banks: chips.map((c) => ({ bank: c.bank })),
+    slotLayout: { slotsPerBank: 1, bankSize: 8192, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: true, bankCount: chips.length, totalRomBytes: 8192 * chips.length },
+    chips,
+  },
+  files, resident, empty, boot: undefined,
+});
+const chip = (bank) => ({ bank, loadAddress: 0x8000, size: 8192, slot: "ROML" });
+const file = (id, spans) => ({ id, name: id, origin: "registered-payload", spans, length: spans.reduce((n, s) => n + s.length, 0), notes: [], sourceRefs: [] });
+const island = (id, spans) => ({ id, role: "code", spans });
+
+// B2 — the exact failure the spec was written from: zero payloads, full
+// disassembly coverage. Code islands are evidence of MEANING, never evidence
+// that the loader fetched anything.
+const islandsOnly = computeMediumCoverage(cartMedium("islands", [], [
+  island("i0", [slotSpan(0, 0, 4096)]), island("i1", [slotSpan(0, 4096, 4096)]),
+], [], [chip(0)]));
+ok(islandsOnly.dataBlocks === 1 && islandsOnly.attributedBlocks === 0 && islandsOnly.unclaimedBlocks === 1,
+  "B2: 0 payloads + full code-island coverage → NOT attributed", JSON.stringify(islandsOnly));
+ok(islandsOnly.identifiedBytes === 8192 && islandsOnly.usedBytes === 0,
+  "B2: the islands still count as Identified, on their own axis", `ident=${islandsOnly.identifiedBytes} used=${islandsOnly.usedBytes}`);
+ok(discoveryCoverageComplete([islandsOnly]) === false, "B2: island-only cartridge does not complete discovery");
+
+// B1 — a chip 1 % claimed and a chip 99 % claimed must not report the same.
+const thin = computeMediumCoverage(cartMedium("thin", [file("f", [slotSpan(0, 0, 82)])], [], [], [chip(0)]));
+const thick = computeMediumCoverage(cartMedium("thick", [file("f", [slotSpan(0, 0, 8110)])], [], [], [chip(0)]));
+ok(thin.unclaimedBlocks === thick.unclaimedBlocks, "B1: both still read 1 unclaimed BLOCK (the old signal)");
+ok(thin.usedBytes === 82 && thick.usedBytes === 8110 && thin.unclaimedBytes === 8110 && thick.unclaimedBytes === 82,
+  "B1: bytes separate 1 %-covered from 99 %-covered", `${thin.usedBytes} vs ${thick.usedBytes}`);
+
+// B1 — No-Data is its own axis and never inflates coverage.
+const erased = computeMediumCoverage(cartMedium("erased", [], [], [
+  { id: "e", reason: "flash-empty-ff", spans: [slotSpan(0, 0, 8192)] },
+], [chip(0)]));
+ok(erased.dataBlocks === 0 && erased.emptyBytes === 8192 && erased.dataBytes === 0,
+  "B1/B3: a fully erased bank is No Data, not unclaimed", JSON.stringify(erased));
+
+// A payload span landing on erased bytes is not counted as Used data.
+const overErased = computeMediumCoverage(cartMedium("over", [file("f", [slotSpan(0, 0, 8192)])], [], [
+  { id: "e", reason: "flash-empty-ff", spans: [slotSpan(0, 4096, 4096)] },
+], [chip(0)]));
+ok(overErased.dataBytes === 4096 && overErased.usedBytes === 4096 && overErased.attributedBlocks === 1,
+  "B1: Used is clipped to the Data part of the block", JSON.stringify(overErased));
+
+// The disk reader emits the SAME byte axes — no branch above the block layer.
+const diskCov = computeDiscoveryCoverage(view).find((c) => c.mediumKind === "disk");
+ok(diskCov.dataBytes === 4 * 254 && diskCov.usedBytes === 2 * 254 && diskCov.emptyBytes === 254,
+  "disk emits the same Data/Used/Empty byte axes", JSON.stringify({ d: diskCov.dataBytes, u: diskCov.usedBytes, e: diskCov.emptyBytes }));
 
 console.log(`\n${fail === 0 ? "GREEN" : "RED"}  medium-coverage: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

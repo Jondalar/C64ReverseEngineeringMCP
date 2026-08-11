@@ -1758,8 +1758,11 @@ export const WorkspaceUiSnapshotSchema = z.object({
   lifecyclePhase: z.enum(["onboarding", "discovery", "re", "build", "release"]).optional(),
   // Spec 773 — uniform block-coverage per medium (disk + cart, one shape), the
   // signal behind the Discovery→RE gate. unclaimedBlocks>0 = data-bearing blocks
-  // no payload/region has claimed yet → the Discovery cockpit surfaces
+  // no payload has claimed yet → the Discovery cockpit surfaces
   // "disassemble to attribute". Derived (medium-coverage.ts); UI never writes it.
+  // Spec 785 B1/B2 — the same three axes byte-exact: Data (dataBytes /
+  // emptyBytes), Used (usedBytes / unclaimedBytes, payload claims only) and
+  // Identified (identifiedBytes / unidentifiedBytes, disassembly-derived).
   mediumCoverage: z
     .array(
       z.object({
@@ -1769,6 +1772,12 @@ export const WorkspaceUiSnapshotSchema = z.object({
         dataBlocks: z.number().int().nonnegative(),
         attributedBlocks: z.number().int().nonnegative(),
         unclaimedBlocks: z.number().int().nonnegative(),
+        dataBytes: z.number().int().nonnegative().default(0),
+        emptyBytes: z.number().int().nonnegative().default(0),
+        usedBytes: z.number().int().nonnegative().default(0),
+        unclaimedBytes: z.number().int().nonnegative().default(0),
+        identifiedBytes: z.number().int().nonnegative().default(0),
+        unidentifiedBytes: z.number().int().nonnegative().default(0),
       }),
     )
     .optional(),

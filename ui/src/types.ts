@@ -613,6 +613,15 @@ export interface MediumBlockCoverage {
   dataBlocks: number;
   attributedBlocks: number;
   unclaimedBlocks: number;
+  // Spec 785 B1/B2 — the three axes byte-exact. Data = dataBytes/emptyBytes,
+  // Used = usedBytes/unclaimedBytes (payload claims only), Identified =
+  // identifiedBytes/unidentifiedBytes (disassembly-derived meaning).
+  dataBytes?: number;
+  emptyBytes?: number;
+  usedBytes?: number;
+  unclaimedBytes?: number;
+  identifiedBytes?: number;
+  unidentifiedBytes?: number;
 }
 
 export type ProjectAuditSeverity = "ok" | "low" | "medium" | "high";
