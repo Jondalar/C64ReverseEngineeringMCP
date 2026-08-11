@@ -63,27 +63,19 @@ workbench specs kept reading as imminent.
 | 773 | Workflow Cockpit: the 5-phase RE project lifecycle | ACTIVE — reframe C64RE from a data/relations browser into a workflow workbench: Onboarding · Discovery · Reverse Engineering · Build · Release; existing views repositioned as phase tools (Disk + CRT/Cartridge stay FIRST-CLASS in Discovery+RE); thin lifecycle axis + crosswalk over the existing engines (no rebuild). Anchor: product-vision §2A. |
 | 774 | Capability Cut: static capability → `trx64-static` | ACTIVE (cross-repo) — decode/parse/classify capability migrates phased into `trx64-static`; schema-map + firehose gate + findings + semantic disasm + KickAsm/byte-verify rebuild stay C64RE forever. **Step 1 DONE 2026-07-02**; next: media format-parse (step 2), classifiers (step 3). |
 
-## GOVERNING / DOCTRINE (rules + umbrella contracts — still binding, not active implementation)
+## GOVERNING / DOCTRINE
 
-**The doctrine itself lives in `DOCTRINE.md`** (rules + reasoning + what was retired
-and why), with the binding rules restated one line each in `CLAUDE.md`. This section is
-a **pointer**, not a third copy — it used to be a second statement of the same rules,
-and the three drifted apart. What belongs here is which spec a rule came from and
-whether it is still live.
+Rules + reasoning: `DOCTRINE.md`. The binding ones are restated in `CLAUDE.md`.
+This is the index — which spec a rule came from, and whether it still binds.
 
-The follow-up this section named for weeks — realigning CLAUDE.md's mandatory framing
-for 715/723 — was done on 2026-08-11: 715's "is it green" authority passed to **783**
-(TRX64's own gates), 723 stayed binding, and the five retired blocks moved out of
-CLAUDE.md into `DOCTRINE.md`'s history section.
-
-| Spec | Title | Role |
+| Spec | Title | Status |
 |---|---|---|
-| 610 | 1541 Parity Rebuild Charter | Governs remaining 1541 fidelity work on the TS oracle. Dormant. |
-| 612 | 1541 Port Fidelity Rules + TODO | **RETIRED as a mandate** 2026-07-15 (VICE is a reference, not an authority). The naming law + prohibition list stay readable as the record of why the port looks the way it does — `DOCTRINE.md` § retired. CI gate `check:1541-fidelity` still runs on `vice1541/**`. |
-| 620 | Port-Bug Forensic Doctrine | **RETIRED as a mandate** 2026-07-15. Its technique survives as a binding rule ("read before you hypothesise", first-divergence over statistics) — `CLAUDE.md` rule 5. |
-| 715 | Runtime Product Proof Baseline | **RETIRED as the authority** — "is it green" passed to **783**. The oracle PNGs under `samples/screenshots/proof/` still describe correct output. |
-| 723 | Single-Path Runtime | **BINDING** — `CLAUDE.md` rule 1, gate `scripts/probe-single-path.mjs`. Governs the TS runtime, which is now the oracle; the rule holds because the code is still there. |
-| 746 | Live Trace + Scrub Workbench (charter) | Trace core shipped / trace itself is TRX64-owned. Remaining **scrub-UI slices** are the live part. |
+| 610 | 1541 Parity Rebuild Charter | dormant (TS oracle only) |
+| 612 | 1541 Port Fidelity Rules + TODO | retired as a mandate 2026-07-15; CI gate `check:1541-fidelity` still runs |
+| 620 | Port-Bug Forensic Doctrine | retired 2026-07-15; its technique = `CLAUDE.md` rule 5 |
+| 715 | Runtime Product Proof Baseline | retired as the authority → **783** |
+| 723 | Single-Path Runtime | **BINDING** — `CLAUDE.md` rule 1 |
+| 746 | Live Trace + Scrub Workbench (charter) | trace core shipped; scrub-UI slices open |
 
 ## DONE (shipped + on master)
 
@@ -140,9 +132,9 @@ _None currently on the board — 600/601 (→ 715) and 745 (→ 757), 765 (→ 7
 
 ## NEEDS-RECONCILE (a decision/verification is open — not a free-form status)
 
-_None — 713 dropped in the 2026-07-03 sweep. One open item remains, but it is a
-doctrine-timing decision, not a spec-reconcile: **retire 715/723 + update CLAUDE.md
-now, or when the TS oracle is actually retired** (see GOVERNING)._
+_None. The one open item — retire 715/723 and realign CLAUDE.md now, or wait for the
+TS oracle to be retired — was decided on 2026-08-11: now. 715's authority passed to 783,
+723 stays binding, and the doctrine moved to `DOCTRINE.md`._
 
 ## TRX64 specs (shared range · files under `../TRX64/docs/`)
 
