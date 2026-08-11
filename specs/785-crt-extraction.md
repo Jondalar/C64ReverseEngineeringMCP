@@ -1,6 +1,7 @@
 # Spec 785 — Cartridge Extraction: coverage that tells the truth, + the cart read-set
 
-**Status:** READY 2026-08-11 — rewritten against two real cartridge projects (§4).
+**Status:** IN BUILD 2026-08-11 — Part B (B1–B4) and A4 built and measured on
+copies of both proof projects. A1–A3 and Part C open.
 **Repos:** cross-repo — Part C = TRX64 (`../TRX64`), Parts A/B/D = C64RE.
 **Number:** 785 (shared board `specs/README.md`). **Pendant of** Spec 784.
 
@@ -184,6 +185,16 @@ there is one, of which kind, and where.
 the finding names.
 *AC:* the `cart-lut` project's double registration is visible as a mismatch rather
 than as two identical-looking cartridges.
+*BUILT 2026-08-11* — `src/project-knowledge/cartridge-identity.ts`. sha256 +
+hardware type + bank/chip count + ROM bytes + image size ride on
+`CartridgeLayoutCartridge.identity` and on `MediumLayout.identity`; the .crt
+header supplies the hardware type and name for the comparison. Four mismatch
+classes: image size, hardware type, name, and "N manifests registered at one
+path" (the overwrite that produced the double registration). Surfaced in the
+Cartridge grid and as a high-severity `cartridge-identity-mismatch` audit
+finding. Measured: the two `cart-lut` registrations now report 4 and 1
+mismatches respectively — 1017856 B vs 1050688 B, hw 19 vs 86 — where before
+they were byte-identical view entries. Gate: `npm run e2e:785-identity`.
 
 ### Part B — C64RE: three axes instead of one flag
 
@@ -192,6 +203,12 @@ than as two identical-looking cartridges.
 `medium-coverage.ts:113`.
 *AC:* a chip 1 % covered and one 99 % covered no longer report the same thing;
 the disk path's numbers are unchanged.
+*BUILT 2026-08-11* — `dataBytes / emptyBytes / usedBytes / unclaimedBytes /
+identifiedBytes / unidentifiedBytes` ride alongside the block counts. Each grid
+reader emits one neutral `BlockCoverage` per physical block and a single shared
+aggregator produces `MediumBlockCoverage`, so the disk/cart branch is confined
+below the block layer. Disk numbers verified unchanged on four real D64s
+(741/597/144, 757/170/587, 756/114/642, 759/674/85).
 
 **B2 — Separate the claim classes.** `files` (payloads, from a LoaderModel) and
 `resident` (disassembly-derived regions) are unioned into one `claimSpans` today.
@@ -199,12 +216,26 @@ Data / Used / Identified needs them apart: a code island is evidence of *meaning
 never evidence that the loader fetched anything.
 *AC:* a project with 0 payloads and full disassembly coverage no longer reports
 complete attribution.
+*BUILT 2026-08-11* — `attributedBlocks` counts payload claims only; resident
+regions feed `identifiedBytes` on their own axis. This matches what the disk
+reader always did (a sector is attributed when the directory claims it, not when
+somebody disassembled it). Measured: EasyFlash 65/65/0 -> 65/4/61 (used 69 % of
+its data bytes, identified 100 %); `cart-lut` 124/124/0 -> 124/121/3.
+Consequence, intended: both proof projects now fail `discoveryCoverageComplete`
+and the lifecycle gate holds them in Discovery.
 
 **B3 — `empty` derived from the bytes.** `$ff` and `$00` runs are a byte scan, exact
 and cheap, and must not depend on an extractor having reported them: one proof
 project reports a single empty region across 520 KB, the other none at all.
 *AC:* No-Data regions are found on both proof cartridges without either project
 changing; a fully-erased bank is No Data, not unclaimed.
+*BUILT 2026-08-11* — both fill bytes scanned, on every cartridge regardless of
+`canFlash`, and the loader's index is no longer subtracted from the result (that
+is the Used axis, not the Data axis). The resident-segment scan reuses the same
+runs so the two layers cannot contradict each other. Measured, no project
+changed: EasyFlash 1 region / 260 B -> 11 / 26731 B; the masked-ROM `cart-lut`
+image 0 -> 7 regions / 18063 B, including 6875 B free in bank 0 and a 7428 B
+$00 tail in bank 123. "Where is there room for a patch" is answerable on both.
 
 **B4 — One cart view path.** Fold `lutChunks` / `payloadChunks` into one concept and
 make `medium-layout.json` the coverage source for cartridges in every project, not
@@ -212,6 +243,22 @@ only where an extractor happened to write one.
 *AC:* both proof projects have a `medium-layout.json` carrying their index; the
 Cartridge view labels what a span *is* (payload / code island / empty), which it
 does not today.
+*BUILT 2026-08-11* — every layout build refreshes `medium-layout.json`
+(`buildDiskLayoutView` and `buildCartridgeLayoutView` each persist it;
+`buildAllViews` builds disk + cart once and hands them straight over), and the
+audit counts it as a view so a project missing it reads as stale. `lutChunks`
+and `payloadChunks` are folded into one class with two sources: `spanClasses`
+enumerates every span as payload / code-island / empty with count + bytes, the
+grid renders it as a legend, and each span tooltip names its class. Measured:
+with `medium-layout.json` deleted, `build_cartridge_layout_view` alone rewrote
+it (2528956 B) carrying all 552 index entries.
+
+**Correction to §4.1.** "its 552 decoded entries live in a view that the
+coverage path never opens" is not right. `buildWorkspaceUiSnapshot` composes the
+medium layout in memory from the cartridge layout, so the 552 entries did reach
+coverage; what was missing was only the persisted file (and with it any external
+reader of `views/medium-layout.json`). The 124/124/0 reading came from B1+B2,
+not from the missing file.
 
 ### Part C — TRX64 + C64RE: the cart read-set
 
