@@ -1,6 +1,17 @@
 # Spec 784 — Abstract Loader-Lens Extraction Tooling
 
-**Status:** PROPOSED (ready for build)
+**Status:** DONE — closed 2026-08-11 after verifying every deliverable against the
+tree. B1 `loader-manifest.ts` · B2 `manifest-register.ts` · B3 LoaderModel records +
+`list_loader_models` · B4 `validate-extraction.ts` · C1 `steering-defaults.ts` ·
+A-side `loader-lens.ts` (`buildReadSet` / `buildLandingMap`) over TRX64's
+`BLOCK_READ (0x35)`. **A1 landed differently than written:** there is no `loaderTrace`
+daemon command — the `drive-mechanism` domain on the existing `runtime_trace_start`
+arms the lane and `runtime_loader_lens` reads the capture. The AC is met; the extra
+command was unnecessary. The status line said PROPOSED for weeks after all of this
+shipped — that failure is why Doctrine rule 9 exists.
+**Cartridge is Spec 785**, and 785 measured this file's cart claims: the loader-lens
+`source` union and `validate_extraction`'s medium-agnosticism are **disk-only** in
+the built code, whatever §B4/§A2 imply.
 **Repos:** cross-repo — Part A = TRX64 (`../TRX64`), Parts B/C = C64RE.
 **Number:** 784 (shared board `specs/README.md`).
 **Doctrine anchors:** `docs/agent-doctrine.md §0.7` (boot-chain crawl),

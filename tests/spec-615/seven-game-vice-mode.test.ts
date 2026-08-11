@@ -3,7 +3,7 @@
 // refuses bare `--drive1541=vice` (whitelist limited to `--only load-directory`
 // per Spec 611 phase 611.9 "default flip" gate, not yet lifted). This
 // 7-game test gives the same coverage as the runtime:proof baseline truth
-// table (specs/601-baseline-truth-table.md) but with drive1541="vice".
+// table (specs/_archive/601-baseline-truth-table.md) but with drive1541="vice".
 // Baseline target: ≥ 5/7 GREEN (LEGACY1541 reference per Spec 601).
 // Pass criterion per game: after the canonical LOAD + RUN sequence and
 // a stabilization window, the c64 PC must be OUTSIDE the KERNAL LOAD
