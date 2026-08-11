@@ -12,6 +12,7 @@
     "build:resid-wasm": "node scripts/build-resid-wasm.mjs",
     "check:1541-fidelity": "node scripts/check-1541-port-fidelity.mjs",
     "check:cart-type-ids": "node scripts/check-cart-type-ids.mjs",
+    "e2e:805-sandbox-batch": "npm run build:mcp && node scripts/e2e-805-sandbox-batch.mjs",
     "check:runtime-invisible": "npm run build:mcp && node scripts/check-runtime-invisible.mjs",
     "build:c64ref": "tsx src/c64ref-rom-knowledge.ts",
     "bootstrap:workspace": "npm run build:mcp && node scripts/bootstrap-existing-re-workspace.mjs",

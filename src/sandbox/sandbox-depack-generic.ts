@@ -143,7 +143,16 @@ function checkLayout(opts: SandboxDepackOptions, sourceLoad: number, residentEnd
 }
 
 // ── DEFAULT engine: run the depacker on the TRX64 real 6502 core. ──────────
-export function genericSandboxDepack(opts: SandboxDepackOptions): SandboxDepackResult {
+//
+// Spec 805 — ONE code path, batched. `trx64cli` costs ~740 ms to start (~650 ms of
+// it eager machine init, before argument parsing), so a campaign that depacked N
+// payloads one call at a time paid that N times: 101 chunks in one proof project
+// meant ~75 seconds of pure process startup for milliseconds of work. Everything
+// below therefore builds a batch SPEC rather than an argv, and the single-payload
+// entry point is a batch of one — so the two can never drift apart.
+
+/** The `trx64cli sandbox --batch` item for one depack, plus the temp files it needs. */
+function buildDepackItem(opts: SandboxDepackOptions, tmp: string, index: number): Record<string, unknown> {
   const residentEnd = opts.residentLoadAddress + opts.residentLoader.length;
   const sourceLoad = opts.sourceLoadAddress ?? residentEnd;
   checkLayout(opts, sourceLoad, residentEnd);
@@ -151,124 +160,183 @@ export function genericSandboxDepack(opts: SandboxDepackOptions): SandboxDepackR
   const zpLow = opts.sourceZpLow ?? 0x52;
   const zpHigh = opts.sourceZpHigh ?? 0x53;
 
+  const residentFile = join(tmp, `resident-${index}.bin`);
+  const packedFile = join(tmp, `packed-${index}.bin`);
+  writeFileSync(residentFile, opts.residentLoader);
+  writeFileSync(packedFile, opts.packed);
+
+  // Zero-page seeds. Order matches the TS spread: any caller-supplied initialZp
+  // first, then the src-pointer low/high bytes (which win) — trx64 applies --zp
+  // in order, last write wins.
+  const zp: string[] = [];
+  for (const [k, v] of Object.entries(opts.initialZp ?? {})) zp.push(`${hx2(Number(k))}=${hx2(v)}`);
+  zp.push(`${hx2(zpLow)}=${hx2(sourceLoad & 0xff)}`);
+  zp.push(`${hx2(zpHigh)}=${hx2((sourceLoad >> 8) & 0xff)}`);
+
+  const item: Record<string, unknown> = {
+    load: [`${residentFile}@${hx4(opts.residentLoadAddress)}`, `${packedFile}@${hx4(sourceLoad)}`],
+    entry: hx4(opts.entryPc),
+    directEntry: true,
+    // All-RAM: model the flat-64K TS shadow ($A000-$FFFF + $D000-$DFFF = RAM) so a
+    // faithful cross-check holds and $E000-dest writes are harvestable.
+    io: "$34",
+    instrCap: opts.maxSteps ?? 5_000_000,
+    // Harvest all of RAM once (the run is deterministic) and slice the dest window
+    // locally — final RAM == last write under all-RAM, so this is byte-identical to
+    // a targeted second-pass `--harvest $dest:len`.
+    harvest: ["$0000:0x10000"],
+    zp,
+  };
+  // Registers observed at ENTRY (only when the caller set them; trx64 direct-entry
+  // defaults A/X/Y=0, SP=$FD, P=$22 = the TS Cpu6502 defaults).
+  if (opts.initialA !== undefined) item.regA = hx2(opts.initialA);
+  if (opts.initialX !== undefined) item.regX = hx2(opts.initialX);
+  if (opts.initialY !== undefined) item.regY = hx2(opts.initialY);
+  if (opts.initialSp !== undefined) item.regSp = hx2(opts.initialSp);
+  if (opts.initialFlags !== undefined) item.regP = hx2(opts.initialFlags);
+  // stopPc → an extra sentinel breakpoint (trx64 maps a non-RTS-landing breakpoint
+  // to the "stop_pc" vocab).
+  if (opts.stopPc !== undefined) item.sentinel = hx4(opts.stopPc);
+  return item;
+}
+
+/** The real core's JSON for one run → the depack result the callers expect. */
+function interpretDepackRun(
+  j: {
+    stopReason: string;
+    steps: number;
+    writtenRuns: Array<{ lo: number; hi: number }>;
+    harvest: { addr: number; len: number; hex: string };
+  },
+  opts: SandboxDepackOptions,
+): SandboxDepackResult {
+  if (j.stopReason !== "sentinel_rts" && j.stopReason !== "stop_pc") {
+    throw new GenericSandboxDepackError(
+      `depacker stopped with ${j.stopReason} after ${j.steps} steps`,
+    );
+  }
+
+  // Reproduce the TS dest selection from the real core's write-map. The runs
+  // already exclude $0000-$01ff (stack + CPU port machinery — never depack
+  // output); clip to captureRange when the caller set one.
+  const range = opts.captureRange;
+  const writtenAddrs: number[] = [];
+  for (const { lo, hi } of j.writtenRuns) {
+    const a0 = range ? Math.max(lo, range.start) : lo;
+    const a1 = range ? Math.min(hi, range.end) : hi;
+    for (let a = a0; a <= a1; a++) writtenAddrs.push(a);
+  }
+  const { dest, len } = pickDestRun(writtenAddrs, opts.destAddress);
+  if (len === 0) {
+    throw new GenericSandboxDepackError(
+      `no contiguous write run found at dest $${dest.toString(16)}`,
+    );
+  }
+
+  const ram = hexToBytes(j.harvest.hex);
+  const unpacked = Uint8Array.from(ram.subarray(dest, dest + len));
+
+  // `writes` (diagnostic) reconstructed as the dest run: the real core reports the
+  // write-map, not the temporal event list, so `total writes` now counts the
+  // unpacked dest bytes rather than raw store events.
+  const writes = Array.from(unpacked, (value, i) => ({ address: (dest + i) & 0xffff, value }));
+
+  return { unpacked, destAddress: dest, steps: j.steps, stopReason: j.stopReason, entryPc: opts.entryPc, writes };
+}
+
+/**
+ * Depack N payloads in ONE `trx64cli` process (Spec 805). Each still gets its own
+ * fresh machine on its own thread inside that process — this batches the process
+ * start, nothing else.
+ *
+ * A payload that fails does NOT sink the batch: its slot carries the error and the
+ * caller decides. A campaign wants the 100 that worked plus the name of the one
+ * that did not.
+ */
+export function genericSandboxDepackMany(
+  optsList: SandboxDepackOptions[],
+): Array<{ ok: true; result: SandboxDepackResult } | { ok: false; error: string }> {
+  if (optsList.length === 0) return [];
+
   const cli = resolveTrx64Cli();
   if (!existsSync(cli)) {
     throw new GenericSandboxDepackError(
       `trx64cli not found at ${cli}. Build it with ` +
-        `\`cargo build --release --bin trx64cli\` in the sibling TRX64 repo, ` +
-        `or point C64RE_TRX64CLI_BIN at the binary.`,
+        `\`cargo build --release --bin trx64cli\`` +
+        ` in the sibling TRX64 repo, or point C64RE_TRX64CLI_BIN at the binary.`,
     );
   }
 
   const tmp = mkdtempSync(join(tmpdir(), "c64re-depack-"));
   try {
-    const residentFile = join(tmp, "resident.bin");
-    const packedFile = join(tmp, "packed.bin");
-    writeFileSync(residentFile, opts.residentLoader);
-    writeFileSync(packedFile, opts.packed);
+    // A layout error is the caller's mistake about THIS payload, not a batch
+    // failure — hold it and report it in that payload's slot.
+    type BuiltItem = { __error: string } | Record<string, unknown>;
+    const items: BuiltItem[] = optsList.map((opts, i): BuiltItem => {
+      try {
+        return buildDepackItem(opts, tmp, i);
+      } catch (e) {
+        return { __error: e instanceof Error ? e.message : String(e) };
+      }
+    });
+    const runnable = items
+      .map((it, i) => ({ it, i }))
+      .filter((x): x is { it: Record<string, unknown>; i: number } => !("__error" in x.it));
 
-    const args: string[] = [
-      "sandbox",
-      "--load", `${residentFile}@${hx4(opts.residentLoadAddress)}`,
-      "--load", `${packedFile}@${hx4(sourceLoad)}`,
-      "--entry", hx4(opts.entryPc),
-      "--direct-entry",
-      // All-RAM: model the flat-64K TS shadow ($A000-$FFFF + $D000-$DFFF = RAM)
-      // so a faithful cross-check holds and $E000-dest writes are harvestable.
-      "--io", "$34",
-      "--instr-cap", String(opts.maxSteps ?? 5_000_000),
-      // Harvest all of RAM once (the run is deterministic) and slice the dest
-      // window locally — final RAM == last write under all-RAM, so this is
-      // byte-identical to a targeted second-pass `--harvest $dest:len`.
-      "--harvest", "$0000:0x10000",
-      "--json",
-    ];
-
-    // Zero-page seeds. Order matches the TS spread: any caller-supplied
-    // initialZp first, then the src-pointer low/high bytes (which win) —
-    // trx64 applies --zp in argv order, last write wins.
-    for (const [k, v] of Object.entries(opts.initialZp ?? {})) {
-      args.push("--zp", `${hx2(Number(k))}=${hx2(v)}`);
-    }
-    args.push("--zp", `${hx2(zpLow)}=${hx2(sourceLoad & 0xff)}`);
-    args.push("--zp", `${hx2(zpHigh)}=${hx2((sourceLoad >> 8) & 0xff)}`);
-
-    // Registers observed at ENTRY (only when the caller set them; trx64
-    // direct-entry defaults A/X/Y=0, SP=$FD, P=$22 = the TS Cpu6502 defaults).
-    if (opts.initialA !== undefined) args.push("--reg-a", hx2(opts.initialA));
-    if (opts.initialX !== undefined) args.push("--reg-x", hx2(opts.initialX));
-    if (opts.initialY !== undefined) args.push("--reg-y", hx2(opts.initialY));
-    if (opts.initialSp !== undefined) args.push("--reg-sp", hx2(opts.initialSp));
-    if (opts.initialFlags !== undefined) args.push("--reg-p", hx2(opts.initialFlags));
-
-    // stopPc → an extra sentinel breakpoint (trx64 maps a non-RTS-landing
-    // breakpoint to the "stop_pc" vocab).
-    if (opts.stopPc !== undefined) args.push("--sentinel", hx4(opts.stopPc));
-
-    let stdout: string;
-    try {
-      stdout = execFileSync(cli, args, {
-        env: { ...process.env, C64RE_ROOT: process.env.C64RE_ROOT ?? repoRoot() },
-        maxBuffer: 64 * 1024 * 1024,
-        encoding: "utf8",
-      });
-    } catch (e) {
-      const err = e as { stderr?: Buffer | string; message?: string };
-      const stderr = err.stderr ? String(err.stderr).trim() : "";
-      throw new GenericSandboxDepackError(
-        `trx64cli sandbox failed: ${stderr || err.message || "unknown error"}`,
+    const out: Array<{ ok: true; result: SandboxDepackResult } | { ok: false; error: string }> =
+      items.map((it) =>
+        "__error" in it
+          ? { ok: false as const, error: String(it.__error) }
+          : { ok: false as const, error: "not run" },
       );
+
+    if (runnable.length > 0) {
+      const specFile = join(tmp, "batch.json");
+      writeFileSync(specFile, JSON.stringify({ runs: runnable.map((x) => x.it) }));
+
+      let stdout: string;
+      try {
+        stdout = execFileSync(cli, ["sandbox", "--batch", specFile], {
+          env: { ...process.env, C64RE_ROOT: process.env.C64RE_ROOT ?? repoRoot() },
+          maxBuffer: 256 * 1024 * 1024,
+          encoding: "utf8",
+        });
+      } catch (e) {
+        const err = e as { stderr?: Buffer | string; message?: string };
+        const stderr = err.stderr ? String(err.stderr).trim() : "";
+        throw new GenericSandboxDepackError(
+          `trx64cli sandbox failed: ${stderr || err.message || "unknown error"}`,
+        );
+      }
+
+      const batch = JSON.parse(stdout) as {
+        runs: Array<{ index: number; ok: boolean; error?: string; result?: unknown }>;
+      };
+      for (const run of batch.runs) {
+        const slot = runnable[run.index];
+        if (!slot) continue;
+        if (!run.ok || !run.result) {
+          out[slot.i] = { ok: false, error: run.error ?? "run failed" };
+          continue;
+        }
+        try {
+          out[slot.i] = { ok: true, result: interpretDepackRun(run.result as never, optsList[slot.i]) };
+        } catch (e) {
+          out[slot.i] = { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
+      }
     }
-
-    const j = JSON.parse(stdout) as {
-      ok: boolean;
-      stopReason: string;
-      steps: number;
-      writtenRuns: Array<{ lo: number; hi: number }>;
-      harvest: { addr: number; len: number; hex: string };
-    };
-
-    if (j.stopReason !== "sentinel_rts" && j.stopReason !== "stop_pc") {
-      throw new GenericSandboxDepackError(
-        `depacker stopped with ${j.stopReason} after ${j.steps} steps`,
-      );
-    }
-
-    // Reproduce the TS dest selection from the real core's write-map. The
-    // runs already exclude $0000-$01ff (stack + CPU port machinery — never
-    // depack output); clip to captureRange when the caller set one.
-    const range = opts.captureRange;
-    const writtenAddrs: number[] = [];
-    for (const { lo, hi } of j.writtenRuns) {
-      const a0 = range ? Math.max(lo, range.start) : lo;
-      const a1 = range ? Math.min(hi, range.end) : hi;
-      for (let a = a0; a <= a1; a++) writtenAddrs.push(a);
-    }
-    const { dest, len } = pickDestRun(writtenAddrs, opts.destAddress);
-    if (len === 0) {
-      throw new GenericSandboxDepackError(
-        `no contiguous write run found at dest $${dest.toString(16)}`,
-      );
-    }
-
-    // Slice the unpacked bytes out of the full-RAM harvest.
-    const ram = hexToBytes(j.harvest.hex);
-    const unpacked = Uint8Array.from(ram.subarray(dest, dest + len));
-
-    // `writes` (diagnostic) reconstructed as the dest run: the real core
-    // reports the write-map, not the temporal event list, so `total writes`
-    // now counts the unpacked dest bytes rather than raw store events.
-    const writes = Array.from(unpacked, (value, i) => ({ address: (dest + i) & 0xffff, value }));
-
-    return {
-      unpacked,
-      destAddress: dest,
-      steps: j.steps,
-      stopReason: j.stopReason,
-      entryPc: opts.entryPc,
-      writes,
-    };
+    return out;
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
+}
+
+/** One payload — a batch of one, so single and batch semantics cannot diverge. */
+export function genericSandboxDepack(opts: SandboxDepackOptions): SandboxDepackResult {
+  const [only] = genericSandboxDepackMany([opts]);
+  if (!only || !only.ok) {
+    throw new GenericSandboxDepackError(only && !only.ok ? only.error : "no result");
+  }
+  return only.result;
 }

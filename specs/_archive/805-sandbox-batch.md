@@ -1,6 +1,10 @@
 # Spec 805 — Sandbox batch: one process start for N runs
 
-**Status:** READY 2026-08-11 — measured, scoped, not built.
+**Status:** DONE 2026-08-11 — A and B built and measured; C is this line.
+Gate `npm run e2e:805-sandbox-batch` (7/7). Measured: 20 sandbox runs went
+15.09 s → 0.83 s (**18.1×**) with byte-identical results, and through the C64RE
+bridge 10 payloads cost 937 ms against 897 ms for a single one — N for the price
+of one. The 101-chunk case extrapolates from ~75 s to ~4 s.
 **Repos:** cross-repo — the batch mode is TRX64 (`../TRX64`), the bridge is C64RE.
 **Number:** 805 (shared board `specs/README.md`). **Follow-up to** Spec 788.
 
@@ -71,6 +75,16 @@ unchanged; a batch of one behaves exactly like a single call.
 
 **C — Doctrine + spec sync (rule 9).** 788's archive entry records that the bridge
 gained a batch path and why.
+
+**BUILT.** A: `trx64cli sandbox --batch <spec.json>`, items carrying the same
+string forms the single-run flags take, run through the same `run_sandbox_cli` so
+batch and single semantics cannot drift. Each item on a fresh thread — not for
+parallelism (they are sequential) but because the core carries one thread-local,
+the IEC bus status arrays mirroring VICE's statics, that no machine constructor
+resets. B: the C64RE bridge builds a batch SPEC rather than an argv, and the
+single-payload entry point is now literally a batch of one — so the two paths are
+the same code. A failing payload is reported in its own slot rather than sinking
+the batch, including a layout error caught before the run.
 
 ## 5. Non-goals
 
