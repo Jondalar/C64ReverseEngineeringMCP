@@ -1,6 +1,7 @@
 # Spec 800 — The runtime is invisible to the RE-agent (setup-guided, version-checked)
 
-**Status:** BUILT (§A–§D implemented; C64RE typecheck + TRX64 `cargo check` green; the
+**Status:** SCOPED — goal 4 (fetch-on-onboarding) added 2026-08-11.
+**Prior status:** BUILT (§A–§D implemented; C64RE typecheck + TRX64 `cargo check` green; the
 version-parse + handshake decisions unit-verified: `v1`→OK, `v2`→hard-fail+recipe,
 missing→tolerate). Live handshake exercises on the next daemon rebuild + MCP reconnect (the
 running daemon predates the ping version → tolerated, no breakage).
@@ -47,6 +48,37 @@ a thin "start the daemon" message at best, or silently drifts.
    missing.
 3. **Protocol-version handshake**: on connect the client reads the daemon's runtime version
    and fails loudly + actionably on mismatch (pointing at the same recipe).
+4. **The recipe can carry itself out** (added 2026-08-11). When the runtime is missing or
+   the version does not match, the probe offers to fetch it — one small TypeScript step
+   covering all three operating systems, instead of a package manifest per OS.
+
+### 2.1 Fetch-on-onboarding (goal 4)
+
+**Why this and not scoop/winget.** TRX64 installs in one line on macOS and Linux
+(`brew install trx64`); Windows gets a zip and a manual PATH edit. The Windows
+counterparts would be a scoop manifest and a winget pull request — two more artifacts to
+keep in step with every release, for one platform each. C64RE already knows what it needs
+(`resolveDaemonSpawn` looks for the binary) and the release carries per-platform archives
+with checksums beside them. One fetch step in the probe serves all three, and the system
+package managers stay available for anyone who wants a system-wide install.
+
+A fetched archive also arrives without `com.apple.quarantine` — the browser download route
+is the only one that needs `xattr`, and this route is not it.
+
+**Three rules, because this downloads and runs an executable:**
+
+1. **Never silently.** The probe states what is missing, where it would come from, and how
+   large it is. It fetches only on an explicit yes. A tool that pulls a binary off the
+   network and runs it unasked is not a convenience.
+2. **Always verified.** Against the `.sha256` published beside the archive in the same
+   release — not against "the download completed".
+3. **Version-pinned, never `latest`.** The handshake in goal 3 knows which runtime epoch
+   this client speaks (`trx64-runtime/N`); the fetch resolves the release that satisfies it.
+   Fetching `latest` would let the next epoch bump break the very setup path meant to
+   repair it.
+
+**Non-goal here:** replacing the Homebrew tap. It stays for system-wide installs. What this
+removes is the *need* for a second and third package manifest.
 
 ### Non-goals
 

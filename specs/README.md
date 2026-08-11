@@ -19,7 +19,7 @@ Numbers are **shared with TRX64** (`../../TRX64/docs/`) — one range, one regis
 | 775 | [Decoupled Agent/Flow Layer (BMAD)](775-decoupled-agent-flow-layer-bmad.md) | READY | Private in-repo module; docks onto 773. Gate: pin the V6 schema first. | 2026-07-03 |
 | 784 | [Loader-lens extraction](784-loader-lens-extraction.md) | READY | Per-project extractor + trace-validated loader lens. Buildable now. | 2026-07-04 |
 | 785 | [CRT extraction](785-crt-extraction.md) | BLOCKED | Needs a real cartridge sample. | 2026-07-04 |
-| 800 | [Runtime invisible to the RE agent](800-runtime-invisible-setup-guided.md) | READY | Env-gated barrier shipped. Open: guided setup probe + protocol-version handshake. | 2026-08-05 |
+| 800 | [Runtime invisible to the RE agent](800-runtime-invisible-setup-guided.md) | READY | §A–§D built; handshake decisions unit-verified. Open: the guided setup probe, now including **goal 4 — the recipe fetches the runtime itself**. One TypeScript step for all three OSes instead of a scoop manifest and a winget PR; never silent, checksum-verified, pinned to the epoch the handshake expects. Also answers the Windows install gap 801 left behind. | 2026-08-11 |
 
 **READY** = the next step is written down; someone could start tomorrow.
 **NEEDS SCOPING** = something is open but nobody has said what, so the first task is to
