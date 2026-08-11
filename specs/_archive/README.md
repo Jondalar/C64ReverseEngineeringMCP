@@ -12,7 +12,7 @@ was binding doctrine, no longer is (the surviving rules live in `../../DOCTRINE.
 
 ## Recorded
 
-The 30 specs below carry the decision that closed them.
+The 9966 specs below carry the decision that closed them.
 
 | # | Verdict | Spec | Decision / what shipped |
 |---|---|---|---|
@@ -31,6 +31,7 @@ The 30 specs below carry the decision that closed them.
 | 623 | **WON'T-DO** | [VICE-compat monitor / debugger](623-vice-monitor-debugger.md) | **→ TRX64 (already there)** — monitor + reverse-debug in TRX64 (`MONITOR.md`); C64RE-facing part via Spec 754 (archived) done. |
 | 700 | **WON'T-DO** | [Runtime Optimization](700-runtime-optimization.md) | **dead** — TS perf, TS is fallback; TRX64 owns perf (~8–10× faster). |
 | 703 | **DONE** | [SID reSID Audio](703-sid-resid-wasm-audio.md) | Live reSID audio + SID inspector shipped (`fb27a7d`). The one deferred slice, **703.5 WAV export**, was closed 2026-08-11 rather than built: the audio leaves the daemon as a stream, and capturing a stream to a file is what ffmpeg is for. Writing a second encoder inside the emulator buys nothing. |
+| 704 | **DONE** | [Runtime Codebase Cleanup](704-runtime-codebase-cleanup.md) | §11 legacy-1541 retirement shipped (`0411295`). Closed 2026-08-11 with the other four phases resolved rather than built: **704.2** generated-output cleanup — `session/` and `snapshots/` are no longer in the tree at all; **704.7** spec hygiene — done wholesale on 2026-08-11 (this folder holds open work only, closed specs carry a decision here); **704.5** v3 transport and **704.6** SID cleanup both target the TypeScript runtime, the parity oracle since 2026-07-15, and `resid.ts` no longer exists — reSID is Rust in TRX64. |
 | 705 | **WON'T-DO** | [Interactive Runtime Evidence / Intervention / Replay (contract)](705-interactive-runtime-evidence-intervention-replay-contract.md) | **→ TRX64** — the whole evidence/intervention/replay domain is TRX64-owned; children 711/712 folded below. |
 | 711 | **WON'T-DO** | [Code/Data Overlay + Controlled Intervention Branches](711-code-overlay-intervention-branches.md) | **→ merged into TRX64** `docs/776-overlay-intervention-diff.md`. |
 | 712 | **WON'T-DO** | [Rewind, Replay and Branch Diff](712-rewind-replay-branch-diff.md) | **→ merged into TRX64** `docs/776-overlay-intervention-diff.md` (rewind/snapshot-diff already in `spec-time-travel-tooling.md`; the new part = overlay-intervention + outcome-diff). |
@@ -38,8 +39,10 @@ The 30 specs below carry the decision that closed them.
 | 715 | **RETIRED** | [Runtime Product Proof Baseline](715-runtime-product-proof-baseline.md) | retired as the authority → **783** |
 | 721 | **DONE** | [Visual-Origin Join (runtime-informed annotation)](721-runtime-informed-annotation.md) | **DONE** — core join shipped, probe green. Provides the `mediumRef`/`MediaRegion` medium model + the trace→origin chain **Spec 750** consumes; the layout-placement slice 721.J5 shipped as **Spec 750.1**. The… |
 | 723 | **RETIRED** | [Single-Path Runtime](723-single-path-runtime.md) | **BINDING** — `CLAUDE.md` rule 1 |
+| 726 | **DONE** | [Headless Trace Sink + Marks](726-mcp-headless-trace-sink.md) | DuckDB sink + marks shipped; **726.B slice 1 shipped 2026-05-30** — the binary `.c64retrace` log IS the timeline authority, as the spec itself records at line 25. The board carried it as open work for ten weeks anyway. TRX64 then built the native Rust reader for that format (802), so the remaining slice exists twice. Closed 2026-08-11. |
 | 742 | **DONE** | [Media Ownership + VICE-Faithful Write-Through](742-media-ownership-write-through-refactor.md) | **DONE** — write-through (D64/G64 + EasyFlash CRT → host file) fixed + gated (BUG-023, `smoke:742` 9/9). The "7 divergent mount paths" concern is resolved by the single Runtime-Daemon API (744.4c: UI/MCP/CLI… |
 | 744 | **WON'T-DO** | [Runtime Session Authority + Drive-to-State](744-runtime-session-authority-drive-to-state.md) | **→ TRX64 (already there)** — daemon authority + `media/*` (mount/swap) + drive write-back shipped; session-orchestration is normal daemon-client work. |
+| 746 | **DONE** | [Live Trace + Scrub Workbench (charter)](746-live-trace-scrub-workbench-charter.md) | Charter, not a slice — the anchor + firehose model it defined is built. Trace core, checkpoints and rewind are TRX64-owned and shipped; the scrub UI it called for (§4.2 checkpoint/scrub tools) shipped under 765 and 769 (filmstrip scrub in `workspace-panels.tsx`). Closed 2026-08-11: a charter whose parts all landed elsewhere is not open work. |
 | 747 | **WON'T-DO** | [Bun Runtime Investigation](747-bun-runtime-investigation.md) | **dead** — Bun host was for the TS runtime; Node stays baseline, TS deprecating. |
 | 771 | **DONE** | [TRX64 Runtime Backend + VICE Deprecation](771-trx64-runtime-backend.md) | **DONE 2026-08-11** — the goal is the state of the world: TRX64 is the default backend (`resolveDaemonSpawn`; the TS runtime is reachable only via `C64RE_RUNTIME_TS=1` and explicitly never a silent fallback)… |
 | 772 | **WON'T-DO** | [Checkpoint-Ring: Cadence + Retention](772-checkpoint-ring-retention.md) | **→ TRX64 (already there)** — checkpoint-ring done (TRX64 CHECKLIST 705.B); cadence is a config value, not a spec. |
