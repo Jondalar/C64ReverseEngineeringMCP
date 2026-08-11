@@ -14,7 +14,6 @@ Numbers are **shared with TRX64** (`../../TRX64/docs/`) — one range, one regis
 | 740 | [Project Wiki + Knowledge Retrieval](740-semantic-search-vector-index.md) | READY | 740.1 shipped. Open: **740.2** wiki authoring (`project_wiki_update`). | 2026-05-31 |
 | 748 | [Project Steering + Agent Discipline](748-project-steering-and-agent-discipline.md) | READY | 748.1 + 748.2 shipped (`e2e:748` 10/10). Open: **748.3** trace→cartography extractor. | 2026-06-06 |
 | 750 | [Disk + Cartridge Cartography](750-disk-cartridge-cartography-visualization.md) | READY | Render-first in the two existing views. 750.1 mediumRef + payloads@position, then addressing overlay, loader edges, extractors. | 2026-07-02 |
-| 773 | [Workflow Cockpit: 5-phase lifecycle](773-workflow-cockpit-lifecycle.md) | NEEDS SCOPING | Reframe the workbench along Onboarding · Discovery · RE · Build · Release. No rebuild. | 2026-07-01 |
 | 774 | [Capability Cut → `trx64-static`](774-capability-cut-static-migration.md) | READY | Step 1 shipped. Open: media format-parse (2), classifiers (3). | 2026-07-02 |
 | 775 | [Decoupled Agent/Flow Layer (BMAD)](775-decoupled-agent-flow-layer-bmad.md) | READY | Private in-repo module; docks onto 773. Gate: pin the V6 schema first. | 2026-07-03 |
 | 784 | [Loader-lens extraction](784-loader-lens-extraction.md) | READY | Per-project extractor + trace-validated loader lens. Buildable now. | 2026-07-04 |
