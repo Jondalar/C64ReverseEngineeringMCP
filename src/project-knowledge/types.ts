@@ -1835,6 +1835,13 @@ export const WorkspaceUiSnapshotSchema = z.object({
   // Onboarding/Build phase-home surfaces can DISPLAY the captured goal + strategy.
   // Mutations stay agent-led (save_project_profile); the UI never writes it.
   projectProfile: ProjectProfileSchema.optional(),
+  // Spec 785 §6 — the RECOVERED loaders (the Spec 784 B3 store), so a surface can
+  // answer "which loader model?" from the record every payload's derivedBy resolves
+  // to, rather than from the free-text `projectProfile.loaderModel` sitting beside
+  // it. Those were two records of one fact with nothing reconciling them: the store
+  // could hold a fully recovered loader while the profile string — unset, and not
+  // writable from the default tool surface — reported "not identified".
+  loaderModels: z.array(LoaderModelSchema).default([]),
   recentTimeline: z.array(TimelineEventSchema),
   artifacts: z.array(ArtifactRecordSchema),
   entities: z.array(EntityRecordSchema),

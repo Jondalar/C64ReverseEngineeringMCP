@@ -214,7 +214,18 @@ function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeM
   const hasMedia = disks + carts + prgs > 0;
   const goals = snapshot.projectProfile?.goals ?? [];
   const workflow = snapshot.projectProfile?.workflow;
-  const loaderModel = snapshot.projectProfile?.loaderModel;
+  // Spec 785 §6 — the RECOVERED loaders are the authority (Spec 784 B3). Every
+  // payload's derivedBy resolves to one of these; `projectProfile.loaderModel`
+  // is free text beside them, and is not writable from the default tool surface,
+  // so a project could hold a fully recovered loader and still read "not
+  // identified". The store answers first; the profile string is the fallback.
+  const recoveredLoaders = snapshot.loaderModels ?? [];
+  const loaderPayloadCount = snapshot.entities.filter((e) => e.payloadLoaderModelId).length;
+  const loaderModel = recoveredLoaders.length
+    ? `${[...new Set(recoveredLoaders.map((m) => m.kind))].join(" · ")}${
+        loaderPayloadCount ? ` — ${loaderPayloadCount} payload${loaderPayloadCount === 1 ? "" : "s"}` : ""
+      }`
+    : snapshot.projectProfile?.loaderModel;
   const openQ = snapshot.openQuestions.length;
   const findings = snapshot.counts.findings;
   const hasListing = snapshot.views.annotatedListing.entries.length > 0;
@@ -361,7 +372,7 @@ function phaseHomeModel(phase: Phase, snapshot: WorkspaceUiSnapshot): PhaseHomeM
       ],
       missing: [
         ...(hasMedia ? [] : ["No input media registered"]),
-        ...(loaderModel ? [] : ["Loader / packer chain not identified"]),
+        ...(loaderModel ? [] : ["Loader / packer chain not identified — no LoaderModel recorded for any medium"]),
         ...worst.map((c) => `${c.unclaimedBlocks} data block${c.unclaimedBlocks === 1 ? "" : "s"} unclaimed on ${c.mediumLabel}`),
       ],
       next: !hasMedia

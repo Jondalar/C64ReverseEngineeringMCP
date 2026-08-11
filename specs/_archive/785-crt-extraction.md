@@ -1,12 +1,8 @@
 # Spec 785 — Cartridge Extraction: coverage that tells the truth, + the cart read-set
 
-**Status:** IN BUILD 2026-08-11 — **every deliverable A1–A4, B1–B4, C1–C3 is built** and
-measured on the two proof projects: A on copies of both, C1 in TRX64, C2/C3 in C64RE
-against `cart-read` captures of both proof cartridges. **One §6 acceptance bullet is
-open**: the "Loader model not identified" banner still reads the free-text
-`projectProfile.loaderModel` (`ui/src/App.tsx:359`) instead of the LoaderModel store —
-see the A3 AC correction, which is where that was first recorded as B4/D work rather
-than A3's. Nothing else in §6 is outstanding.
+**Status:** DONE 2026-08-11 — every deliverable A1–A4, B1–B4, C1–C3 built and every §6
+bullet met, measured on the two proof projects: A on copies of both, C1 in TRX64, C2/C3
+in C64RE against `cart-read` captures of both proof cartridges.
 **Repos:** cross-repo — Part C = TRX64 (`../TRX64`), Parts A/B/D = C64RE.
 **Number:** 785 (shared board `specs/README.md`). **Pendant of** Spec 784.
 
@@ -59,9 +55,9 @@ authority:
 
 1. **The index** — a LUT, a chunk directory. Exact, static.
 2. **The load chain** — where there is no index. Some cartridges simply chain:
-   bank *n*'s code loads bank *n+1*, with no table anywhere. That is a third
-   LoaderModel kind (`cart-chain`), and since `kind` is an open string (784 B3) it
-   costs no code.
+   bank *n*'s code loads bank *n+1*, with no table anywhere. See §2.2 — this is one
+   of exactly three values on the loading axis, and since `kind` is an open string
+   (784 B3) a new one costs no code.
 3. **The read-set** — where neither of the above resolves a range. §5 Part C.
 
 **Identified / Unknown** is meaning: do we know what the bytes *are*.
@@ -95,6 +91,33 @@ that missed indirect reads"*. Hence: neither source alone settles Unused. The ho
 rendering is three states, not two — `used` / `not seen used` / `proven unreachable`,
 where the third is only ever reached by an argument, never by a scan or a run.
 
+### 2.2 The loading axis has exactly three values
+
+A cartridge's **hardware type** says what the container is. Orthogonal to it, and the
+thing that actually produces *Used*, is how content is found inside it — and that has
+three values, not a growing list:
+
+| | how a payload is located | what it costs to recover |
+|---|---|---|
+| `singleload` | nothing to locate — the cart *is* the payload | free; the answer is the geometry |
+| `chainload` | each blob carries the code that fetches the next; no table anywhere | expensive — every link must be read, or watched |
+| `structured` | a table maps logical file → `(bank, offset, length, dest)` | read the table once |
+
+The seeded LoaderModel kinds mix this axis with **storage layout** (`in-bank` vs
+`cross-bank`): `cart-lut` names an index, `cross-bank-packer` names a layout. They are
+not alternatives, and a project is one value from each.
+
+`chainload` is the only value that *needs* a runtime. For the other two the answer is
+in the image; for a chain it is scattered through the code of every link, and the
+`CART_READ` lane is what recovers it — a run walks the chain the loader itself walks.
+
+**Corpus status 2026-08-11.** `singleload` — one title, verified by bytes: 16 KB in one
+bank with **zero** writes to `$de00`/`$de02`, so there is no bank register in play at
+all. `structured` — three, and structurally different indices: 8-byte entries, a 3-byte
+directory, and 7-byte entries whose memcopy increments the bank itself. That spread is
+why `kind` is an open string (784 B3). **`chainload`: no example yet** — the one value
+the read-set exists for is the one with nothing to test it against.
+
 ## 3. Cart specifics (blocks + physics)
 
 - **Blocks = bank-slices:** ROML (`$8000–9FFF`), ROMH (`$A000–BFFF`, ultimax
@@ -111,11 +134,16 @@ where the third is only ever reached by an argument, never by a scan or a run.
   therefore separates from the content by diff. Those samples are third-party
   property: analysed locally, never committed, never in an artifact.
 
-## 4. Ground truth — two projects, two LoaderModel kinds
+## 4. Ground truth — two projects, both `structured`
 
-Both are user-local, neither is committed here. Between them they cover both cart
-index shapes, and both have their extraction already derived statically and
-verified — so this spec is a registration and measurement problem, not an RE problem.
+Both are user-local, neither is committed here. Both have their extraction already
+derived statically and verified — so this spec was a registration and measurement
+problem, not an RE problem.
+
+**Correction, 2026-08-11:** this section originally claimed the two "cover both cart
+index shapes". They do not — **both are `structured`** (§2.2). Their LoaderModel kinds
+(`cart-lut`, `cross-bank-packer`) name *different axes*: one the index, the other the
+storage layout. Read as alternatives they suggested a breadth the corpus did not have.
 
 | | `cart-lut` | `cross-bank-packer` |
 |---|---|---|
@@ -492,10 +520,15 @@ Checked 2026-08-11, after C2/C3.
   spans and `derivedBy`, through the **same** call path as a disk manifest. — A2, on
   copies: 135 and 554 payloads, spans identical to the manifest, `manifest-register.ts`
   switching on `span.kind` and nothing else.
-- ❌ **The one open item.** Neither project reports "Loader model not identified". — the
-  banner still renders the free-text `projectProfile.loaderModel`
-  (`ui/src/App.tsx:359`), which nothing on the default MCP surface writes. See the A3
-  AC correction, which already recorded this as B4/D work.
+- ✅ Neither project reports "Loader model not identified". — closed 2026-08-11, last of
+  the acceptance set. The banner rendered the free-text `projectProfile.loaderModel`,
+  which nothing on the default MCP surface writes, so a project could hold a fully
+  recovered loader and still read "not identified". The snapshot now carries the
+  **store** (`loaderModels`, Spec 784 B3) and the banner answers from it, falling back
+  to the profile string only when the store is empty. Measured on three states:
+  `cross-bank-packer — 135 payloads` · `cart-lut — 554 payloads` · and, with nothing
+  registered, still an honest `not identified`. The profile field is `undefined` in all
+  three, which is the proof the banner no longer depends on it.
 - ✅ Cartridge coverage reports the three axes in bytes; the "65/65 with zero payloads"
   reading is impossible to produce. — B1+B2: 65/65/0 → 65/4/61.
 - ✅ The read-set records what a title read across bank switches, and a wrong manifest

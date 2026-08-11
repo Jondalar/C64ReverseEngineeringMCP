@@ -69,6 +69,8 @@ export interface EntityRecord {
   payloadPacker?: string;
   payloadSourceArtifactId?: string;
   payloadDepackedArtifactId?: string;
+  /** Spec 784 B3 — which recovered LoaderModel produced this payload. */
+  payloadLoaderModelId?: string;
   payloadAsmArtifactIds?: string[];
   artifactIds: string[];
   relatedEntityIds: string[];
@@ -638,6 +640,17 @@ export interface WorkspaceUiSnapshot {
   // only: shows why Discovery is (in)complete; it never triggers work itself.
   mediumCoverage?: MediumBlockCoverage[];
   projectProfile?: ProjectProfileBrief;
+  // Spec 785 §6 — the recovered loaders (Spec 784 B3). The authority for "which
+  // loader model?"; `projectProfile.loaderModel` beside it is free text.
+  loaderModels?: LoaderModelBrief[];
+}
+
+/** Spec 784 B3 — one recovered loader: how a medium's payloads were found. */
+export interface LoaderModelBrief {
+  id: string;
+  kind: string;
+  indexLocation?: string;
+  mediumRef?: string;
 }
 
 export interface MediumBlockCoverage {

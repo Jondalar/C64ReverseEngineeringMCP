@@ -4949,6 +4949,7 @@ export class ProjectKnowledgeService {
       lifecyclePhase,
       mediumCoverage,
       projectProfile: this.getProjectProfile(),
+      loaderModels: this.listLoaderModels(),
       recentTimeline: [...bundle.timeline].sort((left, right) => right.createdAt.localeCompare(left.createdAt)).slice(0, 24),
       artifacts: [...bundle.artifacts].sort((left, right) => left.title.localeCompare(right.title)),
       entities: [...bundle.entities].sort((left, right) => left.name.localeCompare(right.name)),
