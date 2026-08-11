@@ -12,7 +12,7 @@ was binding doctrine, no longer is (the surviving rules live in `../../DOCTRINE.
 
 ## Recorded
 
-The 28 specs below carry the decision that closed them.
+The 29 specs below carry the decision that closed them.
 
 | # | Verdict | Spec | Decision / what shipped |
 |---|---|---|---|
@@ -27,6 +27,7 @@ The 28 specs below carry the decision that closed them.
 | 619 | **WON'T-DO** | [VICE / Headless KPI Trace Contract](619-vice-headless-kpi-trace-contract.md) | **dead** — TS-trace KPI; absorbed by the shipped trace stack / TRX64. |
 | 620 | **RETIRED** | [Port-Bug Forensic Doctrine](620-port-bug-forensic-doctrine.md) | retired 2026-07-15; its technique = `CLAUDE.md` rule 5 |
 | 621 | **WON'T-DO** | [1541 Port Hygiene Enforcement Backlog](621-port-hygiene-backlog.md) | **dead** — TS `vice1541/**` cleanup; no more TS-drive work. |
+| 622 | **WON'T-DO** | [vice-mode Headless Performance](622-vice-mode-performance.md) | §4.0 shipped and measured (`2d9e4de`): 0.50× → 0.82× realtime. Closed 2026-08-11 — its premise and a third of its work no longer exist. The `drive1541Implementation="vice"` mode the problem statement compares against was removed by 723 (VICE1541 is the only drive). §4.3's suspected double dispatch is between `cycle-lockstep-scheduler` and `cycle-wrappers`, and 723 deleted the former. §4.1/§4.2 are unscoped V8 micro-optimisation candidates from a May profile, against the TypeScript runtime — the parity oracle since 2026-07-15, not the product. An oracle is run to compare, not to play; TRX64 is the product runtime. |
 | 623 | **WON'T-DO** | [VICE-compat monitor / debugger](623-vice-monitor-debugger.md) | **→ TRX64 (already there)** — monitor + reverse-debug in TRX64 (`MONITOR.md`); C64RE-facing part via Spec 754 (archived) done. |
 | 700 | **WON'T-DO** | [Runtime Optimization](700-runtime-optimization.md) | **dead** — TS perf, TS is fallback; TRX64 owns perf (~8–10× faster). |
 | 705 | **WON'T-DO** | [Interactive Runtime Evidence / Intervention / Replay (contract)](705-interactive-runtime-evidence-intervention-replay-contract.md) | **→ TRX64** — the whole evidence/intervention/replay domain is TRX64-owned; children 711/712 folded below. |
