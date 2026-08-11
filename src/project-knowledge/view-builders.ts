@@ -1304,10 +1304,18 @@ interface CartTypeProfile {
 //        private allocation for GMod4, and it collides the day upstream takes 87.
 const CART_TYPE_PROFILES: Record<number, CartTypeProfile> = {
   // ── read-only banked storage ──────────────────────────────────────────────
+  // cartridge.h:? — the plain CRT container, no mapper. Geometry comes from the
+  // exrom/game lines and the observed chip load addresses.
   0:  { hardwareTypeName: "Generic",         slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
+  // final3.c:189 CMODE_16KGAME, plus an ULTIMAX freeze mode (final3.c:183).
   3:  { hardwareTypeName: "Final Cartridge III", slotsPerBank: 2, bankSize: 0x2000, hasRomh: true, hasEeprom: false, isUltimax: false, canFlash: false },
+  // ocean.c:159 CMODE_16KGAME but ocean.c:106 sets only the ROML bank — the 16K
+  // config MIRRORS one 8K bank to $A000. One slot of storage, two windows.
   5:  { hardwareTypeName: "Ocean",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
+  // funplay.c:159 CMODE_8KGAME; funplay.c:99 — the bank is a bit permutation of the
+  // written value, `((v >> 3) & 7) | ((v & 1) << 3)`, not the value itself.
   7:  { hardwareTypeName: "Funplay",         slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
+  // supergames.c:75-80 — sets the ROMH and ROML bank together, bank = value & 3.
   8:  { hardwareTypeName: "Super Games",     slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: false, canFlash: false },
   // gs.c:72 — bank = addr & $3f, selected by an IO1 READ as well as a write.
   15: { hardwareTypeName: "C64 Games System", slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },

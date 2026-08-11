@@ -11,6 +11,7 @@
     "build:pipeline": "tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs",
     "build:resid-wasm": "node scripts/build-resid-wasm.mjs",
     "check:1541-fidelity": "node scripts/check-1541-port-fidelity.mjs",
+    "check:cart-type-ids": "node scripts/check-cart-type-ids.mjs",
     "build:c64ref": "tsx src/c64ref-rom-knowledge.ts",
     "bootstrap:workspace": "npm run build:mcp && node scripts/bootstrap-existing-re-workspace.mjs",
     "test:project-knowledge": "npm run build:mcp && node scripts/project-knowledge-smoke.mjs",
