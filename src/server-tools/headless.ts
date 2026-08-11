@@ -585,7 +585,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_loader_lens",
-    "Use to read a loader-lens capture's landing map: which medium block (track/sector) each transferred payload came FROM and where it came to rest in C64 RAM. Point it at a .c64retrace captured with the drive-mechanism lane armed (runtime_trace_start domains=['memory','drive8-cpu','drive-mechanism'] on the daemon, then drive + finalize). Option A rebuild: a run counts as a disk-landing only if transfer reads ($DD00) occurred in its window (memory-copy / relocation runs have none → dropped), and its source block is FIFO-matched to the BLOCK_READ read-set by read time (not head-at-write-time). Returns per landed run {source:{track,sector,halftrack}|null, c64Dest, len, sha256, transferReads}. The read-set (what validate_extraction diffs against) is the authority; this map is the DEST-side human view. Reads a finalized .c64retrace; not a live capture (use runtime_trace_start to capture one first). DISCIPLINE: the landing map CONFIRMS a payload you already located by READING — it is not how you discover one. If the medium is standard-GCR (KERNAL/DOS-readable), the payload is a static depack (sandbox_depack), not a runtime job. You MUST pass `hypothesis` (a concrete $address + what you read that points there) or the call is refused.",
+    "Use to read a loader-lens capture's landing map: which medium block each transferred payload came FROM and where it came to rest in C64 RAM. Point it at a .c64retrace captured with the drive-mechanism lane armed (runtime_trace_start domains=['memory','drive8-cpu','drive-mechanism'] on the daemon, then drive + finalize). Option A rebuild: a run counts as a disk-landing only if transfer reads ($DD00) occurred in its window (memory-copy / relocation runs have none → dropped), and its source block is FIFO-matched to the BLOCK_READ read-set by read time (not head-at-write-time). Returns per landed run {source, c64Dest, len, sha256, transferReads}, where source is tagged by medium — {medium:'disk',track,sector,halftrack} or {medium:'cart',bank,slot,offLo,offHi} — or null. The read-set (what validate_extraction diffs against) is the authority; this map is the DEST-side human view. WHAT IT PROVES: everything here is a fact about THE ONE RUN you captured. A block that does not appear was not read IN THAT RUN — that is not evidence it is unused, and a run that never reached level 90 says nothing about level 90's blocks. Report it as 'read in run X' / 'not seen in run X', never as 'used' / 'unused'. Reads a finalized .c64retrace; not a live capture (use runtime_trace_start to capture one first). DISCIPLINE: the landing map CONFIRMS a payload you already located by READING — it is not how you discover one. If the medium is standard-GCR (KERNAL/DOS-readable), the payload is a static depack (sandbox_depack), not a runtime job. You MUST pass `hypothesis` (a concrete $address + what you read that points there) or the call is refused.",
     {
       capture_path: z.string().describe("Path (abs or under the project) to the .c64retrace binary capture."),
       hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): the read-derived reason — a concrete $address (the payload/routine you already located by reading the drivecode disasm / an entity / a finding) + what pointed you there. Fishing (no address / no rationale) is refused. If the disk is standard-GCR the payload is a static depack — read + sandbox_depack, not the loader-lens."),
@@ -605,9 +605,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       if (!sub.allowed) return { content: [{ type: "text" as const, text: sub.refusal! }] };
       const abs = isAbsolute(capture_path) ? capture_path : resolve(proj ?? process.cwd(), capture_path);
       const map = landingMapFromCaptureFile(abs, min_run_len ? { minRunLen: min_run_len } : {});
+      const { basename } = await import("node:path");
       const lines = [
-        `Loader-lens landing map — ${map.length} landed run(s)`,
+        // Spec 785 C3 — a read-set result is a fact about ONE run; name it, and say
+        // what silence means, so nothing here reads as "used" / "unused".
+        `Loader-lens landing map — ${map.length} landed run(s) in run ${basename(abs)}`,
         `Capture: ${abs}`,
+        `Every line below is what run ${basename(abs)} did. A block absent here was not read IN THIS RUN — that is not evidence it is unused.`,
         ...map.slice(0, 200).map((e) => {
           // Spec 785 C2 — `source` is a tagged union now (disk block / cart bank window).
           const s = e.source;

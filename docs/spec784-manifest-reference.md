@@ -9,7 +9,16 @@ first), then the extractor emits this JSON. Two tools consume it:
   spans + LoaderModel provenance (one call, not N `register_payload` calls).
 - `validate_extraction` — diffs the manifest against the loader-lens **read-set** (what
   the REAL loader physically read) to catch a wrong static interpretation
-  (the Accolade/Wasteland bug class).
+  (the Accolade/Wasteland bug class). Both media: sector spans against `BLOCK_READ`
+  (the `drive-mechanism` domain), cart slot spans against `CART_READ` (the `cart-read`
+  domain, Spec 785).
+
+> **What a read-set proves — Spec 785 §2.1.** It proves **used in the run you
+> captured**, and it never proves unused. A run that stopped at the title screen says
+> nothing about the bank level 90 needs. So a span the run did not touch is reported
+> *not seen in that run* and never fails the verdict; what fails is a span the run
+> **contradicts** — it read that payload and read past the position the span claims.
+> Say "read in run X" / "not seen in run X" everywhere, never "used" / "unused".
 
 `extract_disk` auto-emits this shape for the stock-DOS layer as `manifest.spec784.json`
 (LoaderModel `kernal-directory`). For the custom-loader stage you author it yourself.
@@ -102,7 +111,20 @@ A span is a discriminated union on `kind`:
 ```
 disassemble + annotate the loader (Discovery)
   → author extractor → emit this manifest
-  → runtime_trace_start domains=['memory','drive8-cpu','drive-mechanism'] → drive boot → runtime_trace_finalize
+  → runtime_trace_start domains=['memory','drive8-cpu','drive-mechanism']   (disk)
+    or                 domains=['cart-read']                               (cartridge)
+    → drive boot → runtime_trace_finalize
   → validate_extraction (manifest vs read-set: catches wrong interpretation)
   → register_payloads_from_manifest (bulk-register the validated payloads)
 ```
+
+A cart capture can also be minted outside the daemon, in its own process:
+
+```
+trx64cli --rom-dir <roms> boot --disk <image.crt> --cycles 30000000 \
+  --trace run.c64retrace --trace-domains cart-read --dump /tmp/x.c64re
+```
+
+Drive the title as far as the payloads you care about — the read-set only ever
+describes the run you captured, so a capture that stops at the menu confirms the menu's
+payloads and stays silent about the rest.

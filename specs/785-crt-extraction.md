@@ -1,8 +1,12 @@
 # Spec 785 — Cartridge Extraction: coverage that tells the truth, + the cart read-set
 
-**Status:** IN BUILD 2026-08-11 — **Parts A and B built** and measured on copies of
-both proof projects; **C1 built in TRX64** and proved on both proof cartridges.
-**C2/C3 are the remaining work.**
+**Status:** IN BUILD 2026-08-11 — **every deliverable A1–A4, B1–B4, C1–C3 is built** and
+measured on the two proof projects: A on copies of both, C1 in TRX64, C2/C3 in C64RE
+against `cart-read` captures of both proof cartridges. **One §6 acceptance bullet is
+open**: the "Loader model not identified" banner still reads the free-text
+`projectProfile.loaderModel` (`ui/src/App.tsx:359`) instead of the LoaderModel store —
+see the A3 AC correction, which is where that was first recorded as B4/D work rather
+than A3's. Nothing else in §6 is outstanding.
 **Repos:** cross-repo — Part C = TRX64 (`../TRX64`), Parts A/B/D = C64RE.
 **Number:** 785 (shared board `specs/README.md`). **Pendant of** Spec 784.
 
@@ -364,17 +368,114 @@ size, decode), so a capture containing the lane is readable; it previously threw
 `cannot skip opcode 0x36`. The `loader-lens` / `validate-extraction` widening is
 still C2's work.
 
-**C2 — Widen the C64RE side.** `source` in `loader-lens.ts` becomes
+**C2 — Widen the C64RE side. BUILT 2026-08-11.** `source` in `loader-lens.ts` becomes
 `{halftrack,track,sector} | {bank,slot,offset}`; `validate-extraction.ts` gains the
 cart branch that today increments `skippedSlotSpans`; the MCP tool description stops
 claiming cart spans are validated when they are skipped.
 *AC:* a manifest claiming a bank range the title never read is flagged; a correct
 manifest passes; the finding carries the capture reference.
 
-**C3 — Truthful labelling.** Every surface that shows read-set-derived Used says
-"used in run X". §2.1.
+*As built:* `CartReadSetEntry` + `buildCartReadSet` + `cartReadSetFromCaptureFile`, and
+`cartBankUsage` to aggregate by (bank, slot). `LandingMapEntry.source` is now a **tagged
+union** — `{medium:"disk",…} | {medium:"cart",…}` — rather than the bare `{bank,slot,
+offset}` this section proposed: a consumer must be able to tell the media apart without
+sniffing fields, and the disk variant keeps exactly the fields it had. Disk attribution
+is unchanged and the cart residency is only a fallback, for a reason worth keeping: on
+disk, "$DD00 was read in this window" separates a transfer from a memory-copy; on a
+cartridge the equivalent question — "was a bank being read while this run filled" — is
+YES for every cycle of a title that EXECUTES out of a bank, so it separates nothing.
+There is no cart dataflow gate, and a byte-accurate cart landing map is not derivable
+from a lane that aggregates per residency. The cart READ-SET, not the landing map, is
+the cart authority. `runtime_trace_start` also gained the `cart-read` domain (daemon-
+only, exactly like `drive-mechanism`) so a capture can be minted from the workbench and
+not only from `trx64cli boot`.
+
+*Two producer facts this section had assumed away, both found on real captures:*
+
+1. **`off_lo..off_hi` is a BOUNDING range, not a coverage set.** Measured: a MegaByter
+   title's LUT scan reports bank 1 `$00F0-$1F4A` with **133** served reads over a
+   7771-offset hull. Classifying a span by containment alone therefore over-claims. The
+   reader keeps two range sets per (bank, slot): the hull (outer bound — outside it, a
+   span was definitely not read) and the merge of only those residencies that served at
+   least as many reads as their range spans (lower bound — what a full sweep looks
+   like). **The hull may confirm; only the lower bound may refute.** Getting this wrong
+   was not theoretical: anchoring on the hull flagged the byte-verified EasyFlash
+   manifest as WRONG, because four late scattered-read residencies in bank 45
+   (62/194/242/72 reads over ~2200-offset hulls, 13 M cycles after the loader had
+   finished) spanned a hull that happened to overlap an unrelated payload's span.
+2. **The producer drains periodically**, closing live residencies, so one uninterrupted
+   walk arrives as several abutting records for the same bank — the MegaByter walk
+   through bank 16 is 4 records, not 1. Aggregate before comparing, or a contiguous read
+   reads as a fragmented one. (C1 says this; C2 records it because it is the first thing
+   a reader must implement, and because it inflates any "bank transition" count taken
+   off the raw stream: 628 records on the EasyFlash title contain 319 adjacent
+   bank changes, of which many are drain boundaries rather than `$DE00` writes.)
+
+*What the branch may conclude — the §2.1 line, in code.* A slot span the run did not
+touch is `not seen in this run` and **never** fails the verdict. What fails is the one
+thing a run can actually contradict: **the run read payload P, and read PAST the
+position span S claims, without ever reading S.** A cross-bank stream is consecutive by
+construction, so a later span of the same payload being swept while an earlier one was
+not is a real conflict. A not-seen span AFTER the last swept span is `truncated` — the
+capture may simply have ended mid-payload — and does not fail either.
+
+*Evidence (2026-08-11, isolated `trx64cli boot --trace-domains cart-read`, 30 M cycles,
+no daemon, both proof cartridges):*
+
+- **`cross-bank-packer` title, EasyFlash hw 32** — 628 residencies, 42 (bank, slot)
+  pairs. Its own 180-span manifest **PASSES**: 21 spans read in that run (7 backed only
+  by a hull), 2 partly read, 157 not seen in that run, **0 contradicted**. The run
+  reaches the menu, so the confirmed spans are the menu's: a dense contiguous walk from
+  bank 30 `$1C59` through 31 and 32 (8192 served reads each, exactly the bank width) to
+  34 `$113F`. Moving one span of a fully-swept payload to a bank the run never touched
+  is flagged — 1 conflict, verdict **FAIL**, and the 157 untouched spans stay "not
+  seen".
+- **`cart-lut` title, MegaByter hw 86** — 12 residencies: bank 1 (the LUT, sparse), then
+  15 `$1777-$1FFF` → 16 `$0000-$1FFF` → 17 `$0000-$1FFF` → 18 `$0000-$0047`. Its
+  675-span manifest **PASSES**, 7 spans read in that run. One payload's four spans match
+  the lane **byte for byte**: 2185 + 8192 + 8192 + 72 = 18641 served reads = the
+  manifest's declared payload length, span boundary for span boundary. Same wrong-span
+  injection → flagged, **FAIL**.
+
+*Image binding, checked rather than assumed (§4.1).* That capture booted the hw 86 /
+1050688 B image, while the project's emitter binds its manifest to the **other**
+cartridge in the same project (hw 19 / 1017856 B) and refuses to re-bind — the A4 guard
+firing correctly. Diffing the two images: banks 0, 1 and 123 differ, 124-127 exist only
+in the booted one, **and banks 15-18 are byte-identical**. So the confirmed walk is a sound
+comparison and the two unclaimed sparse ranges in bank 1 are not, because bank 1 is one
+of the three that differ. `validate_extraction` now warns on this class directly by
+comparing the manifest's `imageIdentity.sha256` against the capture's media identity —
+and reports honestly that a `trace/start_domains` capture carries **no** `mediaSha`, so
+the check is currently a "cannot verify" note rather than a comparison. Giving the live
+capture header its media identity is the follow-up that would close it.
+
+*Gate:* `npm run e2e:785-cart-readset` — 23 synthetic assertions (round-trip, drain-split
+merge, sparse/solid split, all six span classes, both no-lane paths). Set
+`C64RE_785_CAPTURE` + `C64RE_785_MANIFEST` to run the same gate against a real capture:
+28 assertions including the wrong-span injection. Neither cartridge nor capture may live
+in this repo, hence the env-gated second half.
+
+**C3 — Truthful labelling. BUILT 2026-08-11.** Every surface that shows read-set-derived
+Used says "used in run X". §2.1.
 *AC:* no view or tool output renders a read-set result as unqualified "used" or
 "unused".
+
+*As built:* the run is named on every line that reports a read-set fact —
+`validate_extraction`'s output and its finding, `runtime_loader_lens`'s header (plus an
+explicit "a block absent here was not read IN THIS RUN — that is not evidence it is
+unused"), both tool descriptions, the extraction steering block, and
+`docs/spec784-manifest-reference.md`. The counts are named for what they are:
+`confirmedSpans` / `weakConfirmedSpans` / `partialSpans` / `notSeenSpans` /
+`conflicts` / `truncated`, with no `used` or `unused` field anywhere in the result type.
+Unclaimed cart reads carry their own caveat: cartridge code executes in place, so a bank
+the loader never "loads" still shows up when the CPU ran out of it — they are leads, not
+defects. Measured: 53 unclaimed ranges on the EasyFlash title, the largest being the
+1.84 M-read residency in bank 63 that is simply the engine running.
+
+*Not done, and why:* the steering block is appended to a project's `steering.md` only if
+neither its token nor its marker is present, so the new §2.1 paragraph reaches **new**
+projects only. Rewriting the two live projects' `steering.md` would be mutating live
+project data from a build step, which §6 forbids.
 
 ### Part D — spec + docs (Doctrine rule 9)
 
@@ -385,16 +486,31 @@ one after.
 
 ## 6. Whole-spec acceptance
 
-- Both proof cartridges register their full index as payloads with ordered slot
-  spans and `derivedBy`, through the **same** call path as a disk manifest.
-- Neither project reports "Loader model not identified".
-- Cartridge coverage reports the three axes in bytes; the "65/65 with zero payloads"
-  reading is impossible to produce.
-- The read-set records what a title read across bank switches, and a wrong manifest
-  span is caught by it.
-- Nothing built here branches on disk-vs-cart above the block layer — 784 §2, and
-  the acceptance test for both.
-- All project work on **copies**. No live project data mutated by a build step.
+Checked 2026-08-11, after C2/C3.
+
+- ✅ Both proof cartridges register their full index as payloads with ordered slot
+  spans and `derivedBy`, through the **same** call path as a disk manifest. — A2, on
+  copies: 135 and 554 payloads, spans identical to the manifest, `manifest-register.ts`
+  switching on `span.kind` and nothing else.
+- ❌ **The one open item.** Neither project reports "Loader model not identified". — the
+  banner still renders the free-text `projectProfile.loaderModel`
+  (`ui/src/App.tsx:359`), which nothing on the default MCP surface writes. See the A3
+  AC correction, which already recorded this as B4/D work.
+- ✅ Cartridge coverage reports the three axes in bytes; the "65/65 with zero payloads"
+  reading is impossible to produce. — B1+B2: 65/65/0 → 65/4/61.
+- ✅ The read-set records what a title read across bank switches, and a wrong manifest
+  span is caught by it. — C1 records the walks; C2 catches an injected wrong span on
+  **both** proof cartridges while both correct manifests pass, and — the part that took
+  a second attempt — without failing the 157 / 668 spans the runs simply never reached.
+- ✅ Nothing built here branches on disk-vs-cart above the block layer — 784 §2, and
+  the acceptance test for both. — the media split lives inside `validateExtraction`
+  under one signature and one verdict, and inside `buildReadSet` / `buildCartReadSet`
+  over one capture file; `LandingSource` is a tagged union, so consumers switch on the
+  tag instead of on a medium flag threaded down from above.
+- ✅ All project work on **copies**. No live project data mutated by a build step. — the
+  C2/C3 captures, manifests and validations all ran in a scratch directory; the two
+  projects were read, never written. That is also why the C3 steering paragraph reaches
+  new projects only.
 
 ## 7. Non-goals
 

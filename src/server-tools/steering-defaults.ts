@@ -74,13 +74,22 @@ export const CRACK_DISCOVERY_STEERING = `${CRACK_DISCOVERY_TOKEN}
   (any language) from the annotated loader that emits the manifest (loaderModels[]
   + payloads[] with **full** medium_spans + derivedBy) — the fast bulk path. Do NOT
   hand-pass start-sectors. Then: (a) \`runtime_trace_start\` domains
-  \`['memory','drive8-cpu','drive-mechanism']\` → drive the boot → \`runtime_trace_finalize\`
-  = a loader-lens capture; (b) \`runtime_loader_lens\` + \`validate_extraction\` diff the
+  \`['memory','drive8-cpu','drive-mechanism']\` for a disk, or \`['cart-read']\` for a
+  cartridge → drive the boot → \`runtime_trace_finalize\` = a loader-lens capture;
+  (b) \`runtime_loader_lens\` + \`validate_extraction\` diff the
   manifest against what the REAL loader read (catches wrong interpretation — the
   Accolade/Wasteland bug class); (c) \`register_payloads_from_manifest\` bulk-registers
   the validated payloads with derivedBy. Physics (bits→blocks) is per-medium; the
   block→payload model above is uniform. **Emulation is the validation oracle /
-  physics-blocked fallback — never the default bulk path.**`;
+  physics-blocked fallback — never the default bulk path.**
+- **A read-set proves USED, never UNUSED — say "in run X" (Spec 785 §2.1).** A capture
+  shows what THAT run read. A block or bank it never touched is **not seen in that
+  run**, not unused: a run that stopped at the title screen says nothing about the bank
+  level 90 needs. So \`validate_extraction\` never fails a span merely for being unseen;
+  it fails one the run **contradicts** — the run read that payload and read past the
+  position the span claims. Write findings the same way: "read in run <capture>", "not
+  seen in run <capture>". Calling a range unused takes an argument from the code, never
+  a scan and never a run.`;
 
 /** Tooling discipline — MCP disconnect + reuse, don't reimplement (2026-07-05). */
 export const TOOLING_DISCIPLINE_MARKER = "Tooling discipline — MCP disconnect + reuse";
