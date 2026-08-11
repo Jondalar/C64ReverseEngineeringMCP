@@ -37,6 +37,16 @@ loaded into every context window.
    the `save_*` family, and search before re-deriving. Roles via `agent_set_role`. These
    do **not** apply to ordinary edits in this repo.
 
+9. **After a build, the spec and the docs are brought in line. Always.** Not "later",
+   not "when we tidy up" — in the same commit as the change, or the one after it. Update
+   the spec's own `**Status:**` line, its row in `specs/README.md`, and any doc that
+   asserted the old state; close what is finished and move it to `_archive/` with its
+   decision. This is the rule the repo learned the hard way: 726 was carried as open work
+   for ten weeks after the spec itself recorded it shipped, 794–798 said PROPOSED while
+   the board said DONE, and 784 still says "ready for build" with all its deliverables
+   sitting in `src/`. Nine specs were closed in one evening and **not one needed
+   building**.
+
 **Retired 2026-07-15 — do not re-apply:** VICE and the TypeScript runtime as
 *authority*. TRX64 is standalone and authoritative; the TS runtime is a fallback and
 parity oracle; VICE is an occasional reference, never a 1:1 mandate. Regression

@@ -111,6 +111,34 @@ ship UI without the API underneath.
 (`specs/README.md`) is the registry, and its numbers are **shared across C64RE and
 TRX64** — a new spec in either repo takes the next free number there.
 
+### After a build, the spec and the docs are brought in line
+
+Always, and in the same commit as the change or the one after it. The spec's own
+`**Status:**` line, its row in `specs/README.md`, and any doc that asserted the old
+state. What is finished moves to `specs/_archive/` carrying the decision that closed it.
+
+**Why this is a rule and not a nicety.** On 2026-08-11 nine specs were closed in one
+evening and not one of them needed building: seven were already finished — sometimes
+weeks earlier, sometimes by work in the other repo — and two described code that no
+longer existed. The cost was not the cleanup. It was that for months the board answered
+"what should I work on?" with a list that was substantially wrong, and nobody could tell
+which entries were real without reading the source.
+
+The specific failures, kept because they are the shape to watch for:
+
+- **726** recorded at line 25 of its own body that its remaining slice shipped on
+  2026-05-30. The board carried that same slice as open for ten weeks.
+- **794–798** carried `**Status:** PROPOSED` in their files while the board listed them
+  DONE. Two records of one fact, neither checked against the other.
+- **784** still says "PROPOSED (ready for build)" while `register_payloads_from_manifest`,
+  `validate_extraction`, `runtime_loader_lens` and `medium-coverage.ts` all exist.
+- **622** and **424** described a runtime mode and a UI column that later work had
+  deleted — the spec outlived its subject.
+
+Deleting is part of it. Marking something ÜBERHOLT and leaving it in place produces a
+document where everything is still there and nothing is findable: five retired doctrine
+blocks were being loaded into every context window before this rule existed.
+
 ### Project work: the agent rules
 
 Inside a real RE project (a `C64RE_PROJECT_DIR` workspace, not this repo):
