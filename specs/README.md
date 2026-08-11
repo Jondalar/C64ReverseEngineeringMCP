@@ -5,7 +5,7 @@ the decision that closed it: [`_archive/README.md`](_archive/README.md).
 Rules that govern how work is done are not specs: [`../DOCTRINE.md`](../DOCTRINE.md).
 
 Numbers are **shared with TRX64** (`../../TRX64/docs/`) — one range, one registry.
-**Next free: 805.**
+**Next free: 806.**
 
 | # | Spec | Status | What is left | Touched |
 |---|---|---|---|---|
@@ -15,6 +15,7 @@ Numbers are **shared with TRX64** (`../../TRX64/docs/`) — one range, one regis
 | 750 | [Disk + Cartridge Cartography](750-disk-cartridge-cartography-visualization.md) | BLOCKED | 750.1 shipped both sides (`e2e:bug031` 10/10, `e2e:750-cart` 13/13). The rest is one thing: **the index row as a record** — "table A row 30, at bank 1 `$80f0`, is what claims this" — which is what turns a LUT into something findable, checkable and drawable. 784's manifest already carries the resolved half. Waiting on a meta format authored outside this repo; three projects hold the same four fields in three private formats, so do not invent a fourth here. Measured 2026-08-11: `loader-entry-points` / `loader-events` are empty in both real projects, their write tools are not in `DEFAULT_TOOLS`, and no view builder reads them — two halves built, the seam never. `loader-events` arrived here from 748.3. | 2026-08-11 |
 | 774 | [Capability Cut → `trx64-static`](774-capability-cut-static-migration.md) | READY | Step 1 shipped. Open: media format-parse (2), classifiers (3). | 2026-07-02 |
 | 775 | [Decoupled Agent/Flow Layer (BMAD)](775-decoupled-agent-flow-layer-bmad.md) | READY | Private in-repo module; docks onto 773. Gate: pin the V6 schema first. | 2026-07-03 |
+| 805 | [Sandbox batch: one process start for N runs](805-sandbox-batch.md) | READY | Measured 2026-08-11: the sandbox bridge runs `execFileSync` per call, and `trx64cli` costs **740 ms to start** — 650 ms of that is eager machine init before argument parsing (a tiny binary from the same workspace starts in 86 ms; stripping made it worse, so not size). One proof project depacked 101 of 101 chunks through this bridge: **75 seconds of pure process startup** for milliseconds of work. Not fixable by moving the sandbox into the daemon — that is two machines in one process, which doctrine rule 2 forbids and the module-global VIC/vice1541 state makes unsafe. Cut: one process start, N runs, scratch instance unchanged. | 2026-08-11 |
 | 800 | [Runtime invisible to the RE agent](800-runtime-invisible-setup-guided.md) | READY | §A–§D built and now **gated** (`npm run check:runtime-invisible`): 64 agent-facing surfaces scanned for the backend brand, plus the epoch and the per-OS recipe. It was red when written — a trace-domain description had gained "served by the TRX64 daemon" the same day, which is the argument for the gate. Open: the guided setup probe, now including **goal 4 — the recipe fetches the runtime itself**. One TypeScript step for all three OSes instead of a scoop manifest and a winget PR; never silent, checksum-verified, pinned to the epoch the handshake expects. Also answers the Windows install gap 801 left behind. | 2026-08-11 |
 
 **READY** = the next step is written down; someone could start tomorrow.

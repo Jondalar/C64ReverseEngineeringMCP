@@ -54,9 +54,43 @@ Rule for every step: C64RE consumes the new TRX64 capability over the façade;
 
 ## C64RE-side obligations (this repo's work when steps land)
 
-1. **Consumption seam.** `src/run-cli.ts` hard-codes `node` + bundled-first
-   resolution; consuming a Rust static CLI/lib needs an explicit override (a
-   `C64RE_PIPELINE_BIN`-style env, analogous to Spec 771's `C64RE_TRX64_BIN`).
+1. **Consumption seam — NOT a subprocess per call.** Measured 2026-08-11 on this
+   machine's dev binaries:
+
+   | | |
+   |---|---|
+   | whole `.d64` parsed in-process (TS), all 683 sectors | **0.24 ms** |
+   | one round-trip to a running daemon over WS | **0.096 ms** |
+   | one `trx64cli` process start (any subcommand, incl. `--help`) | **740 ms** |
+
+   A tiny binary from the same workspace, same toolchain, same ad-hoc signature,
+   starts in 86 ms — so the 650 ms difference belongs to `trx64cli` itself (eager
+   machine init, before argument parsing; stripping made it *worse*, so not size).
+
+   Two consequences. **Speed is not the trigger for this migration** — TS parses a
+   whole disk in a quarter of a millisecond, and Rust would only make a fast thing
+   faster. And **shell-out-per-call is off the table** before anyone tries it: the
+   fixed cost is three orders of magnitude above the work.
+
+   This obligation originally read *"consuming a Rust static CLI/lib needs an
+   explicit override (a `C64RE_PIPELINE_BIN`-style env)"*. That is the subprocess
+   shape, and it is wrong. Corrected: static capability travels over a **standing
+   connection**, and the host is an open choice between the existing daemon and a
+   **machine-free static endpoint** — a separate thin binary linking `trx64-static`
+   that never constructs a machine, and therefore never pays the 650 ms.
+
+   `trx64-ffi` is explicitly **not** the answer: it is a uniffi façade over the
+   *daemon's* dispatch, defined for a native Swift app. Wrong adapter, and a façade
+   over exactly the stateful thing static capability must avoid.
+
+   **Open before building:** whether `dispatch` serialises with the run loop. The
+   0.096 ms was measured against an idle `--headless` daemon; a static call queued
+   behind a running machine is a different number. This is the argument for the
+   machine-free endpoint, and it is measurable.
+
+   **The trigger for step 2 is divergence, not speed** — the day the two GCR
+   implementations read the same image differently. Until then, moving working code
+   is churn, which is what "until the duplication actually bites" was reaching for.
 2. **Contract freeze before step 3.** `_analysis.json` (`AnalysisReport`) is
    shared MUTABLE state (server injects `packerHints`, `confirmed`/`rejected`)
    with 4 TS schema copies + 1 zod validator and no versioned schema file. The
