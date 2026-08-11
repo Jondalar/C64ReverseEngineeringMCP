@@ -336,14 +336,28 @@ assumed away:
    write to RAM *under* a banked-in ROM looked like a cart read. Accounting is
    suspended around that instrumentation read.
 
-*Evidence (2026-08-11, both proof cartridges, isolated `trx64cli boot --trace`):*
-`cross-bank-packer` title, EasyFlash hw 32 — 536 records, 45 distinct (bank, slot),
-321 bank transitions; the level load reads bank 17 `$163A-$1FFF` then bank 18
-`$0000-$0C67`, one gapless stream of 5678 bytes crossing the bank boundary. `cart-lut`
-title, MegaByter hw 86 — 12 records: bank 15 `$1777-$1FFF` → bank 16 `$0000-$1FFF` →
-bank 17 `$0000-$1FFF` → bank 18 `$0000-$0047`, every record's `off_lo` exactly the
-previous record's `off_hi + 1`, byte count equal to span length throughout. Both
-walks reconstruct byte-exactly from the lane alone.
+*Evidence (2026-08-11, both proof cartridges, isolated process — `trx64cli boot
+--trace` and the `--ignored` `cart_read_set` integration test; neither image
+committed, path from the environment):*
+
+**`cross-bank-packer` title, EasyFlash hw 32.** From cold reset: bank 0 ROMH, then
+an ordered ascending walk `1L 2L 3L 4L` reading banks 1, 2 and 3 whole
+(`$0000-$1FFF`, 8192 reads each) and bank 4 to `$1DB2` — the boot stream across the
+low ROML banks — then `45L 46L 52L`, then a descending single-byte probe at
+`$A000+0` of every ODD bank 63 → 1, then the title screen resident code. Driving it
+into level 1 adds bank 17 `$163A-$1FFF` followed by bank 18 `$0000-$0C67`: one
+gapless 5678-byte stream crossing the bank boundary. 536 records over a 38 M-cycle
+capture, 45 distinct (bank, slot).
+
+**`cart-lut` title, MegaByter hw 86.** 15 records for a whole 40 M-cycle boot:
+resident execution in bank 0, a 256-byte read at `$0000` of banks 124 and 126, a
+sparse 266-read scatter across bank 1 `$00D8-$1F4A` (an index lookup, not a stream),
+then TWO cross-bank chunks — 13 `$19BD-$1FFF` → 14 `$0000-$173F` (7555 bytes) and 15
+`$1777-$1FFF` → 16 `$0000-$1FFF` → 17 `$0000-$1FFF` → 18 `$0000-$0047` (18641
+bytes). In both chunks every record's `off_lo` is exactly the previous record's
+`off_hi + 1`, the bank rolls at exactly `$1FFF` → `$0000`, and each record's byte
+count equals its span length — a single gapless pass, no re-reads. The chunks
+reconstruct byte-exactly from the lane alone.
 
 *Note for C2:* the C64RE reader now knows the opcode (`binary-format.ts` — enum,
 size, decode), so a capture containing the lane is readable; it previously threw
