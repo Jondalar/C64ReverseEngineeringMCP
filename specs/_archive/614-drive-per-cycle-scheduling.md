@@ -441,10 +441,10 @@ Additional acceptance for the architectural fix:
 
 ## Cross-links
 
-- `specs/612-1541-port-fidelity-rules.md` — port doctrine
+- `specs/_archive/612-1541-port-fidelity-rules.md` — port doctrine
 - `specs/612-1541-port-fidelity-todo.md` T3.4-T3.11 — diagnostic
   threads that converge here
-- `specs/620-port-bug-forensic-doctrine.md` — RFL discipline used
+- `specs/_archive/620-port-bug-forensic-doctrine.md` — RFL discipline used
   to localize the bug to bridge orchestration, not vice1541 static
   code
 - `docs/vice-iec-arc42.md` — IEC handshake reference + ADR-1

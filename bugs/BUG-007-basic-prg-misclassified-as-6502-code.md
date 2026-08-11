@@ -62,7 +62,7 @@ PRG analysis heuristics / BASIC token decoder integration.
 - **Decision (2026-05-30):** this is an analysis enhancement, not a product-flow
   blocker. Closed as a bug and promoted to a tracked backlog spec rather than
   fixed inline.
-- **Backlog spec:** `specs/731-basic-program-classification.md` (Status: BACKLOG)
+- **Backlog spec:** `specs/_archive/731-basic-program-classification.md` (Status: BACKLOG)
   — `$0801` BASIC detection via the line-link chain, a CBM BASIC V2 detokenizer,
   classification as a `basic`/`basic_bootstrap` segment instead of demoted 6502
   code, and emitting the `SYS` target as an entry point. Includes the DDD

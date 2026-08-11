@@ -132,7 +132,7 @@ Deviations to verify:
 - `src/runtime/headless/kernel/headless-machine-kernel.ts` (CIA2
   callbacks already adjusted in 417)
 - 1 new smoke
-- `specs/418-iec-phase-c-push-flush.md` (this)
+- `specs/_archive/418-iec-phase-c-push-flush.md` (this)
 
 ## Next spec
 

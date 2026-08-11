@@ -8,10 +8,10 @@ framing see [README.md](README.md); for working doctrine see
 
 Frozen product baseline: `runtime-product-green-2026-05-24` (master). The
 "is this green" source is the **small Runtime Product Proof canary baseline**
-(`specs/715-runtime-product-proof-baseline.md`) — it answers *"does the central
+(`specs/_archive/715-runtime-product-proof-baseline.md`) — it answers *"does the central
 runtime still work like yesterday?"* in minutes, NOT a full certification matrix:
 
-- `specs/715-runtime-product-proof-baseline.md` — active product authority + tiered gate policy
+- `specs/_archive/715-runtime-product-proof-baseline.md` — active product authority + tiered gate policy
 - `docs/runtime-product-proof.md` — the 7-canary baseline + gate-group policy
 - `scripts/runtime-proof-manifest.mjs` — gate manifest (baseline / focused / historical)
 - `docs/runtime-product-baseline-2026-05-24.md` — frozen baseline record
@@ -44,9 +44,9 @@ Every runtime port change cites a §-anchor in one of:
 
 Plus the binding doctrine specs:
 
-- `specs/612-1541-port-fidelity-rules.md` (+ `-todo.md`) — port fidelity
+- `specs/_archive/612-1541-port-fidelity-rules.md` (+ `-todo.md`) — port fidelity
   Naming Law / Prohibition List for `vice1541/**`
-- `specs/620-port-bug-forensic-doctrine.md` — read-VICE-first, first-
+- `specs/_archive/620-port-bug-forensic-doctrine.md` — read-VICE-first, first-
   divergence trace, differential testing
 
 ## Active roadmap
@@ -54,7 +54,7 @@ Plus the binding doctrine specs:
 ### 1541 silicon-equivalent rebuild (6xx) — landed, hardening
 
 `vice1541/` replaced the legacy drive as default. Charter
-`specs/610-1541-parity-rebuild-charter.md`; rebuild `611`, fidelity `612`.
+`specs/_archive/610-1541-parity-rebuild-charter.md`; rebuild `611`, fidelity `612`.
 Load/save/fastloader/GCR/KERNAL fidelity: `613`–`618`. Open hardening:
 `619` (KPI trace contract), `621` (port-hygiene backlog), `622` (vice-mode
 performance, §4.1–4.3 open), `623` (monitor/debugger). Legacy-drive

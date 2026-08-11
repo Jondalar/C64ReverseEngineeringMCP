@@ -129,7 +129,7 @@ per-cycle flag value.
 
 ## Deliverables
 
-- `specs/300-literal-vic-rw-authority.md` (this file)
+- `specs/_archive/300-literal-vic-rw-authority.md` (this file)
 - `scripts/smoke-vic-300-rw-diff.mjs`
 - `scripts/smoke-vic-300-d012-poll.mjs`
 - Patch to `src/runtime/headless/integrated-session.ts`:

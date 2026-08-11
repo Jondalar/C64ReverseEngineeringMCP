@@ -105,7 +105,7 @@ if (!this.usePerCycleBusStealing) {
 
 ## Deliverables
 
-- `specs/307-literal-driver-direct.md` (this)
+- `specs/_archive/307-literal-driver-direct.md` (this)
 - `scripts/bench-vic-307-perf.mjs`
 - Patches to `src/runtime/headless/integrated-session.ts` +
   `src/runtime/headless/vic/vic-ii-vice.ts`

@@ -181,7 +181,7 @@ Known deviations to verify:
 - `src/runtime/headless/peripherals/cia1.ts` (verify)
 - `src/runtime/headless/peripherals/cia2.ts` (verify)
 - `scripts/smoke-403-cia-vice-trace.mjs` (new)
-- `specs/403-c64-phase-c-peripherals.md` (this)
+- `specs/_archive/403-c64-phase-c-peripherals.md` (this)
 
 ## Next spec
 

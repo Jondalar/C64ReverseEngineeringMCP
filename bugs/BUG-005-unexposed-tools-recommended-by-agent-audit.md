@@ -57,7 +57,7 @@ Agent/audit recommendation layer, MCP default surface classification, project wo
 
 - This is product-critical for the LLM-first workflow.
 - This is not just a missing-tool exposure bug. It is a workflow-orchestration concept issue: the MCP must own phase/step state and recommend only callable default actions, not leak internal tool names to the LLM.
-- Planned resolution spec: `specs/730-mcp-workflow-step-orchestrator.md` — MCP Workflow Step Orchestrator + Project Inventory Sync.
+- Planned resolution spec: `specs/_archive/730-mcp-workflow-step-orchestrator.md` — MCP Workflow Step Orchestrator + Project Inventory Sync.
 - Expected shape: `agent_next_step` / `agent_run_step` / `project_inventory_sync` or equivalent default façade. Internal tools such as `register_existing_files`, `scan_registration_delta`, and `import_manifest_artifact` may be used internally, but must not be normal LLM instructions.
 - Fix can be either exposing a proper façade or changing recommendations to existing callable tools, but the preferred product direction is a phase/step orchestrator owned by MCP.
 - No workaround via `C64RE_FULL_TOOLS` for normal product flow.

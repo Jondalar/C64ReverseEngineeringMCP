@@ -128,7 +128,7 @@ Deviations to verify:
 - `src/runtime/headless/drive/drive-types.ts` (new)
 - `src/runtime/headless/integrated-session.ts` (consumer rewrite)
 - 1 new smoke
-- `specs/407-1541-phase-a-context.md` (this)
+- `specs/_archive/407-1541-phase-a-context.md` (this)
 
 ## Next spec
 

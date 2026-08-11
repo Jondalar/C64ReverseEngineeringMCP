@@ -321,7 +321,7 @@ None. Orchestrator stubs are unwired.
 - NEW: `src/runtime/headless/orchestrator/drive-cycle.ts`
 - MODIFIED (audit comment only):
   `src/runtime/headless/integrated-session.ts`
-- NEW: `specs/400-tick-order-port.md` (this file)
+- NEW: `specs/_archive/400-tick-order-port.md` (this file)
 
 ## Next spec
 

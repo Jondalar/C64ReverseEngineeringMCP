@@ -120,7 +120,7 @@ Deviations to verify:
 
 - `src/runtime/headless/iec/iec-bus.ts` (verify + modify)
 - 1 new smoke
-- `specs/416-iec-phase-a-shared-state.md` (this)
+- `specs/_archive/416-iec-phase-a-shared-state.md` (this)
 
 ## Next spec
 

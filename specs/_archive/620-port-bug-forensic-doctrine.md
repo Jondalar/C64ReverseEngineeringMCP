@@ -3,7 +3,7 @@
 > **Status: ÜBERHOLT (superseded 2026-07-15)** — VICE/TS as authority retired; TRX64 standalone. VICE = Vorlage only. See board doctrine line + [[project_ts_vice_oracle_retired]].
 
 **Status:** ACTIVE (2026-05-18, renumbered from Spec 613 → 620 on 2026-05-19 — Spec 613 slot held by `c64-iec-load-regression`, predates this doctrine).
-**Parent:** `specs/612-1541-port-fidelity-rules.md`
+**Parent:** `specs/_archive/612-1541-port-fidelity-rules.md`
 **Scope:** debugging any bug whose suspected root cause is in `src/runtime/headless/vice1541/**` (a VICE C→TS port). Applies to the 1541 rebuild and to any future 1:1 port (CIA, VIC, SID).
 **Why this spec exists:** 2026-05-17/18 overnight debug session burned ~8 hours on a Legacy C64 core hypothesis. Root cause was a C→TS conversion bug in the port. Same pattern as Sprint 112 Spec 140 v2 (memory `feedback_read_vice_first.md`). The dominant bug class in any 1:1 port is conversion error, not algorithmic divergence — but debug effort keeps targeting the latter.
 
@@ -214,7 +214,7 @@ Spec is DONE when:
 
 ## 10. References
 
-- `specs/612-1541-port-fidelity-rules.md` — parent fidelity spec.
+- `specs/_archive/612-1541-port-fidelity-rules.md` — parent fidelity spec.
 - Memory `feedback_read_vice_first.md` — same lesson, narrower scope (Spec 140 v2 incident).
 - Memory `feedback_trace_into_duckdb.md` — addresses HOW to trace (DuckDB not JSONL); orthogonal to WHEN.
 - 2026-05-17/18 overnight debug session — incident report.

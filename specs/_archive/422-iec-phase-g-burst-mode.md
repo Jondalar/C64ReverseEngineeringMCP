@@ -74,7 +74,7 @@ This spec is **optional**. Recommended deferral:
 ## Files touched
 
 - `src/runtime/headless/iec/iec-fast.ts` (new stub)
-- `specs/422-iec-phase-g-burst-mode.md` (this)
+- `specs/_archive/422-iec-phase-g-burst-mode.md` (this)
 
 ## Next spec
 

@@ -143,7 +143,7 @@ Deviations to verify:
 - `src/runtime/headless/drive/drive-cpu.ts` (drop polling bridge)
 - `src/runtime/headless/integrated-session.ts` (ATN edge wiring)
 - 2 new smokes
-- `specs/410-1541-phase-d-via1-iec.md` (this)
+- `specs/_archive/410-1541-phase-d-via1-iec.md` (this)
 
 ## Next spec
 

@@ -108,7 +108,7 @@ s.renderToPng(path, { renderer: "literal-port" });
 
 ## Deliverables
 
-- `specs/306-literal-vic-renderer-file-deletion.md` (this)
+- `specs/_archive/306-literal-vic-renderer-file-deletion.md` (this)
 - 16 file deletions + 18 script archives
 - Patches to integrated-session.ts + v3-ws-server.ts
 - Edits to 4 retained scripts

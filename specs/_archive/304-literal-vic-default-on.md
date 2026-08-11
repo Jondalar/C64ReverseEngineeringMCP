@@ -98,7 +98,7 @@ No other changes required — cascade flags inherit from
 
 ## Deliverables
 
-- `specs/304-literal-vic-default-on.md` (this)
+- `specs/_archive/304-literal-vic-default-on.md` (this)
 - Patch to `src/runtime/headless/integrated-session.ts` (2 lines)
 
 ## Next slice

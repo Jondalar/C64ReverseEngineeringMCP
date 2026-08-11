@@ -117,7 +117,7 @@ const sidecar = {
     cmd: `node scripts/vic-corpus-capture.mjs --game ${game} --phase ${phase} --disk ${args.disk} --boot-cycles ${bootCycles} --capture-cycles ${captureCycles}`,
   },
   bug_links: {
-    spec: "specs/296-vic-real-game-bug-corpus.md",
+    spec: "specs/_archive/296-vic-real-game-bug-corpus.md",
   },
 };
 const sidecarPath = `${outDir}/sidecar.json`;

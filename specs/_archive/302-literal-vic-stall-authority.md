@@ -118,7 +118,7 @@ PASS within ±5 cycle tolerance
 
 ## Deliverables
 
-- `specs/302-literal-vic-stall-authority.md` (this)
+- `specs/_archive/302-literal-vic-stall-authority.md` (this)
 - `docs/vic-ii-literal-port-phase4-mini-phase0-2026-05-10.md`
 - `scripts/smoke-vic-302-stall-diff.mjs`
 - `scripts/smoke-vic-302-badline-stall.mjs`

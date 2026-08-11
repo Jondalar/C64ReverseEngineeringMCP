@@ -118,7 +118,7 @@ Deviations to verify:
 - `src/disk/*.ts` (audit)
 - `src/runtime/headless/drive/track-buffer.ts` (audit)
 - 2 new smokes
-- `specs/413-1541-phase-g-image-formats.md` (this)
+- `specs/_archive/413-1541-phase-g-image-formats.md` (this)
 
 ## Next spec
 

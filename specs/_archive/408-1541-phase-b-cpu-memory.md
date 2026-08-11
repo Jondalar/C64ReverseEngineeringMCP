@@ -132,7 +132,7 @@ Deviations to verify:
 - `src/runtime/headless/drive/drive-bus.ts` (refactor)
 - `src/runtime/headless/drive/drive-cpu.ts` (verify reset)
 - 1 new smoke
-- `specs/408-1541-phase-b-cpu-memory.md` (this)
+- `specs/_archive/408-1541-phase-b-cpu-memory.md` (this)
 
 ## Next spec
 

@@ -107,7 +107,7 @@ worst row 271: 384 px differ
 
 ## Deliverables
 
-- `specs/303-literal-vic-fb-authority.md` (this)
+- `specs/_archive/303-literal-vic-fb-authority.md` (this)
 - `docs/vic-ii-literal-port-phase5-mini-phase0-2026-05-10.md`
 - `scripts/smoke-vic-303-fb-diff.mjs`
 - `scripts/smoke-vic-303-basic-ready.mjs`

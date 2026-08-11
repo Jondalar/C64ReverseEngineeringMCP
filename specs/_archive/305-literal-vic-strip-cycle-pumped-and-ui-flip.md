@@ -86,7 +86,7 @@ s.renderToPng(path, { renderer });
 
 ## Deliverables
 
-- `specs/305-literal-vic-strip-cycle-pumped-and-ui-flip.md` (this)
+- `specs/_archive/305-literal-vic-strip-cycle-pumped-and-ui-flip.md` (this)
 - Patches to `src/runtime/headless/integrated-session.ts` +
   `src/workspace-ui/v3-ws-server.ts`
 

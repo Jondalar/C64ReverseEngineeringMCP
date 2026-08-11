@@ -444,10 +444,10 @@ C64RE current surfaces:
 - `src/runtime/headless/kernel/snapshot-persistence.ts`
 - `src/runtime/headless/debug/runtime-controller.ts`
 - `src/runtime/headless/media/ingress.ts`
-- `specs/705-interactive-runtime-evidence-intervention-replay-contract.md`
-- `specs/707-native-snapshot-persistence-dump-undump.md`
-- `specs/709-reproducible-media-ingress.md`
-- `specs/713-vice-cartridge-fidelity.md`
+- `specs/_archive/705-interactive-runtime-evidence-intervention-replay-contract.md`
+- `specs/_archive/707-native-snapshot-persistence-dump-undump.md`
+- `specs/_archive/709-reproducible-media-ingress.md`
+- `specs/_archive/713-vice-cartridge-fidelity.md`
 
 ## 11. Result — 714.1 + 714.2 (2026-05-23)
 

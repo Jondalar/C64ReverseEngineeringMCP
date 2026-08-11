@@ -4,7 +4,7 @@
 > The game-by-game truth table below remains the authoritative expected-state
 > definition for the seven-game `c64-1541-execution` capability, but it is no
 > longer "the whole runtime proof". The active product baseline is
-> `specs/715-runtime-product-proof-baseline.md` (frozen
+> `specs/_archive/715-runtime-product-proof-baseline.md` (frozen
 > `runtime-product-green-2026-05-24`, `npm run proof:product`). Any historical
 > RED / Pawn / LNR prose below is retained **as historical-at-baseline
 > evidence**, not a current product claim. `scripts/runtime-proof-gate.mjs`

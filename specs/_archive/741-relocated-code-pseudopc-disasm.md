@@ -22,7 +22,7 @@ Driven by the Wasteland EF reverse-engineering project.
 **Not done (optional, §4):** whole-disk `.include`/`.import` rebuild trees and a
 `build_disk_from_sources` disk-builder. Documented here as an optional aggregate
 export, not part of the default per-payload disassembly model.
-**Parent specs:** `specs/720-disasm-output-quality.md` (static labels / segment classification), `specs/042-*` (`propose_annotations`), `specs/413-1541-phase-g-image-formats.md` (c1541 platform / disk geometry). Relates to `disasm_prg`, `analyze_prg`, `assemble_source`.
+**Parent specs:** `specs/720-disasm-output-quality.md` (static labels / segment classification), `specs/042-*` (`propose_annotations`), `specs/_archive/413-1541-phase-g-image-formats.md` (c1541 platform / disk geometry). Relates to `disasm_prg`, `analyze_prg`, `assemble_source`.
 **Scope:** Make the disassembler able to render **relocated / self-relocating code** (and runtime-overlaid code) as REAL CODE at its **runtime address** while keeping the source **byte-exact reassemblable at its stored (file/disk) position**, using the assembler relocation directives that already exist in KickAssembler and 64tass.
 
 **Product source-shape rule:** keep a **1:1 relationship between extracted blob/payload/file and disassembly source file** whenever technically possible. A payload such as `02_2.0.prg` should produce one canonical source file whose internal regions may use `.pseudopc` / `.logical`. Do **not** split one payload into multiple source files merely because it contains relocated blocks. Multi-file `.include` trees are an optional disk-rebuild/export feature, not the default disassembly model.

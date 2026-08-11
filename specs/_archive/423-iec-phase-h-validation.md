@@ -126,7 +126,7 @@ This spec adds smokes, no source.
 
 - 5 new smokes under `scripts/smoke-423-*.mjs`.
 - vendored fastloader test images.
-- `specs/423-iec-phase-h-validation.md` (this)
+- `specs/_archive/423-iec-phase-h-validation.md` (this)
 
 ## Next spec
 

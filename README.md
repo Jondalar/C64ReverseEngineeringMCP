@@ -317,7 +317,7 @@ Details: [product vision](docs/product-vision-and-workbench-contract.md) ·
 - [PLAN.md](PLAN.md) — roadmap + working baseline + step gates
 - [specs/README.md](specs/README.md) — the cross-repo spec board (C64RE + TRX64
   share one number range; the single registry of what's ACTIVE / DONE / CLOSED)
-- [specs/715-runtime-product-proof-baseline.md](specs/715-runtime-product-proof-baseline.md)
+- [specs/_archive/715-runtime-product-proof-baseline.md](specs/_archive/715-runtime-product-proof-baseline.md)
   + [docs/runtime-product-baseline-2026-05-24.md](docs/runtime-product-baseline-2026-05-24.md)
   — the current product proof authority (the single "is this green" source; migrates
   to the enforced TRX64 quality gate, Spec 783).

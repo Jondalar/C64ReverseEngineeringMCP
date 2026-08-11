@@ -13,7 +13,7 @@
 - Surface: MCP default / analysis pipeline / workspace UI source overlay
 - Project dir: `/Users/alex/Development/C64/Cracking/Wasteland_EF`
 - Tool / endpoint / tab: `analyze_prg`, `disasm_prg`, Disk tab `.asm/.tass` action
-- Owner spec: `specs/741-relocated-code-pseudopc-disasm.md`
+- Owner spec: `specs/_archive/741-relocated-code-pseudopc-disasm.md`
 
 ## What happened
 
@@ -139,7 +139,7 @@ $C0E8-$C0F5  lookup_table
 ## Scope guess (optional)
 
 This bug is not a separate implementation track. It is the concrete Wasteland
-fixture / acceptance case for `specs/741-relocated-code-pseudopc-disasm.md`.
+fixture / acceptance case for `specs/_archive/741-relocated-code-pseudopc-disasm.md`.
 
 Likely areas:
 

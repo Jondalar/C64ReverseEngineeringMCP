@@ -40,7 +40,7 @@ PASS: realtime PAL achieved
 ## Deliverables
 
 - `scripts/bench-vic-308-perf.mjs` (callable bench harness)
-- `specs/308-phase7-perf-bench.md` (this)
+- `specs/_archive/308-phase7-perf-bench.md` (this)
 
 ## Migration plan status
 

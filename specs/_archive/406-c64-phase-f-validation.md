@@ -107,7 +107,7 @@ This spec adds **smokes and corpora**, no source changes.
 - 3 new smokes under `scripts/smoke-406-*.mjs`.
 - vendored testprog imports under `samples/vice-testprogs/` (most
   already vendored; expand if needed).
-- `specs/406-c64-phase-f-validation.md` (this)
+- `specs/_archive/406-c64-phase-f-validation.md` (this)
 
 ## Next spec
 

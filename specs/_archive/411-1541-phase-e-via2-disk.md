@@ -135,7 +135,7 @@ Deviations to verify:
 - `src/runtime/headless/drive/via2d1541.ts` (modify)
 - `src/runtime/headless/drive/head-position.ts` (verify)
 - 2 new smokes
-- `specs/411-1541-phase-e-via2-disk.md` (this)
+- `specs/_archive/411-1541-phase-e-via2-disk.md` (this)
 
 ## Next spec
 

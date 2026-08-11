@@ -1,6 +1,6 @@
 # Spec 612 — Port Fidelity TODO List
 
-**Spec:** `specs/612-1541-port-fidelity-rules.md`
+**Spec:** `specs/_archive/612-1541-port-fidelity-rules.md`
 **Status:** ACTIVE (2026-05-17, resync 2026-05-19)
 **Scope:** every TODO here targets `src/runtime/headless/vice1541/**` only. LEGACY1541 is untouched.
 **Counts (2026-05-19):** DONE: 27 / PARTIAL: 1 / DEFERRED: 1 / OBSOLETE: 0 (of 30 tasks)
@@ -14,13 +14,13 @@ Each task block is self-contained: TS path, VICE C path, acceptance criteria, de
 3. Tick the acceptance boxes only after running the fidelity check + micro-test.
 4. Update `Status:` to `DONE <date> <commit-sha>` and commit.
 
-Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in `specs/612-1541-port-fidelity-rules.md` §discussion block instead of bending the rule.
+Halt-on-blocker: if a rule conflicts with VICE source (rare), open a question in `specs/_archive/612-1541-port-fidelity-rules.md` §discussion block instead of bending the rule.
 
 ---
 
 ## Cross-spec link 2026-05-18
 
-**Spec 613** (`specs/613-c64-iec-load-regression.md`) — the underlying c64 IEC `LOAD"$",8` regression that blocks Spec 612 from satisfying the original goal-hook condition. Reproduces on `master`, on `runtime-green-2026-05-16` tag, AND on this branch — confirmed NOT introduced by Spec 612 work.
+**Spec 613** (`specs/_archive/613-c64-iec-load-regression.md`) — the underlying c64 IEC `LOAD"$",8` regression that blocks Spec 612 from satisfying the original goal-hook condition. Reproduces on `master`, on `runtime-green-2026-05-16` tag, AND on this branch — confirmed NOT introduced by Spec 612 work.
 
 User authorized 2026-05-18: "Ja fix 613" — c64-kern changes ALLOWED for Spec 613 (separate branch off master).
 
@@ -39,7 +39,7 @@ Spec 612 scope is the structural VICE port + bridge wiring; that work is complet
 **Spec ref:** §6 FC-1..FC-6
 
 **Acceptance:**
-- [x] Reads file-mapping table from `specs/612-1541-port-fidelity-rules.md` §3 (parse the markdown table).
+- [x] Reads file-mapping table from `specs/_archive/612-1541-port-fidelity-rules.md` §3 (parse the markdown table).
 - [x] FC-1: every `src/runtime/headless/vice1541/*.ts` is in the map or marked `pending`.
 - [x] FC-2: for each pair, extract VICE C function names (regex on the C file) and grep for matching `export function <name>` in the TS file. Missing → list.
 - [x] FC-3: grep forbidden patterns; PASS/WARN/FAIL per rule.
@@ -79,7 +79,7 @@ Spec 612 scope is the structural VICE port + bridge wiring; that work is complet
 - [x] Cites Spec 612 §1 NL + §2 PL in 5–10 lines max.
 - [x] Explicit list of the 10 PL rules in a short table.
 - [x] States: "Any change under `src/runtime/headless/vice1541/**` must cite Spec 612 rule numbers in the commit message."
-- [x] Cross-link to `specs/612-1541-port-fidelity-rules.md`.
+- [x] Cross-link to `specs/_archive/612-1541-port-fidelity-rules.md`.
 
 **Depends on:** none (can run in parallel with T0.1).
 

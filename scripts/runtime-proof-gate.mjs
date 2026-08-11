@@ -282,8 +282,8 @@ saveCache(cache);
 console.log("");
 console.log("================= RUNTIME PROOF GATE =================");
 console.log("Baseline: runtime-green-2026-05-16 (87b4957)");
-console.log("Doctrine: specs/600-runtime-proof-gates.md");
-console.log("Truth:    specs/601-baseline-truth-table.md");
+console.log("Doctrine: specs/_archive/600-runtime-proof-gates.md");
+console.log("Truth:    specs/_archive/601-baseline-truth-table.md");
 console.log("");
 
 let fails = 0;

@@ -277,7 +277,7 @@ Known deviations to verify:
 - `src/runtime/headless/peripherals/vic-renderer.ts` (DELETE if
   legacy)
 - 4 new smokes under `scripts/smoke-404-*.mjs`
-- `specs/404-c64-phase-d-vic-ii.md` (this)
+- `specs/_archive/404-c64-phase-d-vic-ii.md` (this)
 
 ## Next spec
 

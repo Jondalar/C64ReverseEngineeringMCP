@@ -151,10 +151,10 @@ A graphical builder is optional later and must compile to the same structure.
 
 ## 8. References
 
-- `specs/619-vice-headless-kpi-trace-contract.md`
-- `specs/623-vice-monitor-debugger.md` section 8
-- `specs/705-interactive-runtime-evidence-intervention-replay-contract.md`
-- `specs/721-runtime-informed-annotation.md`
+- `specs/_archive/619-vice-headless-kpi-trace-contract.md`
+- `specs/_archive/623-vice-monitor-debugger.md` section 8
+- `specs/_archive/705-interactive-runtime-evidence-intervention-replay-contract.md`
+- `specs/_archive/721-runtime-informed-annotation.md`
 
 ## 9. Result (2026-05-23)
 

@@ -1,7 +1,7 @@
 # Spec 616 — KERNAL Load Fidelity
 
 **Status:** DONE (2026-05-19, cleanup 2026-05-20) — KERNAL LOAD byte-fidelity proven 15/16 PASS + 1 expected-FAIL carve-out (real:pawn-s1 autoloader artefact, root-caused commit `9ec6b17`). lf-006-max redesigned from broken 167KB physical-limit case to max-RAM-fit (51199 bytes, ends $CFFF) and now PASSES. `tests/spec-616/kernal-load-byte-fidelity.test.ts` exits 0. Chain test green. Spec 618 (fastloader/$DD00) unblocked.
-**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/614-drive-per-cycle-scheduling.md`, `specs/615-gcr-decode-fidelity.md`
+**Parent specs:** `specs/_archive/611-new-vice1541-side-by-side.md`, `specs/_archive/612-1541-port-fidelity-rules.md`, `specs/_archive/620-port-bug-forensic-doctrine.md`, `specs/_archive/614-drive-per-cycle-scheduling.md`, `specs/_archive/615-gcr-decode-fidelity.md`
 **Base commit:** post-615-DONE on `codex/615-gcr-decode-fidelity`.
 **Branch:** `codex/616-kernal-load-fidelity` (stacked on 615).
 
@@ -256,12 +256,12 @@ Spec is DONE when ALL of:
 
 ## 12. References
 
-- `specs/611-new-vice1541-side-by-side.md`
-- `specs/612-1541-port-fidelity-rules.md` — NL / PL / FC
-- `specs/620-port-bug-forensic-doctrine.md` — RFL gate + 10 conversion-bug families + DTH
-- `specs/614-drive-per-cycle-scheduling.md`
-- `specs/615-gcr-decode-fidelity.md` — disk read path (D64/G64) closed
+- `specs/_archive/611-new-vice1541-side-by-side.md`
+- `specs/_archive/612-1541-port-fidelity-rules.md` — NL / PL / FC
+- `specs/_archive/620-port-bug-forensic-doctrine.md` — RFL gate + 10 conversion-bug families + DTH
+- `specs/_archive/614-drive-per-cycle-scheduling.md`
+- `specs/_archive/615-gcr-decode-fidelity.md` — disk read path (D64/G64) closed
 - `specs/_archive/617-kernal-save-fidelity.md` — successor, gated on 616 DONE
 - `specs/_archive/618-fastloader-dd00.md` — DEFERRED until 616 + 617 DONE
-- `specs/621-port-hygiene-backlog.md` — P0 PL-10 dedupes
+- `specs/_archive/621-port-hygiene-backlog.md` — P0 PL-10 dedupes
 - Memory: `feedback_step_debug_for_stalls.md`, `feedback_port_reading_first.md`, `feedback_trace_step_not_stats.md`, `feedback_c_to_ts_diff_test.md`.

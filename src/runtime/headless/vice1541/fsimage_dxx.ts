@@ -1,6 +1,6 @@
 // PORT OF: vice/src/diskimage/fsimage-dxx.c (full file)
 // Header:  vice/src/diskimage/fsimage-dxx.h
-// Spec:    specs/612-1541-port-fidelity-rules.md §1 NL, §2 PL, §5 FM-block
+// Spec:    specs/_archive/612-1541-port-fidelity-rules.md §1 NL, §2 PL, §5 FM-block
 //
 // One C file → one TS file (NL-1). One C function → one TS function with
 // verbatim snake_case name (NL-2). Five exports match VICE non-static

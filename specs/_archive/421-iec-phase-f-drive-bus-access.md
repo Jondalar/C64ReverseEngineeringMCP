@@ -136,7 +136,7 @@ Deviations to verify:
 - `src/runtime/headless/drive/via1d1541.ts` (PB read/write)
 - `src/runtime/headless/iec/iec-bus.ts` (drv_bus recompute)
 - 1 new smoke
-- `specs/421-iec-phase-f-drive-bus-access.md` (this)
+- `specs/_archive/421-iec-phase-f-drive-bus-access.md` (this)
 
 ## Next spec
 

@@ -133,7 +133,7 @@ Deviations to verify:
 - `src/runtime/headless/drive/via1d1541.ts` (CA1 signal)
 - `src/runtime/headless/via/via6522-vice.ts` (signal API)
 - 1 new smoke
-- `specs/419-iec-phase-d-atn-ca1.md` (this)
+- `specs/_archive/419-iec-phase-d-atn-ca1.md` (this)
 
 ## Next spec
 

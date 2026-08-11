@@ -364,7 +364,7 @@ Epyx FastLoad does not.
 
 This section is **finding-only documentation**. Implementation
 contract + small-slice phased plan + per-phase regression gates
-live in `specs/428-split-c64-and-1541-cpu-contracts.md`.
+live in `specs/_archive/428-split-c64-and-1541-cpu-contracts.md`.
 
 Do **not** implement the changes below from this spec. They are
 captured here for reference and to make the bug report self-

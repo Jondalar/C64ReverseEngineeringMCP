@@ -137,9 +137,9 @@ separate serialization logic.
 
 ## 8. References
 
-- `specs/705-interactive-runtime-evidence-intervention-replay-contract.md`
-- `specs/706-resid-audio-latency-governor.md`
-- `specs/623-vice-monitor-debugger.md` section 7
+- `specs/_archive/705-interactive-runtime-evidence-intervention-replay-contract.md`
+- `specs/_archive/706-resid-audio-latency-governor.md`
+- `specs/_archive/623-vice-monitor-debugger.md` section 7
 
 ## 9. Result (2026-05-23)
 

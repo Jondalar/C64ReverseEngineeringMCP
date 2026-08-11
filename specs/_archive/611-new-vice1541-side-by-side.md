@@ -4,12 +4,12 @@
 retired; VICE1541 is the only drive — the side-by-side phase is over). Ongoing 1541
 fidelity continues under Spec 610 / 612 / 620. Prior header: "ACTIVE (2026-05-16),
 operational strategy updated 2026-05-17." **Replaces** the prior Spec 611 "rotation
-retry" direction defined in `specs/610-1541-parity-rebuild-charter.md`.
+retry" direction defined in `specs/_archive/610-1541-parity-rebuild-charter.md`.
 **Branch:** `codex/611-vice1541-side-by-side`
 **Baseline:** `runtime-green-2026-05-16` = master `87b4957`.
 **Doctrine:** `specs/_archive/600-runtime-proof-gates.md`.
 **Truth table:** `specs/_archive/601-baseline-truth-table.md`.
-**Charter:** `specs/610-1541-parity-rebuild-charter.md`.
+**Charter:** `specs/_archive/610-1541-parity-rebuild-charter.md`.
 **Doc anchors:** `docs/vice-1541-arch.md`, `docs/vice-iec-arc42.md`.
 **Operational override (2026-05-17):** the side-by-side architecture,
 LEGACY1541 freeze, Drive1541 boundary, and Runtime Proof Gate doctrine
@@ -719,7 +719,7 @@ of instances later.
 
 This spec is DONE when:
 
-1. It is committed under `specs/611-new-vice1541-side-by-side.md`.
+1. It is committed under `specs/_archive/611-new-vice1541-side-by-side.md`.
 2. Spec 610's sub-spec table points row 611 at this spec, and rows
    612-614 are marked superseded.
 3. PLAN.md cites this spec as the active direction for 1541 work

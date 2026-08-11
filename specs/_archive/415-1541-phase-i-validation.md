@@ -111,7 +111,7 @@ This spec adds smokes + corpus, no source changes.
 - 4 new smokes under `scripts/smoke-415-*.mjs`.
 - vendored fastloader test corpus under
   `samples/fastloader-tests/` (new dir).
-- `specs/415-1541-phase-i-validation.md` (this)
+- `specs/_archive/415-1541-phase-i-validation.md` (this)
 
 ## Completion (2026-05-12)
 

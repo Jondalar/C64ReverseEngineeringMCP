@@ -57,7 +57,7 @@ Acceptance gate (game-affecting tier per PLAN.md):
 
 Files touched:
 
-- `specs/420-iec-phase-e-drive-irq.md` (this — DONE marker + notes).
+- `specs/_archive/420-iec-phase-e-drive-irq.md` (this — DONE marker + notes).
 - `scripts/smoke-420-drive-irq-delay.mjs` (new).
 - `package.json` (register `smoke:420-drive-irq-delay`).
 
@@ -169,7 +169,7 @@ Deviations to verify:
 - `src/runtime/headless/drive/via1d1541.ts` (chip-side push)
 - `src/runtime/headless/drive/drive-cpu.ts` (drop polling bridge)
 - 1 new smoke
-- `specs/420-iec-phase-e-drive-irq.md` (this)
+- `specs/_archive/420-iec-phase-e-drive-irq.md` (this)
 
 ## Next spec
 

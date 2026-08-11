@@ -1,7 +1,7 @@
 # Spec 621 — 1541 Port Hygiene Enforcement Backlog
 
 **Status:** DRAFT (2026-05-19)
-**Parent specs:** `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`
+**Parent specs:** `specs/_archive/612-1541-port-fidelity-rules.md`, `specs/_archive/620-port-bug-forensic-doctrine.md`
 **Branch:** `codex/621-port-hygiene-backlog` (stacked on `codex/615-gcr-decode-fidelity`).
 
 ## 1. Why this spec exists
@@ -190,10 +190,10 @@ Spec 621 closes when P0 + P1 land. P2 carries forward into ongoing maintenance.
 
 ## 8. References
 
-- `specs/612-1541-port-fidelity-rules.md` — NL / PL / FM / FC / MT / QP doctrine.
+- `specs/_archive/612-1541-port-fidelity-rules.md` — NL / PL / FM / FC / MT / QP doctrine.
 - `specs/612-1541-port-fidelity-todo.md` — historical task list; superseded for new work by this spec.
-- `specs/620-port-bug-forensic-doctrine.md` — RFL, conversion-bug families, DTH, first-divergence tool, profiling-tool quarantine.
-- `specs/615-gcr-decode-fidelity.md` — disk read path closed (LOAD"$",8 GREEN).
+- `specs/_archive/620-port-bug-forensic-doctrine.md` — RFL, conversion-bug families, DTH, first-divergence tool, profiling-tool quarantine.
+- `specs/_archive/615-gcr-decode-fidelity.md` — disk read path closed (LOAD"$",8 GREEN).
 - `specs/_archive/616-kernal-load-fidelity.md` — KERNAL LOAD,8,1 stall (consumes P0.1 + P0.2 + P1.3).
 - `specs/_archive/617-kernal-save-fidelity.md` — SAVE round-trip (consumes P1.3).
 - `specs/_archive/618-fastloader-dd00.md` — fastloader (consumes P0.2 + P1.3).

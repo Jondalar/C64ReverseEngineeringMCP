@@ -234,7 +234,7 @@ Known deviations to verify:
 - `src/runtime/headless/memory-bus.ts` (audit only; PLA rebuild
   hook stays for spec 402)
 - `scripts/smoke-401-tick-order.mjs` (new)
-- `specs/401-c64-phase-a-foundation.md` (this file)
+- `specs/_archive/401-c64-phase-a-foundation.md` (this file)
 
 ## Next spec
 

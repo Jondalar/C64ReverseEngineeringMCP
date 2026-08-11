@@ -56,8 +56,8 @@ Use the installed VICE source as the only source of truth:
 Project docs:
 
 - `docs/vice-c64-arch.md` §2.1, §2.2, §3.4, §5.6, §5.7, §11, §13
-- `specs/400-tick-order-port.md`
-- `specs/404-c64-phase-d-vic-ii.md`
+- `specs/_archive/400-tick-order-port.md`
+- `specs/_archive/404-c64-phase-d-vic-ii.md`
 
 If docs and VICE source disagree, VICE source wins. Update docs after
 the code is verified.
@@ -292,7 +292,7 @@ happens at the same clock increment site as VICE.
 - Do keep chip-side CIA/VIC IRQ push into `InterruptCpuStatus`.
 - Do add focused smokes before broad game testing.
 - Do compare traces at the first divergence when a smoke fails.
-- Do update `specs/404-c64-phase-d-vic-ii.md` status notes after this
+- Do update `specs/_archive/404-c64-phase-d-vic-ii.md` status notes after this
   spec lands, because its middle audit section still contains stale
   pre-404 statements.
 

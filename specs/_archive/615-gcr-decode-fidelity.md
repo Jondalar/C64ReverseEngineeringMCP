@@ -1,7 +1,7 @@
 # Spec 615 — GCR Decode Fidelity
 
 **Status:** OPEN (2026-05-18)
-**Parent specs:** `specs/611-new-vice1541-side-by-side.md`, `specs/612-1541-port-fidelity-rules.md`, `specs/620-port-bug-forensic-doctrine.md`, `specs/614-drive-per-cycle-scheduling.md`
+**Parent specs:** `specs/_archive/611-new-vice1541-side-by-side.md`, `specs/_archive/612-1541-port-fidelity-rules.md`, `specs/_archive/620-port-bug-forensic-doctrine.md`, `specs/_archive/614-drive-per-cycle-scheduling.md`
 **Base commit:** `7f3f151` on `codex/614-drive-cycle-scheduler` (tag `spec-614-scheduler-architectural-closure`).
 **Branch:** `codex/615-gcr-decode-fidelity` (stacked on `codex/614-drive-cycle-scheduler`).
 
@@ -194,10 +194,10 @@ The base commit `7f3f151` carries **20 `scripts/diag-614-*.mjs`** files. These a
 
 ## 8. References
 
-- `specs/611-new-vice1541-side-by-side.md` — side-by-side architecture.
-- `specs/612-1541-port-fidelity-rules.md` — NL / PL / FC rules (esp. PL-11, FC-7 amendments).
-- `specs/620-port-bug-forensic-doctrine.md` — RFL gate, taxonomy, first-divergence shape.
-- `specs/614-drive-per-cycle-scheduling.md` — base / dependency.
+- `specs/_archive/611-new-vice1541-side-by-side.md` — side-by-side architecture.
+- `specs/_archive/612-1541-port-fidelity-rules.md` — NL / PL / FC rules (esp. PL-11, FC-7 amendments).
+- `specs/_archive/620-port-bug-forensic-doctrine.md` — RFL gate, taxonomy, first-divergence shape.
+- `specs/_archive/614-drive-per-cycle-scheduling.md` — base / dependency.
 - Memory: `feedback_port_reading_first.md`, `feedback_step_debug_for_stalls.md`, `feedback_trace_into_duckdb.md`, `feedback_trace_step_not_stats.md`, `feedback_c_to_ts_diff_test.md`, `feedback_screenshot_gate_mandatory.md`, `feedback_game_screenshot_test_set.md`, `feedback_vice_no_alternatives.md`.
 
 ## 9. Post-Mortem (2026-05-18, after acceptance §4 #1 GREEN)

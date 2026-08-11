@@ -6,7 +6,7 @@
 > for its job. The product surface is now wider (cartridges, checkpoint/ring,
 > `.c64re`, audio, mutable media, trace). The active "is the runtime green"
 > authority is now the manifest-driven product proof in
-> `specs/715-runtime-product-proof-baseline.md` (`npm run proof:product`).
+> `specs/_archive/715-runtime-product-proof-baseline.md` (`npm run proof:product`).
 > This document is retained **unchanged as historical 1541 bring-up evidence**;
 > the seven-game gate survives as one capability (`c64-1541-execution`) within
 > the Spec 715 manifest, not as the whole proof. Do not treat the `5/7` /

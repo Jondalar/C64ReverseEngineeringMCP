@@ -186,7 +186,7 @@ Known deviations to verify (fresh session fills file:line):
 - `src/runtime/headless/peripherals/cia2.ts` (verify VIC bank path)
 - `scripts/smoke-402-pla-configs.mjs` (new)
 - `scripts/smoke-402-cpuport-falloff.mjs` (new)
-- `specs/402-c64-phase-b-memory-pla.md` (this)
+- `specs/_archive/402-c64-phase-b-memory-pla.md` (this)
 
 ## Next spec
 

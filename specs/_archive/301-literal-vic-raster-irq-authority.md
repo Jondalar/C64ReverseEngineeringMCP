@@ -110,7 +110,7 @@ cpu.irqLine = (this.cia1IrqLine() || this.cia1.irqAsserted()) || vicIrq;
 
 ## Deliverables
 
-- `specs/301-literal-vic-raster-irq-authority.md` (this file)
+- `specs/_archive/301-literal-vic-raster-irq-authority.md` (this file)
 - `scripts/smoke-vic-301-irq-diff.mjs` (primary gate)
 - `scripts/smoke-vic-301-raster-irq.mjs` (synthetic ack test)
 - Patch to `src/runtime/headless/integrated-session.ts`:

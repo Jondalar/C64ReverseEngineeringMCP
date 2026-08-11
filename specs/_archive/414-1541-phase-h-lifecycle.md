@@ -121,7 +121,7 @@ Deviations to verify:
 - `src/runtime/headless/integrated-session.ts` (enable/disable hooks)
 - VSF snapshot code (audit)
 - 2 new smokes
-- `specs/414-1541-phase-h-lifecycle.md` (this)
+- `specs/_archive/414-1541-phase-h-lifecycle.md` (this)
 
 ## Next spec
 

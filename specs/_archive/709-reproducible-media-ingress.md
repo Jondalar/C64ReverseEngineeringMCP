@@ -175,9 +175,9 @@ mutation occurs.
 
 ## 8. References
 
-- `specs/705-interactive-runtime-evidence-intervention-replay-contract.md`
-- `specs/707-native-snapshot-persistence-dump-undump.md`
-- `specs/413-1541-phase-g-image-formats.md`
+- `specs/_archive/705-interactive-runtime-evidence-intervention-replay-contract.md`
+- `specs/_archive/707-native-snapshot-persistence-dump-undump.md`
+- `specs/_archive/413-1541-phase-g-image-formats.md`
 - `src/runtime/headless/media/mount.ts`
 - `src/workspace-ui/v3-ws-server.ts`
 - `src/runtime/headless/kernel/snapshot-persistence.ts`

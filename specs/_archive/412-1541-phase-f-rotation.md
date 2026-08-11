@@ -158,7 +158,7 @@ Deviations to verify:
 - `src/runtime/headless/integrated-session.ts` (drop session-side
   GCR tick)
 - 2 new smokes
-- `specs/412-1541-phase-f-rotation.md` (this)
+- `specs/_archive/412-1541-phase-f-rotation.md` (this)
 
 ## Next spec
 

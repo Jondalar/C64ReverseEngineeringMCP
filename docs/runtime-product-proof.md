@@ -1,6 +1,6 @@
 # Runtime Product Proof — small canary baseline + tiered gates
 
-Active authority: **Spec 715** (`specs/715-runtime-product-proof-baseline.md`).
+Active authority: **Spec 715** (`specs/_archive/715-runtime-product-proof-baseline.md`).
 
 The product regression baseline is **not** a completeness or release-certification
 apparatus. This is a hobby project with an already thoroughly validated runtime.

@@ -6,7 +6,7 @@
 - **Area:** runtime
 - **Severity:** high
 - **Status:** fixed (Blockers 1+3 done; Blocker 2 = `runtime_swap_disk_and_continue` shipped, orchestration gated — live-verify the actual game-advance on a multi-disk title) <!-- open | investigating | fixed | wontfix | duplicate -->
-- **Tracking spec:** `specs/744-runtime-session-authority-drive-to-state.md`
+- **Tracking spec:** `specs/_archive/744-runtime-session-authority-drive-to-state.md`
 
 ## Environment
 

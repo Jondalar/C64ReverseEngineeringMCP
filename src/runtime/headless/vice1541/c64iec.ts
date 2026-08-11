@@ -3,7 +3,7 @@
 // Header:  vice/src/c64/c64iec.h
 // Slice:   vice/src/c64/c64cia2.c:136-231 (store_ciapa + read_ciapa IEC slice)
 // VICE rev: working tree at /Users/alex/Development/C64/Tools/vice/vice
-// Spec:    specs/612-1541-port-fidelity-rules.md (NL-1..NL-5, PL-1..PL-10)
+// Spec:    specs/_archive/612-1541-port-fidelity-rules.md (NL-1..NL-5, PL-1..PL-10)
 // Task:    specs/612-1541-port-fidelity-todo.md T2.12 (Wave 7, after T2.11)
 // Layer:   §4 LO-14 — iecbus.ts + c64iec.ts + iec.ts
 // =============================================================================

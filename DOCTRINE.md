@@ -151,7 +151,7 @@ still in the tree.
 ### Runtime Proof Gates (Spec 715) — retired as the authority
 
 The "is this green" authority was the Runtime Product Proof Baseline
-(`specs/715-runtime-product-proof-baseline.md`, runner
+(`specs/_archive/715-runtime-product-proof-baseline.md`, runner
 `scripts/runtime-product-proof.mjs`, tag `runtime-product-green-2026-05-24`), with a
 7-game gate set — motm, MM s1, IM2, LNR s1, Scramble, Pawn s1, Polarbear — plus
 SAVE/FORMAT gates, as the acceptance bar for anything touching the renderer, the IEC
@@ -185,7 +185,7 @@ drive, no helper that does not exist in the reference, no clock indirection shor
 silent fallback where the reference errors, no init-order change, no invented snapshot
 format, no duplicate port of one file. Commits touching the port cited the rule numbers.
 
-Rules: `specs/612-1541-port-fidelity-rules.md`. Task list: `specs/612-…-todo.md`.
+Rules: `specs/_archive/612-1541-port-fidelity-rules.md`. Task list: `specs/612-…-todo.md`.
 The CI gate `npm run check:1541-fidelity` still runs on every `vice1541/**` edit — the
 mandate is retired, the guard against re-introducing the drift is not.
 
@@ -194,7 +194,7 @@ mandate is retired, the guard against re-introducing the drift is not.
 Bugs suspected in the port were held to be 99% conversion errors rather than algorithmic
 divergence, with a reading-first law stated in chat before any trace, differential tests
 against the compiled C for every ported function, and first-divergence traces rather
-than statistics. `specs/620-port-bug-forensic-doctrine.md`.
+than statistics. `specs/_archive/620-port-bug-forensic-doctrine.md`.
 
 ### Headless over VICE
 

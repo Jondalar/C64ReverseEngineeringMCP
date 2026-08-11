@@ -138,9 +138,9 @@ persistent/pinned artifacts.
 
 ## 8. References
 
-- `specs/705-interactive-runtime-evidence-intervention-replay-contract.md`
-- `specs/707-native-snapshot-persistence-dump-undump.md`
+- `specs/_archive/705-interactive-runtime-evidence-intervention-replay-contract.md`
+- `specs/_archive/707-native-snapshot-persistence-dump-undump.md`
 - `specs/_archive/708-declarative-trace-definitions-tracedb-control.md`
-- `specs/709-reproducible-media-ingress.md`
-- `specs/710-frozen-vic-inspect-checkpoint-evidence.md`
-- `specs/711-code-overlay-intervention-branches.md`
+- `specs/_archive/709-reproducible-media-ingress.md`
+- `specs/_archive/710-frozen-vic-inspect-checkpoint-evidence.md`
+- `specs/_archive/711-code-overlay-intervention-branches.md`

@@ -1,6 +1,6 @@
 // PORT OF: vice/src/diskimage/fsimage-gcr.c (full file)
 // Header:  vice/src/diskimage/fsimage-gcr.h
-// Spec:    specs/612-1541-port-fidelity-rules.md §1 NL, §2 PL, §5 FM-block
+// Spec:    specs/_archive/612-1541-port-fidelity-rules.md §1 NL, §2 PL, §5 FM-block
 //
 // G64 image read/write — the on-disk side of GCR-encoded 1541 disk images.
 // One C file → one TS file (NL-1); functions ported with verbatim snake_case

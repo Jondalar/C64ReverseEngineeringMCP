@@ -1,205 +1,60 @@
-# Spec Index & Status Board
+# Specs
 
-Single source of truth for spec status. If a spec header and this board disagree,
-this board wins until the header is reconciled.
+**Everything in this folder is open work** — in progress, or scoped and not started.
+Nothing finished lives here. Finished, retired and decided-against specs, each with the
+decision that closed them: [`_archive/README.md`](_archive/README.md).
 
-**Status vocabulary (every spec has exactly one):**
+Rules that govern how work is done are not specs: [`../DOCTRINE.md`](../DOCTRINE.md).
 
-| Status | Meaning |
-|---|---|
-| **ACTIVE** | Concrete next implementation work. Small set. |
-| **GOVERNING / DOCTRINE** | A rule/charter/umbrella contract that still binds, but is not itself an open implementation task. |
-| **DONE** | Shipped + on master; gates green where applicable. |
-| **BACKLOG** | Planned, scoped, not started. Not blocking. |
-| **CLOSED — WON'T-DO** | Decided not to do here. Either dead (nobody in scope needs it) or the capability is owned by TRX64 (the runtime), not C64RE. |
-| **SUPERSEDED** | Replaced by a later spec; kept for history. Names its successor. |
-| **ARCHIVED** | Historical, in `specs/_archive/`. Not part of current work. |
-| **NEEDS-RECONCILE** | Header/claims conflict with the current repo or a newer spec; needs a human/agent pass. |
-
-**Two product rules a fresh LLM must internalize:**
-
-0. **Leitregel: Capability → TRX64, Meaning/Memory → C64RE.** TRX64 is the strategic runtime base and the default backend process (the Rust daemon, auto-discovered/spawned) — it produces bytes, events and machine-state and owns runtime, instrument, reverse-debug, trace, checkpoints (`.c64re`/`.c64retrace`), daemon/FFI/CLI. C64RE is the reverse-engineering workbench — project knowledge, method/memory, analysis pipeline, semantic disassembly, findings/entities/questions, UI/orchestration, curation — it turns those bytes/events/state into knowledge. The TypeScript runtime in C64RE is a fallback / parity oracle, not the strategic base. Endstate: two MCP servers — `trx64-mcp` (instrument/runtime) and `c64re-mcp` (workbench/knowledge); today's C64RE `runtime_*` tools are a transition/proxy to the TRX64 backend, not their permanent home.
-   *Ownership (2026-07-03):* one owner stewards **both** repos (C64RE + `../TRX64`); the Leitregel split is an internal division of that owner's work, **not a handoff** — a capability "→ TRX64" is carried across, not deferred to a separate party (see CLAUDE.md "Ownership").
-   *Refinement (capability cut, Spec 774):* "analysis pipeline" above reads through `TRX64/docs/capability-cut-decisions.md` — the static decode/parse/classify **capability** migrates phased into the `trx64-static` crate (step 1 shipped: shared 6502 decode + `trx64cli disasm`); the **semantic** layer (schema-map, firehose gate, findings, annotations, semantic disasm, KickAsm/byte-verify rebuild) is C64RE forever.
-
-1. **VICE is internal-dev oracle only.** It is NOT part of the normal external/
-   consuming-LLM workflow. `vice_*` tools are advanced + internal-dev-only; product
-   work uses the Headless runtime + trace tools.
-2. **The Runtime strand is TRX64 — the emulator backend C64RE drives for LLMs**,
-   not an emulator product C64RE itself owns. It is not a thin
-   VICE launcher and not a constrained demo path. External LLMs must be able to
-   run, inspect, trace, rewind and intervene inside the runtime (TRX64 by default;
-   the TS Headless runtime is the fallback/parity oracle) through the C64RE workbench.
-3. **External LLMs work through the default MCP façade + the playbooks**
-   (`docs/mcp-tool-usecase-matrix.md`, `docs/mcp-llm-playbooks.md`), not through old
-   internal/debug tools. `C64RE_FULL_TOOLS` is not a normal solution.
-
-Older, fully-superseded + shipped-and-closed work lives under `specs/_archive/`
-(~150 historical specs). It is read-only history.
-
-**Cross-repo spec numbering (2026-07-03):** C64RE and TRX64 share **one** number
-range; **this board is the single registry across both repos.** A new spec in
-either repo takes the next free number here. TRX64 spec files live under
-`../TRX64/docs/` and keep their descriptive names (board = truth; existing files
-are not renamed) — their numbers are assigned in the **TRX64 specs** section
-below. **Next free number: 799.**
+Spec numbers are **shared with TRX64** (`../../TRX64/docs/`). One range, one registry —
+a new spec in either repo takes the next free number here. **Next free: 805.**
 
 ---
 
-## ACTIVE (concrete next work)
+## In progress
 
-Small by design — only specs with concrete next implementation work.
-
-All four are **C64RE workbench** strands — cartography, workflow, the analysis
-pipeline. Everything actually built through July and August was TRX64: runtime,
-trace, snapshots, sandbox, container, release, monitor. That is a priority
-decision, not a backlog; it had just never been written down, so four dormant
-workbench specs kept reading as imminent.
-
-| Spec | Title | Why active / what's next |
+| # | Spec | What is left |
 |---|---|---|
-| 748 | Project Steering + Agent Discipline | **748.1 + 748.2 DONE** (`e2e:748` 10/10). Next: 748.3 trace→cartography extractor (feeds BUG-031). |
-| 750 | Disk + Cartridge Cartography Visualization (payloads · addressing · loaders) | The STATIC strand made REAL in the two EXISTING views (no new tab). Render-first: **750.1** = mediumRef + views render payloads@position (closes BUG-031); then addressing overlay (750.2) + loader/mutator edges (750.3) + extractors (750.4–.6). |
-| 773 | Workflow Cockpit: the 5-phase RE project lifecycle | ACTIVE — reframe C64RE from a data/relations browser into a workflow workbench: Onboarding · Discovery · Reverse Engineering · Build · Release; existing views repositioned as phase tools (Disk + CRT/Cartridge stay FIRST-CLASS in Discovery+RE); thin lifecycle axis + crosswalk over the existing engines (no rebuild). Anchor: product-vision §2A. |
-| 774 | Capability Cut: static capability → `trx64-static` | ACTIVE (cross-repo) — decode/parse/classify capability migrates phased into `trx64-static`; schema-map + firehose gate + findings + semantic disasm + KickAsm/byte-verify rebuild stay C64RE forever. **Step 1 DONE 2026-07-02**; next: media format-parse (step 2), classifiers (step 3). |
+| 748 | [Project Steering + Agent Discipline](748-project-steering-and-agent-discipline.md) | 748.1 + 748.2 shipped (`e2e:748` 10/10). Open: **748.3** trace→cartography extractor. |
+| 750 | [Disk + Cartridge Cartography Visualization](750-disk-cartridge-cartography-visualization.md) | Render-first, in the two existing views — no new tab. **750.1** mediumRef + payloads@position, then addressing overlay, loader edges, extractors. |
+| 773 | [Workflow Cockpit: the 5-phase lifecycle](773-workflow-cockpit-lifecycle.md) | Reframe the workbench along Onboarding · Discovery · RE · Build · Release. Existing views become phase tools; no rebuild. |
+| 774 | [Capability Cut → `trx64-static`](774-capability-cut-static-migration.md) | Step 1 shipped. Open: media format-parse (step 2), classifiers (step 3). Meaning stays in C64RE forever. |
+| 784 | [Loader-lens extraction](784-loader-lens-extraction.md) | Per-project extractor + trace-validated loader lens. Buildable now. |
+| 800 | [Runtime invisible to the RE agent](800-runtime-invisible-setup-guided.md) | Env-gated barrier shipped. Open: the guided setup probe + protocol-version handshake. |
+| 801 | [Artifact distribution](801-artifact-distribution.md) | Overtaken in parts — ROM-less image, tag-driven publishing and per-platform binaries all shipped by other routes. Open: whether anything of the original GHCR plan is still wanted. |
+| 803 | `../../TRX64/docs/803-large-cartridges.md` | SPI flash + GMod4 mapper built and gated. Open: GMod3 on the same core, AGR, two vendor questions. |
 
-## GOVERNING / DOCTRINE
+## Open slices of shipped specs
 
-Rules + reasoning: `DOCTRINE.md`. The binding ones are restated in `CLAUDE.md`.
-This is the index — which spec a rule came from, and whether it still binds.
+The spec shipped; one named part did not. The file is the reference for that part.
 
-| Spec | Title | Status |
+| # | Spec | Open slice |
 |---|---|---|
-| 610 | 1541 Parity Rebuild Charter | dormant (TS oracle only) |
-| 612 | 1541 Port Fidelity Rules + TODO | retired as a mandate 2026-07-15; CI gate `check:1541-fidelity` still runs |
-| 620 | Port-Bug Forensic Doctrine | retired 2026-07-15; its technique = `CLAUDE.md` rule 5 |
-| 715 | Runtime Product Proof Baseline | retired as the authority → **783** |
-| 723 | Single-Path Runtime | **BINDING** — `CLAUDE.md` rule 1 |
-| 746 | Live Trace + Scrub Workbench (charter) | trace core shipped; scrub-UI slices open |
+| 622 | [vice-mode Headless Performance](622-vice-mode-performance.md) | §4.1–4.3 optimization candidates |
+| 703 | [SID reSID Audio](703-sid-resid-wasm-audio.md) | 703.5 WAV export |
+| 704 | [Runtime Codebase Cleanup](704-runtime-codebase-cleanup.md) | §704.2/.5/.6/.7 — non-gating cleanup |
+| 726 | [Headless Trace Sink + Marks](726-mcp-headless-trace-sink.md) | binary `.c64retrace` as the timeline authority |
+| 740 | [Project Wiki + Knowledge Retrieval](740-semantic-search-vector-index.md) | **740.2** wiki authoring (`project_wiki_update`) |
+| 746 | [Live Trace + Scrub Workbench](746-live-trace-scrub-workbench-charter.md) | scrub-UI slices (the trace core is TRX64-owned and shipped) |
 
-## DONE (shipped + on master)
+## Not started
 
-| Spec | Title | Note |
+| # | Spec | Note |
 |---|---|---|
-| 771 | TRX64 Runtime Backend + VICE Deprecation | **DONE 2026-08-11** — the goal is the state of the world: TRX64 is the default backend (`resolveDaemonSpawn`; the TS runtime is reachable only via `C64RE_RUNTIME_TS=1` and explicitly never a silent fallback), it ships as a container, a release and a Homebrew tap, and the TS+VICE oracle was retired 2026-07-15. Branch `spec-771-trx64-core` is gone. |
-| 721 | Visual-Origin Join (runtime-informed annotation) | **DONE** — core join shipped, probe green. Provides the `mediumRef`/`MediaRegion` medium model + the trace→origin chain **Spec 750** consumes; the layout-placement slice 721.J5 shipped as **Spec 750.1**. The semantic-pipeline extension was never a scoped task — it lives on in 750, where it has one. |
-| 742 | Media Ownership + VICE-Faithful Write-Through | **DONE** — write-through (D64/G64 + EasyFlash CRT → host file) fixed + gated (BUG-023, `smoke:742` 9/9). The "7 divergent mount paths" concern is resolved by the single Runtime-Daemon API (744.4c: UI/MCP/CLI = clients, TRX64 default). The full `MediaRef`/`MediaLibrary` model (§4–§5) = forward-looking C64RE refactor, reopen-if-scheduled — not open work. |
-| 740.1 | Project Wiki + Knowledge Retrieval MVP | `project_search`/`find_related`/`reindex`/`wiki_lint` + wiki skeleton; deterministic index (no embeddings), `smoke-740` 28/28. 740.2 (authoring) BACKLOG. |
-| 622 | vice-mode Headless Performance | §4.0 implemented + merged (`2d9e4de`); §4.1–4.3 optimization candidates remain (not gating). |
-| 703 | SID reSID WASM Audio | Merged master `fb27a7d`. 703.5 (WAV export) BACKLOG. |
-| 704 | Runtime Codebase Cleanup | §11 legacy-1541 retirement merged; §704.2/.5/.6/.7 open (non-gating cleanup). |
-| 726 | Headless Trace Sink + Marks | Current DuckDB sink + marks shipped; binary `.c64retrace` timeline authority + rebuildable DuckDB index is the product path. Endless/rewind-grade extension was 726.B (now CLOSED → TRX64). |
-
-## BACKLOG (planned, not started)
-
-| Spec | Title |
-|---|---|
-| 775 | Decoupled Agent/Flow Layer via BMAD (private, in-repo) — PROPOSED 2026-07-03; docks onto 773 onboarding. Gate: pin the V6 schema + round-trip-validate before emitting any file. |
-| 424 | Drive + Cartridge LED + Inspector UX (LED done VICE-1:1; Inspector-UX part = C64RE UI, fold into cockpit) |
-| 716 | Installation, Versioning, Distribution (now also 775-relevant: BMAD-module + 2-repo distribution) |
-| 720 | Disassembly Output Quality (core C64RE meaning) |
-| 740.2 | Project Wiki authoring (`project_wiki_update`) — deeper synthesis over the 740.1 retrieval layer |
-
-## CLOSED — WON'T-DO (2026-07-03 TS-runtime deprecation sweep)
-
-Decision: **TS runtime is the parity-oracle/fallback (Spec 771); no new TS-runtime
-implementation work.** Verified each against the TRX64 repo (`CHECKLIST.md`:
-feature-complete-vs-TS 2026-06-25). Disposition per row:
-
-| Spec | Title | Disposition |
-|---|---|---|
-| 700 | Runtime Optimization | **dead** — TS perf, TS is fallback; TRX64 owns perf (~8–10× faster). |
-| 747 | Bun Runtime Investigation | **dead** — Bun host was for the TS runtime; Node stays baseline, TS deprecating. |
-| 621 | 1541 Port Hygiene Enforcement Backlog | **dead** — TS `vice1541/**` cleanup; no more TS-drive work. |
-| 428 | Split C64 + 1541 CPU contracts | **dead** — TS CPU; settled by Spec 723 single-path. |
-| 613 | c64 IEC `LOAD"$",8` regression | **dead** — TS drive; downstream KERNAL-load fidelity long landed. |
-| 614 | Drive per-cycle scheduling | **dead** — TS drive; vice1541 bridge + 622 §4.0 shipped. |
-| 615 | GCR decode fidelity | **dead** — TS drive; 616/617 byte-fidelity DONE + post-mortem recorded. |
-| 619 | VICE / Headless KPI Trace Contract | **dead** — TS-trace KPI; absorbed by the shipped trace stack / TRX64. |
-| 422 | IEC Burst mode | **dead** — JiffyDOS/burst; no game in scope needs it. Rebuild on demand or accept an external MR. |
-| 726.B | Trace V2 Binary Timeline | **→ TRX64 (already there)** — 771 owns trace/`.c64retrace`; `trx64-trace` + `spec-trace-read-duckdb-native.md`. |
-| 744 | Runtime Session Authority + Drive-to-State | **→ TRX64 (already there)** — daemon authority + `media/*` (mount/swap) + drive write-back shipped; session-orchestration is normal daemon-client work. |
-| 772 | Checkpoint-Ring: Cadence + Retention | **→ TRX64 (already there)** — checkpoint-ring done (TRX64 CHECKLIST 705.B); cadence is a config value, not a spec. |
-| 705 | Interactive Runtime Evidence / Intervention / Replay (contract) | **→ TRX64** — the whole evidence/intervention/replay domain is TRX64-owned; children 711/712 folded below. |
-| 623 | VICE-compat monitor / debugger | **→ TRX64 (already there)** — monitor + reverse-debug in TRX64 (`MONITOR.md`); C64RE-facing part via Spec 754 (archived) done. |
-| 711 | Code/Data Overlay + Controlled Intervention Branches | **→ merged into TRX64** `docs/776-overlay-intervention-diff.md`. |
-| 712 | Rewind, Replay and Branch Diff | **→ merged into TRX64** `docs/776-overlay-intervention-diff.md` (rewind/snapshot-diff already in `spec-time-travel-tooling.md`; the new part = overlay-intervention + outcome-diff). |
-| 713 | VICE Cartridge Fidelity (CRT mapping/banking/writable) | **dropped** — TS-runtime cart-fidelity; TS deprecating + TRX64 already has faithful cart families (Normal/MagicDesk/Ocean read-only + flash-writable EasyFlash/GMOD/MegaCart, proven vs VICE). Branch `spec-713-cart-families` no longer present (nothing to merge). Real-sample **GMOD3 + C64MegaCart** verification → **TRX64 cart test harness when the 2 real CRTs arrive** (deferred). |
-
-## SUPERSEDED (replaced by a later spec — kept here as breadcrumbs; bodies archived)
-
-_None currently on the board — 600/601 (→ 715) and 745 (→ 757), 765 (→ 766) are archived under `specs/_archive/`._
-
-## NEEDS-RECONCILE (a decision/verification is open — not a free-form status)
-
-_None. The one open item — retire 715/723 and realign CLAUDE.md now, or wait for the
-TS oracle to be retired — was decided on 2026-08-11: now. 715's authority passed to 783,
-723 stays binding, and the doctrine moved to `DOCTRINE.md`._
-
-## TRX64 specs (shared range · files under `../TRX64/docs/`)
-
-TRX64 owns runtime / instrument / reverse-debug / trace / checkpoints (Leitregel).
-Numbered in the shared range; files keep descriptive names (board = truth), only
-the new 776 was created pre-numbered.
-
-**Status column added 2026-08-11.** Everywhere else on this board the status is the
-SECTION a row sits in; this table was a flat list, so a spec could be finished for weeks
-and still read as if nothing had happened — four of them were. `BUILT` = shipped on
-master; `PARTIAL` = a named part is done and the rest is listed in the row; `BLOCKED` =
-waiting on something outside the repo. Each spec file carries its own `**Status:**` line;
-those had drifted the same way and were corrected in the same pass.
-
-| # | Status | File | Title |
-|---|---|---|---|
-| 776 | **PROPOSED** | `776-overlay-intervention-diff.md` | Overlay-Intervention Branches + Outcome-Diff (autonomous-debug loop) — merges + retires C64RE 711 + 712 |
-| 777 | **PROPOSED** | `spec-time-travel-tooling.md` | Time-Travel Tooling: ring dump/restore + checkpoint diff |
-| 778 | **PROPOSED** | `spec-reverse-debug-crash-triage.md` | Reverse-Debug + Crash-Triage (real backward-stepping on the Rust core) |
-| 779 | **SUPERSEDED** | `spec-trace-read-duckdb-native.md` | Native (Rust) trace/read DuckDB layer — **delivered by 802**, which built `trx64-traceindex` (DuckDB bundled, no format change). Kept for history. |
-| 780 | **BUILT** | `spec-trx64-cli.md` | TRX64cli: cross-platform CLI + minimal emulator window |
-| 781 | **BUILT** | `spec-cross-platform-linux-windows.md` | Cross-platform TRX64: Linux + Windows |
-| 782 | **GOVERNING** | `spec-c64re-trx64-split-charter.md` | Charter — split C64RE into TRX64 (runtime+MCP) and C64RE (workbench) [governing] |
-| 783 | **BUILT** | `783-local-quality-gate-enforcement.md` | Local Quality-Gate Enforcement (no cloud CI) — `gate.sh` + pre-push hook + mandatory-before-pin; **being built**. Green here → then retire oracle/715/723 doctrine. |
-| 784 | **PROPOSED** | `784-loader-lens-extraction.md` | **Abstract medium/index-agnostic extraction tooling** — manifest→register(full spans+derivedBy+coverage) + loader-lens TRX64 trace-validate. Proven on disk (Accolade B-side + Pawn A-side). Corpus campaign is a SEPARATE track, not a 784 gate. PROPOSED, building. |
-| 785 | **BLOCKED** | `785-crt-extraction.md` | Cart **proof surface** of 784's tooling (not a 2nd tooling) — `+$DE00` banking lane + cart LoaderModels + real-sample harness (Lykia + real CRT samples). PROPOSED skeleton, cart-specifics await user input. |
-| 786 | **BUILT** | `../TRX64/docs/spec-power-lifecycle.md` | **Power lifecycle** — 3 guarded primitives (`power_on`/`power_off`/`warm_reset`) + `powered` flag in `trx64-session`; reset cold/eject/insert/monitor all compose them. Fixes stale VIC/CIA surviving cold power-cycles ("CRT jammed after reset"). Core→daemon→cli→monitor→C64RE UI. building. |
-| 787 | **BUILT** | `787-scoped-trx64-instances.md` | **Scoped TRX64 instances** (foundation) — one live machine under the C64RE UI (shared-attach) + N throwaway **scratch** instances (sandbox/oracle/targeted runs). The "one machine" limit was a TS module-global artifact; the Rust `Machine` is instantiable/cloneable. v1 = separate short-lived process; **V2 = in-process clone = C64RE Scenarios substrate**. Single-path (723) preserved; scoped ≠ modes. Scratch seed = cold+load or `.c64re` file, never live. CLI(780) for scratch / `runtime_*` MCP for live; no new server. **v1 DONE** (`trx64cli sandbox`/`boot` in main, both repos); **V2 in-process clone = future Scenarios substrate** (not a loose end — a named next phase). |
-| 788 | **BUILT** | `788-real-core-execution-sandbox.md` | **Real-core execution sandbox** (consumer of 787) — retire the standalone TS `Cpu6502` (orphaned 3rd 6502: flat 64K, no IO/banking, refs the deleted `cpu6510.ts`); run depack/oracle on the authoritative core in a 787 scratch instance; `run_routine_to_sentinel(seed, entry, sentinel, harvest)` — self-gating static-first (inputs = read-derived hypothesis). Capability→TRX64, verdict→C64RE. **DONE** (real-core runner `src/sandbox/sandbox-runner-realcore.ts` + `trx64cli sandbox`; standalone TS `cpu6502.ts` retired). |
-| 789 | **PROPOSED** | `../TRX64/docs/789-trace-under-armed-observers.md` | **Trace under armed observers** — a live trace records events even while an observer/breakpoint is armed (the `run_until_break` debug path didn't feed `trace.buf`). `TraceAndGate` composite Observer + `TracingObserver::drain_events`. Verified 145,537 events under an armed observer (was 0). Built on branch `spec-789-trace-under-observers` (off main), not yet merged. |
-| 790 | **BUILT** | `../TRX64/docs/790-bin-cartridge-typed-attach.md` | **Raw `.bin` cartridge attach + mandatory type param** — start a `.bin` (full linear flash image, every bank present) with the cartridge type passed out-of-band (CLI `--cart-type <id\|mnemonic>` / API `cart_type`), no UI prompt (VICE's `cartridge_attach_image(type,file)` model). `parse_bin` builds the SAME `ParsedCartridgeImage` as `parse_crt` → all existing mappers reused unchanged. Capability→TRX64. DONE (S1 typed-attach + S2 self-config harness + EF verified). |
-| 791 | **BUILT** | `../TRX64/docs/791-vsf-to-c64re-converter.md` | **VSF ⇄ `.c64re` converter** — IMPORT (`convert-vsf`): parse VICE VSF → our `Machine` → emit `.c64re`; C64CART(EF) + **colour RAM** (`ram[$D800]`+`io_shadow[$0800]`) + **ysmooth** + raster + **CIA-alarm re-arm** → a mid-game EF `.vsf` renders structurally 100% vs the VICE shot (import DONE). **EXPORT ADDED (791.5, owner 2026-07-15 "Rest und retour"):** `.c64re → .vsf` VICE-x64sc-loadable writer (`convert-c64re`) — VICE-exact module layouts, VIC draw-buffer emitted zeroed (VICE re-derives), lossy-by-design (drops history/ring/trace). Validated against the on-disk VICE x64sc. Import+export now round-trip the 1541 DRIVE (DRIVE8/DRIVECPU0/VIA1/VIA2) + KEYBOARD + GLUE/JOYPORT — COMPLETE for every subsystem TRX64 emulates (only un-emulated HW: tape/REU/userport/FS-drive + SIDEXTENDED audio-rederive are out of scope). |
-| 792 | **BUILT** | `../TRX64/docs/792-snapshot-restore-fidelity.md` | **RESOLVED** (commit `acec8bc`, gate 7/7): `read_color_ram` captured `ram[$D800]` (RAM under I/O) instead of `io_shadow[$0800]` (the real colour RAM), so per-cell colour + the MC flag came back wrong and rooms were garbage after undump; `restore_cia` also set `ta_alarmclk` from `ta.clk` instead of the alarm. Snapshots taken before the fix carry the wrong colour RAM — re-dump them. Original scope: a `.c64re`/ring snapshot MUST resume BIT-FAITHFUL. Confirmed gap: undump re-creates the cart from `cartBytes`+`cartFlash` but never restores the mapper CONTINUATION state (bank/register02/jumper/IO2-RAM/flash-FSM) → banked-cart resumes at bank 0 (EF renders black; a field Wasteland `.c64re` undump landed in the intro). Fix = capture `cart.get_state()`→`cartState` node + `set_state()` on restore, + a round-trip fidelity GATE (capture→restore→assert byte-identical + N-cycle-identical) that enumerates every remaining gap, for `.c64re` AND the ring (765). Also: undump now power-cycles to fresh chips (SID reset) + sets `force_present_frame` so the paused canvas refreshes to the RESTORED frame (was showing the stale pre-undump picture → "looks borked"). PROPOSED, building. |
-| 793 | **BUILT** | `../TRX64/docs/793-undump-media-materialization.md` | **Undump media materialization** — undump turns embedded media from an invisible in-memory attach into REAL, file-backed, picker-visible mounts: materialize disk **and** cart into a sibling `<name>_media/` folder next to the `.vsf`/`.c64re`, mount each file-backed (writes persist) + show in the picker like a normal mount. User owns cleanup; LLM/test/overlay gets `undump_media_purge` (tag-scoped — kills only `undump-materialized` media, NEVER a user mount). VSF disk feeds it once 791.1c extracts GCR→D64/G64 (cart works today). **BUILT** (materialize disk+cart + tag + `undump_media_purge`/`killmedia`; gated). |
-| 794 | **BUILT** | `../TRX64/docs/794-whitebox-component-diff.md` | **Whitebox component-diff** — elevate the Spec 246 delta-diff into a masked equivalence VERDICT over the **RuntimeCheckpoint** (the full-state object; the 246 VSF-module diff can't see color RAM / Floppy RAM / internal chip state). New `trx64-core::checkpoint_diff`: classify a structural JSON diff → per-component `{identical, summary, changes}` + top-level `verdict{identical, differing, excluded, scope}`. Full coverage incl. **color RAM + Floppy RAM (DRIVECPU0 tail 0x800 = 1541 $0000-$07FF) + CIA/VIC/SID internal state**; caller **exclusion mask** (component / address-range incl. `driveram $0000-$07FF` / volatile lane / `equivalence` preset) with an **echo law** (nothing dropped silently; zero-match reported); CIA/SID register mnemonics. Surfaces: `trx64cli diff A.c64re B.c64re [--exclude/--component/--lane/--preset] [--json]`, daemon monitor `cdiff` + WS `runtime/component_diff`, C64RE MCP `runtime_component_diff`. Strict (no mask) = the 792 byte-exact bar. **DONE** (12 core tests + e2e on real .c64re: same-anchor→IDENTICAL, different→DIFFERS with named regs + echo-law mask). |
-| 795 | **BUILT** | `../TRX64/docs/795-banked-cart-code-overlay.md` | **Banked / cart code overlay** — lift the RAM-only `runtime/overlay_run` (769.2) to also target cart banks, so own code can be injected where cart-resident game code lives (the overlay-workflow infra, yardstick #3; owner chose infra-first + banked-first). Per-patch `{space: ram\|roml\|romh, bank?, addr, bytes}`; `space` default `ram` = today (byte-identical). roml/romh + explicit bank patch the mapper's flash IMAGE at `(bank<<13)\|(addr-window_base)` — **EF first** (`overlay_bank_write`/`overlay_bank_read` on the CartMapper trait; non-EF mappers error clearly). Ephemeral like the RAM overlay (rolled back by 792 cart restore); explicit bank (no auto-resolve). Surfaces: daemon `runtime/overlay_run` routes ram vs cart + read-back, C64RE MCP `runtime_overlay_run` schema +space/bank (TS in-proc path stays RAM-only oracle). Scope: no assemble-integration (bytes pre-assembled — comes with the candidate model), no C64-ROM spaces, no persistent flash mutation. **DONE** (4 core tests incl. CPU-read-serves-overlay + bank isolation). |
-| 796 | **BUILT** | `../TRX64/docs/796-candidate-model.md` | **Candidate model** (overlay workflow, yardstick #3 part 2) — a LIVE session object: baseline checkpoint anchor + bound scenario + ACCUMULATING overlay patch-set + cached no-patch baseline. Ops (daemon `runtime/candidate_*` + C64RE MCP `runtime_candidate_*`): **create** (runs the no-patch scenario → caches baseline), **patch** (assemble⊕overlay in one step — `source_path`→bytes or raw bytes; carries source as the delta seed; replace-by-target), **run** (restore anchor → apply all patches [795 RAM+cart] → run scenario [231] → **AUTO-DIFF [794]** vs baseline → verdict), remove/list/delete, **export** (the source-patch-set = delta seed). Scenario-bound (deterministic) + integrated auto-eval + session-lifetime (owner decisions). Composes 795+231+794 (no new emu logic); builds on `rewind::SnapshotBranch`, TRX64-side (not the dying TS rewind). Single candidate (N-parallel fan-out = 787-V2 later); final-delta shaping = #4. **DONE** (6 core tests incl. full WS lifecycle: no-patch→identical, RAM-patch→differs/ram, deterministic, remove→identical, export). |
-| 797 | **BUILT** | `../TRX64/docs/797-final-code-delta.md` | **Final code delta** (yardstick #4, the meaning bridge) — turn a candidate's exported source-patch-set (796) into a build-ready delta on disk: one `.asm` per target (org preserved) + `delta-manifest.json` + `DELTA.md`. Build-agnostic default (owner's exact build integration deferred until a concrete pipeline is named). C64RE `src/candidate-delta.ts` (pure `buildDelta`/`writeDelta`, deterministic filenames) + MCP `runtime_candidate_derive_delta` (in DEFAULT_TOOLS). **DONE** (formatter smoke: per-target files + manifest + readme, bank preserved, deterministic). |
-| 798 | **BUILT** | `../TRX64/docs/798-cheat-candidate-finder.md` | **Cheat-candidate finder** (yardstick #5, first end-to-end consumer — subsumes 762) — snapshot-diff → decrementer: diff two ring anchors' FULL 64K RAM, return the addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. The finder half; the verify half = a 796 candidate that freezes the address + runs the scenario (auto-eval 794). Core `checkpoint_diff::find_ram_decrements` + daemon `runtime/find_cheat_candidates` + C64RE MCP `runtime_find_cheat` (in DEFAULT_TOOLS). **DONE** (finder + loop wiring; unit test ranks decreases, ignores increases). Full autonomous cheat (auto-generate working freeze CODE for a per-frame decrement) needs a real game target. |
-| 799 | **BUILT** | `799-trx64-docker.md` | **TRX64 Docker image** (containerized emulator sidecar) — official OCI packaging of `trx64-daemon` (multi-stage Rust build, ROMs baked, one WS port, amd64 first) + a consumer contract: shared `/play` media volume (ro) + WS (BIN_VIC frames [701 §7], key passthrough [310], monitor `swapcrt`) behind the consumer's own auth proxy; one machine per container (787 doctrine), session-level idle lifecycle. First consumer: the Wasteland web editor gets Build (**scratch tree**, never `/data` — autocommit trap) + in-browser Play canvas. Spike DONE on real QNAP (native amd64, 50 fps / ~40 % core / 149 MiB, idle 0 %); consumer contract frozen + TRX64 ships the embeddable `<trx64-player>` web client (TRX64 `docs/wl-trx64-play-api.md`, `web/`). SPIKED. |
-| 804 | **PROPOSED** | TRX64 `docs/804-symbolized-runtime.md` | **Symbolized runtime surface** — names everywhere, and as DATA. Verified: the machinery exists (`sym`/`label`/`unlabel`/`note`/`save_labels`/`load_labels`, VICE `.sym` round-trip, persistence to `<project>/knowledge/labels.user.json`) but `user_label_index()` has **exactly one call site in the whole daemon** — the `d` verb. `m`/`mem`, `chis`, `bt`, `whowrote`, `rstep`, `map`, `swimlane`/`taint`/`follow_path` and every JSON response (`monitorDisasm`, trace rows `{"addr":1024,"pc":49155,…}`) show raw addresses; `trx64-traceindex` depends only on `trx64-trace`+`duckdb` so it *cannot* symbolize. Three verified defects: `sym` reads analysis-JSON while `d` reads the user store (so `label $c000 foo` → `sym foo` errors); C64 labels leak into `device drive8` disassembly (the VICE memspace prefix `C:`/`8:` that would fix it is parsed and **discarded**); `load_labels` makes a generated build name indistinguishable from reasoned work. Proposal: load the build's symbol file into a THIRD, non-persisted layer and use it (a) on every rendered surface — never moving a column, never dropping the numeric address — and (b) as a `<key>_symbol` field beside the raw address (`addr_symbol`/`pc_symbol`, because a trace row has two addresses), since a consumer parsing `$C1A3` out of a padded text column breaks when the column moves. Provenance is the design core: `build` (authoritative for ADDRESSES — only the build knows them post-relocation) vs `user` (authoritative for MEANING, durable, survives rebuilds = the risk) > `derived` (guess); precedence `user > build > derived`, origin visible inline (`party.hp[u]`), and the stale-label case named as unsolved rather than glossed. Seam: TRX64 does the join + owns the build layer (it renders the line, and 802 forbids spawning out), C64RE owns meaning and grows no second renderer. Measured, not assumed: KickAssembler `-vicesymbols` → `al C:816 .print_string` and 64tass `--vice-labels` → `al 810 .start` both parse with the EXISTING `parse_sym_line` (neither is invoked with a symbol flag today; neither exports `=` constants). NON-GOALS: structure (`party[0].hp` = a schema over symbols), new file format, new store, the snippet assembler and the named-state test suite — the latter two named only as motivation, since 804 must be worth building if nothing downstream ever happens. PROPOSED. |
-| 803 | **PARTIAL** | TRX64 `docs/803-large-cartridges.md` | **Large cartridges** — framed as the whole large-cart tier, not one device, because GMod3/GMod4 share ONE missing primitive: an **SPI-flash device model** (ours is parallel-only `Flash040`). The upstream VICE patch adds it as a generic core and moves gmod3.c onto it, so porting it retires our `62 => Unsupported` too. Landscape checked, not assumed: the Ultimate-64 carries GMod3 as literal `CART_NOT_IMPL` and has no GMod4 in any of 43 branches — we are level, not behind. GMod4 = CRT type **87** (moved twice), 8 MB/512 banks, dual banking contexts, two hardware generations with swapped registers. Design question lands in OUR code: `get_lines()` is global but GMod4 pulls EXROM/GAME per area on reads only. Truth sources re-ranked post-VICE: vendor spec (MegaByter/Protovision reachable; iComp GitLab public) > the Ultimate-64's VHDL (**GPL-3.0**, licence-compatible, hardware-level third opinion, but no help past SPI) > hardware oracle. **AGR has no reference anywhere**: the patch stores the bit and never acts on it (diff touches zero VIC files), the Ultimate-64 absent, and no AGR test exists in any vendor example — building it means writing the first implementation AND the first test, with hardware as the only oracle. **PARTLY BUILT**: SPI-flash device model (9 tests) + the GMod4 mapper incl. CRT type 87, `fake_ultimax` bus fallback and the IO1 read path (16 gate tests). OPEN: GMod3 onto the same SPI core, AGR (still no reference anywhere), and the two MegaByter questions to Protovision. |
-| 802 | **BUILT** | TRX64 `docs/802-native-trace-read.md` | **TRX64 stands alone** — enforces the split: TRX64 is the runtime AND the monitor, every verb (`dump`, `ringdump`, capture **and trace read**) autonomous with no Node/TS/C64RE and no spawned helper; C64RE consumes TRX64 and keeps no second reader. Today TRX64 writes its trace format in Rust but cannot READ it: each read op (`index`, `store_fn`, `map`, `taint`, `swimlane`) spawns a Node/`tsx` sidecar that imports the **C64RE TypeScript** — the daemon is a pass-through and a C64RE tool round-trips back into C64RE's own code. Found by an external report (Windows): needs Node + tsx + the C64RE tree + a correct root; `node_modules/` gitignored → a fresh clone silently has no reader; on Windows no path works; the container has no Node; `trace_finalize` reports success on unreadable data; `trx64_root()` falls back to a hard-coded author path in a public repo; plus a 2nd quiet spawn (`media/browse` runs `node -e` for `localeCompare` ordering). Port reader+index to Rust (DuckDB crate, no format change), sort natively, cut C64RE's local fallback, delete the sidecar only after an op-by-op parity gate. **BUILT 2026-08-09**: `trx64-traceindex` crate (DuckDB bundled), sidecar deleted, both hard gates empty (`Command::new` 0, author-path 0), C64RE reduced to a facade. Parity 562 + 787 comparisons; the old sidecar was found to truncate its own output at 64 KiB over a pipe, so the feature had been broken in production. |
-| 801 | **PARTIAL** | `801-artifact-distribution.md` | **Artifact distribution** — turn the product version into something you can fetch. Drop `COPY docker/roms` (no third-party IP in a public artifact; `rom_dir()` already probes the mount path, so no code change) + a one-time operator ROM seed and an opt-in `fetch-roms.sh` (never the entrypoint). Tag `v<version>` → GitHub-hosted runners publish the `linux/amd64` image to **GHCR** (native — kills the skopeo/OCI/scp chain) and per-platform daemon+CLI binaries to **Releases** (a Windows box stops needing a Rust+C++ toolchain). Tag/version mismatch fails the build. NOT a CI gate — `gate.sh` stays the authority; runs on tags only. No crates.io (no separate consumer); npm for C64RE deferred. Consumer pins a version and pulls. **PARTIAL — parked 2026-08-10, then overtaken in parts.** DONE by other work: the ROM-less image, tag-driven publishing, and per-platform binaries in Releases (five targets: macOS arm64, Linux + Windows on both architectures) with a Homebrew tap that updates itself on publish. NOT done and no longer planned that way: GHCR — images are built on the self-hosted runner and pushed to a private registry instead. |
-| 800 | **PARTIAL** | `800-runtime-invisible-setup-guided.md` | **Runtime invisible to the RE-agent** — the runtime backend brand + the C64RE/TRX64 Leitregel are scrubbed off the RE-agent surface (doctrine §1.1 + 3 tool strings → "the runtime"); the backend is named ONLY at the setup boundary. A software-owned health probe surfaces one complete per-OS setup recipe (build sibling / point env / container) via `agent_onboard` first-run + the connect path, and a protocol-version handshake (daemon announces `trx64-runtime/N`) fails loudly on mismatch. Two-layer split: operator/software knows the backend, the LLM agent stays blind. No registry, no build coupling. PROPOSED. |
+| 424 | [Drive + Cartridge LED + Inspector UX](424-drive-cart-led-and-inspector-ux.md) | LED done VICE-1:1; the Inspector-UX half folds into the cockpit (773) |
+| 716 | [Installation, Versioning, Distribution](716-installation-versioning-distribution.md) | |
+| 720 | [Disassembly Output Quality](720-disasm-output-quality.md) | core C64RE meaning |
+| 775 | [Decoupled Agent/Flow Layer via BMAD](775-decoupled-agent-flow-layer-bmad.md) | private, in-repo; docks onto 773 |
+| 785 | [CRT extraction](785-crt-extraction.md) | **blocked** — needs a real cartridge sample |
 
 ---
 
-## Counts
+## Where the work actually is
 
-Recounted from the tables themselves 2026-08-11 — the previous block had drifted with
-them (it still listed 7 ACTIVE and "next free number: 799" while 800–804 existed).
+Everything above is **C64RE workbench**: cartography, workflow, the analysis pipeline.
+Everything built through July and August was **TRX64**: runtime, trace, snapshots,
+sandbox, container, release, monitor. That is a priority decision, and it is written
+here so these specs stop reading as imminent.
 
-- **ACTIVE: 4** (748, 750, 773, 774) — all C64RE workbench.
-- **GOVERNING / DOCTRINE: 6** — 3 binding (610, 723, 746) + 3 **ÜBERHOLT 2026-07-15**
-  (612, 620, 715): TS runtime + VICE-as-oracle retired, TRX64 standalone/authoritative,
-  VICE an occasional Vorlage with no 1:1 mandate. 715's product-proof *oracle* role passed
-  to 783. 723 (single-path) stays — TRX64-internal architecture, not an oracle.
-- **DONE: 8** (622, 703, 704, 721, 726, 740.1, 742, 771) — kept on the board where a child
-  or continuation is still open.
-- **BACKLOG: 5** (424, 716, 720, 740.2, 775)
-- **CLOSED — WON'T-DO: 16** (2026-07-03 sweep)
-- **SUPERSEDED: 0** on the board (600, 601 archived); 779 is marked SUPERSEDED in place,
-  inside the TRX64 table, because 802 delivered it.
-- **TRX64 (shared range): 29** (776–804) — 17 BUILT, 6 PROPOSED, 3 PARTIAL, 1 each
-  SUPERSEDED / GOVERNING / BLOCKED. **Next free number: 805.**
-- **ARCHIVED**: ~150 historical specs in `specs/_archive/` (incl. the 20 archived
-  2026-07-01: 425 426 427 600 601 616 617 618 708 745 751 752 753 754 757 758 759 765 766 768)
+TRX64's own specs live in `../../TRX64/docs/` and carry a status column in that repo.
+Only those with C64RE-side work appear above.

@@ -183,7 +183,7 @@ Known status:
 - `src/runtime/headless/datasette/*.ts` (stub or new)
 - snapshot save/load TS sites (audit)
 - 2 new smokes
-- `specs/405-c64-phase-e-sound-and-rest.md` (this)
+- `specs/_archive/405-c64-phase-e-sound-and-rest.md` (this)
 
 ## Next spec
 

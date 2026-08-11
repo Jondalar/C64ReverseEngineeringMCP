@@ -154,7 +154,7 @@ Deviations to verify:
 - `src/runtime/headless/peripherals/cia2.ts` (call via pointer)
 - `src/runtime/headless/kernel/headless-machine-kernel.ts` (registration)
 - 1 new smoke
-- `specs/417-iec-phase-b-cia2-wiring.md` (this)
+- `specs/_archive/417-iec-phase-b-cia2-wiring.md` (this)
 
 ## Next spec
 

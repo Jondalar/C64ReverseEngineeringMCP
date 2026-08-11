@@ -170,7 +170,7 @@ Deviations to verify:
 - `src/runtime/headless/drive/drive-cpu.ts` (sync constants)
 - `src/runtime/headless/integrated-session.ts` (push-flush sites)
 - 2 new smokes
-- `specs/409-1541-phase-c-sync.md` (this)
+- `specs/_archive/409-1541-phase-c-sync.md` (this)
 
 ## Next spec
 
