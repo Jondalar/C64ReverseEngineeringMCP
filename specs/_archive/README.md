@@ -12,11 +12,12 @@ was binding doctrine, no longer is (the surviving rules live in `../../DOCTRINE.
 
 ## Recorded
 
-The 27 specs below carry the decision that closed them.
+The 28 specs below carry the decision that closed them.
 
 | # | Verdict | Spec | Decision / what shipped |
 |---|---|---|---|
 | 422 | **WON'T-DO** | [IEC Burst mode](422-iec-phase-g-burst-mode.md) | **dead** — JiffyDOS/burst; no game in scope needs it. Rebuild on demand or accept an external MR. |
+| 424 | **WON'T-DO** | [Drive + Cartridge LED + Inspector UX](424-drive-cart-led-and-inspector-ux.md) | Closed 2026-08-11, both axes obsolete. **A (LED/status):** targeted the TypeScript runtime's `session/drive_status` and the vice1541 probe — the deprecated oracle, not the product. TRX64 owns the runtime and surfaces the drive LED from VIA2 PB3 directly. The four approximations still in the TS handler (no PWM curve, `ledFlashing` hardcoded false, motor inferred from the LED, R/W fixed to read) are noted in the code and stay as oracle-only gaps. **B (Inspector UX):** described moving a media strip into a right inspector column of the v3 shell — a layout the workbench no longer has. |
 | 428 | **WON'T-DO** | [Split C64 + 1541 CPU contracts](428-split-c64-and-1541-cpu-contracts.md) | **dead** — TS CPU; settled by Spec 723 single-path. |
 | 610 | **RETIRED** | [1541 Parity Rebuild Charter](610-1541-parity-rebuild-charter.md) | dormant (TS oracle only) |
 | 612 | **RETIRED** | [1541 Port Fidelity Rules + TODO](612-1541-port-fidelity-rules.md) | retired as a mandate 2026-07-15; CI gate `check:1541-fidelity` still runs |

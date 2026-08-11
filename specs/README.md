@@ -9,7 +9,6 @@ Numbers are **shared with TRX64** (`../../TRX64/docs/`) — one range, one regis
 
 | # | Spec | Status | What is left | Touched |
 |---|---|---|---|---|
-| 424 | [Drive + Cartridge LED + Inspector UX](424-drive-cart-led-and-inspector-ux.md) | NEEDS SCOPING | LED half shipped VICE-1:1. The Inspector-UX half belongs to the cockpit (773) — probably not its own spec any more. | 2026-05-12 |
 | 622 | [vice-mode Headless Performance](622-vice-mode-performance.md) | NEEDS SCOPING | §4.0 shipped (`2d9e4de`). §4.1–4.3 are optimization *candidates*, never scoped. | 2026-08-11 |
 | 703 | [SID reSID Audio](703-sid-resid-wasm-audio.md) | READY | Shipped (`fb27a7d`). Open: **703.5** WAV export. | 2026-05-23 |
 | 704 | [Runtime Codebase Cleanup](704-runtime-codebase-cleanup.md) | READY | §11 legacy-1541 retirement shipped. Open: §704.2/.5/.6/.7, non-gating cleanup of the TS runtime — which is now the oracle. | 2026-05-23 |
