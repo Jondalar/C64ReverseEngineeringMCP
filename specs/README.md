@@ -65,21 +65,25 @@ workbench specs kept reading as imminent.
 
 ## GOVERNING / DOCTRINE (rules + umbrella contracts — still binding, not active implementation)
 
-These keep governing how work is done, but are not themselves an open
-implementation task. **1541 / single-path / proof doctrines now govern the TS
-runtime as the parity-ORACLE (fallback per Spec 771), not the product runtime** —
-they are dormant, and their full retirement (plus the CLAUDE.md mandatory-framing
-for 715/723) is a **pending follow-up** tied to actually retiring the TS oracle
-(not done in the 2026-07-03 sweep).
+**The doctrine itself lives in `DOCTRINE.md`** (rules + reasoning + what was retired
+and why), with the binding rules restated one line each in `CLAUDE.md`. This section is
+a **pointer**, not a third copy — it used to be a second statement of the same rules,
+and the three drifted apart. What belongs here is which spec a rule came from and
+whether it is still live.
+
+The follow-up this section named for weeks — realigning CLAUDE.md's mandatory framing
+for 715/723 — was done on 2026-08-11: 715's "is it green" authority passed to **783**
+(TRX64's own gates), 723 stayed binding, and the five retired blocks moved out of
+CLAUDE.md into `DOCTRINE.md`'s history section.
 
 | Spec | Title | Role |
 |---|---|---|
 | 610 | 1541 Parity Rebuild Charter | Governs remaining 1541 fidelity work on the TS oracle. Dormant. |
-| 612 | 1541 Port Fidelity Rules + TODO | Living doctrine + CI gate (`check:1541-fidelity`) for every `vice1541/**` edit. Holds while the TS oracle exists. |
-| 620 | Port-Bug Forensic Doctrine | Doctrine for debugging `vice1541/**` (reading-first, first-divergence). Dormant. |
-| 715 | Runtime Product Proof Baseline | ⚠ CLAUDE.md "is-it-green" authority for the TS runtime; the product proof authority migrates to TRX64. Freeze-in-place; CLAUDE.md update pending. |
-| 723 | Single-Path Runtime | ⚠ CLAUDE.md mandatory doctrine for the TS runtime (one CPU / event-catchup / VICE1541 / literal VIC). TS is now fallback; freeze-in-place; CLAUDE.md update pending. |
-| 746 | Live Trace + Scrub Workbench (charter) | Trace core shipped / trace itself is TRX64-owned. Remaining **scrub-UI slices (746.7–746.12: ring↔rewind, scrub timeline, graphics-scrub) stay C64RE** (browser UI over TRX64 traces). |
+| 612 | 1541 Port Fidelity Rules + TODO | **RETIRED as a mandate** 2026-07-15 (VICE is a reference, not an authority). The naming law + prohibition list stay readable as the record of why the port looks the way it does — `DOCTRINE.md` § retired. CI gate `check:1541-fidelity` still runs on `vice1541/**`. |
+| 620 | Port-Bug Forensic Doctrine | **RETIRED as a mandate** 2026-07-15. Its technique survives as a binding rule ("read before you hypothesise", first-divergence over statistics) — `CLAUDE.md` rule 5. |
+| 715 | Runtime Product Proof Baseline | **RETIRED as the authority** — "is it green" passed to **783**. The oracle PNGs under `samples/screenshots/proof/` still describe correct output. |
+| 723 | Single-Path Runtime | **BINDING** — `CLAUDE.md` rule 1, gate `scripts/probe-single-path.mjs`. Governs the TS runtime, which is now the oracle; the rule holds because the code is still there. |
+| 746 | Live Trace + Scrub Workbench (charter) | Trace core shipped / trace itself is TRX64-owned. Remaining **scrub-UI slices** are the live part. |
 
 ## DONE (shipped + on master)
 
