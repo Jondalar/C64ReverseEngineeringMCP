@@ -2170,6 +2170,59 @@ button {
   margin-bottom: 0.45rem;
 }
 
+/* Spec 785 B4 — the span vocabulary: what a drawn span IS. */
+.cart-span-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.4rem 0.6rem;
+  background: rgba(22, 27, 34, 0.45);
+  border-radius: 6px;
+  margin-bottom: 0.45rem;
+}
+
+.cart-span-legend-title {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6e7681;
+  margin-right: 0.3rem;
+}
+
+.cart-span-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 11px;
+  color: #8b949e;
+}
+
+.cart-span-legend-count {
+  color: #c9d1d9;
+  font-variant-numeric: tabular-nums;
+}
+
+.cart-span-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid rgba(110, 118, 129, 0.5);
+  background: rgba(110, 118, 129, 0.35);
+}
+
+.cart-span-legend-payload .cart-span-legend-swatch {
+  background: rgba(210, 160, 255, 0.7);
+}
+
+.cart-span-legend-code-island .cart-span-legend-swatch {
+  background: rgba(126, 231, 135, 0.55);
+}
+
+.cart-span-legend-empty .cart-span-legend-swatch {
+  background: #1a1d21;
+}
+
 .cart-lut-filter-title {
   font-size: 9px;
   text-transform: uppercase;

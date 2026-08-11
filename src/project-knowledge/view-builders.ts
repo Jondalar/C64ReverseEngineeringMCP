@@ -43,6 +43,7 @@ import type {
   AnnotatedListingView,
   ArtifactRecord,
   CartridgeLayoutView,
+  CartridgeSpanClassSummary,
   DiskLayoutView,
   EntityRecord,
   FindingRecord,
@@ -1925,6 +1926,44 @@ function deriveSlotLayout(
   };
 }
 
+/** Spec 785 B4 — one vocabulary over every span on a cartridge. `lutChunks` and
+ *  `payloadChunks` are two SOURCES of one class (`payload`: the LoaderModel says
+ *  these bytes are a payload), `segments` are `code-island` (disassembly-derived
+ *  meaning, never evidence the loader fetched anything) and `emptyRegions` are
+ *  `empty` (No Data). Same split block coverage uses. */
+function summariseSpanClasses(
+  lutChunks: ResolvedLutChunk[] | undefined,
+  payloadChunks: Array<{ spans: Array<{ length: number }>; length: number }> | undefined,
+  segments: CartridgeSegment[] | undefined,
+  emptyRegions: EmptyRegion[] | undefined,
+): CartridgeSpanClassSummary[] {
+  const spanBytes = (record: { spans?: Array<{ length: number }>; length: number }): number =>
+    record.spans && record.spans.length > 0
+      ? record.spans.reduce((sum, span) => sum + (span.length ?? 0), 0)
+      : record.length;
+  const summary = (
+    spanClass: CartridgeSpanClassSummary["spanClass"],
+    source: CartridgeSpanClassSummary["source"],
+    label: string,
+    records: Array<{ spans?: Array<{ length: number }>; length: number }> | undefined,
+  ): CartridgeSpanClassSummary[] => {
+    if (!records || records.length === 0) return [];
+    return [{
+      spanClass,
+      source,
+      label,
+      count: records.length,
+      bytes: records.reduce((sum, record) => sum + spanBytes(record), 0),
+    }];
+  };
+  return [
+    ...summary("payload", "lutChunks", "payload (loader index entry)", lutChunks),
+    ...summary("payload", "payloadChunks", "payload (registered)", payloadChunks),
+    ...summary("code-island", "segments", "code island (disassembly-derived)", segments),
+    ...summary("empty", "emptyRegions", "empty (No Data)", emptyRegions),
+  ];
+}
+
 export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLayoutView {
   const cartridges = context.artifacts
     .filter((artifact) => artifact.role === "crt-manifest")
@@ -2080,6 +2119,7 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
         emptyRegions,
         segments,
         startup,
+        spanClasses: summariseSpanClasses(lutChunks, payloadChunks, segments, emptyRegions),
       };
     })
     .filter((value): value is NonNullable<typeof value> => value !== undefined);

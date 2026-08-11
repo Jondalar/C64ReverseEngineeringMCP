@@ -1460,6 +1460,22 @@ export const CartridgePayloadChunkSchema = z.object({
   notes: z.array(z.string()).default([]),
 });
 
+// Spec 785 B4 — ONE vocabulary for every span drawn on a cartridge. `lutChunks`
+// and `payloadChunks` were two names for one idea (a range the LoaderModel says
+// is a payload); they are two SOURCES of the same class, not two classes. The
+// summary lets the Cartridge view label what a span IS — payload / code island /
+// empty — instead of leaving the reader to infer it from which array it came out
+// of, and it is the same split block coverage uses (medium-coverage.ts).
+export const CartridgeSpanClassSchema = z.enum(["payload", "code-island", "empty"]);
+
+export const CartridgeSpanClassSummarySchema = z.object({
+  spanClass: CartridgeSpanClassSchema,
+  source: z.enum(["lutChunks", "payloadChunks", "segments", "emptyRegions"]),
+  label: z.string().min(1),
+  count: z.number().int().nonnegative(),
+  bytes: z.number().int().nonnegative(),
+});
+
 export const CartridgeLayoutCartridgeSchema = z.object({
   artifactId: IdSchema,
   title: z.string().min(1),
@@ -1475,6 +1491,7 @@ export const CartridgeLayoutCartridgeSchema = z.object({
   emptyRegions: z.array(CartridgeEmptyRegionSchema).optional(),
   segments: z.array(CartridgeSegmentSchema).optional(),
   startup: CartridgeStartupInfoSchema.optional(),
+  spanClasses: z.array(CartridgeSpanClassSummarySchema).default([]),
 });
 
 export const CartridgeLayoutViewSchema = z.object({
@@ -1918,6 +1935,8 @@ export type ProjectDashboardView = z.infer<typeof ProjectDashboardViewSchema>;
 export type MemoryMapView = z.infer<typeof MemoryMapViewSchema>;
 export type DiskLayoutView = z.infer<typeof DiskLayoutViewSchema>;
 export type CartridgeLayoutView = z.infer<typeof CartridgeLayoutViewSchema>;
+export type CartridgeSpanClass = z.infer<typeof CartridgeSpanClassSchema>;
+export type CartridgeSpanClassSummary = z.infer<typeof CartridgeSpanClassSummarySchema>;
 export type MediumKind = z.infer<typeof MediumKindSchema>;
 export type MediumSpan = z.infer<typeof MediumSpanSchema>;
 export type MediumFileOrigin = z.infer<typeof MediumFileOriginSchema>;

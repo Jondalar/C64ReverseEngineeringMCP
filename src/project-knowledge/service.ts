@@ -4816,19 +4816,34 @@ export class ProjectKnowledgeService {
   buildDiskLayoutView(): { path: string; view: ReturnType<typeof buildDiskLayoutView> } {
     const bundle = this.loadBundle();
     const view = buildDiskLayoutView(bundle);
-    return this.persistView("Disk layout view built", this.storage.saveDiskLayoutView(view), view);
+    const result = this.persistView("Disk layout view built", this.storage.saveDiskLayoutView(view), view);
+    this.persistMediumLayout(bundle, view, buildCartridgeLayoutView(bundle));
+    return result;
   }
 
   buildCartridgeLayoutView(): { path: string; view: ReturnType<typeof buildCartridgeLayoutView> } {
     const bundle = this.loadBundle();
     const view = buildCartridgeLayoutView(bundle);
-    return this.persistView("Cartridge layout view built", this.storage.saveCartridgeLayoutView(view), view);
+    const result = this.persistView("Cartridge layout view built", this.storage.saveCartridgeLayoutView(view), view);
+    this.persistMediumLayout(bundle, buildDiskLayoutView(bundle), view);
+    return result;
   }
 
   buildMediumLayoutView(): { path: string; view: ReturnType<typeof buildMediumLayoutView> } {
     const bundle = this.loadBundle();
-    const diskLayout = buildDiskLayoutView(bundle);
-    const cartridgeLayout = buildCartridgeLayoutView(bundle);
+    return this.persistMediumLayout(bundle, buildDiskLayoutView(bundle), buildCartridgeLayoutView(bundle));
+  }
+
+  /** Spec 785 B4 — ONE cart view path. `medium-layout.json` is what block
+   *  coverage reads, so it must never lag behind a per-medium view rebuild:
+   *  the cart-lut proof project had 552 decoded index entries in
+   *  `cartridge-layout.json` and no `medium-layout.json` at all, because the
+   *  only writer was the all-views build. Every layout build now refreshes it. */
+  private persistMediumLayout(
+    bundle: ReturnType<ProjectKnowledgeService["loadBundle"]>,
+    diskLayout: ReturnType<typeof buildDiskLayoutView>,
+    cartridgeLayout: ReturnType<typeof buildCartridgeLayoutView>,
+  ): { path: string; view: ReturnType<typeof buildMediumLayoutView> } {
     const view = buildMediumLayoutView(bundle, diskLayout, cartridgeLayout);
     return this.persistView("Medium layout view built", this.storage.saveMediumLayoutView(view), view);
   }
@@ -4852,16 +4867,18 @@ export class ProjectKnowledgeService {
   }
 
   buildAllViews(): BuildAllViewsResult {
-    const diskLayout = this.buildDiskLayoutView();
-    const cartridgeLayout = this.buildCartridgeLayoutView();
+    // Disk + cart layouts are built ONCE here and handed to the medium layout;
+    // the single-view wrappers each refresh the medium layout on their own
+    // (Spec 785 B4) and would otherwise rebuild everything three times.
     const bundle = this.loadBundle();
-    const mediumLayoutView = buildMediumLayoutView(bundle, diskLayout.view, cartridgeLayout.view);
+    const diskView = buildDiskLayoutView(bundle);
+    const cartridgeView = buildCartridgeLayoutView(bundle);
     return {
       projectDashboard: this.buildProjectDashboardView(),
       memoryMap: this.buildMemoryMapView(),
-      diskLayout,
-      cartridgeLayout,
-      mediumLayout: this.persistView("Medium layout view built", this.storage.saveMediumLayoutView(mediumLayoutView), mediumLayoutView),
+      diskLayout: this.persistView("Disk layout view built", this.storage.saveDiskLayoutView(diskView), diskView),
+      cartridgeLayout: this.persistView("Cartridge layout view built", this.storage.saveCartridgeLayoutView(cartridgeView), cartridgeView),
+      mediumLayout: this.persistMediumLayout(bundle, diskView, cartridgeView),
       loadSequence: this.buildLoadSequenceView(),
       flowGraph: this.buildFlowGraphView(),
       annotatedListing: this.buildAnnotatedListingView(),
@@ -4877,11 +4894,14 @@ export class ProjectKnowledgeService {
    *  (`project_inventory_sync`, `agent_run_step`). */
   async buildAllViewsCooperative(): Promise<BuildAllViewsResult> {
     const breathe = () => new Promise<void>((resolve) => setImmediate(resolve));
-    const diskLayout = this.buildDiskLayoutView(); await breathe();
-    const cartridgeLayout = this.buildCartridgeLayoutView(); await breathe();
     const bundle = this.loadBundle();
-    const mediumLayoutView = buildMediumLayoutView(bundle, diskLayout.view, cartridgeLayout.view);
-    const mediumLayout = this.persistView("Medium layout view built", this.storage.saveMediumLayoutView(mediumLayoutView), mediumLayoutView);
+    const diskView = buildDiskLayoutView(bundle);
+    const diskLayout = this.persistView("Disk layout view built", this.storage.saveDiskLayoutView(diskView), diskView);
+    await breathe();
+    const cartridgeView = buildCartridgeLayoutView(bundle);
+    const cartridgeLayout = this.persistView("Cartridge layout view built", this.storage.saveCartridgeLayoutView(cartridgeView), cartridgeView);
+    await breathe();
+    const mediumLayout = this.persistMediumLayout(bundle, diskView, cartridgeView);
     await breathe();
     const projectDashboard = this.buildProjectDashboardView(); await breathe();
     const memoryMap = this.buildMemoryMapView(); await breathe();

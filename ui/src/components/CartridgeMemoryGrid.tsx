@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { CartridgeBankView, CartridgeChipView, CartridgeEmptyRegion, CartridgeLutChunk, CartridgePayloadChunk, CartridgeSegment, CartridgeSlotLayout, CartridgeStartupInfo } from "../types.js";
+import type { CartridgeBankView, CartridgeChipView, CartridgeEmptyRegion, CartridgeLutChunk, CartridgePayloadChunk, CartridgeSegment, CartridgeSlotLayout, CartridgeSpanClassSummary, CartridgeStartupInfo } from "../types.js";
 
 interface ChipClickHandler {
   (chip: CartridgeChipView, role: "ROML" | "ROMH" | "EEPROM"): void;
@@ -22,6 +22,9 @@ interface CartridgeMemoryGridProps {
   emptyRegions?: CartridgeEmptyRegion[];
   segments?: CartridgeSegment[];
   startup?: CartridgeStartupInfo;
+  // Spec 785 B4 — the one span vocabulary, so the grid can say what a span IS
+  // instead of leaving the reader to infer it from which array it came out of.
+  spanClasses?: CartridgeSpanClassSummary[];
   onSelectChip?: ChipClickHandler;
   onSelectBank?: BankClickHandler;
   onOpenChipHex?: ChipClickHandler;
@@ -63,6 +66,7 @@ export function CartridgeMemoryGrid({
   emptyRegions,
   segments,
   startup,
+  spanClasses,
   onSelectChip,
   onSelectBank,
   onOpenChipHex,
@@ -201,7 +205,7 @@ export function CartridgeMemoryGrid({
           const klass = `cart-segment-overlay cart-segment-${segment.kind}`;
           const labelFragment = segment.label ? `${segment.label} · ` : "";
           const destFragment = segment.destAddress !== undefined ? ` → $${segment.destAddress.toString(16).toUpperCase().padStart(4, "0")}` : "";
-          const tooltip = `${labelFragment}bank ${segment.bank} ${segment.slot} off $${segment.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} (${segment.length} B, ${segment.kind})${destFragment}`;
+          const tooltip = `code island: ${labelFragment}bank ${segment.bank} ${segment.slot} off $${segment.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} (${bytesPretty(segment.length)}, ${segment.kind})${destFragment}`;
           const clickable = Boolean(onSelectSegment);
           return (
             <div
@@ -235,9 +239,9 @@ export function CartridgeMemoryGrid({
           const totalSpans = entry.chunk.spans?.length ?? 1;
           const fileLength = entry.chunk.length;
           const baseTooltip = entry.chunk.label ?? `${entry.chunk.lut}.${entry.chunk.index} bank ${entry.chunk.bank} (${fileLength} B)`;
-          const tooltip = totalSpans > 1
+          const tooltip = `payload (loader index entry): ${totalSpans > 1
             ? `${baseTooltip} · this bank: ${entry.length} B (${entry.isHead ? "head" : "cont"} ${entry.isHead ? 1 : "n"}/${totalSpans})`
-            : baseTooltip;
+            : baseTooltip}`;
           const className = entry.isContinuation ? "cart-chunk-segment cart-chunk-segment-continuation" : "cart-chunk-segment";
           return (
             <div
@@ -292,7 +296,7 @@ export function CartridgeMemoryGrid({
           const widthPercent = Math.max(0.5, Math.min(100 - leftPercent, (entry.length / bankSize) * 100));
           const destFragment = entry.chunk.loadAddress !== undefined ? ` → ${formatHexWord(entry.chunk.loadAddress)}` : "";
           const scopeFragment = entry.chunk.unscoped ? " · UNSCOPED (image not attributed)" : "";
-          const tooltip = `${entry.chunk.name} · bank ${entry.chunk.bank} ${entry.chunk.slot} off $${entry.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} (${bytesPretty(entry.length)})${destFragment}${scopeFragment}`;
+          const tooltip = `payload (registered): ${entry.chunk.name} · bank ${entry.chunk.bank} ${entry.chunk.slot} off $${entry.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} (${bytesPretty(entry.length)})${destFragment}${scopeFragment}`;
           const clickable = Boolean(onSelectPayloadChunk);
           const className = entry.chunk.unscoped
             ? "cart-chunk-segment cart-payload-segment cart-payload-segment-unscoped"
@@ -393,6 +397,22 @@ export function CartridgeMemoryGrid({
           {startup.warmStartVector !== undefined ? (
             <span>warm $<code>{startup.warmStartVector.toString(16).toUpperCase().padStart(4, "0")}</code></span>
           ) : null}
+        </div>
+      ) : null}
+      {spanClasses && spanClasses.length > 0 ? (
+        <div className="cart-span-legend">
+          <span className="cart-span-legend-title">Spans</span>
+          {spanClasses.map((entry) => (
+            <span
+              key={`${entry.spanClass}-${entry.source}`}
+              className={`cart-span-legend-item cart-span-legend-${entry.spanClass}`}
+              title={`${entry.count} span${entry.count === 1 ? "" : "s"}, ${bytesPretty(entry.bytes)} — source: ${entry.source}`}
+            >
+              <span className="cart-span-legend-swatch" />
+              {entry.label}
+              <span className="cart-span-legend-count">{entry.count}</span>
+            </span>
+          ))}
         </div>
       ) : null}
       {lutPills.length > 0 ? (

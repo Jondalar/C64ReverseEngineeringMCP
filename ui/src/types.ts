@@ -406,7 +406,20 @@ export interface CartridgeLayoutView {
     emptyRegions?: CartridgeEmptyRegion[];
     segments?: CartridgeSegment[];
     startup?: CartridgeStartupInfo;
+    spanClasses?: CartridgeSpanClassSummary[];
   }>;
+}
+
+// Spec 785 B4 — one vocabulary for every span drawn on a cartridge. `lutChunks`
+// and `payloadChunks` are two SOURCES of one class (`payload`), not two classes.
+export type CartridgeSpanClass = "payload" | "code-island" | "empty";
+
+export interface CartridgeSpanClassSummary {
+  spanClass: CartridgeSpanClass;
+  source: "lutChunks" | "payloadChunks" | "segments" | "emptyRegions";
+  label: string;
+  count: number;
+  bytes: number;
 }
 
 export interface AnnotatedListingView {

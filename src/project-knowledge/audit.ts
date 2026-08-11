@@ -58,6 +58,10 @@ const VIEW_FILES = [
   "views/memory-map.json",
   "views/cartridge-layout.json",
   "views/disk-layout.json",
+  // Spec 785 B4 — the block-coverage source. A project carrying a
+  // cartridge-layout.json but no medium-layout.json has an index nothing
+  // measures; that is a stale view, not a missing nicety.
+  "views/medium-layout.json",
   "views/load-sequence.json",
   "views/flow-graph.json",
   "views/annotated-listing.json",
