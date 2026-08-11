@@ -28,10 +28,11 @@ The TRX64 doc stays the single source of truth for the decision itself.
   dedup) and findings are **C64RE forever**.
 - **Q2 thickness → C.** Static capability lives in a lib crate
   (`trx64-static`), not the daemon; `trx64-mcp` fronts {daemon + static lib}.
-- **Q3 media parsers → C refined.** Format DECODE primitives (GCR,
-  sector/track, container, bank) → TRX64, deduped with `vice1541`; per-game
-  extraction GLUE (LUTs, interleave, depack chains) stays TS/scratch and calls
-  the primitives.
+- **Q3 media parsers → C refined.** ~~Format DECODE primitives (GCR,
+  sector/track, container, bank) → TRX64, deduped with `vice1541`~~ — **this half
+  did not survive contact (2026-08-11, see step 2 below): there is no duplication
+  to dedupe.** The rest stands: per-game extraction GLUE (LUTs, interleave, depack
+  chains) stays TS/scratch.
 - **C64RE forever:** semantic disasm + xref + lineage · annotation/HEAD
   curation · build/rebuild pipeline (assemblers, byte-verify) · firehose gate ·
   knowledge graph · orchestration · UI.
@@ -46,11 +47,42 @@ underneath it migrates.
 | Step | What | Status |
 |---|---|---|
 | 1 | `mos6502` raw-decode dedupe → starts `trx64-static`; `trx64cli disasm` (ROM-free) | **DONE 2026-07-02** (TRX64 commit `8ec750a`): shared decoder crate, daemon dedupe, 512-case golden parity vs the TS oracle `disasm6502.ts` |
-| 2 | Media format-parse → `trx64-static`, shared with `vice1541` | open (lowest priority of the three; interim = parsers stay TS "until the duplication actually bites") |
+| 2 | ~~Media format-parse → `trx64-static`, shared with `vice1541`~~ | **DROPPED 2026-08-11** — see below. There is no duplication to remove. |
 | 3 | Heuristic classifiers → `trx64-static`, neutral `{offset, kind-guess, confidence}` | open (largest; loop candidate) |
 
 Rule for every step: C64RE consumes the new TRX64 capability over the façade;
 **the old TS path is retired only after parity.**
+
+### Why step 2 is dropped (2026-08-11)
+
+It assumed one media parser could serve both sides. It cannot, and the two are not
+a duplication — they are **two different jobs that both touch GCR**:
+
+| | is | must |
+|---|---|---|
+| Rust `gcr.rs` / `rotation.rs` | the 1541 | **refuse** what a real drive refuses |
+| TS `src/disk/**` | the workbench | **read** what a drive refuses |
+
+The Rust side's correctness bar is the drive's: `drive_sector_read` decodes a
+sector byte-identically to the D64 image through the live DOS controller, and
+seven titles boot from real G64s. The TS side's bar is the opposite — its ring map
+has `h=tolerant header` / `d=tolerant data` and it picks between bit-parities by
+score, because a protected disk is exactly what it exists to open. Two titles in
+this corpus carry deliberately corrupt headers; the strict path returns an error
+on them, which is **correct behaviour for a drive** and useless for a workbench.
+
+Consolidating could only go one of two ways, and both lose: the drive becomes
+tolerant and stops being faithful, or the workbench becomes strict and stops
+reading the disks it was built for.
+
+What could still be shared is the layer **below the policy** — GCR nibble
+encode/decode, the speed-zone tables, the D64 geometry. Arithmetic, not search
+strategy, and it never changes. Whether that is worth a crate boundary is a
+separate and much smaller question than this row implied.
+
+**So the trigger named earlier in this spec — "the day the two implementations
+read the same image differently" — will never fire, because they are SUPPOSED to
+differ.** That was the wrong trigger for the wrong row.
 
 ## C64RE-side obligations (this repo's work when steps land)
 
@@ -88,9 +120,8 @@ Rule for every step: C64RE consumes the new TRX64 capability over the façade;
    behind a running machine is a different number. This is the argument for the
    machine-free endpoint, and it is measurable.
 
-   **The trigger for step 2 is divergence, not speed** — the day the two GCR
-   implementations read the same image differently. Until then, moving working code
-   is churn, which is what "until the duplication actually bites" was reaching for.
+   These numbers were taken while sizing step 2, which is now dropped; they stand
+   because they govern **step 3** and anything else that ever crosses this seam.
 2. **Contract freeze before step 3.** `_analysis.json` (`AnalysisReport`) is
    shared MUTABLE state (server injects `packerHints`, `confirmed`/`rejected`)
    with 4 TS schema copies + 1 zod validator and no versioned schema file. The
