@@ -50,15 +50,18 @@ below. **Next free number: 799.**
 
 Small by design — only specs with concrete next implementation work.
 
+All four are **C64RE workbench** strands — cartography, workflow, the analysis
+pipeline. Everything actually built through July and August was TRX64: runtime,
+trace, snapshots, sandbox, container, release, monitor. That is a priority
+decision, not a backlog; it had just never been written down, so four dormant
+workbench specs kept reading as imminent.
+
 | Spec | Title | Why active / what's next |
 |---|---|---|
-| 721 | Visual-Origin Join (runtime-informed annotation) | Core join shipped (probe green). Active edge: the semantic-pipeline extension. (Provides the `mediumRef`/`MediaRegion` medium model + the trace→origin chain that **Spec 750** consumes; the layout-placement slice 721.J5 is now implemented as **Spec 750.1**.) |
 | 748 | Project Steering + Agent Discipline | **748.1 + 748.2 DONE** (`e2e:748` 10/10). Next: 748.3 trace→cartography extractor (feeds BUG-031). |
 | 750 | Disk + Cartridge Cartography Visualization (payloads · addressing · loaders) | The STATIC strand made REAL in the two EXISTING views (no new tab). Render-first: **750.1** = mediumRef + views render payloads@position (closes BUG-031); then addressing overlay (750.2) + loader/mutator edges (750.3) + extractors (750.4–.6). |
-| 771 | TRX64 Runtime Backend + VICE Deprecation | ACTIVE (branch `spec-771-trx64-core`): TRX64 = strategic Rust runtime base + the DEFAULT backend process; owns runtime/instrument/reverse-debug/trace/checkpoints, daemon/FFI/CLI; the TS Headless runtime becomes fallback/parity oracle; native VICE + `vice_*` move behind "extended" and are deprecated. |
 | 773 | Workflow Cockpit: the 5-phase RE project lifecycle | ACTIVE — reframe C64RE from a data/relations browser into a workflow workbench: Onboarding · Discovery · Reverse Engineering · Build · Release; existing views repositioned as phase tools (Disk + CRT/Cartridge stay FIRST-CLASS in Discovery+RE); thin lifecycle axis + crosswalk over the existing engines (no rebuild). Anchor: product-vision §2A. |
 | 774 | Capability Cut: static capability → `trx64-static` | ACTIVE (cross-repo) — decode/parse/classify capability migrates phased into `trx64-static`; schema-map + firehose gate + findings + semantic disasm + KickAsm/byte-verify rebuild stay C64RE forever. **Step 1 DONE 2026-07-02**; next: media format-parse (step 2), classifiers (step 3). |
-| 775 | Decoupled Agent/Flow Layer via BMAD (private, in-repo) | PROPOSED (2026-07-03) — describe C64RE's agents + flows in **BMAD V6** format as a **private, local** custom-module (never published), so they are runtime-portable (Claude Code now, CrewAI later via adapter). Two-layer: C64RE base module (committed, no secrets) + TREX-internal overlay (separate/private). Docks onto 773 onboarding. Gate: OQ1 pin the V6 schema + round-trip-validate before emitting any file. |
 
 ## GOVERNING / DOCTRINE (rules + umbrella contracts — still binding, not active implementation)
 
@@ -82,6 +85,8 @@ for 715/723) is a **pending follow-up** tied to actually retiring the TS oracle
 
 | Spec | Title | Note |
 |---|---|---|
+| 771 | TRX64 Runtime Backend + VICE Deprecation | **DONE 2026-08-11** — the goal is the state of the world: TRX64 is the default backend (`resolveDaemonSpawn`; the TS runtime is reachable only via `C64RE_RUNTIME_TS=1` and explicitly never a silent fallback), it ships as a container, a release and a Homebrew tap, and the TS+VICE oracle was retired 2026-07-15. Branch `spec-771-trx64-core` is gone. |
+| 721 | Visual-Origin Join (runtime-informed annotation) | **DONE** — core join shipped, probe green. Provides the `mediumRef`/`MediaRegion` medium model + the trace→origin chain **Spec 750** consumes; the layout-placement slice 721.J5 shipped as **Spec 750.1**. The semantic-pipeline extension was never a scoped task — it lives on in 750, where it has one. |
 | 742 | Media Ownership + VICE-Faithful Write-Through | **DONE** — write-through (D64/G64 + EasyFlash CRT → host file) fixed + gated (BUG-023, `smoke:742` 9/9). The "7 divergent mount paths" concern is resolved by the single Runtime-Daemon API (744.4c: UI/MCP/CLI = clients, TRX64 default). The full `MediaRef`/`MediaLibrary` model (§4–§5) = forward-looking C64RE refactor, reopen-if-scheduled — not open work. |
 | 740.1 | Project Wiki + Knowledge Retrieval MVP | `project_search`/`find_related`/`reindex`/`wiki_lint` + wiki skeleton; deterministic index (no embeddings), `smoke-740` 28/28. 740.2 (authoring) BACKLOG. |
 | 622 | vice-mode Headless Performance | §4.0 implemented + merged (`2d9e4de`); §4.1–4.3 optimization candidates remain (not gating). |
@@ -93,6 +98,7 @@ for 715/723) is a **pending follow-up** tied to actually retiring the TS oracle
 
 | Spec | Title |
 |---|---|
+| 775 | Decoupled Agent/Flow Layer via BMAD (private, in-repo) — PROPOSED 2026-07-03; docks onto 773 onboarding. Gate: pin the V6 schema + round-trip-validate before emitting any file. |
 | 424 | Drive + Cartridge LED + Inspector UX (LED done VICE-1:1; Inspector-UX part = C64RE UI, fold into cockpit) |
 | 716 | Installation, Versioning, Distribution (now also 775-relevant: BMAD-module + 2-repo distribution) |
 | 720 | Disassembly Output Quality (core C64RE meaning) |
@@ -183,13 +189,21 @@ those had drifted the same way and were corrected in the same pass.
 
 ## Counts
 
-- ACTIVE: 7 (721, 748, 750, 771, 773, 774, 775)
-- GOVERNING / DOCTRINE: 3 active (610, 723, 746) + 3 **ÜBERHOLT 2026-07-15** (612, 620, 715) — TS runtime + VICE-as-oracle officially retired; TRX64 standalone/authoritative, VICE = occasional Vorlage only (no hard 1:1 mandate). 612 (port-fidelity "exactly as VICE") + 620 (port-bug forensic) + 715 (product-proof *oracle* role → superseded by 783 local quality gate) are superseded. 723 (single-path) stays — it's TRX64-internal architecture, not an oracle.
-- DONE: 6 (622, 703, 704, 726, 740.1, 742) — kept on the board for open children / active continuations
-- BACKLOG: 4 (424, 716, 720, 740.2)
-- CLOSED — WON'T-DO (2026-07-03 sweep): 17 (422, 428, 613, 614, 615, 619, 621, 623, 700, 705, 711, 712, 713, 726.B, 744, 747, 772)
-- SUPERSEDED: 0 (600, 601 → archived)
-- NEEDS-RECONCILE: 0 — one doctrine-timing decision open (715/723 + CLAUDE.md)
-- TRX64 (shared range): 19 (776–783 + 786 + 789 + 790 + 791 + 792 + 793 + 794 + 795 + 796 + 797 + 798, files under `../TRX64/docs/`) — **next free number: 799**
-- PROPOSED (cross-repo, loop-buildable): 2 (784 disk, 785 CRT — files in `specs/`). 787 (v1) + 788 + 794 now DONE; 787-V2 (in-process clone / Scenarios substrate) is the next named phase.
-- ARCHIVED: ~150 historical specs in `specs/_archive/` (incl. 20 done/superseded specs archived 2026-07-01: 425 426 427 600 601 616 617 618 708 745 751 752 753 754 757 758 759 765 766 768)
+Recounted from the tables themselves 2026-08-11 — the previous block had drifted with
+them (it still listed 7 ACTIVE and "next free number: 799" while 800–804 existed).
+
+- **ACTIVE: 4** (748, 750, 773, 774) — all C64RE workbench.
+- **GOVERNING / DOCTRINE: 6** — 3 binding (610, 723, 746) + 3 **ÜBERHOLT 2026-07-15**
+  (612, 620, 715): TS runtime + VICE-as-oracle retired, TRX64 standalone/authoritative,
+  VICE an occasional Vorlage with no 1:1 mandate. 715's product-proof *oracle* role passed
+  to 783. 723 (single-path) stays — TRX64-internal architecture, not an oracle.
+- **DONE: 8** (622, 703, 704, 721, 726, 740.1, 742, 771) — kept on the board where a child
+  or continuation is still open.
+- **BACKLOG: 5** (424, 716, 720, 740.2, 775)
+- **CLOSED — WON'T-DO: 16** (2026-07-03 sweep)
+- **SUPERSEDED: 0** on the board (600, 601 archived); 779 is marked SUPERSEDED in place,
+  inside the TRX64 table, because 802 delivered it.
+- **TRX64 (shared range): 29** (776–804) — 17 BUILT, 6 PROPOSED, 3 PARTIAL, 1 each
+  SUPERSEDED / GOVERNING / BLOCKED. **Next free number: 805.**
+- **ARCHIVED**: ~150 historical specs in `specs/_archive/` (incl. the 20 archived
+  2026-07-01: 425 426 427 600 601 616 617 618 708 745 751 752 753 754 757 758 759 765 766 768)
