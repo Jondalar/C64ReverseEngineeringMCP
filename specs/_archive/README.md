@@ -12,7 +12,7 @@ was binding doctrine, no longer is (the surviving rules live in `../../DOCTRINE.
 
 ## Recorded
 
-The 29 specs below carry the decision that closed them.
+The 30 specs below carry the decision that closed them.
 
 | # | Verdict | Spec | Decision / what shipped |
 |---|---|---|---|
@@ -30,6 +30,7 @@ The 29 specs below carry the decision that closed them.
 | 622 | **WON'T-DO** | [vice-mode Headless Performance](622-vice-mode-performance.md) | §4.0 shipped and measured (`2d9e4de`): 0.50× → 0.82× realtime. Closed 2026-08-11 — its premise and a third of its work no longer exist. The `drive1541Implementation="vice"` mode the problem statement compares against was removed by 723 (VICE1541 is the only drive). §4.3's suspected double dispatch is between `cycle-lockstep-scheduler` and `cycle-wrappers`, and 723 deleted the former. §4.1/§4.2 are unscoped V8 micro-optimisation candidates from a May profile, against the TypeScript runtime — the parity oracle since 2026-07-15, not the product. An oracle is run to compare, not to play; TRX64 is the product runtime. |
 | 623 | **WON'T-DO** | [VICE-compat monitor / debugger](623-vice-monitor-debugger.md) | **→ TRX64 (already there)** — monitor + reverse-debug in TRX64 (`MONITOR.md`); C64RE-facing part via Spec 754 (archived) done. |
 | 700 | **WON'T-DO** | [Runtime Optimization](700-runtime-optimization.md) | **dead** — TS perf, TS is fallback; TRX64 owns perf (~8–10× faster). |
+| 703 | **DONE** | [SID reSID Audio](703-sid-resid-wasm-audio.md) | Live reSID audio + SID inspector shipped (`fb27a7d`). The one deferred slice, **703.5 WAV export**, was closed 2026-08-11 rather than built: the audio leaves the daemon as a stream, and capturing a stream to a file is what ffmpeg is for. Writing a second encoder inside the emulator buys nothing. |
 | 705 | **WON'T-DO** | [Interactive Runtime Evidence / Intervention / Replay (contract)](705-interactive-runtime-evidence-intervention-replay-contract.md) | **→ TRX64** — the whole evidence/intervention/replay domain is TRX64-owned; children 711/712 folded below. |
 | 711 | **WON'T-DO** | [Code/Data Overlay + Controlled Intervention Branches](711-code-overlay-intervention-branches.md) | **→ merged into TRX64** `docs/776-overlay-intervention-diff.md`. |
 | 712 | **WON'T-DO** | [Rewind, Replay and Branch Diff](712-rewind-replay-branch-diff.md) | **→ merged into TRX64** `docs/776-overlay-intervention-diff.md` (rewind/snapshot-diff already in `spec-time-travel-tooling.md`; the new part = overlay-intervention + outcome-diff). |
