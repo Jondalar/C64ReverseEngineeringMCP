@@ -1278,22 +1278,77 @@ interface CartTypeProfile {
   eepromKindHint?: string;
 }
 
-// VICE CRT hardware-type IDs we care about. `canFlash` marks cart types
-// whose chips are writable flash; on those, long runs of $FF are erased
-// space (free to program) rather than meaningful data. Anything not
-// listed falls back to a generic 8K/16K/Ultimax decision based on
-// exrom/game lines + chip load addresses observed in the manifest.
+// CRT hardware-type IDs, for the BANKED-STORAGE families — the ones whose banks
+// hold payloads and therefore matter to extraction. Freezers, kernal replacements
+// and IEEE interfaces are deliberately absent: their banks are the utility itself,
+// and the generic fallback (an 8K/16K/Ultimax decision from the exrom/game lines
+// plus the chip load addresses observed in the manifest) describes them correctly.
+//
+// `canFlash` marks types whose chips are writable flash. It does NOT gate the
+// No-Data scan any more (Spec 785 B3 reads $ff/$00 runs off the bytes on every
+// cartridge); it survives as a fact about the medium.
+//
+// PROVENANCE. Every row cites the VICE source it was read from — ids from
+// `src/cartridge.h`, geometry from the implementing `src/c64/cart/*.c`. A row
+// without a citation is suspect by construction: this table describes what a
+// cartridge IS (read direction), never how one is built, and the citation is what
+// makes that checkable rather than a matter of trust. Corrected 2026-08-11 — id 71
+// was labelled "GMod3", which is wrong in both directions: 71 is BlackBox 9
+// (`cartridge.h:262`) and GMod3 is 62 (`cartridge.h:253`).
+//
+// TWO IDS ARE NOT UNIQUE IN THE WILD, so a `.crt` header alone cannot resolve them:
+//   61 — mainline VICE says MAX Basic (`cartridge.h:252`, `maxbasic.c`). The
+//        martinpiper fork uses it for C64MegaCart, which is what TRX64 implements
+//        and what real images in this corpus carry. Named for the fork here.
+//   87 — unallocated upstream (`CARTRIDGE_LAST` is 86, `cartridge.h:278`). A
+//        private allocation for GMod4, and it collides the day upstream takes 87.
 const CART_TYPE_PROFILES: Record<number, CartTypeProfile> = {
+  // ── read-only banked storage ──────────────────────────────────────────────
   0:  { hardwareTypeName: "Generic",         slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
   3:  { hardwareTypeName: "Final Cartridge III", slotsPerBank: 2, bankSize: 0x2000, hasRomh: true, hasEeprom: false, isUltimax: false, canFlash: false },
   5:  { hardwareTypeName: "Ocean",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
   7:  { hardwareTypeName: "Funplay",         slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
   8:  { hardwareTypeName: "Super Games",     slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: false, canFlash: false },
+  // gs.c:72 — bank = addr & $3f, selected by an IO1 READ as well as a write.
+  15: { hardwareTypeName: "C64 Games System", slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
+  // dinamic.c:71-73 — bank = addr & $0f by IO1 READ; CMODE_8KGAME (dinamic.c:118),
+  // so only ROML is live although the romh bank is set alongside it.
+  17: { hardwareTypeName: "Dinamic",         slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
+  // zaxxon.c:79 CMODE_16KGAME; zaxxon.c:60 — the ROMH bank is chosen by A12 of the
+  // ROML READ ADDRESS, not by a register. Reading the cart changes its mapping.
+  18: { hardwareTypeName: "Zaxxon",          slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: false, canFlash: false },
+  // magicdesk.c:74 — bit7 = cart off, bits 0..6 = bank & bankmask, and bankmask is
+  // DERIVED FROM THE IMAGE SIZE (magicdesk.c:152-162), never a constant.
   19: { hardwareTypeName: "Magic Desk",      slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
+  // silverrock128.c:233,280 — ROML only, 8K game.
+  55: { hardwareTypeName: "Silverrock 128",  slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
+  // rgcd.c:92,148 — ROML only, 8K game, bank = value & bankmask.
+  57: { hardwareTypeName: "RGCD",            slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: false },
+  // multimax.c:183 CMODE_ULTIMAX; multimax.c:161 — the bank is served at ROMH
+  // ($E000) under permanent ultimax, addr & $3f / $7f.
+  70: { hardwareTypeName: "MultiMAX",        slotsPerBank: 1, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: true,  canFlash: false },
+  // magicdesk16.c:78-79 — sets the ROMH *and* ROML bank; unlike Magic Desk it drives
+  // GAME with the enable bit, because a 16K window needs GAME asserted.
+  85: { hardwareTypeName: "Magic Desk 16",   slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: false, canFlash: false },
+
+  // ── writable flash ────────────────────────────────────────────────────────
+  // easyflash.c — AM29F040B, $DE00 bank + $DE02 control, 64 × 16K.
   32: { hardwareTypeName: "EasyFlash",       slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: false, canFlash: true },
+  // gmod2.c — AM29F040 flash plus a separate M93C86 serial EEPROM for saves.
   60: { hardwareTypeName: "GMod2",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: true,  isUltimax: false, canFlash: true,  eepromKindHint: "M93C86 (SPI)" },
-  71: { hardwareTypeName: "GMod3",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: true },
+  // FORK-ONLY id, see the note above. TRX64 `cart.rs` C64MegaCartMapper: $DE00 bank
+  // bits 0-7 + $DF00 bits 8-13 and mode; programs only in ultimax via $E000.
+  61: { hardwareTypeName: "C64MegaCart",     slotsPerBank: 1, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: true,  canFlash: true },
+  // gmod3.c:124,232,241 — 8K GAME by default with an ULTIMAX mode; bank is 11 bits
+  // (`value + ((addr & 7) << 8)`), storage is SPI flash of 2/4/8/16 MB (gmod3.c:110).
+  62: { hardwareTypeName: "GMod3",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: true,  eepromKindHint: "SPI flash (2-16 MB)" },
+  // megabyter.c:103 — MX29F800CB, $DE00 bank (A1 clear) / $DE02 mode (A1 set),
+  // 128 × 8K ROML. Mode 2 is the kill; flash programs only in mode 3 (ULTIMAX).
   86: { hardwareTypeName: "Protovision MegaByter", slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: true },
+  // PRIVATE id, see the note above. TRX64 `cart.rs` Gmod4Mapper: two banking
+  // CONTEXTS × two windows = four bank registers, $E000 permanently bank 0 so the
+  // cart owns the IRQ/NMI vectors, fake ultimax, SPI flash with 64 KiB erase blocks.
+  87: { hardwareTypeName: "GMod4",           slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: true,  canFlash: true,  eepromKindHint: "SPI flash" },
 };
 
 function classifyChipSlot(loadAddress: number, isUltimax: boolean): "ROML" | "ROMH" | "ULTIMAX_ROMH" | "OTHER" {
