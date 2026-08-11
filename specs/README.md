@@ -1,60 +1,42 @@
 # Specs
 
-**Everything in this folder is open work** — in progress, or scoped and not started.
-Nothing finished lives here. Finished, retired and decided-against specs, each with the
-decision that closed them: [`_archive/README.md`](_archive/README.md).
-
+**Everything here is open work.** Finished, retired and decided-against specs, each with
+the decision that closed it: [`_archive/README.md`](_archive/README.md).
 Rules that govern how work is done are not specs: [`../DOCTRINE.md`](../DOCTRINE.md).
 
-Spec numbers are **shared with TRX64** (`../../TRX64/docs/`). One range, one registry —
-a new spec in either repo takes the next free number here. **Next free: 805.**
+Numbers are **shared with TRX64** (`../../TRX64/docs/`) — one range, one registry.
+**Next free: 805.**
+
+| # | Spec | Status | What is left | Touched |
+|---|---|---|---|---|
+| 424 | [Drive + Cartridge LED + Inspector UX](424-drive-cart-led-and-inspector-ux.md) | NOT STARTED | LED half shipped VICE-1:1. The Inspector-UX half belongs to the cockpit (773) — probably not its own spec any more. | 2026-05-12 |
+| 622 | [vice-mode Headless Performance](622-vice-mode-performance.md) | SLICE OPEN | §4.0 shipped (`2d9e4de`). §4.1–4.3 are optimization *candidates*, never scoped. | 2026-08-11 |
+| 703 | [SID reSID Audio](703-sid-resid-wasm-audio.md) | SLICE OPEN | Shipped (`fb27a7d`). Open: **703.5** WAV export. | 2026-05-23 |
+| 704 | [Runtime Codebase Cleanup](704-runtime-codebase-cleanup.md) | SLICE OPEN | §11 legacy-1541 retirement shipped. Open: §704.2/.5/.6/.7, non-gating cleanup of the TS runtime — which is now the oracle. | 2026-05-23 |
+| 716 | [Installation, Versioning, Distribution](716-installation-versioning-distribution.md) | NOT STARTED | DRAFT. Largely overtaken: versioning, releases and distribution now exist for TRX64 (799/801). What remains is the C64RE half. | 2026-05-24 |
+| 720 | [Disassembly Output Quality](720-disasm-output-quality.md) | NOT STARTED | DRAFT. Heuristic auto-labels + box headers in the phase-1 disassembler. Core C64RE meaning. | 2026-05-23 |
+| 726 | [Headless Trace Sink + Marks](726-mcp-headless-trace-sink.md) | SLICE OPEN | DuckDB sink + marks shipped. Open: binary `.c64retrace` as the timeline authority — **which TRX64 has since built**. Likely closable. | 2026-05-31 |
+| 740 | [Project Wiki + Knowledge Retrieval](740-semantic-search-vector-index.md) | SLICE OPEN | 740.1 shipped. Open: **740.2** wiki authoring (`project_wiki_update`). | 2026-05-31 |
+| 746 | [Live Trace + Scrub Workbench](746-live-trace-scrub-workbench-charter.md) | SLICE OPEN | Charter, not a slice. Trace core is TRX64-owned and shipped. Open: the scrub-UI slices. | 2026-06-03 |
+| 748 | [Project Steering + Agent Discipline](748-project-steering-and-agent-discipline.md) | IN PROGRESS | 748.1 + 748.2 shipped (`e2e:748` 10/10). Open: **748.3** trace→cartography extractor. | 2026-06-06 |
+| 750 | [Disk + Cartridge Cartography](750-disk-cartridge-cartography-visualization.md) | IN PROGRESS | Render-first in the two existing views. 750.1 mediumRef + payloads@position, then addressing overlay, loader edges, extractors. | 2026-07-02 |
+| 773 | [Workflow Cockpit: 5-phase lifecycle](773-workflow-cockpit-lifecycle.md) | IN PROGRESS | Reframe the workbench along Onboarding · Discovery · RE · Build · Release. No rebuild. | 2026-07-01 |
+| 774 | [Capability Cut → `trx64-static`](774-capability-cut-static-migration.md) | IN PROGRESS | Step 1 shipped. Open: media format-parse (2), classifiers (3). | 2026-07-02 |
+| 775 | [Decoupled Agent/Flow Layer (BMAD)](775-decoupled-agent-flow-layer-bmad.md) | NOT STARTED | Private in-repo module; docks onto 773. Gate: pin the V6 schema first. | 2026-07-03 |
+| 784 | [Loader-lens extraction](784-loader-lens-extraction.md) | NOT STARTED | Per-project extractor + trace-validated loader lens. Buildable now. | 2026-07-04 |
+| 785 | [CRT extraction](785-crt-extraction.md) | BLOCKED | Needs a real cartridge sample. | 2026-07-04 |
+| 800 | [Runtime invisible to the RE agent](800-runtime-invisible-setup-guided.md) | SLICE OPEN | Env-gated barrier shipped. Open: guided setup probe + protocol-version handshake. | 2026-08-05 |
+| 801 | [Artifact distribution](801-artifact-distribution.md) | SLICE OPEN | Overtaken in parts — ROM-less image, tag-driven publishing, per-platform binaries all shipped by other routes. Open: whether the GHCR plan is still wanted at all. | 2026-08-05 |
+
+`SLICE OPEN` = the spec shipped and one named part did not. The file mostly describes
+code that already exists — read it with that in mind, and changing it risks regressions
+against working code.
 
 ---
 
-## In progress
+Every spec above is **C64RE workbench**. Everything built through July and August was
+**TRX64**: runtime, trace, snapshots, sandbox, container, release, monitor. That is a
+priority decision, written here so these stop reading as imminent.
 
-| # | Spec | What is left |
-|---|---|---|
-| 748 | [Project Steering + Agent Discipline](748-project-steering-and-agent-discipline.md) | 748.1 + 748.2 shipped (`e2e:748` 10/10). Open: **748.3** trace→cartography extractor. |
-| 750 | [Disk + Cartridge Cartography Visualization](750-disk-cartridge-cartography-visualization.md) | Render-first, in the two existing views — no new tab. **750.1** mediumRef + payloads@position, then addressing overlay, loader edges, extractors. |
-| 773 | [Workflow Cockpit: the 5-phase lifecycle](773-workflow-cockpit-lifecycle.md) | Reframe the workbench along Onboarding · Discovery · RE · Build · Release. Existing views become phase tools; no rebuild. |
-| 774 | [Capability Cut → `trx64-static`](774-capability-cut-static-migration.md) | Step 1 shipped. Open: media format-parse (step 2), classifiers (step 3). Meaning stays in C64RE forever. |
-| 784 | [Loader-lens extraction](784-loader-lens-extraction.md) | Per-project extractor + trace-validated loader lens. Buildable now. |
-| 800 | [Runtime invisible to the RE agent](800-runtime-invisible-setup-guided.md) | Env-gated barrier shipped. Open: the guided setup probe + protocol-version handshake. |
-| 801 | [Artifact distribution](801-artifact-distribution.md) | Overtaken in parts — ROM-less image, tag-driven publishing and per-platform binaries all shipped by other routes. Open: whether anything of the original GHCR plan is still wanted. |
-| 803 | `../../TRX64/docs/803-large-cartridges.md` | SPI flash + GMod4 mapper built and gated. Open: GMod3 on the same core, AGR, two vendor questions. |
-
-## Open slices of shipped specs
-
-The spec shipped; one named part did not. The file is the reference for that part.
-
-| # | Spec | Open slice |
-|---|---|---|
-| 622 | [vice-mode Headless Performance](622-vice-mode-performance.md) | §4.1–4.3 optimization candidates |
-| 703 | [SID reSID Audio](703-sid-resid-wasm-audio.md) | 703.5 WAV export |
-| 704 | [Runtime Codebase Cleanup](704-runtime-codebase-cleanup.md) | §704.2/.5/.6/.7 — non-gating cleanup |
-| 726 | [Headless Trace Sink + Marks](726-mcp-headless-trace-sink.md) | binary `.c64retrace` as the timeline authority |
-| 740 | [Project Wiki + Knowledge Retrieval](740-semantic-search-vector-index.md) | **740.2** wiki authoring (`project_wiki_update`) |
-| 746 | [Live Trace + Scrub Workbench](746-live-trace-scrub-workbench-charter.md) | scrub-UI slices (the trace core is TRX64-owned and shipped) |
-
-## Not started
-
-| # | Spec | Note |
-|---|---|---|
-| 424 | [Drive + Cartridge LED + Inspector UX](424-drive-cart-led-and-inspector-ux.md) | LED done VICE-1:1; the Inspector-UX half folds into the cockpit (773) |
-| 716 | [Installation, Versioning, Distribution](716-installation-versioning-distribution.md) | |
-| 720 | [Disassembly Output Quality](720-disasm-output-quality.md) | core C64RE meaning |
-| 775 | [Decoupled Agent/Flow Layer via BMAD](775-decoupled-agent-flow-layer-bmad.md) | private, in-repo; docks onto 773 |
-| 785 | [CRT extraction](785-crt-extraction.md) | **blocked** — needs a real cartridge sample |
-
----
-
-## Where the work actually is
-
-Everything above is **C64RE workbench**: cartography, workflow, the analysis pipeline.
-Everything built through July and August was **TRX64**: runtime, trace, snapshots,
-sandbox, container, release, monitor. That is a priority decision, and it is written
-here so these specs stop reading as imminent.
-
-TRX64's own specs live in `../../TRX64/docs/` and carry a status column in that repo.
-Only those with C64RE-side work appear above.
+TRX64's own specs live in `../../TRX64/docs/` with a status column in that repo. Only
+those with C64RE-side work appear here (803 has none left).
