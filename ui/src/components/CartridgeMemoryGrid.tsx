@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { CartridgeBankView, CartridgeChipView, CartridgeEmptyRegion, CartridgeLutChunk, CartridgePayloadChunk, CartridgeSegment, CartridgeSlotLayout, CartridgeSpanClassSummary, CartridgeStartupInfo } from "../types.js";
+import type { CartridgeBankView, CartridgeChipView, CartridgeEmptyRegion, CartridgeLutChunk, CartridgePayloadChunk, CartridgeIdentity, CartridgeSegment, CartridgeSlotLayout, CartridgeSpanClassSummary, CartridgeStartupInfo } from "../types.js";
 
 interface ChipClickHandler {
   (chip: CartridgeChipView, role: "ROML" | "ROMH" | "EEPROM"): void;
@@ -25,6 +25,9 @@ interface CartridgeMemoryGridProps {
   // Spec 785 B4 — the one span vocabulary, so the grid can say what a span IS
   // instead of leaving the reader to infer it from which array it came out of.
   spanClasses?: CartridgeSpanClassSummary[];
+  // Spec 785 A4 — image identity + any mismatch against the artifact this
+  // layout was derived from.
+  identity?: CartridgeIdentity;
   onSelectChip?: ChipClickHandler;
   onSelectBank?: BankClickHandler;
   onOpenChipHex?: ChipClickHandler;
@@ -67,6 +70,7 @@ export function CartridgeMemoryGrid({
   segments,
   startup,
   spanClasses,
+  identity,
   onSelectChip,
   onSelectBank,
   onOpenChipHex,
@@ -381,6 +385,16 @@ export function CartridgeMemoryGrid({
           </div>
         </dl>
       </header>
+      {identity && identity.mismatches.length > 0 ? (
+        <div className="cart-identity-mismatch">
+          <strong>Image mismatch</strong>
+          <ul>
+            {identity.mismatches.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {startup ? (
         <div className="cart-startup-row">
           <span className={startup.hasCbm80Signature ? "cart-startup-tag cart-startup-tag-ok" : "cart-startup-tag cart-startup-tag-missing"}>

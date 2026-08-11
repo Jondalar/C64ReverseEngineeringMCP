@@ -573,6 +573,7 @@ export function CartridgePanel({
               segments={cartridge.segments}
               startup={cartridge.startup}
               spanClasses={cartridge.spanClasses}
+              identity={cartridge.identity}
               onSelectChip={(chip) => {
                 const entity = findChipEntity(chip.bank, chip.loadAddress);
                 if (entity) onSelectEntity(entity.id);

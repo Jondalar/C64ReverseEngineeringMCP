@@ -407,7 +407,26 @@ export interface CartridgeLayoutView {
     segments?: CartridgeSegment[];
     startup?: CartridgeStartupInfo;
     spanClasses?: CartridgeSpanClassSummary[];
+    identity?: CartridgeIdentity;
   }>;
+}
+
+// Spec 785 A4 — what image this layout describes, and how it disagrees with the
+// cartridge-image artifact it was derived from.
+export interface CartridgeIdentity {
+  manifestArtifactId: string;
+  hardwareType?: number;
+  bankCount: number;
+  chipCount: number;
+  romBytes: number;
+  imageSizeBytes?: number;
+  imageArtifactId?: string;
+  imageFileName?: string;
+  imageBytes?: number;
+  imageSha256?: string;
+  imageHardwareType?: number;
+  imageName?: string;
+  mismatches: string[];
 }
 
 // Spec 785 B4 — one vocabulary for every span drawn on a cartridge. `lutChunks`

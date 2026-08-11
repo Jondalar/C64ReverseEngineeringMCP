@@ -2170,6 +2170,30 @@ button {
   margin-bottom: 0.45rem;
 }
 
+/* Spec 785 A4 — the layout does not describe the image it is registered against. */
+.cart-identity-mismatch {
+  padding: 0.5rem 0.6rem;
+  margin-bottom: 0.45rem;
+  border: 1px solid rgba(248, 81, 73, 0.55);
+  border-radius: 6px;
+  background: rgba(248, 81, 73, 0.08);
+  color: #ffa198;
+  font-size: 11px;
+}
+
+.cart-identity-mismatch strong {
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 9px;
+  margin-bottom: 0.25rem;
+}
+
+.cart-identity-mismatch ul {
+  margin: 0;
+  padding-left: 1rem;
+}
+
 /* Spec 785 B4 — the span vocabulary: what a drawn span IS. */
 .cart-span-legend {
   display: flex;

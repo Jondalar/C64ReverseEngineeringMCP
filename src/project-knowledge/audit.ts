@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync, type Dirent } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { findUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
+import { deriveCartridgeIdentityFromManifest } from "./cartridge-identity.js";
 import { importManifestKnowledge } from "./manifest-import.js";
 import { ProjectKnowledgeService } from "./service.js";
 import { createProjectKnowledgePaths } from "./storage.js";
@@ -31,6 +32,7 @@ export interface ProjectAuditResult {
     unimportedAnalysisArtifacts: number;
     unimportedManifestArtifacts: number;
     staleViews: number;
+    cartridgeIdentityMismatches: number;
     snapshotBytes: number;
     snapshotFileCount: number;
   };
@@ -326,6 +328,31 @@ export function auditProject(projectRoot: string, options: ProjectAuditOptions =
     });
   }
 
+  // Spec 785 A4 — a manifest can describe a DIFFERENT image than the artifact
+  // it is registered against, and two extractions to one path make two
+  // cartridges look like one. Compare the layout's identity (hardware type,
+  // image size, name) against the cartridge image itself.
+  const identityMismatches = artifacts
+    .filter((artifact) => artifact.role === "crt-manifest")
+    .flatMap((artifact) => {
+      const identity = deriveCartridgeIdentityFromManifest(
+        { ...artifact, path: artifactFilePath(root, artifact) },
+        artifacts.map((candidate) => ({ ...candidate, path: artifactFilePath(root, candidate) })),
+      );
+      if (!identity || identity.mismatches.length === 0) return [];
+      return identity.mismatches.map((reason) => `${artifact.id}: ${reason}`);
+    });
+  if (identityMismatches.length > 0) {
+    addFinding(findings, {
+      id: "cartridge-identity-mismatch",
+      severity: "high",
+      title: "Cartridge layout does not match the image it is registered against",
+      paths: identityMismatches.slice(0, 20),
+      whyItMatters: "Every payload, span and coverage number derived from that manifest is attributed to the wrong cartridge.",
+      suggestedFix: "Re-extract each cartridge into its own analysis directory and re-register, so one manifest describes one image.",
+    });
+  }
+
   const staleViews = findStaleViews(root);
   if (staleViews.length > 0) {
     addFinding(findings, {
@@ -364,6 +391,7 @@ export function auditProject(projectRoot: string, options: ProjectAuditOptions =
       unimportedAnalysisArtifacts: unimportedAnalysis.length,
       unimportedManifestArtifacts: unimportedManifests.length,
       staleViews: staleViews.length,
+      cartridgeIdentityMismatches: identityMismatches.length,
       snapshotBytes: snapshotUsage.bytes,
       snapshotFileCount: snapshotUsage.fileCount,
     },

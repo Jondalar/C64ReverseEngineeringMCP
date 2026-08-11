@@ -3,6 +3,7 @@ import { basename, extname, resolve as resolvePath } from "node:path";
 import { createDiskParser, SECTORS_PER_TRACK, traceFileSectorChain, type DiskFileEntry } from "../disk/index.js";
 import { decodeGCRTrack } from "../disk/gcr.js";
 import { classifyArtifactInternal } from "./service.js";
+import { deriveCartridgeIdentity } from "./cartridge-identity.js";
 import { loadEffectiveSegments, overlayCovering, type AnnotationSegmentOverlay } from "./effective-segments.js";
 import { partitionQuestions } from "./question-triage.js";
 import { mapSegmentKindToEntityKind } from "./analysis-import.js";
@@ -2120,6 +2121,16 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
         segments,
         startup,
         spanClasses: summariseSpanClasses(lutChunks, payloadChunks, segments, emptyRegions),
+        // Spec 785 A4 — what image this layout actually describes, checked
+        // against the cartridge-image artifact it was derived from.
+        identity: deriveCartridgeIdentity({
+          manifestArtifact: artifact,
+          artifacts: context.artifacts,
+          header: manifest.header,
+          chipCount: chips.length,
+          bankCount: banks.length,
+          romBytes: chips.reduce((sum, chip) => sum + chip.size, 0),
+        }),
       };
     })
     .filter((value): value is NonNullable<typeof value> => value !== undefined);
@@ -3124,6 +3135,7 @@ function cartridgeLayoutToMediums(view: CartridgeLayoutView, entities: EntityRec
       resident,
       empty,
       boot,
+      identity: cart.identity,
     };
   });
 }

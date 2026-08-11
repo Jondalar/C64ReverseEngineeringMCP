@@ -1466,6 +1466,26 @@ export const CartridgePayloadChunkSchema = z.object({
 // summary lets the Cartridge view label what a span IS — payload / code island /
 // empty — instead of leaving the reader to infer it from which array it came out
 // of, and it is the same split block coverage uses (medium-coverage.ts).
+// Spec 785 A4 — what the image IS, persisted with the layout, plus the
+// mismatches against the cartridge-image artifact the manifest was derived
+// from. Without it, two manifests describing two different cartridges in one
+// project read as two identical-looking entries.
+export const CartridgeIdentitySchema = z.object({
+  manifestArtifactId: z.string(),
+  hardwareType: z.number().int().nonnegative().optional(),
+  bankCount: z.number().int().nonnegative(),
+  chipCount: z.number().int().nonnegative(),
+  romBytes: z.number().int().nonnegative(),
+  imageSizeBytes: z.number().int().nonnegative().optional(),
+  imageArtifactId: z.string().optional(),
+  imageFileName: z.string().optional(),
+  imageBytes: z.number().int().nonnegative().optional(),
+  imageSha256: z.string().optional(),
+  imageHardwareType: z.number().int().nonnegative().optional(),
+  imageName: z.string().optional(),
+  mismatches: z.array(z.string()).default([]),
+});
+
 export const CartridgeSpanClassSchema = z.enum(["payload", "code-island", "empty"]);
 
 export const CartridgeSpanClassSummarySchema = z.object({
@@ -1492,6 +1512,7 @@ export const CartridgeLayoutCartridgeSchema = z.object({
   segments: z.array(CartridgeSegmentSchema).optional(),
   startup: CartridgeStartupInfoSchema.optional(),
   spanClasses: z.array(CartridgeSpanClassSummarySchema).default([]),
+  identity: CartridgeIdentitySchema.optional(),
 });
 
 export const CartridgeLayoutViewSchema = z.object({
@@ -1652,6 +1673,10 @@ export const MediumLayoutSchema = z.object({
   resident: z.array(MediumResidentRegionSchema).default([]),
   empty: z.array(MediumEmptyRegionSchema).default([]),
   boot: MediumBootEntrySchema.optional(),
+  // Spec 785 A4 — cartridge only for now: hash / hardware type / bank count /
+  // image size of the image this layout describes, and any mismatch against the
+  // artifact it was derived from.
+  identity: CartridgeIdentitySchema.optional(),
 });
 
 export const MediumLayoutViewSchema = z.object({
@@ -1936,6 +1961,7 @@ export type MemoryMapView = z.infer<typeof MemoryMapViewSchema>;
 export type DiskLayoutView = z.infer<typeof DiskLayoutViewSchema>;
 export type CartridgeLayoutView = z.infer<typeof CartridgeLayoutViewSchema>;
 export type CartridgeSpanClass = z.infer<typeof CartridgeSpanClassSchema>;
+export type CartridgeIdentityView = z.infer<typeof CartridgeIdentitySchema>;
 export type CartridgeSpanClassSummary = z.infer<typeof CartridgeSpanClassSummarySchema>;
 export type MediumKind = z.infer<typeof MediumKindSchema>;
 export type MediumSpan = z.infer<typeof MediumSpanSchema>;
