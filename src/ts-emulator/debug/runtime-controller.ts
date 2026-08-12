@@ -36,8 +36,8 @@
 // commands are still processed between chunks.
 
 import type { IntegratedSession } from "../integrated-session.js";
-import { FlowTracker } from "./stepping.js";
-import { buildBacktrace } from "./backtrace.js";
+import { FlowTracker } from "../../monitor/stepping.js";
+import { buildBacktrace } from "../../monitor/backtrace.js";
 import {
   RuntimeCheckpointRing,
   checkpointRingMaxEntries,

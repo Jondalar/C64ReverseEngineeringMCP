@@ -756,7 +756,7 @@ console.log("\nSpec 754 — Part N: device c64|drive8 (Block I)\n");
 // =====================================================================
 console.log("\nSpec 754 — Part O: bitmap PNG render (Block B)\n");
 {
-  const { renderBitmapPng } = await import("../dist/ts-emulator/debug/monitor-bitmap.js");
+  const { renderBitmapPng } = await import("../dist/monitor/monitor-bitmap.js");
   const isPng = (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
   const read = (a) => (a & 1) ? 0x00 : 0xff;
   const hi = renderBitmapPng(read, { addr: 0, w: 2, h: 1, mode: "hires" });

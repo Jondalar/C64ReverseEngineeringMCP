@@ -768,7 +768,7 @@ export class WsServer {
       const cyc = Number(cycles) || 2_000_000;
       const wantClasses: string[] = Array.isArray(classes) ? classes : ["dead", "unused"];
       const minB = Number(min_bytes) || 256;
-      const { MemoryAccessTracker } = await import("../ts-emulator/debug/memory-access-map.js");
+      const { MemoryAccessTracker } = await import("../monitor/memory-access-map.js");
       const t = new MemoryAccessTracker(session.c64Bus);
       t.attach();
       session.runFor(cyc, { cycleBudget: cyc });

@@ -223,7 +223,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { MemoryAccessTracker } = await import("../ts-emulator/debug/memory-access-map.js");
+      const { MemoryAccessTracker } = await import("../monitor/memory-access-map.js");
       const t = new MemoryAccessTracker(session.c64Bus);
       t.attach();
       session.runFor(cycles, { cycleBudget: cycles });

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // scripts/probe-memaccess.mjs — smoke for the memory-access/region-liveness map.
-import { MemoryAccessTracker, analyzeMemoryAccess } from "../dist/ts-emulator/debug/memory-access-map.js";
+import { MemoryAccessTracker, analyzeMemoryAccess } from "../dist/monitor/memory-access-map.js";
 let pass=0; const fail=[]; const g=(n,ok,d)=>{ if(ok){pass++;console.log(`  PASS  ${n}${d?` (${d})`:""}`);}else{fail.push(n);console.log(`  FAIL  ${n}${d?` (${d})`:""}`);} };
 
 console.log("Spike — memory-access map");

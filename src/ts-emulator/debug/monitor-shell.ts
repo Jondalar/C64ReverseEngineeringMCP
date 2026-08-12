@@ -33,13 +33,13 @@ import { persistCartridgeToFile } from "../../media-format/persist-cartridge.js"
 import { loadCartridgeMapperFromBytes, type HeadlessCartridgeMapper } from "../cartridge.js";
 import type { HeadlessCartridgeState } from "../types.js";
 import { isAbsolute, resolve as resolvePathJoin, basename } from "node:path";
-import { disasmLine } from "./disasm6502.js";
-import { stepDisasm, followDisasm, resumeDisasm, type DfState } from "./monitor-flow-disasm.js";
+import { disasmLine } from "../../monitor/disasm6502.js";
+import { stepDisasm, followDisasm, resumeDisasm, type DfState } from "../../monitor/monitor-flow-disasm.js";
 import type { ObsTrigger, ObsAction, LogExpr } from "./monitor-observers.js";
 import type { RuntimeController } from "./runtime-controller.js";
 import type { IntegratedSession } from "../integrated-session.js";
 import type { MemBankLens } from "../memory-bus.js";
-import { buildBacktrace } from "./backtrace.js";
+import { buildBacktrace } from "../../monitor/backtrace.js";
 import {
   dumpRuntimeSnapshot, undumpRuntimeSnapshot,
   formatDumpSummary, formatUndumpSummary, resolveSnapshotPath,
@@ -201,7 +201,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
   // assemble + disasm cursors (→ stay in mode), return the listing + next
   // prompt; on error return just the error (cursor unchanged, no mode change).
   const assembleAt = async (addr: number, text: string): Promise<MonitorResult> => {
-    const { assembleLine } = await import("./assembler6502.js");
+    const { assembleLine } = await import("../../monitor/assembler6502.js");
     const r = assembleLine(text, addr & 0xffff);
     if ("error" in r) return { error: `a: ${r.error}` };
     r.bytes.forEach((b, k) => s.c64Bus.write((addr + k) & 0xffff, b & 0xff));
@@ -770,7 +770,7 @@ export async function runMonitorCommand(ctx: MonitorShellCtx, command: string): 
       const defH = mode === "charset" ? 16 : mode === "sprite" ? 4 : 25;
       const w = Math.max(1, Math.min(nums[0] ?? defW, 256));
       const h = Math.max(1, Math.min(nums[1] ?? defH, 256));
-      const { renderBitmapPng } = await import("./monitor-bitmap.js");
+      const { renderBitmapPng } = await import("../../monitor/monitor-bitmap.js");
       const out = renderBitmapPng((a) => readByte(a & 0xffff, "cpu"), { addr: addr & 0xffff, w, h, mode });
       const file = resolveFsPath(`bitmap_${hex(addr & 0xffff, 4)}_${mode}_${w}x${h}.png`);
       try { writeFileSync(file, out.png); }
