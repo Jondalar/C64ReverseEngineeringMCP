@@ -1,6 +1,6 @@
 # Spec 806 — Retire the TS emulator and VICE from the product
 
-**Status:** READY 2026-08-12 — decided, phase 1 in progress.
+**Status:** IN BUILD 2026-08-12 — phase 1 DONE (branch `spec-806-structural-cut`, 6 commits). Inventory + tool cross-check in §6/§7 below.
 **Repo:** C64RE. **Supersedes** the binding half of Spec 723 when it lands.
 
 ---
@@ -68,3 +68,64 @@ stays — that is about TRX64 and is unaffected.
 
 - No change to TRX64. This is C64RE shedding a second implementation.
 - No behaviour change in phase 1 — moves and imports only.
+
+---
+
+## 6. Inventory (measured 2026-08-12, not estimated)
+
+**The split is computed, not guessed:** the transitive import closure from the
+hardware roots (`cpu vic cia via sid iec vice1541 drive1541 peripherals alarm c64
+kernel audio parallel` + `memory-bus cartridge c64-rom spi-flash m93c86
+eapi-am29f040 integrated-session integrated-session-manager stepping
+reset-profiles snapshot providers`).
+
+| | files |
+|---|---|
+| **DELETE** — reachable from a hardware root | **166** |
+| **KEEP** — analysis / orchestration, must leave `ts-emulator/` first | **40** |
+
+The 40 keepers, by what they are:
+
+- **monitor helpers** `debug/{disasm6502,assembler6502,backtrace,monitor-bitmap,monitor-flow-disasm,stepping,memory-access-map}` — they decode and render, they do not execute
+- **v2 analysis** `{bookmarks,breakpoints,taint,follow-path,resolve-pc,flow-focus,query-events,regression,fingerprint,fingerprint-extractor,loader-profile,trace-events,duckdb-backend,vice-diff,vice-syntax}` — they read traces and records
+- **recorder** `{anchor-codec,anchor-record,anchor-store,medium-source,recorder-ring,recorder-worker,runtime-recorder}`
+- **input** `{input-config,keymap,vicerc-loader,ws-handlers}`
+- **perf** `{budgets,safe-skips,snapshot-file}`, `disk/no-disk-parser`, `session-modes`, `util/uint`, `test-helpers/synthetic-iec-device`
+
+**One fact that unblocked this:** `integrated-session-manager.ts` is 37 lines
+holding a `Map` of in-process TS instances. It is NOT the TRX64 session manager —
+that is `src/runtime/daemon-client.ts`, already in the capsule and untouched. The
+name misled me for an entire evening.
+
+## 7. Tool cross-check against the TRX64 mapper
+
+44 MCP tools reach into the delete set. Checked against the daemon's 112 methods:
+
+**41 have a counterpart** — session/* · debug/* · trace/* · checkpoint/* · media/* ·
+snapshot/* · batch/* · audio/* · vic/inspect · monitor/exec · recorder/* ·
+runtime/{mark,overlay_run,promote_branch,render_screen,scenario*,snapshot_tree,
+swap_disk_and_continue,component_diff}.
+
+**3 need a decision before their tool can be converted:**
+
+| tool | TS module | question |
+|---|---|---|
+| `runtime_diagnose_mm` | `diagnostic-mm` | a per-title diagnostic. Does it survive at all? |
+| `runtime_iec_bus_state` | `drive1541/drive-session-manager` | no daemon method found — does TRX64 expose IEC lines? |
+| `runtime_swimlane_slice` | `v2/swimlane-render` | rendering is C64RE-side; does it only need trace rows (then it keeps working) or live session state? |
+
+## 8. Execution order
+
+1. **Evacuate the 40 keepers** out of `ts-emulator/` into honest homes
+   (`src/monitor/`, `src/analysis/`, `src/recorder/`, `src/input/`).
+2. **Convert the tools** — `headless.ts` (24 branches) and `runtime.ts` (12) lose
+   their `else` and call the daemon. Independent files, parallelisable.
+3. **Answer the three** above; convert or retire those tools.
+4. **Delete the 166.**
+5. **Retire Spec 723 + `probe-single-path`** — they govern the TS runtime.
+6. **e2e**: a fresh project, boot, monitor, trace, screenshot — through the daemon only.
+
+A branch collapse is NOT a mechanical rewrite. The first attempt unwrapped
+`if (isDaemonMode())` blocks with a brace matcher and produced 18 redeclaration
+errors, because a `const` inside the branch collided with one in the outer scope.
+Each site needs reading.
