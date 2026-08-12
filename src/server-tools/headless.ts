@@ -189,7 +189,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // creates the session IN THE DAEMON (the one process-stable authority the UI
       // also uses), NOT a private session in the MCP process. The LLM still sees
       // this stable tool; the daemon owns the IntegratedSession.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         // Spec 744.4c — the daemon is a PROJECT-AGNOSTIC runtime host: it may serve
         // several projects at once. The session must be self-describing, so the MCP
@@ -320,7 +320,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
     safeHandler("runtime_session_run", async ({ session_id, max_instructions, breakpoints, cycle_budget, until }) => {
       // Spec 744.4c — bounded run against the shared Runtime Daemon session.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         if (until) throw new Error("runtime_session_run with `until` conditions is not yet routed through the Runtime Daemon (744.4c slice 2). Use cycle_budget / max_instructions.");
         const cycles = cycle_budget ?? Math.max(1, (max_instructions ?? 100_000) * 2);
@@ -433,7 +433,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
     safeHandler("runtime_mark", async ({ session_id, label }) => {
       // BUG-028 — mark the SHARED daemon session's active trace.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         const s = await runtimeDaemon.mark(session_id, label) as { runId: string; eventCount: number; marks: number };
         return { content: [{ type: "text" as const, text: `Marked "${label}" — run ${s.runId}, ${s.eventCount} events, ${s.marks} marks.` }] };
@@ -478,7 +478,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         const sub = await checkSubstrateDiscipline(proj, { tool: "runtime_trace_start (drive-mechanism / loader-lens capture)" });
         if (!sub.allowed) return { content: [{ type: "text" as const, text: sub.refusal! }] };
       }
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         // resolve the output path against the caller's project (project-agnostic daemon)
         let absOut: string | undefined = output;
@@ -520,7 +520,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     { session_id: z.string() },
     safeHandler("runtime_trace_finalize", async ({ session_id }) => {
       // Spec 746.3 — route to the shared daemon (BUG-028 class: was getRuntimeController-only).
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         // wait_index=true: stop + await the background DuckDB index so the store is
         // queryable on return (the LLM queries next); the UI's instant button omits it.
@@ -571,7 +571,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     { session_id: z.string() },
     safeHandler("runtime_trace_status", async ({ session_id }) => {
       // Spec 746.3 — route to the shared daemon (BUG-028 class).
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         const s = await runtimeDaemon.traceStatus(session_id);
         return { content: [{ type: "text" as const, text: JSON.stringify(s, null, 2) }] };
@@ -657,7 +657,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     safeHandler("runtime_session_status", async ({ session_id }) => {
       // Spec 744.4c — read the session from the shared Runtime Daemon (the same
       // machine the UI drives), not a private MCP-process session.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         const { c64Cycles, mode, cpu } = await runtimeDaemon.state(session_id);
         return { content: [{ type: "text" as const, text: [
@@ -701,7 +701,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     { session_id: z.string() },
     safeHandler("runtime_session_close", async ({ session_id }) => {
       // Spec 744.4c — close the session in the shared Runtime Daemon (or in-process).
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       const { existed, released } = isDaemonMode()
         ? await runtimeDaemon.closeSession(session_id)
         // Spec 744.4 — in-process: finalize trace + dispose controller + drop session.
@@ -730,7 +730,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // BUG-028 — inject into the SHARED daemon session. The path is resolved
       // absolute against the MCP's project (the project-agnostic daemon, localhost,
       // reads the caller's file — same rule as session_start's disk_path).
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
         const absPrg = resolve(mcpProject ?? process.cwd(), prg_path);
@@ -770,7 +770,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Load AND start a .prg in one shot (the macro that was missing). Loads the PRG into the shared session, then autostarts: a BASIC program (load address $0801) → types RUN; machine code → `g <entry>` (continue at the entry; default = the load address, or pass `run` for an explicit entry like a SYS target). Use to just-run a .prg without disk/monitor steps; not for loading without starting (use runtime_load_prg). Inputs: session_id, prg_path, optional run (hex entry address for machine code). Returns: load address + the autostart action taken.",
     { session_id: z.string(), prg_path: z.string(), run: z.string().optional().describe("Machine-code entry (hex, e.g. '1000' or '$1000'). Omit for BASIC autostart / default load-address entry.") },
     safeHandler("runtime_run_prg", async ({ session_id, prg_path, run }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       const entry = run ? parseHexWord(run) : undefined;
       let loadAddress = 0, action = "";
       if (isDaemonMode()) {
@@ -812,7 +812,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // BUG-028 — type into the SHARED daemon session (the machine the human drives),
       // not a private in-process session. Read tools were routed; this write tool
       // was not, so the LLM could see but not type. Now uniform.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         await runtimeDaemon.typeText(session_id, decoded, hold_cycles ?? 33000, gap_cycles ?? 33000);
         return { content: [{ type: "text" as const, text: [
@@ -852,7 +852,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
     safeHandler("runtime_joystick", async ({ session_id, up, down, left, right, fire }) => {
       // BUG-028 — joystick on the SHARED daemon session.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         await runtimeDaemon.joystickSet(session_id, 2, { up, down, left, right, fire });
         return { content: [{ type: "text" as const, text: [
@@ -990,7 +990,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     safeHandler("runtime_render_screen", async ({ session_id, path }) => {
       // Spec 744.4c — render the shared Runtime Daemon session's screen. The daemon
       // returns a base64 PNG (same frame the UI sees); write it to the requested path.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         const shot = await runtimeDaemon.screenshot(session_id);
         const dataUrl = shot.dataUrl ?? "";
@@ -1043,7 +1043,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "List the session's checkpoint-ring keyframes (id, frame, cycles, pinned) + ring stats (count, bytes, budget). The ring auto-captures a full machine snapshot every ~0.5s while the session runs, for rewind/scrub. Use to see what points you can restore to. Not for the trace timeline (use trace_store_*). Inputs: session_id. Returns: checkpoint refs + stats.",
     { session_id: z.string() },
     safeHandler("runtime_checkpoint_list", async ({ session_id }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       let r: unknown;
       if (isDaemonMode()) r = await runtimeDaemon.checkpointList(session_id);
       else { const c = await cpInProc(session_id); r = { checkpoints: c.checkpointRing.list(), stats: c.checkpointRing.stats() }; }
@@ -1056,7 +1056,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Capture a checkpoint NOW (a full restorable snapshot of the shared session at the current instruction boundary) and add it to the ring. Use to mark an interesting live moment before it scrolls out of the auto-capture window. Not for a durable file (use runtime_session_snapshot). Inputs: session_id. Returns: the new checkpoint ref + ring stats.",
     { session_id: z.string() },
     safeHandler("runtime_checkpoint_capture", async ({ session_id }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       const r = isDaemonMode()
         ? await runtimeDaemon.checkpointCapture(session_id)
         : await (async () => { const c = await cpInProc(session_id); const ref = await c.captureCheckpoint(); return { ref, stats: c.checkpointRing.stats() }; })();
@@ -1069,7 +1069,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Pin a checkpoint so the ring never evicts it (the durability primitive — pinned keyframes survive past the ~2.6 min window). Use to retain an interesting state as evidence / a branch base. Not for a file dump (use runtime_session_snapshot). Inputs: session_id, checkpoint id. Returns: ref + stats.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_checkpoint_pin", async ({ session_id, id }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       const r = isDaemonMode()
         ? await runtimeDaemon.checkpointPin(session_id, id)
         : await (async () => { const c = await cpInProc(session_id); const ref = c.checkpointRing.pin(id); if (!ref) throw new Error(`unknown checkpoint ${id}`); return { ref, stats: c.checkpointRing.stats() }; })();
@@ -1082,7 +1082,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Unpin a checkpoint (let the ring reclaim it under the byte budget again). Use to release a retained state you no longer need; not for pinning one (use runtime_checkpoint_pin). Inputs: session_id, checkpoint id. Returns: ref + stats.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_checkpoint_unpin", async ({ session_id, id }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       const r = isDaemonMode()
         ? await runtimeDaemon.checkpointUnpin(session_id, id)
         : await (async () => { const c = await cpInProc(session_id); const ref = c.checkpointRing.unpin(id); if (!ref) throw new Error(`unknown checkpoint ${id}`); return { ref, stats: c.checkpointRing.stats() }; })();
@@ -1095,7 +1095,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Restore the shared session to a checkpoint (REWIND/scrub): the machine jumps back to that full keyframe state and pauses. The human watching the UI sees the same jump (one shared session). Use to rewind to an interesting moment. Not for forward replay of recorded events (that's the branch/scenario path). Inputs: session_id, checkpoint id. Returns: restored ref + new machine state.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_checkpoint_restore", async ({ session_id, id }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       const r = isDaemonMode()
         ? await runtimeDaemon.checkpointRestore(session_id, id)
         : await (async () => { const c = await cpInProc(session_id); const restored = await c.restoreCheckpoint(id); return { restored, state: c.state() }; })();
@@ -1108,7 +1108,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "The shared-memory recorder's status: anchor count, oldest/newest cycle, scrub depth, medium generations, dropped count. The recorder is the off-thread streaming capture (separate from the checkpoint ring) that holds minutes of cheap scrub history. Use to see how much history is retained; not for the anchor list (use runtime_recorder_list). Inputs: session_id. Returns: recorder stats.",
     { session_id: z.string() },
     safeHandler("runtime_recorder_status", async ({ session_id }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       const r = isDaemonMode()
         ? await runtimeDaemon.recorderStatus(session_id)
         : await (async () => { const c = await cpInProc(session_id); return c.recorder ? { active: true, stats: await c.recorder.stats() } : { active: false }; })();
@@ -1121,7 +1121,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "List the recorder's stored anchors (seq, cycle, wallMs, disk/cart generation). Each is a restorable scrub point in the off-thread history. Use to pick a seq to dump (use runtime_recorder_dump). Inputs: session_id. Returns: anchor list.",
     { session_id: z.string() },
     safeHandler("runtime_recorder_list", async ({ session_id }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       const r = isDaemonMode()
         ? await runtimeDaemon.recorderList(session_id)
         : await (async () => { const c = await cpInProc(session_id); return c.recorder ? { active: true, anchors: await c.recorder.list() } : { active: false, anchors: [] }; })();
@@ -1134,7 +1134,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Dump a recorder anchor (a past scrub point, by seq from runtime_recorder_list) to a durable .c64re snapshot file. The recorder's unique value: persist a point from MINUTES of cheap history, then undump it (runtime_session_undump) and replay it with tracing on. Not for the live moment (use the checkpoint/dump path). Inputs: session_id, seq, path. Returns: dump result (file bytes, embedded media, cycle/pc).",
     { session_id: z.string(), seq: z.number(), path: z.string() },
     safeHandler("runtime_recorder_dump", async ({ session_id, seq, path }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       const r = isDaemonMode()
         ? await runtimeDaemon.recorderDump(session_id, seq, path)
         : await (async () => {
@@ -1163,7 +1163,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         }
         return (atBefore ?? best).id;
       };
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       let r: unknown;
       if (isDaemonMode()) {
         const list = await runtimeDaemon.checkpointList<{ checkpoints: Array<{ id: string; cycles: number }> }>(session_id);
@@ -1201,7 +1201,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       until_pc: z.number().optional(),
     },
     safeHandler("runtime_overlay_run", async ({ session_id, anchor_cycle, anchor_id, patches, run_cycles, until_pc }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       let r: unknown;
       if (isDaemonMode()) {
         r = await runtimeDaemon.overlayRun(session_id, { anchor_cycle, anchor_id, patches, run_cycles, until_pc });
@@ -1238,7 +1238,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Remote-control the interactive runtime monitor: run ANY monitor command string against the shared session and get its text output back. Use it for any monitor-style interaction — this is the WHOLE monitor REPL in ONE tool. Commands include: m/d (memory hex / disasm), r (registers), bp/del/enable (breakpoints), obs (observers — incl `obs <n> when exec|load|store <lo..hi> do break|log|trace` for non-halting scoped capture; `obs <n> del`), trace, `dump <path>` (= `snapshot <path>` — writes a .c64re state snapshot; our snapshot IS the dump) / `undump <path>` (= `restore`/`loadsnapshot` — loads one), n/z/step/g (run control), sym/inspect/xref, df (flow disasm), label/note, device c64|drive8, sidefx, bank. Run `help` for the verb list or `<verb> help` for one verb's syntax. The session is the shared live machine (human + LLM co-drive the same one); not for silent scripted batch runs on the live session (use a separate backend). Inputs: session_id, command (e.g. \"m 0400 042f\", \"obs t when exec ab01 do trace c64-cpu memory\", \"r\"). Returns: the monitor's text output (or its error string).",
     { session_id: z.string(), command: z.string() },
     safeHandler("runtime_monitor", async ({ session_id, command }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       let r: { output?: string; error?: string };
       if (isDaemonMode()) {
         r = await runtimeDaemon.monitorExec<{ output?: string; error?: string }>(session_id, command);

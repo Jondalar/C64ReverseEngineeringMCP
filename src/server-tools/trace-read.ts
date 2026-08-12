@@ -48,9 +48,9 @@ export async function traceRead<T = unknown>(
   storePath: string,
   args: Record<string, unknown> = {},
 ): Promise<T> {
-  const { runtimeEndpoint, runtimeDaemon } = await import("./runtime-daemon-client.js");
+  const { runtimeEndpoint, runtimeDaemon } = await import("../runtime/daemon-client.js");
   if (!runtimeEndpoint()) {
-    const { runtimeSetupRecipe } = await import("./runtime-setup-recipe.js");
+    const { runtimeSetupRecipe } = await import("../runtime/setup-recipe.js");
     throw new Error(runtimeSetupRecipe(
       `trace read (op "${op}") needs the runtime — C64RE carries no in-process trace reader ` +
       `(Spec 802: the runtime owns its own trace format, end to end). ` +

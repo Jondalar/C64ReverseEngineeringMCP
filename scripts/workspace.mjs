@@ -65,8 +65,7 @@ if (process.env.C64RE_RUNTIME_ENDPOINT || process.env.C64RE_RUNTIME_WS) {
   // Spec 771.1 — the shared resolver picks the backend (external C64RE_RUNTIME_BIN /
   // TRX64, else built dist). It re-derives --project/--port itself so the external bin
   // never receives the TS-only --dev-samples flag.
-  const { resolveDaemonSpawn } = await import(
-    `${repoRoot}/dist/ts-emulator/daemon/resolve-daemon-spawn.js`
+  const { resolveDaemonSpawn } = await import(`../src/runtime/resolve-daemon-spawn.js`
   );
   const plan = resolveDaemonSpawn({ repoRoot, projectDir, port: "4312", devSamples });
   if (plan.warn) console.warn(`[workspace] ${plan.warn}`);

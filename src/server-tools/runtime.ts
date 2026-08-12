@@ -37,7 +37,7 @@ async function mediaIngress(
   session_id: string,
   req: { kind: "disk" | "prg" | "crt" | "eject"; path?: string; name?: string; mode?: "load" | "inject-run"; entry?: number; resetPolicy?: "reset" | "power-cycle"; role?: "drive8" | "cartridge" },
 ): Promise<unknown> {
-  const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+  const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
   if (isDaemonMode()) {
     return runtimeDaemon.mediaIngress(session_id, req);
   }
@@ -70,7 +70,7 @@ async function getApi(sessionId: string) {
  * allowlists which methods are reachable (ws-server API_CALL_ALLOWLIST).
  */
 async function callApi<T = unknown>(session_id: string, method: string, ...args: unknown[]): Promise<T> {
-  const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+  const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
   if (isDaemonMode()) {
     return runtimeDaemon.apiCall<T>(session_id, method, args);
   }
@@ -215,7 +215,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
         return { content: [{ type: "text" as const, text }], structuredContent: { tally, regions } };
       };
       // Spec 744.4c slice 2c — run the liveness window on the SHARED session.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         const r = await runtimeDaemon.memoryAccessMap<{ tally: Record<string, number>; regions: any[] }>(session_id, cycles, classes, min_bytes);
         return renderMap(r.tally, r.regions);
@@ -336,7 +336,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       // path is resolved absolute against the caller's project; the daemon
       // (localhost) writes that same file — bytes never cross the wire.
       const abs = resolveCallerMediaPath(output_path);
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         const r = await runtimeDaemon.vsfSave<{ savedPath: string; bytes: number }>(session_id, abs);
         return { content: [{ type: "text", text: `saved ${r.bytes} bytes to ${r.savedPath}` }] };
@@ -360,7 +360,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       // Spec 744.4c slice 2c — restore the shared session from a host VSF file. The
       // daemon (localhost) reads the caller-resolved abs path; bytes never cross.
       const abs = resolveCallerMediaPath(input_path);
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         const r = await runtimeDaemon.vsfLoad<{ loadedPath: string; bytes: number; source?: string; loadedModules?: string[] }>(session_id, abs);
         const origin = r.source === "vice-x64sc" ? "foreign .vsf (legacy VICE Snapshot Format)" : "c64re snapshot";
@@ -486,7 +486,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   // ---- Candidate model (Spec 796) — live scenario-bound overlay branches ----
   const candidateDaemon = async () => {
-    const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+    const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
     if (!isDaemonMode()) throw new Error("candidate model requires the runtime daemon");
     return runtimeDaemon;
   };
@@ -862,7 +862,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     safeHandler("runtime_session_export_audio", async ({ session_id, out_path, duration_sec }) => {
       // Runs on the shared TRX64 machine (the same session the UI drives). The in-process
       // TS path below is dev-only (C64RE_ALLOW_INPROC_RUNTIME=1).
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         const r = await runtimeDaemon.call("audio/export", { session_id, out_path, duration_sec });
         return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
@@ -952,7 +952,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       // mount time, so the daemon (localhost) writes the CALLER's .d64/.g64.
       // role=cartridge runs the same persistCartridgeToFile as the eject path
       // (BUG-023-cart) — flash → host .crt, cart stays attached.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         const result = await runtimeDaemon.mediaPersist(session_id, slot, role);
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
@@ -1005,7 +1005,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_swap_disk_and_continue", async ({ session_id, path, confirm_input, settle_cycles, post_cycles }) => {
       const abs = resolveCallerMediaPath(path);
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       let result: unknown;
       if (isDaemonMode()) {
         result = await runtimeDaemon.swapDiskAndContinue(session_id, abs, { confirm_input, settle_cycles, post_cycles });
@@ -1144,7 +1144,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       // Spec 744.4c slice 2c — route to the daemon's runtime/snapshot_tree (which
       // sets scenarioId+diskPath+mode for beginRewindSession; the in-process
       // getApi path did NOT, so it threw). Same shared session as the UI.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         const tree = await runtimeDaemon.snapshotTree(session_id);
         return { content: [{ type: "text", text: JSON.stringify(tree, null, 2) }] };
@@ -1174,7 +1174,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     { session_id: z.string(), branch_id: z.string() },
     safeHandler("runtime_promote_branch", async ({ session_id, branch_id }) => {
       // Spec 744.4c slice 2c — route to the daemon's runtime/promote_branch.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         const r = await runtimeDaemon.promoteBranch(session_id, branch_id);
         return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
@@ -1340,7 +1340,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     safeHandler("runtime_vic_inspect_at", async ({ session_id, x, y, checkpoint_id }) => {
       // Spec 744.4c slice 2c — resolve a frozen pixel on the SHARED session's
       // checkpoint ring (the same frames the human inspects).
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
+      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
       if (isDaemonMode()) {
         const r = await runtimeDaemon.vicInspectAt(session_id, x, y, checkpoint_id);
         return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };

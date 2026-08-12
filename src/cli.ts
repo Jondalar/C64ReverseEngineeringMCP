@@ -106,7 +106,7 @@ if (argv[0] === "setup") {
       } catch {
         startupProjectDir = process.env.C64RE_PROJECT_DIR;
       }
-      const { ensureDaemon } = await import("./server-tools/runtime-daemon-client.js");
+      const { ensureDaemon } = await import("./runtime/daemon-client.js");
       void ensureDaemon({ endpoint, projectDir: startupProjectDir }).then((r) => {
         lifecycle("ensure-daemon", { result: r, endpoint });
       });
