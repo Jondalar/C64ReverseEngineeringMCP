@@ -31,7 +31,7 @@ import type { MachineKernel, MachineSnapshot, MountedMedia } from "./machine-ker
 import type { KernelStatus, KernelMode } from "./kernel-status.js";
 import type { KernelTraceController } from "./kernel-trace.js";
 import { KernelTraceControllerImpl } from "./kernel-trace.js";
-import { TraceRegistry } from "../trace/channels.js";
+import { TraceRegistry } from "../../../trace/channels.js";
 import type { AlarmContext } from "../alarm/alarm-context.js";
 import { InterruptCpuStatus } from "../cpu/interrupt-cpu-status.js";
 import {

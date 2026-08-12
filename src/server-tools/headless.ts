@@ -595,7 +595,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
       const gate = checkRuntimeDiscipline(hypothesis, { tool: "runtime_loader_lens", act: "reading a loader-lens landing map (which block a payload came from)" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
-      const { landingMapFromCaptureFile } = await import("../runtime/headless/trace/loader-lens.js");
+      const { landingMapFromCaptureFile } = await import("../trace/loader-lens.js");
       const { resolve, isAbsolute } = await import("node:path");
       const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
       // Tier 2 substrate gate — the landing map is payload-extraction-from-medium: if the

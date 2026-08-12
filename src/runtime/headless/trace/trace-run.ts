@@ -18,18 +18,18 @@
 // A run binds to a 705.B/707 checkpoint + media identity + cycle range (§2.2).
 
 import type { RuntimeController } from "../debug/runtime-controller.js";
-import type { ChannelName, TraceEvent } from "./channels.js";
+import type { ChannelName, TraceEvent } from "../../../trace/channels.js";
 import {
   validateTraceDefinition, domainsToChannels,
   type RuntimeTraceDefinition, type RuntimeTraceRun, type TraceTrigger,
-} from "./trace-definition.js";
+} from "../../../trace/trace-definition.js";
 import {
   openTraceRunStore, appendTraceEvents, writeTraceRunHeader, closeTraceRunStore,
   type TraceEventRow, type TraceRunStore,
-} from "./trace-run-store.js";
-import { BinaryTraceLogWriter } from "./binary-log-writer.js";
-import { IEC_BIT, type TraceFileMeta } from "./binary-format.js";
-import { startBackgroundIndex, awaitIndex, isIndexing } from "./background-indexer.js";
+} from "../../../trace/trace-run-store.js";
+import { BinaryTraceLogWriter } from "../../../trace/binary-log-writer.js";
+import { IEC_BIT, type TraceFileMeta } from "../../../trace/binary-format.js";
+import { startBackgroundIndex, awaitIndex, isIndexing } from "../../../trace/background-indexer.js";
 import { snapshotSha256 } from "../kernel/native-snapshot.js";
 
 // Spec 726.2 — bounded transport queue for the LEGACY JSON path only.

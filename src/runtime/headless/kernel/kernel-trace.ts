@@ -26,7 +26,7 @@ import type {
   TraceEvent,
   TraceObserver,
   TraceRegistry,
-} from "../trace/channels.js";
+} from "../../../trace/channels.js";
 import type { BusAccessTraceProducer } from "../trace/bus-access.js";
 
 /** Spec 726.B — zero-alloc CPU firehose sink. When set, `publishCpuInstruction`

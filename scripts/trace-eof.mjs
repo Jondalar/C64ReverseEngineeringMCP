@@ -44,7 +44,7 @@ const preEoiKeepDriveCycles = args["pre-eoi-keep"] ? Number(args["pre-eoi-keep"]
 
 let runEofTrace;
 try {
-  ({ runEofTrace } = await import("../dist/runtime/headless/trace/eof-trace.js"));
+  ({ runEofTrace } = await import("../src/trace/eof-trace.js"));
 } catch (e) {
   console.error("dist not built — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

@@ -12,9 +12,9 @@ import { join } from "node:path";
 import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
 import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
 import { TraceRunController } from "../dist/runtime/headless/trace/trace-run.js";
-import { validateTraceDefinition } from "../dist/runtime/headless/trace/trace-definition.js";
-import { pcRegionProfile, ioAccessWatch, iecLineTrace, pcHistogramSql } from "../dist/runtime/headless/trace/trace-library.js";
-import { openTraceRunStore, queryTraceRunStore, closeTraceRunStore } from "../dist/runtime/headless/trace/trace-run-store.js";
+import { validateTraceDefinition } from "../src/trace/trace-definition.js";
+import { pcRegionProfile, ioAccessWatch, iecLineTrace, pcHistogramSql } from "../src/trace/trace-library.js";
+import { openTraceRunStore, queryTraceRunStore, closeTraceRunStore } from "../src/trace/trace-run-store.js";
 
 const failures = [];
 let passes = 0;

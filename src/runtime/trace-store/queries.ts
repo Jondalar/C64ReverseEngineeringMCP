@@ -49,7 +49,7 @@ async function withConn<T>(dbPath: string, fn: (conn: any, isLiveSink: boolean) 
     const conn = await (inst as any).connect();
     const liveSink = await isLiveSinkStore(conn);
     if (!liveSink) {
-      const { ensureSpec726CompatLayer } = await import("../headless/trace/trace-run-store.js");
+      const { ensureSpec726CompatLayer } = await import("../../trace/trace-run-store.js");
       await ensureSpec726CompatLayer(conn);
     }
     return await fn(conn, liveSink);

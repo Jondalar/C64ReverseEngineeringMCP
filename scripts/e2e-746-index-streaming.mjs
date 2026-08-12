@@ -24,8 +24,8 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 const { startIntegratedSession, stopIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
 const { RuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js");
 const { TraceRunController } = await import("../dist/runtime/headless/trace/trace-run.js");
-const { ensureIndex } = await import("../dist/runtime/headless/trace/background-indexer.js");
-const { openTraceRunStore, queryTraceRunStore, closeTraceRunStore } = await import("../dist/runtime/headless/trace/trace-run-store.js");
+const { ensureIndex } = await import("../src/trace/background-indexer.js");
+const { openTraceRunStore, queryTraceRunStore, closeTraceRunStore } = await import("../src/trace/trace-run-store.js");
 
 console.log(`Spec 746.x — streaming indexer + lazy-on-read  (tmp ${dir})`);
 

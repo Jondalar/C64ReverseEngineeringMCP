@@ -24,7 +24,7 @@ import type { RuntimeTraceRun } from "./trace-definition.js";
 // binary-log-writer.ts's resolver.
 function indexWorkerScriptPath(): string {
   const here = fileURLToPath(import.meta.url);
-  const sibling = resolvePath(here, "..", "binary-log-index-worker.js");
+  const sibling = resolvePath(here, "..", "./binary-log-index-worker.js");
   if (existsSync(sibling)) return sibling;
   const distTwin = sibling.replace(`${sep}src${sep}runtime${sep}`, `${sep}dist${sep}runtime${sep}`);
   if (existsSync(distTwin)) return distTwin;

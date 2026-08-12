@@ -12,8 +12,8 @@
 // ════════════════════════════════════════════════════════════════════════════
 // Sprint 107 (Specs 122-126) v1 — LLM debug stack tests.
 
-import { TraceRegistry } from "../trace/channels.js";
-import { buildEventIndex, findEventsByPc, findEventsByAddr } from "../trace/event-index.js";
+import { TraceRegistry } from "../../../trace/channels.js";
+import { buildEventIndex, findEventsByPc, findEventsByAddr } from "../../../trace/event-index.js";
 import { parseScenario } from "../scenario/dsl.js";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

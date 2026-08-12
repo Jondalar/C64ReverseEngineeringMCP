@@ -238,7 +238,7 @@ console.log("\nSpec 753 — Part E: finalize sidecar (buildMemoryMapText)\n");
 console.log("\nSpec 753 — Part F: binary format version (v1 back-compat, future reject)\n");
 let BF;
 {
-  const bf = await import("../dist/runtime/headless/trace/binary-format.js");
+  const bf = await import("../src/trace/binary-format.js");
   BF = bf;
   ok("F1 format version is 2 (old_value layout)", bf.C64RETRACE_FORMAT_VERSION === 2, `v${bf.C64RETRACE_FORMAT_VERSION}`);
   const meta = { runId: "r", defId: "d", defVersion: 1, defName: "n", defJson: "{}", domains: [], cycleStart: 0, createdAt: "t" };

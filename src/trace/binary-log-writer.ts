@@ -42,7 +42,7 @@ const MAX_PENDING_CHUNKS = Math.max(2, Number(process.env.C64RE_TRACE_MAX_PENDIN
 // run; the dist worker is plain JS and needs no tsx loader inside the thread).
 function workerScriptPath(): string {
   const here = fileURLToPath(import.meta.url);
-  const sibling = resolvePath(here, "..", "binary-log-worker.js");
+  const sibling = resolvePath(here, "..", "./binary-log-worker.js");
   if (existsSync(sibling)) return sibling;
   const distTwin = sibling.replace(
     `${sep}src${sep}runtime${sep}`,

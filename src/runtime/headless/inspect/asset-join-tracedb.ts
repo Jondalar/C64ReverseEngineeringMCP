@@ -6,8 +6,8 @@
 // once and returns a sync `TraceChainSource`. Source-agnostic (Spec 721 §2): the
 // io events come from either an agent headless trace or a human UI TRACE-ON run.
 
-import type { TraceRunStore } from "../trace/trace-run-store.js";
-import { queryTraceRunStore } from "../trace/trace-run-store.js";
+import type { TraceRunStore } from "../../../trace/trace-run-store.js";
+import { queryTraceRunStore } from "../../../trace/trace-run-store.js";
 import type { TraceChainSource, TraceWriter } from "./asset-join.js";
 
 /** Merge a sorted addr list into contiguous [addr,length) ranges. */

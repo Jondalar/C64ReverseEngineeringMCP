@@ -5,7 +5,7 @@
 // 0x32/VIA_REG_WRITE collision would have caused). Run after build:mcp.
 import {
   TraceOp, decodeEventStream, encodeMemAccess, C64RETRACE_FORMAT_VERSION,
-} from "../dist/runtime/headless/trace/binary-format.js";
+} from "../src/trace/binary-format.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };

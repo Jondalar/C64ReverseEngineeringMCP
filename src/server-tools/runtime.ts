@@ -103,7 +103,7 @@ async function callApi<T = unknown>(session_id: string, method: string, ...args:
 export async function withDuckDb<T>(dbPath: string, fn: (conn: any, backend: any) => Promise<T>): Promise<T> {
   const duckdb = await import("@duckdb/node-api");
   const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
-  const { ensureSpec726CompatLayer } = await import("../runtime/headless/trace/trace-run-store.js");
+  const { ensureSpec726CompatLayer } = await import("../trace/trace-run-store.js");
   // Spec 746.x — LAZY-ON-READ: wait for an in-flight index, trust a present store,
   // or (re)build a missing one from the .c64retrace authority before opening — so a
   // read right after stop() sees the fresh store AND an orphaned store (e.g. a
@@ -111,7 +111,7 @@ export async function withDuckDb<T>(dbPath: string, fn: (conn: any, backend: any
   // real reason if the build failed (surfaced instead of a cryptic "not found").
   // BUG-039 — BOUNDED: an unbounded wait here (minutes on a multi-GB log) trips
   // the MCP host's ~180s stall limit and drops the stdio connection.
-  const { ensureIndexBounded } = await import("../runtime/headless/trace/background-indexer.js");
+  const { ensureIndexBounded } = await import("../trace/background-indexer.js");
   await ensureIndexBounded(dbPath);
   // 1) read-only (no exclusive lock; works while the daemon holds the file).
   try {

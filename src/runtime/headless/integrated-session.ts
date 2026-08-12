@@ -56,7 +56,7 @@ import { installCia2 } from "./peripherals/cia2.js";
 import type { Cia6526Vice } from "./cia/cia6526-vice.js";
 // Spec 723.3c: KERNAL fast-trap layer (traps/kernal-*) removed — the product
 // path runs the real KERNAL with no traps.
-import { TraceRegistry } from "./trace/channels.js";
+import { TraceRegistry } from "../../trace/channels.js";
 import {
   BusAccessTraceProducerImpl,
   type BusAccessTraceProducer,

@@ -7,7 +7,7 @@ import { resolve, isAbsolute, join } from "node:path";
 import type { IntegratedSession } from "../runtime/headless/integrated-session.js";
 import type {
   RuntimeTraceDefinition, TraceDomain, TraceTrigger, TraceCapture,
-} from "../runtime/headless/trace/trace-definition.js";
+} from "../trace/trace-definition.js";
 
 export const ALL_DOMAINS: TraceDomain[] = ["c64-cpu", "drive8-cpu", "iec", "vic", "memory"];
 

@@ -12,7 +12,7 @@
 //
 // Channel: "bus_access" via TraceRegistry. Mode "off" = zero overhead.
 
-import type { TraceRegistry } from "./channels.js";
+import type { TraceRegistry } from "../../../trace/channels.js";
 import type { IecBus } from "../iec/iec-bus.js";
 
 export interface BusAccessIecSnapshot {

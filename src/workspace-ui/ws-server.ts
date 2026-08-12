@@ -31,7 +31,7 @@ import {
 } from "../runtime/headless/kernel/snapshot-persistence.js";
 // Spec 754 — the one canonical monitor command processor (BUG-037).
 import { runMonitorCommand } from "../runtime/headless/debug/monitor-shell.js";
-import { validateTraceDefinition, slugTraceId } from "../runtime/headless/trace/trace-definition.js";
+import { validateTraceDefinition, slugTraceId } from "../trace/trace-definition.js";
 import { ingestMedia } from "../runtime/headless/media/ingress.js";
 import { buildIngressRequest, kindFromExt } from "../runtime/headless/media/ingress-request.js";
 import { readFileSync } from "node:fs";
@@ -1343,7 +1343,7 @@ export class WsServer {
       // BUG-039 — BOUNDED (15s grace, then a clear retry-later error): this wait sat
       // inside an MCP tool call; minutes of index build tripped the host's ~180s
       // stall limit and dropped the whole stdio connection ("MCP disconnected").
-      const { ensureIndexBounded } = await import("../runtime/headless/trace/background-indexer.js");
+      const { ensureIndexBounded } = await import("../trace/background-indexer.js");
       await ensureIndexBounded(duckdb_path);
       const a = (args ?? {}) as Record<string, unknown>;
 
@@ -2026,7 +2026,7 @@ export class WsServer {
             s.runFor(Math.ceil(toRun / 2) + 2000, { cycleBudget: toRun });
             const stopped = await ctrl.traceRun.stop();
             const storePath = stopped.evidenceRef ?? outputPath;
-            const { ensureIndexBounded } = await import("../runtime/headless/trace/background-indexer.js");
+            const { ensureIndexBounded } = await import("../trace/background-indexer.js");
             await ensureIndexBounded(storePath); // BUG-039 — bounded (inline trace is small; grace suffices)
             const { withDuckDb } = await import("../server-tools/runtime.js");
             const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
@@ -2102,7 +2102,7 @@ export class WsServer {
             }
             return "swimlane: no trace store — run `trace on` … `trace off` first";
           }
-          const { ensureIndexBounded } = await import("../runtime/headless/trace/background-indexer.js");
+          const { ensureIndexBounded } = await import("../trace/background-indexer.js");
           await ensureIndexBounded(storePath); // BUG-039 — bounded read-path wait
           const { withDuckDb } = await import("../server-tools/runtime.js");
           const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
@@ -2131,7 +2131,7 @@ export class WsServer {
         }
         const sp = ctrl.traceRun.currentStorePath?.();
         if (!sp?.path) throw new Error("no trace store — run `trace on` first");
-        const { ensureIndexBounded } = await import("../runtime/headless/trace/background-indexer.js");
+        const { ensureIndexBounded } = await import("../trace/background-indexer.js");
         await ensureIndexBounded(sp.path); // BUG-039 — bounded read-path wait
         const { withDuckDb } = await import("../server-tools/runtime.js");
         return withDuckDb(sp.path, async (conn: any, backend: any) => {

@@ -16,7 +16,7 @@ try {
   ({ resolveVisibleNodeAt } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
   ({ matchVisualNodeToAsset, resolveDerivedAsset } = await import("../dist/runtime/headless/inspect/asset-join.js"));
   ({ loadTraceChainSourceFromDuckDb } = await import("../dist/runtime/headless/inspect/asset-join-tracedb.js"));
-  ({ openTraceRunStore, closeTraceRunStore } = await import("../dist/runtime/headless/trace/trace-run-store.js"));
+  ({ openTraceRunStore, closeTraceRunStore } = await import("../src/trace/trace-run-store.js"));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);
