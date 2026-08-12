@@ -156,6 +156,30 @@ swap_disk_and_continue,component_diff}.
 | `runtime_iec_bus_state` | `drive1541/drive-session-manager` | no daemon method found — does TRX64 expose IEC lines? |
 | `runtime_swimlane_slice` | `v2/swimlane-render` | rendering is C64RE-side; does it only need trace rows (then it keeps working) or live session state? |
 
+### 7.1 Correction — it is nine, not three (measured while converting `headless.ts`)
+
+"Has a counterpart on the daemon" and "**calls** it" are different claims, and §7
+checked the first. Six more tools in `headless.ts` have no `isDaemonMode()` branch at
+all — the whole handler is in-process, so there is nothing to collapse and nothing to
+route:
+
+| tool | TS module | why there is no daemon call |
+|---|---|---|
+| `runtime_drive_session_start` | `drive1541/drive-session-manager` | a **standalone drive** session — a 1541 with no C64 attached. TRX64 has no such object; its drive only exists inside a machine. |
+| `runtime_drive_status` | ″ | reads that standalone session |
+| `runtime_drive_persist_writes` | ″ | writes its modified GCR tracks back |
+| `runtime_drive_session_save_vsf` | ″ + `vsf/drive-vsf` | .vsf of that session — LEGACY by its own description |
+| `runtime_drive_session_load_vsf` | ″ + `vsf/drive-vsf` | ″ |
+| `runtime_session_snapshot` | `integrated-session-manager` + `snapshot` | returns a **structured JSON** state object; the daemon's `snapshot/dump` writes a `.c64re` **file**. Different product, not a missing route — and `tier-tools.ts` already says so at its demotion comment. |
+
+Together with `runtime_iec_bus_state` (same standalone-drive family) that is **five of
+the nine sitting on one module**: `drive-session-manager`. The question for step 3 is
+therefore not five questions but one — *does a C64-less drive session survive at all?*
+If it does not, six tools retire together and the `vsf/` pair goes with them.
+
+**All nine are ADVANCED-only** — none appears in `DEFAULT_TOOLS`, so none is reachable
+by an LLM without `C64RE_FULL_TOOLS`. Retiring them changes no default surface.
+
 ## 8. Execution order
 
 1. ~~**Evacuate the 40 keepers**~~ **DONE 2026-08-12** — 33 moved to
@@ -184,7 +208,27 @@ swap_disk_and_continue,component_diff}.
      and is left alone deliberately — see §9.
 2. **Convert the tools** — `headless.ts` (24 branches) and `runtime.ts` (12) lose
    their `else` and call the daemon. Independent files, parallelisable.
-3. **Answer the three** above; convert or retire those tools.
+   **`headless.ts` DONE 2026-08-12** — all 24, daemon side untouched. What the
+   collapse actually cost, beyond the brace matcher:
+   - *the redeclaration was real, and singular*: `resolveTraceOut` was destructured
+     from `./runtime-trace-sink.js` on **both** sides of `session_start`. Removing
+     the else removes it; nothing had to be renamed.
+   - *three inputs died with the branch that read them*: `session_start`'s
+     `trace_iec` / `trace_drive` / `enable_kernal_*_traps` and `session_run`'s
+     `breakpoints` were `IntegratedSession` construction options — the daemon has
+     always accepted and ignored them. Left in the schemas (removing them is an
+     input-surface change, not a path removal) and commented at the handler.
+   - `session_run`'s `until` still throws its "not yet routed through the Runtime
+     Daemon (744.4c slice 2)" error. That is the daemon's behaviour, unchanged —
+     but note that with the else gone it is now the *only* behaviour, so 744.4c
+     slice 2 is the thing standing between `until` and existing.
+   - the `cpInProc` helper (an in-process `RuntimeController` for eight
+     checkpoint/recorder tools) and the two already-unused static
+     `../ts-emulator/{trace-query,trace-index}` imports went with it.
+   - the branches were provably dead first: `isDaemonMode()` is false **only** under
+     `C64RE_ALLOW_INPROC_RUNTIME=1`, and no script, gate or npm target in the repo
+     sets it.
+3. **Answer the nine** (§7 + §7.1); convert or retire those tools.
 4. **Delete the 166.**
 5. **Retire Spec 723 + `probe-single-path`** — they govern the TS runtime.
 6. **e2e**: a fresh project, boot, monitor, trace, screenshot — through the daemon only.
