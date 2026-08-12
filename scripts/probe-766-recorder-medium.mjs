@@ -15,7 +15,7 @@
 import { resolve } from "node:path";
 import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
 import { mountMedia } from "../dist/ts-emulator/media/mount.js";
-import { RuntimeRecorder } from "../dist/ts-emulator/recorder/runtime-recorder.js";
+import { RuntimeRecorder } from "../dist/recorder/runtime-recorder.js";
 
 const failures = [];
 let passes = 0;

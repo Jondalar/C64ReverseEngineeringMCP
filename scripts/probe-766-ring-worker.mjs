@@ -5,7 +5,7 @@
 // would break the fill check → allValid=false.
 
 import { parentPort, workerData } from "node:worker_threads";
-import { RecorderRingConsumer } from "../dist/ts-emulator/recorder/recorder-ring.js";
+import { RecorderRingConsumer } from "../dist/recorder/recorder-ring.js";
 
 const { sab, layout } = workerData;
 const consumer = new RecorderRingConsumer(sab, layout);

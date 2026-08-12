@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
 import { mountMedia } from "../dist/ts-emulator/media/mount.js";
 import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
-import { RuntimeRecorder } from "../dist/ts-emulator/recorder/runtime-recorder.js";
+import { RuntimeRecorder } from "../dist/recorder/runtime-recorder.js";
 import { dumpRecorderAnchorSnapshot, undumpRuntimeSnapshot } from "../dist/ts-emulator/kernel/snapshot-persistence.js";
 
 const failures = [];

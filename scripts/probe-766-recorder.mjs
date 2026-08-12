@@ -12,8 +12,8 @@
 //      growth on the producer side).
 
 import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
-import { RuntimeRecorder } from "../dist/ts-emulator/recorder/runtime-recorder.js";
-import { decodeAnchor } from "../dist/ts-emulator/recorder/anchor-codec.js";
+import { RuntimeRecorder } from "../dist/recorder/runtime-recorder.js";
+import { decodeAnchor } from "../dist/recorder/anchor-codec.js";
 
 const failures = [];
 let passes = 0;

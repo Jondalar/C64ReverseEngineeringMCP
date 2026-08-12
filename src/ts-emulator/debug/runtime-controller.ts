@@ -49,8 +49,8 @@ import { TraceRunController } from "../trace/trace-run.js";
 import type { RuntimeTraceDefinition } from "../../trace/trace-definition.js";
 import type { MediaIngressEvent } from "../media/ingress.js";
 import { persistCartridgeToFile } from "../../media-format/persist-cartridge.js";
-import { RuntimeRecorder, type RecorderAnchorRef } from "../recorder/runtime-recorder.js";
-import type { MediumKernelLike } from "../recorder/medium-source.js";
+import { RuntimeRecorder, type RecorderAnchorRef } from "../../recorder/runtime-recorder.js";
+import type { MediumKernelLike } from "../../recorder/medium-source.js";
 import { makeCheckpointThumbnail, type CheckpointThumbnail } from "../../inspect/checkpoint-thumbnail.js";
 
 export type RuntimeRunState = "running" | "paused" | "stopped";

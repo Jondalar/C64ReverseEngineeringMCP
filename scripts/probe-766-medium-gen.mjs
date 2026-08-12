@@ -16,8 +16,8 @@
 //      once).
 
 import { Vice1541Facade } from "../dist/ts-emulator/drive1541/vice1541-facade.js";
-import { collectMediumDescriptors } from "../dist/ts-emulator/recorder/medium-source.js";
-import { decodeCartMedium } from "../dist/ts-emulator/recorder/anchor-record.js";
+import { collectMediumDescriptors } from "../dist/recorder/medium-source.js";
+import { decodeCartMedium } from "../dist/recorder/anchor-record.js";
 
 const failures = [];
 let passes = 0;
