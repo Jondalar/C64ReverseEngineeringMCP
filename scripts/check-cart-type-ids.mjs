@@ -30,7 +30,7 @@ const REPO_ROOT = resolve(import.meta.dirname, "..");
 const TABLE_FILE = join(REPO_ROOT, "src/project-knowledge/view-builders.ts");
 
 // The VICE tree is a reference checkout, not a dependency. Env first, then the
-// conventional local path (matching scripts/check-1541-port-fidelity.mjs).
+// conventional local path. Override with C64RE_VICE_SRC.
 const VICE_SRC =
   process.env.C64RE_VICE_SRC ?? "/Users/alex/Development/C64/Tools/vice/vice/src";
 
