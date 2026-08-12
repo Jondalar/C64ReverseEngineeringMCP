@@ -16,11 +16,11 @@ const { allocateInstructionChunk, allocateBusEventChunk, allocateChipEventChunk,
 const { openStore, closeStore, DuckDbTraceSink } =
   await import(`${repoRoot}/dist/trace/store/duckdb-store.js`);
 const { queryEvents } =
-  await import(`${repoRoot}/dist/runtime/headless/v2/query-events.js`);
+  await import(`${repoRoot}/dist/ts-emulator/v2/query-events.js`);
 const { DuckDbQueryBackend } =
-  await import(`${repoRoot}/dist/runtime/headless/v2/duckdb-backend.js`);
+  await import(`${repoRoot}/dist/ts-emulator/v2/duckdb-backend.js`);
 const { traceTaint } =
-  await import(`${repoRoot}/dist/runtime/headless/v2/taint.js`);
+  await import(`${repoRoot}/dist/ts-emulator/v2/taint.js`);
 
 const tmpDir = "/tmp/c64re-taint-smoke";
 if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true });

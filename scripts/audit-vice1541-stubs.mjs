@@ -19,7 +19,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve as resolvePath, join } from "node:path";
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
-const target = join(repoRoot, "src/runtime/headless/vice1541");
+const target = join(repoRoot, "src/ts-emulator/vice1541");
 
 function* walk(dir) {
   for (const entry of readdirSync(dir)) {

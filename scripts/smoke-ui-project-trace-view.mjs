@@ -60,9 +60,9 @@ const captureSrc = `
 const ROOT=${JSON.stringify(ROOT)};
 const tracePath=${JSON.stringify(tracePath)};
 const diskPath=${JSON.stringify(join(projectDir, "game.d64"))};
-const {startIntegratedSession,stopIntegratedSession}=await import(ROOT+'/dist/runtime/headless/integrated-session-manager.js');
+const {startIntegratedSession,stopIntegratedSession}=await import(ROOT+'/dist/ts-emulator/integrated-session-manager.js');
 const sink=await import(ROOT+'/dist/server-tools/runtime-trace-sink.js');
-const {getRuntimeController}=await import(ROOT+'/dist/runtime/headless/debug/runtime-controller.js');
+const {getRuntimeController}=await import(ROOT+'/dist/ts-emulator/debug/runtime-controller.js');
 const {sessionId,session}=startIntegratedSession({diskPath,mode:'true-drive'});
 session.resetCold();
 await sink.startSessionTrace(sessionId,session,tracePath,sink.DEFAULT_TRACE_DOMAINS);

@@ -4,8 +4,8 @@
 import { resolve as resolvePath } from "node:path";
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
-const { startIntegratedSession } = await import(`${repoRoot}/dist/runtime/headless/integrated-session-manager.js`);
-const { createAgentQueryApi } = await import(`${repoRoot}/dist/runtime/headless/v2/agent-api.js`);
+const { startIntegratedSession } = await import(`${repoRoot}/dist/ts-emulator/integrated-session-manager.js`);
+const { createAgentQueryApi } = await import(`${repoRoot}/dist/ts-emulator/v2/agent-api.js`);
 
 const dummyDisk = resolvePath(repoRoot, "samples/motm.g64");
 const opts = { diskPath: dummyDisk, mode: "true-drive", useMicrocodedCpu: true };

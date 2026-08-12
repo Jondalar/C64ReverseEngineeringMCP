@@ -3,10 +3,10 @@
 // active load + media-ingress + checkpoint-restore path. Proves inferMapperType
 // routes GMOD2(60)/C64MegaCart(61)/GMOD3(62) and that an unknown type is rejected.
 import { existsSync, readFileSync } from "node:fs"; import { resolve } from "node:path";
-import { loadCartridgeMapperFromBytes } from "../dist/runtime/headless/cartridge.js";
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
-import { ingestMedia } from "../dist/runtime/headless/media/ingress.js";
+import { loadCartridgeMapperFromBytes } from "../dist/ts-emulator/cartridge.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
+import { ingestMedia } from "../dist/ts-emulator/media/ingress.js";
 
 let pass = 0, fail = 0;
 const gate = (n, ok, d) => { ok ? pass++ : fail++; console.log(`  ${ok ? "PASS" : "RED "}  ${n}${d ? ` (${d})` : ""}`); };

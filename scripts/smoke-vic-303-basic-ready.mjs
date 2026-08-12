@@ -13,7 +13,7 @@ import { inflateSync } from "node:zlib";
 
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 const { startIntegratedSession, stopIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`);
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`);
 
 const OUT_DIR = `${REPO}/samples/screenshots/literal-port`;
 mkdirSync(OUT_DIR, { recursive: true });
@@ -98,7 +98,7 @@ for (let y = 50; y < 220; y++) {
 const nonBgPct = (nonBg * 100 / central).toFixed(2);
 
 // Palette: load c64 palette + check all pixel RGBs are in known palette.
-const palMod = await import(`${REPO}/dist/runtime/headless/vic/palettes.js`);
+const palMod = await import(`${REPO}/dist/ts-emulator/vic/palettes.js`);
 // Default palette = colodore.
 const pal = palMod.PALETTES.colodore;
 const palSet = new Set(pal.map(([r, g, b]) => (r << 16) | (g << 8) | b));

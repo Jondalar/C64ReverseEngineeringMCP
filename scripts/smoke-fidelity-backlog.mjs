@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Spec 116 (M3.8) — drive fidelity backlog smoke.
 
-import { runAllDriveFidelityBacklogTests } from "../dist/runtime/headless/drive/drive-fidelity-backlog-tests.js";
+import { runAllDriveFidelityBacklogTests } from "../dist/ts-emulator/drive/drive-fidelity-backlog-tests.js";
 
 const r = runAllDriveFidelityBacklogTests();
 console.log(`Drive fidelity backlog — ${r.total} checks across ${r.details.length} suites`);

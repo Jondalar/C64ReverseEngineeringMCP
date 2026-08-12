@@ -15,9 +15,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 const { startIntegratedSession, stopIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`);
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`);
 const LIT_MEM = await import(
-  `${REPO}/dist/runtime/headless/vic/literal/vicii-mem.js`);
+  `${REPO}/dist/ts-emulator/vic/literal/vicii-mem.js`);
 
 const FRAMES = parseInt(process.env.FRAMES ?? "60", 10);
 // PAL: 312 lines × 63 cycles = 19656 cycles/frame. 60 frames ≈ 1.18M.

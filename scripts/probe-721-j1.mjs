@@ -10,8 +10,8 @@ import { createHash } from "node:crypto";
 
 let resolveVisibleNodeAt, matchVisualNodeToAsset, hashRamRange;
 try {
-  ({ resolveVisibleNodeAt } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
-  ({ matchVisualNodeToAsset, hashRamRange } = await import("../dist/runtime/headless/inspect/asset-join.js"));
+  ({ resolveVisibleNodeAt } = await import("../dist/ts-emulator/inspect/vic-inspect.js"));
+  ({ matchVisualNodeToAsset, hashRamRange } = await import("../dist/ts-emulator/inspect/asset-join.js"));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

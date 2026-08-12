@@ -8,10 +8,10 @@
 //   GMOD3 → fall-through, VIC's own RAM mapping $3Fxx     (marker 0x3C)
 // Flash in the GMOD carts is filled 0xA7 as a decoy: if the lane misroutes to
 // the generic flash arm, 0xA7 shows up and the negative gates go RED.
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
-import { ingestMedia } from "../dist/runtime/headless/media/ingress.js";
-import { vicii } from "../dist/runtime/headless/vic/literal/vicii-types.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
+import { ingestMedia } from "../dist/ts-emulator/media/ingress.js";
+import { vicii } from "../dist/ts-emulator/vic/literal/vicii-types.js";
 
 const failures = []; let passes = 0;
 const gate = (n, ok, d) => { ok ? passes++ : failures.push(n); console.log(`  ${ok ? "PASS" : "RED "}  ${n}${d ? ` (${d})` : ""}`); };

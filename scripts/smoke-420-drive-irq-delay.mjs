@@ -40,17 +40,17 @@
 //   5. End-to-end: ATN edge from C64 → drive 6502 PC = $FE67 within
 //      the expected drive-cycle envelope.
 
-import { Cpu65xxVice } from "../dist/runtime/headless/cpu/cpu65xx-vice.js";
-import { DriveCpu } from "../dist/runtime/headless/drive/drive-cpu.js";
-import { IecBus } from "../dist/runtime/headless/iec/iec-bus.js";
-import { Via1d1541 } from "../dist/runtime/headless/via/via1d1541.js";
-import { alarmContextNew } from "../dist/runtime/headless/alarm/alarm-context.js";
+import { Cpu65xxVice } from "../dist/ts-emulator/cpu/cpu65xx-vice.js";
+import { DriveCpu } from "../dist/ts-emulator/drive/drive-cpu.js";
+import { IecBus } from "../dist/ts-emulator/iec/iec-bus.js";
+import { Via1d1541 } from "../dist/ts-emulator/via/via1d1541.js";
+import { alarmContextNew } from "../dist/ts-emulator/alarm/alarm-context.js";
 import {
   InterruptCpuStatus, IK_IRQ, INTERRUPT_DELAY,
-} from "../dist/runtime/headless/cpu/interrupt-cpu-status.js";
+} from "../dist/ts-emulator/cpu/interrupt-cpu-status.js";
 import {
   VIA_PCR, VIA_IER, VIA_IFR, VIA_IM_CA1,
-} from "../dist/runtime/headless/via/via6522-vice.js";
+} from "../dist/ts-emulator/via/via6522-vice.js";
 
 const results = [];
 function check(label, cond, detail) {

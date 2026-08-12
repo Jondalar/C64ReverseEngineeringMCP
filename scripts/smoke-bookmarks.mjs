@@ -21,9 +21,9 @@ const repoRoot = resolvePath(import.meta.dirname, "..");
 const { openStore, closeStore } =
   await import(`${repoRoot}/dist/trace/store/duckdb-store.js`);
 const { DuckDbQueryBackend } =
-  await import(`${repoRoot}/dist/runtime/headless/v2/duckdb-backend.js`);
+  await import(`${repoRoot}/dist/ts-emulator/v2/duckdb-backend.js`);
 const { addBookmark, listBookmarks, removeBookmark, rebindBookmark } =
-  await import(`${repoRoot}/dist/runtime/headless/v2/bookmarks.js`);
+  await import(`${repoRoot}/dist/ts-emulator/v2/bookmarks.js`);
 
 const tmpDir = "/tmp/c64re-bookmarks-smoke";
 if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true });

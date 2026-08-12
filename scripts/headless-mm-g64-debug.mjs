@@ -39,8 +39,8 @@ const outPath = args.out
   ? resolve(projectDir, args.out)
   : join(projectDir, "analysis", "headless", "mm-g64-lockstep-debug.json");
 
-const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
-const { diagnoseMm } = await import("../dist/runtime/headless/diagnostic-mm.js");
+const { startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
+const { diagnoseMm } = await import("../dist/ts-emulator/diagnostic-mm.js");
 
 console.error(`Spec 093 diagnostic: ${disk}`);
 console.error(`Project: ${projectDir}`);

@@ -14,9 +14,9 @@ import { writeFileSync, mkdirSync } from "node:fs";
 
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 const { startIntegratedSession, stopIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`);
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`);
 const LIT_TYPES = await import(
-  `${REPO}/dist/runtime/headless/vic/literal/vicii-types.js`);
+  `${REPO}/dist/ts-emulator/vic/literal/vicii-types.js`);
 
 // Spec 723.5c: literal-port per-cycle VIC is unconditional. Literal is the
 // IRQ authority. s.vic (VicIIVice) irq_status field is still readable for

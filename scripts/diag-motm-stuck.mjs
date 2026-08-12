@@ -6,7 +6,7 @@
 
 import { existsSync, mkdirSync, writeFileSync, openSync, appendFileSync, closeSync } from "node:fs";
 import { resolve as resolvePath, join } from "node:path";
-import { startIntegratedSession } from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession } from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/integrated-session-manager.js";
 
 const DISK = resolvePath("samples/motm.g64");
 const OUT_DIR = resolvePath("samples/screenshots/motm-stuck-diag");

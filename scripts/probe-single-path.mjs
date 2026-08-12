@@ -11,9 +11,9 @@ let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
 
 const { startIntegratedSession, stopIntegratedSession } =
-  await import(`${ROOT}/dist/runtime/headless/integrated-session-manager.js`);
+  await import(`${ROOT}/dist/ts-emulator/integrated-session-manager.js`);
 const { createAgentQueryApi } =
-  await import(`${ROOT}/dist/runtime/headless/v2/agent-api.js`);
+  await import(`${ROOT}/dist/ts-emulator/v2/agent-api.js`);
 
 console.log("Spec 723 — probe-single-path\n");
 
@@ -132,7 +132,7 @@ ok(microFlag.length === 0, "9 no useMicrocodedCpu field/opt/input in src",
 
 // Check 10: the separate 1541 drive CPU is intact (must NOT be deleted with the
 // C64 legacy CPU).
-const driveCpuExists = ["src/runtime/headless/vice1541/drive_6510core.ts", "src/runtime/headless/vice1541/drivecpu.ts"]
+const driveCpuExists = ["src/ts-emulator/vice1541/drive_6510core.ts", "src/ts-emulator/vice1541/drivecpu.ts"]
   .every((f) => existsSync(join(ROOT, f)));
 ok(driveCpuExists, "10 vice1541 drive CPU (drive_6510core.ts + drivecpu.ts) intact");
 
@@ -163,7 +163,7 @@ ok(driveSelHits.length === 0, "13 no drive1541 resolve/assert selection layer in
   driveSelHits.map((p) => relative(ROOT, p)).join(",") || "none");
 
 // Check 14 (Spec 723.6a): the Drive1541Implementation type has no "legacy" arm.
-const drive1541TypePath = join(ROOT, "src/runtime/headless/drive1541/drive1541.ts");
+const drive1541TypePath = join(ROOT, "src/ts-emulator/drive1541/drive1541.ts");
 const drive1541TypeSrc = readFileSync(drive1541TypePath, "utf8");
 const legacyArm = /type Drive1541Implementation\s*=[^;]*"legacy"/.test(drive1541TypeSrc);
 ok(!legacyArm, "14 Drive1541Implementation type has no legacy arm");
@@ -195,12 +195,12 @@ ok(prunedHits.length === 0, "16 no pruned debug-lockstep / cycle-lockstep schedu
 // Check 17 (Spec 723.7b): the scheduler dir + lockstep-strategy + the VIC
 // bus-stealing files are deleted.
 const deletedPaths = [
-  "src/runtime/headless/scheduler/cycle-lockstep-scheduler.ts",
-  "src/runtime/headless/scheduler/cycle-wrappers.ts",
-  "src/runtime/headless/scheduler/cycle-steppable.ts",
-  "src/runtime/headless/kernel/lockstep-strategy.ts",
-  "src/runtime/headless/vic/bus-owner-table.ts",
-  "src/runtime/headless/vic/ba-aec.ts",
+  "src/ts-emulator/scheduler/cycle-lockstep-scheduler.ts",
+  "src/ts-emulator/scheduler/cycle-wrappers.ts",
+  "src/ts-emulator/scheduler/cycle-steppable.ts",
+  "src/ts-emulator/kernel/lockstep-strategy.ts",
+  "src/ts-emulator/vic/bus-owner-table.ts",
+  "src/ts-emulator/vic/ba-aec.ts",
 ];
 const stillPresent = deletedPaths.filter((f) => existsSync(join(ROOT, f)));
 ok(stillPresent.length === 0, "17 lockstep scheduler + bus-owner files deleted",
@@ -209,7 +209,7 @@ ok(stillPresent.length === 0, "17 lockstep scheduler + bus-owner files deleted",
 // Check 18 (Spec 723.7d): the legacy batched VicIIVice.tick() method is gone
 // (the product VIC is the per-cycle literal port). Match a `tick(` method
 // declaration in vic-ii-vice.ts (comments stripped).
-const vicSrc = stripComments(readFileSync(join(ROOT, "src/runtime/headless/vic/vic-ii-vice.ts"), "utf8"));
+const vicSrc = stripComments(readFileSync(join(ROOT, "src/ts-emulator/vic/vic-ii-vice.ts"), "utf8"));
 ok(!/^\s*tick\s*\(/m.test(vicSrc), "18 VicIIVice has no batched tick() method");
 
 // Check 19 (Spec 723.8): the separate 1541 drive CPU is explicitly protected —
@@ -217,7 +217,7 @@ ok(!/^\s*tick\s*\(/m.test(vicSrc), "18 VicIIVice has no batched tick() method");
 // deleted or merged into the C64 core (Spec 612). Already covered by check 10
 // (files intact); here assert drive_6510core.ts defines its own CPU step, not
 // an import of the C64 cpu.
-const driveCorePath = join(ROOT, "src/runtime/headless/vice1541/drive_6510core.ts");
+const driveCorePath = join(ROOT, "src/ts-emulator/vice1541/drive_6510core.ts");
 const driveCoreOk = existsSync(driveCorePath)
   && !/from\s+["'][^"']*cpu\/cpu65xx-vice/.test(readFileSync(driveCorePath, "utf8"));
 ok(driveCoreOk, "19 vice1541 drive_6510core is a separate CPU (not the C64 Cpu65xxVice)");

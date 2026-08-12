@@ -12,12 +12,12 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0; const fail = [];
 const ok = (n, c, d = "") => { if (c) { pass++; console.log(`  PASS  ${n}${d ? `  (${d})` : ""}`); } else { fail.push(n); console.log(`  FAIL  ${n}${d ? `  (${d})` : ""}`); } };
-if (!existsSync(join(ROOT, "dist/runtime/headless/media/ingress.js"))) { console.error("build:mcp first"); process.exit(2); }
+if (!existsSync(join(ROOT, "dist/ts-emulator/media/ingress.js"))) { console.error("build:mcp first"); process.exit(2); }
 
 const { buildD64 } = await import("../dist/disk/d64-builder.js");
-const { startIntegratedSession, stopIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
-const { RuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js");
-const { ingestMedia } = await import("../dist/runtime/headless/media/ingress.js");
+const { startIntegratedSession, stopIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
+const { RuntimeController } = await import("../dist/ts-emulator/debug/runtime-controller.js");
+const { ingestMedia } = await import("../dist/ts-emulator/media/ingress.js");
 const { buildIngressRequest } = await import("../src/media-format/ingress-request.js");
 
 const mk = (name) => buildD64({ diskName: name, diskId: "23", files: [{ name: "X", payload: new Uint8Array([0x01, 0x08, 0x60]) }] });

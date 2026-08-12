@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Spec 114 (M3.6) — write support v1 smoke.
 
-import { runAllWriteSupportTests } from "../dist/runtime/headless/drive/save-load-tests.js";
+import { runAllWriteSupportTests } from "../dist/ts-emulator/drive/save-load-tests.js";
 
 const r = runAllWriteSupportTests();
 console.log(`Drive write support v1 — ${r.total} checks across ${r.details.length} suites`);

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { runAllCartFidelityTests } from "../dist/runtime/headless/c64/cart-fidelity-tests.js";
+import { runAllCartFidelityTests } from "../dist/ts-emulator/c64/cart-fidelity-tests.js";
 
 const r = runAllCartFidelityTests();
 console.log(`Cart fidelity v1 — ${r.total} checks across ${r.details.length} suites`);

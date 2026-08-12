@@ -4,7 +4,7 @@
 import {
   newBorderState, resetBorderState,
   vertBorderRange, onLineStartBorder, applyMainBorderCheck, isInBorder,
-} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/vic/border-state.js";
+} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/vic/border-state.js";
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail = "") {

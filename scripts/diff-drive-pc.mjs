@@ -69,7 +69,7 @@ const armPcStart = parseInt(String(args["arm-pc-start"] ?? "042F"), 16);
 const armPcEnd = parseInt(String(args["arm-pc-end"] ?? "044C"), 16);
 
 if (side === "headless") {
-  const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
+  const { startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
   const { session } = startIntegratedSession({
     diskPath: join(repoRoot, "samples/motm.g64"),
     useCycleLockstep: true, useMicrocodedCpu: true,

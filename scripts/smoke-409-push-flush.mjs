@@ -37,7 +37,7 @@ import { existsSync } from "node:fs";
 let startIntegratedSession;
 try {
   ({ startIntegratedSession } = await import(
-    "../dist/runtime/headless/integrated-session-manager.js"
+    "../dist/ts-emulator/integrated-session-manager.js"
   ));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");

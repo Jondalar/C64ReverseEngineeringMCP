@@ -26,9 +26,9 @@
 import {
   startIntegratedSession,
   stopIntegratedSession,
-} from "../dist/runtime/headless/integrated-session-manager.js";
-import { SidAudioRecorder } from "../dist/runtime/headless/audio/sid-audio-recorder.js";
-import { monoToStereoLR } from "../dist/runtime/headless/audio/audio-buffer.js";
+} from "../dist/ts-emulator/integrated-session-manager.js";
+import { SidAudioRecorder } from "../dist/ts-emulator/audio/sid-audio-recorder.js";
+import { monoToStereoLR } from "../dist/ts-emulator/audio/audio-buffer.js";
 
 // --- PAL realtime constants ------------------------------------------------
 const CPU_HZ = 985248;          // PAL 6510

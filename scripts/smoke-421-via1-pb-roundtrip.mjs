@@ -47,12 +47,12 @@
 //   src/c64/c64iec.c:121-138           — iec_update_cpu_bus / iec_update_ports
 //                                        (companion mutation primitives).
 
-import { IecBus } from "../dist/runtime/headless/iec/iec-bus.js";
-import { Via1d1541 } from "../dist/runtime/headless/via/via1d1541.js";
-import { alarmContextNew } from "../dist/runtime/headless/alarm/alarm-context.js";
+import { IecBus } from "../dist/ts-emulator/iec/iec-bus.js";
+import { Via1d1541 } from "../dist/ts-emulator/via/via1d1541.js";
+import { alarmContextNew } from "../dist/ts-emulator/alarm/alarm-context.js";
 import {
   VIA_PRB, VIA_DDRB,
-} from "../dist/runtime/headless/via/via6522-vice.js";
+} from "../dist/ts-emulator/via/via6522-vice.js";
 
 const results = [];
 function check(label, cond, detail) {

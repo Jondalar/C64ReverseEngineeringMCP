@@ -6,7 +6,7 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
 
 const samples = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/samples";
 const candidates = [

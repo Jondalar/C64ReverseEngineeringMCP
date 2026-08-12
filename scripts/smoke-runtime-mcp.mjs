@@ -8,7 +8,7 @@ const { registerRuntimeTools } = await import(
   `${repoRoot}/dist/server-tools/runtime.js`
 );
 const { startIntegratedSession, registerExistingSession } = await import(
-  `${repoRoot}/dist/runtime/headless/integrated-session-manager.js`
+  `${repoRoot}/dist/ts-emulator/integrated-session-manager.js`
 );
 
 const tools = new Map();

@@ -4,9 +4,9 @@
 // tool builds (session + ctrl + cursor maps), proving any monitor command string
 // round-trips to text output. The daemon path is the same call with a richer ctx.
 
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { ensureRuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
-import { runMonitorCommand } from "../dist/runtime/headless/debug/monitor-shell.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { ensureRuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
+import { runMonitorCommand } from "../dist/ts-emulator/debug/monitor-shell.js";
 
 const failures = [];
 let passes = 0;

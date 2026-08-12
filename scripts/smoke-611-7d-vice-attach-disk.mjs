@@ -24,9 +24,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { drive_writeprotect_sense, rotation_byte_read } from "../dist/runtime/headless/_quarantine_vice1541_v4/rotation.js";
-import { MAX_GCR_TRACKS } from "../dist/runtime/headless/_quarantine_vice1541_v4/gcr.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { drive_writeprotect_sense, rotation_byte_read } from "../dist/ts-emulator/_quarantine_vice1541_v4/rotation.js";
+import { MAX_GCR_TRACKS } from "../dist/ts-emulator/_quarantine_vice1541_v4/gcr.js";
 
 const results = [];
 function check(label, ok, detail) {

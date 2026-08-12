@@ -33,7 +33,7 @@ const mode = arg("mode", fullPath.endsWith(".d64") || fullPath.endsWith(".g64") 
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
 const { startIntegratedSession } = await import(
-  `${repoRoot}/dist/runtime/headless/integrated-session-manager.js`
+  `${repoRoot}/dist/ts-emulator/integrated-session-manager.js`
 );
 
 // Always use true-drive (so IEC tests can talk to drive). For .prg

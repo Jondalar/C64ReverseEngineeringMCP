@@ -18,9 +18,9 @@
 let startIntegratedSession, stopIntegratedSession, ensureRuntimeController,
     buildVicInspectSnapshot, resolveNodeAt, resolveRegion;
 try {
-  ({ startIntegratedSession, stopIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js"));
-  ({ ensureRuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js"));
-  ({ buildVicInspectSnapshot, resolveNodeAt, resolveRegion } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
+  ({ startIntegratedSession, stopIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js"));
+  ({ ensureRuntimeController } = await import("../dist/ts-emulator/debug/runtime-controller.js"));
+  ({ buildVicInspectSnapshot, resolveNodeAt, resolveRegion } = await import("../dist/ts-emulator/inspect/vic-inspect.js"));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

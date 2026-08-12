@@ -1,4 +1,4 @@
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
 import { resolve } from "node:path";
 const { session } = startIntegratedSession({
   diskPath: resolve("samples/motm.g64"),

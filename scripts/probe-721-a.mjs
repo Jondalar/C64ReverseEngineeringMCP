@@ -13,8 +13,8 @@ import { resolve } from "node:path";
 let extractSpriteCandidates, resolveVisibleNodeAt, matchVisualNodeToAsset;
 try {
   ({ extractSpriteCandidates } = await import("../src/inspect/asset-extract.js"));
-  ({ resolveVisibleNodeAt } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
-  ({ matchVisualNodeToAsset } = await import("../dist/runtime/headless/inspect/asset-join.js"));
+  ({ resolveVisibleNodeAt } = await import("../dist/ts-emulator/inspect/vic-inspect.js"));
+  ({ matchVisualNodeToAsset } = await import("../dist/ts-emulator/inspect/asset-join.js"));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

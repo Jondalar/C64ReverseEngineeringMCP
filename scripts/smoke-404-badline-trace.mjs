@@ -17,12 +17,12 @@
 // VICE source: src/viciisc/vicii-cycle.c:51 check_badline(),
 //              src/viciisc/vicii-chip-model.c:111-237 (cycle_tab_pal BA fetch flags).
 
-import { vicii } from "../dist/runtime/headless/vic/literal/vicii-types.js";
-import { vicii_chip_model_init } from "../dist/runtime/headless/vic/literal/vicii-chip-model.js";
-import { vicii_init, vicii_reset } from "../dist/runtime/headless/vic/literal/vicii.js";
-import { vicii_cycle, setMaincpuClk } from "../dist/runtime/headless/vic/literal/vicii-cycle.js";
-import { vicii_store } from "../dist/runtime/headless/vic/literal/vicii-mem.js";
-import { setIrqHost } from "../dist/runtime/headless/vic/literal/vicii-irq.js";
+import { vicii } from "../dist/ts-emulator/vic/literal/vicii-types.js";
+import { vicii_chip_model_init } from "../dist/ts-emulator/vic/literal/vicii-chip-model.js";
+import { vicii_init, vicii_reset } from "../dist/ts-emulator/vic/literal/vicii.js";
+import { vicii_cycle, setMaincpuClk } from "../dist/ts-emulator/vic/literal/vicii-cycle.js";
+import { vicii_store } from "../dist/ts-emulator/vic/literal/vicii-mem.js";
+import { setIrqHost } from "../dist/ts-emulator/vic/literal/vicii-irq.js";
 
 setIrqHost({
   maincpu_set_irq: () => {},

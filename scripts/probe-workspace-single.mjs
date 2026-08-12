@@ -23,7 +23,7 @@ const wsSrvRaw = read("src/workspace-ui/ws-server.ts");
 const wsSrv = stripComments(wsSrvRaw);
 // Spec 757 — the WS bootstrap is the Runtime Daemon entry (the retired
 // start-v3-server.mjs was a second WS-start path).
-const bootstrap = stripComments(read("src/runtime/headless/daemon/run.ts"));
+const bootstrap = stripComments(read("src/ts-emulator/daemon/run.ts"));
 const workspace = read("scripts/workspace.mjs");
 
 // 1. server.ts resolves the project via the shared resolver, with NO cwd default.

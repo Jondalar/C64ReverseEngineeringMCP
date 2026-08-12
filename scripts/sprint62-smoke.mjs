@@ -13,10 +13,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { G64Parser } from "../dist/disk/g64-parser.js";
-import { DriveCpu } from "../dist/runtime/headless/drive/drive-cpu.js";
-import { HeadPosition, TrackBuffer } from "../dist/runtime/headless/drive/head-position.js";
-import { persistTrackBuffer, defaultSessionG64Path } from "../dist/runtime/headless/drive/session-persist.js";
-import { PB_STEP_LO, PB_STEP_HI } from "../dist/runtime/headless/drive/via2-gcr.js";
+import { DriveCpu } from "../dist/ts-emulator/drive/drive-cpu.js";
+import { HeadPosition, TrackBuffer } from "../dist/ts-emulator/drive/head-position.js";
+import { persistTrackBuffer, defaultSessionG64Path } from "../dist/ts-emulator/drive/session-persist.js";
+import { PB_STEP_LO, PB_STEP_HI } from "../dist/ts-emulator/drive/via2-gcr.js";
 
 // Locate a sample G64. Prefer Maniac Mansion side 1 since the user
 // confirmed it; fall back to anything in samples/.

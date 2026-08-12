@@ -22,11 +22,11 @@ const MOTM = "/Users/alex/Development/C64/Cracking/Murder/motm.g64";
 let resolveVisualOrigin, extractSpriteCandidates, extractAssetCandidates,
     resolveVisibleNodeAt, startIntegratedSession, stopIntegratedSession, mountMedia;
 try {
-  ({ resolveVisualOrigin } = await import("../dist/runtime/headless/inspect/asset-origin.js"));
+  ({ resolveVisualOrigin } = await import("../dist/ts-emulator/inspect/asset-origin.js"));
   ({ extractSpriteCandidates, extractAssetCandidates } = await import("../src/inspect/asset-extract.js"));
-  ({ resolveVisibleNodeAt } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
-  ({ startIntegratedSession, stopIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js"));
-  ({ mountMedia } = await import("../dist/runtime/headless/media/mount.js"));
+  ({ resolveVisibleNodeAt } = await import("../dist/ts-emulator/inspect/vic-inspect.js"));
+  ({ startIntegratedSession, stopIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js"));
+  ({ mountMedia } = await import("../dist/ts-emulator/media/mount.js"));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first"); console.error(e?.message ?? e); process.exit(1);
 }

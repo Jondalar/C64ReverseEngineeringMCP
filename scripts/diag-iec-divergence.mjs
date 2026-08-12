@@ -36,7 +36,7 @@ if (!entry) { console.error(`unknown id: ${id}`); process.exit(2); }
 const diskPath = join(repoRoot, "samples", entry.file);
 if (!existsSync(diskPath)) { console.error(`disk missing: ${diskPath}`); process.exit(2); }
 
-const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
+const { startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
 
 const { session } = startIntegratedSession({
   diskPath,

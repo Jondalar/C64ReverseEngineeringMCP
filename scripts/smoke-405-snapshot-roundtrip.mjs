@@ -41,10 +41,10 @@ let saveSessionVsf;
 let loadSessionVsf;
 try {
   ({ startIntegratedSession } = await import(
-    "../dist/runtime/headless/integrated-session-manager.js"
+    "../dist/ts-emulator/integrated-session-manager.js"
   ));
   ({ saveSessionVsf, loadSessionVsf } = await import(
-    "../dist/runtime/headless/vsf/session-vsf.js"
+    "../dist/ts-emulator/vsf/session-vsf.js"
   ));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");

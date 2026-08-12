@@ -1,6 +1,6 @@
 // Debug IM2 VIC internal state — vborder, idle_state, dbuf snapshots
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { mountMedia } from "../dist/runtime/headless/media/mount.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { mountMedia } from "../dist/ts-emulator/media/mount.js";
 import { resolve } from "node:path";
 
 const { session } = startIntegratedSession({
@@ -17,7 +17,7 @@ session.runFor(60_000_000, { cycleBudget: 60_000_000 });
 
 // Now in-game. Inspect VIC internal state.
 // Access vicii_t via dynamic import — it's the literal port's global.
-const litTypes = await import("../dist/runtime/headless/vic/literal/vicii-types.js");
+const litTypes = await import("../dist/ts-emulator/vic/literal/vicii-types.js");
 const vicii = litTypes.vicii;
 console.log("--- VIC internal state ---");
 console.log(`raster_line=${vicii.raster_line} raster_cycle=${vicii.raster_cycle}`);
@@ -53,7 +53,7 @@ for (let n = 0; n < 100_000; n++) {
 console.log(`bad_line hits: ${badLineHits}, matrix-fetch confirmed: ${matrixFetchProof}`);
 
 // Inspect draw_cycle state
-const drawCycle = await import("../dist/runtime/headless/vic/literal/vicii-draw-cycle.js");
+const drawCycle = await import("../dist/ts-emulator/vic/literal/vicii-draw-cycle.js");
 const st = drawCycle.vicii_get_draw_cycle_state();
 console.log(`vmode11_pipe=${st.vmode11_pipe} vmode16_pipe=${st.vmode16_pipe} vmode16_pipe2=${st.vmode16_pipe2}`);
 console.log(`gbuf_reg=$${st.gbuf_reg.toString(16)} gbuf_pixel_reg=${st.gbuf_pixel_reg} gbuf_mc_flop=${st.gbuf_mc_flop}`);

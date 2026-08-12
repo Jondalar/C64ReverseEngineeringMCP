@@ -14,9 +14,9 @@ import { mkdirSync, readFileSync } from "node:fs";
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 const VSF = `${REPO}/samples/motm_menu_vice.vsf`;
 const { startIntegratedSession, stopIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`);
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`);
 const LIT_TYPES = await import(
-  `${REPO}/dist/runtime/headless/vic/literal/vicii-types.js`);
+  `${REPO}/dist/ts-emulator/vic/literal/vicii-types.js`);
 
 const OUT_DIR = `${REPO}/samples/screenshots/motm-spec-309`;
 mkdirSync(OUT_DIR, { recursive: true });

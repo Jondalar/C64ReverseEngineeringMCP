@@ -20,7 +20,7 @@ const repoRoot = resolvePath(import.meta.dirname, "..");
 let regression;
 try {
   regression = await import(
-    `${repoRoot}/dist/runtime/headless/v2/regression.js`
+    `${repoRoot}/dist/ts-emulator/v2/regression.js`
   );
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");

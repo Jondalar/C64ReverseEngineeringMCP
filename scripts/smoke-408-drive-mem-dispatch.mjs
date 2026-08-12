@@ -36,7 +36,7 @@
 //   4. Reset vector: with synthetic ROM placing $A0 at $FFFC and
 //      $EA at $FFFD, the drive CPU after reset() has PC=$EAA0.
 
-import { DriveBus, DriveCpu } from "../dist/runtime/headless/drive/drive-cpu.js";
+import { DriveBus, DriveCpu } from "../dist/ts-emulator/drive/drive-cpu.js";
 
 const results = [];
 function check(label, cond, detail) {

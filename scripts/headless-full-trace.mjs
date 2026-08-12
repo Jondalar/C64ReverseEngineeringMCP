@@ -144,7 +144,7 @@ console.error(`Stop at c64.pc: $${stopAtC64Pc.toString(16).toUpperCase()}`);
 // ─────────────────────────────────────────────────────────────────────────────
 // Import runtime
 // ─────────────────────────────────────────────────────────────────────────────
-const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
+const { startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Start session — microcoded CPU for per-cycle boundary detection

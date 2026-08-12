@@ -20,7 +20,7 @@ function arg(name, dflt) {
 const profile = arg("profile", "e2e-local");
 const repoRoot = resolvePath(import.meta.dirname, "..");
 const { startIntegratedSession } = await import(
-  `${repoRoot}/dist/runtime/headless/integrated-session-manager.js`
+  `${repoRoot}/dist/ts-emulator/integrated-session-manager.js`
 );
 
 console.log(`=== E2E Ladder — profile: ${profile} ===\n`);

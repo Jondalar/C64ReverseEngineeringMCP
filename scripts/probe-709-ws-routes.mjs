@@ -9,7 +9,7 @@
 
 import { resolve } from "node:path";
 import { WebSocket } from "ws";
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
 import { WsServer } from "../dist/workspace-ui/ws-server.js";
 
 const failures = [];

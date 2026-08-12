@@ -5,8 +5,8 @@
 //   PASS = at t≥60s, PC is in game code region (NOT $E5CD KERNAL),
 //   /tmp/im2-tNNNs.png shows elevator-man frame.
 
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { mountMedia } from "../dist/runtime/headless/media/mount.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { mountMedia } from "../dist/ts-emulator/media/mount.js";
 import { resolve } from "node:path";
 
 const { session } = startIntegratedSession({

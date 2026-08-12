@@ -47,11 +47,11 @@
 //     pushFlush callback and again after the call returns; the only
 //     mutation in between must come from `c64_store_dd00`.
 
-import { IecBus } from "../dist/runtime/headless/iec/iec-bus.js";
+import { IecBus } from "../dist/ts-emulator/iec/iec-bus.js";
 import {
   IECBUS_STATUS_TRUEDRIVE,
   IECBUS_STATUS_DRIVETYPE,
-} from "../dist/runtime/headless/iec/iecbus-callbacks.js";
+} from "../dist/ts-emulator/iec/iecbus-callbacks.js";
 
 const results = [];
 function check(label, cond, detail) {

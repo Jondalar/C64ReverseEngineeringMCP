@@ -6,7 +6,7 @@ import { resolve as resolvePath, join } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
-const { startIntegratedSession } = await import(`${repoRoot}/dist/runtime/headless/integrated-session-manager.js`);
+const { startIntegratedSession } = await import(`${repoRoot}/dist/ts-emulator/integrated-session-manager.js`);
 
 const OUT_DIR = resolvePath(repoRoot, "samples/screenshots/spec-280-gate");
 if (!existsSync(OUT_DIR)) mkdirSync(OUT_DIR, { recursive: true });

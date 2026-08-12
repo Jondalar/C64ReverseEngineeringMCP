@@ -10,7 +10,7 @@
 // This smoke compares the compressed `vicii.cycle_table[63]` after
 // `vicii_chip_model_init()` (TS literal port) against the same array
 // computed from the verbatim cycle_tab_pal[] in
-// `src/runtime/headless/vic/literal/vicii-chip-model.ts`. Both come
+// `src/ts-emulator/vic/literal/vicii-chip-model.ts`. Both come
 // from `src/viciisc/vicii-chip-model.c:111-237`.
 //
 // Doc anchor: docs/vice-c64-arch.md §5.5 (cycle table) + §12 step 13.
@@ -21,8 +21,8 @@
 // after init, and the table-shape invariants from chip-model.c §
 // "BA helpers" hold (e.g. cycle 12-54 have FETCH_BA bit set).
 
-import { vicii } from "../dist/runtime/headless/vic/literal/vicii-types.js";
-import { vicii_chip_model_init } from "../dist/runtime/headless/vic/literal/vicii-chip-model.js";
+import { vicii } from "../dist/ts-emulator/vic/literal/vicii-types.js";
+import { vicii_chip_model_init } from "../dist/ts-emulator/vic/literal/vicii-chip-model.js";
 
 const FETCH_BA_M = 0x00000100;
 const PHI1_TYPE_M = 0x00000e00;

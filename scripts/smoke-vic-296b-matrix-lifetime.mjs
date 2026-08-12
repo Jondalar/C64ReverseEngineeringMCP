@@ -11,7 +11,7 @@
 // frames because (pre-fix) renderer read screen RAM live during draw,
 // catching mid-row CPU writes.
 
-import { renderRasterLine } from "../dist/runtime/headless/vic/cycle-driven-line-renderer.js";
+import { renderRasterLine } from "../dist/ts-emulator/vic/cycle-driven-line-renderer.js";
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail = "") {

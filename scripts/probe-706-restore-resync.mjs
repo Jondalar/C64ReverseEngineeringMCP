@@ -21,8 +21,8 @@
 import {
   startIntegratedSession,
   stopIntegratedSession,
-} from "../dist/runtime/headless/integrated-session-manager.js";
-import { SidAudioRecorder } from "../dist/runtime/headless/audio/sid-audio-recorder.js";
+} from "../dist/ts-emulator/integrated-session-manager.js";
+import { SidAudioRecorder } from "../dist/ts-emulator/audio/sid-audio-recorder.js";
 
 const failures = [];
 let passes = 0;

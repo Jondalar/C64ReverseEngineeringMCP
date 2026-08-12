@@ -4,7 +4,7 @@
 // jump the drive by ~2^32 cycles. White-box: prime the drive's last_clk near 2^32
 // (without running 4e9 cycles), then drive the bridge across the boundary and prove
 // the drive advances by the small correct delta.
-import { Vice1541Facade } from "../dist/runtime/headless/drive1541/vice1541-facade.js";
+import { Vice1541Facade } from "../dist/ts-emulator/drive1541/vice1541-facade.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };

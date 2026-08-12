@@ -1,5 +1,5 @@
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { mountMedia } from "../dist/runtime/headless/media/mount.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { mountMedia } from "../dist/ts-emulator/media/mount.js";
 import { resolve } from "node:path";
 // Boot EMPTY first, THEN insert the disk (mountMedia) — the real/UI path.
 // Attaching via the ctor `diskPath` (disk present during the cold boot) leaves

@@ -5,8 +5,8 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
 
 const failures = [];
 let passes = 0;

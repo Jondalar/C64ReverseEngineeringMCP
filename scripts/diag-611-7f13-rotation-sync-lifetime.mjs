@@ -49,10 +49,10 @@ import { resolve as resolvePath } from "node:path";
 import { existsSync } from "node:fs";
 
 const { startIntegratedSession } = await import(
-  "../dist/runtime/headless/integrated-session-manager.js"
+  "../dist/ts-emulator/integrated-session-manager.js"
 );
 const { mountMedia } = await import(
-  "../dist/runtime/headless/media/mount.js"
+  "../dist/ts-emulator/media/mount.js"
 );
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
@@ -72,7 +72,7 @@ const via2 = driveCpu.via2;
 await mountMedia(session, 8, diskPath);
 
 // Direct access to rotation state for verification.
-const rotationMod = await import("../dist/runtime/headless/vice1541/rotation.js");
+const rotationMod = await import("../dist/ts-emulator/vice1541/rotation.js");
 
 // Capture $F565 LDA $1C00 polls.
 const polls = [];

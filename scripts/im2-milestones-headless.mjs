@@ -3,8 +3,8 @@
 //  - PC histogram at fixed clk landmarks (37M, 61M, 85M, 120M, 170M, 653M)
 //  - first-entry cycles for $3310 (loader stub) and $48D3-$48EE (idle)
 //  - PC region bucketing per second
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { mountMedia } from "../dist/runtime/headless/media/mount.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { mountMedia } from "../dist/ts-emulator/media/mount.js";
 import { resolve } from "node:path";
 
 const { session } = startIntegratedSession({

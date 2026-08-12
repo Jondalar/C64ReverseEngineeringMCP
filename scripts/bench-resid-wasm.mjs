@@ -6,7 +6,7 @@
 // wall-time + realtime factor (xRT = how many times faster than realtime; >1 is
 // affordable, <1 means it cannot keep up with the running machine).
 
-import createResidModule from "../dist/runtime/headless/sid/wasm/resid.mjs";
+import createResidModule from "../dist/ts-emulator/sid/wasm/resid.mjs";
 
 const PAL = 985248;
 const SR = 44100;

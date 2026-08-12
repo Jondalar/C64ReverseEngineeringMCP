@@ -1,5 +1,5 @@
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { loadSessionVsf } from "../dist/runtime/headless/vsf/session-vsf.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { loadSessionVsf } from "../dist/ts-emulator/vsf/session-vsf.js";
 import { resolve } from "node:path";
 const s = startIntegratedSession({
   diskPath: resolve("samples/motm.g64"),

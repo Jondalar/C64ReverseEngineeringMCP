@@ -12,8 +12,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const SRC = join(ROOT, "src", "runtime", "headless", "sid", "wasm");
-const DST = join(ROOT, "dist", "runtime", "headless", "sid", "wasm");
+const SRC = join(ROOT, "src", "ts-emulator", "sid", "wasm");
+const DST = join(ROOT, "dist", "ts-emulator", "sid", "wasm");
 const FILES = ["resid.mjs", "resid.wasm"];
 
 try {
@@ -27,7 +27,7 @@ try {
   }
   mkdirSync(DST, { recursive: true });
   for (const f of present) copyFileSync(join(SRC, f), join(DST, f));
-  console.log(`[copy-wasm-assets] copied ${present.join(", ")} → dist/runtime/headless/sid/wasm/`);
+  console.log(`[copy-wasm-assets] copied ${present.join(", ")} → dist/ts-emulator/sid/wasm/`);
 } catch (e) {
   // Never break the build over an asset copy.
   console.warn(`[copy-wasm-assets] non-fatal: ${e?.message ?? e}`);

@@ -42,11 +42,11 @@ async function mediaIngress(
     return runtimeDaemon.mediaIngress(session_id, req);
   }
   // In-process: the same single media authority, via the session's controller.
-  const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+  const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
   const session = getIntegratedSession(session_id);
   if (!session) throw new Error(`No integrated session ${session_id}`);
-  const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
-  const { ingestMedia } = await import("../runtime/headless/media/ingress.js");
+  const { ensureRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
+  const { ingestMedia } = await import("../ts-emulator/media/ingress.js");
   const { buildIngressRequest } = await import("../media-format/ingress-request.js");
   const ctrl = ensureRuntimeController(session_id, session, () => {});
   const ireq = buildIngressRequest(req);
@@ -54,10 +54,10 @@ async function mediaIngress(
 }
 
 async function getApi(sessionId: string) {
-  const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+  const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
   const session = getIntegratedSession(sessionId);
   if (!session) throw new Error(`No integrated session ${sessionId}`);
-  const { createAgentQueryApi } = await import("../runtime/headless/v2/agent-api.js");
+  const { createAgentQueryApi } = await import("../ts-emulator/v2/agent-api.js");
   return createAgentQueryApi({ session });
 }
 
@@ -102,7 +102,7 @@ async function callApi<T = unknown>(session_id: string, method: string, ...args:
  *  that needs healing AND when no other process holds the lock. */
 export async function withDuckDb<T>(dbPath: string, fn: (conn: any, backend: any) => Promise<T>): Promise<T> {
   const duckdb = await import("@duckdb/node-api");
-  const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
+  const { DuckDbQueryBackend } = await import("../ts-emulator/v2/duckdb-backend.js");
   const { ensureSpec726CompatLayer } = await import("../trace/trace-run-store.js");
   // Spec 746.x — LAZY-ON-READ: wait for an in-flight index, trust a present store,
   // or (re)build a missing one from the .c64retrace authority before opening — so a
@@ -220,10 +220,10 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
         const r = await runtimeDaemon.memoryAccessMap<{ tally: Record<string, number>; regions: any[] }>(session_id, cycles, classes, min_bytes);
         return renderMap(r.tally, r.regions);
       }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { MemoryAccessTracker } = await import("../runtime/headless/debug/memory-access-map.js");
+      const { MemoryAccessTracker } = await import("../ts-emulator/debug/memory-access-map.js");
       const t = new MemoryAccessTracker(session.c64Bus);
       t.attach();
       session.runFor(cycles, { cycleBudget: cycles });
@@ -417,7 +417,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       const gate = checkRuntimeDiscipline(hypothesis, { tool: "runtime_diff_snapshots", act: "diffing two machine snapshots" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const { readFileSync } = await import("node:fs");
-      const { diffSnapshots, formatDiff } = await import("../runtime/headless/v2/snapshot-diff.js");
+      const { diffSnapshots, formatDiff } = await import("../ts-emulator/v2/snapshot-diff.js");
       const a = new Uint8Array(readFileSync(a_path));
       const b = new Uint8Array(readFileSync(b_path));
       const diff = diffSnapshots(a, b, { enrich });
@@ -696,7 +696,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     safeHandler("runtime_swimlane_slice", async (args) => {
       // Spec 802 — the SLICE comes from the runtime (structured); the markdown
       // rendering stays here. Formatting a remote result is not a second reader.
-      const { renderMarkdown } = await import("../runtime/headless/v2/swimlane-render.js");
+      const { renderMarkdown } = await import("../ts-emulator/v2/swimlane-render.js");
       const slice = await daemonTraceRead<any>(
         "swimlane", args.duckdb_path,
         { run_id: args.run_id, cycle_start: args.cycle_start, cycle_end: args.cycle_end, compact: args.compact, focus: args.focus, nmi_vector: args.nmi_vector },
@@ -764,7 +764,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       min_confidence: z.number().default(0.5),
     },
     safeHandler("runtime_scan_fingerprints", async (args) => {
-      const { scanFingerprints } = await import("../runtime/headless/v2/fingerprint.js");
+      const { scanFingerprints } = await import("../ts-emulator/v2/fingerprint.js");
       const cleanHex = args.bytes_hex.replace(/[^0-9a-fA-F]/g, "");
       const bytes = new Uint8Array(cleanHex.length / 2);
       for (let i = 0; i < bytes.length; i++) {
@@ -793,7 +793,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       tags: z.array(z.string()).optional(),
     },
     safeHandler("runtime_bookmark_add", async (args) => {
-      const { addBookmark } = await import("../runtime/headless/v2/bookmarks.js");
+      const { addBookmark } = await import("../ts-emulator/v2/bookmarks.js");
       return withDuckDb(args.duckdb_path, async (_conn, backend) => {
         const id = await addBookmark(backend as any, {
           runId: args.run_id, cycle: args.cycle, label: args.label,
@@ -816,7 +816,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       cycle_end: z.number().optional(),
     },
     safeHandler("runtime_bookmark_list", async (args) => {
-      const { listBookmarks } = await import("../runtime/headless/v2/bookmarks.js");
+      const { listBookmarks } = await import("../ts-emulator/v2/bookmarks.js");
       return withDuckDb(args.duckdb_path, async (_conn, backend) => {
         const range = args.cycle_start !== undefined && args.cycle_end !== undefined ? [args.cycle_start, args.cycle_end] as [number, number] : undefined;
         const list = await listBookmarks(backend as any, args.run_id, range);
@@ -867,11 +867,11 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
         const r = await runtimeDaemon.call("audio/export", { session_id, out_path, duration_sec });
         return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
       }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { AudioExportSession } = await import("../runtime/headless/audio/sid-audio-recorder.js");
-      const { exportSessionAudio } = await import("../runtime/headless/audio/export.js");
+      const { AudioExportSession } = await import("../ts-emulator/audio/sid-audio-recorder.js");
+      const { exportSessionAudio } = await import("../ts-emulator/audio/export.js");
       const exp = new AudioExportSession(session as any, { sampleRate: 44100 });
       const r = exportSessionAudio(session as any, exp, out_path, duration_sec);
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
@@ -957,7 +957,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
         const result = await runtimeDaemon.mediaPersist(session_id, slot, role);
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
       if (role === "cartridge") {
@@ -969,7 +969,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
         const result = persistCartridgeToFile(bus?.getCartridge?.(), cartPath);
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }
-      const { persistMountedDiskToFile } = await import("../runtime/headless/media/mount.js");
+      const { persistMountedDiskToFile } = await import("../ts-emulator/media/mount.js");
       const result = persistMountedDiskToFile(session);
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }),
@@ -1010,11 +1010,11 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       if (isDaemonMode()) {
         result = await runtimeDaemon.swapDiskAndContinue(session_id, abs, { confirm_input, settle_cycles, post_cycles });
       } else {
-        const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+        const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
         const session = getIntegratedSession(session_id);
         if (!session) throw new Error(`No integrated session ${session_id}`);
-        const { RuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
-        const { swapDiskAndContinue } = await import("../runtime/headless/media/swap-and-continue.js");
+        const { RuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
+        const { swapDiskAndContinue } = await import("../ts-emulator/media/swap-and-continue.js");
         const ctrl = new RuntimeController(session_id, session, () => {});
         try {
           result = await swapDiskAndContinue(ctrl, { path: abs, confirmInput: confirm_input, settleCycles: settle_cycles, postCycles: post_cycles });
@@ -1031,7 +1031,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "ADVANCED. Use to parse a legacy `vicerc` emulator config and read its joystick keyset bindings (KeySet2*, JoyDevice2), to bootstrap a c64re config from pre-existing settings. Not for the c64re config file (use runtime_input_load_config) or saving (use runtime_input_save_config).",
     { vicerc_path: z.string().optional() },
     safeHandler("runtime_input_load_vicerc", async ({ vicerc_path }) => {
-      const { loadVicerc } = await import("../runtime/headless/input/vicerc-loader.js");
+      const { loadVicerc } = await import("../ts-emulator/input/vicerc-loader.js");
       const cfg = loadVicerc(vicerc_path);
       return { content: [{ type: "text", text: JSON.stringify(cfg, null, 2) }] };
     }),
@@ -1045,7 +1045,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       vicerc_path: z.string().optional(),
     },
     safeHandler("runtime_input_load_config", async ({ config_path, vicerc_path }) => {
-      const { loadInputConfig } = await import("../runtime/headless/input/input-config.js");
+      const { loadInputConfig } = await import("../ts-emulator/input/input-config.js");
       const cfg = loadInputConfig({ configPath: config_path, vicercPath: vicerc_path });
       return { content: [{ type: "text", text: JSON.stringify(cfg, null, 2) }] };
     }),
@@ -1071,7 +1071,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       config_path: z.string().optional(),
     },
     safeHandler("runtime_input_save_config", async ({ config, config_path }) => {
-      const { saveInputConfig } = await import("../runtime/headless/input/input-config.js");
+      const { saveInputConfig } = await import("../ts-emulator/input/input-config.js");
       saveInputConfig(config as any, config_path);
       return { content: [{ type: "text", text: `Saved to ${config_path ?? "~/.config/c64re/joystick.json"}` }] };
     }),
@@ -1084,7 +1084,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "List scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. Returns summaries sorted by date.",
     {},
     safeHandler("runtime_scenario_list", async () => {
-      const { listScenarios } = await import("../runtime/headless/v2/scenario-registry.js");
+      const { listScenarios } = await import("../ts-emulator/v2/scenario-registry.js");
       const scenarios = listScenarios();
       return { content: [{ type: "text", text: JSON.stringify(scenarios, null, 2) }] };
     }),
@@ -1106,7 +1106,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       startSnapshot: z.string().optional().describe("VSF file path or omit for empty (scenario is a plan only)."),
     },
     safeHandler("runtime_scenario_save", async ({ id, diskPath, mode, cycleBudget, inputs, startSnapshot }) => {
-      const { saveScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const { saveScenario } = await import("../ts-emulator/v2/scenario-registry.js");
       const scenario: any = { id, diskPath, mode, cycleBudget, inputs, startSnapshot: startSnapshot ?? "" };
       const { filePath } = saveScenario(scenario);
       return { content: [{ type: "text", text: `saved to ${filePath}` }] };
@@ -1118,7 +1118,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Load a single scenario by id. Checks project dir first, then samples.",
     { id: z.string() },
     safeHandler("runtime_scenario_load", async ({ id }) => {
-      const { loadScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const { loadScenario } = await import("../ts-emulator/v2/scenario-registry.js");
       const s = loadScenario(id);
       if (!s) throw new Error(`scenario '${id}' not found`);
       return { content: [{ type: "text", text: JSON.stringify(s, null, 2) }] };
@@ -1130,7 +1130,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Delete a scenario JSON by id. Returns true if found and removed.",
     { id: z.string() },
     safeHandler("runtime_scenario_delete", async ({ id }) => {
-      const { deleteScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const { deleteScenario } = await import("../ts-emulator/v2/scenario-registry.js");
       const ok = deleteScenario(id);
       return { content: [{ type: "text", text: ok ? `deleted ${id}` : `${id} not found` }] };
     }),
@@ -1149,10 +1149,10 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
         const tree = await runtimeDaemon.snapshotTree(session_id);
         return { content: [{ type: "text", text: JSON.stringify(tree, null, 2) }] };
       }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { createAgentQueryApi } = await import("../runtime/headless/v2/agent-api.js");
+      const { createAgentQueryApi } = await import("../ts-emulator/v2/agent-api.js");
       const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: session.diskPath || session_id, mode: "true-drive" });
       const rm = api.beginRewindSession();
       const handle = rm.handle();
@@ -1179,10 +1179,10 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
         const r = await runtimeDaemon.promoteBranch(session_id, branch_id);
         return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
       }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { createAgentQueryApi } = await import("../runtime/headless/v2/agent-api.js");
+      const { createAgentQueryApi } = await import("../ts-emulator/v2/agent-api.js");
       const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: session.diskPath || session_id, mode: "true-drive" });
       const rm = api.beginRewindSession();
       const { scenarioId, scenario, patches } = rm.promoteBranch(branch_id);
@@ -1195,8 +1195,8 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Replay a saved scenario by id, returns ReplayResult hashes.",
     { id: z.string() },
     safeHandler("runtime_run_scenario", async ({ id }) => {
-      const { loadScenario } = await import("../runtime/headless/v2/scenario-registry.js");
-      const { runScenario } = await import("../runtime/headless/v2/scenario.js");
+      const { loadScenario } = await import("../ts-emulator/v2/scenario-registry.js");
+      const { runScenario } = await import("../ts-emulator/v2/scenario.js");
       const s = loadScenario(id);
       if (!s) throw new Error(`scenario '${id}' not found`);
       const scenario: any = {
@@ -1220,8 +1220,8 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       worker_count: z.number().int().min(1).optional(),
     },
     safeHandler("runtime_run_scenarios_parallel", async ({ scenario_ids, worker_count }) => {
-      const { WorkerPool, resolveWorkerCount } = await import("../runtime/headless/parallel/scenario-pool.js");
-      const { createBatch, updateProgress, completeBatch, failBatch, serialiseBatch } = await import("../runtime/headless/parallel/batch-store.js");
+      const { WorkerPool, resolveWorkerCount } = await import("../ts-emulator/parallel/scenario-pool.js");
+      const { createBatch, updateProgress, completeBatch, failBatch, serialiseBatch } = await import("../ts-emulator/parallel/batch-store.js");
 
       const n = resolveWorkerCount(scenario_ids.length, worker_count);
       const entry = createBatch(scenario_ids, n);
@@ -1248,7 +1248,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Poll progress of a parallel batch. Returns completed / total and status.",
     { batch_id: z.string() },
     safeHandler("runtime_batch_status", async ({ batch_id }) => {
-      const { getBatch, serialiseBatch } = await import("../runtime/headless/parallel/batch-store.js");
+      const { getBatch, serialiseBatch } = await import("../ts-emulator/parallel/batch-store.js");
       const entry = getBatch(batch_id);
       if (!entry) throw new Error(`batch '${batch_id}' not found`);
       return { content: [{ type: "text", text: JSON.stringify(serialiseBatch(entry), null, 2) }] };
@@ -1260,7 +1260,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Collect ReplayResult per scenario once batch is done. Errors per-scenario included.",
     { batch_id: z.string() },
     safeHandler("runtime_batch_results", async ({ batch_id }) => {
-      const { getBatch, serialiseBatch, serialiseResults } = await import("../runtime/headless/parallel/batch-store.js");
+      const { getBatch, serialiseBatch, serialiseResults } = await import("../ts-emulator/parallel/batch-store.js");
       const entry = getBatch(batch_id);
       if (!entry) throw new Error(`batch '${batch_id}' not found`);
       if (entry.status === "running") throw new Error(`batch '${batch_id}' still running (${entry.completed}/${entry.total})`);
@@ -1283,7 +1283,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       at_cycle: z.number().optional(),
     },
     safeHandler("runtime_export_screenshot", async ({ scenario_id, out_path, scale, at_cycle }) => {
-      const { exportScreenshot } = await import("../runtime/headless/export/screenshot.js");
+      const { exportScreenshot } = await import("../ts-emulator/export/screenshot.js");
       const result = await exportScreenshot(scenario_id, out_path, {
         scale: scale as 1 | 2 | 4,
         atCycle: at_cycle,
@@ -1302,7 +1302,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       scale: z.union([z.literal(1), z.literal(2), z.literal(4)]).optional().default(1),
     },
     safeHandler("runtime_export_video", async ({ scenario_id, out_path, duration, scale }) => {
-      const { exportVideo } = await import("../runtime/headless/export/video.js");
+      const { exportVideo } = await import("../ts-emulator/export/video.js");
       const result = await exportVideo(scenario_id, out_path, {
         duration,
         scale: scale as 1 | 2 | 4,
@@ -1321,7 +1321,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       format: z.enum(["wav"]).optional().default("wav"),
     },
     safeHandler("runtime_export_audio", async ({ scenario_id, out_path, duration }) => {
-      const { exportScenarioAudio } = await import("../runtime/headless/export/audio-export.js");
+      const { exportScenarioAudio } = await import("../ts-emulator/export/audio-export.js");
       const result = await exportScenarioAudio(scenario_id, out_path, { duration });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }),
@@ -1345,9 +1345,9 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
         const r = await runtimeDaemon.vicInspectAt(session_id, x, y, checkpoint_id);
         return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
       }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-      const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
-      const { buildVicInspectSnapshot, resolveNodeAt } = await import("../runtime/headless/inspect/vic-inspect.js");
+      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
+      const { ensureRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
+      const { buildVicInspectSnapshot, resolveNodeAt } = await import("../ts-emulator/inspect/vic-inspect.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`no session ${session_id}`);
       const ctrl = ensureRuntimeController(session_id, session, () => {});

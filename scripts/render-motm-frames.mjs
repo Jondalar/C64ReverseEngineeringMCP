@@ -5,7 +5,7 @@
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath, join } from "node:path";
-import { startIntegratedSession } from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession } from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/integrated-session-manager.js";
 
 const RUN_SEC = Number(process.env.RUN_SEC ?? 30);
 const RENDER_EVERY_CYC = Number(process.env.RENDER_EVERY_CYC ?? 985_248); // 1 PAL second

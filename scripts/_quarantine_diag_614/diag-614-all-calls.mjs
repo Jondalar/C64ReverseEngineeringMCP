@@ -2,10 +2,10 @@
 import { resolve as resolvePath } from "node:path";
 
 const { startIntegratedSession } = await import(
-  "../dist/runtime/headless/integrated-session-manager.js"
+  "../dist/ts-emulator/integrated-session-manager.js"
 );
 const { mountMedia } = await import(
-  "../dist/runtime/headless/media/mount.js"
+  "../dist/ts-emulator/media/mount.js"
 );
 
 globalThis.__drv_first_big_jump = { logged: false, entries: [], ring: [], regresses: [] };

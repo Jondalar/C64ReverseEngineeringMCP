@@ -13,8 +13,8 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import assert from "node:assert/strict";
 import { VsfWriter, readVsf, VSF_MAGIC_BYTES } from "../src/media-format/vsf-format.js";
-import { startDriveSession, stopDriveSession } from "../dist/runtime/headless/drive/drive-session-manager.js";
-import { saveDriveSessionVsf, loadDriveSessionVsf } from "../dist/runtime/headless/vsf/drive-vsf.js";
+import { startDriveSession, stopDriveSession } from "../dist/ts-emulator/drive/drive-session-manager.js";
+import { saveDriveSessionVsf, loadDriveSessionVsf } from "../dist/ts-emulator/vsf/drive-vsf.js";
 
 // ---- Test 1: VSF format round-trip ----
 {

@@ -8,7 +8,7 @@ import { resolve as resolvePath, join } from "node:path";
 import { existsSync, mkdirSync } from "node:fs";
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
-const { startIntegratedSession } = await import(`${repoRoot}/dist/runtime/headless/integrated-session-manager.js`);
+const { startIntegratedSession } = await import(`${repoRoot}/dist/ts-emulator/integrated-session-manager.js`);
 
 const GAMES = [
   { name: "motm", disk: "samples/motm.g64", waitSec: 45 },

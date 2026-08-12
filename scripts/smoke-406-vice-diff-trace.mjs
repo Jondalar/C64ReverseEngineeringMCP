@@ -51,7 +51,7 @@ const viceTracePath = arg("vice-trace", null);
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
 const { startIntegratedSession } = await import(
-  `${repoRoot}/dist/runtime/headless/integrated-session-manager.js`
+  `${repoRoot}/dist/ts-emulator/integrated-session-manager.js`
 );
 
 console.log(`smoke-406-vice-diff-trace (Spec 406 / docs/vice-c64-arch.md §12 step 27)`);
@@ -121,10 +121,10 @@ function captureSamples(label) {
       const vic = session.vic;
       const cia1 = session.cia1;
       // Field cites:
-      //  - vic.raster_y          : src/runtime/headless/vic/vic-ii-vice.ts:315
+      //  - vic.raster_y          : src/ts-emulator/vic/vic-ii-vice.ts:315
       //                            = VICE raster_y (vicii.c:vicii.raster.current_line)
       //  - vic.regs[0x19]        : VIC IRQ status latch ($D019)
-      //  - cia1.icrFlags         : src/runtime/headless/cia/cia6526-vice.ts:729
+      //  - cia1.icrFlags         : src/ts-emulator/cia/cia6526-vice.ts:729
       //                            = VICE irqflags & 0x1f (cia-core.c)
       samples.push({
         cycle: cpu.cycles - startCycle,

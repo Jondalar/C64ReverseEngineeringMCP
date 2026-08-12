@@ -34,9 +34,9 @@ if (!disk || !existsSync(disk)) {
   process.exit(2);
 }
 
-const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
+const { startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
 const { OPCODE_TABLE } = await import("../dist/exomizer-ts/generated-opcodes.js");
-const { UNDOC_TABLE } = await import("../dist/runtime/headless/cpu/undoc-table.js");
+const { UNDOC_TABLE } = await import("../dist/ts-emulator/cpu/undoc-table.js");
 
 const { session } = startIntegratedSession({
   diskPath: disk,

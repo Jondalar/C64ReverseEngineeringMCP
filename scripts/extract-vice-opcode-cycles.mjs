@@ -4,7 +4,7 @@
 // is fragile. Instead we apply per-(addr-mode, op-class) templates
 // derived from VICE source + Lorenz cycle-perfect documentation.
 //
-// Output: src/runtime/headless/cpu/microcode-table.ts
+// Output: src/ts-emulator/cpu/microcode-table.ts
 //
 // Run: node scripts/extract-vice-opcode-cycles.mjs
 
@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const OUT_PATH = join(__dirname, '..', 'src', 'runtime', 'headless', 'cpu', 'microcode-table.ts');
+const OUT_PATH = join(__dirname, '..', 'src', 'ts-emulator', 'cpu', 'microcode-table.ts');
 
 // Bus access kinds per cycle.
 //

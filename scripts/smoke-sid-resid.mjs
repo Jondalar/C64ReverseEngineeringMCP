@@ -7,14 +7,14 @@ import { tmpdir } from "node:os";
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
 const { Resid, PAL_CLOCK_FREQ, DEFAULT_SAMPLE_RATE } =
-  await import(`${repoRoot}/dist/runtime/headless/sid/resid.js`);
-const { Sid6581 } = await import(`${repoRoot}/dist/runtime/headless/sid/sid.js`);
+  await import(`${repoRoot}/dist/ts-emulator/sid/resid.js`);
+const { Sid6581 } = await import(`${repoRoot}/dist/ts-emulator/sid/sid.js`);
 const { createSid, isAudioSid } =
-  await import(`${repoRoot}/dist/runtime/headless/sid/sid-engine.js`);
+  await import(`${repoRoot}/dist/ts-emulator/sid/sid-engine.js`);
 const { AudioRingBuffer, monoToStereoLR, int16ToLeBytes } =
-  await import(`${repoRoot}/dist/runtime/headless/audio/audio-buffer.js`);
+  await import(`${repoRoot}/dist/ts-emulator/audio/audio-buffer.js`);
 const { writeWav, readWav, buildWav, parseWav } =
-  await import(`${repoRoot}/dist/runtime/headless/audio/wav-writer.js`);
+  await import(`${repoRoot}/dist/ts-emulator/audio/wav-writer.js`);
 
 const results = [];
 function test(name, ok, detail = "") {

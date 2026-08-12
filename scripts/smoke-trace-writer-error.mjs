@@ -12,7 +12,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
 
-const { BinaryTraceLogWriter } = await import(`${ROOT}/dist/runtime/headless/trace/binary-log-writer.js`);
+const { BinaryTraceLogWriter } = await import(`${ROOT}/dist/ts-emulator/trace/binary-log-writer.js`);
 
 console.log("Spec 726.B — smoke-trace-writer-error (no-hang on worker error)\n");
 

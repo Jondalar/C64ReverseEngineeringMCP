@@ -15,7 +15,7 @@
 //
 // Exit 0 = PASS, 1 = FAIL.
 
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
 
 const results = [];
 function check(label, ok, detail) {

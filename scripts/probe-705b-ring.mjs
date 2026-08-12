@@ -18,12 +18,12 @@
 import {
   startIntegratedSession,
   stopIntegratedSession,
-} from "../dist/runtime/headless/integrated-session-manager.js";
+} from "../dist/ts-emulator/integrated-session-manager.js";
 import {
   RuntimeCheckpointRing,
   SLOT_BYTES,
-} from "../dist/runtime/headless/kernel/runtime-checkpoint-ring.js";
-import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
+} from "../dist/ts-emulator/kernel/runtime-checkpoint-ring.js";
+import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
 
 const failures = [];
 let passes = 0;

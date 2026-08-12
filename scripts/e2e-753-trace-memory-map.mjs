@@ -26,7 +26,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0; const fail = [];
 const ok = (n, c, d = "") => { if (c) { pass++; console.log(`  PASS  ${n}${d ? `  (${d})` : ""}`); } else { fail.push(n); console.log(`  FAIL  ${n}${d ? `  (${d})` : ""}`); } };
 
-if (!existsSync(join(ROOT, "dist/runtime/headless/integrated-session-manager.js"))) {
+if (!existsSync(join(ROOT, "dist/ts-emulator/integrated-session-manager.js"))) {
   console.error("build:mcp first"); process.exit(2);
 }
 
@@ -58,7 +58,7 @@ const prgPath = join(dir, "memfixture.prg");
 writeFileSync(prgPath, PRG);
 
 const { startIntegratedSession, stopIntegratedSession } =
-  await import("../dist/runtime/headless/integrated-session-manager.js");
+  await import("../dist/ts-emulator/integrated-session-manager.js");
 
 function loadFixture(session) {
   session.resetCold("pal-default");
@@ -99,7 +99,7 @@ console.log("Spec 753 — Part A: CPU bus-trace EA capture (incl indirect)\n");
 console.log("\nSpec 753 — Part B: bus_events (DuckDB) holds exact EAs + old_value\n");
 let storePathB, runIdB;
 {
-  const { ensureRuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js");
+  const { ensureRuntimeController } = await import("../dist/ts-emulator/debug/runtime-controller.js");
   const { captureAllDef } = await import("../dist/server-tools/runtime-trace-sink.js");
   const { session, sessionId } = startIntegratedSession({ enableBusAccessTrace: true });
   try {
@@ -138,7 +138,7 @@ let storePathB, runIdB;
 console.log("\nSpec 753 — Part C: gating (no `memory` domain → zero bus rows)\n");
 let storeNoMem;
 {
-  const { ensureRuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js");
+  const { ensureRuntimeController } = await import("../dist/ts-emulator/debug/runtime-controller.js");
   const { captureAllDef } = await import("../dist/server-tools/runtime-trace-sink.js");
   const { session, sessionId } = startIntegratedSession({ enableBusAccessTrace: true });
   let storeC;

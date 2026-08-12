@@ -15,9 +15,9 @@
 //      (producer ships nothing); after a change the gen differs (producer ships
 //      once).
 
-import { Vice1541Facade } from "../dist/runtime/headless/drive1541/vice1541-facade.js";
-import { collectMediumDescriptors } from "../dist/runtime/headless/recorder/medium-source.js";
-import { decodeCartMedium } from "../dist/runtime/headless/recorder/anchor-record.js";
+import { Vice1541Facade } from "../dist/ts-emulator/drive1541/vice1541-facade.js";
+import { collectMediumDescriptors } from "../dist/ts-emulator/recorder/medium-source.js";
+import { decodeCartMedium } from "../dist/ts-emulator/recorder/anchor-record.js";
 
 const failures = [];
 let passes = 0;

@@ -24,7 +24,7 @@ for (const a of process.argv.slice(2)) {
 let runLoadSmoke, DEFAULT_LOAD_SMOKE_TARGETS;
 try {
   ({ runLoadSmoke, DEFAULT_LOAD_SMOKE_TARGETS } = await import(
-    "../dist/runtime/headless/smoke/load-matrix.js"
+    "../dist/ts-emulator/smoke/load-matrix.js"
   ));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");

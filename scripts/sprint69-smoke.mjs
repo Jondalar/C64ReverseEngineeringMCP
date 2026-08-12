@@ -14,8 +14,8 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
-import { Cia6526Vice, ICR_TA, CIA_CRA, CIA_TALO, CIA_TAHI, CIA_ICR } from "../dist/runtime/headless/cia/cia6526-vice.js";
-import { alarmContextNew } from "../dist/runtime/headless/alarm/alarm-context.js";
+import { Cia6526Vice, ICR_TA, CIA_CRA, CIA_TALO, CIA_TAHI, CIA_ICR } from "../dist/ts-emulator/cia/cia6526-vice.js";
+import { alarmContextNew } from "../dist/ts-emulator/alarm/alarm-context.js";
 
 // Sprint 113 Phase 2 (Spec 146): Cia6526Vice is alarm-driven. Smoke
 // helper owns the simulated CPU clock and bumps it before tick(N) so
@@ -74,7 +74,7 @@ function makeSmokeCia() {
   if (!existsSync(candidate)) {
     console.log("  (jiffy test skipped — no sample G64)");
   } else {
-    const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
+    const { startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
     const { session } = startIntegratedSession({ diskPath: candidate });
     session.resetCold();
     session.runFor(2_000_000);
@@ -100,7 +100,7 @@ function makeSmokeCia() {
   const samples = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/samples";
   const candidate = join(samples, "maniac_mansion_s1[activision_1987](german)(manual)(!).g64");
   if (existsSync(candidate)) {
-    const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
+    const { startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
     const { session } = startIntegratedSession({ diskPath: candidate });
     assert.equal(session.enableKernalFileIoTraps, false, "default = traps off");
     const { session: trapped } = startIntegratedSession({ diskPath: candidate, enableKernalFileIoTraps: true });

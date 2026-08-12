@@ -32,7 +32,7 @@
 // well within the steppable range.
 
 import { G64Parser } from "../dist/disk/g64-parser.js";
-import { HeadPosition } from "../dist/runtime/headless/drive/head-position.js";
+import { HeadPosition } from "../dist/ts-emulator/drive/head-position.js";
 
 const results = [];
 function check(label, cond, detail) {

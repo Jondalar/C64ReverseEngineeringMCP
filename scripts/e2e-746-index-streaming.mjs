@@ -21,9 +21,9 @@ const dir = mkdtempSync(join(tmpdir(), "c64re-746idx-"));
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
 
-const { startIntegratedSession, stopIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
-const { RuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js");
-const { TraceRunController } = await import("../dist/runtime/headless/trace/trace-run.js");
+const { startIntegratedSession, stopIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
+const { RuntimeController } = await import("../dist/ts-emulator/debug/runtime-controller.js");
+const { TraceRunController } = await import("../dist/ts-emulator/trace/trace-run.js");
 const { ensureIndex } = await import("../src/trace/background-indexer.js");
 const { openTraceRunStore, queryTraceRunStore, closeTraceRunStore } = await import("../src/trace/trace-run-store.js");
 

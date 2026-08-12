@@ -26,8 +26,8 @@ import { existsSync } from "node:fs";
 let DriveCpu;
 let loadDriveRom;
 try {
-  ({ DriveCpu } = await import("../dist/runtime/headless/drive/drive-cpu.js"));
-  ({ loadDriveRom } = await import("../dist/runtime/headless/drive/drive-rom.js"));
+  ({ DriveCpu } = await import("../dist/ts-emulator/drive/drive-cpu.js"));
+  ({ loadDriveRom } = await import("../dist/ts-emulator/drive/drive-rom.js"));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

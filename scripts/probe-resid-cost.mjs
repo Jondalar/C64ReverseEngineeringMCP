@@ -8,8 +8,8 @@
 // Reports MIN ms/frame over batches (robust to a contended machine). The A→B
 // delta ≈ what audio costs the emulation pace → why audio-on drops 50→<48 fps.
 
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { SidAudioRecorder } from "../dist/runtime/headless/audio/sid-audio-recorder.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { SidAudioRecorder } from "../dist/ts-emulator/audio/sid-audio-recorder.js";
 
 const PAL_FRAME = 19705;
 const { session, sessionId } = startIntegratedSession({

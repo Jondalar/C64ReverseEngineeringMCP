@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { runAllInputFidelityTests } from "../dist/runtime/headless/c64/input-fidelity-tests.js";
+import { runAllInputFidelityTests } from "../dist/ts-emulator/c64/input-fidelity-tests.js";
 
 const r = runAllInputFidelityTests();
 console.log(`Input fidelity v1 — ${r.total} checks across ${r.details.length} suites`);

@@ -3,18 +3,18 @@
 //
 // Per OQ5: byte-exact comparison of each shipped palette against
 // hardcoded reference values (= the 16-RGB triples committed in
-// src/runtime/headless/vic/palettes.ts). Catches accidental mutation
+// src/ts-emulator/vic/palettes.ts). Catches accidental mutation
 // of palette data, palette-map key changes, default-key drift.
 //
 // Plus: palette-switching round-trip (set "6569r3", render BASIC ready,
 // verify pixel at (32, 91) matches 6569r3 RGB for the foreground char).
 
 import { resolve as resolvePath } from "node:path";
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
 
 const REPO = resolvePath(import.meta.dirname, "..");
 const { PALETTES, DEFAULT_PALETTE_KEY, getPalette, listPalettes } = await import(
-  `${REPO}/dist/runtime/headless/vic/palettes.js`
+  `${REPO}/dist/ts-emulator/vic/palettes.js`
 );
 
 let pass = 0, fail = 0;

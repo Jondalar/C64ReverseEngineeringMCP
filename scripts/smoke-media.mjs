@@ -36,9 +36,9 @@ let listFsRoots, browseDir, addRecent, getRecent, mountMedia, swapDisk, loadCart
 try {
   ({ listFsRoots, browseDir } = await import("../src/media-format/fs-browser.js"));
   ({ addRecent, getRecent } = await import("../src/media-format/recent-files.js"));
-  ({ mountMedia, swapDisk } = await import("../dist/runtime/headless/media/mount.js"));
-  ({ loadCartridgeMapper } = await import("../dist/runtime/headless/cartridge.js"));
-  ({ startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js"));
+  ({ mountMedia, swapDisk } = await import("../dist/ts-emulator/media/mount.js"));
+  ({ loadCartridgeMapper } = await import("../dist/ts-emulator/cartridge.js"));
+  ({ startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js"));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);
@@ -100,7 +100,7 @@ if (!existsSync(MOTM_PATH)) {
   console.log(`  [SKIP] mount motm.g64 — file not found at ${MOTM_PATH}`);
 } else {
   // Create an IntegratedSession — needs ROM. Fall back to checking for ROMs first.
-  const { loadAllC64Roms } = await import("../dist/runtime/headless/c64-rom.js");
+  const { loadAllC64Roms } = await import("../dist/ts-emulator/c64-rom.js");
   const roms = loadAllC64Roms();
   if (!roms.allRomsAvailable) {
     console.log("  [SKIP] mount motm.g64 — ROMs not available");
@@ -126,7 +126,7 @@ if (!existsSync(MOTM_PATH)) {
 if (!existsSync(MOTM_PATH) || !existsSync(MM_S2_PATH)) {
   console.log("  [SKIP] swap disk — files not found");
 } else {
-  const { loadAllC64Roms } = await import("../dist/runtime/headless/c64-rom.js");
+  const { loadAllC64Roms } = await import("../dist/ts-emulator/c64-rom.js");
   const roms = loadAllC64Roms();
   if (!roms.allRomsAvailable) {
     console.log("  [SKIP] swap disk — ROMs not available");

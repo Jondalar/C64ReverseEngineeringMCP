@@ -20,8 +20,8 @@
 // Doc cite: docs/vice-1541-arch.md §14 invariant 1.
 // VICE cite: src/drive/rotation.c L1106 `rotation_rotate_disk`.
 
-import { GcrShifter, ROTATION_WOBBLE_PRNG_SEED, ROT_SPEED_BPS, CYCLES_PER_BYTE_BY_ZONE } from "../dist/runtime/headless/drive/gcr-shifter.js";
-import { HeadPosition } from "../dist/runtime/headless/drive/head-position.js";
+import { GcrShifter, ROTATION_WOBBLE_PRNG_SEED, ROT_SPEED_BPS, CYCLES_PER_BYTE_BY_ZONE } from "../dist/ts-emulator/drive/gcr-shifter.js";
+import { HeadPosition } from "../dist/ts-emulator/drive/head-position.js";
 
 const results = [];
 function check(label, cond, detail) {

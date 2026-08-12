@@ -18,8 +18,8 @@ import { resolve as resolvePath } from "node:path";
 import {
   startIntegratedSession,
   stopIntegratedSession,
-} from "../dist/runtime/headless/integrated-session-manager.js";
-import { mountMedia } from "../dist/runtime/headless/media/mount.js";
+} from "../dist/ts-emulator/integrated-session-manager.js";
+import { mountMedia } from "../dist/ts-emulator/media/mount.js";
 
 const diskPath = resolvePath("samples/POLARBEAR.d64");
 

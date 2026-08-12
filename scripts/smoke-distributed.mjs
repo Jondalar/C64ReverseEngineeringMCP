@@ -31,8 +31,8 @@ function loadModule(path) {
 }
 
 const [poolMod, batchMod] = await Promise.all([
-  loadModule("dist/runtime/headless/parallel/scenario-pool.js"),
-  loadModule("dist/runtime/headless/parallel/batch-store.js"),
+  loadModule("dist/ts-emulator/parallel/scenario-pool.js"),
+  loadModule("dist/ts-emulator/parallel/batch-store.js"),
 ]);
 
 const { WorkerPool, resolveWorkerCount } = poolMod;

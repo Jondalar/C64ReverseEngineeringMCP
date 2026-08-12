@@ -9,12 +9,12 @@
 //      emit). B's PCM must be BYTE-IDENTICAL to A's — proving the ring carries
 //      everything the worker (768.2) needs to reproduce inline flush() exactly.
 
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { createAudioSid } from "../dist/runtime/headless/sid/sid-engine.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { createAudioSid } from "../dist/ts-emulator/sid/sid-engine.js";
 import {
   SidWriteRingProducer, SidWriteRingConsumer, createSidWriteRingSab,
   SID_REC_TYPE_WRITE, SID_REC_TYPE_BOUNDARY,
-} from "../dist/runtime/headless/audio/sid-write-ring.js";
+} from "../dist/ts-emulator/audio/sid-write-ring.js";
 
 const PAL_FRAME = 19705;
 const failures = [];

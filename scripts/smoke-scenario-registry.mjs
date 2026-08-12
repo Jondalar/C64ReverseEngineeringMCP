@@ -11,7 +11,7 @@ const repoRoot = resolvePath(import.meta.dirname, "..");
 let listScenarios, saveScenario, loadScenario, deleteScenario;
 try {
   ({ listScenarios, saveScenario, loadScenario, deleteScenario } = await import(
-    `${repoRoot}/dist/runtime/headless/v2/scenario-registry.js`
+    `${repoRoot}/dist/ts-emulator/v2/scenario-registry.js`
   ));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");

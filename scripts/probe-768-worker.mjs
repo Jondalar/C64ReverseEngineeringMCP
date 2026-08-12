@@ -11,10 +11,10 @@
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { createAudioSid } from "../dist/runtime/headless/sid/sid-engine.js";
-import { SidWriteRingProducer, createSidWriteRingSab } from "../dist/runtime/headless/audio/sid-write-ring.js";
-import { SidPcmRingConsumer, createSidPcmRingSab } from "../dist/runtime/headless/audio/sid-pcm-ring.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { createAudioSid } from "../dist/ts-emulator/sid/sid-engine.js";
+import { SidWriteRingProducer, createSidWriteRingSab } from "../dist/ts-emulator/audio/sid-write-ring.js";
+import { SidPcmRingConsumer, createSidPcmRingSab } from "../dist/ts-emulator/audio/sid-pcm-ring.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PAL_FRAME = 19705;
@@ -66,7 +66,7 @@ try {
   const totalRecords = prod.headCount();
 
   // spawn the worker; it drains the write-ring + renders into the PCM ring
-  const worker = new Worker(resolve(here, "../dist/runtime/headless/audio/resid-worker.js"), {
+  const worker = new Worker(resolve(here, "../dist/ts-emulator/audio/resid-worker.js"), {
     workerData: { writeRingSab: wsab, writeLayout: wlayout, pcmRingSab: psab, pcmLayout: plLayout, engine: "resid-wasm", initialRegs },
   });
   await new Promise((res, rej) => {

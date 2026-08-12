@@ -4,8 +4,8 @@
 // the KEY proof is that a restore rolls RAM back so the prior patch is undone —
 // that's what makes iterating a fix from a fixed point work.
 
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
 
 const failures = [];
 let passes = 0;

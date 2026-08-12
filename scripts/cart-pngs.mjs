@@ -1,6 +1,6 @@
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
-import { ingestMedia } from "../dist/runtime/headless/media/ingress.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
+import { ingestMedia } from "../dist/ts-emulator/media/ingress.js";
 import { readFileSync, existsSync } from "node:fs"; import { resolve } from "node:path";
 const carts = process.argv.slice(2).map(a => { const [file, out] = a.split("="); return { file, out }; });
 for (const c of carts) {

@@ -61,7 +61,7 @@ console.log(`  limit         : ${limit}`);
 console.log(`  out           : ${outPath}`);
 
 // Use IecBusCore for replay.
-const { IecBusCore } = await import(`${repoRoot}/dist/runtime/headless/iec/iec-bus-core.js`);
+const { IecBusCore } = await import(`${repoRoot}/dist/ts-emulator/iec/iec-bus-core.js`);
 
 const duck = await import("@duckdb/node-api");
 const inst = await duck.DuckDBInstance.create(":memory:");

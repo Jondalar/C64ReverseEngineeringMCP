@@ -21,7 +21,7 @@ let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
 
 const { startIntegratedSession, stopIntegratedSession } =
-  await import(`${ROOT}/dist/runtime/headless/integrated-session-manager.js`);
+  await import(`${ROOT}/dist/ts-emulator/integrated-session-manager.js`);
 
 function finalState(traceOpts) {
   const { sessionId, session } = startIntegratedSession({
@@ -62,8 +62,8 @@ const TRACE_OUT = `${ROOT}/.tmp/smoke-trace-sink/trace.duckdb`;
 try { rmSync(`${ROOT}/.tmp/smoke-trace-sink`, { recursive: true, force: true }); } catch {}
 
 const sink = await import(`${ROOT}/dist/server-tools/runtime-trace-sink.js`);
-const { ensureRuntimeController } = await import(`${ROOT}/dist/runtime/headless/debug/runtime-controller.js`);
-const store = await import(`${ROOT}/dist/runtime/headless/trace/trace-run-store.js`);
+const { ensureRuntimeController } = await import(`${ROOT}/dist/ts-emulator/debug/runtime-controller.js`);
+const store = await import(`${ROOT}/dist/ts-emulator/trace/trace-run-store.js`);
 
 // Traced run — mirror the tool wiring: producers on, start trace, chunked run +
 // drain, mark, finalize.
@@ -158,8 +158,8 @@ const sql = await q.safeQuery(TRACE_OUT,
 ok(Number(sql[0][0]) > 0, "safeQuery: KERNAL-range cpu event count > 0 (726 schema)", `kernel pcs=${sql[0][0]}`);
 
 // runtime_query_events backend path (Spec 232 → Spec-217 reader).
-const { DuckDbQueryBackend } = await import(`${ROOT}/dist/runtime/headless/v2/duckdb-backend.js`);
-const { queryEvents } = await import(`${ROOT}/dist/runtime/headless/v2/query-events.js`);
+const { DuckDbQueryBackend } = await import(`${ROOT}/dist/ts-emulator/v2/duckdb-backend.js`);
+const { queryEvents } = await import(`${ROOT}/dist/ts-emulator/v2/query-events.js`);
 const duckdb = await import("@duckdb/node-api");
 const inst = await duckdb.DuckDBInstance.create(TRACE_OUT);
 const conn = await inst.connect();

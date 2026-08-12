@@ -15,7 +15,7 @@ import { WebSocket } from "ws";
 import { spawn, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve as resolvePath, dirname } from "node:path";
-import { resolveDaemonSpawn } from "../runtime/headless/daemon/resolve-daemon-spawn.js";
+import { resolveDaemonSpawn } from "../ts-emulator/daemon/resolve-daemon-spawn.js";
 import { EXPECTED_RUNTIME_PROTOCOL, parseRuntimeProtocol, runtimeSetupRecipe } from "./runtime-setup-recipe.js";
 
 /** The product Runtime Daemon always listens here unless overridden. The UI

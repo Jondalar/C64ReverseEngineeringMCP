@@ -22,7 +22,7 @@
 //
 // Exit 0 = PASS, 1 = FAIL.
 
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
 
 const results = [];
 function check(label, ok, detail) {
@@ -66,7 +66,7 @@ check("(f) VIA1 PRB regression: bits 1/3/4 high",
   via1PrbRead !== -1 && (via1PrbRead & 0x1a) === 0x1a, `prbRead=$${via1PrbRead.toString(16)}`);
 
 // VIA2 PB read VICE shape regression (BUS_READ_DELAY=14 + composed byte $7f)
-const rot = await import("../dist/runtime/headless/vice1541/rotation.js");
+const rot = await import("../dist/ts-emulator/vice1541/rotation.js");
 if (via2) via2.write(0x02, 0x00); // DDRB=0 for input read
 if (drv) drv.byteReadyLevel = 1;
 rot.__resetRotationStubCounters();

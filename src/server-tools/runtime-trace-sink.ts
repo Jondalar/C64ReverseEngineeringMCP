@@ -4,7 +4,7 @@
 // enable the matching passive producers, stream to a project-resolved
 // trace.duckdb. ONE production path (§2b); no parallel trace system.
 import { resolve, isAbsolute, join } from "node:path";
-import type { IntegratedSession } from "../runtime/headless/integrated-session.js";
+import type { IntegratedSession } from "../ts-emulator/integrated-session.js";
 import type {
   RuntimeTraceDefinition, TraceDomain, TraceTrigger, TraceCapture,
 } from "../trace/trace-definition.js";
@@ -71,7 +71,7 @@ export function resolveTraceOut(traceOut: string, projectDir: string | undefined
 export async function startSessionTrace(
   sessionId: string, session: IntegratedSession, traceOut: string, domains: TraceDomain[],
 ): Promise<{ runId: string; outputPath: string; domains: TraceDomain[] }> {
-  const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+  const { ensureRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
   const ctrl = ensureRuntimeController(sessionId, session, () => {});
   const def = captureAllDef(domains);
   // Spec 726.B — the live product trace uses the binary `.c64retrace` timeline
@@ -83,13 +83,13 @@ export async function startSessionTrace(
 
 /** True if a streaming trace run is active for the session. */
 export async function sessionTraceActive(sessionId: string): Promise<boolean> {
-  const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+  const { getRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
   return getRuntimeController(sessionId)?.traceRun.isActive() ?? false;
 }
 
 /** Flush the trace queue to DuckDB (called between run-chunks; emulator paused). */
 export async function drainSessionTrace(sessionId: string): Promise<void> {
-  const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+  const { getRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
   const ctrl = getRuntimeController(sessionId);
   if (ctrl?.traceRun.isActive()) await ctrl.traceRun.drain();
 }

@@ -22,7 +22,7 @@ if (!existsSync(disk)) { console.error(`disk not found: ${disk}`); process.exit(
 let startIntegratedSession;
 try {
   ({ startIntegratedSession } = await import(
-    "../dist/runtime/headless/integrated-session-manager.js"
+    "../dist/ts-emulator/integrated-session-manager.js"
   ));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");

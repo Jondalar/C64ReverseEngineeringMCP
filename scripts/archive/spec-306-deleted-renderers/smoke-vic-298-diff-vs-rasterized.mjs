@@ -8,7 +8,7 @@ import { resolve as resolvePath } from "node:path";
 import { writeFileSync, readFileSync, mkdirSync } from "node:fs";
 
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
-const { startIntegratedSession } = await import(`${REPO}/dist/runtime/headless/integrated-session-manager.js`);
+const { startIntegratedSession } = await import(`${REPO}/dist/ts-emulator/integrated-session-manager.js`);
 
 const args = process.argv.slice(2);
 const scenario = args[0] || "ready";

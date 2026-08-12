@@ -8,7 +8,7 @@ import { resolve as resolvePath, join, basename } from "node:path";
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
 const { startIntegratedSession } = await import(
-  `${repoRoot}/dist/runtime/headless/integrated-session-manager.js`
+  `${repoRoot}/dist/ts-emulator/integrated-session-manager.js`
 );
 
 const GAMES = [

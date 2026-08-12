@@ -2,10 +2,10 @@
 // Spec 703.2 — build the reSID audio engine to WASM.
 //
 // Compiles the vendored GPL reSID C++ (third_party/resid/) plus our flat-C
-// shim (src/runtime/headless/sid/wasm/resid_shim.cc) into a committed,
+// shim (src/ts-emulator/sid/wasm/resid_shim.cc) into a committed,
 // portable WASM module. Maintainer-only: the OUTPUT is committed to git so a
 // plain checkout / npm install needs no emscripten. See
-// src/runtime/headless/sid/wasm/README.md.
+// src/ts-emulator/sid/wasm/README.md.
 //
 // Usage:
 //   npm run build:resid-wasm
@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const RESID_SRC = join(ROOT, "third_party", "resid");
-const WASM_DIR = join(ROOT, "src", "runtime", "headless", "sid", "wasm");
+const WASM_DIR = join(ROOT, "src", "ts-emulator", "sid", "wasm");
 const SHIM = join(WASM_DIR, "resid_shim.cc");
 const OUT = join(WASM_DIR, "resid.mjs"); // emscripten emits resid.mjs + resid.wasm
 
@@ -136,5 +136,5 @@ for (const f of [OUT, wasm]) {
 }
 console.log(
   "[build-resid-wasm] done. Commit the two artifacts:\n" +
-    "  git add src/runtime/headless/sid/wasm/resid.mjs src/runtime/headless/sid/wasm/resid.wasm",
+    "  git add src/ts-emulator/sid/wasm/resid.mjs src/ts-emulator/sid/wasm/resid.wasm",
 );

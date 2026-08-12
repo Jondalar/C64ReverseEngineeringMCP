@@ -4,7 +4,7 @@
 
 import { resolve as resolvePath } from "node:path";
 const REPO = resolvePath(import.meta.dirname, "..");
-const m = await import(`${REPO}/dist/runtime/headless/vic/renderer-2pass.js`);
+const m = await import(`${REPO}/dist/ts-emulator/vic/renderer-2pass.js`);
 
 let pass = 0, fail = 0;
 function check(name, ok, detail = "") {
@@ -28,7 +28,7 @@ check("drawExtTextForeground exported (mode 4)",
   typeof m.drawExtTextForeground === "function");
 
 // 2. drawBackgroundSeg fills span correctly.
-const { VicFramebuffer } = await import(`${REPO}/dist/runtime/headless/peripherals/vic-renderer.js`);
+const { VicFramebuffer } = await import(`${REPO}/dist/ts-emulator/peripherals/vic-renderer.js`);
 const fb = new VicFramebuffer(true);
 m.drawBackgroundSeg(fb, 100, 50, 100, 6); // bg color $06 (blue)
 
@@ -43,10 +43,10 @@ check("drawBackgroundSeg fills RGB at center pixel",
 //   pass 1: bg pass fills color 0 (black) across [32..39]
 //   pass 2: std-text fg pass overdraws fg pixels
 const { startIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`
 );
 const { initStateFromVic } = await import(
-  `${REPO}/dist/runtime/headless/vic/raster-state.js`
+  `${REPO}/dist/ts-emulator/vic/raster-state.js`
 );
 
 const { session } = startIntegratedSession({

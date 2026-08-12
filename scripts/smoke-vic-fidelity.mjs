@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Spec 105 (M2.3) v1 — VIC fidelity smoke.
 
-import { runAllVicFidelityTests } from "../dist/runtime/headless/c64/vic-fidelity-tests.js";
+import { runAllVicFidelityTests } from "../dist/ts-emulator/c64/vic-fidelity-tests.js";
 
 const r = runAllVicFidelityTests();
 console.log(`VIC fidelity v1 — ${r.total} checks across ${r.details.length} suites`);

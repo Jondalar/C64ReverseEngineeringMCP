@@ -21,7 +21,7 @@ const verbose = process.argv.includes("--verbose");
 let extractRoutinesFromRomFile;
 try {
   ({ extractRoutinesFromRomFile } = await import(
-    `${repoRoot}/dist/runtime/headless/v2/fingerprint-extractor.js`
+    `${repoRoot}/dist/ts-emulator/v2/fingerprint-extractor.js`
   ));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");

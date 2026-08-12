@@ -31,8 +31,8 @@ import {
   alarmNew,
   alarmSet,
   alarmUnset,
-} from "../dist/runtime/headless/alarm/alarm-context.js";
-import { Cpu65xxVice } from "../dist/runtime/headless/cpu/cpu65xx-vice.js";
+} from "../dist/ts-emulator/alarm/alarm-context.js";
+import { Cpu65xxVice } from "../dist/ts-emulator/cpu/cpu65xx-vice.js";
 
 // --- Tracing memory: minimal CpuMemory shim. ---
 function makeRam() {

@@ -2,7 +2,7 @@
 // Spec 724.3 — ONE workspace bootstrap. Resolves the project dir ONCE and
 // starts both backends with it:
 //   - HTTP (knowledge API + UI)  : dist/workspace-ui/server.js  (:4310)
-//   - WS   (live runtime)        : dist/runtime/headless/daemon/run.js  (:4312)
+//   - WS   (live runtime)        : dist/ts-emulator/daemon/run.js  (:4312)
 // Usage: npm run workspace -- --project <dir> [--dev-samples] [--port <http>]
 // No cwd fallback — a project path is required (usable outside the C64RE repo).
 
@@ -66,7 +66,7 @@ if (process.env.C64RE_RUNTIME_ENDPOINT || process.env.C64RE_RUNTIME_WS) {
   // TRX64, else built dist). It re-derives --project/--port itself so the external bin
   // never receives the TS-only --dev-samples flag.
   const { resolveDaemonSpawn } = await import(
-    `${repoRoot}/dist/runtime/headless/daemon/resolve-daemon-spawn.js`
+    `${repoRoot}/dist/ts-emulator/daemon/resolve-daemon-spawn.js`
   );
   const plan = resolveDaemonSpawn({ repoRoot, projectDir, port: "4312", devSamples });
   if (plan.warn) console.warn(`[workspace] ${plan.warn}`);

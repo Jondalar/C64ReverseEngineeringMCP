@@ -14,12 +14,12 @@ const OUT = `${REPO}/samples/screenshots/vic-bugs/scramble-diff`;
 mkdirSync(OUT, { recursive: true });
 
 const { startIntegratedSession, stopIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`);
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`);
 const LIT_TYPES = await import(
-  `${REPO}/dist/runtime/headless/vic/literal/vicii-types.js`);
+  `${REPO}/dist/ts-emulator/vic/literal/vicii-types.js`);
 
 // === Use new VICE VSF loader ===
-const { loadViceVsf } = await import(`${REPO}/dist/runtime/headless/vsf/vice-vsf-load.js`);
+const { loadViceVsf } = await import(`${REPO}/dist/ts-emulator/vsf/vice-vsf-load.js`);
 
 // VSF parser (verified working w/ motm earlier)
 function parseVsf(path) {
@@ -137,7 +137,7 @@ for (const stage of stages) {
   // vicii_cycle() (= bypass VicIIVice.tick which may not fire onCycle
   // hook in all paths). Capture dbuf into literalPortFb manually.
   console.log(`Driving literal port directly (1 frame)...`);
-  const LIT_CYCLE = await import(`${REPO}/dist/runtime/headless/vic/literal/vicii-cycle.js`);
+  const LIT_CYCLE = await import(`${REPO}/dist/ts-emulator/vic/literal/vicii-cycle.js`);
   const FB_W = 65 * 8;
   const fb = s.literalPortFb;
   let lastLine = LIT_TYPES.vicii.raster_line;

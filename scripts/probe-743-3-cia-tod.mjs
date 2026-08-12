@@ -3,9 +3,9 @@
 // (Ciat.setAlarm) and TOD scheduling must NOT u32-truncate an absolute clk > 2^32
 // (which would place the alarm BEFORE the current clk → drainAlarms spin = BUG-025).
 // Timer COUNTERS (cnt/latch) stay 16-bit — checked separately.
-import { Ciat, CIAT_CR_START, CIAT_PHI2IN } from "../dist/runtime/headless/cia/ciat.js";
-import { makeTodState, todReset, todTickCallback, CIA_CRA_TODIN_50HZ } from "../dist/runtime/headless/cia/cia-tod.js";
-import { CLOCK_NEVER } from "../dist/runtime/headless/util/uint.js";
+import { Ciat, CIAT_CR_START, CIAT_PHI2IN } from "../dist/ts-emulator/cia/ciat.js";
+import { makeTodState, todReset, todTickCallback, CIA_CRA_TODIN_50HZ } from "../dist/ts-emulator/cia/cia-tod.js";
+import { CLOCK_NEVER } from "../dist/ts-emulator/util/uint.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };

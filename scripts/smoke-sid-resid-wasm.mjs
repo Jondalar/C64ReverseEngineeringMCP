@@ -5,7 +5,7 @@
 // asserts: module loads, sample count tracks cycles, and the PCM is non-silent
 // with reasonable amplitude. Run: npm run smoke:sid-resid-wasm
 
-import { ResidWasm } from "../dist/runtime/headless/sid/resid-wasm-engine.js";
+import { ResidWasm } from "../dist/ts-emulator/sid/resid-wasm-engine.js";
 
 const PAL = 985248;
 const SR = 44100;

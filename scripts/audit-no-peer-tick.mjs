@@ -12,7 +12,7 @@
 // where <chip> is one of: c64Cpu, cpu, drive, cia1, cia2, via1, via2,
 //                         vic, sid, gcr*
 //
-// Allowlist: any file under src/runtime/headless/kernel/.
+// Allowlist: any file under src/ts-emulator/kernel/.
 //
 // Per-line override: append `// audit-ok: <reason>` to the offending
 // line. The reason text must be non-empty.
@@ -31,16 +31,16 @@ const SCAN_DIR = join(REPO_ROOT, "src");
 // internals, legacy non-integrated session helpers slated for
 // migration in later 200-series specs.
 const ALLOWLIST_PREFIXES = [
-  "src/runtime/headless/kernel/",
-  "src/runtime/headless/scheduler/",
-  "src/runtime/headless/drive/drive-cpu.ts",
-  "src/runtime/headless/drive/drive-session.ts",
-  "src/runtime/headless/session-manager.ts",
+  "src/ts-emulator/kernel/",
+  "src/ts-emulator/scheduler/",
+  "src/ts-emulator/drive/drive-cpu.ts",
+  "src/ts-emulator/drive/drive-session.ts",
+  "src/ts-emulator/session-manager.ts",
   // Spec 201-c5: chip implementations are kernel-internal. They expose
   // backends/callbacks that the kernel wires; standalone fixtures
   // (without a kernel) fall back to direct IecBusCore calls.
-  "src/runtime/headless/via/",
-  "src/runtime/headless/cia/",
+  "src/ts-emulator/via/",
+  "src/ts-emulator/cia/",
 ];
 
 const CHIP_NAMES = [
@@ -80,8 +80,8 @@ const FORBIDDEN_GLOBAL_PATTERNS = [
   {
     pattern: /\.executeToClock\s*\(/,
     allowedPrefixes: [
-      "src/runtime/headless/kernel/",
-      "src/runtime/headless/drive/drive-cpu.ts",
+      "src/ts-emulator/kernel/",
+      "src/ts-emulator/drive/drive-cpu.ts",
     ],
     label: "executeToClock",
   },

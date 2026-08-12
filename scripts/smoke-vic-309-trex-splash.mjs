@@ -9,9 +9,9 @@ import { mkdirSync, readFileSync } from "node:fs";
 
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 const { startIntegratedSession, stopIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`);
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`);
 const LIT_TYPES = await import(
-  `${REPO}/dist/runtime/headless/vic/literal/vicii-types.js`);
+  `${REPO}/dist/ts-emulator/vic/literal/vicii-types.js`);
 
 const OUT_DIR = `${REPO}/samples/screenshots/trex-spec-309`;
 mkdirSync(OUT_DIR, { recursive: true });
@@ -120,7 +120,7 @@ console.log(`vaddr_mask_phi2=$${v.vaddr_mask_phi2.toString(16)} vaddr_offset_phi
 
 // Trace D011/D016/D018 writes during 1 frame to confirm split firing
 console.log("\nMid-frame VIC write trace (1 PAL frame)...");
-const LIT_MEM = await import(`${REPO}/dist/runtime/headless/vic/literal/vicii-mem.js`);
+const LIT_MEM = await import(`${REPO}/dist/ts-emulator/vic/literal/vicii-mem.js`);
 const writes = [];
 let intercepting = false;
 const wrap = (reg) => ({

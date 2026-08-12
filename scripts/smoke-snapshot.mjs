@@ -14,9 +14,9 @@ if (!existsSync(disk)) { console.error(`fixture missing: ${disk}`); process.exit
 let startIntegratedSession, snapshotMod;
 try {
   ({ startIntegratedSession } = await import(
-    "../dist/runtime/headless/integrated-session-manager.js"
+    "../dist/ts-emulator/integrated-session-manager.js"
   ));
-  snapshotMod = await import("../dist/runtime/headless/snapshot.js");
+  snapshotMod = await import("../dist/ts-emulator/snapshot.js");
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

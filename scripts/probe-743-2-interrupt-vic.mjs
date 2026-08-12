@@ -2,9 +2,9 @@
 // across the old 32-bit boundary. Unit-level (CIA is 743.3).
 import {
   InterruptCpuStatus, CLOCK_MAX as INT_CLOCK_MAX,
-} from "../dist/runtime/headless/cpu/interrupt-cpu-status.js";
-import { VicIIVice } from "../dist/runtime/headless/vic/vic-ii-vice.js";
-import { alarmContextNew, alarmContextNextPendingClk } from "../dist/runtime/headless/alarm/alarm-context.js";
+} from "../dist/ts-emulator/cpu/interrupt-cpu-status.js";
+import { VicIIVice } from "../dist/ts-emulator/vic/vic-ii-vice.js";
+import { alarmContextNew, alarmContextNextPendingClk } from "../dist/ts-emulator/alarm/alarm-context.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };

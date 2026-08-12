@@ -13,10 +13,10 @@
 import { resolve as resolvePath } from "node:path";
 const REPO = resolvePath(import.meta.dirname, "..");
 const { startIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`
 );
 const { mcMask, MC_MASK_TABLE } = await import(
-  `${REPO}/dist/runtime/headless/vic/mc-mask-table.js`
+  `${REPO}/dist/ts-emulator/vic/mc-mask-table.js`
 );
 
 let pass = 0, fail = 0;

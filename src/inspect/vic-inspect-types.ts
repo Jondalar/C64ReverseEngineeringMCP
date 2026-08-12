@@ -1,4 +1,4 @@
-// src/runtime/headless/inspect/vic-inspect-types.ts
+// src/ts-emulator/inspect/vic-inspect-types.ts
 //
 // Spec 710 — frozen-VIC inspect types (builds on the Spec 702 model).
 //

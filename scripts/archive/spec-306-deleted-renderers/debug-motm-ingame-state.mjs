@@ -4,7 +4,7 @@
 
 import { resolve as resolvePath } from "node:path";
 const repoRoot = resolvePath(import.meta.dirname, "..");
-const { startIntegratedSession } = await import(`${repoRoot}/dist/runtime/headless/integrated-session-manager.js`);
+const { startIntegratedSession } = await import(`${repoRoot}/dist/ts-emulator/integrated-session-manager.js`);
 
 const diskPath = resolvePath(repoRoot, "samples/motm.g64");
 const { session } = startIntegratedSession({

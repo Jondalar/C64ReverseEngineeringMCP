@@ -47,12 +47,12 @@ async function measure(label, cmd, args, port) {
 
 const results = [];
 // node/dist (only if built)
-const distEntry = join(ROOT, "dist/runtime/headless/daemon/run.js");
+const distEntry = join(ROOT, "dist/ts-emulator/daemon/run.js");
 if (existsSync(distEntry)) results.push(await measure("node-dist", process.execPath, [distEntry, "--project", ROOT, "--port", "14770"], 14770));
 else results.push({ label: "node-dist", skipped: "dist not built" });
 // tsx-from-src
 const tsx = join(ROOT, "node_modules/.bin/tsx");
-const srcEntry = join(ROOT, "src/runtime/headless/daemon/run.ts");
+const srcEntry = join(ROOT, "src/ts-emulator/daemon/run.ts");
 results.push(await measure("tsx-src", tsx, [srcEntry, "--project", ROOT, "--port", "14771"], 14771));
 
 writeFileSync(join(ROOT, ".tmp/perf-tsx-vs-node.json"), JSON.stringify(results, null, 2));

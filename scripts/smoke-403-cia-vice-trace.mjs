@@ -48,9 +48,9 @@ import {
   CIA_CRB_INMODE_TA, CIA_CRB_ALARM_ALARM,
   CIA_IRQ_ACK1, CIA_IRQ_ACK0, CIA_IRQ_RAISE1, CIA_IRQ_RAISE0,
   CIA_IRQ_READ0, CIA_IRQ_READ1, CIA_IRQ_READ2,
-} from "../dist/runtime/headless/cia/cia6526-vice.js";
+} from "../dist/ts-emulator/cia/cia6526-vice.js";
 import { alarmContextNew, alarmContextDispatch, alarmContextNextPendingClk }
-  from "../dist/runtime/headless/alarm/alarm-context.js";
+  from "../dist/ts-emulator/alarm/alarm-context.js";
 
 const results = [];
 function check(label, cond, detail) {

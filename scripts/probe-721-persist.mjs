@@ -15,9 +15,9 @@ const MOTM = "/Users/alex/Development/C64/Cracking/Murder/motm.g64";
 
 let resolveVisualOrigin, extractSpriteCandidates, resolveVisibleNodeAt, persistAssetJoin, ProjectKnowledgeService;
 try {
-  ({ resolveVisualOrigin } = await import("../dist/runtime/headless/inspect/asset-origin.js"));
+  ({ resolveVisualOrigin } = await import("../dist/ts-emulator/inspect/asset-origin.js"));
   ({ extractSpriteCandidates } = await import("../src/inspect/asset-extract.js"));
-  ({ resolveVisibleNodeAt } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
+  ({ resolveVisibleNodeAt } = await import("../dist/ts-emulator/inspect/vic-inspect.js"));
   ({ persistAssetJoin } = await import("../dist/workspace-ui/asset-join-persist.js"));
   ({ ProjectKnowledgeService } = await import("../dist/project-knowledge/service.js"));
 } catch (e) {

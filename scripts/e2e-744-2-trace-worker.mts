@@ -7,7 +7,7 @@
 import { existsSync, statSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BinaryTraceLogWriter } from "../src/runtime/headless/trace/binary-log-writer.js";
+import { BinaryTraceLogWriter } from "../src/ts-emulator/trace/binary-log-writer.js";
 
 let pass = 0, fail = 0;
 const ok = (c: boolean, m: string, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };

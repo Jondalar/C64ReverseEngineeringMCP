@@ -28,7 +28,7 @@ const side = args.side ?? "diff";
 const armPc = parseInt(String(args["arm-pc"] ?? "07A1"), 16);
 
 if (side === "headless") {
-  const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
+  const { startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
   const { session } = startIntegratedSession({
     diskPath: join(repoRoot, "samples/motm.g64"),
     useCycleLockstep: true, useMicrocodedCpu: true,

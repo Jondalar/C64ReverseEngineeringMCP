@@ -19,8 +19,8 @@ const repoRoot = resolve(import.meta.dirname, "..");
 
 let rast, rend;
 try {
-  rast = await import(`${repoRoot}/dist/runtime/headless/peripherals/vic-renderer-rasterized.js`);
-  rend = await import(`${repoRoot}/dist/runtime/headless/peripherals/vic-renderer.js`);
+  rast = await import(`${repoRoot}/dist/ts-emulator/peripherals/vic-renderer-rasterized.js`);
+  rend = await import(`${repoRoot}/dist/ts-emulator/peripherals/vic-renderer.js`);
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

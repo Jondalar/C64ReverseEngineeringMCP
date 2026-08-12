@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { runAllSidFidelityTests } from "../dist/runtime/headless/c64/sid-fidelity-tests.js";
+import { runAllSidFidelityTests } from "../dist/ts-emulator/c64/sid-fidelity-tests.js";
 
 const r = runAllSidFidelityTests();
 console.log(`SID fidelity v1 — ${r.total} checks across ${r.details.length} suites`);

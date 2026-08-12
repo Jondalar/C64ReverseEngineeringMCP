@@ -4,8 +4,8 @@
 // restoreCheckpoint then=pause|run). Capture A, run forward, capture B; rewind to
 // A's cycle → machine is back at A (CPU/RAM); rewind to most-recent → B.
 
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
 
 const failures = [];
 let passes = 0;

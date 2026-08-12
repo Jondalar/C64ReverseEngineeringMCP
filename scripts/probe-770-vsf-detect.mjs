@@ -1,7 +1,7 @@
 // Spec 770.2 — verify runtime_load_vsf auto-detects a real VICE x64sc snapshot
 // (VIC-IISC module) vs a c64re-own VSF, dispatching to the right loader.
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { loadSessionVsf, saveSessionVsf } from "../dist/runtime/headless/vsf/session-vsf.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { loadSessionVsf, saveSessionVsf } from "../dist/ts-emulator/vsf/session-vsf.js";
 import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

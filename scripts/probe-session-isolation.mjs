@@ -16,8 +16,8 @@ import { readFileSync } from "node:fs";
 import { PNG } from "pngjs";
 const D = new URL("../dist", import.meta.url).pathname;
 const { startIntegratedSession, stopIntegratedSession, listIntegratedSessions } =
-  await import(`${D}/runtime/headless/integrated-session-manager.js`);
-const { runtimeSessions } = await import(`${D}/runtime/headless/runtime-session-service.js`);
+  await import(`${D}/ts-emulator/integrated-session-manager.js`);
+const { runtimeSessions } = await import(`${D}/ts-emulator/runtime-session-service.js`);
 
 const failures = []; let passes = 0;
 const gate = (n, ok, d) => { ok ? passes++ : failures.push(n); console.log(`  ${ok ? "PASS" : "RED "}  ${n}${d ? ` (${d})` : ""}`); };

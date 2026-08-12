@@ -5,9 +5,9 @@
 //   write:  writableGeneration advances on flash program (BUG-040 counter)
 import { readFileSync } from "node:fs";
 const D = new URL("../dist", import.meta.url).pathname;
-const { startIntegratedSession, stopIntegratedSession } = await import(`${D}/runtime/headless/integrated-session-manager.js`);
-const { RuntimeController } = await import(`${D}/runtime/headless/debug/runtime-controller.js`);
-const { ingestMedia } = await import(`${D}/runtime/headless/media/ingress.js`);
+const { startIntegratedSession, stopIntegratedSession } = await import(`${D}/ts-emulator/integrated-session-manager.js`);
+const { RuntimeController } = await import(`${D}/ts-emulator/debug/runtime-controller.js`);
+const { ingestMedia } = await import(`${D}/ts-emulator/media/ingress.js`);
 const SRC = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/samples/AccoladeComics_TRX+1D_EF.crt";
 
 const failures = []; let passes = 0;

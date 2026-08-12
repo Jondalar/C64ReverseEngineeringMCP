@@ -5,7 +5,7 @@
 // lands past completion WITHOUT an intervening flash access must still capture
 // erased data. Drives the REAL EasyFlash mapper (inferred from the CRT header,
 // no override) with a controllable clock.
-import { loadCartridgeMapperFromBytes } from "../dist/runtime/headless/cartridge.js";
+import { loadCartridgeMapperFromBytes } from "../dist/ts-emulator/cartridge.js";
 import { readFileSync } from "node:fs"; import { resolve } from "node:path";
 
 const bytes = new Uint8Array(readFileSync(resolve("samples/AccoladeComics_TRX+1D_EF.crt")));

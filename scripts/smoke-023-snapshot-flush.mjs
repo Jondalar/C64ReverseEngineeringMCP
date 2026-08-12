@@ -19,7 +19,7 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 
 console.log("BUG-023 acceptance — snapshot flushes dirty GCR into the embedded .d64\n");
 
-const dist = join(ROOT, "dist/runtime/headless");
+const dist = join(ROOT, "dist/ts-emulator");
 if (!existsSync(join(dist, "drive1541/vice1541-facade.js"))) { console.error("build:mcp first"); process.exit(2); }
 const { Vice1541Facade } = await import(join(dist, "drive1541/vice1541-facade.js"));
 const { write_next_bit } = await import(join(dist, "vice1541/rotation.js"));

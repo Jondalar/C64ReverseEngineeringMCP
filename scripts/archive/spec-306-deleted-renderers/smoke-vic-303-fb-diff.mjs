@@ -14,7 +14,7 @@ import { inflateSync } from "node:zlib";
 
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 const { startIntegratedSession, stopIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`);
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`);
 
 const OUT_DIR = `${REPO}/samples/screenshots/literal-port`;
 mkdirSync(OUT_DIR, { recursive: true });

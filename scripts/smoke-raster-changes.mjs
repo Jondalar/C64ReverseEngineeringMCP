@@ -3,7 +3,7 @@
 
 import { resolve } from "node:path";
 const repoRoot = resolve(import.meta.dirname, "..");
-const m = await import(`${repoRoot}/dist/runtime/headless/vic/raster-changes.js`);
+const m = await import(`${repoRoot}/dist/ts-emulator/vic/raster-changes.js`);
 
 const results = [];
 function test(name, ok, detail = "") {

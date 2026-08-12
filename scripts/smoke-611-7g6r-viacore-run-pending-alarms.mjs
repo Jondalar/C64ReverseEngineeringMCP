@@ -4,7 +4,7 @@
 // VICE source: src/core/viacore.c:660-662 viacore_store head
 //              + src/core/viacore.c:1068-1070 viacore_read head
 //              + src/core/viacore.c:517-530 run_pending_alarms helper
-// TS target:   src/runtime/headless/_quarantine_vice1541_v4/via6522.ts
+// TS target:   src/ts-emulator/_quarantine_vice1541_v4/via6522.ts
 //              private runPendingAlarmsAt(rclk, offset=0)
 //              + needsAlarmCatchUp(reg) gate (PRB + T1CL..IER)
 //              + call sites at read() / write() heads.
@@ -45,8 +45,8 @@ import assert from 'node:assert/strict';
 import {
   Via6522, IFR_T1, IFR_CA1,
   VIA_PRA, VIA_PRB, VIA_IFR, VIA_IER, VIA_T1CL, VIA_T1CH, VIA_T1LH,
-} from '../dist/runtime/headless/_quarantine_vice1541_v4/via6522.js';
-import { alarmContextNew } from '../dist/runtime/headless/alarm/alarm-context.js';
+} from '../dist/ts-emulator/_quarantine_vice1541_v4/via6522.js';
+import { alarmContextNew } from '../dist/ts-emulator/alarm/alarm-context.js';
 
 function makeVia({ clkPtr } = {}) {
   const backend = {
@@ -201,7 +201,7 @@ check('7g6r.4 strict > boundary: equal clk no dispatch; N+1 dispatches', () => {
 // Schedule alarm at known clk, call helper with non-zero offset,
 // observe callback's offset arg.
 import { alarmContextNew as ctxNew, alarmNew, alarmSet, alarmUnset }
-  from '../dist/runtime/headless/alarm/alarm-context.js';
+  from '../dist/ts-emulator/alarm/alarm-context.js';
 
 check('7g6r.6 runPendingAlarmsAt forwards (rclk + offset) to dispatch', () => {
   const ctx = ctxNew('smoke-7g6r6');

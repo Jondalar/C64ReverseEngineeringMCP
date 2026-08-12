@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { runAllVisualRuntimeTests } from "../dist/runtime/headless/c64/visual-runtime-tests.js";
+import { runAllVisualRuntimeTests } from "../dist/ts-emulator/c64/visual-runtime-tests.js";
 
 const r = runAllVisualRuntimeTests();
 console.log(`Visual runtime v1 — ${r.total} checks across ${r.details.length} suites`);

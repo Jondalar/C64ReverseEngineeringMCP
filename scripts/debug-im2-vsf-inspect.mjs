@@ -1,6 +1,6 @@
 // Load VICE VSF + inspect IM2 boot state.
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { loadViceVsf } from "../dist/runtime/headless/vsf/vice-vsf-load.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { loadViceVsf } from "../dist/ts-emulator/vsf/vice-vsf-load.js";
 import { resolve } from "node:path";
 
 const { session } = startIntegratedSession({

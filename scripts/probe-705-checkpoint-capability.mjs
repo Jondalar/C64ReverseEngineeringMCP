@@ -9,11 +9,11 @@ import { join, resolve as resolvePath } from "node:path";
 import {
   startIntegratedSession,
   stopIntegratedSession,
-} from "../dist/runtime/headless/integrated-session-manager.js";
-import { mountMedia } from "../dist/runtime/headless/media/mount.js";
-import { saveSessionVsf } from "../dist/runtime/headless/vsf/session-vsf.js";
+} from "../dist/ts-emulator/integrated-session-manager.js";
+import { mountMedia } from "../dist/ts-emulator/media/mount.js";
+import { saveSessionVsf } from "../dist/ts-emulator/vsf/session-vsf.js";
 import { readVsf } from "../src/media-format/vsf-format.js";
-import { SidAudioRecorder } from "../dist/runtime/headless/audio/sid-audio-recorder.js";
+import { SidAudioRecorder } from "../dist/ts-emulator/audio/sid-audio-recorder.js";
 
 const diskPath = resolvePath("samples/POLARBEAR.d64");
 if (!existsSync(diskPath)) {

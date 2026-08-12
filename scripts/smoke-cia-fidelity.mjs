@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Spec 104 (M2.2) — CIA fidelity smoke.
 
-import { runAllCiaFidelityTests } from "../dist/runtime/headless/c64/cia-fidelity-tests.js";
+import { runAllCiaFidelityTests } from "../dist/ts-emulator/c64/cia-fidelity-tests.js";
 
 const r = runAllCiaFidelityTests();
 console.log(`CIA fidelity — ${r.total} checks across ${r.details.length} suites`);

@@ -20,8 +20,8 @@
 // sync) to 0 (sync active) at the 10th consecutive 1-bit, and the
 // transition latches PA `dataByte` to 0xff.
 
-import { GcrShifter, CYCLES_PER_BYTE_BY_ZONE } from "../dist/runtime/headless/drive/gcr-shifter.js";
-import { HeadPosition } from "../dist/runtime/headless/drive/head-position.js";
+import { GcrShifter, CYCLES_PER_BYTE_BY_ZONE } from "../dist/ts-emulator/drive/gcr-shifter.js";
+import { HeadPosition } from "../dist/ts-emulator/drive/head-position.js";
 
 const results = [];
 function check(label, cond, detail) {

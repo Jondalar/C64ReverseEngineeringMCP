@@ -2,8 +2,8 @@
 // Scramble: spam SPACE to advance through credits
 // Polarbear: F7 to enter title
 
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { mountMedia } from "../dist/runtime/headless/media/mount.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { mountMedia } from "../dist/ts-emulator/media/mount.js";
 import { resolve } from "node:path";
 
 function snap(session, label) {

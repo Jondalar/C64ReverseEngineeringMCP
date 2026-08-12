@@ -33,10 +33,10 @@ if (!existsSync(syntheticDisk)) {
 // ---- Imports ----
 let exportScreenshot, exportVideo, exportScenarioAudio, saveScenario, deleteScenario;
 try {
-  ({ exportScreenshot } = await import(`${repoRoot}/dist/runtime/headless/export/screenshot.js`));
-  ({ exportVideo } = await import(`${repoRoot}/dist/runtime/headless/export/video.js`));
-  ({ exportScenarioAudio } = await import(`${repoRoot}/dist/runtime/headless/export/audio-export.js`));
-  ({ saveScenario, deleteScenario } = await import(`${repoRoot}/dist/runtime/headless/v2/scenario-registry.js`));
+  ({ exportScreenshot } = await import(`${repoRoot}/dist/ts-emulator/export/screenshot.js`));
+  ({ exportVideo } = await import(`${repoRoot}/dist/ts-emulator/export/video.js`));
+  ({ exportScenarioAudio } = await import(`${repoRoot}/dist/ts-emulator/export/audio-export.js`));
+  ({ saveScenario, deleteScenario } = await import(`${repoRoot}/dist/ts-emulator/v2/scenario-registry.js`));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

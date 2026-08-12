@@ -7,7 +7,7 @@ console output and are kept for the hypothesis history they encode.
 For new EOF / LOAD-completion investigation, use the structured EOF
 trace harness instead:
 
-- Spec 094: `src/runtime/headless/trace/eof-trace.ts`
+- Spec 094: `src/ts-emulator/trace/eof-trace.ts`
 - CLI: `npm run trace:eof -- --disk=<g64> --file=<name>`
 - Schema: `docs/eof-trace-schema.md`
 

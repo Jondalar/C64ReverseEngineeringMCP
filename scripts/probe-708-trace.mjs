@@ -23,10 +23,10 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { mountMedia } from "../dist/runtime/headless/media/mount.js";
-import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
-import { TraceRunController } from "../dist/runtime/headless/trace/trace-run.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { mountMedia } from "../dist/ts-emulator/media/mount.js";
+import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
+import { TraceRunController } from "../dist/ts-emulator/trace/trace-run.js";
 import { validateTraceDefinition } from "../src/trace/trace-definition.js";
 import { openTraceRunStore, queryTraceRunStore, closeTraceRunStore } from "../src/trace/trace-run-store.js";
 

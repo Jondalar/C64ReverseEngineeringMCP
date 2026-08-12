@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { WebSocket } from "ws";
 const D = new URL("../dist", import.meta.url).pathname;
-const { makeCrashRecorder } = await import(`${D}/runtime/headless/daemon/run.js`);
+const { makeCrashRecorder } = await import(`${D}/ts-emulator/daemon/run.js`);
 
 const failures = []; let passes = 0;
 const gate = (n, ok, d) => { ok ? passes++ : failures.push(n); console.log(`  ${ok ? "PASS" : "RED "}  ${n}${d ? ` (${d})` : ""}`); };
@@ -81,7 +81,7 @@ async function runChild(withGuards) {
 {
   const PORT = 45000 + Math.floor(Math.random() * 2000);
   const proj = mkdtempSync(join(tmpdir(), "c64re-daemonproj-"));
-  const d = spawn(process.execPath, [join(D, "runtime/headless/daemon/run.js"), "--project", proj, "--port", String(PORT)], { stdio: ["ignore", "pipe", "pipe"] });
+  const d = spawn(process.execPath, [join(D, "ts-emulator/daemon/run.js"), "--project", proj, "--port", String(PORT)], { stdio: ["ignore", "pipe", "pipe"] });
   let ready = false;
   d.stdout.on("data", (b) => { if (String(b).includes("runtime authority ready")) ready = true; });
   for (let i = 0; i < 100 && !ready; i++) await new Promise((r) => setTimeout(r, 100));

@@ -31,7 +31,7 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 
 console.log("BUG-023 — real custom-writer GCR classifier (opt-in)\n");
 
-const dist = join(ROOT, "dist/runtime/headless");
+const dist = join(ROOT, "dist/ts-emulator");
 if (!existsSync(join(dist, "drive1541/vice1541-facade.js"))) { console.error("build:mcp first"); process.exit(2); }
 const { Vice1541Facade } = await import(join(dist, "drive1541/vice1541-facade.js"));
 const { drive_set_half_track } = await import(join(dist, "vice1541/drive.js"));

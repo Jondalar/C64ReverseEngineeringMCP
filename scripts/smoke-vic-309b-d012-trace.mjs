@@ -12,9 +12,9 @@ import { resolve } from "node:path";
 
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 const { startIntegratedSession, stopIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`);
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`);
 const LIT_TYPES = await import(
-  `${REPO}/dist/runtime/headless/vic/literal/vicii-types.js`);
+  `${REPO}/dist/ts-emulator/vic/literal/vicii-types.js`);
 
 const OUT_DIR = `${REPO}/samples/screenshots/motm-spec-309`;
 mkdirSync(OUT_DIR, { recursive: true });
@@ -56,7 +56,7 @@ const orig = bus.handlers ? bus.handlers.get(0xd012) : null;
 console.log(`bus.handlers exists: ${!!bus.handlers}, orig handler @ $D012:`, !!orig);
 
 // Wrap bus IO handler at $D012 with logging interceptor.
-const LIT_MEM = await import(`${REPO}/dist/runtime/headless/vic/literal/vicii-mem.js`);
+const LIT_MEM = await import(`${REPO}/dist/ts-emulator/vic/literal/vicii-mem.js`);
 let intercepting = false;
 const wrapHandler = (origRead, origWrite) => ({
   read: () => {

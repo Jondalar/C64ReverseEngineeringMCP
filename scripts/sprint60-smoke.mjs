@@ -8,9 +8,9 @@
 // - ROM loader resolves bundled binary OR falls back to zero-fill.
 
 import assert from "node:assert/strict";
-import { DriveCpu } from "../dist/runtime/headless/drive/drive-cpu.js";
-import { VIA_DDRA, VIA_ORA } from "../dist/runtime/headless/drive/via6522.js";
-import { loadDriveRom, DRIVE_ROM_SIZE } from "../dist/runtime/headless/drive/drive-rom.js";
+import { DriveCpu } from "../dist/ts-emulator/drive/drive-cpu.js";
+import { VIA_DDRA, VIA_ORA } from "../dist/ts-emulator/drive/via6522.js";
+import { loadDriveRom, DRIVE_ROM_SIZE } from "../dist/ts-emulator/drive/drive-rom.js";
 
 // ---- Test 1: drive RAM read/write through CPU ----
 {

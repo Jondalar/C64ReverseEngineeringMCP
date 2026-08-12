@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Spec 106 (M2.4) v1 — PLA + memory-bus fidelity smoke.
 
-import { runAllPlaFidelityTests } from "../dist/runtime/headless/c64/pla-fidelity-tests.js";
+import { runAllPlaFidelityTests } from "../dist/ts-emulator/c64/pla-fidelity-tests.js";
 
 const r = runAllPlaFidelityTests();
 console.log(`PLA + memory-bus fidelity v1 — ${r.total} checks across ${r.details.length} suites`);

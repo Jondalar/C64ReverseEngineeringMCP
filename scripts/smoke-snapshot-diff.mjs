@@ -21,13 +21,13 @@ if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
 let startIntegratedSession, saveSessionVsf, diffSnapshots, formatDiff;
 try {
   ({ startIntegratedSession } = await import(
-    `${repoRoot}/dist/runtime/headless/integrated-session-manager.js`
+    `${repoRoot}/dist/ts-emulator/integrated-session-manager.js`
   ));
   ({ saveSessionVsf } = await import(
-    `${repoRoot}/dist/runtime/headless/vsf/session-vsf.js`
+    `${repoRoot}/dist/ts-emulator/vsf/session-vsf.js`
   ));
   ({ diffSnapshots, formatDiff } = await import(
-    `${repoRoot}/dist/runtime/headless/v2/snapshot-diff.js`
+    `${repoRoot}/dist/ts-emulator/v2/snapshot-diff.js`
   ));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");

@@ -29,10 +29,10 @@ let startIntegratedSession;
 let monitorMod, indirectMod;
 try {
   ({ startIntegratedSession } = await import(
-    "../dist/runtime/headless/integrated-session-manager.js"
+    "../dist/ts-emulator/integrated-session-manager.js"
   ));
-  monitorMod = await import("../dist/runtime/headless/v2/monitor.js");
-  indirectMod = await import("../dist/runtime/headless/v2/indirect-tracking.js");
+  monitorMod = await import("../dist/ts-emulator/v2/monitor.js");
+  indirectMod = await import("../dist/ts-emulator/v2/indirect-tracking.js");
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

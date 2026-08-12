@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 const disk = "samples/maniac_mansion_s1[activision_1987](german)(manual)(!).g64";
 if (!existsSync(disk)) process.exit(2);
 
-const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
+const { startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
 const { session } = startIntegratedSession({
   diskPath: disk, useCycleLockstep: true, useMicrocodedCpu: true,
 });

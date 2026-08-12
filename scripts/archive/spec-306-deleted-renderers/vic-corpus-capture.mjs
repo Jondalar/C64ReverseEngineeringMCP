@@ -24,7 +24,7 @@
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { resolve, basename } from "node:path";
 import { startIntegratedSession, stopIntegratedSession } from
-  "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/integrated-session-manager.js";
+  "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/integrated-session-manager.js";
 
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 

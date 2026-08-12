@@ -3,19 +3,19 @@
 
 import {
   compositePixel, isGfxForeground,
-} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/vic/cycle-pixel-composite.js";
+} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/vic/cycle-pixel-composite.js";
 import {
   newDisplayPipeState,
-} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/vic/display-pipe.js";
+} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/vic/display-pipe.js";
 import {
   newSpriteEngine, loadSpriteRegs, loadSpriteDmaByte, onLineStart,
-} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/vic/sprite-cycle.js";
+} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/vic/sprite-cycle.js";
 import {
   newSpriteCollisionState, IRQ_SPRITE_BACKGROUND, IRQ_SPRITE_SPRITE,
-} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/vic/sprite-collision-latch.js";
+} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/vic/sprite-collision-latch.js";
 import {
   VicFramebuffer,
-} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/peripherals/vic-renderer.js";
+} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/peripherals/vic-renderer.js";
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail = "") {

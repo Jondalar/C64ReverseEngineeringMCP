@@ -36,7 +36,7 @@ const verbose = flag("verbose");
 const repoRoot = resolvePath(import.meta.dirname, "..");
 const dummyDisk = resolvePath(repoRoot, "samples/motm.g64");
 const { startIntegratedSession } = await import(
-  `${repoRoot}/dist/runtime/headless/integrated-session-manager.js`
+  `${repoRoot}/dist/ts-emulator/integrated-session-manager.js`
 );
 
 const GROUPS = {

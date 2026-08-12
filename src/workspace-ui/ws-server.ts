@@ -7,36 +7,36 @@
 // Bind: ws://127.0.0.1:4312 (single-user, localhost-only, no auth).
 
 import { WebSocketServer, WebSocket } from "ws";
-import { createAgentQueryApi, type AgentQueryApi } from "../runtime/headless/v2/agent-api.js";
-import { getIntegratedSession } from "../runtime/headless/integrated-session-manager.js";
-import { gcr_find_sync, gcr_decode_block } from "../runtime/headless/vice1541/gcr.js";
+import { createAgentQueryApi, type AgentQueryApi } from "../ts-emulator/v2/agent-api.js";
+import { getIntegratedSession } from "../ts-emulator/integrated-session-manager.js";
+import { gcr_find_sync, gcr_decode_block } from "../ts-emulator/vice1541/gcr.js";
 import {
   buildVicInspectSnapshot, assembleInspectEvidence,
   resolveVisibleNodeAt, resolveVisibleRegion,
   VISIBLE_FRAME, DISPLAY_ORIGIN,
-} from "../runtime/headless/inspect/vic-inspect.js";
+} from "../ts-emulator/inspect/vic-inspect.js";
 import type { FrozenInspectEvidence } from "../inspect/vic-inspect-types.js";
-import { resolveVisualOrigin } from "../runtime/headless/inspect/asset-origin.js";
+import { resolveVisualOrigin } from "../ts-emulator/inspect/asset-origin.js";
 import { extractAssetCandidates } from "../inspect/asset-extract.js";
 import type { AssetCandidate } from "../inspect/asset-join-types.js";
-import type { RuntimeCheckpoint } from "../runtime/headless/kernel/runtime-checkpoint.js";
+import type { RuntimeCheckpoint } from "../ts-emulator/kernel/runtime-checkpoint.js";
 import {
   ensureRuntimeController,
   getRuntimeController,
   type RuntimePacingMode,
-} from "../runtime/headless/debug/runtime-controller.js";
-import { SidAudioRecorder, AudioExportSession, LIVE_RECORDER_BUFFER_SAMPLES } from "../runtime/headless/audio/sid-audio-recorder.js";
+} from "../ts-emulator/debug/runtime-controller.js";
+import { SidAudioRecorder, AudioExportSession, LIVE_RECORDER_BUFFER_SAMPLES } from "../ts-emulator/audio/sid-audio-recorder.js";
 import {
   dumpRuntimeSnapshot, undumpRuntimeSnapshot, resolveSnapshotPath, dumpRecorderAnchorSnapshot,
-} from "../runtime/headless/kernel/snapshot-persistence.js";
+} from "../ts-emulator/kernel/snapshot-persistence.js";
 // Spec 754 — the one canonical monitor command processor (BUG-037).
-import { runMonitorCommand } from "../runtime/headless/debug/monitor-shell.js";
+import { runMonitorCommand } from "../ts-emulator/debug/monitor-shell.js";
 import { validateTraceDefinition, slugTraceId } from "../trace/trace-definition.js";
-import { ingestMedia } from "../runtime/headless/media/ingress.js";
+import { ingestMedia } from "../ts-emulator/media/ingress.js";
 import { buildIngressRequest, kindFromExt } from "../media-format/ingress-request.js";
 import { readFileSync } from "node:fs";
-import { int16ToLeBytes, monoToStereoLR } from "../runtime/headless/audio/audio-buffer.js";
-import { writeWav } from "../runtime/headless/audio/wav-writer.js";
+import { int16ToLeBytes, monoToStereoLR } from "../ts-emulator/audio/audio-buffer.js";
+import { writeWav } from "../ts-emulator/audio/wav-writer.js";
 
 export const WS_PORT = 4312;
 export const WS_HOST = "127.0.0.1";
@@ -209,7 +209,7 @@ export class WsServer {
     // host (C64RE_RESID_WORKER=1). Exactly one is set.
     recorder?: SidAudioRecorder;
     cursorId?: string;
-    workerHost?: import("../runtime/headless/audio/sid-audio-worker-host.js").SidAudioWorkerHost;
+    workerHost?: import("../ts-emulator/audio/sid-audio-worker-host.js").SidAudioWorkerHost;
     seq: number;
   }>();
 
@@ -619,7 +619,7 @@ export class WsServer {
 
     // List active sessions — UI auto-picks first on connect.
     this.on("session/list", async () => {
-      const { listIntegratedSessions } = await import("../runtime/headless/integrated-session-manager.js");
+      const { listIntegratedSessions } = await import("../ts-emulator/integrated-session-manager.js");
       return listIntegratedSessions().map(({ sessionId, session }) => ({
         sessionId,
         mode: session.mode,
@@ -640,7 +640,7 @@ export class WsServer {
     // this.projectDir (the daemon's default-session/UI base) is NOT applied to a
     // self-describing MCP session. A bare relative path still falls back to the base.
     this.on("session/create", async ({ disk_path, device_id, pal, start_track, write_protected, trace_out, trace_domains }) => {
-      const { runtimeSessions } = await import("../runtime/headless/runtime-session-service.js");
+      const { runtimeSessions } = await import("../ts-emulator/runtime-session-service.js");
       const { producerOptsForDomains, startSessionTrace, resolveTraceOut, DEFAULT_TRACE_DOMAINS } =
         await import("../server-tools/runtime-trace-sink.js");
       const domains = trace_out ? (trace_domains ?? DEFAULT_TRACE_DOMAINS) : [];
@@ -667,7 +667,7 @@ export class WsServer {
     });
 
     this.on("session/close", async ({ session_id }) => {
-      const { runtimeSessions } = await import("../runtime/headless/runtime-session-service.js");
+      const { runtimeSessions } = await import("../ts-emulator/runtime-session-service.js");
       const r = await runtimeSessions.close(session_id);
       // Leak fix: drop this session's ws-server-side per-session state (the VICE
       // continue cursors + the frozen-inspect evidence list), else entries
@@ -696,7 +696,7 @@ export class WsServer {
       // step/…); the UI never uses it. So ANY api/call = the LLM is in the session
       // → flip the control-owner so the live screen shows the green border.
       getRuntimeController(session_id)?.setControlOwner("llm");
-      const { createAgentQueryApi } = await import("../runtime/headless/v2/agent-api.js");
+      const { createAgentQueryApi } = await import("../ts-emulator/v2/agent-api.js");
       const api = createAgentQueryApi({ session }) as unknown as Record<string, (...a: unknown[]) => unknown>;
       const fn = api[method];
       if (typeof fn !== "function") throw new Error(`api/call: unknown method ${method}`);
@@ -731,7 +731,7 @@ export class WsServer {
       }
       const n = slot !== undefined ? Number(slot) : 8;
       if (n === 9) throw new Error("media/persist: drive 9 not supported (v1 drive8-only)");
-      const { persistMountedDiskToFile } = await import("../runtime/headless/media/mount.js");
+      const { persistMountedDiskToFile } = await import("../ts-emulator/media/mount.js");
       return persistMountedDiskToFile(session);
     });
 
@@ -743,7 +743,7 @@ export class WsServer {
       if (typeof output_path !== "string" || !output_path) throw new Error("vsf/save: output_path required");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`no session ${session_id}`);
-      const { saveSessionVsf } = await import("../runtime/headless/vsf/session-vsf.js");
+      const { saveSessionVsf } = await import("../ts-emulator/vsf/session-vsf.js");
       saveSessionVsf(session, output_path);
       const { statSync } = await import("node:fs");
       return { savedPath: output_path, bytes: statSync(output_path).size };
@@ -752,7 +752,7 @@ export class WsServer {
       if (typeof input_path !== "string" || !input_path) throw new Error("vsf/load: input_path required");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`no session ${session_id}`);
-      const { loadSessionVsf } = await import("../runtime/headless/vsf/session-vsf.js");
+      const { loadSessionVsf } = await import("../ts-emulator/vsf/session-vsf.js");
       const { statSync } = await import("node:fs");
       const bytes = statSync(input_path).size;
       // Spec 770.2 — loadSessionVsf auto-detects a real VICE x64sc snapshot
@@ -768,7 +768,7 @@ export class WsServer {
       const cyc = Number(cycles) || 2_000_000;
       const wantClasses: string[] = Array.isArray(classes) ? classes : ["dead", "unused"];
       const minB = Number(min_bytes) || 256;
-      const { MemoryAccessTracker } = await import("../runtime/headless/debug/memory-access-map.js");
+      const { MemoryAccessTracker } = await import("../ts-emulator/debug/memory-access-map.js");
       const t = new MemoryAccessTracker(session.c64Bus);
       t.attach();
       session.runFor(cyc, { cycleBudget: cyc });
@@ -807,7 +807,7 @@ export class WsServer {
       const s = getIntegratedSession(session_id);
       if (!s) throw new Error(`no session ${session_id}`);
       const ctrl = ctrlFor(session_id);
-      const { loadPrgBytes } = await import("../runtime/headless/media/ingress.js");
+      const { loadPrgBytes } = await import("../ts-emulator/media/ingress.js");
       let bytes: Uint8Array;
       if (bytes_b64) bytes = new Uint8Array(Buffer.from(String(bytes_b64), "base64"));
       else if (prg_path) { const { readFileSync } = await import("node:fs"); bytes = new Uint8Array(readFileSync(String(prg_path))); }
@@ -827,7 +827,7 @@ export class WsServer {
     this.on("vic/inspect/at_capture", async ({ session_id, x, y, checkpoint_id }) => {
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`no session ${session_id}`);
-      const { buildVicInspectSnapshot, resolveNodeAt } = await import("../runtime/headless/inspect/vic-inspect.js");
+      const { buildVicInspectSnapshot, resolveNodeAt } = await import("../ts-emulator/inspect/vic-inspect.js");
       const ctrl = ctrlFor(session_id);
       let id = checkpoint_id ? String(checkpoint_id) : undefined;
       if (!id) {
@@ -945,7 +945,7 @@ export class WsServer {
       const ctrl = controllerFor(session_id);
       const wasRunning = ctrl.runState === "running";
       if (wasRunning) ctrl.pause();
-      const { swapDiskAndContinue } = await import("../runtime/headless/media/swap-and-continue.js");
+      const { swapDiskAndContinue } = await import("../ts-emulator/media/swap-and-continue.js");
       try {
         return await swapDiskAndContinue(ctrl, {
           path,
@@ -1373,7 +1373,7 @@ export class WsServer {
       return await withDuckDb(duckdb_path, async (conn: any, backend: any) => {
         switch (String(op)) {
           case "swimlane": {
-            const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
+            const { swimlaneSlice } = await import("../ts-emulator/v2/swimlane.js");
             return await swimlaneSlice(backend, {
               runId: a.run_id as string,
               cycleRange: [Number(a.cycle_start), Number(a.cycle_end)],
@@ -1384,19 +1384,19 @@ export class WsServer {
             });
           }
           case "query_events": {
-            const { queryEvents } = await import("../runtime/headless/v2/query-events.js");
+            const { queryEvents } = await import("../ts-emulator/v2/query-events.js");
             return await queryEvents(backend, a as never);
           }
           case "follow_path": {
-            const { followPath } = await import("../runtime/headless/v2/follow-path.js");
+            const { followPath } = await import("../ts-emulator/v2/follow-path.js");
             return await followPath(backend, a as never);
           }
           case "taint": {
-            const { traceTaint } = await import("../runtime/headless/v2/taint.js");
+            const { traceTaint } = await import("../ts-emulator/v2/taint.js");
             return await traceTaint(backend, a as never);
           }
           case "profile_loader": {
-            const { profileLoader } = await import("../runtime/headless/v2/loader-profile.js");
+            const { profileLoader } = await import("../ts-emulator/v2/loader-profile.js");
             return await profileLoader(backend, a.scenario_id as string, [Number(a.cycle_start), Number(a.cycle_end)]);
           }
           case "sql": {
@@ -1690,7 +1690,7 @@ export class WsServer {
       // (Scrub/rewind audio is not yet sample-exact — 768.4; a brief blip, no
       // desync. Live play is exact.)
       if (process.env["C64RE_RESID_WORKER"] !== "0") {
-        const { SidAudioWorkerHost } = await import("../runtime/headless/audio/sid-audio-worker-host.js");
+        const { SidAudioWorkerHost } = await import("../ts-emulator/audio/sid-audio-worker-host.js");
         // Spec 768 latency fix — a SMALL PCM ring (~93 ms, matching the inline
         // recorder's LIVE buffer): drop-oldest keeps audio FRESH instead of banking
         // seconds of latency when the emu briefly out-produces realtime (the 0.25-5 s
@@ -1741,7 +1741,7 @@ export class WsServer {
       const sec = Number(duration_sec);
       if (!Number.isFinite(sec) || sec <= 0) throw new Error(`bad duration_sec: ${duration_sec}`);
       const exp = new AudioExportSession(session as any, { sampleRate: 44100 });
-      const { exportSessionAudio } = await import("../runtime/headless/audio/export.js");
+      const { exportSessionAudio } = await import("../ts-emulator/audio/export.js");
       const result = exportSessionAudio(session as any, exp, out_path, sec);
       return result;
     });
@@ -1798,7 +1798,7 @@ export class WsServer {
       if (k === "vsf") {
         const session = getIntegratedSession(session_id);
         if (!session) throw new Error(`no session ${session_id}`);
-        const { mountMedia } = await import("../runtime/headless/media/mount.js");
+        const { mountMedia } = await import("../ts-emulator/media/mount.js");
         const ctrl = getRuntimeController(session_id);
         const doMount = () => mountMedia(session, 8, path);
         return ctrl ? ctrl.runExclusive(doMount) : doMount();
@@ -1954,19 +1954,19 @@ export class WsServer {
     });
 
     this.on("runtime/scenario_list", async () => {
-      const { listScenarios } = await import("../runtime/headless/v2/scenario-registry.js");
+      const { listScenarios } = await import("../ts-emulator/v2/scenario-registry.js");
       return listScenarios();
     });
 
     this.on("runtime/scenario_save", async ({ scenario }) => {
       if (!scenario || typeof scenario !== "object") throw new Error("scenario object required");
-      const { saveScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const { saveScenario } = await import("../ts-emulator/v2/scenario-registry.js");
       return saveScenario(scenario);
     });
 
     this.on("runtime/scenario_delete", async ({ id }) => {
       if (typeof id !== "string") throw new Error("id required");
-      const { deleteScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const { deleteScenario } = await import("../ts-emulator/v2/scenario-registry.js");
       const ok = deleteScenario(id);
       return { deleted: ok };
     });
@@ -2019,7 +2019,7 @@ export class WsServer {
             const toRun = winEnd - fromCycles;
             if (toRun <= 0) throw new Error("nearest checkpoint is at/after the window end — nothing to replay");
             const { captureAllDef } = await import("../server-tools/runtime-trace-sink.js");
-            const { resolveSnapshotPath } = await import("../runtime/headless/kernel/snapshot-persistence.js");
+            const { resolveSnapshotPath } = await import("../ts-emulator/kernel/snapshot-persistence.js");
             const def = captureAllDef(["c64-cpu", "iec", "memory"] as never);
             const outputPath = resolveSnapshotPath(`runtime/${session_id}/chis_${Date.now().toString(36)}.duckdb`);
             const run = await ctrl.traceRun.start(def, { controller: ctrl, outputPath });
@@ -2029,8 +2029,8 @@ export class WsServer {
             const { ensureIndexBounded } = await import("../trace/background-indexer.js");
             await ensureIndexBounded(storePath); // BUG-039 — bounded (inline trace is small; grace suffices)
             const { withDuckDb } = await import("../server-tools/runtime.js");
-            const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
-            const { renderText } = await import("../runtime/headless/v2/swimlane-render.js");
+            const { swimlaneSlice } = await import("../ts-emulator/v2/swimlane.js");
+            const { renderText } = await import("../ts-emulator/v2/swimlane-render.js");
             return await withDuckDb(storePath, async (_conn: any, backend: any) => {
               const slice = await swimlaneSlice(backend, { runId: stopped.runId ?? run.runId, cycleRange: [Math.max(winStart, fromCycles), winEnd], compact: true } as never);
               return `chis: replayed ${toRun} cyc from checkpoint @cyc ${fromCycles} (window ${winStart}..${winEnd})${partial}\n` + renderText(slice, { maxRows: 200 });
@@ -2054,7 +2054,7 @@ export class WsServer {
         // trace, and its default window anchors to the STORE's own max(cycle), not
         // the live CPU clock (which runs past the captured range after `trace off`).
         if (mop === "swimlane") {
-          const { resolveSnapshotPath } = await import("../runtime/headless/kernel/snapshot-persistence.js");
+          const { resolveSnapshotPath } = await import("../ts-emulator/kernel/snapshot-persistence.js");
           const fs = await import("node:fs");
           const path = await import("node:path");
           const dir = path.dirname(resolveSnapshotPath(`runtime/${session_id}/x.duckdb`));
@@ -2105,8 +2105,8 @@ export class WsServer {
           const { ensureIndexBounded } = await import("../trace/background-indexer.js");
           await ensureIndexBounded(storePath); // BUG-039 — bounded read-path wait
           const { withDuckDb } = await import("../server-tools/runtime.js");
-          const { swimlaneSlice } = await import("../runtime/headless/v2/swimlane.js");
-          const { renderText } = await import("../runtime/headless/v2/swimlane-render.js");
+          const { swimlaneSlice } = await import("../ts-emulator/v2/swimlane.js");
+          const { renderText } = await import("../ts-emulator/v2/swimlane-render.js");
           const out = await withDuckDb(storePath, async (conn: any, backend: any): Promise<string | null> => {
             const rid = (await conn.runAndReadAll("SELECT run_id FROM trace_run LIMIT 1")).getRows()[0]?.[0];
             const runId = rid != null ? String(rid) : undefined;
@@ -2143,7 +2143,7 @@ export class WsServer {
             return r?.text ?? "map: empty (the trace captured no memory accesses — enable the memory domain)";
           }
           if (mop === "taint") {
-            const { traceTaint } = await import("../runtime/headless/v2/taint.js");
+            const { traceTaint } = await import("../ts-emulator/v2/taint.js");
             // Default cycle = the trace's own MAX(cycle) (NOT the live clock, which
             // runs past the capture after `trace off`) — same anchor as swimlane.
             let startCycle = Number(margs.startCycle);
@@ -2339,7 +2339,7 @@ export class WsServer {
 
     this.on("runtime/scenario_load", async ({ id }) => {
       if (typeof id !== "string") throw new Error("id required");
-      const { loadScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const { loadScenario } = await import("../ts-emulator/v2/scenario-registry.js");
       const s = loadScenario(id);
       if (!s) throw new Error(`scenario '${id}' not found`);
       return s;
@@ -2347,8 +2347,8 @@ export class WsServer {
 
     this.on("runtime/scenario_run", async ({ id }) => {
       if (typeof id !== "string") throw new Error("id required");
-      const { loadScenario } = await import("../runtime/headless/v2/scenario-registry.js");
-      const { runScenario } = await import("../runtime/headless/v2/scenario.js");
+      const { loadScenario } = await import("../ts-emulator/v2/scenario-registry.js");
+      const { runScenario } = await import("../ts-emulator/v2/scenario.js");
       const s = loadScenario(id);
       if (!s) throw new Error(`scenario '${id}' not found`);
       const scenario: any = {
@@ -2366,8 +2366,8 @@ export class WsServer {
       if (!Array.isArray(scenarioIds) || scenarioIds.length === 0) {
         throw new Error("scenarioIds must be a non-empty array");
       }
-      const { WorkerPool, resolveWorkerCount } = await import("../runtime/headless/parallel/scenario-pool.js");
-      const { createBatch, updateProgress, completeBatch, failBatch, serialiseBatch } = await import("../runtime/headless/parallel/batch-store.js");
+      const { WorkerPool, resolveWorkerCount } = await import("../ts-emulator/parallel/scenario-pool.js");
+      const { createBatch, updateProgress, completeBatch, failBatch, serialiseBatch } = await import("../ts-emulator/parallel/batch-store.js");
 
       const n = resolveWorkerCount(scenarioIds.length, workerCount);
       const entry = createBatch(scenarioIds as string[], n);
@@ -2409,7 +2409,7 @@ export class WsServer {
 
     this.on("batch/status", async ({ batchId }) => {
       if (typeof batchId !== "string") throw new Error("batchId required");
-      const { getBatch, serialiseBatch } = await import("../runtime/headless/parallel/batch-store.js");
+      const { getBatch, serialiseBatch } = await import("../ts-emulator/parallel/batch-store.js");
       const entry = getBatch(batchId);
       if (!entry) throw new Error(`batch '${batchId}' not found`);
       return serialiseBatch(entry);
@@ -2417,7 +2417,7 @@ export class WsServer {
 
     this.on("batch/results", async ({ batchId }) => {
       if (typeof batchId !== "string") throw new Error("batchId required");
-      const { getBatch, serialiseBatch, serialiseResults } = await import("../runtime/headless/parallel/batch-store.js");
+      const { getBatch, serialiseBatch, serialiseResults } = await import("../ts-emulator/parallel/batch-store.js");
       const entry = getBatch(batchId);
       if (!entry) throw new Error(`batch '${batchId}' not found`);
       return { batch: serialiseBatch(entry), results: serialiseResults(entry) };

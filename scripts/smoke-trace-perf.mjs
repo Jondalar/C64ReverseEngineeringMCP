@@ -25,9 +25,9 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 const now = () => Number(process.hrtime.bigint()) / 1e6; // ms
 
 const { startIntegratedSession, stopIntegratedSession } =
-  await import(`${ROOT}/dist/runtime/headless/integrated-session-manager.js`);
+  await import(`${ROOT}/dist/ts-emulator/integrated-session-manager.js`);
 const sink = await import(`${ROOT}/dist/server-tools/runtime-trace-sink.js`);
-const { ensureRuntimeController } = await import(`${ROOT}/dist/runtime/headless/debug/runtime-controller.js`);
+const { ensureRuntimeController } = await import(`${ROOT}/dist/ts-emulator/debug/runtime-controller.js`);
 
 console.log("Spec 726.B §2a.1 — smoke-trace-perf\n");
 

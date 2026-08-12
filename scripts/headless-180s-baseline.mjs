@@ -4,7 +4,7 @@
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
-import { startIntegratedSession } from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession } from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/integrated-session-manager.js";
 
 const SAMPLES_ROOT = resolvePath("samples/traces/v2-baseline");
 

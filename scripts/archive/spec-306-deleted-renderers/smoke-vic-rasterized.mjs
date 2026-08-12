@@ -7,8 +7,8 @@
 
 import { resolve } from "node:path";
 const repoRoot = resolve(import.meta.dirname, "..");
-const rast = await import(`${repoRoot}/dist/runtime/headless/peripherals/vic-renderer-rasterized.js`);
-const rend = await import(`${repoRoot}/dist/runtime/headless/peripherals/vic-renderer.js`);
+const rast = await import(`${repoRoot}/dist/ts-emulator/peripherals/vic-renderer-rasterized.js`);
+const rend = await import(`${repoRoot}/dist/ts-emulator/peripherals/vic-renderer.js`);
 
 const { renderFrameRasterized, resetFrameCarry, VicFramebuffer } = rast;
 const { VIC_PALETTE, VISIBLE_X, VISIBLE_Y } = rend;

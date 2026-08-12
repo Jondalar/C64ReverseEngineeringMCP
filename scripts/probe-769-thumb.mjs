@@ -5,8 +5,8 @@
 //      w*h indices), non-trivial (not all one colour), and rendering it works.
 //   C) capturing the thumbnail does NOT advance the machine (read-only).
 
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
 
 const failures = [];
 let passes = 0;

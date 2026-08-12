@@ -3,8 +3,8 @@
 
 import { resolve as resolvePath } from "node:path";
 const REPO = resolvePath(import.meta.dirname, "..");
-const lp = await import(`${REPO}/dist/runtime/headless/vic/light-pen.js`);
-const irq = await import(`${REPO}/dist/runtime/headless/vic/vic-irq.js`);
+const lp = await import(`${REPO}/dist/ts-emulator/vic/light-pen.js`);
+const irq = await import(`${REPO}/dist/ts-emulator/vic/vic-irq.js`);
 
 let pass = 0, fail = 0;
 function check(name, ok, detail = "") {

@@ -27,9 +27,9 @@ import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocket } from "ws";
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { RuntimeController, ensureRuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
-import { ingestMedia } from "../dist/runtime/headless/media/ingress.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { RuntimeController, ensureRuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
+import { ingestMedia } from "../dist/ts-emulator/media/ingress.js";
 import { WsServer } from "../dist/workspace-ui/ws-server.js";
 
 const failures = [];

@@ -15,7 +15,7 @@
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve as resolvePath, join } from "node:path";
-import { startIntegratedSession } from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession } from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/integrated-session-manager.js";
 
 const DISK = process.env.DISK ? resolvePath(process.env.DISK) : null;
 const LABEL = process.env.LABEL ?? "run";

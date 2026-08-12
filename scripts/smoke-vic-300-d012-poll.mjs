@@ -15,7 +15,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 const { startIntegratedSession, stopIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`);
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`);
 
 console.log("Spec 300 D012 raster reads (product literal path)");
 

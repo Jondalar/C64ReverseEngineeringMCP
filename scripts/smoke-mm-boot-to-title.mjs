@@ -2,7 +2,7 @@
 // Quick MM boot-to-title test: LOAD"*",8,1 + RUN + watch for title screen.
 // MM title screen has distinctive sprites + "MANIAC MANSION" text in screen RAM.
 
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
 // Spec 404: switched from legacy snapshot renderer (renderFrame) to the
 // canonical literal-port path via session.renderToPng().
 import { resolve } from "node:path";

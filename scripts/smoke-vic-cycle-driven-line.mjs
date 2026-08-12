@@ -23,7 +23,7 @@
 
 import {
   renderRasterLine,
-} from "../dist/runtime/headless/vic/cycle-driven-line-renderer.js";
+} from "../dist/ts-emulator/vic/cycle-driven-line-renderer.js";
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail = "") {

@@ -16,13 +16,13 @@ import { resolve as resolvePath } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 
 const { startIntegratedSession } = await import(
-  "../dist/runtime/headless/integrated-session-manager.js"
+  "../dist/ts-emulator/integrated-session-manager.js"
 );
 const { mountMedia } = await import(
-  "../dist/runtime/headless/media/mount.js"
+  "../dist/ts-emulator/media/mount.js"
 );
 const { gcr_find_sync, gcr_find_sector_header, gcr_read_sector } =
-  await import("../dist/runtime/headless/vice1541/gcr.js");
+  await import("../dist/ts-emulator/vice1541/gcr.js");
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
 const diskPath = resolvePath(repoRoot, "samples/synthetic/blank.d64");

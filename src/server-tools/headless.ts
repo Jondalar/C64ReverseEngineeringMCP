@@ -2,8 +2,8 @@ import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 // Spec 723.4b: standalone HeadlessSessionManager + its record formatters retired.
-import { findHeadlessTraceByAccess, findHeadlessTraceByPc, loadHeadlessSession, sliceHeadlessTraceByIndex } from "../runtime/headless/trace-query.js";
-import { buildHeadlessTraceIndex } from "../runtime/headless/trace-index.js";
+import { findHeadlessTraceByAccess, findHeadlessTraceByPc, loadHeadlessSession, sliceHeadlessTraceByIndex } from "../ts-emulator/trace-query.js";
+import { buildHeadlessTraceIndex } from "../ts-emulator/trace-index.js";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 
@@ -66,7 +66,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       write_protected: z.boolean().optional().describe("If true, drive treats the image as write-protected."),
     },
     safeHandler("runtime_drive_session_start", async ({ disk_path, start_track, device_id, pal, write_protected }) => {
-      const { startDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
+      const { startDriveSession } = await import("../ts-emulator/drive1541/drive-session-manager.js");
       const record = startDriveSession({
         diskPath: disk_path,
         startTrack: start_track,
@@ -97,7 +97,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       session_id: z.string(),
     },
     safeHandler("runtime_drive_status", async ({ session_id }) => {
-      const { getDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
+      const { getDriveSession } = await import("../ts-emulator/drive1541/drive-session-manager.js");
       const record = getDriveSession(session_id);
       if (!record) throw new Error(`No drive session ${session_id}`);
       // Spec 704 §11 R3 — vice drive probe. VIA IFR/IER + track-buffer
@@ -125,7 +125,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       session_id: z.string(),
     },
     safeHandler("runtime_iec_bus_state", async ({ session_id }) => {
-      const { getDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
+      const { getDriveSession } = await import("../ts-emulator/drive1541/drive-session-manager.js");
       const record = getDriveSession(session_id);
       if (!record) throw new Error(`No drive session ${session_id}`);
       // Spec 704 §11 R3 — vice drive-side IEC sample. A standalone session
@@ -233,7 +233,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       }
       // Spec 744.4 — in-process authority (tests / no daemon). Create the session
       // through the single runtime authority, NOT startIntegratedSession directly.
-      const { runtimeSessions } = await import("../runtime/headless/runtime-session-service.js");
+      const { runtimeSessions } = await import("../ts-emulator/runtime-session-service.js");
       const { producerOptsForDomains, startSessionTrace, resolveTraceOut, DEFAULT_TRACE_DOMAINS } =
         await import("./runtime-trace-sink.js");
       const warnings: string[] = [];
@@ -335,7 +335,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         const { c64Cycles, cpu } = after;
         return { content: [{ type: "text" as const, text: `Ran up to ~${cycles} cycles (Runtime Daemon${s0.streamPump ? ", live-streamed" : ""}). cycles=${c64Cycles} pc=${formatHexWord(cpu.pc)}` }] };
       }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
       const { sessionTraceActive, drainSessionTrace } = await import("./runtime-trace-sink.js");
@@ -346,7 +346,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
       let modeText: string;
       if (until) {
-        const stepping = await import("../runtime/headless/stepping.js");
+        const stepping = await import("../ts-emulator/stepping.js");
         let stepResult: { exitReason: string; cyclesElapsed: number; instructionsElapsed: number; hit?: unknown };
         switch (until.kind) {
           case "pc": {
@@ -438,7 +438,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         const s = await runtimeDaemon.mark(session_id, label) as { runId: string; eventCount: number; marks: number };
         return { content: [{ type: "text" as const, text: `Marked "${label}" — run ${s.runId}, ${s.eventCount} events, ${s.marks} marks.` }] };
       }
-      const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+      const { getRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
       const ctrl = getRuntimeController(session_id);
       if (!ctrl?.traceRun.isActive()) throw new Error(`No active trace on session ${session_id} (start one with runtime_session_start trace_out=...).`);
       ctrl.traceRun.mark(label);
@@ -496,11 +496,11 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         ].join("\n") }] };
       }
       // in-process: build the def + start on the session's controller.
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
       const { captureAllDef, resolveTraceOut } = await import("./runtime-trace-sink.js");
-      const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+      const { ensureRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
       const ctrl = ensureRuntimeController(session_id, session, () => {});
       if (ctrl.traceRun.isActive()) throw new Error(`Trace already active on session ${session_id} — finalize it first.`);
       const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
@@ -542,7 +542,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
           `Query it with trace_store_query / trace_store_top_pcs / runtime_swimlane_slice (duckdb_path = the store).`,
         ].join("\n") }] };
       }
-      const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+      const { getRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
       const ctrl = getRuntimeController(session_id);
       if (!ctrl?.traceRun.isActive()) throw new Error(`No active trace on session ${session_id}.`);
       const run = await ctrl.traceRun.stop();
@@ -576,7 +576,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         const s = await runtimeDaemon.traceStatus(session_id);
         return { content: [{ type: "text" as const, text: JSON.stringify(s, null, 2) }] };
       }
-      const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+      const { getRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
       const ctrl = getRuntimeController(session_id);
       const s = ctrl?.traceRun.status() ?? { active: false };
       return { content: [{ type: "text" as const, text: JSON.stringify(s, null, 2) }] };
@@ -636,10 +636,10 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       include: z.array(z.enum(["ram", "tracks"])).optional().describe("Optional include sections."),
     },
     safeHandler("runtime_session_snapshot", async ({ session_id, include }) => {
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { snapshot } = await import("../runtime/headless/snapshot.js");
+      const { snapshot } = await import("../ts-emulator/snapshot.js");
       const snap = snapshot(session, { include });
       return {
         content: [{
@@ -668,7 +668,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
           `Mode: ${mode}`,
         ].join("\n") }] };
       }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
       const s = session.status();
@@ -705,7 +705,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const { existed, released } = isDaemonMode()
         ? await runtimeDaemon.closeSession(session_id)
         // Spec 744.4 — in-process: finalize trace + dispose controller + drop session.
-        : await (await import("../runtime/headless/runtime-session-service.js")).runtimeSessions.close(session_id);
+        : await (await import("../ts-emulator/runtime-session-service.js")).runtimeSessions.close(session_id);
       return {
         content: [{
           type: "text" as const,
@@ -743,7 +743,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
           `Bytes: ${r.bytesLoaded}`,
         ].join("\n") }] };
       }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
       const result = session.loadPrgIntoRam(prg_path, addr);
@@ -781,7 +781,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         const r = await runtimeDaemon.runPrg<{ loadAddress: number; action: string }>(session_id, abs, entry);
         loadAddress = r.loadAddress; action = r.action;
       } else {
-        const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+        const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
         const session = getIntegratedSession(session_id);
         if (!session) throw new Error(`No integrated session ${session_id}`);
         const ctrl = await cpInProc(session_id);
@@ -820,7 +820,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
           `Hold cycles: ${hold_cycles ?? 33000}  Gap cycles: ${gap_cycles ?? 33000}`,
         ].join("\n") }] };
       }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
       session.typeText(decoded, hold_cycles ?? 33000, gap_cycles ?? 33000);
@@ -860,7 +860,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
           `up=${!!up} down=${!!down} left=${!!left} right=${!!right} fire=${!!fire}`,
         ].join("\n") }] };
       }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
       session.setJoystick2({ up, down, left, right, fire });
@@ -897,8 +897,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Spec 744.4 — even the one-shot diagnostic creates its session through the
       // single authority (then closes it), so no product path constructs a private
       // session outside the service.
-      const { runtimeSessions } = await import("../runtime/headless/runtime-session-service.js");
-      const { diagnoseMm } = await import("../runtime/headless/diagnostic-mm.js");
+      const { runtimeSessions } = await import("../ts-emulator/runtime-session-service.js");
+      const { diagnoseMm } = await import("../ts-emulator/diagnostic-mm.js");
       const { mkdirSync, writeFileSync } = await import("node:fs");
       const { dirname, join } = await import("node:path");
       const projectRoot = resolveHeadlessProjectDir(context, project_dir);
@@ -1005,7 +1005,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
           `Bytes: ${buf.length}`,
         ].join("\n") }] };
       }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
       const session = getIntegratedSession(session_id);
       if (!session) throw new Error(`No integrated session ${session_id}`);
       const r = session.renderToPng(path);
@@ -1031,10 +1031,10 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // basis for "rewind to interesting state, pin as evidence, branch". All route to
   // the daemon (the ring lives there); in-process is the test fallback.
   const cpInProc = async (session_id: string) => {
-    const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+    const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
     const session = getIntegratedSession(session_id);
     if (!session) throw new Error(`No integrated session ${session_id}`);
-    const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
+    const { ensureRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
     return ensureRuntimeController(session_id, session, () => {});
   };
 
@@ -1139,7 +1139,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         ? await runtimeDaemon.recorderDump(session_id, seq, path)
         : await (async () => {
             const c = await cpInProc(session_id);
-            const { dumpRecorderAnchorSnapshot } = await import("../runtime/headless/kernel/snapshot-persistence.js");
+            const { dumpRecorderAnchorSnapshot } = await import("../ts-emulator/kernel/snapshot-persistence.js");
             return await dumpRecorderAnchorSnapshot(c, seq, path);
           })();
       return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
@@ -1207,7 +1207,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         r = await runtimeDaemon.overlayRun(session_id, { anchor_cycle, anchor_id, patches, run_cycles, until_pc });
       } else {
         const ctrl = await cpInProc(session_id);
-        const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+        const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
         const s = getIntegratedSession(session_id);
         if (!s) throw new Error(`No integrated session ${session_id}`);
         const cps = ctrl.checkpointRing.list();
@@ -1243,12 +1243,12 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       if (isDaemonMode()) {
         r = await runtimeDaemon.monitorExec<{ output?: string; error?: string }>(session_id, command);
       } else {
-        const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
+        const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
         const session = getIntegratedSession(session_id);
         if (!session) throw new Error(`No integrated session ${session_id}`);
         const ctrl = await cpInProc(session_id);
         ctrl.setControlOwner("llm"); // Spec 767 — LLM is co-driving (UI green border)
-        const { runMonitorCommand } = await import("../runtime/headless/debug/monitor-shell.js");
+        const { runMonitorCommand } = await import("../ts-emulator/debug/monitor-shell.js");
         r = await runMonitorCommand(
           {
             session, ctrl, sessionId: session_id,
@@ -1271,8 +1271,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       output_path: z.string(),
     },
     safeHandler("runtime_drive_session_save_vsf", async ({ session_id, output_path }) => {
-      const { getDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
-      const { saveDriveSessionVsf } = await import("../runtime/headless/vsf/drive-vsf.js");
+      const { getDriveSession } = await import("../ts-emulator/drive1541/drive-session-manager.js");
+      const { saveDriveSessionVsf } = await import("../ts-emulator/vsf/drive-vsf.js");
       const record = getDriveSession(session_id);
       if (!record) throw new Error(`No drive session ${session_id}`);
       const result = saveDriveSessionVsf(record, output_path);
@@ -1298,8 +1298,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       input_path: z.string(),
     },
     safeHandler("runtime_drive_session_load_vsf", async ({ session_id, input_path }) => {
-      const { getDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
-      const { loadDriveSessionVsf } = await import("../runtime/headless/vsf/drive-vsf.js");
+      const { getDriveSession } = await import("../ts-emulator/drive1541/drive-session-manager.js");
+      const { loadDriveSessionVsf } = await import("../ts-emulator/vsf/drive-vsf.js");
       const record = getDriveSession(session_id);
       if (!record) throw new Error(`No drive session ${session_id}`);
       const result = loadDriveSessionVsf(record, input_path);
@@ -1327,7 +1327,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       output_path: z.string().optional().describe("Optional override for the session-G64 output path."),
     },
     safeHandler("runtime_drive_persist_writes", async ({ session_id, output_path }) => {
-      const { persistDriveSession } = await import("../runtime/headless/drive1541/drive-session-manager.js");
+      const { persistDriveSession } = await import("../ts-emulator/drive1541/drive-session-manager.js");
       const result = persistDriveSession(session_id, output_path);
       // Spec 704 §11 R3 — vice-backed PersistResult { written, outputPath?, note? }.
       const lines = [

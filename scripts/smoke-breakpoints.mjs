@@ -25,11 +25,11 @@ let startIntegratedSession;
 let bpMod, viceMod, bprtMod;
 try {
   ({ startIntegratedSession } = await import(
-    "../dist/runtime/headless/integrated-session-manager.js"
+    "../dist/ts-emulator/integrated-session-manager.js"
   ));
-  bpMod  = await import("../dist/runtime/headless/v2/breakpoints.js");
-  viceMod = await import("../dist/runtime/headless/v2/vice-syntax.js");
-  bprtMod = await import("../dist/runtime/headless/v2/breakpoint-runtime.js");
+  bpMod  = await import("../dist/ts-emulator/v2/breakpoints.js");
+  viceMod = await import("../dist/ts-emulator/v2/vice-syntax.js");
+  bprtMod = await import("../dist/ts-emulator/v2/breakpoint-runtime.js");
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

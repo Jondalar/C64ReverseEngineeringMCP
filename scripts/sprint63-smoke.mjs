@@ -11,7 +11,7 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
-import { startDriveSession, getDriveSession, listDriveSessions, persistDriveSession, stopDriveSession } from "../dist/runtime/headless/drive/drive-session-manager.js";
+import { startDriveSession, getDriveSession, listDriveSessions, persistDriveSession, stopDriveSession } from "../dist/ts-emulator/drive/drive-session-manager.js";
 
 const samples = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/samples";
 const knownTitles = [

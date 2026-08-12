@@ -18,13 +18,13 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   startIntegratedSession, stopIntegratedSession,
-} from "../dist/runtime/headless/integrated-session-manager.js";
-import { mountMedia } from "../dist/runtime/headless/media/mount.js";
-import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
-import { SidAudioRecorder } from "../dist/runtime/headless/audio/sid-audio-recorder.js";
+} from "../dist/ts-emulator/integrated-session-manager.js";
+import { mountMedia } from "../dist/ts-emulator/media/mount.js";
+import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
+import { SidAudioRecorder } from "../dist/ts-emulator/audio/sid-audio-recorder.js";
 import {
   dumpRuntimeSnapshot, undumpRuntimeSnapshot,
-} from "../dist/runtime/headless/kernel/snapshot-persistence.js";
+} from "../dist/ts-emulator/kernel/snapshot-persistence.js";
 
 const failures = [];
 let passes = 0;

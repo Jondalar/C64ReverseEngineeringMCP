@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Spec 103 (M2.1) — CPU cycle + interrupt fidelity smoke.
 
-import { runAllCpuFidelityTests } from "../dist/runtime/headless/c64/cpu-fidelity-tests.js";
+import { runAllCpuFidelityTests } from "../dist/ts-emulator/c64/cpu-fidelity-tests.js";
 
 const r = runAllCpuFidelityTests();
 console.log(`CPU cycle + IRQ fidelity — ${r.total} checks across ${r.details.length} suites`);

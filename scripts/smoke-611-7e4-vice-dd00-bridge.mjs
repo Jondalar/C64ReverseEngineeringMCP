@@ -23,7 +23,7 @@
 //
 // Exit 0 = PASS, 1 = FAIL.
 
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
 import { spawnSync } from "node:child_process";
 
 const results = [];

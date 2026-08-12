@@ -10,7 +10,7 @@
 //                  :770-783   store T1LH
 //                  :1306-1342 viacore_t1_zero_alarm
 //                  :203-209   update_myviairq_rclk
-//   TS target:   src/runtime/headless/_quarantine_vice1541_v4/via6522.ts +
+//   TS target:   src/ts-emulator/_quarantine_vice1541_v4/via6522.ts +
 //                drive cpu AlarmContext wiring (via1d/via2d/drivecpu).
 //
 // Smokes A-F per source-ownership note (with Codex 12:25 correction
@@ -19,9 +19,9 @@
 //
 // Exit 0 = PASS, 1 = FAIL.
 
-import { Vice1541 } from "../dist/runtime/headless/_quarantine_vice1541_v4/vice1541.js";
+import { Vice1541 } from "../dist/ts-emulator/_quarantine_vice1541_v4/vice1541.js";
 import { alarmContextDispatch, alarmContextNextPendingClk } from
-  "../dist/runtime/headless/alarm/alarm-context.js";
+  "../dist/ts-emulator/alarm/alarm-context.js";
 
 const checks = [];
 function check(label, ok, detail) {

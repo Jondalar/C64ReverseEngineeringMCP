@@ -13,9 +13,9 @@ import { createHash } from "node:crypto";
 let resolveVisibleNodeAt, matchVisualNodeToAsset, resolveDerivedAsset;
 let openTraceRunStore, closeTraceRunStore, loadTraceChainSourceFromDuckDb;
 try {
-  ({ resolveVisibleNodeAt } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
-  ({ matchVisualNodeToAsset, resolveDerivedAsset } = await import("../dist/runtime/headless/inspect/asset-join.js"));
-  ({ loadTraceChainSourceFromDuckDb } = await import("../dist/runtime/headless/inspect/asset-join-tracedb.js"));
+  ({ resolveVisibleNodeAt } = await import("../dist/ts-emulator/inspect/vic-inspect.js"));
+  ({ matchVisualNodeToAsset, resolveDerivedAsset } = await import("../dist/ts-emulator/inspect/asset-join.js"));
+  ({ loadTraceChainSourceFromDuckDb } = await import("../dist/ts-emulator/inspect/asset-join-tracedb.js"));
   ({ openTraceRunStore, closeTraceRunStore } = await import("../src/trace/trace-run-store.js"));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");

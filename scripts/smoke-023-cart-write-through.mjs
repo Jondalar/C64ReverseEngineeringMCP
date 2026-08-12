@@ -15,7 +15,7 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 
 console.log("BUG-023-cart — EasyFlash .crt host-file write-back (re-pack)\n");
 
-const dist = join(ROOT, "dist/runtime/headless");
+const dist = join(ROOT, "dist/ts-emulator");
 if (!existsSync(join(dist, "cartridge.js"))) { console.error("build:mcp first"); process.exit(2); }
 const { loadCartridgeMapperFromBytes } = await import(join(dist, "cartridge.js"));
 const { persistCartridgeToFile } = await import(join(dist, "media/persist-cartridge.js"));

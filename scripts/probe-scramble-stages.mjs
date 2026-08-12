@@ -13,10 +13,10 @@ import { resolve } from "node:path";
 
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 const { startIntegratedSession, stopIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`);
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`);
 const LIT_TYPES = await import(
-  `${REPO}/dist/runtime/headless/vic/literal/vicii-types.js`);
-const LIT_MEM = await import(`${REPO}/dist/runtime/headless/vic/literal/vicii-mem.js`);
+  `${REPO}/dist/ts-emulator/vic/literal/vicii-types.js`);
+const LIT_MEM = await import(`${REPO}/dist/ts-emulator/vic/literal/vicii-mem.js`);
 
 const OUT_DIR = `${REPO}/samples/screenshots/vic-bugs`;
 mkdirSync(OUT_DIR, { recursive: true });
@@ -30,7 +30,7 @@ s.resetCold("pal-default");
 console.log("KERNAL boot to BASIC ready...");
 s.runFor(5_000_000, { cycleBudget: 5_000_000 });
 console.log("Mount Scramble disk via API (= same path as UI)...");
-const { mountMedia } = await import(`${REPO}/dist/runtime/headless/media/mount.js`);
+const { mountMedia } = await import(`${REPO}/dist/ts-emulator/media/mount.js`);
 await mountMedia(s, 8, resolve(`${REPO}/samples/scramble_infinity.d64`));
 s.runFor(2_000_000, { cycleBudget: 2_000_000 });
 console.log("LOAD'*',8,1...");

@@ -74,8 +74,8 @@ try {
 
 // ---- C. runtime_query_events maps family→channel and returns rows ----
 try {
-  const { queryEvents } = await import(`${ROOT}/dist/runtime/headless/v2/query-events.js`);
-  const { DuckDbQueryBackend } = await import(`${ROOT}/dist/runtime/headless/v2/duckdb-backend.js`);
+  const { queryEvents } = await import(`${ROOT}/dist/ts-emulator/v2/query-events.js`);
+  const { DuckDbQueryBackend } = await import(`${ROOT}/dist/ts-emulator/v2/duckdb-backend.js`);
   const inst = await duckdb.DuckDBInstance.create(dbPath);
   try {
     const conn = await inst.connect();
@@ -103,7 +103,7 @@ try {
 //   trace_mark (or neutral CTEs over them), never the legacy names.
 const READER_SOURCES = [
   "../src/trace/store/queries.ts",
-  "src/runtime/headless/v2/query-events.ts",
+  "src/ts-emulator/v2/query-events.ts",
 ];
 const offenders = [];
 for (const rel of READER_SOURCES) {

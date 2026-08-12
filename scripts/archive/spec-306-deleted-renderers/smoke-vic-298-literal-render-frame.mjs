@@ -19,13 +19,13 @@ import { resolve as resolvePath } from "node:path";
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 
 // Load literal-port modules
-const { vicii } = await import(`${REPO}/dist/runtime/headless/vic/literal/vicii-types.js`);
-const { vicii_init, vicii_reset, vicii_bind_ram } = await import(`${REPO}/dist/runtime/headless/vic/literal/vicii.js`);
-const { vicii_cycle } = await import(`${REPO}/dist/runtime/headless/vic/literal/vicii-cycle.js`);
-const { setFetchHost } = await import(`${REPO}/dist/runtime/headless/vic/literal/vicii-fetch.js`);
-const { setIrqHost } = await import(`${REPO}/dist/runtime/headless/vic/literal/vicii-irq.js`);
-const { rgbaToPng } = await import(`${REPO}/dist/runtime/headless/peripherals/png-writer.js`);
-const { PALETTES } = await import(`${REPO}/dist/runtime/headless/vic/palettes.js`);
+const { vicii } = await import(`${REPO}/dist/ts-emulator/vic/literal/vicii-types.js`);
+const { vicii_init, vicii_reset, vicii_bind_ram } = await import(`${REPO}/dist/ts-emulator/vic/literal/vicii.js`);
+const { vicii_cycle } = await import(`${REPO}/dist/ts-emulator/vic/literal/vicii-cycle.js`);
+const { setFetchHost } = await import(`${REPO}/dist/ts-emulator/vic/literal/vicii-fetch.js`);
+const { setIrqHost } = await import(`${REPO}/dist/ts-emulator/vic/literal/vicii-irq.js`);
+const { rgbaToPng } = await import(`${REPO}/dist/ts-emulator/peripherals/png-writer.js`);
+const { PALETTES } = await import(`${REPO}/dist/ts-emulator/vic/palettes.js`);
 
 console.log("smoke-vic-298-literal-render-frame");
 

@@ -9,8 +9,8 @@
 // ahead of clk. The per-chip "schedule at clk+delta stays monotonic past 2^32"
 // proof lives in probe:743-1/2/3 (unit). This gate proves the live machine + the
 // inspector/checkpoint path stay coherent and monotonic.
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { ensureRuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { ensureRuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };

@@ -26,9 +26,9 @@ if (!disk || !out) {
 }
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
-const { startIntegratedSession } = await import(`${repoRoot}/dist/runtime/headless/integrated-session-manager.js`);
-const { AudioExportSession } = await import(`${repoRoot}/dist/runtime/headless/audio/sid-audio-recorder.js`);
-const { exportSessionAudio } = await import(`${repoRoot}/dist/runtime/headless/audio/export.js`);
+const { startIntegratedSession } = await import(`${repoRoot}/dist/ts-emulator/integrated-session-manager.js`);
+const { AudioExportSession } = await import(`${repoRoot}/dist/ts-emulator/audio/sid-audio-recorder.js`);
+const { exportSessionAudio } = await import(`${repoRoot}/dist/ts-emulator/audio/export.js`);
 
 const { sessionId, session } = startIntegratedSession({
   diskPath: resolvePath(disk),

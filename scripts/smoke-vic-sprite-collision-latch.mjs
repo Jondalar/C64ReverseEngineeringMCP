@@ -7,7 +7,7 @@ import {
   peekD01E, peekD01F, applyDeferredCollisionClear,
   writeD01E, writeD01F,
   IRQ_SPRITE_SPRITE, IRQ_SPRITE_BACKGROUND,
-} from "../dist/runtime/headless/vic/sprite-collision-latch.js";
+} from "../dist/ts-emulator/vic/sprite-collision-latch.js";
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail = "") {

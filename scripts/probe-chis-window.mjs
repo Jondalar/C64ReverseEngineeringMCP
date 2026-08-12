@@ -5,7 +5,7 @@
 // private port (NOT 4312).
 import { WebSocket } from "ws";
 const D = new URL("../dist", import.meta.url).pathname;
-const { startIntegratedSession, stopIntegratedSession } = await import(`${D}/runtime/headless/integrated-session-manager.js`);
+const { startIntegratedSession, stopIntegratedSession } = await import(`${D}/ts-emulator/integrated-session-manager.js`);
 const { WsServer } = await import(`${D}/workspace-ui/ws-server.js`);
 
 const failures = []; let passes = 0;

@@ -30,10 +30,10 @@ let startIntegratedSession;
 let mountMedia;
 try {
   ({ startIntegratedSession } = await import(
-    "../dist/runtime/headless/integrated-session-manager.js"
+    "../dist/ts-emulator/integrated-session-manager.js"
   ));
   ({ mountMedia } = await import(
-    "../dist/runtime/headless/media/mount.js"
+    "../dist/ts-emulator/media/mount.js"
   ));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");

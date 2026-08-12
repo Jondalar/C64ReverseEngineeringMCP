@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Spec 111 (M3.3) — KERNAL serial byte matrix smoke.
 
-import { runAllSerialMatrixTests } from "../dist/runtime/headless/c64/serial-matrix-tests.js";
+import { runAllSerialMatrixTests } from "../dist/ts-emulator/c64/serial-matrix-tests.js";
 
 const result = runAllSerialMatrixTests();
 console.log(`KERNAL serial matrix — ${result.total} checks across ${result.details.length} suites`);

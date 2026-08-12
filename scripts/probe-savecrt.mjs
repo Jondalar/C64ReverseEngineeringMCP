@@ -4,10 +4,10 @@
 process.env.C64RE_CART_AUTOPERSIST = "0";
 import { readFileSync, copyFileSync, statSync, existsSync, rmSync } from "node:fs";
 const D = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist";
-const { startIntegratedSession, stopIntegratedSession } = await import(`${D}/runtime/headless/integrated-session-manager.js`);
-const { RuntimeController } = await import(`${D}/runtime/headless/debug/runtime-controller.js`);
-const { ingestMedia } = await import(`${D}/runtime/headless/media/ingress.js`);
-const { runMonitorCommand } = await import(`${D}/runtime/headless/debug/monitor-shell.js`);
+const { startIntegratedSession, stopIntegratedSession } = await import(`${D}/ts-emulator/integrated-session-manager.js`);
+const { RuntimeController } = await import(`${D}/ts-emulator/debug/runtime-controller.js`);
+const { ingestMedia } = await import(`${D}/ts-emulator/media/ingress.js`);
+const { runMonitorCommand } = await import(`${D}/ts-emulator/debug/monitor-shell.js`);
 
 const SRC = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/samples/AccoladeComics_TRX+1D_EF.crt";
 const CRT = "/tmp/savecrt-test.crt";

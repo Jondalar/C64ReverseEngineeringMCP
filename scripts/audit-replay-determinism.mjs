@@ -2,7 +2,7 @@
 // Spec 231 — determinism audit.
 //
 // Greps for Math.random / Date.now / process.hrtime in
-// src/runtime/headless/** (TypeScript sources only).
+// src/ts-emulator/** (TypeScript sources only).
 //
 // Allowlist: lines annotated with `// audit-ok: <reason>`.
 // These patterns are acceptable in meta/timing code (perf tracking,
@@ -15,7 +15,7 @@ import { join, relative } from "node:path";
 import { execSync } from "node:child_process";
 
 const REPO_ROOT = new URL("..", import.meta.url).pathname;
-const SCAN_DIR = join(REPO_ROOT, "src", "runtime", "headless");
+const SCAN_DIR = join(REPO_ROOT, "src", "ts-emulator");
 
 const NON_DETERMINISM_PATTERNS = [
   /\bMath\.random\s*\(/,

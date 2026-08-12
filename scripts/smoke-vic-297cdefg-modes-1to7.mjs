@@ -9,13 +9,13 @@
 
 import {
   emitPixel, computeVideoMode,
-} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/vic/cycle-pumped-renderer.js";
+} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/vic/cycle-pumped-renderer.js";
 import {
   newDisplayPipeState,
-} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/vic/display-pipe.js";
+} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/vic/display-pipe.js";
 import {
   VicFramebuffer,
-} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/peripherals/vic-renderer.js";
+} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/peripherals/vic-renderer.js";
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail = "") {

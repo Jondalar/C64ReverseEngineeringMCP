@@ -14,7 +14,7 @@ import { createHash } from "node:crypto";
 let startIntegratedSession;
 try {
   ({ startIntegratedSession } = await import(
-    "../dist/runtime/headless/integrated-session-manager.js"
+    "../dist/ts-emulator/integrated-session-manager.js"
   ));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
@@ -24,10 +24,10 @@ try {
 
 let renderFramePixelPerfect;
 ({ renderFramePixelPerfect } = await import(
-  "../dist/runtime/headless/peripherals/vic-renderer-pixel.js"
+  "../dist/ts-emulator/peripherals/vic-renderer-pixel.js"
 ));
 const { VicFramebuffer } = await import(
-  "../dist/runtime/headless/peripherals/vic-renderer.js"
+  "../dist/ts-emulator/peripherals/vic-renderer.js"
 );
 
 const fixturePath = "samples/synthetic/1block.g64";

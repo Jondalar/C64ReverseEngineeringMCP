@@ -17,7 +17,7 @@
 // path (RAM / KERNAL / BASIC / CHARGEN / I/O). Assert read matches
 // the §4.2 table.
 
-import { HeadlessMemoryBus } from "../dist/runtime/headless/memory-bus.js";
+import { HeadlessMemoryBus } from "../dist/ts-emulator/memory-bus.js";
 
 const results = [];
 function check(label, cond, detail) {

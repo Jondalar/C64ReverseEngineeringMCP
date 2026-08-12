@@ -47,7 +47,7 @@ console.log(`Lorenz suite Disk${diskNum} (${diskPath})`);
 console.log(`Max wallclock: ${maxSec}s`);
 
 const { startIntegratedSession } = await import(
-  `${repoRoot}/dist/runtime/headless/integrated-session-manager.js`
+  `${repoRoot}/dist/ts-emulator/integrated-session-manager.js`
 );
 
 const { session } = startIntegratedSession({

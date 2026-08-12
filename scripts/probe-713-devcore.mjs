@@ -2,8 +2,8 @@
 // Spec 713 — bus-level gates for the device-core mappers (GMOD2 = flash040core
 // TYPE_NORMAL + m93c86 EEPROM). All access via the real PLA/memory-bus path.
 
-import { HeadlessMemoryBus } from "../dist/runtime/headless/memory-bus.js";
-import { loadCartridgeMapperFromBytes } from "../dist/runtime/headless/cartridge.js";
+import { HeadlessMemoryBus } from "../dist/ts-emulator/memory-bus.js";
+import { loadCartridgeMapperFromBytes } from "../dist/ts-emulator/cartridge.js";
 
 const failures = []; let passes = 0;
 function gate(name, ok, detail) {

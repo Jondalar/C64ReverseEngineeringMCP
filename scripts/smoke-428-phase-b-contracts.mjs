@@ -1,7 +1,7 @@
 // Spec 428 Phase B — verify Cpu65xxVice satisfies both contracts structurally.
 // Zero behavior test; just type-shape proof at runtime.
 
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
 
 const { session } = startIntegratedSession({
   mode: "true-drive", useMicrocodedCpu: true, vicRenderer: "literal-port",

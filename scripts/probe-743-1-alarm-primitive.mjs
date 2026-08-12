@@ -4,13 +4,13 @@
 //   - alarm schedule + next-pending + capture/restore stay monotonic past 2^32
 //   - the empty/disabled sentinel (CLOCK_MAX = CLOCK_NEVER) is > any reachable clk
 //     so drainAlarms cannot spin on an empty context above 2^32 (BUG-025 core).
-import { clkAdd, CLOCK_NEVER } from "../dist/runtime/headless/util/uint.js";
+import { clkAdd, CLOCK_NEVER } from "../dist/ts-emulator/util/uint.js";
 import {
   alarmContextNew, alarmNew, alarmSet, alarmContextDispatch,
   alarmContextNextPendingClk, alarmContextCaptureSchedule, alarmContextRestoreSchedule,
   CLOCK_MAX,
-} from "../dist/runtime/headless/alarm/alarm-context.js";
-import { Cpu65xxVice } from "../dist/runtime/headless/cpu/cpu65xx-vice.js";
+} from "../dist/ts-emulator/alarm/alarm-context.js";
+import { Cpu65xxVice } from "../dist/ts-emulator/cpu/cpu65xx-vice.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };

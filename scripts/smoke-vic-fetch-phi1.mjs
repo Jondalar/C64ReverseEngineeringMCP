@@ -12,7 +12,7 @@
 
 import {
   fetchPhi1, fetchIdle, fetchIdleGfx,
-} from "../dist/runtime/headless/vic/fetch-phi1.js";
+} from "../dist/ts-emulator/vic/fetch-phi1.js";
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail = "") {

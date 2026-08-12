@@ -6,10 +6,10 @@
 //   EF/GMOD2/GMOD3 dumpIoState        → 1:1 VICE *_dump text shape
 import { readFileSync } from "node:fs";
 const D = new URL("../dist", import.meta.url).pathname;
-const { startIntegratedSession, stopIntegratedSession } = await import(`${D}/runtime/headless/integrated-session-manager.js`);
-const { RuntimeController } = await import(`${D}/runtime/headless/debug/runtime-controller.js`);
-const { ingestMedia } = await import(`${D}/runtime/headless/media/ingress.js`);
-const { runMonitorCommand } = await import(`${D}/runtime/headless/debug/monitor-shell.js`);
+const { startIntegratedSession, stopIntegratedSession } = await import(`${D}/ts-emulator/integrated-session-manager.js`);
+const { RuntimeController } = await import(`${D}/ts-emulator/debug/runtime-controller.js`);
+const { ingestMedia } = await import(`${D}/ts-emulator/media/ingress.js`);
+const { runMonitorCommand } = await import(`${D}/ts-emulator/debug/monitor-shell.js`);
 const SRC = new URL("../samples/AccoladeComics_TRX+1D_EF.crt", import.meta.url).pathname;
 
 const failures = []; let passes = 0;

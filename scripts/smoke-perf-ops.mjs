@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { runAllPerfOpsTests } from "../dist/runtime/headless/c64/perf-ops-tests.js";
+import { runAllPerfOpsTests } from "../dist/ts-emulator/c64/perf-ops-tests.js";
 
 const r = runAllPerfOpsTests();
 console.log(`Perf + ops v1 — ${r.total} checks across ${r.details.length} suites`);

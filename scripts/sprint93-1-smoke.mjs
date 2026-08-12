@@ -12,7 +12,7 @@ if (!existsSync(disk)) {
   process.exit(2);
 }
 
-const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
+const { startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
 
 const useMicrocoded = process.env.MICROCODED !== "0";
 const useLockstep = process.env.LOCKSTEP !== "0";

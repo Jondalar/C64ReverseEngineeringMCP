@@ -6,8 +6,8 @@
 //      available on the main side (pcmAvailable > 0), readable as samples.
 //   C) the 705.A stub provider restore() flushes the PCM transport (no crash).
 
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { SidAudioWorkerHost } from "../dist/runtime/headless/audio/sid-audio-worker-host.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { SidAudioWorkerHost } from "../dist/ts-emulator/audio/sid-audio-worker-host.js";
 
 const PAL_FRAME = 19705;
 const failures = [];

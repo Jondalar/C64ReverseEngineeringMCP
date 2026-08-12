@@ -11,7 +11,7 @@ import { performance } from "node:perf_hooks";
 
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 const { startIntegratedSession, stopIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`);
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`);
 
 const FRAMES = parseInt(process.env.FRAMES ?? "60", 10);
 const PAL_CYCLES_PER_FRAME = 19656;

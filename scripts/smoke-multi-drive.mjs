@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Spec 115 (M3.7) v1 — multi-drive shape smoke.
 
-import { runAllMultiDriveTests } from "../dist/runtime/headless/drive/multi-drive-tests.js";
+import { runAllMultiDriveTests } from "../dist/ts-emulator/drive/multi-drive-tests.js";
 
 const r = runAllMultiDriveTests();
 console.log(`Multi-drive shape v1 — ${r.total} checks across ${r.details.length} suites`);

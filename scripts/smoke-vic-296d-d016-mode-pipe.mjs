@@ -11,11 +11,11 @@
 //   - vmode11_pipe samples \$D011 & 0x60 (ECM/BMM) at end-of-cycle
 //     (Φ6 in VICE) — drives next cycle's mode decision.
 
-import { renderRasterLine } from "../dist/runtime/headless/vic/cycle-driven-line-renderer.js";
+import { renderRasterLine } from "../dist/ts-emulator/vic/cycle-driven-line-renderer.js";
 import {
   newDisplayPipeState, latchPipeRegs, samplePipe0, sampleVmode11,
   sampleVmode16, holdVmode16Pipe2, advancePipeStages,
-} from "../dist/runtime/headless/vic/display-pipe.js";
+} from "../dist/ts-emulator/vic/display-pipe.js";
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail = "") {

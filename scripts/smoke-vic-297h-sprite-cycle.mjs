@@ -4,7 +4,7 @@
 import {
   newSpriteEngine, loadSpriteRegs, onLineStart,
   loadSpriteDmaByte, emitSpritePixel, spriteMaskAt,
-} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/vic/sprite-cycle.js";
+} from "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/vic/sprite-cycle.js";
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail = "") {

@@ -12,11 +12,11 @@
 import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { mountMedia } from "../dist/runtime/headless/media/mount.js";
-import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
-import { RuntimeRecorder } from "../dist/runtime/headless/recorder/runtime-recorder.js";
-import { dumpRecorderAnchorSnapshot, undumpRuntimeSnapshot } from "../dist/runtime/headless/kernel/snapshot-persistence.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { mountMedia } from "../dist/ts-emulator/media/mount.js";
+import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
+import { RuntimeRecorder } from "../dist/ts-emulator/recorder/runtime-recorder.js";
+import { dumpRecorderAnchorSnapshot, undumpRuntimeSnapshot } from "../dist/ts-emulator/kernel/snapshot-persistence.js";
 
 const failures = [];
 let passes = 0;

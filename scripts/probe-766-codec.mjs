@@ -7,8 +7,8 @@
 //      capture-time machine signature; run-on matches a control (like probe-705b).
 //   C) zero-alloc-after-warmup: repeated encodes reuse the scratch buffer.
 
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { AnchorEncoder, decodeAnchor } from "../dist/runtime/headless/recorder/anchor-codec.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { AnchorEncoder, decodeAnchor } from "../dist/ts-emulator/recorder/anchor-codec.js";
 
 const failures = [];
 let passes = 0;

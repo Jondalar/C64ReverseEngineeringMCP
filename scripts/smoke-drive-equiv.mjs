@@ -7,7 +7,7 @@
 import {
   runDriveRomEquivWalk, runSoPinTest, summarizeOpcodeCoverage,
   runIndyCrossPageBusTrace, runPhaBusTrace, runJsrBusTrace, runRtsBusTrace,
-} from "../dist/runtime/headless/drive/drive-cpu-equiv-tests.js";
+} from "../dist/ts-emulator/drive/drive-cpu-equiv-tests.js";
 
 let result;
 try {

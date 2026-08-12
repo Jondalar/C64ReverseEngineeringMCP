@@ -6,10 +6,10 @@
 process.env.C64RE_CART_AUTOPERSIST = "0";
 import { readFileSync, writeFileSync, statSync } from "node:fs";
 const D = new URL("../dist", import.meta.url).pathname;
-const { startIntegratedSession, stopIntegratedSession } = await import(`${D}/runtime/headless/integrated-session-manager.js`);
-const { RuntimeController } = await import(`${D}/runtime/headless/debug/runtime-controller.js`);
-const { ingestMedia } = await import(`${D}/runtime/headless/media/ingress.js`);
-const { runMonitorCommand } = await import(`${D}/runtime/headless/debug/monitor-shell.js`);
+const { startIntegratedSession, stopIntegratedSession } = await import(`${D}/ts-emulator/integrated-session-manager.js`);
+const { RuntimeController } = await import(`${D}/ts-emulator/debug/runtime-controller.js`);
+const { ingestMedia } = await import(`${D}/ts-emulator/media/ingress.js`);
+const { runMonitorCommand } = await import(`${D}/ts-emulator/debug/monitor-shell.js`);
 
 const failures = []; let passes = 0;
 const gate = (n, ok, d) => { ok ? passes++ : failures.push(n); console.log(`  ${ok ? "PASS" : "RED "}  ${n}${d ? ` (${d})` : ""}`); };

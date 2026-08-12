@@ -66,7 +66,7 @@ const goldenDir = resolvePath(repoRoot, "samples/golden-master");
 if (!existsSync(goldenDir)) mkdirSync(goldenDir, { recursive: true });
 
 const { startIntegratedSession } = await import(
-  `${repoRoot}/dist/runtime/headless/integrated-session-manager.js`
+  `${repoRoot}/dist/ts-emulator/integrated-session-manager.js`
 );
 
 const STAGES = [

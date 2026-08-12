@@ -10,7 +10,7 @@
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { startIntegratedSession } from "../runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession } from "../ts-emulator/integrated-session-manager.js";
 
 export const EOF_TRACE_SCHEMA_VERSION = 1 as const;
 

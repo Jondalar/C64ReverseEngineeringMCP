@@ -43,9 +43,9 @@ killPort();
 let exit = 0;
 // ---------- Part B: in-process wedge-recovery (deterministic) ----------
 try {
-  const { startIntegratedSession, stopIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
-  const { RuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js");
-  const { TraceRunController } = await import("../dist/runtime/headless/trace/trace-run.js");
+  const { startIntegratedSession, stopIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
+  const { RuntimeController } = await import("../dist/ts-emulator/debug/runtime-controller.js");
+  const { TraceRunController } = await import("../dist/ts-emulator/trace/trace-run.js");
   const { session, sessionId } = startIntegratedSession({ mode: "true-drive", useMicrocodedCpu: true, vicRenderer: "literal-port", drive1541: "vice" });
   try {
     const ctrl = new RuntimeController(sessionId, session, () => {});

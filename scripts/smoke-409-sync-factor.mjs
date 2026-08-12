@@ -32,7 +32,7 @@ import {
   C64_PAL_CYCLES_PER_SEC,
   C64_NTSC_CYCLES_PER_SEC,
   DRIVE_NOMINAL_HZ,
-} from "../dist/runtime/headless/drive/drive-cpu.js";
+} from "../dist/ts-emulator/drive/drive-cpu.js";
 
 const PAL_EXPECTED = 0x103D5;
 const NTSC_EXPECTED = 0xFA4F;

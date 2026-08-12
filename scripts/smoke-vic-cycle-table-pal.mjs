@@ -16,7 +16,7 @@
 import {
   CYCLE_TAB_PAL, PAL_HALF_CYCLES_PER_LINE, cycleEntry,
   PHI1_NONE, PHI1_REFRESH, PHI1_FETCH_G, PHI1_SPR_PTR, PHI1_SPR_DMA1, PHI1_IDLE,
-} from "../dist/runtime/headless/vic/cycle-table-pal.js";
+} from "../dist/ts-emulator/vic/cycle-table-pal.js";
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail = "") {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { resolve as resolvePath } from "node:path";
-const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
-const { mountMedia } = await import("../dist/runtime/headless/media/mount.js");
+const { startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
+const { mountMedia } = await import("../dist/ts-emulator/media/mount.js");
 
 const { session } = startIntegratedSession({
   mode: "true-drive", useMicrocodedCpu: true, vicRenderer: "literal-port", drive1541: "vice",

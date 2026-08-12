@@ -39,8 +39,10 @@ export interface FsBrowseResult {
   entries: FsEntry[];
 }
 
-// Absolute path to the package root (two levels up from src/runtime/headless/media).
-const PACKAGE_ROOT = resolve(new URL("../../../../", import.meta.url).pathname);
+// Absolute path to the package root. NOTE the depth is tied to THIS file s
+// location: dist/media-format/ -> dist/ -> repo root. It was ../../../../ while
+// this lived at src/ts-emulator/media/ (Spec 806 P1 moved it).
+const PACKAGE_ROOT = resolve(new URL("../../", import.meta.url).pathname);
 
 /** Resolve the user-added roots list from ~/.config/c64re/media-roots.json */
 function loadUserRoots(): string[] {

@@ -4,8 +4,8 @@ import { existsSync, mkdtempSync, rmSync, statSync, readFileSync } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
-import { VicFramebuffer, VIC_PALETTE } from "../dist/runtime/headless/peripherals/vic-renderer.js";
-import { rgbaToPng } from "../dist/runtime/headless/peripherals/png-writer.js";
+import { VicFramebuffer, VIC_PALETTE } from "../dist/ts-emulator/peripherals/vic-renderer.js";
+import { rgbaToPng } from "../dist/ts-emulator/peripherals/png-writer.js";
 
 // ---- Test 1: VicFramebuffer.fill paints uniformly ----
 {
@@ -62,7 +62,7 @@ import { rgbaToPng } from "../dist/runtime/headless/peripherals/png-writer.js";
   if (!existsSync(candidate)) {
     console.log("  (end-to-end skipped — no sample G64)");
   } else {
-    const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
+    const { startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
     const { session } = startIntegratedSession({ diskPath: candidate, enableKernalFileIoTraps: true });
     session.resetCold();
     session.runFor(1_500_000);

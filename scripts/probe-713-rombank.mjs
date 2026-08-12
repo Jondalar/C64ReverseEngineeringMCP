@@ -4,8 +4,8 @@
 // Every access goes through the real PLA/memory-bus path (bus.read/bus.write),
 // never cart.read/write directly.
 
-import { HeadlessMemoryBus } from "../dist/runtime/headless/memory-bus.js";
-import { loadCartridgeMapperFromBytes } from "../dist/runtime/headless/cartridge.js";
+import { HeadlessMemoryBus } from "../dist/ts-emulator/memory-bus.js";
+import { loadCartridgeMapperFromBytes } from "../dist/ts-emulator/cartridge.js";
 
 const failures = []; let passes = 0;
 function gate(name, ok, detail) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Spec 110 (M3.2) — VIA1 IEC contract smoke.
 
-import { runAllVia1IecTests } from "../dist/runtime/headless/drive/via1-iec-tests.js";
+import { runAllVia1IecTests } from "../dist/ts-emulator/drive/via1-iec-tests.js";
 
 const result = runAllVia1IecTests();
 console.log(`VIA1 IEC contract — ${result.total} checks across ${result.details.length} suites`);

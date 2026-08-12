@@ -15,13 +15,13 @@ if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
 
 // Load compiled modules.
 const { startIntegratedSession } = await import(
-  `${repoRoot}/dist/runtime/headless/integrated-session-manager.js`
+  `${repoRoot}/dist/ts-emulator/integrated-session-manager.js`
 );
 const { saveSessionVsf, loadSessionVsf } = await import(
-  `${repoRoot}/dist/runtime/headless/vsf/session-vsf.js`
+  `${repoRoot}/dist/ts-emulator/vsf/session-vsf.js`
 );
 const { runScenario } = await import(
-  `${repoRoot}/dist/runtime/headless/v2/scenario.js`
+  `${repoRoot}/dist/ts-emulator/v2/scenario.js`
 );
 
 const results = [];

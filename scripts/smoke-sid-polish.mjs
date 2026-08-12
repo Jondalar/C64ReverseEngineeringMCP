@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { runAllSidPolishTests } from "../dist/runtime/headless/c64/sid-polish-tests.js";
+import { runAllSidPolishTests } from "../dist/ts-emulator/c64/sid-polish-tests.js";
 
 const r = runAllSidPolishTests();
 console.log(`SID polish v1 — ${r.total} checks across ${r.details.length} suites`);

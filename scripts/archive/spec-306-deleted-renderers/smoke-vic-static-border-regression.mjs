@@ -14,7 +14,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { createHash } from "node:crypto";
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
 
 const REPO = resolvePath(import.meta.dirname, "..");
 const BASELINE_FILE = resolvePath(REPO, "samples/baselines/vic-static-border-281.json");

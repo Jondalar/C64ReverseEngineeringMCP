@@ -7,8 +7,8 @@
 // for behaviour; this proves the real headers/sizes parse + route correctly.
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { HeadlessMemoryBus } from "../dist/runtime/headless/memory-bus.js";
-import { loadCartridgeMapperFromBytes } from "../dist/runtime/headless/cartridge.js";
+import { HeadlessMemoryBus } from "../dist/ts-emulator/memory-bus.js";
+import { loadCartridgeMapperFromBytes } from "../dist/ts-emulator/cartridge.js";
 
 const samples = [
   { file: "samples/AccoladeComics_TRX+1D_EF.crt", type: "easyflash" },

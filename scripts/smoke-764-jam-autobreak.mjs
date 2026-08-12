@@ -1,8 +1,8 @@
 // Spec 764 P1 — JAM auto-break smoke. A KIL ($02) opcode must auto-pause the
 // RuntimeController and broadcast debug/stopped{reason:"jam", pc, opcode} exactly
 // once per episode (re-armed on run()/reset). Run from repo root: node scripts/smoke-764-jam-autobreak.mjs
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const events = [];

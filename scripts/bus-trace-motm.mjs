@@ -77,7 +77,7 @@ console.error(`Disk: ${diskPath} (${statSync(diskPath).size} bytes)`);
 console.error(`Output: ${outPath}`);
 console.error(`Cycle budget: ${cycleBudget.toLocaleString()}  Max events: ${maxEvents}`);
 
-const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
+const { startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
 
 // Drive PC ranges per Spec 142: motm receive window + stage-2 entry
 const drivePcRanges = id === "motm"

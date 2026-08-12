@@ -11,11 +11,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 const { startIntegratedSession, stopIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`);
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`);
 const { loadSessionVsf } = await import(
-  `${REPO}/dist/runtime/headless/vsf/session-vsf.js`);
+  `${REPO}/dist/ts-emulator/vsf/session-vsf.js`);
 const LIT_TYPES = await import(
-  `${REPO}/dist/runtime/headless/vic/literal/vicii-types.js`);
+  `${REPO}/dist/ts-emulator/vic/literal/vicii-types.js`);
 
 const VSF = `${REPO}/samples/motm_menu_vice.vsf`;
 const OUT_DIR = `${REPO}/samples/screenshots/motm-spec-309`;

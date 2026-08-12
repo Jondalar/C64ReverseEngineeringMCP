@@ -11,9 +11,9 @@
 //   D) hot-path discipline: many captures reuse the encoder scratch (~no heap
 //      growth on the producer side).
 
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { RuntimeRecorder } from "../dist/runtime/headless/recorder/runtime-recorder.js";
-import { decodeAnchor } from "../dist/runtime/headless/recorder/anchor-codec.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { RuntimeRecorder } from "../dist/ts-emulator/recorder/runtime-recorder.js";
+import { decodeAnchor } from "../dist/ts-emulator/recorder/anchor-codec.js";
 
 const failures = [];
 let passes = 0;

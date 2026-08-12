@@ -12,7 +12,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
 
 const samples = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/samples";
 const candidate = join(samples, "maniac_mansion_s1[activision_1987](german)(manual)(!).g64");

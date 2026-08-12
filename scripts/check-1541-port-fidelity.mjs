@@ -3,7 +3,7 @@
 //
 // Reads the file-mapping table from
 // `specs/_archive/612-1541-port-fidelity-rules.md` §3 and applies rules FC-1..FC-6
-// against `src/runtime/headless/vice1541/**`.
+// against `src/ts-emulator/vice1541/**`.
 //
 // Exit 0 = PASS, exit 1 = any FAIL (WARN does not fail).
 //
@@ -18,7 +18,7 @@ import { resolve, join, relative, basename } from "node:path";
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const SPEC_PATH = join(REPO_ROOT, "specs/_archive/612-1541-port-fidelity-rules.md");
 const TODO_PATH = join(REPO_ROOT, "specs/612-1541-port-fidelity-todo.md");
-const VICE1541_DIR = join(REPO_ROOT, "src/runtime/headless/vice1541");
+const VICE1541_DIR = join(REPO_ROOT, "src/ts-emulator/vice1541");
 const VICE_C_ROOT = "/Users/alex/Development/C64/Tools/vice/vice/src";
 
 const args = process.argv.slice(2);
@@ -46,7 +46,7 @@ function parseFileMap() {
   let m;
   while ((m = rowRe.exec(sec))) {
     const ts = m[1].trim();
-    // Strip "src/runtime/headless/vice1541/" prefix if present
+    // Strip "src/ts-emulator/vice1541/" prefix if present
     const tsBase = ts.replace(/^.*vice1541\//, "");
     // C cell may contain "(+ also ...)" notes; extract all backtick paths
     const cMatches = [...m[2].matchAll(/`([^`]+?\.[ch])`/g)].map((x) => x[1]);

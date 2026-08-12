@@ -5,7 +5,7 @@ import {
   newDisplayPipeState, resetDisplayPipe,
   latchPipeRegs, advancePipeStages, samplePipe0, shiftGbufOnePixel,
   sampleVmode11, sampleVmode16, holdVmode16Pipe2,
-} from "../dist/runtime/headless/vic/display-pipe.js";
+} from "../dist/ts-emulator/vic/display-pipe.js";
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail = "") {

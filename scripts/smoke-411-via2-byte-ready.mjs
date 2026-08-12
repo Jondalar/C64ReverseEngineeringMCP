@@ -22,11 +22,11 @@
 // Spec 411 acceptance: rotation byte boundary → CA1 pulse + SO V flag
 // set on next 6502 instruction.
 
-import { alarmContextNew } from "../dist/runtime/headless/alarm/alarm-context.js";
-import { Via2d1541 } from "../dist/runtime/headless/via/via2d1541.js";
+import { alarmContextNew } from "../dist/ts-emulator/alarm/alarm-context.js";
+import { Via2d1541 } from "../dist/ts-emulator/via/via2d1541.js";
 import {
   VIA_PCR, VIA_IER, VIA_IFR, VIA_IM_CA1,
-} from "../dist/runtime/headless/via/via6522-vice.js";
+} from "../dist/ts-emulator/via/via6522-vice.js";
 
 const results = [];
 function check(label, cond, detail) {

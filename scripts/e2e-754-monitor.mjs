@@ -19,16 +19,16 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0; const fail = [];
 const ok = (n, c, d = "") => { if (c) { pass++; console.log(`  PASS  ${n}${d ? `  (${d})` : ""}`); } else { fail.push(n); console.log(`  FAIL  ${n}${d ? `  (${d})` : ""}`); } };
 
-if (!existsSync(join(ROOT, "dist/runtime/headless/integrated-session-manager.js"))) {
+if (!existsSync(join(ROOT, "dist/ts-emulator/integrated-session-manager.js"))) {
   console.error("build:mcp first"); process.exit(2);
 }
 
 const { startIntegratedSession, stopIntegratedSession } =
-  await import("../dist/runtime/headless/integrated-session-manager.js");
+  await import("../dist/ts-emulator/integrated-session-manager.js");
 const { RuntimeController } =
-  await import("../dist/runtime/headless/debug/runtime-controller.js");
+  await import("../dist/ts-emulator/debug/runtime-controller.js");
 const { runMonitorCommand } =
-  await import("../dist/runtime/headless/debug/monitor-shell.js");
+  await import("../dist/ts-emulator/debug/monitor-shell.js");
 
 const hx = (n) => n.toString(16).toUpperCase().padStart(2, "0");
 
@@ -667,7 +667,7 @@ console.log("\nSpec 754 — Part L: modal assemble (a mode)\n");
 // =====================================================================
 console.log("\nSpec 754 — Part M: swimlane TUI render (renderText)\n");
 {
-  const { renderText } = await import("../dist/runtime/headless/v2/swimlane-render.js");
+  const { renderText } = await import("../dist/ts-emulator/v2/swimlane-render.js");
   const slice = { startCycle: 100, endCycle: 200, compact: true, rows: [
     { cycle: 100, c64Pc: 0xc000, c64Op: "LDA #imm", c64Flow: "main" },
     { cycle: 102 }, // empty filler — must be dropped
@@ -756,7 +756,7 @@ console.log("\nSpec 754 — Part N: device c64|drive8 (Block I)\n");
 // =====================================================================
 console.log("\nSpec 754 — Part O: bitmap PNG render (Block B)\n");
 {
-  const { renderBitmapPng } = await import("../dist/runtime/headless/debug/monitor-bitmap.js");
+  const { renderBitmapPng } = await import("../dist/ts-emulator/debug/monitor-bitmap.js");
   const isPng = (b) => b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
   const read = (a) => (a & 1) ? 0x00 : 0xff;
   const hi = renderBitmapPng(read, { addr: 0, w: 2, h: 1, mode: "hires" });

@@ -7,8 +7,8 @@
 //  - Scramble Infinity in game code $9xxx
 //  - motm in main loop PC=$B7BF
 
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { mountMedia } from "../dist/runtime/headless/media/mount.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { mountMedia } from "../dist/ts-emulator/media/mount.js";
 import { resolve } from "node:path";
 
 const results = [];

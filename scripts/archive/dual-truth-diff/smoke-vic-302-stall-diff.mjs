@@ -17,11 +17,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 
 const REPO = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 const { startIntegratedSession, stopIntegratedSession } = await import(
-  `${REPO}/dist/runtime/headless/integrated-session-manager.js`);
+  `${REPO}/dist/ts-emulator/integrated-session-manager.js`);
 const LIT_TYPES = await import(
-  `${REPO}/dist/runtime/headless/vic/literal/vicii-types.js`);
+  `${REPO}/dist/ts-emulator/vic/literal/vicii-types.js`);
 const LIT_CHIP = await import(
-  `${REPO}/dist/runtime/headless/vic/literal/vicii-chip-model.js`);
+  `${REPO}/dist/ts-emulator/vic/literal/vicii-chip-model.js`);
 const FETCH_BA_M = LIT_CHIP.FETCH_BA_M;
 const SPRITE_BA_MASK_M = LIT_CHIP.SPRITE_BA_MASK_M;
 

@@ -16,10 +16,10 @@ import { readFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
-import { ingestMedia } from "../dist/runtime/headless/media/ingress.js";
-import { dumpRuntimeSnapshot, undumpRuntimeSnapshot } from "../dist/runtime/headless/kernel/snapshot-persistence.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
+import { ingestMedia } from "../dist/ts-emulator/media/ingress.js";
+import { dumpRuntimeSnapshot, undumpRuntimeSnapshot } from "../dist/ts-emulator/kernel/snapshot-persistence.js";
 
 const failures = [];
 let passes = 0;

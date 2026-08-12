@@ -4,10 +4,10 @@
 import { resolve as resolvePath } from "node:path";
 
 const { startIntegratedSession } = await import(
-  "../dist/runtime/headless/integrated-session-manager.js"
+  "../dist/ts-emulator/integrated-session-manager.js"
 );
 const { mountMedia } = await import(
-  "../dist/runtime/headless/media/mount.js"
+  "../dist/ts-emulator/media/mount.js"
 );
 
 const { session } = startIntegratedSession({
@@ -63,6 +63,6 @@ if (drvcpu_ctx?.pending_alarms) {
 
 // Try manually triggering alarm dispatch.
 console.log("\n=== Force alarm context dispatch ===");
-const { alarmContextDispatch } = await import("../dist/runtime/headless/alarm/alarm-context.js");
+const { alarmContextDispatch } = await import("../dist/ts-emulator/alarm/alarm-context.js");
 alarmContextDispatch(drvcpu_ctx, drv.clk_ptr.value);
 console.log(`After manual dispatch: via1.ifr = $${hex(via1.ifr)}`);

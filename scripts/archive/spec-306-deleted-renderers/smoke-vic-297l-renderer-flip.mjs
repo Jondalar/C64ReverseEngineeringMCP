@@ -3,9 +3,9 @@
 // renderToPng cycle-pumped variant doesn't overwrite live framebuffer.
 
 import { startIntegratedSession } from
-  "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/integrated-session-manager.js";
+  "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/integrated-session-manager.js";
 import { installCyclePumpedRenderer } from
-  "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/runtime/headless/vic/cycle-pumped-renderer.js";
+  "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP/dist/ts-emulator/vic/cycle-pumped-renderer.js";
 
 let pass = 0, fail = 0;
 function ok(name, cond, detail = "") {

@@ -25,7 +25,7 @@
 // The smoke uses HeadlessMemoryBus directly with setCpuPortClock() to
 // inject a controllable clock — no full CPU needed.
 
-import { HeadlessMemoryBus } from "../dist/runtime/headless/memory-bus.js";
+import { HeadlessMemoryBus } from "../dist/ts-emulator/memory-bus.js";
 
 const results = [];
 function check(label, cond, detail) {

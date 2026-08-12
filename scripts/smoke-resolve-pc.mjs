@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
 const repoRoot = resolvePath(fileURLToPath(import.meta.url), "../..");
-const distMcp = `${repoRoot}/dist/runtime/headless/v2`;
+const distMcp = `${repoRoot}/dist/ts-emulator/v2`;
 
 // ---- Load the compiled resolve-pc module -----------------------------------
 

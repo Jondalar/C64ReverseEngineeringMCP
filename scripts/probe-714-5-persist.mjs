@@ -10,11 +10,11 @@
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { RuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
-import { ingestMedia } from "../dist/runtime/headless/media/ingress.js";
-import { dumpRuntimeSnapshot, undumpRuntimeSnapshot } from "../dist/runtime/headless/kernel/snapshot-persistence.js";
-import { RuntimeCheckpointRing } from "../dist/runtime/headless/kernel/runtime-checkpoint-ring.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { RuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
+import { ingestMedia } from "../dist/ts-emulator/media/ingress.js";
+import { dumpRuntimeSnapshot, undumpRuntimeSnapshot } from "../dist/ts-emulator/kernel/snapshot-persistence.js";
+import { RuntimeCheckpointRing } from "../dist/ts-emulator/kernel/runtime-checkpoint-ring.js";
 
 const NEW = () => startIntegratedSession({ mode: "true-drive", useMicrocodedCpu: true, vicRenderer: "literal-port", drive1541: "vice" });
 // AMD sector-erase command sequences (start an erase → flash enters the busy

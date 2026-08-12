@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Spec 113 (M3.5) — G64 GCR shifter fidelity smoke.
 
-import { runAllG64FidelityTests } from "../dist/runtime/headless/drive/g64-fidelity-tests.js";
+import { runAllG64FidelityTests } from "../dist/ts-emulator/drive/g64-fidelity-tests.js";
 
 const r = runAllG64FidelityTests();
 console.log(`G64 GCR shifter fidelity — ${r.total} checks across ${r.details.length} suites`);

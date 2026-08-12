@@ -13,9 +13,9 @@
 //      and the forward continuation matches a control (full fidelity incl disk).
 
 import { resolve } from "node:path";
-import { startIntegratedSession, stopIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { mountMedia } from "../dist/runtime/headless/media/mount.js";
-import { RuntimeRecorder } from "../dist/runtime/headless/recorder/runtime-recorder.js";
+import { startIntegratedSession, stopIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { mountMedia } from "../dist/ts-emulator/media/mount.js";
+import { RuntimeRecorder } from "../dist/ts-emulator/recorder/runtime-recorder.js";
 
 const failures = [];
 let passes = 0;

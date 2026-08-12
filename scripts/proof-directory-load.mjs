@@ -23,8 +23,8 @@ import { existsSync } from "node:fs";
 
 let startIntegratedSession, mountMedia;
 try {
-  ({ startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js"));
-  ({ mountMedia } = await import("../dist/runtime/headless/media/mount.js"));
+  ({ startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js"));
+  ({ mountMedia } = await import("../dist/ts-emulator/media/mount.js"));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

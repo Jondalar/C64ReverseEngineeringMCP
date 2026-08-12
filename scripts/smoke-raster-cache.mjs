@@ -4,7 +4,7 @@
 import { resolve as resolvePath } from "node:path";
 const REPO = resolvePath(import.meta.dirname, "..");
 const { RasterCache, computeLineKey } = await import(
-  `${REPO}/dist/runtime/headless/vic/raster-cache.js`
+  `${REPO}/dist/ts-emulator/vic/raster-cache.js`
 );
 
 let pass = 0, fail = 0;

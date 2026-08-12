@@ -3,7 +3,7 @@
 
 import { resolve as resolvePath } from "node:path";
 const REPO = resolvePath(import.meta.dirname, "..");
-const m = await import(`${REPO}/dist/runtime/headless/vic/bus-owner-table.js`);
+const m = await import(`${REPO}/dist/ts-emulator/vic/bus-owner-table.js`);
 
 let pass = 0, fail = 0;
 function check(name, ok, detail = "") {

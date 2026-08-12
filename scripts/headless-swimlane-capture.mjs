@@ -152,7 +152,7 @@ if (probeMode) console.error(`Probe mode: ${probeMode}`);
 // ─────────────────────────────────────────────────────────────────────────────
 // Import runtime (built dist).
 // ─────────────────────────────────────────────────────────────────────────────
-const { startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
+const { startIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Start session.

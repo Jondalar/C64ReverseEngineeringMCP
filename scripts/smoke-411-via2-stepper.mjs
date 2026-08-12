@@ -19,7 +19,7 @@
 // the modulo-4 phase sequence; assert `headPosition.currentTrack`
 // advances correctly.
 
-import { HeadPosition } from "../dist/runtime/headless/drive/head-position.js";
+import { HeadPosition } from "../dist/ts-emulator/drive/head-position.js";
 
 const results = [];
 function check(label, cond, detail) {

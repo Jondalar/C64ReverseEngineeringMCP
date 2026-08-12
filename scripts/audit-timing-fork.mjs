@@ -24,11 +24,11 @@ const SCAN_DIR = join(REPO_ROOT, "src");
 
 // Files allowed to manage cycle counters or scheduler internals.
 const ALLOWLIST_PREFIXES = [
-  "src/runtime/headless/kernel/",
-  "src/runtime/headless/scheduler/",
-  "src/runtime/headless/cpu/",
-  "src/runtime/headless/cpu6510.ts",
-  "src/runtime/headless/drive/drive-cpu.ts",
+  "src/ts-emulator/kernel/",
+  "src/ts-emulator/scheduler/",
+  "src/ts-emulator/cpu/",
+  "src/ts-emulator/cpu6510.ts",
+  "src/ts-emulator/drive/drive-cpu.ts",
 ];
 
 const RULES = [

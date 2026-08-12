@@ -35,7 +35,7 @@
 //      drive-pulling-data) and confirm cpu_bus / cpu_port / drv_port
 //      all match the reference path.
 
-import { IecBusCore } from "../dist/runtime/headless/iec/iec-bus-core.js";
+import { IecBusCore } from "../dist/ts-emulator/iec/iec-bus-core.js";
 
 const results = [];
 function check(label, cond, detail) {

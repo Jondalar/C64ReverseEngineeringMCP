@@ -1,0 +1,1006 @@
+// ════════════════════════════════════════════════════════════════════════════
+//  DEPRECATED — TypeScript runtime.  THE PRODUCT RUNTIME IS TRX64.
+//
+//  This file is part of the in-process TS emulator. It is reachable ONLY with
+//  C64RE_RUNTIME_TS=1 and is never on the default path: every runtime_* tool,
+//  the workspace UI and the MCP surface route to the TRX64 daemon (Spec 771).
+//
+//  Do not extend it, do not fix forward in it, and do not cite it as current
+//  behaviour — "how the runtime works" means TRX64, in ../TRX64.
+//  Its remaining job is to be a parity oracle for the port; when that is no
+//  longer needed it goes. See DOCTRINE.md.
+// ════════════════════════════════════════════════════════════════════════════
+// Spec 701 — Autonomous Runtime Loop.
+//
+// The headless C64+1541 runtime must run as an autonomous core at a
+// configurable pace (default PAL ~1MHz), independent of the UI. This is the
+// 1:1-VICE principle: in VICE the machine core runs continuously at its
+// configured pacing and the GUI/monitor only observes or commands it — the
+// GUI does NOT own the emulation clock.
+//
+// Before 701 the v3 UI's React frame-loop drove `session/run` ~every 20ms, so
+// the *UI* owned timing and breakpoint halt was UI-cadence-dependent. The
+// RuntimeController moves run/pause/pacing/breakpoint ownership into the
+// backend. It runs a self-paced loop that:
+//   - advances the existing IntegratedSession via runFor(.., {cycleBudget,
+//     breakpoints}) in chunks,
+//   - paces against wall-clock for PAL (sleeps the remainder of each frame),
+//     runs flat-out for warp,
+//   - checks breakpoints per-instruction (already inside runFor) and PAUSES
+//     ITSELF on a hit,
+//   - broadcasts run/pause/stopped/breakpoint_hit + frame_available so the UI
+//     can visualize without advancing the machine.
+//
+// Node is single-threaded: the loop runs a chunk synchronously, then yields
+// (setTimeout for PAL pacing, setImmediate for warp) so incoming WebSocket
+// commands are still processed between chunks.
+
+import type { IntegratedSession } from "../integrated-session.js";
+import { FlowTracker } from "./stepping.js";
+import { buildBacktrace } from "./backtrace.js";
+import {
+  RuntimeCheckpointRing,
+  checkpointRingMaxEntries,
+  DEFAULT_CHECKPOINT_RING_SECONDS,
+  type RuntimeCheckpointRef,
+} from "../kernel/runtime-checkpoint-ring.js";
+import type { MachineSnapshot } from "../kernel/machine-kernel.js";
+import { TraceRunController } from "../trace/trace-run.js";
+import type { RuntimeTraceDefinition } from "../../trace/trace-definition.js";
+import type { MediaIngressEvent } from "../media/ingress.js";
+import { persistCartridgeToFile } from "../../media-format/persist-cartridge.js";
+import { RuntimeRecorder, type RecorderAnchorRef } from "../recorder/runtime-recorder.js";
+import type { MediumKernelLike } from "../recorder/medium-source.js";
+import { makeCheckpointThumbnail, type CheckpointThumbnail } from "../../inspect/checkpoint-thumbnail.js";
+
+export type RuntimeRunState = "running" | "paused" | "stopped";
+export type RuntimePacingMode = "pal" | "warp" | "fixed-ratio";
+
+export interface RuntimeStopInfo {
+  reason: "pause" | "breakpoint" | "step" | "jam" | "error" | "observer";
+  pc: number;
+  cycles: number;
+  breakpointId?: number;
+  // Spec 764 — opcode byte at PC for a JAM (KIL) stop, so the monitor banner can
+  // read "JAMMED @ $PC (op $xx)".
+  opcode?: number;
+}
+
+// Stable-checknum breakpoint store (VICE-style — a checknum is assigned once
+// and never reused, so `del <n>` and "#N BREAK" stay consistent). Moved here
+// from ws-server so the autonomous loop and the monitor share ONE source
+// of breakpoint truth (Spec 701 §6 — breakpoints are core-owned).
+export interface BpStore { next: number; bps: Map<number /*checknum*/, number /*addr*/>; }
+
+export type BroadcastFn = (method: string, params?: any) => void;
+
+// PAL pacing constants. Frame ms is derived from the cycle counts so the
+// pace stays self-consistent with the cycle budget the loop actually runs.
+const PAL_CYCLES_PER_SEC = 985248;
+const PAL_CYCLES_PER_FRAME = 19705; // matches the legacy Live.tsx budget + session/run default
+const PAL_FRAME_MS = (PAL_CYCLES_PER_FRAME / PAL_CYCLES_PER_SEC) * 1000; // ≈ 20.0ms → 50Hz
+
+// Spec 705.B — automatic checkpoint ring cadence: capture one RuntimeCheckpoint
+// every N completed frames (~0.5 s @ 50 Hz PAL). Fine enough to rewind to the
+// cause of a just-seen effect; ~400 KB/checkpoint × 2/s is cheap, and the ring
+// budget (128 MiB) bounds total retention by evicting oldest-unpinned.
+// Spec 765 — 1s auto-cadence (50 PAL frames). Capture is now zero-alloc: the
+// ring copies the live RAM + framebuffers into its flat slab (no per-capture
+// .slice retained), so the old-gen footprint is constant and the BUG-049 major-
+// GC pressure is gone.
+// Spec 772 — the ring is now sized for the UI scrub-filmstrip, NOT deep history
+// (deep history = the Spec 766 recorder). Cadence is 0.5s = 25 PAL frames
+// (a finer scrub granularity), env-overridable via C64RE_CHECKPOINT_CADENCE_FRAMES.
+// This also kills the old TS(50)↔TRX64(25) cadence divergence — both are 25 now.
+const CHECKPOINT_CAPTURE_EVERY_FRAMES = (() => {
+  const raw = Number(process.env.C64RE_CHECKPOINT_CADENCE_FRAMES);
+  return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 25;
+})();
+// Spec 772 — ring retention in seconds (default 10s), env-overridable. Combined
+// with the cadence above this yields the max-entries cap (ceil(seconds /
+// (cadence/50)) = 20 at the 10s/25 default) the ring evicts on (whichever-first
+// with the byte budget). Deep history beyond this lives in the Spec 766 recorder.
+const CHECKPOINT_RING_SECONDS = (() => {
+  const raw = Number(process.env.C64RE_CHECKPOINT_RING_SECONDS);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_CHECKPOINT_RING_SECONDS;
+})();
+const CHECKPOINT_RING_MAX_ENTRIES = checkpointRingMaxEntries(
+  CHECKPOINT_RING_SECONDS, CHECKPOINT_CAPTURE_EVERY_FRAMES,
+);
+// Spec 765 §8 — the always-on perma-anchor is RE-ENABLED (default ON) now that
+// the per-second capture is cheap: the framebuffer (the ~317 KiB that dominated
+// the spike) is OMITTED from the anchor (derivable shadow, regenerated by re-sim
+// on scrub/dump), so a capture is ~a 64 KiB RAM memcpy + small chip blobs —
+// small enough to share the audio thread without tipping a frame over. This is
+// the "ring = perma-trace-store" layer (746 §1 anchors); fine-grained tracing is
+// the separate .c64re-dump→replay-with-trace flow. Disable for an A/B with
+// C64RE_CHECKPOINT_AUTOCAPTURE=0. (Disk-image sha256 per capture is still paid
+// for a dirty mounted disk — gated only for CRT/clean today; the write-gen gate
+// is the deferred Slice B if disk games tick.)
+const CHECKPOINT_AUTOCAPTURE = process.env.C64RE_CHECKPOINT_AUTOCAPTURE !== "0";
+// Spec 766.5 — the shared-memory recorder (producer + worker). Fed from the SAME
+// auto-capture site as the 765 ring; additive (the 765 ring still serves live
+// scrub/inspect). Default OFF (opt-in with C64RE_RECORDER=1): while the 765 ring
+// is NOT yet retired (5c-2 deferred), running both per 0.5s is pure overhead, and
+// the live audio "kratzen" is the VIC multicolor draw cost, not the checkpoint —
+// so the quiet default is both capture paths off. Turn on to use dump-from-anchor
+// / build the recorder history. Becomes the always-on path when 5c-2 retires 765.
+const RECORDER_ENABLED = process.env.C64RE_RECORDER === "1";
+// BUG-040 — flash writes settle this long (no further mutation) before the
+// auto-persist writes the host .crt once. Long enough to coalesce an EAPI
+// write/erase burst, short enough that a crash loses little.
+const CART_AUTOPERSIST_DEBOUNCE_MS = 5_000;
+
+// Warp: run large chunks flat-out, present the latest frame at a bounded rate.
+const WARP_CHUNK_CYCLES = PAL_CYCLES_PER_FRAME * 8;
+const WARP_PRESENT_MS = 1000 / 20; // cap UI frame pushes to ~20fps in warp
+
+// PAL presentation cadence. Divisor 1 = publish EVERY completed frame (50fps),
+// so 50Hz smooth-scrollers ($D016 fine-scroll) don't get decimated → no
+// every-8th-frame hitch at the coarse-scroll boundary. Raw RGBA @50fps on
+// localhost ≈ 21 MiB/s (fine); broadcastFrame's latest-frame-wins guard still
+// drops frames for a client that falls behind. (Spec 701 §5.1 lists 25fps as
+// the default; bumped to every-frame per user request 2026-05-21 for scroll
+// smoothness — divisor 2 = 25fps remains a one-line revert.)
+const PAL_PRESENT_DIVISOR = 1;
+
+/** Build the VICE-style register dump line used by the monitor + broadcasts. */
+function registerDump(s: IntegratedSession): string {
+  const hx = (n: number, w = 2) => n.toString(16).padStart(w, "0").toUpperCase();
+  const c = s.c64Cpu;
+  const flagsStr = "NV-BDIZC".split("").map((f, i) =>
+    ((c.flags >> (7 - i)) & 1) ? f : f.toLowerCase()).join("");
+  return `  ADDR AC XR YR SP NV-BDIZC\n` +
+    `.;${hx(c.pc, 4)} ${hx(c.a)} ${hx(c.x)} ${hx(c.y)} ${hx(c.sp)} ${flagsStr}`;
+}
+
+export class RuntimeController {
+  readonly sessionId: string;
+  readonly session: IntegratedSession;
+  private broadcast: BroadcastFn;
+  // Spec 701 §7 — live binary frame sink. Called at the presentation cadence
+  // with the just-completed frame number; the server renders RGBA + pushes a
+  // BIN_TYPE_VIC_FRAME. Optional (headless/tests run without it).
+  presentFrame?: (frameNum: number) => void;
+
+  runState: RuntimeRunState = "paused";
+  pacing: { mode: RuntimePacingMode; ratio: number } = { mode: "pal", ratio: 1 };
+  // Core-owned breakpoint list (Spec 701 §6). Shared with monitor/exec.
+  readonly breakpoints: BpStore = { next: 1, bps: new Map() };
+  stopInfo: RuntimeStopInfo | null = null;
+  // Spec 623 §4.2/§4.3 — interrupt-aware stepping + flow-focus state, per
+  // session (the monitor's z/n/ret/sf/nf/focus operate on this).
+  readonly flow = new FlowTracker();
+
+  // Loop state.
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private immediate: ReturnType<typeof setImmediate> | null = null;
+  private suspendCount = 0;   // >0 = a mutation is in flight; loop must not tick
+  private epochMs = 0;        // wall time at the current pacing epoch
+  private framesSinceEpoch = 0;
+  private frameCounter = 0;    // monotonic completed-frame count (for presentation)
+  private lastPresentMs = 0;
+  // Spec 746.x — single in-flight guard for the per-frame trace drain. The drain
+  // feeds the trace worker + recycles its 1 MiB chunk buffers; under worker
+  // backpressure it can outlast a frame, so we never stack a second drain on top.
+  private traceDraining = false;
+  // Spec 764 — JAM auto-break edge flag. A jammed CPU keeps cycling clk every
+  // tick; this guard fires the drop-into-monitor exactly once per JAM episode
+  // and is re-armed when the jam clears (running tick) or on an explicit run().
+  private brokeOnJam = false;
+
+  // Spec 703 §8 — per-frame audio hook. Called once per COMPLETED emulated
+  // frame (un-throttled, unlike presentation). The server uses it to flush the
+  // batch of SID register writes captured that frame and stream them to the
+  // browser, which runs reSID and renders on its own audio clock. Emulation
+  // stays pure wall-clock; the browser is the audio master purely by rendering
+  // on demand (no backend pace feedback needed).
+  onAudioFrame?: () => void;
+
+  // Spec 705.B — always-on bounded checkpoint ring + per-frame capture counter.
+  // The ring is transient (in-memory); pinned entries survive eviction.
+  // Spec 772 — the ring is sized for the UI scrub-filmstrip: a max-entries cap
+  // (default 20 = 10s @ 0.5s cadence) on top of the byte budget, evict-oldest on
+  // whichever-first. Deep history is the Spec 766 recorder, not this ring.
+  readonly checkpointRing = new RuntimeCheckpointRing({ maxEntries: CHECKPOINT_RING_MAX_ENTRIES });
+  private framesSinceCheckpoint = 0;
+
+  // Spec 766.5 — shared-memory recorder (lazy: created at power-on in run()).
+  // The emu thread only fire-and-forget memcpy's anchors into its ring; the
+  // worker does all the heavy work off-thread (BUG-049 fix).
+  recorder?: RuntimeRecorder;
+
+  // Spec 769.5a — per-checkpoint scrub-filmstrip thumbnails (downscaled copy of
+  // the live frame at capture; tiny, no extra render). Keyed by checkpoint id,
+  // capped (the ring itself bounds restorable checkpoints).
+  private readonly checkpointThumbs = new Map<string, CheckpointThumbnail>();
+  // Spec 772 — align the thumb cap to the ring size: there is no point holding 1024
+  // thumbs when the ring only retains ~20 checkpoints (a thumb whose ring entry was
+  // evicted is never surfaced by filmstrip()). A small headroom (×2) absorbs the
+  // transient where a fresh thumb is inserted just before its evicted predecessor is
+  // pruned; pruneOrphanThumbs() then drops any thumb without a live ring entry, so
+  // thumbs evict WITH the ring entry.
+  private static readonly MAX_THUMBS =
+    Number.isFinite(CHECKPOINT_RING_MAX_ENTRIES) ? CHECKPOINT_RING_MAX_ENTRIES * 2 : 1024;
+
+  // Spec 767 — who is currently driving the shared session: "human" (UI) or
+  // "llm" (MCP / agent). Sticky: set when a side issues a control/observe command,
+  // broadcast on change as `debug/control` so the UI can show a GREEN "LLM is in"
+  // border (vs the human-paused yellow). This is a SIGNAL only — it never gates
+  // access (both co-drive the one machine; reads/obs never pause).
+  controlOwner: "human" | "llm" = "human";
+
+  // Spec 708 — declarative trace runs + per-session definition registry. The
+  // run controller taps the existing kernel trace channels (no parallel path).
+  readonly traceRun = new TraceRunController();
+  readonly traceDefinitions = new Map<string, RuntimeTraceDefinition>();
+
+  // BUG-040 — debounced flash auto-persist: a flash-programming cart (EAPI save
+  // etc.) only reached the host .crt on eject/explicit persist; a daemon crash
+  // in between lost the delta. Per frame we read the mapper's monotonic
+  // writableGeneration(); once it stops changing for the debounce window the
+  // settled flash is written back via the same persistCartridgeToFile as eject.
+  private cartPersistSeenGen = -1;   // last generation observed
+  private cartPersistSettleAt = 0;   // wall-clock ms when it last changed
+  private cartPersistDoneGen = -1;   // generation already written to the host file
+  private cartPersistTimer: ReturnType<typeof setInterval> | undefined;
+
+  // Spec 709.8 — ordered media-ingress event history (disk/PRG/CRT/eject), each
+  // carrying its before/after checkpoint refs. The replayable record consumed
+  // by Specs 710-712 (overlay / rewind / branch diff). ingestMedia() appends.
+  readonly mediaEvents: MediaIngressEvent[] = [];
+
+  constructor(
+    sessionId: string, session: IntegratedSession, broadcast: BroadcastFn,
+    presentFrame?: (frameNum: number) => void,
+  ) {
+    this.sessionId = sessionId;
+    this.session = session;
+    this.broadcast = broadcast;
+    this.presentFrame = presentFrame;
+    // BUG-040 — the auto-persist check runs on its OWN 1s timer, NOT in the
+    // frame tick: a paused/jammed/breakpoint-stopped loop runs no frames, but a
+    // flash delta written just before the stop must still reach the host .crt.
+    // unref'd so it never holds the process open; cleared in dispose().
+    this.cartPersistTimer = setInterval(() => {
+      try { this.maybeAutoPersistCart(); } catch { /* retry next tick */ }
+    }, 1_000);
+    (this.cartPersistTimer as { unref?: () => void }).unref?.();
+  }
+
+  /** Allow the server to (re)wire the broadcast sink (e.g. on reconnect). */
+  setBroadcast(fn: BroadcastFn): void { this.broadcast = fn; }
+
+  // ---- breakpoint helpers (shared with monitor/exec) ----
+
+  /** Set of breakpoint ADDRESSES (for runFor's `breakpoints` option). */
+  bpAddrSet(): Set<number> { return new Set(this.breakpoints.bps.values()); }
+
+  /** Lowest checknum whose address == addr (for the "#N BREAK" report). */
+  bpNumForAddr(addr: number): number {
+    for (const [num, a] of this.breakpoints.bps) if (a === addr) return num;
+    return 0;
+  }
+
+  /** Add an exec breakpoint, return its stable checknum. */
+  addBreakpoint(addr: number): number {
+    const num = this.breakpoints.next++;
+    this.breakpoints.bps.set(num, addr & 0xffff);
+    return num;
+  }
+
+  /** Delete by checknum. Returns true if it existed. */
+  delBreakpoint(num: number): boolean { return this.breakpoints.bps.delete(num); }
+
+  clearBreakpoints(): void { this.breakpoints.bps.clear(); }
+
+  listBreakpoints(): Array<{ num: number; addr: number }> {
+    return [...this.breakpoints.bps].sort((a, b) => a[0] - b[0]).map(([num, addr]) => ({ num, addr }));
+  }
+
+  // ---- run / pause / step (Spec 701 §6) ----
+
+  /** Start (or restart) the autonomous loop at the given pacing. */
+  run(pacing?: { mode?: RuntimePacingMode; ratio?: number }): void {
+    if (pacing?.mode) this.pacing.mode = pacing.mode;
+    if (pacing?.ratio && pacing.ratio > 0) this.pacing.ratio = pacing.ratio;
+    if (this.runState === "running") return;
+    // Spec 765 §8 — power-on prewarm: allocate + page in the checkpoint slab NOW,
+    // before the first frame + audio, so the one-time ~32 MiB alloc cost is paid
+    // while nothing competes — not lazily on the first auto-capture mid-boot
+    // (which showed as the power-on fps dip). Idempotent; skip when auto-capture
+    // is off (the slab then stays lazy for a rare manual capture).
+    if (CHECKPOINT_AUTOCAPTURE) this.checkpointRing.prewarm();
+    // Spec 766.5 — spawn the recorder worker once, at power-on, so its SAB +
+    // worker setup cost is paid while nothing competes (like the slab prewarm).
+    if (RECORDER_ENABLED && !this.recorder) {
+      try { this.recorder = new RuntimeRecorder(); } catch { /* recorder is best-effort; never block run() */ }
+    }
+    this.stepPastCurrentBreakpoint();
+    this.brokeOnJam = false; // Spec 764 — explicit run re-arms; a still-jammed CPU re-breaks once
+    this.runState = "running";
+    this.stopInfo = null;
+    this.resetPaceEpoch();
+    this.broadcast("debug/running", { session_id: this.sessionId, pacing: this.pacing });
+    this.scheduleNext(0);
+  }
+
+  /** Resume from a stop. Identical to run() but keeps the current pacing. */
+  continue(): void { this.run(); }
+
+  /** Stop scheduling; the machine freezes at the current instruction boundary. */
+  pause(reason: RuntimeStopInfo["reason"] = "pause"): void {
+    this.cancelScheduled();
+    if (this.runState === "paused") return;
+    this.runState = "paused";
+    this.stopInfo = this.makeStopInfo(reason);
+    this.broadcast("debug/paused", { session_id: this.sessionId, stop: this.stopInfo });
+  }
+
+  /**
+   * Spec 710.6c — user freeze for inspection: run to the next COMPLETE frame
+   * boundary WITH VIC provenance capture, so the frozen frame carries raster/FLI
+   * + multiplexed-sprite provenance matching the picture. Distinct from a
+   * breakpoint (BK stops at an exact PC mid-frame; it does NOT call this). If
+   * already paused, no advance. Then halt.
+   */
+  freezeWithProvenance(): void {
+    this.cancelScheduled();
+    if (this.runState === "running") {
+      this.session.runFrameWithProvenance(); // ≤1 frame, capture on, then off
+    }
+    this.runState = "paused";
+    this.stopInfo = this.makeStopInfo("pause");
+    this.frameCounter++; // refresh presentation
+    this.broadcast("debug/paused", { session_id: this.sessionId, stop: this.stopInfo });
+  }
+
+  /** Execute exactly ONE instruction while paused (Spec 701 §6 step). */
+  step(): RuntimeStopInfo {
+    if (this.runState === "running") this.pause();
+    // A step always advances, even if sitting on a breakpoint address.
+    this.session.runFor(1);
+    this.runState = "paused";
+    this.stopInfo = this.makeStopInfo("step");
+    this.frameCounter++; // keep presentation alive while single-stepping
+    this.broadcast("debug/stopped", { session_id: this.sessionId, stop: this.stopInfo, registers: registerDump(this.session) });
+    return this.stopInfo;
+  }
+
+  /** Set pacing without changing run/pause state. */
+  setPacing(mode: RuntimePacingMode, ratio?: number): void {
+    this.pacing.mode = mode;
+    if (ratio && ratio > 0) this.pacing.ratio = ratio;
+    if (this.runState === "running") this.resetPaceEpoch();
+  }
+
+  /** Current state snapshot for debug/state. */
+  /** Spec 767 — set the driving side; broadcast `debug/control` on change so the
+   *  UI reflects who's in (green = llm). Signal only, never gates access. */
+  setControlOwner(owner: "human" | "llm"): void {
+    if (this.controlOwner === owner) return;
+    this.controlOwner = owner;
+    this.broadcast("debug/control", { session_id: this.sessionId, owner });
+  }
+
+  state(): {
+    runState: RuntimeRunState;
+    pacing: { mode: RuntimePacingMode; ratio: number };
+    pc: number;
+    cycles: number;
+    frame: number;
+    breakpoints: Array<{ num: number; addr: number }>;
+    stop: RuntimeStopInfo | null;
+    controlOwner: "human" | "llm";
+  } {
+    return {
+      runState: this.runState,
+      pacing: { ...this.pacing },
+      pc: this.session.c64Cpu.pc,
+      cycles: this.session.c64Cpu.cycles,
+      frame: this.frameCounter,
+      breakpoints: this.listBreakpoints(),
+      stop: this.stopInfo,
+      controlOwner: this.controlOwner,
+    };
+  }
+
+  /**
+   * Run a session-mutating op (disk mount/unmount/swap) atomically with
+   * respect to the loop. The loop's clock lives OUTSIDE the WS op-chain
+   * (it's a self-scheduled timer), so without this a loop tick could call
+   * runFor() mid-attach and leave the drive half-attached → the same UI
+   * freeze cadc185 fixed when the clock was still session/run on the chain.
+   *
+   * Cancels any pending tick, runs fn (which may await), then re-arms the
+   * loop. runState is NOT changed — a disk swap while the machine runs is
+   * legal (real hardware) and the UI keeps showing "running".
+   */
+  async runExclusive<T>(fn: () => T | Promise<T>): Promise<T> {
+    this.cancelScheduled();
+    this.suspendCount++;
+    try {
+      return await fn();
+    } finally {
+      this.suspendCount--;
+      if (this.suspendCount === 0 && this.runState === "running") {
+        this.resetPaceEpoch(); // don't try to "catch up" the suspended wall time
+        this.scheduleNext(0);
+      }
+    }
+  }
+
+  // ---- Spec 705.B: checkpoint ring lifecycle ----
+
+  /**
+   * Capture a checkpoint NOW into the ring (in addition to the automatic
+   * cadence). Safe from a paused state or between chunks; if called while the
+   * loop is running it goes through runExclusive so snapshot() sees an atomic
+   * boundary with the loop idle.
+   */
+  async captureCheckpoint(): Promise<RuntimeCheckpointRef> {
+    // Spec 709.13 (policy B): refuse to mint a checkpoint while ANY mounted
+    // medium carries live mutations that v1 does not serialize — a dirty
+    // VICE1541 disk (no writable-disk-delta payload) OR a dirty writable CRT
+    // (embeds only the original .crt bytes + bank/control, no flash delta).
+    // Either way capture+restore would silently revert the delta, so the ring
+    // would hold a non-restorable checkpoint. This is the shared chokepoint for
+    // every explicit capture (manual / dump / media-ingress before+after).
+    const dirty = this.nonPersistableDirtyMedia();
+    if (dirty) {
+      throw new Error(
+        `checkpoint: cannot capture — ${dirty} (Spec 709.13 / policy B). A RuntimeCheckpoint ` +
+        `does not serialize this delta, so capture+restore would silently revert it. Aborting ` +
+        `rather than minting a non-restorable checkpoint.`,
+      );
+    }
+    // Spec 710.4/710.5 — provenance is NOT bound here: kernel.snapshot() embeds
+    // the same-frame provenance into the checkpoint payload (cp.vicProvenance),
+    // so it rides the ring / .c64re / restore. Inspect reads it from the payload.
+    const take = (): RuntimeCheckpointRef => {
+      const ref = this.checkpointRing.capture(
+        // Spec 765 — an EXPLICIT capture (manual / the .c64re dump path) KEEPS the
+        // framebuffer (no omitFramebuffer) so the dump is full-fidelity (707) and
+        // undump shows the screen immediately. shallow → the ring detaches it.
+        // This path is rare (user-triggered), so the ~317 KiB copy is fine.
+        this.session.kernel.snapshot({ shallow: true }), this.frameCounter, this.session.c64Cpu.cycles,
+      );
+      this.captureThumb(ref.id);
+      return ref;
+    };
+    return this.runState === "running" ? this.runExclusive(take) : take();
+  }
+
+  /** Spec 769.5a — store a downscaled thumbnail of the current live frame for a
+   *  checkpoint id (scrub filmstrip). Cheap (no extra render); capped. */
+  private captureThumb(id: string): void {
+    const t = makeCheckpointThumbnail(this.session as unknown as { renderLiteralPortIndexed?(): { width: number; height: number; indices: Uint8Array; palette: Uint8Array } | null });
+    if (!t) return;
+    this.checkpointThumbs.set(id, t);
+    // Spec 772 — thumbs evict WITH the ring entry: drop any thumb whose ring entry
+    // has been evicted (or truncated/restored away). The ring is the authority on
+    // which checkpoints are live, so the thumb store tracks it exactly instead of
+    // drifting up to the old 1024 cap. The MAX_THUMBS cap stays as a hard backstop.
+    this.pruneOrphanThumbs();
+    if (this.checkpointThumbs.size > RuntimeController.MAX_THUMBS) {
+      const oldest = this.checkpointThumbs.keys().next().value;
+      if (oldest !== undefined) this.checkpointThumbs.delete(oldest);
+    }
+  }
+
+  /** Spec 772 — drop thumbnails whose ring entry is no longer live (evicted by the
+   *  ring's entry/byte cap, truncated, or cleared) so the thumb store stays in
+   *  lock-step with the ring size. Cheap: ring is ~20 entries, thumbs ~20. */
+  private pruneOrphanThumbs(): void {
+    if (this.checkpointThumbs.size === 0) return;
+    const live = new Set(this.checkpointRing.list().map((r) => r.id));
+    for (const id of this.checkpointThumbs.keys()) {
+      if (!live.has(id)) this.checkpointThumbs.delete(id);
+    }
+  }
+
+  /** Spec 769.5a — the scrub filmstrip: live checkpoints (ring order) each with
+   *  its thumbnail. Only entries that still have both a ring ref AND a thumb. */
+  filmstrip(): Array<{ id: string; cycles: number; frame: number; pinned: boolean; width: number; height: number; palette: Uint8Array; indices: Uint8Array }> {
+    const out: Array<{ id: string; cycles: number; frame: number; pinned: boolean; width: number; height: number; palette: Uint8Array; indices: Uint8Array }> = [];
+    for (const ref of this.checkpointRing.list()) {
+      const t = this.checkpointThumbs.get(ref.id);
+      if (t) out.push({ id: ref.id, cycles: ref.cycles, frame: ref.frame, pinned: ref.pinned, width: t.width, height: t.height, palette: t.palette, indices: t.indices });
+    }
+    return out;
+  }
+
+  /**
+   * Describe any currently-mounted medium whose live mutations are NOT
+   * serialized into a checkpoint/.c64re, returning a precise reason (or null
+   * when all media is persistable). Shared by `captureCheckpoint` (hard
+   * reject), the always-on auto-cadence capture (skip — a ring gap beats a
+   * corrupt checkpoint) and `ingestMedia` (reject any branching intervention).
+   *
+   * Spec 714.2 — the DISK is now persistable: the VICE1541 snapshot runs with
+   * save_disks=1, so a dirty disk's GCR image rides in the checkpoint and
+   * restores exactly. The disk branch of this guard is therefore REMOVED (the
+   * 709.13 dirty-disk barrier is retired now that disk capture is faithful).
+   * Only the writable CRT remains non-persistable (flash delta) until its
+   * Spec 713 mapper port + Spec 714.5 persistence land; its reason keeps the
+   * "writable CRT" / "writable-CRT-delta" wording the 709.12 gates assert on.
+   */
+  nonPersistableDirtyMedia(): string | null {
+    const k = this.session.kernel as {
+      c64Bus?: { getCartridge?(): { isWritableDirty?(): boolean; persistsWritableState?(): boolean } | undefined };
+    };
+    const cart = k.c64Bus?.getCartridge?.();
+    // Spec 714.5 — a dirty cartridge is non-persistable ONLY when its mapper does
+    // not faithfully capture/restore its writable hardware state. EasyFlash now
+    // persists its flash (persistsWritableState → true), so a dirty EasyFlash is
+    // captured, not rejected. Families without a writable port (no test corpus)
+    // stay reject-on-dirty until their Spec 713 port + a 714.5 slice land.
+    if (cart?.isWritableDirty?.() && !cart?.persistsWritableState?.()) {
+      return "writable cartridge state changed since attach and this mapper has no persistence port; v1 cannot snapshot it";
+    }
+    return null;
+  }
+
+  /** BUG-040 — debounced flash→host-.crt auto-persist. Called once per frame.
+   *  The mapper's monotonic writableGeneration() distinguishes "still being
+   *  written" (gen moving → re-arm the window) from "settled" (gen stable for
+   *  CART_AUTOPERSIST_DEBOUNCE_MS → write once via the eject-path's
+   *  persistCartridgeToFile, then remember the persisted gen). The EAPI burst
+   *  case therefore costs ONE host write after the burst, not one per byte.
+   *  Disable with C64RE_CART_AUTOPERSIST=0 (eject/explicit persist still work). */
+  private maybeAutoPersistCart(): void {
+    if (process.env["C64RE_CART_AUTOPERSIST"] === "0") return;
+    const bus = (this.session.kernel as {
+      c64Bus?: { getCartridge?(): import("../cartridge.js").HeadlessCartridgeMapper | undefined };
+    }).c64Bus;
+    const cart = bus?.getCartridge?.();
+    const gen = cart?.writableGeneration?.();
+    if (gen === undefined || gen === 0 || !cart?.isWritableDirty?.()) return;
+    if (gen !== this.cartPersistSeenGen) {
+      this.cartPersistSeenGen = gen;
+      this.cartPersistSettleAt = Date.now();
+      return;
+    }
+    if (gen === this.cartPersistDoneGen) return;
+    if (Date.now() - this.cartPersistSettleAt < CART_AUTOPERSIST_DEBOUNCE_MS) return;
+    const cartPath = (this.session as { cartPath?: string }).cartPath ?? "";
+    if (!cartPath) { this.cartPersistDoneGen = gen; return; } // nothing to write to
+    const r = persistCartridgeToFile(cart, cartPath);
+    this.cartPersistDoneGen = gen; // also on skip — don't re-try hot every frame
+    if (r.written) {
+      this.broadcast("media/cart_persisted", {
+        session_id: this.sessionId, path: r.path, bytes: r.bytes, auto: true,
+      });
+    }
+  }
+
+  /**
+   * Restore a ring checkpoint into the live machine. Goes through runExclusive
+   * so the loop is idle during the mutation. kernel.restore() also drives the
+   * 705.A audio-checkpoint provider, which fires the Spec 706.8 transport flush
+   * (recorder ring + WS + worklet re-prebuffer). runState is unchanged: a
+   * rewind while running keeps running from the restored state.
+   */
+  /**
+   * Spec 761.1 — scrub/resume a ring anchor. `then` makes the LIVE-tab intent
+   * explicit (race-free, composed on the single restore path — no second path):
+   *   - "pause": scrub-and-look — restore, ensure paused, publish debug/stopped.
+   *   - "run":   resume-from-X — restore, then (re)start the autonomous loop.
+   *   - "keep":  inherit the current run-state (default, back-compat).
+   * On "run" the resumed-from anchor is auto-pinned (Spec 761 OQ2) so it is not
+   * evicted while the user watches the branch play out.
+   */
+  async restoreCheckpoint(
+    id: string, opts: { then?: "pause" | "run" | "keep"; render?: boolean } = {},
+  ): Promise<RuntimeCheckpointRef> {
+    const snap = this.checkpointRing.restoreSnapshot(id);
+    const ref = this.checkpointRing.get(id);
+    if (!snap || !ref) throw new Error(`[checkpoint] unknown id ${id}`);
+    const then = opts.then ?? "keep";
+    // Spec 769.5 — `render` re-sims 1 frame on a paused scrub so the canvas shows
+    // the picture (framebuffer-less anchors). Only meaningful when landing paused.
+    await this.restoreFromSnapshot(snap, { ref, pause: then === "pause", render: opts.render && then !== "run" });
+    if (then === "run") {
+      this.checkpointRing.pin(id); // OQ2 — keep the branch point alive
+      // Spec 761 — resuming from X starts a NEW timeline; the anchors after X
+      // belong to the old future that no longer happens. Drop them (pinned
+      // reference points are kept) so the scrub bar reflects the live branch.
+      this.checkpointRing.truncateAfter(id, { keepPinned: true });
+      this.run();
+    }
+    return ref;
+  }
+
+  /**
+   * Spec 766.5b — restore from a RECORDER anchor (worker-store, shared-memory
+   * path) by seq. Reassembles the core payload + the gen-gated medium it
+   * referenced (disk/cart) off-thread, then drives the same restore path as the
+   * 765 ring. Returns the anchor ref, or null if the anchor/medium was evicted.
+   * Runs alongside restoreCheckpoint (765) until 5c re-points the public API.
+   */
+  async restoreFromRecorder(
+    seq: number, opts: { then?: "pause" | "run" | "keep" } = {},
+  ): Promise<RecorderAnchorRef | null> {
+    if (!this.recorder) return null;
+    const recon = await this.recorder.reconstruct(seq);
+    if (!recon) return null;
+    const then = opts.then ?? "keep";
+    await this.restoreFromSnapshot(
+      { schemaVersion: recon.schemaVersion, payload: recon.payload } as unknown as MachineSnapshot,
+      { pause: then === "pause" },
+    );
+    if (then === "run") this.run();
+    return recon.ref;
+  }
+
+  /**
+   * Restore an arbitrary MachineSnapshot (ring entry OR a deserialized native
+   * .c64re snapshot — Spec 707 undump). Goes through runExclusive so the loop
+   * is idle; kernel.restore() drives the 705.A audio provider → the 706.8
+   * transport flush, leaving no stale frames/audio. `pause` stops live
+   * execution and publishes the restored paused/debug state (undump default).
+   */
+  async restoreFromSnapshot(
+    snap: MachineSnapshot, opts: { ref?: RuntimeCheckpointRef; pause?: boolean; render?: boolean } = {},
+  ): Promise<void> {
+    if (opts.pause && this.runState === "running") this.pause();
+    await this.runExclusive(() => {
+      this.session.kernel.restore(snap);
+      this.framesSinceCheckpoint = 0; // re-base the auto-capture cadence
+    });
+    // Spec 769.5 — `render`: an auto-capture anchor OMITS the framebuffer (BUG-049
+    // — it is a derivable shadow), so a paused restore would present a black/stale
+    // screen. Re-simulate ONE frame to regenerate literalPortFbStable so the live
+    // canvas shows the rolled-back picture. The human filmstrip-scrub uses this
+    // (a ~1-frame advance is invisible in a preview); the LLM exact-state path
+    // (runtime_rewind) does NOT, so its restored cycle stays exact.
+    if (opts.render) {
+      await this.runExclusive(() => { this.session.runFor(PAL_CYCLES_PER_FRAME, { cycleBudget: PAL_CYCLES_PER_FRAME }); });
+    }
+    const registers = registerDump(this.session);
+    this.broadcast("debug/checkpoint_restored", {
+      session_id: this.sessionId, ref: opts.ref ?? null, registers,
+    });
+    // Spec 761 — actively PUSH the restored frame down the normal VIC-frame
+    // channel so every client's canvas shows the rolled-back screen
+    // immediately. Without this a paused scrub leaves the live frame stream
+    // idle, so the picture stays on the pre-scrub frame even though RAM/VIC
+    // already rolled back. Bulletproof: no dependency on a client-side
+    // grab-on-restore subscription.
+    this.frameCounter++;
+    try { this.presentFrame?.(this.frameCounter); } catch { /* present is best-effort */ }
+    if (opts.pause) {
+      this.stopInfo = { reason: "pause", pc: this.session.c64Cpu.pc, cycles: this.session.c64Cpu.cycles };
+      this.broadcast("debug/stopped", { session_id: this.sessionId, stop: this.stopInfo, registers });
+    }
+  }
+
+  /** Tear down (session stop). */
+  dispose(): void {
+    this.cancelScheduled();
+    if (this.cartPersistTimer) { clearInterval(this.cartPersistTimer); this.cartPersistTimer = undefined; }
+    this.runState = "stopped";
+    this.checkpointRing.clear();
+    this.recorder?.dispose();
+    this.recorder = undefined;
+  }
+
+  // ---- internals ----
+
+  // Deterministic continue-past-current-breakpoint (Spec 701 §6): if the PC
+  // currently sits on a breakpoint, step one instruction so a resume does not
+  // immediately re-trigger the same address.
+  private stepPastCurrentBreakpoint(): void {
+    const bps = this.bpAddrSet();
+    if (bps.size > 0 && bps.has(this.session.c64Cpu.pc)) this.session.runFor(1);
+  }
+
+  private resetPaceEpoch(): void {
+    this.epochMs = now();
+    this.framesSinceEpoch = 0;
+    this.lastPresentMs = 0;
+  }
+
+  private cancelScheduled(): void {
+    if (this.timer !== null) { clearTimeout(this.timer); this.timer = null; }
+    if (this.immediate !== null) { clearImmediate(this.immediate); this.immediate = null; }
+  }
+
+  private scheduleNext(sleepMs: number): void {
+    if (this.runState !== "running") return;
+    // CRITICAL: cancel any already-pending tick first. Otherwise a second
+    // scheduleNext (e.g. debug/run racing a media swap's runExclusive resume,
+    // or a reset→pause→run interleave) would orphan the previous timer — both
+    // fire → two concurrent loop chains → the CPU is double-stepped and the
+    // chain can't be cancelled by a single clearTimeout. There must only ever
+    // be ONE pending tick.
+    this.cancelScheduled();
+    if (sleepMs <= 0 && this.pacing.mode === "warp") {
+      this.immediate = setImmediate(() => { this.immediate = null; this.tick(); });
+    } else {
+      this.timer = setTimeout(() => { this.timer = null; this.tick(); }, Math.max(0, sleepMs));
+    }
+  }
+
+  // One loop iteration: run a chunk, handle a breakpoint hit, throttle
+  // presentation, then schedule the next chunk paced to wall-clock.
+  private tick(): void {
+    if (this.runState !== "running") return;
+    if (this.suspendCount > 0) return; // a mutation is in flight; runExclusive re-arms us
+
+    const bps = this.bpAddrSet();
+    const warp = this.pacing.mode === "warp";
+    const chunkCycles = warp ? WARP_CHUNK_CYCLES : PAL_CYCLES_PER_FRAME;
+    // Instruction cap must exceed the cycle cap (min 2 cyc/instr) so the
+    // cycleBudget always wins; +1000 slack for safety.
+    const maxInstr = Math.ceil(chunkCycles / 2) + 1000;
+
+    let r;
+    try {
+      r = this.session.runFor(maxInstr, { cycleBudget: chunkCycles, breakpoints: bps.size > 0 ? bps : undefined });
+    } catch (e) {
+      this.runState = "paused";
+      this.stopInfo = { ...this.makeStopInfo("error"), };
+      this.broadcast("debug/stopped", {
+        session_id: this.sessionId, stop: this.stopInfo,
+        registers: registerDump(this.session), error: (e as Error).message,
+      });
+      return;
+    }
+
+    // Spec 754 §3.3e — flush any `do log` lines accumulated this chunk as a live
+    // trace stream. Log observers don't halt (return false → continue), so this
+    // chunk-boundary drain is how they reach the monitor without an explicit
+    // `obs log`. Done on every path (incl. the halts below) so nothing is lost.
+    const obsLog = this.session.observers?.drainPendingLog?.() ?? [];
+    if (obsLog.length) this.broadcast("debug/observer_log", { session_id: this.sessionId, lines: obsLog });
+
+    // Spec 754 §3.3e v1.1 — drain `do mark` / `do cmd` side-effects (queued by
+    // fire(), run here at the chunk boundary so they never re-enter the loop).
+    const obsMarks = this.session.observers?.drainPendingMarks?.() ?? [];
+    for (const label of obsMarks) {
+      const active = this.traceRun.isActive();
+      if (active) { try { this.traceRun.mark(label); } catch { /* mark is best-effort */ } }
+      this.broadcast("debug/observer_log", {
+        session_id: this.sessionId,
+        lines: [`obs mark: "${label}"${active ? ` @ cyc ${this.session.c64Cpu.cycles}` : " (no active trace — ignored)"}`],
+      });
+    }
+    const obsCmds = this.session.observers?.drainPendingCmds?.() ?? [];
+    if (obsCmds.length) {
+      void (async () => {
+        const { runMonitorCommand } = await import("./monitor-shell.js");
+        const ctx = { session: this.session, ctrl: this, sessionId: this.sessionId, memCursors: new Map<string, number>(), disasmCursors: new Map<string, number>() };
+        for (const c of obsCmds) {
+          try {
+            const res = await runMonitorCommand(ctx, c);
+            this.broadcast("debug/observer_log", { session_id: this.sessionId, lines: [`obs cmd "${c}":`, ...String(res.output ?? res.error ?? "").split("\n")] });
+          } catch (e) {
+            this.broadcast("debug/observer_log", { session_id: this.sessionId, lines: [`obs cmd "${c}": ERROR ${e instanceof Error ? e.message : String(e)}`] });
+          }
+        }
+      })();
+    }
+
+    // Spec 754 §3.3e v1.1 — `do trace [domains]|off`: bracket-model scoped
+    // capture. One observer starts it, another stops it (explicit lifecycle).
+    const obsTrace = this.session.observers?.drainPendingTrace?.() ?? [];
+    if (obsTrace.length) {
+      void (async () => {
+        const { captureAllDef } = await import("../../server-tools/runtime-trace-sink.js");
+        const { resolveSnapshotPath } = await import("../kernel/snapshot-persistence.js");
+        const log = (line: string) => this.broadcast("debug/observer_log", { session_id: this.sessionId, lines: [line] });
+        for (const t of obsTrace) {
+          try {
+            if (t.off) {
+              if (this.traceRun.isActive()) { const run = await this.traceRun.stop(); log(`obs ${t.name}: trace off — ${run.runId} events=${run.eventCount}`); }
+              else log(`obs ${t.name}: trace off (none active — ignored)`);
+            } else if (this.traceRun.isActive()) {
+              log(`obs ${t.name}: trace start skipped (a trace is already active)`);
+            } else {
+              const def = captureAllDef(t.domains as never);
+              const outputPath = resolveSnapshotPath(`runtime/${this.sessionId}/obs_${t.name}_${this.session.c64Cpu.cycles.toString(36)}.duckdb`);
+              const run = await this.traceRun.start(def, { controller: this, outputPath });
+              log(`obs ${t.name}: trace on — ${run.runId} domains=[${t.domains.join(",")}] → ${outputPath}`);
+            }
+          } catch (e) {
+            log(`obs ${t.name}: trace ERROR ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+      })();
+    }
+
+    if (r.aborted === "breakpoint") {
+      this.runState = "paused";
+      const num = this.bpNumForAddr(r.lastPc);
+      this.stopInfo = { reason: "breakpoint", pc: r.lastPc, cycles: this.session.c64Cpu.cycles, breakpointId: num };
+      // Two broadcasts: breakpoint_hit (debugger-specific) + stopped (generic).
+      const payload = {
+        session_id: this.sessionId,
+        pc: r.lastPc,
+        num,
+        cycles: this.session.c64Cpu.cycles,
+        registers: registerDump(this.session),
+      };
+      this.broadcast("debug/breakpoint_hit", payload);
+      this.broadcast("debug/stopped", { session_id: this.sessionId, stop: this.stopInfo, registers: registerDump(this.session) });
+      return; // loop halts itself; no reschedule
+    }
+
+    // Spec 754 §3.3e — an observer with a `break` action halted the run-loop.
+    if (r.aborted === "observer") {
+      this.runState = "paused";
+      const halt = this.session.observers?.lastHalt ?? null;
+      this.stopInfo = { reason: "observer", pc: r.lastPc, cycles: this.session.c64Cpu.cycles };
+      this.broadcast("debug/observer_hit", {
+        session_id: this.sessionId, pc: r.lastPc, cycles: this.session.c64Cpu.cycles,
+        observer: halt?.name ?? null, message: halt?.message ?? null,
+        registers: registerDump(this.session),
+      });
+      this.broadcast("debug/stopped", { session_id: this.sessionId, stop: this.stopInfo, registers: registerDump(this.session) });
+      return; // loop halts itself; no reschedule
+    }
+
+    // Spec 764 — JAM (KIL illegal opcode) auto-break. A jammed CPU keeps cycling
+    // clk with PC frozen (VICE-faithful), so runFor never aborts on it; detect
+    // the jammed state here. Always halt (a jammed CPU makes no progress — never
+    // leave the loop "running" but unscheduled), and drop into the monitor once
+    // per episode (brokeOnJam re-armed on run()/when the jam clears below).
+    if (this.session.c64Cpu.jammed) {
+      this.runState = "paused";
+      if (!this.brokeOnJam) {
+        this.brokeOnJam = true;
+        const pc = this.session.c64Cpu.pc;
+        let opcode = 0;
+        try { opcode = this.session.c64Bus.peek(pc) & 0xff; } catch { /* peek best-effort */ }
+        this.stopInfo = { reason: "jam", pc, cycles: this.session.c64Cpu.cycles, opcode };
+        // Spec 764 P2 — Info drop-in: the stop carries the backtrace (= flow path
+        // that led to the JAM) so the monitor lands showing R + BT + status
+        // without the user typing, and the UI can focus on the path.
+        const flow = buildBacktrace(this.session, this.flow.stack);
+        this.broadcast("debug/stopped", { session_id: this.sessionId, stop: this.stopInfo, registers: registerDump(this.session), flow });
+      }
+      return; // jammed: do not advance the frame or reschedule
+    }
+    this.brokeOnJam = false; // not jammed — re-arm the edge for the next episode
+
+    // Completed a chunk = one PAL frame (or one warp chunk). Count + present.
+    this.frameCounter++;
+    this.framesSinceEpoch++;
+    // Produce + deliver this frame's audio in lockstep with emulated time
+    // (Spec 703 §8). Un-throttled (every frame) and isolated from the loop:
+    // a transport hiccup must never kill emulation.
+    try { this.onAudioFrame?.(); } catch { /* drop this frame's audio */ }
+    // A presentation/transport error (render, WS send) must NEVER kill the
+    // loop or crash the process — the emulation keeps running regardless.
+    try { this.maybePresentFrame(warp); } catch { /* drop this frame's display */ }
+
+    // Spec 705.B — automatic checkpoint capture. We're at a completed-frame
+    // boundary: runFor returned at an atomic CPU instruction boundary and the
+    // loop is the only thing running (single-threaded, between chunks), so
+    // kernel.snapshot()'s boundary contract holds. Isolated like audio/present:
+    // a capture failure must never kill the loop.
+    if (CHECKPOINT_AUTOCAPTURE && ++this.framesSinceCheckpoint >= CHECKPOINT_CAPTURE_EVERY_FRAMES) {
+      this.framesSinceCheckpoint = 0;
+      // Spec 709.13 (policy B) — skip the auto-capture while any mounted medium
+      // is dirty + non-persistable (dirty disk OR dirty writable CRT). A
+      // checkpoint that does not serialize the delta would silently revert it on
+      // restore; better to leave a gap in the ring than to mint a corrupt
+      // checkpoint. Capture resumes once all media is clean.
+      if (!this.nonPersistableDirtyMedia()) {
+        try {
+          // Spec 765 — the always-on perma-anchor: shallow (RAM copied into the
+          // slab, no slice) + omitFramebuffer (the ~317 KiB framebuffers are a
+          // derivable shadow, regenerated by re-sim on scrub/dump — §8). So the
+          // per-second capture is ~a 64 KiB RAM memcpy + small chip blobs,
+          // cheap enough to share the audio thread without a tick.
+          const snap = this.session.kernel.snapshot({ shallow: true, omitFramebuffer: true });
+          this.captureThumb(this.checkpointRing.capture(snap, this.frameCounter, this.session.c64Cpu.cycles).id);
+          // Spec 766.5b — feed the shared-memory recorder a CORE-ONLY anchor
+          // (omitMedia): the disk GCR image / cart bytes ride the recorder's
+          // separate gen-gated medium stream, not the per-second anchor. This
+          // extra snapshot is cheap (no medium copy); the 765 ring above keeps the
+          // full snapshot until 5c retires it. Zero-alloc encode + one ring memcpy.
+          if (this.recorder) {
+            const a = this.session.kernel.snapshot({ shallow: true, omitFramebuffer: true, omitMedia: true });
+            this.recorder.captureAnchor(
+              a.payload, this.session.c64Cpu.cycles, Date.now(), a.schemaVersion,
+              this.session.kernel as unknown as MediumKernelLike,
+            );
+          }
+        } catch { /* drop this checkpoint; the ring stays consistent */ }
+      }
+    }
+
+    // Spec 746.x — drain the live trace ONCE per completed frame, here at the
+    // paused chunk boundary (runFor returned at an atomic instruction boundary;
+    // the loop is the only thing running between ticks). The binary trace's
+    // worker — which writes the .c64retrace authority AND recycles the 1 MiB
+    // chunk buffers — is ONLY fed by drain(); without this the sync CPU firehose
+    // grows pendingSend + fresh 1 MiB allocs unbounded (~15 MiB/s @PAL,
+    // ~140 MiB/s @warp) → OOM → the shared daemon dies mid-trace ("Session weg").
+    // Isolated exactly like audio/present/checkpoint above: a drain failure must
+    // never kill the loop. The `traceDraining` guard means a slow (back-pressured)
+    // drain cannot stack; the firehose stays sync, so no events are lost while a
+    // drain is in flight — they just ride the next frame's drain. trace-run.ts
+    // turns a writer/worker failure into a graceful trace-abort, not a throw.
+    if (this.traceRun.isActive() && !this.traceDraining) {
+      this.traceDraining = true;
+      void this.traceRun.drain()
+        .catch(() => { /* trace-run already aborted the trace; loop continues untraced */ })
+        .finally(() => { this.traceDraining = false; });
+    }
+
+    if (warp) {
+      this.scheduleNext(0); // flat-out
+      return;
+    }
+
+    // PAL / fixed-ratio: sleep the remainder of the wall-clock frame budget.
+    const frameMs = PAL_FRAME_MS / this.pacing.ratio;
+    const targetMs = this.framesSinceEpoch * frameMs;
+    const elapsed = now() - this.epochMs;
+    let sleep = targetMs - elapsed;
+    // If the host fell far behind realtime, reset the epoch so we don't try
+    // to "catch up" by spinning (Warp means unthrottled, PAL means best-effort
+    // realtime — never fake-fast).
+    if (sleep < -100) { this.resetPaceEpoch(); sleep = 0; }
+    this.scheduleNext(sleep);
+  }
+
+  // Presentation throttle (Spec 701 §5): internal frames always run; the UI
+  // is only *told* about a subset. PAL → every 2nd completed frame (25fps);
+  // warp → latest frame at a bounded rate (≤ ~20fps).
+  private maybePresentFrame(warp: boolean): void {
+    if (warp) {
+      const t = now();
+      if (t - this.lastPresentMs < WARP_PRESENT_MS) return;
+      this.lastPresentMs = t;
+    } else if (this.frameCounter % PAL_PRESENT_DIVISOR !== 0) {
+      return;
+    }
+    // Push the actual pixels (Spec 701 §7 live binary frame transport) +
+    // a lightweight JSON signal for any metadata-only consumer.
+    this.presentFrame?.(this.frameCounter);
+    this.broadcast("session/frame_available", {
+      session_id: this.sessionId,
+      frame: this.frameCounter,
+      c64Cycles: this.session.c64Cpu.cycles,
+    });
+  }
+
+  private makeStopInfo(reason: RuntimeStopInfo["reason"]): RuntimeStopInfo {
+    return { reason, pc: this.session.c64Cpu.pc, cycles: this.session.c64Cpu.cycles };
+  }
+}
+
+function now(): number {
+  // performance.now() is monotonic; fall back to Date.now() if unavailable.
+  return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+}
+
+// ---- registry (one controller per live session) ----
+
+const controllers = new Map<string, RuntimeController>();
+
+/** Get-or-create the controller for a session; (re)wires the broadcast sink. */
+export function ensureRuntimeController(
+  sessionId: string,
+  session: IntegratedSession,
+  broadcast: BroadcastFn,
+  presentFrame?: (frameNum: number) => void,
+): RuntimeController {
+  let c = controllers.get(sessionId);
+  if (!c) { c = new RuntimeController(sessionId, session, broadcast, presentFrame); controllers.set(sessionId, c); }
+  else { c.setBroadcast(broadcast); if (presentFrame) c.presentFrame = presentFrame; }
+  return c;
+}
+
+export function getRuntimeController(sessionId: string): RuntimeController | undefined {
+  return controllers.get(sessionId);
+}
+
+export function disposeRuntimeController(sessionId: string): void {
+  const c = controllers.get(sessionId);
+  if (c) { c.dispose(); controllers.delete(sessionId); }
+}

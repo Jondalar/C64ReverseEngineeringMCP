@@ -10,7 +10,7 @@ import { WebSocket } from "ws";
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
 const { WsServer } = await import(`${repoRoot}/dist/workspace-ui/ws-server.js`);
-const { startIntegratedSession } = await import(`${repoRoot}/dist/runtime/headless/integrated-session-manager.js`);
+const { startIntegratedSession } = await import(`${repoRoot}/dist/ts-emulator/integrated-session-manager.js`);
 
 const PORT = 14313;
 const server = new WsServer({ port: PORT, host: "127.0.0.1", projectDir: process.cwd() });

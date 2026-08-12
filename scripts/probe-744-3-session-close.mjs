@@ -3,8 +3,8 @@
 // CPU was an orphaned controller: stopIntegratedSession only deleted the session
 // from the map and left the controller's scheduled tick (setImmediate/setTimeout)
 // ticking forever. The close path must dispose the controller (cancel the loop).
-import { startIntegratedSession, stopIntegratedSession, getIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { ensureRuntimeController, getRuntimeController, disposeRuntimeController } from "../dist/runtime/headless/debug/runtime-controller.js";
+import { startIntegratedSession, stopIntegratedSession, getIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { ensureRuntimeController, getRuntimeController, disposeRuntimeController } from "../dist/ts-emulator/debug/runtime-controller.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };

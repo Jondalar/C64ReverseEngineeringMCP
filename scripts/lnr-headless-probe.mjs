@@ -18,9 +18,9 @@
 //     (NOT session.vic — the legacy VicIIVice fields like raster_y stay 0 in
 //     literal-port mode).
 
-import { startIntegratedSession } from "../dist/runtime/headless/integrated-session-manager.js";
-import { mountMedia } from "../dist/runtime/headless/media/mount.js";
-import * as LIT from "../dist/runtime/headless/vic/literal/vicii-types.js";
+import { startIntegratedSession } from "../dist/ts-emulator/integrated-session-manager.js";
+import { mountMedia } from "../dist/ts-emulator/media/mount.js";
+import * as LIT from "../dist/ts-emulator/vic/literal/vicii-types.js";
 import { resolve } from "node:path";
 
 const G64 = resolve("samples/last_ninja_remix_s1[system3_1991].g64");

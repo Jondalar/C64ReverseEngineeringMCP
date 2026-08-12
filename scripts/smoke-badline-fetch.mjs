@@ -10,7 +10,7 @@
 
 import { resolve } from "node:path";
 const repoRoot = resolve(import.meta.dirname, "..");
-const m = await import(`${repoRoot}/dist/runtime/headless/vic/badline-fetch.js`);
+const m = await import(`${repoRoot}/dist/ts-emulator/vic/badline-fetch.js`);
 
 const {
   isBadline,

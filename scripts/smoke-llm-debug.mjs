@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { runAllLlmDebugTests } from "../dist/runtime/headless/c64/llm-debug-tests.js";
+import { runAllLlmDebugTests } from "../dist/ts-emulator/c64/llm-debug-tests.js";
 
 const r = runAllLlmDebugTests();
 console.log(`LLM debug v1 — ${r.total} checks across ${r.details.length} suites`);

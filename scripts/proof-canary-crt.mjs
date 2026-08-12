@@ -35,9 +35,9 @@ if (!cart) {
 
 let startIntegratedSession, stopIntegratedSession, ensureRuntimeController, ingestMedia;
 try {
-  ({ startIntegratedSession, stopIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js"));
-  ({ ensureRuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js"));
-  ({ ingestMedia } = await import("../dist/runtime/headless/media/ingress.js"));
+  ({ startIntegratedSession, stopIntegratedSession } = await import("../dist/ts-emulator/integrated-session-manager.js"));
+  ({ ensureRuntimeController } = await import("../dist/ts-emulator/debug/runtime-controller.js"));
+  ({ ingestMedia } = await import("../dist/ts-emulator/media/ingress.js"));
 } catch (e) {
   console.error("dist missing / import failed — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

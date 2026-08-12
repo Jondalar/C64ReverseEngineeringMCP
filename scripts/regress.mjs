@@ -15,7 +15,7 @@ if (!existsSync(matrixPath)) {
 
 let runner;
 try {
-  runner = await import("../dist/runtime/headless/regress/runner.js");
+  runner = await import("../dist/ts-emulator/regress/runner.js");
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

@@ -15,9 +15,9 @@ if (!existsSync(disk)) {
 let startIntegratedSession, stepping;
 try {
   ({ startIntegratedSession } = await import(
-    "../dist/runtime/headless/integrated-session-manager.js"
+    "../dist/ts-emulator/integrated-session-manager.js"
   ));
-  stepping = await import("../dist/runtime/headless/stepping.js");
+  stepping = await import("../dist/ts-emulator/stepping.js");
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

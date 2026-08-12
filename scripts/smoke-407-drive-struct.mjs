@@ -29,13 +29,13 @@
 // Tiered gate (PLAN.md): spec 407 = core/structural → smokes only +
 // this new struct-shape smoke. No MM / Scramble game test.
 
-import { DriveCpu } from "../dist/runtime/headless/drive/drive-cpu.js";
+import { DriveCpu } from "../dist/ts-emulator/drive/drive-cpu.js";
 import {
   DRIVE_TYPE_1541,
-} from "../dist/runtime/headless/drive/drive-types.js";
+} from "../dist/ts-emulator/drive/drive-types.js";
 import {
   DRIVE_ROM_SIZE,
-} from "../dist/runtime/headless/drive/drive-rom.js";
+} from "../dist/ts-emulator/drive/drive-rom.js";
 
 const results = [];
 function check(label, cond, detail) {

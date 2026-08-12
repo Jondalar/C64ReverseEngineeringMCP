@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 
 const cwd = "/Users/alex/Development/C64/Tools/C64ReverseEngineeringMCP";
 const scopes = [
-  "src/runtime/headless/",
+  "src/ts-emulator/",
   "src/disk/",
   "src/workspace-ui/",
 ];

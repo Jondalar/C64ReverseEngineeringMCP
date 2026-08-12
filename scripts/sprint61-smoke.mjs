@@ -10,10 +10,10 @@
 // - Drive code can read bus state via $1800
 
 import assert from "node:assert/strict";
-import { Via6522, IFR_T1, IFR_CA1, VIA_T1CL, VIA_T1CH, VIA_T1LL, VIA_T1LH, VIA_IFR, VIA_IER, VIA_PCR } from "../dist/runtime/headless/drive/via6522.js";
-import { makeStubVia1Pa, makeStubVia1Pb } from "../dist/runtime/headless/drive/via1-iec.js";
-import { IecBus } from "../dist/runtime/headless/iec/iec-bus.js";
-import { DriveSession } from "../dist/runtime/headless/drive/drive-session.js";
+import { Via6522, IFR_T1, IFR_CA1, VIA_T1CL, VIA_T1CH, VIA_T1LL, VIA_T1LH, VIA_IFR, VIA_IER, VIA_PCR } from "../dist/ts-emulator/drive/via6522.js";
+import { makeStubVia1Pa, makeStubVia1Pb } from "../dist/ts-emulator/drive/via1-iec.js";
+import { IecBus } from "../dist/ts-emulator/iec/iec-bus.js";
+import { DriveSession } from "../dist/ts-emulator/drive/drive-session.js";
 
 // ---- Test 1: VIA T1 timer underflow → IFR_T1 ----
 {

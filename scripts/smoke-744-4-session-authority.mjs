@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runtimeSessions } from "../dist/runtime/headless/runtime-session-service.js";
+import { runtimeSessions } from "../dist/ts-emulator/runtime-session-service.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -62,7 +62,7 @@ const headless = readFileSync(join(ROOT, "src/server-tools/headless.ts"), "utf8"
 // Spec 757 — the standalone start-v3-server.mjs (a second WS-start path) is
 // retired; the ONE WS bootstrap is the Runtime Daemon entry (daemon/run.ts →
 // WsServer). Verify it does not construct a private session outside the authority.
-const daemonRun = readFileSync(join(ROOT, "src/runtime/headless/daemon/run.ts"), "utf8");
+const daemonRun = readFileSync(join(ROOT, "src/ts-emulator/daemon/run.ts"), "utf8");
 ok(/runtimeSessions\.start\(/.test(headless) && !/= startIntegratedSession\(/.test(headless),
   "MCP runtime_session_start uses the authority (no direct startIntegratedSession)");
 ok(/new WsServer\(/.test(daemonRun) && !/= startIntegratedSession\(/.test(daemonRun),

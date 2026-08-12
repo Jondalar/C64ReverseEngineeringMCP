@@ -16,12 +16,12 @@
 // cycle 55, then run a few more cycles, verify sprite_dma bit 0 latched
 // AND sprite_display_bits bit 0 latched on subsequent cycle.
 
-import { vicii } from "../dist/runtime/headless/vic/literal/vicii-types.js";
-import { vicii_chip_model_init } from "../dist/runtime/headless/vic/literal/vicii-chip-model.js";
-import { vicii_init, vicii_reset } from "../dist/runtime/headless/vic/literal/vicii.js";
-import { vicii_cycle, setMaincpuClk } from "../dist/runtime/headless/vic/literal/vicii-cycle.js";
-import { vicii_store } from "../dist/runtime/headless/vic/literal/vicii-mem.js";
-import { setIrqHost } from "../dist/runtime/headless/vic/literal/vicii-irq.js";
+import { vicii } from "../dist/ts-emulator/vic/literal/vicii-types.js";
+import { vicii_chip_model_init } from "../dist/ts-emulator/vic/literal/vicii-chip-model.js";
+import { vicii_init, vicii_reset } from "../dist/ts-emulator/vic/literal/vicii.js";
+import { vicii_cycle, setMaincpuClk } from "../dist/ts-emulator/vic/literal/vicii-cycle.js";
+import { vicii_store } from "../dist/ts-emulator/vic/literal/vicii-mem.js";
+import { setIrqHost } from "../dist/ts-emulator/vic/literal/vicii-irq.js";
 
 setIrqHost({
   maincpu_set_irq: () => {},
