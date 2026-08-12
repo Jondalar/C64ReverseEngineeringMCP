@@ -12,7 +12,7 @@
 import { join } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
 import type { ProjectKnowledgeService } from "../project-knowledge/service.js";
-import type { FrozenInspectEvidence } from "../runtime/headless/inspect/vic-inspect-types.js";
+import type { FrozenInspectEvidence } from "../inspect/vic-inspect-types.js";
 
 export interface PersistInspectEvidenceInput {
   evidence: FrozenInspectEvidence;

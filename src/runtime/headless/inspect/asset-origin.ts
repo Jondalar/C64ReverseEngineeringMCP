@@ -7,10 +7,10 @@
 // extracting candidates from the mounted medium. PURE over a frozen checkpoint.
 
 import type { RuntimeCheckpoint } from "../kernel/runtime-checkpoint.js";
-import type { VisualNode } from "./vic-inspect-types.js";
-import type { AssetCandidate, AssetJoinResult } from "./asset-join-types.js";
+import type { VisualNode } from "../../../inspect/vic-inspect-types.js";
+import type { AssetCandidate, AssetJoinResult } from "../../../inspect/asset-join-types.js";
 import { matchVisualNodeToAsset, type TraceChainSource } from "./asset-join.js";
-import { assetJoinToKnowledge, type JoinKnowledge, type JoinKnowledgeCtx } from "./asset-join-knowledge.js";
+import { assetJoinToKnowledge, type JoinKnowledge, type JoinKnowledgeCtx } from "../../../inspect/asset-join-knowledge.js";
 
 export interface VisualOrigin {
   node: VisualNode;

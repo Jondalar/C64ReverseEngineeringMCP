@@ -12,7 +12,7 @@ import { readFileSync, existsSync } from "node:fs";
 let extractCharsetCandidates, extractBitmapCandidates, extractAssetCandidates;
 let resolveVisibleNodeAt, matchVisualNodeToAsset;
 try {
-  ({ extractCharsetCandidates, extractBitmapCandidates, extractAssetCandidates } = await import("../dist/runtime/headless/inspect/asset-extract.js"));
+  ({ extractCharsetCandidates, extractBitmapCandidates, extractAssetCandidates } = await import("../src/inspect/asset-extract.js"));
   ({ resolveVisibleNodeAt } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
   ({ matchVisualNodeToAsset } = await import("../dist/runtime/headless/inspect/asset-join.js"));
 } catch (e) {

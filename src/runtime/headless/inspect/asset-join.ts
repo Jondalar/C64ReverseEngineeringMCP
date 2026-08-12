@@ -8,8 +8,8 @@
 
 import { createHash } from "node:crypto";
 import type { RuntimeCheckpoint } from "../kernel/runtime-checkpoint.js";
-import type { VisualNode } from "./vic-inspect-types.js";
-import type { AssetCandidate, AssetJoinResult } from "./asset-join-types.js";
+import type { VisualNode } from "../../../inspect/vic-inspect-types.js";
+import type { AssetCandidate, AssetJoinResult } from "../../../inspect/asset-join-types.js";
 
 const SPRITE_BLOCK = 64; // a VIC sprite is a 64-byte block (63 data + 1 pad)
 

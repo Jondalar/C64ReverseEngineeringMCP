@@ -23,7 +23,7 @@ let resolveVisualOrigin, extractSpriteCandidates, extractAssetCandidates,
     resolveVisibleNodeAt, startIntegratedSession, stopIntegratedSession, mountMedia;
 try {
   ({ resolveVisualOrigin } = await import("../dist/runtime/headless/inspect/asset-origin.js"));
-  ({ extractSpriteCandidates, extractAssetCandidates } = await import("../dist/runtime/headless/inspect/asset-extract.js"));
+  ({ extractSpriteCandidates, extractAssetCandidates } = await import("../src/inspect/asset-extract.js"));
   ({ resolveVisibleNodeAt } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
   ({ startIntegratedSession, stopIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js"));
   ({ mountMedia } = await import("../dist/runtime/headless/media/mount.js"));

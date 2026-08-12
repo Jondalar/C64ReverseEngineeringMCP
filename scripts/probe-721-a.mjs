@@ -12,7 +12,7 @@ import { resolve } from "node:path";
 
 let extractSpriteCandidates, resolveVisibleNodeAt, matchVisualNodeToAsset;
 try {
-  ({ extractSpriteCandidates } = await import("../dist/runtime/headless/inspect/asset-extract.js"));
+  ({ extractSpriteCandidates } = await import("../src/inspect/asset-extract.js"));
   ({ resolveVisibleNodeAt } = await import("../dist/runtime/headless/inspect/vic-inspect.js"));
   ({ matchVisualNodeToAsset } = await import("../dist/runtime/headless/inspect/asset-join.js"));
 } catch (e) {

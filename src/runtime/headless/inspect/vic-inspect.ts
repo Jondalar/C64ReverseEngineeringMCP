@@ -15,7 +15,7 @@ import type { RuntimeCheckpoint } from "../kernel/runtime-checkpoint.js";
 import type {
   MemoryRef, VisualNode, VicInspectSnapshot, VicInspectMode, VicFrameProvenance,
   FrozenInspectEvidence,
-} from "./vic-inspect-types.js";
+} from "../../../inspect/vic-inspect-types.js";
 
 const reg = (cp: RuntimeCheckpoint, i: number): number => (cp.vic.regs[i] ?? 0) & 0xff;
 const ram = (cp: RuntimeCheckpoint, addr: number): number => (cp.ram[addr & 0xffff] ?? 0) & 0xff;

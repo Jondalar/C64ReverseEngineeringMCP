@@ -15,10 +15,10 @@ import {
   resolveVisibleNodeAt, resolveVisibleRegion,
   VISIBLE_FRAME, DISPLAY_ORIGIN,
 } from "../runtime/headless/inspect/vic-inspect.js";
-import type { FrozenInspectEvidence } from "../runtime/headless/inspect/vic-inspect-types.js";
+import type { FrozenInspectEvidence } from "../inspect/vic-inspect-types.js";
 import { resolveVisualOrigin } from "../runtime/headless/inspect/asset-origin.js";
-import { extractAssetCandidates } from "../runtime/headless/inspect/asset-extract.js";
-import type { AssetCandidate } from "../runtime/headless/inspect/asset-join-types.js";
+import { extractAssetCandidates } from "../inspect/asset-extract.js";
+import type { AssetCandidate } from "../inspect/asset-join-types.js";
 import type { RuntimeCheckpoint } from "../runtime/headless/kernel/runtime-checkpoint.js";
 import {
   ensureRuntimeController,
