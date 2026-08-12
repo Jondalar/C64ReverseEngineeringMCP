@@ -1,10 +1,10 @@
 # Spec 806 — Retire the TS emulator and VICE from the product
 
-**Status:** DONE 2026-08-12 — **§8 steps 1-5 shipped** on branch
-`spec-806-structural-cut`. The TypeScript emulator, its 1541, its test surface, the
-`vice_*` bridge and Spec 723 are gone; §10 records what step 3-5 actually cost.
-Only §8 step 6 (a fresh-project e2e through the runtime only) is open, and it is a
-verification pass, not a build. Inventory in §6/§6.1, tool cross-check in §7/§7.1/§7.2.
+**Status:** DONE 2026-08-12 — **all of §8 shipped** on branch
+`spec-806-structural-cut`, step 6 (the fresh-project e2e) included. The TypeScript
+emulator, its 1541, its test surface, the `vice_*` bridge and Spec 723 are gone.
+Inventory §6/§6.1 · tool cross-check §7/§7.1/§7.2 · cost §10 · regression + fix §11
+· e2e §12.
 **Repo:** C64RE. **Supersedes** the binding half of Spec 723 — retired in
 `DOCTRINE.md` on the same day.
 
@@ -454,3 +454,38 @@ deleted branch, so finalizing with no trace threw a raw `TypeError` on `.runId`.
 against a store with `marks = 0`. The runtime returns the mark correctly in
 `run.marks` (verified: `[{cycle:100001,label:"probe"}]`), so the tool's count is
 right. Whether the DuckDB index carries marks is a runtime-side question.
+
+
+## 12. Step 6 — the e2e pass, and what it found
+
+Run against a fresh scratchpad project on its own daemon and UI (the user's :4310 /
+:4312 untouched). **The product works end to end through the runtime alone:**
+`project_init` → media browse → mount a D64 → boot → `LOAD"$",8` + `LIST` returning a
+full 1541 directory → mount an EasyFlash CRT → a real title screen → a 1.7M-event trace
+→ finalize → read back through `trace_store_*`, top PCs landing in the KERNAL IEC
+routine. Daemon auto-spawn from cold. Workspace UI: all tabs, Live tab at 50 fps with
+canvas and CPU/VIC/SID/drive panels. Claims verified rather than believed — default 144,
+total 253, no surviving `vice_*`, zero references to deleted paths anywhere.
+
+**Four defects, all now fixed:**
+
+1. **Five scripts pointed at `src/**.js`** after the moves — including `e2e:785-cart-readset`,
+   a live gate dying on `ERR_MODULE_NOT_FOUND`. `scripts/` is the THIRD directory outside
+   `tsconfig`, after `ui/` and `tests/`; that blind spot bit this spec three times.
+2. **`runtime_trace_finalize` printed `Store: undefined`** — §11.
+3. **Seven tool descriptions steered the LLM at retired tools**, six on the DEFAULT
+   surface. `probe-tool-surface` validates tool NAMES but not cross-references inside
+   descriptions, so nothing caught it.
+4. **The `proof:*` family was dead** — step 4 deleted `runtime-proof-manifest.mjs` and
+   left its only consumer. All four npm entries died. DOCTRINE.md had already recorded
+   the family as gone; the entries had not caught up. Removed, and the two docs that
+   advertised them carry dated historical headers.
+
+**And one that was not C64RE's:** finalize reported `marks: N` against a store holding
+zero. TRX64 writes no 0x01 Mark records, so the index found none while the stop reply
+listed them correctly. `IndexOverrides.marks` had been the intended fix since Spec 802,
+deferred because it would have muddied the TS↔TRX64 parity gate — a gate that drives the
+C64RE TypeScript daemon, deleted by this spec. The condition the deferral waited for can
+no longer occur, so it was enabled (TRX64 `59e7160`). The index is built on TWO paths and
+finalize chooses between them, so passing the marks to only one left the path C64RE
+actually uses still empty.
