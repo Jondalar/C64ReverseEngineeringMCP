@@ -19,13 +19,13 @@ const repoRoot = resolvePath(import.meta.dirname, "..");
 
 // Build must have run first.
 const { parseVicercText, sdlKeysymToCode } =
-  await import(`${repoRoot}/dist/ts-emulator/input/vicerc-loader.js`);
+  await import(`${repoRoot}/dist/input/vicerc-loader.js`);
 const { translateKey } =
-  await import(`${repoRoot}/dist/ts-emulator/input/keymap.js`);
+  await import(`${repoRoot}/dist/input/keymap.js`);
 const { loadInputConfig, saveInputConfig, bootstrapFromVicerc, defaultInputConfig } =
-  await import(`${repoRoot}/dist/ts-emulator/input/input-config.js`);
+  await import(`${repoRoot}/dist/input/input-config.js`);
 const { handleJoystickSet } =
-  await import(`${repoRoot}/dist/ts-emulator/input/ws-handlers.js`);
+  await import(`${repoRoot}/dist/input/ws-handlers.js`);
 
 const results = [];
 function test(name, ok, detail = "") {

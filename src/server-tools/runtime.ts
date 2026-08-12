@@ -1031,7 +1031,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "ADVANCED. Use to parse a legacy `vicerc` emulator config and read its joystick keyset bindings (KeySet2*, JoyDevice2), to bootstrap a c64re config from pre-existing settings. Not for the c64re config file (use runtime_input_load_config) or saving (use runtime_input_save_config).",
     { vicerc_path: z.string().optional() },
     safeHandler("runtime_input_load_vicerc", async ({ vicerc_path }) => {
-      const { loadVicerc } = await import("../ts-emulator/input/vicerc-loader.js");
+      const { loadVicerc } = await import("../input/vicerc-loader.js");
       const cfg = loadVicerc(vicerc_path);
       return { content: [{ type: "text", text: JSON.stringify(cfg, null, 2) }] };
     }),
@@ -1045,7 +1045,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       vicerc_path: z.string().optional(),
     },
     safeHandler("runtime_input_load_config", async ({ config_path, vicerc_path }) => {
-      const { loadInputConfig } = await import("../ts-emulator/input/input-config.js");
+      const { loadInputConfig } = await import("../input/input-config.js");
       const cfg = loadInputConfig({ configPath: config_path, vicercPath: vicerc_path });
       return { content: [{ type: "text", text: JSON.stringify(cfg, null, 2) }] };
     }),
@@ -1071,7 +1071,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       config_path: z.string().optional(),
     },
     safeHandler("runtime_input_save_config", async ({ config, config_path }) => {
-      const { saveInputConfig } = await import("../ts-emulator/input/input-config.js");
+      const { saveInputConfig } = await import("../input/input-config.js");
       saveInputConfig(config as any, config_path);
       return { content: [{ type: "text", text: `Saved to ${config_path ?? "~/.config/c64re/joystick.json"}` }] };
     }),
