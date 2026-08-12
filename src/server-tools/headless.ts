@@ -541,7 +541,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_checkpoint_capture",
-    "Capture a checkpoint NOW (a full restorable snapshot of the shared session at the current instruction boundary) and add it to the ring. Use to mark an interesting live moment before it scrolls out of the auto-capture window. Not for a durable file (use runtime_session_snapshot). Inputs: session_id. Returns: the new checkpoint ref + ring stats.",
+    "Capture a checkpoint NOW (a full restorable snapshot of the shared session at the current instruction boundary) and add it to the ring. Use to mark an interesting live moment before it scrolls out of the auto-capture window. Not for a durable file (use snapshot_dump via runtime_session_status's ref, or the runtime's own .c64re dump). Inputs: session_id. Returns: the new checkpoint ref + ring stats.",
     { session_id: z.string() },
     safeHandler("runtime_checkpoint_capture", async ({ session_id }) => {
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
@@ -552,7 +552,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_checkpoint_pin",
-    "Pin a checkpoint so the ring never evicts it (the durability primitive — pinned keyframes survive past the ~2.6 min window). Use to retain an interesting state as evidence / a branch base. Not for a file dump (use runtime_session_snapshot). Inputs: session_id, checkpoint id. Returns: ref + stats.",
+    "Pin a checkpoint so the ring never evicts it (the durability primitive — pinned keyframes survive past the ~2.6 min window). Use to retain an interesting state as evidence / a branch base. Not for a file dump (use the runtime's .c64re snapshot dump). Inputs: session_id, checkpoint id. Returns: ref + stats.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_checkpoint_pin", async ({ session_id, id }) => {
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");

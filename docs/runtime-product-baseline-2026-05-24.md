@@ -1,5 +1,14 @@
 # Runtime Product Baseline — runtime-product-green-2026-05-24
 
+> **HISTORICAL (2026-08-12).** The proof system this describes is gone. Spec 715
+> was retired as the authority in favour of TRX64's own gates (Spec 783), and Spec
+> 806 deleted the TypeScript runtime it gated along with `runtime-product-proof.mjs`,
+> `runtime-proof-manifest.mjs` and the `proof:*` npm entries. Kept because the gate
+> SET it names still describes what "the runtime works" meant, and the oracle
+> screenshots under `samples/screenshots/proof/` still show correct output.
+
+
+
 > **Historical (Spec 806, 2026-08-12).** A frozen baseline record for the deleted
 > TypeScript runtime. The scripts it names no longer exist.
 

@@ -297,7 +297,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Snapshot diff (Spec 246) ----
   server.tool(
     "runtime_save_vsf",
-    "Save full session state as .vsf bytes (VICE Snapshot Format — LEGACY, DEPRECATED; kept only for interchange with external emulators). For a durable c64re snapshot use runtime_session_snapshot (.c64re).",
+    "Save full session state as .vsf bytes (VICE Snapshot Format — LEGACY, DEPRECATED; kept only for interchange with external emulators). For a durable .c64re snapshot use the runtime's snapshot dump.",
     {
       session_id: z.string(),
       output_path: z.string(),
@@ -362,7 +362,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Snapshot diff between two VSF files ----
   server.tool(
     "runtime_diff_snapshots",
-    "Use to see exactly what changed between two VSF snapshot files — RAM changedRanges plus CPU/CIA/VIC/SID/PLA chip diffs. Not for a live memory read (use runtime_monitor_memory) or capturing a snapshot (use runtime_session_snapshot).",
+    "Use to see exactly what changed between two VSF snapshot files — RAM changedRanges plus CPU/CIA/VIC/SID/PLA chip diffs. Not for a live memory read (use runtime_monitor_memory) or capturing a snapshot (use runtime_checkpoint_capture).",
     {
       a_path: z.string(),
       b_path: z.string(),
@@ -815,7 +815,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Spec 263 — SID audio export ----
   server.tool(
     "runtime_session_export_audio",
-    "Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV. Use to capture audio from a running integrated session. Not for a saved scenario (use runtime_export_audio). Inputs: session_id, out_path, duration_sec. Returns: WAV path + stats.",
+    "Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV. Use to capture audio from a running integrated session. Exports the LIVE session only; there is no scenario-export tool. Inputs: session_id, out_path, duration_sec. Returns: WAV path + stats.",
     {
       session_id: z.string(),
       out_path: z.string(),
@@ -890,7 +890,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_media_persist",
-    "Write mounted media's in-RAM state back to its host backing file WITHOUT ejecting. role=drive8 (default): flushes drive-side GCR writes → the .d64/.g64 on disk, atomically; host mtime changes. role=cartridge: re-packs the programmed cartridge flash/EEPROM → the host .crt (EasyFlash etc.) — the only way to save flash AND keep playing, since unmounting a cartridge pulls it (cold reset). Use to save a game's disk writes (format/copy/save) or EAPI flash writes while keeping the media mounted. Not for ejecting (use runtime_media_unmount, which persists then ejects) or for a session snapshot (use runtime_session_snapshot). Read-only / non-dirty media is never overwritten. Inputs: session_id, role. Returns: { written, path, bytes } or the reason it was skipped.",
+    "Write mounted media's in-RAM state back to its host backing file WITHOUT ejecting. role=drive8 (default): flushes drive-side GCR writes → the .d64/.g64 on disk, atomically; host mtime changes. role=cartridge: re-packs the programmed cartridge flash/EEPROM → the host .crt (EasyFlash etc.) — the only way to save flash AND keep playing, since unmounting a cartridge pulls it (cold reset). Use to save a game's disk writes (format/copy/save) or EAPI flash writes while keeping the media mounted. Not for ejecting (use runtime_media_unmount, which persists then ejects) or for a session snapshot (use runtime_checkpoint_capture). Read-only / non-dirty media is never overwritten. Inputs: session_id, role. Returns: { written, path, bytes } or the reason it was skipped.",
     {
       session_id: z.string(),
       slot: z.number().int().default(8),
@@ -1079,7 +1079,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_promote_branch",
-    "Use to keep a transient rewind branch as a persistent, replayable Scenario record. Not for a durable machine-state file (use runtime_session_snapshot) or capturing a checkpoint (use runtime_checkpoint_capture).",
+    "Use to keep a transient rewind branch as a persistent, replayable Scenario record. Not for a durable machine-state file (the runtime's .c64re dump) or capturing a checkpoint (use runtime_checkpoint_capture).",
     { session_id: z.string(), branch_id: z.string() },
     safeHandler("runtime_promote_branch", async ({ session_id, branch_id }) => {
       // Spec 744.4c slice 2c — runtime/promote_branch on the shared session.
