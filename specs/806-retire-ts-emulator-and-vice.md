@@ -1,6 +1,8 @@
 # Spec 806 — Retire the TS emulator and VICE from the product
 
-**Status:** IN BUILD 2026-08-12 — phase 1 DONE (branch `spec-806-structural-cut`, 6 commits). Inventory + tool cross-check in §6/§7 below.
+**Status:** IN BUILD 2026-08-12 — phase 1 DONE, **§8 step 1 (evacuation) DONE**
+(branch `spec-806-structural-cut`). Inventory + tool cross-check in §6/§7 below;
+§6 corrected against the measurement in §6.1. Next: §8 step 2 (convert the tools).
 **Repo:** C64RE. **Supersedes** the binding half of Spec 723 when it lands.
 
 ---
@@ -97,6 +99,46 @@ holding a `Map` of in-process TS instances. It is NOT the TRX64 session manager 
 that is `src/runtime/daemon-client.ts`, already in the capsule and untouched. The
 name misled me for an entire evening.
 
+## 6.1 Correction — the 40 was curated, not computed (2026-08-12)
+
+Re-running the closure before moving anything did **not** reproduce 166/40, and
+no variant of the walk does. Measured from the stated roots: **158 reachable /
+48 unreachable**. Three variants were tried (all edges; value edges only; value
+edges with all-inline-`type` imports dropped) — 158/48, 142/64, 142/64.
+
+Where the two lists disagree, and why:
+
+- **18 of the 40 keepers ARE reachable** from a hardware root, all through two
+  hub edges: `kernel/snapshot-persistence.ts` has `import type { RuntimeController }`
+  — a *type-only* edge that drags in all of `debug/` and `recorder/` — and
+  `c64/perf-ops-tests.ts` value-imports all of `perf/`.
+- **26 unreachable files are not in the 40** — `export/*`, `inspect/*`,
+  `media/{mount,swap-and-continue}`, `vsf/drive-vsf`, `trace-query`, `trace-index`,
+  `workspace`, `runtime-session-service`, `diagnostic-mm`, `daemon/run`,
+  `regress/runner`, `smoke/load-matrix` and 8 `v2/` files. Checked individually:
+  every one binds to `integrated-session*`, `types.ts`, `runtime-checkpoint` or
+  `drive-session-manager`. They are emulator-bound orchestration and stay in the
+  delete set — the *neutral* halves of those directories already left in phase 1,
+  so the DOCTRINE note naming `inspect/`/`export/`/`media/`/`vsf/` as
+  "deliberately NOT marked" is now stale and can go with the deletion.
+
+**Reachability is not the criterion — being the emulator is.** The check that
+actually decided it: all 40 are **import-closed**. Not one imports anything from
+`ts-emulator/` outside the set; their only other imports are node builtins and
+(for two files) `src/trace/` and `src/project-knowledge/`. The curated list is a
+sound movable unit even though it is not the complement of any closure.
+
+**33 moved, 7 left behind.** The seven the brief left open —
+`perf/{budgets,safe-skips,snapshot-file}`, `disk/no-disk-parser`,
+`session-modes`, `util/uint`, `test-helpers/synthetic-iec-device` — each name an
+emulator construct in their own header (`IntegratedSession`, `G64Parser`, the
+removed fast-trap mode of Spec 723.3, "shared uint helpers" for the 1:1 VICE chip
+port, a mock for the TS KERNAL serial matrix). None has a single consumer outside
+the delete set, and none of the 33 movers imports them. Moving them would create
+seven orphans in a fresh directory with no caller, so they die with the emulator.
+
+**The delete set is therefore 173, not 166** (206 − 33).
+
 ## 7. Tool cross-check against the TRX64 mapper
 
 44 MCP tools reach into the delete set. Checked against the daemon's 112 methods:
@@ -116,8 +158,30 @@ swap_disk_and_continue,component_diff}.
 
 ## 8. Execution order
 
-1. **Evacuate the 40 keepers** out of `ts-emulator/` into honest homes
-   (`src/monitor/`, `src/analysis/`, `src/recorder/`, `src/input/`).
+1. ~~**Evacuate the 40 keepers**~~ **DONE 2026-08-12** — 33 moved to
+   `src/monitor/` (7), `src/analysis/` (15), `src/recorder/` (7), `src/input/` (4);
+   7 left to die with the emulator (§6.1). The `DEPRECATED — TypeScript runtime`
+   banner was dropped from the 33: it claimed they are reachable only with
+   `C64RE_RUNTIME_TS=1`, which was never true of them.
+
+   **Four classes of path breakage, all silent to a path-string grep** — worth
+   keeping because step 2 walks the same ground:
+   - *specifiers escaping the moved tree* — `query-events` →
+     `../../trace/store/schema726.js`, `resolve-pc` →
+     `../../project-knowledge/effective-segments.js`. tsc caught both.
+   - *multi-line imports* — `v2/{breakpoint-runtime,monitor}.ts` import
+     `./breakpoints.js` across a wrapped statement, so a line-oriented scan
+     reported zero edges. tsc caught both.
+   - *roots counted in levels* — `vice-diff` counted six up for "the repo root"
+     and landed two directories **above** the repo (wrong before the move too);
+     `fingerprint` counted three and hit `dist/`, which the move happens to
+     correct. `recorder/runtime-recorder`'s worker path survived untouched
+     because `recorder-worker` moved with it and they stayed siblings.
+   - *directories outside `tsconfig.json`* — `"include": ["src/**/*.ts"]` means
+     `ui/` and `tests/` are never type-checked. `ui/vite.config.ts` imported
+     `../src/runtime/headless/daemon/resolve-daemon-spawn` **without an
+     extension**, dead since the phase-1 rename; fixed here. `tests/` is worse
+     and is left alone deliberately — see §9.
 2. **Convert the tools** — `headless.ts` (24 branches) and `runtime.ts` (12) lose
    their `else` and call the daemon. Independent files, parallelisable.
 3. **Answer the three** above; convert or retire those tools.
@@ -129,3 +193,20 @@ A branch collapse is NOT a mechanical rewrite. The first attempt unwrapped
 `if (isDaemonMode())` blocks with a brace matcher and produced 18 redeclaration
 errors, because a `const` inside the branch collided with one in the outer scope.
 Each site needs reading.
+
+---
+
+## 9. Open — `tests/` has been dead since the phase-1 rename
+
+63 files under `tests/` still import `dist/runtime/headless/**`, a path that
+stopped existing at commit f80b4674. `tsconfig.json` includes only
+`src/**/*.ts` and no npm script runs them, so nothing reported it — the same
+blind spot that killed `ui/vite.config.ts`. They are mostly `tests/unit/{cpu,
+cia,via,vic,sid,alarm}` and `tests/spec-61{5,6,7}`: chip-level fidelity tests
+for the TS emulator, i.e. they are part of what step 4 deletes.
+
+Not repaired here, because repairing them means repointing 63 files at code
+that is being removed three steps later. The decision to take with step 4:
+delete them alongside the emulator, or keep whichever survive as TRX64 port
+references. `CLAUDE.md` already says "No test suite exists" — this is the
+evidence for that sentence, and the tree should stop implying otherwise.
