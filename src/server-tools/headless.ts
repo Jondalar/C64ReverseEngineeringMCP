@@ -252,22 +252,43 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
       // wait_index=true: stop + await the background DuckDB index so the store is
       // queryable on return (the LLM queries next); the UI's instant button omits it.
-      const { run } = await runtimeDaemon.traceStop<{ run: { runId: string; eventCount: number; bytesWritten: number; marks: unknown[]; cycleStart: number; cycleEnd: number; evidenceRef: string } }>(session_id, true);
+      // Spec 806 — the store paths come from the runtime's `index` block, NOT from a
+      // `run.evidenceRef` field: that name belonged to the deleted in-process trace
+      // record and the runtime never had it, so reading it printed "Store: undefined"
+      // the moment the in-process branch went. The runtime reports BOTH paths and they
+      // are two real files: `retracePath` is the binary timeline (the authority),
+      // `duckdbPath` is the queryable index — and the trace_store_* tools want the
+      // latter. Report both so the next call can be made without guessing.
+      const stopped = await runtimeDaemon.traceStop<{
+        run: { runId: string; eventCount: number; bytesWritten: number; marks: unknown[]; cycleStart: number; cycleEnd: number } | null;
+        index?: { duckdbPath?: string; retracePath?: string; eventsIndexed?: number };
+      }>(session_id, true);
+      const run = stopped.run;
+      // The clean refusal used to live in the in-process branch; without it a finalize
+      // with no active trace threw a raw TypeError on `.runId` at the caller.
+      if (!run) throw new Error(
+        "No active trace to finalize. Start one with runtime_trace_start (or runtime_session_start trace_out=...) first.",
+      );
+      const duckdbPath = stopped.index?.duckdbPath;
+      const retracePath = stopped.index?.retracePath;
       // Spec 753 — auto-write the page memory map sidecar if mem-row was captured.
       // Fully soft-fail: a failure here (incl. the dynamic import) must NEVER turn
       // a successful finalize into an error envelope.
       let mm: string | null = null;
       try {
         const { writeTraceMemoryMapSidecar } = await import("./trace-store.js");
-        mm = await writeTraceMemoryMapSidecar(run.evidenceRef, context, run.runId);
+        if (retracePath) mm = await writeTraceMemoryMapSidecar(retracePath, context, run.runId);
       } catch { /* soft-fail — finalize already succeeded */ }
       return { content: [{ type: "text" as const, text: [
         `Trace finalized (Runtime Daemon) — run ${run.runId}`,
         `Events: ${run.eventCount}  bytes: ${run.bytesWritten}  marks: ${run.marks.length}`,
         `Cycles: ${run.cycleStart}..${run.cycleEnd}`,
-        `Store: ${run.evidenceRef}`,
+        ...(retracePath ? [`Timeline: ${retracePath}`] : []),
+        duckdbPath
+          ? `Store (duckdb_path): ${duckdbPath}`
+          : `Store: not indexed — re-run finalize, or index it with trace_store_info on the .c64retrace.`,
         ...(mm ? [mm] : []),
-        `Query it with trace_store_query / trace_store_top_pcs / runtime_swimlane_slice (duckdb_path = the store).`,
+        `Query it with trace_store_query / trace_store_top_pcs / runtime_swimlane_slice — pass the Store path above as duckdb_path.`,
       ].join("\n") }] };
     },
 ));

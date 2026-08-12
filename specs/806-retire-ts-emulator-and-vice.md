@@ -426,3 +426,31 @@ still binding.
 - `smoke-ui-media-dropzone` case 4c, `smoke-input` case 5a.
 - `npm run ui:typecheck`: `ArtifactRecord`/`EntityRecord` generic errors in
   `App.tsx` + `workspace-panels.tsx`.
+
+
+## 11. The one real regression, and its fix (2026-08-12)
+
+Deleting the in-process branch left `runtime_trace_finalize` reading a field the
+runtime never had. Measured against a live daemon rather than reasoned about:
+
+```
+run   : { runId, eventCount, bytesWritten, marks[], cycleStart, cycleEnd }
+index : { duckdbPath, retracePath, eventsIndexed, indexBuilt }
+evidenceRef : does not exist — it belonged to the deleted TS trace record
+```
+
+So `Store: ${run.evidenceRef}` printed `undefined`, and the memory-map sidecar was
+being handed that same undefined path. **Pure C64RE — no TRX64 change:** the runtime
+reports BOTH paths, one level up, and they are two real files. `retracePath` is the
+binary timeline (the authority), `duckdbPath` is the queryable index and what the
+`trace_store_*` tools want. The tool now reports both and names which is which, so the
+next call needs no guessing — that was the second half of the friction the e2e pass
+found.
+
+Also restored: the `"No active trace to finalize"` refusal. It existed only in the
+deleted branch, so finalizing with no trace threw a raw `TypeError` on `.runId`.
+
+**Not a C64RE bug, recorded for TRX64:** the e2e pass saw finalize report `marks: 1`
+against a store with `marks = 0`. The runtime returns the mark correctly in
+`run.marks` (verified: `[{cycle:100001,label:"probe"}]`), so the tool's count is
+right. Whether the DuckDB index carries marks is a runtime-side question.
