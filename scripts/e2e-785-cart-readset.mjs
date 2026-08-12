@@ -25,8 +25,8 @@ import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import {
   buildCartReadSet, cartBankUsage, cartReadSetFromCaptureFile, captureMetaFromFile,
-} from "../src/trace/loader-lens.js";
-import { encodeFileHeader, encodeCartRead, decodeFileHeader, decodeEventStream } from "../src/trace/binary-format.js";
+} from "../dist/trace/loader-lens.js";
+import { encodeFileHeader, encodeCartRead, decodeFileHeader, decodeEventStream } from "../dist/trace/binary-format.js";
 import { validateExtraction } from "../dist/server-tools/validate-extraction.js";
 import { validateManifest } from "../dist/server-tools/loader-manifest.js";
 
