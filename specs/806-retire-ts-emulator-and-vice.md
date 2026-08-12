@@ -1,8 +1,9 @@
 # Spec 806 — Retire the TS emulator and VICE from the product
 
-**Status:** IN BUILD 2026-08-12 — phase 1 DONE, **§8 step 1 (evacuation) DONE**
-(branch `spec-806-structural-cut`). Inventory + tool cross-check in §6/§7 below;
-§6 corrected against the measurement in §6.1. Next: §8 step 2 (convert the tools).
+**Status:** IN BUILD 2026-08-12 — phase 1 DONE, **§8 steps 1 (evacuation) and 2
+(convert the tools) DONE** (branch `spec-806-structural-cut`). Inventory + tool
+cross-check in §6/§7 below; §6 corrected against the measurement in §6.1, §7
+against the conversion in §7.1/§7.2. Next: §8 step 3 (answer the eleven).
 **Repo:** C64RE. **Supersedes** the binding half of Spec 723 when it lands.
 
 ---
@@ -154,7 +155,7 @@ swap_disk_and_continue,component_diff}.
 |---|---|---|
 | `runtime_diagnose_mm` | `diagnostic-mm` | a per-title diagnostic. Does it survive at all? |
 | `runtime_iec_bus_state` | `drive1541/drive-session-manager` | no daemon method found — does TRX64 expose IEC lines? |
-| `runtime_swimlane_slice` | `v2/swimlane-render` | rendering is C64RE-side; does it only need trace rows (then it keeps working) or live session state? |
+| ~~`runtime_swimlane_slice`~~ | `v2/swimlane-render` | ~~rendering is C64RE-side; does it only need trace rows (then it keeps working) or live session state?~~ **ANSWERED in §7.2: trace rows. It keeps working.** |
 
 ### 7.1 Correction — it is nine, not three (measured while converting `headless.ts`)
 
@@ -179,6 +180,40 @@ If it does not, six tools retire together and the `vsf/` pair goes with them.
 
 **All nine are ADVANCED-only** — none appears in `DEFAULT_TOOLS`, so none is reachable
 by an LLM without `C64RE_FULL_TOOLS`. Retiring them changes no default surface.
+
+### 7.2 One answered, three more found (measured while converting `runtime.ts`)
+
+**`runtime_swimlane_slice` is ANSWERED: trace rows, not live session state.** It has
+been calling `trace/read op=swimlane` since Spec 802; the tool keeps working. What is
+left in `v2/swimlane-render` is `renderMarkdown` — 38 lines of pure formatting over a
+plain row shape, with a type-only import and nothing else. The runtime has a swimlane
+text renderer (`swimlane_text`), but it renders the *folded TUI* format the monitor
+uses, not the markdown table this tool returns; routing there would change the tool's
+output, which is a rewrite, not a removal. So: step 1 should have evacuated
+`swimlane-render.ts` and did not — it is a formatter, in the class of the 33 movers.
+It has four other consumers (`workspace-ui/ws-server.ts` plus
+`scripts/{smoke-swimlane,render-swimlane,e2e-746-13-flow-focus,e2e-754-monitor}.mjs`),
+so the move is a small cross-file change, not a `runtime.ts` one. **Decide with step 4:
+move it out, or lose the markdown format.**
+
+**Three more with no counterpart at all** — same shape as §7.1, found the same way:
+
+| tool | TS module | why there is no daemon call |
+|---|---|---|
+| `runtime_export_screenshot` | `export/screenshot` | replays a SCENARIO from its start to `at_cycle` and writes a scaled PNG. The daemon has `session/screenshot` + `runtime/render_screen` — the *live* frame. Neither takes a scenario, a cycle or a scale. |
+| `runtime_export_video` | `export/video` | scenario → MP4 via ffmpeg. No method, no family. |
+| `runtime_export_audio` | `export/audio-export` | scenario → WAV. `audio/export` is the LIVE session's SID for N seconds (that is `runtime_session_export_audio`, converted); a saved scenario is a different input. |
+
+There is no `export/*` method group on the daemon. Left untouched — inventing a
+composition (`scenario_run` then `render_screen`) would be a new feature wearing an old
+tool's name. **All three are ADVANCED-only**, and `tier-tools.ts` already carries the
+reason at its demotion comment: *"they replay a SCENARIO in an in-process TS machine
+(bypassing the daemon) — off the customer surface until scenario render runs on
+TRX64."* That sentence is now the step-3 question: does scenario render move to the
+runtime, or do the three retire?
+
+**Running total for step 3: eleven** — the eight still open from §7/§7.1 (nine minus
+the answered swimlane) plus these three. Every one is ADVANCED-only.
 
 ## 8. Execution order
 
@@ -228,7 +263,42 @@ by an LLM without `C64RE_FULL_TOOLS`. Retiring them changes no default surface.
    - the branches were provably dead first: `isDaemonMode()` is false **only** under
      `C64RE_ALLOW_INPROC_RUNTIME=1`, and no script, gate or npm target in the repo
      sets it.
-3. **Answer the nine** (§7 + §7.1); convert or retire those tools.
+
+   **`runtime.ts` DONE 2026-08-12** — 11 branches (the twelfth `isDaemonMode()` was
+   `candidateDaemon`'s inverted guard) plus `getApi()`, the helper that built an
+   `AgentQueryApi` over a local session and was the whole reason four handlers had no
+   daemon route. 36 `../ts-emulator/…` import sites → 4. What it cost:
+   - *no redeclaration here* — the collisions the brace matcher hit were all in
+     `headless.ts`. What `runtime.ts` had instead was **more imports than branches**
+     (36 vs 12): the excess is nine whole tools whose only implementation was
+     in-process, converted individually.
+   - *two verbs, not one*: `resolvePc`, `diffSnapshots` and `formatDiff` are backed by
+     the runtime but sit **outside** the narrow `api/call` allowlist (ten methods:
+     monitor/step/breakpoint/until/status). They need the wide facade verb
+     `runtime/call`, hence a new `callApiFull` beside `callApi`. Reading the allowlist
+     first is what stopped this from becoming "no counterpart, leave it".
+   - *`runtime_diff_snapshots` still reads the files here*, because the paths are the
+     caller's; only the diff moved. The buffers travel as the number-array transport
+     `saveVsf` already uses (68 KB per .vsf, measured). Its `enrich` input was ALWAYS
+     inert — the TS signature is `_opts`, never read — so dropping the argument loses
+     nothing and the input stays accepted.
+   - *the scenario registry belongs to the runtime now*, so `scenarios/` resolves
+     against the runtime's project dir, not the MCP's. Identical in production (the
+     MCP spawns it with `--project <projectDir>`), different for a hand-started
+     daemon: it then keeps the scenario in memory and returns no `filePath`. The tool
+     says so rather than printing `saved to undefined`.
+   - *`batch/start` is sequential, not parallel.* The tool's description said "in
+     parallel via worker_threads"; the runtime runs the scenarios one after another
+     in-process and returns the COMPLETED entry. Description corrected to state the
+     contract that survives (a batchId to poll) rather than an implementation.
+   - verified live, end to end, against a **separate daemon on its own port** — never
+     the shared one (doctrine: one machine per process): 14 converted routes including
+     both facade verbs, the scenario CRUD round trip, a real .vsf diff, media
+     ingress/persist, `vic/inspect/at_capture` and `audio/export`.
+   - *the branch-count in this line was right and the import-count was the signal.*
+     "12 branches" described the mechanical work; the other 24 import sites were the
+     actual job.
+3. **Answer the eleven** (§7 + §7.1 + §7.2); convert or retire those tools.
 4. **Delete the 166.**
 5. **Retire Spec 723 + `probe-single-path`** — they govern the TS runtime.
 6. **e2e**: a fresh project, boot, monitor, trace, screenshot — through the daemon only.
