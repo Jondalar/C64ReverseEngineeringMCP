@@ -33,7 +33,8 @@ ok(fullCount === inv.total, "2 full surface == inventory total", `${fullCount}`)
 // Headless Runtime + Monitor/Inspect + TraceDB facades ARE default; only the
 // drive-only/debug runtime_ tools stay advanced, covered below.)
 const leak = (re) => defaultNames.filter((n) => re.test(n));
-ok(leak(/^vice_/).length === 0, "3 no vice_* in default", leak(/^vice_/).join(",") || "none");
+// Spec 806: the vice_* namespace is retired entirely — check 12 below asserts that,
+// which subsumes "none of them is default".
 ok(leak(/^headless_/).length === 0, "5 no headless_* in default", leak(/^headless_/).join(",") || "none");
 // 5a (Spec 725 §4): no drive-only/debug runtime_ tools in default.
 ok(leak(/^runtime_drive(_session)?_|^runtime_diagnose_/).length === 0,
@@ -50,7 +51,7 @@ ok(bulk5b.length === 0,
 // 5c (Spec 725 §3.7-3.9): the required facade tools MUST be default.
 const REQUIRED_DEFAULT = [
   // Headless Runtime
-  "runtime_session_start","runtime_session_status","runtime_session_run","runtime_session_snapshot",
+  "runtime_session_start","runtime_session_status","runtime_session_run",
   "runtime_media_browse","runtime_media_mount","runtime_media_unmount","runtime_media_swap",
   "runtime_type","runtime_joystick","runtime_load_prg","runtime_render_screen",
   // Monitor / inspect
@@ -106,17 +107,11 @@ const lacksHelp = defaultNames.filter((n) => {
 });
 ok(lacksHelp.length === 0, "11 every default description has Use-trigger + alternative pointer", lacksHelp.join(",") || "none");
 
-// --- 722.5b-1: vice_* are advanced oracle-only ---
+// --- Spec 806: the vice_* namespace is RETIRED ---
+// 722.5b-1 used to require every vice_* tool to be advanced and oracle-only framed.
+// The external-emulator bridge is gone, so the stronger claim holds: none exists.
 const viceNames = allNames.filter((n) => n.startsWith("vice_"));
-// 12. every vice_* is advanced (none in default).
-const viceDefault = viceNames.filter((n) => tierForTool(n) === "default");
-ok(viceDefault.length === 0, "12 every vice_* is advanced (none default)", viceDefault.join(",") || "none");
-// 13. every vice_* description is framed oracle-only.
-const viceNoOracle = viceNames.filter((n) => !/Oracle-only|VICE comparison|oracle/i.test(fullDescByName.get(n) || ""));
-ok(viceNoOracle.length === 0, "13 every vice_* description is oracle-only framed", viceNoOracle.join(",") || "none");
-// 14. no vice_* description starts with Spec.
-const viceSpecStart = viceNames.filter((n) => /^\s*Spec\b/i.test(fullDescByName.get(n) || ""));
-ok(viceSpecStart.length === 0, "14 no vice_* description starts with Spec", viceSpecStart.join(",") || "none");
+ok(viceNames.length === 0, "12 no vice_* tool remains (external-emulator bridge retired)", viceNames.join(",") || "none");
 
 // 16 (722.3b): the confusing audio name-collision is retired. The session
 // exporter is runtime_session_export_audio; the scenario one is
@@ -147,9 +142,6 @@ const MUST_NOT_DEFAULT_730 = ["build_disk_layout_view", "build_cartridge_layout_
 const wrongDefault730 = MUST_NOT_DEFAULT_730.filter((n) => defaultSet.has(n));
 ok(wrongDefault730.length === 0, "730b build_disk_layout_view + build_cartridge_layout_view are NOT default",
   wrongDefault730.join(",") || "none");
-// vice_* already guarded by check 3 above; redundant explicit check for clarity.
-const viceInDefault730 = PROMOTED_730.filter((n) => n.startsWith("vice_") && defaultSet.has(n));
-ok(viceInDefault730.length === 0, "730b no vice_* tool in default (redundant guard)", viceInDefault730.join(",") || "none");
 
 // 730c: none of the 15 promoted descriptions starts with "Spec" or contains "C64RE_FULL_TOOLS".
 const bad730Start = PROMOTED_730.filter((n) => /^\s*Spec\b/i.test(dfull(n)));

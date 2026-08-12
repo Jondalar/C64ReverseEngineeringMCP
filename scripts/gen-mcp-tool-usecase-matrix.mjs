@@ -58,10 +58,9 @@ const REPO_DEV_TOOLS = new Set([
 // default facade. keepDecision = merge, with the successor named.
 const LEGACY_SUCCESSOR = {
   runtime_status: "runtime_session_status",
-  runtime_save_vsf: "runtime_session_snapshot",
-  runtime_load_vsf: "runtime_session_snapshot",
+  runtime_save_vsf: "runtime_checkpoint_capture",
+  runtime_load_vsf: "runtime_checkpoint_restore",
   runtime_memory_access_map: "runtime_query_events / trace_store_bus_find",
-  runtime_iec_bus_state: "runtime_swimlane_slice (iec lane)",
   runtime_diff_snapshots: "runtime_swimlane_slice (before/after)",
 };
 
@@ -114,11 +113,10 @@ const CURATED = {
   suggest_depacker: { role: "static-analysis", swimlane: "disassembly-improve", useWhen: "Identify the likely packer/cruncher of a payload.", notFor: "Actually unpacking — use try_depack.", adjacent: ["try_depack"], e2e: ["E2E-C"] },
   try_depack: { role: "static-analysis", swimlane: "disassembly-improve", useWhen: "Attempt to unpack a packed payload into a usable image.", notFor: "Identifying the packer only — use suggest_depacker.", adjacent: ["suggest_depacker"], e2e: ["E2E-C"] },
   run_prg_reverse_workflow: { role: "workflow", swimlane: "disassembly-improve", useWhen: "Run the end-to-end per-PRG analyze→disasm→verify workflow.", notFor: "Project-level workflow selection — use start_re_workflow.", adjacent: ["analyze_prg", "disasm_prg"], e2e: ["E2E-C"] },
-  runtime_session_start: { role: "runtime-control", swimlane: "runtime-explore", useWhen: "Start the Headless product runtime; pass disk_path/crt_path/prg_path + optional trace_out + trace_domains for durable capture. Disk-boot trace sequence: start(disk_path,trace_out) → session_run to BASIC READY → mark('basic-ready') → type('LOAD\"*\",8,1\\rRUN\\r') → session_run to stable screen → mark('loaded-or-title') → trace_finalize.", notFor: "VICE / scenario fixtures — those are advanced internal-dev paths.", adjacent: ["runtime_session_run", "runtime_mark", "runtime_trace_finalize", "runtime_media_mount"], e2e: ["E2E-B", "E2E-C", "E2E-H"] },
+  runtime_session_start: { role: "runtime-control", swimlane: "runtime-explore", useWhen: "Start the Headless product runtime; pass disk_path/crt_path/prg_path + optional trace_out + trace_domains for durable capture. Disk-boot trace sequence: start(disk_path,trace_out) → session_run to BASIC READY → mark('basic-ready') → type('LOAD\"*\",8,1\\rRUN\\r') → session_run to stable screen → mark('loaded-or-title') → trace_finalize.", notFor: "Scenario fixtures — those are advanced internal-dev paths.", adjacent: ["runtime_session_run", "runtime_mark", "runtime_trace_finalize", "runtime_media_mount"], e2e: ["E2E-B", "E2E-C", "E2E-H"] },
   runtime_session_status: { role: "runtime-control", swimlane: "runtime-explore", useWhen: "Read the live session's run state / cycle / media.", notFor: "Register dump — use runtime_monitor_registers.", adjacent: ["runtime_session_run", "runtime_monitor_registers"], e2e: ["E2E-B"] },
   runtime_session_run: { role: "runtime-control", swimlane: "runtime-explore", useWhen: "Advance the live session (instruction budget or until a stable-screen/PC condition).", notFor: "Single-step — use runtime_step_into / runtime_step_over.", adjacent: ["runtime_until", "runtime_mark"], e2e: ["E2E-B", "E2E-C"] },
   runtime_session_close: { role: "runtime-control", swimlane: "runtime-explore", useWhen: "Close a session when finished — stops the run loop (else it pegs a core ~100%), finalizes an active trace, frees the session. The clean alternative to killing the process.", notFor: "Pausing to inspect then resuming — keep the session and use runtime_session_run; finalizing only a trace — use runtime_trace_finalize.", adjacent: ["runtime_session_start", "runtime_trace_finalize"], e2e: ["E2E-B"] },
-  runtime_session_snapshot: { role: "runtime-inspect", swimlane: "freeze-inspect", useWhen: "Capture a checkpoint of the live machine for inspect/rewind/branch.", notFor: "Durable .c64re dump — that is an advanced session dump tool.", adjacent: ["runtime_render_screen", "runtime_vic_inspect_at"], e2e: ["E2E-D"] },
   runtime_media_browse: { role: "runtime-control", swimlane: "runtime-explore", useWhen: "List media available to mount in the active project.", notFor: "Mounting — use runtime_media_mount.", adjacent: ["runtime_media_mount"], e2e: ["E2E-B"] },
   runtime_media_mount: { role: "media-ingress", swimlane: "runtime-explore", useWhen: "Mount a .d64/.g64 to drive 8 (or .crt) in the live session via the 709 ingress service.", notFor: "Swapping a mounted disk — use runtime_media_swap.", adjacent: ["runtime_media_swap", "runtime_media_unmount"], e2e: ["E2E-B", "E2E-H"] },
   runtime_media_unmount: { role: "media-ingress", swimlane: "runtime-explore", useWhen: "Eject media from a drive/cartridge slot.", notFor: "Mounting — use runtime_media_mount.", adjacent: ["runtime_media_mount"], e2e: ["E2E-B"] },
@@ -126,7 +124,7 @@ const CURATED = {
   runtime_type: { role: "runtime-control", swimlane: "runtime-explore", useWhen: "Type text/commands into the live machine, e.g. LOAD\"*\",8,1\\rRUN\\r.", notFor: "Joystick/fire — use runtime_joystick.", adjacent: ["runtime_joystick", "runtime_session_run"], e2e: ["E2E-B"] },
   runtime_joystick: { role: "runtime-control", swimlane: "runtime-explore", useWhen: "Send joystick direction/fire into the live machine.", notFor: "Keyboard — use runtime_type.", adjacent: ["runtime_type"], e2e: ["E2E-B"] },
   runtime_load_prg: { role: "media-ingress", swimlane: "runtime-explore", useWhen: "Load a .prg into RAM (load) or load+run (inject-run) in the live session.", notFor: "Disk mount — use runtime_media_mount.", adjacent: ["runtime_session_start", "runtime_type"], e2e: ["E2E-H"] },
-  runtime_render_screen: { role: "runtime-inspect", swimlane: "freeze-inspect", useWhen: "Render the current C64 screen as evidence of a visible state.", notFor: "Pixel→RAM resolution — use runtime_vic_inspect_at.", adjacent: ["runtime_session_snapshot", "runtime_vic_inspect_at"], e2e: ["E2E-B", "E2E-D"] },
+  runtime_render_screen: { role: "runtime-inspect", swimlane: "freeze-inspect", useWhen: "Render the current C64 screen as evidence of a visible state.", notFor: "Pixel→RAM resolution — use runtime_vic_inspect_at.", adjacent: ["runtime_checkpoint_capture", "runtime_vic_inspect_at"], e2e: ["E2E-B", "E2E-D"] },
   runtime_monitor_registers: { role: "runtime-monitor", swimlane: "freeze-inspect", useWhen: "Read CPU registers/flags at a paused state.", notFor: "Memory bytes — use runtime_monitor_memory.", adjacent: ["runtime_monitor_memory", "runtime_monitor_disasm"], e2e: ["E2E-D"] },
   runtime_monitor_memory: { role: "runtime-monitor", swimlane: "freeze-inspect", useWhen: "Read live RAM/IO bytes at a paused state.", notFor: "Static payload bytes — use inspect_address_range.", adjacent: ["runtime_monitor_registers", "inspect_address_range"], e2e: ["E2E-D"] },
   runtime_monitor_disasm: { role: "runtime-monitor", swimlane: "freeze-inspect", useWhen: "Disassemble around the live PC at a paused state.", notFor: "Static PRG disasm — use disasm_prg.", adjacent: ["runtime_monitor_registers", "runtime_resolve_pc"], e2e: ["E2E-D"] },
@@ -173,18 +171,8 @@ const CURATED = {
 function classify(name, ns) {
   const t = tierForTool(name);
   if (CURATED[name]) return { tier: t, ...CURATED[name] };
-  if (name.startsWith("vice_")) {
-    return { tier: t, role: "internal-dev-oracle", swimlane: "internal-dev-only",
-      useWhen: "Internal C64RE development only: compare Headless behaviour against the VICE oracle when investigating a port-fidelity divergence.",
-      notFor: "Any normal product / external-LLM workflow — use the Headless runtime + trace tools instead.",
-      useInstead: "runtime_session_start + trace readers", adjacent: [], e2e: ["E2E-F"] };
-  }
-  if (/^runtime_drive(_session)?_/.test(name)) {
-    return { tier: t, role: "debug-only", swimlane: "internal-dev-only",
-      useWhen: "Advanced drive-only debugging of the 1541 CPU/mechanics in isolation.",
-      notFor: "Normal disk loading — mount via runtime_media_mount and run the real drive.",
-      useInstead: "runtime_media_mount + runtime_session_run", adjacent: ["runtime_media_mount"], e2e: [] };
-  }
+  // Spec 806: the vice_* namespace is retired — no classifier branch is needed.
+  // Spec 806: the standalone-drive runtime_drive_* family is retired.
   if (LEGACY_SUCCESSOR[name]) {
     return { tier: t, role: name.includes("snapshot") || name.includes("vsf") ? "runtime-inspect" : (name.includes("iec") || name.includes("access") || name.includes("diff") ? "trace-query" : "runtime-monitor"),
       swimlane: "internal-dev-only",
@@ -198,9 +186,9 @@ function classify(name, ns) {
       notFor: "External-LLM project work — start from user media via runtime_session_start.",
       useInstead: "runtime_session_start", adjacent: [], e2e: [] };
   }
-  if (/export_(audio|video|screenshot)|capture_frame/.test(name)) {
+  if (/export_audio|capture_frame/.test(name)) {
     return { tier: t, role: "view-docs", swimlane: "operator-maintenance",
-      useWhen: "Advanced: export audio/video/frame artifacts from a session.",
+      useWhen: "Advanced: export audio from a live session.",
       notFor: "Normal screen evidence — use runtime_render_screen.",
       useInstead: "runtime_render_screen", adjacent: ["runtime_render_screen"], e2e: [] };
   }
@@ -215,8 +203,8 @@ function classify(name, ns) {
     return { tier: t, role: "runtime-control",
       swimlane: def ? "runtime-explore" : "internal-dev-only",
       useWhen: def ? "Part of the Headless runtime facade." : "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
-      notFor: def ? "VICE oracle work — that is advanced." : "Normal workflow — the default runtime facade covers session start/run/snapshot.",
-      useInstead: def ? undefined : "runtime_session_start / runtime_session_run / runtime_session_snapshot",
+      notFor: def ? "Internal-dev variants — those are advanced." : "Normal workflow — the default runtime facade covers session start/run/render.",
+      useInstead: def ? undefined : "runtime_session_start / runtime_session_run / runtime_render_screen",
       adjacent: ["runtime_session_start"], e2e: def ? ["E2E-B"] : [] };
   }
   if (/^(backfill_|dedupe_|repair_|register_|bulk_|sandbox_|reconstruct_)/.test(name) || ns === "maintenance") {
@@ -317,14 +305,14 @@ const json = {
     "asset-linking": "visible asset → RAM/file/code",
     "change-intervention": "patch/crack/port (future tooling)",
     "validation": "record step, build views, verify",
-    "internal-dev-only": "VICE oracle, drive-only debug, scenario fixtures, legacy variants",
+    "internal-dev-only": "scenario fixtures, legacy variants, advanced runtime plumbing",
     "operator-maintenance": "store repair/backfill/dedupe/export",
     none: "unclassified",
   },
   e2eLegend: {
     "E2E-A": "New project + media inventory", "E2E-B": "Trace-first runtime discovery",
     "E2E-C": "Disassembly-first + trace validation", "E2E-D": "Frozen visual inspect → knowledge",
-    "E2E-E": "Change / validation loop", "E2E-F": "VICE is internal-dev-only",
+    "E2E-E": "Change / validation loop", "E2E-F": "Cartridge chunk → ASM linking",
     "E2E-G": "Operator tools are not workflow tools", "E2E-H": "Path portability",
     "E2E-I": "Trace writer/reader schema contract",
   },
@@ -348,9 +336,6 @@ registered MCP tool (${rows.length} total: ${json.defaultCount} default, ${json.
 \`broken-cwd-coupled\`. Path-taking tools resolve absolute OR project-relative
 paths through the project resolver — never the MCP install dir or process cwd.
 
-**VICE:** \`vice_*\` tools are internal-dev oracle only (advanced). External /
-product LLM workflows use the Headless runtime + trace tools.
-
 **Trace readers:** every trace-query tool consumes the live-writer schema
 \`${TRACE_SCHEMA}\` and must not query legacy \`meta\`/\`instructions\` tables.
 
@@ -362,8 +347,7 @@ product LLM workflows use the Headless runtime + trace tools.
 - Query a trace → \`trace_store_info\` / \`trace_store_top_pcs\` / \`runtime_query_events\`.
 - Disassemble a payload → \`disasm_prg\` (after \`analyze_prg\`).
 - Record a finding → \`save_finding\`.
-- Use VICE → only for internal C64RE port-fidelity debugging (advanced \`vice_*\`).
-- Not for normal workflow → \`vice_*\`, \`runtime_drive_*\`, maintenance/*, legacy runtime/trace variants.
+- Not for normal workflow → maintenance/*, legacy runtime/trace variants.
 
 ## 2. Default surface
 

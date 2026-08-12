@@ -19,9 +19,9 @@ const matrix = JSON.parse(readFileSync(join(ROOT, "docs/mcp-tool-usecase-matrix.
 // 1. all required playbook ids exist.
 const REQUIRED = ["new-project-onboarding", "media-inventory", "trace-first-runtime-discovery",
   "disassembly-first-static-pass", "disassembly-trace-validation", "human-assisted-loader-protection",
-  "frozen-visual-inspect", "change-patch-crack-port", "internal-dev-oracle-vice", "operator-maintenance"];
+  "frozen-visual-inspect", "change-patch-crack-port", "operator-maintenance"];
 const missingPb = REQUIRED.filter((id) => !byId.has(id));
-ok(missingPb.length === 0, "1 all 10 required playbooks exist", missingPb.join(",") || "none");
+ok(missingPb.length === 0, `1 all ${REQUIRED.length} required playbooks exist`, missingPb.join(",") || "none");
 
 // 2. every tool named exists in the inventory.
 const named = [];
@@ -40,10 +40,11 @@ for (const b of books) {
 }
 ok(badStep.length === 0, "3 every playbook well-formed (steps/stop/next/forbidden)", badStep.slice(0, 8).join(",") || "none");
 
-// 4. no vice_* outside the Internal Dev Oracle playbook.
-const viceOutside = [];
-for (const b of books) if (b.id !== "internal-dev-oracle-vice") for (const s of b.steps) for (const t of (s.tools || [])) if (t.startsWith("vice_")) viceOutside.push(b.id + ":" + t);
-ok(viceOutside.length === 0, "4 no vice_* outside the Internal Dev Oracle playbook", viceOutside.join(",") || "none");
+// 4. Spec 806 — no playbook may name an external-emulator tool at all: the
+//    bridge is retired, so the old "only inside the oracle playbook" rule is moot.
+const viceAnywhere = [];
+for (const b of books) for (const s of b.steps) for (const t of (s.tools || [])) if (t.startsWith("vice_")) viceAnywhere.push(b.id + ":" + t);
+ok(viceAnywhere.length === 0, "4 no vice_* tool appears in any playbook", viceAnywhere.join(",") || "none");
 
 // 5. no maintenance tool in a normal playbook.
 const maintNames = new Set(matrix.rows.filter((r) => r.role === "maintenance").map((r) => r.name));
@@ -67,7 +68,7 @@ ok(/trace_out/.test(tfText) && /trace_domains/.test(tfText), "7c trace-first sta
 // 8. global rules present.
 const gr = (pb.globalRules || []).join(" ");
 ok((pb.globalRules || []).length >= 5, "8a >=5 global rules", `${(pb.globalRules || []).length}`);
-ok(/raw SQL/i.test(gr) && /VICE is internal-dev-only/i.test(gr) && /cwd/i.test(gr), "8b global rules cover raw-SQL + vice + cwd", "");
+ok(/raw SQL/i.test(gr) && /ONE runtime/i.test(gr) && /cwd/i.test(gr), "8b global rules cover raw-SQL + one-runtime + cwd", "");
 
 // 9. every DEFAULT tool appears in >=1 playbook or is marked supporting.
 const inPlaybooks = new Set(named.map((x) => x.t));

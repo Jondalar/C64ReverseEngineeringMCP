@@ -9,7 +9,7 @@ inventory.
 
 1. Persist important results in project knowledge, not only in chat (save_finding / save_entity / save_open_question).
 2. After each substantive step, call agent_record_step and propose the next action.
-3. The default runtime backend is TRX64 (native Rust daemon); the in-repo TypeScript runtime is the fallback / parity oracle. Use the runtime_* tools for product work; VICE is a correctness oracle only, never a fallback for user projects. Leitregel: Capability -> TRX64, Meaning/Memory -> C64RE.
+3. There is ONE runtime, reached through the runtime_* tools. It is a separate daemon process; if it is unavailable the tool says so and carries the setup recipe — there is no second machine and no fallback to reach for.
 4. Do not enable C64RE_FULL_TOOLS as a normal solution.
 5. Do not call the V3 WebSocket directly when an MCP tool exists.
 6. Never assume repo-relative samples/ or process cwd for user media; take absolute or project-relative paths from the user.
@@ -150,7 +150,7 @@ inventory.
 
 **Steps:**
 
-1. _(llm)_ Start the runtime (TRX64 default) with durable capture (trace_out to a project-relative or absolute .duckdb).
+1. _(llm)_ Start the runtime with durable capture (trace_out to a project-relative or absolute .duckdb).
    - tools: `runtime_session_start`
    - persist: session, trace.duckdb
    ```text
@@ -306,7 +306,7 @@ inventory.
 
 **Next:** Frozen Visual Inspect or Change/Patch iteration.
 
-**Do not:** Do not use VICE; the Headless trace is the product evidence.
+**Do not:** The runtime trace IS the evidence; do not substitute prose for it.
 
 ## Human-Assisted Loader / Protection Investigation
 
@@ -318,7 +318,7 @@ inventory.
 
 **Steps:**
 
-1. _(llm)_ Start the runtime (TRX64 default) with trace_out.
+1. _(llm)_ Start the runtime with trace_out.
    - tools: `runtime_session_start`
    - persist: trace.duckdb
 2. _(human)_ Tell the LLM what to press / when to continue / which disk.
@@ -350,7 +350,7 @@ inventory.
 **Steps:**
 
 1. _(llm)_ Capture a checkpoint + render the screen.
-   - tools: `runtime_session_snapshot`, `runtime_render_screen`
+   - tools: `runtime_checkpoint_capture`, `runtime_render_screen`
    - persist: checkpoint, screen
 2. _(llm)_ Resolve a pixel/cell to VIC/RAM evidence; read the backing RAM.
    - tools: `runtime_vic_inspect_at`, `runtime_monitor_memory`
@@ -396,33 +396,6 @@ inventory.
 **Next:** Iterate on the next branch or validate the full title.
 
 **Do not:** Dedicated code-overlay/branch tooling (Spec 711/712) is not yet exposed; do not claim it exists. Do not skip before/after evidence.
-
-## Internal Dev Oracle / VICE
-
-**id:** `internal-dev-oracle-vice`  ·  _internal-dev-only_
-
-**Use when:** (C64RE developer) Compare our drive timing against VICE. / Investigate a port-fidelity divergence.
-
-**Preconditions:** You are developing/debugging the C64RE MCP/core itself.; A specific internal dev fixture/artifact is named (not an implicit repo sample).
-
-**Steps:**
-
-1. _(llm)_ Capture the Headless behaviour first (this is the product authority).
-   - tools: `runtime_session_start`, `runtime_session_run`, `runtime_trace_finalize`
-   - persist: headless trace
-2. _(llm)_ Run the VICE oracle on the SAME named fixture and compare boundary lanes.
-   - tools: `vice_debug_run`, `vice_monitor_backtrace`, `vice_monitor_bank`, `vice_monitor_binary_save`, `vice_monitor_breakpoint_add`, `vice_monitor_breakpoint_delete`
-   - persist: oracle diff finding
-   - ask human when: the divergence fixture is not explicitly named
-3. _(llm)_ Record the first divergence as a finding with an oracle reference.
-   - tools: `save_finding`, `agent_record_step`
-   - persist: divergence finding
-
-**Stop when:** First divergence identified with an oracle reference.
-
-**Next:** Fix the port per the C→TS forensic doctrine; re-validate with Headless.
-
-**Do not:** Never expose VICE as a product workflow path. Never use a VICE trace as a replacement for Headless evidence. Never tell an external LLM/user to switch to VICE. Never use an implicit repo-sample fixture.
 
 ## Operator / Maintenance
 

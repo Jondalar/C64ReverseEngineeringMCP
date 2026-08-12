@@ -25,7 +25,6 @@
     "workspace": "npm run build:mcp && node scripts/workspace.mjs",
     "smoke:workspace-runtime": "npm run build:mcp && node scripts/smoke-workspace-runtime-bootstrap.mjs",
     "bootstrap:ui-fixture": "npm run build && node scripts/bootstrap-ui-fixture.mjs",
-    "trace:motm-runtime-diff": "node scripts/runtime-trace-diff.mjs",
     "trace:motm-full-diff": "node scripts/swimlane-full-diff.mjs",
     "trace:motm-diff": "node scripts/vice-iec-diff.mjs",
     "trace:motm-swimlane-diff": "node scripts/swimlane-diff-v2.mjs",
