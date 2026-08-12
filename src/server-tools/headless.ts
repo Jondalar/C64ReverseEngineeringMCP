@@ -2,8 +2,9 @@ import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 // Spec 723.4b: standalone HeadlessSessionManager + its record formatters retired.
-import { findHeadlessTraceByAccess, findHeadlessTraceByPc, loadHeadlessSession, sliceHeadlessTraceByIndex } from "../ts-emulator/trace-query.js";
-import { buildHeadlessTraceIndex } from "../ts-emulator/trace-index.js";
+// Spec 806 step 2: the trace-query / trace-index imports were already unused here —
+// they were the last static edges from this file into the TS emulator, and they go
+// with the in-process branches below.
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 
@@ -34,14 +35,8 @@ function resolveHeadlessProjectDir(context: ServerToolContext, hintPath?: string
 // Spec 723.4b: headlessSessionToContent + headlessRunResultToContent removed —
 // they formatted the retired standalone HeadlessSessionManager records.
 
-async function resolveHeadlessTraceProjectDir(context: ServerToolContext): Promise<string> {
-  // Spec 723.4b: no longer consults the standalone HeadlessSessionManager.
-  return context.projectDir(undefined, true);
-}
-
-function formatHeadlessTraceMatch(match: { index: number; pc: number; bytes: number[]; trap?: string }): string {
-  return `${match.index}: ${formatHexWord(match.pc)} [${match.bytes.map(formatHexByte).join(" ")}]${match.trap ? ` ${match.trap}` : ""}`;
-}
+// Spec 806 step 2: resolveHeadlessTraceProjectDir + formatHeadlessTraceMatch removed —
+// callerless leftovers of the same retired standalone-session trace surface.
 
 export function registerHeadlessTools(server: McpServer, context: ServerToolContext): void {
   // Spec 723.4b: the standalone-session interrupt tools (headless_interrupt_request,
@@ -179,123 +174,56 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       trace_out: z.string().optional().describe("Path (abs or under the project) for the trace.duckdb. Enables persistent streaming trace capture."),
       trace_domains: z.array(z.enum(["c64-cpu", "drive8-cpu", "iec", "vic", "memory"])).optional().describe("Which domains to capture (default c64-cpu + memory). Enables the matching passive producers."),
     },
+    // Spec 806 step 2: the trace_iec / trace_drive / enable_kernal_*_traps inputs are
+    // IntegratedSession construction options the daemon never took; they were only ever
+    // read by the removed in-process branch. Left in the schema (accepted + ignored, as
+    // in daemon mode today) — pruning the input surface is a separate decision.
     safeHandler("runtime_session_start", async ({
       disk_path, device_id, pal, start_track, write_protected,
-      trace_iec, trace_iec_capacity, trace_drive, trace_drive_capacity,
-      enable_kernal_fileio_traps, enable_kernal_serial_traps, enable_kernal_io_traps,
       trace_out, trace_domains,
     }) => {
-      // Spec 744.4c — when a Runtime Daemon endpoint is configured, the product MCP
-      // creates the session IN THE DAEMON (the one process-stable authority the UI
-      // also uses), NOT a private session in the MCP process. The LLM still sees
-      // this stable tool; the daemon owns the IntegratedSession.
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      if (isDaemonMode()) {
-        // Spec 744.4c — the daemon is a PROJECT-AGNOSTIC runtime host: it may serve
-        // several projects at once. The session must be self-describing, so the MCP
-        // resolves every path to ABSOLUTE against ITS OWN project context here and
-        // hands the daemon already-resolved paths. The daemon then resolves nothing
-        // against its own spawn-project (resolveTraceOut passes absolute through), so
-        // the disk + the trace.duckdb always land in the *caller's* project — not the
-        // daemon's. (projectDir-at-spawn below is only the daemon's default-session /
-        // UI base; it is not load-bearing for MCP-created sessions.)
-        const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
-        const { resolveTraceOut } = await import("./runtime-trace-sink.js");
-        // Resolve to ABSOLUTE the same way the trace path is (absolute as-is, else
-        // under the MCP's project). NOTE: context.projectDir() returns the project
-        // ROOT, not a resolved file path — it is the wrong tool for this.
-        const absDisk = disk_path
-          ? (resolve(mcpProject ?? process.cwd(), disk_path))
-          : disk_path;
-        const absTraceOut = trace_out ? resolveTraceOut(trace_out, mcpProject) : undefined;
-        // Seed the auto-spawn base so a daemon we start lives in a real project.
-        runtimeDaemon.setProjectDir(mcpProject);
-        const r = await runtimeDaemon.createSession({ disk_path: absDisk, device_id, pal, start_track, write_protected, trace_out: absTraceOut, trace_domains });
-        const lines = r.attached
-          ? [
-              `Attached to the existing shared session in the Runtime Daemon (one machine per process — the human's UI and you co-drive the SAME machine).`,
-              `Session: ${r.sessionId}`,
-              `Mounted disk: ${r.diskPath || "(none)"}`,
-              `Mode: ${r.mode}`,
-              `C64 cycles: ${r.c64Cycles}  PC: ${formatHexWord(r.pc)}`,
-              ...(absDisk ? [`Requested disk "${absDisk}" was NOT auto-mounted (would power-cycle the shared machine) — mount it deliberately with runtime_media_mount.`] : []),
-            ]
-          : [
-              `Integrated session started (Runtime Daemon — shared with the UI).`,
-              `Session: ${r.sessionId}`,
-              `Disk: ${absDisk ?? "(none)"}`,
-              `Mode: ${r.mode}`,
-              `C64 cycles: ${r.c64Cycles}  PC: ${formatHexWord(r.pc)}`,
-            ];
-        const t = r.trace as { outputPath?: string; domains?: string[]; runId?: string } | null;
-        if (t?.runId) lines.push(`Trace: streaming → ${t.outputPath} [${(t.domains ?? []).join(",")}] run=${t.runId}`);
-        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
-      }
-      // Spec 744.4 — in-process authority (tests / no daemon). Create the session
-      // through the single runtime authority, NOT startIntegratedSession directly.
-      const { runtimeSessions } = await import("../ts-emulator/runtime-session-service.js");
-      const { producerOptsForDomains, startSessionTrace, resolveTraceOut, DEFAULT_TRACE_DOMAINS } =
-        await import("./runtime-trace-sink.js");
-      const warnings: string[] = [];
-      // Spec 726: trace producers are passive (proven by smoke-trace-sink) — they
-      // do NOT change emulator behaviour, only emit events for the sink.
-      const traceDomains = trace_out ? (trace_domains ?? DEFAULT_TRACE_DOMAINS) : [];
-      const traceProducers = trace_out ? producerOptsForDomains(traceDomains) : {};
-      // Spec 723.4a: the product runtime is true-drive + microcoded
-      // unconditionally — no useCycleLockstep / useMicrocodedCpu inputs.
-      const { sessionId, session, attached } = runtimeSessions.start({
-        diskPath: disk_path, deviceId: device_id, isPal: pal,
-        startTrack: start_track, writeProtected: write_protected,
-        traceIec: trace_iec ?? traceProducers.traceIec,
-        traceIecCapacity: trace_iec_capacity,
-        traceDrive: trace_drive ?? traceProducers.traceDrive,
-        traceDriveCapacity: trace_drive_capacity,
-        enableBusAccessTrace: traceProducers.enableBusAccessTrace,
-        enableKernalFileIoTraps: enable_kernal_fileio_traps,
-        enableKernalSerialTraps: enable_kernal_serial_traps,
-        enableKernalIoTraps: enable_kernal_io_traps,
-      });
-      // One-machine-per-process: an ATTACHED session is the existing shared
-      // machine — do NOT resetCold it (that wipes the human's/other agent's
-      // state). Only a freshly constructed machine cold-boots. If a disk was
-      // requested, the caller mounts it deliberately (runtime_media_mount) rather
-      // than us silently power-cycling the shared machine.
-      if (attached) {
-        const st = session.status();
-        const note = disk_path
-          ? ` Requested disk "${disk_path}" was NOT auto-mounted (would power-cycle the shared machine) — mount it deliberately with runtime_media_mount if you mean to change media.`
-          : "";
-        return { content: [{ type: "text" as const, text:
-          `Attached to the existing shared session ${sessionId} (one machine per process — the human's UI and you co-drive the SAME machine).\n` +
-          `Mounted disk: ${session.diskPath || "(none)"}  Mode: ${st.runtime.mode}  PC: ${formatHexWord(st.c64.pc)}  C64 cycles: ${session.c64Cpu.cycles}.${note}` }] };
-      }
-      session.resetCold();
-      // Spec 726: start streaming the trace AFTER cold reset (cycleStart = post-reset).
-      let traceLine = "";
-      if (trace_out) {
-        const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
-        const outPath = resolveTraceOut(trace_out, proj);
-        const t = await startSessionTrace(sessionId, session, outPath, traceDomains);
-        traceLine = `Trace: streaming → ${t.outputPath} [${t.domains.join(",")}] run=${t.runId}`;
-      }
-      const status = session.status();
-      const lines: string[] = [
-        `Integrated session started.`,
-        `Session: ${sessionId}`,
-        `Disk: ${disk_path}`,
-        `Image format: ${status.runtime.imageFormat}`,
-        `Mode: ${status.runtime.mode} (traps=${status.runtime.modeReport.traps} microcoded=${status.runtime.modeReport.microcoded} channels=${status.runtime.modeReport.channels})`,
-        `Runtime: event-catchup (CPU: microcoded Cpu65xxVice)`,
-        `Drive clock ratio: ${status.runtime.driveClockRatio.toFixed(6)} (drive cycles per C64 cycle)`,
-        `KERNAL traps: fileio=${status.runtime.enableKernalFileIoTraps} serial=${status.runtime.enableKernalSerialTraps} io=${status.runtime.enableKernalIoTraps}`,
-        `IEC trace: ${status.runtime.iecTraceEnabled ? "ON" : "off"}  Drive PC trace cap: ${status.runtime.drivePcTraceCapacity}`,
-        `C64 ROMs: kernal=${status.romSet.kernal}, basic=${status.romSet.basic}, charrom=${status.romSet.charRom}`,
-        `C64 PC after cold reset: ${formatHexWord(status.c64.pc)}`,
-        `Drive PC after reset: ${formatHexWord(status.drive.pc)}`,
-        `Drive head: track ${status.drive.track}`,
-      ];
-      if (traceLine) lines.push(traceLine);
-      if (warnings.length > 0) lines.push("", ...warnings);
+      // Spec 744.4c — the product MCP creates the session IN THE DAEMON (the one
+      // process-stable authority the UI also uses), NOT a private session in the MCP
+      // process. The LLM still sees this stable tool; the daemon owns the machine.
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      // Spec 744.4c — the daemon is a PROJECT-AGNOSTIC runtime host: it may serve
+      // several projects at once. The session must be self-describing, so the MCP
+      // resolves every path to ABSOLUTE against ITS OWN project context here and
+      // hands the daemon already-resolved paths. The daemon then resolves nothing
+      // against its own spawn-project (resolveTraceOut passes absolute through), so
+      // the disk + the trace.duckdb always land in the *caller's* project — not the
+      // daemon's. (projectDir-at-spawn below is only the daemon's default-session /
+      // UI base; it is not load-bearing for MCP-created sessions.)
+      const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+      const { resolveTraceOut } = await import("./runtime-trace-sink.js");
+      // Resolve to ABSOLUTE the same way the trace path is (absolute as-is, else
+      // under the MCP's project). NOTE: context.projectDir() returns the project
+      // ROOT, not a resolved file path — it is the wrong tool for this.
+      const absDisk = disk_path
+        ? (resolve(mcpProject ?? process.cwd(), disk_path))
+        : disk_path;
+      const absTraceOut = trace_out ? resolveTraceOut(trace_out, mcpProject) : undefined;
+      // Seed the auto-spawn base so a daemon we start lives in a real project.
+      runtimeDaemon.setProjectDir(mcpProject);
+      const r = await runtimeDaemon.createSession({ disk_path: absDisk, device_id, pal, start_track, write_protected, trace_out: absTraceOut, trace_domains });
+      const lines = r.attached
+        ? [
+            `Attached to the existing shared session in the Runtime Daemon (one machine per process — the human's UI and you co-drive the SAME machine).`,
+            `Session: ${r.sessionId}`,
+            `Mounted disk: ${r.diskPath || "(none)"}`,
+            `Mode: ${r.mode}`,
+            `C64 cycles: ${r.c64Cycles}  PC: ${formatHexWord(r.pc)}`,
+            ...(absDisk ? [`Requested disk "${absDisk}" was NOT auto-mounted (would power-cycle the shared machine) — mount it deliberately with runtime_media_mount.`] : []),
+          ]
+        : [
+            `Integrated session started (Runtime Daemon — shared with the UI).`,
+            `Session: ${r.sessionId}`,
+            `Disk: ${absDisk ?? "(none)"}`,
+            `Mode: ${r.mode}`,
+            `C64 cycles: ${r.c64Cycles}  PC: ${formatHexWord(r.pc)}`,
+          ];
+      const t = r.trace as { outputPath?: string; domains?: string[]; runId?: string } | null;
+      if (t?.runId) lines.push(`Trace: streaming → ${t.outputPath} [${(t.domains ?? []).join(",")}] run=${t.runId}`);
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     },
 ));
@@ -318,108 +246,25 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         frames_stable: z.number().int().min(1).optional().describe("Frames-stable threshold (for kind=stable_screen). Default 3."),
       }).optional().describe("Named stop condition. If set, runs until satisfied (or budget exhausted) instead of max_instructions."),
     },
-    safeHandler("runtime_session_run", async ({ session_id, max_instructions, breakpoints, cycle_budget, until }) => {
+    // Spec 806 step 2: `breakpoints` was only ever honoured by the removed in-process
+    // branch — the daemon run has always ignored it (use runtime_monitor `bp` / the
+    // `until` route once 744.4c slice 2 lands). Schema left as-is; the input surface is
+    // a separate decision.
+    safeHandler("runtime_session_run", async ({ session_id, max_instructions, cycle_budget, until }) => {
       // Spec 744.4c — bounded run against the shared Runtime Daemon session.
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      if (isDaemonMode()) {
-        if (until) throw new Error("runtime_session_run with `until` conditions is not yet routed through the Runtime Daemon (744.4c slice 2). Use cycle_budget / max_instructions.");
-        const cycles = cycle_budget ?? Math.max(1, (max_instructions ?? 100_000) * 2);
-        // Spec 767 slice 2 — when a stream pump is attached (--stream, the shared UI
-        // session), advance via the LIVE capped run so the UI keeps RUNNING (every rendered
-        // frame is streamed) instead of freezing on the blocking session/run; it auto-pauses
-        // at the cap. Headless daemons (no pump) fall back to the blocking bounded run.
-        const s0 = await runtimeDaemon.state(session_id);
-        const after = s0.streamPump
-          ? await runtimeDaemon.runCapped(session_id, cycles, "warp")
-          : (await runtimeDaemon.run(session_id, cycles), await runtimeDaemon.state(session_id));
-        const { c64Cycles, cpu } = after;
-        return { content: [{ type: "text" as const, text: `Ran up to ~${cycles} cycles (Runtime Daemon${s0.streamPump ? ", live-streamed" : ""}). cycles=${c64Cycles} pc=${formatHexWord(cpu.pc)}` }] };
-      }
-      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { sessionTraceActive, drainSessionTrace } = await import("./runtime-trace-sink.js");
-      // Spec 726: when a streaming trace is active, run the plain path in chunks
-      // and drain to DuckDB between chunks (emulator paused during the async
-      // write). runFor(N) == k×runFor(N/k) — chunking is behaviour-neutral.
-      const traceActive = await sessionTraceActive(session_id);
-
-      let modeText: string;
-      if (until) {
-        const stepping = await import("../ts-emulator/stepping.js");
-        let stepResult: { exitReason: string; cyclesElapsed: number; instructionsElapsed: number; hit?: unknown };
-        switch (until.kind) {
-          case "pc": {
-            if (!until.pc) throw new Error("until.pc required for kind=pc");
-            stepResult = stepping.runUntilPc(session, parseHexWord(until.pc), {
-              side: until.side ?? "c64",
-              count: until.count,
-              budget: max_instructions,
-            });
-            break;
-          }
-          case "raster": {
-            if (until.line === undefined) throw new Error("until.line required for kind=raster");
-            stepResult = stepping.runUntilRaster(session, until.line, max_instructions);
-            break;
-          }
-          case "iec": {
-            if (!until.edge) throw new Error("until.edge required for kind=iec");
-            stepResult = stepping.runUntilIecEvent(session, until.edge, max_instructions);
-            break;
-          }
-          case "stable_screen": {
-            stepResult = stepping.runUntilStableScreen(session, {
-              framesStable: until.frames_stable,
-              budgetCycles: cycle_budget,
-            });
-            break;
-          }
-        }
-        modeText = `Until-${until.kind}: ${stepResult.exitReason} (${stepResult.instructionsElapsed} instructions, ${stepResult.cyclesElapsed} cycles)${stepResult.hit ? ` hit=${JSON.stringify(stepResult.hit)}` : ""}`;
-        // Spec 726: until paths are a single sync run; drain once after.
-        if (traceActive) await drainSessionTrace(session_id);
-      } else {
-        const bp = breakpoints && breakpoints.length > 0
-          ? new Set(breakpoints.map((s) => parseHexWord(s)))
-          : undefined;
-        if (traceActive) {
-          // chunked run + drain between chunks (bounds the transport queue).
-          const CHUNK = 200_000;
-          const startCyc = session.c64Cpu.cycles;
-          let done = 0;
-          let aborted: string | undefined;
-          while (done < max_instructions) {
-            const n = Math.min(CHUNK, max_instructions - done);
-            const remaining = cycle_budget !== undefined
-              ? cycle_budget - (session.c64Cpu.cycles - startCyc) : undefined;
-            if (remaining !== undefined && remaining <= 0) { aborted = "cycle-budget"; break; }
-            const r = session.runFor(n, { breakpoints: bp, cycleBudget: remaining });
-            done += r.instructionsExecuted;
-            await drainSessionTrace(session_id);
-            if (r.aborted) { aborted = r.aborted; break; }
-            if (r.instructionsExecuted < n) break;
-          }
-          modeText = `Instructions executed: ${done}${aborted ? ` (aborted: ${aborted})` : ""}`;
-        } else {
-          const result = session.runFor(max_instructions, { breakpoints: bp, cycleBudget: cycle_budget });
-          modeText = `Instructions executed: ${result.instructionsExecuted}${result.aborted ? ` (aborted: ${result.aborted})` : ""}`;
-        }
-      }
-
-      const status = session.status();
-      return {
-        content: [{
-          type: "text" as const,
-          text: [
-            `Integrated run — session ${session_id}`,
-            modeText,
-            `C64: PC=${formatHexWord(status.c64.pc)} A=${formatHexByte(status.c64.a)} cycles=${status.c64.cycles}`,
-            `Drive: PC=${formatHexWord(status.drive.pc)} A=${formatHexByte(status.drive.a)} cycles=${status.drive.cycles} track=${status.drive.track}`,
-            `IEC: ATN=${status.iecBus.line.atn ? "1" : "0"} CLK=${status.iecBus.line.clk ? "1" : "0"} DATA=${status.iecBus.line.data ? "1" : "0"}`,
-          ].join("\n"),
-        }],
-      };
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      if (until) throw new Error("runtime_session_run with `until` conditions is not yet routed through the Runtime Daemon (744.4c slice 2). Use cycle_budget / max_instructions.");
+      const cycles = cycle_budget ?? Math.max(1, (max_instructions ?? 100_000) * 2);
+      // Spec 767 slice 2 — when a stream pump is attached (--stream, the shared UI
+      // session), advance via the LIVE capped run so the UI keeps RUNNING (every rendered
+      // frame is streamed) instead of freezing on the blocking session/run; it auto-pauses
+      // at the cap. Headless daemons (no pump) fall back to the blocking bounded run.
+      const s0 = await runtimeDaemon.state(session_id);
+      const after = s0.streamPump
+        ? await runtimeDaemon.runCapped(session_id, cycles, "warp")
+        : (await runtimeDaemon.run(session_id, cycles), await runtimeDaemon.state(session_id));
+      const { c64Cycles, cpu } = after;
+      return { content: [{ type: "text" as const, text: `Ran up to ~${cycles} cycles (Runtime Daemon${s0.streamPump ? ", live-streamed" : ""}). cycles=${c64Cycles} pc=${formatHexWord(cpu.pc)}` }] };
     },
 ));
 
@@ -433,16 +278,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
     safeHandler("runtime_mark", async ({ session_id, label }) => {
       // BUG-028 — mark the SHARED daemon session's active trace.
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      if (isDaemonMode()) {
-        const s = await runtimeDaemon.mark(session_id, label) as { runId: string; eventCount: number; marks: number };
-        return { content: [{ type: "text" as const, text: `Marked "${label}" — run ${s.runId}, ${s.eventCount} events, ${s.marks} marks.` }] };
-      }
-      const { getRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
-      const ctrl = getRuntimeController(session_id);
-      if (!ctrl?.traceRun.isActive()) throw new Error(`No active trace on session ${session_id} (start one with runtime_session_start trace_out=...).`);
-      ctrl.traceRun.mark(label);
-      const s = ctrl.traceRun.status();
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const s = await runtimeDaemon.mark(session_id, label) as { runId: string; eventCount: number; marks: number };
       return { content: [{ type: "text" as const, text: `Marked "${label}" — run ${s.runId}, ${s.eventCount} events, ${s.marks} marks.` }] };
     },
 ));
@@ -478,38 +315,20 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         const sub = await checkSubstrateDiscipline(proj, { tool: "runtime_trace_start (drive-mechanism / loader-lens capture)" });
         if (!sub.allowed) return { content: [{ type: "text" as const, text: sub.refusal! }] };
       }
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      if (isDaemonMode()) {
-        // resolve the output path against the caller's project (project-agnostic daemon)
-        let absOut: string | undefined = output;
-        if (output) {
-          const { resolveTraceOut } = await import("./runtime-trace-sink.js");
-          const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
-          absOut = resolveTraceOut(output, proj);
-        }
-        const r = await runtimeDaemon.traceStartDomains<{ run: { runId: string }; outputPath: string; domains: string[] }>(session_id, doms, absOut);
-        return { content: [{ type: "text" as const, text: [
-          `Trace started (Runtime Daemon) — run ${r.run.runId}`,
-          `Domains: ${r.domains.join(", ")}`,
-          `Store: ${r.outputPath}`,
-          `Drive the session (runtime_session_run / runtime_until), stamp phases with runtime_mark, then runtime_trace_finalize. Read it with runtime_swimlane_slice / trace_store_*.`,
-        ].join("\n") }] };
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      // resolve the output path against the caller's project (project-agnostic daemon)
+      let absOut: string | undefined = output;
+      if (output) {
+        const { resolveTraceOut } = await import("./runtime-trace-sink.js");
+        const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+        absOut = resolveTraceOut(output, proj);
       }
-      // in-process: build the def + start on the session's controller.
-      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { captureAllDef, resolveTraceOut } = await import("./runtime-trace-sink.js");
-      const { ensureRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
-      const ctrl = ensureRuntimeController(session_id, session, () => {});
-      if (ctrl.traceRun.isActive()) throw new Error(`Trace already active on session ${session_id} — finalize it first.`);
-      const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
-      const outPath = resolveTraceOut(output ?? `traces/live_${Date.now().toString(36)}.duckdb`, proj);
-      const run = await ctrl.traceRun.start(captureAllDef(doms as never), { controller: ctrl, outputPath: outPath });
+      const r = await runtimeDaemon.traceStartDomains<{ run: { runId: string }; outputPath: string; domains: string[] }>(session_id, doms, absOut);
       return { content: [{ type: "text" as const, text: [
-        `Trace started — run ${run.runId}`,
-        `Domains: ${doms.join(", ")}`,
-        `Store: ${outPath}`,
+        `Trace started (Runtime Daemon) — run ${r.run.runId}`,
+        `Domains: ${r.domains.join(", ")}`,
+        `Store: ${r.outputPath}`,
+        `Drive the session (runtime_session_run / runtime_until), stamp phases with runtime_mark, then runtime_trace_finalize. Read it with runtime_swimlane_slice / trace_store_*.`,
       ].join("\n") }] };
     },
 ));
@@ -520,47 +339,25 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     { session_id: z.string() },
     safeHandler("runtime_trace_finalize", async ({ session_id }) => {
       // Spec 746.3 — route to the shared daemon (BUG-028 class: was getRuntimeController-only).
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      if (isDaemonMode()) {
-        // wait_index=true: stop + await the background DuckDB index so the store is
-        // queryable on return (the LLM queries next); the UI's instant button omits it.
-        const { run } = await runtimeDaemon.traceStop<{ run: { runId: string; eventCount: number; bytesWritten: number; marks: unknown[]; cycleStart: number; cycleEnd: number; evidenceRef: string } }>(session_id, true);
-        // Spec 753 — auto-write the page memory map sidecar if mem-row was captured.
-        // Fully soft-fail: a failure here (incl. the dynamic import) must NEVER turn
-        // a successful finalize into an error envelope.
-        let mm: string | null = null;
-        try {
-          const { writeTraceMemoryMapSidecar } = await import("./trace-store.js");
-          mm = await writeTraceMemoryMapSidecar(run.evidenceRef, context, run.runId);
-        } catch { /* soft-fail — finalize already succeeded */ }
-        return { content: [{ type: "text" as const, text: [
-          `Trace finalized (Runtime Daemon) — run ${run.runId}`,
-          `Events: ${run.eventCount}  bytes: ${run.bytesWritten}  marks: ${run.marks.length}`,
-          `Cycles: ${run.cycleStart}..${run.cycleEnd}`,
-          `Store: ${run.evidenceRef}`,
-          ...(mm ? [mm] : []),
-          `Query it with trace_store_query / trace_store_top_pcs / runtime_swimlane_slice (duckdb_path = the store).`,
-        ].join("\n") }] };
-      }
-      const { getRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
-      const ctrl = getRuntimeController(session_id);
-      if (!ctrl?.traceRun.isActive()) throw new Error(`No active trace on session ${session_id}.`);
-      const run = await ctrl.traceRun.stop();
-      await ctrl.traceRun.awaitIndex(); // queryable store on return (background index)
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      // wait_index=true: stop + await the background DuckDB index so the store is
+      // queryable on return (the LLM queries next); the UI's instant button omits it.
+      const { run } = await runtimeDaemon.traceStop<{ run: { runId: string; eventCount: number; bytesWritten: number; marks: unknown[]; cycleStart: number; cycleEnd: number; evidenceRef: string } }>(session_id, true);
       // Spec 753 — auto-write the page memory map sidecar if mem-row was captured.
-      // Fully soft-fail (incl. the dynamic import) — never break a good finalize.
+      // Fully soft-fail: a failure here (incl. the dynamic import) must NEVER turn
+      // a successful finalize into an error envelope.
       let mm: string | null = null;
       try {
         const { writeTraceMemoryMapSidecar } = await import("./trace-store.js");
         mm = await writeTraceMemoryMapSidecar(run.evidenceRef, context, run.runId);
       } catch { /* soft-fail — finalize already succeeded */ }
       return { content: [{ type: "text" as const, text: [
-        `Trace finalized — run ${run.runId}`,
+        `Trace finalized (Runtime Daemon) — run ${run.runId}`,
         `Events: ${run.eventCount}  bytes: ${run.bytesWritten}  marks: ${run.marks.length}`,
         `Cycles: ${run.cycleStart}..${run.cycleEnd}`,
         `Store: ${run.evidenceRef}`,
         ...(mm ? [mm] : []),
-        `Query it with trace_store_query / trace_store_top_pcs / runtime_query_events (duckdb_path = the store).`,
+        `Query it with trace_store_query / trace_store_top_pcs / runtime_swimlane_slice (duckdb_path = the store).`,
       ].join("\n") }] };
     },
 ));
@@ -571,14 +368,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     { session_id: z.string() },
     safeHandler("runtime_trace_status", async ({ session_id }) => {
       // Spec 746.3 — route to the shared daemon (BUG-028 class).
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      if (isDaemonMode()) {
-        const s = await runtimeDaemon.traceStatus(session_id);
-        return { content: [{ type: "text" as const, text: JSON.stringify(s, null, 2) }] };
-      }
-      const { getRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
-      const ctrl = getRuntimeController(session_id);
-      const s = ctrl?.traceRun.status() ?? { active: false };
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const s = await runtimeDaemon.traceStatus(session_id);
       return { content: [{ type: "text" as const, text: JSON.stringify(s, null, 2) }] };
     },
 ));
@@ -657,41 +448,15 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     safeHandler("runtime_session_status", async ({ session_id }) => {
       // Spec 744.4c — read the session from the shared Runtime Daemon (the same
       // machine the UI drives), not a private MCP-process session.
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      if (isDaemonMode()) {
-        const { c64Cycles, mode, cpu } = await runtimeDaemon.state(session_id);
-        return { content: [{ type: "text" as const, text: [
-          `Runtime session status (Runtime Daemon) — ${session_id}`,
-          ``,
-          `C64 CPU: PC=${formatHexWord(cpu.pc)} A=${formatHexByte(cpu.a)} X=${formatHexByte(cpu.x)} Y=${formatHexByte(cpu.y)} SP=${formatHexByte(cpu.sp)} P=${formatHexByte(cpu.flags)}`,
-          `         cycles=${c64Cycles}`,
-          `Mode: ${mode}`,
-        ].join("\n") }] };
-      }
-      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      const s = session.status();
-      return {
-        content: [{
-          type: "text" as const,
-          text: [
-            `Integrated session status — ${session_id}`,
-            ``,
-            `C64 CPU: PC=${formatHexWord(s.c64.pc)} A=${formatHexByte(s.c64.a)} X=${formatHexByte(s.c64.x)} Y=${formatHexByte(s.c64.y)} SP=${formatHexByte(s.c64.sp)} P=${formatHexByte(s.c64.flags)}`,
-            `         cycles=${s.c64.cycles} instructions=${s.c64.instructions}`,
-            ``,
-            `Drive CPU: PC=${formatHexWord(s.drive.pc)} A=${formatHexByte(s.drive.a)} X=${formatHexByte(s.drive.x)} Y=${formatHexByte(s.drive.y)} SP=${formatHexByte(s.drive.sp)} P=${formatHexByte(s.drive.flags)}`,
-            `           cycles=${s.drive.cycles} instructions=${s.drive.instructions} track=${s.drive.track}`,
-            ``,
-            `IEC bus: ATN=${s.iecBus.line.atn ? "1" : "0 (LOW)"} CLK=${s.iecBus.line.clk ? "1" : "0 (LOW)"} DATA=${s.iecBus.line.data ? "1" : "0 (LOW)"}`,
-            ``,
-            `ROMs: kernal=${s.romSet.kernal}`,
-            `      basic=${s.romSet.basic}`,
-            `      chargen=${s.romSet.charRom}`,
-          ].join("\n"),
-        }],
-      };
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { c64Cycles, mode, cpu } = await runtimeDaemon.state(session_id);
+      return { content: [{ type: "text" as const, text: [
+        `Runtime session status (Runtime Daemon) — ${session_id}`,
+        ``,
+        `C64 CPU: PC=${formatHexWord(cpu.pc)} A=${formatHexByte(cpu.a)} X=${formatHexByte(cpu.x)} Y=${formatHexByte(cpu.y)} SP=${formatHexByte(cpu.sp)} P=${formatHexByte(cpu.flags)}`,
+        `         cycles=${c64Cycles}`,
+        `Mode: ${mode}`,
+      ].join("\n") }] };
     },
 ));
 
@@ -700,12 +465,9 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Close a runtime session and release its resources. Use when finished with a session started by runtime_session_start: it stops the RuntimeController loop (which otherwise keeps ticking the session and pegs a CPU core ~100% after you are done), finalizes any active streaming trace, and removes the session from the registry — the clean alternative to killing the process. Not for pausing to inspect then resuming (keep the session and use runtime_session_run) or for finalizing only a trace (use runtime_trace_finalize). NOTE: in the one-machine-per-process runtime, closing a session does NOT hand the process-global VIC/drive state back to another session — if you ever ran a second in-process session, the first stays corrupted until a process restart. Inputs: session_id. Returns: what was released. Idempotent (closing an unknown/already-closed session is a no-op success).",
     { session_id: z.string() },
     safeHandler("runtime_session_close", async ({ session_id }) => {
-      // Spec 744.4c — close the session in the shared Runtime Daemon (or in-process).
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const { existed, released } = isDaemonMode()
-        ? await runtimeDaemon.closeSession(session_id)
-        // Spec 744.4 — in-process: finalize trace + dispose controller + drop session.
-        : await (await import("../ts-emulator/runtime-session-service.js")).runtimeSessions.close(session_id);
+      // Spec 744.4c — close the session in the shared Runtime Daemon.
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { existed, released } = await runtimeDaemon.closeSession(session_id);
       return {
         content: [{
           type: "text" as const,
@@ -730,35 +492,17 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // BUG-028 — inject into the SHARED daemon session. The path is resolved
       // absolute against the MCP's project (the project-agnostic daemon, localhost,
       // reads the caller's file — same rule as session_start's disk_path).
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      if (isDaemonMode()) {
-        const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
-        const absPrg = resolve(mcpProject ?? process.cwd(), prg_path);
-        const r = await runtimeDaemon.loadPrg<{ loadAddress: number; endAddress: number; bytesLoaded: number }>(session_id, absPrg, addr);
-        return { content: [{ type: "text" as const, text: [
-          `PRG loaded into RAM (Runtime Daemon).`,
-          `Path: ${absPrg}`,
-          `Load address: ${formatHexWord(r.loadAddress)}`,
-          `End address: ${formatHexWord(r.endAddress)}`,
-          `Bytes: ${r.bytesLoaded}`,
-        ].join("\n") }] };
-      }
-      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      const result = session.loadPrgIntoRam(prg_path, addr);
-      return {
-        content: [{
-          type: "text" as const,
-          text: [
-            `PRG loaded into RAM.`,
-            `Path: ${prg_path}`,
-            `Load address: ${formatHexWord(result.loadAddress)}`,
-            `End address: ${formatHexWord(result.endAddress)}`,
-            `Bytes: ${result.bytesLoaded}`,
-          ].join("\n"),
-        }],
-      };
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+      const absPrg = resolve(mcpProject ?? process.cwd(), prg_path);
+      const r = await runtimeDaemon.loadPrg<{ loadAddress: number; endAddress: number; bytesLoaded: number }>(session_id, absPrg, addr);
+      return { content: [{ type: "text" as const, text: [
+        `PRG loaded into RAM (Runtime Daemon).`,
+        `Path: ${absPrg}`,
+        `Load address: ${formatHexWord(r.loadAddress)}`,
+        `End address: ${formatHexWord(r.endAddress)}`,
+        `Bytes: ${r.bytesLoaded}`,
+      ].join("\n") }] };
     },
 ));
 
@@ -770,29 +514,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Load AND start a .prg in one shot (the macro that was missing). Loads the PRG into the shared session, then autostarts: a BASIC program (load address $0801) → types RUN; machine code → `g <entry>` (continue at the entry; default = the load address, or pass `run` for an explicit entry like a SYS target). Use to just-run a .prg without disk/monitor steps; not for loading without starting (use runtime_load_prg). Inputs: session_id, prg_path, optional run (hex entry address for machine code). Returns: load address + the autostart action taken.",
     { session_id: z.string(), prg_path: z.string(), run: z.string().optional().describe("Machine-code entry (hex, e.g. '1000' or '$1000'). Omit for BASIC autostart / default load-address entry.") },
     safeHandler("runtime_run_prg", async ({ session_id, prg_path, run }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
       const entry = run ? parseHexWord(run) : undefined;
-      let loadAddress = 0, action = "";
-      if (isDaemonMode()) {
-        const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
-        const abs = resolve(mcpProject ?? process.cwd(), prg_path);
-        // The shared backend macro (runtime/run_prg) — same path the UI .prg-drop
-        // uses: loadPrgBytes (sets BASIC VARTAB) + autostart (BASIC RUN / g entry).
-        const r = await runtimeDaemon.runPrg<{ loadAddress: number; action: string }>(session_id, abs, entry);
-        loadAddress = r.loadAddress; action = r.action;
-      } else {
-        const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
-        const session = getIntegratedSession(session_id);
-        if (!session) throw new Error(`No integrated session ${session_id}`);
-        const ctrl = await cpInProc(session_id);
-        const r = session.loadPrgIntoRam(prg_path);
-        loadAddress = r.loadAddress;
-        const ram = (session as unknown as { c64Bus: { ram: Uint8Array } }).c64Bus.ram;
-        if (loadAddress === 0x0801) { const end = (r.endAddress + 1) & 0xffff; ram[0x2d] = end & 0xff; ram[0x2e] = (end >> 8) & 0xff; }
-        if (entry !== undefined) { (session.c64Cpu as { pc: number }).pc = entry & 0xffff; ctrl.continue(); action = `g $${formatHexWord(entry)}`; }
-        else if (loadAddress === 0x0801) { ctrl.continue(); session.typeText("RUN\r"); action = "BASIC RUN"; }
-        else { (session.c64Cpu as { pc: number }).pc = loadAddress & 0xffff; ctrl.continue(); action = `g $${formatHexWord(loadAddress)} (default = load address)`; }
-      }
+      const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+      const abs = resolve(mcpProject ?? process.cwd(), prg_path);
+      // The shared backend macro (runtime/run_prg) — same path the UI .prg-drop
+      // uses: loadPrgBytes (sets BASIC VARTAB) + autostart (BASIC RUN / g entry).
+      const { loadAddress, action } = await runtimeDaemon.runPrg<{ loadAddress: number; action: string }>(session_id, abs, entry);
       return { content: [{ type: "text" as const, text: `Loaded ${prg_path} @ ${formatHexWord(loadAddress)} → started: ${action}` }] };
     },
 ));
@@ -812,29 +540,12 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // BUG-028 — type into the SHARED daemon session (the machine the human drives),
       // not a private in-process session. Read tools were routed; this write tool
       // was not, so the LLM could see but not type. Now uniform.
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      if (isDaemonMode()) {
-        await runtimeDaemon.typeText(session_id, decoded, hold_cycles ?? 33000, gap_cycles ?? 33000);
-        return { content: [{ type: "text" as const, text: [
-          `Queued ${decoded.length} chars on session ${session_id} (Runtime Daemon).`,
-          `Hold cycles: ${hold_cycles ?? 33000}  Gap cycles: ${gap_cycles ?? 33000}`,
-        ].join("\n") }] };
-      }
-      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      session.typeText(decoded, hold_cycles ?? 33000, gap_cycles ?? 33000);
-      return {
-        content: [{
-          type: "text" as const,
-          text: [
-            `Queued ${decoded.length} chars on session ${session_id}.`,
-            `Hold cycles: ${hold_cycles ?? 33000}  Gap cycles: ${gap_cycles ?? 33000}`,
-            `Pending key events: ${session.keyboard.pendingEventCount()}`,
-            `Keyboard now-cycle: ${session.keyboard.currentCycle()}`,
-          ].join("\n"),
-        }],
-      };
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      await runtimeDaemon.typeText(session_id, decoded, hold_cycles ?? 33000, gap_cycles ?? 33000);
+      return { content: [{ type: "text" as const, text: [
+        `Queued ${decoded.length} chars on session ${session_id} (Runtime Daemon).`,
+        `Hold cycles: ${hold_cycles ?? 33000}  Gap cycles: ${gap_cycles ?? 33000}`,
+      ].join("\n") }] };
     },
 ));
 
@@ -852,28 +563,12 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
     safeHandler("runtime_joystick", async ({ session_id, up, down, left, right, fire }) => {
       // BUG-028 — joystick on the SHARED daemon session.
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      if (isDaemonMode()) {
-        await runtimeDaemon.joystickSet(session_id, 2, { up, down, left, right, fire });
-        return { content: [{ type: "text" as const, text: [
-          `Joystick port 2 — session ${session_id} (Runtime Daemon)`,
-          `up=${!!up} down=${!!down} left=${!!left} right=${!!right} fire=${!!fire}`,
-        ].join("\n") }] };
-      }
-      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      session.setJoystick2({ up, down, left, right, fire });
-      const j = session.joystick2;
-      return {
-        content: [{
-          type: "text" as const,
-          text: [
-            `Joystick port 2 — session ${session_id}`,
-            `up=${j.up} down=${j.down} left=${j.left} right=${j.right} fire=${j.fire}`,
-          ].join("\n"),
-        }],
-      };
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      await runtimeDaemon.joystickSet(session_id, 2, { up, down, left, right, fire });
+      return { content: [{ type: "text" as const, text: [
+        `Joystick port 2 — session ${session_id} (Runtime Daemon)`,
+        `up=${!!up} down=${!!down} left=${!!left} right=${!!right} fire=${!!fire}`,
+      ].join("\n") }] };
     },
 ));
 
@@ -990,37 +685,19 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     safeHandler("runtime_render_screen", async ({ session_id, path }) => {
       // Spec 744.4c — render the shared Runtime Daemon session's screen. The daemon
       // returns a base64 PNG (same frame the UI sees); write it to the requested path.
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      if (isDaemonMode()) {
-        const shot = await runtimeDaemon.screenshot(session_id);
-        const dataUrl = shot.dataUrl ?? "";
-        const b64 = dataUrl.includes(",") ? dataUrl.slice(dataUrl.indexOf(",") + 1) : dataUrl;
-        const buf = Buffer.from(b64, "base64");
-        const { writeFileSync } = await import("node:fs");
-        writeFileSync(path, buf);
-        return { content: [{ type: "text" as const, text: [
-          `runtime_render_screen — session ${session_id} (Runtime Daemon)`,
-          `Output: ${path}`,
-          `Dimensions: ${shot.width ?? "?"}×${shot.height ?? "?"}`,
-          `Bytes: ${buf.length}`,
-        ].join("\n") }] };
-      }
-      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      const r = session.renderToPng(path);
-      return {
-        content: [{
-          type: "text" as const,
-          text: [
-            `headless_render_screen — session ${session_id}`,
-            `Output: ${path}`,
-            `Dimensions: ${r.width}×${r.height}`,
-            `Bytes: ${r.bytes}`,
-            `VIC state: border=$${session.vic.regs[0x20].toString(16)} bg=$${session.vic.regs[0x21].toString(16)} screen-ram-offset=$${session.vic.screenRamOffset().toString(16)}`,
-          ].join("\n"),
-        }],
-      };
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const shot = await runtimeDaemon.screenshot(session_id);
+      const dataUrl = shot.dataUrl ?? "";
+      const b64 = dataUrl.includes(",") ? dataUrl.slice(dataUrl.indexOf(",") + 1) : dataUrl;
+      const buf = Buffer.from(b64, "base64");
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(path, buf);
+      return { content: [{ type: "text" as const, text: [
+        `runtime_render_screen — session ${session_id} (Runtime Daemon)`,
+        `Output: ${path}`,
+        `Dimensions: ${shot.width ?? "?"}×${shot.height ?? "?"}`,
+        `Bytes: ${buf.length}`,
+      ].join("\n") }] };
     },
 ));
 
@@ -1029,24 +706,16 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // (128 MiB bytes-budget, evict-oldest, pinned-exempt). These tools let the LLM
   // list/capture/pin/restore the SAME keyframes the human scrubs in the UI — the
   // basis for "rewind to interesting state, pin as evidence, branch". All route to
-  // the daemon (the ring lives there); in-process is the test fallback.
-  const cpInProc = async (session_id: string) => {
-    const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
-    const session = getIntegratedSession(session_id);
-    if (!session) throw new Error(`No integrated session ${session_id}`);
-    const { ensureRuntimeController } = await import("../ts-emulator/debug/runtime-controller.js");
-    return ensureRuntimeController(session_id, session, () => {});
-  };
+  // the daemon — the ring lives there. (Spec 806 step 2: the `cpInProc` in-process
+  // fallback that built a RuntimeController over an IntegratedSession is gone.)
 
   server.tool(
     "runtime_checkpoint_list",
     "List the session's checkpoint-ring keyframes (id, frame, cycles, pinned) + ring stats (count, bytes, budget). The ring auto-captures a full machine snapshot every ~0.5s while the session runs, for rewind/scrub. Use to see what points you can restore to. Not for the trace timeline (use trace_store_*). Inputs: session_id. Returns: checkpoint refs + stats.",
     { session_id: z.string() },
     safeHandler("runtime_checkpoint_list", async ({ session_id }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      let r: unknown;
-      if (isDaemonMode()) r = await runtimeDaemon.checkpointList(session_id);
-      else { const c = await cpInProc(session_id); r = { checkpoints: c.checkpointRing.list(), stats: c.checkpointRing.stats() }; }
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.checkpointList(session_id);
       return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
     },
 ));
@@ -1056,10 +725,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Capture a checkpoint NOW (a full restorable snapshot of the shared session at the current instruction boundary) and add it to the ring. Use to mark an interesting live moment before it scrolls out of the auto-capture window. Not for a durable file (use runtime_session_snapshot). Inputs: session_id. Returns: the new checkpoint ref + ring stats.",
     { session_id: z.string() },
     safeHandler("runtime_checkpoint_capture", async ({ session_id }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const r = isDaemonMode()
-        ? await runtimeDaemon.checkpointCapture(session_id)
-        : await (async () => { const c = await cpInProc(session_id); const ref = await c.captureCheckpoint(); return { ref, stats: c.checkpointRing.stats() }; })();
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.checkpointCapture(session_id);
       return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
     },
 ));
@@ -1069,10 +736,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Pin a checkpoint so the ring never evicts it (the durability primitive — pinned keyframes survive past the ~2.6 min window). Use to retain an interesting state as evidence / a branch base. Not for a file dump (use runtime_session_snapshot). Inputs: session_id, checkpoint id. Returns: ref + stats.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_checkpoint_pin", async ({ session_id, id }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const r = isDaemonMode()
-        ? await runtimeDaemon.checkpointPin(session_id, id)
-        : await (async () => { const c = await cpInProc(session_id); const ref = c.checkpointRing.pin(id); if (!ref) throw new Error(`unknown checkpoint ${id}`); return { ref, stats: c.checkpointRing.stats() }; })();
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.checkpointPin(session_id, id);
       return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
     },
 ));
@@ -1082,10 +747,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Unpin a checkpoint (let the ring reclaim it under the byte budget again). Use to release a retained state you no longer need; not for pinning one (use runtime_checkpoint_pin). Inputs: session_id, checkpoint id. Returns: ref + stats.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_checkpoint_unpin", async ({ session_id, id }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const r = isDaemonMode()
-        ? await runtimeDaemon.checkpointUnpin(session_id, id)
-        : await (async () => { const c = await cpInProc(session_id); const ref = c.checkpointRing.unpin(id); if (!ref) throw new Error(`unknown checkpoint ${id}`); return { ref, stats: c.checkpointRing.stats() }; })();
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.checkpointUnpin(session_id, id);
       return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
     },
 ));
@@ -1095,10 +758,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Restore the shared session to a checkpoint (REWIND/scrub): the machine jumps back to that full keyframe state and pauses. The human watching the UI sees the same jump (one shared session). Use to rewind to an interesting moment. Not for forward replay of recorded events (that's the branch/scenario path). Inputs: session_id, checkpoint id. Returns: restored ref + new machine state.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_checkpoint_restore", async ({ session_id, id }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const r = isDaemonMode()
-        ? await runtimeDaemon.checkpointRestore(session_id, id)
-        : await (async () => { const c = await cpInProc(session_id); const restored = await c.restoreCheckpoint(id); return { restored, state: c.state() }; })();
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.checkpointRestore(session_id, id);
       return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
     },
 ));
@@ -1108,10 +769,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "The shared-memory recorder's status: anchor count, oldest/newest cycle, scrub depth, medium generations, dropped count. The recorder is the off-thread streaming capture (separate from the checkpoint ring) that holds minutes of cheap scrub history. Use to see how much history is retained; not for the anchor list (use runtime_recorder_list). Inputs: session_id. Returns: recorder stats.",
     { session_id: z.string() },
     safeHandler("runtime_recorder_status", async ({ session_id }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const r = isDaemonMode()
-        ? await runtimeDaemon.recorderStatus(session_id)
-        : await (async () => { const c = await cpInProc(session_id); return c.recorder ? { active: true, stats: await c.recorder.stats() } : { active: false }; })();
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.recorderStatus(session_id);
       return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
     },
 ));
@@ -1121,10 +780,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "List the recorder's stored anchors (seq, cycle, wallMs, disk/cart generation). Each is a restorable scrub point in the off-thread history. Use to pick a seq to dump (use runtime_recorder_dump). Inputs: session_id. Returns: anchor list.",
     { session_id: z.string() },
     safeHandler("runtime_recorder_list", async ({ session_id }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const r = isDaemonMode()
-        ? await runtimeDaemon.recorderList(session_id)
-        : await (async () => { const c = await cpInProc(session_id); return c.recorder ? { active: true, anchors: await c.recorder.list() } : { active: false, anchors: [] }; })();
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.recorderList(session_id);
       return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
     },
 ));
@@ -1134,14 +791,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Dump a recorder anchor (a past scrub point, by seq from runtime_recorder_list) to a durable .c64re snapshot file. The recorder's unique value: persist a point from MINUTES of cheap history, then undump it (runtime_session_undump) and replay it with tracing on. Not for the live moment (use the checkpoint/dump path). Inputs: session_id, seq, path. Returns: dump result (file bytes, embedded media, cycle/pc).",
     { session_id: z.string(), seq: z.number(), path: z.string() },
     safeHandler("runtime_recorder_dump", async ({ session_id, seq, path }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const r = isDaemonMode()
-        ? await runtimeDaemon.recorderDump(session_id, seq, path)
-        : await (async () => {
-            const c = await cpInProc(session_id);
-            const { dumpRecorderAnchorSnapshot } = await import("../ts-emulator/kernel/snapshot-persistence.js");
-            return await dumpRecorderAnchorSnapshot(c, seq, path);
-          })();
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.recorderDump(session_id, seq, path);
       return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
     },
 ));
@@ -1163,20 +814,11 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         }
         return (atBefore ?? best).id;
       };
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      let r: unknown;
-      if (isDaemonMode()) {
-        const list = await runtimeDaemon.checkpointList<{ checkpoints: Array<{ id: string; cycles: number }> }>(session_id);
-        const target = pick(list.checkpoints ?? []);
-        if (!target) throw new Error("runtime_rewind: no checkpoints to rewind to");
-        r = await runtimeDaemon.checkpointRestore(session_id, target, then);
-      } else {
-        const c = await cpInProc(session_id);
-        const target = pick(c.checkpointRing.list());
-        if (!target) throw new Error("runtime_rewind: no checkpoints to rewind to");
-        const restored = await c.restoreCheckpoint(target, { then });
-        r = { restored, state: c.state() };
-      }
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const list = await runtimeDaemon.checkpointList<{ checkpoints: Array<{ id: string; cycles: number }> }>(session_id);
+      const target = pick(list.checkpoints ?? []);
+      if (!target) throw new Error("runtime_rewind: no checkpoints to rewind to");
+      const r = await runtimeDaemon.checkpointRestore(session_id, target, then);
       return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
     },
 ));
@@ -1201,34 +843,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       until_pc: z.number().optional(),
     },
     safeHandler("runtime_overlay_run", async ({ session_id, anchor_cycle, anchor_id, patches, run_cycles, until_pc }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      let r: unknown;
-      if (isDaemonMode()) {
-        r = await runtimeDaemon.overlayRun(session_id, { anchor_cycle, anchor_id, patches, run_cycles, until_pc });
-      } else {
-        const ctrl = await cpInProc(session_id);
-        const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
-        const s = getIntegratedSession(session_id);
-        if (!s) throw new Error(`No integrated session ${session_id}`);
-        const cps = ctrl.checkpointRing.list();
-        if (!cps.length) throw new Error("runtime_overlay_run: no checkpoints to anchor on");
-        let id = anchor_id;
-        if (!id) {
-          if (anchor_cycle === undefined) id = cps[cps.length - 1]!.id;
-          else { let ab: { id: string; cycles: number } | undefined, best = cps[0]!, bd = Infinity; for (const c of cps) { if (c.cycles <= anchor_cycle && (!ab || c.cycles > ab.cycles)) ab = c; const d = Math.abs(c.cycles - anchor_cycle); if (d < bd) { bd = d; best = c; } } id = (ab ?? best).id; }
-        }
-        await ctrl.restoreCheckpoint(id, { then: "pause" });
-        const ram = (s as unknown as { c64Bus: { ram: Uint8Array } }).c64Bus.ram;
-        const applied: Array<{ addr: number; len: number }> = [];
-        for (const p of patches) { if (p.space && p.space !== "ram") throw new Error("runtime_overlay_run: cart-bank overlay (space roml/romh) requires the runtime daemon; the in-process fallback is RAM-only"); const a = p.addr & 0xffff; const b = p.bytes ?? []; for (let i = 0; i < b.length; i++) ram[(a + i) & 0xffff] = b[i]! & 0xff; applied.push({ addr: a, len: b.length }); }
-        let hitPc: number | null = null;
-        const rc = run_cycles || 0;
-        if (rc > 0) { const bps = until_pc !== undefined ? new Set([until_pc & 0xffff]) : undefined; const rr = (s as unknown as { runFor(n: number, o: unknown): { aborted?: string; lastPc: number } }).runFor(Math.ceil(rc / 2) + 1000, { cycleBudget: rc, breakpoints: bps }); if (rr.aborted === "breakpoint") hitPc = rr.lastPc; }
-        const c = (s as unknown as { c64Cpu: Record<string, number> }).c64Cpu;
-        const reads: Record<string, number> = {};
-        for (const p of patches) if (p.read) { const a = p.addr & 0xffff; reads[`$${a.toString(16).padStart(4, "0")}`] = ram[a]!; }
-        r = { anchorId: id, applied, ranCycles: rc, hitPc, reads, registers: { pc: c.pc, a: c.a, x: c.x, y: c.y, sp: c.sp, flags: c.flags, cycles: c.cycles } };
-      }
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.overlayRun(session_id, { anchor_cycle, anchor_id, patches, run_cycles, until_pc });
       return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
     },
 ));
@@ -1238,26 +854,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     "Remote-control the interactive runtime monitor: run ANY monitor command string against the shared session and get its text output back. Use it for any monitor-style interaction — this is the WHOLE monitor REPL in ONE tool. Commands include: m/d (memory hex / disasm), r (registers), bp/del/enable (breakpoints), obs (observers — incl `obs <n> when exec|load|store <lo..hi> do break|log|trace` for non-halting scoped capture; `obs <n> del`), trace, `dump <path>` (= `snapshot <path>` — writes a .c64re state snapshot; our snapshot IS the dump) / `undump <path>` (= `restore`/`loadsnapshot` — loads one), n/z/step/g (run control), sym/inspect/xref, df (flow disasm), label/note, device c64|drive8, sidefx, bank. Run `help` for the verb list or `<verb> help` for one verb's syntax. The session is the shared live machine (human + LLM co-drive the same one); not for silent scripted batch runs on the live session (use a separate backend). Inputs: session_id, command (e.g. \"m 0400 042f\", \"obs t when exec ab01 do trace c64-cpu memory\", \"r\"). Returns: the monitor's text output (or its error string).",
     { session_id: z.string(), command: z.string() },
     safeHandler("runtime_monitor", async ({ session_id, command }) => {
-      const { isDaemonMode, runtimeDaemon } = await import("../runtime/daemon-client.js");
-      let r: { output?: string; error?: string };
-      if (isDaemonMode()) {
-        r = await runtimeDaemon.monitorExec<{ output?: string; error?: string }>(session_id, command);
-      } else {
-        const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
-        const session = getIntegratedSession(session_id);
-        if (!session) throw new Error(`No integrated session ${session_id}`);
-        const ctrl = await cpInProc(session_id);
-        ctrl.setControlOwner("llm"); // Spec 767 — LLM is co-driving (UI green border)
-        const { runMonitorCommand } = await import("../ts-emulator/debug/monitor-shell.js");
-        r = await runMonitorCommand(
-          {
-            session, ctrl, sessionId: session_id,
-            memCursors: new Map(), disasmCursors: new Map(),
-            projectDir: process.env["C64RE_PROJECT_DIR"],
-          },
-          String(command ?? ""),
-        );
-      }
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.monitorExec<{ output?: string; error?: string }>(session_id, command);
       const text = r.error ? `error: ${r.error}` : (r.output ?? "");
       return { content: [{ type: "text" as const, text }] };
     },
