@@ -12,7 +12,7 @@ import {
 } from "../dist/runtime/headless/integrated-session-manager.js";
 import { mountMedia } from "../dist/runtime/headless/media/mount.js";
 import { saveSessionVsf } from "../dist/runtime/headless/vsf/session-vsf.js";
-import { readVsf } from "../dist/runtime/headless/vsf/vsf-format.js";
+import { readVsf } from "../src/media-format/vsf-format.js";
 import { SidAudioRecorder } from "../dist/runtime/headless/audio/sid-audio-recorder.js";
 
 const diskPath = resolvePath("samples/POLARBEAR.d64");

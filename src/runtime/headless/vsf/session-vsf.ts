@@ -12,7 +12,7 @@ import { writeFileSync, readFileSync } from "node:fs";
 import {
   VsfWriter, readVsf, VSF_MACHINE_C64,
   VSF_VERSION_MAJOR as FILE_VERSION_MAJOR,
-} from "./vsf-format.js";
+} from "../../../media-format/vsf-format.js";
 import {
   VSF_MODULE_MAINCPU, VSF_MODULE_C64MEM,
   VSF_MODULE_CIA1, VSF_MODULE_CIA2,

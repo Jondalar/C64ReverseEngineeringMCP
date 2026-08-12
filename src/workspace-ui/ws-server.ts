@@ -33,7 +33,7 @@ import {
 import { runMonitorCommand } from "../runtime/headless/debug/monitor-shell.js";
 import { validateTraceDefinition, slugTraceId } from "../trace/trace-definition.js";
 import { ingestMedia } from "../runtime/headless/media/ingress.js";
-import { buildIngressRequest, kindFromExt } from "../runtime/headless/media/ingress-request.js";
+import { buildIngressRequest, kindFromExt } from "../media-format/ingress-request.js";
 import { readFileSync } from "node:fs";
 import { int16ToLeBytes, monoToStereoLR } from "../runtime/headless/audio/audio-buffer.js";
 import { writeWav } from "../runtime/headless/audio/wav-writer.js";
@@ -723,10 +723,10 @@ export class WsServer {
       if (!session) throw new Error(`no session ${session_id}`);
       if (role === "cartridge") {
         const bus = (session.kernel as { c64Bus?: {
-          getCartridge?(): import("../runtime/headless/media/persist-cartridge.js").CartLike | undefined;
+          getCartridge?(): import("../media-format/persist-cartridge.js").CartLike | undefined;
         } }).c64Bus;
         const cartPath = (session as { cartPath?: string }).cartPath ?? "";
-        const { persistCartridgeToFile } = await import("../runtime/headless/media/persist-cartridge.js");
+        const { persistCartridgeToFile } = await import("../media-format/persist-cartridge.js");
         return persistCartridgeToFile(bus?.getCartridge?.(), cartPath);
       }
       const n = slot !== undefined ? Number(slot) : 8;
@@ -1759,13 +1759,13 @@ export class WsServer {
 
     // Spec 265 — media browser + mount/unmount/swap handlers.
     this.on("media/list_paths", async () => {
-      const { listFsRoots } = await import("../runtime/headless/media/fs-browser.js");
+      const { listFsRoots } = await import("../media-format/fs-browser.js");
       return listFsRoots();
     });
 
     this.on("media/browse", async ({ path }) => {
       if (typeof path !== "string") throw new Error("media/browse: path required");
-      const { browseDir } = await import("../runtime/headless/media/fs-browser.js");
+      const { browseDir } = await import("../media-format/fs-browser.js");
       return browseDir(path);
     });
 
@@ -1841,7 +1841,7 @@ export class WsServer {
     });
 
     this.on("media/recent", async () => {
-      const { getRecent } = await import("../runtime/headless/media/recent-files.js");
+      const { getRecent } = await import("../media-format/recent-files.js");
       const pmod = await import("node:path");
       const fsmod = await import("node:fs");
 

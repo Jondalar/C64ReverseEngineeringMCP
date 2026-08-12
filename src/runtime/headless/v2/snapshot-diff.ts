@@ -24,7 +24,7 @@
 // OQ5 resolution: JSON primary (SnapshotDiff) + text-table helper
 // formatDiff(diff) for inline-prompt / logging use.
 
-import { readVsf } from "../vsf/vsf-format.js";
+import { readVsf } from "../../../media-format/vsf-format.js";
 import {
   VSF_MODULE_MAINCPU, VSF_MODULE_C64MEM,
   VSF_MODULE_CIA1, VSF_MODULE_CIA2,

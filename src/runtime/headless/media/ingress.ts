@@ -16,12 +16,12 @@
 //     parse-only "success".
 
 import type { RuntimeController } from "../debug/runtime-controller.js";
-import { mountDiskMedia } from "./mount-disk-media.js";
-import { persistCartridgeToFile } from "./persist-cartridge.js";
+import { mountDiskMedia } from "../../../media-format/mount-disk-media.js";
+import { persistCartridgeToFile } from "../../../media-format/persist-cartridge.js";
 import { snapshotSha256, NATIVE_SNAPSHOT_MAGIC } from "../kernel/native-snapshot.js";
 import { loadCartridgeMapperFromBytes } from "../cartridge.js";
-import { addRecent } from "./recent-files.js";
-import type { MediaType } from "./fs-browser.js";
+import { addRecent } from "../../../media-format/recent-files.js";
+import type { MediaType } from "../../../media-format/fs-browser.js";
 
 export type MediaIngressRequest =
   | { kind: "disk"; role: "drive8"; bytes: Uint8Array; name: string; backingPath?: string }
@@ -165,7 +165,7 @@ export async function ingestMedia(
         // identity is preserved (write-through when local/project-backed).
         mountDiskMedia(
           {
-            drive: drive as unknown as import("./mount-disk-media.js").DiskMountDrive,
+            drive: drive as unknown as import("../../../media-format/mount-disk-media.js").DiskMountDrive,
             getDiskPath: () => ctrl.session.diskPath,
             setDiskPath: (p) => { (ctrl.session as { diskPath: string }).diskPath = p; },
           },

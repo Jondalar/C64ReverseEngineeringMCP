@@ -8,7 +8,7 @@
 // no-op round-trip, but the format + plumbing are forward-compatible.
 
 import { writeFileSync, readFileSync } from "node:fs";
-import { VsfWriter, readVsf, VSF_MACHINE_C64 } from "./vsf-format.js";
+import { VsfWriter, readVsf, VSF_MACHINE_C64 } from "../../../media-format/vsf-format.js";
 import { VSF_MODULE_DRIVECPU } from "./module-mapping.js";
 import type { DriveSessionRecord } from "../drive1541/drive-session-manager.js";
 

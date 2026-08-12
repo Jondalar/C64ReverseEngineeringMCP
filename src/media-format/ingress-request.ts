@@ -10,7 +10,7 @@
 // requests — one operation, one shape, whichever side runs it.
 
 import { readFileSync } from "node:fs";
-import type { MediaIngressRequest } from "./ingress.js";
+import type { MediaIngressRequest } from "../runtime/headless/media/ingress.js";
 
 /** Wire-shaped media input: a medium (path | bytes_b64) + an action (kind). */
 export interface MediaIngressInput {

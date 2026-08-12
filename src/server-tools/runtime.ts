@@ -47,7 +47,7 @@ async function mediaIngress(
   if (!session) throw new Error(`No integrated session ${session_id}`);
   const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
   const { ingestMedia } = await import("../runtime/headless/media/ingress.js");
-  const { buildIngressRequest } = await import("../runtime/headless/media/ingress-request.js");
+  const { buildIngressRequest } = await import("../media-format/ingress-request.js");
   const ctrl = ensureRuntimeController(session_id, session, () => {});
   const ireq = buildIngressRequest(req);
   return await ingestMedia(ctrl, ireq, { resumeIfRunning: ireq.kind === "crt" });
@@ -884,7 +884,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "List configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
     {},
     safeHandler("runtime_media_list_paths", async () => {
-      const { listFsRoots } = await import("../runtime/headless/media/fs-browser.js");
+      const { listFsRoots } = await import("../media-format/fs-browser.js");
       const roots = listFsRoots();
       return { content: [{ type: "text", text: JSON.stringify(roots, null, 2) }] };
     }),
@@ -897,7 +897,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       path: z.string().describe("Absolute or relative directory path to browse"),
     },
     safeHandler("runtime_media_browse", async ({ path }) => {
-      const { browseDir } = await import("../runtime/headless/media/fs-browser.js");
+      const { browseDir } = await import("../media-format/fs-browser.js");
       const result = browseDir(path);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }),
@@ -962,10 +962,10 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       if (!session) throw new Error(`No integrated session ${session_id}`);
       if (role === "cartridge") {
         const bus = (session.kernel as { c64Bus?: {
-          getCartridge?(): import("../runtime/headless/media/persist-cartridge.js").CartLike | undefined;
+          getCartridge?(): import("../media-format/persist-cartridge.js").CartLike | undefined;
         } }).c64Bus;
         const cartPath = (session as { cartPath?: string }).cartPath ?? "";
-        const { persistCartridgeToFile } = await import("../runtime/headless/media/persist-cartridge.js");
+        const { persistCartridgeToFile } = await import("../media-format/persist-cartridge.js");
         const result = persistCartridgeToFile(bus?.getCartridge?.(), cartPath);
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
       }

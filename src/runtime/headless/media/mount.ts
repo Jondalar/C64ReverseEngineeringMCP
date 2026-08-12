@@ -10,12 +10,12 @@
 
 import { existsSync } from "node:fs";
 import { extname } from "node:path";
-import { mountDiskMedia, persistDriveToFile, type DiskMountDrive } from "./mount-disk-media.js";
+import { mountDiskMedia, persistDriveToFile, type DiskMountDrive } from "../../../media-format/mount-disk-media.js";
 import type { IntegratedSession } from "../integrated-session.js";
 import { loadCartridgeMapper } from "../cartridge.js";
 import type { HeadlessCartridgeMapperType } from "../types.js";
-import { addRecent } from "./recent-files.js";
-import type { MediaType } from "./fs-browser.js";
+import { addRecent } from "../../../media-format/recent-files.js";
+import type { MediaType } from "../../../media-format/fs-browser.js";
 import { createNoDiskParser } from "../disk/no-disk-parser.js";
 
 export type DriveSlot = 8 | 9;
@@ -198,7 +198,7 @@ export async function mountMedia(
       // records the path identity). path-backed → "project-path".
       mountDiskMedia(
         {
-          drive: kernelAny.drive1541 as unknown as import("./mount-disk-media.js").DiskMountDrive,
+          drive: kernelAny.drive1541 as unknown as import("../../../media-format/mount-disk-media.js").DiskMountDrive,
           getDiskPath: () => session.diskPath,
           setDiskPath: (p) => { (session as { diskPath: string }).diskPath = p; },
         },

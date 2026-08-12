@@ -34,8 +34,8 @@ function check(name, cond, detail = "") {
 // Load dist modules.
 let listFsRoots, browseDir, addRecent, getRecent, mountMedia, swapDisk, loadCartridgeMapper, startIntegratedSession;
 try {
-  ({ listFsRoots, browseDir } = await import("../dist/runtime/headless/media/fs-browser.js"));
-  ({ addRecent, getRecent } = await import("../dist/runtime/headless/media/recent-files.js"));
+  ({ listFsRoots, browseDir } = await import("../src/media-format/fs-browser.js"));
+  ({ addRecent, getRecent } = await import("../src/media-format/recent-files.js"));
   ({ mountMedia, swapDisk } = await import("../dist/runtime/headless/media/mount.js"));
   ({ loadCartridgeMapper } = await import("../dist/runtime/headless/cartridge.js"));
   ({ startIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js"));

@@ -18,7 +18,7 @@ const { buildD64 } = await import("../dist/disk/d64-builder.js");
 const { startIntegratedSession, stopIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
 const { RuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js");
 const { ingestMedia } = await import("../dist/runtime/headless/media/ingress.js");
-const { buildIngressRequest } = await import("../dist/runtime/headless/media/ingress-request.js");
+const { buildIngressRequest } = await import("../src/media-format/ingress-request.js");
 
 const mk = (name) => buildD64({ diskName: name, diskId: "23", files: [{ name: "X", payload: new Uint8Array([0x01, 0x08, 0x60]) }] });
 const root = mkdtempSync(join(tmpdir(), "c64re-pinleak-"));

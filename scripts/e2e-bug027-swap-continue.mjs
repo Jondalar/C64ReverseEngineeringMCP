@@ -21,7 +21,7 @@ const { buildD64 } = await import("../dist/disk/d64-builder.js");
 const { startIntegratedSession, stopIntegratedSession } = await import("../dist/runtime/headless/integrated-session-manager.js");
 const { RuntimeController } = await import("../dist/runtime/headless/debug/runtime-controller.js");
 const { ingestMedia } = await import("../dist/runtime/headless/media/ingress.js");
-const { buildIngressRequest } = await import("../dist/runtime/headless/media/ingress-request.js");
+const { buildIngressRequest } = await import("../src/media-format/ingress-request.js");
 const { swapDiskAndContinue } = await import("../dist/runtime/headless/media/swap-and-continue.js");
 
 // Two distinct synthetic disks: one PRG each, different disk names.

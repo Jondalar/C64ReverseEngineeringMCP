@@ -12,7 +12,7 @@
 // window actually progresses while the game polls.
 
 import { ingestMedia } from "./ingress.js";
-import { buildIngressRequest } from "./ingress-request.js";
+import { buildIngressRequest } from "../../../media-format/ingress-request.js";
 import type { RuntimeController } from "../debug/runtime-controller.js";
 
 export interface SwapAndContinueArgs {

@@ -26,7 +26,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { Vice1541Facade } from "./vice1541-facade.js";
 import type { Drive1541Media } from "./drive1541.js";
-import { mountDiskMedia, type DiskMountDrive } from "../media/mount-disk-media.js";
+import { mountDiskMedia, type DiskMountDrive } from "../../../media-format/mount-disk-media.js";
 
 export interface DriveSessionRecord {
   sessionId: string;

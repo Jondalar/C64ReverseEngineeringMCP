@@ -29,7 +29,7 @@
 // `c64Bus.peek()` — so `m e000` shows KERNAL, `m d000` shows I/O, not raw RAM.
 
 import { existsSync, readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, rmdirSync } from "node:fs";
-import { persistCartridgeToFile } from "../media/persist-cartridge.js";
+import { persistCartridgeToFile } from "../../../media-format/persist-cartridge.js";
 import { loadCartridgeMapperFromBytes, type HeadlessCartridgeMapper } from "../cartridge.js";
 import type { HeadlessCartridgeState } from "../types.js";
 import { isAbsolute, resolve as resolvePathJoin, basename } from "node:path";
