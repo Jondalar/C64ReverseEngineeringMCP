@@ -10,7 +10,16 @@
 // requests — one operation, one shape, whichever side runs it.
 
 import { readFileSync } from "node:fs";
-import type { MediaIngressRequest } from "../ts-emulator/media/ingress.js";
+
+/** The typed media operation the runtime's ingress authority accepts. Spec 806
+ *  step 3: this used to be re-exported from the TS emulator's `media/ingress.ts`;
+ *  with the emulator gone the CONTRACT lives here, next to the builder — it is a
+ *  wire shape, not an emulator type. */
+export type MediaIngressRequest =
+  | { kind: "disk"; role: "drive8"; bytes: Uint8Array; name: string; backingPath?: string }
+  | { kind: "prg"; bytes: Uint8Array; name: string; mode: "load" | "inject-run"; entry?: number }
+  | { kind: "crt"; bytes: Uint8Array; name: string; resetPolicy: "reset" | "power-cycle"; backingPath?: string }
+  | { kind: "eject"; role: "drive8" | "cartridge" };
 
 /** Wire-shaped media input: a medium (path | bytes_b64) + an action (kind). */
 export interface MediaIngressInput {

@@ -1,4 +1,4 @@
-// src/ts-emulator/inspect/asset-join-knowledge.ts
+// src/inspect/asset-join-knowledge.ts
 //
 // Spec 721.J3 — turn an AssetJoinResult into knowledge: the relation chain
 // VisualElement → MemoryRange → Routine → ArtifactRange → MediaRegion, plus

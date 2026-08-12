@@ -22,20 +22,14 @@ import { EXPECTED_RUNTIME_PROTOCOL, parseRuntimeProtocol, runtimeSetupRecipe } f
  *  targets this directly even when the MCP env has no endpoint configured. */
 export const DEFAULT_RUNTIME_ENDPOINT = "ws://127.0.0.1:4312";
 
-export function runtimeEndpoint(): string | undefined {
+export function runtimeEndpoint(): string {
   const e = process.env.C64RE_RUNTIME_ENDPOINT;
   if (e && e.trim()) return e.trim();
-  // The MCP customer surface always runs on the TRX64 daemon: with no explicit endpoint we
-  // still return the default so isDaemonMode() is true and every runtime tool routes to the
-  // daemon. The in-process TypeScript runtime is dev/oracle-only and out of reach for the
-  // LLM — a developer opts into it deliberately with C64RE_ALLOW_INPROC_RUNTIME=1 (tests /
-  // parity harness), which is the ONLY way an in-process machine is ever constructed.
-  if (process.env.C64RE_ALLOW_INPROC_RUNTIME === "1") return undefined;
+  // Spec 806: there is exactly one runtime and it is a separate daemon process, so this
+  // never returns undefined. The in-process opt-out (C64RE_ALLOW_INPROC_RUNTIME=1) went
+  // with the TS emulator — there is no second machine to fall back to, and "no endpoint"
+  // would only produce a tool that silently does nothing.
   return DEFAULT_RUNTIME_ENDPOINT;
-}
-
-export function isDaemonMode(): boolean {
-  return !!runtimeEndpoint();
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -162,7 +156,7 @@ export async function ensureDaemon(
 ): Promise<"already-up" | "spawned" | "skipped" | "failed"> {
   try {
     if (process.env.C64RE_RUNTIME_AUTOSTART === "0") return "skipped";
-    const endpoint = opts?.endpoint ?? runtimeEndpoint() ?? DEFAULT_RUNTIME_ENDPOINT;
+    const endpoint = opts?.endpoint ?? runtimeEndpoint();
     // Spec 746.x — LIVENESS, not just port-open. A wedged daemon (100% CPU, dead
     // event loop) holds the port but never answers → before, eager-spawn saw the
     // port held and gave up, so the zombie stayed forever and no session came up.
@@ -209,7 +203,6 @@ class RuntimeDaemonClient {
 
   private async connectWithAutostart(): Promise<WebSocket> {
     const endpoint = runtimeEndpoint();
-    if (!endpoint) throw new Error("C64RE_RUNTIME_ENDPOINT not set");
     // 1) already up AND alive? (liveness, not just port-open — a wedged daemon holds
     //    the port but never answers; ping it before trusting the connection.)
     const health = await probeLiveness(endpoint);
@@ -502,7 +495,6 @@ export async function runtimeHealth(): Promise<
   { ok: true; build?: string } | { ok: false; reason: string; recipe: string }
 > {
   const endpoint = runtimeEndpoint();
-  if (!endpoint) return { ok: true }; // in-process dev mode (C64RE_ALLOW_INPROC_RUNTIME=1)
   let ensured: string;
   try { ensured = await ensureDaemon({ endpoint }); }
   catch { ensured = "failed"; }

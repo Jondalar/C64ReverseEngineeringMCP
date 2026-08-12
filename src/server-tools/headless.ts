@@ -45,104 +45,14 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // caller, and have no IntegratedSession equivalent. No interrupt-injection was
   // added to IntegratedSession.
 
-  // Spec 062 Sprint 63: drive-emulation tools.
-  // headless_drive_session_start opens a 1541 drive session backed by
-  // a G64 disk image. headless_drive_status / headless_iec_bus_state
-  // query state. headless_drive_persist_writes flushes modifications
-  // to <image>_session.g64.
-  server.tool(
-    "runtime_drive_session_start",
-    "Open a standalone 1541 drive emulation session backed by a G64 image. Returns a session id usable with the other headless_drive_* tools. Drive emulation runs cycle-accurately with full 6522 VIA + IEC bus modelling. The drive boots via its bundled DOS ROM (resources/roms/dos1541-...bin). For test/runtime tracing of custom loaders and save-game RE.",
-    {
-      disk_path: z.string().describe("Path to the G64 disk image."),
-      start_track: z.number().int().min(1).max(40).optional().describe("Starting track for the head (default 18)."),
-      device_id: z.number().int().min(8).max(11).optional().describe("Drive device id 8-11; default 8."),
-      pal: z.boolean().optional().describe("PAL timing if true (default), NTSC if false."),
-      write_protected: z.boolean().optional().describe("If true, drive treats the image as write-protected."),
-    },
-    safeHandler("runtime_drive_session_start", async ({ disk_path, start_track, device_id, pal, write_protected }) => {
-      const { startDriveSession } = await import("../ts-emulator/drive1541/drive-session-manager.js");
-      const record = startDriveSession({
-        diskPath: disk_path,
-        startTrack: start_track,
-        deviceId: device_id,
-        isPal: pal,
-        writeProtected: write_protected,
-      });
-      return {
-        content: [{
-          type: "text" as const,
-          text: [
-            `Drive session started.`,
-            `Session: ${record.sessionId}`,
-            `Disk: ${record.diskPath}`,
-            `Started: ${record.startedAt}`,
-            `Head: track ${record.drive.debugProbe().current_track}`,
-            `Drive: VICE1541 (vice-backed standalone session)`,
-          ].join("\n"),
-        }],
-      };
-    },
-));
-
-  server.tool(
-    "runtime_drive_status",
-    "Snapshot of a drive session's CPU registers + head position + IRQ pending bits. Use after running drive code to verify state.",
-    {
-      session_id: z.string(),
-    },
-    safeHandler("runtime_drive_status", async ({ session_id }) => {
-      const { getDriveSession } = await import("../ts-emulator/drive1541/drive-session-manager.js");
-      const record = getDriveSession(session_id);
-      if (!record) throw new Error(`No drive session ${session_id}`);
-      // Spec 704 §11 R3 — vice drive probe. VIA IFR/IER + track-buffer
-      // dirty state are not surfaced by the facade probe (parity gap).
-      const p = record.drive.debugProbe();
-      return {
-        content: [{
-          type: "text" as const,
-          text: [
-            `Drive session: ${session_id}`,
-            `Disk: ${record.diskPath}`,
-            `CPU: PC=${formatHexWord(p.drive_pc)} A=${formatHexByte(p.drive_a)} X=${formatHexByte(p.drive_x)} Y=${formatHexByte(p.drive_y)} SP=${formatHexByte(p.drive_sp)} P=${formatHexByte(p.drive_flags)} cycles=${p.drive_clk}`,
-            `Head: track ${p.current_track} (half-track ${p.head_halftrack})`,
-            `LED: ${p.led !== 0 ? "on" : "off"}`,
-          ].join("\n"),
-        }],
-      };
-    },
-));
-
-  server.tool(
-    "runtime_iec_bus_state",
-    "Dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. Useful for debugging custom loader bit-bang protocols.",
-    {
-      session_id: z.string(),
-    },
-    safeHandler("runtime_iec_bus_state", async ({ session_id }) => {
-      const { getDriveSession } = await import("../ts-emulator/drive1541/drive-session-manager.js");
-      const record = getDriveSession(session_id);
-      if (!record) throw new Error(`No drive session ${session_id}`);
-      // Spec 704 §11 R3 — vice drive-side IEC sample. A standalone session
-      // has no C64 driver, so the wired-AND line state isn't composed here;
-      // the vice facade exposes the drive's open-collector pulls.
-      const s = record.drive.iecLineSample();
-      const fmt = (pull: boolean) => pull ? "PULLED LOW (0)" : "released (1)";
-      return {
-        content: [{
-          type: "text" as const,
-          text: [
-            `IEC bus state — session ${session_id} (drive side, vice)`,
-            ``,
-            `Drive driver:`,
-            `  CLK:     ${fmt(s.drv_clk_pull)}`,
-            `  DATA:    ${fmt(s.drv_data_pull)}`,
-            `  ATN_ACK: ${fmt(s.drv_atna_pull)}`,
-          ].join("\n"),
-        }],
-      };
-    },
-));
+  // Spec 806 step 3 — the STANDALONE-DRIVE family is RETIRED, not routed:
+  // `runtime_drive_session_start` / `_status` / `_persist_writes` /
+  // `_session_save_vsf` / `_session_load_vsf` and `runtime_iec_bus_state`.
+  // All six sat on `drive1541/drive-session-manager` — a 1541 with NO C64
+  // attached. The runtime has no such object (its drive only exists inside a
+  // machine), so there was nothing to route them to; the two .vsf tools were
+  // LEGACY by their own description. All six were ADVANCED-only, so the default
+  // surface is unchanged. (Spec 806 §7.1)
 
   // Spec 062 Sprint 65: integrated C64+drive session.
   // Real KERNAL/BASIC/CHARROM loaded so LISTEN/SECOND/CIOUT/UNLSN
@@ -419,27 +329,11 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
 ));
 
-  server.tool(
-    "runtime_session_snapshot",
-    "Capture a structured, round-trippable state snapshot of a session (CPU+RAM+IEC+drive+keyboard+joystick). Use to save/compare machine state. Not for legacy `.vsf` interchange bytes (use runtime_save_vsf, advanced) or the rewind tree (use runtime_snapshot_tree, advanced). Inputs: session_id, optional include=['ram']. Returns: structured snapshot.",
-    {
-      session_id: z.string(),
-      include: z.array(z.enum(["ram", "tracks"])).optional().describe("Optional include sections."),
-    },
-    safeHandler("runtime_session_snapshot", async ({ session_id, include }) => {
-      const { getIntegratedSession } = await import("../ts-emulator/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { snapshot } = await import("../ts-emulator/snapshot.js");
-      const snap = snapshot(session, { include });
-      return {
-        content: [{
-          type: "text" as const,
-          text: JSON.stringify(snap),
-        }],
-      };
-    },
-));
+  // Spec 806 step 3 — `runtime_session_snapshot` RETIRED. It returned a STRUCTURED
+  // JSON state object built by the TS emulator's `snapshot()`; the daemon's
+  // `snapshot/dump` writes a `.c64re` FILE. Different product, not a missing route.
+  // Customers use the checkpoint ring + `runtime_component_diff` for state; it had
+  // already been demoted to ADVANCED for exactly this reason. (Spec 806 §7.1)
 
   server.tool(
     "runtime_session_status",
@@ -572,108 +466,12 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
 ));
 
-  // Spec 093: Maniac Mansion G64 lockstep regression diagnostic.
-  server.tool(
-    "runtime_diagnose_mm",
-    "Open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at $46A7, drive PC repeats, cycle budget exhausted). Writes a registered JSON artifact under analysis/headless/ and returns a one-line verdict + key blame. Cycle-lockstep + microcoded CPU enforced; tool will refuse misleading success.",
-    {
-      disk_path: z.string().describe("Disk image path (G64 expected)."),
-      project_dir: z.string().optional(),
-      cycle_budget: z.number().int().min(1_000_000).max(2_000_000_000).optional(),
-      stall_pc_repeat: z.number().int().min(1000).max(100_000_000).optional(),
-      watch_pc: z.string().optional().describe("C64 PC to watch (default $46A7)."),
-      device_id: z.number().int().min(8).max(11).optional(),
-      pal: z.boolean().optional(),
-      output_path: z.string().optional().describe("Override JSON output path. Default = <project>/analysis/headless/mm-g64-lockstep-debug.json."),
-    },
-    safeHandler("runtime_diagnose_mm", async ({
-      disk_path, project_dir, cycle_budget, stall_pc_repeat, watch_pc, device_id, pal, output_path,
-    }) => {
-      // Spec 744.4 — even the one-shot diagnostic creates its session through the
-      // single authority (then closes it), so no product path constructs a private
-      // session outside the service.
-      const { runtimeSessions } = await import("../ts-emulator/runtime-session-service.js");
-      const { diagnoseMm } = await import("../ts-emulator/diagnostic-mm.js");
-      const { mkdirSync, writeFileSync } = await import("node:fs");
-      const { dirname, join } = await import("node:path");
-      const projectRoot = resolveHeadlessProjectDir(context, project_dir);
-      // Spec 723.7b: lockstep is gone; diagnose_mm runs the product event-catchup
-      // path with full IEC/drive trace channels enabled (debug-vice-compare).
-      const { sessionId, session, attached } = runtimeSessions.start({
-        diskPath: disk_path, deviceId: device_id, isPal: pal,
-        mode: "debug-vice-compare",
-        traceIec: true, traceIecCapacity: 4096,
-        traceDrive: true, traceDriveCapacity: 2048,
-      });
-      // One-machine-per-process: this one-shot diagnostic needs its OWN isolated
-      // machine (it cold-resets + closes the session). If a machine already
-      // exists in this process, attaching + resetCold/close would WIPE and kill
-      // the shared session — refuse instead. Run the diagnostic from a separate
-      // backend process. (docs/headless-runtime-singleton-audit.md)
-      if (attached) {
-        throw new Error(
-          `runtime_diagnose_mm needs an isolated machine, but one already exists in this process (${sessionId}). ` +
-          `One machine per process: cold-resetting/closing it would wipe the shared session. Run this diagnostic from a separate backend process.`,
-        );
-      }
-      session.resetCold();
-      let report;
-      try {
-        report = diagnoseMm(session, {
-          cycleBudget: cycle_budget,
-          stallPcRepeat: stall_pc_repeat,
-          watchPc: watch_pc ? parseHexWord(watch_pc) : undefined,
-        });
-      } finally {
-        await runtimeSessions.close(sessionId); // one-shot diagnostic — release it
-      }
-      const outPath = output_path
-        ? resolve(projectRoot, output_path)
-        : join(projectRoot, "analysis", "headless", "mm-g64-lockstep-debug.json");
-      mkdirSync(dirname(outPath), { recursive: true });
-      writeFileSync(outPath, JSON.stringify(report, null, 2));
-      const reg = context.tryRegisterKnowledgeArtifacts(projectRoot, {
-        toolName: "runtime_diagnose_mm",
-        title: `MM G64 lockstep diagnostic — ${report.run.verdict}`,
-        parameters: {
-          disk_path,
-          cycle_budget: report.run.cycleBudget,
-          watch_pc: watch_pc ?? "$46A7",
-        },
-        inputs: [{ path: disk_path, kind: "g64", scope: "input" }],
-        outputs: [{
-          path: outPath, kind: "report", scope: "analysis",
-          format: "application/json", role: "mm-g64-lockstep-debug",
-          producedByTool: "runtime_diagnose_mm",
-          tags: ["spec-093", "headless", "iec-debug"],
-        }],
-        notes: [
-          `verdict=${report.run.verdict}`,
-          `c64=${formatHexWord(report.finalState.c64.pc)} drive=${formatHexWord(report.finalState.drive.pc)} cyc=${report.finalState.c64.cycles}`,
-          `IEC line ATN=${report.finalState.iecLine.atn} CLK=${report.finalState.iecLine.clk} DATA=${report.finalState.iecLine.data}`,
-          `blame ATN=${report.run.blame.atnHolder} CLK=${report.run.blame.clkHolder} DATA=${report.run.blame.dataHolder}`,
-        ],
-      });
-      const lines: string[] = [
-        `headless_integrated_session_diagnose_mm — session ${sessionId}`,
-        `Disk: ${disk_path}`,
-        `Format: ${report.imageFormat}  ratio=${report.config.driveClockRatio.toFixed(6)}`,
-        `Verdict: ${report.run.verdict}`,
-        `Summary: ${report.run.summary}`,
-        `Cycles: ${report.run.cyclesExecuted} (budget ${report.run.cycleBudget})  duration=${report.run.durationMs}ms`,
-        `C64 final: PC=${formatHexWord(report.finalState.c64.pc)} A=${formatHexByte(report.finalState.c64.a)} cycles=${report.finalState.c64.cycles}`,
-        `Drive final: PC=${formatHexWord(report.finalState.drive.pc)} cycles=${report.finalState.drive.cycles} track=${report.finalState.drive.track}`,
-        `IEC line: ATN=${report.finalState.iecLine.atn} CLK=${report.finalState.iecLine.clk} DATA=${report.finalState.iecLine.data}`,
-        `Blame: ATN=${report.run.blame.atnHolder} CLK=${report.run.blame.clkHolder} DATA=${report.run.blame.dataHolder}`,
-        `IEC edges captured: ${report.iecTrace.length}  Drive PC samples: ${report.drivePcTrace.length}`,
-        `Report: ${outPath}`,
-      ];
-      if (reg.runPath) lines.push(`Registered: ${reg.runPath}`);
-      if (reg.message) lines.push(reg.message);
-      if (report.exception) lines.push(`Exception: ${report.exception.split("\n")[0]}`);
-      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
-    },
-));
+  // Spec 806 step 3 — `runtime_diagnose_mm` RETIRED. A per-title (Maniac Mansion)
+  // one-shot diagnostic whose whole body was an in-process TS machine: it started
+  // an IntegratedSession in `debug-vice-compare` mode, cold-reset it, ran
+  // `diagnostic-mm` over the live IEC/drive trace channels and closed it again.
+  // There is no daemon method for any of that, and inventing one would be a new
+  // feature wearing an old tool's name. It was ADVANCED-only. (Spec 806 §7)
 
   server.tool(
     "runtime_render_screen",
@@ -861,81 +659,5 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
 ));
 
-  server.tool(
-    "runtime_drive_session_save_vsf",
-    "Save the drive session's full state as a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED; interchange only). Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
-    {
-      session_id: z.string(),
-      output_path: z.string(),
-    },
-    safeHandler("runtime_drive_session_save_vsf", async ({ session_id, output_path }) => {
-      const { getDriveSession } = await import("../ts-emulator/drive1541/drive-session-manager.js");
-      const { saveDriveSessionVsf } = await import("../ts-emulator/vsf/drive-vsf.js");
-      const record = getDriveSession(session_id);
-      if (!record) throw new Error(`No drive session ${session_id}`);
-      const result = saveDriveSessionVsf(record, output_path);
-      return {
-        content: [{
-          type: "text" as const,
-          text: [
-            `headless_drive_session_save_vsf — ${session_id}`,
-            `Output: ${result.outputPath}`,
-            `Bytes: ${result.bytesWritten}`,
-            `Modules saved: ${result.modules.join(", ")}`,
-          ].join("\n"),
-        }],
-      };
-    },
-));
-
-  server.tool(
-    "runtime_drive_session_load_vsf",
-    "Load a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED) into a drive session. Modules the headless drive runtime owns are restored; modules it doesn't model (VIC, SID, CIA1, KEYBOARD, etc.) are reported as ignored. Use to resume a previous trace or to import externally saved state.",
-    {
-      session_id: z.string(),
-      input_path: z.string(),
-    },
-    safeHandler("runtime_drive_session_load_vsf", async ({ session_id, input_path }) => {
-      const { getDriveSession } = await import("../ts-emulator/drive1541/drive-session-manager.js");
-      const { loadDriveSessionVsf } = await import("../ts-emulator/vsf/drive-vsf.js");
-      const record = getDriveSession(session_id);
-      if (!record) throw new Error(`No drive session ${session_id}`);
-      const result = loadDriveSessionVsf(record, input_path);
-      const lines = [
-        `headless_drive_session_load_vsf — ${session_id}`,
-        `Input: ${result.inputPath}`,
-        `Loaded modules (${result.loadedModules.length}): ${result.loadedModules.join(", ")}`,
-      ];
-      if (result.ignoredModules.length > 0) {
-        lines.push(`Ignored modules (${result.ignoredModules.length}, not modeled in headless): ${result.ignoredModules.join(", ")}`);
-      }
-      if (result.errors.length > 0) {
-        lines.push(`Errors:`);
-        for (const e of result.errors) lines.push(`  ${e.module}: ${e.error}`);
-      }
-      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
-    },
-));
-
-  server.tool(
-    "runtime_drive_persist_writes",
-    "Write modified GCR tracks back to disk as <image>_session.g64. Original image untouched. Returns paths + modified track list. Save-game RE workflow trigger.",
-    {
-      session_id: z.string(),
-      output_path: z.string().optional().describe("Optional override for the session-G64 output path."),
-    },
-    safeHandler("runtime_drive_persist_writes", async ({ session_id, output_path }) => {
-      const { persistDriveSession } = await import("../ts-emulator/drive1541/drive-session-manager.js");
-      const result = persistDriveSession(session_id, output_path);
-      // Spec 704 §11 R3 — vice-backed PersistResult { written, outputPath?, note? }.
-      const lines = [
-        `headless_drive_persist_writes — session ${session_id}`,
-        `Written: ${result.written ? "yes" : "no"}`,
-      ];
-      if (result.outputPath) lines.push(`Output: ${result.outputPath}`);
-      if (result.note) lines.push(`Note: ${result.note}`);
-      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
-    },
-));
 
 }

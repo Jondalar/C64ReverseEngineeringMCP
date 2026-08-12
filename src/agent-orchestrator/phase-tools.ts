@@ -66,8 +66,10 @@ export const PHASE_TOOLS: Record<PhaseNumber, string[]> = {
     "runtime_diff_snapshots",
     // Integrated session control (kept; V2.x has no direct replacement).
     "runtime_session_start", "runtime_session_run",
-    "runtime_session_status", "runtime_session_snapshot",
-    "runtime_render_screen",
+    // Spec 806: runtime_session_snapshot retired with the TS emulator (structured
+    // JSON state was its own product, not the daemon's snapshot/dump file).
+    "runtime_session_status",
+    "runtime_render_screen", "runtime_checkpoint_capture",
   ],
   3: [
     "analyze_prg", "disasm_prg", "ram_report", "pointer_report",

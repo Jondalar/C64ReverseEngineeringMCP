@@ -658,7 +658,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     safeHandler("runtime_swimlane_slice", async (args) => {
       // Spec 802 — the SLICE comes from the runtime (structured); the markdown
       // rendering stays here. Formatting a remote result is not a second reader.
-      const { renderMarkdown } = await import("../ts-emulator/v2/swimlane-render.js");
+      const { renderMarkdown } = await import("../monitor/swimlane-render.js");
       const slice = await daemonTraceRead<any>(
         "swimlane", args.duckdb_path,
         { run_id: args.run_id, cycle_start: args.cycle_start, cycle_end: args.cycle_end, compact: args.compact, focus: args.focus, nmi_vector: args.nmi_vector },
@@ -1151,61 +1151,16 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     }),
   );
 
-  // ---- Spec 269 — export ----
-
-  server.tool(
-    "runtime_export_screenshot",
-    "Use to export a PNG of a scenario's screen at a given cycle (runs the scenario from start to atCycle, or end; scale 1/2/4 for pixel-art upscale). Not for the live session screen (use runtime_render_screen) or moving video (use runtime_export_video).",
-    {
-      scenario_id: z.string(),
-      out_path: z.string(),
-      scale: z.union([z.literal(1), z.literal(2), z.literal(4)]).optional().default(1),
-      at_cycle: z.number().optional(),
-    },
-    safeHandler("runtime_export_screenshot", async ({ scenario_id, out_path, scale, at_cycle }) => {
-      const { exportScreenshot } = await import("../ts-emulator/export/screenshot.js");
-      const result = await exportScreenshot(scenario_id, out_path, {
-        scale: scale as 1 | 2 | 4,
-        atCycle: at_cycle,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    }),
-  );
-
-  server.tool(
-    "runtime_export_video",
-    "Use to export an MP4 of a scenario via ffmpeg (must be installed; PAL 50fps, RGBA + s16le piped to ffmpeg). Not for a single frame (use runtime_export_screenshot) or audio only (use runtime_export_audio).",
-    {
-      scenario_id: z.string(),
-      out_path: z.string(),
-      duration: z.number().optional().default(5),
-      scale: z.union([z.literal(1), z.literal(2), z.literal(4)]).optional().default(1),
-    },
-    safeHandler("runtime_export_video", async ({ scenario_id, out_path, duration, scale }) => {
-      const { exportVideo } = await import("../ts-emulator/export/video.js");
-      const result = await exportVideo(scenario_id, out_path, {
-        duration,
-        scale: scale as 1 | 2 | 4,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    }),
-  );
-
-  server.tool(
-    "runtime_export_audio",
-    "Render a saved SCENARIO's SID audio to a stereo s16le WAV (part of the runtime_export_* scenario family). Use to capture audio from a scenario run. Not for a live session (use runtime_session_export_audio). Inputs: scenario_id, out_path, duration. Returns: WAV path + stats.",
-    {
-      scenario_id: z.string(),
-      out_path: z.string(),
-      duration: z.number().optional().default(5),
-      format: z.enum(["wav"]).optional().default("wav"),
-    },
-    safeHandler("runtime_export_audio", async ({ scenario_id, out_path, duration }) => {
-      const { exportScenarioAudio } = await import("../ts-emulator/export/audio-export.js");
-      const result = await exportScenarioAudio(scenario_id, out_path, { duration });
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    }),
-  );
+  // ---- Spec 269 — export: RETIRED (Spec 806 step 3) ----
+  //
+  // `runtime_export_{screenshot,video,audio}` replayed a saved SCENARIO from its
+  // start to a cycle in an in-process TS machine and wrote a PNG / MP4 / WAV.
+  // There is no `export/*` method group on the daemon: `session/screenshot` +
+  // `runtime/render_screen` give the LIVE frame (no scenario, no cycle, no scale)
+  // and `audio/export` renders the LIVE session's SID (that is
+  // `runtime_session_export_audio`, which stays). Composing scenario_run +
+  // render_screen would be a new feature wearing an old tool's name, so the three
+  // retire with the emulator. All three were ADVANCED-only. (Spec 806 §7.2)
 
   // ---- Spec 710 — frozen-VIC inspect (checkpoint-bound, no execution advance) ----
   server.tool(

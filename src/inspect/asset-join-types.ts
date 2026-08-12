@@ -1,4 +1,4 @@
-// src/ts-emulator/inspect/asset-join-types.ts
+// src/inspect/asset-join-types.ts
 //
 // Spec 721 — Visual-Origin Join data model. A visible object resolved by Frozen
 // Inspect (Spec 710, FrozenInspectEvidence/MemoryRef) is matched to its ORIGIN:

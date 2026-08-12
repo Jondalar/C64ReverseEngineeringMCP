@@ -154,7 +154,8 @@ if (!existsSync(DIST)) {
   check("Windows gets its own shell syntax", /\bset [A-Z0-9_]+=/.test(seen.get("win32")));
   check("Windows names the .exe", /\.exe\b/.test(seen.get("win32")));
   // Positive only. A "must not contain `set X=`" check reads well and is wrong: the
-  // recipe's own prose says "developers may set C64RE_ALLOW_INPROC_RUNTIME=1".
+  // recipe is prose, and prose may use the word "set" for reasons that have nothing
+  // to do with shell syntax.
   check("POSIX uses export syntax",
     ["darwin", "linux"].every((p) => /\bexport [A-Z0-9_]+=/.test(seen.get(p))));
   check("Windows and POSIX are not the same text", seen.get("win32") !== seen.get("darwin"));

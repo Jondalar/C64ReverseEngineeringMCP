@@ -1,4 +1,4 @@
-// src/ts-emulator/debug/memory-access-map.ts
+// src/monitor/memory-access-map.ts
 //
 // SPIKE — runtime memory-access / region-liveness map. Attaches a lightweight
 // aggregating observer to the C64 memory bus (HeadlessMemoryBus.setAccessObserver)

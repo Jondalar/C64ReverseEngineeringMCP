@@ -51,8 +51,8 @@ export function runtimeSetupRecipe(reason?: string): string {
       "",
       "  3) Or run the packaged container and point C64RE_RUNTIME_ENDPOINT at its WS port.",
       "",
-      "After setup, retry — the runtime tools will connect. (For the internal parity oracle",
-      "only, developers may set C64RE_ALLOW_INPROC_RUNTIME=1; not for normal use.)",
+      "After setup, retry — the runtime tools will connect. There is no in-process fallback:",
+      "the runtime is always a separate process, so this recipe is the whole answer.",
     ].join("\n")
   );
 }

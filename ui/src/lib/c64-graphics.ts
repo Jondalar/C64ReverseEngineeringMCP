@@ -2,7 +2,7 @@
 // pixel buffers ready to feed into a canvas via ImageData.
 
 // THE single system palette: colodore (VICE colodore.vpl), byte-identical to
-// the backend canonical (src/ts-emulator/vic/palettes.ts COLODORE). Blue
+// the backend canonical colodore table. Blue
 // $06 = 27,24,c4. Was Funkatron/pepto here — replaced so the UI decode views
 // match the live VIC + the render tools. One palette everywhere. Do NOT change.
 // Index → [R, G, B].

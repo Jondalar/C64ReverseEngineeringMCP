@@ -144,8 +144,18 @@ export interface ScenarioRunOutput {
 }
 
 /**
- * Run a named scenario via the compiled runScenario module.
- * Throws if the scenario is not in registry or the module is unavailable.
+ * Run a named scenario and hash its end state.
+ *
+ * Spec 806: this used to dynamically import `runScenario` from the TS emulator's
+ * `v2/scenario.ts`, which is gone. The baseline STORE below (capture / compare /
+ * classify) is backend-neutral and keeps working on records it is handed; only the
+ * RUN half needs a machine, and C64RE no longer owns one. Re-running a scenario is
+ * a runtime job (`runtime/scenario_run`), so the day this is wired again it is
+ * wired to the daemon, not to a second in-process emulator.
+ *
+ * Throws if the scenario is not in the registry, and otherwise reports that the
+ * runner is absent — the same shape the missing-module path had, so callers that
+ * classify a failed run as `broken` are unaffected.
  */
 export async function runScenarioById(
   scenarioId: string,
@@ -155,34 +165,10 @@ export async function runScenarioById(
   if (!scenario) {
     throw new Error(`Scenario '${scenarioId}' not found in registry`);
   }
-
-  let runScenario: (s: unknown) => unknown;
-  try {
-    // Dynamic path avoids static TS module resolution — scenario.js ships in
-    // Spec 231 (agent-workflows branch); this worktree stub degrades gracefully.
-    // Spec 806: runScenario still lives in the TS emulator (v2/scenario.ts) and
-    // stays there to be deleted; when it goes, the catch below is the answer.
-    const scenarioPath = new URL("../ts-emulator/v2/scenario.js", import.meta.url).href;
-    const mod = await import(scenarioPath) as { runScenario: (s: unknown) => unknown };
-    runScenario = mod.runScenario;
-  } catch {
-    throw new Error(`runScenario module unavailable (build missing for scenario.js)`);
-  }
-
-  const result = runScenario(scenario) as {
-    ramHash: string;
-    screenshotHash: string;
-    traceHash: string;
-    cyclesRan: number;
-  };
-
-  return {
-    ramHash: result.ramHash,
-    screenshotHash: result.screenshotHash,
-    traceHash: result.traceHash,
-    events: [],
-    cyclesRan: result.cyclesRan,
-  };
+  throw new Error(
+    `runScenario module unavailable (scenario execution is not implemented in C64RE — ` +
+    `it needs the runtime's scenario_run)`,
+  );
 }
 
 // ---------------------------------------------------------------------------

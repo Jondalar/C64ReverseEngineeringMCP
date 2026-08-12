@@ -1,4 +1,4 @@
-// src/ts-emulator/inspect/asset-extract.ts
+// src/inspect/asset-extract.ts
 //
 // Spec 721 §3 / extraction side — turn raw file/medium bytes into AssetCandidate
 // records the Visual-Origin Join (asset-join.ts) matches against. This is a

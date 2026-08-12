@@ -83,9 +83,6 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // RuntimeController stops ticking (otherwise it pegs a core ~100%); the clean
   // alternative to killing the process. Must be on the default surface next to start.
   "runtime_session_close",
-  // runtime_session_snapshot demoted to advanced: it returns a TS-structured JSON snapshot
-  // (not the daemon's snapshot/dump file) — off the customer surface until it is backed by a
-  // TRX64 structured-state method. Customers use checkpoints / component_diff for state.
   "runtime_media_browse", "runtime_media_mount",
   "runtime_media_unmount", "runtime_media_persist", "runtime_media_swap",
   // BUG-027 Blocker 2 (Spec 744 §7.2) — high-level "Insert side N" answer:
@@ -155,16 +152,38 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "runtime_candidate_remove_patch", "runtime_candidate_list", "runtime_candidate_delete",
   "runtime_candidate_export", "runtime_candidate_derive_delta",
   "runtime_find_cheat",
-  // Runtime export + input-config (TRX64-runtime capabilities): render audio/video/
-  // screenshot from a run; load/save the c64re keyboard/joystick config.
-  // `runtime_input_load_vicerc` is deliberately ADVANCED — it parses a legacy
-  // foreign emulator config, is a one-off bootstrap, and its name would put an
-  // external emulator back on the RE surface.
-  // runtime_export_{audio,video,screenshot} demoted to advanced: they replay a SCENARIO in
-  // an in-process TS machine (bypassing the daemon) — off the customer surface until scenario
-  // render runs on TRX64. runtime_session_export_audio stays (wired to the daemon audio/export).
+  // Runtime export + input-config: render the live session's audio; load/save the
+  // c64re keyboard/joystick config. `runtime_input_load_vicerc` is deliberately
+  // ADVANCED — it parses a legacy foreign emulator config, is a one-off bootstrap,
+  // and its name would put an external emulator back on the RE surface.
   "runtime_session_export_audio", "runtime_input_load_config", "runtime_input_save_config",
 ]);
+
+// ── Retired with the TypeScript emulator (Spec 806 step 3) ───────────────────
+//
+// Eleven ADVANCED-only tools were removed rather than routed, because the emulator
+// WAS their implementation and the runtime has no equivalent object to route to.
+// Recorded here so a later reader does not read the absence as an oversight:
+//
+//   runtime_drive_session_start / _status / _persist_writes /
+//   runtime_drive_session_save_vsf / _load_vsf / runtime_iec_bus_state
+//     — a STANDALONE 1541 session (a drive with no C64). The runtime's drive only
+//       exists inside a machine; there is no such object to expose.
+//   runtime_session_snapshot
+//     — returned a structured JSON state object; the daemon's snapshot/dump writes
+//       a .c64re FILE. Different product, not a missing route. Use the checkpoint
+//       ring + runtime_component_diff.
+//   runtime_export_screenshot / _video / _audio
+//     — replayed a saved SCENARIO to a cycle and wrote PNG/MP4/WAV. There is no
+//       export/* method group on the daemon; session/screenshot, render_screen and
+//       audio/export are all LIVE-session verbs (the last one is
+//       runtime_session_export_audio, which stays).
+//   runtime_diagnose_mm
+//     — a per-title one-shot diagnostic built entirely on an in-process machine.
+//
+// None was in DEFAULT_TOOLS, so the default surface is byte-identical. Do NOT
+// re-add any of them as a daemon route without a spec: each would be a new feature
+// wearing an old tool's name.
 
 /** Documented cap on the default surface (probe fails if exceeded). Spec 725
  * raised this 45→80 to fit the Headless Runtime + TraceDB facade. Spec 730.1
