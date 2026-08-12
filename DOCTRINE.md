@@ -47,6 +47,21 @@ runtime path alive.
 fallback and parity oracle rather than the product path. It stays binding because the
 code is still there and a second path would still be a second path.*
 
+*Marked in the source (2026-08-12): all 189 files of the TS **emulator** —
+`src/runtime/headless/{v2,vice1541,kernel,vic,c64,cpu,cia,via,sid,audio,iec,drive1541,
+peripherals,debug,…}` plus the session/chip files at that root — now carry a
+`DEPRECATED — TypeScript runtime` banner at the top. It says what the code is, that it
+is reachable only with `C64RE_RUNTIME_TS=1`, and that "how the runtime works" means
+TRX64. The banner exists because the ambiguity was costing real time: a reader could not
+tell, from an open file, whether they were looking at the product or at an oracle.*
+
+*Deliberately NOT marked, because they serve TRX64 or the meaning layer and live under
+the same path by accident of history:* `trace/` (reads TRX64 `.c64retrace` captures —
+`loader-lens`, `binary-format`, the run store), `inspect/` (asset/VIC inspection on the
+live MCP surface), `export/`, `vsf/`, `media/`, `trace-query.ts`, `trace-index.ts`.
+*If those ever move out of `runtime/headless/`, the path stops lying and this note can
+go.*
+
 ### One Machine Per Process (session isolation)
 
 Single-path is about *which* pipeline runs. This is about *how many* machines exist.

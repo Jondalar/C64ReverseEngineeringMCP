@@ -1,3 +1,15 @@
+// ════════════════════════════════════════════════════════════════════════════
+//  DEPRECATED — TypeScript runtime.  THE PRODUCT RUNTIME IS TRX64.
+//
+//  This file is part of the in-process TS emulator. It is reachable ONLY with
+//  C64RE_RUNTIME_TS=1 and is never on the default path: every runtime_* tool,
+//  the workspace UI and the MCP surface route to the TRX64 daemon (Spec 771).
+//
+//  Do not extend it, do not fix forward in it, and do not cite it as current
+//  behaviour — "how the runtime works" means TRX64, in ../TRX64.
+//  Its remaining job is to be a parity oracle for the port; when that is no
+//  longer needed it goes. See DOCTRINE.md.
+// ════════════════════════════════════════════════════════════════════════════
 // One-line 6502/6510 assembler for the C64RE monitor's inline `a` command.
 // Spec 754 §3.3c — assemble a single instruction (no address prefix) at a
 // given PC, producing the encoded bytes (opcode + little-endian operands).

@@ -1,3 +1,15 @@
+// ════════════════════════════════════════════════════════════════════════════
+//  DEPRECATED — TypeScript runtime.  THE PRODUCT RUNTIME IS TRX64.
+//
+//  This file is part of the in-process TS emulator. It is reachable ONLY with
+//  C64RE_RUNTIME_TS=1 and is never on the default path: every runtime_* tool,
+//  the workspace UI and the MCP surface route to the TRX64 daemon (Spec 771).
+//
+//  Do not extend it, do not fix forward in it, and do not cite it as current
+//  behaviour — "how the runtime works" means TRX64, in ../TRX64.
+//  Its remaining job is to be a parity oracle for the port; when that is no
+//  longer needed it goes. See DOCTRINE.md.
+// ════════════════════════════════════════════════════════════════════════════
 // Spec 125 (M5.4) v1 + Spec 126 (M5.5) v1 — scenario DSL + knowledge integration.
 //
 // JSON-shape (YAML loader is a thin add-on left for follow-up):
