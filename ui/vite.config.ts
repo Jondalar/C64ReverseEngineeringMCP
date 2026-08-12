@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { WebSocket } from "ws";
-import { resolveDaemonSpawn } from "../src/runtime/headless/daemon/resolve-daemon-spawn";
+import { resolveDaemonSpawn } from "../src/runtime/resolve-daemon-spawn";
 
 // Spec 744.4c (Trigger 2) — starting the UI brings the runtime up if it isn't.
 // The browser can't spawn a process, but the vite DEV-SERVER (Node) can: on boot

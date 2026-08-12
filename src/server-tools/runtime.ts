@@ -18,15 +18,16 @@ import type { ServerToolContext } from "./types.js";
 /**
  * Spec 744.4c slice 2b — the ABSTRACT media operation. The client (this MCP)
  * brings the MEDIUM (a host `path`, resolved ABSOLUTE against the caller's
- * project) + the ACTION (`kind`); the runtime media authority (`ingestMedia`,
- * Spec 709) applies it and returns ONE shape (MediaIngressResult). Both modes
- * converge on that one operation — daemon mode routes to the daemon's
- * `media/ingress` WS (the SAME op the UI uses, broadcasting media/changed so the
- * human sees the LLM's mount live); in-process runs ingestMedia directly. No more
- * legacy mountMedia/swapDisk fork (those returned a different MountResult shape).
+ * project) + the ACTION (`kind`); the runtime's media authority (Spec 709)
+ * applies it and returns ONE shape (MediaIngressResult). It routes to the
+ * runtime's `media/ingress` — the SAME op the UI uses, broadcasting
+ * media/changed so the human sees the LLM's mount live. No legacy
+ * mountMedia/swapDisk fork (those returned a different MountResult shape).
  *
- * `path` is resolved absolute HERE because the daemon is project-agnostic: a
- * relative path sent raw would resolve against the daemon's cwd (wrong project).
+ * Spec 806 step 2 — one path. The in-process second implementation is gone.
+ *
+ * `path` is resolved absolute HERE because the runtime is project-agnostic: a
+ * relative path sent raw would resolve against its cwd (wrong project).
  */
 function resolveCallerMediaPath(path: string): string {
   if (isAbsolute(path)) return path;
@@ -37,45 +38,29 @@ async function mediaIngress(
   session_id: string,
   req: { kind: "disk" | "prg" | "crt" | "eject"; path?: string; name?: string; mode?: "load" | "inject-run"; entry?: number; resetPolicy?: "reset" | "power-cycle"; role?: "drive8" | "cartridge" },
 ): Promise<unknown> {
-  const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-  if (isDaemonMode()) {
-    return runtimeDaemon.mediaIngress(session_id, req);
-  }
-  // In-process: the same single media authority, via the session's controller.
-  const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-  const session = getIntegratedSession(session_id);
-  if (!session) throw new Error(`No integrated session ${session_id}`);
-  const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
-  const { ingestMedia } = await import("../runtime/headless/media/ingress.js");
-  const { buildIngressRequest } = await import("../runtime/headless/media/ingress-request.js");
-  const ctrl = ensureRuntimeController(session_id, session, () => {});
-  const ireq = buildIngressRequest(req);
-  return await ingestMedia(ctrl, ireq, { resumeIfRunning: ireq.kind === "crt" });
-}
-
-async function getApi(sessionId: string) {
-  const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-  const session = getIntegratedSession(sessionId);
-  if (!session) throw new Error(`No integrated session ${sessionId}`);
-  const { createAgentQueryApi } = await import("../runtime/headless/v2/agent-api.js");
-  return createAgentQueryApi({ session });
+  const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+  return runtimeDaemon.mediaIngress(session_id, req);
 }
 
 /**
- * Spec 744.4c slice 2 — call an AgentQueryApi method against the active session,
- * routing to the shared Runtime Daemon when one is configured (so the LLM's
- * analysis/debug actions land on the SAME live machine the human watches), else
- * in-process. Returns the identical value either way — the daemon runs the same
- * AgentQueryApi and normalizes TypedArrays to plain arrays. Per slice the daemon
- * allowlists which methods are reachable (ws-server API_CALL_ALLOWLIST).
+ * Spec 744.4c slice 2 — call an AgentQueryApi method against the active session.
+ * It lands on the SAME live machine the human watches; TypedArrays come back
+ * normalized to plain arrays. The runtime allowlists which methods are reachable
+ * over the narrow `api/call` verb (monitor/step/breakpoint/until/status).
  */
 async function callApi<T = unknown>(session_id: string, method: string, ...args: unknown[]): Promise<T> {
-  const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-  if (isDaemonMode()) {
-    return runtimeDaemon.apiCall<T>(session_id, method, args);
-  }
-  const api = await getApi(session_id) as unknown as Record<string, (...a: unknown[]) => unknown>;
-  return api[method](...args) as T;
+  const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+  return runtimeDaemon.apiCall<T>(session_id, method, args);
+}
+
+/**
+ * The WIDE facade verb — every AgentQueryApi method the runtime backs, not just
+ * the narrow `api/call` allowlist. Used by the handlers whose method is outside
+ * it (`resolvePc`, `diffSnapshots`, `formatDiff`).
+ */
+async function callApiFull<T = unknown>(session_id: string, op: string, args: unknown[] = []): Promise<T> {
+  const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+  return runtimeDaemon.call<T>("runtime/call", { session_id, op, args });
 }
 
 /** NOT a trace-read path (Spec 802). Every trace-store READ in C64RE now goes
@@ -102,8 +87,8 @@ async function callApi<T = unknown>(session_id: string, method: string, ...args:
  *  that needs healing AND when no other process holds the lock. */
 export async function withDuckDb<T>(dbPath: string, fn: (conn: any, backend: any) => Promise<T>): Promise<T> {
   const duckdb = await import("@duckdb/node-api");
-  const { DuckDbQueryBackend } = await import("../runtime/headless/v2/duckdb-backend.js");
-  const { ensureSpec726CompatLayer } = await import("../runtime/headless/trace/trace-run-store.js");
+  const { DuckDbQueryBackend } = await import("../analysis/duckdb-backend.js");
+  const { ensureSpec726CompatLayer } = await import("../trace/trace-run-store.js");
   // Spec 746.x — LAZY-ON-READ: wait for an in-flight index, trust a present store,
   // or (re)build a missing one from the .c64retrace authority before opening — so a
   // read right after stop() sees the fresh store AND an orphaned store (e.g. a
@@ -111,7 +96,7 @@ export async function withDuckDb<T>(dbPath: string, fn: (conn: any, backend: any
   // real reason if the build failed (surfaced instead of a cryptic "not found").
   // BUG-039 — BOUNDED: an unbounded wait here (minutes on a multi-GB log) trips
   // the MCP host's ~180s stall limit and drops the stdio connection.
-  const { ensureIndexBounded } = await import("../runtime/headless/trace/background-indexer.js");
+  const { ensureIndexBounded } = await import("../trace/background-indexer.js");
   await ensureIndexBounded(dbPath);
   // 1) read-only (no exclusive lock; works while the daemon holds the file).
   try {
@@ -215,23 +200,9 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
         return { content: [{ type: "text" as const, text }], structuredContent: { tally, regions } };
       };
       // Spec 744.4c slice 2c — run the liveness window on the SHARED session.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-      if (isDaemonMode()) {
-        const r = await runtimeDaemon.memoryAccessMap<{ tally: Record<string, number>; regions: any[] }>(session_id, cycles, classes, min_bytes);
-        return renderMap(r.tally, r.regions);
-      }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { MemoryAccessTracker } = await import("../runtime/headless/debug/memory-access-map.js");
-      const t = new MemoryAccessTracker(session.c64Bus);
-      t.attach();
-      session.runFor(cycles, { cycleBudget: cycles });
-      const map = t.finish();
-      const want = new Set(classes);
-      const tally = map.regions.reduce((a, r) => { a[r.cls] = (a[r.cls] || 0) + 1; return a; }, {} as Record<string, number>);
-      const regions = map.regions.filter(r => want.has(r.cls) && (r.end - r.start + 1) >= min_bytes);
-      return renderMap(tally, regions);
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.memoryAccessMap<{ tally: Record<string, number>; regions: any[] }>(session_id, cycles, classes, min_bytes);
+      return renderMap(r.tally, r.regions);
     }),
   );
 
@@ -326,7 +297,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Snapshot diff (Spec 246) ----
   server.tool(
     "runtime_save_vsf",
-    "Save full session state as .vsf bytes (VICE Snapshot Format — LEGACY, DEPRECATED; kept only for interchange with external emulators). For a durable c64re snapshot use runtime_session_snapshot (.c64re).",
+    "Save full session state as .vsf bytes (VICE Snapshot Format — LEGACY, DEPRECATED; kept only for interchange with external emulators). For a durable .c64re snapshot use the runtime's snapshot dump.",
     {
       session_id: z.string(),
       output_path: z.string(),
@@ -336,16 +307,9 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       // path is resolved absolute against the caller's project; the daemon
       // (localhost) writes that same file — bytes never cross the wire.
       const abs = resolveCallerMediaPath(output_path);
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-      if (isDaemonMode()) {
-        const r = await runtimeDaemon.vsfSave<{ savedPath: string; bytes: number }>(session_id, abs);
-        return { content: [{ type: "text", text: `saved ${r.bytes} bytes to ${r.savedPath}` }] };
-      }
-      const api = await getApi(session_id);
-      const bytes = api.saveVsf();
-      const { writeFileSync } = await import("node:fs");
-      writeFileSync(abs, bytes);
-      return { content: [{ type: "text", text: `saved ${bytes.length} bytes to ${abs}` }] };
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.vsfSave<{ savedPath: string; bytes: number }>(session_id, abs);
+      return { content: [{ type: "text", text: `saved ${r.bytes} bytes to ${r.savedPath}` }] };
     }),
   );
 
@@ -360,18 +324,10 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       // Spec 744.4c slice 2c — restore the shared session from a host VSF file. The
       // daemon (localhost) reads the caller-resolved abs path; bytes never cross.
       const abs = resolveCallerMediaPath(input_path);
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-      if (isDaemonMode()) {
-        const r = await runtimeDaemon.vsfLoad<{ loadedPath: string; bytes: number; source?: string; loadedModules?: string[] }>(session_id, abs);
-        const origin = r.source === "vice-x64sc" ? "foreign .vsf (legacy VICE Snapshot Format)" : "c64re snapshot";
-        return { content: [{ type: "text", text: `loaded ${r.bytes} bytes from ${r.loadedPath} (${origin}${r.loadedModules ? `; modules: ${r.loadedModules.join(", ")}` : ""})` }] };
-      }
-      const api = await getApi(session_id);
-      const { readFileSync } = await import("node:fs");
-      const bytes = new Uint8Array(readFileSync(abs));
-      const res = api.loadVsf(bytes);
-      const origin = res.source === "vice-x64sc" ? "foreign .vsf (legacy VICE Snapshot Format)" : "c64re snapshot";
-      return { content: [{ type: "text", text: `loaded ${bytes.length} bytes from ${abs} (${origin}; modules: ${res.loadedModules.join(", ")})` }] };
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.vsfLoad<{ loadedPath: string; bytes: number; source?: string; loadedModules?: string[] }>(session_id, abs);
+      const origin = r.source === "vice-x64sc" ? "foreign .vsf (legacy VICE Snapshot Format)" : "c64re snapshot";
+      return { content: [{ type: "text", text: `loaded ${r.bytes} bytes from ${r.loadedPath} (${origin}${r.loadedModules ? `; modules: ${r.loadedModules.join(", ")}` : ""})` }] };
     }),
   );
 
@@ -385,8 +341,9 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       pc: z.number(),
     },
     safeHandler("runtime_resolve_pc", async ({ session_id, artifact_id, pc }) => {
-      const api = await getApi(session_id);
-      const r = api.resolvePc(artifact_id, pc);
+      // Spec 806 step 2 — `resolvePc` is outside the narrow api/call allowlist, so
+      // it goes through the wide facade verb. Same method, same return shape.
+      const r = await callApiFull(session_id, "resolvePc", [artifact_id, pc]);
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     }),
   );
@@ -405,23 +362,29 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Snapshot diff between two VSF files ----
   server.tool(
     "runtime_diff_snapshots",
-    "Use to see exactly what changed between two VSF snapshot files — RAM changedRanges plus CPU/CIA/VIC/SID/PLA chip diffs. Not for a live memory read (use runtime_monitor_memory) or capturing a snapshot (use runtime_session_snapshot).",
+    "Use to see exactly what changed between two VSF snapshot files — RAM changedRanges plus CPU/CIA/VIC/SID/PLA chip diffs. Not for a live memory read (use runtime_monitor_memory) or capturing a snapshot (use runtime_checkpoint_capture).",
     {
       a_path: z.string(),
       b_path: z.string(),
       enrich: z.boolean().default(false),
       hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. The snapshot delta CONFIRMS a hypothesis about what a step changed; it is not how you discover the payload. Fishing (no address / no rationale) is refused — read first (disasm_prg / inspect_address_range / project_search)."),
     },
-    safeHandler("runtime_diff_snapshots", async ({ a_path, b_path, enrich, hypothesis }) => {
+    safeHandler("runtime_diff_snapshots", async ({ a_path, b_path, hypothesis }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
       const gate = checkRuntimeDiscipline(hypothesis, { tool: "runtime_diff_snapshots", act: "diffing two machine snapshots" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
+      // Spec 806 step 2 — the diff runs in the runtime (`diffSnapshots` + `formatDiff`
+      // on the wide facade verb). The FILES are still read here, because the paths are
+      // the caller's: the buffers travel as the same number-array transport `saveVsf`
+      // uses. `enrich` stays in the input schema and stays inert — the diff was always
+      // a pure state-diff and never consumed the flag.
       const { readFileSync } = await import("node:fs");
-      const { diffSnapshots, formatDiff } = await import("../runtime/headless/v2/snapshot-diff.js");
-      const a = new Uint8Array(readFileSync(a_path));
-      const b = new Uint8Array(readFileSync(b_path));
-      const diff = diffSnapshots(a, b, { enrich });
-      const text = formatDiff(diff);
+      const a = Array.from(readFileSync(a_path));
+      const b = Array.from(readFileSync(b_path));
+      // No session_id: this tool diffs two FILES, not a live machine (the facade
+      // verb accepts the field and ignores it — there is one machine per process).
+      const diff = await callApiFull("", "diffSnapshots", [a, b]);
+      const text = await callApiFull<string>("", "formatDiff", [diff]);
       return { content: [{ type: "text", text }] };
     }),
   );
@@ -486,8 +449,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   // ---- Candidate model (Spec 796) — live scenario-bound overlay branches ----
   const candidateDaemon = async () => {
-    const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-    if (!isDaemonMode()) throw new Error("candidate model requires the runtime daemon");
+    const { runtimeDaemon } = await import("../runtime/daemon-client.js");
     return runtimeDaemon;
   };
 
@@ -696,7 +658,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     safeHandler("runtime_swimlane_slice", async (args) => {
       // Spec 802 — the SLICE comes from the runtime (structured); the markdown
       // rendering stays here. Formatting a remote result is not a second reader.
-      const { renderMarkdown } = await import("../runtime/headless/v2/swimlane-render.js");
+      const { renderMarkdown } = await import("../monitor/swimlane-render.js");
       const slice = await daemonTraceRead<any>(
         "swimlane", args.duckdb_path,
         { run_id: args.run_id, cycle_start: args.cycle_start, cycle_end: args.cycle_end, compact: args.compact, focus: args.focus, nmi_vector: args.nmi_vector },
@@ -764,7 +726,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       min_confidence: z.number().default(0.5),
     },
     safeHandler("runtime_scan_fingerprints", async (args) => {
-      const { scanFingerprints } = await import("../runtime/headless/v2/fingerprint.js");
+      const { scanFingerprints } = await import("../analysis/fingerprint.js");
       const cleanHex = args.bytes_hex.replace(/[^0-9a-fA-F]/g, "");
       const bytes = new Uint8Array(cleanHex.length / 2);
       for (let i = 0; i < bytes.length; i++) {
@@ -793,7 +755,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       tags: z.array(z.string()).optional(),
     },
     safeHandler("runtime_bookmark_add", async (args) => {
-      const { addBookmark } = await import("../runtime/headless/v2/bookmarks.js");
+      const { addBookmark } = await import("../analysis/bookmarks.js");
       return withDuckDb(args.duckdb_path, async (_conn, backend) => {
         const id = await addBookmark(backend as any, {
           runId: args.run_id, cycle: args.cycle, label: args.label,
@@ -816,7 +778,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       cycle_end: z.number().optional(),
     },
     safeHandler("runtime_bookmark_list", async (args) => {
-      const { listBookmarks } = await import("../runtime/headless/v2/bookmarks.js");
+      const { listBookmarks } = await import("../analysis/bookmarks.js");
       return withDuckDb(args.duckdb_path, async (_conn, backend) => {
         const range = args.cycle_start !== undefined && args.cycle_end !== undefined ? [args.cycle_start, args.cycle_end] as [number, number] : undefined;
         const list = await listBookmarks(backend as any, args.run_id, range);
@@ -853,27 +815,16 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Spec 263 — SID audio export ----
   server.tool(
     "runtime_session_export_audio",
-    "Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV. Use to capture audio from a running integrated session. Not for a saved scenario (use runtime_export_audio). Inputs: session_id, out_path, duration_sec. Returns: WAV path + stats.",
+    "Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV. Use to capture audio from a running integrated session. Exports the LIVE session only; there is no scenario-export tool. Inputs: session_id, out_path, duration_sec. Returns: WAV path + stats.",
     {
       session_id: z.string(),
       out_path: z.string(),
       duration_sec: z.number(),
     },
     safeHandler("runtime_session_export_audio", async ({ session_id, out_path, duration_sec }) => {
-      // Runs on the shared TRX64 machine (the same session the UI drives). The in-process
-      // TS path below is dev-only (C64RE_ALLOW_INPROC_RUNTIME=1).
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-      if (isDaemonMode()) {
-        const r = await runtimeDaemon.call("audio/export", { session_id, out_path, duration_sec });
-        return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
-      }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { AudioExportSession } = await import("../runtime/headless/audio/sid-audio-recorder.js");
-      const { exportSessionAudio } = await import("../runtime/headless/audio/export.js");
-      const exp = new AudioExportSession(session as any, { sampleRate: 44100 });
-      const r = exportSessionAudio(session as any, exp, out_path, duration_sec);
+      // Runs on the shared machine — the same session the UI drives.
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.call("audio/export", { session_id, out_path, duration_sec });
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     }),
   );
@@ -884,7 +835,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "List configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
     {},
     safeHandler("runtime_media_list_paths", async () => {
-      const { listFsRoots } = await import("../runtime/headless/media/fs-browser.js");
+      const { listFsRoots } = await import("../media-format/fs-browser.js");
       const roots = listFsRoots();
       return { content: [{ type: "text", text: JSON.stringify(roots, null, 2) }] };
     }),
@@ -897,7 +848,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       path: z.string().describe("Absolute or relative directory path to browse"),
     },
     safeHandler("runtime_media_browse", async ({ path }) => {
-      const { browseDir } = await import("../runtime/headless/media/fs-browser.js");
+      const { browseDir } = await import("../media-format/fs-browser.js");
       const result = browseDir(path);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }),
@@ -939,7 +890,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_media_persist",
-    "Write mounted media's in-RAM state back to its host backing file WITHOUT ejecting. role=drive8 (default): flushes drive-side GCR writes → the .d64/.g64 on disk, atomically; host mtime changes. role=cartridge: re-packs the programmed cartridge flash/EEPROM → the host .crt (EasyFlash etc.) — the only way to save flash AND keep playing, since unmounting a cartridge pulls it (cold reset). Use to save a game's disk writes (format/copy/save) or EAPI flash writes while keeping the media mounted. Not for ejecting (use runtime_media_unmount, which persists then ejects) or for a session snapshot (use runtime_session_snapshot). Read-only / non-dirty media is never overwritten. Inputs: session_id, role. Returns: { written, path, bytes } or the reason it was skipped.",
+    "Write mounted media's in-RAM state back to its host backing file WITHOUT ejecting. role=drive8 (default): flushes drive-side GCR writes → the .d64/.g64 on disk, atomically; host mtime changes. role=cartridge: re-packs the programmed cartridge flash/EEPROM → the host .crt (EasyFlash etc.) — the only way to save flash AND keep playing, since unmounting a cartridge pulls it (cold reset). Use to save a game's disk writes (format/copy/save) or EAPI flash writes while keeping the media mounted. Not for ejecting (use runtime_media_unmount, which persists then ejects) or for a session snapshot (use runtime_checkpoint_capture). Read-only / non-dirty media is never overwritten. Inputs: session_id, role. Returns: { written, path, bytes } or the reason it was skipped.",
     {
       session_id: z.string(),
       slot: z.number().int().default(8),
@@ -950,27 +901,10 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       // Spec 744.4c slice 2c — persist the shared session's disk to its host file.
       // Write-through (Spec 742) is preserved: the backing path was set absolute at
       // mount time, so the daemon (localhost) writes the CALLER's .d64/.g64.
-      // role=cartridge runs the same persistCartridgeToFile as the eject path
+      // role=cartridge runs the same cartridge persist as the eject path
       // (BUG-023-cart) — flash → host .crt, cart stays attached.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-      if (isDaemonMode()) {
-        const result = await runtimeDaemon.mediaPersist(session_id, slot, role);
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      if (role === "cartridge") {
-        const bus = (session.kernel as { c64Bus?: {
-          getCartridge?(): import("../runtime/headless/media/persist-cartridge.js").CartLike | undefined;
-        } }).c64Bus;
-        const cartPath = (session as { cartPath?: string }).cartPath ?? "";
-        const { persistCartridgeToFile } = await import("../runtime/headless/media/persist-cartridge.js");
-        const result = persistCartridgeToFile(bus?.getCartridge?.(), cartPath);
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      }
-      const { persistMountedDiskToFile } = await import("../runtime/headless/media/mount.js");
-      const result = persistMountedDiskToFile(session);
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const result = await runtimeDaemon.mediaPersist(session_id, slot, role);
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }),
   );
@@ -1005,21 +939,8 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_swap_disk_and_continue", async ({ session_id, path, confirm_input, settle_cycles, post_cycles }) => {
       const abs = resolveCallerMediaPath(path);
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-      let result: unknown;
-      if (isDaemonMode()) {
-        result = await runtimeDaemon.swapDiskAndContinue(session_id, abs, { confirm_input, settle_cycles, post_cycles });
-      } else {
-        const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-        const session = getIntegratedSession(session_id);
-        if (!session) throw new Error(`No integrated session ${session_id}`);
-        const { RuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
-        const { swapDiskAndContinue } = await import("../runtime/headless/media/swap-and-continue.js");
-        const ctrl = new RuntimeController(session_id, session, () => {});
-        try {
-          result = await swapDiskAndContinue(ctrl, { path: abs, confirmInput: confirm_input, settleCycles: settle_cycles, postCycles: post_cycles });
-        } finally { ctrl.pause(); }
-      }
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const result = await runtimeDaemon.swapDiskAndContinue(session_id, abs, { confirm_input, settle_cycles, post_cycles });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }),
   );
@@ -1031,7 +952,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "ADVANCED. Use to parse a legacy `vicerc` emulator config and read its joystick keyset bindings (KeySet2*, JoyDevice2), to bootstrap a c64re config from pre-existing settings. Not for the c64re config file (use runtime_input_load_config) or saving (use runtime_input_save_config).",
     { vicerc_path: z.string().optional() },
     safeHandler("runtime_input_load_vicerc", async ({ vicerc_path }) => {
-      const { loadVicerc } = await import("../runtime/headless/input/vicerc-loader.js");
+      const { loadVicerc } = await import("../input/vicerc-loader.js");
       const cfg = loadVicerc(vicerc_path);
       return { content: [{ type: "text", text: JSON.stringify(cfg, null, 2) }] };
     }),
@@ -1045,7 +966,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       vicerc_path: z.string().optional(),
     },
     safeHandler("runtime_input_load_config", async ({ config_path, vicerc_path }) => {
-      const { loadInputConfig } = await import("../runtime/headless/input/input-config.js");
+      const { loadInputConfig } = await import("../input/input-config.js");
       const cfg = loadInputConfig({ configPath: config_path, vicercPath: vicerc_path });
       return { content: [{ type: "text", text: JSON.stringify(cfg, null, 2) }] };
     }),
@@ -1071,7 +992,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       config_path: z.string().optional(),
     },
     safeHandler("runtime_input_save_config", async ({ config, config_path }) => {
-      const { saveInputConfig } = await import("../runtime/headless/input/input-config.js");
+      const { saveInputConfig } = await import("../input/input-config.js");
       saveInputConfig(config as any, config_path);
       return { content: [{ type: "text", text: `Saved to ${config_path ?? "~/.config/c64re/joystick.json"}` }] };
     }),
@@ -1084,8 +1005,10 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "List scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. Returns summaries sorted by date.",
     {},
     safeHandler("runtime_scenario_list", async () => {
-      const { listScenarios } = await import("../runtime/headless/v2/scenario-registry.js");
-      const scenarios = listScenarios();
+      // Spec 806 step 2 — the scenario registry lives in the runtime: it owns the
+      // project `scenarios/` dir and merges its in-memory copies over the disk scan.
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const scenarios = await runtimeDaemon.call("runtime/scenario_list", {});
       return { content: [{ type: "text", text: JSON.stringify(scenarios, null, 2) }] };
     }),
   );
@@ -1106,10 +1029,14 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       startSnapshot: z.string().optional().describe("VSF file path or omit for empty (scenario is a plan only)."),
     },
     safeHandler("runtime_scenario_save", async ({ id, diskPath, mode, cycleBudget, inputs, startSnapshot }) => {
-      const { saveScenario } = await import("../runtime/headless/v2/scenario-registry.js");
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
       const scenario: any = { id, diskPath, mode, cycleBudget, inputs, startSnapshot: startSnapshot ?? "" };
-      const { filePath } = saveScenario(scenario);
-      return { content: [{ type: "text", text: `saved to ${filePath}` }] };
+      const r = await runtimeDaemon.call<{ id: string; filePath?: string }>("runtime/scenario_save", { scenario });
+      // The runtime writes into ITS project's `scenarios/` dir (the MCP starts it
+      // with --project, so that is the caller's). A runtime started without one
+      // keeps the scenario in memory and returns no path — say so rather than
+      // printing "saved to undefined".
+      return { content: [{ type: "text", text: r.filePath ? `saved to ${r.filePath}` : `saved ${r.id} (in memory — the runtime has no project scenarios dir)` }] };
     }),
   );
 
@@ -1118,9 +1045,9 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Load a single scenario by id. Checks project dir first, then samples.",
     { id: z.string() },
     safeHandler("runtime_scenario_load", async ({ id }) => {
-      const { loadScenario } = await import("../runtime/headless/v2/scenario-registry.js");
-      const s = loadScenario(id);
-      if (!s) throw new Error(`scenario '${id}' not found`);
+      // The runtime raises `scenario '<id>' not found` itself — same message.
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const s = await runtimeDaemon.call("runtime/scenario_load", { id });
       return { content: [{ type: "text", text: JSON.stringify(s, null, 2) }] };
     }),
   );
@@ -1130,9 +1057,9 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Delete a scenario JSON by id. Returns true if found and removed.",
     { id: z.string() },
     safeHandler("runtime_scenario_delete", async ({ id }) => {
-      const { deleteScenario } = await import("../runtime/headless/v2/scenario-registry.js");
-      const ok = deleteScenario(id);
-      return { content: [{ type: "text", text: ok ? `deleted ${id}` : `${id} not found` }] };
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { deleted } = await runtimeDaemon.call<{ deleted: boolean }>("runtime/scenario_delete", { id });
+      return { content: [{ type: "text", text: deleted ? `deleted ${id}` : `${id} not found` }] };
     }),
   );
 
@@ -1141,52 +1068,24 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Use to see the full branch tree of a rewind session — which checkpoints branch where. Not for capturing a checkpoint (use runtime_checkpoint_capture) or seeking/restoring one (use runtime_rewind). Requires a session with an active RewindManager.",
     { session_id: z.string() },
     safeHandler("runtime_snapshot_tree", async ({ session_id }) => {
-      // Spec 744.4c slice 2c — route to the daemon's runtime/snapshot_tree (which
-      // sets scenarioId+diskPath+mode for beginRewindSession; the in-process
-      // getApi path did NOT, so it threw). Same shared session as the UI.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-      if (isDaemonMode()) {
-        const tree = await runtimeDaemon.snapshotTree(session_id);
-        return { content: [{ type: "text", text: JSON.stringify(tree, null, 2) }] };
-      }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { createAgentQueryApi } = await import("../runtime/headless/v2/agent-api.js");
-      const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: session.diskPath || session_id, mode: "true-drive" });
-      const rm = api.beginRewindSession();
-      const handle = rm.handle();
-      const branches: Record<string, any> = {};
-      for (const [k, v] of handle.branches) branches[k] = v;
-      return { content: [{ type: "text", text: JSON.stringify({
-        scenarioId: handle.scenarioId,
-        rootBranchId: handle.rootBranchId,
-        rootSnapshotId: handle.rootSnapshotId,
-        ringSize: handle.ringSize,
-        branches,
-      }, null, 2) }] };
+      // Spec 744.4c slice 2c — runtime/snapshot_tree sets scenarioId+diskPath+mode
+      // for beginRewindSession (the facade verb does NOT, and throws). Same shared
+      // session as the UI.
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const tree = await runtimeDaemon.snapshotTree(session_id);
+      return { content: [{ type: "text", text: JSON.stringify(tree, null, 2) }] };
     }),
   );
 
   server.tool(
     "runtime_promote_branch",
-    "Use to keep a transient rewind branch as a persistent, replayable Scenario record. Not for a durable machine-state file (use runtime_session_snapshot) or capturing a checkpoint (use runtime_checkpoint_capture).",
+    "Use to keep a transient rewind branch as a persistent, replayable Scenario record. Not for a durable machine-state file (the runtime's .c64re dump) or capturing a checkpoint (use runtime_checkpoint_capture).",
     { session_id: z.string(), branch_id: z.string() },
     safeHandler("runtime_promote_branch", async ({ session_id, branch_id }) => {
-      // Spec 744.4c slice 2c — route to the daemon's runtime/promote_branch.
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-      if (isDaemonMode()) {
-        const r = await runtimeDaemon.promoteBranch(session_id, branch_id);
-        return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
-      }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`No integrated session ${session_id}`);
-      const { createAgentQueryApi } = await import("../runtime/headless/v2/agent-api.js");
-      const api = createAgentQueryApi({ session, scenarioId: session_id, diskPath: session.diskPath || session_id, mode: "true-drive" });
-      const rm = api.beginRewindSession();
-      const { scenarioId, scenario, patches } = rm.promoteBranch(branch_id);
-      return { content: [{ type: "text", text: JSON.stringify({ scenarioId, scenario, patches }, null, 2) }] };
+      // Spec 744.4c slice 2c — runtime/promote_branch on the shared session.
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.promoteBranch(session_id, branch_id);
+      return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     }),
   );
 
@@ -1195,17 +1094,11 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Replay a saved scenario by id, returns ReplayResult hashes.",
     { id: z.string() },
     safeHandler("runtime_run_scenario", async ({ id }) => {
-      const { loadScenario } = await import("../runtime/headless/v2/scenario-registry.js");
-      const { runScenario } = await import("../runtime/headless/v2/scenario.js");
-      const s = loadScenario(id);
-      if (!s) throw new Error(`scenario '${id}' not found`);
-      const scenario: any = {
-        ...s,
-        startSnapshot: typeof s.startSnapshot === "string" && s.startSnapshot
-          ? s.startSnapshot
-          : Buffer.from(s.startSnapshot as string ?? "", "base64"),
-      };
-      const result = runScenario(scenario);
+      // Spec 806 step 2 — deterministic replay in the runtime: it looks the id up in
+      // its own registry and returns the ReplayResult. The load + startSnapshot
+      // decoding that used to happen here is the runtime's, on the far side of the id.
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const result = await runtimeDaemon.call("runtime/scenario_run", { id });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }),
   );
@@ -1214,32 +1107,21 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_run_scenarios_parallel",
-    "Run multiple scenarios in parallel via worker_threads. Returns batchId for polling.",
+    "Replay several scenarios as one batch. Returns batchId + progress for polling.",
     {
       scenario_ids: z.array(z.string()).min(1),
       worker_count: z.number().int().min(1).optional(),
     },
     safeHandler("runtime_run_scenarios_parallel", async ({ scenario_ids, worker_count }) => {
-      const { WorkerPool, resolveWorkerCount } = await import("../runtime/headless/parallel/scenario-pool.js");
-      const { createBatch, updateProgress, completeBatch, failBatch, serialiseBatch } = await import("../runtime/headless/parallel/batch-store.js");
-
-      const n = resolveWorkerCount(scenario_ids.length, worker_count);
-      const entry = createBatch(scenario_ids, n);
-
-      const pool = new WorkerPool({
-        workerCount: n,
-        projectDir: process.env.C64RE_PROJECT_DIR,
-        onProgress: (completed, _total) => updateProgress(entry.batchId, completed),
+      // Spec 806 step 2 — the batch runner is the runtime's (`batch/start`), which
+      // owns the scenario registry the ids resolve against and pushes the same
+      // batch/progress notifications. Poll it with runtime_batch_status.
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const entry = await runtimeDaemon.call("batch/start", {
+        scenarioIds: scenario_ids,
+        workerCount: worker_count,
       });
-
-      // Fire-and-forget; results accumulate in store.
-      pool.runBatch(scenario_ids).then(results => {
-        completeBatch(entry.batchId, results);
-      }).catch((e: Error) => {
-        failBatch(entry.batchId, e.message ?? String(e));
-      });
-
-      return { content: [{ type: "text", text: JSON.stringify(serialiseBatch(entry), null, 2) }] };
+      return { content: [{ type: "text", text: JSON.stringify(entry, null, 2) }] };
     }),
   );
 
@@ -1248,10 +1130,10 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Poll progress of a parallel batch. Returns completed / total and status.",
     { batch_id: z.string() },
     safeHandler("runtime_batch_status", async ({ batch_id }) => {
-      const { getBatch, serialiseBatch } = await import("../runtime/headless/parallel/batch-store.js");
-      const entry = getBatch(batch_id);
-      if (!entry) throw new Error(`batch '${batch_id}' not found`);
-      return { content: [{ type: "text", text: JSON.stringify(serialiseBatch(entry), null, 2) }] };
+      // The runtime raises `batch '<id>' not found` itself — same message.
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const entry = await runtimeDaemon.call("batch/status", { batchId: batch_id });
+      return { content: [{ type: "text", text: JSON.stringify(entry, null, 2) }] };
     }),
   );
 
@@ -1260,72 +1142,25 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Collect ReplayResult per scenario once batch is done. Errors per-scenario included.",
     { batch_id: z.string() },
     safeHandler("runtime_batch_results", async ({ batch_id }) => {
-      const { getBatch, serialiseBatch, serialiseResults } = await import("../runtime/headless/parallel/batch-store.js");
-      const entry = getBatch(batch_id);
-      if (!entry) throw new Error(`batch '${batch_id}' not found`);
-      if (entry.status === "running") throw new Error(`batch '${batch_id}' still running (${entry.completed}/${entry.total})`);
-      return { content: [{ type: "text", text: JSON.stringify({
-        batch: serialiseBatch(entry),
-        results: serialiseResults(entry),
-      }, null, 2) }] };
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.call<{ batch: { status?: string; completed?: number; total?: number } }>(
+        "batch/results", { batchId: batch_id },
+      );
+      if (r.batch?.status === "running") throw new Error(`batch '${batch_id}' still running (${r.batch.completed}/${r.batch.total})`);
+      return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     }),
   );
 
-  // ---- Spec 269 — export ----
-
-  server.tool(
-    "runtime_export_screenshot",
-    "Use to export a PNG of a scenario's screen at a given cycle (runs the scenario from start to atCycle, or end; scale 1/2/4 for pixel-art upscale). Not for the live session screen (use runtime_render_screen) or moving video (use runtime_export_video).",
-    {
-      scenario_id: z.string(),
-      out_path: z.string(),
-      scale: z.union([z.literal(1), z.literal(2), z.literal(4)]).optional().default(1),
-      at_cycle: z.number().optional(),
-    },
-    safeHandler("runtime_export_screenshot", async ({ scenario_id, out_path, scale, at_cycle }) => {
-      const { exportScreenshot } = await import("../runtime/headless/export/screenshot.js");
-      const result = await exportScreenshot(scenario_id, out_path, {
-        scale: scale as 1 | 2 | 4,
-        atCycle: at_cycle,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    }),
-  );
-
-  server.tool(
-    "runtime_export_video",
-    "Use to export an MP4 of a scenario via ffmpeg (must be installed; PAL 50fps, RGBA + s16le piped to ffmpeg). Not for a single frame (use runtime_export_screenshot) or audio only (use runtime_export_audio).",
-    {
-      scenario_id: z.string(),
-      out_path: z.string(),
-      duration: z.number().optional().default(5),
-      scale: z.union([z.literal(1), z.literal(2), z.literal(4)]).optional().default(1),
-    },
-    safeHandler("runtime_export_video", async ({ scenario_id, out_path, duration, scale }) => {
-      const { exportVideo } = await import("../runtime/headless/export/video.js");
-      const result = await exportVideo(scenario_id, out_path, {
-        duration,
-        scale: scale as 1 | 2 | 4,
-      });
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    }),
-  );
-
-  server.tool(
-    "runtime_export_audio",
-    "Render a saved SCENARIO's SID audio to a stereo s16le WAV (part of the runtime_export_* scenario family). Use to capture audio from a scenario run. Not for a live session (use runtime_session_export_audio). Inputs: scenario_id, out_path, duration. Returns: WAV path + stats.",
-    {
-      scenario_id: z.string(),
-      out_path: z.string(),
-      duration: z.number().optional().default(5),
-      format: z.enum(["wav"]).optional().default("wav"),
-    },
-    safeHandler("runtime_export_audio", async ({ scenario_id, out_path, duration }) => {
-      const { exportScenarioAudio } = await import("../runtime/headless/export/audio-export.js");
-      const result = await exportScenarioAudio(scenario_id, out_path, { duration });
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
-    }),
-  );
+  // ---- Spec 269 — export: RETIRED (Spec 806 step 3) ----
+  //
+  // `runtime_export_{screenshot,video,audio}` replayed a saved SCENARIO from its
+  // start to a cycle in an in-process TS machine and wrote a PNG / MP4 / WAV.
+  // There is no `export/*` method group on the daemon: `session/screenshot` +
+  // `runtime/render_screen` give the LIVE frame (no scenario, no cycle, no scale)
+  // and `audio/export` renders the LIVE session's SID (that is
+  // `runtime_session_export_audio`, which stays). Composing scenario_run +
+  // render_screen would be a new feature wearing an old tool's name, so the three
+  // retire with the emulator. All three were ADVANCED-only. (Spec 806 §7.2)
 
   // ---- Spec 710 — frozen-VIC inspect (checkpoint-bound, no execution advance) ----
   server.tool(
@@ -1340,30 +1175,9 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     safeHandler("runtime_vic_inspect_at", async ({ session_id, x, y, checkpoint_id }) => {
       // Spec 744.4c slice 2c — resolve a frozen pixel on the SHARED session's
       // checkpoint ring (the same frames the human inspects).
-      const { isDaemonMode, runtimeDaemon } = await import("./runtime-daemon-client.js");
-      if (isDaemonMode()) {
-        const r = await runtimeDaemon.vicInspectAt(session_id, x, y, checkpoint_id);
-        return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
-      }
-      const { getIntegratedSession } = await import("../runtime/headless/integrated-session-manager.js");
-      const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
-      const { buildVicInspectSnapshot, resolveNodeAt } = await import("../runtime/headless/inspect/vic-inspect.js");
-      const session = getIntegratedSession(session_id);
-      if (!session) throw new Error(`no session ${session_id}`);
-      const ctrl = ensureRuntimeController(session_id, session, () => {});
-      let id = checkpoint_id;
-      if (!id) {
-        if (ctrl.runState === "running") ctrl.pause();
-        const ref = await ctrl.captureCheckpoint();
-        ctrl.checkpointRing.pin(ref.id);
-        id = ref.id;
-      }
-      const cp = ctrl.checkpointRing.restoreSnapshot(String(id))?.payload as any;
-      if (!cp || !cp.vic || !cp.ram) throw new Error(`runtime_vic_inspect_at: unknown checkpoint ${id}`);
-      const frame = buildVicInspectSnapshot(cp);
-      const provenance = cp.vicProvenance ?? undefined; // 710.4/710.5 — from the checkpoint payload
-      const node = resolveNodeAt(cp, x | 0, y | 0, provenance);
-      return { content: [{ type: "text", text: JSON.stringify({ checkpointId: id, frame, node, hasProvenance: !!provenance }, null, 2) }] };
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.vicInspectAt(session_id, x, y, checkpoint_id);
+      return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     }),
   );
 }

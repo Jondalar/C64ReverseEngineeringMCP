@@ -2,7 +2,7 @@
 // Spec 724.3 — ONE workspace bootstrap. Resolves the project dir ONCE and
 // starts both backends with it:
 //   - HTTP (knowledge API + UI)  : dist/workspace-ui/server.js  (:4310)
-//   - WS   (live runtime)        : dist/runtime/headless/daemon/run.js  (:4312)
+//   - WS   (live runtime)        : the runtime daemon binary     (:4312)
 // Usage: npm run workspace -- --project <dir> [--dev-samples] [--port <http>]
 // No cwd fallback — a project path is required (usable outside the C64RE repo).
 
@@ -61,14 +61,14 @@ start("http", "node", [`${repoRoot}/dist/workspace-ui/server.js`, "--port", http
 if (process.env.C64RE_RUNTIME_ENDPOINT || process.env.C64RE_RUNTIME_WS) {
   console.log(`[workspace] Live runtime WS is the Runtime Daemon (${process.env.C64RE_RUNTIME_ENDPOINT ?? "co-host"}); not starting a standalone WS. Run \`npm run runtime:daemon\`.`);
 } else {
-  // Spec 757 — ONE WS-start path: the Runtime Daemon entry (the same WsServer).
-  // Spec 771.1 — the shared resolver picks the backend (external C64RE_RUNTIME_BIN /
-  // TRX64, else built dist). It re-derives --project/--port itself so the external bin
-  // never receives the TS-only --dev-samples flag.
+  // Spec 757 — ONE WS-start path: the Runtime Daemon entry.
+  // Spec 771.1 — the shared resolver locates the daemon binary (C64RE_RUNTIME_BIN /
+  // C64RE_TRX64_BIN / the sibling release build). Spec 806: there is no second tier,
+  // so `mode === "none"` means "not built" and the run stops with that message.
   const { resolveDaemonSpawn } = await import(
-    `${repoRoot}/dist/runtime/headless/daemon/resolve-daemon-spawn.js`
+    `${repoRoot}/dist/runtime/resolve-daemon-spawn.js`
   );
-  const plan = resolveDaemonSpawn({ repoRoot, projectDir, port: "4312", devSamples });
+  const plan = resolveDaemonSpawn({ repoRoot, projectDir, port: "4312" });
   if (plan.warn) console.warn(`[workspace] ${plan.warn}`);
   if (plan.mode === "none") {
     console.error("[workspace] no runtime daemon entry found");

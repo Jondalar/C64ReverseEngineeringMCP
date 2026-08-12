@@ -26,7 +26,7 @@ try {
   ({
     loadLibraries, loadLibrary, scanFingerprints, addFingerprintToLibrary,
     structuralHash, byteHash, findRoutineBoundaries,
-  } = await import(`${repoRoot}/dist/runtime/headless/v2/fingerprint.js`));
+  } = await import(`${repoRoot}/dist/analysis/fingerprint.js`));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");
   console.error(e?.message ?? e);

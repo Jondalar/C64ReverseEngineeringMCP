@@ -47,10 +47,12 @@ ok(!browserParse, "6 no browser-side media parser/loader (backend is the authori
 // 7. no repo-samples fallback in the drop path.
 ok(!/samples\//.test(src), "7 no repo-samples reference in the Media tab", /samples\//.test(src) ? "found" : "none");
 
-// 8. the backend media/ingress route exists + accepts bytes_b64.
-const wsSrv = readFileSync(join(ROOT, "src/workspace-ui/ws-server.ts"), "utf8");
-ok(/this\.on\("media\/ingress"/.test(wsSrv) && /bytes_b64/.test(wsSrv),
-  "8 backend media/ingress route exists + accepts bytes_b64", "");
+// 8. the shared media-ingress REQUEST BUILDER accepts bytes_b64 (Spec 806: the
+//    route itself now lives in the runtime daemon; what C64RE still owns — and
+//    what this smoke can assert — is the wire shape both sides build).
+const ingressReq = readFileSync(join(ROOT, "src/media-format/ingress-request.ts"), "utf8");
+ok(/bytes_b64/.test(ingressReq) && /buildIngressRequest/.test(ingressReq),
+  "8 shared media-ingress request builder accepts bytes_b64", "");
 
 console.log(`\n--- report ---`);
 console.log(`Media tab drag&drop → backend media/ingress (disk→drive8, crt→cold boot, prg→load+RUN); no second loader; no repo-samples.`);

@@ -57,16 +57,11 @@ if (existsSync(wsDir)) {
 }
 ok(cwdHits.length === 0, "3 no silent cwd-default / cwd+samples project resolution in workspace-ui", cwdHits.slice(0, 6).join(",") || "none");
 
-// 3b. the v3 runtime WS media-samples scan is gated by an explicit dev flag
-//     (no silent repo-samples fallback) — Spec 724.4 / probe-workspace-single #2.
-const wsSrv = join(ROOT, "src/workspace-ui/ws-server.ts");
-let samplesGated = true;
-if (existsSync(wsSrv)) {
-  const src = readFileSync(wsSrv, "utf8");
-  // if a samplesDir scan exists at all, it must be guarded by devSamples.
-  if (/samplesDir/.test(src)) samplesGated = /devSamples\s*&&\s*[^\n]*samplesDir|samplesDir[^\n]*&&\s*[^\n]*devSamples/.test(src) || /this\.devSamples\s*&&\s*fsmod\.existsSync\(samplesDir\)/.test(src);
-}
-ok(samplesGated, "3b v3-ws media samples scan is dev-flag gated (no silent repo-samples fallback)", samplesGated ? "gated" : "UNGATED");
+// 3b. RETIRED (Spec 806) — this asserted that the TS runtime WS server's
+//     repo-`samples/` media scan was gated behind `--dev-samples`. That server
+//     went with the TS emulator; the runtime daemon serves media from the
+//     project it was spawned with and has no repo-samples scan to gate. Check 3
+//     above still covers the surviving workspace-ui resolution.
 
 // 4. the shared project resolver exists (724A).
 const resolverTs = join(ROOT, "src/workspace-ui/resolve-project-dir.ts");

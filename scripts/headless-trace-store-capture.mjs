@@ -74,24 +74,8 @@ console.log(`headless-trace-store-capture (Spec 217 Spike B)`);
 console.log(`  disk     : ${diskPath}`);
 console.log(`  mode     : ${traceMode}`);
 console.log(`  run sec  : ${runSec}`);
-console.log(`  type     : ${typeText.slice(0, 40)}${typeText.length > 40 ? "…" : ""}`);
-console.log(`  out      : ${outRoot}`);
-
-const { startIntegratedSession } = await import(`${repoRoot}/dist/runtime/headless/integrated-session-manager.js`);
-const { mountMedia } = await import(`${repoRoot}/dist/runtime/headless/media/mount.js`);
-const { openStore, closeStore, exportParquet, DuckDbTraceSink } =
-  await import(`${repoRoot}/dist/runtime/trace-store/duckdb-store.js`);
-const { TraceStoreProducer } = await import(`${repoRoot}/dist/runtime/trace-store/producer.js`);
-const { buildAnchors, DEFAULT_MOTM_ANCHORS } = await import(`${repoRoot}/dist/runtime/trace-store/anchor-builder.js`);
-const { buildRollups } = await import(`${repoRoot}/dist/runtime/trace-store/rollup-builder.js`);
-
-// ---------- session + store ----------
-
-const PAL_HZ = 985_248;
-const DRIVE_HZ = 1_000_000;
-const RUN_CYC = runSec * PAL_HZ;
-
-const runId = `headless-${label}-${new Date().toISOString().replace(/[:.]/g, "").slice(0, 15)}`;
+console.log(`  type     : ${typeText.slice(0, 40)}${typeText.length > 40 ? "…" : ""../src/trace/store/duckdb-store.js`);
+const { TraceStoreProducer } = await import(`${repoRoot}/dist"").slice(0, 15)}`;
 const meta = {
   runId,
   source: "headless",

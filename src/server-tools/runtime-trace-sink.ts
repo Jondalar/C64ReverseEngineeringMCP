@@ -1,13 +1,15 @@
-// Spec 726.2c — live-session trace sink wiring for the MCP runtime tools.
-// Binds the existing TraceRunController (RuntimeController.traceRun, Spec 708) to
-// a live session: build a capture-all definition from the requested domains,
-// enable the matching passive producers, stream to a project-resolved
-// trace.duckdb. ONE production path (§2b); no parallel trace system.
-import { resolve, isAbsolute, join } from "node:path";
-import type { IntegratedSession } from "../runtime/headless/integrated-session.js";
+// Spec 726.2c — trace-definition + path helpers for the MCP runtime tools.
+//
+// Spec 806 step 3: the three functions that DROVE a trace (startSessionTrace /
+// sessionTraceActive / drainSessionTrace) bound an in-process RuntimeController
+// and went with the TS emulator. Starting, draining and finalizing a live trace
+// is the runtime daemon's job (runtime_trace_start / _finalize / _status).
+// What stays is backend-neutral: the domain→definition builder, the producer
+// options implied by a domain set, and the trace_out path resolver.
+import { resolve, isAbsolute } from "node:path";
 import type {
   RuntimeTraceDefinition, TraceDomain, TraceTrigger, TraceCapture,
-} from "../runtime/headless/trace/trace-definition.js";
+} from "../trace/trace-definition.js";
 
 export const ALL_DOMAINS: TraceDomain[] = ["c64-cpu", "drive8-cpu", "iec", "vic", "memory"];
 
@@ -64,34 +66,3 @@ export function resolveTraceOut(traceOut: string, projectDir: string | undefined
   if (isAbsolute(traceOut)) return traceOut;
   return projectDir ? resolve(projectDir, traceOut) : resolve(traceOut);
 }
-
-/** Start a streaming trace on a live session via its RuntimeController.traceRun.
- *  Returns the run id. Caller must have enabled the matching producers at
- *  session construction (producerOptsForDomains). */
-export async function startSessionTrace(
-  sessionId: string, session: IntegratedSession, traceOut: string, domains: TraceDomain[],
-): Promise<{ runId: string; outputPath: string; domains: TraceDomain[] }> {
-  const { ensureRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
-  const ctrl = ensureRuntimeController(sessionId, session, () => {});
-  const def = captureAllDef(domains);
-  // Spec 726.B — the live product trace uses the binary `.c64retrace` timeline
-  // (authority) + a DuckDB index built at finalize. The legacy JSON-streaming
-  // sink stays only for the advanced scenario/test path.
-  const run = await ctrl.traceRun.start(def, { controller: ctrl, outputPath: traceOut, binary: true });
-  return { runId: run.runId, outputPath: traceOut, domains };
-}
-
-/** True if a streaming trace run is active for the session. */
-export async function sessionTraceActive(sessionId: string): Promise<boolean> {
-  const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
-  return getRuntimeController(sessionId)?.traceRun.isActive() ?? false;
-}
-
-/** Flush the trace queue to DuckDB (called between run-chunks; emulator paused). */
-export async function drainSessionTrace(sessionId: string): Promise<void> {
-  const { getRuntimeController } = await import("../runtime/headless/debug/runtime-controller.js");
-  const ctrl = getRuntimeController(sessionId);
-  if (ctrl?.traceRun.isActive()) await ctrl.traceRun.drain();
-}
-
-void join;

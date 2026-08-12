@@ -12,13 +12,13 @@ const repoRoot = resolvePath(import.meta.dirname, "..");
 
 const { allocateInstructionChunk, allocateBusEventChunk, allocateChipEventChunk,
   appendInstruction, appendBusEvent, appendChipEvent } =
-  await import(`${repoRoot}/dist/runtime/trace-store/chunk-buffer.js`);
+  await import(`${repoRoot}/dist/trace/store/chunk-buffer.js`);
 const { openStore, closeStore, DuckDbTraceSink } =
-  await import(`${repoRoot}/dist/runtime/trace-store/duckdb-store.js`);
+  await import(`${repoRoot}/dist/trace/store/duckdb-store.js`);
 const { DuckDbQueryBackend } =
-  await import(`${repoRoot}/dist/runtime/headless/v2/duckdb-backend.js`);
+  await import(`${repoRoot}/dist/analysis/duckdb-backend.js`);
 const { followPath } =
-  await import(`${repoRoot}/dist/runtime/headless/v2/follow-path.js`);
+  await import(`${repoRoot}/dist/analysis/follow-path.js`);
 
 const tmpDir = "/tmp/c64re-follow-path-smoke";
 if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true });

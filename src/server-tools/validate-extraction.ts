@@ -1,4 +1,4 @@
-import { cartBankUsage, type CartBankUsage, type CartReadSetEntry, type ReadSetEntry } from "../runtime/headless/trace/loader-lens.js";
+import { cartBankUsage, type CartBankUsage, type CartReadSetEntry, type ReadSetEntry } from "../trace/loader-lens.js";
 import type { LoaderManifest } from "./loader-manifest.js";
 
 // Spec 784 B4 + Spec 785 C2/C3 — the validation verdict (meaning → C64RE).

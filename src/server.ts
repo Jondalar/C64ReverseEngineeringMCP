@@ -32,7 +32,6 @@ import { registerTraceStoreTools } from "./server-tools/trace-store.js";
 import { phaseForTool, PHASE_TITLES } from "./agent-orchestrator/phase-tools.js";
 import { tierForTool, fullToolsEnabled } from "./server-tools/tier-tools.js";
 import { phaseGatedHandler } from "./server-tools/phase-gate-handler.js";
-import { registerViceTools } from "./server-tools/vice.js";
 import type { KnowledgeRegistrationInput, KnowledgeRegistrationResult, ServerToolContext } from "./server-tools/types.js";
 
 // ---------------------------------------------------------------------------
@@ -177,7 +176,6 @@ function createServer(): McpServer {
   registerAgentStepTools(server, toolContext);
   registerSandboxTools(server, toolContext);
   registerSandboxDepackTool(server, toolContext);
-  registerViceTools(server, toolContext);
   registerProjectKnowledgeTools(server, { repoDir: repoDir() });
 
   return server;
@@ -228,7 +226,6 @@ export function collectToolInventory(): { name: string; description: string; fil
   group("server-tools/agent-step.ts", () => registerAgentStepTools(server, toolContext));
   group("server-tools/sandbox.ts", () => registerSandboxTools(server, toolContext));
   group("server-tools/sandbox-depack.ts", () => registerSandboxDepackTool(server, toolContext));
-  group("server-tools/vice.ts", () => registerViceTools(server, toolContext));
   group("project-knowledge/mcp-tools.ts", () => registerProjectKnowledgeTools(server, { repoDir: repoDir() }));
   return inv;
 }

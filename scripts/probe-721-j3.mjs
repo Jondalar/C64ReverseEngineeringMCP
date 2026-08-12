@@ -13,7 +13,7 @@ import { join } from "node:path";
 
 let assetJoinToKnowledge, ProjectKnowledgeService;
 try {
-  ({ assetJoinToKnowledge } = await import("../dist/runtime/headless/inspect/asset-join-knowledge.js"));
+  ({ assetJoinToKnowledge } = await import("../dist/inspect/asset-join-knowledge.js"));
   ({ ProjectKnowledgeService } = await import("../dist/project-knowledge/service.js"));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");

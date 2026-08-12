@@ -314,7 +314,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       const captureAbs = resolve(projectRoot, args.capture_path);
       if (!existsSync(captureAbs)) throw new Error(`capture_path not found: ${captureAbs}`);
       const { readSetFromCaptureFile, cartReadSetFromCaptureFile, captureMetaFromFile } =
-        await import("../runtime/headless/trace/loader-lens.js");
+        await import("../trace/loader-lens.js");
       const readSet = readSetFromCaptureFile(captureAbs);
       // Spec 785 C2 — the cart lane out of the SAME capture. Empty unless the trace
       // armed the `cart-read` domain; then slot spans are skipped as they were before.

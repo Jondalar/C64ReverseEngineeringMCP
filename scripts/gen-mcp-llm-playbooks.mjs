@@ -1,8 +1,7 @@
 // Spec 728 — MCP LLM Playbooks generator.
 // One source-of-truth array → docs/mcp-llm-playbooks.{json,md}. Every tool named
 // is validated against docs/tool-surface-inventory.json at generation time, so
-// the playbooks can never reference a tool that does not exist. vice_* tools are
-// resolved dynamically and only ever appear in the Internal Dev Oracle playbook.
+// the playbooks can never reference a tool that does not exist.
 //
 // Run: node scripts/gen-mcp-llm-playbooks.mjs
 // Gate: node scripts/probe-mcp-llm-playbooks.mjs
@@ -13,12 +12,11 @@ import { dirname, join } from "node:path";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const inv = JSON.parse(readFileSync(join(ROOT, "docs/tool-surface-inventory.json"), "utf8"));
 const have = new Set(inv.tools.map((t) => t.name));
-const viceTools = inv.tools.map((t) => t.name).filter((n) => n.startsWith("vice_"));
 
 const GLOBAL_RULES = [
   "Persist important results in project knowledge, not only in chat (save_finding / save_entity / save_open_question).",
   "After each substantive step, call agent_record_step and propose the next action.",
-  "The default runtime backend is TRX64 (native Rust daemon); the in-repo TypeScript runtime is the fallback / parity oracle. Use the runtime_* tools for product work; VICE is a correctness oracle only, never a fallback for user projects. Leitregel: Capability -> TRX64, Meaning/Memory -> C64RE.",
+  "There is ONE runtime, reached through the runtime_* tools. It is a separate daemon process; if it is unavailable the tool says so and carries the setup recipe — there is no second machine and no fallback to reach for.",
   "Do not enable C64RE_FULL_TOOLS as a normal solution.",
   "Do not call the V3 WebSocket directly when an MCP tool exists.",
   "Never assume repo-relative samples/ or process cwd for user media; take absolute or project-relative paths from the user.",
@@ -96,7 +94,7 @@ const PLAYBOOKS = [
     userIntentExamples: ["Run the game first and trace what executes.", "Boot ./game.d64 and capture a trace."],
     preconditions: ["A project exists.", "A bootable .d64/.g64/.crt path is known.", "Spec 726 live trace sink is available."],
     steps: [
-      { actor: "llm", action: "Start the runtime (TRX64 default) with durable capture (trace_out to a project-relative or absolute .duckdb).", tools: ["runtime_session_start"], persist: ["session", "trace.duckdb"],
+      { actor: "llm", action: "Start the runtime with durable capture (trace_out to a project-relative or absolute .duckdb).", tools: ["runtime_session_start"], persist: ["session", "trace.duckdb"],
         snippet: 'runtime_session_start({ disk_path: "<user/project .d64 or .g64>", trace_out: "traces/<run>.duckdb", trace_domains: ["c64-cpu","drive8-cpu","iec","memory"] })' },
       { actor: "runtime", action: "Run to a stable BASIC READY screen.", tools: ["runtime_session_run", "runtime_until"], persist: [],
         snippet: 'runtime_session_run({ session_id, max_instructions: 2000000, until: { kind: "stable_screen", frames_stable: 3 } })' },
@@ -163,7 +161,7 @@ const PLAYBOOKS = [
     ],
     stopConditions: ["Annotations cite executed-PC / access evidence; dead labels removed."],
     nextActions: ["Frozen Visual Inspect or Change/Patch iteration."],
-    forbiddenShortcuts: ["Do not use VICE; the Headless trace is the product evidence."],
+    forbiddenShortcuts: ["The runtime trace IS the evidence; do not substitute prose for it."],
   },
   {
     id: "human-assisted-loader-protection",
@@ -171,7 +169,7 @@ const PLAYBOOKS = [
     userIntentExamples: ["Press fire when I tell you and trace the loader.", "It asks for a password / disk flip."],
     preconditions: ["A session with trace_out is running.", "The human can provide input on request."],
     steps: [
-      { actor: "llm", action: "Start the runtime (TRX64 default) with trace_out.", tools: ["runtime_session_start"], persist: ["trace.duckdb"] },
+      { actor: "llm", action: "Start the runtime with trace_out.", tools: ["runtime_session_start"], persist: ["trace.duckdb"] },
       { actor: "human", action: "Tell the LLM what to press / when to continue / which disk.", tools: [], persist: [], askHumanWhen: "interaction is required (fire, menu, password, disk swap)" },
       { actor: "llm", action: "Drive input and stamp marks for human-observed phases.", tools: ["runtime_type", "runtime_joystick", "runtime_media_swap", "runtime_mark"], persist: ["marks"] },
       { actor: "tracedb", action: "Query IEC / $DD00 / drive PC / bus around the marks.", tools: ["trace_store_bus_find", "runtime_swimlane_slice", "runtime_profile_loader", "runtime_query_events"], persist: ["loader evidence"] },
@@ -187,7 +185,7 @@ const PLAYBOOKS = [
     userIntentExamples: ["This logo — where do the bytes come from?", "What draws this sprite/text?"],
     preconditions: ["A session can be paused at the visible state.", "A trace may exist for write provenance."],
     steps: [
-      { actor: "llm", action: "Capture a checkpoint + render the screen.", tools: ["runtime_session_snapshot", "runtime_render_screen"], persist: ["checkpoint", "screen"] },
+      { actor: "llm", action: "Capture a checkpoint + render the screen.", tools: ["runtime_checkpoint_capture", "runtime_render_screen"], persist: ["checkpoint", "screen"] },
       { actor: "llm", action: "Resolve a pixel/cell to VIC/RAM evidence; read the backing RAM.", tools: ["runtime_vic_inspect_at", "runtime_monitor_memory"], persist: ["VIC/RAM evidence"] },
       { actor: "tracedb", action: "Query trace writes around the frame/mark to find the producing code.", tools: ["trace_store_bus_find", "runtime_query_events"], persist: ["write provenance"] },
       { actor: "llm", action: "Link the visual evidence to RAM/file/payload/disassembly.", tools: ["save_entity", "save_finding", "link_entities", "link_payload_to_asm", "agent_record_step"], persist: ["asset→origin link"] },
@@ -212,21 +210,6 @@ const PLAYBOOKS = [
     forbiddenShortcuts: ["Dedicated code-overlay/branch tooling (Spec 711/712) is not yet exposed; do not claim it exists.", "Do not skip before/after evidence."],
   },
   {
-    id: "internal-dev-oracle-vice",
-    title: "Internal Dev Oracle / VICE",
-    userIntentExamples: ["(C64RE developer) Compare our drive timing against VICE.", "Investigate a port-fidelity divergence."],
-    preconditions: ["You are developing/debugging the C64RE MCP/core itself.", "A specific internal dev fixture/artifact is named (not an implicit repo sample)."],
-    steps: [
-      { actor: "llm", action: "Capture the Headless behaviour first (this is the product authority).", tools: ["runtime_session_start", "runtime_session_run", "runtime_trace_finalize"], persist: ["headless trace"] },
-      { actor: "llm", action: "Run the VICE oracle on the SAME named fixture and compare boundary lanes.", tools: viceTools.slice(0, 6), persist: ["oracle diff finding"], askHumanWhen: "the divergence fixture is not explicitly named" },
-      { actor: "llm", action: "Record the first divergence as a finding with an oracle reference.", tools: ["save_finding", "agent_record_step"], persist: ["divergence finding"] },
-    ],
-    stopConditions: ["First divergence identified with an oracle reference."],
-    nextActions: ["Fix the port per the C→TS forensic doctrine; re-validate with Headless."],
-    forbiddenShortcuts: ["Never expose VICE as a product workflow path.", "Never use a VICE trace as a replacement for Headless evidence.", "Never tell an external LLM/user to switch to VICE.", "Never use an implicit repo-sample fixture."],
-    internalOnly: true,
-  },
-  {
     id: "operator-maintenance",
     title: "Operator / Maintenance",
     userIntentExamples: ["The project store has duplicates.", "Backfill missing records."],
@@ -247,7 +230,7 @@ const unknown = [];
 for (const pb of PLAYBOOKS) for (const s of pb.steps) for (const t of (s.tools || [])) if (!have.has(t)) unknown.push(`${pb.id}:${t}`);
 if (unknown.length) { console.error("ERROR: playbooks reference tools not in inventory:\n  " + unknown.join("\n  ")); process.exit(2); }
 
-const json = { generated: "scripts/gen-mcp-llm-playbooks.mjs", spec: "728", globalRules: GLOBAL_RULES, viceToolCount: viceTools.length, playbooks: PLAYBOOKS };
+const json = { generated: "scripts/gen-mcp-llm-playbooks.mjs", spec: "728", globalRules: GLOBAL_RULES, playbooks: PLAYBOOKS };
 writeFileSync(join(ROOT, "docs/mcp-llm-playbooks.json"), JSON.stringify(json, null, 2));
 
 let md = `# MCP LLM Playbooks (Spec 728)
@@ -281,4 +264,4 @@ for (const pb of PLAYBOOKS) {
 }
 writeFileSync(join(ROOT, "docs/mcp-llm-playbooks.md"), md);
 
-console.log(`728 playbooks: ${PLAYBOOKS.length} playbooks, ${viceTools.length} vice tools available → docs/mcp-llm-playbooks.{json,md}`);
+console.log(`728 playbooks: ${PLAYBOOKS.length} playbooks → docs/mcp-llm-playbooks.{json,md}`);

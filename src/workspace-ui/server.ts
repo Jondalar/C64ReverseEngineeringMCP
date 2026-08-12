@@ -7,8 +7,8 @@ import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { resolveProjectDir } from "./resolve-project-dir.js";
 import { persistInspectEvidence } from "./inspect-evidence-persist.js";
 import { persistAssetJoin } from "./asset-join-persist.js";
-import type { JoinKnowledge } from "../runtime/headless/inspect/asset-join-knowledge.js";
-import type { FrozenInspectEvidence } from "../runtime/headless/inspect/vic-inspect-types.js";
+import type { JoinKnowledge } from "../inspect/asset-join-knowledge.js";
+import type { FrozenInspectEvidence } from "../inspect/vic-inspect-types.js";
 import { auditProject, auditProjectCached } from "../project-knowledge/audit.js";
 import { repairProject } from "../project-knowledge/repair.js";
 import { runPayloadReverseWorkflow, runPrgReverseWorkflow } from "../lib/prg-workflow.js";
@@ -359,7 +359,7 @@ const server = createServer((req, res) => {
   //
   // Spec 802 — these are a CUSTOMER path (the browser workbench's trace panel), so
   // they read THROUGH the runtime like every other trace read. They used to import
-  // `runtime/trace-store/queries.js` and open `@duckdb/node-api` directly in this
+  // `trace/store/queries.js` and open `@duckdb/node-api` directly in this
   // HTTP process: a third reader for the same bytes, in a process that is not even
   // the store's owner. Response shapes are unchanged — only the reader moved.
   if (requestUrl.pathname === "/api/traces") {

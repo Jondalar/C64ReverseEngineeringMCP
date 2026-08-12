@@ -12,15 +12,15 @@ const repoRoot = resolvePath(import.meta.dirname, "..");
 
 const { allocateInstructionChunk, allocateBusEventChunk, allocateChipEventChunk,
   appendInstruction, appendBusEvent, appendChipEvent } =
-  await import(`${repoRoot}/dist/runtime/trace-store/chunk-buffer.js`);
+  await import(`${repoRoot}/dist/trace/store/chunk-buffer.js`);
 const { openStore, closeStore, DuckDbTraceSink } =
-  await import(`${repoRoot}/dist/runtime/trace-store/duckdb-store.js`);
+  await import(`${repoRoot}/dist/trace/store/duckdb-store.js`);
 const { queryEvents } =
-  await import(`${repoRoot}/dist/runtime/headless/v2/query-events.js`);
+  await import(`${repoRoot}/dist/analysis/query-events.js`);
 const { DuckDbQueryBackend } =
-  await import(`${repoRoot}/dist/runtime/headless/v2/duckdb-backend.js`);
+  await import(`${repoRoot}/dist/analysis/duckdb-backend.js`);
 const { traceTaint } =
-  await import(`${repoRoot}/dist/runtime/headless/v2/taint.js`);
+  await import(`${repoRoot}/dist/analysis/taint.js`);
 
 const tmpDir = "/tmp/c64re-taint-smoke";
 if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true });

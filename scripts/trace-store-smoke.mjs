@@ -23,16 +23,16 @@ const {
   appendInstruction,
   appendBusEvent,
   appendChipEvent,
-} = await import(`${repoRoot}/dist/runtime/trace-store/chunk-buffer.js`);
+} = await import(`${repoRoot}/dist/trace/store/chunk-buffer.js`);
 
-const { NullTraceSink } = await import(`${repoRoot}/dist/runtime/trace-store/trace-sink.js`);
+const { NullTraceSink } = await import(`${repoRoot}/dist/trace/store/trace-sink.js`);
 const {
   openStore,
   closeStore,
   exportParquet,
   DuckDbTraceSink,
   SCHEMA_VERSION,
-} = await import(`${repoRoot}/dist/runtime/trace-store/duckdb-store.js`);
+} = await import(`${repoRoot}/dist/trace/store/duckdb-store.js`);
 
 let pass = 0;
 let fail = 0;

@@ -1,10 +1,9 @@
 {
-  "total": 303,
-  "specCount": 70,
-  "advancedCandidate": 165,
+  "total": 253,
+  "specCount": 44,
+  "advancedCandidate": 109,
   "byNamespace": {
-    "runtime": 83,
-    "vice": 49,
+    "runtime": 82,
     "list": 19,
     "project": 11,
     "save": 10,
@@ -1298,64 +1297,136 @@
       "name": "runtime_batch_results",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 271 — collect ReplayResult per scenario once batch is done.",
-      "desc": "Spec 271 — collect ReplayResult per scenario once batch is done. Errors per-scenario included.",
+      "hasSpec": false,
+      "firstSentence": "Collect ReplayResult per scenario once batch is done.",
+      "desc": "Collect ReplayResult per scenario once batch is done. Errors per-scenario included.",
       "tier": "advanced?"
     },
     {
       "name": "runtime_batch_status",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 271 — poll progress of a parallel batch.",
-      "desc": "Spec 271 — poll progress of a parallel batch. Returns completed / total and status.",
+      "hasSpec": false,
+      "firstSentence": "Poll progress of a parallel batch.",
+      "desc": "Poll progress of a parallel batch. Returns completed / total and status.",
       "tier": "advanced?"
     },
     {
       "name": "runtime_bookmark_add",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 242 — add trace bookmark with bind mode (cycle/event-key/both).",
-      "desc": "Spec 242 — add trace bookmark with bind mode (cycle/event-key/both). Persisted in trace store DuckDB.",
+      "hasSpec": false,
+      "firstSentence": "Add trace bookmark with bind mode (cycle/event-key/both).",
+      "desc": "Add trace bookmark with bind mode (cycle/event-key/both). Persisted in trace store DuckDB.",
       "tier": "advanced?"
     },
     {
       "name": "runtime_bookmark_list",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 242 — list bookmarks for a run.",
-      "desc": "Spec 242 — list bookmarks for a run.",
+      "hasSpec": false,
+      "firstSentence": "List bookmarks for a run.",
+      "desc": "List bookmarks for a run.",
       "tier": "advanced?"
     },
     {
       "name": "runtime_breakpoint_add",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 241 — add PC breakpoint with an action (halt/log/snapshot/trace_burst).",
-      "desc": "Spec 241 — add PC breakpoint with an action (halt/log/snapshot/trace_burst).",
+      "hasSpec": false,
+      "firstSentence": "Add PC breakpoint with an action (halt/log/snapshot/trace_burst).",
+      "desc": "Add PC breakpoint with an action (halt/log/snapshot/trace_burst).",
       "tier": "advanced?"
     },
     {
       "name": "runtime_breakpoint_list",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 241 — list all registered breakpoints.",
-      "desc": "Spec 241 — list all registered breakpoints.",
+      "hasSpec": false,
+      "firstSentence": "List all registered breakpoints.",
+      "desc": "List all registered breakpoints.",
       "tier": "advanced?"
     },
     {
       "name": "runtime_breakpoint_remove",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 241 — remove breakpoint by id.",
-      "desc": "Spec 241 — remove breakpoint by id.",
+      "hasSpec": false,
+      "firstSentence": "Remove breakpoint by id.",
+      "desc": "Remove breakpoint by id.",
       "tier": "advanced?"
+    },
+    {
+      "name": "runtime_candidate_create",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set.",
+      "desc": "Create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set. Runs the NO-PATCH scenario once to cache the equivalence baseline. Start an iterate-your-own-code loop on a fixed snapshot. Inputs: session_id, anchor (checkpoint id), scenario {inputs, cycleBudget}. Returns: the candidate {id, ...}.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_candidate_delete",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Delete a candidate from the session store.",
+      "desc": "Delete a candidate from the session store. Inputs: session_id, id. Returns: {id, deleted}.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_candidate_derive_delta",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Derive the FINAL CODE DELTA from a candidate: turn its exported source-patch-set into a build-ready delta on disk — one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md.",
+      "desc": "Derive the FINAL CODE DELTA from a candidate: turn its exported source-patch-set into a build-ready delta on disk — one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md. The code that goes into the real build (the meaning-bridge payoff). Inputs: session_id, id, out_dir? (default <project>/delta-<id>). Returns: outDir + written files + manifest.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_candidate_export",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Export a candidate's accumulated source-patch-set = the delta seed (the code that goes into the real build; the final-delta shaping is a later step).",
+      "desc": "Export a candidate's accumulated source-patch-set = the delta seed (the code that goes into the real build; the final-delta shaping is a later step). Inputs: session_id, id. Returns: {id, patches:[{space,bank,addr,source}]}.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_candidate_list",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "List candidates (id omitted) or show one candidate's patches + last verdict.",
+      "desc": "List candidates (id omitted) or show one candidate's patches + last verdict. Inputs: session_id, id?. Returns: candidate(s).",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_candidate_patch",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step).",
+      "desc": "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step). Give `source_path` (an .asm/.tass file, assembled here → bytes) OR pre-assembled `bytes`. `space` ram|roml|romh + `bank` + `addr` (CPU window addr) target RAM or a cart bank (795). Re-adding at the same target REPLACES (iterate a fix). Inputs: session_id, id, addr, space?, bank?, source_path?|bytes?. Returns: the candidate.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_candidate_remove_patch",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Remove the overlay patch at (space, bank, addr) from a candidate.",
+      "desc": "Remove the overlay patch at (space, bank, addr) from a candidate. Inputs: session_id, id, addr, space?, bank?. Returns: the candidate + removed:bool.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_candidate_run",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Run a candidate: restore its baseline anchor, apply ALL its patches, play the bound scenario (deterministic), and AUTO-DIFF (794) vs the no-patch baseline → the verdict 'what did my code change / is it equivalent'.",
+      "desc": "Run a candidate: restore its baseline anchor, apply ALL its patches, play the bound scenario (deterministic), and AUTO-DIFF (794) vs the no-patch baseline → the verdict 'what did my code change / is it equivalent'. Ephemeral (anchor untouched). Inputs: session_id, id. Returns: {registers, verdict, ranCycles, diff}.",
+      "tier": "default?"
     },
     {
       "name": "runtime_checkpoint_capture",
@@ -1403,13 +1474,13 @@
       "tier": "default?"
     },
     {
-      "name": "runtime_diagnose_mm",
-      "file": "server-tools/headless.ts",
+      "name": "runtime_component_diff",
+      "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at $46A7, drive PC repeats, cycle budget exhausted).",
-      "desc": "Spec 093: open or reuse an integrated session, run Maniac Mansion (or any G64) until it reaches the title screen or a known stall heuristic fires (C64 stuck at $46A7, drive PC repeats, cycle budget exhausted). Writes a registered JSON artifact under analysis/headless/ and returns a one-line verdict + key blame. Cycle-lockstep + microcoded CPU enforced; tool will refuse misleading success.",
-      "tier": "advanced?"
+      "hasSpec": false,
+      "firstSentence": "Whitebox component-diff of two .c64re snapshots: a per-component equivalence VERDICT (cpu/ram/colorram/cia/vic/sid/drive incl.",
+      "desc": "Whitebox component-diff of two .c64re snapshots: a per-component equivalence VERDICT (cpu/ram/colorram/cia/vic/sid/drive incl. Floppy RAM + internal chip state) with a caller exclusion mask. Use to SCORE a candidate snapshot against a baseline — the sandbox fan-out eval step, a refactor-equivalence check, or which component a change actually moved. Not a live memory read (use runtime_monitor_memory), not the VSF-file diff (use runtime_diff_snapshots).",
+      "tier": "default?"
     },
     {
       "name": "runtime_diff_snapshots",
@@ -1421,75 +1492,12 @@
       "tier": "default?"
     },
     {
-      "name": "runtime_drive_persist_writes",
-      "file": "server-tools/headless.ts",
-      "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64.",
-      "desc": "Spec 062 Sprint 63 (Q4.C): write modified GCR tracks back to disk as <image>_session.g64. Original image untouched. Returns paths + modified track list. Save-game RE workflow trigger.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "runtime_drive_session_load_vsf",
-      "file": "server-tools/headless.ts",
-      "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 64: load a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED) into a drive session.",
-      "desc": "Spec 062 Sprint 64: load a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED) into a drive session. Modules the headless drive runtime owns are restored; modules it doesn't model (VIC, SID, CIA1, KEYBOARD, etc.) are reported as ignored. Use to resume a previous trace or to import externally saved state.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "runtime_drive_session_save_vsf",
-      "file": "server-tools/headless.ts",
-      "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 64: save the drive session's full state as a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED; interchange only).",
-      "desc": "Spec 062 Sprint 64: save the drive session's full state as a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED; interchange only). Modules: DRIVECPU, DRIVERAM, VIA1d1541, VIA2d1541, IECBUS, GCRHEAD. C64 RAM + MainCPU added when full headless C64 ROM integration lands.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "runtime_drive_session_start",
-      "file": "server-tools/headless.ts",
-      "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image.",
-      "desc": "Spec 062 / R28 L3: open a standalone 1541 drive emulation session backed by a G64 image. Returns a session id usable with the other headless_drive_* tools. Drive emulation runs cycle-accurately with full 6522 VIA + IEC bus modelling. The drive boots via its bundled DOS ROM (resources/roms/dos1541-...bin). For test/runtime tracing of custom loaders and save-game RE.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "runtime_drive_status",
-      "file": "server-tools/headless.ts",
-      "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits.",
-      "desc": "Spec 062 Sprint 63: snapshot of a drive session's CPU registers + head position + IRQ pending bits. Use after running drive code to verify state.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "runtime_export_audio",
+      "name": "runtime_find_cheat",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Render a saved SCENARIO's SID audio to a stereo s16le WAV (part of the runtime_export_* scenario family).",
-      "desc": "Render a saved SCENARIO's SID audio to a stereo s16le WAV (part of the runtime_export_* scenario family). Use to capture audio from a scenario run. Not for a live session (use runtime_session_export_audio). Inputs: scenario_id, out_path, duration. Returns: WAV path + stats.",
-      "tier": "default?"
-    },
-    {
-      "name": "runtime_export_screenshot",
-      "file": "server-tools/runtime.ts",
-      "ns": "runtime",
-      "hasSpec": false,
-      "firstSentence": "Use to export a PNG of a scenario's screen at a given cycle (runs the scenario from start to atCycle, or end; scale 1/2/4 for pixel-art upscale).",
-      "desc": "Use to export a PNG of a scenario's screen at a given cycle (runs the scenario from start to atCycle, or end; scale 1/2/4 for pixel-art upscale). Not for the live session screen (use runtime_render_screen) or moving video (use runtime_export_video).",
-      "tier": "default?"
-    },
-    {
-      "name": "runtime_export_video",
-      "file": "server-tools/runtime.ts",
-      "ns": "runtime",
-      "hasSpec": false,
-      "firstSentence": "Use to export an MP4 of a scenario via ffmpeg (must be installed; PAL 50fps, RGBA + s16le piped to ffmpeg).",
-      "desc": "Use to export an MP4 of a scenario via ffmpeg (must be installed; PAL 50fps, RGBA + s16le piped to ffmpeg). Not for a single frame (use runtime_export_screenshot) or audio only (use runtime_export_audio).",
+      "firstSentence": "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first.",
+      "desc": "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. The FINDER half of the cheat loop; verify a candidate by freezing an address (runtime_candidate_patch at that addr with its original value) + runtime_candidate_run to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
       "tier": "default?"
     },
     {
@@ -1500,15 +1508,6 @@
       "firstSentence": "Follow the execution path from a PC through a trace (call/branch chain).",
       "desc": "Follow the execution path from a PC through a trace (call/branch chain). Use to reconstruct the control flow of a run. Not for static flow (use build_flow_graph_view, advanced). Inputs: run id, start PC. Returns: ordered path.",
       "tier": "default?"
-    },
-    {
-      "name": "runtime_iec_bus_state",
-      "file": "server-tools/headless.ts",
-      "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution.",
-      "desc": "Spec 062 Sprint 63: dump current IEC bus pin state for a drive session — line state (open-collector wired-AND result) plus each driver's contribution. Useful for debugging custom loader bit-bang protocols.",
-      "tier": "advanced?"
     },
     {
       "name": "runtime_input_load_config",
@@ -1559,9 +1558,9 @@
       "name": "runtime_load_vsf",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 251/770.2 — restore full session state from a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED; interchange only).",
-      "desc": "Spec 251/770.2 — restore full session state from a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED; interchange only). Auto-detects a foreign x64sc-written .vsf (VIC-IISC module → full 64K RAM + MAINCPU + VIC-IISC pipeline + CIA1/2 injected) vs a c64re-own .vsf, and dispatches to the right loader.",
+      "hasSpec": false,
+      "firstSentence": "Restore full session state from a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED; interchange only).",
+      "desc": "Restore full session state from a .vsf file (VICE Snapshot Format — LEGACY, DEPRECATED; interchange only). Auto-detects a foreign x64sc-written .vsf (VIC-IISC module → full 64K RAM + MAINCPU + VIC-IISC pipeline + CIA1/2 injected) vs a c64re-own .vsf, and dispatches to the right loader.",
       "tier": "advanced?"
     },
     {
@@ -1569,8 +1568,8 @@
       "file": "server-tools/headless.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Use to read a loader-lens capture's landing map: which medium block (track/sector) each transferred payload came FROM and where it came to rest in C64 RAM.",
-      "desc": "Use to read a loader-lens capture's landing map: which medium block (track/sector) each transferred payload came FROM and where it came to rest in C64 RAM. Point it at a .c64retrace captured with the drive-mechanism lane armed (runtime_trace_start domains=['memory','drive8-cpu','drive-mechanism'] on the daemon, then drive + finalize). Option A rebuild: a run counts as a disk-landing only if transfer reads ($DD00) occurred in its window (memory-copy / relocation runs have none → dropped), and its source block is FIFO-matched to the BLOCK_READ read-set by read time (not head-at-write-time). Returns per landed run {source:{track,sector,halftrack}|null, c64Dest, len, sha256, transferReads}. The read-set (what validate_extraction diffs against) is the authority; this map is the DEST-side human view. Reads a finalized .c64retrace; not a live capture (use runtime_trace_start to capture one first). DISCIPLINE: the landing map CONFIRMS a payload you already located by READING — it is not how you discover one. If the medium is standard-GCR (KERNAL/DOS-readable), the payload is a static depack (sandbox_depack), not a runtime job. You MUST pass `hypothesis` (a concrete $address + what you read that points there) or the call is refused.",
+      "firstSentence": "Use to read a loader-lens capture's landing map: which medium block each transferred payload came FROM and where it came to rest in C64 RAM.",
+      "desc": "Use to read a loader-lens capture's landing map: which medium block each transferred payload came FROM and where it came to rest in C64 RAM. Point it at a .c64retrace captured with the drive-mechanism lane armed (runtime_trace_start domains=['memory','drive8-cpu','drive-mechanism'] on the daemon, then drive + finalize). Option A rebuild: a run counts as a disk-landing only if transfer reads ($DD00) occurred in its window (memory-copy / relocation runs have none → dropped), and its source block is FIFO-matched to the BLOCK_READ read-set by read time (not head-at-write-time). Returns per landed run {source, c64Dest, len, sha256, transferReads}, where source is tagged by medium — {medium:'disk',track,sector,halftrack} or {medium:'cart',bank,slot,offLo,offHi} — or null. The read-set (what validate_extraction diffs against) is the authority; this map is the DEST-side human view. WHAT IT PROVES: everything here is a fact about THE ONE RUN you captured. A block that does not appear was not read IN THAT RUN — that is not evidence it is unused, and a run that never reached level 90 says nothing about level 90's blocks. Report it as 'read in run X' / 'not seen in run X', never as 'used' / 'unused'. Reads a finalized .c64retrace; not a live capture (use runtime_trace_start to capture one first). DISCIPLINE: the landing map CONFIRMS a payload you already located by READING — it is not how you discover one. If the medium is standard-GCR (KERNAL/DOS-readable), the payload is a static depack (sandbox_depack), not a runtime job. You MUST pass `hypothesis` (a concrete $address + what you read that points there) or the call is refused.",
       "tier": "default?"
     },
     {
@@ -1595,9 +1594,9 @@
       "name": "runtime_media_list_paths",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 265 — list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
-      "desc": "Spec 265 — list configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
+      "hasSpec": false,
+      "firstSentence": "List configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
+      "desc": "List configured fs roots for media browser (samples/, $C64RE_PROJECT_DIR, ~/Downloads, user-added).",
       "tier": "advanced?"
     },
     {
@@ -1687,7 +1686,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable.",
-      "desc": "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. RAM-only (no banked ROM yet); not for a persistent change (use runtime_monitor to poke and keep it). Leaves the machine paused. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
+      "desc": "Use for the code-overlay debug loop (the fast runtime what-if): rewind to a past checkpoint (anchor by `cycle` nearest-at/before, or `id`, or most recent), apply a RAM patch (the `patches` overlay), run forward, and return the observed state — repeatable. Each call restores fresh, so the prior patch is rolled back; iterate a candidate fix from a FIXED point without rebuild/reboot. patches: [{addr, bytes:[..], read?, space?, bank?}]; run with run_cycles (+ optional until_pc breakpoint). Pre-assemble asm→bytes (assemble_source) for the fast loop. `space` targets RAM (default) or a cart bank: space:\"roml\"|\"romh\" + `bank` + `addr`=the CPU window address ($8000-$9FFF / $A000-$BFFF) overlays code into an EasyFlash bank, ephemeral like the RAM patch (rolled back next restore). Cart overlay needs the runtime daemon. Not for a persistent change (use runtime_monitor to poke and keep it). Leaves the machine paused. Inputs: session_id, anchor, patches, run_cycles, until_pc. Returns: applied patches, registers, read-backs, hitPc.",
       "tier": "default?"
     },
     {
@@ -1748,18 +1747,18 @@
       "name": "runtime_regression_capture_baseline",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 250 — LLM-explicit baseline capture for a scenario.",
-      "desc": "Spec 250 — LLM-explicit baseline capture for a scenario. Writes baseline.duckdb + ram-end.bin + screenshot.png + meta.json.",
+      "hasSpec": false,
+      "firstSentence": "LLM-explicit baseline capture for a scenario.",
+      "desc": "LLM-explicit baseline capture for a scenario. Writes baseline.duckdb + ram-end.bin + screenshot.png + meta.json.",
       "tier": "advanced?"
     },
     {
       "name": "runtime_regression_compare",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 250 — compare current scenario run against captured baseline.",
-      "desc": "Spec 250 — compare current scenario run against captured baseline. Returns no_drift / minor_drift / structural_change / broken classification.",
+      "hasSpec": false,
+      "firstSentence": "Compare current scenario run against captured baseline.",
+      "desc": "Compare current scenario run against captured baseline. Returns no_drift / minor_drift / structural_change / broken classification.",
       "tier": "advanced?"
     },
     {
@@ -1802,72 +1801,72 @@
       "name": "runtime_run_scenario",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 268 / 231 — replay a saved scenario by id, returns ReplayResult hashes.",
-      "desc": "Spec 268 / 231 — replay a saved scenario by id, returns ReplayResult hashes.",
+      "hasSpec": false,
+      "firstSentence": "Replay a saved scenario by id, returns ReplayResult hashes.",
+      "desc": "Replay a saved scenario by id, returns ReplayResult hashes.",
       "tier": "advanced?"
     },
     {
       "name": "runtime_run_scenarios_parallel",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 271 — run multiple scenarios in parallel via worker_threads.",
-      "desc": "Spec 271 — run multiple scenarios in parallel via worker_threads. Returns batchId for polling.",
+      "hasSpec": false,
+      "firstSentence": "Replay several scenarios as one batch.",
+      "desc": "Replay several scenarios as one batch. Returns batchId + progress for polling.",
       "tier": "advanced?"
     },
     {
       "name": "runtime_save_vsf",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 251 — save full session state as .vsf bytes (VICE Snapshot Format — LEGACY, DEPRECATED; kept only for interchange with external emulators).",
-      "desc": "Spec 251 — save full session state as .vsf bytes (VICE Snapshot Format — LEGACY, DEPRECATED; kept only for interchange with external emulators). For a durable c64re snapshot use runtime_session_snapshot (.c64re).",
+      "hasSpec": false,
+      "firstSentence": "Save full session state as .vsf bytes (VICE Snapshot Format — LEGACY, DEPRECATED; kept only for interchange with external emulators).",
+      "desc": "Save full session state as .vsf bytes (VICE Snapshot Format — LEGACY, DEPRECATED; kept only for interchange with external emulators). For a durable c64re snapshot use runtime_session_snapshot (.c64re).",
       "tier": "advanced?"
     },
     {
       "name": "runtime_scan_fingerprints",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 247 — match routine bytes against bundled/TREX/local fingerprint libraries.",
-      "desc": "Spec 247 — match routine bytes against bundled/TREX/local fingerprint libraries. Lookup chain via C64RE_FINGERPRINT_LIBS env.",
+      "hasSpec": false,
+      "firstSentence": "Match routine bytes against bundled/TREX/local fingerprint libraries.",
+      "desc": "Match routine bytes against bundled/TREX/local fingerprint libraries. Lookup chain via C64RE_FINGERPRINT_LIBS env.",
       "tier": "advanced?"
     },
     {
       "name": "runtime_scenario_delete",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 268 — delete a scenario JSON by id.",
-      "desc": "Spec 268 — delete a scenario JSON by id. Returns true if found and removed.",
+      "hasSpec": false,
+      "firstSentence": "Delete a scenario JSON by id.",
+      "desc": "Delete a scenario JSON by id. Returns true if found and removed.",
       "tier": "advanced?"
     },
     {
       "name": "runtime_scenario_list",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 268 — list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/.",
-      "desc": "Spec 268 — list scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. Returns summaries sorted by date.",
+      "hasSpec": false,
+      "firstSentence": "List scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/.",
+      "desc": "List scenarios from samples/scenarios/ and $C64RE_PROJECT_DIR/scenarios/. Returns summaries sorted by date.",
       "tier": "advanced?"
     },
     {
       "name": "runtime_scenario_load",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 268 — load a single scenario by id.",
-      "desc": "Spec 268 — load a single scenario by id. Checks project dir first, then samples.",
+      "hasSpec": false,
+      "firstSentence": "Load a single scenario by id.",
+      "desc": "Load a single scenario by id. Checks project dir first, then samples.",
       "tier": "advanced?"
     },
     {
       "name": "runtime_scenario_save",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 268 — save a scenario JSON to project dir (or samples if no project dir).",
-      "desc": "Spec 268 — save a scenario JSON to project dir (or samples if no project dir). Returns file path.",
+      "hasSpec": false,
+      "firstSentence": "Save a scenario JSON to project dir (or samples if no project dir).",
+      "desc": "Save a scenario JSON to project dir (or samples if no project dir). Returns file path.",
       "tier": "advanced?"
     },
     {
@@ -1895,15 +1894,6 @@
       "hasSpec": false,
       "firstSentence": "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition.",
       "desc": "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition. Use to step the machine forward. When the session has a streaming trace active (runtime_session_start trace_out=...), this run automatically chunks + drains the trace queue to trace.duckdb between chunks (behaviour-neutral). Not for run-to-PC only (use runtime_until) or for phase markers (use runtime_mark between calls). Inputs: session_id, max_instructions, optional breakpoints/until/cycle_budget. Returns: counts + final PC.",
-      "tier": "default?"
-    },
-    {
-      "name": "runtime_session_snapshot",
-      "file": "server-tools/headless.ts",
-      "ns": "runtime",
-      "hasSpec": false,
-      "firstSentence": "Capture a structured, round-trippable state snapshot of a session (CPU+RAM+IEC+drive+keyboard+joystick).",
-      "desc": "Capture a structured, round-trippable state snapshot of a session (CPU+RAM+IEC+drive+keyboard+joystick). Use to save/compare machine state. Not for legacy `.vsf` interchange bytes (use runtime_save_vsf, advanced) or the rewind tree (use runtime_snapshot_tree, advanced). Inputs: session_id, optional include=['ram']. Returns: structured snapshot.",
       "tier": "default?"
     },
     {
@@ -1937,9 +1927,9 @@
       "name": "runtime_status",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Spec 237 — AgentQueryApi facade introspection.",
-      "desc": "Spec 237 — AgentQueryApi facade introspection. Reports what V2 surface is available + session cycle counts.",
+      "hasSpec": false,
+      "firstSentence": "AgentQueryApi facade introspection.",
+      "desc": "AgentQueryApi facade introspection. Reports what V2 surface is available + session cycle counts.",
       "tier": "advanced?"
     },
     {
@@ -2333,9 +2323,9 @@
       "name": "validate_extraction",
       "file": "server-tools/payloads.ts",
       "ns": "validate",
-      "hasSpec": false,
-      "firstSentence": "Use to validate a per-project extractor's manifest against the loader-lens READ-SET (the ground truth the REAL loader produced: which physical track/sector the drive actually latched GCR bytes off, in read order — BLOCK_READ).",
-      "desc": "Use to validate a per-project extractor's manifest against the loader-lens READ-SET (the ground truth the REAL loader produced: which physical track/sector the drive actually latched GCR bytes off, in read order — BLOCK_READ). Flags manifest spans that claim a sector the loader never read (the wrong-interpretation bug class) and read blocks the manifest missed. The read-set is drive-side truth (read_pra/GCR_read), immune to the write-time buffering that made the old landing-map source lie. Records a validation finding (confirmation on pass, refutation on fail) with an evidence link to the capture. Run after register_payloads_from_manifest (use it first to register) to prove the bulk registration is trustworthy. Inputs: capture_path (.c64retrace from a drive-mechanism trace), manifest_path. Cart (slot) spans are validated by the cartridge path.",
+      "hasSpec": true,
+      "firstSentence": "Use to validate a per-project extractor's manifest against the loader-lens READ-SET — the ground truth the REAL loader produced, one lane per medium.",
+      "desc": "Use to validate a per-project extractor's manifest against the loader-lens READ-SET — the ground truth the REAL loader produced, one lane per medium. DISK (BLOCK_READ, `drive-mechanism` domain): which physical track/sector the drive actually latched GCR bytes off, in read order; drive-side truth, immune to the write-time buffering that made the old landing-map source lie. Flags spans claiming a sector the loader never read (the wrong-interpretation bug class) and read blocks the manifest missed. CART (CART_READ, `cart-read` domain, Spec 785): which bank served which window and over which offsets while the CPU read out of it; chip-side truth. WHAT THE READ-SET PROVES: used-in-THIS-run, never unused — a run that did not reach level 90 says nothing about level 90's bank. So a slot span this run did not touch is reported 'not seen in this run' and NEVER fails the verdict. The cart branch fails only on what a run can actually contradict: the run demonstrably read a payload and read PAST a span it never read. Sparse observations (fewer served reads than the bounding range spans) are marked as the weak matches they are. Cart reads no span claims are reported too — code executing out of a bank lands there, so they are leads, not defects. Records a validation finding (confirmation on pass, refutation on fail) with an evidence link to the capture, and warns if the manifest's imageIdentity names a different image than the capture ran. Run after register_payloads_from_manifest. Inputs: capture_path (.c64retrace armed with drive-mechanism and/or cart-read), manifest_path.",
       "tier": "default?"
     },
     {
@@ -2345,447 +2335,6 @@
       "hasSpec": true,
       "firstSentence": "Spec 029: run the built-in constraint checker.",
       "desc": "Spec 029: run the built-in constraint checker. v1 detects operations whose affects[] overlap a region tagged protected:true. User-registered rules are surfaced as informational text.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_debug_run",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Set execution breakpoints in the active VICE session, continue execution, and return when a breakpoint, stop, or JAM event occurs. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_* / runtime breakpoints.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_backtrace",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Build a heuristic call stack from the 6502 stack page in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_bank",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). List the available VICE memory banks for the active machine. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_binary_save",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Save a memory range from the active VICE session as a raw binary file without a load-address header. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_breakpoint_add",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Add a breakpoint/watchpoint/tracepoint in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_breakpoint_delete",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Delete a checkpoint from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_breakpoint_list",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). List checkpoints currently configured in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_continue",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Resume execution in the active VICE session until the next breakpoint or manual stop. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_display",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Capture the current VICE display buffer and save it as an 8-bit grayscale PGM preview plus JSON metadata. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_memory",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Read a memory range from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_next",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Advance the active VICE session by one instruction, stepping over subroutine calls. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_registers",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Read CPU register values from the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_reset",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Reset the active VICE machine or one of its drives. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_save",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Save a memory range from the active VICE session as a PRG file with a load-address header. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_set_registers",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Set CPU register values in the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_snapshot",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Save a VICE snapshot (.vsf) from the active session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_step",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Advance the active VICE session by one instruction and stop again. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_monitor_write_memory",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Write bytes into the active VICE session memory. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal debugging → use runtime_monitor_*.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_session_attach_media",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Autostart or autoload media into an already running VICE session via the binary monitor. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_session_joystick",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Send keyset-based joystick input into the active visible VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_session_send_keys",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Feed text, PETSCII bytes, or named special keys into the active VICE keyboard buffer. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_session_start",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Start a visible x64sc VICE session using a copied user config. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_session_status",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Report the current or most recent VICE session state, including workspace paths and monitor-port readiness. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_session_stop",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Stop the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_add_note",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Append a reasoning note/bookmark to a completed VICE trace session so investigation can proceed step by step without losing findings. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_analyze_last_session",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Analyze the most recently completed VICE runtime-trace session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_build_context_index",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Build a persistent interrupt/context index for the VICE runtime trace so IRQ/NMI-like execution paths can be isolated without scanning the full raw trace every time. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_build_index",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Build a persistent search index for a completed runtime trace, including continuity metrics and optional semantic links from an annotations JSON. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_build_pyramid_index",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Build a persistent semantic zoom index over the raw VICE runtime trace, including multi-scale windows, aggregate routine/segment/address summaries, and phase detection. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_call_path",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Heuristically reconstruct the JSR caller chain leading to an anchor clock in a completed runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_context_writes",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Show the dominant memory writes and call edges recorded for one indexed interrupt context. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_find_bytes",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Find instructions in a completed VICE runtime trace by raw byte pattern. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_find_memory_access",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Find direct memory accesses to a specific address in a completed VICE runtime trace, classified as read, write, or readwrite when possible. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_find_operand",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Find instructions in a completed VICE runtime trace whose raw instruction bytes contain a target operand address. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_find_pc",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Find occurrences of a specific PC in a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_find_phase_changes",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). List the strongest phase boundaries detected from the trace window feature vectors. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_follow_from_pc",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Follow the concrete linear execution path after entering a given PC in the completed runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_hotspots",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Summarize the hottest PCs in a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_list_contexts",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). List indexed IRQ/NMI/interrupt contexts so you can isolate a handler execution path before opening raw trace slices. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_list_notes",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). List saved reasoning notes/bookmarks for a completed VICE trace session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_runtime_start",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Start a visible VICE session with periodic CPU-history sampling. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_slice",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Return a focused instruction window around an anchor clock from a completed VICE runtime trace. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_slice_context",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Return the raw instruction slice for one indexed interrupt context, with optional padding before and after the context span. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_start",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Enable periodic CPU-history sampling on the active VICE session without restarting the emulator. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_status",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Report whether runtime tracing is currently active on the active VICE session. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_stop",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Stop periodic CPU-history sampling on the active VICE session without closing VICE. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_stop_and_analyze",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Capture a final register snapshot plus CPU history from the active VICE session, stop the session, write trace artifacts, and return a compact analysis summary. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_zoom_overview",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Summarize the multi-scale trace pyramid so you can zoom out to the dominant windows and detected execution phases before opening raw slices. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "vice_trace_zoom_window",
-      "file": "server-tools/vice.ts",
-      "ns": "vice",
-      "hasSpec": false,
-      "firstSentence": "Oracle-only (VICE ground-truth).",
-      "desc": "Oracle-only (VICE ground-truth). Inspect one window from the trace pyramid, or drill into all base windows that belong to a detected phase. Use only after the C64RE headless/runtime path shows a divergence, or when the user explicitly asks for a VICE comparison — not for normal project workflow. Normal tracing → use trace_store_* / runtime trace.",
       "tier": "advanced?"
     }
   ]

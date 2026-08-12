@@ -57,7 +57,7 @@ ok(!baseTables.includes("instructions"),
   "A2 live-sink store has NO legacy instructions base table", baseTables.includes("instructions") ? "present" : "none");
 
 // ---- B. convenience readers work against the 726 store ----
-const q = await import(`${ROOT}/dist/runtime/trace-store/queries.js`);
+const q = await import(`${ROOT}/dist/trace/store/queries.js`);
 
 try {
   const info = await q.getInfo(dbPath);
@@ -74,8 +74,8 @@ try {
 
 // ---- C. runtime_query_events maps family→channel and returns rows ----
 try {
-  const { queryEvents } = await import(`${ROOT}/dist/runtime/headless/v2/query-events.js`);
-  const { DuckDbQueryBackend } = await import(`${ROOT}/dist/runtime/headless/v2/duckdb-backend.js`);
+  const { queryEvents } = await import(`${ROOT}/dist/analysis/query-events.js`);
+  const { DuckDbQueryBackend } = await import(`${ROOT}/dist/analysis/duckdb-backend.js`);
   const inst = await duckdb.DuckDBInstance.create(dbPath);
   try {
     const conn = await inst.connect();
@@ -102,8 +102,8 @@ try {
 //   Spec-217 tables). Convenience readers must target trace_run/trace_event/
 //   trace_mark (or neutral CTEs over them), never the legacy names.
 const READER_SOURCES = [
-  "src/runtime/trace-store/queries.ts",
-  "src/runtime/headless/v2/query-events.ts",
+  "../src/trace/store/queries.ts",
+  "src/analysis/query-events.ts",
 ];
 const offenders = [];
 for (const rel of READER_SOURCES) {

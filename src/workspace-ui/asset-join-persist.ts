@@ -11,7 +11,7 @@
 // edge, so persisting it records exactly that — no fabricated asset entities.
 
 import type { ProjectKnowledgeService } from "../project-knowledge/service.js";
-import type { JoinKnowledge } from "../runtime/headless/inspect/asset-join-knowledge.js";
+import type { JoinKnowledge } from "../inspect/asset-join-knowledge.js";
 import type { EntityRecord } from "../project-knowledge/types.js";
 
 // Chain node kind (asset-join-knowledge) → project EntityKind.

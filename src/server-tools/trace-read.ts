@@ -48,16 +48,10 @@ export async function traceRead<T = unknown>(
   storePath: string,
   args: Record<string, unknown> = {},
 ): Promise<T> {
-  const { runtimeEndpoint, runtimeDaemon } = await import("./runtime-daemon-client.js");
-  if (!runtimeEndpoint()) {
-    const { runtimeSetupRecipe } = await import("./runtime-setup-recipe.js");
-    throw new Error(runtimeSetupRecipe(
-      `trace read (op "${op}") needs the runtime — C64RE carries no in-process trace reader ` +
-      `(Spec 802: the runtime owns its own trace format, end to end). ` +
-      `C64RE_ALLOW_INPROC_RUNTIME=1 is set, which disables the runtime endpoint; unset it ` +
-      `(or set C64RE_RUNTIME_ENDPOINT) so trace reads reach the runtime.`,
-    ));
-  }
+  // Spec 806: the endpoint always resolves (there is no in-process opt-out any more), so
+  // an unreachable runtime surfaces as a connect error carrying the setup recipe, not as
+  // a "no endpoint configured" branch here.
+  const { runtimeDaemon } = await import("../runtime/daemon-client.js");
   return runtimeDaemon.traceRead<T>(op, absStorePath(storePath), args);
 }
 

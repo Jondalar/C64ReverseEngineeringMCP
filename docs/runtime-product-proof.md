@@ -1,5 +1,20 @@
 # Runtime Product Proof — small canary baseline + tiered gates
 
+> **HISTORICAL (2026-08-12).** The proof system this describes is gone. Spec 715
+> was retired as the authority in favour of TRX64's own gates (Spec 783), and Spec
+> 806 deleted the TypeScript runtime it gated along with `runtime-product-proof.mjs`,
+> `runtime-proof-manifest.mjs` and the `proof:*` npm entries. Kept because the gate
+> SET it names still describes what "the runtime works" meant, and the oracle
+> screenshots under `samples/screenshots/proof/` still show correct output.
+
+
+
+> **Historical (Spec 806, 2026-08-12).** The canary baseline and its tiered gate
+> policy drove the deleted TypeScript emulator; `npm run proof:*` and
+> `scripts/runtime-proof-manifest.mjs` are gone. Kept for the policy shape — small
+> fast canary first, focused suites only when their subsystem changes — which is
+> worth reusing in TRX64.
+
 Active authority: **Spec 715** (`specs/_archive/715-runtime-product-proof-baseline.md`).
 
 The product regression baseline is **not** a completeness or release-certification

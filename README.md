@@ -59,13 +59,13 @@ neither real hardware nor a normal emulator offers:
 - **frame-locked audio**, media ingress, mutable disks & cartridges
 
 **[TRX64](https://github.com/Jondalar/TRX64)** — a native (Rust), cycle-exact
-port of VICE — is the **default** runtime: far faster, and the home of the
-reverse-debug features above. The original **TypeScript** runtime is now the
-fallback + parity oracle (it declines the TRX64-only features cleanly); force
-it with `C64RE_RUNTIME_TS=1 ./ui.sh restart`. Both serve the same WebSocket
-protocol and the same `.c64re` / `.c64retrace` formats. (TRX64 is auto-found as
-the sibling `../TRX64/target/release/trx64-daemon`; `C64RE_RUNTIME_BIN` /
-`C64RE_TRX64_BIN` point elsewhere.)
+port of VICE — is **the** runtime: a separate daemon process serving the
+WebSocket protocol and the `.c64re` / `.c64retrace` formats. C64RE is a client
+of it and carries no emulator of its own; the original TypeScript runtime that
+once served as a parity oracle was deleted in 2026-08 (Spec 806). TRX64 is
+auto-found as the sibling `../TRX64/target/release/trx64-daemon`;
+`C64RE_RUNTIME_BIN` / `C64RE_TRX64_BIN` point elsewhere. If it is not there,
+the tools say so and hand you the per-OS setup recipe — there is no fallback.
 
 It already boots real scene software end-to-end — multi-stage cracks,
 custom fastloaders, EasyFlash cartridges — and its fidelity is gated on
@@ -143,9 +143,9 @@ Two repos, two roles — the Leitregel split. C64RE turns bytes/events/state int
 Today the split is mid-transition (Spec 771): `c64re-mcp` still hosts the
 `runtime_*` tools as a thin **proxy** to the Runtime Daemon; a separate
 `trx64-mcp` server is the endstate. The daemon (WS `:4312`, Spec 744.4c) is
-already the one runtime both the UI and MCP are clients of — TRX64 by default,
-the TS runtime as fallback/parity oracle, VICE as internal-dev correctness
-oracle only.
+already the one runtime both the UI and MCP are clients of. There is no second
+implementation: the TypeScript runtime and the `vice_*` bridge were deleted in
+2026-08 (Spec 806).
 
 The flow across the lifecycle — which actor acts in each phase, and the handoffs
 between them (renders on GitHub):
@@ -196,8 +196,8 @@ The bundled TRXDis pipeline is built automatically.
 | Variable | Description | Required |
 |---|---|---|
 | `C64RE_PROJECT_DIR` | Working directory for the RE project | Yes |
-| `C64RE_RUNTIME_ENDPOINT` | WS endpoint of the product Runtime Daemon (Spec 744.4c) — e.g. `ws://127.0.0.1:4312`. When set, MCP `runtime_*` tools are clients of the daemon (the same runtime the UI uses). **The MCP auto-starts the daemon (detached) on first use — you do NOT start the backend by hand;** it outlives the MCP, so reconnect / browser reload do not reset sessions. `npm run runtime:daemon` is an optional explicit/foreground launch. Unset → in-process runtime (dev/test, no UI sharing). | Recommended for shared human+LLM runtime |
-| `C64RE_RUNTIME_ENDPOINT` daemon backend | The daemon resolver picks: `C64RE_RUNTIME_BIN` (explicit) > the sibling **TRX64** daemon (default) > built TS dist > tsx. `C64RE_RUNTIME_TS=1` forces the TS parity oracle; `C64RE_TRX64_BIN` points at a TRX64 daemon elsewhere. | No |
+| `C64RE_RUNTIME_ENDPOINT` | WS endpoint of the product Runtime Daemon (Spec 744.4c) — e.g. `ws://127.0.0.1:4312`. When set, MCP `runtime_*` tools are clients of the daemon (the same runtime the UI uses). **The MCP auto-starts the daemon (detached) on first use — you do NOT start the backend by hand;** it outlives the MCP, so reconnect / browser reload do not reset sessions. `npm run runtime:daemon` is an optional explicit/foreground launch. Unset → the default `ws://127.0.0.1:4312`. | Recommended for shared human+LLM runtime |
+| `C64RE_RUNTIME_ENDPOINT` daemon backend | The daemon resolver picks `C64RE_RUNTIME_BIN` (explicit) or the sibling **TRX64** release daemon; `C64RE_TRX64_BIN` points at one elsewhere. Nothing found → an actionable setup error, never a silent downgrade (Spec 806). | No |
 | `C64RE_RUNTIME_AUTOSTART` | Set to `0` to disable the MCP auto-starting the daemon (then run `npm run runtime:daemon` yourself). | No |
 | `C64RE_RUNTIME_WS` | RETIRED 744.4b MCP co-host port. It reset sessions on MCP reconnect — superseded by the Runtime Daemon (`C64RE_RUNTIME_ENDPOINT`). Setting it now only logs a deprecation. | No (retired) |
 | `C64RE_TOOLS_DIR` | Override: external TRXDis build instead of bundled | No |
@@ -281,7 +281,7 @@ first-class and directly reachable**. Per-area reference docs linked below.
 Per-area reference docs: [analysis](docs/tools/analysis.md) ·
 [disk](docs/tools/disk.md) · [CRT](docs/tools/crt.md) ·
 [compression](docs/tools/compression.md) · [c64ref](docs/tools/c64ref.md) ·
-[TRX64 runtime](docs/tools/headless.md) · [VICE oracle](docs/tools/vice.md) ·
+[TRX64 runtime](docs/tools/headless.md) ·
 [6502 sandbox](docs/tools/sandbox.md) · [knowledge](docs/tools/knowledge.md) ·
 [artifacts](docs/tools/artifacts.md) ·
 [agent doctrine](docs/agent-doctrine.md) ·

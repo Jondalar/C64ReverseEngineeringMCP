@@ -1,5 +1,10 @@
 # Runtime Gates — Truth Source for C64RE Headless
 
+> **Historical (Spec 806, 2026-08-12).** Every gate named here ran the in-repo
+> TypeScript emulator, which is deleted. The scripts are gone; this file is kept as
+> the record of what was once proven and in what order. Runtime gating lives in
+> TRX64 (Spec 783).
+
 Created 2026-05-16 under the **runtime reset** directive.
 
 This document is the **canonical source of truth** for what counts as a

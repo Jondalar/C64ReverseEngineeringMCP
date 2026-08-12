@@ -1,5 +1,9 @@
 # Runtime Gates — Truth Table @ runtime-green-2026-05-16
 
+> **Historical (Spec 806, 2026-08-12).** A frozen truth table for the deleted
+> TypeScript runtime at tag `runtime-green-2026-05-16`. The scripts it names no
+> longer exist. Kept as evidence of what that runtime did, not as a current gate.
+
 **Baseline tag:** `runtime-green-2026-05-16` → commit `87b4957`
 (`Merge vic_bugs: Specs 425-429`) on `master`.
 **Branch under test:** `codex/1541-runtime-gates` @ `043c258`

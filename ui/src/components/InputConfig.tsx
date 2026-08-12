@@ -10,7 +10,7 @@
 import { useState, useEffect, useCallback, type JSX } from "react";
 
 // ------------------------------------------------------------------
-// Config types (mirrors src/runtime/headless/input/input-config.ts)
+// Config types (mirrors src/input/input-config.ts)
 // ------------------------------------------------------------------
 
 interface KeysetBindings {

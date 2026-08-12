@@ -15,14 +15,14 @@
 import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
-import { AnchorStore } from "../dist/runtime/headless/recorder/anchor-store.js";
+import { AnchorStore } from "../dist/recorder/anchor-store.js";
 import {
   encodeAnchorRecord, encodeMediumRecord, REC_ANCHOR, REC_MEDIUM,
   MEDIUM_KIND_DISK, MEDIUM_KIND_CART,
-} from "../dist/runtime/headless/recorder/anchor-record.js";
+} from "../dist/recorder/anchor-record.js";
 import {
   RecorderRingProducer, createRecorderRingSab,
-} from "../dist/runtime/headless/recorder/recorder-ring.js";
+} from "../dist/recorder/recorder-ring.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const failures = [];
@@ -92,7 +92,7 @@ console.log("Spec 766.4 — recorder worker store");
 }
 
 // ---- D: real worker drains the shared ring ----------------------------------
-const workerPath = resolve(here, "../dist/runtime/headless/recorder/recorder-worker.js");
+const workerPath = resolve(here, "../dist/recorder/recorder-worker.js");
 const layout = { slotPayloadBytes: 70000, slotCount: 64 };
 const sab = createRecorderRingSab(layout);
 const prod = new RecorderRingProducer(sab, layout);

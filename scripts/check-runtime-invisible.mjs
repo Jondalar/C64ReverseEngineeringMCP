@@ -34,15 +34,28 @@ const FORBIDDEN = [/\bTRX64\b/i, /\bLeitregel\b/i];
 // The brand as PROSE ("served by the TRX64 daemon") is the thing this gate is for.
 const WIRE_TOKEN = /trx64-runtime\//i;
 
-// The one module allowed to name the backend — it IS the setup recipe.
-const ALLOWED_FILES = new Set(["src/server-tools/runtime-setup-recipe.ts"]);
+// Modules allowed to name the backend.
+//
+//   setup-recipe        IS the recipe — the one place the name is shown to a human.
+//   resolve-daemon-spawn  builds the FILESYSTEM PATH to the binary and reads
+//                       C64RE_TRX64_BIN. A spawner that may not name what it
+//                       spawns cannot spawn it. It carries no agent-facing text:
+//                       no tool description, no prompt, no `.describe(`.
+//
+// `src/runtime/` is scanned despite being the capsule, because daemon-client DOES
+// emit agent-visible errors (the version mismatch), and that is exactly the kind
+// of string this gate exists for.
+const ALLOWED_FILES = new Set([
+  "src/runtime/setup-recipe.ts",
+  "src/runtime/resolve-daemon-spawn.ts",
+]);
 
 // Agent-facing surfaces: MCP tool descriptions, prompt text, the doctrine the
 // agent is told to adopt, and the steering block injected into every project.
 function surfaces() {
   const out = [];
   const push = (p) => { if (existsSync(join(ROOT, p))) out.push(p); };
-  for (const dir of ["src/server-tools", "src/project-knowledge"]) {
+  for (const dir of ["src/server-tools", "src/project-knowledge", "src/runtime"]) {
     const abs = join(ROOT, dir);
     if (!existsSync(abs)) continue;
     for (const f of readdirSync(abs)) if (f.endsWith(".ts")) push(`${dir}/${f}`);
@@ -112,7 +125,7 @@ function check(name, cond, detail = "") {
   checks.push({ name, ok: !!cond, detail });
 }
 
-const DIST = join(ROOT, "dist/server-tools/runtime-setup-recipe.js");
+const DIST = join(ROOT, "dist/runtime/setup-recipe.js");
 if (!existsSync(DIST)) {
   console.log(`  SKIPPED the recipe checks — run \`npm run build:mcp\` first (${relative(ROOT, DIST)}).`);
 } else {
@@ -141,7 +154,8 @@ if (!existsSync(DIST)) {
   check("Windows gets its own shell syntax", /\bset [A-Z0-9_]+=/.test(seen.get("win32")));
   check("Windows names the .exe", /\.exe\b/.test(seen.get("win32")));
   // Positive only. A "must not contain `set X=`" check reads well and is wrong: the
-  // recipe's own prose says "developers may set C64RE_ALLOW_INPROC_RUNTIME=1".
+  // recipe is prose, and prose may use the word "set" for reasons that have nothing
+  // to do with shell syntax.
   check("POSIX uses export syntax",
     ["darwin", "linux"].every((p) => /\bexport [A-Z0-9_]+=/.test(seen.get(p))));
   check("Windows and POSIX are not the same text", seen.get("win32") !== seen.get("darwin"));

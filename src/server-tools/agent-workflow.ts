@@ -426,7 +426,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       // recipe ONLY when the runtime is unavailable and cannot be auto-started; this is the
       // one place the runtime backend is named to the agent, and only at the setup boundary.
       try {
-        const { runtimeHealth } = await import("./runtime-daemon-client.js");
+        const { runtimeHealth } = await import("../runtime/daemon-client.js");
         const health = await runtimeHealth();
         if (!health.ok) {
           lines.push(``, `## ⚠ Runtime not available`, health.recipe, ``, `---`);

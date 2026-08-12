@@ -7,8 +7,8 @@
 import { writeFileSync, rmSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { landingMapFromCaptureFile, readSetFromCaptureFile } from "../dist/runtime/headless/trace/loader-lens.js";
-import { encodeFileHeader, encodeMemAccess, encodeBlockRead, TraceOp, ACCESS_WRITE, ACCESS_READ } from "../dist/runtime/headless/trace/binary-format.js";
+import { landingMapFromCaptureFile, readSetFromCaptureFile } from "../dist/trace/loader-lens.js";
+import { encodeFileHeader, encodeMemAccess, encodeBlockRead, TraceOp, ACCESS_WRITE, ACCESS_READ } from "../dist/trace/binary-format.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };

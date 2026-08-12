@@ -1,5 +1,13 @@
 # Headless Runtime — Single-Machine-Per-Process Audit
 
+> **Historical subject, live rule (Spec 806, 2026-08-12).** The code audited here —
+> the in-process TypeScript emulator, its module-global VIC and vice1541 state, and
+> `startIntegratedSession` — is deleted, so C64RE can no longer build a second
+> machine at all and `scripts/probe-session-isolation.mjs` went with it. The RULE it
+> established stays binding for TRX64 (one daemon = one live machine, shared), and
+> this file is the empirical case for it: the black-screen bug, the rebinding, and
+> why shared-attach was the answer rather than isolation.
+
 **Status:** audit complete, root cause empirically proven, **Option A implemented**
 (2026-06-12) — `runtimeSessions.start` enforces one machine per process by
 attaching instead of constructing a second. **Date:** 2026-06-12.

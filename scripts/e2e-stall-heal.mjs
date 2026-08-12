@@ -41,7 +41,7 @@ try {
   ok(await listening(), "0 fake stalled daemon (separate proc) holds the port (socket opens)");
 
   // 2+3) ensureDaemon must: detect stall (no pong) → kill the fake → spawn a REAL daemon.
-  const { ensureDaemon } = await import(join(ROOT, "dist/server-tools/runtime-daemon-client.js"));
+  const { ensureDaemon } = await import(join(ROOT, "dist/runtime/daemon-client.js"));
   const r = await ensureDaemon({ endpoint: ENDPOINT, projectDir: ROOT });
   ok(r === "spawned", "1 ensureDaemon detected the stall + spawned a replacement (not 'already-up')", `result=${r}`);
 

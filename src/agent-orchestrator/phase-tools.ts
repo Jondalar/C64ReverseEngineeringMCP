@@ -47,14 +47,8 @@ export const PHASE_TOOLS: Record<PhaseNumber, string[]> = {
     "register_load_context", "register_container_entry",
     "list_container_entries", "save_flow",
     "link_payload_to_runtime", "link_payload_to_asm",
-    "vice_session_start", "vice_session_attach_media",
-    "vice_session_send_keys", "vice_session_status",
-    "vice_session_stop", "vice_monitor_breakpoint_add",
-    "vice_monitor_continue", "vice_monitor_step",
-    "vice_monitor_memory", "vice_monitor_registers",
-    "vice_trace_start", "vice_trace_stop", "vice_trace_runtime_start",
-    "vice_trace_analyze_last_session", "vice_trace_hotspots",
-    "vice_trace_find_pc", "vice_trace_find_memory_access",
+    // Spec 806: the vice_* session/monitor/trace tools retired with the external
+    // emulator bridge — the runtime_* surface below is the whole answer now.
     // V2 runtime_* surface (Spec 238) — preferred for new agent flows.
     "runtime_status", "runtime_step_into", "runtime_step_over",
     "runtime_until", "runtime_breakpoint_add", "runtime_breakpoint_list",
@@ -66,8 +60,10 @@ export const PHASE_TOOLS: Record<PhaseNumber, string[]> = {
     "runtime_diff_snapshots",
     // Integrated session control (kept; V2.x has no direct replacement).
     "runtime_session_start", "runtime_session_run",
-    "runtime_session_status", "runtime_session_snapshot",
-    "runtime_render_screen",
+    // Spec 806: runtime_session_snapshot retired with the TS emulator (structured
+    // JSON state was its own product, not the daemon's snapshot/dump file).
+    "runtime_session_status",
+    "runtime_render_screen", "runtime_checkpoint_capture",
   ],
   3: [
     "analyze_prg", "disasm_prg", "ram_report", "pointer_report",

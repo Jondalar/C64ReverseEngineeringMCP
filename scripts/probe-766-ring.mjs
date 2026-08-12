@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
 import {
   RecorderRingProducer, RecorderRingConsumer, createRecorderRingSab,
-} from "../dist/runtime/headless/recorder/recorder-ring.js";
+} from "../dist/recorder/recorder-ring.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const failures = [];

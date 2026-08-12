@@ -4,7 +4,7 @@
   "globalRules": [
     "Persist important results in project knowledge, not only in chat (save_finding / save_entity / save_open_question).",
     "After each substantive step, call agent_record_step and propose the next action.",
-    "The default runtime backend is TRX64 (native Rust daemon); the in-repo TypeScript runtime is the fallback / parity oracle. Use the runtime_* tools for product work; VICE is a correctness oracle only, never a fallback for user projects. Leitregel: Capability -> TRX64, Meaning/Memory -> C64RE.",
+    "There is ONE runtime, reached through the runtime_* tools. It is a separate daemon process; if it is unavailable the tool says so and carries the setup recipe — there is no second machine and no fallback to reach for.",
     "Do not enable C64RE_FULL_TOOLS as a normal solution.",
     "Do not call the V3 WebSocket directly when an MCP tool exists.",
     "Never assume repo-relative samples/ or process cwd for user media; take absolute or project-relative paths from the user.",
@@ -12,7 +12,6 @@
     "Do not use raw SQL (trace_store_query) as a workaround for a broken convenience reader; fix or report the reader.",
     "Report a path-resolution failure clearly with the requested path; do not silently fall back to repo fixtures."
   ],
-  "viceToolCount": 49,
   "playbooks": [
     {
       "id": "new-project-onboarding",
@@ -353,7 +352,7 @@
       "steps": [
         {
           "actor": "llm",
-          "action": "Start the runtime (TRX64 default) with durable capture (trace_out to a project-relative or absolute .duckdb).",
+          "action": "Start the runtime with durable capture (trace_out to a project-relative or absolute .duckdb).",
           "tools": [
             "runtime_session_start"
           ],
@@ -683,7 +682,7 @@
         "Frozen Visual Inspect or Change/Patch iteration."
       ],
       "forbiddenShortcuts": [
-        "Do not use VICE; the Headless trace is the product evidence."
+        "The runtime trace IS the evidence; do not substitute prose for it."
       ]
     },
     {
@@ -700,7 +699,7 @@
       "steps": [
         {
           "actor": "llm",
-          "action": "Start the runtime (TRX64 default) with trace_out.",
+          "action": "Start the runtime with trace_out.",
           "tools": [
             "runtime_session_start"
           ],
@@ -781,7 +780,7 @@
           "actor": "llm",
           "action": "Capture a checkpoint + render the screen.",
           "tools": [
-            "runtime_session_snapshot",
+            "runtime_checkpoint_capture",
             "runtime_render_screen"
           ],
           "persist": [
@@ -913,72 +912,6 @@
         "Dedicated code-overlay/branch tooling (Spec 711/712) is not yet exposed; do not claim it exists.",
         "Do not skip before/after evidence."
       ]
-    },
-    {
-      "id": "internal-dev-oracle-vice",
-      "title": "Internal Dev Oracle / VICE",
-      "userIntentExamples": [
-        "(C64RE developer) Compare our drive timing against VICE.",
-        "Investigate a port-fidelity divergence."
-      ],
-      "preconditions": [
-        "You are developing/debugging the C64RE MCP/core itself.",
-        "A specific internal dev fixture/artifact is named (not an implicit repo sample)."
-      ],
-      "steps": [
-        {
-          "actor": "llm",
-          "action": "Capture the Headless behaviour first (this is the product authority).",
-          "tools": [
-            "runtime_session_start",
-            "runtime_session_run",
-            "runtime_trace_finalize"
-          ],
-          "persist": [
-            "headless trace"
-          ]
-        },
-        {
-          "actor": "llm",
-          "action": "Run the VICE oracle on the SAME named fixture and compare boundary lanes.",
-          "tools": [
-            "vice_debug_run",
-            "vice_monitor_backtrace",
-            "vice_monitor_bank",
-            "vice_monitor_binary_save",
-            "vice_monitor_breakpoint_add",
-            "vice_monitor_breakpoint_delete"
-          ],
-          "persist": [
-            "oracle diff finding"
-          ],
-          "askHumanWhen": "the divergence fixture is not explicitly named"
-        },
-        {
-          "actor": "llm",
-          "action": "Record the first divergence as a finding with an oracle reference.",
-          "tools": [
-            "save_finding",
-            "agent_record_step"
-          ],
-          "persist": [
-            "divergence finding"
-          ]
-        }
-      ],
-      "stopConditions": [
-        "First divergence identified with an oracle reference."
-      ],
-      "nextActions": [
-        "Fix the port per the C→TS forensic doctrine; re-validate with Headless."
-      ],
-      "forbiddenShortcuts": [
-        "Never expose VICE as a product workflow path.",
-        "Never use a VICE trace as a replacement for Headless evidence.",
-        "Never tell an external LLM/user to switch to VICE.",
-        "Never use an implicit repo-sample fixture."
-      ],
-      "internalOnly": true
     },
     {
       "id": "operator-maintenance",

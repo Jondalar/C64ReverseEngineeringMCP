@@ -4,7 +4,7 @@
 // Asserts the backend keymap (input/keymap.ts → translateKey, used by
 // runtime_type / input/keyboard_press). The Live UI mirror lives in
 // ui/src/workbench/tabs/Live.tsx keyEventToC64Keys — keep the two in sync.
-import { translateKey } from "../dist/runtime/headless/input/keymap.js";
+import { translateKey } from "../dist/input/keymap.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };

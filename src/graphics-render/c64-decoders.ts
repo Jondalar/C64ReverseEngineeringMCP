@@ -3,7 +3,7 @@
 // into the PNG encoder.
 
 // SINGLE palette — colodore, byte-identical to the canonical VIC palette
-// (src/runtime/headless/vic/palettes.ts COLODORE = VICE colodore.vpl). Blue $06
+// (colodore.vpl). Blue $06
 // = 27,24,c4. The decoder previously carried pepto/vice + a STALE colodore
 // (blue 2e,2c,9b) and defaulted to pepto — removed: the whole system uses one
 // palette. Do NOT add alternates or change these values.

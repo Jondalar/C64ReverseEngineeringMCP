@@ -6,8 +6,8 @@
 //   (3) Source by READ time: a landing's source block is FIFO-matched to the
 //       BLOCK_READ read-set, not the head position at write time.
 // Run after build:mcp.
-import { buildLandingMap, buildReadSet, halftrackToTrack } from "../dist/runtime/headless/trace/loader-lens.js";
-import { TraceOp, ACCESS_WRITE, ACCESS_READ } from "../dist/runtime/headless/trace/binary-format.js";
+import { buildLandingMap, buildReadSet, halftrackToTrack } from "../dist/trace/loader-lens.js";
+import { TraceOp, ACCESS_WRITE, ACCESS_READ } from "../dist/trace/binary-format.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
