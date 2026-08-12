@@ -1,5 +1,11 @@
 # C64RE Live Runtime — arc42 (daemon ↔ client, Live tab)
 
+> **Wire behaviour current, file names historical (Spec 806, 2026-08-12).** The
+> protocol, the ownership model and the frame/audio push described here are what the
+> runtime daemon still does. The TypeScript classes named as components
+> (`ws-server.ts`, `RuntimeController`, `IntegratedSession`) are deleted; their
+> counterparts live in TRX64.
+
 Scope: the **live runtime** — the headless C64+1541 daemon, its WebSocket
 transport, and the browser workbench Live tab (video + audio streaming, transport
 controls, scrub). Complements `vice-iec-arc42.md` (IEC/drive-sync scope) and

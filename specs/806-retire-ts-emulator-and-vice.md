@@ -1,10 +1,12 @@
 # Spec 806 — Retire the TS emulator and VICE from the product
 
-**Status:** IN BUILD 2026-08-12 — phase 1 DONE, **§8 steps 1 (evacuation) and 2
-(convert the tools) DONE** (branch `spec-806-structural-cut`). Inventory + tool
-cross-check in §6/§7 below; §6 corrected against the measurement in §6.1, §7
-against the conversion in §7.1/§7.2. Next: §8 step 3 (answer the eleven).
-**Repo:** C64RE. **Supersedes** the binding half of Spec 723 when it lands.
+**Status:** DONE 2026-08-12 — **§8 steps 1-5 shipped** on branch
+`spec-806-structural-cut`. The TypeScript emulator, its 1541, its test surface, the
+`vice_*` bridge and Spec 723 are gone; §10 records what step 3-5 actually cost.
+Only §8 step 6 (a fresh-project e2e through the runtime only) is open, and it is a
+verification pass, not a build. Inventory in §6/§6.1, tool cross-check in §7/§7.1/§7.2.
+**Repo:** C64RE. **Supersedes** the binding half of Spec 723 — retired in
+`DOCTRINE.md` on the same day.
 
 ---
 
@@ -298,10 +300,12 @@ the answered swimlane) plus these three. Every one is ADVANCED-only.
    - *the branch-count in this line was right and the import-count was the signal.*
      "12 branches" described the mechanical work; the other 24 import sites were the
      actual job.
-3. **Answer the eleven** (§7 + §7.1 + §7.2); convert or retire those tools.
-4. **Delete the 166.**
-5. **Retire Spec 723 + `probe-single-path`** — they govern the TS runtime.
+3. ~~**Answer the eleven**~~ **DONE 2026-08-12** — all eleven RETIRED, none routed. §10.
+4. ~~**Delete**~~ **DONE 2026-08-12** — 176 emulator files + 63 tests + 383 scripts +
+   `src/runtime/vice/` + `server-tools/vice.ts` (49 tools). §10.
+5. ~~**Retire Spec 723 + `probe-single-path`**~~ **DONE 2026-08-12**. §10.
 6. **e2e**: a fresh project, boot, monitor, trace, screenshot — through the daemon only.
+   The only thing left open.
 
 A branch collapse is NOT a mechanical rewrite. The first attempt unwrapped
 `if (isDaemonMode())` blocks with a brace matcher and produced 18 redeclaration
@@ -324,3 +328,101 @@ that is being removed three steps later. The decision to take with step 4:
 delete them alongside the emulator, or keep whichever survive as TRX64 port
 references. `CLAUDE.md` already says "No test suite exists" — this is the
 evidence for that sentence, and the tree should stop implying otherwise.
+
+---
+
+## 10. Steps 3-5 as built (2026-08-12)
+
+### Step 3 — the last importers, and the eleven
+
+Zero `ts-emulator` references remain in `src/` and `ui/`. Six things it cost:
+
+- **The eleven retired, none routed.** The reason is the same in each case and worth
+  keeping: the emulator was not *an* implementation of these tools, it was *the*
+  implementation, and the runtime has no equivalent object. A standalone 1541 with no
+  C64 does not exist there; `snapshot/dump` writes a file where `session_snapshot`
+  returned a structure; there is no `export/*` method group at all. Routing any of them
+  would have meant building a new feature under an old name. `tier-tools.ts` carries the
+  list and the reason so the absence reads as a decision.
+- **`swimlane-render` moved** to `src/monitor/` — but only `renderMarkdown`. It is
+  the formatter for rows the runtime produces, so it is not a second reader. Its
+  siblings `renderText` (folded TUI) and `renderJsonl` had no caller left once
+  `ws-server` went; the runtime has its own `swimlane_text`.
+- **No silent downgrade.** `DaemonSpawnMode` is `"external-bin" | "none"`. Deleting
+  the `"dist"`/`"tsx"` tiers is what makes `C64RE_RUNTIME_TS` unreadable anywhere;
+  `C64RE_ALLOW_INPROC_RUNTIME` went the same way, which in turn made
+  `runtimeEndpoint()` total and removed the last `!isDaemonMode()` guards.
+- **Three files stopped borrowing types from the emulator.**
+  `media-format/ingress-request.ts` now OWNS `MediaIngressRequest` (it is a wire
+  shape); `regression.runScenarioById` says plainly that running a scenario is the
+  runtime's job instead of dynamic-importing a module that was about to not exist.
+- **Three files could not be cut, only removed**: `workspace-ui/ws-server.ts` (the TS
+  daemon's WS server, 2445 lines), `ts-emulator/daemon/run.ts` (its entry — unspawnable
+  the moment the tiers went) and `trace/eof-trace.ts`.
+- `captureAllDef` / `producerOptsForDomains` / `ALL_DOMAINS` / `DEFAULT_TRACE_DOMAINS`
+  survive in `runtime-trace-sink.ts` as instructed, and are now **orphans**: only
+  `resolveTraceOut` still has a caller (`headless.ts`). Left in place deliberately —
+  they are backend-neutral and describe the trace contract — but a later reader should
+  know they are unreferenced.
+
+### Step 4 — what "the emulator disappears" actually reached
+
+| | count |
+|---|---|
+| `src/ts-emulator/` | 176 files |
+| `tests/` (chip fidelity + spec-61{5,6,7}) | 63 files |
+| `scripts/` | 383 of 544 |
+| `package.json` entries | 148 of 242 removed, 95 remain |
+| `src/runtime/vice/` + `server-tools/vice.ts` | 22 files, 49 MCP tools |
+| MCP tool surface | 302 → 253 (default 144, unchanged) |
+
+Four findings worth keeping:
+
+1. **The script criterion had to be per-file, not per-grep.** 129 scripts *looked*
+   prose-only to a line-oriented scan because their imports wrap across lines
+   (`const { X } =\n  await import(`…`)`). All 16 that genuinely referenced the tree
+   only in prose turned out to SCAN it (`audit-replay-determinism`,
+   `check-1541-port-fidelity`, `copy-wasm-assets`, the `smoke-023-*` family) — every
+   one still emulator-bound.
+2. **Second-order death is real.** `runtime-proof-gate`, `test-game-screenshots-all`
+   and `probe-motm` contained no emulator reference at all; their whole job was to
+   invoke scripts that did.
+3. **Three scripts were NOT emulator-only** and were trimmed instead of deleted —
+   `e2e-mcp-path-portability` (check 3b), `probe-workspace-single` (checks 2-5, 9;
+   now 7 pass / 0 fail) and `smoke-ui-media-dropzone` (check 8, repointed at the
+   surviving ingress-request builder). This is the case the brief warned about, and it
+   was worth checking each of the 386 rather than deleting the set.
+4. **`runtime-daemon.mjs` had to be rewritten, not deleted.** Eight `e2e-744-4c*`
+   harnesses spawn it to get their own-port daemon; it now asks `resolveDaemonSpawn`
+   for the binary. And the **reSID WASM died with the SID that loaded it**, so
+   `copy-wasm-assets` + `build-resid-wasm` are gone and `build:mcp` is plain `tsc`.
+
+### Step 5 — doctrine
+
+Spec 723 moved from `DOCTRINE.md` §"Still binding" into a dated retired section with
+the reason, the last GREEN run of its gate (25 pass / 0 fail, recorded before deletion)
+and what survives in TRX64. `CLAUDE.md` rule 1 became **"One runtime, and it is a
+separate process"**. Rule 2 (one machine per process) STAYS but gained a scope note: its
+C64RE half is now enforced by construction — there is no session to construct — and
+`probe-session-isolation.mjs` went with the emulator it probed. Rule 3 is marked as a
+TRX64 rule.
+
+The docs sweep found more than expected, because the deleted gates were load-bearing in
+prose: `PLAN.md`'s entire "What is green today" section named the `proof:*` family as
+the authority. Six audits whose subject no longer exists were deleted
+(`single-path-callers`, `debug-mode-prune`, `vic-legacy-toggle`,
+`drive-legacy-residue`, `headless-trace-sink`, `headless-runtime-namespace`) and
+named in DOCTRINE's stale-reference list; seven more got dated historical headers
+rather than deletion, because their argument outlives their subject — above all
+`headless-runtime-singleton-audit.md`, which is the empirical case for a rule that is
+still binding.
+
+### Not fixed here (pre-existing, verified against HEAD~2)
+
+- `probe-tool-surface`: default surface is 144 against a documented cap of 140, and
+  `validate_extraction` + the nine `runtime_candidate_*` tools fail the
+  description-shape checks. Specs 784/796/798 promoted them without moving the cap.
+- `probe-mcp-llm-playbooks` check 9: ten default tools appear in no playbook.
+- `smoke-ui-media-dropzone` case 4c, `smoke-input` case 5a.
+- `npm run ui:typecheck`: `ArtifactRecord`/`EntityRecord` generic errors in
+  `App.tsx` + `workspace-panels.tsx`.

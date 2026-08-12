@@ -14,77 +14,31 @@ months explains code that still exists; deleting it makes that code look arbitra
 
 ## Still binding
 
-### Single-Path Runtime (Spec 723)
-
-**The runtime has exactly ONE execution path. There is no mode or toggle picking an
-alternate one.** `startIntegratedSession({})` gives the product path with no flags:
-
-- **C64 CPU = `Cpu65xxVice`** (microcoded). The legacy `cpu6510.ts` interpreter is gone;
-  there is no `useMicrocodedCpu` toggle.
-- **Scheduler = event-catchup**, not cycle-lockstep. `CycleLockstepScheduler`,
-  `LockstepStrategy`, the `*Cycled` wrappers and `bus-owner-table` are deleted; there is
-  no `useCycleLockstep` flag. The drive advances via pushFlush →
-  `drive1541.tickToClock` at IEC events.
-- **VIC = literal port** (`vic/literal/**`), driven per cycle from the CPU's `tick()`.
-  The batched `VicIIVice.tick()` path, `computeLineSteal()` and `stealCpuCycles` are
-  gone. `VicIIVice` still owns register R/W, IRQ and scanline capture for the
-  rasterized renderer; the literal port is the authority.
-- **1541 drive = VICE1541** (`drive1541/vice1541-facade.ts`). No implementation
-  selector, no `fast-trap` / `real-kernal` modes, no KERNAL trap layer — the real
-  KERNAL runs end to end.
-- **No standalone `HeadlessSessionManager`** start path.
-
-**Protected, do not merge into the C64 core:** the 1541 drive CPU is its own 6502
-(`vice1541/drivecpu.ts` + `drive_6510core.ts`), distinct from `Cpu65xxVice`.
-
-**Debug-only, never product:** `debug-vice-compare` (true-drive plus trace channels).
-
-`scripts/probe-single-path.mjs` enforces all of it. **Do not reintroduce a removed
-flag to make a test pass — retire the test.** Fidelity tests must not keep a dead
-runtime path alive.
-
-*Scope note (2026-08-11): this governs the TypeScript runtime, which is now the
-fallback and parity oracle rather than the product path. It stays binding because the
-code is still there and a second path would still be a second path.*
-
-*Marked in the source (2026-08-12): all 189 files of the TS **emulator** —
-`src/runtime/headless/{v2,vice1541,kernel,vic,c64,cpu,cia,via,sid,audio,iec,drive1541,
-peripherals,debug,…}` plus the session/chip files at that root — now carry a
-`DEPRECATED — TypeScript runtime` banner at the top. It says what the code is, that it
-is reachable only with `C64RE_RUNTIME_TS=1`, and that "how the runtime works" means
-TRX64. The banner exists because the ambiguity was costing real time: a reader could not
-tell, from an open file, whether they were looking at the product or at an oracle.*
-
-*Deliberately NOT marked, because they serve TRX64 or the meaning layer and live under
-the same path by accident of history:* `trace/` (reads TRX64 `.c64retrace` captures —
-`loader-lens`, `binary-format`, the run store), `inspect/` (asset/VIC inspection on the
-live MCP surface), `export/`, `vsf/`, `media/`, `trace-query.ts`, `trace-index.ts`.
-*If those ever move out of `runtime/headless/`, the path stops lying and this note can
-go.*
-
 ### One Machine Per Process (session isolation)
 
-Single-path is about *which* pipeline runs. This is about *how many* machines exist.
+This is about *how many* machines exist.
 
-The runtime core is **single-machine-per-process**: the literal-port VIC is a
-module-global singleton and the VIC plus the whole vice1541 stack keep state in
-module-level globals. That is deliberate — VICE is single-machine-per-process too.
+The runtime core is **single-machine-per-process** — a deliberate design property it
+shares with VICE, whose emulator state also lives in file-scope globals.
 
 **One daemon process = exactly ONE live machine, shared.** Human and LLM co-drive the
-same session. `runtimeSessions.start` is the choke point every start path goes through,
-and it **attaches** to an existing machine rather than constructing a second. Callers
-must not `resetCold` an attached session; only a freshly constructed one cold-boots. A
-disk requested on attach is not auto-mounted.
+same session. Every start path attaches to the machine that daemon already has rather
+than constructing a second. Callers must not cold-reset an attached session; only a
+freshly started daemon cold-boots. A disk requested on attach is not auto-mounted.
 
 - Need an **isolated** machine? Use a **separate backend process** — spawn
   `trx64-daemon --port <own>` and drive it over raw WebSocket
-  (`docs/runtime-sandbox.md`). Never a second in-process session, and never
-  power-cycle the shared one to make room for a test. The MCP `runtime_*` tools cannot
-  do this: they are pinned to one port and attach by design.
-- Do **not** call `startIntegratedSession` directly in product code — go through
-  `runtimeSessions.start`. The raw primitive is unguarded on purpose.
-- Audit: `docs/headless-runtime-singleton-audit.md`. Gate:
-  `scripts/probe-session-isolation.mjs`.
+  (`docs/runtime-sandbox.md`). Never power-cycle the shared one to make room for a
+  test. The MCP `runtime_*` tools cannot give you isolation: they are pinned to one
+  port and attach by design.
+
+*Scope note (2026-08-12, Spec 806): the C64RE-side half of this rule is now enforced by
+construction rather than by a gate. C64RE has no machine to build — the in-process
+TypeScript emulator, its session manager and `startIntegratedSession` are deleted, so
+"do not construct a second session in the MCP process" describes something that is no
+longer expressible. `scripts/probe-session-isolation.mjs` went with them; it drove two
+in-process sessions and diffed their rendering. The rule stays because it still governs
+TRX64, where the property is real and the hazard is the same one.*
 
 ### Traces belong in a store, never in a one-off script
 
@@ -176,11 +130,77 @@ These apply to project work, not to ordinary edits in this repo.
 
 ---
 
+## Retired 2026-08-12 — Single-Path Runtime (Spec 723)
+
+**What changed:** the TypeScript emulator was deleted (Spec 806). Spec 723 governed
+*that* runtime — which CPU, which scheduler, which VIC, which drive, and the absence of
+a flag to pick another. With the subject gone there is nothing left to be single-path
+about on this side: C64RE has no execution path at all, it has a client. The rule that
+replaces it is simpler and is already in `CLAUDE.md`: **one runtime, and it is a
+separate process.**
+
+**What went with it:** `scripts/probe-single-path.mjs`, the gate that enforced all
+25 assertions below. Its last run before deletion was GREEN — 25 pass, 0 fail — so
+nothing was carried out under a red gate. The `npm run probe:single-path` entry and
+its slot in `check:surface` are gone; `npm run check:1541-fidelity` went the same
+way, because `vice1541/**` no longer exists to check.
+
+**What survives, in TRX64:** the *principle*. A second execution path is still a second
+execution path, and TRX64 carries its own gates (Spec 783). If a mode/toggle/flag ever
+appears there that picks an alternate CPU, scheduler, VIC or drive, this is the argument
+against it.
+
+The text below is the retired rule, kept because it explains why the code looked the way
+it did and what must not be reintroduced.
+
+### The rule as it stood
+
+**The runtime has exactly ONE execution path. There is no mode or toggle picking an
+alternate one.** `startIntegratedSession({})` gives the product path with no flags:
+
+- **C64 CPU = `Cpu65xxVice`** (microcoded). The legacy `cpu6510.ts` interpreter is gone;
+  there is no `useMicrocodedCpu` toggle.
+- **Scheduler = event-catchup**, not cycle-lockstep. `CycleLockstepScheduler`,
+  `LockstepStrategy`, the `*Cycled` wrappers and `bus-owner-table` are deleted; there is
+  no `useCycleLockstep` flag. The drive advances via pushFlush →
+  `drive1541.tickToClock` at IEC events.
+- **VIC = literal port** (`vic/literal/**`), driven per cycle from the CPU's `tick()`.
+  The batched `VicIIVice.tick()` path, `computeLineSteal()` and `stealCpuCycles` are
+  gone. `VicIIVice` still owns register R/W, IRQ and scanline capture for the
+  rasterized renderer; the literal port is the authority.
+- **1541 drive = VICE1541** (`drive1541/vice1541-facade.ts`). No implementation
+  selector, no `fast-trap` / `real-kernal` modes, no KERNAL trap layer — the real
+  KERNAL runs end to end.
+- **No standalone `HeadlessSessionManager`** start path.
+
+**Protected, do not merge into the C64 core:** the 1541 drive CPU is its own 6502
+(`vice1541/drivecpu.ts` + `drive_6510core.ts`), distinct from `Cpu65xxVice`.
+
+**Debug-only, never product:** `debug-vice-compare` (true-drive plus trace channels).
+
+`scripts/probe-single-path.mjs` enforces all of it. **Do not reintroduce a removed
+flag to make a test pass — retire the test.** Fidelity tests must not keep a dead
+runtime path alive.
+
+*Scope note (2026-08-11): this governs the TypeScript runtime, which is now the
+fallback and parity oracle rather than the product path. It stays binding because the
+code is still there and a second path would still be a second path.*
+
+---
+
 ## Retired 2026-07-15 — VICE and the TS runtime as authority
 
-**What changed:** TRX64 became standalone and authoritative. The TypeScript runtime is
-a fallback and parity oracle; VICE is an occasional *Vorlage* — a reference to consult —
-and no longer a mandate. "It must match VICE exactly" stopped being binding.
+**What changed:** TRX64 became standalone and authoritative. The TypeScript runtime was
+demoted to a fallback and parity oracle; VICE became an occasional *Vorlage* — a
+reference to consult — and no longer a mandate. "It must match VICE exactly" stopped
+being binding.
+
+**Completed 2026-08-12 (Spec 806).** Both halves are now gone rather than demoted: the
+TypeScript emulator is deleted, and so are the 49 `vice_*` MCP tools and the
+binary-monitor bridge under `src/runtime/vice/`. VICE survives as a *source tree to
+read* (`docs/vice-c64-arch.md`, `docs/vice-1541-arch.md`, `docs/vice-iec-arc42.md`
+and the checkout they describe) — never as something C64RE launches, talks to, or
+compares against.
 
 **What replaced it:** TRX64's own gates (Spec 783, local quality-gate enforcement).
 Regression protection comes from there, not from an oracle comparison.
@@ -188,8 +208,9 @@ Regression protection comes from there, not from an oracle comparison.
 **What survived:** the techniques, above. Reading first, first-divergence over
 statistics, faithful naming when porting. Those were never really about VICE.
 
-The four blocks below are the retired text, kept because they explain code that is
-still in the tree.
+The four blocks below are the retired text. They no longer explain code in this tree —
+that code is deleted — but they explain the equivalent code in TRX64 and the shape of
+the mistakes that produced it.
 
 ### Runtime Proof Gates (Spec 715) — retired as the authority
 
@@ -229,8 +250,9 @@ silent fallback where the reference errors, no init-order change, no invented sn
 format, no duplicate port of one file. Commits touching the port cited the rule numbers.
 
 Rules: `specs/_archive/612-1541-port-fidelity-rules.md`. Task list: `specs/612-…-todo.md`.
-The CI gate `npm run check:1541-fidelity` still runs on every `vice1541/**` edit — the
-mandate is retired, the guard against re-introducing the drift is not.
+The gate `npm run check:1541-fidelity` walked `src/ts-emulator/vice1541/**` and went
+with it (Spec 806). The naming law is what to reach for if a port is ever attempted
+again — in TRX64, against the same C.
 
 ### Port-Bug Forensics (Spec 620)
 
@@ -252,6 +274,15 @@ VICE-side capture as an investigative step.
 
 Named here so nobody spends time looking for them:
 
+- **Deleted with the emulator (Spec 806, 2026-08-12).** Archived specs 612 / 620 / 722 /
+  723 / 726 cite audits that are gone with their subject:
+  `docs/single-path-callers.md`, `docs/debug-mode-prune-audit.md`,
+  `docs/vic-legacy-toggle-audit.md`, `docs/drive-legacy-residue-audit.md`,
+  `docs/headless-trace-sink-audit.md`, `docs/headless-runtime-namespace-audit.md`,
+  `docs/tools/vice.md`. So are the gates `probe-single-path`,
+  `probe-session-isolation`, `check:1541-fidelity` and the whole `proof:*` family.
+  Everything under `src/ts-emulator/`, `src/runtime/vice/` and `tests/unit/**` is
+  reachable in git history only.
 - **`vice-arch-port`, `codex/1541-runtime-gates`** — branches gone. The arch-port
   doctrine that required a §-anchor in `docs/vice-c64-arch.md` /
   `docs/vice-1541-arch.md` / `docs/vice-iec-arc42.md` went with them.

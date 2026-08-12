@@ -1,5 +1,10 @@
 # VICE IEC + drive-sync arc42 deep-dive
 
+> **Note (Spec 806, 2026-08-12).** This is a VICE *source* reference — read it when
+> porting. Its "our equivalent" cross-links point at `src/runtime/headless/**`, the
+> TypeScript emulator that was deleted; the counterparts now live in TRX64. The VICE
+> side of every section is unchanged and still authoritative.
+
 **Status**: draft v1 — produced under Spec 137.
 
 **Architectural status update (post-doc)**: After this doc landed, the

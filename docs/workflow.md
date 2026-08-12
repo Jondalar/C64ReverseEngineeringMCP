@@ -52,10 +52,8 @@ The contract is:
   possible on its own
 - raw runtime traces are source artifacts; compact runtime summaries are
   a later phase
-- TRX64 (native Rust daemon, the default runtime backend), the in-repo
-  TypeScript Headless Runtime (fallback / parity oracle), VICE, trace
-  stores, and V3 UI captures are evidence providers for the same project
-  model, not separate side projects
+- the runtime daemon, trace stores, and UI captures are evidence providers
+  for the same project model, not separate side projects
 
 `project_init` should create this contract up front, and
 `project_status` should explain where the project currently sits inside
@@ -127,18 +125,16 @@ C64RE has three runtime sources, in priority order:
   --stream`, Spec 771). It produces the bytes, events, and machine-state that
   drive analysis, and owns the runtime / instrument / trace / checkpoint stack
   (`.c64re` snapshots, `.c64retrace` timelines).
-- **Headless Runtime** — the in-repo TypeScript C64 + 1541 runtime, now the
-  **fallback / parity oracle** for TRX64 (force it with `C64RE_RUNTIME_TS=1`).
-  It still backs automated tests, trace stores, snapshots, and the V3 Emulator
-  UI when TRX64 is unavailable.
-- **VICE** — compatibility / correctness oracle, external debugger, monitor,
-  and trace reference. Never the primary tool.
+  It is the ONLY runtime: the in-repo TypeScript C64 + 1541 emulator and the
+  `vice_*` bridge were deleted on 2026-08-12 (Spec 806), so there is nothing to
+  fall back to and nothing to A/B against. A missing daemon is an actionable
+  setup error carrying the per-OS recipe.
+- **VICE** — a source tree to READ when porting, nothing C64RE runs.
 
-Leitregel (Spec 771): **Capability → TRX64, Meaning / Memory → C64RE.** The
-MCP `runtime_*` tools are backed by TRX64 by default (the TypeScript runtime
-serves as the parity oracle behind them).
+Leitregel (Spec 771): **Capability → TRX64, Meaning / Memory → C64RE.** Every
+MCP `runtime_*` tool is a client of the daemon.
 
-All three are project evidence sources. A runtime run is only useful to the
+Runtime output is a project evidence source. A runtime run is only useful to the
 workflow when its output is registered or summarized into durable project
 artifacts:
 
@@ -162,7 +158,7 @@ unregistered markdown note.
 | `structural-enrichment` | lift deterministic outputs into entities/relations/placement | entities, relations, structural flows, medium placement |
 | `semantic-enrichment` | capture meaning, hypotheses, and work state | findings, tasks, open questions, semantic annotations |
 | `semantic-feedback-refinement` | use semantic insight to improve the static model | refined analysis, stronger payload/file relations, clarified segments |
-| `runtime-capture` | collect raw VICE/headless runtime evidence | trace artifacts, snapshots, raw runtime summaries |
+| `runtime-capture` | collect raw runtime evidence | trace artifacts, snapshots, raw runtime summaries |
 | `runtime-aggregation` | condense raw runtime evidence into cheap reusable artifacts | `runtime-summary`, `runtime-phases`, `runtime-scenarios`, `memory-activity` |
 | `view-build` | generate stable backend JSON view-models | `views/*.json` |
 
@@ -312,7 +308,7 @@ Design rule:
 ### 7. Runtime Capture
 
 Purpose:
-- gather raw runtime evidence from VICE/headless sessions
+- gather raw runtime evidence from runtime sessions
 
 Artifacts created:
 - traces
@@ -408,7 +404,7 @@ When working inside a project:
 | `c64re_get_skill` | Return the canonical C64 RE skill text. |
 | `full_re_workflow` | Strict PRG-centric 3-phase sub-workflow for one binary. |
 | `disk_re_workflow` | Triage and analyze D64/G64 disk images. |
-| `debug_workflow` | VICE runtime and breakpoint-driven debugging guidance. |
+| `debug_workflow` | Runtime and breakpoint-driven debugging guidance. |
 
 ## Relationship To The Older 3-Phase PRG Workflow
 

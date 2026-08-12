@@ -30,14 +30,13 @@ Possible cycles:
 | Work strand | Human | LLM / Agent | MCP Project / Knowledge | Headless Runtime | TraceDB / Evidence | Workbench UI |
 |---|---|---|---|---|---|---|
 | Explore runtime | Gives input: RETURN, FIRE, joystick, menu choice, disk swap. | Starts or reuses a session, mounts media, runs to a sensible state. |  | `runtime_session_start`, `runtime_media_mount`, `runtime_type`, `runtime_joystick`, `runtime_session_run`, `runtime_until`, `runtime_render_screen`, `runtime_session_status` | Screens/status as evidence candidates. | Live screen visible. |
-| Freeze / inspect | Judges the visible state: title, loader, error, menu, asset. | Captures a checkpoint, reads registers/memory/disasm, resolves VIC pixels/cells. | Findings/entities can emerge. | `runtime_session_snapshot`, `runtime_monitor_registers`, `runtime_monitor_memory`, `runtime_monitor_disasm`, `runtime_vic_inspect_at` | Checkpoint, VIC provenance, evidence record. | Freeze/overlay/inspector. |
+| Freeze / inspect | Judges the visible state: title, loader, error, menu, asset. | Captures a checkpoint, reads registers/memory/disasm, resolves VIC pixels/cells. | Findings/entities can emerge. | `runtime_checkpoint_capture`, `runtime_monitor_registers`, `runtime_monitor_memory`, `runtime_monitor_disasm`, `runtime_vic_inspect_at` | Checkpoint, VIC provenance, evidence record. | Freeze/overlay/inspector. |
 | Capture trace | Lets the runtime run or helps interactively through load/play phases. | Saves or uses a trace and sets/reads relevant markers. | Trace is referenced as a project artifact. | `runtime_session_run` | `runtime_query_events`, `trace_store_info`, `trace_store_query`, `trace_store_anchor_list`, `trace_store_anchor_find` | Trace status and bounded views. |
 | Analyze trace | Asks: where does the loader hang, where does the asset come from, what writes where? | Builds swimlane, taint, loader profile, path following. | `save_finding`, `save_open_question`, `link_entities` |  | `runtime_swimlane_slice`, `runtime_trace_taint`, `runtime_follow_path`, `runtime_profile_loader`, `trace_store_bus_find`, `trace_store_top_pcs` |  |
 | Start/improve disassembly | Confirms the disassembly makes sense, or asks for code. | Disassembles payloads, improves labels/annotations with runtime evidence. | `analyze_prg`, `disasm_prg`, `disasm_menu`, `inspect_address_range`, `c64ref_lookup`, `link_payload_to_asm`, `propose_annotations`, `save_finding` | `runtime_resolve_pc` | Runtime refs are cited. | Annotated listing visible. |
 | Link asset semantically | Marks logo/sprite/charset/screen region, or asks about it. | Matches visible data against RAM, file/payload, and code. | `save_finding`, `save_entity`, `link_entities` | `runtime_vic_inspect_at`, `runtime_monitor_memory` | Evidence record shows the source. | Overlay/inspector shows the ref. |
 | Change / patch / intervention | Decides: crack, patch, EF port, fix, code overlay, test branch. | Creates or describes the change, records assumptions and risk. | `save_finding`, `save_open_question`, `agent_record_step` | Later: code-overlay/patch-branch runtime tools. | Before/after evidence. | Branch/change UI later. |
-| Validation | Tests the result or gives new input. | Reproduces via runtime, trace, or views; decides the next cycle. | `agent_propose_next`, `agent_record_step`, `build_memory_map`, `build_project_dashboard`, `build_annotated_listing_view`, `build_all_views`, `render_docs` | `runtime_session_run`, `runtime_render_screen`, `runtime_session_snapshot` | Trace/checkpoint comparison. | Project state visible. |
-| VICE oracle | Requests a VICE comparison only on genuine divergence. | Uses VICE deliberately as an oracle, not as the standard workflow. | Finding with an oracle reference. | The default runtime backend is TRX64 (the Rust daemon, Spec 771); the in-repo TypeScript runtime is the fallback / parity oracle. The `runtime_*` tools / "Headless Runtime" lane route to TRX64 by default. | VICE diff as evidence. |  |
+| Validation | Tests the result or gives new input. | Reproduces via runtime, trace, or views; decides the next cycle. | `agent_propose_next`, `agent_record_step`, `build_memory_map`, `build_project_dashboard`, `build_annotated_listing_view`, `build_all_views`, `render_docs` | `runtime_session_run`, `runtime_render_screen`, `runtime_checkpoint_capture` | Trace/checkpoint comparison. | Project state visible. |
 
 ## 3. Loop rule
 
@@ -59,14 +58,13 @@ Default-visible:
 - Knowledge: `save_finding`, `save_entity`, `save_open_question`, `list_*`, `read_artifact`, `link_*`
 - Media/extraction: `inspect_disk`, `extract_disk`, `extract_crt`, `disk_sector_allocation`
 - Analysis/disassembly: `analyze_prg`, `disasm_prg`, `disasm_menu`, `inspect_address_range`, `c64ref_lookup`
-- Headless Runtime: `runtime_session_start`, `runtime_media_mount`, `runtime_session_run`, `runtime_type`, `runtime_joystick`, `runtime_render_screen`, `runtime_session_snapshot`
+- Headless Runtime: `runtime_session_start`, `runtime_media_mount`, `runtime_session_run`, `runtime_type`, `runtime_joystick`, `runtime_render_screen`, `runtime_checkpoint_capture`
 - Monitor/inspect: `runtime_monitor_registers`, `runtime_monitor_memory`, `runtime_monitor_disasm`, `runtime_until`, `runtime_resolve_pc`, `runtime_vic_inspect_at`
 - Trace capture/control: `runtime_trace_start`, `runtime_mark`, `runtime_trace_finalize` (all on the default surface, Spec 746 — the LLM starts a live trace on the running session, no cold-boot)
 - Trace/evidence: `runtime_query_events`, `trace_store_*`, `runtime_swimlane_slice`, `runtime_trace_taint`, `runtime_follow_path`, `runtime_profile_loader`
 
 Not default:
 
-- `vice_*`: oracle/backup on divergence.
 - Drive-only debug tools.
 - Maintenance/backfill/repair/bulk.
 - Old runtime modes, lockstep switches, legacy paths.
@@ -99,4 +97,4 @@ which ensures the DuckDB index exists (lazy-rebuilds from the `.c64retrace` if
 missing, streaming + >2 GiB-safe) and returns a bounded slice. The binary log is the
 truth; a buggy reconstruction would diverge from the recorded PC stream, so the log
 doubles as a checksum on any replay. Full wire spec:
-`src/runtime/headless/trace/binary-format.ts`.
+`src/trace/binary-format.ts`.

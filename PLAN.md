@@ -6,29 +6,21 @@ framing see [README.md](README.md); for working doctrine see
 
 ## What is green today (baseline)
 
-Frozen product baseline: `runtime-product-green-2026-05-24` (master). The
-"is this green" source is the **small Runtime Product Proof canary baseline**
-(`specs/_archive/715-runtime-product-proof-baseline.md`) — it answers *"does the central
-runtime still work like yesterday?"* in minutes, NOT a full certification matrix:
+**Superseded 2026-08-12 by Spec 806.** The "is this green" authority used to be the
+7-canary Runtime Product Proof plus the focused subsystem suites — all of which booted
+the **in-repo TypeScript emulator**. That emulator is deleted, so those gates are gone
+with it: `proof:product`, `proof:capability`, `proof:list`, `proof:seven-game`,
+`runtime:proof`, `check:1541-fidelity`, `probe:single-path`, the seven per-game
+screenshot tests and `scripts/runtime-proof-manifest.mjs`. The frozen record of what
+they once proved stays in `docs/runtime-product-baseline-2026-05-24.md` and
+`specs/_archive/715-runtime-product-proof-baseline.md`, as history.
 
-- `specs/_archive/715-runtime-product-proof-baseline.md` — active product authority + tiered gate policy
-- `docs/runtime-product-proof.md` — the 7-canary baseline + gate-group policy
-- `scripts/runtime-proof-manifest.mjs` — gate manifest (baseline / focused / historical)
-- `docs/runtime-product-baseline-2026-05-24.md` — frozen baseline record
-- run: `npm run proof:product` (7 canaries) · `npm run proof:capability -- <cap>`
-  (focused subsystem suite) · `npm run proof:list`
-- Specs `600`/`601` **superseded as active authority** (retained as historical
-  1541 bring-up evidence; `601`'s truth table still defines the seven-game state).
-
-The baseline = 7 fast real canaries, each cut to its earliest stable PASS:
-`kernal-directory`, `kernal-program-load`, `fastloader-scramble`,
-`fastloader-polarbear`, `crt-easyflash`, `crt-gmod2`, `checkpoint-canary`.
-
-The big subsystem suites — seven-game, Spec 616/617 LOAD/SAVE fidelity,
-713/714.5 cartridge + mutable-media matrices, 705/707 checkpoint, 706 audio,
-708 trace, 709 media — are **focused** gates, run only when their subsystem
-changes (`proof:capability -- <cap>`), not as a permanent baseline. Old
-097/415/611 bring-up smokes are **historical** (diagnostic, never a merge gate).
+**Runtime regression protection now lives in TRX64** (Spec 783, its own local quality
+gates). This repo gates what this repo owns: the MCP surface
+(`check:mcp-product-surface`, `check:surface`, `check:runtime-invisible`), the
+knowledge/analysis e2e set (`e2e:748`, `e2e:751`, `e2e:752`, `e2e:medium-coverage`,
+`e2e:805-sandbox-batch`, `smoke:trace-query`, …) and the format checks
+(`check:cart-type-ids`). `npm run` lists the surviving 95.
 
 **Unit green ≠ runtime green. Mapping green ≠ runtime green.** No step
 lands red; if a gate fails, revert and record findings in the spec's

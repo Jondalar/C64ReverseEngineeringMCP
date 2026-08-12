@@ -1,77 +1,41 @@
-# C64 Runtime — TRX64 backend (default) + TypeScript Headless (fallback / parity oracle)
+# C64 Runtime — the TRX64 daemon
 
-The runtime backend that MCP tools, agents, regression scripts, and the
-Emulator UI drive is **TRX64** by default — the native (Rust) daemon,
-auto-discovered/spawned as the sibling `../TRX64/target/release/trx64-daemon`.
-The **TypeScript Headless runtime** documented here is now the **fallback /
-parity oracle** (force it with `C64RE_RUNTIME_TS=1`); it is no longer just a
-loader/depacker harness. Both serve the same WS protocol and the same `.c64re`
-/ `.c64retrace` formats.
+The runtime that MCP tools, agents, scripts and the Emulator UI drive is **TRX64**:
+a native (Rust) daemon, a separate process, auto-discovered and auto-spawned as the
+sibling `../TRX64/target/release/trx64-daemon` (override with `C64RE_RUNTIME_BIN` /
+`C64RE_TRX64_BIN`). It serves the WS JSON-RPC protocol and owns the `.c64re` and
+`.c64retrace` formats.
+
+**There is no second runtime.** The in-repo TypeScript emulator this page used to
+describe — its C64 core, its 1541, its modes (`fast-trap`, `real-kernal`,
+`debug-lockstep`, `debug-vice-compare`) and its standalone-drive sessions — was
+deleted on 2026-08-12 (Spec 806), together with the 49 `vice_*` bridge tools. If the
+daemon is missing, the tools say so and hand you the per-OS setup recipe; nothing
+silently falls back.
 
 Leitregel: Capability → TRX64, Meaning/Memory → C64RE.
 
-It remains part of the larger C64RE MCP project:
-
 - C64RE owns the project knowledge, artifacts, specs, workflow, and UI.
-- VICE remains the compatibility oracle and useful external debugger.
-- The runtime (TRX64 by default; the TypeScript Headless runtime as
-  fallback / parity oracle) provides deterministic, scriptable runtime
-  evidence for agents and browser clients.
+- The runtime provides deterministic, scriptable runtime evidence for agents and
+  browser clients.
+- VICE is a source tree to READ when porting (`docs/vice-c64-arch.md`,
+  `docs/vice-1541-arch.md`, `docs/vice-iec-arc42.md`) — never something C64RE runs.
 
-## Runtime Modes
-
-The runtime exposes several modes for tools and diagnostics:
-
-| Mode | Purpose |
-|---|---|
-| `fast-trap` | Fast analysis path where KERNAL/file traps are acceptable helper behavior. Not an acceptance path for TrueDrive. |
-| `real-kernal` | C64 KERNAL runs normally while media access may still use limited helpers. |
-| `true-drive` | Real 1541 ROM, drive CPU/VIA, IEC, GCR, motor/head/media behavior. Required for custom fastloaders. |
-| `debug-vice-compare` | Headless run prepared for first-divergence comparison against VICE. |
-| `debug-lockstep` / `debug-push-only` / `debug-hybrid` | Diagnostic-only modes. They are not product acceptance modes. |
-
-Product compatibility gates should use `true-drive` unless a test explicitly
-targets a faster analysis or diagnostic mode.
-
-## Integrated C64 + 1541 Sessions
-
-| Tool | Description |
-|---|---|
-| `headless_integrated_session_start` | Start a C64 session with optional PRG/CRT/D64/G64 media, mode, and reset profile. |
-| `headless_integrated_session_run` | Run by instruction/cycle budget or until a stop condition. |
-| `headless_integrated_session_status` | Report machine state, media state, clocks, and recent runtime status. |
-| `headless_integrated_session_snapshot` | Capture structured C64/drive/runtime state for analysis or replay. |
-| `headless_integrated_session_load_prg` | Load a PRG into an existing session. |
-| `headless_integrated_session_type` | Type text through the emulated keyboard path. |
-| `headless_integrated_session_joystick` | Set joystick directions/fire for the active session. |
-
-## Standalone Drive Sessions
-
-Standalone drive tools are useful for 1541/G64 investigation and for
-isolating media or VIA behavior from a full C64 boot.
-
-| Tool | Description |
-|---|---|
-| `headless_drive_session_start` | Start a 1541 drive session backed by a G64/D64 image. |
-| `headless_drive_status` | Inspect drive CPU, VIA, motor/head, track, and media state. |
-| `headless_iec_bus_state` | Inspect resolved IEC line state. |
-| `headless_drive_session_save_vsf` | Save a drive snapshot. |
-| `headless_drive_session_load_vsf` | Restore a drive snapshot. |
-| `headless_drive_persist_writes` | Persist modified media to an output image. |
+The authoritative, generated tool lists are `docs/tool-surface-inventory.md` and
+`docs/mcp-tool-usecase-matrix.md`.
 
 ## Monitor, Interrupts, And Rendering
 
 > The `runtime_*` / monitor / recorder / checkpoint MCP tools are a
-> transition/proxy to the TRX64 backend (endstate: a dedicated `trx64-mcp`
-> instrument server). The TS daemon / in-proc paths documented here are the
-> fallback / parity oracle.
+> transition/proxy to the runtime daemon (endstate: a dedicated instrument
+> server). Every one of them is a client call; none runs a machine here.
 
 | Tool | Description |
 |---|---|
-| `headless_render_screen` | Render the current VIC framebuffer to a PNG artifact. |
-| `runtime_monitor` | **One tool = the whole interactive monitor REPL, no per-verb allow-list.** Pass ANY command string the human prompt accepts and get its text output — there is no gating, the LLM has the same reach as a person at the monitor. That includes: inspect (`m`/`d`, `r`, `sym`/`inspect`/`xref`, `df`); run control (`n`/`z`/`g`, `bp`/`del`); observers + scoped trace (`obs … do break\|log\|trace`); state (`dump`/`undump`, `trace`); **file I/O / FS mini-shell** (`cd`/`ls`, `load`/`save`, `bload`/`bsave`, `vsf`); **cartridge hot-swap** (`swapcrt`); annotations (`label`/`note`); plus `device c64\|drive8`, `sidefx`, `bank`. Run `help` for the full verb list. Daemon mode routes to the `monitor/exec` WS handler (full ctx incl. trace-store/project bridges); in-proc builds a minimal ctx (the trace-store/project bridge verbs — map/taint/swimlane/inspect/xref/label — need the daemon path). |
+| `runtime_render_screen` | Render the current VIC framebuffer to a PNG artifact. |
+| `runtime_monitor` | **One tool = the whole interactive monitor REPL, no per-verb allow-list.** Pass ANY command string the human prompt accepts and get its text output — there is no gating, the LLM has the same reach as a person at the monitor. That includes: inspect (`m`/`d`, `r`, `sym`/`inspect`/`xref`, `df`); run control (`n`/`z`/`g`, `bp`/`del`); observers + scoped trace (`obs … do break\|log\|trace`); state (`dump`/`undump`, `trace`); **file I/O / FS mini-shell** (`cd`/`ls`, `load`/`save`, `bload`/`bsave`, `vsf`); **cartridge hot-swap** (`swapcrt`); annotations (`label`/`note`); plus `device c64\|drive8`, `sidefx`, `bank`. Run `help` for the full verb list. Routes to the `monitor/exec` WS handler with the full context, including the trace-store and project bridges. |
 | `runtime_recorder_status` / `_list` / `_dump` | The off-thread shared-memory recorder (Spec 766; opt-in `C64RE_RECORDER=1`). `_list` shows the scrub-history anchors; `_dump <seq> <path>` persists a past anchor to a durable `.c64re` (reconstructs core + gen-gated medium) so it can be undumped and replayed with tracing on. |
-| `runtime_checkpoint_list` / `_capture` / `_pin` / `_unpin` / `_restore` | The in-process 705.B checkpoint ring (auto-captured ~0.5 s) for live rewind/scrub. |
+| `runtime_checkpoint_list` / `_capture` / `_pin` / `_unpin` / `_restore` | The daemon's 705.B checkpoint ring (auto-captured ~0.5 s) for live rewind/scrub. |
 
 **Non-halting scoped trace via observers** — start/stop a trace on PC hits without
 breakpoints, e.g. from `runtime_monitor`:
@@ -87,14 +51,12 @@ the monitor on both start and stop. Address ranges use `lo..hi` (e.g.
 
 ## Emulator UI - Visualization Of The Headless Core
 
-The **runtime backend, not the UI, owns the machine clock** (TRX64 by default;
-the TypeScript headless runtime described here is the fallback). The browser is a
+The **runtime backend, not the UI, owns the machine clock.** The browser is a
 visualization and command layer on top of a backend-driven loop.
 
 ### Backend owns the loop
 
-`RuntimeController` (`src/runtime/headless/debug/runtime-controller.ts`)
-runs the C64 + 1541 core continuously, independent of any connected
+The daemon runs the C64 + 1541 core continuously, independent of any connected
 browser:
 
 - **Pacing** (`session/set_pacing`): `pal` paces to ~1 MHz / 50 fps
@@ -171,21 +133,10 @@ Headless runtime evidence should become project artifacts:
 
 Large JSONL traces are not the desired long-term UI format. The current
 direction is a DuckDB trace store with typed event tables, post-hoc
-rollups, zoomable time windows, and VICE/headless trace import.
+rollups, zoomable time windows, and runtime trace import.
 
-## Current Development Focus
+## Where the runtime is developed
 
-As of 2026-05-22, the active runtime work is around:
-
-- 1:1 VICE-shaped C64/1541 behavior under `src/runtime/headless/**`
-- the 7-game Runtime Proof Gate staying green as the single acceptance bar
-- backend-owned autonomous runtime loop + visualization
-- VICE-faithful monitor stepping and flow-aware debugging
-- VIC-II pixel/line/raster fidelity from the `viciisc/` literal port
-- per-cycle drive scheduling, IEC, GCR, KERNAL load/save, and custom-fastloader
-  `$DD00` paths
-- SID readback correctness and reSID WASM audio integration
-
-Do not introduce game-specific traps as product fixes. Compatibility
-bugs should identify the exact VICE-observable event or state being
-matched.
+Runtime work happens in TRX64, against its own gates (Spec 783). C64RE consumes it:
+if a runtime capability is missing, the answer is a TRX64 change plus the MCP tool
+that reaches it — never a second implementation here.

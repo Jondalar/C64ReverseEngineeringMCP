@@ -13,15 +13,16 @@ loaded into every context window.
 
 **Binding:**
 
-1. **One execution path.** No mode, no toggle, no flag picking an alternate CPU /
-   scheduler / VIC / drive. Do not reintroduce a removed flag to make a test pass —
-   retire the test. Gate: `scripts/probe-single-path.mjs`. (Spec 723)
-2. **One machine per process.** Start through `runtimeSessions.start`, never
-   `startIntegratedSession` directly; it attaches to the live machine rather than
-   building a second. Need isolation → a separate `trx64-daemon` process, never a second
-   in-process session, and never power-cycle the shared one for a test. Gate:
-   `scripts/probe-session-isolation.mjs`.
-3. **The 1541 drive CPU stays its own 6502.** Do not merge it into the C64 core.
+1. **One runtime, and it is a separate process.** C64RE has no emulator of its own —
+   no in-process machine, no fallback, no second implementation to A/B against. If the
+   runtime is unavailable, tools say so and carry the setup recipe; they never quietly
+   do something else. Do not reintroduce an in-repo core. (Spec 806; the single-path
+   rule it replaces is retired in `DOCTRINE.md`.)
+2. **One machine per process.** One daemon = exactly ONE live machine, shared: the
+   human's UI and the LLM co-drive it. Need isolation → a separate `trx64-daemon` on
+   its own port, and never power-cycle the shared one for a test.
+3. **The 1541 drive CPU stays its own 6502** (a TRX64 rule now). Do not merge it into
+   the C64 core.
 4. **Traces go into the trace store, never into a one-off script.** Capture the whole
    window and filter on query. `console.log` is a debug primitive, not a trace.
 5. **Read before you hypothesise.** Read the reference end-to-end first and say so.
@@ -47,11 +48,12 @@ loaded into every context window.
    sitting in `src/`. Nine specs were closed in one evening and **not one needed
    building**.
 
-**Retired 2026-07-15 — do not re-apply:** VICE and the TypeScript runtime as
-*authority*. TRX64 is standalone and authoritative; the TS runtime is a fallback and
-parity oracle; VICE is an occasional reference, never a 1:1 mandate. Regression
-protection is TRX64's own gates (Spec 783), not an oracle comparison. The techniques
-from that era survive as rules 4 and 5 above. Full text and reasoning: `DOCTRINE.md`.
+**Retired — do not re-apply:** VICE and the TypeScript runtime as *authority*
+(2026-07-15), and then as anything at all (2026-08-12, Spec 806): the TS emulator, its
+1541, its test surface and the 49 `vice_*` MCP tools are deleted. TRX64 is the runtime.
+VICE survives only as a source tree to READ when porting. Regression protection is
+TRX64's own gates (Spec 783), not an oracle comparison. The techniques from that era
+survive as rules 4 and 5 above. Full text and reasoning: `DOCTRINE.md`.
 
 **Ownership.** This agent owns and stewards **both** repos — C64RE and the sibling
 TRX64 (`../TRX64`). Leitregel: capability → TRX64, meaning and memory → C64RE. That is a
@@ -62,7 +64,7 @@ delivering it there is in scope. Cross-repo edits and commits in both are normal
 
 MCP server for LLM-powered Commodore 64 reverse engineering. Bundles the TRXDis analysis pipeline to provide heuristic disassembly, semantic annotation, and dual-assembler output (KickAssembler + 64tass) for C64 PRG files, disk images (D64/G64), and CRT cartridges.
 
-C64RE is the reverse-engineering workbench, not the emulator: the runtime backend is TRX64 (see Spec 771), and the TypeScript runtime in this repo is the fallback / parity oracle. Leitregel: Capability → TRX64, Meaning/Memory → C64RE.
+C64RE is the reverse-engineering workbench, not the emulator: the runtime is TRX64 (Spec 771), reached as a separate daemon process. There is no runtime in this repo — the TypeScript emulator and the VICE bridge were deleted 2026-08-12 (Spec 806). Leitregel: Capability → TRX64, Meaning/Memory → C64RE.
 
 **Ownership:** the agent working here owns and stewards **both** repos — C64RE and the sibling TRX64 (`../TRX64`). The Leitregel split is an internal division of **one owner's** work, **not a handoff to a separate party**: when a capability moves "→ TRX64" (e.g. the TS runtime is deprecating and its live capabilities — trace, intervention, rewind, checkpoints, drive-to-state, monitor — migrate), delivering it there is in scope, carried across, not deferred to someone else. Cross-repo edits + commits in both repos are normal.
 
@@ -78,7 +80,7 @@ npm run dev                # Live reload with tsx watch
 npm start                  # One-shot run
 ```
 
-No test suite exists. Verification is semantic: byte-identical PRG rebuild via `cmp -l`.
+No test suite exists — the chip-level `tests/` tree went with the TS emulator (Spec 806); what remains are the `scripts/` smokes/e2e wired into `package.json` and `tests/spec-788`. Verification is semantic: byte-identical PRG rebuild via `cmp -l`.
 
 ## Architecture
 

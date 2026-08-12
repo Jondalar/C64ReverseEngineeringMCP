@@ -1,5 +1,8 @@
 # Runtime Product Baseline — runtime-product-green-2026-05-24
 
+> **Historical (Spec 806, 2026-08-12).** A frozen baseline record for the deleted
+> TypeScript runtime. The scripts it names no longer exist.
+
 Frozen by Spec 715. The active product-level "is the runtime green" authority:
 a small, fast, real canary baseline ("does the central runtime still work like
 yesterday?"). The big subsystem suites (616/617, 713/714.5, seven-game, 705/707,

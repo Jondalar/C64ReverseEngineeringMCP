@@ -1,5 +1,8 @@
 # Runtime Proof Baseline — 2026-05-16
 
+> **Historical (Spec 806, 2026-08-12).** A frozen baseline record for the deleted
+> TypeScript runtime. The scripts it names no longer exist.
+
 **Baseline tag:** `runtime-green-2026-05-16` → master HEAD `87b4957`
 ("Merge vic_bugs: Specs 425-429 = CLK_INC + VIC bank + IM2 fix + LED
 VICE 1:1").

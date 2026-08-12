@@ -1,5 +1,11 @@
 # Runtime Product Proof — small canary baseline + tiered gates
 
+> **Historical (Spec 806, 2026-08-12).** The canary baseline and its tiered gate
+> policy drove the deleted TypeScript emulator; `npm run proof:*` and
+> `scripts/runtime-proof-manifest.mjs` are gone. Kept for the policy shape — small
+> fast canary first, focused suites only when their subsystem changes — which is
+> worth reusing in TRX64.
+
 Active authority: **Spec 715** (`specs/_archive/715-runtime-product-proof-baseline.md`).
 
 The product regression baseline is **not** a completeness or release-certification
