@@ -14,7 +14,7 @@
 //     [--cpu c64]
 //
 // Produces <store-dir>/trace.duckdb with an `instructions` table matching
-// src/runtime/trace-store/duckdb-store.ts schema.
+// src/trace/store/duckdb-store.ts schema.
 
 import { mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";

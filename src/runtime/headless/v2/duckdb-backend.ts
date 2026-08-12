@@ -12,7 +12,7 @@
 // ════════════════════════════════════════════════════════════════════════════
 // Spec 232 — DuckDB-backed implementation of QueryEventsBackend.
 //
-// Wraps an existing duckdb connection (from src/runtime/trace-store).
+// Wraps an existing duckdb connection (from src/trace/store).
 // Inlines parameters safely (int / float / string with escape).
 
 import type { QueryEventsBackend } from "./query-events.js";

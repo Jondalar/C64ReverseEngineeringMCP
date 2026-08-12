@@ -19,7 +19,7 @@ import { resolve as resolvePath } from "node:path";
 const repoRoot = resolvePath(import.meta.dirname, "..");
 
 const { openStore, closeStore } =
-  await import(`${repoRoot}/dist/runtime/trace-store/duckdb-store.js`);
+  await import(`${repoRoot}/dist/trace/store/duckdb-store.js`);
 const { DuckDbQueryBackend } =
   await import(`${repoRoot}/dist/runtime/headless/v2/duckdb-backend.js`);
 const { addBookmark, listBookmarks, removeBookmark, rebindBookmark } =

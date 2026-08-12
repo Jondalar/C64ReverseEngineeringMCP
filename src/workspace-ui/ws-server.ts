@@ -1353,7 +1353,7 @@ export class WsServer {
       // BigInt cycle/seq columns are JSON-unsafe over WS; cycles/seq stay well
       // under 2^53, so down-cast to Number losslessly.
       if (String(op) === "store_fn") {
-        const q = await import("../runtime/trace-store/queries.js");
+        const q = await import("../trace/store/queries.js");
         const fa = (a.args ?? {}) as Record<string, any>;
         const jsonSafe = (x: unknown) => JSON.parse(JSON.stringify(x, (_k, v) => typeof v === "bigint" ? Number(v) : v));
         let out: unknown;
@@ -2058,7 +2058,7 @@ export class WsServer {
           const fs = await import("node:fs");
           const path = await import("node:path");
           const dir = path.dirname(resolveSnapshotPath(`runtime/${session_id}/x.duckdb`));
-          const q = await import("../runtime/trace-store/queries.js");
+          const q = await import("../trace/store/queries.js");
           const listStores = (): { name: string; path: string; mtime: number }[] => {
             let ents: string[]; try { ents = fs.readdirSync(dir); } catch { return []; }
             return ents.filter((f) => f.endsWith(".duckdb")).map((f) => {

@@ -125,13 +125,12 @@ try {
 // Part 3 — the SAME trace.duckdb must be readable via the MCP-tool readers
 // (trace_store_* + runtime_query_events). They consume the 726 schema directly
 // (trace_run / trace_event / trace_mark), per Spec 726 §6a.
-console.log("\nPart 3 — readable through the MCP-tool readers (726 schema)\n");
-const q = await import(`${ROOT}/dist/runtime/trace-store/queries.js`);
+console.log("\nPart 3 — readable through the MCP-tool readers (726 schema)\n"../src/trace/store/queries.js`);
 
 const info = await q.getInfo(TRACE_OUT);
-// Spec 726 §6a: getInfo on a live-sink store reports per-channel event counts
-// from trace_event directly (events:cpu / events:total / marks), NOT a legacy
-// `instructions` table count.
+/ Spec 726 §6a: getInfo on a live-sink store reports per-channel event counts
+/ from trace_event directly (events:cpu / events:total / marks), NOT a legacy
+/ `instructions` table count.
 ok((info.tableCounts["events:total"] ?? 0n) > 0n, "getInfo: trace_event counts > 0 (726 schema)",
    `events:total=${info.tableCounts["events:total"]} events:cpu=${info.tableCounts["events:cpu"]} marks=${info.tableCounts.marks}`);
 ok(info.meta.source === "live-sink-726" && info.meta.schema?.includes("trace_event"),

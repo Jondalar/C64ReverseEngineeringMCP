@@ -19,9 +19,9 @@ const repoRoot = resolvePath(import.meta.dirname, "..");
 const {
   allocateInstructionChunk, allocateBusEventChunk,
   appendInstruction, appendBusEvent,
-} = await import(`${repoRoot}/dist/runtime/trace-store/chunk-buffer.js`);
+} = await import(`${repoRoot}/dist/trace/store/chunk-buffer.js`);
 const { openStore, closeStore, DuckDbTraceSink } =
-  await import(`${repoRoot}/dist/runtime/trace-store/duckdb-store.js`);
+  await import(`${repoRoot}/dist/trace/store/duckdb-store.js`);
 const { DuckDbQueryBackend } =
   await import(`${repoRoot}/dist/runtime/headless/v2/duckdb-backend.js`);
 const { swimlaneSlice } =

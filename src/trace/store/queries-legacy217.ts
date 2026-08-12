@@ -5,7 +5,7 @@
 // These functions are reached ONLY for a genuine Spec-217 native store — one
 // that has real `instructions` / `bus_events` / `meta` BASE tables and NO
 // `trace_event` table. Such stores are produced only by dev/VICE capture
-// scripts (src/runtime/trace-store/duckdb-store.ts), never by the live MCP sink.
+// scripts (src/trace/store/duckdb-store.ts), never by the live MCP sink.
 // A Spec 726 live-sink store NEVER reaches this module.
 import type { TraceStoreInfo } from "./queries.js";
 

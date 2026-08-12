@@ -57,7 +57,7 @@ ok(!baseTables.includes("instructions"),
   "A2 live-sink store has NO legacy instructions base table", baseTables.includes("instructions") ? "present" : "none");
 
 // ---- B. convenience readers work against the 726 store ----
-const q = await import(`${ROOT}/dist/runtime/trace-store/queries.js`);
+const q = await import(`${ROOT}/dist/trace/store/queries.js`);
 
 try {
   const info = await q.getInfo(dbPath);
@@ -102,7 +102,7 @@ try {
 //   Spec-217 tables). Convenience readers must target trace_run/trace_event/
 //   trace_mark (or neutral CTEs over them), never the legacy names.
 const READER_SOURCES = [
-  "src/runtime/trace-store/queries.ts",
+  "../src/trace/store/queries.ts",
   "src/runtime/headless/v2/query-events.ts",
 ];
 const offenders = [];

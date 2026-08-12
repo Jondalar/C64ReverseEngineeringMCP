@@ -13,17 +13,7 @@ import { dirname, join } from "node:path";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DISK = `${ROOT}/samples/synthetic/1block.g64`;
 let pass = 0, fail = 0;
-const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
-
-const { startIntegratedSession, stopIntegratedSession } =
-  await import(`${ROOT}/dist/runtime/headless/integrated-session-manager.js`);
-const sink = await import(`${ROOT}/dist/server-tools/runtime-trace-sink.js`);
-const { ensureRuntimeController } = await import(`${ROOT}/dist/runtime/headless/debug/runtime-controller.js`);
-const fmt = await import(`${ROOT}/dist/runtime/headless/trace/binary-format.js`);
-const { retracePathFor } = await import(`${ROOT}/dist/runtime/headless/trace/trace-run.js`);
-const { indexBinaryLog, readBinaryLogMeta } = await import(`${ROOT}/dist/runtime/headless/trace/binary-log-indexer.js`);
-const store = await import(`${ROOT}/dist/runtime/headless/trace/trace-run-store.js`);
-const q = await import(`${ROOT}/dist/runtime/trace-store/queries.js`);
+const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""../src/trace/store/queries.js`);
 
 console.log("Spec 726.B — smoke-trace-binary\n");
 

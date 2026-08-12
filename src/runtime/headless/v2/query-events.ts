@@ -196,7 +196,7 @@ export async function queryEvents(backend: QueryEventsBackend, q: EventQuery): P
   const liveSink = backend.isLiveSink ? await backend.isLiveSink() : false;
   let fromSource: string = mapping.table;
   if (liveSink) {
-    const { INSTRUCTIONS_726, BUS_EVENTS_726 } = await import("../../trace-store/schema726.js");
+    const { INSTRUCTIONS_726, BUS_EVENTS_726 } = await import("../../../trace/store/schema726.js");
     if (mapping.table === "instructions") fromSource = `(${INSTRUCTIONS_726})`;
     else if (mapping.table === "bus_events") fromSource = `(${BUS_EVENTS_726})`;
     else return []; // chip_events: no 726 producer

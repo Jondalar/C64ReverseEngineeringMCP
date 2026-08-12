@@ -77,10 +77,10 @@ console.log(`  out          : ${outRoot}`);
 
 const { ViceMonitorClient } = await import(`${repoRoot}/dist/runtime/vice/monitor-client.js`);
 const { openStore, closeStore, exportParquet, DuckDbTraceSink } =
-  await import(`${repoRoot}/dist/runtime/trace-store/duckdb-store.js`);
-const { TraceStoreProducer } = await import(`${repoRoot}/dist/runtime/trace-store/producer.js`);
-const { buildAnchors, DEFAULT_MOTM_ANCHORS } = await import(`${repoRoot}/dist/runtime/trace-store/anchor-builder.js`);
-const { buildRollups } = await import(`${repoRoot}/dist/runtime/trace-store/rollup-builder.js`);
+  await import(`${repoRoot}/dist/trace/store/duckdb-store.js`);
+const { TraceStoreProducer } = await import(`${repoRoot}/dist/trace/store/producer.js`);
+const { buildAnchors, DEFAULT_MOTM_ANCHORS } = await import(`${repoRoot}/dist/trace/store/anchor-builder.js`);
+const { buildRollups } = await import(`${repoRoot}/dist/trace/store/rollup-builder.js`);
 
 const PAL_HZ = 985_248;
 const DRIVE_HZ = 1_000_000;
