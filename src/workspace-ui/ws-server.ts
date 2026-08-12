@@ -1384,19 +1384,19 @@ export class WsServer {
             });
           }
           case "query_events": {
-            const { queryEvents } = await import("../ts-emulator/v2/query-events.js");
+            const { queryEvents } = await import("../analysis/query-events.js");
             return await queryEvents(backend, a as never);
           }
           case "follow_path": {
-            const { followPath } = await import("../ts-emulator/v2/follow-path.js");
+            const { followPath } = await import("../analysis/follow-path.js");
             return await followPath(backend, a as never);
           }
           case "taint": {
-            const { traceTaint } = await import("../ts-emulator/v2/taint.js");
+            const { traceTaint } = await import("../analysis/taint.js");
             return await traceTaint(backend, a as never);
           }
           case "profile_loader": {
-            const { profileLoader } = await import("../ts-emulator/v2/loader-profile.js");
+            const { profileLoader } = await import("../analysis/loader-profile.js");
             return await profileLoader(backend, a.scenario_id as string, [Number(a.cycle_start), Number(a.cycle_end)]);
           }
           case "sql": {
@@ -2143,7 +2143,7 @@ export class WsServer {
             return r?.text ?? "map: empty (the trace captured no memory accesses — enable the memory domain)";
           }
           if (mop === "taint") {
-            const { traceTaint } = await import("../ts-emulator/v2/taint.js");
+            const { traceTaint } = await import("../analysis/taint.js");
             // Default cycle = the trace's own MAX(cycle) (NOT the live clock, which
             // runs past the capture after `trace off`) — same anchor as swimlane.
             let startCycle = Number(margs.startCycle);

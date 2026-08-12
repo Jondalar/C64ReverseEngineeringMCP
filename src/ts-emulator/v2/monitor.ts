@@ -25,7 +25,7 @@ import {
   BreakpointManager,
   type BreakpointSpec,
   type BreakpointHit,
-} from "./breakpoints.js";
+} from "../../analysis/breakpoints.js";
 import { OPCODE_TABLE } from "../../exomizer-ts/generated-opcodes.js";
 import { UNDOC_TABLE } from "../cpu/undoc-table.js";
 

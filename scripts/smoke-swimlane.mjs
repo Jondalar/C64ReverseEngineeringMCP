@@ -23,7 +23,7 @@ const {
 const { openStore, closeStore, DuckDbTraceSink } =
   await import(`${repoRoot}/dist/trace/store/duckdb-store.js`);
 const { DuckDbQueryBackend } =
-  await import(`${repoRoot}/dist/ts-emulator/v2/duckdb-backend.js`);
+  await import(`${repoRoot}/dist/analysis/duckdb-backend.js`);
 const { swimlaneSlice } =
   await import(`${repoRoot}/dist/ts-emulator/v2/swimlane.js`);
 const { renderMarkdown, renderJsonl } =

@@ -1,15 +1,3 @@
-// ════════════════════════════════════════════════════════════════════════════
-//  DEPRECATED — TypeScript runtime.  THE PRODUCT RUNTIME IS TRX64.
-//
-//  This file is part of the in-process TS emulator. It is reachable ONLY with
-//  C64RE_RUNTIME_TS=1 and is never on the default path: every runtime_* tool,
-//  the workspace UI and the MCP surface route to the TRX64 daemon (Spec 771).
-//
-//  Do not extend it, do not fix forward in it, and do not cite it as current
-//  behaviour — "how the runtime works" means TRX64, in ../TRX64.
-//  Its remaining job is to be a parity oracle for the port; when that is no
-//  longer needed it goes. See DOCTRINE.md.
-// ════════════════════════════════════════════════════════════════════════════
 // Spec 236 — VICE first-divergence diff.
 //
 // Given a scenarioId, loads vendored baseline traces from
@@ -100,8 +88,9 @@ export interface DiffBackendFactory {
 function defaultBaselineRoot(): string {
   // __dirname equivalent for ESM:
   const selfPath = import.meta.url.replace(/^file:\/\//, "");
-  // Navigate from src/ts-emulator/v2 → repo root → samples/traces/v2-baseline
-  const repoRoot = resolvePath(selfPath, "../../../../../..");
+  // dist/analysis/vice-diff.js (or src/analysis/vice-diff.ts under tsx) → up 3
+  // to the repo root → samples/traces/v2-baseline.
+  const repoRoot = resolvePath(selfPath, "../../..");
   return resolvePath(repoRoot, "samples/traces/v2-baseline");
 }
 

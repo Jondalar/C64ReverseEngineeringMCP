@@ -18,7 +18,7 @@ const repoRoot = resolvePath(import.meta.dirname, "..");
 let profileLoader;
 try {
   ({ profileLoader } = await import(
-    `${repoRoot}/dist/ts-emulator/v2/loader-profile.js`
+    `${repoRoot}/dist/analysis/loader-profile.js`
   ));
 } catch (e) {
   console.error("dist missing — run `npm run build:mcp` first");

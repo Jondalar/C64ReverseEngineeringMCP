@@ -16,10 +16,10 @@
 // shared cycle timeline. Compact mode (default) emits only rows where
 // at least one column changed since the previous row.
 
-import { queryEvents, type QueryEventsBackend } from "./query-events.js";
+import { queryEvents, type QueryEventsBackend } from "../../analysis/query-events.js";
 import { OPCODE_TABLE } from "../../exomizer-ts/generated-opcodes.js";
 import { UNDOC_TABLE } from "../cpu/undoc-table.js";
-import { deriveFlow, type FlowKind } from "./flow-focus.js";
+import { deriveFlow, type FlowKind } from "../../analysis/flow-focus.js";
 
 // ── Public types ────────────────────────────────────────────────────────────
 

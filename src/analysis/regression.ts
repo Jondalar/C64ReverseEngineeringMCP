@@ -1,15 +1,3 @@
-// ════════════════════════════════════════════════════════════════════════════
-//  DEPRECATED — TypeScript runtime.  THE PRODUCT RUNTIME IS TRX64.
-//
-//  This file is part of the in-process TS emulator. It is reachable ONLY with
-//  C64RE_RUNTIME_TS=1 and is never on the default path: every runtime_* tool,
-//  the workspace UI and the MCP surface route to the TRX64 daemon (Spec 771).
-//
-//  Do not extend it, do not fix forward in it, and do not cite it as current
-//  behaviour — "how the runtime works" means TRX64, in ../TRX64.
-//  Its remaining job is to be a parity oracle for the port; when that is no
-//  longer needed it goes. See DOCTRINE.md.
-// ════════════════════════════════════════════════════════════════════════════
 // Spec 250 — Regression vs known-good baselines.
 //
 // Two entry-points:
@@ -172,7 +160,9 @@ export async function runScenarioById(
   try {
     // Dynamic path avoids static TS module resolution — scenario.js ships in
     // Spec 231 (agent-workflows branch); this worktree stub degrades gracefully.
-    const scenarioPath = new URL("./scenario.js", import.meta.url).href;
+    // Spec 806: runScenario still lives in the TS emulator (v2/scenario.ts) and
+    // stays there to be deleted; when it goes, the catch below is the answer.
+    const scenarioPath = new URL("../ts-emulator/v2/scenario.js", import.meta.url).href;
     const mod = await import(scenarioPath) as { runScenario: (s: unknown) => unknown };
     runScenario = mod.runScenario;
   } catch {

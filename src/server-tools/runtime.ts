@@ -102,7 +102,7 @@ async function callApi<T = unknown>(session_id: string, method: string, ...args:
  *  that needs healing AND when no other process holds the lock. */
 export async function withDuckDb<T>(dbPath: string, fn: (conn: any, backend: any) => Promise<T>): Promise<T> {
   const duckdb = await import("@duckdb/node-api");
-  const { DuckDbQueryBackend } = await import("../ts-emulator/v2/duckdb-backend.js");
+  const { DuckDbQueryBackend } = await import("../analysis/duckdb-backend.js");
   const { ensureSpec726CompatLayer } = await import("../trace/trace-run-store.js");
   // Spec 746.x — LAZY-ON-READ: wait for an in-flight index, trust a present store,
   // or (re)build a missing one from the .c64retrace authority before opening — so a
@@ -764,7 +764,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       min_confidence: z.number().default(0.5),
     },
     safeHandler("runtime_scan_fingerprints", async (args) => {
-      const { scanFingerprints } = await import("../ts-emulator/v2/fingerprint.js");
+      const { scanFingerprints } = await import("../analysis/fingerprint.js");
       const cleanHex = args.bytes_hex.replace(/[^0-9a-fA-F]/g, "");
       const bytes = new Uint8Array(cleanHex.length / 2);
       for (let i = 0; i < bytes.length; i++) {
@@ -793,7 +793,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       tags: z.array(z.string()).optional(),
     },
     safeHandler("runtime_bookmark_add", async (args) => {
-      const { addBookmark } = await import("../ts-emulator/v2/bookmarks.js");
+      const { addBookmark } = await import("../analysis/bookmarks.js");
       return withDuckDb(args.duckdb_path, async (_conn, backend) => {
         const id = await addBookmark(backend as any, {
           runId: args.run_id, cycle: args.cycle, label: args.label,
@@ -816,7 +816,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       cycle_end: z.number().optional(),
     },
     safeHandler("runtime_bookmark_list", async (args) => {
-      const { listBookmarks } = await import("../ts-emulator/v2/bookmarks.js");
+      const { listBookmarks } = await import("../analysis/bookmarks.js");
       return withDuckDb(args.duckdb_path, async (_conn, backend) => {
         const range = args.cycle_start !== undefined && args.cycle_end !== undefined ? [args.cycle_start, args.cycle_end] as [number, number] : undefined;
         const list = await listBookmarks(backend as any, args.run_id, range);

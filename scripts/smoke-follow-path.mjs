@@ -16,9 +16,9 @@ const { allocateInstructionChunk, allocateBusEventChunk, allocateChipEventChunk,
 const { openStore, closeStore, DuckDbTraceSink } =
   await import(`${repoRoot}/dist/trace/store/duckdb-store.js`);
 const { DuckDbQueryBackend } =
-  await import(`${repoRoot}/dist/ts-emulator/v2/duckdb-backend.js`);
+  await import(`${repoRoot}/dist/analysis/duckdb-backend.js`);
 const { followPath } =
-  await import(`${repoRoot}/dist/ts-emulator/v2/follow-path.js`);
+  await import(`${repoRoot}/dist/analysis/follow-path.js`);
 
 const tmpDir = "/tmp/c64re-follow-path-smoke";
 if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true });

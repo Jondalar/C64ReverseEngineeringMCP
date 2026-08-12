@@ -158,8 +158,8 @@ const sql = await q.safeQuery(TRACE_OUT,
 ok(Number(sql[0][0]) > 0, "safeQuery: KERNAL-range cpu event count > 0 (726 schema)", `kernel pcs=${sql[0][0]}`);
 
 // runtime_query_events backend path (Spec 232 → Spec-217 reader).
-const { DuckDbQueryBackend } = await import(`${ROOT}/dist/ts-emulator/v2/duckdb-backend.js`);
-const { queryEvents } = await import(`${ROOT}/dist/ts-emulator/v2/query-events.js`);
+const { DuckDbQueryBackend } = await import(`${ROOT}/dist/analysis/duckdb-backend.js`);
+const { queryEvents } = await import(`${ROOT}/dist/analysis/query-events.js`);
 const duckdb = await import("@duckdb/node-api");
 const inst = await duckdb.DuckDBInstance.create(TRACE_OUT);
 const conn = await inst.connect();

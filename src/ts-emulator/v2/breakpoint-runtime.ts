@@ -35,7 +35,7 @@ import {
   type BreakpointContext,
   type BreakpointHit,
   type BreakpointSpec,
-} from "./breakpoints.js";
+} from "../../analysis/breakpoints.js";
 
 export interface BreakpointRuntimeOptions {
   /** Called after all-fire pass when at least one `halt` hit occurs. */

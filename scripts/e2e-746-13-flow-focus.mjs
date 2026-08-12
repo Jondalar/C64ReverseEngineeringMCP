@@ -10,7 +10,7 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 
 console.log("Spec 746.13 — flow-focus derive-at-read (main/irq/nmi)\n");
 
-const { deriveFlow } = await import(`${ROOT}/dist/ts-emulator/v2/flow-focus.js`);
+const { deriveFlow } = await import(`${ROOT}/dist/analysis/flow-focus.js`);
 
 const NOP = 0xea, PHA = 0x48, PLA = 0x68, TXA = 0x8a, RTI = 0x40, BRK = 0x00;
 const s = (cycle, pc, opcode, sp) => ({ cycle, pc, opcode, sp });

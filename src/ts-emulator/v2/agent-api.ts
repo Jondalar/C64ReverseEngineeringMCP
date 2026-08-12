@@ -22,33 +22,33 @@
 import type { IntegratedSession } from "../integrated-session.js";
 import type { ScenarioMode, Scenario, ReplayResult } from "./scenario.js";
 import { runScenario } from "./scenario.js";
-import type { EventRow } from "./trace-events.js";
-import type { EventQuery, QueryEventsBackend } from "./query-events.js";
-import { queryEvents } from "./query-events.js";
-import type { PathQuery, PathChain } from "./follow-path.js";
-import { followPath } from "./follow-path.js";
+import type { EventRow } from "../../analysis/trace-events.js";
+import type { EventQuery, QueryEventsBackend } from "../../analysis/query-events.js";
+import { queryEvents } from "../../analysis/query-events.js";
+import type { PathQuery, PathChain } from "../../analysis/follow-path.js";
+import { followPath } from "../../analysis/follow-path.js";
 import type { SwimlaneQuery, SwimlaneSlice } from "./swimlane.js";
 import { swimlaneSlice } from "./swimlane.js";
-import type { ResolvedPc } from "./resolve-pc.js";
-import { resolvePc, resolvePcs } from "./resolve-pc.js";
-import type { TaintQuery, TaintGraph } from "./taint.js";
-import { traceTaint } from "./taint.js";
-import type { LoaderProfile } from "./loader-profile.js";
-import { profileLoader } from "./loader-profile.js";
+import type { ResolvedPc } from "../../analysis/resolve-pc.js";
+import { resolvePc, resolvePcs } from "../../analysis/resolve-pc.js";
+import type { TaintQuery, TaintGraph } from "../../analysis/taint.js";
+import { traceTaint } from "../../analysis/taint.js";
+import type { LoaderProfile } from "../../analysis/loader-profile.js";
+import { profileLoader } from "../../analysis/loader-profile.js";
 import type { SnapshotDiff } from "./snapshot-diff.js";
 import { diffSnapshots, formatDiff } from "./snapshot-diff.js";
 import type {
   FingerprintMatch, ScanOptions, FingerprintEntry,
-} from "./fingerprint.js";
-import { scanFingerprints, addFingerprintToLibrary } from "./fingerprint.js";
+} from "../../analysis/fingerprint.js";
+import { scanFingerprints, addFingerprintToLibrary } from "../../analysis/fingerprint.js";
 import type {
   BreakpointSpec, BreakpointHit, BreakpointAction,
-} from "./breakpoints.js";
-import { BreakpointManager } from "./breakpoints.js";
-import type { TraceBookmark, BookmarkBackend } from "./bookmarks.js";
+} from "../../analysis/breakpoints.js";
+import { BreakpointManager } from "../../analysis/breakpoints.js";
+import type { TraceBookmark, BookmarkBackend } from "../../analysis/bookmarks.js";
 import {
   addBookmark, listBookmarks, removeBookmark,
-} from "./bookmarks.js";
+} from "../../analysis/bookmarks.js";
 import type { PokePatch, SnapshotId, BranchId } from "./rewind.js";
 import { RewindManager } from "./rewind.js";
 import type {
@@ -56,12 +56,12 @@ import type {
   StepOverResult, StepOutResult, UntilResult,
 } from "./monitor.js";
 import { MonitorAPI } from "./monitor.js";
-import type { DivergenceRecord, DiffQuery } from "./vice-diff.js";
-import { diffAgainstVice } from "./vice-diff.js";
+import type { DivergenceRecord, DiffQuery } from "../../analysis/vice-diff.js";
+import { diffAgainstVice } from "../../analysis/vice-diff.js";
 import {
   regressionCompare, regressionCaptureBaseline, regressionReport,
   type RegressionResult,
-} from "./regression.js";
+} from "../../analysis/regression.js";
 import { saveSessionVsf, loadSessionVsf } from "../vsf/session-vsf.js";
 import { writeFileSync, readFileSync, mkdirSync, existsSync } from "node:fs";
 import { join } from "node:path";

@@ -1,15 +1,3 @@
-// ════════════════════════════════════════════════════════════════════════════
-//  DEPRECATED — TypeScript runtime.  THE PRODUCT RUNTIME IS TRX64.
-//
-//  This file is part of the in-process TS emulator. It is reachable ONLY with
-//  C64RE_RUNTIME_TS=1 and is never on the default path: every runtime_* tool,
-//  the workspace UI and the MCP surface route to the TRX64 daemon (Spec 771).
-//
-//  Do not extend it, do not fix forward in it, and do not cite it as current
-//  behaviour — "how the runtime works" means TRX64, in ../TRX64.
-//  Its remaining job is to be a parity oracle for the port; when that is no
-//  longer needed it goes. See DOCTRINE.md.
-// ════════════════════════════════════════════════════════════════════════════
 // Spec 247 — Routine fingerprinting (library match).
 //
 // Provides types + scanning logic for matching code regions against
@@ -210,7 +198,9 @@ export function loadLibraries(paths?: string[]): FingerprintLibrary[] {
     } else {
       // Default: bundled directory next to resources/ from repo root.
       const here = fileURLToPath(import.meta.url);
-      // dist/ts-emulator/v2/fingerprint.js → up 5 to repo root
+      // dist/analysis/fingerprint.js (or src/analysis/fingerprint.ts under tsx)
+      // → up 3 to the repo root. Both layouts sit two directories below it, so
+      // one count serves dev and build.
       const repoRoot = resolve(here, "../../..");
       resolved = [join(repoRoot, "resources/fingerprints/bundled")];
     }

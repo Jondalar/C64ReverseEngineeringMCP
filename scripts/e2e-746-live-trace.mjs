@@ -127,7 +127,7 @@ if (globalThis.__storePath && existsSync(globalThis.__storePath)) {
     inst.closeSync?.();
     ok(ev > 1000 && cpu > 0, "7 store holds the CPU firehose from the live run (read post-teardown)", `events=${ev} cpu=${cpu}`);
     const { swimlaneSlice } = await import(join(ROOT, "dist/ts-emulator/v2/swimlane.js"));
-    const { DuckDbQueryBackend } = await import(join(ROOT, "dist/ts-emulator/v2/duckdb-backend.js"));
+    const { DuckDbQueryBackend } = await import(join(ROOT, "dist/analysis/duckdb-backend.js"));
     const inst2 = await duckdb.DuckDBInstance.create(globalThis.__storePath, { access_mode: "READ_ONLY" });
     const conn2 = await inst2.connect();
     const slice = await swimlaneSlice(new DuckDbQueryBackend(conn2), { runId: globalThis.__runId, cycleRange: [0, 3_000_000], compact: true });

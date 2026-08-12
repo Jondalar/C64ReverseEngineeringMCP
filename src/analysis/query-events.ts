@@ -1,15 +1,3 @@
-// ════════════════════════════════════════════════════════════════════════════
-//  DEPRECATED — TypeScript runtime.  THE PRODUCT RUNTIME IS TRX64.
-//
-//  This file is part of the in-process TS emulator. It is reachable ONLY with
-//  C64RE_RUNTIME_TS=1 and is never on the default path: every runtime_* tool,
-//  the workspace UI and the MCP surface route to the TRX64 daemon (Spec 771).
-//
-//  Do not extend it, do not fix forward in it, and do not cite it as current
-//  behaviour — "how the runtime works" means TRX64, in ../TRX64.
-//  Its remaining job is to be a parity oracle for the port; when that is no
-//  longer needed it goes. See DOCTRINE.md.
-// ════════════════════════════════════════════════════════════════════════════
 // Spec 232 — typed event query API on top of Spec 217 DuckDB store.
 //
 // Maps EventQuery → SQL against the existing instructions /
@@ -196,7 +184,7 @@ export async function queryEvents(backend: QueryEventsBackend, q: EventQuery): P
   const liveSink = backend.isLiveSink ? await backend.isLiveSink() : false;
   let fromSource: string = mapping.table;
   if (liveSink) {
-    const { INSTRUCTIONS_726, BUS_EVENTS_726 } = await import("../../trace/store/schema726.js");
+    const { INSTRUCTIONS_726, BUS_EVENTS_726 } = await import("../trace/store/schema726.js");
     if (mapping.table === "instructions") fromSource = `(${INSTRUCTIONS_726})`;
     else if (mapping.table === "bus_events") fromSource = `(${BUS_EVENTS_726})`;
     else return []; // chip_events: no 726 producer
