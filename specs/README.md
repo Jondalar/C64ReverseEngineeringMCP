@@ -34,5 +34,9 @@ Every spec above is **C64RE workbench**. Everything built through July and Augus
 **TRX64**: runtime, trace, snapshots, sandbox, container, release, monitor. That is a
 priority decision, written here so these stop reading as imminent.
 
-TRX64's own specs live in `../../TRX64/docs/` with a status column in that repo. Only
+TRX64's own specs live in `../../TRX64/docs/`, on their own board at
+[`../../TRX64/docs/README.md`](../../TRX64/docs/README.md) (added 2026-08-12, with
+`scripts/check-spec-board.sh` keeping the board and the specs from disagreeing — four
+were stale when it was written). That board is TRX64's STATUS; THIS file stays the one
+number registry, and the next free number comes from here. Only
 those with C64RE-side work appear here (803 has none left).
