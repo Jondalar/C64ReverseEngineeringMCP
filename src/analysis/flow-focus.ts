@@ -2,7 +2,8 @@
 //
 // The binary CPU firehose records only RETIRED instructions (CPU_STEP:
 // cycle/pc/opcode/A/X/Y/SP/P) — no interrupt-entry marker. So we replay the
-// Monitor's FlowTracker classification (Spec 623 §4.2, `stepping.ts:88-101`)
+// Monitor's FlowTracker classification (Spec 623 §4.2; the TS `stepping.ts` it
+// was read from is deleted — the live one is the daemon's)
 // over the recorded stream to derive a per-step flow lane. NO format change,
 // ZERO hot-path cost (runs in the reader over existing `.c64retrace`).
 //
