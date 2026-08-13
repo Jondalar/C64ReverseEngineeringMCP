@@ -2464,6 +2464,15 @@ button {
   border-bottom: 1px solid rgba(255, 210, 90, 0.9);
 }
 
+/* Spec 750.3 — a payload something MUTATES at runtime. Visible without hovering,
+   because it is the one case where the bytes on the medium are not the bytes that
+   run: patch the medium alone and the mutation may undo you, and a byte-identical
+   rebuild will not say a word about it. */
+.cart-payload-segment-mutated {
+  outline: 2px dashed rgba(255, 120, 120, 0.95);
+  outline-offset: -2px;
+}
+
 .cart-empty-overlay {
   position: absolute;
   inset: 0;

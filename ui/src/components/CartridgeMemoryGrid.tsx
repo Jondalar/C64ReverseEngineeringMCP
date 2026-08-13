@@ -303,11 +303,28 @@ export function CartridgeMemoryGrid({
           const widthPercent = Math.max(0.5, Math.min(100 - leftPercent, (entry.length / bankSize) * 100));
           const destFragment = entry.chunk.loadAddress !== undefined ? ` → ${formatHexWord(entry.chunk.loadAddress)}` : "";
           const scopeFragment = entry.chunk.unscoped ? " · UNSCOPED (image not attributed)" : "";
-          const tooltip = `payload (registered): ${entry.chunk.name} · bank ${entry.chunk.bank} ${entry.chunk.slot} off $${entry.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} (${bytesPretty(entry.length)})${destFragment}${scopeFragment}`;
+          // Spec 750.2/750.3 — what the span IS, not only where it is: the row that
+          // claims it, who loads it, and whether anything mutates it at runtime.
+          const claimFragment = entry.chunk.claimedByLutName
+            ? ` · claimed by ${entry.chunk.claimedByLutName} row ${entry.chunk.claimedByRow ?? "?"}`
+            : "";
+          const loadFragment = entry.chunk.loadedBy?.length
+            ? ` · loaded by ${entry.chunk.loadedBy.map((x) => x.name).join(", ")}`
+            : "";
+          const mutated = Boolean(entry.chunk.writtenBy?.length);
+          const mutateFragment = mutated
+            ? ` · MUTATED at runtime by ${entry.chunk.writtenBy!.map((x) => x.name).join(", ")} — patching the medium alone may not hold`
+            : "";
+          const tooltip = `payload (registered): ${entry.chunk.name} · bank ${entry.chunk.bank} ${entry.chunk.slot} off $${entry.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} (${bytesPretty(entry.length)})${destFragment}${claimFragment}${loadFragment}${mutateFragment}${scopeFragment}`;
           const clickable = Boolean(onSelectPayloadChunk);
-          const className = entry.chunk.unscoped
-            ? "cart-chunk-segment cart-payload-segment cart-payload-segment-unscoped"
-            : "cart-chunk-segment cart-payload-segment";
+          const className = [
+            "cart-chunk-segment",
+            "cart-payload-segment",
+            entry.chunk.unscoped ? "cart-payload-segment-unscoped" : "",
+            // A mutated payload has to be visible without hovering: it is the one case
+            // where the bytes on the medium are not the bytes that run.
+            mutated ? "cart-payload-segment-mutated" : "",
+          ].filter(Boolean).join(" ");
           return (
             <div
               key={`${entry.chunk.entityId}-${entry.offsetInBank}-${idx}`}

@@ -394,6 +394,9 @@ export interface CartridgePayloadChunk {
   claimedByLutId?: string;
   claimedByLutName?: string;
   claimedByRow?: number;
+  /** Spec 750.3 — who loads it, and who MUTATES it at runtime. */
+  loadedBy?: Array<{ entityId: string; name: string }>;
+  writtenBy?: Array<{ entityId: string; name: string }>;
   notes?: string[];
 }
 

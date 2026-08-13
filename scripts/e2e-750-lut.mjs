@@ -361,5 +361,75 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
     (chunk?.notes ?? []).some((n) => /claimed by A2 row 3/.test(n)), (chunk?.notes ?? []).join(" | "));
 }
 
+// ── 11. 750.3 — the loader / mutator edges ───────────────────────────────────
+// The third overlay of §2, and the only one that changes what a span MEANS rather
+// than where it is. A payload something writes at runtime is not the object sitting
+// on the medium: patch the medium alone and the mutation may undo you, and a
+// byte-identical rebuild will not say a word about it.
+{
+  const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { ProjectKnowledgeService } = await import(dist("project-knowledge/service.js"));
+
+  const projectDir = mkdtempSync(join(tmpdir(), "c64re-750e-"));
+  const svc = new ProjectKnowledgeService(projectDir);
+  svc.initProject({ name: "750.3 gate" });
+  mkdirSync(join(projectDir, "analysis"), { recursive: true });
+  const manifestPath = join(projectDir, "analysis", "edges.crt.json");
+  writeFileSync(manifestPath, JSON.stringify({
+    header: { name: "EDGES", hardwareType: 32, exrom: 0, game: 1 },
+    chips: [{ bank: 0, load_address: 0x8000, size: 0x2000, file: "b0.bin" }],
+    banks: { "0": { slots: ["ROML"], file: "b0.bin" } },
+  }));
+  const art = svc.saveArtifact({ title: "edges manifest", path: manifestPath, role: "crt-manifest", kind: "manifest", scope: "analysis" });
+
+  const span = (off) => [{ kind: "slot", slot: "ROML", bank: 0, offsetInBank: off, length: 128, mediumRef: art.id }];
+  const quiet = svc.saveEntity({ kind: "payload", name: "quiet-asset", mediumSpans: span(0x100) });
+  const mutated = svc.saveEntity({ kind: "payload", name: "mutated-asset", mediumSpans: span(0x400) });
+  const loader = svc.saveEntity({ kind: "routine", name: "stage2-loader" });
+  const patcher = svc.saveEntity({ kind: "routine", name: "self-patcher" });
+
+  svc.linkEntities({ kind: "loads", title: "loader loads quiet", sourceEntityId: loader.id, targetEntityId: quiet.id });
+  svc.linkEntities({ kind: "loads", title: "loader loads mutated", sourceEntityId: loader.id, targetEntityId: mutated.id });
+  svc.linkEntities({ kind: "writes", title: "patcher writes mutated", sourceEntityId: patcher.id, targetEntityId: mutated.id });
+
+  const { view } = svc.buildCartridgeLayoutView();
+  const chunks = view.cartridges?.[0]?.payloadChunks ?? [];
+  const q = chunks.find((c) => c.entityId === quiet.id);
+  const m = chunks.find((c) => c.entityId === mutated.id);
+
+  ok("11a both payload spans reached the view", Boolean(q && m), `${chunks.length} chunk(s)`);
+  ok("11b the loader edge is resolved to a NAME, not an id",
+    q?.loadedBy?.[0]?.name === "stage2-loader", JSON.stringify(q?.loadedBy));
+  ok("11c a payload nothing writes has no mutator", (q?.writtenBy ?? []).length === 0);
+  ok("11d the mutated payload names its mutator",
+    m?.writtenBy?.[0]?.name === "self-patcher", JSON.stringify(m?.writtenBy));
+  ok("11e the note WARNS rather than just reporting — the medium is not the whole truth",
+    (m?.notes ?? []).some((n) => /MUTATED at runtime by self-patcher/.test(n) && /patching the medium alone/.test(n)),
+    (m?.notes ?? []).join(" | "));
+  ok("11f both payloads are still loaded by the same loader",
+    q?.loadedBy?.length === 1 && m?.loadedBy?.length === 1);
+
+  // The distinction has to survive into the disk view too — §1: one model, two surfaces.
+  // A disk image for the second surface. §1 says disk and cartridge are the SAME
+  // model — an assertion worth proving rather than repeating.
+  // A disk is one per disk-IMAGE artifact (kind g64/d64), never one per manifest —
+  // a custom-GCR image with no CBM directory still has to appear.
+  const diskPath = join(projectDir, "input", "edges.d64");
+  mkdirSync(join(projectDir, "input"), { recursive: true });
+  writeFileSync(diskPath, Buffer.alloc(174848));
+  const diskArt = svc.saveArtifact({ title: "edges.d64", path: diskPath, role: "disk-image", kind: "d64", scope: "input" });
+  const diskEntity = svc.saveEntity({
+    kind: "payload", name: "disk-mutated",
+    mediumSpans: [{ kind: "sector", track: 17, sector: 1, length: 254, mediumRef: diskArt.id }],
+  });
+  svc.linkEntities({ kind: "writes", title: "patcher writes disk payload", sourceEntityId: patcher.id, targetEntityId: diskEntity.id });
+  const { view: diskView } = svc.buildDiskLayoutView();
+  const entry = (diskView.disks ?? []).flatMap((d) => d.files ?? []).find((e) => e.entityId === diskEntity.id);
+  ok("11g the disk view carries the same warning", 
+    entry ? (entry.notes ?? []).some((n) => /MUTATED at runtime/.test(n)) : false,
+    entry ? (entry.notes ?? []).join(" | ") : `no disk file entry (${(diskView.disks ?? []).flatMap((d) => d.files ?? []).length} file(s) on ${(diskView.disks ?? []).length} disk(s))`);
+}
+
 console.log(`\n${fails.length ? "RED" : "GREEN"}  750 LUT: ${pass} pass, ${fails.length} fail.`);
 process.exit(fails.length ? 1 : 0);
