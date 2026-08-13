@@ -1655,6 +1655,37 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 ));
 
   server.tool(
+    "suggest_loader_entrypoints",
+    "Find the two addressing kinds that are not a lookup table: a position baked into the loader's own code, and a dispatch that lets an index steer where control goes. Use on a disassembled loader to get candidates with the instructions that produced them — a baked-in track/sector is recognised by its call target being called from many sites with DIFFERENT positions, which is what separates a load routine from ordinary parameter passing. Writes nothing; each candidate is a pattern in the instructions, not a reading of what the routine does. Not for a lookup table (use suggest_lut_descriptor, which anchors on indexed accesses) and not for declaring the result (use declare_loader_entrypoint once you have read the target).",
+    {
+      project_dir: z.string().optional(),
+      analysis_path: z.string(),
+      kinds: z.array(z.enum(["sector-load", "dispatch"])).optional(),
+      min_call_sites: z.number().int().min(2).max(20).optional(),
+    },
+    safeHandler("suggest_loader_entrypoints", async ({ analysis_path, kinds, min_call_sites }) => {
+      const { readFileSync: rf, existsSync: ex } = await import("node:fs");
+      if (!ex(analysis_path)) return textContent(`No analysis report at ${analysis_path}. Run analyze_prg first.`);
+      const { detectSectorLoads, detectDispatch, formatEntryPoints } = await import("./loader-entrypoint-detect.js");
+      let report: { codeAnalysis?: { instructions?: [] } };
+      try { report = JSON.parse(rf(analysis_path, "utf8")); }
+      catch (e) { return textContent(`Unreadable analysis report: ${(e as Error).message}`); }
+      const ins = report.codeAnalysis?.instructions ?? [];
+      if (!ins.length) return textContent("That report has no disassembled instructions — run analyze_prg first.");
+      const want = new Set(kinds ?? ["sector-load", "dispatch"]);
+      const found = [
+        ...(want.has("dispatch") ? detectDispatch(ins) : []),
+        ...(want.has("sector-load") ? detectSectorLoads(ins, { minCallSites: min_call_sites }) : []),
+      ];
+      const head = `${ins.length} instruction(s) scanned.\n\n`;
+      const tail = want.has("sector-load")
+        ? "\n\nA track/sector only means something on a DISK. On a cartridge these candidates are parameter passing that happens to fit the shape — check what the medium is before believing one."
+        : "";
+      return textContent(head + formatEntryPoints(found) + tail);
+    },
+));
+
+  server.tool(
     "list_lut_descriptors",
     "List the lookup tables described on this project's media. Use to see which tables are already recorded before describing another. Not for their rows (use resolve_lut_rows).",
     {

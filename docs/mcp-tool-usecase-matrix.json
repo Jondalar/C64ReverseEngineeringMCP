@@ -1,9 +1,9 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 259,
+  "total": 260,
   "defaultCount": 150,
-  "advancedCount": 109,
+  "advancedCount": 110,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
     "runtime-explore": "start/run Headless, mount, input, render",
@@ -2881,7 +2881,7 @@
       "name": "runtime_input_load_config",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
-      "tier": "default",
+      "tier": "advanced",
       "role": "maintenance",
       "swimlane": "operator-maintenance",
       "useWhen": "Advanced: configure input/keymap for a session.",
@@ -2889,10 +2889,8 @@
       "adjacentTools": [
         "runtime_type"
       ],
-      "e2eUseCases": [
-        "E2E-A"
-      ],
-      "keepDecision": "keep-default",
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
       "pathMode": "no-path",
       "useInstead": "runtime_type"
     },
@@ -4302,6 +4300,24 @@
       "notFor": "Standard DOS extraction — use extract_disk.",
       "adjacentTools": [
         "extract_disk_custom_lut"
+      ],
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "suggest_loader_entrypoints",
+      "namespace": "suggest",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "change-intervention",
+      "swimlane": "change-intervention",
+      "useWhen": "Advanced change/patch-recipe + loader-event bookkeeping.",
+      "notFor": "Normal analysis — record conclusions via save_finding.",
+      "adjacentTools": [
+        "save_finding"
       ],
       "e2eUseCases": [
         "E2E-E"

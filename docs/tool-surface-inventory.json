@@ -1,7 +1,7 @@
 {
-  "total": 259,
+  "total": 260,
   "specCount": 42,
-  "advancedCandidate": 109,
+  "advancedCandidate": 110,
   "byNamespace": {
     "runtime": 82,
     "list": 20,
@@ -18,13 +18,13 @@
     "inspect": 5,
     "link": 5,
     "record": 5,
+    "suggest": 4,
     "get": 3,
     "import": 3,
     "mark": 3,
     "run": 3,
     "scan": 3,
     "set": 3,
-    "suggest": 3,
     "analyze": 2,
     "auto": 2,
     "bulk": 2,
@@ -1563,7 +1563,7 @@
       "hasSpec": false,
       "firstSentence": "Use to load the joystick/keyboard InputConfig (from ~/.config/c64re/joystick.json) before driving input.",
       "desc": "Use to load the joystick/keyboard InputConfig (from ~/.config/c64re/joystick.json) before driving input. Not for saving it (use runtime_input_save_config).",
-      "tier": "default?"
+      "tier": "advanced?"
     },
     {
       "name": "runtime_input_load_vicerc",
@@ -2283,6 +2283,15 @@
       "hasSpec": false,
       "firstSentence": "Use to heuristically scan every sector of a disk image and rank candidates by how plausibly they serve as a fixed-stride loader LUT — run this first when you do not yet know which sector a custom loader reads its file table from.",
       "desc": "Use to heuristically scan every sector of a disk image and rank candidates by how plausibly they serve as a fixed-stride loader LUT — run this first when you do not yet know which sector a custom loader reads its file table from. Not for DOS-directory inspection (use inspect_disk) or for extracting payloads once you know the LUT location (use extract_disk_custom_lut). Inputs: absolute or project-relative disk image path (.d64 or .g64). Returns: ranked candidate list; does not write any artifact.",
+      "tier": "default?"
+    },
+    {
+      "name": "suggest_loader_entrypoints",
+      "file": "project-knowledge/mcp-tools.ts",
+      "ns": "suggest",
+      "hasSpec": false,
+      "firstSentence": "Find the two addressing kinds that are not a lookup table: a position baked into the loader's own code, and a dispatch that lets an index steer where control goes.",
+      "desc": "Find the two addressing kinds that are not a lookup table: a position baked into the loader's own code, and a dispatch that lets an index steer where control goes. Use on a disassembled loader to get candidates with the instructions that produced them — a baked-in track/sector is recognised by its call target being called from many sites with DIFFERENT positions, which is what separates a load routine from ordinary parameter passing. Writes nothing; each candidate is a pattern in the instructions, not a reading of what the routine does. Not for a lookup table (use suggest_lut_descriptor, which anchors on indexed accesses) and not for declaring the result (use declare_loader_entrypoint once you have read the target).",
       "tier": "default?"
     },
     {

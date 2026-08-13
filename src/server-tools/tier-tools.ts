@@ -70,6 +70,7 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "declare_lut_descriptor",
       "suggest_lut_descriptor",
       "derive_payload_relations",
+      "suggest_loader_entrypoints",
   "list_lut_descriptors",
   "resolve_lut_rows",
   "link_payload_to_lut_row",
@@ -177,7 +178,11 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // stays, because a session that will not take input is a session you cannot drive.
   // Spec 750.6's `derive_payload_relations` takes the slot: it finds mutators, which
   // is the case where a byte-identical rebuild is green and the result is still wrong.
-  "runtime_input_load_config",
+  // 2026-08-12 — `runtime_input_load_config` DEMOTED too. Loading a joystick keymap is
+  // setup a human does once, not a step an agent takes while reverse-engineering; the
+  // session takes input without it. Spec 750.5's `suggest_loader_entrypoints` takes the
+  // slot — it implements the third addressing kind in Spec 750 §1's model, and without
+  // it that model was two thirds built.
 ]);
 
 // ── Retired with the TypeScript emulator (Spec 806 step 3) ───────────────────
