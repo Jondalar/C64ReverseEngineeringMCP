@@ -385,9 +385,59 @@ Both the Disk wheel and the Cartridge bank/slot grid, scoped per image (`mediumR
   parses, the anchor finds bases, every base is quoted with a real instruction address,
   and the weak byte path does not regress into a flood.
 
-- **750.4 / 750.5 — deprioritised.** Both propose loader entry points by pattern-matching
-  a disassembly. The instruction anchor above gives the same answer with provenance, so
-  these are now small conveniences rather than the way in.
+- **750.4 + 750.5 — BUILT 2026-08-12.** Deprioritising them was wrong: §1 names THREE
+  addressing kinds, the anchor covers only the LUT, and leaving the other two out would
+  have closed this spec with a third of its own model unimplemented.
+  `suggest_loader_entrypoints`, same source and same discipline — propose, quote the
+  instructions, write nothing.
+
+  **A baked-in position** is `LDA #track / LDX #sector / JSR`. On its own that is the
+  commonest shape in any 6502 program, and it reported forty candidates in code that
+  reads no disk. What makes it a loader is the CALL TARGET being called from many sites
+  with DIFFERENT positions — nobody calls one routine with fourteen distinct plausible
+  T/S pairs by accident. On a real report: 5 candidates, the strongest called from 9
+  sites with 7 distinct positions.
+
+  Two corrections while building, both of which produced confident nonsense first:
+
+  * Matching on the addressing mode alone treated `cmp #$0A` and `cpx #$07` as a track
+    and a sector. A compare is a test, not a position being set up.
+  * The scan ran FORWARD past the `jsr` that ends one call's parameter setup, pairing
+    that call's sector with the next call's track — inventing positions like `1/17` out
+    of two unrelated sites. It searches backwards from the call now, and a call is the
+    boundary of its own setup.
+
+  **Dispatch** is `JMP (vector)` or the RTS trampoline (`LDA table,X / PHA / LDA
+  table2,X / PHA / RTS`). The trampoline's two tables ARE a `layout=columns` pair, so
+  750.7's anchor should find the same thing from the code side — two independent
+  readings agreeing is worth more than either alone.
+
+## 6. Closed 2026-08-12
+
+Every slice is built and every kind in §1's model is implemented:
+
+| | |
+|---|---|
+| 750.1 | payloads at position, both surfaces |
+| 750.2 | the addressing table as a record — identity · layout · column roles · semantics |
+| 750.3 | loader/mutator edges, with `writes` as a warning rather than a fact |
+| 750.4 | a position baked into the loader's code |
+| 750.5 | dispatch — an index steering control |
+| 750.6 | mutator edges derived from the disassembly, which arms 750.3's warning |
+| 750.7 | the table anchored on the instruction that reads it |
+
+The open question in §4 is answered as it was leaned: an unscoped span shows on every
+image of its kind, badged, rather than hidden.
+
+Gates: `e2e:750-lut` 85/85, `e2e:750-cart` 19/19, `e2e:bug031` 17/17, and
+`e2e:750-real` against a real image where one is present (12/12), skipping loudly
+where none is. That last one exists because `e2e:750-lut` stood green at 66/66 while
+the detector it covered was unusable on real data — every check fed it bytes written
+to satisfy it.
+
+**What this spec learned, in one line:** the byte scan looked like the way in and was
+not. Reading the code first is not a style preference here — it is the difference
+between a finding with an address you can open and a plausible number nobody can check.
 
   (750.6's original wording assumed static `xrefs` of type `write`. There are none —
   see the correction above.)

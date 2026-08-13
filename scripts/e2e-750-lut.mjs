@@ -563,5 +563,71 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
     /through a pointer/.test(formatAnchored([])));
 }
 
+// ── 14. 750.4 + 750.5 — the two addressing kinds that are not a table ────────
+// §1 names three kinds. 750.7's anchor covers the LUT; these cover a position baked
+// into the loader's own code, and a dispatch that lets an index steer control.
+{
+  const { detectSectorLoads, detectDispatch, formatEntryPoints } =
+    await import(dist("project-knowledge/loader-entrypoint-detect.js"));
+
+  // A load routine at $2000, called from four sites with four DIFFERENT positions —
+  // plus one site that passes the same pair twice, which must not inflate the count.
+  const calls = [];
+  let at = 0x1000;
+  for (const [t, sec] of [[17, 1], [17, 4], [18, 9], [3, 0], [3, 0]]) {
+    calls.push(
+      { address: at, mnemonic: "lda", addressingMode: "imm", operandValue: t },
+      { address: at + 2, mnemonic: "ldx", addressingMode: "imm", operandValue: sec },
+      { address: at + 4, mnemonic: "jsr", addressingMode: "abs", targetAddress: 0x2000 },
+    );
+    at += 0x20;
+  }
+  // Ordinary parameter passing: two constants and a call, once. Must NOT survive.
+  calls.push(
+    { address: 0x3000, mnemonic: "lda", addressingMode: "imm", operandValue: 5 },
+    { address: 0x3002, mnemonic: "ldx", addressingMode: "imm", operandValue: 2 },
+    { address: 0x3004, mnemonic: "jsr", addressingMode: "abs", targetAddress: 0x9999 },
+    // A COMPARE is a test, not a position being set up.
+    { address: 0x3010, mnemonic: "cmp", addressingMode: "imm", operandValue: 7 },
+    { address: 0x3012, mnemonic: "cpx", addressingMode: "imm", operandValue: 3 },
+    { address: 0x3014, mnemonic: "jsr", addressingMode: "abs", targetAddress: 0x8888 },
+  );
+
+  const sl = detectSectorLoads(calls, { minCallSites: 3 });
+  ok("14a the routine called with many DIFFERENT positions is found",
+    sl.length === 1 && sl[0].address === 0x2000, sl.map((p) => p.address.toString(16)).join(","));
+  ok("14b a single call with two constants is NOT a loader",
+    !sl.some((p) => p.address === 0x9999));
+  ok("14c a compare is not a position — `cmp #$07` is a test",
+    !sl.some((p) => p.address === 0x8888));
+  ok("14d the repeated pair does not inflate the distinct count",
+    /4 DISTINCT/.test(sl[0]?.evidence.join(" ") ?? ""), sl[0]?.evidence[0]);
+  ok("14e confidence rises with distinct positions, and stops short of certainty",
+    (sl[0]?.confidence ?? 0) > 0.5 && (sl[0]?.confidence ?? 1) < 0.85, `${sl[0]?.confidence}`);
+
+  // Dispatch: an indirect jump, and the RTS trampoline.
+  const disp = detectDispatch([
+    { address: 0x5000, mnemonic: "jmp", addressingMode: "ind", targetAddress: 0x0314 },
+    { address: 0x6000, mnemonic: "lda", addressingMode: "abs,x", targetAddress: 0x8100 },
+    { address: 0x6003, mnemonic: "pha" },
+    { address: 0x6004, mnemonic: "lda", addressingMode: "abs,x", targetAddress: 0x8120 },
+    { address: 0x6007, mnemonic: "pha" },
+    { address: 0x6008, mnemonic: "rts" },
+    { address: 0x7000, mnemonic: "lda", addressingMode: "abs,x", targetAddress: 0x9000 },
+    { address: 0x7003, mnemonic: "sta", addressingMode: "abs", targetAddress: 0x0400 },
+  ]);
+  ok("14f an indirect jump is a dispatch point", disp.some((p) => p.address === 0x5000));
+  ok("14g the RTS trampoline is recognised", disp.some((p) => p.address === 0x6000),
+    disp.map((p) => p.address.toString(16)).join(","));
+  ok("14h an indexed load that just stores somewhere is NOT dispatch",
+    !disp.some((p) => p.address === 0x7000));
+  ok("14i the trampoline points at the table pair, which is a columns-layout table",
+    /8100/.test(disp.find((p) => p.address === 0x6000)?.evidence.join(" ") ?? ""));
+
+  const txt = formatEntryPoints([...disp, ...sl]);
+  ok("14j the rendering says nothing was written and names the witnesses",
+    /Nothing was written/.test(txt) && /open the witnesses/.test(txt));
+}
+
 console.log(`\n${fails.length ? "RED" : "GREEN"}  750 LUT: ${pass} pass, ${fails.length} fail.`);
 process.exit(fails.length ? 1 : 0);
