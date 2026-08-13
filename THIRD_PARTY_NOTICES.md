@@ -2,9 +2,13 @@
 
 ## VICE
 
-C64RE MCP uses VICE as the primary correctness reference for Commodore 64
-and 1541 behavior. Portions of the TypeScript headless runtime are derived
-from, ported from, or validated against VICE source code and behavior.
+C64RE MCP contains no emulator (Spec 806, 2026-08-12) — the TypeScript headless
+runtime whose portions were derived from, ported from, or validated against VICE
+is deleted, and so is the vendored reSID copy that went with it. What remains
+here having been READ from VICE is the monitor's verb set and expression syntax,
+and the cartridge type table, whose every row cites the VICE source file it was
+read from. The emulator, and the architecture references it is checked against,
+live in the sibling TRX64 repo.
 
 - Project: VICE, the Versatile Commodore Emulator
 - Website: https://vice-emu.sourceforge.io/

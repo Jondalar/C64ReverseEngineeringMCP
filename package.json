@@ -57,7 +57,6 @@
     "smoke:follow-path": "npm run build:mcp && node scripts/smoke-follow-path.mjs",
     "smoke:taint": "npm run build:mcp && node scripts/smoke-taint.mjs",
     "smoke:loader-profile": "npm run build:mcp && node scripts/smoke-loader-profile.mjs",
-    "smoke:vice-diff": "npm run build:mcp && node scripts/smoke-vice-diff.mjs",
     "regress:capture": "npm run build:mcp && node scripts/regress-cli.mjs capture",
     "regress:compare": "npm run build:mcp && node scripts/regress-cli.mjs compare",
     "regress:report": "npm run build:mcp && node scripts/regress-cli.mjs report",
