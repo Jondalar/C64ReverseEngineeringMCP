@@ -33,8 +33,8 @@ without re-walking the image.
 
 The Lykia disks (and similar protected loaders) hide most of their content
 behind a custom LUT sector instead of the standard DOS directory. See
-[TODO.md](../../TODO.md) for the planned `extract_disk_custom_lut`,
-`disk_sector_allocation`, and `suggest_disk_lut_sector` tools.
+`extract_disk_custom_lut`, `disk_sector_allocation` and `suggest_disk_lut_sector`
+are the tools for that case — they shipped and are no longer "planned".
 
 Until those land, custom-LUT extraction lives in per-project Python
 helpers (e.g. `Lykia/tools/disk_manifest_merge.py`).

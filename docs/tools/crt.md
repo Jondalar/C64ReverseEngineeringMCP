@@ -37,7 +37,7 @@ workspace UI cartridge grid) can consume.
 
 The workspace UI maps the `hardwareType` field to a slot layout (ROML only,
 ROML + ROMH, Ultimax, GMod2 EEPROM, …) and renders banks accordingly. See
-[Semantic UI layer](../semantic-ui-layer.md) for the cart-grid view.
+The workspace UI renders the cart-grid view from these.
 
 ## Supported hardware types
 

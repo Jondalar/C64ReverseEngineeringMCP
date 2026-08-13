@@ -7,7 +7,7 @@
 > product structure. The binding first-level experience is the five-phase project
 > lifecycle (Onboarding · Discovery · Reverse Engineering · Build · Release) in
 > [`product-vision-and-workbench-contract.md`](product-vision-and-workbench-contract.md)
-> §2A and [`../specs/773-workflow-cockpit-lifecycle.md`](../specs/773-workflow-cockpit-lifecycle.md).
+> §2A and [`../specs/_archive/773-workflow-cockpit-lifecycle.md`](../specs/_archive/773-workflow-cockpit-lifecycle.md).
 
 This file is the agent-facing definition of the seven phases C64RE
 work moves through. Each phase has a narrow scope, an explicit
@@ -38,9 +38,8 @@ disk?
   `declare_loader_entrypoint`, `list_loader_entrypoints`,
   `record_loader_event`, `register_load_context`,
   `register_container_entry`, `list_container_entries`,
-  `runtime_session_*`, `runtime_trace_*` (TRX64-backed by default,
-  Spec 771; `vice_*` is a correctness oracle only, not the primary
-  path), `save_flow`, `link_payload_to_runtime`.
+  `runtime_session_*`, `runtime_trace_*`, `save_flow`,
+  `link_payload_to_runtime`.
 - **Done when**: the load chain is documented as a flow; loader entry
   points exist for every routed call; load contexts cover any file
   whose runtime address differs from the on-disk PRG header.

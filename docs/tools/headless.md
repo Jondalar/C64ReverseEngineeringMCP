@@ -18,11 +18,12 @@ Leitregel: Capability → TRX64, Meaning/Memory → C64RE.
 - C64RE owns the project knowledge, artifacts, specs, workflow, and UI.
 - The runtime provides deterministic, scriptable runtime evidence for agents and
   browser clients.
-- VICE is a source tree to READ when porting (`docs/vice-c64-arch.md`,
-  `docs/vice-1541-arch.md`, `docs/vice-iec-arc42.md`) — never something C64RE runs.
+- VICE is a source tree to READ when porting — never something C64RE runs. The
+  architecture references moved to `../TRX64/docs/` on 2026-08-12, with the port.
 
-The authoritative, generated tool lists are `docs/tool-surface-inventory.md` and
-`docs/mcp-tool-usecase-matrix.md`.
+`docs/mcp-tool-usecase-matrix.md` is the generated tool list.
+`docs/tool-surface-inventory.md` is a May-2026 audit snapshot, not the current surface —
+the live answer is `DEFAULT_TOOLS` in `src/server-tools/tier-tools.ts`.
 
 ## Monitor, Interrupts, And Rendering
 
@@ -34,7 +35,7 @@ The authoritative, generated tool lists are `docs/tool-surface-inventory.md` and
 |---|---|
 | `runtime_render_screen` | Render the current VIC framebuffer to a PNG artifact. |
 | `runtime_monitor` | **One tool = the whole interactive monitor REPL, no per-verb allow-list.** Pass ANY command string the human prompt accepts and get its text output — there is no gating, the LLM has the same reach as a person at the monitor. That includes: inspect (`m`/`d`, `r`, `sym`/`inspect`/`xref`, `df`); run control (`n`/`z`/`g`, `bp`/`del`); observers + scoped trace (`obs … do break\|log\|trace`); state (`dump`/`undump`, `trace`); **file I/O / FS mini-shell** (`cd`/`ls`, `load`/`save`, `bload`/`bsave`, `vsf`); **cartridge hot-swap** (`swapcrt`); annotations (`label`/`note`); plus `device c64\|drive8`, `sidefx`, `bank`. Run `help` for the full verb list. Routes to the `monitor/exec` WS handler with the full context, including the trace-store and project bridges. |
-| `runtime_recorder_status` / `_list` / `_dump` | The off-thread shared-memory recorder (Spec 766; opt-in `C64RE_RECORDER=1`). `_list` shows the scrub-history anchors; `_dump <seq> <path>` persists a past anchor to a durable `.c64re` (reconstructs core + gen-gated medium) so it can be undumped and replayed with tracing on. |
+| `runtime_recorder_status` / `_list` / `_dump` | The off-thread shared-memory recorder (Spec 766). Its auto-feed is ON by default and is turned OFF with `C64RE_RECORDER_AUTOFEED=0` — this line claimed the opposite (`opt-in C64RE_RECORDER=1`) until 2026-08-12; that variable never existed. `_list` shows the scrub-history anchors; `_dump <seq> <path>` persists a past anchor to a durable `.c64re` (reconstructs core + gen-gated medium) so it can be undumped and replayed with tracing on. |
 | `runtime_checkpoint_list` / `_capture` / `_pin` / `_unpin` / `_restore` | The daemon's 705.B checkpoint ring (auto-captured ~0.5 s) for live rewind/scrub. |
 
 **Non-halting scoped trace via observers** — start/stop a trace on PC hits without

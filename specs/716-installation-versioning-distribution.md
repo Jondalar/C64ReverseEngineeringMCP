@@ -125,7 +125,8 @@ only as a contributor workflow for deliberately changing dependencies.
 Document:
 
 - `C64RE_PROJECT_DIR` and how to create/select a project directory;
-- optional VICE/tool override variables separately from the minimum MCP path;
+- optional tool override variables (assembler, packer, runtime binary) separately
+  from the minimum MCP path;
 - where generated output (`dist/`) appears;
 - how to update an existing checkout without losing project data.
 
@@ -183,7 +184,8 @@ Include only reproducible issues and resolutions:
 - spaces and quoting in Windows paths;
 - MCP host cannot resolve `npx`/`node`;
 - missing `C64RE_PROJECT_DIR`;
-- VICE is optional versus required for oracle/differential workflows;
+- the runtime binary is missing and the setup recipe is the answer (Spec 806: there
+  is no fallback, so this is a first-class install failure, not an edge case);
 - reSID WASM rebuild is not required for normal install;
 - writable mounted project directory in containers.
 
@@ -221,8 +223,9 @@ From `npm pack` output installed into an empty temporary directory:
 - Confirm the published package license metadata remains
   `GPL-3.0-or-later`.
 - Include root `LICENSE`.
-- Include notices/provenance required for vendored or compiled GPL components,
-  particularly reSID and any shipped VICE-derived runtime source/assets.
+- Include notices/provenance required for any vendored or compiled GPL component that
+  is actually SHIPPED. Recheck the list before publishing: the emulator left in Spec
+  806, so `third_party/resid/` is vendored here but referenced by nothing.
 - Do not publish binary runtime assets without their corresponding documented
   source/provenance path.
 

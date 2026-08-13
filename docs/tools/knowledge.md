@@ -3,7 +3,7 @@
 Persistent project-knowledge layer (entities, findings, flows, relations,
 tasks, labels, open questions). Imports analysis output into a structured
 knowledge store and renders the JSON views the workspace UI consumes. See
-[Semantic UI layer](../semantic-ui-layer.md) for the bigger picture.
+`docs/product-vision-and-workbench-contract.md` for the bigger picture.
 
 ## Project lifecycle
 

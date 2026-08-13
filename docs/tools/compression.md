@@ -20,7 +20,7 @@ Pure-TypeScript packers/depackers plus thin wrappers for the official
 |---|---|
 | `depack_rle` | WIP. Decompress the built-in TS RLE implementation. |
 | `depack_exomizer_raw` | WIP. Decompress an Exomizer raw stream in pure TS. |
-| `depack_exomizer_sfx` | WIP. Decompress an Exomizer self-extracting wrapper via TS 6502 emulation. Currently fails on undocumented opcodes used in some wrappers — see [TODO.md](../../TODO.md). |
+| `depack_exomizer_sfx` | WIP. Decompress an Exomizer self-extracting wrapper via TS 6502 emulation. Currently fails on undocumented opcodes used in some wrappers. |
 | `depack_byteboozer` | WIP. Decompress a ByteBoozer 2 raw file or executable wrapper in pure TS. |
 
 ## Triage

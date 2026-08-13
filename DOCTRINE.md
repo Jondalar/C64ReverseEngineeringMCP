@@ -198,9 +198,10 @@ being binding.
 **Completed 2026-08-12 (Spec 806).** Both halves are now gone rather than demoted: the
 TypeScript emulator is deleted, and so are the 49 `vice_*` MCP tools and the
 binary-monitor bridge under `src/runtime/vice/`. VICE survives as a *source tree to
-read* (`docs/vice-c64-arch.md`, `docs/vice-1541-arch.md`, `docs/vice-iec-arc42.md`
-and the checkout they describe) — never as something C64RE launches, talks to, or
-compares against.
+read* — never as something C64RE launches, talks to, or compares against. The three
+architecture references that describe it (`vice-c64-arch.md`, `vice-1541-arch.md`,
+`vice-iec-arc42.md`) moved to `../TRX64/docs/` on 2026-08-12: they are porting
+material, and the port is there.
 
 **What replaced it:** TRX64's own gates (Spec 783, local quality-gate enforcement).
 Regression protection comes from there, not from an oracle comparison.
@@ -284,8 +285,9 @@ Named here so nobody spends time looking for them:
   Everything under `src/ts-emulator/`, `src/runtime/vice/` and `tests/unit/**` is
   reachable in git history only.
 - **`vice-arch-port`, `codex/1541-runtime-gates`** — branches gone. The arch-port
-  doctrine that required a §-anchor in `docs/vice-c64-arch.md` /
-  `docs/vice-1541-arch.md` / `docs/vice-iec-arc42.md` went with them.
+  doctrine that required a §-anchor in `vice-c64-arch.md` / `vice-1541-arch.md` /
+  `vice-iec-arc42.md` went with them, and on 2026-08-12 so did the three documents,
+  to `../TRX64/docs/`.
 - **`quarantine/1541-literal-vice`** — still exists, still quarantined. Do not advance,
   do not merge; cherry-pick `-n` only.
 - **`specs/4XX-*.md`** — the old numbering the working process pointed at. Specs are in
