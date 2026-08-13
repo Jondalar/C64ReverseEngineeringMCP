@@ -43,6 +43,10 @@ export interface ProposedDescriptor {
   needsFromCode: string[];
 }
 
+/** The smallest run this will call a table. Set from a real cartridge, not from
+ *  taste: at four rows the shape test is met by chance throughout ordinary code. */
+const MIN_ROWS = 8;
+
 // ---------- primitives ----------
 
 /** Distinct values in a run — a column of bank numbers or high bytes has few. */
@@ -80,19 +84,15 @@ function looksLikeHighBytes(bytes: Uint8Array, start: number, len: number): { ok
   // And it must actually vary: two distinct values over sixteen rows is a flag column.
   if (counts.size < 3) return { ok: false, window: "" };
 
-  // A cartridge window ($8000-$BFFF) or a RAM page range tight enough that a run of
-  // arbitrary data would not land inside it by chance. Zero page is deliberately NOT
-  // here: "all values below $10" is satisfied by any sparse region, so it admits
-  // padding rather than describing a destination.
-  const windows: Array<[number, number, string]> = [
-    [0x80, 0xbf, "$8000-$BFFF (cart window)"],
-    [0x10, 0x3f, "$1000-$3FFF"],
-    [0x40, 0x7f, "$4000-$7FFF"],
-    [0xc0, 0xff, "$C000-$FFFF"],
-  ];
-  for (const [lo, hi, name] of windows) {
-    if (min >= lo && max <= hi) return { ok: true, window: name };
-  }
+  // ONLY the cartridge bank window. The RAM ranges that used to be here ($1000-$3FFF
+  // and friends) were wide enough that any COUNTING TABLE landed in one — and a game
+  // is full of those. A real cartridge answered with screen-offset tables
+  // (`00 01 02 03 …` and `04 0e 18 22 2c …`, a ten-wide grid), which satisfy monotone,
+  // spread and dense perfectly while being the opposite of an addressing table.
+  //
+  // A table that indexes payloads INSIDE a bank holds bank-window addresses. That is
+  // the property worth testing; "these bytes ascend" is not.
+  if (min >= 0x80 && max <= 0xbf) return { ok: true, window: "$8000-$BFFF (cart window)" };
   return { ok: false, window: "" };
 }
 
@@ -121,31 +121,60 @@ export function detectColumnsLayout(input: DetectorInput): ProposedDescriptor[] 
   // the pitch: it then answered with an 8-row sub-window of a 16-row table and looked
   // right while being a strictly worse reading. The row count comes out of the DATA —
   // the length of the windowed run in the hi array.
-  for (const pitch of [8, 16, 24, 32, 48, 64, 80, 96, 128, 160, 192, 256]) {
+  // A pitch below MIN_ROWS cannot hold a table of MIN_ROWS entries without the arrays
+  // overlapping, so those pitches only ever matched adjacent scraps of code.
+  for (const pitch of [16, 24, 32, 48, 64, 80, 96, 128, 160, 192, 256]) {
     if (pitch * 2 >= bytes.length) break;
     for (let a = 0; a + pitch < bytes.length; a += pitch) {
       const hiStart = a + pitch;
       // How far does a windowed, non-dominated run reach from hiStart? That length IS
       // the candidate row count.
       let rowCount = 0;
-      for (let len = 4; len <= Math.min(pitch, bytes.length - hiStart); len++) {
+      for (let len = MIN_ROWS; len <= Math.min(pitch, bytes.length - hiStart); len++) {
         if (looksLikeHighBytes(bytes, hiStart, len).ok) rowCount = len;
       }
-      if (rowCount < 4) continue;
+      // MIN_ROWS is the single most important number here. At four rows the test is
+      // met by chance all over ordinary code — a real cartridge answered with four
+      // 89%-confident candidates, every one of them a coincidence inside a routine.
+      // An index worth finding has entries; a four-entry run is noise wearing a table's
+      // shape.
+      if (rowCount < MIN_ROWS) continue;
       const hi = looksLikeHighBytes(bytes, hiStart, rowCount);
       if (!hi.ok) continue;
       if (a + rowCount > bytes.length) continue;
       // The lo half must be genuinely varied — two runs of near-constant bytes are
       // padding side by side, not an address split across arrays.
+      // The lo half of an address column is nearly all distinct: consecutive payloads
+      // do not start at the same low byte. Code, by contrast, repeats itself. This is
+      // the discriminator that a "few distinct values" test does not give you.
       const loDistinct = distinctCount(bytes, a, rowCount);
-      if (loDistinct < 3) continue;
+      if (loDistinct < Math.ceil(rowCount * 0.7)) continue;
+
+      // THE discriminator. Decode the pair as 16-bit addresses and ask whether they
+      // behave like a table of positions: payloads are laid out in order, so the
+      // decoded values climb. Noise does not climb — it wanders.
+      //
+      // Without this the detector was a sieve: a real 64-bank cartridge produced 288
+      // candidates over 65 windows, four or five per window, every one of them a run
+      // of code that happened to satisfy "high bytes inside the window". Being inside
+      // the window is nearly free in cartridge code; being MONOTONE is not.
+      const decoded: number[] = [];
+      for (let i = 0; i < rowCount; i++) decoded.push(bytes[a + i] | (bytes[hiStart + i] << 8));
+      let ascending = 0;
+      for (let i = 1; i < decoded.length; i++) if (decoded[i] > decoded[i - 1]) ascending++;
+      const ascendingRatio = ascending / (decoded.length - 1);
+      if (ascendingRatio < 0.7) continue;
+      // And they must actually spread: sixteen addresses inside forty bytes of each
+      // other is a run of operands, not a table of payload positions.
+      const span = Math.max(...decoded) - Math.min(...decoded);
+      if (span < rowCount * 8) continue;
       if (isFill(bytes, a, rowCount) || isFill(bytes, hiStart, rowCount)) continue;
 
       const columns: ProposedColumn[] = [{
         atLo: baseAddress + a,
         atHi: baseAddress + hiStart,
         width: 2,
-        evidence: `${rowCount} lo bytes at $${(baseAddress + a).toString(16)} with ${loDistinct} distinct values, and ${rowCount} hi bytes at $${(baseAddress + hiStart).toString(16)} all inside ${hi.window}`,
+        evidence: `${rowCount} lo bytes at $${(baseAddress + a).toString(16)} with ${loDistinct} distinct values, ${rowCount} hi bytes at $${(baseAddress + hiStart).toString(16)} all inside ${hi.window}, and the decoded addresses climb (${(ascendingRatio * 100).toFixed(0)}% ascending, spanning $${span.toString(16)})`,
       }];
 
       // Neighbouring arrays at the same pitch: candidates for the 1-byte columns
@@ -166,9 +195,15 @@ export function detectColumnsLayout(input: DetectorInput): ProposedDescriptor[] 
       // The lo/hi pair is the signal; extra columns corroborate; a longer table is
       // stronger evidence than a short one, because a short windowed run happens by
       // chance far more often.
+      // Row count dominates. Corroborating columns are worth little on their own —
+      // in code, ANY short run has few distinct values, so counting them rewarded
+      // exactly the false positives. Length is the thing chance does not supply.
+      const lengthTerm = Math.min(0.35, (rowCount - MIN_ROWS) / 64);
+      const densityTerm = 0.1 * (loDistinct / rowCount);
+      const orderTerm = 0.2 * ascendingRatio;
       const confidence = Math.min(
         0.9,
-        0.4 + 0.1 * (columns.length - 1) + (hi.window.includes("cart") ? 0.15 : 0) + Math.min(0.2, rowCount / 100),
+        0.15 + lengthTerm + densityTerm + orderTerm + 0.05 * Math.min(3, columns.length - 1),
       );
       out.push({
         layout: "columns",
@@ -197,7 +232,11 @@ export function detectPackedLayout(input: DetectorInput): ProposedDescriptor[] {
   const { bytes, baseAddress } = input;
   const out: ProposedDescriptor[] = [];
 
-  for (let stride = 2; stride <= 16; stride++) {
+  // A record needs FIELDS. At stride 2 with one column-like position, any run of
+  // ordinary data qualifies — the real cartridge answered with a 306-row "table" that
+  // was just code seen through a 2-byte window. Three bytes is the smallest thing that
+  // can carry an addressing decision (a position and something about it).
+  for (let stride = 3; stride <= 16; stride++) {
     const maxRows = Math.floor(bytes.length / stride);
     if (maxRows < 4) continue;
 
@@ -217,10 +256,23 @@ export function detectPackedLayout(input: DetectorInput): ProposedDescriptor[] {
       const d = distinctCount(bytes, pos, rows, stride);
       if (d >= 2 && d <= Math.max(3, rows / 3)) columnar.push(pos);
     }
-    if (!columnar.length) continue;
+    // One column-like position is not a table, it is a coincidence with a name. A
+    // record whose fields all vary freely is also not detectable as one — say nothing
+    // rather than something.
+    if (columnar.length < 2) continue;
+
+    // A "table" that covers the whole scanned window IS the window. Without a
+    // terminator to end it, a stride of 3 over 8 KB reports 2730 records at 80%
+    // confidence — the folded bank, not an index. A real untermined table is a small
+    // part of what it sits in; a terminated one has said where it ends and may be
+    // any length.
+    if (terminator === undefined && rows * stride > bytes.length * 0.25) continue;
+    // And an index has a plausible number of entries. Thousands of records is a
+    // bitmap being read through the wrong lens.
+    if (rows > 512) continue;
 
     const score = columnar.length / stride;
-    if (score < 0.25) continue;
+    if (score < 0.35) continue;
 
     out.push({
       layout: "packed",
@@ -293,5 +345,180 @@ export function formatProposals(list: ProposedDescriptor[]): string {
   for (const n of SEMANTICS_FROM_CODE) out.push(`  - ${n}`);
   out.push("");
   out.push("Nothing above was written to the project. A shape is a reading aid; getting a semantic wrong is silently wrong for every row at once.");
+  return out.join("\n");
+}
+
+// ── the ANCHOR: start from the code, not from the bytes ──────────────────────
+//
+// Scanning bytes for table-shaped runs does not work on real cartridge content, and
+// two real images settled it: after six tightenings it still answered with two false
+// candidates per 8 KB window, because every shape signal — high bytes inside the bank
+// window, few distinct values, monotone and spread — is ordinary in game data. One of
+// them showed exactly why: a screen-offset table (`00 01 02 03 …`, `04 0e 18 22 …`)
+// satisfies "monotone, spread, dense" perfectly while being the opposite of an
+// addressing table, and a game holds dozens.
+//
+// The anchor belongs in the CODE. A loader that indexes a table compiles to
+// `LDA $8500,X` — and the analyser already records every one of those with its base
+// address resolved (`codeAnalysis.instructions`, addressingMode `abs,x`/`abs,y`). That
+// base IS a column address, named by the machine rather than guessed at. The shape
+// checks above keep their job: they CONFIRM a candidate and find its siblings. They
+// are no longer the thing that finds it.
+
+export interface IndexedAccess {
+  /** Where the instruction is. */
+  address: number;
+  /** The base address it indexes — a column of a table, if it is reading one. */
+  base: number;
+  mnemonic: string;
+  mode: string;
+}
+
+/** Pull every resolved indexed absolute access out of an analysis report's
+ *  instructions. Loads AND stores: a loader reads its table, a builder writes it. */
+export function indexedAccesses(instructions: Array<{
+  address: number; mnemonic?: string; addressingMode?: string;
+  targetAddress?: number; operandValue?: number;
+}>): IndexedAccess[] {
+  const out: IndexedAccess[] = [];
+  for (const i of instructions) {
+    const mode = i.addressingMode ?? "";
+    if (mode !== "abs,x" && mode !== "abs,y") continue;
+    const base = i.targetAddress ?? i.operandValue;
+    if (base === undefined) continue;
+    out.push({ address: i.address, base, mnemonic: (i.mnemonic ?? "").toLowerCase(), mode });
+  }
+  return out;
+}
+
+/** The longest run of addresses in arithmetic progression. Columns of one table are
+ *  each padded to the same size, so their base addresses step by a constant. */
+function longestProgression(sorted: number[]): { pitch: number; members: number[] } | undefined {
+  let best: { pitch: number; members: number[] } | undefined;
+  for (let i = 0; i < sorted.length; i++) {
+    for (let j = i + 1; j < sorted.length; j++) {
+      const pitch = sorted[j] - sorted[i];
+      // A pitch below 4 is two fields of one record, not two columns; above 4 KB the
+      // "columns" are in different parts of the image and the pitch means nothing.
+      if (pitch < 4 || pitch > 0x1000) continue;
+      const members = [sorted[i]];
+      let next = sorted[i] + pitch;
+      for (const b of sorted) {
+        if (b === next) { members.push(b); next += pitch; }
+      }
+      if (members.length >= 3 && (!best || members.length > best.members.length)) {
+        best = { pitch, members };
+      }
+    }
+  }
+  return best;
+}
+
+export interface AnchoredCandidate {
+  /** Column base addresses, ascending — these came from the CODE. */
+  bases: number[];
+  /** The instructions that read/write them, so a reader can go and look. */
+  readers: number[];
+  /** How tightly the reading code sits together. Columns of one table are indexed by
+   *  one routine, usually within a few dozen bytes of each other. */
+  codeSpan: number;
+  /** The regular pitch the columns sit at, when one was found. */
+  pitch?: number;
+  /** Bases the same code touches that do NOT fit the pitch — reported, not hidden. */
+  others?: number[];
+  /** Confirmation from the bytes, when a medium was supplied. */
+  shape?: ProposedDescriptor;
+  evidence: string[];
+  needsFromCode: string[];
+}
+
+/** Group indexed accesses into candidate TABLES.
+ *
+ *  Two bases belong to the same table when the instructions reading them sit close
+ *  together in the code — one routine walking one table. That is a far stronger
+ *  grouping rule than "these addresses are near each other", because a routine may
+ *  index columns that are pages apart, and two unrelated routines may index adjacent
+ *  addresses. */
+export function anchorCandidates(
+  accesses: IndexedAccess[],
+  opts: { codeWindow?: number; minColumns?: number } = {},
+): AnchoredCandidate[] {
+  const codeWindow = opts.codeWindow ?? 64;
+  const minColumns = opts.minColumns ?? 2;
+  const sorted = [...accesses].sort((a, b) => a.address - b.address);
+
+  const groups: IndexedAccess[][] = [];
+  let cur: IndexedAccess[] = [];
+  for (const a of sorted) {
+    if (!cur.length || a.address - cur[cur.length - 1].address <= codeWindow) cur.push(a);
+    else { groups.push(cur); cur = [a]; }
+  }
+  if (cur.length) groups.push(cur);
+
+  const out: AnchoredCandidate[] = [];
+  for (const g of groups) {
+    const bases = [...new Set(g.map((a) => a.base))].sort((x, y) => x - y);
+    if (bases.length < minColumns) continue;
+    const readers = g.map((a) => a.address);
+    const codeSpan = readers[readers.length - 1] - readers[0];
+
+    // Within a routine's accesses, the COLUMNS OF ONE TABLE sit at a regular pitch —
+    // parallel arrays each padded to the same size. Everything else the routine
+    // touches (a SID register, a scratch byte, another table) does not fit that
+    // progression. Without this the anchor is grounded but coarse: one real routine
+    // came back as 67 bases including $D400-$D406.
+    const progression = longestProgression(bases);
+    if (progression && progression.members.length >= 3) {
+      out.push({
+        bases: progression.members,
+        readers,
+        codeSpan,
+        pitch: progression.pitch,
+        others: bases.filter((b) => !progression.members.includes(b)),
+        evidence: [
+          `${progression.members.length} base addresses at a REGULAR PITCH of ${progression.pitch} bytes — parallel columns of one table`,
+          `indexed by ${g.length} instruction(s) within ${codeSpan} bytes of code, starting at $${readers[0].toString(16)}`,
+          ...g.filter((a) => progression.members.includes(a.base)).slice(0, 6)
+            .map((a) => `  $${a.address.toString(16)}  ${a.mnemonic} $${a.base.toString(16)},${a.mode.endsWith("x") ? "X" : "Y"}`),
+          ...(bases.length > progression.members.length
+            ? [`${bases.length - progression.members.length} further base(s) in the same code do NOT fit the pitch — a routine touches more than one thing`]
+            : []),
+        ],
+        needsFromCode: SEMANTICS_FROM_CODE,
+      });
+      continue;
+    }
+
+    out.push({
+      bases,
+      readers,
+      codeSpan,
+      evidence: [
+        `${bases.length} distinct base address(es) indexed by ${g.length} instruction(s) within ${codeSpan} bytes of code, starting at $${readers[0].toString(16)}`,
+        ...g.slice(0, 6).map((a) => `  $${a.address.toString(16)}  ${a.mnemonic} $${a.base.toString(16)},${a.mode.endsWith("x") ? "X" : "Y"}`),
+      ],
+      needsFromCode: SEMANTICS_FROM_CODE,
+    });
+  }
+  return out.sort((a, b) => b.bases.length - a.bases.length);
+}
+
+/** Render anchored candidates. The reading instruction is quoted with every one,
+ *  because that is what makes this a finding rather than a guess. */
+export function formatAnchored(list: AnchoredCandidate[]): string {
+  if (!list.length) {
+    return "No indexed absolute access found in that code. A loader that reads its table through a pointer (`LDA ($fb),Y`) leaves no base address to anchor on — read the disassembly.";
+  }
+  const hx = (n: number) => `$${n.toString(16).toUpperCase().padStart(4, "0")}`;
+  const out: string[] = [];
+  list.forEach((c, i) => {
+    out.push(`── candidate ${i + 1} — ${c.bases.length} column base(s)${c.pitch ? ` at a pitch of ${c.pitch}` : ""}: ${c.bases.map(hx).join(" ")}`);
+    for (const e of c.evidence) out.push(`     ${e}`);
+    out.push("");
+  });
+  out.push("Each base above is an address the CODE indexes — not a shape found in the bytes.");
+  out.push("");
+  out.push("NOT INFERRED — read these out of the loader and pass them to declare_lut_descriptor:");
+  for (const n of SEMANTICS_FROM_CODE) out.push(`  - ${n}`);
   return out.join("\n");
 }

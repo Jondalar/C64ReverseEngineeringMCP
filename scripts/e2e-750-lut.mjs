@@ -505,5 +505,63 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
     /statement about the SHAPE only/.test(formatProposals([])));
 }
 
+// ── 13. the ANCHOR — start from the code, not from the bytes ─────────────────
+// The byte-shape scan does not work on real cartridge content: two real images
+// answered with roughly two false candidates per 8 KB window after six tightenings,
+// because every shape signal is ordinary in game data. One of them showed exactly why
+// — a screen-offset table (`00 01 02 03 …`) satisfies monotone, spread and dense
+// perfectly while being the opposite of an addressing table.
+//
+// The anchor is the instruction. `LDA $8500,X` names a column base, and the analyser
+// already resolved it. These checks assert the grounding, not a hit rate.
+{
+  const { indexedAccesses, anchorCandidates, formatAnchored } =
+    await import(dist("project-knowledge/lut-detect.js"));
+
+  const ins = [
+    // One routine walking a four-column table at a pitch of 16.
+    { address: 0x1000, mnemonic: "lda", addressingMode: "abs,x", targetAddress: 0x8500 },
+    { address: 0x1003, mnemonic: "lda", addressingMode: "abs,x", targetAddress: 0x8510 },
+    { address: 0x1006, mnemonic: "lda", addressingMode: "abs,x", targetAddress: 0x8520 },
+    { address: 0x1009, mnemonic: "sta", addressingMode: "abs,x", targetAddress: 0x8530 },
+    // ...and a SID register in the same breath, which must NOT join the table.
+    { address: 0x100c, mnemonic: "sta", addressingMode: "abs,x", targetAddress: 0xd400 },
+    // A different routine, far away in the code — a separate group.
+    { address: 0x4000, mnemonic: "lda", addressingMode: "abs,y", targetAddress: 0x9000 },
+    { address: 0x4003, mnemonic: "lda", addressingMode: "abs,y", targetAddress: 0x9040 },
+    { address: 0x4006, mnemonic: "lda", addressingMode: "abs,y", targetAddress: 0x9080 },
+    // Not indexed — must be ignored entirely.
+    { address: 0x4009, mnemonic: "lda", addressingMode: "abs", targetAddress: 0x1234 },
+    { address: 0x400c, mnemonic: "lda", addressingMode: "(zp),y", targetAddress: undefined },
+  ];
+
+  const acc = indexedAccesses(ins);
+  ok("13a only INDEXED absolute accesses are anchors", acc.length === 8, `${acc.length}`);
+  ok("13b a plain absolute load is not one", !acc.some((a) => a.base === 0x1234));
+
+  const cands = anchorCandidates(acc, { minColumns: 3 });
+  ok("13c accesses split into groups by CODE distance, not address distance",
+    cands.length === 2, `${cands.length} group(s)`);
+
+  const withPitch = cands.filter((c) => c.pitch);
+  ok("13d both groups found a regular column pitch", withPitch.length === 2,
+    cands.map((c) => c.pitch ?? "-").join(","));
+
+  const first = cands.find((c) => c.bases.includes(0x8500));
+  ok("13e the four table columns are kept at their pitch",
+    first?.pitch === 0x10 && first.bases.length === 4, `pitch=${first?.pitch} bases=${first?.bases.length}`);
+  ok("13f the SID register does NOT join the table — it is reported separately",
+    !first?.bases.includes(0xd400) && (first?.others ?? []).includes(0xd400),
+    `others=${(first?.others ?? []).map((b) => b.toString(16)).join(",")}`);
+
+  const text = formatAnchored(cands);
+  ok("13g every candidate quotes the instruction that reads it",
+    /lda \$8500,X/.test(text) && /\$1000/.test(text), text.split("\n").find((l) => /8500/.test(l)));
+  ok("13h and says the bases came from the CODE, not from a shape",
+    /an address the CODE indexes/.test(text));
+  ok("13i an empty result explains what it means, not just 'none'",
+    /through a pointer/.test(formatAnchored([])));
+}
+
 console.log(`\n${fails.length ? "RED" : "GREEN"}  750 LUT: ${pass} pass, ${fails.length} fail.`);
 process.exit(fails.length ? 1 : 0);
