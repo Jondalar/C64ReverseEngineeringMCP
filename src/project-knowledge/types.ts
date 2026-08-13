@@ -1589,6 +1589,11 @@ export const CartridgePayloadChunkSchema = z.object({
   claimedByLutId: IdSchema.optional(),
   claimedByLutName: z.string().optional(),
   claimedByRow: z.number().int().nonnegative().optional(),
+  // Spec 750.3 — who loads this payload, and who MUTATES it. The second one changes
+  // what the span means: a payload some routine writes at runtime is not the object
+  // that sits on the medium, and patching the medium alone may not hold.
+  loadedBy: z.array(z.object({ entityId: IdSchema, name: z.string() })).default([]),
+  writtenBy: z.array(z.object({ entityId: IdSchema, name: z.string() })).default([]),
   notes: z.array(z.string()).default([]),
 });
 

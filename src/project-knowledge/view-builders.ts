@@ -1083,7 +1083,17 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
             color: fnvHslColor(colorKey),
             packer: e.payloadPacker,
             format: e.payloadFormat,
-            notes: [`registered payload (origin=custom), ${sectorChain.length} sector(s)${unscoped ? " — UNSCOPED: image not yet attributed (no mediumRef)" : ""}`],
+            ...edgesForPayload(e.id, context.relations, context.entities),
+            notes: [
+              `registered payload (origin=custom), ${sectorChain.length} sector(s)${unscoped ? " — UNSCOPED: image not yet attributed (no mediumRef)" : ""}`,
+              ...(() => {
+                const { loadedBy, writtenBy } = edgesForPayload(e.id, context.relations, context.entities);
+                const out: string[] = [];
+                if (loadedBy.length) out.push(`loaded by ${loadedBy.map((x) => x.name).join(", ")}`);
+                if (writtenBy.length) out.push(`MUTATED at runtime by ${writtenBy.map((x) => x.name).join(", ")} — patching the medium alone may not hold`);
+                return out;
+              })(),
+            ],
             md5: undefined as string | undefined,
             first16: undefined as string | undefined,
             last16: undefined as string | undefined,
@@ -2073,6 +2083,28 @@ function lutTableSpans(
   return out;
 }
 
+
+/** Spec 750.3 — who LOADS a payload and who WRITES it.
+ *
+ *  The third overlay of §2, and the one that changes what a span MEANS rather than
+ *  where it is. A payload that some routine mutates at runtime is not the same object
+ *  as one that stays as loaded: patch it on the medium and the mutation may undo you,
+ *  and a byte-identical rebuild will not tell you that. The grid cannot draw an arrow
+ *  to a routine that has no place on the medium, so the edge rides ON the span — named,
+ *  and marked when it is written. */
+function edgesForPayload(
+  entityId: string,
+  relations: RelationRecord[],
+  entities: EntityRecord[],
+): { loadedBy: Array<{ entityId: string; name: string }>; writtenBy: Array<{ entityId: string; name: string }> } {
+  const nameOf = (id: string) => entities.find((e) => e.id === id)?.name ?? id;
+  const pick = (kind: "loads" | "writes") =>
+    relations
+      .filter((r) => r.kind === kind && r.targetEntityId === entityId && r.status !== "rejected")
+      .map((r) => ({ entityId: r.sourceEntityId, name: nameOf(r.sourceEntityId) }));
+  return { loadedBy: pick("loads"), writtenBy: pick("writes") };
+}
+
 export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLayoutView {
   const cartridges = context.artifacts
     .filter((artifact) => artifact.role === "crt-manifest")
@@ -2213,11 +2245,22 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
                 ? (context.lutDescriptors ?? []).find((d) => d.id === e.payloadClaimedByLutId)?.name
                 : undefined,
               claimedByRow: e.payloadClaimedByRow,
+              // Spec 750.3 — the loader/mutator edges, on the span itself.
+              ...edgesForPayload(e.id, context.relations, context.entities),
               notes: [
                 `registered payload (origin=custom), ${first.slot}, ${spans.length} span(s)${unscoped ? " — UNSCOPED: image not yet attributed (no mediumRef)" : ""}`,
                 ...(e.payloadClaimedByLutId
                   ? [`claimed by ${(context.lutDescriptors ?? []).find((d) => d.id === e.payloadClaimedByLutId)?.name ?? e.payloadClaimedByLutId} row ${e.payloadClaimedByRow ?? "?"}`]
                   : []),
+                ...(() => {
+                  const { loadedBy, writtenBy } = edgesForPayload(e.id, context.relations, context.entities);
+                  const out: string[] = [];
+                  if (loadedBy.length) out.push(`loaded by ${loadedBy.map((x) => x.name).join(", ")}`);
+                  // Said as a warning, not a fact: a mutated payload cannot be patched
+                  // on the medium alone, and nothing else on this view would say so.
+                  if (writtenBy.length) out.push(`MUTATED at runtime by ${writtenBy.map((x) => x.name).join(", ")} — patching the medium alone may not hold`);
+                  return out;
+                })(),
               ],
             };
           });

@@ -275,6 +275,21 @@ Both the Disk wheel and the Cartridge bank/slot grid, scoped per image (`mediumR
   having a human author them.
 - **750.3 — loader/mutator edges.** Render `loads` / `writes` relations on the views
   (payload ↔ routine). Manual `link_entities` for now.
+
+  **BUILT 2026-08-12.** Both surfaces. A payload span carries `loadedBy` / `writtenBy`,
+  resolved to entity NAMES rather than leaving ids on screen, and the cartridge grid
+  outlines a mutated span in dashed red so it is visible without hovering.
+
+  The asymmetry is deliberate and is the point of this slice: `loads` is information,
+  `writes` is a WARNING. A payload something mutates at runtime is not the object that
+  sits on the medium — patch the medium alone and the mutation may undo you, and a
+  byte-identical rebuild will not say a word about it. So the note reads "MUTATED at
+  runtime by X — patching the medium alone may not hold", not "written by X".
+
+  A grid cannot draw an arrow to a routine that has no place on the medium, so the edge
+  rides ON the span instead of between two boxes. `e2e:750-lut` 50/50, including the
+  disk surface carrying the identical warning — §1's "disk and cartridge are the SAME
+  model" proved rather than repeated.
 - **750.4 — extractor: code-embedded T/S.** Scan a payload's disasm for hardcoded
   sector tables (`LDA #track / LDX #sector / JSR load`) → emit `LoaderEntryPoint
   kind="sector-load"` + the T/S.
