@@ -63,6 +63,7 @@ import type {
   MemoryMapView,
   OpenQuestionRecord,
   ProjectCheckpoint,
+  LutDescriptor,
   ProjectDashboardView,
   ProjectMetadata,
   RelationRecord,
@@ -81,6 +82,8 @@ interface ViewBuildContext {
   openQuestions: OpenQuestionRecord[];
   timeline: TimelineEvent[];
   checkpoints: ProjectCheckpoint[];
+  /** Spec 750.2 — the tables this project has described. */
+  lutDescriptors?: LutDescriptor[];
 }
 
 function nowIso(): string {
@@ -2028,6 +2031,48 @@ function summariseSpanClasses(
   ];
 }
 
+
+/** Spec 750.2 — the bytes a TABLE itself occupies.
+ *
+ *  A table is not only what points at payloads; it takes up space. Until this existed,
+ *  an index's own bytes counted as unclaimed — so the map said "not yet understood"
+ *  about the one region whose purpose was best known. Drawing the index next to what it
+ *  indexes is what turns a list of blobs into a table of contents.
+ *
+ *  `columns` — one span per column: each is its own parallel array, rowCount cells long.
+ *  `packed`  — one span for the record block: rowCount × recordStride from the first cell.
+ *  A split 2-byte cell (atLo/atHi) is TWO arrays and therefore two spans. */
+function lutTableSpans(
+  d: LutDescriptor,
+  windowBase: number,
+): Array<{ role: string; bank: number; offsetInBank: number; length: number }> {
+  const rows = d.rowCount ?? 0;
+  if (!rows) return [];
+  const out: Array<{ role: string; bank: number; offsetInBank: number; length: number }> = [];
+  const rel = (addr: number) => Math.max(0, addr - windowBase);
+
+  if (d.layout === "packed") {
+    const stride = d.recordStride ?? 1;
+    const first = d.columns.map((c) => c.at ?? c.atLo).filter((a): a is number => a !== undefined);
+    if (!first.length) return [];
+    const start = Math.min(...first);
+    out.push({ role: "records", bank: d.columns[0]?.bank ?? 0, offsetInBank: rel(start), length: rows * stride });
+    return out;
+  }
+
+  for (const col of d.columns) {
+    const bank = col.bank ?? 0;
+    const stride = col.stride ?? ((col.atLo !== undefined && col.atHi !== undefined) ? 1 : (col.width ?? 1));
+    if (col.atLo !== undefined && col.atHi !== undefined) {
+      out.push({ role: `${col.role}.lo`, bank, offsetInBank: rel(col.atLo), length: rows * stride });
+      out.push({ role: `${col.role}.hi`, bank, offsetInBank: rel(col.atHi), length: rows * stride });
+    } else if (col.at !== undefined) {
+      out.push({ role: col.role, bank, offsetInBank: rel(col.at), length: rows * stride });
+    }
+  }
+  return out;
+}
+
 export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLayoutView {
   const cartridges = context.artifacts
     .filter((artifact) => artifact.role === "crt-manifest")
@@ -2161,7 +2206,19 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
               color: fnvHslColor([artifact.id, "payload", e.id, first.slot, "custom"]),
               mediumRef: scopedRef,
               unscoped,
-              notes: [`registered payload (origin=custom), ${first.slot}, ${spans.length} span(s)${unscoped ? " — UNSCOPED: image not yet attributed (no mediumRef)" : ""}`],
+              // Spec 750.2 — the claim. A span a table points at and a span someone
+              // asserted look identical on a grid; this is what tells them apart.
+              claimedByLutId: e.payloadClaimedByLutId,
+              claimedByLutName: e.payloadClaimedByLutId
+                ? (context.lutDescriptors ?? []).find((d) => d.id === e.payloadClaimedByLutId)?.name
+                : undefined,
+              claimedByRow: e.payloadClaimedByRow,
+              notes: [
+                `registered payload (origin=custom), ${first.slot}, ${spans.length} span(s)${unscoped ? " — UNSCOPED: image not yet attributed (no mediumRef)" : ""}`,
+                ...(e.payloadClaimedByLutId
+                  ? [`claimed by ${(context.lutDescriptors ?? []).find((d) => d.id === e.payloadClaimedByLutId)?.name ?? e.payloadClaimedByLutId} row ${e.payloadClaimedByRow ?? "?"}`]
+                  : []),
+              ],
             };
           });
         });
@@ -2180,6 +2237,20 @@ export function buildCartridgeLayoutView(context: ViewBuildContext): CartridgeLa
         },
         lutChunks,
         payloadChunks,
+        // Spec 750.2 — the addressing tables on this image, footprint included.
+        lutTables: (context.lutDescriptors ?? [])
+          .filter((d) => !d.mediumRef || d.mediumRef === artifact.id)
+          .map((d) => ({
+            id: d.id,
+            name: d.name,
+            layout: d.layout,
+            identityScheme: d.identity.scheme,
+            rowCount: d.rowCount,
+            spans: lutTableSpans(d, chips[0]?.loadAddress ?? 0x8000),
+            claimCount: context.entities.filter((e) => e.payloadClaimedByLutId === d.id).length,
+            mediumRef: d.mediumRef,
+            unscoped: !d.mediumRef,
+          })),
         emptyRegions,
         segments,
         startup,

@@ -1584,7 +1584,37 @@ export const CartridgePayloadChunkSchema = z.object({
   // is on; absent ⇒ unscoped (shown on every cart, badged).
   mediumRef: z.string().optional(),
   unscoped: z.boolean().optional(),
+  // Spec 750.2 — WHAT SAYS SO. A chunk with a claim is a span some table points at;
+  // one without is a span someone asserted. The view can finally tell them apart.
+  claimedByLutId: IdSchema.optional(),
+  claimedByLutName: z.string().optional(),
+  claimedByRow: z.number().int().nonnegative().optional(),
   notes: z.array(z.string()).default([]),
+});
+
+// Spec 750.2 — the TABLE's own footprint. A table is not only what points at payloads;
+// it occupies bytes itself, and until now those bytes counted as unclaimed. Drawing the
+// index alongside what it indexes is what makes the map a table of contents rather than
+// a list of blobs — and it closes a real hole in coverage, because an index nobody
+// marked reads as "not yet understood" forever.
+export const CartridgeLutTableSchema = z.object({
+  id: IdSchema,
+  name: z.string().min(1),
+  layout: z.enum(["packed", "columns"]),
+  identityScheme: z.enum(["index", "key-bytes", "nested"]),
+  rowCount: z.number().int().nonnegative().optional(),
+  /** One span per COLUMN (`columns` layout) or one for the whole record block
+   *  (`packed`) — the bytes the table itself takes up. */
+  spans: z.array(z.object({
+    role: z.string(),
+    bank: z.number().int().nonnegative(),
+    offsetInBank: z.number().int().nonnegative(),
+    length: z.number().int().nonnegative(),
+  })).default([]),
+  /** How many payloads currently name a row of this table. */
+  claimCount: z.number().int().nonnegative().default(0),
+  mediumRef: z.string().optional(),
+  unscoped: z.boolean().optional(),
 });
 
 // Spec 785 B4 — ONE vocabulary for every span drawn on a cartridge. `lutChunks`
@@ -1634,6 +1664,8 @@ export const CartridgeLayoutCartridgeSchema = z.object({
   banks: z.array(CartridgeBankViewSchema),
   slotLayout: CartridgeSlotLayoutSchema.optional(),
   lutChunks: z.array(CartridgeLutChunkSchema).optional(),
+  /** Spec 750.2 — the addressing tables on this image, with their own footprints. */
+  lutTables: z.array(CartridgeLutTableSchema).optional(),
   payloadChunks: z.array(CartridgePayloadChunkSchema).optional(),
   emptyRegions: z.array(CartridgeEmptyRegionSchema).optional(),
   segments: z.array(CartridgeSegmentSchema).optional(),

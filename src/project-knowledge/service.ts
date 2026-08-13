@@ -5040,6 +5040,9 @@ export class ProjectKnowledgeService {
       openQuestions: this.storage.loadOpenQuestions().items,
       timeline: this.storage.readTimeline(50),
       checkpoints: this.storage.listCheckpoints(),
+      // Spec 750.2 — the addressing tables, so the views can draw the index as well
+      // as what it indexes.
+      lutDescriptors: this.storage.loadLutDescriptors().items,
     };
   }
 

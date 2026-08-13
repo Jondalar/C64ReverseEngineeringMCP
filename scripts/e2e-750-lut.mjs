@@ -294,5 +294,72 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
   }
 }
 
+// ── 10. the VIEW: a filled store has to render somewhere ─────────────────────
+// The gap 750.2 measured was not the model — it was that a filled store rendered
+// nowhere, so filling it changed nothing anyone could see. Two things must reach the
+// cartridge view: the CLAIM on a payload span (so a span a table points at is
+// distinguishable from one somebody asserted), and the table's OWN FOOTPRINT (until
+// now an index's bytes counted as unclaimed — the map called the best-understood
+// region on the medium "not yet understood").
+{
+  const { mkdtempSync, writeFileSync, mkdirSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { ProjectKnowledgeService } = await import(dist("project-knowledge/service.js"));
+
+  const projectDir = mkdtempSync(join(tmpdir(), "c64re-750v-"));
+  const svc = new ProjectKnowledgeService(projectDir);
+  svc.initProject({ name: "750 view gate" });
+
+  // A crt-manifest artifact is what the cartridge view builds from.
+  mkdirSync(join(projectDir, "analysis"), { recursive: true });
+  const manifestPath = join(projectDir, "analysis", "gate.crt.json");
+  writeFileSync(manifestPath, JSON.stringify({
+    header: { name: "GATE", hardwareType: 32, exrom: 0, game: 1 },
+    chips: [{ bank: 0, load_address: 0x8000, size: 0x2000, file: "b0.bin" }],
+    banks: { "0": { slots: ["ROML"], file: "b0.bin" } },
+  }));
+  const art = svc.saveArtifact({ title: "gate.crt manifest", path: manifestPath, role: "crt-manifest", kind: "manifest", scope: "analysis" });
+
+  const lut = svc.declareLutDescriptor({
+    name: "A2", layout: "columns", identity: { scheme: "index" }, rowCount: 8,
+    mediumRef: art.id,
+    columns: [
+      { role: "bank", at: 0x8100, width: 1, deref: false, lengthBias: 0, headerOffset: 0 },
+      { role: "offset", atLo: 0x8110, atHi: 0x8120, width: 2, deref: false, lengthBias: 0, headerOffset: 0 },
+    ],
+    evidence: [], tags: [],
+  });
+
+  const pay = svc.saveEntity({
+    kind: "payload", name: "claimed-asset",
+    mediumSpans: [{ kind: "slot", slot: "ROML", bank: 0, offsetInBank: 0x400, length: 256, mediumRef: art.id }],
+    payloadClaimedByLutId: lut.id, payloadClaimedByRow: 3,
+  });
+  ok("10a the claim persisted on the payload", pay.payloadClaimedByLutId === lut.id && pay.payloadClaimedByRow === 3);
+
+  const { view } = svc.buildCartridgeLayoutView();
+  const cart = view.cartridges?.[0];
+  ok("10b the cartridge view built", Boolean(cart), cart ? cart.title : "no cartridge");
+
+  const tables = cart?.lutTables ?? [];
+  ok("10c the table appears on the image it was read off", tables.length === 1 && tables[0].name === "A2",
+    `${tables.length} table(s)`);
+  // 2 columns, one of them split lo/hi → three spans of 8 bytes each.
+  const spans = tables[0]?.spans ?? [];
+  ok("10d the table's OWN footprint is drawn — a split cell is two arrays, two spans",
+    spans.length === 3 && spans.every((s) => s.length === 8),
+    spans.map((s) => `${s.role}@$${(s.offsetInBank + 0x8000).toString(16)}+${s.length}`).join(" "));
+  ok("10e the footprint is bank-relative, not an absolute address",
+    spans[0]?.offsetInBank === 0x100, `${spans[0]?.offsetInBank}`);
+  ok("10f the table knows how many payloads name it", tables[0]?.claimCount === 1, `${tables[0]?.claimCount}`);
+
+  const chunk = (cart?.payloadChunks ?? []).find((c) => c.entityId === pay.id);
+  ok("10g the payload span carries its claim, resolved to the table's NAME",
+    chunk?.claimedByLutId === lut.id && chunk?.claimedByRow === 3 && chunk?.claimedByLutName === "A2",
+    chunk ? `${chunk.claimedByLutName}#${chunk.claimedByRow}` : "no chunk");
+  ok("10h and says so in the note a human reads",
+    (chunk?.notes ?? []).some((n) => /claimed by A2 row 3/.test(n)), (chunk?.notes ?? []).join(" | "));
+}
+
 console.log(`\n${fails.length ? "RED" : "GREEN"}  750 LUT: ${pass} pass, ${fails.length} fail.`);
 process.exit(fails.length ? 1 : 0);

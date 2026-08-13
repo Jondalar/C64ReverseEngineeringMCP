@@ -252,10 +252,18 @@ Both the Disk wheel and the Cartridge bank/slot grid, scoped per image (`mediumR
   each semantic proved by showing the WRONG reading differs, and an end-to-end pass over
   a real MCP server against a synthetic `.crt`.
 
-  **Still open (g):** the claim surfaces in `list_payloads` (`claim=<lut>#<row>`), so a
-  filled store no longer renders nowhere — but the views do not yet DRAW the index →
-  position mapping as edges. That is the remaining half of "the table of contents", and
-  it is now a rendering job with the data behind it, not a modelling one.
+  **g BUILT 2026-08-12 (view data).** The cartridge view now carries both halves. Payload
+  spans carry the CLAIM (`claimedByLutId` / `claimedByLutName` / `claimedByRow`, and a
+  human-readable note), so a span a table points at is distinguishable from one somebody
+  asserted — on a grid they look identical otherwise. And `lutTables` carries the table's
+  OWN FOOTPRINT: an index occupies bytes, and until now those bytes counted as unclaimed,
+  so the map called the best-understood region on the medium "not yet understood". A
+  split 2-byte cell is two parallel arrays and therefore two spans, which is the shape
+  `layout=columns` forces and the reason the footprint could not be one range.
+  `e2e:750-lut` 43/43.
+
+  **Still open:** the React panels do not yet render `lutTables` — the data reaches the
+  view model, the grid does not draw it. That is now purely a component change.
 - **750.3 — loader/mutator edges.** Render `loads` / `writes` relations on the views
   (payload ↔ routine). Manual `link_entities` for now.
 - **750.4 — extractor: code-embedded T/S.** Scan a payload's disasm for hardcoded
