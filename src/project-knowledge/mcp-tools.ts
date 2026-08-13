@@ -1552,6 +1552,42 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 ));
 
   server.tool(
+    "suggest_lut_descriptor",
+    "Scan a byte range of a medium for table-SHAPED runs and propose descriptor skeletons — the transcription work, taken off you. Use when the loader's disassembly points at a table and you would otherwise type a dozen column addresses by hand. It proposes structure only: parallel arrays vs packed records, row count, where the columns sit, and a split 16-bit column when it can see one. It does NOT guess what the columns MEAN, does not write anything, and says which fields you still have to read out of the loader — getting one of those wrong is silently wrong for every row at once. Not for writing the table (use declare_lut_descriptor with what you read) and not for reading rows (use resolve_lut_rows).",
+    {
+      project_dir: z.string().optional(),
+      medium_path: z.string(),
+      bank: z.number().int().nonnegative().optional(),
+      from_address: z.number().int().nonnegative(),
+      to_address: z.number().int().nonnegative(),
+    },
+    safeHandler("suggest_lut_descriptor", async ({ medium_path, bank, from_address, to_address }) => {
+      const { readerForMedium } = await import("./lut-medium.js");
+      const { detectTables, formatProposals } = await import("./lut-detect.js");
+      const m = readerForMedium(medium_path);
+      if (!m) return textContent(`No medium at ${medium_path}.`);
+      if (to_address <= from_address) return textContent("to_address must be past from_address.");
+      const len = Math.min(to_address - from_address, 0x4000);
+      const bytes = new Uint8Array(len);
+      let missing = 0;
+      for (let i = 0; i < len; i++) {
+        const b = m.reader.readByte(bank, from_address + i);
+        if (b === undefined) { missing++; bytes[i] = 0; } else bytes[i] = b;
+      }
+      if (missing === len) {
+        return textContent(`Nothing readable at $${from_address.toString(16)}..$${to_address.toString(16)}${bank !== undefined ? ` in bank ${bank}` : ""}. ${m.note}`);
+      }
+      const proposals = detectTables({ bytes, baseAddress: from_address, bank });
+      const head = [
+        `Scanned $${from_address.toString(16).toUpperCase()}..$${to_address.toString(16).toUpperCase()}${bank !== undefined ? ` bank ${bank}` : ""} — ${m.note}`,
+        ...(missing ? [`${missing} of ${len} bytes were outside the image and read as 0 — narrow the range if the result looks odd.`] : []),
+        "",
+      ];
+      return textContent(head.join("\n") + formatProposals(proposals));
+    },
+));
+
+  server.tool(
     "list_lut_descriptors",
     "List the lookup tables described on this project's media. Use to see which tables are already recorded before describing another. Not for their rows (use resolve_lut_rows).",
     {

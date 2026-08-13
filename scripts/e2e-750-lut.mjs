@@ -431,5 +431,79 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
     entry ? (entry.notes ?? []).join(" | ") : `no disk file entry (${(diskView.disks ?? []).flatMap((d) => d.files ?? []).length} file(s) on ${(diskView.disks ?? []).length} disk(s))`);
 }
 
+// ── 12. 750.7 — SUGGEST a shape, never a semantic ────────────────────────────
+// The transcription work taken off a human, with a hard line: structure is in the
+// bytes and is checkable; meaning is only in the loader code. The important assertions
+// here are the REFUSALS — a detector that helpfully defaults `polarity` produces
+// exactly the silent, plausible-looking wrongness the rest of this spec is built
+// against, and it would do it while looking like progress.
+{
+  const { detectTables, detectColumnsLayout, detectPackedLayout, formatProposals, SEMANTICS_FROM_CODE } =
+    await import(dist("project-knowledge/lut-detect.js"));
+
+  // A columns-layout table: pitch 64, 16 rows. lo half arbitrary, hi half all inside
+  // the cart window — the lo/hi signature.
+  const cols = new Uint8Array(64 * 5).fill(0x00);
+  for (let i = 0; i < 16; i++) {
+    cols[0 * 64 + i] = (i * 37) & 0xff;          // srce lo — spread
+    cols[1 * 64 + i] = 0x80 + (i & 0x1f);        // srce hi — inside $8000-$BFFF
+    cols[2 * 64 + i] = i % 3;                    // bank — small alphabet
+    cols[3 * 64 + i] = (i * 91) & 0xff;          // len lo
+  }
+  const colProps = detectColumnsLayout({ bytes: cols, baseAddress: 0x8000, bank: 0 });
+  ok("12a a lo/hi address pair is found", colProps.length > 0, `${colProps.length} candidate(s)`);
+  const best = colProps[0];
+  ok("12b it reports columns layout and the row count", best?.layout === "columns" && best?.rowCount === 16,
+    `${best?.layout}/${best?.rowCount}`);
+  ok("12c the split column carries BOTH halves", best?.columns?.[0]?.atLo === 0x8000 && best?.columns?.[0]?.atHi === 0x8040,
+    `${best?.columns?.[0]?.atLo?.toString(16)}/${best?.columns?.[0]?.atHi?.toString(16)}`);
+  ok("12d it says WHY, in terms a reader can check against the bytes",
+    /distinct values/.test(best?.columns?.[0]?.evidence ?? "") && /\$8000-\$BFFF/.test(best?.columns?.[0]?.evidence ?? ""),
+    best?.columns?.[0]?.evidence);
+
+  // THE REFUSALS.
+  ok("12e no proposal claims a polarity", colProps.every((p) => p.columns.every((c) => !("polarity" in c))));
+  ok("12f no proposal claims a deref", colProps.every((p) => p.columns.every((c) => !("deref" in c))));
+  ok("12g every proposal states what it cannot know",
+    colProps.every((p) => p.needsFromCode.length >= 5));
+  ok("12h and names polarity and deref among them",
+    SEMANTICS_FROM_CODE.some((n) => /polarity/.test(n)) && SEMANTICS_FROM_CODE.some((n) => /deref/.test(n)));
+  ok("12i confidence never reaches certainty — a shape is not a reading",
+    colProps.every((p) => p.confidence < 1));
+
+  // A packed table: 4-byte records, terminated.
+  const packed = new Uint8Array(4 * 12);
+  for (let r = 0; r < 8; r++) {
+    packed[r * 4 + 0] = 17 + (r % 2);   // track — 2 distinct
+    packed[r * 4 + 1] = r;              // sector — spread
+    packed[r * 4 + 2] = (r * 13) & 0xff;
+    packed[r * 4 + 3] = r % 3;          // small alphabet
+  }
+  for (let i = 8 * 4; i < packed.length; i++) packed[i] = 0x00;
+  const packProps = detectPackedLayout({ bytes: packed, baseAddress: 0x1000 });
+  ok("12j a packed record stride is found", packProps.length > 0, `${packProps.length} candidate(s)`);
+  const bp = packProps.find((p) => p.recordStride === 4);
+  ok("12k the right stride is among the candidates", Boolean(bp), packProps.map((p) => p.recordStride).join(","));
+  ok("12l the terminator ends it at 8 rows", bp?.rowCount === 8 && bp?.terminator === 0x00, `${bp?.rowCount} rows, term=${bp?.terminator}`);
+
+  // Arbitrary data must NOT produce a confident answer.
+  const noise = new Uint8Array(512);
+  for (let i = 0; i < noise.length; i++) noise[i] = (i * 167 + (i >> 3) * 31) & 0xff;
+  const noiseProps = detectTables({ bytes: noise, baseAddress: 0x2000 });
+  ok("12m high-entropy data yields no high-confidence table",
+    noiseProps.every((p) => p.confidence < 0.6), noiseProps.map((p) => p.confidence.toFixed(2)).join(","));
+
+  // Padding must not read as a table — two runs of $FF are not an address pair.
+  const pad = new Uint8Array(256).fill(0xff);
+  ok("12n a padded region is not proposed as a table",
+    detectColumnsLayout({ bytes: pad, baseAddress: 0x8000 }).length === 0);
+
+  const text = formatProposals(colProps);
+  ok("12o the rendering leads with what it cannot know and says nothing was written",
+    /NOT INFERRED/.test(text) && /Nothing above was written/.test(text));
+  ok("12p an empty result explains itself rather than saying 'none'",
+    /statement about the SHAPE only/.test(formatProposals([])));
+}
+
 console.log(`\n${fails.length ? "RED" : "GREEN"}  750 LUT: ${pass} pass, ${fails.length} fail.`);
 process.exit(fails.length ? 1 : 0);

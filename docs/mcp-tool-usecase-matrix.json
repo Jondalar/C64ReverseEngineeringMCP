@@ -1,9 +1,9 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 257,
+  "total": 258,
   "defaultCount": 150,
-  "advancedCount": 107,
+  "advancedCount": 108,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
     "runtime-explore": "start/run Headless, mount, input, render",
@@ -3594,7 +3594,7 @@
       "name": "runtime_session_export_audio",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
-      "tier": "default",
+      "tier": "advanced",
       "role": "view-docs",
       "swimlane": "operator-maintenance",
       "useWhen": "Advanced: export audio from a live session.",
@@ -3602,10 +3602,8 @@
       "adjacentTools": [
         "runtime_render_screen"
       ],
-      "e2eUseCases": [
-        "E2E-A"
-      ],
-      "keepDecision": "keep-default",
+      "e2eUseCases": [],
+      "keepDecision": "keep-advanced",
       "pathMode": "no-path",
       "useInstead": "runtime_render_screen"
     },
@@ -4296,6 +4294,26 @@
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"
+    },
+    {
+      "name": "suggest_lut_descriptor",
+      "namespace": "suggest",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "format-forensics",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
     },
     {
       "name": "trace_memory_map",
