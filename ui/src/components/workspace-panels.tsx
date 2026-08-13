@@ -569,6 +569,7 @@ export function CartridgePanel({
               slotLayout={cartridge.slotLayout}
               lutChunks={cartridge.lutChunks}
               payloadChunks={cartridge.payloadChunks}
+              lutTables={cartridge.lutTables}
               emptyRegions={cartridge.emptyRegions}
               segments={cartridge.segments}
               startup={cartridge.startup}

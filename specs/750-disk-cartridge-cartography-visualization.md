@@ -262,8 +262,17 @@ Both the Disk wheel and the Cartridge bank/slot grid, scoped per image (`mediumR
   `layout=columns` forces and the reason the footprint could not be one range.
   `e2e:750-lut` 43/43.
 
-  **Still open:** the React panels do not yet render `lutTables` — the data reaches the
-  view model, the grid does not draw it. That is now purely a component change.
+  **Rendered 2026-08-12.** `CartridgeMemoryGrid` draws `lutTables` as a hatched band
+  UNDER the payload overlay, with the table's name, layout, row count and claim count in
+  the tooltip. Hatched and not solid on purpose: a payload is content, an index is
+  structure, and they should not read as the same kind of thing. Under it, not instead of
+  it, because the index is the ground the payload spans are described from — a reader
+  needs both at once. UI typecheck unchanged (15 errors before and after, all the
+  pre-existing `ArtifactRecord` generics).
+
+  **750.2 is closed.** What remains of 750 is 750.3 (loader/mutator edges) and the
+  extractor slices 750.4–750.6, which derive descriptors automatically instead of
+  having a human author them.
 - **750.3 — loader/mutator edges.** Render `loads` / `writes` relations on the views
   (payload ↔ routine). Manual `link_entities` for now.
 - **750.4 — extractor: code-embedded T/S.** Scan a payload's disasm for hardcoded
