@@ -1,7 +1,7 @@
 {
-  "total": 257,
+  "total": 258,
   "specCount": 42,
-  "advancedCandidate": 107,
+  "advancedCandidate": 108,
   "byNamespace": {
     "runtime": 82,
     "list": 20,
@@ -24,6 +24,7 @@
     "run": 3,
     "scan": 3,
     "set": 3,
+    "suggest": 3,
     "analyze": 2,
     "auto": 2,
     "bulk": 2,
@@ -36,7 +37,6 @@
     "render": 2,
     "sandbox": 2,
     "start": 2,
-    "suggest": 2,
     "analysis": 1,
     "apply": 1,
     "archive": 1,
@@ -1922,7 +1922,7 @@
       "hasSpec": false,
       "firstSentence": "Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV.",
       "desc": "Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV. Use to capture audio from a running integrated session. Exports the LIVE session only; there is no scenario-export tool. Inputs: session_id, out_path, duration_sec. Returns: WAV path + stats.",
-      "tier": "default?"
+      "tier": "advanced?"
     },
     {
       "name": "runtime_session_run",
@@ -2273,6 +2273,15 @@
       "hasSpec": false,
       "firstSentence": "Use to heuristically scan every sector of a disk image and rank candidates by how plausibly they serve as a fixed-stride loader LUT — run this first when you do not yet know which sector a custom loader reads its file table from.",
       "desc": "Use to heuristically scan every sector of a disk image and rank candidates by how plausibly they serve as a fixed-stride loader LUT — run this first when you do not yet know which sector a custom loader reads its file table from. Not for DOS-directory inspection (use inspect_disk) or for extracting payloads once you know the LUT location (use extract_disk_custom_lut). Inputs: absolute or project-relative disk image path (.d64 or .g64). Returns: ranked candidate list; does not write any artifact.",
+      "tier": "default?"
+    },
+    {
+      "name": "suggest_lut_descriptor",
+      "file": "project-knowledge/mcp-tools.ts",
+      "ns": "suggest",
+      "hasSpec": false,
+      "firstSentence": "Scan a byte range of a medium for table-SHAPED runs and propose descriptor skeletons — the transcription work, taken off you.",
+      "desc": "Scan a byte range of a medium for table-SHAPED runs and propose descriptor skeletons — the transcription work, taken off you. Use when the loader's disassembly points at a table and you would otherwise type a dozen column addresses by hand. It proposes structure only: parallel arrays vs packed records, row count, where the columns sit, and a split 16-bit column when it can see one. It does NOT guess what the columns MEAN, does not write anything, and says which fields you still have to read out of the loader — getting one of those wrong is silently wrong for every row at once. Not for writing the table (use declare_lut_descriptor with what you read) and not for reading rows (use resolve_lut_rows).",
       "tier": "default?"
     },
     {

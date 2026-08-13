@@ -295,6 +295,52 @@ Both the Disk wheel and the Cartridge bank/slot grid, scoped per image (`mediumR
   kind="sector-load"` + the T/S.
 - **750.5 — extractor: chainloader/dispatch.** Detect dispatch/trampoline (index →
   jump) → `LoaderEntryPoint kind="dispatch"` + the index→target table.
+- **750.7 — SUGGEST a descriptor from the bytes.** The handwork 750.2 left behind: a
+  table's SHAPE is visible in the image, but a human still has to type every column
+  address. Scan a byte range and propose `LutDescriptor` skeletons.
+
+  **The hard constraint, and it is the whole design:** a detector may guess the SHAPE,
+  never the SEMANTICS. Where the columns are, how long they are, whether the layout is
+  `packed` or `columns` — all of that is in the bytes and is checkable. Whether
+  `destination` is a pointer, and which way the `codec` polarity runs, is **only in the
+  loader code**. §1.1 exists because guessing those is silently wrong for every row at
+  once, with numbers that still look plausible. So a proposal leaves them EMPTY and says
+  so; it must not "helpfully" default them, and it must not write itself into the store.
+  A suggestion is a reading aid, not a finding.
+
+  What is honestly detectable:
+
+  * **A lo/hi address pair.** Two equal-length arrays where one holds few distinct
+    values, all plausible high bytes (a bank window, a RAM page). That is a 16-bit
+    column split across two parallel arrays — the signature of `layout=columns`, and
+    the thing a human is most likely to mis-transcribe.
+  * **A record stride.** For `packed`, the stride at which columns line up: test each
+    candidate stride and score how column-like the resulting positions are.
+  * **A terminator.** A trailing all-$00 or all-$FF record.
+  * **Row count.** From the run length, or from where the terminator sits.
+
+  What is NOT detectable and must stay blank: `deref`, `polarity`, `flagBit`,
+  `lengthBias`, `headerOffset`, and which role each column plays beyond the structural
+  hints. A column of small integers might be `bank` or `codec`; the bytes cannot say.
+
+  **BUILT 2026-08-12.** `lut-detect.ts` + `suggest_lut_descriptor`, which writes
+  nothing. `e2e:750-lut` 66/66, and the load-bearing assertions are the REFUSALS: no
+  proposal carries a polarity or a deref, every one lists what must come from the code,
+  and no confidence reaches certainty.
+
+  Two false answers on the way, both instructive because both LOOKED like results:
+
+  * A mostly-zero region read as "an address column in zero page" — the `$0000-$0FFF`
+    window is satisfied by any sparse run. Fixed by dropping that window and refusing a
+    run one value dominates: real address high bytes walk up as payloads march through
+    the window, padding does not.
+  * The row count was derived FROM the pitch, so a 16-row table in a 64-byte pitch was
+    answered as an 8-row sub-window — a strictly worse reading that looked right. The
+    row count now comes out of the DATA: the length of the windowed run.
+
+  Both are the same failure the semantics refusal exists to prevent, in the half where
+  guessing IS allowed — which is the argument for keeping the other half closed.
+
 - **750.6 — extractor: auto loader/mutator relations.** From static xrefs + the trace
   (write/taint events, Spec 721.J2 derived-asset chain) auto-create `loads` / `writes`
   relations + populate `loader-events`. The trace strand feeds the static map.

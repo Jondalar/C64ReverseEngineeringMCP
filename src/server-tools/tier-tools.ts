@@ -68,6 +68,7 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // described by nobody: the stores existed for months and stayed empty because no
   // agent could reach the write tools from the standard surface.
   "declare_lut_descriptor",
+      "suggest_lut_descriptor",
   "list_lut_descriptors",
   "resolve_lut_rows",
   "link_payload_to_lut_row",
@@ -165,7 +166,12 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // c64re keyboard/joystick config. `runtime_input_load_vicerc` is deliberately
   // ADVANCED — it parses a legacy foreign emulator config, is a one-off bootstrap,
   // and its name would put an external emulator back on the RE surface.
-  "runtime_session_export_audio", "runtime_input_load_config", "runtime_input_save_config",
+  // 2026-08-12 — `runtime_session_export_audio` DEMOTED to advanced rather than raise
+  // the cap a second time in one day. Writing a .wav of a session is a nice thing to
+  // have and not a step in reverse-engineering anything; it also fails the
+  // description-shape rule, so it was never carrying its place. Spec 750.7's
+  // `suggest_lut_descriptor` takes the slot, and that one removes actual handwork.
+  "runtime_input_load_config", "runtime_input_save_config",
 ]);
 
 // ── Retired with the TypeScript emulator (Spec 806 step 3) ───────────────────
