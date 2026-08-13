@@ -1445,9 +1445,166 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
 ));
 
+  // ── Spec 750.2 — the table as a record (Decisions 6/7/8) ───────────────────
+
+  server.tool(
+    "declare_lut_descriptor",
+    "Describe a lookup table you found on a medium (cartridge index, disk directory, custom LUT) so its rows can be resolved. Use after reading the loader's disassembly, to record HOW the table is laid out — identity (index|key-bytes|nested), layout (packed=contiguous records | columns=parallel arrays), and one column per role with its address. Rows are NOT stored: they are derived from this plus the bytes, so a corrected descriptor corrects every row. Writes are structurally checked and answered with a PROBE of the first resolved rows — hold them against your disassembly, because a wrong codec polarity or a missed pointer-deref is silently wrong for every row and still looks plausible. Not for registering a payload (use register_payload) or the routine that reads the table (use declare_loader_entrypoint, then point its lut_descriptor_id here).",
+    {
+      project_dir: z.string().optional(),
+      id: z.string().optional(),
+      name: z.string(),
+      medium_ref: z.string().optional(),
+      artifact_id: z.string().optional(),
+      medium_path: z.string().optional(),
+      layout: z.enum(["packed", "columns"]),
+      identity_scheme: z.enum(["index", "key-bytes", "nested"]),
+      identity_key_width: z.number().int().positive().optional(),
+      row_count: z.number().int().nonnegative().optional(),
+      terminator: z.number().int().min(0).max(255).optional(),
+      record_stride: z.number().int().positive().optional(),
+      columns: z.array(z.object({
+        role: z.enum(["bank", "offset", "length", "destination", "entry", "codec", "key", "track", "sector"]),
+        width: z.union([z.literal(1), z.literal(2)]).optional(),
+        at: z.number().int().nonnegative().optional(),
+        at_lo: z.number().int().nonnegative().optional(),
+        at_hi: z.number().int().nonnegative().optional(),
+        stride: z.number().int().positive().optional(),
+        bank: z.number().int().nonnegative().optional(),
+        deref: z.boolean().optional(),
+        polarity: z.enum(["value", "flag", "inverted"]).optional(),
+        flag_bit: z.number().int().min(0).max(7).optional(),
+        length_bias: z.number().int().optional(),
+        header_offset: z.number().int().nonnegative().optional(),
+        notes: z.string().optional(),
+      })),
+      disasm_artifact_id: z.string().optional(),
+      loader_model_id: z.string().optional(),
+      notes: z.string().optional(),
+      tags: z.array(z.string()).optional(),
+      probe_rows: z.number().int().min(0).max(64).optional(),
+    },
+    safeHandler("declare_lut_descriptor", async (a) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, a.project_dir));
+      const { checkDescriptor, resolveLutRows, formatLutProbe } = await import("./lut-resolver.js");
+      const { readerForMedium } = await import("./lut-medium.js");
+
+      const draft = {
+        name: a.name,
+        mediumRef: a.medium_ref,
+        artifactId: a.artifact_id,
+        layout: a.layout,
+        identity: { scheme: a.identity_scheme, keyWidth: a.identity_key_width },
+        rowCount: a.row_count,
+        terminator: a.terminator,
+        recordStride: a.record_stride,
+        columns: a.columns.map((c) => ({
+          role: c.role,
+          width: c.width ?? 1,
+          at: c.at, atLo: c.at_lo, atHi: c.at_hi,
+          stride: c.stride, bank: c.bank,
+          deref: c.deref ?? false,
+          polarity: c.polarity, flagBit: c.flag_bit,
+          lengthBias: c.length_bias ?? 0,
+          headerOffset: c.header_offset ?? 0,
+          notes: c.notes,
+        })),
+        disasmArtifactId: a.disasm_artifact_id,
+        loaderModelId: a.loader_model_id,
+        notes: a.notes,
+        evidence: [],
+        tags: a.tags ?? [],
+      };
+
+      // Decision 8, hard half: refuse a shape that cannot be resolved at all.
+      const structural = checkDescriptor({ ...draft, id: a.id ?? "draft", createdAt: "", updatedAt: "" } as never);
+      if (structural.length) {
+        return textContent(`Descriptor REFUSED — the shape cannot resolve:\n${structural.map((p) => `  - ${p}`).join("\n")}`);
+      }
+
+      const entry = service.declareLutDescriptor({ ...draft, id: a.id } as never);
+      const lines = [
+        `Table described. ID: ${entry.id}`,
+        `  ${entry.layout} · identity=${entry.identity.scheme} · ${entry.columns.length} column(s)` +
+          (entry.rowCount !== undefined ? ` · ${entry.rowCount} rows` : entry.terminator !== undefined ? ` · terminated by $${entry.terminator.toString(16)}` : ""),
+      ];
+
+      // Decision 8, soft half: resolve the first rows and hand them back. Three are
+      // enough to see an inverted polarity or a missed deref.
+      if (a.medium_path) {
+        const m = readerForMedium(a.medium_path);
+        if (!m) {
+          lines.push(`  (no probe — no medium at ${a.medium_path})`);
+        } else {
+          const limit = a.probe_rows ?? 3;
+          const { rows, problems } = resolveLutRows(entry, m.reader, { limit });
+          lines.push(`  medium: ${m.note}`);
+          if (problems.length) lines.push(...problems.map((p) => `  WARN ${p}`));
+          lines.push("", `PROBE — first ${rows.length} row(s), resolved. Hold these against your disassembly:`, formatLutProbe(entry, rows));
+          const bad = rows.filter((r) => r.problems.length).length;
+          if (bad) lines.push("", `${bad} of ${rows.length} probed rows had a problem — check the column addresses before trusting the rest.`);
+        }
+      } else {
+        lines.push("  (no probe — pass medium_path to resolve rows against the real bytes)");
+      }
+      return textContent(lines.join("\n"));
+    },
+));
+
+  server.tool(
+    "list_lut_descriptors",
+    "List the lookup tables described on this project's media. Use to see which tables are already recorded before describing another. Not for their rows (use resolve_lut_rows).",
+    {
+      project_dir: z.string().optional(),
+      medium_ref: z.string().optional(),
+      artifact_id: z.string().optional(),
+    },
+    safeHandler("list_lut_descriptors", async ({ project_dir, medium_ref, artifact_id }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const items = service.listLutDescriptors({ mediumRef: medium_ref, artifactId: artifact_id });
+      if (!items.length) return textContent("No tables described yet.");
+      const lines = [`Tables: ${items.length}`];
+      for (const d of items) {
+        const size = d.rowCount !== undefined ? `${d.rowCount} rows` : d.terminator !== undefined ? `terminated $${d.terminator.toString(16)}` : "open";
+        lines.push(`  ${d.id}  "${d.name}"  ${d.layout}/${d.identity.scheme}  ${size}  ${d.columns.map((c) => c.role).join(",")}${d.mediumRef ? `  medium=${d.mediumRef}` : ""}`);
+      }
+      return textContent(lines.join("\n"));
+    },
+));
+
+  server.tool(
+    "resolve_lut_rows",
+    "Resolve a described table's rows against the medium bytes — the whole table or a window of it. Use to read what a table actually claims: per row the bank, the payload start, the length, the destination (following a pointer when the descriptor says to) and packed/raw. Rows are derived on every call, never stored, so this is always current with the descriptor. Not for describing the table (use declare_lut_descriptor).",
+    {
+      project_dir: z.string().optional(),
+      descriptor_id: z.string(),
+      medium_path: z.string(),
+      from_row: z.number().int().nonnegative().optional(),
+      limit: z.number().int().min(1).max(512).optional(),
+    },
+    safeHandler("resolve_lut_rows", async ({ project_dir, descriptor_id, medium_path, from_row, limit }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const d = service.getLutDescriptor(descriptor_id);
+      if (!d) return textContent(`No table ${descriptor_id}. Use list_lut_descriptors.`);
+      const { resolveLutRows, formatLutProbe } = await import("./lut-resolver.js");
+      const { readerForMedium } = await import("./lut-medium.js");
+      const m = readerForMedium(medium_path);
+      if (!m) return textContent(`No medium at ${medium_path}.`);
+      const start = from_row ?? 0;
+      const { rows, problems } = resolveLutRows(d, m.reader, { limit: start + (limit ?? 64) });
+      const window = rows.slice(start);
+      const lines = [`Table "${d.name}" (${d.id}) — ${rows.length} row(s) resolved, showing ${window.length} from ${start}`, `  medium: ${m.note}`];
+      if (problems.length) lines.push(...problems.map((p) => `  WARN ${p}`));
+      lines.push("", formatLutProbe(d, window));
+      const unclaimed = window.filter((r) => r.problems.length).length;
+      if (unclaimed) lines.push("", `${unclaimed} row(s) could not be fully read — see the ⚠ marks.`);
+      return textContent(lines.join("\n"));
+    },
+));
+
   server.tool(
     "declare_loader_entrypoint",
-    "Spec 028: declare a loader entry point on an artifact (jump-table, sector-load, container-decode, dispatch, init, other). Idempotent on (artifact_id, address, kind).",
+    "Record the routine that reads an addressing table — the code side of the load chain. Use once you have found, in the disassembly, the place that turns an index into a position: a jump table, a hardcoded sector load, a container decoder, a dispatch trampoline, or the init that kicks it off. Point `lut_descriptor_id` at the table it reads (declare_lut_descriptor) so the two halves are joined. Not for the table's own layout (use declare_lut_descriptor) and not for a payload (use register_payload). Idempotent on (artifact_id, address, kind).",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -1483,7 +1640,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "list_loader_entrypoints",
-    "Spec 028: list declared loader entry points (optionally filtered to one artifact).",
+    "List the recorded loader entry points, whole project or one artifact. Use to see which parts of the load chain are already mapped before reading more disassembly. Not for the tables they read (use list_lut_descriptors) and not for observed loads (use list_payloads).",
     {
       project_dir: z.string().optional(),
       artifact_id: z.string().optional(),

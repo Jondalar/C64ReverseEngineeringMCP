@@ -543,6 +543,11 @@ export const LoaderEntryPointSchema = z.object({
     address: z.number().int().nonnegative().optional(),
     layout: z.string().optional(),
   }).optional(),
+  /** Spec 750 Decision 6 — the TABLE this entry point reads, as a record of its own
+   *  (`LutDescriptor`). Pointed at, never contained: a loader commonly has more than
+   *  one table, and two routines may read the same one. `paramBlock.layout` stays as
+   *  the free-text field it always was, for a table not yet described structurally. */
+  lutDescriptorId: IdSchema.optional(),
   notes: z.string().optional(),
   tags: z.array(z.string()).default([]),
   createdAt: TimestampSchema,
@@ -559,6 +564,121 @@ export const LoaderModelSchema = z.object({
   indexLocation: z.string().optional(), // where its INDEX lives (e.g. "T01/S02 4-byte records")
   disasmArtifactId: IdSchema.optional(), // backing loader disassembly
   mediumRef: z.string().optional(), // which medium image it operates on (Spec 750)
+  notes: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+  createdAt: TimestampSchema,
+  updatedAt: TimestampSchema,
+});
+
+// ── Spec 750 §1.1 — what a TABLE is ────────────────────────────────────────────
+//
+// Reverse-engineering a medium means eventually finding a table: an index that maps
+// a number or a name to a payload's position. Recording it is what lets every byte be
+// traced to a payload and through it to a purpose — a byte is IDENTIFIED when a row
+// claims it, and what no row claims is the list of what is not yet understood.
+//
+// This is a MODEL, not an adopted format. Its test is that it describes the CBM
+// directory (identity=index, layout=packed, columns=track/sector/name) as readily as a
+// custom cartridge index; a description that cannot express the BAM is a format.
+//
+// The parts that cannot be inferred from the bytes are the ones that matter, because
+// getting them wrong is silently wrong for EVERY row at once and the numbers still look
+// plausible. Hence `deref`, `polarity` and `headerOffset` below: each is a fact about
+// the image that has to travel WITH the description or the reading is backwards.
+
+/** Which column of a table this is. The role is the model; where it sits and how wide
+ *  it is are the finding. A table may carry any subset — a data-only asset has no
+ *  meaningful entry point, and an index-addressed table has no key column. */
+export const LutColumnRoleSchema = z.enum([
+  "bank",        // which bank / side the payload lives in
+  "offset",      // where in that bank's window it starts
+  "length",      // how many bytes are stored
+  "destination", // where it goes in RAM — but see `deref`
+  "entry",       // what is called after loading
+  "codec",       // which depacker, if any — but see `polarity`
+  "key",         // what the game asks with
+  "track",       // disk: the CBM/BAM pair, modelled as two roles rather than
+  "sector",      //       a cartridge `bank`/`offset` in disguise
+]);
+
+export const LutColumnSchema = z.object({
+  role: LutColumnRoleSchema,
+  /** Byte width of one cell: 1 or 2. A 2-byte cell is either contiguous (`at`) or
+   *  split across two parallel arrays (`atLo` + `atHi`), which is what a `columns`
+   *  table usually does. */
+  width: z.union([z.literal(1), z.literal(2)]).default(1),
+  /** Address of the column's first cell. For a split 2-byte cell use atLo/atHi. */
+  at: z.number().int().nonnegative().optional(),
+  atLo: z.number().int().nonnegative().optional(),
+  atHi: z.number().int().nonnegative().optional(),
+  /** Distance between consecutive rows' cells. `columns` layout: 1 (byte n of the
+   *  array). `packed` layout: the record stride. Defaults from the layout. */
+  stride: z.number().int().positive().optional(),
+  /** Bank the column itself lives in, when the table is not in the mapped-in bank. */
+  bank: z.number().int().nonnegative().optional(),
+  /** `destination` only. The cell holds a POINTER to the destination, not the
+   *  destination: read the 16-bit LE word AT that address (with `bank` mapped in) to
+   *  get the real one. Rendering a pointer as a destination is wrong for every row of
+   *  such an image, and the wrong value still looks like a plausible address. */
+  deref: z.boolean().default(false),
+  /** `codec` only, and there is nothing in the byte to infer it from:
+   *    value    — 0 means none, then one number per codec
+   *    flag     — a single bit; set means packed (`flagBit` says which)
+   *    inverted — ZERO means packed, non-zero means raw */
+  polarity: z.enum(["value", "flag", "inverted"]).optional(),
+  flagBit: z.number().int().min(0).max(7).optional(),
+  /** `length` only. The stored figure is already biased (e.g. a runtime that counts
+   *  down and tests for rollover), so the true length needs the bias added back. */
+  lengthBias: z.number().int().default(0),
+  /** `offset` only. The cell points this many bytes PAST the payload's start (a codec
+   *  header the loader skips). The payload begins at `offset - headerOffset`. */
+  headerOffset: z.number().int().nonnegative().default(0),
+  notes: z.string().optional(),
+});
+
+export const LutIdentitySchema = z.object({
+  /** index    — row n, walked in order; no key
+   *  key-bytes— the game passes a short byte string (bytes, not text: a (track,sector)
+   *             pair fits the same slot as a two-character name)
+   *  nested   — a row names another table; the edge is `nestedInDescriptorId` */
+  scheme: z.enum(["index", "key-bytes", "nested"]),
+  /** `key-bytes`: fixed key width, when the table does not carry a per-row length. */
+  keyWidth: z.number().int().positive().optional(),
+  /** `key-bytes`: the column holding each row's key length, when it varies. */
+  keyLengthRole: z.literal("key").optional(),
+  notes: z.string().optional(),
+});
+
+/** Spec 750 §1.1 — a table found on a medium, described well enough to resolve its
+ *  rows. Rows are NOT stored (Decision 7): they are derived from this plus the bytes,
+ *  so correcting a descriptor corrects every row at once. */
+export const LutDescriptorSchema = z.object({
+  id: IdSchema,
+  /** The medium image this table was read off (Spec 721 `mediumRef`). */
+  mediumRef: z.string().optional(),
+  /** The artifact the table lives IN (the cart/disk manifest, or a payload for a
+   *  nested table). */
+  artifactId: IdSchema.optional(),
+  name: z.string().min(1),
+  /** PACKED — a row is a contiguous struct, scanned sequentially, usually terminated.
+   *  COLUMNS — each field is its own parallel array; row n is cell n of each.
+   *  Not a stylistic variant: under `packed` a row HAS one address, under `columns` it
+   *  has one per column, so a model that assumes the former cannot express the latter. */
+  layout: z.enum(["packed", "columns"]),
+  identity: LutIdentitySchema,
+  /** Row count. A table that terminates on a sentinel may leave this open and set
+   *  `terminator` instead. */
+  rowCount: z.number().int().nonnegative().optional(),
+  terminator: z.number().int().min(0).max(255).optional(),
+  /** `packed` only: distance between consecutive records. */
+  recordStride: z.number().int().positive().optional(),
+  columns: z.array(LutColumnSchema).min(1),
+  /** `nested`: the table this one's rows point at. */
+  nestedInDescriptorId: IdSchema.optional(),
+  /** Where the reading came from — the disassembly that proves it. */
+  disasmArtifactId: IdSchema.optional(),
+  loaderModelId: IdSchema.optional(),
+  evidence: z.array(EvidenceRefSchema).default([]),
   notes: z.string().optional(),
   tags: z.array(z.string()).default([]),
   createdAt: TimestampSchema,
@@ -781,6 +901,13 @@ export const EntityRecordSchema = z.object({
   payloadContentHash: z.string().optional(),
   // Spec 784 — the LoaderModel (loader-models.json) that produced this payload.
   payloadLoaderModelId: IdSchema.optional(),
+  // Spec 750 Decision 7 — THE CLAIM. Which row of which table says this payload is
+  // here. Rows themselves are never stored (they are derived from the descriptor plus
+  // the bytes); this pair is, because it is the part that must survive without the
+  // image and the part a finding hangs off. Under `layout=columns` a row has no single
+  // address, so the identity IS the pair — not an address.
+  payloadClaimedByLutId: IdSchema.optional(),
+  payloadClaimedByRow: z.number().int().nonnegative().optional(),
   // Spec 037: payload-level disk-hint surfaces protection /
   // drive-code / raw-unanalyzed sectors as colour overlay on the
   // disk heatmap. Set automatically by inspect / extract tools or
@@ -1881,6 +2008,12 @@ export const ArtifactStoreSchema = createRecordListSchema(ArtifactRecordSchema);
 export const ContainerEntryStoreSchema = createRecordListSchema(ContainerEntrySchema);
 export const LoaderEntryPointStoreSchema = createRecordListSchema(LoaderEntryPointSchema);
 export const LoaderEventStoreSchema = createRecordListSchema(LoaderEventSchema);
+export const LutDescriptorStoreSchema = createRecordListSchema(LutDescriptorSchema);
+export type LutColumnRole = z.infer<typeof LutColumnRoleSchema>;
+export type LutColumn = z.infer<typeof LutColumnSchema>;
+export type LutIdentity = z.infer<typeof LutIdentitySchema>;
+export type LutDescriptor = z.infer<typeof LutDescriptorSchema>;
+export type LutDescriptorStore = z.infer<typeof LutDescriptorStoreSchema>;
 export const LoaderModelStoreSchema = createRecordListSchema(LoaderModelSchema);
 export type LoaderModel = z.infer<typeof LoaderModelSchema>;
 export type LoaderModelStore = z.infer<typeof LoaderModelStoreSchema>;

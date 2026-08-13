@@ -1,10 +1,10 @@
 {
-  "total": 253,
-  "specCount": 44,
-  "advancedCandidate": 109,
+  "total": 257,
+  "specCount": 42,
+  "advancedCandidate": 107,
   "byNamespace": {
     "runtime": 82,
-    "list": 19,
+    "list": 20,
     "project": 11,
     "save": 10,
     "build": 9,
@@ -16,8 +16,8 @@
     "depack": 5,
     "extract": 5,
     "inspect": 5,
+    "link": 5,
     "record": 5,
-    "link": 4,
     "get": 3,
     "import": 3,
     "mark": 3,
@@ -28,6 +28,7 @@
     "auto": 2,
     "bulk": 2,
     "c64ref": 2,
+    "declare": 2,
     "dedupe": 2,
     "disasm": 2,
     "propose": 2,
@@ -44,7 +45,6 @@
     "close": 1,
     "compare": 1,
     "confirm": 1,
-    "declare": 1,
     "define": 1,
     "diff": 1,
     "disk": 1,
@@ -53,6 +53,7 @@
     "ram": 1,
     "reconstruct": 1,
     "rename": 1,
+    "resolve": 1,
     "snapshot": 1,
     "try": 1,
     "update": 1,
@@ -406,10 +407,19 @@
       "name": "declare_loader_entrypoint",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "declare",
-      "hasSpec": true,
-      "firstSentence": "Spec 028: declare a loader entry point on an artifact (jump-table, sector-load, container-decode, dispatch, init, other).",
-      "desc": "Spec 028: declare a loader entry point on an artifact (jump-table, sector-load, container-decode, dispatch, init, other). Idempotent on (artifact_id, address, kind).",
-      "tier": "advanced?"
+      "hasSpec": false,
+      "firstSentence": "Record the routine that reads an addressing table — the code side of the load chain.",
+      "desc": "Record the routine that reads an addressing table — the code side of the load chain. Use once you have found, in the disassembly, the place that turns an index into a position: a jump table, a hardcoded sector load, a container decoder, a dispatch trampoline, or the init that kicks it off. Point `lut_descriptor_id` at the table it reads (declare_lut_descriptor) so the two halves are joined. Not for the table's own layout (use declare_lut_descriptor) and not for a payload (use register_payload). Idempotent on (artifact_id, address, kind).",
+      "tier": "default?"
+    },
+    {
+      "name": "declare_lut_descriptor",
+      "file": "project-knowledge/mcp-tools.ts",
+      "ns": "declare",
+      "hasSpec": false,
+      "firstSentence": "Describe a lookup table you found on a medium (cartridge index, disk directory, custom LUT) so its rows can be resolved.",
+      "desc": "Describe a lookup table you found on a medium (cartridge index, disk directory, custom LUT) so its rows can be resolved. Use after reading the loader's disassembly, to record HOW the table is laid out — identity (index|key-bytes|nested), layout (packed=contiguous records | columns=parallel arrays), and one column per role with its address. Rows are NOT stored: they are derived from this plus the bytes, so a corrected descriptor corrects every row. Writes are structurally checked and answered with a PROBE of the first resolved rows — hold them against your disassembly, because a wrong codec polarity or a missed pointer-deref is silently wrong for every row and still looks plausible. Not for registering a payload (use register_payload) or the routine that reads the table (use declare_loader_entrypoint, then point its lut_descriptor_id here).",
+      "tier": "default?"
     },
     {
       "name": "dedupe_artifact_registry",
@@ -700,6 +710,15 @@
       "tier": "default?"
     },
     {
+      "name": "link_payload_to_lut_row",
+      "file": "server-tools/payloads.ts",
+      "ns": "link",
+      "hasSpec": false,
+      "firstSentence": "Record WHICH ROW of which table claims this payload — the claim that turns a guessed span into a checkable one.",
+      "desc": "Record WHICH ROW of which table claims this payload — the claim that turns a guessed span into a checkable one. Use after describing the table (declare_lut_descriptor) and resolving its rows: attach the row that points at this payload's bytes. The row itself is never stored, only this pair, because under a columns-layout table a row has no single address — its identity IS (table, index). Not for the table's shape (declare_lut_descriptor) or for reading rows back (resolve_lut_rows). Inputs: payload id, descriptor id, row index. Returns: the updated payload. Idempotent.",
+      "tier": "default?"
+    },
+    {
       "name": "link_payload_to_runtime",
       "file": "server-tools/payloads.ts",
       "ns": "link",
@@ -793,10 +812,10 @@
       "name": "list_loader_entrypoints",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "list",
-      "hasSpec": true,
-      "firstSentence": "Spec 028: list declared loader entry points (optionally filtered to one artifact).",
-      "desc": "Spec 028: list declared loader entry points (optionally filtered to one artifact).",
-      "tier": "advanced?"
+      "hasSpec": false,
+      "firstSentence": "List the recorded loader entry points, whole project or one artifact.",
+      "desc": "List the recorded loader entry points, whole project or one artifact. Use to see which parts of the load chain are already mapped before reading more disassembly. Not for the tables they read (use list_lut_descriptors) and not for observed loads (use list_payloads).",
+      "tier": "default?"
     },
     {
       "name": "list_loader_events",
@@ -814,6 +833,15 @@
       "hasSpec": false,
       "firstSentence": "List the recovered LoaderModels for the project — the per-medium loaders (id, kind, index location, backing disasm) that produced the registered payloads.",
       "desc": "List the recovered LoaderModels for the project — the per-medium loaders (id, kind, index location, backing disasm) that produced the registered payloads. A medium hosts N; each payload's derivedBy references one. Use to see how a medium's blocks are attributed across its distinct loaders; not for creating them (use register_payloads_from_manifest).",
+      "tier": "default?"
+    },
+    {
+      "name": "list_lut_descriptors",
+      "file": "project-knowledge/mcp-tools.ts",
+      "ns": "list",
+      "hasSpec": false,
+      "firstSentence": "List the lookup tables described on this project's media.",
+      "desc": "List the lookup tables described on this project's media. Use to see which tables are already recorded before describing another. Not for their rows (use resolve_lut_rows).",
       "tier": "default?"
     },
     {
@@ -1267,6 +1295,15 @@
       "tier": "advanced?"
     },
     {
+      "name": "resolve_lut_rows",
+      "file": "project-knowledge/mcp-tools.ts",
+      "ns": "resolve",
+      "hasSpec": false,
+      "firstSentence": "Resolve a described table's rows against the medium bytes — the whole table or a window of it.",
+      "desc": "Resolve a described table's rows against the medium bytes — the whole table or a window of it. Use to read what a table actually claims: per row the bank, the payload start, the length, the destination (following a pointer when the descriptor says to) and packed/raw. Rows are derived on every call, never stored, so this is always current with the descriptor. Not for describing the table (use declare_lut_descriptor).",
+      "tier": "default?"
+    },
+    {
       "name": "run_build_pipeline",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "run",
@@ -1434,7 +1471,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Capture a checkpoint NOW (a full restorable snapshot of the shared session at the current instruction boundary) and add it to the ring.",
-      "desc": "Capture a checkpoint NOW (a full restorable snapshot of the shared session at the current instruction boundary) and add it to the ring. Use to mark an interesting live moment before it scrolls out of the auto-capture window. Not for a durable file (use runtime_session_snapshot). Inputs: session_id. Returns: the new checkpoint ref + ring stats.",
+      "desc": "Capture a checkpoint NOW (a full restorable snapshot of the shared session at the current instruction boundary) and add it to the ring. Use to mark an interesting live moment before it scrolls out of the auto-capture window. Not for a durable file (use snapshot_dump via runtime_session_status's ref, or the runtime's own .c64re dump). Inputs: session_id. Returns: the new checkpoint ref + ring stats.",
       "tier": "default?"
     },
     {
@@ -1452,7 +1489,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Pin a checkpoint so the ring never evicts it (the durability primitive — pinned keyframes survive past the ~2.6 min window).",
-      "desc": "Pin a checkpoint so the ring never evicts it (the durability primitive — pinned keyframes survive past the ~2.6 min window). Use to retain an interesting state as evidence / a branch base. Not for a file dump (use runtime_session_snapshot). Inputs: session_id, checkpoint id. Returns: ref + stats.",
+      "desc": "Pin a checkpoint so the ring never evicts it (the durability primitive — pinned keyframes survive past the ~2.6 min window). Use to retain an interesting state as evidence / a branch base. Not for a file dump (use the runtime's .c64re snapshot dump). Inputs: session_id, checkpoint id. Returns: ref + stats.",
       "tier": "default?"
     },
     {
@@ -1488,7 +1525,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Use to see exactly what changed between two VSF snapshot files — RAM changedRanges plus CPU/CIA/VIC/SID/PLA chip diffs.",
-      "desc": "Use to see exactly what changed between two VSF snapshot files — RAM changedRanges plus CPU/CIA/VIC/SID/PLA chip diffs. Not for a live memory read (use runtime_monitor_memory) or capturing a snapshot (use runtime_session_snapshot).",
+      "desc": "Use to see exactly what changed between two VSF snapshot files — RAM changedRanges plus CPU/CIA/VIC/SID/PLA chip diffs. Not for a live memory read (use runtime_monitor_memory) or capturing a snapshot (use runtime_checkpoint_capture).",
       "tier": "default?"
     },
     {
@@ -1614,7 +1651,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Write mounted media's in-RAM state back to its host backing file WITHOUT ejecting.",
-      "desc": "Write mounted media's in-RAM state back to its host backing file WITHOUT ejecting. role=drive8 (default): flushes drive-side GCR writes → the .d64/.g64 on disk, atomically; host mtime changes. role=cartridge: re-packs the programmed cartridge flash/EEPROM → the host .crt (EasyFlash etc.) — the only way to save flash AND keep playing, since unmounting a cartridge pulls it (cold reset). Use to save a game's disk writes (format/copy/save) or EAPI flash writes while keeping the media mounted. Not for ejecting (use runtime_media_unmount, which persists then ejects) or for a session snapshot (use runtime_session_snapshot). Read-only / non-dirty media is never overwritten. Inputs: session_id, role. Returns: { written, path, bytes } or the reason it was skipped.",
+      "desc": "Write mounted media's in-RAM state back to its host backing file WITHOUT ejecting. role=drive8 (default): flushes drive-side GCR writes → the .d64/.g64 on disk, atomically; host mtime changes. role=cartridge: re-packs the programmed cartridge flash/EEPROM → the host .crt (EasyFlash etc.) — the only way to save flash AND keep playing, since unmounting a cartridge pulls it (cold reset). Use to save a game's disk writes (format/copy/save) or EAPI flash writes while keeping the media mounted. Not for ejecting (use runtime_media_unmount, which persists then ejects) or for a session snapshot (use runtime_checkpoint_capture). Read-only / non-dirty media is never overwritten. Inputs: session_id, role. Returns: { written, path, bytes } or the reason it was skipped.",
       "tier": "default?"
     },
     {
@@ -1704,7 +1741,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Use to keep a transient rewind branch as a persistent, replayable Scenario record.",
-      "desc": "Use to keep a transient rewind branch as a persistent, replayable Scenario record. Not for a durable machine-state file (use runtime_session_snapshot) or capturing a checkpoint (use runtime_checkpoint_capture).",
+      "desc": "Use to keep a transient rewind branch as a persistent, replayable Scenario record. Not for a durable machine-state file (the runtime's .c64re dump) or capturing a checkpoint (use runtime_checkpoint_capture).",
       "tier": "default?"
     },
     {
@@ -1821,7 +1858,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Save full session state as .vsf bytes (VICE Snapshot Format — LEGACY, DEPRECATED; kept only for interchange with external emulators).",
-      "desc": "Save full session state as .vsf bytes (VICE Snapshot Format — LEGACY, DEPRECATED; kept only for interchange with external emulators). For a durable c64re snapshot use runtime_session_snapshot (.c64re).",
+      "desc": "Save full session state as .vsf bytes (VICE Snapshot Format — LEGACY, DEPRECATED; kept only for interchange with external emulators). For a durable .c64re snapshot use the runtime's snapshot dump.",
       "tier": "advanced?"
     },
     {
@@ -1884,7 +1921,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV.",
-      "desc": "Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV. Use to capture audio from a running integrated session. Not for a saved scenario (use runtime_export_audio). Inputs: session_id, out_path, duration_sec. Returns: WAV path + stats.",
+      "desc": "Render N seconds of the LIVE session's SID audio (reSID) to a stereo s16le 44.1kHz WAV. Use to capture audio from a running integrated session. Exports the LIVE session only; there is no scenario-export tool. Inputs: session_id, out_path, duration_sec. Returns: WAV path + stats.",
       "tier": "default?"
     },
     {
