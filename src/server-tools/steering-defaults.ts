@@ -29,7 +29,18 @@ export const EXTRACT_FIRST_STEERING = `${EXTRACT_FIRST_TOKEN}
   Disassemble + analyse a payload before you trace it.
 - **Trace ≠ grounding.** Trace/stats/heuristics describe runtime *behaviour* — *when/where*
   something runs. They never say *what* a block IS; that comes from the extract + its
-  disassembly. Do not reach for tracing/statistics to ground a file/payload claim.`;
+  disassembly. Do not reach for tracing/statistics to ground a file/payload claim.
+- **Record the ROW, not just the payload (Spec 750).** When the loader you disassembled
+  reads a TABLE — a cartridge index, a disk directory, any custom LUT — describe the
+  table with \`declare_lut_descriptor\` and attach each payload to the row that claims
+  it with \`link_payload_to_lut_row\`. Registering the extracted bytes records WHAT is
+  there; the row records WHAT SAYS SO, and it is the difference between a span you
+  believe and one anyone can open and check. Give the description the parts that cannot
+  be read off the bytes — whether \`destination\` is the address or a pointer to it,
+  which way the \`codec\` polarity runs — because guessing them is silently wrong for
+  every row at once. The write answers with a probe of the first resolved rows: hold
+  them against your disassembly before trusting the rest. What no row claims is exactly
+  the list of what is not yet understood.`;
 
 /** Spec 748.2 (BUG-032) — the record + reconcile discipline. */
 export const RECONCILE_MARKER = "Record + reconcile discipline";

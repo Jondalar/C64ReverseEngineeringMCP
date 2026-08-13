@@ -1,9 +1,9 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 253,
-  "defaultCount": 144,
-  "advancedCount": 109,
+  "total": 257,
+  "defaultCount": 150,
+  "advancedCount": 107,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
     "runtime-explore": "start/run Headless, mount, input, render",
@@ -675,17 +675,39 @@
       "name": "declare_loader_entrypoint",
       "namespace": "declare",
       "sourceFile": "project-knowledge/mcp-tools.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "change-intervention",
-      "swimlane": "operator-maintenance",
+      "swimlane": "change-intervention",
       "useWhen": "Advanced change/patch-recipe + loader-event bookkeeping.",
       "notFor": "Normal analysis — record conclusions via save_finding.",
       "adjacentTools": [
         "save_finding"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
+    },
+    {
+      "name": "declare_lut_descriptor",
+      "namespace": "declare",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "format-forensics",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
     },
     {
       "name": "dedupe_artifact_registry",
@@ -1256,6 +1278,26 @@
       "pathMode": "no-path"
     },
     {
+      "name": "link_payload_to_lut_row",
+      "namespace": "link",
+      "sourceFile": "server-tools/payloads.ts",
+      "tier": "default",
+      "role": "format-forensics",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
+    },
+    {
       "name": "link_payload_to_runtime",
       "namespace": "link",
       "sourceFile": "server-tools/payloads.ts",
@@ -1425,16 +1467,18 @@
       "name": "list_loader_entrypoints",
       "namespace": "list",
       "sourceFile": "project-knowledge/mcp-tools.ts",
-      "tier": "advanced",
+      "tier": "default",
       "role": "change-intervention",
-      "swimlane": "operator-maintenance",
+      "swimlane": "change-intervention",
       "useWhen": "Advanced change/patch-recipe + loader-event bookkeeping.",
       "notFor": "Normal analysis — record conclusions via save_finding.",
       "adjacentTools": [
         "save_finding"
       ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
+      "e2eUseCases": [
+        "E2E-E"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {
@@ -1468,6 +1512,26 @@
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"
+    },
+    {
+      "name": "list_lut_descriptors",
+      "namespace": "list",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "format-forensics",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
     },
     {
       "name": "list_open_questions",
@@ -2303,6 +2367,26 @@
       "e2eUseCases": [],
       "keepDecision": "keep-advanced",
       "pathMode": "no-path"
+    },
+    {
+      "name": "resolve_lut_rows",
+      "namespace": "resolve",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "format-forensics",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Low-level disk-format / GCR forensics on an image.",
+      "notFor": "Normal file extraction — use extract_disk.",
+      "adjacentTools": [
+        "extract_disk",
+        "inspect_disk"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path",
+      "useInstead": "extract_disk"
     },
     {
       "name": "run_build_pipeline",

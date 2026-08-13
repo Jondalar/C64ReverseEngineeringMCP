@@ -64,6 +64,15 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // payload (load addr + format + source .prg + medium spans) so it renders on the
   // disk/memory views like a CBM/LUT-extracted payload. Common in cracks.
   "register_payload",
+  // Spec 750.2 — the addressing itself. Without these in DEFAULT the tables can be
+  // described by nobody: the stores existed for months and stayed empty because no
+  // agent could reach the write tools from the standard surface.
+  "declare_lut_descriptor",
+  "list_lut_descriptors",
+  "resolve_lut_rows",
+  "link_payload_to_lut_row",
+  "declare_loader_entrypoint",
+  "list_loader_entrypoints",
   // Spec 784 — the loader-lens extraction chain: a per-project extractor's manifest
   // bulk-registers as first-class payloads (FULL medium spans + derivedBy + LoaderModel
   // records), trace-validated against what the real loader actually read. Product
@@ -204,8 +213,18 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * runtime surface (checkpoint/recorder/rewind/overlay/monitor/run_prg + the
  * sandbox depack pair) to default — see collectToolInventory() in server.ts,
  * which the tool-surface gate reads live (no more frozen inventory drift).
- * 2026-07-09 lowered 141→140: runtime_input_load_vicerc demoted to advanced. */
-export const DEFAULT_TIER_CAP = 140;
+ * 2026-07-09 lowered 141→140: runtime_input_load_vicerc demoted to advanced.
+ * 2026-08-12 raised 140→150, and the honest half of that is that it was ALREADY at
+ * 144: Specs 784, 796 and 798 promoted tools without touching this number, so the
+ * gate stood red and was read as background noise. Spec 750.2 adds the last six —
+ * the addressing surface (declare/list_lut_descriptor, resolve_lut_rows,
+ * link_payload_to_lut_row) plus the two loader-entry-point tools that were
+ * unreachable, which is exactly why `loader-entry-points` sat empty for months.
+ * These belong in DEFAULT: mapping index → position is what the workbench IS for,
+ * and a tool an agent cannot reach might as well not exist. The cap is a discipline
+ * about how much surface an agent must hold at once, not a budget to be smuggled
+ * past — raise it deliberately, here, with the reason, or demote something. */
+export const DEFAULT_TIER_CAP = 150;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

@@ -438,6 +438,36 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 ));
 
   server.tool(
+    "link_payload_to_lut_row",
+    "Record WHICH ROW of which table claims this payload — the claim that turns a guessed span into a checkable one. Use after describing the table (declare_lut_descriptor) and resolving its rows: attach the row that points at this payload's bytes. The row itself is never stored, only this pair, because under a columns-layout table a row has no single address — its identity IS (table, index). Not for the table's shape (declare_lut_descriptor) or for reading rows back (resolve_lut_rows). Inputs: payload id, descriptor id, row index. Returns: the updated payload. Idempotent.",
+    {
+      project_dir: z.string().optional(),
+      payload_id: z.string(),
+      descriptor_id: z.string(),
+      row_index: z.number().int().nonnegative(),
+    },
+    safeHandler("link_payload_to_lut_row", async (args) => {
+      const projectRoot = ctx.projectDir(args.project_dir);
+      const service = new ProjectKnowledgeService(projectRoot);
+      const payload = service.listEntities({ kind: "payload" }).find((e) => e.id === args.payload_id);
+      if (!payload) throw new Error(`No payload with id ${args.payload_id}`);
+      const lut = service.getLutDescriptor(args.descriptor_id);
+      if (!lut) throw new Error(`No table ${args.descriptor_id}. Describe it first with declare_lut_descriptor, or list them with list_lut_descriptors.`);
+      if (lut.rowCount !== undefined && args.row_index >= lut.rowCount) {
+        throw new Error(`Table "${lut.name}" has ${lut.rowCount} rows; row ${args.row_index} is past the end.`);
+      }
+      service.saveEntity({
+        id: payload.id,
+        kind: "payload",
+        name: payload.name,
+        payloadClaimedByLutId: lut.id,
+        payloadClaimedByRow: args.row_index,
+      });
+      return textContent(`payload ${payload.id} is claimed by ${lut.name} row ${args.row_index} (${lut.id}).`);
+    },
+));
+
+  server.tool(
     "link_payload_to_asm",
     "Attach an ASM artifact to a payload entity when the automatic stem-match is wrong. Use after registering a disassembly that covers a payload's bytes. Not for creating the payload (use the extraction tools) or generic entity links (use link_entities). Inputs: payload id, asm artifact id. Returns: updated payload. Idempotent.",
     {
@@ -511,7 +541,13 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         const fmt = p.payloadFormat ?? "?";
         const asm = (p.payloadAsmArtifactIds ?? []).length;
         const source = p.payloadSourceArtifactId ?? "—";
-        lines.push(`  ${p.id} | ${p.name} | load=${load} fmt=${fmt} asm=${asm} src=${source}`);
+        // Spec 750 Decision 7 — surface the CLAIM. A payload nobody's table points at
+        // is not the same as one a row claims, and the difference is the whole point of
+        // recording the row; a store that renders nowhere is why the old one stayed empty.
+        const claim = p.payloadClaimedByLutId
+          ? ` claim=${p.payloadClaimedByLutId}#${p.payloadClaimedByRow ?? "?"}`
+          : "";
+        lines.push(`  ${p.id} | ${p.name} | load=${load} fmt=${fmt} asm=${asm} src=${source}${claim}`);
       }
       if (slice.length < filtered.length) {
         lines.push(``);

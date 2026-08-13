@@ -32,6 +32,7 @@ import type {
   EntityRecord,
   LoadContext,
   LoaderEntryPoint,
+  LutDescriptor,
   LoaderEvent,
   LoaderModel,
   Operation,
@@ -540,6 +541,9 @@ export interface SaveEntityInput {
   payloadAsmArtifactIds?: string[];
   payloadContentHash?: string;
   payloadLoaderModelId?: string;
+  /** Spec 750 Decision 7 — which row of which table claims this payload. */
+  payloadClaimedByLutId?: string;
+  payloadClaimedByRow?: number;
   tags?: string[];
   // Spec 060 / Bug 31: alternate names for the same payload entity.
   // Folded by saveEntity payload-dedup when an existing entity matches
@@ -2022,6 +2026,47 @@ export class ProjectKnowledgeService {
   }
 
   // Spec 028: declare a loader entry point on an artifact.
+  // ── Spec 750 Decision 6/7/8 — table descriptors ────────────────────────────
+
+  /** Upsert a table description. Rows are NOT stored (Decision 7); they are derived
+   *  from this plus the medium bytes, so a corrected descriptor corrects every row. */
+  declareLutDescriptor(input: Omit<LutDescriptor, "id" | "createdAt" | "updatedAt"> & { id?: string }): LutDescriptor {
+    const store = this.storage.loadLutDescriptors();
+    const timestamp = nowIso();
+    const id = input.id ?? createId("lut", `${input.mediumRef ?? input.artifactId ?? "medium"}-${input.name}`);
+    const existing = store.items.find((item) => item.id === id)
+      ?? store.items.find((item) => item.name === input.name && item.mediumRef === input.mediumRef);
+    const entry: LutDescriptor = {
+      ...input,
+      id: existing?.id ?? id,
+      tags: input.tags ?? existing?.tags ?? [],
+      evidence: input.evidence ?? existing?.evidence ?? [],
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.storage.saveLutDescriptors({ ...store, updatedAt: timestamp, items: upsertRecord(store.items, entry) });
+    return entry;
+  }
+
+  listLutDescriptors(filter?: { mediumRef?: string; artifactId?: string }): LutDescriptor[] {
+    const items = this.storage.loadLutDescriptors().items;
+    return items.filter((d) =>
+      (!filter?.mediumRef || d.mediumRef === filter.mediumRef) &&
+      (!filter?.artifactId || d.artifactId === filter.artifactId));
+  }
+
+  getLutDescriptor(id: string): LutDescriptor | undefined {
+    return this.storage.loadLutDescriptors().items.find((d) => d.id === id);
+  }
+
+  deleteLutDescriptor(id: string): boolean {
+    const store = this.storage.loadLutDescriptors();
+    const next = store.items.filter((d) => d.id !== id);
+    if (next.length === store.items.length) return false;
+    this.storage.saveLutDescriptors({ ...store, updatedAt: nowIso(), items: next });
+    return true;
+  }
+
   declareLoaderEntryPoint(input: Omit<LoaderEntryPoint, "id" | "createdAt" | "updatedAt"> & { id?: string }): LoaderEntryPoint {
     const store = this.storage.loadLoaderEntryPoints();
     const timestamp = nowIso();
@@ -4129,6 +4174,8 @@ export class ProjectKnowledgeService {
       payloadAsmArtifactIds: uniqueStrings([...(input.payloadAsmArtifactIds ?? []), ...(existing?.payloadAsmArtifactIds ?? [])]),
       payloadContentHash: input.payloadContentHash ?? existing?.payloadContentHash,
       payloadLoaderModelId: input.payloadLoaderModelId ?? existing?.payloadLoaderModelId,
+      payloadClaimedByLutId: input.payloadClaimedByLutId ?? existing?.payloadClaimedByLutId,
+      payloadClaimedByRow: input.payloadClaimedByRow ?? existing?.payloadClaimedByRow,
       tags: uniqueStrings([...(input.tags ?? []), ...(existing?.tags ?? [])]),
       aliases: [...aliasUnion].sort(),
       internal: derivedInternal === true ? true : undefined,

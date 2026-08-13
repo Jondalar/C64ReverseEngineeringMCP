@@ -55,3 +55,35 @@ knowledge store and renders the JSON views the workspace UI consumes. See
 | `build_flow_graph_view` | Render `views/flow-graph.json` (structure / load / runtime modes). |
 | `build_annotated_listing_view` | Render `views/annotated-listing.json` (semantic listing window). |
 | `build_all_views` | Re-render every view in one call (including disk and cartridge layouts). |
+
+## Addressing — the tables a medium is indexed by (Spec 750)
+
+Reverse-engineering a medium means eventually finding a table: a cartridge index, the
+CBM directory, a custom LUT. Recording it is what lets **every byte be traced to a
+payload and through it to a purpose** — a byte is *identified* when a row claims it, and
+what no row claims is the list of what is not yet understood.
+
+| tool | what it is for |
+|---|---|
+| `declare_lut_descriptor` | describe a table you found: identity (`index` / `key-bytes` / `nested`), layout (`packed` = contiguous records, `columns` = parallel arrays), and one column per role with its address. Structurally checked, and answered with a **probe** of the first resolved rows. |
+| `list_lut_descriptors` | which tables are already recorded |
+| `resolve_lut_rows` | read what a table claims, resolved against the bytes |
+| `link_payload_to_lut_row` | the claim: this payload is claimed by *(table, row)* |
+| `declare_loader_entrypoint` | the code side — the routine that reads the table; point its `lut_descriptor_id` at it |
+
+**Rows are never stored.** They are derived from the descriptor plus the medium bytes,
+so correcting a descriptor corrects every row at once. Only the *claim* persists,
+because that is what must survive without the image.
+
+**Give it the parts that cannot be read off the bytes.** These are silently wrong for
+every row when guessed, and the wrong numbers still look plausible:
+
+- `deref` — `destination` holds a POINTER into the medium, not the destination.
+- `polarity` — `codec` runs `value` (0 = none), `flag` (a bit; set = packed), or
+  `inverted` (**0 = packed**). Nothing in the byte tells them apart.
+- `length_bias` — the stored figure was already biased by whoever wrote it.
+- `header_offset` — the offset cell points PAST a codec header; the payload starts
+  earlier. Both forms are reported, so matching a manifest span cannot silently drift.
+
+Hold the probe against the disassembly you just read before trusting the rest of the
+table. Three rows are enough to see a flipped polarity.

@@ -17,8 +17,11 @@ import {
   type ContainerEntry,
   type ContainerEntryStore,
   LoaderEntryPointStoreSchema,
+  LutDescriptorStoreSchema,
   type LoaderEntryPoint,
   type LoaderEntryPointStore,
+  type LutDescriptor,
+  type LutDescriptorStore,
   LoaderModelStoreSchema,
   type LoaderModel,
   type LoaderModelStore,
@@ -145,6 +148,7 @@ export interface ProjectKnowledgePaths {
   knowledgeOpenQuestions: string;
   knowledgeContainers: string;
   knowledgeLoaderEntryPoints: string;
+  knowledgeLutDescriptors: string;
   knowledgeLoaderModels: string;
   knowledgeLoaderEvents: string;
   knowledgeProjectProfile: string;
@@ -274,6 +278,7 @@ export class ProjectKnowledgeStorage {
     this.ensureJsonFile(this.paths.knowledgeOpenQuestions, emptyStore<OpenQuestionRecord>());
     this.ensureJsonFile(this.paths.knowledgeContainers, emptyStore<ContainerEntry>());
     this.ensureJsonFile(this.paths.knowledgeLoaderEntryPoints, emptyStore<LoaderEntryPoint>());
+    this.ensureJsonFile(this.paths.knowledgeLutDescriptors, emptyStore<LutDescriptor>());
     this.ensureJsonFile(this.paths.knowledgeLoaderModels, emptyStore<LoaderModel>());
     this.ensureJsonFile(this.paths.knowledgeLoaderEvents, emptyStore<LoaderEvent>());
     this.ensureJsonFile(this.paths.knowledgeAntiPatterns, emptyStore<AntiPattern>());
@@ -343,6 +348,18 @@ export class ProjectKnowledgeStorage {
   saveLoaderEntryPoints(store: LoaderEntryPointStore): LoaderEntryPointStore {
     const parsed = LoaderEntryPointStoreSchema.parse(store);
     writeJsonAtomically(this.paths.knowledgeLoaderEntryPoints, parsed as unknown as JsonValue);
+    return parsed;
+  }
+
+  /** Spec 750 Decision 6 — the table descriptors. Rows are not stored here; they are
+   *  derived from a descriptor plus the medium bytes (Decision 7). */
+  loadLutDescriptors(): LutDescriptorStore {
+    return LutDescriptorStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeLutDescriptors, emptyStore<LutDescriptor>()));
+  }
+
+  saveLutDescriptors(store: LutDescriptorStore): LutDescriptorStore {
+    const parsed = LutDescriptorStoreSchema.parse(store);
+    writeJsonAtomically(this.paths.knowledgeLutDescriptors, parsed as unknown as JsonValue);
     return parsed;
   }
 
@@ -758,6 +775,7 @@ export function createProjectKnowledgePaths(projectRoot: string): ProjectKnowled
     knowledgeOpenQuestions: join(root, "knowledge", "open-questions.json"),
     knowledgeContainers: join(root, "knowledge", "containers.json"),
     knowledgeLoaderEntryPoints: join(root, "knowledge", "loader-entry-points.json"),
+    knowledgeLutDescriptors: join(root, "knowledge", "lut-descriptors.json"),
     knowledgeLoaderModels: join(root, "knowledge", "loader-models.json"),
     knowledgeLoaderEvents: join(root, "knowledge", "loader-events.json"),
     knowledgeProjectProfile: join(root, "knowledge", "project-profile.json"),
