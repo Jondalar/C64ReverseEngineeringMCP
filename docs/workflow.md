@@ -5,7 +5,7 @@
 > binding five-phase project **lifecycle** (Onboarding · Discovery · Reverse Engineering ·
 > Build · Release) defined in
 > [`product-vision-and-workbench-contract.md`](product-vision-and-workbench-contract.md)
-> §2A + [`../specs/773-workflow-cockpit-lifecycle.md`](../specs/773-workflow-cockpit-lifecycle.md).
+> §2A + [`../specs/_archive/773-workflow-cockpit-lifecycle.md`](../specs/_archive/773-workflow-cockpit-lifecycle.md).
 > Its data-transform-named phases (structural-enrichment, runtime-aggregation, view-build,
 > …) are the persistence substrate, NOT the human-facing top-level structure.
 

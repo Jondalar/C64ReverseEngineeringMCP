@@ -1,5 +1,11 @@
 # MCP tool-surface inventory (Spec 722.1)
 
+> **A SNAPSHOT of 2026-05-29, not the current surface.** It lists 191 tools, 55 of them
+> `vice_*`; those 49 bridge tools were deleted with the emulator (Spec 806, 2026-08-12)
+> and the surface is 253 with 144 in DEFAULT today. Read it as a record of what the
+> audit found, never as the list of what exists. The live answer comes from
+> `DEFAULT_TOOLS` in `src/server-tools/tier-tools.ts` and `npm run check:surface`.
+
 **Date:** 2026-05-29. Audit-only, generated from the actual `server.tool(...)` calls in `src/server-tools/**`. No code change.
 
 **North star:** an LLM outside the C64RE dev repo must use the MCP without guessing between historical/dev/debug tools.

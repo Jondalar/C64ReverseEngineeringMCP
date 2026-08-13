@@ -1,5 +1,9 @@
 # MCP tool-surface classification (Spec 722.2)
 
+> **A SNAPSHOT of 2026-05-29, not the current surface** — see the same note on
+> `docs/tool-surface-inventory.md`. The `vice_*` bucket it reasons about no longer
+> exists (Spec 806). The classification *method* is what survives; the counts do not.
+
 **Date:** 2026-05-29. Audit-only — buckets every tool, cites doctrine. No code
 change. Builds on `docs/tool-surface-inventory.md` (191 tools).
 

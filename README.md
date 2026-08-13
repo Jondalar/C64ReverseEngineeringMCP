@@ -134,9 +134,8 @@ Two repos, two roles — the Leitregel split. C64RE turns bytes/events/state int
 │ · flows/tasks/open-questions   │   │ · .c64re / .c64retrace             │
 │ · project memory · UI views    │   │ · DuckDB trace store · monitor     │
 │ · agents/flows (BMAD, private) │   │                                    │
-└────────────────────────────────┘   │  TS runtime = fallback / oracle    │
-   Meaning / Memory → C64RE          │  VICE       = internal-dev oracle  │
-                                      └───────────────────────────────────┘
+└────────────────────────────────┘   │  the ONLY runtime — no fallback    │
+   Meaning / Memory → C64RE          └───────────────────────────────────┘
                                          Capability → TRX64
 ```
 
@@ -205,9 +204,6 @@ The bundled TRXDis pipeline is built automatically.
 | `C64RE_64TASS_BIN` | Override path to `64tass` | No |
 | `C64RE_EXOMIZER_BIN` | Override path to `exomizer` | No |
 | `C64RE_BYTEBOOZER_BIN` | Override path to `b2` / ByteBoozer 2 | No |
-| `C64RE_VICE_BIN` | Override path to `x64sc` (internal-dev oracle only) | No |
-| `C64RE_VICE_CONFIG_PATH` | Override source `vicerc` copied into VICE sessions | No |
-| `C64RE_VICE_CONFIG_DIR` | Override source VICE config dir, with `vicerc` inside | No |
 
 ### Claude Code
 
@@ -304,28 +300,29 @@ via the left rail (navigation, not a hard gate):
 5. **Release** — local QA gates; external-tester loops; reports; final package.
 
 The seven-phase per-artifact analysis pipeline nests inside Discovery + RE.
-Runtime evidence (TRX64 by default; VICE as internal oracle) is registered as
-**artifacts** and linked to findings/entities — never left as loose logs or
-console output.
+Runtime evidence is registered as **artifacts** and linked to findings/entities —
+never left as loose logs or console output.
 
 Details: [product vision](docs/product-vision-and-workbench-contract.md) ·
 [workflow](docs/workflow.md) · [per-artifact pipeline](docs/re-phases.md) ·
-[lifecycle spec 773](specs/773-workflow-cockpit-lifecycle.md).
+[lifecycle spec 773](specs/_archive/773-workflow-cockpit-lifecycle.md).
 
 ## Planning & Status
 
 - [PLAN.md](PLAN.md) — roadmap + working baseline + step gates
 - [specs/README.md](specs/README.md) — the cross-repo spec board (C64RE + TRX64
   share one number range; the single registry of what's ACTIVE / DONE / CLOSED)
-- [specs/_archive/715-runtime-product-proof-baseline.md](specs/_archive/715-runtime-product-proof-baseline.md)
-  + [docs/runtime-product-baseline-2026-05-24.md](docs/runtime-product-baseline-2026-05-24.md)
-  — the current product proof authority (the single "is this green" source; migrates
-  to the enforced TRX64 quality gate, Spec 783).
-  Run `npm run proof:product` (full) or `npm run proof:capability -- <cap>`
-  (focused); `npm run proof:list` shows the manifest. Specs
-  [600](specs/_archive/600-runtime-proof-gates.md)/[601](specs/_archive/601-baseline-truth-table.md)
-  are retained as the historical seven-game 1541 bring-up gate, superseded as
-  product authority.
+- **Gates:** what this repo owns, it gates — the MCP surface
+  (`check:mcp-product-surface`, `check:surface`, `check:runtime-invisible`), the
+  knowledge/analysis e2e set (`e2e:748`, `e2e:751`, `e2e:752`, `e2e:medium-coverage`,
+  `e2e:785-cart-readset`, `e2e:805-sandbox-batch`) and the format checks
+  (`check:cart-type-ids`). `npm run` lists them. **Runtime** regression protection is
+  TRX64's own quality gates (Spec 783) and is not reproducible from here — the
+  `proof:*` family that used to stand in this spot booted the deleted in-repo emulator
+  and went with it (Spec 806).
+- [docs/runtime-product-baseline-2026-05-24.md](docs/runtime-product-baseline-2026-05-24.md)
+  + [specs/_archive/715-runtime-product-proof-baseline.md](specs/_archive/715-runtime-product-proof-baseline.md)
+  — the frozen record of what those gates once proved. History, not authority.
 - [CLAUDE.md](CLAUDE.md) — working doctrine for contributors and agents
 
 ## License & Credits
@@ -333,13 +330,16 @@ Details: [product vision](docs/product-vision-and-workbench-contract.md) ·
 C64RE MCP is licensed under the GNU General Public License v3.0 or later
 (`GPL-3.0-or-later`). See [LICENSE](LICENSE).
 
-VICE is C64RE's correctness oracle: where the runtime ports C64, 1541,
-VIC-II, CIA, VIA, IEC, GCR, monitor, or trace behavior, it does so
-faithfully and validates against
-[VICE](https://vice-emu.sourceforge.io/), the Versatile Commodore
-Emulator. VICE is licensed under the GNU General Public License version 2
-or later; C64RE uses the "or later" permission and distributes under
-GPL-3.0-or-later. Thank you to the VICE project and its contributors.
+C64RE contains no emulator (Spec 806) and does not run, launch or compare against one.
+It does carry work that was *read from* [VICE](https://vice-emu.sourceforge.io/), the
+Versatile Commodore Emulator — the monitor's verb set and expression syntax, and the
+cartridge type table, whose every row cites the VICE source it was read from. VICE is
+licensed under the GNU General Public License version 2 or later; C64RE uses the "or
+later" permission and distributes under GPL-3.0-or-later. Thank you to the VICE project
+and its contributors.
+
+The VICE architecture references a port is checked against now live in the
+[TRX64](https://github.com/Jondalar/TRX64) repo, with the port itself.
 
 Additional notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
