@@ -341,9 +341,56 @@ Both the Disk wheel and the Cartridge bank/slot grid, scoped per image (`mediumR
   Both are the same failure the semantics refusal exists to prevent, in the half where
   guessing IS allowed — which is the argument for keeping the other half closed.
 
-- **750.6 — extractor: auto loader/mutator relations.** From static xrefs + the trace
-  (write/taint events, Spec 721.J2 derived-asset chain) auto-create `loads` / `writes`
-  relations + populate `loader-events`. The trace strand feeds the static map.
+  **REBUILT 2026-08-12, after two real cartridges said the byte scan does not work.**
+  Six tightenings took it from 288 candidates over 65 windows to 137 — still two false
+  candidates per 8 KB window, because every shape signal is ordinary in game data. The
+  decisive case: a real image's screen-offset tables (`00 01 02 03 …` and
+  `04 0e 18 22 2c …`, a ten-wide grid) satisfy monotone, spread and dense perfectly
+  while being the opposite of an addressing table, and a game holds dozens.
+
+  **The anchor is the CODE.** A loader that indexes a table compiles to `LDA $8500,X`,
+  and the analyser already resolves that base — 1,057 of them in one real binary. Two
+  corrections to where the data lives, both found by reading a report rather than the
+  schema: there is no top-level `crossReferences` field at all, and `codeAnalysis.xrefs`
+  is control-flow only (jump/branch/fallthrough/call). The data references are on
+  `codeAnalysis.instructions`, with `addressingMode` and a resolved base.
+
+  Within one routine's accesses, the columns of one table sit at a REGULAR PITCH —
+  parallel arrays each padded to the same size. That is what separates the table from
+  everything else the routine touches: one real routine came back as 67 bases including
+  `$D400-$D406`, and the pitch filter keeps the twelve that step by 15 and reports the
+  rest as "does not fit".
+
+  The byte-shape path survives as the WEAK one, labelled as such in the tool output.
+  Its six tightenings are not wasted — as a confirmation step they are right. Only the
+  entrance was the wrong way round, and the doctrine already said so: read first.
+
+- **750.6 — extractor: auto loader/mutator relations.** **BUILT 2026-08-12.**
+  `derive_payload_relations` reads every resolved store in an analysis report and
+  reports the ones landing inside a payload's runtime range. `apply` writes them as
+  `writes` relations, which is what arms 750.3's mutation warning — until now every one
+  of those had to be hand-linked, so the warning was decoration.
+
+  Verified against a real report: 1,149 resolved stores scanned, and an indexed store
+  (`sta abs,x`, base resolved but reach not) is given 0.60 against a plain store's 0.85
+  — said in the number rather than a footnote. 528 writes into a payload from code
+  belonging to no named routine came back UNATTRIBUTED rather than hung off the nearest
+  entity: an edge pointing at the wrong routine reads as an answer.
+
+- **`e2e:750-real` — the gate that does not invent its input.** `e2e:750-lut` was green
+  at 66/66 while the detector it covered was unusable on a real cartridge, because every
+  one of those checks fed it bytes written to satisfy it. This one reads a real `.crt`
+  and a real `_analysis.json` when they are on the machine and SKIPS LOUDLY otherwise —
+  the samples are third-party property and are never committed. It asserts the container
+  parses, the anchor finds bases, every base is quoted with a real instruction address,
+  and the weak byte path does not regress into a flood.
+
+- **750.4 / 750.5 — deprioritised.** Both propose loader entry points by pattern-matching
+  a disassembly. The instruction anchor above gives the same answer with provenance, so
+  these are now small conveniences rather than the way in.
+
+  (750.6's original wording assumed static `xrefs` of type `write`. There are none —
+  see the correction above.)
 
 ## 4. Open question (only one left)
 

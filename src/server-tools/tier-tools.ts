@@ -69,6 +69,7 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // agent could reach the write tools from the standard surface.
   "declare_lut_descriptor",
       "suggest_lut_descriptor",
+      "derive_payload_relations",
   "list_lut_descriptors",
   "resolve_lut_rows",
   "link_payload_to_lut_row",
@@ -171,7 +172,12 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // have and not a step in reverse-engineering anything; it also fails the
   // description-shape rule, so it was never carrying its place. Spec 750.7's
   // `suggest_lut_descriptor` takes the slot, and that one removes actual handwork.
-  "runtime_input_load_config", "runtime_input_save_config",
+  // 2026-08-12 — `runtime_input_save_config` DEMOTED. Writing a joystick keymap to
+  // ~/.config is housekeeping, not a step in reverse-engineering anything; loading one
+  // stays, because a session that will not take input is a session you cannot drive.
+  // Spec 750.6's `derive_payload_relations` takes the slot: it finds mutators, which
+  // is the case where a byte-identical rebuild is green and the result is still wrong.
+  "runtime_input_load_config",
 ]);
 
 // ── Retired with the TypeScript emulator (Spec 806 step 3) ───────────────────

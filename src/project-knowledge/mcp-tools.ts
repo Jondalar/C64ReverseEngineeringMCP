@@ -1556,12 +1556,42 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     "Scan a byte range of a medium for table-SHAPED runs and propose descriptor skeletons — the transcription work, taken off you. Use when the loader's disassembly points at a table and you would otherwise type a dozen column addresses by hand. It proposes structure only: parallel arrays vs packed records, row count, where the columns sit, and a split 16-bit column when it can see one. It does NOT guess what the columns MEAN, does not write anything, and says which fields you still have to read out of the loader — getting one of those wrong is silently wrong for every row at once. Not for writing the table (use declare_lut_descriptor with what you read) and not for reading rows (use resolve_lut_rows).",
     {
       project_dir: z.string().optional(),
-      medium_path: z.string(),
+      analysis_path: z.string().optional(),
+      medium_path: z.string().optional(),
       bank: z.number().int().nonnegative().optional(),
-      from_address: z.number().int().nonnegative(),
-      to_address: z.number().int().nonnegative(),
+      from_address: z.number().int().nonnegative().optional(),
+      to_address: z.number().int().nonnegative().optional(),
+      min_columns: z.number().int().min(2).max(16).optional(),
     },
-    safeHandler("suggest_lut_descriptor", async ({ medium_path, bank, from_address, to_address }) => {
+    safeHandler("suggest_lut_descriptor", async ({ analysis_path, medium_path, bank, from_address, to_address, min_columns }) => {
+      // ANCHORED path — preferred, and the only one that grounds a find. The loader
+      // compiles its table access to `LDA $8500,X`, and the analyser resolved the base.
+      if (analysis_path) {
+        const { readFileSync: rf, existsSync: ex } = await import("node:fs");
+        if (!ex(analysis_path)) return textContent(`No analysis report at ${analysis_path}. Run analyze_prg first.`);
+        const { indexedAccesses, anchorCandidates, formatAnchored } = await import("./lut-detect.js");
+        let report: { codeAnalysis?: { instructions?: [] } };
+        try { report = JSON.parse(rf(analysis_path, "utf8")); }
+        catch (e) { return textContent(`Unreadable analysis report: ${(e as Error).message}`); }
+        const ins = report.codeAnalysis?.instructions ?? [];
+        if (!ins.length) return textContent("That report has no disassembled instructions — run analyze_prg first.");
+        const acc = indexedAccesses(ins);
+        const cands = anchorCandidates(acc, { minColumns: min_columns ?? 3 });
+        const withPitch = cands.filter((c) => c.pitch);
+        const head = [
+          `${acc.length} indexed absolute access(es) in the code → ${cands.length} candidate group(s), ${withPitch.length} with a regular column pitch.`,
+          "",
+        ].join("\n");
+        return textContent(head + formatAnchored((withPitch.length ? withPitch : cands).slice(0, 6)));
+      }
+
+      // BYTE-SHAPE path — a fallback, and weaker by construction. Two real cartridges
+      // showed it answers with roughly two false candidates per 8 KB window: every
+      // shape signal is ordinary in game data, and a screen-offset table satisfies all
+      // of them. Use it to CONFIRM an address you already have, not to find one.
+      if (!medium_path || from_address === undefined || to_address === undefined) {
+        return textContent("Pass `analysis_path` (preferred — anchors on the code that reads the table), or `medium_path` + `from_address` + `to_address` for the weaker byte-shape scan.");
+      }
       const { readerForMedium } = await import("./lut-medium.js");
       const { detectTables, formatProposals } = await import("./lut-detect.js");
       const m = readerForMedium(medium_path);
@@ -1579,11 +1609,48 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       }
       const proposals = detectTables({ bytes, baseAddress: from_address, bank });
       const head = [
+        "BYTE-SHAPE SCAN — the weak path. Measured on two real cartridges: about two false candidates per 8 KB window, because every shape signal here is ordinary in game data. Prefer `analysis_path`.",
         `Scanned $${from_address.toString(16).toUpperCase()}..$${to_address.toString(16).toUpperCase()}${bank !== undefined ? ` bank ${bank}` : ""} — ${m.note}`,
         ...(missing ? [`${missing} of ${len} bytes were outside the image and read as 0 — narrow the range if the result looks odd.`] : []),
         "",
       ];
       return textContent(head.join("\n") + formatProposals(proposals));
+    },
+));
+
+  server.tool(
+    "derive_payload_relations",
+    "Derive who MUTATES a payload from the disassembly — the mutator edges, without hand-linking each one. Use after registering payloads with runtime ranges and naming the routines: it reads every resolved store in the analysis report and reports the ones landing inside a payload. A mutated payload is not the object on the medium — patch the medium alone and the mutation may undo you, and a byte-identical rebuild will not say so. Writes into a payload from code belonging to no named routine are reported UNATTRIBUTED, never guessed onto the nearest one. Not for creating the relation (pass `apply` to write them) and not for load edges (those need the loader model). Inputs: analysis_path, optional apply.",
+    {
+      project_dir: z.string().optional(),
+      analysis_path: z.string(),
+      apply: z.boolean().optional(),
+    },
+    safeHandler("derive_payload_relations", async ({ project_dir, analysis_path, apply }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const { derivePayloadRelations, formatDerivedRelations } = await import("./payload-relations.js");
+      const entities = service.listEntities();
+      const result = derivePayloadRelations(analysis_path, entities);
+      let text = formatDerivedRelations(result);
+      if (apply && result.edges.length) {
+        let written = 0;
+        for (const e of result.edges) {
+          if (!e.sourceEntityId) continue;
+          service.linkEntities({
+            kind: "writes",
+            title: `${e.sourceName} writes ${e.targetName}`,
+            sourceEntityId: e.sourceEntityId,
+            targetEntityId: e.targetEntityId,
+            summary: `derived from the disassembly: ${e.mnemonic ?? "store"} at $${e.sourceAddress.toString(16)} → $${e.hitAddress.toString(16)}`,
+            confidence: e.confidence,
+          });
+          written++;
+        }
+        text += `\n\n${written} relation(s) written. The cartridge and disk views will now outline these payloads as mutated.`;
+      } else if (result.edges.length) {
+        text += "\n\nNothing was written. Pass apply=true to record these as `writes` relations.";
+      }
+      return textContent(text);
     },
 ));
 

@@ -1,7 +1,7 @@
 {
-  "total": 258,
+  "total": 259,
   "specCount": 42,
-  "advancedCandidate": 108,
+  "advancedCandidate": 109,
   "byNamespace": {
     "runtime": 82,
     "list": 20,
@@ -46,6 +46,7 @@
     "compare": 1,
     "confirm": 1,
     "define": 1,
+    "derive": 1,
     "diff": 1,
     "disk": 1,
     "export": 1,
@@ -492,6 +493,15 @@
       "firstSentence": "Decompress the built-in custom C64 RLE loader format.",
       "desc": "Decompress the built-in custom C64 RLE loader format.",
       "tier": "advanced?"
+    },
+    {
+      "name": "derive_payload_relations",
+      "file": "project-knowledge/mcp-tools.ts",
+      "ns": "derive",
+      "hasSpec": false,
+      "firstSentence": "Derive who MUTATES a payload from the disassembly — the mutator edges, without hand-linking each one.",
+      "desc": "Derive who MUTATES a payload from the disassembly — the mutator edges, without hand-linking each one. Use after registering payloads with runtime ranges and naming the routines: it reads every resolved store in the analysis report and reports the ones landing inside a payload. A mutated payload is not the object on the medium — patch the medium alone and the mutation may undo you, and a byte-identical rebuild will not say so. Writes into a payload from code belonging to no named routine are reported UNATTRIBUTED, never guessed onto the nearest one. Not for creating the relation (pass `apply` to write them) and not for load edges (those need the loader model). Inputs: analysis_path, optional apply.",
+      "tier": "default?"
     },
     {
       "name": "diff_scenario_runs",
@@ -1571,7 +1581,7 @@
       "hasSpec": false,
       "firstSentence": "Use to save the joystick/keyboard InputConfig to ~/.config/c64re/joystick.json (never touches vicerc).",
       "desc": "Use to save the joystick/keyboard InputConfig to ~/.config/c64re/joystick.json (never touches vicerc). Not for loading it (use runtime_input_load_config).",
-      "tier": "default?"
+      "tier": "advanced?"
     },
     {
       "name": "runtime_joystick",
