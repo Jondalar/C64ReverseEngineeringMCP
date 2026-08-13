@@ -5,7 +5,8 @@ the decision that closed it: [`_archive/README.md`](_archive/README.md).
 Rules that govern how work is done are not specs: [`../DOCTRINE.md`](../DOCTRINE.md).
 
 Numbers are **shared with TRX64** (`../../TRX64/docs/`) — one range, one registry.
-**Next free: 807.**
+**Next free: 809.** (807 = TRX64's binary checkpoint ring, 808 = TRX64's rewind transport;
+808 has a C64RE-side ribbon on the existing scrub UI, tracked on the TRX64 board.)
 
 | # | Spec | Status | What is left | Touched |
 |---|---|---|---|---|
