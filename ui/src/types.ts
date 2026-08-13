@@ -389,7 +389,26 @@ export interface CartridgePayloadChunk {
   color?: string;
   mediumRef?: string;
   unscoped?: boolean;
+  /** Spec 750.2 — which row of which table claims this span. A span a table points at
+   *  and one somebody asserted look identical on a grid without this. */
+  claimedByLutId?: string;
+  claimedByLutName?: string;
+  claimedByRow?: number;
   notes?: string[];
+}
+
+/** Spec 750.2 — an addressing table AND the bytes it occupies. An index that nothing
+ *  marks reads as "not yet understood" forever, which is the opposite of the truth. */
+export interface CartridgeLutTable {
+  id: string;
+  name: string;
+  layout: "packed" | "columns";
+  identityScheme: "index" | "key-bytes" | "nested";
+  rowCount?: number;
+  spans?: Array<{ role: string; bank: number; offsetInBank: number; length: number }>;
+  claimCount?: number;
+  mediumRef?: string;
+  unscoped?: boolean;
 }
 
 export interface CartridgeLayoutView {
@@ -405,6 +424,7 @@ export interface CartridgeLayoutView {
     slotLayout?: CartridgeSlotLayout;
     lutChunks?: CartridgeLutChunk[];
     payloadChunks?: CartridgePayloadChunk[];
+    lutTables?: CartridgeLutTable[];
     emptyRegions?: CartridgeEmptyRegion[];
     segments?: CartridgeSegment[];
     startup?: CartridgeStartupInfo;

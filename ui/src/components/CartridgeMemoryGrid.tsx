@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { CartridgeBankView, CartridgeChipView, CartridgeEmptyRegion, CartridgeLutChunk, CartridgePayloadChunk, CartridgeIdentity, CartridgeSegment, CartridgeSlotLayout, CartridgeSpanClassSummary, CartridgeStartupInfo } from "../types.js";
+import type { CartridgeBankView, CartridgeChipView, CartridgeEmptyRegion, CartridgeLutChunk, CartridgeLutTable, CartridgePayloadChunk, CartridgeIdentity, CartridgeSegment, CartridgeSlotLayout, CartridgeSpanClassSummary, CartridgeStartupInfo } from "../types.js";
 
 interface ChipClickHandler {
   (chip: CartridgeChipView, role: "ROML" | "ROMH" | "EEPROM"): void;
@@ -19,6 +19,8 @@ interface CartridgeMemoryGridProps {
   slotLayout?: CartridgeSlotLayout;
   lutChunks?: CartridgeLutChunk[];
   payloadChunks?: CartridgePayloadChunk[];
+  /** Spec 750.2 — the addressing tables, with the bytes they occupy. */
+  lutTables?: CartridgeLutTable[];
   emptyRegions?: CartridgeEmptyRegion[];
   segments?: CartridgeSegment[];
   startup?: CartridgeStartupInfo;
@@ -66,6 +68,7 @@ export function CartridgeMemoryGrid({
   slotLayout,
   lutChunks,
   payloadChunks,
+  lutTables,
   emptyRegions,
   segments,
   startup,
@@ -328,12 +331,50 @@ export function CartridgeMemoryGrid({
     );
   }
 
+  // Spec 750.2 — the table's OWN footprint. An index occupies bytes; before this it
+  // rendered nowhere, so the map called the best-understood region on the medium
+  // unclaimed. Drawn UNDER the payload overlay: the index is the ground the payload
+  // spans are described from, and a reader should see both at once.
+  const lutTableIndex = new Map<number, Array<{ table: CartridgeLutTable; role: string; offsetInBank: number; length: number }>>();
+  for (const table of lutTables ?? []) {
+    for (const span of table.spans ?? []) {
+      const bucket = lutTableIndex.get(span.bank) ?? [];
+      bucket.push({ table, role: span.role, offsetInBank: span.offsetInBank, length: span.length });
+      lutTableIndex.set(span.bank, bucket);
+    }
+  }
+
+  function renderLutTableSpans(bank: number) {
+    const entries = lutTableIndex.get(bank);
+    if (!entries?.length) return null;
+    return (
+      <div className="cart-chunk-overlay">
+        {entries.map((entry, idx) => {
+          const leftPercent = Math.max(0, Math.min(100, (entry.offsetInBank / bankSize) * 100));
+          const widthPercent = Math.max(0.4, Math.min(100 - leftPercent, (entry.length / bankSize) * 100));
+          const rows = entry.table.rowCount !== undefined ? `${entry.table.rowCount} rows` : "open";
+          const claims = entry.table.claimCount ? `, ${entry.table.claimCount} payload(s) claimed` : ", nothing claims a row yet";
+          const scope = entry.table.unscoped ? " · UNSCOPED (image not attributed)" : "";
+          return (
+            <div
+              key={`lut-${entry.table.id}-${entry.role}-${idx}`}
+              className="cart-chunk-segment cart-lut-table-segment"
+              style={{ left: `${leftPercent}%`, width: `${widthPercent}%`, top: 0, height: "100%" }}
+              title={`index "${entry.table.name}" · column ${entry.role} · ${entry.table.layout}/${entry.table.identityScheme} · ${rows}${claims} · off $${entry.offsetInBank.toString(16).toUpperCase().padStart(4, "0")} (${bytesPretty(entry.length)})${scope}`}
+            />
+          );
+        })}
+      </div>
+    );
+  }
+
   function renderSlotBar(chip: CartridgeChipView | undefined, color: string, role: "ROML" | "ROMH", bank: number) {
     if (!chip) {
       return (
         <div className="cart-slot-bar cart-slot-bar-empty" style={{ background: EMPTY_COLOR }} title="empty">
           {renderEmptySegments(role, bank)}
           {renderChunkSegments(role, bank)}
+          {renderLutTableSpans(bank)}
           {renderPayloadSegments(role, bank)}
         </div>
       );
@@ -353,6 +394,7 @@ export function CartridgeMemoryGrid({
         {renderEmptySegments(role, bank)}
         {renderResidentSegments(role, bank)}
         {renderChunkSegments(role, bank)}
+        {renderLutTableSpans(bank)}
         {renderPayloadSegments(role, bank)}
         <span className="cart-slot-bar-label">{role}</span>
       </button>
