@@ -5,8 +5,9 @@ the decision that closed it: [`_archive/README.md`](_archive/README.md).
 Rules that govern how work is done are not specs: [`../DOCTRINE.md`](../DOCTRINE.md).
 
 Numbers are **shared with TRX64** (`../../TRX64/docs/`) — one range, one registry.
-**Next free: 809.** (807 = TRX64's binary checkpoint ring, 808 = TRX64's rewind transport;
-808 has a C64RE-side ribbon on the existing scrub UI, tracked on the TRX64 board.)
+**Next free: 811.** (807 = TRX64's binary checkpoint ring, 808 = TRX64's rewind transport,
+809 = TRX64's marks and branches — all tracked on the TRX64 board. 808 has a C64RE-side
+ribbon on the existing scrub UI; 810 is C64RE's and is listed below.)
 
 | # | Spec | Status | What is left | Touched |
 |---|---|---|---|---|
@@ -17,6 +18,7 @@ Numbers are **shared with TRX64** (`../../TRX64/docs/`) — one range, one regis
 | 774 | [Capability Cut → `trx64-static`](774-capability-cut-static-migration.md) | READY | Step 1 shipped. Open: media format-parse (2), classifiers (3). | 2026-07-02 |
 | 775 | [Decoupled Agent/Flow Layer (BMAD)](775-decoupled-agent-flow-layer-bmad.md) | READY | Private in-repo module; docks onto 773. Gate: pin the V6 schema first. | 2026-07-03 |
 | 800 | [Runtime invisible to the RE agent](800-runtime-invisible-setup-guided.md) | READY | §A–§D built and now **gated** (`npm run check:runtime-invisible`): 64 agent-facing surfaces scanned for the backend brand, plus the epoch and the per-OS recipe. It was red when written — a trace-domain description had gained "served by the TRX64 daemon" the same day, which is the argument for the gate. Open: the guided setup probe, now including **goal 4 — the recipe fetches the runtime itself**. One TypeScript step for all three OSes instead of a scoop manifest and a winget PR; never silent, checksum-verified, pinned to the epoch the handshake expects. Also answers the Windows install gap 801 left behind. | 2026-08-11 |
+| 810 | [Scenario goals and acceptance](810-scenario-goals-and-acceptance.md) | PROPOSED | What is checked and who says yes, over TRX64's marks and branches (809). Gherkin over the mark/branch/criterion split that already exists underneath. The load-bearing idea: **acceptance converts a verbal goal into a byte-exact one** — a human says yes once, that state is frozen, and from then on the same criterion is a 794 diff with nobody present. So the BDD layer never evaluates; it names the goal, presents the run, and freezes the answer. The exclusion mask belongs to the CRITERION, not the run, or no two tests are comparable. | 2026-08-13 |
 
 **READY** = the next step is written down; someone could start tomorrow.
 **NEEDS SCOPING** = something is open but nobody has said what, so the first task is to
