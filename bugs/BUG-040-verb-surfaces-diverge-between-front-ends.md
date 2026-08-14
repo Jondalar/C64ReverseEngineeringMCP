@@ -5,7 +5,7 @@
 - **Reporter:** human (typed `/pause` in the C64RE monitor)
 - **Area:** runtime
 - **Severity:** high (feature parity between front-ends is a stated requirement; and one verb is actively ambiguous)
-- **Status:** open <!-- open | investigating | fixed | wontfix | duplicate -->
+- **Status:** partly fixed <!-- open | investigating | fixed | wontfix | duplicate -->
 
 ## Environment
 
@@ -96,9 +96,30 @@ unknown command: /freeze. Try 'help'.
 
 ---
 
-## Resolution (fill on fix)
+## Resolution — daemon side done, C64RE UI side still open
 
-- **Root cause:**
-- **Fix commit:**
-- **Gate proving the fix:**
-- **Regression risk:**
+- **Root cause:** the `/` prefix is a `trx64-cli` convention. `exec_line` handles `/verb`
+  itself and only falls through to `monitor/exec` for the rest, so the daemon has no
+  `/`-verbs and a front-end without a cockpit layer never sees anything in it. `run`,
+  `warp`, `mount` and `eject` existed only there.
+- **Fixed:** `run` and `warp` are daemon monitor verbs now, and `pause` means ONE thing on
+  every surface — it stops the machine **and** the transport, and prints the ringbuffer
+  range. The cockpit's `/warp` delegates to the daemon verb, so both front-ends execute one
+  implementation and print one wording.
+- **Gate:** `machine_verbs_exist_in_the_daemon_and_pause_means_one_thing` — pause stops
+  both and reports the buffer, run sets the intent, warp toggles daemon state, and all
+  three appear in the monitor help.
+- **STILL OPEN — `mount` / `eject` as monitor verbs.** `media/mount` is a large inline
+  handler rather than a reusable function, and extracting it is exactly the work
+  **BUG-041** does (the `media_path` content detection). Folded in there rather than
+  extracted twice.
+- **STILL OPEN — the C64RE UI must render status the way the TUI does.** Unifying the
+  verbs is half the job: if the workspace UI keeps composing its own status display, the
+  two surfaces drift again through the OUTPUT instead of the input. `session/state` now
+  carries `transport` (mode, direction, position, range), `warp` and `audioEpoch`, and
+  every transport reply carries a ready-to-print `message`. The UI should render those
+  rather than derive its own — same rule, same reason: one place computes, everyone else
+  displays.
+- **Regression risk:** low. Verbs were added, not changed, with one deliberate exception:
+  bare `pause` in the C64RE monitor used to stop only the replay and now stops the machine
+  too. That is the point of the fix, and it is the meaning a human expects from the word.
