@@ -5,7 +5,7 @@
 - **Reporter:** llm (peer session WL1, live on `integrated-1`); root cause verified here
 - **Area:** runtime
 - **Severity:** high (defeats the purpose of `do log`, and silently mis-evaluates register conditions)
-- **Status:** open <!-- open | investigating | fixed | wontfix | duplicate -->
+- **Status:** fixed <!-- open | investigating | fixed | wontfix | duplicate -->
 
 ## Environment
 
@@ -108,9 +108,26 @@ is why it is narrow in the first place.
 
 ---
 
-## Resolution (fill on fix)
+## Resolution
 
-- **Root cause:**
-- **Fix commit:**
-- **Gate proving the fix:**
-- **Regression risk:**
+- **Root cause:** `on_access(kind, addr, value)` carried no per-access facts, so the
+  registry read `self.env` — refreshed once per run segment at `main.rs:3051`. Every
+  event in a segment shared one stamp, and every register condition tested some earlier
+  instruction's registers.
+- **Fix:** a new `trx64_core::AccessCtx { pc, clk, a, x, y, sp, p }` is handed to
+  `on_access` at the moment of the access. `FullScBus` gained `core_regs` — a raw pointer
+  to the executing core, following the same documented disjoint-field pattern (and the
+  same safety argument) as the existing `core_pc`/`core_clk`. `matches`, `fire_at` and
+  `render_log_exprs_at` take `Option<AccessCtx>`: `Some` on a bus hit, `None` on the exec
+  path, where the core halts before the opcode and the segment snapshot IS this
+  instruction's state.
+- **Gate proving the fix:** `crates/trx64-daemon/tests/observer_stamps.rs` —
+  `every_access_carries_its_own_cycle_pc_and_accumulator`. Runs a real store loop
+  (`sta $4000,x` / `adc` / `inx` / `bne`) over 200+ accesses and asserts consecutive
+  cycles are **distinct and increasing**, plus that more than eight distinct accumulator
+  values are seen. Both are single-valued under the old behaviour. A two-store test would
+  have passed with the bug, because two events in one segment can legitimately share a
+  cycle — that is why the gate needed a loop.
+- **Regression risk:** low. The trait signature widened, so every `Observer` impl had to
+  be updated (three in-tree) — a compile error, not a silent behaviour change. The exec
+  path is explicitly unchanged.
