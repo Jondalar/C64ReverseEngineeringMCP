@@ -21,23 +21,31 @@ Bytes → structure → meaning, and the third step is the one that matters.
 1. **Extraction** — PRG / CRT / D64 / G64: banks, sectors, directory, xrefs, candidate
    segments. Disk and cartridge forensics are first-class, not a side door.
 2. **Heuristic disassembly** — the full 6502 ISA including undocumented opcodes. Nine
-   analyzers run in parallel: code discovery, text, sprites, charsets, screen RAM,
-   bitmaps, pointer tables, SID, probable code. Overlaps get resolved, not guessed.
+   analyzers in parallel: code discovery, text, sprites, charsets, screen RAM, bitmaps,
+   pointer tables, SID, probable code. Overlaps get resolved, not guessed.
 3. **Semantic annotation** — the LLM reads the whole listing and proposes segment
-   reclassifications, labels and routine explanations; the human reviews. This is where
+   reclassifications, labels and routine explanations; the human reviews. Where
    `segment $7C21-$7F4F contains code` becomes `loader-side dispatcher: switches KERNAL
-   serial → custom fastloader, hands control to scene init`.
-4. **Verification** — assemble with KickAssembler or 64tass and rebuild the original
-   byte for byte. `cmp -l` is the referee. Annotations never touch bytes.
+   serial → custom fastloader`.
+4. **Verification** — assemble with KickAssembler or 64tass and rebuild the original byte
+   for byte. `cmp -l` is the referee; annotations never touch bytes.
 
 Relocated code, self-modifying loaders and copy-loop targets are disassembled where they
 *run*, not where they sit.
+
+![Semantic disassembly](docs/img/semantic-disassembly.png)
+
+*Step 3: a game engine's jump table, named — and verified byte-identical.*
+
+![Disk forensics](docs/img/disk-forensics.png)
+
+*Step 1: block attribution per track and sector, a file's sector chain, its sources.*
 ## The knowledge base
 
-Findings, entities, relations, payloads, flows, open questions — written to the project,
-searchable, and linked to the artifact and address they came from. Runtime evidence is
-registered as an artifact and attached to a finding; nothing stays a console log. The
-workbench UI renders it, and never becomes a second analysis engine.
+Findings, entities, relations, payloads, flows, open questions — written to the project
+and linked to the artifact and address they came from. Runtime evidence is registered as
+an artifact and attached to a finding; nothing stays a console log. The workbench UI
+renders it, and never becomes a second analysis engine.
 
 - Every claim carries its evidence and the address range it covers.
 - Artifacts are versioned with lineage, so a rebuilt `.asm` does not orphan its findings.
@@ -46,10 +54,9 @@ workbench UI renders it, and never becomes a second analysis engine.
 
 ## The agentic flow
 
-Work moves through a five-phase lifecycle. The LLM operates under explicit roles —
-**analyst** forms and tests hypotheses, **cartographer** maps structure and flow,
-**implementer** writes and verifies — and the harness records each step, so a later
-session resumes instead of restarting.
+Work moves through a five-phase lifecycle under explicit roles — **analyst** forms and
+tests hypotheses, **cartographer** maps structure and flow, **implementer** writes and
+verifies. Each step is recorded, so a later session resumes instead of restarting.
 
 ```mermaid
 flowchart LR
@@ -75,8 +82,12 @@ flowchart LR
 Onboarding · Discovery · Reverse Engineering · Build · Release, navigated freely from the
 left rail. The kickoff dialogue runs in the coding harness; C64RE records the brief.
 
+![The phase view](docs/img/workflow.png)
+
+*What the phase knows: established, blocked, next action — derived, not typed in.*
+
 Details: [workflow](docs/workflow.md) · [roles](docs/agent-doctrine.md) ·
-[per-artifact pipeline](docs/re-phases.md) · [tools](docs/tools/analysis.md).
+[pipeline](docs/re-phases.md) · [tools](docs/tools/analysis.md).
 
 ---
 
@@ -101,17 +112,9 @@ cd C64ReverseEngineeringMCP && npm install && npm run build
 }
 ```
 
-**Codex:**
-
-```toml
-[mcp_servers.c64re]
-command = "zsh"
-args = ["-lc", "cd /path/to/C64ReverseEngineeringMCP && NODE_NO_WARNINGS=1 ./node_modules/.bin/tsx src/cli.ts"]
-env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
-```
-
-`C64RE_PROJECT_DIR` is the only required variable; the runtime daemon is found as the
-sibling TRX64 build and started on first use.
+**Codex** — `[mcp_servers.c64re]` with `command = "zsh"` and the same `tsx src/cli.ts`
+invocation. `C64RE_PROJECT_DIR` is the only required variable; the runtime daemon is
+found as the sibling TRX64 build and started on first use.
 
 ## The workbench
 
@@ -122,8 +125,7 @@ npm run ui:dev       # Vite live reload on http://127.0.0.1:4311
 
 One bundle: project knowledge — artifacts, findings, memory maps, media, disassembly —
 and the live runtime view are the same app. The daemon owns the clock, monitor, media and
-traces; the browser and the MCP tools are both clients, so a reload or an MCP reconnect
-does not reset a session.
+traces; browser and MCP are both clients, so a reload never resets a session.
 
 ## What to expect
 
@@ -141,11 +143,11 @@ have no capabilities to give real support.
 
 ## License
 
-**GPL-3.0-or-later** — see [LICENSE](LICENSE). C64RE contains no emulator and does not
-launch or compare against one. It does carry work read *from*
-[VICE](https://vice-emu.sourceforge.io/) — the monitor's verb set and expression syntax,
-and the cartridge type table, whose every row cites the source it was read from. VICE is
-GPL-2.0-or-later; C64RE uses the "or later" permission. Thank you to the VICE project.
+**GPL-3.0-or-later** — see [LICENSE](LICENSE). C64RE contains no emulator. It does carry
+work read *from* [VICE](https://vice-emu.sourceforge.io/) — the monitor's verb set and
+expression syntax, and the cartridge type table, whose every row cites the source it was
+read from. VICE is GPL-2.0-or-later; C64RE uses the "or later" permission. Thank you to
+the VICE project.
 
 Further notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 **ROMs and third-party media** are not part of this license. Commodore ROM images,
