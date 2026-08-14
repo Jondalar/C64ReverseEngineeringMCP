@@ -1,10 +1,10 @@
 # C64RE
 
-A reverse-engineering workbench for Commodore 64 software vuaMCP. 
+A reverse-engineering workbench for Commodore 64 software via MCP.
 Turns disks, cartridges and PRGs into explained, named source,
 and keeps learning as project knowledge.
 
-✱User and LLM share the project.** The LLM brings structure mines meaning, the human
+**User and LLM share the project.** The LLM brings structure and mines meaning, the human
 steers and confirms, a C64 runtime is used to validate findings.
 
 **Sibling project:** [TRX64](https://github.com/Jondalar/TRX64) is the runtime — a
@@ -18,16 +18,16 @@ live here. C64RE carries no emulator; it is a client.
 Bytes → structure → meaning, and the third step is the one that matters.
 
 1. **Extraction** — PRG / CRT / D64 / G64: banks, sectors, directory, xrefs, candidate
-   segments. Disk and cartridge forensics
+   segments, including disk and cartridge forensics.
 2. **Heuristic disassembly** — the full 6502 ISA including undocumented opcodes. Nine
    analyzers in parallel: code discovery, text, sprites, charsets, screen RAM, bitmaps,
-   pointer tables, SID, probable code. Overlaps get resolved
+   pointer tables, SID, probable code. Overlaps get resolved.
 3. **Semantic annotation** — the LLM reads the whole listing and proposes segment
-   reclassifications, labels and routine explanations; Where
+   reclassifications, labels and routine explanations. Where
    `segment $7C21-$7F4F contains code` becomes `loader-side dispatcher: switches KERNAL
    serial → custom fastloader`.
 4. **Verification** — assemble with KickAssembler/64tass and rebuild the original byte
-   for byte. `cmp -l` ; annotations never touch bytes.
+   for byte. `cmp -l` decides; annotations never touch bytes.
 
 ![Semantic disassembly](docs/img/semantic-disassembly.png)
 
@@ -40,7 +40,7 @@ Bytes → structure → meaning, and the third step is the one that matters.
 
 Findings, entities, relations, payloads, flows, open questions — written to the project
 and linked to artifacts and addresses they came from. Runtime evidence is registered as
-an artifact and attached to finding. 
+an artifact and attached to a finding.
 
 - Every claim carries its evidence and the address range it covers.
 - Artifacts are versioned with lineage.
