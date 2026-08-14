@@ -5,7 +5,7 @@
 - **Reporter:** human ("Warum gibt es immer eine .g64 oder .d64 beim Start einer Session?")
 - **Area:** mcp-tool
 - **Severity:** medium (pure ceremony today; blocks the obvious cart-first workflow)
-- **Status:** open <!-- open | investigating | fixed | wontfix | duplicate -->
+- **Status:** fixed <!-- open | investigating | fixed | wontfix | duplicate -->
 
 ## Environment
 
@@ -87,9 +87,35 @@ it is a bet, not a behaviour.
 
 ---
 
-## Resolution (fill on fix)
+## Resolution
 
-- **Root cause:**
-- **Fix commit:**
-- **Gate proving the fix:**
-- **Regression risk:**
+- **Root cause:** the schema required a `disk_path` the shared-attach path never acts on,
+  and no other type had an входной door. A leftover from when a session meant a drive with
+  a medium.
+- **Fix (daemon):** `detect_media_kind` asks the file — magic first (`GCR-1541`,
+  `C64 CARTRIDGE   `, `C64RESNP`), then the four legal `.d64` lengths, then `.prg` as the
+  never-positive fallback. `media/mount` uses it instead of `ends_with(".crt")`.
+  `media/open` is the single door and **delegates** to the handler that already owns each
+  type, so the dirty-media guard, the power-cycle policy and the media events stay in one
+  place per type rather than gaining a second copy.
+- **Fix (MCP):** `media_path` optional, `disk_path` kept as a deprecated alias, and the
+  medium is opened **after** the session exists, by the daemon. The old
+  "requested disk was NOT auto-mounted — do it yourself" line is gone: it described the
+  schema's inertia, not a policy.
+- **Fix (monitor):** `identify <path>` reports what a file is, and whether a PRG would
+  autostart.
+- **Gates:** `media_is_identified_by_content_not_by_filename` (magic beats a wrong
+  extension in both directions; a `.d64` by size; a PRG never a positive match) and
+  `a_prg_autostarts_only_when_the_c64_would_start_it` (a `10 SYS 2061` stub DOES,
+  `$C000` machine code does not, `$0801` with garbage does not, a backward link does not).
+- **Regression risk:** low, with one behaviour change on purpose: passing a path to
+  `runtime_session_start` now actually opens it. That was the point.
+
+### Left open deliberately
+
+`mount`/`eject` as monitor verbs, which BUG-040 folded in here. The monitor runs with the
+state locked while `media/open` acts by re-dispatching, which needs it unlocked. Rather
+than half-mount, the monitor got `identify` — an honest answer to a different question —
+and acting stays on the RPC. Closing it properly means extracting the media handlers into
+functions that take `&mut State`, which is a refactor worth doing on its own rather than
+smuggled into a bug fix.

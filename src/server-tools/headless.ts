@@ -60,9 +60,20 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // Path to Murder boot trace.
   server.tool(
     "runtime_session_start",
-    "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, cycle-accurate 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). ONE MACHINE PER PROCESS: a daemon process runs exactly ONE live machine — the human's UI and you co-drive the SAME session (shared-attach). Before starting, list/status existing sessions and attach to one instead; a SECOND in-process session is NOT isolated — it rebinds the process-global VIC/drive and corrupts the first session's rendering (boot text goes black) until a process restart. For a truly isolated machine (e.g. a throwaway build test) use a SEPARATE backend process. Not for a one-shot PRG run without a persistent session (use runtime_run_prg). Inputs: disk_path; optional device_id, pal, trace_out, trace_domains. Returns: session id + resolved config + trace status when streaming.",
+    "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, cycle-accurate 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). ONE MACHINE PER PROCESS: a daemon process runs exactly ONE live machine — the human's UI and you co-drive the SAME session (shared-attach). Before starting, list/status existing sessions and attach to one instead; a SECOND in-process session is NOT isolated — it rebinds the process-global VIC/drive and corrupts the first session's rendering (boot text goes black) until a process restart. For a truly isolated machine (e.g. a throwaway build test) use a SEPARATE backend process. Not for a one-shot PRG run without a persistent session (use runtime_run_prg). Inputs: media_path — ANY of .d64/.g64/.crt/.prg/.c64re, identified by CONTENT not by extension, and optional: a session is a machine, and a medium is something you put in it. A .crt is inserted, a disk is mounted, a .c64re REPLACES the machine, and a .prg is loaded — and typed RUN only when it loads at $0801 behind a valid BASIC line (which is also how SYS-stub releases are meant to start; anything else loads and stops). disk_path is the deprecated alias, kept so existing callers keep working. Also optional: device_id, pal, trace_out, trace_domains. Returns: session id + resolved config + trace status when streaming.",
     {
-      disk_path: z.string(),
+      // BUG-041 — a session is a MACHINE; a medium is something you put in it. This
+      // used to be a REQUIRED disk_path that a shared attach never acted on (the daemon
+      // says so itself: the attach params "do NOT reconstruct the singleton machine"),
+      // with no cart/PRG/snapshot equivalent — so starting from a cartridge meant naming
+      // a .g64 nobody uses to satisfy the schema, then mounting the CRT.
+      //
+      // The type is decided by CONTENT in the DAEMON (media/open), never here: putting
+      // it in the tool would mean the next client reimplements it with a different edge
+      // case at $0801.
+      media_path: z.string().optional(),
+      /** @deprecated use media_path — kept so existing callers keep working. */
+      disk_path: z.string().optional(),
       device_id: z.number().int().min(8).max(11).optional(),
       pal: z.boolean().optional(),
       start_track: z.number().int().min(1).max(40).optional(),
@@ -89,9 +100,11 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     // read by the removed in-process branch. Left in the schema (accepted + ignored, as
     // in daemon mode today) — pruning the input surface is a separate decision.
     safeHandler("runtime_session_start", async ({
-      disk_path, device_id, pal, start_track, write_protected,
+      media_path, disk_path, device_id, pal, start_track, write_protected,
       trace_out, trace_domains,
     }) => {
+      // BUG-041 — one input. `disk_path` is the deprecated alias.
+      const mediaIn = media_path ?? disk_path;
       // Spec 744.4c — the product MCP creates the session IN THE DAEMON (the one
       // process-stable authority the UI also uses), NOT a private session in the MCP
       // process. The LLM still sees this stable tool; the daemon owns the machine.
@@ -109,26 +122,43 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Resolve to ABSOLUTE the same way the trace path is (absolute as-is, else
       // under the MCP's project). NOTE: context.projectDir() returns the project
       // ROOT, not a resolved file path — it is the wrong tool for this.
-      const absDisk = disk_path
-        ? (resolve(mcpProject ?? process.cwd(), disk_path))
-        : disk_path;
+      const absMedia = mediaIn
+        ? (resolve(mcpProject ?? process.cwd(), mediaIn))
+        : undefined;
       const absTraceOut = trace_out ? resolveTraceOut(trace_out, mcpProject) : undefined;
       // Seed the auto-spawn base so a daemon we start lives in a real project.
       runtimeDaemon.setProjectDir(mcpProject);
-      const r = await runtimeDaemon.createSession({ disk_path: absDisk, device_id, pal, start_track, write_protected, trace_out: absTraceOut, trace_domains });
+      const r = await runtimeDaemon.createSession({ disk_path: absMedia, device_id, pal, start_track, write_protected, trace_out: absTraceOut, trace_domains });
+      // BUG-041 — the medium is OPENED after the session exists, by the daemon, which
+      // decides what it is from the CONTENT. A shared attach never acted on the
+      // create-time path (its own comment: the attach params "do NOT reconstruct the
+      // singleton machine"), which is why naming a .g64 you did not need was the only way
+      // to start from a cartridge.
+      let openedLine: string | undefined;
+      if (absMedia) {
+        try {
+          const opened = await runtimeDaemon.call<{ message?: string }>("media/open", { path: absMedia });
+          openedLine = typeof opened?.message === "string" ? opened.message : `Opened: ${absMedia}`;
+        } catch (e) {
+          openedLine = `Could not open ${absMedia}: ${e instanceof Error ? e.message : String(e)}`;
+        }
+      }
       const lines = r.attached
         ? [
             `Attached to the existing shared session in the Runtime Daemon (one machine per process — the human's UI and you co-drive the SAME machine).`,
             `Session: ${r.sessionId}`,
-            `Mounted disk: ${r.diskPath || "(none)"}`,
+            openedLine ?? `Mounted disk: ${r.diskPath || "(none)"}`,
             `Mode: ${r.mode}`,
             `C64 cycles: ${r.c64Cycles}  PC: ${formatHexWord(r.pc)}`,
-            ...(absDisk ? [`Requested disk "${absDisk}" was NOT auto-mounted (would power-cycle the shared machine) — mount it deliberately with runtime_media_mount.`] : []),
+            // BUG-041 — the medium IS opened now (media/open, above), so the old
+            // "requested but not auto-mounted, do it yourself" line is gone: it
+            // described the schema's inertia, not a policy.
+            ...(openedLine ? [] : []),
           ]
         : [
             `Integrated session started (Runtime Daemon — shared with the UI).`,
             `Session: ${r.sessionId}`,
-            `Disk: ${absDisk ?? "(none)"}`,
+            openedLine ?? `Media: ${absMedia ?? "(none)"}`,
             `Mode: ${r.mode}`,
             `C64 cycles: ${r.c64Cycles}  PC: ${formatHexWord(r.pc)}`,
           ];
