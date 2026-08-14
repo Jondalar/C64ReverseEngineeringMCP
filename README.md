@@ -1,213 +1,95 @@
-# C64 Reverse Engineering MCP
+# C64RE
 
-C64RE is a reverse-engineering workbench for Commodore 64 software. It
-pairs a human reverse engineer with an LLM and gives them a shared,
-controllable C64 — a headless runtime you can snapshot, rewind, replay,
-and inspect cycle by cycle — fused with a disassembly pipeline that turns
-raw bytes into explained, named, semantic source.
+A reverse-engineering workbench for Commodore 64 software, driven from a coding
+harness over MCP. It turns disks, cartridges and PRGs into explained, named source,
+and keeps what was learned as project knowledge rather than as chat history.
 
-The aim isn't to boot software. It's understanding: turning disks,
-cartridges, PRGs, traces, and screenshots into durable project knowledge,
-built by a human and an LLM **together** — the LLM proposes structure and
-meaning, the human steers and confirms, and the runtime proves or refutes
-every claim against a real execution.
+**Human and LLM on one project.** The LLM proposes structure and meaning, the human
+steers and confirms, and a live C64 proves or refutes the claim. Tools are MCP methods,
+so the agent uses the same surface a person does.
 
-Overall Rule: Capability → TRX64, Meaning/Memory → C64RE.
+**Sibling project:** [TRX64](https://github.com/Jondalar/TRX64) is the runtime — a
+cycle-accurate C64 + 1541 + cartridge daemon. Capability lives there, meaning and memory
+live here. C64RE carries no emulator; it is a client.
 
-## What to expect
+![The C64RE workbench](docs/img/workbench.png)
 
-This is my (dkl / Jondalar) personal Reverse Engineering Toolbox packaged
-along my own needs when reverse engineering C64 games.  *You* might need 
-different features or things - and you are invited to contribute. 
+---
 
-Use PR mechanisms here on GitHub please.
+## The disassembly pipeline
 
-I will not answer feature requests without code / structured requirements and I 
-am not able to give support.
+Bytes → structure → meaning, and the third step is the one that matters.
 
+1. **Extraction** — PRG / CRT / D64 / G64: banks, sectors, directory, xrefs, candidate
+   segments. Disk and cartridge forensics are first-class, not a side door.
+2. **Heuristic disassembly** — the full 6502 ISA including undocumented opcodes. Nine
+   analyzers run in parallel: code discovery, text, sprites, charsets, screen RAM,
+   bitmaps, pointer tables, SID, probable code. Overlaps get resolved, not guessed.
+3. **Semantic annotation** — the LLM reads the whole listing and proposes segment
+   reclassifications, labels and routine explanations; the human reviews. This is where
+   `segment $7C21-$7F4F contains code` becomes `loader-side dispatcher: switches KERNAL
+   serial → custom fastloader, hands control to scene init`.
+4. **Verification** — assemble with KickAssembler or 64tass and rebuild the original
+   byte for byte. `cmp -l` is the referee. Annotations never touch bytes.
 
-## The Combination is more than sum of its parts
+Relocated code, self-modifying loaders and copy-loop targets are disassembled where they
+*run*, not where they sit.
+## The knowledge base
 
-Semantic disassembly tells you what code *means*. A controllable runtime
-lets you *watch it happen*. C64RE puts both on one timeline:
+Findings, entities, relations, payloads, flows, open questions — written to the project,
+searchable, and linked to the artifact and address they came from. Runtime evidence is
+registered as an artifact and attached to a finding; nothing stays a console log. The
+workbench UI renders it, and never becomes a second analysis engine.
 
-- rewind to the exact cycle a fastloader flips a bank,
-- overlay the named, explained routine onto the live execution,
-- replay that moment with findings and labels attached.
+- Every claim carries its evidence and the address range it covers.
+- Artifacts are versioned with lineage, so a rebuilt `.asm` does not orphan its findings.
+- Answering a question archives the noise it came from and resolves what it settles,
+  unasked. A deterministic index — no embeddings — keeps it searchable across sessions.
 
-Plain emulators run code but don't know what it means. Disassemblers
-describe code but can't run it. Meaning + execution, human + LLM — that's
-the point.
+## The agentic flow
 
-## The Runtime
-
-A controllable, inspectable C64 + 1541 + cartridge runtime — in ways
-neither real hardware nor a normal emulator offers:
-
-- **time travel** — snapshot / `.c64re` persistence, checkpoint ring,
-  rewind & replay
-- **reverse-debug** — an always-on ring keeps the last ~10 s of
-  instructions + writes: step backwards (`rstep`), ask *who wrote this
-  address* (`whowrote` — the stack-crash shortcut), auto-triage a JAM
-  into its causal chain (crash → wild jump → stack corruptor), and carve
-  a trace for an exact cycle window straight from the scrub bar
-- **code overlay** — map live execution onto disassembly and findings
-- **observation** — DuckDB traces, swimlanes, monitor, frozen-frame
-  exploration
-- **live browser workbench** — the backend owns the clock, monitor,
-  media, trace, and audio; the browser commands and visualizes
-- **frame-locked audio**, media ingress, mutable disks & cartridges
-
-**[TRX64](https://github.com/Jondalar/TRX64)** — a native (Rust), cycle-exact
-port of VICE — is **the** runtime: a separate daemon process serving the
-WebSocket protocol and the `.c64re` / `.c64retrace` formats. C64RE is a client
-of it and carries no emulator of its own; the original TypeScript runtime that
-once served as a parity oracle was deleted in 2026-08 (Spec 806). TRX64 is
-auto-found as the sibling `../TRX64/target/release/trx64-daemon`;
-`C64RE_RUNTIME_BIN` / `C64RE_TRX64_BIN` point elsewhere. If it is not there,
-the tools say so and hand you the per-OS setup recipe — there is no fallback.
-
-It already boots real scene software end-to-end — multi-stage cracks,
-custom fastloaders, EasyFlash cartridges — and its fidelity is gated on
-every change.
-
-## The Disassembly Pipeline
-
-Bytes → structure → meaning:
-
-1. deterministic extraction (PRG / CRT / D64 / G64; banks, sectors,
-   xrefs, candidate segments)
-2. heuristic disassembly (full 6502 ISA incl. undocumented opcodes)
-3. **semantic annotation — the heart of it**: the LLM reads the whole
-   listing and proposes segment reclassifications, labels, and routine
-   explanations; the human reviews
-4. verification: byte-identical rebuild (`cmp -l`)
-
-The valuable phase is the semantic one — where `segment $7C21-$7F4F
-contains code` becomes `loader-side dispatcher: switches KERNAL serial →
-custom fastloader, hands control to scene init`.
-
-## Human + LLM, With A Contract
-
-The collaboration has structure, not just chat. Work moves through a
-defined workflow, and the LLM operates under explicit roles:
-
-- **analyst** — forms and tests hypotheses
-- **cartographer** — maps structure, memory, and flows
-- **implementer** — writes and verifies
-
-Progress persists as entities, findings, relations, flows, tasks, and
-open questions — durable knowledge that survives across sessions, not
-console logs. The Workspace UI renders that knowledge; it never becomes a
-second analysis engine.
-
-The first-level model is a **five-phase lifecycle** — Onboarding · Discovery ·
-Reverse Engineering · Build · Release — navigated freely via the left rail (not a
-gate); the seven-phase per-artifact pipeline nests inside Discovery + RE.
-Onboarding is agent-led: the dialogue runs in the coding harness (Claude Code /
-Codex) over MCP and C64RE records the brief — it is not a second LLM runtime.
-
-Details: [workflow](docs/workflow.md) · [roles](docs/agent-doctrine.md) ·
-[per-artifact pipeline](docs/re-phases.md) ·
-[product vision](docs/product-vision-and-workbench-contract.md).
-
-## Architecture
-
-Two repos, two roles — the Leitregel split. C64RE turns bytes/events/state into
-**meaning**; TRX64 (a separate Rust process) provides the runtime **capability**.
-
-```text
-┌────────────────────────────────────────────────────────────────────┐
-│ Human + LLM                                                         │
-│   Claude Code · Codex · Cursor   run the agents/flows + onboarding   │
-│   Browser Workbench UI           visualizes knowledge; not an LLM    │
-└──────────────┬──────────────────────────────────┬───────────────────┘
-               │ MCP: knowledge / workflow          │ MCP + WebSocket: runtime
-               ▼                                     ▼
-┌────────────────────────────────┐   ┌───────────────────────────────────┐
-│ c64re-mcp — MEANING (this repo)│   │ trx64-mcp / Runtime Daemon         │
-│                                │   │   — CAPABILITY  (../TRX64, Rust)   │
-│ · disasm pipeline: extract →   │   │                                    │
-│   heuristic → semantic →       │◄─►│ · cycle-exact C64 + 1541 + cart    │
-│   byte-verify rebuild          │WS │ · trace · reverse-debug · rewind   │
-│ · findings/entities/relations  │   │ · checkpoint ring · snapshots      │
-│ · flows/tasks/open-questions   │   │ · .c64re / .c64retrace             │
-│ · project memory · UI views    │   │ · DuckDB trace store · monitor     │
-│ · agents/flows (BMAD, private) │   │                                    │
-└────────────────────────────────┘   │  the ONLY runtime — no fallback    │
-   Meaning / Memory → C64RE          └───────────────────────────────────┘
-                                         Capability → TRX64
-```
-
-Today the split is mid-transition (Spec 771): `c64re-mcp` still hosts the
-`runtime_*` tools as a thin **proxy** to the Runtime Daemon; a separate
-`trx64-mcp` server is the endstate. The daemon (WS `:4312`, Spec 744.4c) is
-already the one runtime both the UI and MCP are clients of. There is no second
-implementation: the TypeScript runtime and the `vice_*` bridge were deleted in
-2026-08 (Spec 806).
-
-The flow across the lifecycle — which actor acts in each phase, and the handoffs
-between them (renders on GitHub):
+Work moves through a five-phase lifecycle. The LLM operates under explicit roles —
+**analyst** forms and tests hypotheses, **cartographer** maps structure and flow,
+**implementer** writes and verifies — and the harness records each step, so a later
+session resumes instead of restarting.
 
 ```mermaid
 flowchart LR
     subgraph HU["🧑 Human"]
-        direction LR
-        H1[set goal] --> H2[steer / confirm] --> H3[sign-off]
+        H1[goal] --> H2[steer · confirm] --> H3[sign-off]
     end
-    subgraph LL["🤖 LLM + Harness — Claude Code / Codex"]
-        direction LR
-        L1[kickoff dialogue] --> L2[disasm + annotate] --> L3[build loops] --> L4[QA]
+    subgraph LL["🤖 LLM in Claude Code / Codex"]
+        L1[kickoff] --> L2[disasm · annotate] --> L3[build] --> L4[QA]
     end
-    subgraph CR["📚 C64RE — meaning / memory"]
-        direction LR
-        C1[record brief] --> C2[findings / payloads] --> C3[byte-verify rebuild] --> C4[package]
+    subgraph CR["📚 C64RE"]
+        C1[brief] --> C2[findings] --> C3[byte-verify] --> C4[package]
     end
-    subgraph TX["⚙️ TRX64 — runtime capability"]
-        direction LR
-        T1[play / watch] --> T2[trace / reverse-debug] --> T3[runtime-validate] --> T4[quality gate]
+    subgraph TX["⚙️ TRX64"]
+        T1[play] --> T2[trace · reverse-debug] --> T3[validate]
     end
-
     H1 -. goal .-> L1
-    L1 ==> C1
     T2 -. evidence .-> L2
     L2 ==> C2
     T3 -. validate .-> C3
     C4 -. release .-> H3
 ```
 
-Lanes = actors; left → right = the five phases (Onboarding · Discovery · Reverse
-Engineering · Build · Release).
+Onboarding · Discovery · Reverse Engineering · Build · Release, navigated freely from the
+left rail. The kickoff dialogue runs in the coding harness; C64RE records the brief.
+
+Details: [workflow](docs/workflow.md) · [roles](docs/agent-doctrine.md) ·
+[per-artifact pipeline](docs/re-phases.md) · [tools](docs/tools/analysis.md).
+
+---
 
 ## Setup
 
 ```bash
 git clone https://github.com/Jondalar/C64ReverseEngineeringMCP.git
-cd C64ReverseEngineeringMCP
-npm install
-npm run build
+cd C64ReverseEngineeringMCP && npm install && npm run build
 ```
 
-The bundled TRXDis pipeline is built automatically.
-
-### Environment Variables
-
-| Variable | Description | Required |
-|---|---|---|
-| `C64RE_PROJECT_DIR` | Working directory for the RE project | Yes |
-| `C64RE_RUNTIME_ENDPOINT` | WS endpoint of the product Runtime Daemon (Spec 744.4c) — e.g. `ws://127.0.0.1:4312`. When set, MCP `runtime_*` tools are clients of the daemon (the same runtime the UI uses). **The MCP auto-starts the daemon (detached) on first use — you do NOT start the backend by hand;** it outlives the MCP, so reconnect / browser reload do not reset sessions. `npm run runtime:daemon` is an optional explicit/foreground launch. Unset → the default `ws://127.0.0.1:4312`. | Recommended for shared human+LLM runtime |
-| `C64RE_RUNTIME_ENDPOINT` daemon backend | The daemon resolver picks `C64RE_RUNTIME_BIN` (explicit) or the sibling **TRX64** release daemon; `C64RE_TRX64_BIN` points at one elsewhere. Nothing found → an actionable setup error, never a silent downgrade (Spec 806). | No |
-| `C64RE_RUNTIME_AUTOSTART` | Set to `0` to disable the MCP auto-starting the daemon (then run `npm run runtime:daemon` yourself). | No |
-| `C64RE_RUNTIME_WS` | RETIRED 744.4b MCP co-host port. It reset sessions on MCP reconnect — superseded by the Runtime Daemon (`C64RE_RUNTIME_ENDPOINT`). Setting it now only logs a deprecation. | No (retired) |
-| `C64RE_TOOLS_DIR` | Override: external TRXDis build instead of bundled | No |
-| `C64RE_KICKASS_JAR` | Override path to KickAssembler jar | No |
-| `C64RE_64TASS_BIN` | Override path to `64tass` | No |
-| `C64RE_EXOMIZER_BIN` | Override path to `exomizer` | No |
-| `C64RE_BYTEBOOZER_BIN` | Override path to `b2` / ByteBoozer 2 | No |
-
-### Claude Code
-
-Add `.mcp.json` at the RE-project root:
+**Claude Code** — `.mcp.json` at your RE-project root:
 
 ```json
 {
@@ -215,24 +97,13 @@ Add `.mcp.json` at the RE-project root:
     "c64-re": {
       "command": "npx",
       "args": ["tsx", "/path/to/C64ReverseEngineeringMCP/src/cli.ts"],
-      "env": {
-        "C64RE_PROJECT_DIR": "/path/to/your/re-project",
-        "C64RE_RUNTIME_ENDPOINT": "ws://127.0.0.1:4312"
-      }
+      "env": { "C64RE_PROJECT_DIR": "/path/to/your/re-project" }
     }
   }
 }
 ```
 
-Use a full path to `npx` if your shell uses `nvm`.
-
-With `C64RE_RUNTIME_ENDPOINT` set, the MCP and the browser UI are clients of one
-shared **Runtime Daemon** (Spec 744.4c, auto-started on first use — see
-[Running The UI](#running-the-ui)); an MCP reconnect or browser reload never resets a
-session. Do not use the retired `C64RE_RUNTIME_WS`. Design:
-[docs/runtime-daemon-solution-design.md](docs/runtime-daemon-solution-design.md).
-
-### Codex
+**Codex:**
 
 ```toml
 [mcp_servers.c64re]
@@ -241,111 +112,43 @@ args = ["-lc", "cd /path/to/C64ReverseEngineeringMCP && NODE_NO_WARNINGS=1 ./nod
 env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 ```
 
-## Running The UI
+`C64RE_PROJECT_DIR` is the only required variable; the runtime daemon is found as the
+sibling TRX64 build and started on first use.
 
-One workbench bundle (Spec 757) — the workflow cockpit (project knowledge:
-artifacts, findings, memory maps, media, disassembly) and the Live runtime view
-are the same app. The backend is a **Runtime Daemon** (Spec 744.4c) that owns the
-C64/1541 clock, monitor, media, trace and checkpoints; the browser UI and MCP tools
-are clients, so a reload or MCP reconnect never resets a session. With
-`C64RE_RUNTIME_ENDPOINT` set (see above) the MCP **auto-starts the daemon on first
-use** — you don't launch the backend by hand.
+## The workbench
 
 ```bash
-npm run ui:serve            # API + built UI on http://127.0.0.1:4310
-npm run ui:dev              # Vite live reload on http://127.0.0.1:4311
-npm run ui:build            # rebuild the production bundle (ui/dist)
-npm run runtime:daemon -- --project <dir>   # optional explicit/foreground daemon
+npm run ui:serve     # API + built UI on http://127.0.0.1:4310
+npm run ui:dev       # Vite live reload on http://127.0.0.1:4311
 ```
 
-Backend / runtime / UI details: [docs/tools/headless.md](docs/tools/headless.md).
+One bundle: project knowledge — artifacts, findings, memory maps, media, disassembly —
+and the live runtime view are the same app. The daemon owns the clock, monitor, media and
+traces; the browser and the MCP tools are both clients, so a reload or an MCP reconnect
+does not reset a session.
 
-## Tools by lifecycle phase
+## What to expect
 
-Tools serve the phases, not a flat catalog — **Disk and Cartridge stay
-first-class and directly reachable**. Per-area reference docs linked below.
+This is my (dkl / Jondalar) personal Reverse Engineering Toolbox packaged
+along my own needs when reverse engineering C64 games. *You* might need
+different features or things - and you are invited to contribute.
 
-| Phase | Tools + evidence |
-|---|---|
-| **Onboarding** | project init / audit · goal capture · agent-team (BMAD) · play & watch via TRX64 |
-| **Discovery** | media extraction (CRT / D64 / G64) · payload inventory · loader + packer/depack analysis · **disk & cartridge forensics** (first-class) |
-| **Reverse Eng** | heuristic + semantic disassembly · annotation · flow / xref · payload classification · runtime evidence (trace / reverse-debug / code-overlay, from TRX64) |
-| **Build** | assemble (KickAssembler / 64tass) · byte-verify rebuild · patch-recipes · new medium / loader |
-| **Release** | QA gates · docs / reports · package & export |
-| **Cross-phase** | project knowledge (findings / entities / relations / questions) · artifacts · inspector · memory maps |
+Use issues here on GitHub please. PRs only to contributors, please reach out if you
+want to send code.
 
-Per-area reference docs: [analysis](docs/tools/analysis.md) ·
-[disk](docs/tools/disk.md) · [CRT](docs/tools/crt.md) ·
-[compression](docs/tools/compression.md) · [c64ref](docs/tools/c64ref.md) ·
-[TRX64 runtime](docs/tools/headless.md) ·
-[6502 sandbox](docs/tools/sandbox.md) · [knowledge](docs/tools/knowledge.md) ·
-[artifacts](docs/tools/artifacts.md) ·
-[agent doctrine](docs/agent-doctrine.md) ·
-[product vision](docs/product-vision-and-workbench-contract.md).
+I will not answer feature requests without sample code / structured requirements and I
+have no capabilities to give real support.
 
-## Workflow — the RE lifecycle
+---
 
-The first-level experience is a five-phase project lifecycle, navigated freely
-via the left rail (navigation, not a hard gate):
+## License
 
-1. **Onboarding** — start / audit the project; play & watch with TRX64; capture
-   the goal (EF port · cheat / trainer · enhancement · loader-replacement · docs).
-   Agent-led kickoff over the coding harness; C64RE records the brief.
-2. **Discovery** — media extraction + payload inventory; loader + packer analysis;
-   define the agent team + flows. Disk & cartridge forensics live here.
-3. **Reverse Engineering** — heuristic + semantic disassembly; annotation; payload
-   classification; TRX64 runtime evidence, C64RE owns the interpretation.
-4. **Build** — new medium / loader / feature in loops; decision ↔ code ↔
-   runtime-validation, byte-verified rebuild.
-5. **Release** — local QA gates; external-tester loops; reports; final package.
+**GPL-3.0-or-later** — see [LICENSE](LICENSE). C64RE contains no emulator and does not
+launch or compare against one. It does carry work read *from*
+[VICE](https://vice-emu.sourceforge.io/) — the monitor's verb set and expression syntax,
+and the cartridge type table, whose every row cites the source it was read from. VICE is
+GPL-2.0-or-later; C64RE uses the "or later" permission. Thank you to the VICE project.
 
-The seven-phase per-artifact analysis pipeline nests inside Discovery + RE.
-Runtime evidence is registered as **artifacts** and linked to findings/entities —
-never left as loose logs or console output.
-
-Details: [product vision](docs/product-vision-and-workbench-contract.md) ·
-[workflow](docs/workflow.md) · [per-artifact pipeline](docs/re-phases.md) ·
-[lifecycle spec 773](specs/_archive/773-workflow-cockpit-lifecycle.md).
-
-## Planning & Status
-
-- [PLAN.md](PLAN.md) — roadmap + working baseline + step gates
-- [specs/README.md](specs/README.md) — the cross-repo spec board (C64RE + TRX64
-  share one number range; the single registry of what's ACTIVE / DONE / CLOSED)
-- **Gates:** what this repo owns, it gates — the MCP surface
-  (`check:mcp-product-surface`, `check:surface`, `check:runtime-invisible`), the
-  knowledge/analysis e2e set (`e2e:748`, `e2e:751`, `e2e:752`, `e2e:medium-coverage`,
-  `e2e:785-cart-readset`, `e2e:805-sandbox-batch`) and the format checks
-  (`check:cart-type-ids`). `npm run` lists them. **Runtime** regression protection is
-  TRX64's own quality gates (Spec 783) and is not reproducible from here — the
-  `proof:*` family that used to stand in this spot booted the deleted in-repo emulator
-  and went with it (Spec 806).
-- [docs/runtime-product-baseline-2026-05-24.md](docs/runtime-product-baseline-2026-05-24.md)
-  + [specs/_archive/715-runtime-product-proof-baseline.md](specs/_archive/715-runtime-product-proof-baseline.md)
-  — the frozen record of what those gates once proved. History, not authority.
-- [CLAUDE.md](CLAUDE.md) — working doctrine for contributors and agents
-
-## License & Credits
-
-C64RE MCP is licensed under the GNU General Public License v3.0 or later
-(`GPL-3.0-or-later`). See [LICENSE](LICENSE).
-
-C64RE contains no emulator (Spec 806) and does not run, launch or compare against one.
-It does carry work that was *read from* [VICE](https://vice-emu.sourceforge.io/), the
-Versatile Commodore Emulator — the monitor's verb set and expression syntax, and the
-cartridge type table, whose every row cites the VICE source it was read from. VICE is
-licensed under the GNU General Public License version 2 or later; C64RE uses the "or
-later" permission and distributes under GPL-3.0-or-later. Thank you to the VICE project
-and its contributors.
-
-The VICE architecture references a port is checked against now live in the
-[TRX64](https://github.com/Jondalar/TRX64) repo, with the port itself.
-
-Additional notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-### ROMs And Third-Party Media
-
-Commodore ROM images, commercial disks, cartridges, and other copyrighted
-media are not part of this project license. If runtime tests or examples
-need ROMs, provide them locally through your own legally obtained copies or
-through files whose licenses permit redistribution.
+Further notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+**ROMs and third-party media** are not part of this license. Commodore ROM images,
+commercial disks and cartridges must come from your own legally obtained copies.
