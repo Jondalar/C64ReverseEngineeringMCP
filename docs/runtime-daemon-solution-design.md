@@ -60,6 +60,44 @@ MCP server
    busy/run-state results when they overlap.
 10. VICE is not part of this product topology.
 
+### How rule 9 is implemented, and what it costs (added 2026-08-14)
+
+Serialisation is **one mutex over the whole daemon state**:
+
+```rust
+pub type SharedState = Arc<Mutex<State>>;
+```
+
+The thread advancing the emulation takes it; every RPC takes it. There is no queue and no
+per-subsystem lock — whoever holds it holds it alone.
+
+**Half of that is required.** A monitor `m c000 c0ff` must not read memory while an
+instruction is half executed. The machine is one object, and access to it has to take
+turns; that is the condition for a memory dump meaning anything.
+
+**The granularity is not.** The same lock also covers the checkpoint ring, the trace
+state, the media events, the observers, the transport and the marks — and the monitor's
+filesystem cwd. So `!pwd`, which never touches the machine, waits behind a checkpoint
+capture.
+
+That was tolerable while the capture cadence was 25 (two captures a second). Spec 808 made
+it 1 for the 60-second rewind window — fifty a second — and the cost became visible as
+**BUG-044**: keystrokes arriving late in the cockpit, an Enter appearing to do nothing
+until the third or eighth try. The bug was not new; it was newly *reachable*.
+
+The shipped fix is a yield, not a cure: the cockpit drains its input queue before
+refreshing its panel, so display work never delays a keystroke. Two things would actually
+fix it, and both are open:
+
+1. **Commands that do not touch the machine should not take the machine's lock** —
+   `!pwd`, `!ls`, `!cd`, `marks`, `rewind`. That is most of what a person types while
+   working.
+2. **The capture should not hold the lock across its whole body** — copy the state out,
+   release, fill the ring outside the critical section.
+
+Written down because the intent (rule 9) was documented and the cost was not, and an
+undocumented cost gets rediscovered as a bug rather than recognised as a known trade.
+
 ## Rejected Topologies
 
 ### MCP-hosted Runtime
