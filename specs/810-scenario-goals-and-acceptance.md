@@ -108,12 +108,35 @@ afterwards to make a test pass.
 - **G6 — no runtime in C64RE.** The doctrine gate (`check:runtime-invisible`) stays green;
   810 adds no emulation path.
 
-## §7 Open — the refinement questions
+## §7 Decided in refinement
 
-1. **Where does the Gherkin live?** In the project knowledge store as a first-class entity,
-   or as files in the project dir that get indexed? The first makes it queryable and
-   versioned with everything else; the second makes it editable in any editor and
-   diffable in git.
-2. **What is a criterion allowed to name?** Addresses and components are obvious. Do
-   findings, payloads and routines (C64RE's own vocabulary) become nameable targets — "the
-   loader's entry point is unchanged" — or does v1 stay at raw addresses?
+**The Gherkin lives in FILES, in the project dir, and the knowledge store indexes them.**
+
+```
+<project>/scenarios/*.feature
+```
+
+This cuts against the usual line here (everything is an entity in the store), and the
+reason is what a scenario actually is: **text a human writes and rewrites, several times in
+a row.** A file is the better tool for that than an API — and git supplies history, diffs,
+blame and conflict resolution for free rather than having them rebuilt inside the store.
+Sharing one is a paste, not an export.
+
+The price is paid on linking. "This scenario checks that finding" is a reference you get
+for nothing when both sides are entities; with files it has to be written down. So a
+scenario names what it targets explicitly in its own header, and the indexer resolves it:
+
+```gherkin
+# targets: finding/f-2091, payload/level-loader
+Scenario: the lives counter stops decrementing
+```
+
+An unresolvable target is a lint error at index time, not a dangling reference discovered
+months later — the whole point of choosing files was that a human maintains them, and a
+human needs to be told when a name has gone stale.
+
+## §8 Open — the remaining refinement question
+
+**What is a criterion allowed to name?** Addresses and components are obvious. Do findings,
+payloads and routines — C64RE's own vocabulary — become nameable targets ("the loader's
+entry point is unchanged"), or does v1 stay at raw addresses?
