@@ -18,9 +18,13 @@ loaded into every context window.
    runtime is unavailable, tools say so and carry the setup recipe; they never quietly
    do something else. Do not reintroduce an in-repo core. (Spec 806; the single-path
    rule it replaces is retired in `DOCTRINE.md`.)
-2. **One machine per process.** One daemon = exactly ONE live machine, shared: the
-   human's UI and the LLM co-drive it. Need isolation → a separate `trx64-daemon` on
-   its own port, and never power-cycle the shared one for a test.
+2. **One SHARED machine, plus ephemeral sandboxes.** The session the human sees is
+   exactly one, and the UI shows only that one: human and LLM co-drive it, and it is
+   never power-cycled for a test. For point work — depacking, a test run, a comparison
+   — C64RE **may** spawn its own `trx64-daemon` sandbox on its own port. A sandbox is
+   born with a budget and **ends itself** when the budget runs out, whether or not
+   anyone is still listening. Amended 2026-08-14; the reasoning and the reaping rule
+   are in `DOCTRINE.md`.
 3. **The 1541 drive CPU stays its own 6502** (a TRX64 rule now). Do not merge it into
    the C64 core.
 4. **Traces go into the trace store, never into a one-off script.** Capture the whole

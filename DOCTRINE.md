@@ -32,6 +32,37 @@ freshly started daemon cold-boots. A disk requested on attach is not auto-mounte
   test. The MCP `runtime_*` tools cannot give you isolation: they are pinned to one
   port and attach by design.
 
+**Amended 2026-08-14 — C64RE may spawn sandboxes itself.**
+
+The letter of this rule always allowed a second daemon; what it assumed was a *human*
+deciding to start one. That assumption is now wrong. Spec 809 gives TRX64 a fan-out
+capability ("restore into N machines, run, hand back the states") and Spec 810 drives it,
+so the caller is software and the sandboxes are many and short-lived.
+
+What does **not** change, and is the part this rule was always worth having for:
+
+> **The shared session stays one, and the UI shows only that one.** Human and LLM
+> co-drive it. It is never power-cycled for a test, and a sandbox is never visible in the
+> workspace UI — because the failure this rule exists to prevent is debugging against the
+> wrong machine, and two machines in one view is exactly how that happens.
+
+What changes: for **point work** — depacking, a test run, a component comparison — C64RE
+may start a sandbox itself, without asking, and must take it down again.
+
+**A sandbox ends itself.** It is born with a budget (cycles and wall-clock) and terminates
+when the budget runs out, *whether or not anyone is still listening*. Not a reaper, not a
+cleanup pass at next start: self-termination.
+
+The reason is that the alternative fails in the way that is hardest to see. An orphaned
+sandbox is a process, a port and a few hundred megabytes that belong to nobody — and
+eventually someone attaches to a forgotten one and debugs against a machine whose history
+they cannot account for. That is the *same* defect this rule was written to prevent, just
+reached by a longer path. A sandbox that cannot be forgotten is the only version of this
+that stays true after the tenth time somebody's script dies mid-run.
+
+"Point work" means the duration is known. If a job genuinely cannot state a budget, it is
+not point work and it belongs on a deliberately started daemon that a human owns.
+
 *Scope note (2026-08-12, Spec 806): the C64RE-side half of this rule is now enforced by
 construction rather than by a gate. C64RE has no machine to build — the in-process
 TypeScript emulator, its session manager and `startIntegratedSession` are deleted, so
