@@ -108,6 +108,9 @@ afterwards to make a test pass.
   and the acceptance are all reachable.
 - **G6 — no runtime in C64RE.** The doctrine gate (`check:runtime-invisible`) stays green;
   810 adds no emulation path.
+- **G7 — a moved target is reported, not followed.** Accept a criterion that names a
+  finding, move the finding, re-run: the verdict names the divergence (frozen address vs
+  current) instead of silently checking the new address and passing. See §8.
 
 ## §7 Decided in refinement
 
@@ -136,8 +139,42 @@ An unresolvable target is a lint error at index time, not a dangling reference d
 months later — the whole point of choosing files was that a human maintains them, and a
 human needs to be told when a name has gone stale.
 
-## §8 Open — the remaining refinement question
+## §8 Decided in refinement — a criterion may name C64RE's vocabulary, and the
+resolution is frozen with the acceptance
 
-**What is a criterion allowed to name?** Addresses and components are obvious. Do findings,
-payloads and routines — C64RE's own vocabulary — become nameable targets ("the loader's
-entry point is unchanged"), or does v1 stay at raw addresses?
+A criterion may target a finding, a payload or a routine, not only a raw address:
+
+```gherkin
+Then the loader's entry point is unchanged
+Then payload "level-loader" is unchanged
+```
+
+A scenario should read like what you mean rather than like a memory map — that is the
+whole reason for choosing a human notation.
+
+**But the resolution is frozen at acceptance time, and the name is kept beside it.**
+
+```
+the loader's entry point   →   $8500     (resolved 2026-08-14, frozen with acceptance)
+```
+
+Without this there is a failure mode that is invisible in exactly the wrong direction. A
+finding can move: someone annotates further, a segment gets reclassified, an analysis is
+re-run. If the criterion re-resolves the name on **every** run, then tomorrow it quietly
+checks a different address — and stays **green**. A criterion that silently changes what it
+is testing is worse than one that fails, because a red gets looked at.
+
+So: the name is in the file for the human, the frozen address is in the acceptance for the
+machine, and both are carried. When they later disagree, that is its own finding —
+
+```
+criterion "the loader's entry point" is frozen at $8500;
+finding f-2091 now resolves to $8520 — re-accept or fix the scenario
+```
+
+— reported, never silently followed. Re-accepting is a deliberate act with a human on it,
+which is the same rule as §1: acceptance is what turns a name into something a machine may
+trust.
+
+**Gate G7:** move a finding after acceptance and assert the run reports the divergence
+rather than following it or passing.
