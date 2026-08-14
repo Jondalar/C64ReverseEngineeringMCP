@@ -110,12 +110,14 @@ cli.ts → server.ts (MCP tools/prompts) → run-cli.ts (spawns node) → pipeli
 - `pipeline/src/lib/tass-converter.ts` — KickAssembler→64tass dialect conversion
 - `pipeline/src/lib/annotations.ts` — Annotation schema and loading
 
-## Three-Phase RE Workflow (legacy framing)
+## The per-PRG analysis loop
 
-The original three-phase framing (analysis → annotation → verification) is
-the per-PRG building block. The current canonical model is the
-**seven-phase workflow** (Spec 034) — see `docs/re-phases.md`. The three
-phases below map roughly to phases 3 / 5 / 7 of the seven-phase model.
+The building block underneath the phase models. **Which phase model applies is
+decided by `src/agent-orchestrator/lifecycle.ts`** — it owns the crosswalk
+between the 5-phase lifecycle, the 7-phase per-artifact pipeline
+(`docs/re-phases.md`), the deterministic step orchestrator and the persisted
+9-phase workflow state (`docs/workflow.md`). Do not restate a mapping from
+memory; that file decides.
 
 1. **Heuristic Analysis** (deterministic, seconds) — `analyze_prg` tool runs 9 parallel analyzers (code discovery, text, sprite, charset, screen RAM, bitmap, pointer table, SID, probable code), resolves overlaps, outputs `_analysis.json`
 2. **Semantic Annotation** (LLM-driven) — LLM reads full ASM, produces `_annotations.json` with segment reclassifications, labels, and routine descriptions. Annotations are non-destructive (comments/labels only, never bytes). Spec 042 `propose_annotations` writes a draft for review.

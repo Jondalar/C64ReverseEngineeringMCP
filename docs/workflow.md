@@ -118,21 +118,18 @@ So the intended model is:
 
 ## Runtime Evidence Providers
 
-C64RE has three runtime sources, in priority order:
+C64RE has one runtime:
 
-- **TRX64** — the **default runtime backend** (native Rust daemon,
+- **TRX64** — the runtime backend (native Rust daemon,
   auto-discovered / spawned as the sibling `../TRX64/target/release/trx64-daemon
   --stream`, Spec 771). It produces the bytes, events, and machine-state that
   drive analysis, and owns the runtime / instrument / trace / checkpoint stack
   (`.c64re` snapshots, `.c64retrace` timelines).
-  It is the ONLY runtime: the in-repo TypeScript C64 + 1541 emulator and the
-  `vice_*` bridge were deleted on 2026-08-12 (Spec 806), so there is nothing to
-  fall back to and nothing to A/B against. A missing daemon is an actionable
-  setup error carrying the per-OS recipe.
-- **VICE** — a source tree to READ when porting, nothing C64RE runs.
+  There is no fallback and nothing to A/B against; a missing daemon is an
+  actionable setup error carrying the per-OS recipe.
 
-Leitregel (Spec 771): **Capability → TRX64, Meaning / Memory → C64RE.** Every
-MCP `runtime_*` tool is a client of the daemon.
+Leitregel: **Capability → TRX64, Meaning / Memory → C64RE.** Every MCP
+`runtime_*` tool is a client of the daemon.
 
 Runtime output is a project evidence source. A runtime run is only useful to the
 workflow when its output is registered or summarized into durable project
@@ -149,6 +146,22 @@ Do not leave important conclusions only in console output, chat, or an
 unregistered markdown note.
 
 ## Phase Overview
+
+These nine ids are **Model D**, the persisted state machine. Three other phase
+models run beside it, and they are not competing views of one thing — they are
+different axes, mapped onto each other in one place:
+
+| Model | What it phases | Where |
+|---|---|---|
+| Lifecycle (5) | the human project: Onboarding · Discovery · RE · Build · Release | `LIFECYCLE_ORDER` |
+| A (7) | one artifact through analysis; phases 1-2 are Discovery, 3-7 are RE | `lifecycleForPerArtifactPhase` |
+| C (14 steps) | the deterministic step orchestrator | `STEP_TO_LIFECYCLE` |
+| D (9) | this document — the persisted workflow state | `WORKFLOW_PHASE_TO_LIFECYCLE` |
+
+**`src/agent-orchestrator/lifecycle.ts` is the source of truth for the mapping.**
+When a phase name here and a phase name there disagree, that file decides. The
+lifecycle is navigation, not a gate; per-artifact gating (Model A) stays the
+RE-internal discipline.
 
 | Phase | Goal | Typical outputs |
 |---|---|---|
@@ -405,24 +418,3 @@ When working inside a project:
 | `full_re_workflow` | Strict PRG-centric 3-phase sub-workflow for one binary. |
 | `disk_re_workflow` | Triage and analyze D64/G64 disk images. |
 | `debug_workflow` | Runtime and breakpoint-driven debugging guidance. |
-
-## Relationship To The Older 3-Phase PRG Workflow
-
-The classic PRG-oriented flow still exists and remains useful for a
-single binary:
-
-1. deterministic analysis
-2. semantic annotation
-3. rebuild verification
-
-In the project-centric model, that older flow now lives mostly inside:
-
-- `deterministic-extraction`
-- `semantic-enrichment`
-
-and its outputs should be persisted as project artifacts and knowledge
-instead of staying as one-off local files only.
-
-If runtime evidence is available, it should be treated as an additional
-semantic-evidence layer over that same flow, not as a completely
-separate worldview.

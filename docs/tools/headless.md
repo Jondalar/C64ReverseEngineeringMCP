@@ -6,12 +6,9 @@ sibling `../TRX64/target/release/trx64-daemon` (override with `C64RE_RUNTIME_BIN
 `C64RE_TRX64_BIN`). It serves the WS JSON-RPC protocol and owns the `.c64re` and
 `.c64retrace` formats.
 
-**There is no second runtime.** The in-repo TypeScript emulator this page used to
-describe — its C64 core, its 1541, its modes (`fast-trap`, `real-kernal`,
-`debug-lockstep`, `debug-vice-compare`) and its standalone-drive sessions — was
-deleted on 2026-08-12 (Spec 806), together with the 49 `vice_*` bridge tools. If the
-daemon is missing, the tools say so and hand you the per-OS setup recipe; nothing
-silently falls back.
+**There is no second runtime.** No in-process emulator, no fallback, nothing to A/B
+against. If the daemon is missing the tools say so and hand you the per-OS setup
+recipe; nothing silently substitutes.
 
 Leitregel: Capability → TRX64, Meaning/Memory → C64RE.
 
@@ -115,7 +112,7 @@ The screen is a **binary VIC frame stream**, not per-frame PNG/base64:
 ### Run it
 
 ```bash
-npm run runtime:daemon -- --project <dir>   # TS headless WS backend — the fallback (TRX64 is the default backend), port 4312
+npm run runtime:daemon -- --project <dir>   # start the TRX64 daemon in the foreground, port 4312
 npm run ui:dev                              # UI dev server (vite; warm-starts the daemon)
 ```
 

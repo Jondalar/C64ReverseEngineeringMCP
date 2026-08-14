@@ -6,8 +6,9 @@
 > V1 → meta → semantic V2) under **Reverse Engineering**. They are NOT the top-level
 > product structure. The binding first-level experience is the five-phase project
 > lifecycle (Onboarding · Discovery · Reverse Engineering · Build · Release) in
-> [`product-vision-and-workbench-contract.md`](product-vision-and-workbench-contract.md)
-> §2A and [`../specs/_archive/773-workflow-cockpit-lifecycle.md`](../specs/_archive/773-workflow-cockpit-lifecycle.md).
+> [`product-vision-and-workbench-contract.md`](product-vision-and-workbench-contract.md) §2A.
+> The mapping itself is owned by `src/agent-orchestrator/lifecycle.ts`
+> (`lifecycleForPerArtifactPhase`); when a document and that file disagree, the file wins.
 
 This file is the agent-facing definition of the seven phases C64RE
 work moves through. Each phase has a narrow scope, an explicit
