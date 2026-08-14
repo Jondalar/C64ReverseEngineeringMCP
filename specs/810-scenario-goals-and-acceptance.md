@@ -1,10 +1,12 @@
 # Spec 810 — Scenario goals and acceptance: what is checked, and who says yes
 
 **Status:** PROPOSED
-**Repos:** C64RE only. Running the branches is **809** in TRX64 — this spec never
-emulates anything.
+**Repos:** C64RE only. The runtime capability is **809** in TRX64 — this spec never
+emulates anything itself, but it DOES drive the sandboxes (doctrine amended 2026-08-14:
+C64RE may spawn ephemeral TRX64 sandboxes for point work, and they end themselves on a
+budget).
 **Number:** 810 (registry: `specs/README.md`).
-**Depends on:** 809 (marks + branches + N sandboxes), 794 (whitebox component-diff and its
+**Depends on:** 809 (marks + the sandbox capability), 794 (whitebox component-diff and its
 exclusion mask), 797 (build-ready delta from a winning branch).
 **Framing:** the owner's model, the middle bullet —
 
@@ -46,8 +48,9 @@ Scenario: the lives counter stops decrementing
 ```
 
 - **Given** binds a mark (809). C64RE never creates it; it names one that exists.
-- **When** names a branch and a budget. 809 runs it in a scratch instance and hands back
-  the end state.
+- **When** names a branch and a budget. 810 owns the branch — its name, its patch-set, what
+  scenario it belongs to — and asks 809 for a sandbox: *these bytes, this budget, from this
+  mark*. 809 hands back an end state and knows nothing about why.
 - **Then** is the criterion. Two kinds:
   - **byte-exact** — an address, a range, a component. Machine-checkable forever, from run
     one. Full automation.
@@ -87,10 +90,14 @@ afterwards to make a test pass.
 
 ## §5 What 810 does NOT do
 
-- **It does not emulate.** No machine, no sandbox, no patches applied. It sends "run these
-  branches from this mark" and reads states back (809 §4).
-- **It does not define marks or branches.** Those are 809's objects; 810 refers to them by
-  name.
+- **It does not emulate.** It never steps a CPU or applies a patch itself. It asks 809 for
+  a sandbox — *these bytes, this budget, from this mark* — and reads the end state back.
+  Spawning that sandbox is allowed and expected (doctrine, 2026-08-14); it must carry a
+  budget, and it ends itself.
+- **It does not define marks.** A mark is 809's object, set in the runtime by whoever is
+  driving. 810 names one that exists and never creates one.
+- **It DOES own branches.** The name, the patch-set, which scenario it serves and whether
+  it won are all 810's — 809 was deliberately cut back so it never learns any of that.
 - **It is not a test runner for the repo.** This is about scenarios over a C64 title, not
   about C64RE's own gates.
 

@@ -42,15 +42,16 @@ loaded into every context window.
    the `save_*` family, and search before re-deriving. Roles via `agent_set_role`. These
    do **not** apply to ordinary edits in this repo.
 
-9. **After a build, the spec and the docs are brought in line. Always.** Not "later",
-   not "when we tidy up" — in the same commit as the change, or the one after it. Update
-   the spec's own `**Status:**` line, its row in `specs/README.md`, and any doc that
-   asserted the old state; close what is finished and move it to `_archive/` with its
-   decision. This is the rule the repo learned the hard way: 726 was carried as open work
-   for ten weeks after the spec itself recorded it shipped, 794–798 said PROPOSED while
-   the board said DONE, and 784 still says "ready for build" with all its deliverables
-   sitting in `src/`. Nine specs were closed in one evening and **not one needed
-   building**.
+9. **Docs are brought in line BEFORE the commit — at the very latest before the push.**
+   Not "later", not "when we tidy up". Before you type `git commit`, every document the
+   change touched is already correct: the spec's own `**Status:**` line, its row in
+   `specs/README.md`, and any doc that asserted the old state. Close what is finished and
+   move it to `_archive/` with its decision. If a push is imminent that is the hard
+   deadline — nothing leaves this machine describing a world that no longer exists.
+   This is the rule the repo learned the hard way: 726 was carried as open work for ten
+   weeks after the spec itself recorded it shipped, 794–798 said PROPOSED while the board
+   said DONE, and 784 still says "ready for build" with all its deliverables sitting in
+   `src/`. Nine specs were closed in one evening and **not one needed building**.
 
 **Retired — do not re-apply:** VICE and the TypeScript runtime as *authority*
 (2026-07-15), and then as anything at all (2026-08-12, Spec 806): the TS emulator, its
