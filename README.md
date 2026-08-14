@@ -12,8 +12,6 @@ so the agent uses the same surface a person does.
 cycle-accurate C64 + 1541 + cartridge daemon. Capability lives there, meaning and memory
 live here. C64RE carries no emulator; it is a client.
 
-![The C64RE workbench](docs/img/workbench.png)
-
 ---
 
 ## The disassembly pipeline
