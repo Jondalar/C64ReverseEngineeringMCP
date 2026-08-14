@@ -90,7 +90,7 @@ it is a bet, not a behaviour.
 ## Resolution
 
 - **Root cause:** the schema required a `disk_path` the shared-attach path never acts on,
-  and no other type had an входной door. A leftover from when a session meant a drive with
+  and no other type had an entry door at all. A leftover from when a session meant a drive with
   a medium.
 - **Fix (daemon):** `detect_media_kind` asks the file — magic first (`GCR-1541`,
   `C64 CARTRIDGE   `, `C64RESNP`), then the four legal `.d64` lengths, then `.prg` as the
