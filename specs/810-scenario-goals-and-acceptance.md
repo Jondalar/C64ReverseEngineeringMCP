@@ -1,6 +1,9 @@
 # Spec 810 — Scenario goals and acceptance: what is checked, and who says yes
 
-**Status:** PROPOSED
+**Status:** PARTLY BUILT — the notation, the two goal kinds, the mask-on-the-criterion
+rule and the frozen-resolution check are in (`src/project-knowledge/scenario-gherkin.ts`,
+`npm run e2e:810`, 18/18). Open: the indexer, the acceptance store, and the runner that
+drives 809.
 **Repos:** C64RE only. The runtime capability is **809** in TRX64 — this spec never
 emulates anything itself, but it DOES drive the sandboxes (doctrine amended 2026-08-14:
 C64RE may spawn ephemeral TRX64 sandboxes for point work, and they end themselves on a
@@ -87,6 +90,21 @@ afterwards to make a test pass.
 - **The winner's provenance** — when a branch is chosen, 797 already turns its patch-set
   into a build-ready delta. 810 records *why* it won: the scenario it satisfied and the
   acceptance behind it.
+
+## §4b It supersedes Spec 030's scenario
+
+`RuntimeScenarioSchema` (Spec 030) is still in `types.ts`, with a store and a
+`save_runtime_scenario` tool — and **the spec itself is gone**: no file survives in
+`specs/` or `specs/_archive/`. What it describes is define-once-run-many with breakpoints
+and a stop condition, and it has no notion of a goal or an acceptance. That is the "inert
+data" shape Spec 775 names, and 810 is the concept that replaces it.
+
+**The old type is not deleted by this spec.** Removing it touches the schema, the storage
+and an MCP tool, and orphans anything already stored — a decision of its own rather than
+something smuggled into a new feature. What 810 fixes is the ambiguity: there is ONE live
+scenario concept now, and the other is a leftover awaiting a deliberate removal. A repo
+with two things called "scenario", one of them dead, is how the next person builds against
+the wrong one.
 
 ## §5 What 810 does NOT do
 
