@@ -74,7 +74,8 @@ afterwards to make a test pass.
 
 ## §4 What is stored
 
-- **The scenario** — Gherkin source, versioned in the project knowledge store.
+- **The scenario** — a `.feature` file in the project dir, versioned by git (§7). The store
+  holds only the INDEX of it: name, targets, and where it lives.
 - **The acceptance** — who, when, and the exact state that was accepted. A `.c64re`, so it
   can be diffed and re-accepted later.
 - **The verdict history** — per run: which mark, which branch, pass/fail, and the diff when
