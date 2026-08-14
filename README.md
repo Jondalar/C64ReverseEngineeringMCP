@@ -1,12 +1,11 @@
 # C64RE
 
-A reverse-engineering workbench for Commodore 64 software, driven from a coding
-harness over MCP. It turns disks, cartridges and PRGs into explained, named source,
-and keeps what was learned as project knowledge rather than as chat history.
+A reverse-engineering workbench for Commodore 64 software vuaMCP. 
+Turns disks, cartridges and PRGs into explained, named source,
+and keeps learning as project knowledge.
 
-**Human and LLM on one project.** The LLM proposes structure and meaning, the human
-steers and confirms, and a live C64 proves or refutes the claim. Tools are MCP methods,
-so the agent uses the same surface a person does.
+✱User and LLM share the project.** The LLM brings structure mines meaning, the human
+steers and confirms, a C64 runtime is used to validate findings.
 
 **Sibling project:** [TRX64](https://github.com/Jondalar/TRX64) is the runtime — a
 cycle-accurate C64 + 1541 + cartridge daemon. Capability lives there, meaning and memory
@@ -19,19 +18,16 @@ live here. C64RE carries no emulator; it is a client.
 Bytes → structure → meaning, and the third step is the one that matters.
 
 1. **Extraction** — PRG / CRT / D64 / G64: banks, sectors, directory, xrefs, candidate
-   segments. Disk and cartridge forensics are first-class, not a side door.
+   segments. Disk and cartridge forensics
 2. **Heuristic disassembly** — the full 6502 ISA including undocumented opcodes. Nine
    analyzers in parallel: code discovery, text, sprites, charsets, screen RAM, bitmaps,
-   pointer tables, SID, probable code. Overlaps get resolved, not guessed.
+   pointer tables, SID, probable code. Overlaps get resolved
 3. **Semantic annotation** — the LLM reads the whole listing and proposes segment
-   reclassifications, labels and routine explanations; the human reviews. Where
+   reclassifications, labels and routine explanations; Where
    `segment $7C21-$7F4F contains code` becomes `loader-side dispatcher: switches KERNAL
    serial → custom fastloader`.
-4. **Verification** — assemble with KickAssembler or 64tass and rebuild the original byte
-   for byte. `cmp -l` is the referee; annotations never touch bytes.
-
-Relocated code, self-modifying loaders and copy-loop targets are disassembled where they
-*run*, not where they sit.
+4. **Verification** — assemble with KickAssembler/64tass and rebuild the original byte
+   for byte. `cmp -l` ; annotations never touch bytes.
 
 ![Semantic disassembly](docs/img/semantic-disassembly.png)
 
@@ -43,14 +39,11 @@ Relocated code, self-modifying loaders and copy-loop targets are disassembled wh
 ## The knowledge base
 
 Findings, entities, relations, payloads, flows, open questions — written to the project
-and linked to the artifact and address they came from. Runtime evidence is registered as
-an artifact and attached to a finding; nothing stays a console log. The workbench UI
-renders it, and never becomes a second analysis engine.
+and linked to artifacts and addresses they came from. Runtime evidence is registered as
+an artifact and attached to finding. 
 
 - Every claim carries its evidence and the address range it covers.
-- Artifacts are versioned with lineage, so a rebuilt `.asm` does not orphan its findings.
-- Answering a question archives the noise it came from and resolves what it settles,
-  unasked. A deterministic index — no embeddings — keeps it searchable across sessions.
+- Artifacts are versioned with lineage.
 
 ## The agentic flow
 
