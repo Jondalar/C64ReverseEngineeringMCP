@@ -435,12 +435,22 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       }
       setPressedKeys(Array.from(pressedDown));
     };
+    // BUG-049 — losing focus means OUR keys go up. It does not mean the machine's
+    // input is ours to reset. The machine is shared: an agent can be holding a
+    // joystick through `runtime_joystick` while this window is not even in front,
+    // and this handler used to clear both ports out from under it. Release our keys,
+    // and clear only the port this UI is actually driving.
     const onBlur = () => {
       pressedDown.clear();
+      const wasHeld = (Object.keys(joyState) as JoyBit[]).some((k) => joyState[k]);
       for (const k of Object.keys(joyState) as JoyBit[]) joyState[k] = false;
       setPressedKeys([]);
       setJoyBits({ ...joyState });
       client.call("session/release_keys", { session_id: sessionId }).catch(() => {});
+      const port = joyMode === "port1" ? 1 : joyMode === "port2" ? 2 : 0;
+      if (port !== 0 && wasHeld) {
+        client.call("session/joystick_clear", { session_id: sessionId, port }).catch(() => {});
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
@@ -449,6 +459,12 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
+      // Teardown still releases OUR keys — this effect re-runs on `runState` and
+      // `joyMode` changes as well as on unmount, and leaving a key pressed in the
+      // machine because a dependency changed would be worse. It is safe now because
+      // `session/release_keys` releases keys only; the joystick goes through the
+      // port-scoped clear above, so a teardown no longer reaches another client's
+      // stick.
       onBlur();
     };
   }, [sessionId, runState, joyMode]);
