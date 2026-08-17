@@ -2,8 +2,22 @@
 
 **Status:** PARTLY BUILT — the notation, the two goal kinds, the mask-on-the-criterion
 rule and the frozen-resolution check are in (`src/project-knowledge/scenario-gherkin.ts`,
-`npm run e2e:810`, 18/18). Open: the indexer, the acceptance store, and the runner that
-drives 809.
+`npm run e2e:810`, 18/18). 812 widened the same parser for driven steps and built the
+runner's substrate — an ephemeral sandbox, driven paused and in cycles, which is measured
+deterministic over a socket (BUG-050's control run). **Open, re-scoped 2026-08-17 after
+reading what already exists:**
+1. the runner for the branch arm — resolve the mark to an anchor, hand the candidate's
+   patch-set to `sandbox/run {from, patches, cycles}`, take the end state. Both ends exist;
+   nothing joins them.
+2. the acceptance store — `Acceptance`/`FrozenTarget` are types with no storage, no write
+   path and no tool. Nothing freezes a baseline; nothing records who and when. This is the
+   spec's load-bearing idea and the part of which nothing exists.
+3. byte-exact criterion evaluation against THAT baseline (not 796's — see §5), with the
+   criterion's mask.
+4. the indexer + lint — `# targets:` is parsed and never resolved; an unresolvable name
+   must be a lint error.
+5. a door. There is no MCP tool for 810 at all.
+**Not open:** the runner engine and the branch object. 796 has both.
 **Repos:** C64RE only. The runtime capability is **809** in TRX64 — this spec never
 emulates anything itself, but it DOES drive the sandboxes (doctrine amended 2026-08-14:
 C64RE may spawn ephemeral TRX64 sandboxes for point work, and they end themselves on a
@@ -51,9 +65,11 @@ Scenario: the lives counter stops decrementing
 ```
 
 - **Given** binds a mark (809). C64RE never creates it; it names one that exists.
-- **When** names a branch and a budget. 810 owns the branch — its name, its patch-set, what
-  scenario it belongs to — and asks 809 for a sandbox: *these bytes, this budget, from this
-  mark*. 809 hands back an end state and knows nothing about why.
+- **When** names a candidate and a budget. The word in the file stays `branch` because that
+  is what it reads like in a sentence; the OBJECT is 796's candidate — baseline anchor,
+  accumulating patch-set, bound replay — and 810 adds only the name and whether it won (§5).
+  The run itself is `sandbox/run { from, patches, cycles }`: these bytes, this budget, from
+  this mark. The runtime hands back an end state and knows nothing about why.
 - **Then** is the criterion. Two kinds:
   - **byte-exact** — an address, a range, a component. Machine-checkable forever, from run
     one. Full automation.
@@ -114,8 +130,20 @@ the wrong one.
   budget, and it ends itself.
 - **It does not define marks.** A mark is 809's object, set in the runtime by whoever is
   driving. 810 names one that exists and never creates one.
-- **It DOES own branches.** The name, the patch-set, which scenario it serves and whether
-  it won are all 810's — 809 was deliberately cut back so it never learns any of that.
+- **It adds two fields to a CANDIDATE; it does not own a second object.** This bullet used
+  to read "it DOES own branches — the name, the patch-set, which scenario it serves and
+  whether it won". Three of those four already exist, and have since 2026-07-16: a
+  **candidate** (796) is a baseline anchor + an accumulating patch-set + a bound replay,
+  held in the daemon, with the no-patch run cached as its reference and a 794 diff after
+  every run. What is genuinely 810's is the NAME and WON. Building a "branch" beside it
+  would give the repo two things with one job — the exact trap §4b below is about, walked
+  into from the other direction. Vocabulary fixed 2026-08-17 in
+  `../../TRX64/docs/concepts-snapshots-scenarios-overlays.md` §6.
+- **The reference is 810's, and it is NOT 796's.** A candidate's cached baseline is *the
+  same replay without my patch* — "did my code change anything". An acceptance's baseline
+  is *the state a human approved* — "does the machine still reach what we agreed was
+  right". Same diff engine, different reference. Using 796's for an acceptance answers the
+  wrong question and stays green while doing it.
 - **It is not a test runner for the repo.** This is about scenarios over a C64 title, not
   about C64RE's own gates.
 

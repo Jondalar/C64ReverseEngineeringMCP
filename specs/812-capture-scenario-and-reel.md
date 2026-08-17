@@ -9,6 +9,9 @@ the caller (§7); promote it here if it turns out to need a tool of its own.
 runtime gained exactly two things, and both are facts about a machine:
 `session/frame_indices` and `session/advance_to_frame`.
 **Number:** 812 (registry: `specs/README.md`).
+**Vocabulary:** `../../TRX64/docs/concepts-snapshots-scenarios-overlays.md` §6 — one word
+per thing across this area. 812 contributes `capture` and `reel`, and takes `scenario` in
+its Gherkin sense.
 **Depends on:** 810 (the notation and its parser — extended here, not duplicated),
 787/788 (a scratch instance is a separate process), doctrine rule 2 as amended
 2026-08-14 (C64RE may spawn an ephemeral sandbox; it carries a budget and ends
