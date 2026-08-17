@@ -171,6 +171,14 @@ export function registerSceneReelTool(server: McpServer, context: ServerToolCont
 
       const lines: string[] = [];
       lines.push(`REEL ${chosen.name} → ${gifPath}`);
+      // Say which machine this ran on. A caller watching their own session while
+      // a reel runs is watching a machine the reel never touched — that confusion
+      // has already cost someone an evening.
+      lines.push(
+        `ran on a private machine (port ${run.port}), started and ended by this call. ` +
+          `Your own session was not touched, and nothing you do to it — pause, warp, keys — ` +
+          `reaches or disturbs this run.`,
+      );
       lines.push(
         `${structure.frames} frames · ${structure.width}x${structure.height} · ` +
           `${encoded.bytes.length} bytes of ${maxBytes} · ${delayCentis} cs per frame · ` +

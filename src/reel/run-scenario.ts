@@ -36,6 +36,8 @@ export interface RunResult {
   readonly palette: Uint8Array;
   readonly log: readonly string[];
   readonly endCycle: number;
+  /** The port the private machine held. Reported so nobody watches the wrong one. */
+  readonly port: number;
 }
 
 interface MachineState {
@@ -192,6 +194,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
       palette: canvas.palette,
       log,
       endCycle: end.c64Cycles,
+      port: box.port,
     };
   } finally {
     await box.close();
