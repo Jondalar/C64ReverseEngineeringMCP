@@ -161,6 +161,77 @@ const out2 = join(work, "reel2.gif");
 await call({ feature: FEATURE, out_path: out2 });
 ok(Buffer.compare(readFileSync(out), readFileSync(out2)) === 0, "27 the same scenario produces the same bytes");
 
+// `media_path` names the medium the scenario STARTS from, and only that one.
+// It used to override every medium, so a mid-run `I insert the disk "side2"`
+// re-inserted side ONE — the game kept asking to turn the disk and every
+// capture after the swap was a copy of the prompt. It read like the encoder
+// freezing from capture 8 onward.
+{
+  const dir = join(work, "swap");
+  const { mkdirSync: mk, writeFileSync: wf, readFileSync: rf } = await import("node:fs");
+  mk(dir, { recursive: true });
+  // Two DIFFERENT media, both valid. Side 2 carries a marker byte so a run that
+  // mounts the wrong one is visible without booting anything.
+  const one = Buffer.alloc(174848);
+  const two = Buffer.alloc(174848);
+  two[0] = 0x5a;
+  wf(join(dir, "s1.d64"), one);
+  wf(join(dir, "s2.d64"), two);
+  const feat = join(dir, "swap.feature");
+  wf(
+    feat,
+    'Scenario: swap\n  Given the disk "s1.d64"\n' +
+      "  When I wait 2 frames\n" +
+      '  And I insert the disk "s2.d64"\n' +
+      '  And I capture "after"\n  Then it swapped\n',
+  );
+
+  // Record what each role resolves to, without booting: drive the resolver the
+  // way the tool builds it.
+  const { runScenario } = await import(`${ROOT}/dist/reel/run-scenario.js`);
+  const seen = [];
+  try {
+    await runScenario(parseFeature(rf(feat, "utf8"), feat).scenarios[0], {
+      budgetMs: 20_000,
+      resolveMedium: (named, role) => {
+        seen.push(`${role}:${named}`);
+        return join(dir, named);
+      },
+    });
+  } catch {
+    /* the blank media will not boot; the resolver calls are the point */
+  }
+  ok(
+    seen.includes("origin:s1.d64") && seen.includes("insert:s2.d64"),
+    "33 the origin and an insert are resolved as different roles",
+    seen.join(" "),
+  );
+}
+
+// ...and the tool honours that: media_path must NOT capture the insert.
+{
+  const dir = join(work, "swap2");
+  const { mkdirSync: mk, writeFileSync: wf } = await import("node:fs");
+  mk(dir, { recursive: true });
+  wf(join(dir, "s1.d64"), Buffer.alloc(174848));
+  const feat = join(dir, "swap2.feature");
+  wf(
+    feat,
+    'Scenario: swap\n  Given the disk "s1.d64"\n  When I wait 2 frames\n' +
+      '  And I insert the disk "nowhere.d64"\n  And I capture "x"\n  Then it swapped\n',
+  );
+  const out = await call({
+    feature_path: feat,
+    out_path: join(dir, "x.gif"),
+    media_path: join(dir, "s1.d64"),
+  });
+  ok(
+    /inserts "nowhere.d64", which is not next to/.test(out),
+    "34 an insert whose medium is missing fails loudly instead of re-inserting media_path",
+    out.split("\n")[0],
+  );
+}
+
 const noShot = await call({
   feature: 'Scenario: nothing\n  Given a bare machine\n  When I wait 10 frames\n  Then it did something\n',
   out_path: join(work, "no.gif"),

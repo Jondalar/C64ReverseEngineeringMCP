@@ -148,7 +148,7 @@ Scenario: Brubaker boots to chapter 1
 runtime_scene_reel
   feature_path = scenarios/brubaker-boot.feature
   out_path     = brubaker.gif
-  media_path   = /path/to/27_Golden_Disk_64_03_1992_s1.d64   # optional: resolves the Given
+  media_path   = /path/to/27_Golden_Disk_64_03_1992_s1.d64   # optional: resolves the Given ONLY
   delay_ms     = 900                                          # optional, default 700
 ```
 
@@ -169,6 +169,12 @@ criteria:
   PASS  the reel has at least 5 screens  (8 captured)
   ----  the chapter-1 room is drawn  (verbal — needs a human once)
 ```
+
+`media_path` resolves the medium in `Given`, and nothing else. A medium named in
+an `insert` step is looked for next to the `.feature` file first, then in the
+project dir. If it is nowhere, the run stops and says so — mounting the wrong side
+leaves the game asking to turn the disk, and every capture after that is the same
+prompt.
 
 ## Which machine it runs on
 

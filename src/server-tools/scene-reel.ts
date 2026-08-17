@@ -145,9 +145,28 @@ export function registerSceneReelTool(server: McpServer, context: ServerToolCont
       try {
         run = await runScenario(chosen, {
           budgetMs: (budget_seconds ?? 600) * 1000,
-          resolveMedium: (named) => {
-            if (media_path) return abs(media_path);
-            return isAbsolute(named) ? named : resolvePath(projectDir, named);
+          // `media_path` names the medium the scenario STARTS from, and only
+          // that one. It used to override every medium, so a mid-run
+          // `I insert the disk "side2.d64"` re-inserted side ONE: the game kept
+          // asking to turn the disk and every capture after the swap was a copy
+          // of the prompt. A name in the feature resolves next to the feature
+          // file first, then in the project dir.
+          resolveMedium: (named, role) => {
+            if (role === "origin" && media_path) return abs(media_path);
+            if (isAbsolute(named)) return named;
+            if (sourceFile) {
+              const beside = resolvePath(dirname(sourceFile), named);
+              if (existsSync(beside)) return beside;
+            }
+            const inProject = resolvePath(projectDir, named);
+            if (!existsSync(inProject) && role === "insert") {
+              throw new Error(
+                `the scenario inserts "${named}", which is not next to the feature file ` +
+                  `nor in the project dir. Mounting the wrong side leaves the game asking ` +
+                  `to turn the disk, and every capture after it is the same prompt.`,
+              );
+            }
+            return inProject;
           },
         });
       } catch (e) {

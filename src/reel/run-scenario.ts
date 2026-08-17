@@ -67,8 +67,16 @@ function fnv1a(bytes: Uint8Array): bigint {
 }
 
 export interface RunOptions extends SandboxOptions {
-  /** Resolve a medium named in the feature file to a path on disk. */
-  resolveMedium?: (named: string) => string;
+  /**
+   * Resolve a medium named in the feature file to a path on disk.
+   *
+   * `role` matters: the caller may override the medium the scenario STARTS from
+   * without knowing what a mid-run `insert` names. Resolving both the same way
+   * re-inserts the starting disk when the game asks for the other side, and the
+   * game then waits forever with the prompt on screen — every capture after it
+   * a copy of the one before.
+   */
+  resolveMedium?: (named: string, role: "origin" | "insert") => string;
 }
 
 /**
@@ -102,7 +110,9 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
 
   try {
     if (scenario.origin.kind === "medium") {
-      const path = opts.resolveMedium ? opts.resolveMedium(scenario.origin.path) : scenario.origin.path;
+      const path = opts.resolveMedium
+        ? opts.resolveMedium(scenario.origin.path, "origin")
+        : scenario.origin.path;
       await box.call("media/mount", { path });
       log.push(`mounted ${path}`);
     } else if (scenario.origin.kind === "mark") {
@@ -147,7 +157,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
         case "insert": {
           // A hardware-style side swap: eject, let the drive notice, insert.
           // `runtime/swap_disk_and_continue` is not used — it is a stub.
-          const path = opts.resolveMedium ? opts.resolveMedium(step.path) : step.path;
+          const path = opts.resolveMedium ? opts.resolveMedium(step.path, "insert") : step.path;
           await box.call("media/unmount", { slot: 8 });
           await runCycles(PAL_CYCLES_PER_FRAME * 30);
           await box.call("media/mount", { path });
