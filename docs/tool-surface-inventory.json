@@ -1,9 +1,9 @@
 {
-  "total": 260,
+  "total": 261,
   "specCount": 42,
   "advancedCandidate": 110,
   "byNamespace": {
-    "runtime": 82,
+    "runtime": 83,
     "list": 20,
     "project": 11,
     "save": 10,
@@ -1917,6 +1917,15 @@
       "tier": "advanced?"
     },
     {
+      "name": "runtime_scene_reel",
+      "file": "server-tools/scene-reel.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Build an animated release reel (CSDb format: GIF89a, 384x272 including border, hard cuts, uniform delay, <=512000 bytes) from a capture scenario.",
+      "desc": "Build an animated release reel (CSDb format: GIF89a, 384x272 including border, hard cuts, uniform delay, <=512000 bytes) from a capture scenario. Use it when a release, a crack or a trainer needs documentation screenshots in playthrough order — title, menu, in-game — produced the same way twice. Boots the medium in its OWN throwaway machine and runs a schedule of waypoints where every step carries its own duration: `wait` frames/cycles, `type` keys, `joy` with a REQUIRED hold length, `waitUntil` a predicate with a REQUIRED timeout, and `shot` to capture. Because the schedule is absolute machine cycles rather than 'send a command and hope', the same scenario replays to the same bytes. Frames come straight from the video chip's own 16-colour indices, so nothing is re-quantized. Not for driving the session you are debugging in, and not for one picture of the machine you are already looking at — use runtime_render_screen instead. Inputs: media, waypoints, out_path. Returns: the reel's path, frame count, byte size, and the cycle each shot landed on.",
+      "tier": "default?"
+    },
+    {
       "name": "runtime_session_close",
       "file": "server-tools/headless.ts",
       "ns": "runtime",
@@ -1949,7 +1958,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, cycle-accurate 1541, event-catchup).",
-      "desc": "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, cycle-accurate 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). ONE MACHINE PER PROCESS: a daemon process runs exactly ONE live machine — the human's UI and you co-drive the SAME session (shared-attach). Before starting, list/status existing sessions and attach to one instead; a SECOND in-process session is NOT isolated — it rebinds the process-global VIC/drive and corrupts the first session's rendering (boot text goes black) until a process restart. For a truly isolated machine (e.g. a throwaway build test) use a SEPARATE backend process. Not for a one-shot PRG run without a persistent session (use runtime_run_prg). Inputs: disk_path; optional device_id, pal, trace_out, trace_domains. Returns: session id + resolved config + trace status when streaming.",
+      "desc": "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, cycle-accurate 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). ONE MACHINE PER PROCESS: a daemon process runs exactly ONE live machine — the human's UI and you co-drive the SAME session (shared-attach). Before starting, list/status existing sessions and attach to one instead; a SECOND in-process session is NOT isolated — it rebinds the process-global VIC/drive and corrupts the first session's rendering (boot text goes black) until a process restart. For a truly isolated machine (e.g. a throwaway build test) use a SEPARATE backend process. Not for a one-shot PRG run without a persistent session (use runtime_run_prg). Inputs: media_path — ANY of .d64/.g64/.crt/.prg/.c64re, identified by CONTENT not by extension, and optional: a session is a machine, and a medium is something you put in it. A .crt is inserted, a disk is mounted, a .c64re REPLACES the machine, and a .prg is loaded — and typed RUN only when it loads at $0801 behind a valid BASIC line (which is also how SYS-stub releases are meant to start; anything else loads and stops). disk_path is the deprecated alias, kept so existing callers keep working. Also optional: device_id, pal, trace_out, trace_domains. Returns: session id + resolved config + trace status when streaming.",
       "tier": "default?"
     },
     {

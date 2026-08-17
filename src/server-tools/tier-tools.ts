@@ -101,6 +101,12 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // eject→run→insert→run→RETURN→run as ONE call (atomic swap can't be sensed).
   "runtime_swap_disk_and_continue", "runtime_type",
   "runtime_joystick", "runtime_load_prg", "runtime_run_prg", "runtime_render_screen",
+  // Spec 812 — the capture scenario and the release reel it produces. Default,
+  // not advanced: producing a documentation reel is a recurring need on every
+  // release project, and it is the only door where an input schedule carries its
+  // own durations — a hidden tool would leave callers hand-orchestrating the
+  // primitives, which is the situation the spec was written to end.
+  "runtime_scene_reel",
   // Spec 725 §3.8 — Monitor / frozen-inspect facade.
   // Spec 766 — runtime_monitor: the one-tool monitor REPL (whole interactive
   // monitor in one call). A default product tool, not advanced.
@@ -240,8 +246,14 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * These belong in DEFAULT: mapping index → position is what the workbench IS for,
  * and a tool an agent cannot reach might as well not exist. The cap is a discipline
  * about how much surface an agent must hold at once, not a budget to be smuggled
- * past — raise it deliberately, here, with the reason, or demote something. */
-export const DEFAULT_TIER_CAP = 150;
+ * past — raise it deliberately, here, with the reason, or demote something.
+ * 2026-08-17 raised 150→151 for `runtime_scene_reel`. It earns the slot because it
+ * REPLACES orchestration rather than adding to it: producing a release reel used to
+ * mean hand-driving mount, type, joystick, run and screenshot in a loop, one call
+ * per waypoint, and getting a different result each time. One door that takes the
+ * whole schedule is less surface for an agent to hold, not more — and there is no
+ * other tool where an input carries its own duration. */
+export const DEFAULT_TIER_CAP = 151;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

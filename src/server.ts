@@ -27,6 +27,7 @@ import { registerArtifactVersionTools } from "./server-tools/artifact-version-to
 import { registerProjectSearchTools } from "./server-tools/project-search-tools.js";
 import { registerAgentStepTools } from "./server-tools/agent-step.js";
 import { registerSandboxTools } from "./server-tools/sandbox.js";
+import { registerSceneReelTool } from "./server-tools/scene-reel.js";
 import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
 import { registerTraceStoreTools } from "./server-tools/trace-store.js";
 import { phaseForTool, PHASE_TITLES } from "./agent-orchestrator/phase-tools.js";
@@ -175,6 +176,7 @@ function createServer(): McpServer {
   registerProjectSearchTools(server, toolContext);
   registerAgentStepTools(server, toolContext);
   registerSandboxTools(server, toolContext);
+  registerSceneReelTool(server, toolContext);
   registerSandboxDepackTool(server, toolContext);
   registerProjectKnowledgeTools(server, { repoDir: repoDir() });
 
@@ -225,6 +227,7 @@ export function collectToolInventory(): { name: string; description: string; fil
   group("server-tools/project-search-tools.ts", () => registerProjectSearchTools(server, toolContext));
   group("server-tools/agent-step.ts", () => registerAgentStepTools(server, toolContext));
   group("server-tools/sandbox.ts", () => registerSandboxTools(server, toolContext));
+  group("server-tools/scene-reel.ts", () => registerSceneReelTool(server, toolContext));
   group("server-tools/sandbox-depack.ts", () => registerSandboxDepackTool(server, toolContext));
   group("project-knowledge/mcp-tools.ts", () => registerProjectKnowledgeTools(server, { repoDir: repoDir() }));
   return inv;
