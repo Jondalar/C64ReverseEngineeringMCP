@@ -60,6 +60,17 @@ two directions: a scenario may start from a MEDIUM instead of a mark, and its
 notations for one idea ends up with two of everything, which is the trap 810 §4b
 was already written to avoid.
 
+A two-sided title asks for the other side mid-run, so there is a step for it:
+
+```gherkin
+  And I insert the disk "side2.d64"
+```
+
+Eject, give the drive time to notice, insert, take the clock back. It is the
+hardware-style swap, not `runtime/swap_disk_and_continue` — that one is a stub
+that reports success. Without this step the recipe for a two-sided game stops at
+"Bitte Diskette wenden!" and everything past it is unwritable.
+
 Steps run in written order and **each one that lasts states its own duration**.
 `I hold joystick 2 down for 3 frames` is a press *and* its release; a press with no
 stated end is not expressible, which is the point. `I wait until …` requires
@@ -193,7 +204,7 @@ Gates:
 
 | # | Where | What |
 |---|-------|------|
-| 1 | `src/project-knowledge/scenario-gherkin.ts` | the step vocabulary, in 810's parser: `Given the disk/cart/medium/snapshot`, `Given a bare machine`, and the five steps |
+| 1 | `src/project-knowledge/scenario-gherkin.ts` | the step vocabulary, in 810's parser: `Given the disk/cart/medium/snapshot`, `Given a bare machine`, and the six steps — `wait`, `type`, `hold joystick`, `wait until`, `capture`, `insert` |
 | 2 | `src/reel/gif89a.ts` | GIF89a encoder over palette indices + the block-structure parser the gate uses |
 | 3 | `src/reel/sandbox-session.ts` | an ephemeral private machine: own port, child process, budget, ends itself |
 | 4 | `src/reel/run-scenario.ts` | walk the steps on a paused machine, collect the frames |

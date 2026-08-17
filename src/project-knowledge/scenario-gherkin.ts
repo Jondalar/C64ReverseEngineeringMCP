@@ -87,7 +87,8 @@ export type Step =
       readonly timeoutFrames: number;
       readonly text: string;
     }
-  | { readonly kind: "capture"; readonly label: string; readonly text: string };
+  | { readonly kind: "capture"; readonly label: string; readonly text: string }
+  | { readonly kind: "insert"; readonly path: string; readonly text: string };
 
 export type JoyDirection = "up" | "down" | "left" | "right" | "fire";
 
@@ -283,6 +284,12 @@ export function parseStep(text: string): { step?: Step; error?: string } | undef
   if (/^I wait until\b/i.test(t)) {
     return { error: `"${t}": needs "within N frames" — a predicate that never fires must fail, not hang` };
   }
+
+  // I insert the disk "side2.d64"  — a two-sided title asks for the other side
+  // mid-run, and a recipe that cannot say so is not the recipe.
+  const ins = t.match(/^I (?:insert|swap in|turn to)(?:\s+the)?\s+(?:disk|cart|cartridge|image|medium|side)\s+"([^"]+)"$/i);
+  if (ins) return { step: { kind: "insert", path: ins[1], text: t } };
+  if (/^I (?:insert|swap)\b/i.test(t)) return { error: `"${t}": an insert needs a quoted medium` };
 
   // I capture "title"
   const cap = t.match(/^I capture\s+"([^"]*)"$/i);

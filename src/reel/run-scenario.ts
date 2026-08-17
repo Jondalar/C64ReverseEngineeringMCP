@@ -142,6 +142,20 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
           break;
         }
 
+        case "insert": {
+          // A hardware-style side swap: eject, let the drive notice, insert.
+          // `runtime/swap_disk_and_continue` is not used — it is a stub.
+          const path = opts.resolveMedium ? opts.resolveMedium(step.path) : step.path;
+          await box.call("media/unmount", { slot: 8 });
+          await runCycles(PAL_CYCLES_PER_FRAME * 30);
+          await box.call("media/mount", { path });
+          // A mount can flip the controller to running; this front owns the clock.
+          await box.call("debug/pause", { source: "reel" });
+          await runCycles(PAL_CYCLES_PER_FRAME * 30);
+          log.push(`${i}: ${step.text} -> ${path}`);
+          break;
+        }
+
         case "capture": {
           // A capture is a WHOLE frame: `displayed` is the frozen previous frame,
           // so a mid-frame grab returns the picture before the interesting one.

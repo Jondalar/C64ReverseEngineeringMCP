@@ -54,6 +54,27 @@ ok(
 ok(parseStep("I capture") ? /quoted label/.test(parseStep("I capture").error ?? "") : false, "10 a capture needs a label");
 ok(parseStep("Bloomsday") === undefined, "11 a non-step falls through to the criterion classifier");
 
+// A two-sided title asks for the other side mid-run. A recipe that cannot say
+// so is not the recipe — Brubaker (Golden Disk 64 03/1992) stops at "Bitte
+// Diskette wenden!" and everything after it was unreachable.
+{
+  const r = parseFeature(
+    'Scenario: swap\n  Given the disk "s1.d64"\n' +
+      '  When I wait 10 frames\n  And I insert the disk "s2.d64"\n' +
+      '  And I capture "after"\n  Then it swapped\n',
+  );
+  ok(r.issues.length === 0, "11a a side swap parses", r.issues.map((i) => i.message).join("; "));
+  const st = r.scenarios[0]?.steps ?? [];
+  ok(st[1]?.kind === "insert" && st[1]?.path === "s2.d64", "11b it names the medium to insert");
+  ok(
+    /quoted medium/.test(parseStep("I insert the disk")?.error ?? ""),
+    "11c an insert without a medium is refused",
+  );
+  for (const phrasing of ['I swap in the disk "s2.d64"', 'I turn to the side "s2.d64"']) {
+    ok(parseStep(phrasing)?.step?.kind === "insert", `11d "${phrasing}" is the same step`);
+  }
+}
+
 // ---- the encoder, checked against a decoder that is not ours ---------------
 const { encode, encodeWithin, parseStructure } = await import(`${ROOT}/dist/reel/gif89a.js`);
 {
