@@ -368,6 +368,51 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   const [joyBits, setJoyBits] = useState<Record<JoyBit, boolean>>({ up: false, down: false, left: false, right: false, fire: false });
   const [pressedKeys, setPressedKeys] = useState<string[]>([]);
 
+  // Spec 808 §4 — the transport keys are handed to the DAEMON, not decided here.
+  //
+  // F9..F12 used to do nothing at all in the browser. Two reasons, and both are
+  // the same mistake seen from different sides:
+  //
+  //   1. The host→C64 map below covers F1..F8 (the C64 has no more) and drops
+  //      everything else on the floor. F9..F12 never left the page.
+  //   2. Over the wire there were transport VERBS and no door for a KEY, so a web
+  //      client would have had to carry its own copy of the F-key table — the
+  //      client deciding, which is what one shared table exists to prevent. The
+  //      terminal front-end already asks the daemon; the browser never learned to.
+  //
+  // So this sends the key and prints nothing of its own: `transport/key` answers
+  // what it did, or that it dropped the key.
+  //
+  // Deliberately a SEPARATE effect from the keyboard passthrough below, which
+  // returns early unless the machine is running. Play/pause that only works while
+  // playing is half a control — F11 has to be able to start a paused machine.
+  useEffect(() => {
+    if (!sessionId || runState === "off") return;
+    const client = getClient();
+    const onKeyDown = (e: KeyboardEvent) => {
+      const n = /^F(9|10|11|12)$/.exec(e.code);
+      if (!n) return;
+      const tgt = e.target as HTMLElement | null;
+      if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
+      e.preventDefault();
+      void client
+        .call<{ handled?: boolean; running?: boolean }>("transport/key", {
+          session_id: sessionId,
+          key: Number(n[1]),
+        })
+        .then(async () => {
+          // The daemon's state is the truth about what just happened; a transport
+          // move can pause, resume, or step, and inferring which from the key is
+          // how two clients end up disagreeing about the run state.
+          const st = await client.call<{ runState?: string }>("session/state", { session_id: sessionId });
+          if (st.runState === "running" || st.runState === "paused") setRunState?.(st.runState);
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [sessionId, runState, setRunState]);
+
   // Spec 310 — live keyboard + virtual joystick passthrough.
   // While emulator runs: keydown → key_down WS, keyup → key_up WS.
   // If joyMode != "off" and key is WASD+Space: route to joystick_set
