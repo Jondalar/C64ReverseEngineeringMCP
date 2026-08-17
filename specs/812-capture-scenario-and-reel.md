@@ -141,6 +141,26 @@ tell the story of a release — the playthrough order, near-duplicate removal, t
 ≥ 5-screens rule. That last part is a `Then` line the caller writes today; it is
 checked, not enforced.
 
+## §7b The other door: a shutter in the Live tab
+
+A written scenario is for a reel that must be REBUILDABLE. The other half of the
+same need has no schedule in it at all: you are already playing the game, you reach
+a screen worth keeping, and you press a button. Scripting that would be absurd.
+
+So the Live tab carries a shutter and a strip: capture, reorder, rename, drop, and
+**Download CSDb GIF**. The reel is assembled in the browser by the same encoder the
+tool uses, so a hand-shot reel and a scenario-shot reel are byte-for-byte the same
+kind of file. The byte ceiling behaves the same way too — frames are dropped from
+the middle outwards and the panel NAMES them, because a reel that quietly lost the
+middle of the story would look finished and be wrong.
+
+**Capturing there is read-only, and that is load-bearing.** This is the one session
+a human co-drives; a screenshot must not move it. It asks for the frame the machine
+is already displaying and advances nothing. Measured on a running machine: four
+captures taken mid-raster (line 196–197) each came back as a complete 384×272 frame,
+and the clock did not move across the call. The frame-boundary advance that a
+SCHEDULED capture needs (§4) exists for stepping to a chosen point, not for this.
+
 ## §8 Determinism falls out, and it is the gate
 
 The same scenario, run twice, must produce **byte-identical GIFs**. That is the
@@ -176,7 +196,8 @@ Gates:
 | 4 | `src/reel/run-scenario.ts` | walk the steps on a paused machine, collect the frames |
 | 5 | `src/server-tools/scene-reel.ts` | `runtime_scene_reel`, registered in `DEFAULT_TOOLS` |
 | 6 | runtime: `session/frame_indices`, `session/advance_to_frame` | the two machine facts, with their gates |
-| 7 | `npm run smoke:812` | 32 checks |
+| 7 | `ui/src/workbench/components/ReelStrip.tsx` | the Live-tab shutter and strip (§7b), sharing the same encoder |
+| 8 | `npm run smoke:812` | 32 checks |
 
 ## §11 What building it taught
 

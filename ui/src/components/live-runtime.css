@@ -904,3 +904,23 @@
 .wb-film-actions button { padding: 3px 10px; font-size: 12px; border-radius: 4px; background: #232331; color: #ddd; border: 1px solid rgba(108,92,231,0.45); cursor: pointer; }
 .wb-film-actions button:disabled { opacity: 0.4; cursor: default; }
 .wb-film-actions button:hover:not(:disabled) { border-color: #58a6ff; }
+
+/* Spec 812 — the shutter and the strip it fills.
+   Deliberately the filmstrip's visual family: both are rows of frames under the
+   screen. What differs is who put them there — the filmstrip shows what the ring
+   captured, this shows what a human chose to keep. */
+.wb-reel { margin-top: 8px; padding: 6px 8px; background: #15151c; border: 1px solid rgba(108,92,231,0.35); border-radius: 6px; min-width: 0; }
+.wb-reel-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wb-reel-bar .wb-btn { padding: 3px 10px; font-size: 12px; border-radius: 4px; background: #232331; color: #ddd; border: 1px solid rgba(108,92,231,0.45); cursor: pointer; }
+.wb-reel-bar .wb-btn:disabled { opacity: 0.4; cursor: default; }
+.wb-reel-delay { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #999; }
+.wb-reel-delay input { width: 60px; padding: 2px 4px; font-size: 12px; background: #0e0e14; color: #ddd; border: 1px solid rgba(108,92,231,0.35); border-radius: 3px; }
+.wb-reel-count { font-size: 12px; color: #777; }
+.wb-reel-note { font-size: 12px; color: var(--c64-green, #5cdb5c); }
+.wb-reel-strip { display: flex; gap: 6px; margin-top: 8px; overflow-x: auto; padding-bottom: 4px; }
+.wb-reel-item { flex: 0 0 auto; width: 112px; background: #0e0e14; border: 1px solid rgba(108,92,231,0.25); border-radius: 4px; padding: 4px; }
+.wb-reel-thumb { width: 104px; height: 74px; display: block; background: #000; border-radius: 2px; }
+.wb-reel-label { width: 100%; margin-top: 4px; padding: 2px 3px; font-size: 11px; background: #15151c; color: #ddd; border: 1px solid rgba(108,92,231,0.25); border-radius: 3px; }
+.wb-reel-item-bar { display: flex; align-items: center; justify-content: space-between; gap: 2px; margin-top: 4px; }
+.wb-reel-cycle { font-size: 10px; color: #666; font-family: monospace; }
+.wb-btn-tiny { padding: 1px 5px !important; font-size: 11px !important; }

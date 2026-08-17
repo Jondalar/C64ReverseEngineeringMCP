@@ -22,6 +22,7 @@ import { InspectorPanel } from "../components/InspectorPanel.js";
 import { MachineControls } from "../components/MachineControls.js";
 import { ExploreOverlay } from "../components/ExploreOverlay.js";
 import { Filmstrip } from "../components/Filmstrip.js";
+import { ReelStrip } from "../components/ReelStrip.js";
 
 interface DriveStatus {
   device: number;
@@ -555,6 +556,11 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       {/* Spec 769.5 — scrub filmstrip: ONLY on Pause/Freeze. Click a frame to
           rewind the full machine to that point; Continue / Dump from there. */}
       {runState === "paused" && <Filmstrip sessionId={sessionId} setRunState={setRunState} />}
+      {/* Spec 812 — the shutter. Read-only: it asks for the frame the machine is
+          already displaying and never advances it, because this is the one
+          session a human co-drives. Always mounted, running or paused: the shot
+          worth keeping is usually one you just saw. */}
+      {runState !== "off" && <ReelStrip sessionId={sessionId} />}
     </div>
   );
 }
