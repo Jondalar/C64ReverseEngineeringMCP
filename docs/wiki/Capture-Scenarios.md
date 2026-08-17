@@ -185,7 +185,7 @@ are watching a different machine and will see nothing happen.
 
 ## The GIF
 
-CSDb release format: GIF89a, 384x272 including the border, hard cuts (`disposal 2`),
+Animated GIF format: GIF89a, 384x272 including the border, hard cuts (`disposal 2`),
 one uniform delay, at most 512000 bytes.
 
 Frames come straight from the VIC's own 4-bit colour indices against the 16-entry
