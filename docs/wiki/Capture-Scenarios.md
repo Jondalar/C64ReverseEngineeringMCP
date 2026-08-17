@@ -103,6 +103,46 @@ prevent.
 
 Directions: `up`, `down`, `left`, `right`, `fire`. Ports 1 and 2.
 
+## Swapping a disk
+
+Two-sided games ask for the other side and then wait. The swap is one step:
+
+```gherkin
+Scenario: Brubaker reaches chapter 1 on side 2
+  Given the disk "27_Golden_Disk_64_03_1992_s1.d64"
+
+  When I wait 170 frames
+  And I type "LOAD{QUOTE}*{QUOTE},8,1{RETURN}"
+  And I wait until the drive is idle within 9000 frames
+  And I type "RUN{RETURN}"
+  And I wait 900 frames
+  And I capture "title"
+
+  And I insert the disk "27_Golden_Disk_64_03_1992_s2.d64"
+  And I type "{RETURN}"
+  And I wait until the drive is idle within 9000 frames
+  And I wait 300 frames
+  And I capture "chapter-1"
+
+  Then the reel has at least 2 screens
+```
+
+`I insert the disk "…"` ejects, waits, and inserts, so the drive sees the door open
+and close and re-reads the new side. `I swap in` and `I turn to` mean the same thing.
+
+Three things the step does NOT do:
+
+- **It does not answer the prompt.** The game is waiting for a key — usually
+  RETURN or SPACE. Type it yourself, after the insert.
+- **It does not wait for the load.** Follow it with
+  `I wait until the drive is idle within N frames`.
+- **It does not take `media_path`.** That parameter resolves the medium in `Given`
+  and nothing else. A medium named in an `insert` step is looked for next to the
+  `.feature` file first, then in the project dir, and the run stops if it is nowhere.
+
+Without the insert, the game sits on its swap prompt for the rest of the scenario, and
+every capture from there on is that same prompt.
+
 ## A real one
 
 Boot a two-sided magazine disk into chapter 1:
