@@ -232,6 +232,20 @@ ok(Buffer.compare(readFileSync(out), readFileSync(out2)) === 0, "27 the same sce
   );
 }
 
+// Two captures of a machine that has not moved show the same picture. Say so —
+// unsaid, it reads as a broken encoder. Three bug reports arrived about exactly
+// that, one with an independent decoder confirming the duplicate.
+{
+  const twice = await call({
+    feature:
+      "Scenario: twice\n  Given a bare machine\n  When I wait 170 frames\n" +
+      '  And I capture "a"\n  And I wait 2 frames\n  And I capture "b"\n  Then it booted\n',
+    out_path: join(work, "twice.gif"),
+  });
+  ok(/same picture in captures 1 "a", 2 "b"/.test(twice), "35 identical captures are named", twice.split("\n").find((l) => /same picture/.test(l)) ?? "not reported");
+  ok(/waiting for input, a disk, or a load/.test(twice), "36 and the report says what that usually means");
+}
+
 const noShot = await call({
   feature: 'Scenario: nothing\n  Given a bare machine\n  When I wait 10 frames\n  Then it did something\n',
   out_path: join(work, "no.gif"),

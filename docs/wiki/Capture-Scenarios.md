@@ -219,3 +219,6 @@ and compare.
   the keyboard mid-LOAD.
 - A capture lands on a frame boundary, so it is always a whole picture.
 - No `capture` step at all is refused before anything runs.
+- Two captures of a machine that has not moved are the SAME picture, and the report
+  says so. That is not a broken encoder — it means the machine was waiting for
+  something. Look at the screen before assuming otherwise.

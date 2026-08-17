@@ -256,6 +256,13 @@ reported as "the encoder freezes from capture 8 onward", and the encoder was fin
 (54 distinct frames in, 54 distinct frames out). Resolution is role-aware now, and
 an insert whose medium is nowhere stops the run instead of mounting the wrong side.
 
+**A repeated capture reads as a broken encoder unless the report says otherwise.**
+Two captures of a machine that is waiting — for a key, for the other side of a disk
+— are byte-identical, correctly. Three bug reports arrived about exactly that, one
+with an independent decoder confirming the duplicate and a theory about the LZW
+stream. The reel was right every time. The report now names identical captures and
+says what a repeat usually means.
+
 **`the screen is still` cannot be used at a BASIC prompt.** The cursor blinks about
 every 20 frames, so no stability window longer than a blink is ever reachable. The
 timeout message now reports the longest still stretch it saw and names the

@@ -19,6 +19,7 @@
 // how "the same recipe" produced three different outcomes.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -206,6 +207,33 @@ export function registerSceneReelTool(server: McpServer, context: ServerToolCont
       lines.push("");
       lines.push("captures (the cycle each one landed on — a reel is re-derivable from these):");
       for (const s of run.shots) lines.push(`  ${s.label.padEnd(24)} cycle ${s.cycle}`);
+
+      // Say when two captures show the SAME picture. A repeated frame is almost
+      // always the machine waiting for something — a prompt, a key, the other
+      // side of the disk — and the reel is right to show it twice. Left unsaid,
+      // it reads as a broken encoder: three bug reports came in about exactly
+      // this, one of them with an independent decoder confirming the duplicate
+      // and a theory about the LZW stream.
+      const seenAt = new Map<string, number[]>();
+      run.shots.forEach((shot, i) => {
+        const h = createHash("sha256").update(shot.indices).digest("hex");
+        const at = seenAt.get(h);
+        if (at) at.push(i);
+        else seenAt.set(h, [i]);
+      });
+      const repeats = [...seenAt.values()].filter((g) => g.length > 1);
+      if (repeats.length) {
+        lines.push("");
+        for (const group of repeats) {
+          const names = group.map((i) => `${i + 1} "${run.shots[i].label}"`).join(", ");
+          lines.push(`same picture in captures ${names}`);
+        }
+        lines.push(
+          `A repeated frame means the machine showed the same thing at both cycles — ` +
+            `usually because it is waiting for input, a disk, or a load. Check that screen ` +
+            `before assuming the capture is broken.`,
+        );
+      }
 
       if (encoded.dropped.length) {
         lines.push("");
