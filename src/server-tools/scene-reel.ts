@@ -1,219 +1,244 @@
-// Spec 812 — `runtime_scene_reel`: a capture scenario, run in an isolated
+// Spec 812 — `runtime_scene_reel`: a written capture scenario, run on a private
 // machine, assembled into a release reel.
 //
-// The split this file sits on: the runtime EXECUTES the schedule and encodes the
-// GIF (a capability); C64RE decides WHICH screens tell the story of a release,
-// in what order, and where the scenario lives in the project (meaning). So this
-// module writes a scenario file, hands it to the runtime binary, and registers
-// the result — it never emulates anything and never opens a session.
+// The split this file sits on: the machine emulates; a human or C64RE drives it.
+// So the schedule, the notation, the frame assembly and the decision about which
+// screens tell the story all live on this side. The runtime is asked only for
+// things a machine can answer — run N cycles, present these keys, hold this stick,
+// what is on the screen, where is the raster.
 //
-// Why the whole schedule goes over in one file instead of a call per step: every
-// round trip between here and the machine is wall-clock time the machine would
-// otherwise be free-running through. A schedule that is one artifact replays to
-// the same bytes; a schedule made of separate calls lands somewhere new each run.
-// That was the actual defect behind "the same recipe boots differently every
-// time", and it is the reason the waypoints below carry their own durations.
+// The notation is Gherkin, in the same `.feature` files and the same parser as
+// scenario goals (Spec 810). Not a second dialect: a scenario that boots a title
+// to its menu and a scenario that checks a byte are the same kind of document said
+// at different lengths, and a repo with two notations for one idea ends up with
+// two of everything.
+//
+// Every step that lasts carries its own duration, and that is the whole point. A
+// press with no stated end is held until some later call happens to clear it, and
+// a menu that samples once per frame scrolls through the entire list — which is
+// how "the same recipe" produced three different outcomes.
 
-import { mkdirSync, writeFileSync, existsSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 
-// A waypoint, as the caller writes it. One of the five shapes; the runtime
-// refuses anything else, and refuses a press or a predicate that does not state
-// how long it lasts.
-const waypointSchema = z
-  .object({
-    wait: z
-      .object({ frames: z.number().optional(), cycles: z.number().optional() })
-      .optional()
-      .describe("Advance the machine. `frames` (PAL, 19656 cycles each) or `cycles` — one, not both."),
-    type: z
-      .object({ text: z.string() })
-      .optional()
-      .describe('Keys into the keyboard buffer. \\r = RETURN, e.g. {"text": "LOAD\\"*\\",8,1\\r"}.'),
-    joy: z
-      .object({
-        port: z.number().optional().describe("1 or 2 (default 2)"),
-        up: z.boolean().optional(),
-        down: z.boolean().optional(),
-        left: z.boolean().optional(),
-        right: z.boolean().optional(),
-        fire: z.boolean().optional(),
-        frames: z.number().describe("REQUIRED. How long the press is HELD, in frames; it is released afterwards inside this same step. A menu samples the stick once per frame, so 2-3 frames is a tap and 100 frames scrolls the whole list."),
-      })
-      .optional(),
-    waitUntil: z
-      .object({
-        pc: z.union([z.string(), z.number()]).optional().describe("Run until the CPU reaches this address ($C001 / 0xC001 / 49153)."),
-        screenStable: z.object({ frames: z.number() }).optional().describe("Run until the picture has not changed for N frames. NOT usable at a BASIC prompt — the cursor blinks about every 20 frames, so the screen genuinely never settles there."),
-        driveIdle: z.boolean().optional().describe("Run until the floppy has WORKED and then STOPPED. Right after a LOAD the drive has not spun up yet, so this waits for the busy→idle edge, not for 'idle now'."),
-        timeoutFrames: z.number().describe("REQUIRED. A predicate that never fires fails loudly rather than hanging the capture."),
-      })
-      .optional(),
-    shot: z
-      .object({ label: z.string().optional() })
-      .optional()
-      .describe("Capture a frame. Always lands on a frame boundary, so it is never a half-drawn picture."),
-  })
-  .describe("One waypoint: exactly one of wait / type / joy / waitUntil / shot.");
-
-interface ReelReport {
-  ok?: boolean;
-  name?: string;
-  gif?: string;
-  bytes?: number;
-  maxBytes?: number;
-  width?: number;
-  height?: number;
-  frames?: number;
-  delayCentiseconds?: number;
-  paletteEntries?: number;
-  captured?: number;
-  dropped?: Array<{ index: number; label: string }>;
-  shots?: Array<{ label: string; cycle: number; rasterLine: number }>;
-  log?: string[];
-}
+const EXAMPLE = [
+  "Scenario: the release reel",
+  '  Given the disk "side1.g64"',
+  "  When I wait 170 frames",
+  '  And I type "LOAD{QUOTE}*{QUOTE},8,1{RETURN}"',
+  "  And I wait until the drive is idle within 8000 frames",
+  "  And I wait 60 frames",
+  '  And I capture "title"',
+  "  And I hold joystick 2 down for 3 frames",
+  "  And I wait 20 frames",
+  "  And I hold joystick 2 fire for 3 frames",
+  "  And I wait until the screen is still for 90 frames within 2000 frames",
+  '  And I capture "menu"',
+  "  Then the reel has at least 5 screens",
+].join("\n");
 
 export function registerSceneReelTool(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "runtime_scene_reel",
-    "Build an animated release reel (CSDb format: GIF89a, 384x272 including border, hard cuts, uniform delay, <=512000 bytes) from a capture scenario. Use it when a release, a crack or a trainer needs documentation screenshots in playthrough order — title, menu, in-game — produced the same way twice. Boots the medium in its OWN throwaway machine and runs a schedule of waypoints where every step carries its own duration: `wait` frames/cycles, `type` keys, `joy` with a REQUIRED hold length, `waitUntil` a predicate with a REQUIRED timeout, and `shot` to capture. Because the schedule is absolute machine cycles rather than 'send a command and hope', the same scenario replays to the same bytes. Frames come straight from the video chip's own 16-colour indices, so nothing is re-quantized. Not for driving the session you are debugging in, and not for one picture of the machine you are already looking at — use runtime_render_screen instead. Inputs: media, waypoints, out_path. Returns: the reel's path, frame count, byte size, and the cycle each shot landed on.",
+    "Run a written capture scenario on a private throwaway machine and assemble an animated release reel (CSDb format: GIF89a, 384x272 including border, hard cuts, uniform delay, <=512000 bytes). Use it when a release, a crack or a trainer needs documentation screenshots in playthrough order — title, menu, in-game — produced the same way twice. The scenario is Gherkin, the same notation and the same .feature files as scenario goals: `Given the disk \"x.g64\"`, then `When I wait 170 frames` / `And I type \"LOAD{QUOTE}*{QUOTE},8,1{RETURN}\"` / `And I hold joystick 2 down for 3 frames` / `And I wait until the drive is idle within 8000 frames` / `And I capture \"title\"`, then `Then the reel has at least 5 screens`. Every step that lasts states its own duration, and the machine is stopped between steps, so the same text replays to the same bytes. Frames come straight from the video chip's 16-colour indices, so nothing is re-quantized. Not for driving the session you are debugging in, and not for one picture of the machine you are already looking at — use runtime_render_screen instead. Inputs: feature (text) or feature_path, out_path. Returns: the reel's path, frame count, byte size, and the cycle each capture landed on.",
     {
-      media: z
+      feature: z
         .string()
-        .describe("Disk/cart to boot (.d64/.g64/.crt). Omit only for a scenario that needs a bare machine."),
-      waypoints: z.array(waypointSchema).describe("The schedule, in order. Needs at least one `shot`."),
+        .optional()
+        .describe(`The scenario, as Gherkin. Example:\n${EXAMPLE}`),
+      feature_path: z
+        .string()
+        .optional()
+        .describe("A .feature file to read instead of passing the text. Give one of feature / feature_path."),
+      scenario: z
+        .string()
+        .optional()
+        .describe("Which Scenario in the file to run, by name. Defaults to the first one that has driven steps."),
       out_path: z.string().describe("Where to write the GIF (absolute, or relative to the project dir)."),
-      name: z.string().optional().describe("Reel name, recorded in the manifest."),
+      media_path: z
+        .string()
+        .optional()
+        .describe("Resolve the medium named in `Given the disk \"...\"` to this path. Use when the feature names a file rather than a full path."),
       delay_ms: z
         .number()
         .optional()
-        .describe("Frame delay in milliseconds, uniform across the reel (default 700). Must be at least 10."),
+        .describe("Frame delay in milliseconds, uniform across the reel (default 700). At least 10 — a zero GIF delay leaves the rate to whatever the viewer decides."),
       max_bytes: z
         .number()
         .optional()
         .describe("Hard byte ceiling (default 512000, the CSDb limit). Over budget, whole frames are dropped from the middle outwards and named in the report — never a silent re-encode."),
-      scenario_path: z
+      save_feature_to: z
         .string()
         .optional()
-        .describe("Also keep the scenario as a JSON file here, so the reel can be rebuilt or diffed later. Recommended: a scenario is the only reproducible record of how a screen was reached."),
-      frames_dir: z
-        .string()
+        .describe("Also keep the scenario as a .feature file here. Recommended when the text was passed inline: the scenario is the only reproducible record of how those screens were reached."),
+      budget_seconds: z
+        .number()
         .optional()
-        .describe("Also write each captured frame's raw colour indices here (one byte per pixel)."),
+        .describe("How long the private machine may live before it ends itself (default 600)."),
     },
-    safeHandler("runtime_scene_reel", async ({ media, waypoints, out_path, name, delay_ms, max_bytes, scenario_path, frames_dir }) => {
+    safeHandler("runtime_scene_reel", async (args) => {
+      const {
+        feature, feature_path, scenario: wanted, out_path, media_path,
+        delay_ms, max_bytes, save_feature_to, budget_seconds,
+      } = args;
       const projectDir = context.projectDir();
       const abs = (p: string): string => (isAbsolute(p) ? p : resolvePath(projectDir, p));
 
-      if (media && !existsSync(media)) {
-        return text(`runtime_scene_reel: medium not found: ${media}`);
+      if (!feature && !feature_path) return text("runtime_scene_reel: give `feature` (the Gherkin text) or `feature_path`.");
+      if (feature && feature_path) return text("runtime_scene_reel: give `feature` OR `feature_path`, not both.");
+
+      let source: string;
+      let sourceFile: string | undefined;
+      if (feature_path) {
+        sourceFile = abs(feature_path);
+        if (!existsSync(sourceFile)) return text(`runtime_scene_reel: no such feature file: ${sourceFile}`);
+        source = readFileSync(sourceFile, "utf8");
+      } else {
+        source = feature!;
       }
-      const shots = waypoints.filter((w) => w.shot).length;
-      if (shots === 0) {
+
+      const { parseFeature } = await import("../project-knowledge/scenario-gherkin.js");
+      const parsed = parseFeature(source, sourceFile);
+      if (parsed.issues.length) {
         return text(
-          "runtime_scene_reel: the schedule has no `shot` waypoint, so it would produce an empty reel.",
+          `runtime_scene_reel: the scenario does not parse.\n\n` +
+            parsed.issues.map((i) => `  line ${i.line}: ${i.message}`).join("\n") +
+            `\n\nThe vocabulary is:\n${EXAMPLE}`,
         );
       }
 
-      // Only the keys the caller actually set travel to the runtime; an empty
-      // sibling object would read as a second step shape and be refused.
-      const steps = waypoints.map((w) => {
-        const out: Record<string, unknown> = {};
-        for (const k of ["wait", "type", "joy", "waitUntil", "shot"] as const) {
-          if (w[k] !== undefined) out[k] = w[k];
-        }
-        return out;
-      });
+      const driven = parsed.scenarios.filter((s) => s.steps.length > 0);
+      if (driven.length === 0) {
+        return text(
+          "runtime_scene_reel: no scenario here drives a machine. A capture scenario starts " +
+            "`Given the disk \"...\"` and its When/And lines are steps, not a branch run.",
+        );
+      }
+      const chosen = wanted ? driven.find((s) => s.name === wanted) : driven[0];
+      if (!chosen) {
+        return text(
+          `runtime_scene_reel: no scenario named "${wanted}". Present: ${driven.map((s) => s.name).join(", ")}`,
+        );
+      }
 
-      const scenario = {
-        name: name ?? "reel",
-        ...(media ? { media } : {}),
-        cyclesPerFrame: 19656,
-        reel: { delayMs: delay_ms ?? 700, maxBytes: max_bytes ?? 512_000 },
-        steps,
-      };
+      const delayMs = delay_ms ?? 700;
+      const delayCentis = Math.floor(delayMs / 10);
+      if (delayCentis < 1) {
+        return text(
+          `runtime_scene_reel: delay_ms must be at least 10 (got ${delayMs}) — a zero GIF delay ` +
+            `leaves the frame rate to whatever the viewer decides.`,
+        );
+      }
+      const maxBytes = max_bytes ?? 512_000;
 
       const gifPath = abs(out_path);
       mkdirSync(dirname(gifPath), { recursive: true });
 
-      // The scenario file is the reproducible record; when the caller does not
-      // ask to keep it, it still has to exist for the run, so it lands beside
-      // the reel rather than in a temp dir nobody will find.
-      const scenarioFile = scenario_path ? abs(scenario_path) : `${gifPath}.scenario.json`;
-      mkdirSync(dirname(scenarioFile), { recursive: true });
-      writeFileSync(scenarioFile, JSON.stringify(scenario, null, 2), "utf8");
+      const { runScenario, framesOf } = await import("../reel/run-scenario.js");
+      const { encodeWithin, parseStructure } = await import("../reel/gif89a.js");
 
-      const manifestFile = `${gifPath}.manifest.json`;
-      const { resolveTrx64Cli, runTrx64CliJson } = await import("../sandbox/trx64cli.js");
-      const cli = resolveTrx64Cli();
-      const args = ["reel", "--scenario", scenarioFile, "--out", gifPath, "--manifest", manifestFile, "--json"];
-      if (frames_dir) args.push("--frames-dir", abs(frames_dir));
-
-      let report: ReelReport;
+      let run;
       try {
-        report = runTrx64CliJson(cli, args) as ReelReport;
+        run = await runScenario(chosen, {
+          budgetMs: (budget_seconds ?? 600) * 1000,
+          resolveMedium: (named) => {
+            if (media_path) return abs(media_path);
+            return isAbsolute(named) ? named : resolvePath(projectDir, named);
+          },
+        });
       } catch (e) {
         return text(
           `runtime_scene_reel: ${(e as Error).message}\n\n` +
-            `The scenario that was attempted is kept at ${scenarioFile} — edit it and retry, ` +
-            `or adjust the waypoints. A predicate that timed out names how far it got.`,
+            `The scenario is unchanged — edit the step it stopped on and run it again.`,
         );
       }
 
-      const size = existsSync(gifPath) ? statSync(gifPath).size : 0;
+      const encoded = encodeWithin(run.width, run.height, run.palette, framesOf(run), delayCentis, maxBytes);
+      writeFileSync(gifPath, encoded.bytes);
+      // Walk what was written as BLOCKS. Scanning for the `21 F9` marker
+      // false-positives inside LZW pixel data, so it is not a frame count.
+      const structure = parseStructure(encoded.bytes);
+
+      const featureFile = save_feature_to ? abs(save_feature_to) : sourceFile;
+      if (save_feature_to) {
+        mkdirSync(dirname(featureFile!), { recursive: true });
+        writeFileSync(featureFile!, source.endsWith("\n") ? source : `${source}\n`, "utf8");
+      }
+
       const lines: string[] = [];
-      lines.push(`REEL ${report.name ?? scenario.name} → ${gifPath}`);
+      lines.push(`REEL ${chosen.name} → ${gifPath}`);
       lines.push(
-        `${report.frames ?? 0} frames · ${report.width ?? 0}x${report.height ?? 0} · ` +
-          `${size} bytes of ${report.maxBytes ?? max_bytes ?? 512_000} · ` +
-          `${report.delayCentiseconds ?? 0} cs per frame · ${report.paletteEntries ?? 0} colours`,
+        `${structure.frames} frames · ${structure.width}x${structure.height} · ` +
+          `${encoded.bytes.length} bytes of ${maxBytes} · ${delayCentis} cs per frame · ` +
+          `${structure.paletteEntries} colours`,
       );
       lines.push("");
-      lines.push("shots (the cycle each one landed on — a reel is re-derivable from these):");
-      for (const s of report.shots ?? []) {
-        lines.push(`  ${s.label.padEnd(24)} cycle ${s.cycle}`);
-      }
-      if (report.dropped?.length) {
+      lines.push("captures (the cycle each one landed on — a reel is re-derivable from these):");
+      for (const s of run.shots) lines.push(`  ${s.label.padEnd(24)} cycle ${s.cycle}`);
+
+      if (encoded.dropped.length) {
         lines.push("");
         lines.push(
-          `DROPPED to fit the byte ceiling: ${report.dropped.map((d) => d.label).join(", ")}. ` +
+          `DROPPED to fit the byte ceiling: ${encoded.dropped.map((i) => run.shots[i].label).join(", ")}. ` +
             `Nothing was re-encoded — whole frames went. Raise max_bytes or capture fewer screens.`,
         );
       }
-      if ((report.frames ?? 0) < 5) {
+
+      // The `Then` lines this layer can check itself. The rest stay verbal, which
+      // is not a failure: a human accepts them once and the acceptance turns them
+      // into a diff.
+      const verdicts: string[] = [];
+      for (const c of chosen.criteria) {
+        const atLeast = c.text.match(/reel has at least\s+(\d+)\s+(?:screens?|frames?)/i);
+        if (atLeast) {
+          const want = Number(atLeast[1]);
+          verdicts.push(
+            `  ${structure.frames >= want ? "PASS" : "FAIL"}  ${c.text}  (${structure.frames} captured)`,
+          );
+          continue;
+        }
+        const atMost = c.text.match(/reel is at most\s+([\d_]+)\s*bytes/i);
+        if (atMost) {
+          const want = Number(atMost[1].replace(/_/g, ""));
+          verdicts.push(
+            `  ${encoded.bytes.length <= want ? "PASS" : "FAIL"}  ${c.text}  (${encoded.bytes.length} bytes)`,
+          );
+          continue;
+        }
+        verdicts.push(`  ----  ${c.text}  (verbal — needs a human once)`);
+      }
+      if (verdicts.length) {
         lines.push("");
-        lines.push(
-          `NOTE: a scene release reel is expected to show at least 5 significantly different ` +
-            `screens; this one has ${report.frames ?? 0}.`,
-        );
+        lines.push("criteria:");
+        lines.push(...verdicts);
+      }
+
+      if (featureFile) {
+        lines.push("");
+        lines.push(`scenario: ${featureFile}`);
       }
       lines.push("");
-      lines.push(`scenario: ${scenarioFile}`);
-      lines.push(`manifest: ${manifestFile}`);
-      lines.push("");
-      lines.push("Rebuild it byte-for-byte by running the same scenario again.");
+      lines.push("Run the same scenario again to rebuild it byte-for-byte.");
 
-      // Register the reel + its scenario as project artifacts. A reel nobody can
-      // find later is a file, not a deliverable — and the scenario is the only
-      // record of how those screens were reached.
       try {
         const reg = context.tryRegisterKnowledgeArtifacts(projectDir, {
           toolName: "runtime_scene_reel",
-          title: `Release reel: ${report.name ?? scenario.name}`,
+          title: `Release reel: ${chosen.name}`,
           parameters: {
-            media: media ?? null,
-            frames: report.frames ?? 0,
-            bytes: size,
-            delayMs: delay_ms ?? 700,
+            frames: structure.frames,
+            bytes: encoded.bytes.length,
+            delayMs,
+            captures: run.shots.map((s) => s.label),
           },
-          inputs: media ? [{ path: media, scope: "input" }] : [],
           outputs: [
             { path: gifPath, kind: "preview", scope: "generated", format: "gif", role: "release-reel", producedByTool: "runtime_scene_reel" },
-            { path: scenarioFile, kind: "manifest", scope: "generated", format: "json", role: "capture-scenario", producedByTool: "runtime_scene_reel" },
+            ...(featureFile
+              ? [{ path: featureFile, kind: "manifest" as const, scope: "generated" as const, format: "feature", role: "capture-scenario", producedByTool: "runtime_scene_reel" }]
+              : []),
           ],
         });
         if (reg.message) lines.push(reg.message);

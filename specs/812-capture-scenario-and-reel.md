@@ -1,211 +1,219 @@
-# Spec 812 — Capture scenario: a deterministic input schedule, and the reel it produces
+# Spec 812 — Capture scenario: a written schedule, and the reel it produces
 
-**Status:** BUILT 2026-08-17 — all six deliverables shipped, all five gates green
-(`cargo test -p trx64-cli --test e2e_812_capture_scenario`, `npm run smoke:812`).
-Open: nothing in this spec. The reel-authoring half — which screens tell the story,
-near-duplicate removal, the ≥5-screens rule as a check rather than a note — is
-deliberately left to the caller for now (§7); promote it here if it turns out to
-need a tool of its own.
-**Repos:** both. Execution + encoding → TRX64 (`trx64cli reel`, `trx64-core::gif89a`).
-Authoring, selection and the MCP door → C64RE (`runtime_scene_reel`).
+**Status:** BUILT 2026-08-17 — the notation, the executor, the encoder and the tool
+are in; gates green (`npm run smoke:812` 32/32, `npm run e2e:810` 18/18 unchanged,
+and the two machine-fact gates in the runtime). Open: nothing in this spec. The
+authoring half — which screens tell the story, near-duplicate removal — is left to
+the caller (§7); promote it here if it turns out to need a tool of its own.
+**Repos:** C64RE owns the scenario, the schedule, the encoder and the tool. The
+runtime gained exactly two things, and both are facts about a machine:
+`session/frame_indices` and `session/advance_to_frame`.
 **Number:** 812 (registry: `specs/README.md`).
-**Depends on:** 787/788 (scratch instances — the isolation this runs in), the existing
-`scenario_player.rs` (the cycle-anchored schedule this extends).
-**Relates to:** 810 owns the *goal* notation (Gherkin, Given/When/Then, acceptance).
-812 owns the *schedule* underneath it. 810 compiles down to 812; 812 never evaluates a
-goal.
+**Depends on:** 810 (the notation and its parser — extended here, not duplicated),
+787/788 (a scratch instance is a separate process), doctrine rule 2 as amended
+2026-08-14 (C64RE may spawn an ephemeral sandbox; it carries a budget and ends
+itself).
 **Origin:** [C64RE issue #3](https://github.com/Jondalar/C64ReverseEngineeringMCP/issues/3)
 — a CSDb-format release GIF, today hand-orchestrated per project against a
-privately-spawned daemon.
+privately-spawned runtime.
 
 ---
 
 ## §1 The one thing that is missing, and it is missing twice
 
-A capture recipe today reads *"press down, then run about two million instructions"*.
-Two million instructions is not a moment; it is two seconds of C64 time with the stick
-held. A menu that samples once per frame scrolls through it. Run the same recipe again
-with a slightly different budget and it stops somewhere else.
+A capture recipe today reads *"press down, then run about two million
+instructions"*. Two million instructions is not a moment; it is two seconds of C64
+time with the stick held. A menu that samples once per frame scrolls through it.
+Run the same recipe again with a slightly different budget and it stops somewhere
+else.
 
-That is issue #3's problem — the reel cannot be rebuilt — and it is issue #2's problem —
-the boot cannot be repeated. **Both are the same absence: no clock.** One artifact fixes
-both, and the second fix is free: a scenario that replays to the same bytes twice is the
-determinism test.
+That is issue #3's problem — the reel cannot be rebuilt — and it is issue #2's
+problem — the boot cannot be repeated. **Both are the same absence: no clock.** One
+artifact fixes both, and the second fix is free: a scenario that replays to the
+same bytes twice is the determinism test.
 
-The clock is half-built already. `ScenarioPlayer` (`trx64-core/src/scenario_player.rs`,
-ported from the TS) schedules steps at an absolute `at_cycle` or `at_frame` and fires
-them from the machine clock, never from wall time. Its `JoystickScript` variant already
-carries `duration_frames`. What it cannot do is take a picture, wait for a condition, or
-run anywhere but on the caller's machine.
+## §2 It is written in Gherkin, in 810's files, through 810's parser
 
-## §2 A scenario is JSON. Gherkin is a front end, not a second format
-
-810 chose Gherkin for goals because a human reads it. A schedule is not read by a human
-in the same way — it is generated, diffed, and replayed byte-for-byte. So the executor's
-input is JSON, and if 810 later wants `When the intro is skipped` it compiles that to
-this. One executor. Two notations at most, never two engines.
-
-```jsonc
-{
-  "name": "release-reel",
-  "media": "…/side1.g64",
-  "cyclesPerFrame": 19656,          // PAL; the schedule's unit
-  "reel": { "delayMs": 700, "maxBytes": 512000 },
-  "steps": [
-    { "wait":  { "frames": 260 } },                    // cold boot → READY
-    { "type":  { "text": "LOAD\"*\",8,1\r" } },
-    { "waitUntil": { "screenStable": { "frames": 120 }, "timeoutFrames": 3000 } },
-    { "shot":  { "label": "title" } },
-    { "joy":   { "port": 2, "down": true, "frames": 2 } },   // press AND release
-    { "wait":  { "frames": 20 } },
-    { "joy":   { "port": 2, "fire": true, "frames": 2 } },
-    { "waitUntil": { "screenStable": { "frames": 90 }, "timeoutFrames": 2000 } },
-    { "shot":  { "label": "menu-selected" } }
-  ]
-}
+```gherkin
+# targets: payload/golden-disk-title
+Scenario: the release reel
+  Given the disk "side1.g64"
+  When I wait 170 frames
+  And I type "LOAD{QUOTE}*{QUOTE},8,1{RETURN}"
+  And I wait until the drive is idle within 8000 frames
+  And I capture "title"
+  And I hold joystick 2 down and fire for 3 frames
+  And I wait until the screen is still for 90 frames within 2000 frames
+  And I capture "menu"
+  Then the reel has at least 5 screens
+  And the title screen is legible
 ```
 
-Steps in file order. Each carries its own duration; nothing is implied by what the next
-call happens to do. `joy` is a press *and* its release — the shape that was not
-expressible before, and the direct cause of the wrong menu entry in issue #2's second
-attempt.
+810 chose Gherkin for goals because a human reads and rewrites them. A capture
+schedule is the same kind of document said at greater length, so it is the same
+notation, the same `.feature` files, and **the same parser** — widened in exactly
+two directions: a scenario may start from a MEDIUM instead of a mark, and its
+`When` may be a list of driven steps instead of a branch run. A repo with two
+notations for one idea ends up with two of everything, which is the trap 810 §4b
+was already written to avoid.
+
+Steps run in written order and **each one that lasts states its own duration**.
+`I hold joystick 2 down for 3 frames` is a press *and* its release; a press with no
+stated end is not expressible, which is the point. `I wait until …` requires
+`within N frames`, because a predicate that never fires must fail rather than hang.
+
+`{RETURN}`, `{QUOTE}`, `{SPACE}` keep a `LOAD"*",8,1` readable inside a quoted
+Gherkin string. Escaping would have been the first thing anyone got wrong, and
+readability is the entire reason this is a feature file and not JSON.
 
 ## §3 Two kinds of waiting, and both are needed
 
-`wait` is exact and reproducible to the cycle. It is also brittle: a fix that shifts
-timing by 200 cycles invalidates every stored scenario that used it.
+A plain `I wait N frames` is exact and reproducible to the cycle. It is also
+brittle: a fix that shifts timing invalidates every scenario that leaned on it.
 
-`waitUntil` survives that. Three predicates, all cheap and all already readable from the
-machine:
+`I wait until …` survives that. Three predicates, all readable from the machine:
 
-- `pc: "$C001"` — the CPU reached an address.
-- `screenStable: { frames: N }` — the rendered frame has not changed for N frames.
-- `driveIdle: true` — the 1541 has stopped stepping.
+- `the CPU reaches $C001`
+- `the screen is still for N frames`
+- `the drive is idle`
 
-with a mandatory `timeoutFrames`, because a predicate that never fires must fail loudly
-rather than hang a capture.
+Two of them carry a lesson each, recorded in §11.
 
-**The scenario records which kind each step used**, so when a replay diverges, the file
-itself says whether the scenario was brittle or we were.
+## §4 A capture lands on a frame boundary
 
-## §4 A shot lands on a frame boundary
+`displayed` is the frozen previous frame. Ask for it mid-frame and you get the one
+before the interesting one; 808 already paid for this. So a capture first advances
+to the next raster wrap, then reads, and records the cycle it fired at. Those
+cycles go in the report: a reel is re-derivable from its own output.
 
-`session/screenshot` renders `vic.displayed`, the frozen previous frame. Ask for it
-mid-frame and you get the one before the interesting one; 808 already taught this. So
-`shot` first advances to the next raster-line-0 boundary, then captures, and records the
-cycle it actually fired at. That cycle goes in the manifest: a reel is re-derivable from
-its own output.
+The boundary is found by watching the wrap, not by arithmetic — a one-cycle budget
+still completes the instruction in flight, so `raster_cycle` can step over any
+exact value. A wrap cannot be stepped over.
 
-## §5 It runs in its own process, never in the shared session
+## §5 The machine emulates. A human or C64RE drives it.
 
-Doctrine rule 2: the session the human sees is one, and point work gets its own
-sandbox. A capture run boots cold, types, and throws its machine away — exactly a 787
-scratch instance, and `trx64cli boot` already is one (`boot_engine` →
-`create_embedded_state`, no daemon, no port).
+This is the line the first build of this spec crossed, and §11 records how.
 
-So the executor is `trx64cli reel`. No WebSocket, no port allocation, no budget-reaper:
-the process ends when the reel is written. The reporter of #3 built a private daemon by
-hand for this; the point of the spec is that nobody should have to.
+The runtime is asked only for things a machine can answer: run this many cycles,
+present these keys, hold this stick, what is on the screen, where is the raster. It
+learns nothing about schedules, waypoints, reels or GIFs.
+
+The schedule runs on **C64RE's** side, against a private machine it spawns on its
+own port and kills when the command ends — doctrine rule 2's ephemeral sandbox,
+which is exactly what the reporter of #3 built by hand. It is a child process, not
+a detached one: nothing survives the command, so there is nothing to reap.
+
+**Driving it over a socket costs wall clock and nothing else**, because the machine
+is PAUSED for the whole run and every advance is a bounded run in cycles. That is
+not a hope; it is the measurement in BUG-050 — with the machine left running one
+recipe gave five different outcomes, and paused with the boot expressed in cycles,
+five for five identical.
 
 ## §6 The reel is GIF89a, and it needs no quantization
 
-CSDb wants exactly 384×272 including border, GIF, ≤ 512000 bytes, hard cuts, uniform
-delay. That happens to be what the VIC already produces:
+CSDb wants exactly 384×272 including border, GIF, ≤ 512000 bytes, hard cuts,
+uniform delay. That happens to be what the VIC already produces: one byte per pixel
+holding a 4-bit colour index, plus the sixteen RGB entries that go with it. A GIF
+global colour table is a palette of that shape and GIF pixel data IS palette
+indices — nothing to build, nothing to dither, and no colour that drifts between
+frames.
 
-- `render_canvas_indices` returns **384×272, one byte per pixel, 4-bit colour index** —
-  `CANVAS_W`/`CANVAS_H` are the VICE x64sc PAL canvas, border included.
-- `COLODORE` is **16 RGB entries**.
+The palette travels **with** the frame from the machine rather than being kept as a
+second copy in C64RE. Per frame: LZW over the index buffer, `disposal = 2`, one
+uniform delay, Netscape loop block.
 
-A GIF global colour table is 16 entries; the pixel data is exactly those indices. There
-is no palette to build, nothing to dither, and no colour drifts between frames — the
-opposite of the client-side `quantize` path in use today. Per frame: LZW over the index
-buffer, `disposal = 2`, one uniform delay, Netscape loop block.
+**The clamp is honest.** Over `maxBytes`, whole frames are dropped from the middle
+outwards, so the opening and closing shots go last, and the report names what went.
+Never a silent re-encode at lower fidelity, never a truncated file.
 
-`trx64-core::gif89a` is written here rather than pulled in, for three reasons: the
-input is already palette-indexed so the encoder is small; it keeps the byte clamp
-inside the thing that knows the frames; and it adds no dependency to a GPL workspace.
-
-**The clamp is honest.** Over `maxBytes`, drop frames — never silently re-encode at
-lower fidelity, never truncate the file. Report which frames were dropped and why.
-
-**Verification is structural.** The gate parses the produced GIF as GIF89a blocks
-(header → LSD → GCT → per-frame GCE + image descriptor + LZW sub-blocks → trailer) and
-counts frames. Scanning for the `21 F9` GCE marker is not verification — that byte pair
-occurs inside LZW pixel data, which is the trap the reporter hit.
+**Verification is structural.** The gate parses the produced GIF as blocks. Scanning
+for the `21 F9` marker is not verification — that byte pair occurs inside LZW pixel
+data, which is the trap the reporter hit.
 
 ## §7 Who owns what
 
-**TRX64** executes and encodes: run the schedule, take the frames, write the GIF.
-It knows nothing about releases, menus, or what a good screenshot is.
+**The runtime** emulates. Two new RPCs, both machine facts: the displayed frame as
+raw indices plus its palette, and "advance to the next frame boundary and tell me
+the cycle".
 
-**C64RE** authors and selects: which waypoints tell the story of this release, the
-natural playthrough order, near-duplicate removal, the ≥ 5-screens rule, where the
-scenario file lives in the project. The MCP tool `runtime_scene_reel` writes the
-scenario, invokes the binary through the existing `src/sandbox/trx64cli.ts` bridge, and
-registers the result as a project artifact.
-
-That is the Leitregel applied unchanged: capability → TRX64, meaning → C64RE.
+**C64RE** writes the scenario, walks it, encodes the reel, and decides which screens
+tell the story of a release — the playthrough order, near-duplicate removal, the
+≥ 5-screens rule. That last part is a `Then` line the caller writes today; it is
+checked, not enforced.
 
 ## §8 Determinism falls out, and it is the gate
 
-Two runs of one scenario from a cold boot must produce **byte-identical GIFs**. That is
-the acceptance test for this spec, and it is simultaneously the instrument issue #2
-needs: if the same schedule diverges, the divergence is ours and reproducible without
-anyone's private disk.
+The same scenario, run twice, must produce **byte-identical GIFs**. That is the
+acceptance test, and it is simultaneously the instrument issue #2 needs: if one
+schedule diverges, the divergence is ours and reproducible without anyone's private
+disk.
 
 Gates:
 
-1. `a_scenario_replays_to_the_same_bytes` — same file, two cold runs, identical output.
-2. `a_reel_is_a_wellformed_gif89a` — block-structure parse, frame count, 16-entry GCT,
-   uniform delay, ≤ maxBytes, 384×272.
-3. `a_joystick_press_spans_the_frames_it_says` — a 2-frame press is visible to the
-   machine for 2 frames and released after, measured at CIA1.
-4. `a_shot_lands_on_a_frame_boundary` — the recorded capture cycle is a raster-0 cycle.
-5. `a_predicate_that_never_fires_times_out` — loud failure, not a hang.
+1. `27 the same scenario produces the same bytes` — same feature text, two runs.
+2. `12–17` — block-structure parse, canvas, 16-entry table, hard cuts, honest clamp.
+3. `advancing_to_a_frame_lands_on_the_raster_wrap` (runtime) — and idempotent.
+4. `a_held_joystick_is_seen_for_every_frame_it_is_held` (runtime) — measured at CIA1.
+5. `30 a predicate that never fires fails loudly` — with the state it reached.
+6. `31/32` — the sandbox holds its own port while it lives and lets go when it ends.
+7. `npm run e2e:810` unchanged at 18/18 — the notation was widened, not altered.
 
 ## §9 What this spec does not do
 
-- **It does not evaluate a goal.** No pass/fail on content, no acceptance, no baseline.
-  That is 810, and it sits on top.
+- **It does not evaluate a verbal goal.** A `Then` it can check, it checks; the rest
+  are reported as verbal. Acceptance is 810's, and sits on top.
 - **It does not drive the live session.** Not an option, not a flag.
-- **It does not choose the screens.** It executes the waypoints it is given.
-- **It does not replace `trx64cli boot`.** `boot` mints a snapshot; `reel` produces
-  frames. `reel` may later grow `--dump` and subsume it, but not in this spec.
+- **It does not choose the screens.** It runs the scenario it is given.
+- **It does not put a schedule in the runtime.** See §5.
 
 ## §10 Deliverables
 
 | # | Where | What |
 |---|-------|------|
-| 1 | TRX64 `trx64-core/src/gif89a.rs` | GIF89a encoder over palette indices + block-structure parser (used by the gate) |
-| 2 | TRX64 daemon | `session/frame_indices` — the 384×272 index buffer + palette, so the capture path is an API and not a private field read |
-| 3 | TRX64 `trx64-cli/src/reel_cmd.rs` | scenario parse → isolated boot → step execution → frames → GIF + manifest |
-| 4 | TRX64 `trx64cli reel` | subcommand, `--json` envelope |
-| 5 | C64RE `runtime_scene_reel` | MCP tool: waypoints → scenario file → binary → artifact. Registered in `DEFAULT_TOOLS` |
-| 6 | Both | the five gates of §8 |
+| 1 | `src/project-knowledge/scenario-gherkin.ts` | the step vocabulary, in 810's parser: `Given the disk/cart/medium/snapshot`, `Given a bare machine`, and the five steps |
+| 2 | `src/reel/gif89a.ts` | GIF89a encoder over palette indices + the block-structure parser the gate uses |
+| 3 | `src/reel/sandbox-session.ts` | an ephemeral private machine: own port, child process, budget, ends itself |
+| 4 | `src/reel/run-scenario.ts` | walk the steps on a paused machine, collect the frames |
+| 5 | `src/server-tools/scene-reel.ts` | `runtime_scene_reel`, registered in `DEFAULT_TOOLS` |
+| 6 | runtime: `session/frame_indices`, `session/advance_to_frame` | the two machine facts, with their gates |
+| 7 | `npm run smoke:812` | 32 checks |
 
 ## §11 What building it taught
 
+**The first build put the executor in the emulator, and that was wrong.** A
+`trx64cli reel` subcommand parsed scenarios, drove the machine through a schedule
+and assembled GIFs — so the runtime knew what a waypoint and a release reel were.
+The justification was that a socket between the schedule and the machine would
+reintroduce timing non-determinism. **My own control measurement disproves it**:
+driven over a WebSocket from a Node script, one recipe came back five for five
+identical, to the cycle. A paused machine does not move while a call is in flight.
+The whole executor moved to C64RE and the runtime kept two RPCs.
+
+There is a second half to that mistake worth naming: the owner had said "like a
+Gherkin test, as in 810" at the outset, and I built JSON, reasoning that Gherkin
+could be a front end later. Choosing the second format is how a repo gets two of
+everything; the notation was his call and it was already made.
+
 **The GIF encoder was wrong in a way our own tests could not see.** The first
 version widened the LZW code at `next_code == 1 << code_size`, and a decoder
-written from the same understanding read it back perfectly — eight green tests
-over a stream no real library accepts. An outside decoder rejected it on the first
-try (`broken data stream`). A decoder learns each dictionary entry one code late,
-so it counts one behind the encoder; the encoder must widen *strictly past* the
-current width. The gate is now an opt-in probe (`TRX64_GIF_PROBE=<path>`) that
-writes a reel plus its source indices for something that is not ours to check.
-Agreeing with yourself is not verification.
+written from the same understanding read it back perfectly — eight green tests over
+a stream no real library accepts. An outside decoder rejected it on the first try
+(`broken data stream`). A decoder learns each dictionary entry one code late, so it
+counts one behind the encoder; the encoder must widen *strictly past* the current
+width. When the encoder later moved from Rust to TypeScript, the port was gated
+byte-for-byte against the verified original rather than re-derived — which is the
+correct way to move a thing that was hard to get right.
 
-**`driveIdle` had to mean "worked, then stopped".** Written as "is the drive idle",
-it fired instantly after a `LOAD` — the C64 was still printing SEARCHING and the
-drive had not spun up — and the reel captured the prompt. It now requires the
-busy→idle edge, and says so when the drive never became busy at all. Same shape as
-the rule that a control is worthless until it reaches the state.
+**`the drive is idle` had to mean "worked, then stopped".** Written as "is the drive
+idle", it fired instantly after a `LOAD` — the C64 was still printing SEARCHING and
+the drive had not spun up — and the reel captured the prompt. It now requires the
+busy→idle edge, and says so when the drive never became busy at all.
 
 **And the busy signal is the LED, not the motor.** A 1541 keeps spinning after a
-load finishes, so `motorOn` answers a different question. The repo had already
-learned this once, in `drive_status`.
+load finishes, so `motorOn` answers a different question. `drive_status` had already
+learned this once.
 
-**`screenStable` cannot be used at a BASIC prompt.** The cursor blinks about every
-20 frames, so no stability window longer than a blink is ever reachable. The
-timeout message now reports the longest still stretch it saw and names the three
-predicates that do work there, because the first failure gave no clue.
+**`the screen is still` cannot be used at a BASIC prompt.** The cursor blinks about
+every 20 frames, so no stability window longer than a blink is ever reachable. The
+timeout message now reports the longest still stretch it saw and names the
+predicates that do work there.
