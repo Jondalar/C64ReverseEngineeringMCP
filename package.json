@@ -13,6 +13,8 @@
     "check:docs-current": "node scripts/check-docs-current.mjs",
     "e2e:810": "node scripts/e2e-810-scenarios.mjs",
     "smoke:812": "npm run build:mcp && node scripts/smoke-812-scene-reel.mjs",
+    "check:wiki": "npm run build:mcp && node scripts/gen-tool-surface-inventory.mjs >/dev/null && node scripts/check-wiki.mjs",
+    "publish:wiki": "node scripts/check-wiki.mjs --publish",
     "e2e:750-lut": "npm run build:mcp && node scripts/e2e-750-lut.mjs",
     "e2e:750-real": "npm run build:mcp && node scripts/e2e-750-real.mjs",
     "e2e:805-sandbox-batch": "npm run build:mcp && node scripts/e2e-805-sandbox-batch.mjs",

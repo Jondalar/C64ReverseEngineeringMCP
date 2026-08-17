@@ -245,6 +245,17 @@ export function parseStep(text: string): { step?: Step; error?: string } | undef
     };
   }
 
+  // A joystick line that does not match the shape above is almost certainly a
+  // press with no duration — the one thing this notation refuses. Say so, rather
+  // than letting it fall through and be read as a criterion.
+  if (/^I hold joystick\b/i.test(t)) {
+    return {
+      error:
+        `"${t}": a press states its port, its directions and how long it is HELD — ` +
+        `e.g. \`I hold joystick 2 down and fire for 3 frames\``,
+    };
+  }
+
   // I wait until <predicate> within 8000 frames
   const until = t.match(/^I wait until\s+(.+?)\s+within\s+(\d+)\s*frames?$/i);
   if (until) {
