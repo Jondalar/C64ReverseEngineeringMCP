@@ -92,10 +92,24 @@ export type Step =
 
 export type JoyDirection = "up" | "down" | "left" | "right" | "fire";
 
+/** `Given the region "score" covers 30,1 to 37,1` — or, with no rectangle, a name
+ *  the project store is expected to know. */
+export interface RegionDef {
+  readonly name: string;
+  readonly rect?: { readonly col: number; readonly row: number; readonly cols: number; readonly rows: number };
+  readonly text: string;
+}
+
 export type Predicate =
   | { readonly kind: "driveIdle" }
   | { readonly kind: "screenStill"; readonly frames: number }
-  | { readonly kind: "pc"; readonly address: number };
+  | { readonly kind: "pc"; readonly address: number }
+  // Spec 813 §4 — state anchors. A cycle is exact and fails SILENTLY when the
+  // runtime changes; these heal themselves and are what a capture should hang on.
+  | { readonly kind: "screenShows"; readonly needle: string }
+  | { readonly kind: "regionShows"; readonly region: string; readonly needle: string }
+  | { readonly kind: "regionChanges"; readonly region: string }
+  | { readonly kind: "memoryIs"; readonly address: number; readonly value: number };
 
 /** Where a scenario starts. A mark is 810's; a medium is 812's. */
 export type Origin =
@@ -116,6 +130,12 @@ export interface Scenario {
   readonly frames: number;
   /** Spec 812 — the driven steps, in written order. Empty for an 810 branch scenario. */
   readonly steps: readonly Step[];
+  /**
+   * Spec 813 §5 — the regions this scenario names. A rectangle makes it LOCAL to the
+   * file; a bare name is resolved from the project store. Local wins, and the run
+   * says so, or someone edits the entity, nothing changes, and an hour goes missing.
+   */
+  readonly regions: readonly RegionDef[];
   readonly criteria: readonly Criterion[];
   /**
    * §3 — the exclusion mask belongs to the CRITERION, not the run. Cycle counters move,
@@ -158,6 +178,18 @@ const COMPONENTS = ["ram", "cpu", "vic", "sid", "cia", "cia1", "cia2", "drive", 
 export function classifyCriterion(text: string): Criterion {
   const address = parseAddress(text);
   if (address !== undefined) return { text, kind: "byte-exact", address };
+
+  // Spec 813 — a criterion over a REGION is byte-exact by construction: the region
+  // is an address set, so the comparison is bytes. This is the conversion 810 §1
+  // promised and could not make: "the intro plays" is verbal because the whole
+  // screen is noise, and the same sentence about one marked box is not.
+  if (/^"[^"]+"\s+(?:is unchanged|changes|shows\s+"[^"]*"|equals the accepted baseline)\s*$/i.test(text.trim())) {
+    const region = text.trim().match(/^"([^"]+)"/)![1];
+    return { text, kind: "byte-exact", names: region };
+  }
+  if (/^the screen shows\s+"[^"]*"\s*$/i.test(text.trim())) {
+    return { text, kind: "byte-exact" };
+  }
 
   const lower = text.toLowerCase();
   if (COMPONENTS.some((c) => new RegExp(`\\b${c}\\b`).test(lower))) {
@@ -283,10 +315,48 @@ export function parseStep(text: string): { step?: Step; error?: string } | undef
       if (addr === undefined) return { error: `"${t}": ${pc[1]} is not an address` };
       return { step: { kind: "waitUntil", predicate: { kind: "pc", address: addr }, timeoutFrames, text: t } };
     }
+
+    // Spec 813 §3 — the C64 text screen IS characters, so this is a table lookup
+    // and a substring search. No OCR, no image hashing, and a human reads the line
+    // and knows exactly what is being waited for.
+    const shows = what.match(/^the screen shows\s+"([^"]*)"$/i);
+    if (shows) {
+      if (!shows[1].trim()) return { error: `"${t}": nothing to look for` };
+      return { step: { kind: "waitUntil", predicate: { kind: "screenShows", needle: shows[1] }, timeoutFrames, text: t } };
+    }
+    const rShows = what.match(/^"([^"]+)"\s+shows\s+"([^"]*)"$/i);
+    if (rShows) {
+      if (!rShows[2].trim()) return { error: `"${t}": nothing to look for` };
+      return {
+        step: {
+          kind: "waitUntil",
+          predicate: { kind: "regionShows", region: rShows[1], needle: rShows[2] },
+          timeoutFrames,
+          text: t,
+        },
+      };
+    }
+    const rChanges = what.match(/^"([^"]+)"\s+changes$/i);
+    if (rChanges) {
+      return {
+        step: { kind: "waitUntil", predicate: { kind: "regionChanges", region: rChanges[1] }, timeoutFrames, text: t },
+      };
+    }
+    const memIs = what.match(/^(\$[0-9a-f]+|\d+)\s+is\s+(\$[0-9a-f]+|\d+)$/i);
+    if (memIs) {
+      const addr = parseAddress(memIs[1]);
+      const val = parseAddress(memIs[2]);
+      if (addr === undefined) return { error: `"${t}": ${memIs[1]} is not an address` };
+      if (val === undefined || val > 0xff) return { error: `"${t}": ${memIs[2]} is not a byte` };
+      return { step: { kind: "waitUntil", predicate: { kind: "memoryIs", address: addr, value: val }, timeoutFrames, text: t } };
+    }
+
     return {
       error:
         `"${t}": understood predicates are "the drive is idle", ` +
-        `"the screen is still for N frames", "the CPU reaches $XXXX"`,
+        `"the screen is still for N frames", "the CPU reaches $XXXX", ` +
+        `"the screen shows \"TEXT\"", "\"region\" shows \"TEXT\"", ` +
+        `"\"region\" changes", "$XXXX is $YY"`,
     };
   }
 
@@ -328,7 +398,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
 
   let cur: {
     name: string; targets: string[]; mark?: string; branch?: string; frames?: number;
-    origin?: Origin; steps: Step[];
+    origin?: Origin; steps: Step[]; regions: RegionDef[];
     criteria: Criterion[]; mask: string[]; line: number;
   } | null = null;
   let pendingTargets: string[] = [];
@@ -350,7 +420,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
       scenarios.push({
         name: cur.name, targets: cur.targets, origin,
         mark: cur.mark ?? "", branch: cur.branch ?? "",
-        frames: cur.frames ?? 1, steps: cur.steps,
+        frames: cur.frames ?? 1, steps: cur.steps, regions: cur.regions,
         criteria: cur.criteria, mask: cur.mask, file, line: cur.line,
       });
     }
@@ -383,7 +453,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
     if (sc) {
       flush(n);
       cur = {
-        name: sc[1].trim(), targets: [...pendingTargets], steps: [], criteria: [], mask: [...pendingMask], line: n,
+        name: sc[1].trim(), targets: [...pendingTargets], steps: [], regions: [], criteria: [], mask: [...pendingMask], line: n,
       };
       pendingTargets = [];
       pendingMask = [];
@@ -392,6 +462,39 @@ export function parseFeature(source: string, file?: string): ParseResult {
 
     if (!cur) {
       issues.push({ line: n, message: `"${line}" is outside any Scenario` });
+      return;
+    }
+
+    // Spec 813 §5 — `Given the region "score" covers 30,1 to 37,1` (local, this file
+    // only) or `Given the region "lives"` (resolved from the project store). A region
+    // Given is not an origin: a scenario still needs a mark, a medium or a bare
+    // machine to start from, and saying otherwise would let one be forgotten.
+    const regionRect = line.match(
+      /^(?:Given|And)\s+the\s+region\s+"([^"]+)"\s+covers\s+(\d+)\s*,\s*(\d+)\s+to\s+(\d+)\s*,\s*(\d+)\s*$/i,
+    );
+    if (regionRect) {
+      const [, name, c1, r1, c2, r2] = regionRect;
+      const col = Math.min(+c1, +c2), row = Math.min(+r1, +r2);
+      const cols = Math.abs(+c2 - +c1) + 1, rows = Math.abs(+r2 - +r1) + 1;
+      if (col > 39 || row > 24 || col + cols > 40 || row + rows > 25) {
+        issues.push({
+          line: n,
+          message: `"${line}": the text screen is 40x25, so 0,0 to 39,24 is the whole of it`,
+        });
+        return;
+      }
+      cur.regions.push({ name, rect: { col, row, cols, rows }, text: line });
+      return;
+    }
+    const regionNamed = line.match(/^(?:Given|And)\s+the\s+region\s+"([^"]+)"\s*$/i);
+    if (regionNamed) { cur.regions.push({ name: regionNamed[1], text: line }); return; }
+    if (/^(?:Given|And)\s+the\s+region\b/i.test(line)) {
+      issues.push({
+        line: n,
+        message:
+          `"${line}": a region is either a rectangle — \`Given the region "score" covers 30,1 to 37,1\` — ` +
+          `or a bare name the project store knows`,
+      });
       return;
     }
 

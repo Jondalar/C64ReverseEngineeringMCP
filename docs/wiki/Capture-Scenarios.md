@@ -47,6 +47,7 @@ runtime_scene_reel
 | `I type "LOAD{QUOTE}*{QUOTE},8,1{RETURN}"` | keys into the keyboard buffer |
 | `I hold joystick 2 down and fire for 3 frames` | press AND release, held for 3 frames |
 | `I wait until the drive is idle within 9000 frames` | wait for a condition, with a timeout |
+| `I wait until the screen shows "PRESS FIRE" within 1200 frames` | wait for text on the screen |
 | `I insert the disk "side2.d64"` | eject, wait, insert. Also `swap in` / `turn to` |
 | `I capture "title"` | take a picture, on a frame boundary |
 
@@ -74,13 +75,16 @@ Quotes inside a quoted Gherkin string would be unreadable, so:
 
 ## Waiting for a condition
 
-Three predicates. All need `within N frames` — a predicate that never fires fails
+The predicates. All need `within N frames` — a predicate that never fires fails
 with the state it reached instead of hanging.
 
 ```gherkin
   And I wait until the drive is idle within 9000 frames
   And I wait until the screen is still for 90 frames within 2000 frames
   And I wait until the CPU reaches $C001 within 600 frames
+  And I wait until the screen shows "READY." within 300 frames
+  And I wait until "score" changes within 600 frames
+  And I wait until $C05F is $03 within 600 frames
 ```
 
 `the drive is idle` means it WORKED and then STOPPED. Right after a `LOAD` the drive
@@ -89,6 +93,70 @@ has not spun up yet, so a bare is-it-idle test would pass instantly.
 `the screen is still` does not work at a BASIC prompt: the cursor blinks about every
 20 frames, so no window longer than a blink is reachable. Use `the drive is idle`, a
 `CPU reaches`, or a plain wait there.
+
+## Waiting on what the screen says
+
+A cycle count is exact and it rebuilds a reel byte for byte — but change the runtime
+and the same number lands somewhere else, silently. Waiting on a STATE heals itself:
+
+```gherkin
+  And I wait until the screen shows "PRESS FIRE" within 1200 frames
+  And I capture "title"
+```
+
+The C64 text screen is characters, one byte per cell, so this is a substring match —
+no image comparison. Matching is per row, case-insensitive, and runs of spaces
+collapse, so a padded menu entry still matches what you read on screen.
+
+The report says which cycle it fired on, so drift stays visible:
+
+```
+waits (each one fired on its own state, at this cycle):
+  cycle 26181793   I wait until the screen shows "PRESS FIRE" within 1200 frames — after 812 of 1200 frames
+```
+
+In a bitmap mode there is no character matrix. The run says so at once instead of
+timing out 1200 frames later.
+
+## Regions
+
+Mark a box, compare its bytes. In text mode a rectangle is an address set —
+`screen base + row*40 + col` plus the matching colour RAM — so the comparison is
+exact and blind to the sprites and raster splits happening around it.
+
+```gherkin
+  Given the disk "game.d64"
+  And the region "score" covers 30,1 to 37,1
+
+  When I wait until "score" changes within 600 frames
+  And I wait until "score" shows "001250" within 600 frames
+  And I capture "scored"
+  Then "score" is unchanged
+```
+
+A region defined in the file is local to it. A bare name is looked up in the project
+store:
+
+```gherkin
+  Given the region "lives"          # no rectangle -> the project's own region entity
+```
+
+A local definition wins over a stored one of the same name, and the report says so —
+otherwise you edit the entity, nothing changes, and you go looking for why:
+
+```
+regions:
+  score    30,1-37,1   local (shadows entity region/score)
+  lives    14,0-15,0   entity region/lives
+```
+
+A stored region that has MOVED since it was accepted is reported and NOT followed.
+
+## Other predicates
+
+```gherkin
+  And I wait until $C05F is $03 within 600 frames
+```
 
 ## Joystick
 
