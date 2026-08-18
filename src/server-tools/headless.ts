@@ -524,10 +524,11 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
 ));
 
-  // Sprint 93.1: joystick port 2 backend.
+  // Sprint 93.1: joystick backend. Issue #6 — a press can be held for a stated
+  // number of FRAMES, measured in machine time rather than wall-clock time.
   server.tool(
     "runtime_joystick",
-    "Set joystick port-2 state (up/down/left/right/fire) on a session. Use to drive game input. Not for keyboard (use runtime_type). Inputs: session_id, direction/fire flags. Returns: applied state.",
+    "Set or HOLD joystick state on a session. Use to drive game input. Not for keyboard (use runtime_type). Two modes. Without `hold_frames` it sets the port state and returns immediately — the machine keeps free-running in real time, so a press lasts as long as it takes you to make the next call, which is a moment you do not control. With `hold_frames` the press is FRAME-LOCKED: the tool pauses the machine, applies the state, advances exactly that many frames, releases, and restores whether the machine was running. That is the same thing runtime_scene_reel does, and it is what you want against a title that debounces its own $DC00/$DC01 poll behind a raster-frame wait — a menu that samples once per frame will step once per press instead of zero or five times at random. Reach for hold_frames FIRST for any menu or in-game input; the bare set mode is for holding a direction across several other calls on purpose. Inputs: session_id, direction/fire flags, optional port (1 or 2, default 2), optional hold_frames. Returns: applied state, and for a hold the cycle window it covered.",
     {
       session_id: z.string(),
       up: z.boolean().optional(),
@@ -535,14 +536,59 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       left: z.boolean().optional(),
       right: z.boolean().optional(),
       fire: z.boolean().optional(),
+      port: z.number().int().min(1).max(2).optional().describe("Joystick port (1 or 2). Default 2."),
+      hold_frames: z.number().int().positive().max(3000).optional().describe("Hold the stated state for exactly this many PAL frames, then release — the machine is paused around it, so the press lands in machine time, not wall-clock time. A tap is 2-4 frames; a menu repeat wants ~15-30. Omit to set the state and return immediately."),
     },
-    safeHandler("runtime_joystick", async ({ session_id, up, down, left, right, fire }) => {
+    safeHandler("runtime_joystick", async ({ session_id, up, down, left, right, fire, port, hold_frames }) => {
       // BUG-028 — joystick on the SHARED daemon session.
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
-      await runtimeDaemon.joystickSet(session_id, 2, { up, down, left, right, fire });
+      const p = port ?? 2;
+      const state = { up, down, left, right, fire };
+      const pressed = Object.entries(state).filter(([, v]) => v).map(([k]) => k).join("+") || "nothing";
+
+      if (!hold_frames) {
+        await runtimeDaemon.joystickSet(session_id, p, state);
+        return { content: [{ type: "text" as const, text: [
+          `Joystick port ${p} — session ${session_id} (Runtime Daemon)`,
+          `up=${!!up} down=${!!down} left=${!!left} right=${!!right} fire=${!!fire}`,
+          `Set and returned. The machine free-runs between calls, so this press lasts until your next call —`,
+          `if the title samples its port behind a frame wait, pass hold_frames instead and the press is measured in frames.`,
+        ].join("\n") }] };
+      }
+
+      // Issue #6 — FRAME-LOCKED press. The live session free-runs in wall-clock time
+      // between two tool calls, so set → run → clear as three calls cannot land a press
+      // inside a poll routine's sampling window, and no cycle_budget from the caller
+      // side fixes that. Here the machine is stopped for the whole press: it advances
+      // exactly hold_frames worth of cycles with the state applied, and not one more.
+      const { PAL_CYCLES_PER_FRAME } = await import("../project-knowledge/scenario-gherkin.js");
+      const before = await runtimeDaemon.state(session_id) as { runState?: string; cycle?: number };
+      const wasRunning = before?.runState === "running";
+      await runtimeDaemon.pause(session_id);
+      const from = (await runtimeDaemon.state(session_id) as { cycle?: number })?.cycle ?? 0;
+      try {
+        await runtimeDaemon.joystickSet(session_id, p, state);
+        // Chunked so one long hold is still a sequence of bounded daemon calls.
+        let left_ = hold_frames * PAL_CYCLES_PER_FRAME;
+        while (left_ > 0) {
+          const step = Math.min(PAL_CYCLES_PER_FRAME * 50, left_);
+          await runtimeDaemon.run(session_id, step);
+          left_ -= step;
+        }
+      } finally {
+        // Release even if the advance threw — a stuck direction is worse than a
+        // failed call, and the human shares this machine.
+        await runtimeDaemon.joystickClear(session_id, p);
+      }
+      const after = (await runtimeDaemon.state(session_id) as { cycle?: number })?.cycle ?? 0;
+      // Leave the machine as it was found: the human co-drives this session and did
+      // not ask for it to stop.
+      if (wasRunning) await runtimeDaemon.resume(session_id);
       return { content: [{ type: "text" as const, text: [
-        `Joystick port 2 — session ${session_id} (Runtime Daemon)`,
-        `up=${!!up} down=${!!down} left=${!!left} right=${!!right} fire=${!!fire}`,
+        `Joystick port ${p} — session ${session_id}: held ${pressed} for ${hold_frames} frame(s), then released`,
+        `cycles ${from} → ${after} (${after - from}), machine paused for the press and ${wasRunning ? "resumed" : "left paused"} after it`,
+        `The press was measured in machine time, so it lands the same way every run — the same guarantee runtime_scene_reel gives.`,
+        `If the title still misses it, the hold is shorter than its poll interval: raise hold_frames.`,
       ].join("\n") }] };
     },
 ));

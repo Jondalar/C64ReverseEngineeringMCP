@@ -404,6 +404,9 @@ class RuntimeDaemonClient {
   joystickSet<T = unknown>(sessionId: string, port: number, state: { up?: boolean; down?: boolean; left?: boolean; right?: boolean; fire?: boolean }) {
     return this.call<T>("session/joystick_set", { session_id: sessionId, port, ...state, source: "llm" });
   }
+  joystickClear<T = unknown>(sessionId: string, port: number) {
+    return this.call<T>("session/joystick_clear", { session_id: sessionId, port, source: "llm" });
+  }
   // (mark() already exists above — runtime/mark — reused by runtime_mark.)
   loadPrg<T = unknown>(sessionId: string, prgPath: string, loadAddress?: number) {
     return this.call<T>("session/load_prg", { session_id: sessionId, prg_path: prgPath, load_address: loadAddress, source: "llm" });
