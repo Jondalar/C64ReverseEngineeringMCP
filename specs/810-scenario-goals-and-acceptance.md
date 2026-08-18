@@ -13,10 +13,12 @@ reading what already exists:**
    path and no tool. Nothing freezes a baseline; nothing records who and when. This is the
    spec's load-bearing idea and the part of which nothing exists.
 3. byte-exact criterion evaluation against THAT baseline (not 796's — see §5), with the
-   criterion's mask. **Waits on 813**: today the mask is per component, so a verbal goal
-   over a busy screen ("the intro plays") has no byte-exact form to convert INTO. 813's
-   region is the spatial mask — mark the one box that matters and the same criterion
-   becomes byte-exact, which is the conversion §1 promises.
+   criterion's mask. **Unblocked 2026-08-18 by 813**: the mask used to be per component,
+   so a verbal goal over a busy screen ("the intro plays") had no byte-exact form to
+   convert INTO. 813's region is the spatial mask — mark the one box that matters and
+   the same criterion is byte-exact, which is the conversion §1 promises. The
+   classifier already treats `"score" is unchanged` as byte-exact; what is still
+   missing here is the STORE to compare it against.
 4. the indexer + lint — `# targets:` is parsed and never resolved; an unresolvable name
    must be a lint error.
 5. a door. There is no MCP tool for 810 at all.

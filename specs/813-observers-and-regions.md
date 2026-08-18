@@ -1,8 +1,10 @@
 # Spec 813 — Observers and regions: waiting on a state, and checking one
 
-**Status:** PROPOSED 2026-08-18 — nothing built. The notation, the predicates, the
-region object and the report line are specified here; the recorder that WRITES this
-vocabulary is 814 and must not start first.
+**Status:** BUILT 2026-08-18 — the region object, the four predicates, the
+local-shadows-store rule, the fired-cycle report and the runtime's bulk read are in.
+Gates green: `npm run smoke:813` 39/39, `npm run e2e:810` 18/18 and `npm run
+smoke:812` 41/41 unchanged, TRX64 daemon 348. Open: nothing in this spec. The
+recorder that WRITES this vocabulary is 814.
 **Repos:** C64RE owns the region object, the predicates, the resolution rule and the
 report. The runtime gains exactly one thing, and it is a fact about a machine:
 a bulk memory read (`session/read_memory`). The rectangle→address translation

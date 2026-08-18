@@ -815,6 +815,12 @@ export const EntityKindSchema = z.enum([
   "symbol",
   "io-register",
   "entry-point",
+  // Spec 813 — a named ADDRESS SET, usually marked as a rectangle on the screen.
+  // Stored so a scenario can say `Given the region "score"` and so the region hangs
+  // off a finding: a run over it is then EVIDENCE at that finding — "this is the
+  // score, and this run shows it counting up" — which is the point of keeping it
+  // here rather than in the feature file.
+  "screen-region",
   // Payload = the working abstraction across mediums. A payload is a
   // byte-blob with identity: a disk file, a LUT-extracted cart chunk, a
   // hand-extracted custom-loader blob, or a PRG. Operations like depack,

@@ -204,9 +204,28 @@ export function registerSceneReelTool(server: McpServer, context: ServerToolCont
           `${encoded.bytes.length} bytes of ${maxBytes} · ${delayCentis} cs per frame · ` +
           `${structure.paletteEntries} colours`,
       );
+      // Spec 813 §5 — where each region's definition came from. A local definition
+      // shadowing a store entity is the failure nobody can see otherwise.
+      if (run.regions.length) {
+        lines.push("");
+        lines.push("regions:");
+        lines.push(...run.regions);
+      }
+
       lines.push("");
       lines.push("captures (the cycle each one landed on — a reel is re-derivable from these):");
       for (const s of run.shots) lines.push(`  ${s.label.padEnd(24)} cycle ${s.cycle}`);
+
+      // Spec 813 §6 — a state anchor absorbs drift; printing the cycle it fired on is
+      // what makes that drift visible. Run this again after a runtime change and the
+      // frame count moves while the reel stays right.
+      if (run.waits.length) {
+        lines.push("");
+        lines.push("waits (each one fired on its own state, at this cycle):");
+        for (const w of run.waits) {
+          lines.push(`  cycle ${String(w.cycle).padEnd(12)} ${w.text} — after ${w.frames} of ${w.budget} frames`);
+        }
+      }
 
       // Say when two captures show the SAME picture. A repeated frame is almost
       // always the machine waiting for something — a prompt, a key, the other
