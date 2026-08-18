@@ -500,26 +500,63 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
 ));
 
-  // Sprint 93.1: queue text typing through CIA1 keyboard matrix.
+  // Sprint 93.1: queue text typing through CIA1 keyboard matrix. Issue #6 (same
+  // shape as the joystick) — the queue can be played out in MACHINE time.
   server.tool(
     "runtime_type",
-    "Queue text into a session's keyboard buffer (CIA1 matrix), as if typed. Use to enter BASIC commands / LOAD lines. Not for joystick (use runtime_joystick). Inputs: session_id, text, optional timing. Returns: queued confirmation.",
+    "Queue text into a session's keyboard buffer (CIA1 matrix), as if typed. Use to enter BASIC commands / LOAD lines. Not for joystick (use runtime_joystick). Without `settle` the text is only QUEUED: the daemon plays it out as the machine runs, and since the live session free-runs in real time between calls, your next tool call can land in the middle of the typing and read a half-typed line. With `settle: true` the tool pauses the machine, advances exactly the machine time the queue needs, and restores whether it was running — when the call returns, the text HAS been typed. Use settle whenever the next thing you do depends on the typing having finished (a LOAD, a RUN, a menu entry). Inputs: session_id, text, optional timing, optional settle/extra_frames. Returns: queued confirmation, and for a settle the cycle window it covered.",
     {
       session_id: z.string(),
       text: z.string().describe("Text to type. Use \\r or \\n for RETURN."),
       hold_cycles: z.number().int().min(1000).max(2_000_000).optional(),
       gap_cycles: z.number().int().min(0).max(2_000_000).optional(),
+      settle: z.boolean().optional().describe("Play the whole queue out before returning: the machine is paused and advanced by exactly the cycles the queue needs, so the text is typed when the call returns. Default false (queue and return)."),
+      extra_frames: z.number().int().min(0).max(300).optional().describe("With settle: extra frames after the last key, for the target to act on it (default 2). A BASIC line needs a few; a game menu may want more."),
     },
-    safeHandler("runtime_type", async ({ session_id, text, hold_cycles, gap_cycles }) => {
+    safeHandler("runtime_type", async ({ session_id, text, hold_cycles, gap_cycles, settle, extra_frames }) => {
       const decoded = text.replace(/\\r/g, "\r").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+      const hold = hold_cycles ?? 33000;
+      const gap = gap_cycles ?? 33000;
       // BUG-028 — type into the SHARED daemon session (the machine the human drives),
       // not a private in-process session. Read tools were routed; this write tool
       // was not, so the LLM could see but not type. Now uniform.
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
-      await runtimeDaemon.typeText(session_id, decoded, hold_cycles ?? 33000, gap_cycles ?? 33000);
+
+      if (!settle) {
+        await runtimeDaemon.typeText(session_id, decoded, hold, gap);
+        return { content: [{ type: "text" as const, text: [
+          `Queued ${decoded.length} chars on session ${session_id} (Runtime Daemon).`,
+          `Hold cycles: ${hold}  Gap cycles: ${gap}`,
+          `Queued only. The machine free-runs between calls, so your next call may read a half-typed line —`,
+          `pass settle: true when what you do next depends on the typing having finished.`,
+        ].join("\n") }] };
+      }
+
+      // Issue #6 — the same fix as the frame-locked joystick, for keys: the queue is
+      // played out with the machine STOPPED around it, so "typed" is a fact when this
+      // returns rather than a race against the caller's next request.
+      const { PAL_CYCLES_PER_FRAME } = await import("../project-knowledge/scenario-gherkin.js");
+      const extra = extra_frames ?? 2;
+      const need = decoded.length * (hold + gap) + extra * PAL_CYCLES_PER_FRAME;
+      const before = await runtimeDaemon.state(session_id) as { runState?: string; c64Cycles?: number };
+      const wasRunning = before?.runState === "running";
+      await runtimeDaemon.pause(session_id);
+      const from = (await runtimeDaemon.state(session_id) as { c64Cycles?: number })?.c64Cycles ?? 0;
+      await runtimeDaemon.typeText(session_id, decoded, hold, gap);
+      let remaining = need;
+      while (remaining > 0) {
+        const step = Math.min(PAL_CYCLES_PER_FRAME * 50, remaining);
+        await runtimeDaemon.run(session_id, step);
+        remaining -= step;
+      }
+      const to = (await runtimeDaemon.state(session_id) as { c64Cycles?: number })?.c64Cycles ?? 0;
+      // Leave the machine as it was found — the human co-drives this session.
+      if (wasRunning) await runtimeDaemon.resume(session_id);
       return { content: [{ type: "text" as const, text: [
-        `Queued ${decoded.length} chars on session ${session_id} (Runtime Daemon).`,
-        `Hold cycles: ${hold_cycles ?? 33000}  Gap cycles: ${gap_cycles ?? 33000}`,
+        `Typed ${decoded.length} chars on session ${session_id} and played the queue out.`,
+        `Hold cycles: ${hold}  Gap cycles: ${gap}  Extra frames: ${extra}`,
+        `cycles ${from} → ${to} (${to - from}), machine paused for the typing and ${wasRunning ? "resumed" : "left paused"} after it`,
+        `The text is typed now — this is not a queue you have to wait for.`,
       ].join("\n") }] };
     },
 ));
