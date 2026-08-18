@@ -8,6 +8,11 @@ import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 
+// BUG-052 — how long a loader-lens fold may block the tool call before it becomes
+// a background job. Well under the host's ~180 s stall limit; a normal capture
+// finishes inside it and the caller never sees the difference.
+const LOADER_LENS_JOB_GRACE_MS = 20_000;
+
 function parseHexWord(value: string): number {
   const normalized = value.trim().replace(/^\$/, "").replace(/^0x/i, "");
   if (!/^[0-9a-fA-F]{1,4}$/.test(normalized)) {
@@ -356,27 +361,52 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const sub = await checkSubstrateDiscipline(proj, { tool: "runtime_loader_lens" });
       if (!sub.allowed) return { content: [{ type: "text" as const, text: sub.refusal! }] };
       const abs = isAbsolute(capture_path) ? capture_path : resolve(proj ?? process.cwd(), capture_path);
-      const map = landingMapFromCaptureFile(abs, min_run_len ? { minRunLen: min_run_len } : {});
       const { basename } = await import("node:path");
-      const lines = [
-        // Spec 785 C3 — a read-set result is a fact about ONE run; name it, and say
-        // what silence means, so nothing here reads as "used" / "unused".
-        `Loader-lens landing map — ${map.length} landed run(s) in run ${basename(abs)}`,
-        `Capture: ${abs}`,
-        `Every line below is what run ${basename(abs)} did. A block absent here was not read IN THIS RUN — that is not evidence it is unused.`,
-        ...map.slice(0, 200).map((e) => {
-          // Spec 785 C2 — `source` is a tagged union now (disk block / cart bank window).
-          const s = e.source;
-          const src = s === null
-            ? `T?/S? (no medium read)`
-            : s.medium === "disk"
-              ? `T${s.track}/S${s.sector} (ht${s.halftrack})`
-              : `bank ${s.bank} ${s.slotName} $${s.offLo.toString(16).padStart(4, "0")}-$${s.offHi.toString(16).padStart(4, "0")}`;
-          return `  ${src} → $${e.c64Dest.toString(16).padStart(4, "0")} len ${e.len} rd ${e.transferReads} sha ${e.sha256.slice(0, 12)}`;
-        }),
-        ...(map.length > 200 ? [`  … +${map.length - 200} more`] : []),
-      ];
-      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      // BUG-052 — folding a multi-GB capture takes longer than the host's per-tool
+      // stall limit, and a call declared "stalled" costs the whole stdio connection.
+      // Same shape as BUG-039: settle inside the grace window and answer exactly as
+      // before, else hand back a job_id and keep folding.
+      const { startAnalysisJob, waitForJob } = await import("./analysis-jobs.js");
+      const render = (map: Awaited<ReturnType<typeof landingMapFromCaptureFile>>) => {
+        const lines = [
+          // Spec 785 C3 — a read-set result is a fact about ONE run; name it, and say
+          // what silence means, so nothing here reads as "used" / "unused".
+          `Loader-lens landing map — ${map.length} landed run(s) in run ${basename(abs)}`,
+          `Capture: ${abs}`,
+          `Every line below is what run ${basename(abs)} did. A block absent here was not read IN THIS RUN — that is not evidence it is unused.`,
+          ...map.slice(0, 200).map((e) => {
+            // Spec 785 C2 — `source` is a tagged union now (disk block / cart bank window).
+            const sr = e.source;
+            const src = sr === null
+              ? `T?/S? (no medium read)`
+              : sr.medium === "disk"
+                ? `T${sr.track}/S${sr.sector} (ht${sr.halftrack})`
+                : `bank ${sr.bank} ${sr.slotName} $${sr.offLo.toString(16).padStart(4, "0")}-$${sr.offHi.toString(16).padStart(4, "0")}`;
+            return `  ${src} → $${e.c64Dest.toString(16).padStart(4, "0")} len ${e.len} rd ${e.transferReads} sha ${e.sha256.slice(0, 12)}`;
+          }),
+          ...(map.length > 200 ? [`  … +${map.length - 200} more`] : []),
+        ];
+        return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+      };
+      // BUG-052 — folding a multi-GB capture takes longer than the host's per-tool
+      // stall limit, and a call declared "stalled" costs the whole stdio connection.
+      // Same shape as BUG-039: settle inside the grace window and answer exactly as
+      // before, else hand back a job_id and keep folding.
+      const job = startAnalysisJob("runtime_loader_lens", abs, async () =>
+        render(landingMapFromCaptureFile(abs, min_run_len ? { minRunLen: min_run_len } : {})));
+      const settled = await waitForJob(job, LOADER_LENS_JOB_GRACE_MS);
+      if (!settled) {
+        const { statSync } = await import("node:fs");
+        const gb = (statSync(abs).size / 1024 ** 3).toFixed(2);
+        return { content: [{ type: "text" as const, text: [
+          `runtime_loader_lens is still folding ${basename(abs)} (${gb} GB) — switched to background job mode.`,
+          `job_id: ${job.id}`,
+          `Poll with analysis_job_status { job_id } every ~30s. Do NOT re-run runtime_loader_lens for this capture.`,
+          `A capture this size is a firehose: if the map comes back as noise, re-capture a narrower window.`,
+        ].join("\n") }] };
+      }
+      if (job.state === "failed") throw new Error(job.error ?? "runtime_loader_lens failed");
+      return job.result as { content: { type: "text"; text: string }[] };
     },
 ));
 

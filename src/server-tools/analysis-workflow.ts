@@ -201,7 +201,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "analysis_job_status",
-    "Use to poll a background analysis job started by analyze_prg (returned a job_id when the PRG was too large to finish synchronously). Not for launching the analysis itself (use analyze_prg). Returns the full original tool result once done. Inputs: job_id. Returns: running (elapsed) | done (result) | failed (error).",
+    "Use to poll a background job started by analyze_prg (PRG too large to finish synchronously) or by runtime_loader_lens (capture too large to fold synchronously) — both hand back a job_id instead of stalling the call. Not for launching the work itself (use analyze_prg / runtime_loader_lens). Returns the full original tool result once done. Inputs: job_id. Returns: running (elapsed) | done (result) | failed (error).",
     {
       job_id: z.string().describe("Job id returned by analyze_prg."),
     },

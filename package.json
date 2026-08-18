@@ -46,6 +46,7 @@
     "e2e:artifact-best-version": "npm run build:mcp && node scripts/e2e-mcp-artifact-best-version.mjs",
     "e2e:disk-raw-default": "npm run build:mcp && node scripts/e2e-mcp-disk-raw-default.mjs",
     "e2e:crt-chunk-default": "npm run build:mcp && node scripts/e2e-mcp-crt-chunk-default.mjs",
+    "smoke:bug052": "npm run build:mcp && node scripts/smoke-bug052-capture-stream.mjs",
     "smoke:trace-query": "npm run build:mcp && node scripts/smoke-trace-query.mjs",
     "smoke:diff-trace": "node scripts/smoke-diff-trace.mjs",
     "diff-trace": "node scripts/diff-trace.mjs",

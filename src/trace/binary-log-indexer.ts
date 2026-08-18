@@ -6,47 +6,24 @@
 // shipped readers consume (Spec 726 §6a), so `trace_store_*` /
 // `runtime_query_events` work against a rebuilt store with no reader changes.
 
-import { renameSync, unlinkSync, existsSync, openSync, readSync, closeSync, fstatSync } from "node:fs";
+import { renameSync, unlinkSync, existsSync } from "node:fs";
 import {
-  decodeFileHeader, decodeEvent, TraceOp, ACCESS_WRITE, IEC_BIT,
+  TraceOp, ACCESS_WRITE, IEC_BIT,
   type DecodedEvent, type TraceFileMeta,
 } from "./binary-format.js";
 import {
   openTraceRunStore, writeTraceRunHeader, closeTraceRunStore,
   type TraceEventRow,
 } from "./trace-run-store.js";
+import { streamCaptureEvents, readCaptureHeader } from "./capture-stream.js";
 import type { RuntimeTraceDefinition, RuntimeTraceRun } from "./trace-definition.js";
 
 // Flush the DuckDB Appender every N rows to bound its internal buffer.
 const APPENDER_FLUSH = 50_000;
 
-// Spec 746.x — STREAMING decode. The .c64retrace must NOT be read whole into one
-// Buffer: Node's readFileSync throws ERR_FS_FILE_TOO_LARGE past 2 GiB, so a long
-// trace (multi-GB firehose) could never be indexed. Instead read in bounded
-// windows and carry the undecoded tail (an event may straddle a window boundary)
-// into the next window.
-// header (defJson + meta) is KB; 16 MiB is ample. Env-overridable (floored above
-// any real header) so a test can force the streaming window loop on a small fixture.
-const INDEX_HEADER_MAX = Math.max(4096, Number(process.env.C64RE_INDEX_HEADER_BYTES) || 16 * 1024 * 1024);
-const MAX_EVENT_BYTES = 4096;                  // largest single encoded event (mark label-bounded) → carry guard
-// Window size, overridable (tests force a tiny window to exercise cross-boundary
-// decode without a 2 GiB fixture). Floored well above one event.
-const INDEX_WINDOW_BYTES = Math.max(
-  64 * 1024,
-  Number(process.env.C64RE_INDEX_WINDOW_BYTES) || 256 * 1024 * 1024,
-);
-
-/** readSync that fills `length` bytes at `bufOffset` (looping past short reads),
- *  returning the count actually read (< length only at EOF). */
-function readFullSync(fd: number, buf: Buffer, bufOffset: number, length: number, position: number): number {
-  let read = 0;
-  while (read < length) {
-    const n = readSync(fd, buf, bufOffset + read, length - read, position + read);
-    if (n === 0) break;
-    read += n;
-  }
-  return read;
-}
+// Spec 746.x / BUG-052 — STREAMING decode lives in `capture-stream.ts` and is
+// shared with the loader-lens readers: the .c64retrace is never read whole and the
+// decoded stream is never materialized. This file only folds rows into DuckDB.
 
 /** Translate a decoded binary event into the reader-facing channel + data_json
  *  row. Returns null for MARK (handled separately) and for unknown opcodes. */
@@ -125,23 +102,10 @@ export async function indexBinaryLog(
   duckdbPath: string,
   runOverrides?: Partial<RuntimeTraceRun>,
 ): Promise<IndexResult> {
-  const fd = openSync(retracePath, "r");
-  let meta: TraceFileMeta, headerLen: number, def: RuntimeTraceDefinition, size: number, seedCarry: Uint8Array;
-  let fmtVersion: number;
-  try {
-    size = fstatSync(fd).size;
-    const hn = Math.min(size, INDEX_HEADER_MAX);
-    const hbuf = Buffer.allocUnsafe(hn);
-    readFullSync(fd, hbuf, 0, hn, 0);
-    const hu8 = new Uint8Array(hbuf.buffer, hbuf.byteOffset, hn);
-    // BUG-035 — keep the header version; v1 mem-access records decode 1 byte
-    // shorter than v2, so every decodeEvent below must be told the version.
-    ({ meta, headerLen, version: fmtVersion } = decodeFileHeader(hu8));
-    def = JSON.parse(meta.defJson);
-    // Events already read into the header window seed the event stream (copy out
-    // before hbuf is dropped).
-    seedCarry = hu8.slice(headerLen, hn);
-  } catch (e) { closeSync(fd); throw e; }
+  // BUG-035 — the header carries the format version; v1 mem-access records decode
+  // one byte shorter than v2, and `streamCaptureEvents` applies it for us.
+  const { meta, size } = readCaptureHeader(retracePath);
+  const def: RuntimeTraceDefinition = JSON.parse(meta.defJson);
 
   // Spec 746.x — build into a TEMP file in the same directory and atomically
   // rename onto the final path only after a fully successful build. This makes
@@ -183,34 +147,8 @@ export async function indexBinaryLog(
       if (++sinceFlush >= APPENDER_FLUSH) { appender.flushSync(); sinceFlush = 0; }
     };
 
-    // Streaming window loop: prepend the carried tail into the read buffer, read
-    // the next window after it, decode complete events, carry the remainder.
-    const chunkBuf = Buffer.allocUnsafe(INDEX_WINDOW_BYTES);
-    let carry = seedCarry;
-    let filePos = Math.min(size, INDEX_HEADER_MAX);
-    for (;;) {
-      if (carry.length > 0) chunkBuf.set(carry, 0);
-      const space = INDEX_WINDOW_BYTES - carry.length;
-      const toRead = Math.min(space, size - filePos);
-      let got = 0;
-      if (toRead > 0) { got = readFullSync(fd, chunkBuf, carry.length, toRead, filePos); filePos += got; }
-      const windowLen = carry.length + got;
-      if (windowLen === 0) break;
-      const window = new Uint8Array(chunkBuf.buffer, chunkBuf.byteOffset, windowLen);
-      let off = 0;
-      for (;;) {
-        const r = decodeEvent(window, off, fmtVersion);
-        if (!r) break;
-        onEvent(r.ev);
-        off = r.next;
-      }
-      const tail = window.subarray(off).slice(); // copy — chunkBuf is reused next window
-      if (filePos >= size) break; // EOF: any tail left is a truncated final event (aborted trace) → drop
-      if (tail.length > MAX_EVENT_BYTES) {
-        throw new Error(`trace index: ${tail.length} undecodable bytes near offset ${filePos} of ${retracePath} (corrupt .c64retrace?)`);
-      }
-      carry = tail;
-    }
+    // One streaming pass over the log (capture-stream.ts owns the window loop).
+    streamCaptureEvents(retracePath, onEvent);
 
     appender.flushSync();
     appender.closeSync();
@@ -233,15 +171,14 @@ export async function indexBinaryLog(
     result = { runId: meta.runId, eventCount, markCount: marks.length, channels: channels.size, outputPath: duckdbPath };
   } catch (e) {
     // Close + delete the temp store so a failed build never becomes the visible
-    // store (the .c64retrace remains the authority and is re-indexable).
-    closeSync(fd);
+    // store (the .c64retrace remains the authority and is re-indexable). The log's
+    // own handle is owned and released by `streamCaptureEvents`.
     await closeTraceRunStore(store).catch(() => {});
     try { if (existsSync(tmpPath)) unlinkSync(tmpPath); } catch { /* best effort */ }
     throw e;
   }
-  // Release the handles, THEN atomically publish (rename replaces any prior store
+  // Release the handle, THEN atomically publish (rename replaces any prior store
   // in one syscall — no window where duckdbPath is partial or missing-table).
-  closeSync(fd);
   await closeTraceRunStore(store);
   renameSync(tmpPath, duckdbPath);
   return result;
@@ -250,14 +187,5 @@ export async function indexBinaryLog(
 /** Read just the file header meta — only the leading bytes, never the whole log
  *  (a multi-GB .c64retrace would exceed readFileSync's 2 GiB cap). */
 export function readBinaryLogMeta(retracePath: string): TraceFileMeta {
-  const fd = openSync(retracePath, "r");
-  try {
-    const size = fstatSync(fd).size;
-    const n = Math.min(size, INDEX_HEADER_MAX);
-    const b = Buffer.allocUnsafe(n);
-    readFullSync(fd, b, 0, n, 0);
-    return decodeFileHeader(new Uint8Array(b.buffer, b.byteOffset, n)).meta;
-  } finally {
-    closeSync(fd);
-  }
+  return readCaptureHeader(retracePath).meta;
 }

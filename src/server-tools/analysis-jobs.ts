@@ -1,4 +1,4 @@
-// BUG-039 — in-process job registry for long-running analysis tools.
+// BUG-039 / BUG-052 — in-process job registry for long-running analysis tools.
 //
 // The MCP host enforces a per-tool stall limit (~180s). analyze_prg on a large
 // PRG exceeds it; the host then declares the call "stalled" and DROPS the whole
@@ -6,6 +6,12 @@
 // job, waits a grace window (small inputs return synchronously, identical UX),
 // and past the grace returns { job_id } immediately — the work continues and
 // `analysis_job_status` polls for the finished result.
+//
+// Two tools use it: analyze_prg (BUG-039, a large PRG) and runtime_loader_lens
+// (BUG-052, folding a multi-gigabyte .c64retrace). Note what it does NOT solve —
+// the job runs in THIS process, so work that exhausts the heap still takes the
+// server down with it. That is why the capture readers stream (capture-stream.ts)
+// rather than relying on this.
 //
 // Jobs live in THIS process only. If the MCP server restarts, the registry is
 // gone — but the pipeline writes its output to disk regardless, so the status

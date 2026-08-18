@@ -47,9 +47,12 @@
 //           BLOCK_READ stream by cycle, NOT the head position at WRITE time (which,
 //           under buffering, is a rotated-past sector, not the one that was read).
 
-import { TraceOp, ACCESS_WRITE, ACCESS_READ, decodeFileHeader, decodeEventStream, type DecodedEvent, type TraceFileMeta } from "./binary-format.js";
+import {
+  streamCaptureEvents,
+  readCaptureHeader,
+} from "./capture-stream.js";
+import { TraceOp, ACCESS_WRITE, ACCESS_READ, type DecodedEvent, type TraceFileMeta } from "./binary-format.js";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
 
 /** One physical block the drive actually READ (Spec 784 read-set, BLOCK_READ 0x35). */
 export interface ReadSetEntry {
@@ -124,6 +127,25 @@ export interface LandingMapOptions {
   transferReadAddr?: number;
 }
 
+/** An incremental consumer of the event stream. A `.c64retrace` is routinely
+ *  multi-gigabyte, so every builder here is a fold: it sees each event once and
+ *  keeps only what it needs. The array-taking `build*` wrappers below are the same
+ *  fold fed from memory, for callers that already hold a decoded stream. */
+export interface Fold<T> {
+  push(ev: DecodedEvent): void;
+  finish(): T;
+}
+
+function runFold<T>(fold: Fold<T>, events: DecodedEvent[]): T {
+  for (const ev of events) fold.push(ev);
+  return fold.finish();
+}
+
+/** A landing map is a handful of runs. Past this the capture is a firehose and the
+ *  answer would be noise anyway — fail loudly rather than grow until the process dies.
+ *  Env-overridable so a gate can reach the error path without a 2 GB fixture. */
+const MAX_COMPLETED_RUNS = Math.max(1, Number(process.env.C64RE_MAX_LANDING_RUNS) || 250_000);
+
 // VICE halftrack (2..84) → 1541 track (1..42). Halftrack 36 = track 18 (power-on).
 export function halftrackToTrack(halftrack: number): number {
   return Math.floor(halftrack / 2);
@@ -135,20 +157,26 @@ export function halftrackToTrack(halftrack: number): number {
  * loader-agnostic and buffering-proof — it is drive-side truth, independent of when the
  * C64 wrote the bytes to RAM.
  */
-export function buildReadSet(events: DecodedEvent[]): ReadSetEntry[] {
+export function newReadSetFold(): Fold<ReadSetEntry[]> {
   const out: ReadSetEntry[] = [];
-  for (const ev of events) {
-    if (ev.op !== TraceOp.BLOCK_READ) continue;
-    if (ev.halftrack === undefined || ev.sector === undefined) continue;
-    out.push({
-      halftrack: ev.halftrack,
-      track: halftrackToTrack(ev.halftrack),
-      sector: ev.sector,
-      bytes: ev.bytes ?? 0,
-      cycle: ev.cycle,
-    });
-  }
-  return out;
+  return {
+    push(ev) {
+      if (ev.op !== TraceOp.BLOCK_READ) return;
+      if (ev.halftrack === undefined || ev.sector === undefined) return;
+      out.push({
+        halftrack: ev.halftrack,
+        track: halftrackToTrack(ev.halftrack),
+        sector: ev.sector,
+        bytes: ev.bytes ?? 0,
+        cycle: ev.cycle,
+      });
+    },
+    finish: () => out,
+  };
+}
+
+export function buildReadSet(events: DecodedEvent[]): ReadSetEntry[] {
+  return runFold(newReadSetFold(), events);
 }
 
 /** Lane slot code → name. 0/1 are the only codes the producer emits. */
@@ -166,23 +194,29 @@ export function cartSlotName(slot: number): string {
  * and it is not a coverage set: see the file header for the bounding-range and
  * drain-splitting caveats, and use `cartBankUsage` to aggregate.
  */
-export function buildCartReadSet(events: DecodedEvent[]): CartReadSetEntry[] {
+export function newCartReadSetFold(): Fold<CartReadSetEntry[]> {
   const out: CartReadSetEntry[] = [];
-  for (const ev of events) {
-    if (ev.op !== TraceOp.CART_READ) continue;
-    if (ev.bank === undefined || ev.slot === undefined) continue;
-    if (ev.offLo === undefined || ev.offHi === undefined) continue;
-    out.push({
-      bank: ev.bank,
-      slot: ev.slot,
-      slotName: cartSlotName(ev.slot),
-      offLo: ev.offLo,
-      offHi: ev.offHi,
-      bytes: ev.bytes ?? 0,
-      cycle: ev.cycle,
-    });
-  }
-  return out;
+  return {
+    push(ev) {
+      if (ev.op !== TraceOp.CART_READ) return;
+      if (ev.bank === undefined || ev.slot === undefined) return;
+      if (ev.offLo === undefined || ev.offHi === undefined) return;
+      out.push({
+        bank: ev.bank,
+        slot: ev.slot,
+        slotName: cartSlotName(ev.slot),
+        offLo: ev.offLo,
+        offHi: ev.offHi,
+        bytes: ev.bytes ?? 0,
+        cycle: ev.cycle,
+      });
+    },
+    finish: () => out,
+  };
+}
+
+export function buildCartReadSet(events: DecodedEvent[]): CartReadSetEntry[] {
+  return runFold(newCartReadSetFold(), events);
 }
 
 export interface CartOffsetRange { offLo: number; offHi: number }
@@ -316,7 +350,7 @@ const MAX_OPEN_RUNS = 256;
  * is kept only if enough transfer reads ($DD00) fell in its cycle window. Source: each
  * kept run is FIFO-matched to the nearest preceding BLOCK_READ by cycle.
  */
-export function buildLandingMap(events: DecodedEvent[], opts: LandingMapOptions = {}): LandingMapEntry[] {
+export function newLandingMapFold(opts: LandingMapOptions = {}): Fold<LandingMapEntry[]> {
   const minRunLen = opts.minRunLen ?? 16;
   const maxDest = opts.maxDest ?? 0xd000;
   const minTransferReads = opts.minTransferReads ?? 4;
@@ -329,14 +363,22 @@ export function buildLandingMap(events: DecodedEvent[], opts: LandingMapOptions 
   const open = new Map<number, Run>();
   // Transfer-read cycles (sorted ascending by construction — events are in cycle order).
   const transferCycles: number[] = [];
-  // Read-set (for FIFO source attribution), cycles ascending.
-  const readSet = buildReadSet(events);
-  // Spec 785 C2 — cart residencies, for source attribution on a capture with no disk
-  // lane. Empty on every disk capture, so the disk path below is bit-for-bit unchanged.
-  const cartReadSet = buildCartReadSet(events);
+  // The two source lanes, folded in the SAME pass — a multi-gigabyte log is read
+  // once, never three times (BUG-052).
+  const readSetFold = newReadSetFold();
+  const cartFold = newCartReadSetFold();
 
   const complete = (run: Run) => {
-    if (run.bytes.length >= minRunLen) completed.push(run);
+    if (run.bytes.length < minRunLen) return;
+    if (completed.length >= MAX_COMPLETED_RUNS) {
+      throw new Error(
+        `loader-lens: this capture produced more than ${MAX_COMPLETED_RUNS} landing runs. ` +
+          `That is a firehose, not a landing map — the trace almost certainly armed the ` +
+          `whole 'memory' domain over a long session. Re-capture a narrower window ` +
+          `(arm the load itself, not the boot and the menu around it), or raise minRunLen.`,
+      );
+    }
+    completed.push(run);
   };
 
   const evictOldest = () => {
@@ -352,16 +394,18 @@ export function buildLandingMap(events: DecodedEvent[], opts: LandingMapOptions 
     }
   };
 
-  for (const ev of events) {
+  const push = (ev: DecodedEvent): void => {
+    readSetFold.push(ev);
+    cartFold.push(ev);
     // Transfer-read timeline: a READ of the fastloader/serial port = a byte pulled from
     // the drive. RAM_WRITE op carries both reads + writes (IO comes through 0x11 too).
     if (ev.op === TraceOp.RAM_WRITE && ev.access === ACCESS_READ && ev.addr === transferReadAddr) {
       transferCycles.push(ev.cycle);
-      continue;
+      return;
     }
-    if (ev.op !== TraceOp.RAM_WRITE || ev.access !== ACCESS_WRITE) continue;
-    if (ev.addr === undefined || ev.value === undefined) continue;
-    if (ev.addr < 0x0002 || ev.addr >= maxDest) continue; // land in RAM only
+    if (ev.op !== TraceOp.RAM_WRITE || ev.access !== ACCESS_WRITE) return;
+    if (ev.addr === undefined || ev.value === undefined) return;
+    if (ev.addr < 0x0002 || ev.addr >= maxDest) return; // land in RAM only
 
     const existing = open.get(ev.addr);
     if (existing) {
@@ -387,37 +431,52 @@ export function buildLandingMap(events: DecodedEvent[], opts: LandingMapOptions 
       open.set(run.nextAddr, run);
       if (open.size > MAX_OPEN_RUNS) evictOldest();
     }
-  }
-  for (const r of open.values()) complete(r);
-
-  // Emission order: by start cycle (open-map iteration is insertion order, not cycle).
-  completed.sort((a, b) => a.cycleStart - b.cycleStart);
-
-  // Count transfer reads in [start, end] via binary search over the sorted cycle list.
-  const countTransfer = (start: number, end: number): number => {
-    const lo = lowerBound(transferCycles, start);
-    const hi = upperBound(transferCycles, end);
-    return hi - lo;
   };
 
-  const out: LandingMapEntry[] = [];
-  for (const run of completed) {
-    const transferReads = countTransfer(run.cycleStart, run.cycleEnd);
-    // Dataflow gate: no transfer reads in the window ⇒ this is a memory-copy /
-    // relocation of already-resident bytes, not a disk landing. Drop it.
-    if (transferReads < minTransferReads) continue;
-    const source = landingSource(readSet, cartReadSet, run.cycleStart);
-    const buf = Uint8Array.from(run.bytes);
-    out.push({
-      source,
-      c64Dest: run.startAddr,
-      len: run.bytes.length,
-      sha256: createHash("sha256").update(buf).digest("hex"),
-      cycleStart: run.cycleStart,
-      transferReads,
-    });
-  }
-  return out;
+  const finish = (): LandingMapEntry[] => {
+    for (const r of open.values()) complete(r);
+    open.clear();
+
+    // Emission order: by start cycle (open-map iteration is insertion order, not cycle).
+    completed.sort((a, b) => a.cycleStart - b.cycleStart);
+
+    const readSet = readSetFold.finish();
+    // Spec 785 C2 — cart residencies, for source attribution on a capture with no disk
+    // lane. Empty on every disk capture, so the disk path below is bit-for-bit unchanged.
+    const cartReadSet = cartFold.finish();
+
+    // Count transfer reads in [start, end] via binary search over the sorted cycle list.
+    const countTransfer = (start: number, end: number): number => {
+      const lo = lowerBound(transferCycles, start);
+      const hi = upperBound(transferCycles, end);
+      return hi - lo;
+    };
+
+    const out: LandingMapEntry[] = [];
+    for (const run of completed) {
+      const transferReads = countTransfer(run.cycleStart, run.cycleEnd);
+      // Dataflow gate: no transfer reads in the window ⇒ this is a memory-copy /
+      // relocation of already-resident bytes, not a disk landing. Drop it.
+      if (transferReads < minTransferReads) continue;
+      const source = landingSource(readSet, cartReadSet, run.cycleStart);
+      const buf = Uint8Array.from(run.bytes);
+      out.push({
+        source,
+        c64Dest: run.startAddr,
+        len: run.bytes.length,
+        sha256: createHash("sha256").update(buf).digest("hex"),
+        cycleStart: run.cycleStart,
+        transferReads,
+      });
+    }
+    return out;
+  };
+
+  return { push, finish };
+}
+
+export function buildLandingMap(events: DecodedEvent[], opts: LandingMapOptions = {}): LandingMapEntry[] {
+  return runFold(newLandingMapFold(opts), events);
 }
 
 /** Nearest BLOCK_READ with cycle ≤ `cycle` (the block being transferred as this run
@@ -489,10 +548,9 @@ function upperBound(arr: number[], x: number): number {
  * drive-mechanism + drive8-cpu + memory domains). The authority for validate_extraction.
  */
 export function readSetFromCaptureFile(path: string): ReadSetEntry[] {
-  const buf = new Uint8Array(readFileSync(path));
-  const { version, headerLen } = decodeFileHeader(buf);
-  const events = decodeEventStream(buf, headerLen, version);
-  return buildReadSet(events);
+  const fold = newReadSetFold();
+  streamCaptureEvents(path, (ev) => fold.push(ev));
+  return fold.finish();
 }
 
 /**
@@ -502,28 +560,38 @@ export function readSetFromCaptureFile(path: string): ReadSetEntry[] {
  * authority for validate_extraction. Empty on a capture that never armed the lane.
  */
 export function cartReadSetFromCaptureFile(path: string): CartReadSetEntry[] {
-  const buf = new Uint8Array(readFileSync(path));
-  const { version, headerLen } = decodeFileHeader(buf);
-  const events = decodeEventStream(buf, headerLen, version);
-  return buildCartReadSet(events);
+  const fold = newCartReadSetFold();
+  streamCaptureEvents(path, (ev) => fold.push(ev));
+  return fold.finish();
+}
+
+/** Both read-sets and the identity block from ONE pass. `validate_extraction`
+ *  needs all three; reading a 2 GB log three times is three times the wait for
+ *  the same bytes. */
+export function readSetsFromCaptureFile(path: string): {
+  readSet: ReadSetEntry[];
+  cartReadSet: CartReadSetEntry[];
+  meta: TraceFileMeta;
+} {
+  const disk = newReadSetFold();
+  const cart = newCartReadSetFold();
+  const { meta } = streamCaptureEvents(path, (ev) => { disk.push(ev); cart.push(ev); });
+  return { readSet: disk.finish(), cartReadSet: cart.finish(), meta };
 }
 
 /** The capture's own identity block (`TraceFileMeta`) — used to say WHICH run a
  *  "used in run X" claim refers to, and to catch a manifest bound to a different
- *  image than the one that ran (Spec 785 §4.1). */
+ *  image than the one that ran (Spec 785 §4.1). Reads the header, not the log. */
 export function captureMetaFromFile(path: string): TraceFileMeta {
-  const buf = new Uint8Array(readFileSync(path));
-  return decodeFileHeader(buf).meta;
+  return readCaptureHeader(path).meta;
 }
 
 /**
  * Build the landing map from a `.c64retrace` binary capture file (the loader-lens
- * capture). Reads + decodes the whole event stream, then correlates (see buildLandingMap).
+ * capture). Streams the event stream once and folds as it goes (see newLandingMapFold).
  */
 export function landingMapFromCaptureFile(path: string, opts: LandingMapOptions = {}): LandingMapEntry[] {
-  // Copy into a fresh 0-offset buffer (Node Buffer pools share an ArrayBuffer).
-  const buf = new Uint8Array(readFileSync(path));
-  const { version, headerLen } = decodeFileHeader(buf);
-  const events = decodeEventStream(buf, headerLen, version);
-  return buildLandingMap(events, opts);
+  const fold = newLandingMapFold(opts);
+  streamCaptureEvents(path, (ev) => fold.push(ev));
+  return fold.finish();
 }

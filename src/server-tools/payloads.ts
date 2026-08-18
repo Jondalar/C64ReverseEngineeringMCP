@@ -313,13 +313,12 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
       const captureAbs = resolve(projectRoot, args.capture_path);
       if (!existsSync(captureAbs)) throw new Error(`capture_path not found: ${captureAbs}`);
-      const { readSetFromCaptureFile, cartReadSetFromCaptureFile, captureMetaFromFile } =
-        await import("../trace/loader-lens.js");
-      const readSet = readSetFromCaptureFile(captureAbs);
-      // Spec 785 C2 — the cart lane out of the SAME capture. Empty unless the trace
-      // armed the `cart-read` domain; then slot spans are skipped as they were before.
-      const cartReadSet = cartReadSetFromCaptureFile(captureAbs);
-      const captureMeta = captureMetaFromFile(captureAbs);
+      const { readSetsFromCaptureFile } = await import("../trace/loader-lens.js");
+      // ONE streaming pass for both lanes and the identity block. This used to be
+      // three full reads of a file that is routinely gigabytes (BUG-052). Spec 785
+      // C2 — the cart lane comes out of the SAME capture; empty unless the trace
+      // armed the `cart-read` domain, and then slot spans are skipped as before.
+      const { readSet, cartReadSet, meta: captureMeta } = readSetsFromCaptureFile(captureAbs);
       // Spec 785 C3 — name the run in every claim; a lower bound is only meaningful
       // with its capture attached.
       const runLabel = `run ${basename(captureAbs)}`;
