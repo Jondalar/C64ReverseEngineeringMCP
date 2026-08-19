@@ -59,6 +59,25 @@ settling in a new place. What it cannot do is know which of those the human mean
 so every proposed anchor is written into the file, where a human reads it and keeps
 or replaces it. That is what the editor in §5 is for.
 
+**Every step carries who made it.** The session is shared — the human and the LLM
+drive the same machine — so a recording is *what happened to this machine*, all of
+it, and then says where each piece came from:
+
+```gherkin
+  And I type "LOAD{QUOTE}*{QUOTE},8,1{RETURN}"    # by: human
+  And I wait until the drive is idle within 9000 frames
+  And I hold joystick 2 fire for 3 frames         # by: llm
+```
+
+Recording only the human's half would be tidier and wrong: if the LLM loads
+something mid-recording, that step is missing from the replay and the scenario
+stops working two lines later. Recording everything and MARKING it keeps the file
+correct and lets the editor throw out what does not belong — "drop everything the
+LLM did" is then one click, and a hand editor just deletes the lines.
+
+The daemon already tags every input with its source, so the mark is carried, not
+invented.
+
 The rule is hard: **the recorder may only emit lines the parser accepts.** A
 recorder that writes its own dialect is a text generator. Every emitted line goes
 through `parseFeature` before the overlay opens, and a line that does not survive
@@ -90,6 +109,8 @@ editor with three properties:
    typed into the editor.
 3. **It is editable**, because the recorder proposes and the human decides: swap a
    `wait` for an anchor, drop the three fumbled keypresses, rename a capture.
+4. **It can filter by who did it** — the `# by:` marks of §3 — so a session the LLM
+   was also touching becomes your macro in one click, without hunting for the lines.
 
 Point 1 and 2 are one rule with two faces, and it is the rule this repo learned the
 hard way the same week: a client that keeps its own copy of what a verb is becomes
@@ -108,16 +129,26 @@ Saving is refused while the parser reports an error. A `.feature` that does not
 parse is not a scenario, and writing one produces a file that fails at the moment
 someone else tries to use it.
 
-## §7 The button
+## §7 Where it lives, and what moves with it
 
-Top of the Live tab, beside 812's shutter, because they are the same gesture from
-opposite ends: the shutter takes pictures out of a run, the recorder takes the run
-itself.
+**In the top bar** (`MachineControls`), with PLAY / PAUSE / snapshot. Arming a
+recorder is a transport state like running or warping — it is on or it is not, and
+you must see it AT ALL TIMES. A recorder you forgot is armed produces a file full
+of everything you did while thinking. The top bar is the only strip that is always
+on screen.
 
-- **REC** arms the journal and shows that it is armed, at all times, unmistakably.
-  A recorder you forgot is running is a recorder that produces a file full of
-  everything you did while thinking.
+- **REC** arms the journal and shows it, unmistakably.
 - **STOP** disarms and opens the overlay.
+
+The overlay lies over the screen, the way the inspect overlay already does. It adds
+nothing to the bottom of the tab.
+
+**812's shutter moves up with it.** The bottom of the Live tab currently stacks the
+filmstrip and the reel strip, and it cannot keep growing. The shutter is the same
+gesture as REC from the other end — one takes pictures out of a run, the other
+takes the run — so it belongs in the same place: the button in the top bar, the
+thumbnails and the download in an overlay. That REMOVES a strip from the bottom
+instead of adding one, and the two features stop being two idioms for one idea.
 
 ## §8 What this spec does not do
 
@@ -138,13 +169,19 @@ itself.
 1. `src/project-knowledge/scenario-vocabulary.ts` — the step/predicate/region forms
    as DATA, exported from where the parser already knows them, for the editor's
    autocomplete and for the recorder's emitter.
+1b. A trailing `# comment` on a step or criterion line, stripped before matching.
+   The `# by:` mark needs it, and a scenario a human annotates needs it anyway;
+   today a trailing comment would be swallowed into the criterion text.
 2. `src/reel/record-scenario.ts` — journal → steps: gap analysis, anchor proposal,
    the `Given` decision of §4, and the emitted text, run through `parseFeature`
    before it is handed out.
 3. `ui/…/RecorderButton.tsx` — the armed indicator and the two actions.
 4. `ui/…/ScenarioOverlay.tsx` — the overlay, the editor, per-line errors,
-   autocomplete, save.
+   autocomplete, the by-whom filter, save.
 5. The workspace save endpoint for `<project>/scenarios/*.feature`.
+5b. `ReelStrip` moved to the same shape — shutter in the top bar, thumbnails and
+   download in an overlay — so the bottom of the Live tab loses a strip rather than
+   gaining one.
 
 **TRX64**
 
@@ -162,3 +199,7 @@ itself.
 - Saving with a parse error is refused, and the message names the line.
 - The recorder emits a state anchor where one exists and a plain wait where none
   does, both replayable.
+- A step recorded from an LLM input carries `# by: llm`, a human one `# by: human`,
+  and BOTH parse to the same step as the unmarked line — the mark is a comment, not
+  a dialect.
+- Dropping the LLM's lines leaves a scenario that still parses.
