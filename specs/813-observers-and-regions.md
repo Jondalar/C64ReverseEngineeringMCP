@@ -4,7 +4,7 @@
 local-shadows-store rule, the fired-cycle report and the runtime's bulk read are in.
 Gates green: `npm run smoke:813` 39/39, `npm run e2e:810` 18/18 and `npm run
 smoke:812` 41/41 unchanged, TRX64 daemon 348. Open: nothing in this spec. The
-recorder that WRITES this vocabulary is 814.
+recorder that WRITES this vocabulary is [814](814-scenario-recorder.md).
 **Repos:** C64RE owns the region object, the predicates, the resolution rule and the
 report. The runtime gains exactly one thing, and it is a fact about a machine:
 a bulk memory read (`session/read_memory`). The rectangle→address translation
@@ -157,7 +157,8 @@ AND the change is visible. That is the regression signal a bare cycle cannot giv
 
 ## §7 What 813 does NOT do
 
-- **No recorder.** Marking a rectangle in the UI and writing these lines out is 814.
+- **No recorder.** Marking a rectangle in the UI and writing these lines out is
+  [814](814-scenario-recorder.md).
   813 must ship first: a recorder that writes lines the parser cannot read is a text
   generator.
 - **No acceptance store.** `equals the accepted baseline` is PARSED and classified
