@@ -45,7 +45,7 @@ const EXAMPLE = [
 export function registerSceneReelTool(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "runtime_scene_reel",
-    "Run a written capture scenario on a private throwaway machine and assemble an animated release reel (CSDb format: GIF89a, 384x272 including border, hard cuts, uniform delay, <=512000 bytes). Use it when a release, a crack or a trainer needs documentation screenshots in playthrough order — title, menu, in-game — produced the same way twice. The scenario is Gherkin, the same notation and the same .feature files as scenario goals: `Given the disk \"x.g64\"`, then `When I wait 170 frames` / `And I type \"LOAD{QUOTE}*{QUOTE},8,1{RETURN}\"` / `And I hold joystick 2 down for 3 frames` / `And I wait until the drive is idle within 8000 frames` / `And I capture \"title\"`, then `Then the reel has at least 5 screens`. Every step that lasts states its own duration, and the machine is stopped between steps, so the same text replays to the same bytes. Frames come straight from the video chip's 16-colour indices, so nothing is re-quantized. Not for driving the session you are debugging in, and not for one picture of the machine you are already looking at — use runtime_render_screen instead. Inputs: feature (text) or feature_path, out_path. Returns: the reel's path, frame count, byte size, and the cycle each capture landed on.",
+    "Run a written capture scenario on a private throwaway machine and assemble an animated release reel (animated GIF: GIF89a, 384x272 including border, hard cuts, uniform delay, <=512000 bytes). Use it when a release, a crack or a trainer needs documentation screenshots in playthrough order — title, menu, in-game — produced the same way twice. The scenario is Gherkin, the same notation and the same .feature files as scenario goals: `Given the disk \"x.g64\"`, then `When I wait 170 frames` / `And I type \"LOAD{QUOTE}*{QUOTE},8,1{RETURN}\"` / `And I hold joystick 2 down for 3 frames` / `And I wait until the drive is idle within 8000 frames` / `And I capture \"title\"`, then `Then the reel has at least 5 screens`. Every step that lasts states its own duration, and the machine is stopped between steps, so the same text replays to the same bytes. Frames come straight from the video chip's 16-colour indices, so nothing is re-quantized. Not for driving the session you are debugging in, and not for one picture of the machine you are already looking at — use runtime_render_screen instead. Inputs: feature (text) or feature_path, out_path. Returns: the reel's path, frame count, byte size, and the cycle each capture landed on.",
     {
       feature: z
         .string()
@@ -71,7 +71,7 @@ export function registerSceneReelTool(server: McpServer, context: ServerToolCont
       max_bytes: z
         .number()
         .optional()
-        .describe("Hard byte ceiling (default 512000, the CSDb limit). Over budget, whole frames are dropped from the middle outwards and named in the report — never a silent re-encode."),
+        .describe("Hard byte ceiling (default 512000). Over budget, whole frames are dropped from the middle outwards and named in the report — never a silent re-encode."),
       save_feature_to: z
         .string()
         .optional()

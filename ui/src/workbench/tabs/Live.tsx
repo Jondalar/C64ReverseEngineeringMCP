@@ -609,7 +609,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
               onClick={() => setShowCaptures(true)}
               disabled={runState === "off"}
               className={shots.length ? "wb-shots-some" : ""}
-              title="Manage the captured pictures and build the CSDb GIF"
+              title="Manage the captured pictures and build the animated GIF"
             >🎞 Shots{shots.length ? ` ${shots.length}` : ""}</button>
             <RecorderButton
               sessionId={sessionId}

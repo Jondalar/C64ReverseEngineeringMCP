@@ -17,7 +17,7 @@ its Gherkin sense.
 2026-08-14 (C64RE may spawn an ephemeral sandbox; it carries a budget and ends
 itself).
 **Origin:** [C64RE issue #3](https://github.com/Jondalar/C64ReverseEngineeringMCP/issues/3)
-— a CSDb-format release GIF, today hand-orchestrated per project against a
+— an animated release GIF, today hand-orchestrated per project against a
 privately-spawned runtime.
 
 ---
@@ -125,7 +125,7 @@ five for five identical.
 
 ## §6 The reel is GIF89a, and it needs no quantization
 
-CSDb wants exactly 384×272 including border, GIF, ≤ 512000 bytes, hard cuts,
+The release format is exactly 384×272 including border, GIF, ≤ 512000 bytes, hard cuts,
 uniform delay. That happens to be what the VIC already produces: one byte per pixel
 holding a 4-bit colour index, plus the sixteen RGB entries that go with it. A GIF
 global colour table is a palette of that shape and GIF pixel data IS palette
@@ -162,7 +162,7 @@ same need has no schedule in it at all: you are already playing the game, you re
 a screen worth keeping, and you press a button. Scripting that would be absurd.
 
 So the Live tab carries a shutter and a strip: capture, reorder, rename, drop, and
-**Download CSDb GIF**. The reel is assembled in the browser by the same encoder the
+**Download animated GIF**. The reel is assembled in the browser by the same encoder the
 tool uses, so a hand-shot reel and a scenario-shot reel are byte-for-byte the same
 kind of file. The byte ceiling behaves the same way too — frames are dropped from
 the middle outwards and the panel NAMES them, because a reel that quietly lost the

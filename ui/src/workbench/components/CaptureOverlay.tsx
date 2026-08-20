@@ -25,7 +25,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { encodeWithin, parseStructure } from "../../../../src/reel/gif89a.js";
 
-/** The CSDb ceiling. */
+/** The byte ceiling a release reel is expected to stay under. */
 const MAX_BYTES = 512_000;
 
 export interface Shot {
@@ -143,7 +143,7 @@ export function CaptureOverlay({ shots, setShots, onClose }: Props): React.React
             />
             ms
           </label>
-          <button className="wb-btn" onClick={download} disabled={shots.length === 0}>⬇ Download CSDb GIF</button>
+          <button className="wb-btn" onClick={download} disabled={shots.length === 0}>⬇ Download animated GIF</button>
           <button className="wb-btn" onClick={() => { setShots([]); setNote(""); }} disabled={shots.length === 0}>Clear</button>
           <span className="wb-controls-spacer" />
           <button className="wb-btn" onClick={onClose}>✕ Close</button>

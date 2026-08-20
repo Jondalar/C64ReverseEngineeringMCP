@@ -305,11 +305,15 @@ re-encoded at lower fidelity and the file is never truncated.
 
 ## Screenshots by hand
 
-The Live tab has a shutter: **📷 Capture**, a frame delay, **⬇ Download CSDb GIF**.
-Capture, reorder, rename, drop, download. Same encoder, same output format.
+The Live tab's top bar has a shutter: **📷 Capture** keeps the frame on screen, and
+**🎞 Shots** opens the pictures you kept — reorder, rename, drop, set the delay,
+**⬇ Download animated GIF**. Same encoder, same output format.
 
 Capturing there is read-only — it asks for the frame the machine is already showing
 and does not advance it.
+
+The button next to it is **⏺ REC**, which records what you do as a scenario instead
+of as pictures. See [Recording Scenarios](Recording-Scenarios).
 
 ## Determinism
 
