@@ -604,6 +604,60 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Spec 814 §6 — save a recorded scenario.
+  //
+  // It goes to `<project>/scenarios/<name>.feature`, which is 810's location, so the
+  // file is picked up by everything that already reads scenarios and versioned by git
+  // like the rest of them. Through the workspace HTTP API, because that is where the
+  // UI's persistence goes — the WebSocket is the live-runtime transport only.
+  //
+  // The parse is checked HERE as well as in the overlay. Not distrust of the client:
+  // the file is what other people will run, and the party that writes a file is the
+  // party that has to be sure of it. A `.feature` that does not parse is not a
+  // scenario, and writing one produces a file that fails at the moment someone else
+  // tries to use it.
+  if (requestUrl.pathname === "/api/scenario/save" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      void (async () => {
+        try {
+          const payload = JSON.parse(body) as { projectDir?: string; name?: string; text?: string };
+          const projectDir = payload.projectDir ?? options.projectDir;
+          const text = payload.text ?? "";
+          // A name is a FILENAME, so it may not contain a path. Anything else would
+          // let a save escape the project directory.
+          const name = (payload.name ?? "").replace(/[^\w.-]+/g, "-").replace(/^[-.]+|[-.]+$/g, "");
+          if (!name) {
+            send(res, jsonResponse(400, { error: "a scenario needs a name" }));
+            return;
+          }
+          const { parseFeature } = await import("../project-knowledge/scenario-gherkin.js");
+          const parsed = parseFeature(text, `${name}.feature`);
+          if (parsed.issues.length) {
+            send(res, jsonResponse(400, {
+              error: `line ${parsed.issues[0].line}: ${parsed.issues[0].message}`,
+              issues: parsed.issues,
+            }));
+            return;
+          }
+          const dir = resolve(projectDir, "scenarios");
+          if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+          const fullPath = join(dir, `${name}.feature`);
+          writeFileSync(fullPath, text.endsWith("\n") ? text : `${text}\n`, "utf8");
+          send(res, jsonResponse(200, {
+            ok: true,
+            path: relative(projectDir, fullPath),
+            scenarios: parsed.scenarios.length,
+          }));
+        } catch (error) {
+          send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
+        }
+      })();
+    });
+    return;
+  }
+
   // Spec 053 / Bug 21: segment confirm / reject endpoints.
   if (requestUrl.pathname === "/api/segment/confirm" && req.method === "POST") {
     let body = "";

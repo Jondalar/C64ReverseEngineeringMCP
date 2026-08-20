@@ -92,6 +92,41 @@ export type Step =
 
 export type JoyDirection = "up" | "down" | "left" | "right" | "fire";
 
+/**
+ * Spec 814 §9.1 — the step kinds, as DATA.
+ *
+ * The editor's autocomplete and the recorder's emitter both need to know what this
+ * notation understands, and neither may keep its own copy: a client that carries a
+ * hand-written verb list becomes a second authority on what a verb is, and a second
+ * authority drifts. That is not hypothetical — the cockpit did exactly this and answered
+ * `unknown command: /turbo` for a verb the daemon had.
+ *
+ * The assertions below are the teeth. Add a kind to `Step` or `Predicate` and forget
+ * these lists, and the BUILD fails — in both directions, before anything ships.
+ */
+export const STEP_KINDS = ["wait", "type", "joystick", "waitUntil", "capture", "insert"] as const;
+export const PREDICATE_KINDS = [
+  "driveIdle",
+  "screenStill",
+  "pc",
+  "screenShows",
+  "regionShows",
+  "regionChanges",
+  "memoryIs",
+] as const;
+
+type _EveryStepKindListed = Step["kind"] extends (typeof STEP_KINDS)[number] ? true : never;
+type _NoExtraStepKinds = (typeof STEP_KINDS)[number] extends Step["kind"] ? true : never;
+type _EveryPredicateListed = Predicate["kind"] extends (typeof PREDICATE_KINDS)[number] ? true : never;
+type _NoExtraPredicates = (typeof PREDICATE_KINDS)[number] extends Predicate["kind"] ? true : never;
+const _kindsAreExhaustive: [
+  _EveryStepKindListed,
+  _NoExtraStepKinds,
+  _EveryPredicateListed,
+  _NoExtraPredicates,
+] = [true, true, true, true];
+void _kindsAreExhaustive;
+
 /** `Given the region "score" covers 30,1 to 37,1` — or, with no rectangle, a name
  *  the project store is expected to know. */
 export interface RegionDef {
@@ -147,6 +182,37 @@ export interface Scenario {
   /** Source file, so a report can point at what to edit. */
   readonly file?: string;
   readonly line?: number;
+}
+
+/**
+ * Spec 814 §9.1b — split a trailing `# comment` off a line.
+ *
+ * The recorder marks every step with who made it (`# by: human` / `# by: llm`), and a
+ * human annotating a scenario wants the same freedom. Without this the comment would be
+ * swallowed into the criterion text or the typed string and the line would parse as
+ * something nobody wrote.
+ *
+ * A `#` INSIDE quotes is not a comment: `I type "LOAD{QUOTE}#1{QUOTE}"` is a real line,
+ * and a naive `split("#")` would cut a C64 command in half. So the scan is
+ * quote-aware — which is the whole of the cleverness here, and it is worth the six
+ * lines because getting it wrong corrupts input rather than rejecting it.
+ */
+export function stripTrailingComment(line: string): { text: string; comment?: string } {
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') inQuote = !inQuote;
+    else if (c === "#" && !inQuote) {
+      return { text: line.slice(0, i).trimEnd(), comment: line.slice(i + 1).trim() };
+    }
+  }
+  return { text: line };
+}
+
+/** `# by: llm` → `"llm"`. Anything else → undefined; the mark is optional by design. */
+export function authorOfComment(comment: string | undefined): "human" | "llm" | undefined {
+  const m = comment?.match(/^by:\s*(human|llm)\b/i);
+  return m ? (m[1].toLowerCase() as "human" | "llm") : undefined;
 }
 
 export interface ParseIssue {
@@ -217,12 +283,21 @@ const JOY_DIRECTIONS: readonly JoyDirection[] = ["up", "down", "left", "right", 
  * escaping would be the first thing anyone got wrong. Named tokens keep the line
  * readable, which is the entire reason this is a feature file and not JSON.
  */
+export const KEY_TOKENS: Readonly<Record<string, string>> = {
+  RETURN: "\r",
+  QUOTE: '"',
+  SPACE: " ",
+  CLEAR: "",
+};
+
 export function decodeKeys(text: string): string {
-  return text
-    .replace(/\{RETURN\}/gi, "\r")
-    .replace(/\{QUOTE\}/gi, '"')
-    .replace(/\{SPACE\}/gi, " ")
-    .replace(/\{CLEAR\}/gi, "");
+  return text.replace(/\{([A-Z_]+)\}/gi, (whole: string, name: string) => {
+    const v = KEY_TOKENS[name.toUpperCase()];
+    // An UNKNOWN token is left as written rather than swallowed: `{FOO}` is far more
+    // likely a typo the author should see on screen than a literal they meant to type,
+    // and silently deleting it would type a different line than the file says.
+    return v === undefined ? whole : v;
+  });
 }
 
 /**
@@ -430,7 +505,13 @@ export function parseFeature(source: string, file?: string): ParseResult {
 
   lines.forEach((raw, i) => {
     const n = i + 1;
-    const line = raw.trim();
+    const whole = raw.trim();
+    if (!whole) return;
+
+    // Spec 814 §9.1b — a trailing comment is not part of the step. A WHOLE-line comment
+    // still goes to the header handling below (`# targets:` / `# mask:`), so the two
+    // cannot be confused.
+    const line = whole.startsWith("#") ? whole : stripTrailingComment(whole).text;
     if (!line) return;
 
     if (line.startsWith("#")) {

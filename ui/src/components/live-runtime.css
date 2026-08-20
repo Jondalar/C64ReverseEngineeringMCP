@@ -676,6 +676,14 @@
   position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
   color: var(--c64-blue-bright); font-size: 11px; pointer-events: none;
 }
+/* The transport's acknowledgement (F9..F12). Sits ABOVE the keyboard-capture hint,
+   because both are bottom-anchored and F11 can leave the machine running with the
+   screen focused — two lines on top of each other read as one broken one. */
+.wb-live .wb-transport-note {
+  bottom: 20px; color: var(--c64-fg-muted); white-space: pre-line;
+  max-width: 92%; text-align: center; line-height: 1.3;
+  background: rgba(0, 0, 0, 0.66); padding: 2px 6px; border-radius: 3px;
+}
 .wb-live .wb-cpu tr.wb-flow-active th, .wb-live .wb-cpu tr.wb-flow-active td { color: var(--c64-yellow); }
 .wb-live .wb-vec-note { color: var(--c64-fg-muted); font-size: 10px; text-align: right; }
 .wb-live .wb-cpu-sep td { border-bottom: 1px solid var(--c64-border); padding: 0; height: 4px; }
@@ -924,3 +932,72 @@
 .wb-reel-item-bar { display: flex; align-items: center; justify-content: space-between; gap: 2px; margin-top: 4px; }
 .wb-reel-cycle { font-size: 10px; color: #666; font-family: monospace; }
 .wb-btn-tiny { padding: 1px 5px !important; font-size: 11px !important; }
+
+/* Spec 814 §7 — the two overlays. Both are opened from the TOP bar and both lie over
+   the screen, the way the inspect overlay already does. They REPLACE a strip at the
+   bottom of the Live tab rather than adding one. */
+.wb-live .wb-overlay {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.66);
+}
+.wb-live .wb-overlay-panel {
+  width: min(1100px, 94vw); max-height: 88vh; display: flex; flex-direction: column;
+  background: #15151c; border: 1px solid rgba(108, 92, 231, 0.5); border-radius: 8px;
+  padding: 10px 12px; gap: 8px; overflow: auto;
+}
+.wb-live .wb-overlay-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wb-live .wb-overlay-bar strong { color: var(--c64-fg, #ddd); font-size: 13px; }
+.wb-live .wb-overlay-bar .wb-btn {
+  padding: 3px 10px; font-size: 12px; border-radius: 4px; background: #232331; color: #ddd;
+  border: 1px solid rgba(108, 92, 231, 0.45); cursor: pointer;
+}
+.wb-live .wb-overlay-bar .wb-btn:disabled { opacity: 0.4; cursor: default; }
+.wb-live .wb-overlay-empty { color: var(--c64-fg-muted, #777); font-size: 12px; }
+
+/* REC is a transport state — on or off, and visible at all times. */
+.wb-controls .wb-rec-on { background: #5a1020; border-color: #ff3b5c; color: #ff8fa3; }
+.wb-controls .wb-shots-some { border-color: rgba(108, 92, 231, 0.8); }
+
+.wb-live .wb-scenario-name { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #999; }
+.wb-live .wb-scenario-name input {
+  width: 190px; padding: 2px 4px; font-size: 12px; background: #0e0e14; color: #ddd;
+  border: 1px solid rgba(108, 92, 231, 0.35); border-radius: 3px;
+}
+.wb-live .wb-scenario-green { font-size: 12px; color: var(--c64-green, #5cdb5c); }
+.wb-live .wb-scenario-red { font-size: 12px; color: #ff6b81; }
+.wb-live .wb-scenario-saved { font-size: 12px; color: var(--c64-green, #5cdb5c); margin: 0; }
+.wb-live .wb-scenario-warnings {
+  margin: 0; padding: 6px 8px 6px 24px; font-size: 12px; color: #e8c07d;
+  background: #1c1a14; border: 1px solid rgba(232, 192, 125, 0.3); border-radius: 4px;
+}
+.wb-live .wb-scenario-body { display: grid; grid-template-columns: 1fr 330px; gap: 10px; min-height: 0; }
+.wb-live .wb-scenario-editor { display: flex; min-height: 340px; }
+.wb-live .wb-scenario-gutter {
+  flex: 0 0 auto; padding: 6px 6px 6px 2px; text-align: right;
+  font-family: monospace; font-size: 12px; line-height: 1.45; color: #555;
+  background: #0e0e14; border: 1px solid rgba(108, 92, 231, 0.25); border-right: none;
+  border-radius: 4px 0 0 4px; user-select: none;
+}
+.wb-live .wb-gutter-bad { color: #ff6b81; }
+.wb-live .wb-gutter-here { color: #ddd; }
+.wb-live .wb-scenario-editor textarea {
+  flex: 1 1 auto; padding: 6px 8px; resize: none; white-space: pre; overflow-wrap: normal;
+  font-family: monospace; font-size: 12px; line-height: 1.45;
+  background: #0e0e14; color: #ddd;
+  border: 1px solid rgba(108, 92, 231, 0.25); border-radius: 0 4px 4px 0;
+}
+.wb-live .wb-scenario-side { display: flex; flex-direction: column; gap: 6px; min-width: 0; overflow-y: auto; }
+.wb-live .wb-scenario-sidehead { margin: 0; font-size: 11px; color: #777; text-transform: uppercase; letter-spacing: 0.05em; }
+.wb-live .wb-scenario-lineerr {
+  padding: 6px 8px; font-size: 12px; color: #ff9aa8;
+  background: #1e1216; border: 1px solid rgba(255, 107, 129, 0.35); border-radius: 4px;
+}
+.wb-live .wb-scenario-lineerr p { margin: 0 0 4px; }
+.wb-live .wb-scenario-suggest { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.wb-live .wb-scenario-suggest li { display: flex; flex-direction: column; gap: 2px; }
+.wb-live .wb-scenario-suggest .wb-btn {
+  text-align: left; font-family: monospace; padding: 2px 6px !important; font-size: 11px !important;
+  background: #232331; color: #cfc6ff; border: 1px solid rgba(108, 92, 231, 0.35); border-radius: 3px; cursor: pointer;
+}
+.wb-live .wb-scenario-doc { font-size: 11px; color: #777; }

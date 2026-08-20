@@ -1,6 +1,12 @@
 # Spec 814 — The scenario recorder: play it once, get the file
 
-**Status:** PROPOSED 2026-08-18 — nothing built.
+**Status:** BUILT 2026-08-20 — all nine deliverables, gated by
+`npm run smoke:814` (39 checks, including the end-to-end one: a recorded journal is
+emitted, parsed back, and REPLAYED on a real machine to the capture it names).
+Two limits are stated rather than hidden: a raw matrix key press (`session/key_down`
+from the browser keyboard) is reported instead of guessed at, because only typed TEXT
+can be replayed as text; and the anchor watcher reads the text screen only — in a
+bitmap mode it says nothing rather than inventing an anchor out of pixels.
 **Repos:** C64RE owns the recorder, the overlay, the editor and the save path. The
 runtime gains one thing, and it is a fact about a machine: an input journal with
 cycles (`session/input_journal`).
@@ -164,21 +170,35 @@ instead of adding one, and the two features stop being two idioms for one idea.
 
 ## §9 Deliverables
 
+All built 2026-08-20. What each turned into is named after it.
+
 **C64RE**
 
 1. `src/project-knowledge/scenario-vocabulary.ts` — the step/predicate/region forms
    as DATA, exported from where the parser already knows them, for the editor's
-   autocomplete and for the recorder's emitter.
-1b. A trailing `# comment` on a step or criterion line, stripped before matching.
-   The `# by:` mark needs it, and a scenario a human annotates needs it anyway;
-   today a trailing comment would be swallowed into the criterion text.
+   autocomplete and for the recorder's emitter. **The drift teeth are two
+   compile-time assertions**: `STEP_KINDS` and `PREDICATE_KINDS` in the parser are
+   checked against the `Step`/`Predicate` types in BOTH directions, so adding a kind
+   and forgetting the list fails the BUILD; the smoke then asserts the vocabulary
+   covers every kind, and parses every `sample` in it.
+1b. A trailing `# comment` on a step or criterion line, stripped before matching —
+   `stripTrailingComment`, quote-aware, because `I type "LOAD{QUOTE}#1{QUOTE}"` is a
+   real line and a naive split would cut a C64 command in half.
 2. `src/reel/record-scenario.ts` — journal → steps: gap analysis, anchor proposal,
    the `Given` decision of §4, and the emitted text, run through `parseFeature`
-   before it is handed out.
-3. `ui/…/RecorderButton.tsx` — the armed indicator and the two actions.
+   before it is handed out. Pure: journal in, text out, so it is gated without a
+   machine. It also segments on a clock that RESTARTS — a mount power-cycles the
+   machine, and sorting the events by cycle would have quietly reordered everything
+   after the mount to the front.
+3. `ui/…/RecorderButton.tsx` — the armed indicator, the two actions, and the WATCHER
+   that produces the anchor proposals (text appearing on the screen; the drive going
+   busy then idle). The browser decides only WHEN to look; every observation carries
+   the cycle the daemon reported in the same breath.
 4. `ui/…/ScenarioOverlay.tsx` — the overlay, the editor, per-line errors,
    autocomplete, the by-whom filter, save.
-5. The workspace save endpoint for `<project>/scenarios/*.feature`.
+5. `POST /api/scenario/save` → `<project>/scenarios/<name>.feature`. It re-parses
+   server-side and refuses a red file, and it treats the name as a FILENAME so a save
+   cannot climb out of the project.
 5b. `ReelStrip` moved to the same shape — shutter in the top bar, thumbnails and
    download in an overlay — so the bottom of the Live tab loses a strip rather than
    gaining one.
@@ -186,7 +206,10 @@ instead of adding one, and the two features stop being two idioms for one idea.
 **TRX64**
 
 6. `session/input_journal { arm }` — the armed input journal with cycles. The only
-   new machine fact.
+   new machine fact. Recorded from the SAME pre-dispatch hook that flips the control
+   owner, so one place sees every input with its `source`; a `push()` in each handler
+   is the shape that leaves one handler out and nobody notices until a replay is
+   missing a keystroke. Capped at 20 000 entries, and it SAYS how many it dropped.
 
 ## §10 Gates
 

@@ -18,9 +18,15 @@ interface Props {
   // connection/session chip here; the standalone v3 shell omits it (it has its
   // own header status).
   statusSlot?: ReactNode;
+  // Spec 814 §7 — tab-owned buttons rendered INSIDE this bar, left of the spacer.
+  // Arming a recorder is a transport state: it is on or it is not, and you must see
+  // it at all times, which is only true of this strip. The state those buttons need
+  // (the shots, the recording) belongs to the tab, so the buttons are passed in
+  // rather than this component growing a second job.
+  toolsSlot?: ReactNode;
 }
 
-export function MachineControls({ sessionId, runState, setRunState, fps, onSnapshotTaken, statusSlot }: Props): React.JSX.Element {
+export function MachineControls({ sessionId, runState, setRunState, fps, onSnapshotTaken, statusSlot, toolsSlot }: Props): React.JSX.Element {
   const c = getClient();
   const [warp, setWarp] = useState(false);
   // Power = ON/OFF toggle (NOT reset) — Spec 786, a first-class daemon primitive.
@@ -255,6 +261,7 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
         className={audioOn ? "wb-audio-on" : ""}
         title={audioOn ? "Mute live SID audio" : "Play live SID audio (reSID)"}
       >{audioOn ? "🔊 Audio" : "🔇 Audio"}</button>
+      {toolsSlot}
       <span className="wb-controls-spacer" />
       {runState === "running" && <span className="wb-fps">{fps} fps</span>}
       {statusSlot}
