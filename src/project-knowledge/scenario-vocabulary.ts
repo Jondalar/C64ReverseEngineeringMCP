@@ -126,6 +126,13 @@ export const VOCABULARY: readonly VocabularyEntry[] = [
   },
   {
     section: "step",
+    kind: "key",
+    form: 'And I hold the key "<KEY>" for <n> frames',
+    sample: 'And I hold the key "SPACE" for 3 frames',
+    doc: "A key HELD. Use this, not I type, for a title that scans the keyboard itself — it sees a key only if it is down during its scan.",
+  },
+  {
+    section: "step",
     kind: "joystick",
     form: "And I hold joystick <1|2> <directions> for <n> frames",
     sample: "And I hold joystick 2 down and fire for 3 frames",

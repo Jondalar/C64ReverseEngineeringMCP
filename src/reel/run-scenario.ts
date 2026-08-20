@@ -216,6 +216,18 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
           log.push(`${i}: ${step.text}`);
           break;
 
+        // Spec 814 — a key HELD, frame-locked, exactly like the joystick below it.
+        // `session/type` plays a queue out at the typing pace, which a game that scans
+        // the matrix in its own IRQ can miss entirely; this holds the key DOWN across
+        // however many of its scans you said.
+        case "key": {
+          for (const k of step.keys) await box.call("session/key_down", { key: k, source: "reel" });
+          await runCycles(step.frames * PAL_CYCLES_PER_FRAME);
+          for (const k of step.keys) await box.call("session/key_up", { key: k, source: "reel" });
+          log.push(`${i}: ${step.text} (held, then released)`);
+          break;
+        }
+
         case "joystick": {
           const set: Record<string, unknown> = { port: step.port, source: "reel" };
           for (const d of step.directions) set[d] = true;

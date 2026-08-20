@@ -1,3 +1,5 @@
+import { isC64KeyName, type C64KeyName } from "../input/keymap.js";
+
 /**
  * Spec 810 — scenario goals and acceptance.
  *
@@ -74,6 +76,25 @@ export interface Criterion {
 export type Step =
   | { readonly kind: "wait"; readonly cycles: number; readonly text: string }
   | { readonly kind: "type"; readonly keys: string; readonly text: string }
+  /**
+   * Spec 814 — a key HELD for a stated number of frames.
+   *
+   * `I type` is for text: it stuffs a string through the matrix at the typing pace,
+   * which is what a BASIC line or a LOAD wants. It is the wrong tool for a title that
+   * polls `$DC01` itself and waits for SPACE — such a poll happens once a frame inside
+   * an IRQ, and a keystroke that is not DOWN at that moment is a keystroke the game
+   * never sees.
+   *
+   * So a held key is its own step, shaped exactly like the joystick one, and for the
+   * same reason: a press with no stated end is the defect this notation exists to make
+   * unwritable.
+   */
+  | {
+      readonly kind: "key";
+      readonly keys: readonly C64KeyName[];
+      readonly frames: number;
+      readonly text: string;
+    }
   | {
       readonly kind: "joystick";
       readonly port: 1 | 2;
@@ -104,7 +125,7 @@ export type JoyDirection = "up" | "down" | "left" | "right" | "fire";
  * The assertions below are the teeth. Add a kind to `Step` or `Predicate` and forget
  * these lists, and the BUILD fails — in both directions, before anything ships.
  */
-export const STEP_KINDS = ["wait", "type", "joystick", "waitUntil", "capture", "insert"] as const;
+export const STEP_KINDS = ["wait", "type", "key", "joystick", "waitUntil", "capture", "insert"] as const;
 export const PREDICATE_KINDS = [
   "driveIdle",
   "screenStill",
@@ -320,6 +341,39 @@ export function parseStep(text: string): { step?: Step; error?: string } | undef
   // I type "LOAD{QUOTE}*{QUOTE},8,1{RETURN}"
   const type = t.match(/^I type\s+"(.*)"$/i);
   if (type) return { step: { kind: "type", keys: decodeKeys(type[1]), text: t } };
+
+  // I hold the key "SPACE" for 3 frames   |   I hold the keys "L_SHIFT+A" for 2 frames
+  const key = t.match(/^I hold the keys?\s+"([^"]*)"\s+for\s+(\d+)\s*frames?$/i);
+  if (key) {
+    const names = key[1].split(/\s*[+,]\s*/).map((k) => k.trim().toUpperCase()).filter(Boolean);
+    if (names.length === 0) return { error: `"${t}": no key named` };
+    const bad = names.filter((k) => !isC64KeyName(k));
+    if (bad.length) {
+      return {
+        error:
+          `"${t}": ${bad.join(", ")} is not a C64 key. Names are the matrix's own — ` +
+          `letters and digits as themselves, plus SPACE, RETURN, RUN_STOP, L_SHIFT, ` +
+          `R_SHIFT, CTRL, C_EQ, HOME, DEL, F1/F3/F5/F7, CRSR_RT, CRSR_DN, LARROW, ` +
+          `UP_ARROW, POUND, RESTORE`,
+      };
+    }
+    const frames = Number(key[2]);
+    if (frames < 1) {
+      return {
+        error:
+          `"${t}": a press must last at least one frame — a title that scans the ` +
+          `keyboard itself does it once per frame, so a shorter press is never seen`,
+      };
+    }
+    return { step: { kind: "key", keys: names as C64KeyName[], frames, text: t } };
+  }
+  if (/^I hold the keys?\b/i.test(t)) {
+    return {
+      error:
+        `"${t}": a held key states the key and how long it is HELD — ` +
+        `e.g. \`I hold the key "SPACE" for 3 frames\``,
+    };
+  }
 
   // I hold joystick 2 down and fire for 3 frames
   const joy = t.match(/^I hold joystick\s+([12])\s+(.+?)\s+for\s+(\d+)\s*frames?$/i);

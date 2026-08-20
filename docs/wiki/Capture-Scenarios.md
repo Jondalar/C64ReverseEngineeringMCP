@@ -48,6 +48,7 @@ runtime_scene_reel
 | `I hold joystick 2 down and fire for 3 frames` | press AND release, held for 3 frames |
 | `I wait until the drive is idle within 9000 frames` | wait for a condition, with a timeout |
 | `I wait until the screen shows "PRESS FIRE" within 1200 frames` | wait for text on the screen |
+| `I hold the key "SPACE" for 3 frames` | one key, held. For a title that scans the matrix itself |
 | `I insert the disk "side2.d64"` | eject, wait, insert. Also `swap in` / `turn to` |
 | `I capture "title"` | take a picture, on a frame boundary |
 
@@ -157,6 +158,26 @@ A stored region that has MOVED since it was accepted is reported and NOT followe
 ```gherkin
   And I wait until $C05F is $03 within 600 frames
 ```
+
+## Keys that are HELD, not typed
+
+`I type` is for text — a BASIC line, a `LOAD`. It plays a queue through the matrix at
+the typing pace.
+
+That is the wrong tool for a title that reads the keyboard itself. A menu doing
+`lda $DC01` in its own IRQ scans once a frame, and a key that is not DOWN at that
+moment is a key it never sees. So a held key is its own step, with a duration, exactly
+like the joystick:
+
+```gherkin
+  And I hold the key "SPACE" for 3 frames
+  And I hold the keys "L_SHIFT+A" for 2 frames
+```
+
+The names are the matrix's own: letters and digits as themselves, plus `SPACE`,
+`RETURN`, `RUN_STOP`, `L_SHIFT`, `R_SHIFT`, `CTRL`, `C_EQ`, `HOME`, `DEL`, `F1`, `F3`,
+`F5`, `F7`, `CRSR_RT`, `CRSR_DN`, `LARROW`, `UP_ARROW`, `POUND`, `RESTORE`. A name that
+is not one of those is a parse error, not a press that quietly never happens.
 
 ## Joystick
 

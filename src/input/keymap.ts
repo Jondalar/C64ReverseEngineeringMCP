@@ -21,6 +21,36 @@ export type C64KeyName =
   | "CRSR_DN" | "F5" | "F3" | "F1" | "F7" | "CRSR_RT" | "RETURN" | "DEL"
   | "RESTORE"; // virtual — triggers NMI, not in KEY_MATRIX
 
+/**
+ * The same names, as DATA — a scenario can name a key (`I hold the key "SPACE" for 3
+ * frames`), so something has to be able to say whether a written name is real. A typo
+ * caught by the parser is a red line in the editor; the same typo caught by nothing is
+ * a press that silently never happens.
+ *
+ * The two assertions below keep the list and the type from drifting apart in either
+ * direction, at BUILD time.
+ */
+export const C64_KEY_NAMES = [
+  "RUN_STOP", "Q", "C_EQ", "SPACE", "2", "CTRL", "LARROW", "1",
+  "/", "UP_ARROW", "=", "R_SHIFT", "HOME", ";", "*", "POUND",
+  ",", "@", ":", ".", "-", "L", "P", "+",
+  "N", "O", "K", "M", "0", "J", "I", "9",
+  "V", "U", "H", "B", "8", "G", "Y", "7",
+  "X", "T", "F", "C", "6", "D", "R", "5",
+  "L_SHIFT", "E", "S", "Z", "4", "A", "W", "3",
+  "CRSR_DN", "F5", "F3", "F1", "F7", "CRSR_RT", "RETURN", "DEL",
+  "RESTORE",
+] as const;
+
+type _EveryKeyNameListed = C64KeyName extends (typeof C64_KEY_NAMES)[number] ? true : never;
+type _NoExtraKeyNames = (typeof C64_KEY_NAMES)[number] extends C64KeyName ? true : never;
+const _keyNamesExhaustive: [_EveryKeyNameListed, _NoExtraKeyNames] = [true, true];
+void _keyNamesExhaustive;
+
+export function isC64KeyName(name: string): name is C64KeyName {
+  return (C64_KEY_NAMES as readonly string[]).includes(name);
+}
+
 // Result of a key translation: C64 key plus optional implicit SHIFT.
 export interface KeyTranslation {
   key: C64KeyName;

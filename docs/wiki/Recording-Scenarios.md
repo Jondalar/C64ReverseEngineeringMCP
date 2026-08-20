@@ -50,6 +50,18 @@ a scenario that replayed them would not be replaying a session.
 Shots you take while recording become `I capture` steps. Shots taken outside the
 recording do not.
 
+Keys come out two ways, and the difference matters:
+
+```gherkin
+  And I type "LOAD{QUOTE}*{QUOTE},8,1{RETURN}"     # text you typed
+  And I hold the key "SPACE" for 4 frames          # a key you pressed and held
+```
+
+A key you press on the C64 keyboard is written down as a **held** key, for exactly as
+long as you held it. That is not the same thing as typing it: a title that scans the
+matrix itself sees a key only if it is DOWN during its scan, and a typed string played
+out at the typing pace can miss it entirely.
+
 ## The cycles come from the daemon, never the browser
 
 A recorded press is only worth something if it carries the cycle it actually landed
@@ -170,10 +182,6 @@ runtime_scene_reel
 
 ## Limits, stated rather than hidden
 
-- **A raw key press is reported, not guessed at.** Typing goes in as text and comes
-  back as text. A single key sent straight to the keyboard matrix carries no text to
-  write down, so the recorder tells you it happened and leaves it out rather than
-  emitting a line that types something else.
 - **Anchors need the text screen.** Matching text on a C64 text screen is a table
   lookup — the screen *is* characters. In a bitmap mode there is nothing to look up,
   so the recorder says nothing there instead of inventing an anchor out of pixels.

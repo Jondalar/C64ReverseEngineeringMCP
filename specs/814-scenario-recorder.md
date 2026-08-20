@@ -3,10 +3,25 @@
 **Status:** BUILT 2026-08-20 — all nine deliverables, gated by
 `npm run smoke:814` (39 checks, including the end-to-end one: a recorded journal is
 emitted, parsed back, and REPLAYED on a real machine to the capture it names).
-Two limits are stated rather than hidden: a raw matrix key press (`session/key_down`
-from the browser keyboard) is reported instead of guessed at, because only typed TEXT
-can be replayed as text; and the anchor watcher reads the text screen only — in a
-bitmap mode it says nothing rather than inventing an anchor out of pixels.
+Amended the same day: **a key press IS recorded.** The first cut dropped
+`session/key_down` with a warning, reasoning that a raw press "carries no text" — which
+was the wrong question. It carries the matrix key NAME, which is exactly what
+`session/key_down` takes back, and the duration it was held for, which is what `I type`
+cannot express at all. So the vocabulary gained a step shaped like the joystick one:
+
+```gherkin
+  And I hold the key "SPACE" for 3 frames
+```
+
+That is not a nicety. A title that scans the matrix itself — `lda $DC01` in its own IRQ,
+which is the ordinary way a menu reads SPACE or a letter — sees a key only if it is DOWN
+at the moment of the scan. `I type` plays a queue out at the typing pace and can miss it
+entirely. The key name is validated against the matrix's own list (`C64_KEY_NAMES`,
+compile-time exhaustive against `C64KeyName`), so a name that does not exist is a red
+line in the editor rather than a press that silently never happens.
+
+One limit remains, stated rather than hidden: the anchor watcher reads the text screen
+only — in a bitmap mode it says nothing rather than inventing an anchor out of pixels.
 **Repos:** C64RE owns the recorder, the overlay, the editor and the save path. The
 runtime gains one thing, and it is a fact about a machine: an input journal with
 cycles (`session/input_journal`).

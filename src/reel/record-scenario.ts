@@ -86,6 +86,16 @@ export interface RecordResult {
 /** A gap that was written as an anchor rather than a frame count, for the report. */
 const FRAME = PAL_CYCLES_PER_FRAME;
 
+/**
+ * `disk` or `cart`, from the file's own extension.
+ *
+ * The parser takes either word, so this is only about the file reading like what it is —
+ * `I insert the disk "brubaker.crt"` is a line that makes a reader doubt the rest.
+ */
+function mediumWord(path: string): "disk" | "cart" {
+  return /\.(crt|cart)$/i.test(path) ? "cart" : "disk";
+}
+
 /** Inverse of `decodeKeys` — only what would otherwise break the line. */
 export function encodeKeys(text: string): string {
   return text
@@ -142,6 +152,22 @@ function toEvents(
   const out: Emitted[] = [];
   // An open press per port: set → remember, cleared → close it with its length.
   const open = new Map<number, { cycle: number; dirs: string[]; source: "human" | "llm" }>();
+  // The same, for keys. A key is held between its down and its up, and that duration is
+  // the whole point: a title that scans the matrix in its own IRQ sees a key only if it
+  // is DOWN at the moment of the scan.
+  const openKeys = new Map<string, { cycle: number; source: "human" | "llm" }>();
+
+  const closeKey = (name: string, at: number): void => {
+    const k = openKeys.get(name);
+    if (!k) return;
+    openKeys.delete(name);
+    const frames = Math.max(1, framesBetween(k.cycle, at));
+    out.push({
+      cycle: k.cycle,
+      source: k.source,
+      line: `  And I hold the key "${name}" for ${frames} frames`,
+    });
+  };
 
   const closePress = (port: number, at: number): void => {
     const p = open.get(port);
@@ -169,15 +195,27 @@ function toEvents(
         out.push({ cycle: e.cycle, source: e.source, line: `  And I type "${encodeKeys(text)}"` });
         continue;
       }
-      // A raw matrix key_down/key_up pair carries no text, and inventing one would be
-      // guessing at a keyboard layout. Say so rather than emitting a line that types
-      // something else.
+      // A key pressed on the matrix is recorded as a HELD key, with the duration it
+      // was actually held for. It used to be dropped with a warning, on the reasoning
+      // that a raw press "carries no text" — which was the wrong question. It carries
+      // the matrix key NAME, which is the same thing `session/key_down` takes back, and
+      // the duration, which is what a game polling `$DC01` needs and what `I type`
+      // cannot express.
       if (e.method === "session/key_down") {
-        const key = String(e.detail.key ?? "?");
-        warnings.push(
-          `a raw key press (${key}) at cycle ${e.cycle} was not recorded as a step — ` +
-            `only typed TEXT can be replayed as text. Add an \`I type\` line by hand if it mattered.`,
-        );
+        const name = String(e.detail.key ?? "").toUpperCase();
+        if (!name) continue;
+        // A repeat while already down is the host keyboard repeating, not a new press.
+        if (!openKeys.has(name)) openKeys.set(name, { cycle: e.cycle, source: e.source });
+        continue;
+      }
+      if (e.method === "session/key_up") {
+        const name = String(e.detail.key ?? "").toUpperCase();
+        if (name) closeKey(name, e.cycle);
+        continue;
+      }
+      if (e.method === "session/release_keys") {
+        for (const name of [...openKeys.keys()]) closeKey(name, e.cycle);
+        continue;
       }
       continue;
     }
@@ -201,14 +239,24 @@ function toEvents(
     if (e.kind === "insert") {
       const path = String(e.detail.path ?? "");
       if (!path) continue;
-      out.push({ cycle: e.cycle, source: e.source, line: `  And I insert the disk "${path}"` });
+      out.push({
+        cycle: e.cycle,
+        source: e.source,
+        line: `  And I insert the ${mediumWord(path)} "${path}"`,
+      });
     }
   }
 
-  // A press still held when the recording stopped is closed at the last cycle we know
-  // about; the caller's `endCycle` is applied by `recordScenario`.
-  for (const [port] of open) {
+  // Anything still held when the recording stopped is closed one frame later, so it
+  // becomes a real press rather than being lost — and it is said out loud, because a
+  // press whose end nobody saw is a length nobody measured.
+  for (const [port, p] of [...open]) {
     warnings.push(`joystick ${port} was still held when the recording stopped — the press was closed at the end`);
+    closePress(port, p.cycle + FRAME);
+  }
+  for (const [name, k] of [...openKeys]) {
+    warnings.push(`the key ${name} was still held when the recording stopped — the press was closed at the end`);
+    closeKey(name, k.cycle + FRAME);
   }
   return out;
 }
@@ -272,7 +320,7 @@ export function recordScenario(
   lines.push(`Scenario: ${ctx.name}`);
   switch (ctx.origin.kind) {
     case "medium":
-      lines.push(`  Given the disk "${ctx.origin.path}"`);
+      lines.push(`  Given the ${mediumWord(ctx.origin.path)} "${ctx.origin.path}"`);
       break;
     case "snapshot":
       lines.push(`  Given the snapshot "${ctx.origin.path}"`);

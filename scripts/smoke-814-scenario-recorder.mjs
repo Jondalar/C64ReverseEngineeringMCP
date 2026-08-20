@@ -55,7 +55,7 @@ ok(authorOfComment("targets: finding/f-1") === undefined, "4 and any other comme
 // ── §9.1 the vocabulary is the parser's, not a second list ───────────────────
 ok(missingKinds().length === 0,
    "7 the vocabulary covers every step and predicate kind the parser has", missingKinds().join(", "));
-ok(STEP_KINDS.length === 6 && PREDICATE_KINDS.length === 7,
+ok(STEP_KINDS.length === 7 && PREDICATE_KINDS.length === 7,
    "8 and the kind lists are the ones the TYPES are checked against");
 {
   let bad = [];
@@ -172,15 +172,54 @@ ok(decodeKeys("{RETURN}") === "\r" && decodeKeys("{NOPE}") === "{NOPE}",
      "27 a clock that restarts mid-recording is noted, not emitted as a huge wait");
 }
 
-// A raw matrix key cannot be replayed as text, and the recorder says so instead of
-// inventing a keyboard layout.
+// A key pressed on the matrix is a HELD key with a duration — which is what a title
+// that scans the keyboard itself needs, and what `I type` cannot express.
 {
   const r = recordScenario(
-    [{ cycle: F, kind: "key", source: "human", method: "session/key_down", detail: { key: "F7" } }],
-    { name: "t", armedAtCycle: 0, endCycle: 5 * F, origin: MEDIUM },
+    [
+      { cycle: 10 * F, kind: "key", source: "human", method: "session/key_down", detail: { key: "SPACE" } },
+      { cycle: 10 * F, kind: "key", source: "human", method: "session/key_down", detail: { key: "SPACE" } },
+      { cycle: 14 * F, kind: "key", source: "human", method: "session/key_up", detail: { key: "SPACE" } },
+      { cycle: 20 * F, kind: "key", source: "human", method: "session/key_down", detail: { key: "L" } },
+      { cycle: 23 * F, kind: "key", source: "human", method: "session/release_keys", detail: {} },
+    ],
+    { name: "t", armedAtCycle: 0, endCycle: 30 * F, origin: MEDIUM },
   );
-  ok(r.warnings.some((w) => /raw key press/.test(w)), "28 a raw key press is reported, not guessed at");
-  ok(parseFeature(r.text).issues.length === 0, "29 and what it did emit still parses");
+  const st = parseFeature(r.text).scenarios[0].steps.filter((x) => x.kind === "key");
+  ok(st.length === 2, "28 a key press is recorded as a step, with the key that was pressed",
+     r.text.split("\n").filter((l) => /hold the key/.test(l)).join(" | "));
+  ok(st[0].keys[0] === "SPACE" && st[0].frames === 4,
+     "29 held for exactly as long as it was held", st[0] && `${st[0].keys}/${st[0].frames}`);
+  ok(st[1].keys[0] === "L" && st[1].frames === 3,
+     "29b release_keys closes an open key too", st[1] && `${st[1].keys}/${st[1].frames}`);
+  ok(r.warnings.length === 0, "29c and nothing is dropped or warned about", r.warnings[0]);
+}
+{
+  // The host keyboard repeating is not a second press.
+  const r = recordScenario(
+    [
+      { cycle: 5 * F, kind: "key", source: "human", method: "session/key_down", detail: { key: "J" } },
+    ],
+    { name: "t", armedAtCycle: 0, endCycle: 9 * F, origin: MEDIUM },
+  );
+  const st = parseFeature(r.text).scenarios[0].steps.filter((x) => x.kind === "key");
+  ok(st.length === 1 && st[0].frames >= 1,
+     "29d a key still down at the end becomes a real press, not a lost one");
+  ok(r.warnings.some((w) => /still held/.test(w)), "29e and it says the end was not measured");
+}
+// A name that is not a C64 key is a parse error, not a silent no-press.
+{
+  const bad = parseFeature('Scenario: s\n  Given a bare machine\n  When I hold the key "ESCAPE" for 2 frames\n  Then it works\n');
+  ok(bad.issues.some((i) => /ESCAPE is not a C64 key/.test(i.message)),
+     "29f a key name that does not exist is caught by the parser", bad.issues[0]?.message?.slice(0, 40));
+}
+// And a .crt reads like a cart.
+{
+  const r = recordScenario([], {
+    name: "t", armedAtCycle: 0, endCycle: F,
+    origin: { kind: "medium", path: "brubaker.crt", why: "mounted" },
+  });
+  ok(/Given the cart "brubaker\.crt"/.test(r.text), "29g a cartridge is called a cart, not a disk");
 }
 
 // An empty recording still produces a parseable file — with a warning, because a
@@ -205,6 +244,10 @@ ok(decodeKeys(encodeKeys('LOAD"*",8,1\r')) === 'LOAD"*",8,1\r',
 {
   const journal = [
     { cycle: 120 * F, kind: "key", source: "human", method: "session/type", detail: { text: 'PRINT"HI"\r' } },
+    // A HELD key, the thing that used to be dropped with a warning. On a bare machine
+    // the KERNAL echoes it, so whether it arrived is visible on the screen.
+    { cycle: 150 * F, kind: "key", source: "human", method: "session/key_down", detail: { key: "J" } },
+    { cycle: 154 * F, kind: "key", source: "human", method: "session/key_up", detail: { key: "J" } },
   ];
   const r = recordScenario(journal, {
     name: "type into basic",
@@ -224,6 +267,26 @@ ok(decodeKeys(encodeKeys('LOAD"*",8,1\r')) === 'LOAD"*",8,1\r',
   ok(run.shots[0].indices.length > 0 && run.width === 384 && run.height === 272,
      "35 and the picture is a real frame off the video chip",
      `${run.width}x${run.height}, ${run.shots[0].indices.length} bytes`);
+
+  // The held key ARRIVED. This is the check that matters: a step nobody can see the
+  // effect of is a step that may quietly do nothing.
+  const held = scenario.steps.find((x) => x.kind === "key");
+  ok(held && held.keys[0] === "J" && held.frames === 4,
+     "35b the held key survived the round trip with its duration", held && `${held.keys}/${held.frames}`);
+  // Does the key actually ARRIVE? Nothing on a booted C64 screen contains a J, so
+  // waiting for one after the hold is a direct test: if the press never reached the
+  // matrix, this predicate times out and the run throws. A step whose effect nobody
+  // checks is a step that may quietly do nothing.
+  const withCheck = parseFeature(
+    r.text.replace(
+      /^(\s*)(And I capture "after")/m,
+      '$1And I wait until the screen shows "J" within 200 frames\n$1$2',
+    ),
+  ).scenarios[0];
+  let arrived = true, why = "";
+  try { await runScenario(withCheck, { budgetSeconds: 300 }); }
+  catch (e) { arrived = false; why = String(e && e.message).slice(0, 80); }
+  ok(arrived, "35c and the held key REACHED the machine — the screen shows it", why);
 }
 
 // ── §6 saving ────────────────────────────────────────────────────────────────
