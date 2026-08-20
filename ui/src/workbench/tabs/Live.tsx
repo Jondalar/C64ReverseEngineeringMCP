@@ -367,6 +367,10 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   const [joyMode, setJoyMode] = useState<JoystickMode>("off");
   const [joyBits, setJoyBits] = useState<Record<JoyBit, boolean>>({ up: false, down: false, left: false, right: false, fire: false });
   const [pressedKeys, setPressedKeys] = useState<string[]>([]);
+  // The last thing the transport said, shown under the screen and cleared after a
+  // few seconds. Not a log — the monitor is the log; this is the acknowledgement a
+  // key press owes you when the picture does not change by itself.
+  const [transportNote, setTransportNote] = useState<string | null>(null);
 
   // Spec 808 §4 — the transport keys are handed to the DAEMON, not decided here.
   //
@@ -381,7 +385,10 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   //      terminal front-end already asks the daemon; the browser never learned to.
   //
   // So this sends the key and prints nothing of its own: `transport/key` answers
-  // what it did, or that it dropped the key.
+  // what it did, or that it dropped the key — and that answer is SHOWN. It used to be
+  // thrown away: a key that hit the end of the ring, or landed on a machine with no
+  // anchors at all ("the ring fills while the machine RUNS"), did nothing visible and
+  // read as broken. The daemon had said exactly why, to nobody.
   //
   // Deliberately a SEPARATE effect from the keyboard passthrough below, which
   // returns early unless the machine is running. Play/pause that only works while
@@ -396,22 +403,33 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
       e.preventDefault();
       void client
-        .call<{ handled?: boolean; running?: boolean }>("transport/key", {
-          session_id: sessionId,
-          key: Number(n[1]),
-        })
-        .then(async () => {
+        .call<{ handled?: boolean; reason?: string; message?: string; output?: string; transport?: { line?: string } }>(
+          "transport/key",
+          { session_id: sessionId, key: Number(n[1]) },
+        )
+        .then(async (r) => {
+          // Print the daemon's own words, in its own order of preference: why it
+          // dropped the key, else the ready-made message, else the transport line.
+          // Nothing is composed here — a client that assembles its own sentence is a
+          // client that will word the same event differently from the terminal.
+          setTransportNote(r.reason ?? r.message ?? r.transport?.line ?? r.output ?? null);
           // The daemon's state is the truth about what just happened; a transport
           // move can pause, resume, or step, and inferring which from the key is
           // how two clients end up disagreeing about the run state.
           const st = await client.call<{ runState?: string }>("session/state", { session_id: sessionId });
           if (st.runState === "running" || st.runState === "paused") setRunState?.(st.runState);
         })
-        .catch(() => {});
+        .catch((e: any) => setTransportNote(String(e?.message ?? e)));
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [sessionId, runState, setRunState]);
+
+  useEffect(() => {
+    if (!transportNote) return;
+    const t = setTimeout(() => setTransportNote(null), 4000);
+    return () => clearTimeout(t);
+  }, [transportNote]);
 
   // Spec 310 — live keyboard + virtual joystick passthrough.
   // While emulator runs: keydown → key_down WS, keyup → key_up WS.
@@ -576,6 +594,11 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           )}
           {screenFocused && runState === "running" && (
             <p className="wb-screen-hint">⌨ Keyboard captured — click outside to disable</p>
+          )}
+          {transportNote && (
+            <p className="wb-screen-hint wb-transport-note" title="F9 frame back · F10 play backwards · F11 pause/play · F12 frame forward">
+              {transportNote}
+            </p>
           )}
         </div>
         <InspectorPanel
