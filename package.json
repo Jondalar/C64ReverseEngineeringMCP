@@ -104,7 +104,8 @@
     "e2e:758": "npm run build:pipeline && node scripts/e2e-758-code-discovery.mjs",
     "e2e:759": "npm run build:mcp && node scripts/e2e-759-address-index.mjs",
     "e2e:746-checkpoint": "npm run build:mcp && node scripts/e2e-746-checkpoint.mjs",
-    "e2e:stall-heal": "npm run build:mcp && node scripts/e2e-stall-heal.mjs"
+    "e2e:stall-heal": "npm run build:mcp && node scripts/e2e-stall-heal.mjs",
+    "smoke:814": "npm run build:mcp && node scripts/smoke-814-scenario-recorder.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

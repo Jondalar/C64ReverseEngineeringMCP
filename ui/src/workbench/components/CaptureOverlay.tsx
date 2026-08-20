@@ -1,15 +1,21 @@
 // Spec 812 — the shutter, for a reel you drive by hand.
+// Spec 814 §7 — and it lives at the TOP now, in an overlay.
 //
 // The written scenario (`runtime_scene_reel`) is for a reel that has to be
 // rebuildable: it boots a private machine, walks a schedule, and produces the same
 // bytes every time. This is the other half of the same need — you are already
 // playing the game, you reach a screen worth keeping, and you press a button.
 //
-// Capturing here is READ-ONLY. It asks the machine for the frame it is already
+// Capturing is READ-ONLY. It asks the machine for the frame it is already
 // displaying and never advances it: this is the ONE session a human co-drives,
 // and a screenshot must not move it. (`displayed` is the frozen previous frame,
-// so it is always a whole picture — the frame-boundary advance a scheduled
-// capture needs is only for stepping to a chosen point.)
+// so it is always a whole picture.)
+//
+// WHY IT MOVED. The shutter and the recorder are the same gesture from opposite
+// ends — one takes pictures out of a run, the other takes the run — so they belong
+// in the same place. And the bottom of the Live tab was stacking a filmstrip and a
+// reel strip and could not keep growing. Button up top, pictures in an overlay:
+// that REMOVES a strip instead of adding one.
 //
 // The reel is assembled in the browser by the same encoder the tool uses, so a
 // hand-shot reel and a scenario-shot reel are byte-for-byte the same kind of file:
@@ -17,27 +23,20 @@
 // the video chip with nothing re-quantized.
 
 import React, { useEffect, useRef, useState } from "react";
-import { getClient } from "../ws-client.js";
 import { encodeWithin, parseStructure } from "../../../../src/reel/gif89a.js";
 
 /** The CSDb ceiling. */
 const MAX_BYTES = 512_000;
 
-interface Shot {
+export interface Shot {
   readonly id: number;
   label: string;
+  /** The machine cycle this picture was taken at — the daemon's number, not a clock. */
   readonly cycle: number;
   readonly width: number;
   readonly height: number;
   readonly indices: Uint8Array;
   readonly palette: Uint8Array;
-}
-
-function b64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
 }
 
 /** Paint one shot's colour indices onto a canvas through its own palette. */
@@ -65,37 +64,15 @@ function Thumb({ shot }: { shot: Shot }): React.ReactElement {
   return <canvas ref={ref} className="wb-reel-thumb" style={{ imageRendering: "pixelated" }} />;
 }
 
-export function ReelStrip({ sessionId }: { sessionId: string }): React.ReactElement {
-  const [shots, setShots] = useState<Shot[]>([]);
-  const [delayMs, setDelayMs] = useState(700);
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState("");
-  const nextId = useRef(1);
+interface Props {
+  shots: Shot[];
+  setShots: React.Dispatch<React.SetStateAction<Shot[]>>;
+  onClose: () => void;
+}
 
-  const capture = async (): Promise<void> => {
-    if (!sessionId || busy) return;
-    setBusy(true);
-    try {
-      const r = await getClient().call<{
-        width: number; height: number; palette: string; indices: string; c64Cycles: number;
-      }>("session/frame_indices", { session_id: sessionId });
-      const shot: Shot = {
-        id: nextId.current++,
-        label: `shot-${String(shots.length + 1).padStart(2, "0")}`,
-        cycle: r.c64Cycles,
-        width: r.width,
-        height: r.height,
-        indices: b64ToBytes(r.indices),
-        palette: b64ToBytes(r.palette),
-      };
-      setShots((s) => [...s, shot]);
-      setNote(`captured at cycle ${r.c64Cycles}`);
-    } catch (e) {
-      setNote(`capture failed: ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
-  };
+export function CaptureOverlay({ shots, setShots, onClose }: Props): React.ReactElement {
+  const [delayMs, setDelayMs] = useState(700);
+  const [note, setNote] = useState("");
 
   const move = (i: number, by: number): void =>
     setShots((s) => {
@@ -148,56 +125,59 @@ export function ReelStrip({ sessionId }: { sessionId: string }): React.ReactElem
   };
 
   return (
-    <div className="wb-reel">
-      <div className="wb-reel-bar">
-        <button className="wb-btn" onClick={() => void capture()} disabled={!sessionId || busy}>
-          📷 Capture
-        </button>
-        <label className="wb-reel-delay">
-          delay
-          <input
-            type="number"
-            min={10}
-            step={50}
-            value={delayMs}
-            onChange={(e) => setDelayMs(Math.max(10, Number(e.target.value) || 10))}
-          />
-          ms
-        </label>
-        <button className="wb-btn" onClick={download} disabled={shots.length === 0}>
-          ⬇ Download CSDb GIF
-        </button>
-        <button className="wb-btn" onClick={() => { setShots([]); setNote(""); }} disabled={shots.length === 0}>
-          Clear
-        </button>
-        <span className="wb-reel-count">
-          {shots.length === 0 ? "no shots yet" : `${shots.length} shot${shots.length === 1 ? "" : "s"}`}
-        </span>
-        {note && <span className="wb-reel-note">{note}</span>}
-      </div>
-
-      {shots.length > 0 && (
-        <div className="wb-reel-strip">
-          {shots.map((s, i) => (
-            <div key={s.id} className="wb-reel-item">
-              <Thumb shot={s} />
-              <input
-                className="wb-reel-label"
-                value={s.label}
-                onChange={(e) =>
-                  setShots((all) => all.map((x) => (x.id === s.id ? { ...x, label: e.target.value } : x)))
-                }
-              />
-              <div className="wb-reel-item-bar">
-                <button className="wb-btn wb-btn-tiny" onClick={() => move(i, -1)} disabled={i === 0} title="earlier">←</button>
-                <span className="wb-reel-cycle" title="the machine cycle this picture was taken at">{s.cycle}</span>
-                <button className="wb-btn wb-btn-tiny" onClick={() => move(i, 1)} disabled={i === shots.length - 1} title="later">→</button>
-                <button className="wb-btn wb-btn-tiny" onClick={() => remove(s.id)} title="remove">✕</button>
-              </div>
-            </div>
-          ))}
+    <div className="wb-overlay" role="dialog" aria-label="Captures">
+      <div className="wb-overlay-panel">
+        <div className="wb-overlay-bar">
+          <strong>📷 Captures</strong>
+          <span className="wb-reel-count">
+            {shots.length === 0 ? "no shots yet" : `${shots.length} shot${shots.length === 1 ? "" : "s"}`}
+          </span>
+          <label className="wb-reel-delay">
+            delay
+            <input
+              type="number"
+              min={10}
+              step={50}
+              value={delayMs}
+              onChange={(e) => setDelayMs(Math.max(10, Number(e.target.value) || 10))}
+            />
+            ms
+          </label>
+          <button className="wb-btn" onClick={download} disabled={shots.length === 0}>⬇ Download CSDb GIF</button>
+          <button className="wb-btn" onClick={() => { setShots([]); setNote(""); }} disabled={shots.length === 0}>Clear</button>
+          <span className="wb-controls-spacer" />
+          <button className="wb-btn" onClick={onClose}>✕ Close</button>
         </div>
-      )}
+
+        {note && <p className="wb-reel-note">{note}</p>}
+
+        {shots.length === 0 ? (
+          <p className="wb-overlay-empty">
+            Press 📷 in the top bar while the machine runs. Capturing never moves the machine.
+          </p>
+        ) : (
+          <div className="wb-reel-strip">
+            {shots.map((s, i) => (
+              <div key={s.id} className="wb-reel-item">
+                <Thumb shot={s} />
+                <input
+                  className="wb-reel-label"
+                  value={s.label}
+                  onChange={(e) =>
+                    setShots((all) => all.map((x) => (x.id === s.id ? { ...x, label: e.target.value } : x)))
+                  }
+                />
+                <div className="wb-reel-item-bar">
+                  <button className="wb-btn wb-btn-tiny" onClick={() => move(i, -1)} disabled={i === 0} title="earlier">←</button>
+                  <span className="wb-reel-cycle" title="the machine cycle this picture was taken at">{s.cycle}</span>
+                  <button className="wb-btn wb-btn-tiny" onClick={() => move(i, 1)} disabled={i === shots.length - 1} title="later">→</button>
+                  <button className="wb-btn wb-btn-tiny" onClick={() => remove(s.id)} title="remove">✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -22,7 +22,10 @@ import { InspectorPanel } from "../components/InspectorPanel.js";
 import { MachineControls } from "../components/MachineControls.js";
 import { ExploreOverlay } from "../components/ExploreOverlay.js";
 import { Filmstrip } from "../components/Filmstrip.js";
-import { ReelStrip } from "../components/ReelStrip.js";
+import { CaptureOverlay, type Shot } from "../components/CaptureOverlay.js";
+import { RecorderButton } from "../components/RecorderButton.js";
+import { ScenarioOverlay } from "../components/ScenarioOverlay.js";
+import type { RecordResult } from "../../../../src/reel/record-scenario.js";
 
 interface DriveStatus {
   device: number;
@@ -372,6 +375,53 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   // key press owes you when the picture does not change by itself.
   const [transportNote, setTransportNote] = useState<string | null>(null);
 
+  // Spec 814 §7 — the shutter and the recorder are the same gesture from opposite
+  // ends: one takes pictures out of a run, the other takes the run. So they share a
+  // place (the top bar) and a shape (a button, then an overlay), and the bottom of
+  // this tab LOSES a strip instead of gaining one.
+  //
+  // The shots live HERE rather than inside the overlay, because two things need
+  // them: the overlay that manages them, and the recorder, which turns a shot taken
+  // during a recording into an `I capture` step.
+  const [shots, setShots] = useState<Shot[]>([]);
+  const [showCaptures, setShowCaptures] = useState(false);
+  const [recorded, setRecorded] = useState<RecordResult | null>(null);
+  const nextShotId = useRef(1);
+  const [shutterBusy, setShutterBusy] = useState(false);
+
+  // Read-only: it asks the machine for the frame it is ALREADY displaying and never
+  // advances it. This is the one session a human co-drives, and a screenshot must
+  // not move it.
+  const capture = async (): Promise<void> => {
+    if (!sessionId || shutterBusy) return;
+    setShutterBusy(true);
+    try {
+      const r = await getClient().call<{
+        width: number; height: number; palette: string; indices: string; c64Cycles: number;
+      }>("session/frame_indices", { session_id: sessionId });
+      const b64 = (s: string): Uint8Array => {
+        const bin = atob(s);
+        const out = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+        return out;
+      };
+      setShots((all) => [...all, {
+        id: nextShotId.current++,
+        label: `shot-${String(all.length + 1).padStart(2, "0")}`,
+        cycle: r.c64Cycles,
+        width: r.width,
+        height: r.height,
+        indices: b64(r.indices),
+        palette: b64(r.palette),
+      }]);
+      setTransportNote(`captured at cycle ${r.c64Cycles}`);
+    } catch (e) {
+      setTransportNote(`capture failed: ${(e as Error).message}`);
+    } finally {
+      setShutterBusy(false);
+    }
+  };
+
   // Spec 808 §4 — the transport keys are handed to the DAEMON, not decided here.
   //
   // F9..F12 used to do nothing at all in the browser. Two reasons, and both are
@@ -548,6 +598,27 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
         fps={fps}
         onSnapshotTaken={snapshot}
         statusSlot={statusSlot}
+        toolsSlot={
+          <>
+            <button
+              onClick={() => void capture()}
+              disabled={runState === "off" || shutterBusy}
+              title="Capture the frame on screen right now (never moves the machine)"
+            >📷 Capture</button>
+            <button
+              onClick={() => setShowCaptures(true)}
+              disabled={runState === "off"}
+              className={shots.length ? "wb-shots-some" : ""}
+              title="Manage the captured pictures and build the CSDb GIF"
+            >🎞 Shots{shots.length ? ` ${shots.length}` : ""}</button>
+            <RecorderButton
+              sessionId={sessionId}
+              runState={runState}
+              shots={shots}
+              onRecorded={setRecorded}
+            />
+          </>
+        }
       />
       {/* Spec 769.5 — the scrub filmstrip is now mounted, but ONLY on Pause/Freeze
           (see below the grid). The checkpoint ring writes in the background while
@@ -624,11 +695,20 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       {/* Spec 769.5 — scrub filmstrip: ONLY on Pause/Freeze. Click a frame to
           rewind the full machine to that point; Continue / Dump from there. */}
       {runState === "paused" && <Filmstrip sessionId={sessionId} setRunState={setRunState} />}
-      {/* Spec 812 — the shutter. Read-only: it asks for the frame the machine is
-          already displaying and never advances it, because this is the one
-          session a human co-drives. Always mounted, running or paused: the shot
-          worth keeping is usually one you just saw. */}
-      {runState !== "off" && <ReelStrip sessionId={sessionId} />}
+      {/* Spec 814 §7 — the two overlays. Both are opened from the TOP bar, and
+          both lie over the screen the way the inspect overlay does. Nothing was
+          added to the bottom of this tab; the reel strip that used to live there
+          is now the first of them. */}
+      {showCaptures && (
+        <CaptureOverlay shots={shots} setShots={setShots} onClose={() => setShowCaptures(false)} />
+      )}
+      {recorded && (
+        <ScenarioOverlay
+          initialText={recorded.text}
+          warnings={recorded.warnings}
+          onClose={() => setRecorded(null)}
+        />
+      )}
     </div>
   );
 }
