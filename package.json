@@ -23,6 +23,8 @@
     "build:c64ref": "tsx src/c64ref-rom-knowledge.ts",
     "build:platform-kb": "npm run build:mcp && node dist/platform-kb/seed.js",
     "check:platform-kb": "npm run build && node scripts/check-platform-kb.mjs",
+    "e2e:818": "npm run build:mcp && node scripts/e2e-818-address-identity.mjs",
+    "e2e:819": "npm run build && node scripts/e2e-819-control-flow.mjs",
     "bootstrap:workspace": "npm run build:mcp && node scripts/bootstrap-existing-re-workspace.mjs",
     "test:project-knowledge": "npm run build:mcp && node scripts/project-knowledge-smoke.mjs",
     "test:lifecycle": "npm run build:mcp && node scripts/lifecycle-crosswalk-smoke.mjs",

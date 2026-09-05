@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { basename, extname, relative, resolve } from "node:path";
 import { importAnalysisKnowledge, stampImportedKnowledgeWithPayload } from "./analysis-import.js";
+import { seedControlFlowForArtifact } from "../knowledge-graph/producers/artifact.js";
 import { importManifestKnowledge } from "./manifest-import.js";
 import { isHeuristicQuestion } from "./question-triage.js";
 import { buildAnnotatedListingView, buildCartridgeLayoutView, buildDiskLayoutView, buildFlowGraphView, buildLoadSequenceView, buildMediumLayoutView, buildMemoryMapView, buildProjectDashboardView } from "./view-builders.js";
@@ -4682,6 +4683,16 @@ export class ProjectKnowledgeService {
       // can sort them below human-review questions.
       this.saveOpenQuestion({ ...question, source: "heuristic-phase1" });
     }
+    // Spec 819 D7 — the control-flow producer runs alongside the JSON import.
+    // Additive (818 D10): it writes only knowledge/graph.sqlite, and a failure
+    // here must never break the import that already happened.
+    let graphNote = "";
+    try {
+      const seeded = seedControlFlowForArtifact(this.getProjectRoot(), artifact);
+      if (seeded) graphNote = ` / graph: ${seeded.routines} routines, ${Object.values(seeded.edges).reduce((a, b) => a + b, 0)} edges`;
+    } catch (error) {
+      graphNote = ` / graph: FAILED (${error instanceof Error ? error.message : String(error)})`;
+    }
     this.appendTimelineEvent({
       kind: "note",
       title: `Imported analysis report: ${imported.reportTitle}`,
@@ -4692,7 +4703,7 @@ export class ProjectKnowledgeService {
         `${imported.relations.length} relations`,
         `${imported.flows.length} flows`,
         `${imported.openQuestions.length} open questions`,
-      ].join(" / "),
+      ].join(" / ") + graphNote,
     });
     return {
       artifact,

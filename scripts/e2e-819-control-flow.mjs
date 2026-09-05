@@ -1,0 +1,140 @@
+#!/usr/bin/env node
+// Spec 819 — the control-flow producer, against a ground-truth fixture and the
+// real corpus.
+//
+//   fixture (analyzed by the real pipeline):
+//     $1000 entry:  jsr $1020 ; jsr $FFD2 ; ldx #3 ; loop: dex ; bne loop ; sta $D011 ; jmp $1040
+//     $1020 sub:    lda #1 ; rts
+//     $1040 tail:   jsr $3000 (OUTSIDE the image) ; rts       … image padded to $20FF
+//   - routines: $1000 (entry), $1020 (jsr target), $1040 (jmp target with fall-in? no: jmp target → label unless called)
+//   - CALLS $1000→$1020 ; CALLS_ROM $1000→c64:rom:ffd2 with instruction "jsr $FFD2"
+//   - BRANCHES_TO with mnemonic bne only; the `sta $D011` (typed `branch` by discovery) emits NOTHING
+//   - JUMPS_TO $1000→label $1040 ; CALLS → s819:ram:addr:3000 (outside the image: an addr node, D5)
+//   - seed twice → identical dump; a human name survives; orphan on removal
+//   corpus: every _analysis.json under analysis/tmp/spec-816 — zero BRANCHES_TO with a non-branch mnemonic,
+//           counts printed, lnr_boot seeds in under one second
+//
+// Exit 0 = pass, 1 = fail.   npm run e2e:819
+
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+
+const ROOT = resolve(import.meta.dirname, "..");
+const { seedControlFlow } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
+const { GraphStore } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
+const { Graph } = await import(join(ROOT, "dist/knowledge-graph/query.js"));
+
+let pass = 0;
+let failCount = 0;
+const ok = (msg) => { pass += 1; console.log(`  PASS  ${msg}`); };
+const fail = (msg) => { failCount += 1; console.log(`  FAIL  ${msg}`); };
+const check = (cond, msg) => (cond ? ok(msg) : fail(msg));
+const BRANCHES = new Set(["bcc", "bcs", "beq", "bne", "bmi", "bpl", "bvc", "bvs"]);
+
+// ---------------------------------------------------------------- fixture
+
+const project = mkdtempSync(join(tmpdir(), "c64re-819-"));
+mkdirSync(join(project, "knowledge"), { recursive: true });
+mkdirSync(join(project, "analysis"), { recursive: true });
+writeFileSync(join(project, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "p", name: "Spec 819 fixture", slug: "s819", rootPath: project }));
+
+const image = new Uint8Array(0x1100).fill(0xea); // $1000-$20FF, NOPs
+const put = (addr, bytes) => image.set(bytes, addr - 0x1000);
+put(0x1000, [
+  0x20, 0x20, 0x10,       // jsr $1020
+  0x20, 0xd2, 0xff,       // jsr $FFD2
+  0xa2, 0x03,             // ldx #3
+  0xca,                   // $1008 loop: dex
+  0xd0, 0xfd,             // bne $1008
+  0x8d, 0x11, 0xd0,       // sta $D011
+  0x4c, 0x40, 0x10,       // jmp $1040
+]);
+put(0x1020, [0xa9, 0x01, 0x60]);           // lda #1 ; rts
+put(0x1040, [0x20, 0x00, 0x30, 0x60]);     // jsr $3000 ; rts — $3000 is outside the image
+const prg = new Uint8Array(image.length + 2);
+prg[0] = 0x00; prg[1] = 0x10; prg.set(image, 2);
+const prgPath = join(project, "analysis", "fixture.prg");
+const analysisPath = join(project, "analysis", "fixture_analysis.json");
+writeFileSync(prgPath, prg);
+execFileSync(process.execPath, [join(ROOT, "dist/pipeline/cli.cjs"), "analyze-prg", prgPath, analysisPath, "1000"], { cwd: ROOT, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, C64RE_PROJECT_DIR: project } });
+
+const r1 = seedControlFlow({ projectDir: project, analysisPath });
+console.log(`  info  fixture: routines=${r1.routines} labels=${r1.labels} addr=${r1.addrNodes} edges=${JSON.stringify(r1.edges)} ${r1.ms.toFixed(1)} ms`);
+
+let graph = Graph.open(project);
+const R = (a) => `s819:ram/fixture:routine:${a}`;
+const entry = graph.resolve(R("1000"));
+check(!entry.dangling && entry.attrs.entry_source !== undefined && entry.name === "W1000", "entry routine s819:ram/fixture:routine:1000 (W1000, entry_source)");
+check(!graph.resolve(R("1020")).dangling, "jsr target $1020 is a routine");
+const callees = graph.callees(R("1000"));
+check(callees.some((e) => e.type === "CALLS" && e.to === R("1020")), "CALLS $1000 → $1020");
+const rom = callees.find((e) => e.type === "CALLS_ROM");
+check(rom && rom.to === "c64:rom:ffd2" && rom.evidence.instruction === "jsr $FFD2" && rom.toNode.symbol === "CHROUT", 'CALLS_ROM → c64:rom:ffd2, evidence "jsr $FFD2", resolves to CHROUT');
+const out1000 = graph.edgesOutOf(R("1000"));
+const branches = out1000.filter((e) => e.type === "BRANCHES_TO");
+check(branches.length === 1 && branches[0].evidence.mnemonic === "bne", "exactly one BRANCHES_TO from $1000, mnemonic bne");
+check(!out1000.some((e) => e.evidence.mnemonic === "sta"), "sta $D011 (typed `branch` by discovery) emits no control-flow edge");
+const jmp = out1000.find((e) => e.type === "JUMPS_TO");
+check(jmp && jmp.to.endsWith(":1040"), `JUMPS_TO → …:1040 (${jmp?.to})`);
+const ext = graph.edgesInto("s819:ram:addr:3000").find((e) => e.type === "CALLS");
+check(ext && ext.toNode.kind === "addr" && !ext.toNode.dangling && ext.evidence.instruction === "jsr $3000", "jsr $3000 (outside the image) → CALLS to addr node s819:ram:addr:3000 (D5)");
+check(graph.containerOf(`s819:ram/fixture:label:1008`).some((n) => n.id === R("1000")), "label $1008 CONTAINED by routine $1000");
+const path = graph.path(R("1000"), "c64:rom:ffd2");
+check(path && path.length === 1, "path(entry → CHROUT)");
+graph.close();
+
+// idempotence + human survival
+let store = GraphStore.open(project);
+const h1 = store.contentHash();
+store.upsertHuman({ id: R("1020"), kind: "routine", name: "get_one", origin: "user", confidence: "user_asserted" });
+store.close();
+seedControlFlow({ projectDir: project, analysisPath });
+store = GraphStore.open(project);
+check(store.contentHash() === h1, `seed twice → identical generated layer (${h1.slice(0, 16)})`);
+store.close();
+graph = Graph.open(project);
+check(graph.resolve(R("1020")).name === "get_one", "human name survives a re-seed");
+graph.close();
+
+// ---------------------------------------------------------------- corpus
+
+const corpus = join(ROOT, "analysis/tmp/spec-816");
+if (existsSync(corpus)) {
+  const files = readdirSync(corpus).filter((f) => f.endsWith(".analysis.json") || f.endsWith("_analysis.json")).map((f) => join(corpus, f));
+  const cproject = mkdtempSync(join(tmpdir(), "c64re-819-corpus-"));
+  mkdirSync(join(cproject, "knowledge"), { recursive: true });
+  writeFileSync(join(cproject, "knowledge", "project.json"), JSON.stringify({ schemaVersion: 1, id: "c", name: "corpus", slug: "corpus", rootPath: cproject }));
+  let bad = 0;
+  let total = 0;
+  let slowest = { owner: "", ms: 0 };
+  for (const f of files) {
+    const owner = f.replace(/^.*\//, "").replace(/(_analysis|\.analysis)\.json$/, "").toLowerCase().replace(/[^a-z0-9_.-]/g, "_");
+    let r;
+    try { r = seedControlFlow({ projectDir: cproject, analysisPath: f, owner }); } catch (e) { fail(`${owner}: ${e.message.slice(0, 120)}`); continue; }
+    total += Object.values(r.edges).reduce((x, y) => x + y, 0);
+    if (r.ms > slowest.ms) slowest = { owner, ms: r.ms };
+  }
+  const g = Graph.open(cproject);
+  const rows = g.store.db.prepare("SELECT evidence FROM edges WHERE type = 'BRANCHES_TO'").all();
+  for (const row of rows) { const ev = JSON.parse(row.evidence); if (!BRANCHES.has(ev.mnemonic)) bad += 1; }
+  const c = g.store.counts();
+  g.close();
+  check(bad === 0, `corpus (${files.length} reports): zero BRANCHES_TO with a non-branch mnemonic (${rows.length} branches checked)`);
+  console.log(`  info  corpus: ${c.nodes} nodes, ${c.edges} edges; slowest seed ${slowest.owner} ${slowest.ms.toFixed(0)} ms`);
+  check(slowest.ms < 1000, "slowest report seeds in under one second");
+  const lnr = files.find((f) => /lnr_boot/.test(f));
+  if (lnr) {
+    const g2 = Graph.open(cproject);
+    const chrout = g2.callers("c64:rom:ffd2");
+    console.log(`  info  lnr_boot: callers(c64:rom:ffd2) = ${chrout.length} (${chrout.map((e) => e.evidence.ambiguity ?? "direct").join(",")})`);
+    check(chrout.every((e) => e.evidence.instruction === "jsr $FFD2"), "lnr_boot: every CHROUT caller carries instruction \"jsr $FFD2\"");
+    g2.close();
+  }
+} else {
+  console.log("  skip  corpus: analysis/tmp/spec-816 absent (run npm run measure:816 first) — loudly skipped, not passed");
+}
+
+console.log(`\n${failCount ? "RED" : "GREEN"}  Spec 819: ${pass} pass, ${failCount} fail.  project: ${project}`);
+process.exit(failCount ? 1 : 0);

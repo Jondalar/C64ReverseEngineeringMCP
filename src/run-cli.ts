@@ -48,7 +48,11 @@ export function runCli(command: string, args: string[], options: RunCliOptions):
   return new Promise((res) => {
     execFile(
       "node",
-      [cliPath, command, ...args],
+      // Spec 817/818 D9: the pipeline reads resources/platform-kb.sqlite through
+      // node:sqlite, which prints an ExperimentalWarning on first load; the
+      // parent forwards child stderr, so the flag keeps tool output clean even
+      // if the in-process filter is bypassed.
+      ["--disable-warning=ExperimentalWarning", cliPath, command, ...args],
       {
         cwd: options.projectDir,
         // Spec 759 — the pipeline reads the project's cross-artifact address
