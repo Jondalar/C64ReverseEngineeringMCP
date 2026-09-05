@@ -37,23 +37,33 @@ export interface PlatformRegionRow {
   source: string;
 }
 
+/** Display form: `$D018`. Never part of an id. */
 export function formatHex4(address: number): string {
   return `$${(address & 0xffff).toString(16).toUpperCase().padStart(4, "0")}`;
+}
+
+/** Id form: `d018` — exactly four lowercase hex digits (Spec 818 D1 `addr`). */
+export function formatAddr4(address: number): string {
+  return (address & 0xffff).toString(16).toLowerCase().padStart(4, "0");
 }
 
 /**
  * The id is DERIVED from what the row is, never assigned (817 D3). Re-seeding
  * therefore lands on the same id, and two rows for one address cannot exist.
  *
- *   c64/io/$D018     c64/rom/$FFD2     c64/zp/$0001     c1541/io/$1800
+ * Grammar is Spec 818 D1's `platform-id = platform ":" pkind ":" addr`, with
+ * 817's four kinds as pkind — `zp` and `io` carry hardware distinctions the
+ * renderer keys on, which 818's first draft (`reg`/`mem`) folded away (818 OQ3):
+ *
+ *   c64:io:d018     c64:rom:ffd2     c64:zp:0001     c64:ram:0400     c1541:io:1800
  */
 export function platformNodeId(platform: PlatformTag, kind: PlatformNodeKind, address: number): string {
-  return `${platform}/${kind}/${formatHex4(address)}`;
+  return `${platform}:${kind}:${formatAddr4(address)}`;
 }
 
-/** `c64/region/$D000-$D02E` */
+/** `c64:region:d000-d02e` */
 export function platformRegionId(platform: PlatformTag, startAddress: number, endAddress: number): string {
-  return `${platform}/region/${formatHex4(startAddress)}-${formatHex4(endAddress)}`;
+  return `${platform}:region:${formatAddr4(startAddress)}-${formatAddr4(endAddress)}`;
 }
 
 /**

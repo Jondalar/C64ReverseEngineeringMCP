@@ -18,8 +18,8 @@ The SQLite store is what every consumer reads: the disassembly renderer
 why it exists — the four hand-typed tables it replaced could not be shared and
 drifted apart (Spec 817 §1–2).
 
-Node ids are derived, never assigned: `c64/io/$D018`, `c64/rom/$FFD2`,
-`c64/zp/$0001`, `c1541/io/$1800`. Re-seeding is idempotent; the gate proves it.
+Node ids are derived, never assigned: `c64:io:d018`, `c64:rom:ffd2`,
+`c64:zp:0001`, `c1541:io:1800` (Spec 818 D1 grammar). Re-seeding is idempotent; the gate proves it.
 
 ## Adding or correcting a name
 

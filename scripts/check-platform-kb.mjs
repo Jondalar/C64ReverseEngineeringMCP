@@ -106,6 +106,10 @@ try {
   else if (d011.name === d016.name || d011.symbol === d016.symbol) fail(`$D011 and $D016 share a name: "${d011.name}"`);
   else ok(`$D011 = ${d011.symbol} ≠ $D016 = ${d016.symbol}`);
   if (!d018 || d018.symbol !== "VMCSB") fail(`$D018 symbol is ${d018?.symbol ?? "missing"}, expected VMCSB`);
+  // The id grammar is Spec 818 D1's — platform ":" kind ":" four lowercase hex.
+  if (d018 && d018.id !== "c64:io:d018") fail(`id grammar drift: $D018 is "${d018.id}", expected "c64:io:d018"`);
+  else if (d018 && !kb.byId("c64:io:d018")) fail("byId('c64:io:d018') found nothing");
+  else ok("id grammar: c64:io:d018 (Spec 818 D1)");
   const ffd2 = kb.node("c64", 0xffd2);
   if (ffd2?.symbol !== "CHROUT") fail(`$FFD2 symbol is ${ffd2?.symbol ?? "missing"}, expected CHROUT`);
   else ok("$FFD2 = CHROUT");

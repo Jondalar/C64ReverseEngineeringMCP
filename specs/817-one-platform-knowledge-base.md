@@ -109,7 +109,11 @@ and the MCP. Both compilation halves talk to the store, not to each other's
 modules. This is the constraint §2 identified, answered directly.
 
 **D3 — The node id is derived, never assigned.** `(platform, address, kind)`
-yields the id. Re-seeding is therefore idempotent by construction: `$D018` is one
+yields the id, in Spec 818 D1's grammar: `c64:io:d018`, `c64:rom:ffd2`,
+`c64:zp:0001`, `c1541:io:1800`. 817 keeps four kinds — `zp`, `ram`, `io`, `rom` —
+where 818's first draft had `reg`/`rom`/`mem`: `zp` and `io` are hardware
+distinctions the renderer keys on, and folding them away loses information
+the address alone does not give back (818 OQ3, decided here). Re-seeding is therefore idempotent by construction: `$D018` is one
 node whose name can be corrected in one place, not a string that can exist twice.
 
 **D4 — The four tables are DELETED, not deprecated.** A table marked "legacy" is
