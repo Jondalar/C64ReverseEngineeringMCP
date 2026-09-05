@@ -1,6 +1,6 @@
 # Spec 816 — Sprite detection: the grid, the gate, and a number to judge it by
 
-**Status:** BUILT 2026-09-05
+**Status:** BUILT 2026-09-05 (816.1 scan + gate · 816.2 pointer anchor)
 **Origin:** issue #8 (@mrr19121970) — "align sprite block scan to $40 boundary within region"
 **Touches:** `pipeline/src/analysis/analyzers/sprite-analyzer.ts`,
 `scripts/measure-816-sprite-precision.mjs`
@@ -100,12 +100,17 @@ Three corpora, because they answer different questions:
   exists in any of them, so every sprite byte reported is a false positive.
   This is the precision number.
 - **field** — real game/loader PRGs. No ground truth; reported as a trend.
-- **positive** — two synthesized PRGs with eight real sprite shapes (contiguous
-  figures, padding byte 0) planted between blocks of real 6502 code taken from
-  the VICE corpus. `positive_aligned` opens its unclaimed region on the grid,
-  `positive_unaligned` opens it 24 bytes early with the sprites still on the
-  grid. This is the recall guard: a precision fix that stops finding actual
-  sprites is not a fix.
+- **positive** — three synthesized PRGs with eight real sprite shapes
+  (contiguous figures) planted between blocks of real 6502 code taken from the
+  VICE corpus. This is the recall guard: a precision fix that stops finding
+  actual sprites is not a fix.
+  - `positive_aligned` — unclaimed region opens on the `$40` grid.
+  - `positive_unaligned` — region opens 24 bytes early, sprites still on the
+    grid. This is the case Bug 27 discarded silently.
+  - `positive_pointer` — a real video matrix at `$4400` whose sprite pointers
+    at `$47F8` name `$4800`, and sprite data with **junk** in byte `$3F`. The
+    run-level padding gate would throw it away; the pointer is what saves it,
+    so this fixture isolates §5 and nothing else.
 
 Both levels are measured — the analyzer's own candidates *and* the segments that
 survive overlap resolution — because noise the resolver happens to bury is still
@@ -120,11 +125,11 @@ noise: it reaches the LLM through `analyzerResults`.
 | negative | candidate bytes       | 0 (0.0 %)   | 0 (0.0 %)   |
 | field    | files with candidates | 1/8         | 2/8         |
 | field    | candidate bytes       | 64 (0.1 %)  | 128 (0.1 %) |
-| positive | planted blocks found  | 0/2         | 2/2         |
-| positive | survived into report  | 0/2         | 2/2         |
+| positive | planted blocks found  | 0/2         | 3/3         |
+| positive | survived into report  | 0/2         | 3/3         |
 ```
 
-Recall 0 → 2/2, both at the exact planted range `$2400-$25FF`, with the false
+Recall 0 → 3/3, each at the exact planted range, with the false
 positive rate on pure code unchanged at zero. The intermediate states are worth
 recording because they show the two defects are independent: with the alignment
 fix alone the negative corpus went to 3.3 % and lnr_boot to 46 candidates — the
@@ -135,19 +140,77 @@ earned, not assumed. The padding gate (D5) took that to 1.1 %, and
 Regression: `e2e:758`, `e2e:751`, `smoke:741`, `smoke:disasm-sync`,
 `sprint37/46/54` all green.
 
-## 5. Not built — the next slice
+## 5. 816.2 — the pointer anchor
 
-Shape heuristics cannot reach zero on their own, and they should not have to.
-The real evidence is in memory: **sprite pointers live at `screenBase+$3F8..$3FF`**.
-`VicEvidence` has no sprite addresses today — only a `spriteRegisterTouches`
-counter — because pointers are not a register write. Reading them where
-`vic.screenAddresses` gives a base, and anchoring the analyzer on the result,
-is the same move `charset-analyzer` already makes with `$D018` (it seeds
-`probeRegions` from the confirmed charset bases *in addition to* the candidate
-regions). With that anchor, phase guessing largely stops mattering and the
-post-hoc demotion chain from Spec 019 can shrink.
+Shape heuristics should not have to carry this alone. VIC fetches sprite data
+through eight pointers in the last bytes of the video matrix:
+`spriteAddress = bankBase + pointer × 64`. That is the only DIRECT evidence for
+where sprite data is, and the analyzer had none of it.
 
-`bitmap-analyzer` carries the same off-phase defect (`offset += 0x2000` from an
-unaligned start), reachable only on its heuristic fallback when VIC evidence
-produced nothing. Same family, same fix: sprite `$40`, bitmap `$2000`,
-screen `$400`.
+`VicEvidence` gained `spriteDataAddresses`. Unlike every other field there it
+does not come from a register write — the pointers live in memory, so they are
+recoverable exactly when the image contains that screen. `screenBase` comes from
+$D018 as before; the screen gives the sprites. The recovered addresses are
+offered to the analyzer as probe regions **in addition to** the candidate
+regions — the move `charset-analyzer` already makes with $D018, one level
+deeper — and each still has to pass the block gate, because a pointer is a lead,
+not a verdict.
+
+Two consequences worth stating:
+
+- **A pointer overrides the padding convention (D5), for the block it names.**
+  Hand-packed sprite data that reuses byte $3F is real, and direct evidence
+  outranks a convention. The `positive_pointer` fixture is built exactly this
+  way — eight sprites with junk in byte $3F, which the run-level gate would
+  otherwise discard. One pointer rescues the whole run: the aligned scan finds
+  `$4800-$49FF`, the pointer names `$4800`, and the set survives.
+- **The evidence is reported.** `hardwareEvidence.spriteDataAddresses` now
+  appears in the analysis report, so a reader can tell which sprite
+  classifications were anchored and which were guessed.
+
+One placement trap, recorded because it cost a debugging round: `$D018` is
+processed in a SECOND pass, after the `bankBases` default fill. Sprite-pointer
+extraction therefore has to run at the very end of `extractVicEvidence` —
+placed before that pass, `screenAddresses` is still empty and the extractor
+silently yields nothing.
+
+## 6. bitmap-analyzer: the same defect, on a path that cannot fire
+
+`bitmap-analyzer` steps `offset += 0x2000` from an unaligned `region.start`,
+so its heuristic grid can never land on a real bitmap base (`bankBase +
+(CB13 ? $2000 : 0)`, bank base a multiple of `$4000`). The same alignment fix is
+applied.
+
+It is a **latent** bug, not an observable one, and that is the more useful
+finding: the heuristic scan runs only when `candidateOffsets.size === 0`, i.e.
+when bitmap mode is on and no confirmed bitmap base lies inside the image. On
+that branch `directVicMatch` is false by construction, so the reachable maximum
+is
+
+```
+0.16 base + 0.24 density + 0.18 bitmapMode + 0.12 screenInSameBank + 0.04 multicolor = 0.74
+```
+
+against a threshold of `0.82`. And `screenInSameBank` is itself unreachable in
+the situation that produces this branch — if the bitmap base is outside the
+image the screen usually is too — which puts the realistic ceiling at `0.58`.
+
+Verified rather than argued: a fixture with bitmap mode enabled, a confirmed
+base at `$2000` outside the image, and a clean dithered 8000-byte bitmap at
+`$6000` (aligned) inside an unclaimed region opening at `$4010` produces **zero**
+bitmap candidates, before and after the alignment fix.
+
+Making that path fire is a scoring redesign, not a threshold nudge, and there is
+no bitmap ground truth in the corpus to calibrate one against. Named here rather
+than guessed at.
+
+## 7. Not built — the next slice
+
+- **The bitmap heuristic scan's scoring** (§6). Aligned now, still unreachable.
+- **The Spec 019 demotion chain.** With the pointer anchor in place, the
+  jump-table and charset-bank demotions are compensating for a scorer that no
+  longer says yes to everything. Worth re-measuring before they are trusted or
+  removed.
+- **`screen-ram` and `charset` region scans**, for the same `$400` / `$800`
+  phase question. `charset-analyzer` already anchors on `$D018`, so its exposure
+  is smaller — but its region-derived probes carry the same off-phase grid.

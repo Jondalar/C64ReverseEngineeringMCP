@@ -176,7 +176,23 @@ export class SpriteAnalyzer {
     const vic = extractVicEvidence(context);
     const candidates: SegmentCandidate[] = [];
 
+    // Spec 816.2 — the pointer anchor. `charset-analyzer` seeds its probe list
+    // from the $D018-confirmed charset bases IN ADDITION TO the candidate
+    // regions, because the region-only scan cannot surface what the region
+    // boundaries hide. Sprites get the same treatment one level deeper: the
+    // sprite pointers at screenBase+$3F8 name the blocks outright, so each
+    // recovered address is probed as its own 64-byte region even when code
+    // discovery claimed the ground around it.
+    const pointerConfirmed = new Set(vic.spriteDataAddresses);
+    const probeRegions: Array<{ start: number; end: number; vicConfirmed: boolean }> = [];
     for (const region of context.candidateRegions) {
+      probeRegions.push({ start: region.start, end: region.end, vicConfirmed: false });
+    }
+    for (const address of vic.spriteDataAddresses) {
+      probeRegions.push({ start: address, end: address + 63, vicConfirmed: true });
+    }
+
+    for (const region of probeRegions) {
       const startOffset = toOffset(region.start, context.mapping);
       const endOffset = toOffset(region.end, context.mapping);
       if (startOffset === undefined || endOffset === undefined) {
@@ -234,13 +250,13 @@ export class SpriteAnalyzer {
         }
 
         if (!plausible && runStartBlock !== undefined) {
-          pushSpriteCandidate(vic, alignedRegionStart, runStartBlock, blockIndex - 1, scores, metricsRun, previews, candidates);
+          pushSpriteCandidate(vic, alignedRegionStart, runStartBlock, blockIndex - 1, scores, metricsRun, previews, candidates, pointerConfirmed);
           runStartBlock = undefined;
         }
       }
 
       if (runStartBlock !== undefined) {
-        pushSpriteCandidate(vic, alignedRegionStart, runStartBlock, blockCount - 1, scores, metricsRun, previews, candidates);
+        pushSpriteCandidate(vic, alignedRegionStart, runStartBlock, blockCount - 1, scores, metricsRun, previews, candidates, pointerConfirmed);
       }
     }
 
@@ -330,6 +346,7 @@ function pushSpriteCandidate(
   metricsRun: SpriteBlockMetrics[],
   previews: PreviewFrame[],
   candidates: SegmentCandidate[],
+  pointerConfirmed: ReadonlySet<number>,
 ): void {
   const spriteRegisterTouches = vic.spriteRegisterTouches;
   const start = regionStart + startBlock * 64;
@@ -351,7 +368,12 @@ function pushSpriteCandidate(
   // vertical structure, not a sprite set. Measured: this removes 43 of the 62
   // false candidates the aligned scan surfaces, and keeps both reference
   // fixtures (100 % padding) untouched.
-  if (paddingRatio < 0.5) {
+  const namedByPointer = pointerConfirmed.has(start);
+  // A VIC sprite pointer NAMES this block. Hand-packed sprite data that reuses
+  // byte $3F is real and would otherwise be dropped by the padding gate, so
+  // direct evidence overrides the convention — but only for the block the
+  // pointer actually names.
+  if (paddingRatio < 0.5 && !namedByPointer) {
     return;
   }
   const averageDensity =
@@ -361,6 +383,8 @@ function pushSpriteCandidate(
   const averageOverlap =
     metricsRun.reduce((sum, metrics) => sum + metrics.shapeOverlap, 0) / Math.max(1, metricsRun.length);
   const hardwareBonus = spriteRegisterTouches >= 4 ? 0.08 : 0;
+  // Spec 816.2: a sprite pointer is direct evidence, not a shape guess.
+  const pointerBonus = namedByPointer ? 0.2 : 0;
   const runBonus = blockCount >= 2 && blockCount <= 8 ? 0.08 : 0.02;
   const paddingBonus = paddingRatio >= 0.75 ? 0.08 : paddingRatio >= 0.5 ? 0.02 : -0.14;
   const densityBonus = averageDensity >= 0.04 && averageDensity <= 0.42 ? 0.04 : -0.08;
@@ -375,7 +399,7 @@ function pushSpriteCandidate(
   // sprite).
   const charsetCollisionPenalty = isAddressInsideCharsetBank(start, vic.charsetAddresses) ? -0.25 : 0;
   const confidence = clampConfidence(
-    averageScore - 0.06 + runBonus + paddingBonus + densityBonus + entropyBonus + hardwareBonus + longRunPenalty + longRunPaddingPenalty + charsetCollisionPenalty,
+    averageScore - 0.06 + runBonus + paddingBonus + densityBonus + entropyBonus + hardwareBonus + pointerBonus + longRunPenalty + longRunPaddingPenalty + charsetCollisionPenalty,
   );
 
   const minimumConfidence = blockCount > 16 ? 0.88 : blockCount > 8 ? 0.82 : 0.68;
@@ -399,6 +423,9 @@ function pushSpriteCandidate(
         `${Math.round(paddingRatio * 100)}% of candidate blocks have a zero padding byte at offset $3F.`,
         `Average block entropy is ${averageEntropy.toFixed(2)} bits/byte.`,
         spriteRegisterTouches >= 4 ? "Discovered code also touches VIC sprite registers, strengthening sprite classification." : "No direct sprite-register evidence was found yet.",
+        namedByPointer
+          ? `A VIC sprite pointer at screenBase+$3F8 names ${formatAddress(start)} directly — this is evidence, not a shape guess.`
+          : "No sprite pointer in the image names this address.",
       ],
       alternatives: [
         {

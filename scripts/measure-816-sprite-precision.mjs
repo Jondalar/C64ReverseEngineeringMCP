@@ -339,18 +339,67 @@ function buildSpritePrg(loadAddress, leadBytes, padBytes, trailBytes) {
   return { prg, spriteStart, spriteEnd: spriteStart + spriteBytes.length - 1 };
 }
 
+/**
+ * Spec 816.2 fixture. A real screen at $4400 whose sprite pointers at $47F8
+ * name the block at $4800, and sprite data whose padding byte is DELIBERATELY
+ * junk. Without the pointer the run-level padding gate throws it away; with
+ * the pointer it is direct evidence and survives. That is the whole point of
+ * the anchor, isolated.
+ */
+function buildPointerPrg() {
+  const load = 0x4000;
+  const screen = 0x4400;
+  const spriteStart = 0x4800;
+  const size = 0x1000; // $4000-$4FFF
+  const body = new Uint8Array(size);
+
+  // LDA #$02 / STA $DD00  → CIA2 bank select, VIC bank base $4000
+  // LDA #$10 / STA $D018  → VM = 1, video matrix at bankBase+$0400 = $4400
+  // RTS
+  body.set([0xa9, 0x02, 0x8d, 0x00, 0xdd, 0xa9, 0x10, 0x8d, 0x18, 0xd0, 0x60], 0);
+  body.set(realCodeBytes(screen - load - 11), 11);
+
+  // The video matrix: spaces, then eight pointers to $4800 ( ($4800-$4000)/64 ).
+  body.fill(0x20, screen - load, screen - load + 0x3f8);
+  const pointer = (spriteStart - load) / 64;
+  for (let slot = 0; slot < 8; slot += 1) {
+    body[screen - load + 0x3f8 + slot] = pointer;
+  }
+
+  const sprites = SHAPES.map(shapeToSpriteBlock);
+  sprites.forEach((block, index) => {
+    const withJunkPadding = new Uint8Array(block);
+    withJunkPadding[63] = 0xff; // hand-packed data reusing the unused byte
+    body.set(withJunkPadding, spriteStart - load + index * 64);
+  });
+  body.set(realCodeBytes(size - (spriteStart - load) - sprites.length * 64), spriteStart - load + sprites.length * 64);
+
+  const prg = new Uint8Array(body.length + 2);
+  prg[0] = load & 0xff;
+  prg[1] = (load >> 8) & 0xff;
+  prg.set(body, 2);
+  return { prg, spriteStart, spriteEnd: spriteStart + sprites.length * 64 - 1 };
+}
+
 function writePositiveFixtures() {
   mkdirSync(WORK, { recursive: true });
   const specs = [
     { name: "positive_aligned", lead: 1024, pad: 0 },
     { name: "positive_unaligned", lead: 1000, pad: 24 },
   ];
-  return specs.map(({ name, lead, pad }) => {
+  const fixtures = specs.map(({ name, lead, pad }) => {
     const built = buildSpritePrg(0x2000, lead, pad, 512);
     const path = join(WORK, `${name}.prg`);
     writeFileSync(path, built.prg);
     return { path, name, ...built };
   });
+
+  const pointerFixture = buildPointerPrg();
+  const pointerPath = join(WORK, "positive_pointer.prg");
+  writeFileSync(pointerPath, pointerFixture.prg);
+  fixtures.push({ path: pointerPath, name: "positive_pointer", ...pointerFixture });
+
+  return fixtures;
 }
 
 // ---------------------------------------------------------------- measuring
