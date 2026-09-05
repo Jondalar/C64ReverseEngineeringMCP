@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
 import { loadEffectiveSegments, overlayCovering } from "../project-knowledge/effective-segments.js";
+import { platformKb } from "../platform-kb/read.js";
 
 interface AnalysisInstruction {
   address: number;
@@ -44,37 +45,16 @@ interface AnalysisReport {
   };
 }
 
-const VIC_REGS: Record<number, string> = {
-  0xd000: "sprite0_x", 0xd001: "sprite0_y", 0xd002: "sprite1_x", 0xd003: "sprite1_y",
-  0xd004: "sprite2_x", 0xd005: "sprite2_y", 0xd006: "sprite3_x", 0xd007: "sprite3_y",
-  0xd008: "sprite4_x", 0xd009: "sprite4_y", 0xd00a: "sprite5_x", 0xd00b: "sprite5_y",
-  0xd00c: "sprite6_x", 0xd00d: "sprite6_y", 0xd00e: "sprite7_x", 0xd00f: "sprite7_y",
-  0xd010: "sprite_x_msb",
-  0xd011: "control1 (D011)",
-  0xd012: "raster",
-  0xd015: "sprite_enable (D015)",
-  0xd016: "control2 (D016)",
-  0xd017: "sprite_y_expand",
-  0xd018: "memory_setup (D018)",
-  0xd019: "irq_status",
-  0xd01a: "irq_enable",
-  0xd01b: "sprite_priority",
-  0xd01c: "sprite_multicolor_mode",
-  0xd01d: "sprite_x_expand",
-  0xd01e: "sprite_collision_sprite",
-  0xd01f: "sprite_collision_data",
-  0xd020: "border_color (D020)",
-  0xd021: "bg_color_0 (D021)",
-  0xd022: "bg_color_1 (D022)",
-  0xd023: "bg_color_2 (D023)",
-  0xd024: "bg_color_3",
-  0xd025: "sprite_mc1 (D025)",
-  0xd026: "sprite_mc2 (D026)",
-  0xd027: "sprite0_color", 0xd028: "sprite1_color", 0xd029: "sprite2_color",
-  0xd02a: "sprite3_color", 0xd02b: "sprite4_color", 0xd02c: "sprite5_color",
-  0xd02d: "sprite6_color", 0xd02e: "sprite7_color",
-  0xdd00: "vic_bank_select (DD00)",
-};
+// Spec 817: the 29-entry VIC register name table that lived here was the fifth
+// copy of "what is at $D018" in this repo — the gate found it the day it was
+// written. Register names come from resources/platform-kb.sqlite; what stays
+// here is the RANGE this tool reports on (VIC registers + the CIA2 bank select).
+function trackedVicRegisterName(address: number): string | undefined {
+  const tracked = (address >= 0xd000 && address <= 0xd02e) || address === 0xdd00;
+  if (!tracked) return undefined;
+  const node = platformKb().node("c64", address);
+  return node ? (node.symbol ?? node.name) : undefined;
+}
 
 function hex16(value: number): string {
   return value.toString(16).toUpperCase().padStart(4, "0");
@@ -151,7 +131,7 @@ function collectVicWrites(report: AnalysisReport): VicWriteEvent[] {
   for (let index = 0; index < all.length; index += 1) {
     const inst = all[index]!;
     if (inst.targetAddress === undefined) continue;
-    const name = VIC_REGS[inst.targetAddress];
+    const name = trackedVicRegisterName(inst.targetAddress);
     if (!name) continue;
     if (inst.mnemonic !== "sta" && inst.mnemonic !== "stx" && inst.mnemonic !== "sty") continue;
     const reg: "a" | "x" | "y" = inst.mnemonic === "sta" ? "a" : inst.mnemonic === "stx" ? "x" : "y";

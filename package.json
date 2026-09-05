@@ -6,7 +6,7 @@
   "description": "MCP server for C64 reverse engineering \u2014 analysis pipeline, disassembly, and semantic classification",
   "scripts": {
     "dev": "tsx watch src/cli.ts",
-    "build": "tsc -p tsconfig.json && tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs",
+    "build": "tsc -p tsconfig.json && tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs && node dist/platform-kb/seed.js",
     "build:mcp": "tsc -p tsconfig.json",
     "build:pipeline": "tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs",
     "check:cart-type-ids": "node scripts/check-cart-type-ids.mjs",
@@ -21,6 +21,8 @@
     "e2e:805-sandbox-batch": "npm run build:mcp && node scripts/e2e-805-sandbox-batch.mjs",
     "check:runtime-invisible": "npm run build:mcp && node scripts/check-runtime-invisible.mjs",
     "build:c64ref": "tsx src/c64ref-rom-knowledge.ts",
+    "build:platform-kb": "npm run build:mcp && node dist/platform-kb/seed.js",
+    "check:platform-kb": "npm run build && node scripts/check-platform-kb.mjs",
     "bootstrap:workspace": "npm run build:mcp && node scripts/bootstrap-existing-re-workspace.mjs",
     "test:project-knowledge": "npm run build:mcp && node scripts/project-knowledge-smoke.mjs",
     "test:lifecycle": "npm run build:mcp && node scripts/lifecycle-crosswalk-smoke.mjs",
