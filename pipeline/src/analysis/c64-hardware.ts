@@ -1,4 +1,5 @@
 import { AnalyzerContext, CodeProvenance, HardwareWriteObservation, InstructionFact } from "./types";
+import { toOffset } from "./utils";
 
 export interface VicEvidence {
   bankBases: number[];
@@ -6,6 +7,13 @@ export interface VicEvidence {
   screenAddresses: number[];
   charsetAddresses: number[];
   bitmapAddresses: number[];
+  /**
+   * Spec 816.2 — sprite DATA addresses read out of the sprite pointers.
+   * Unlike every other field here these do not come from a register write:
+   * the pointers live in memory at `screenBase+$3F8..$3FF`, so they are only
+   * recoverable when the image actually contains that screen.
+   */
+  spriteDataAddresses: number[];
   bitmapModeEnabled: boolean;
   multicolorEnabled: boolean;
   spriteRegisterTouches: number;
@@ -251,12 +259,46 @@ export function extractVicEvidence(context: AnalyzerContext): VicEvidence {
     }
   }
 
+  // Spec 816.2. VIC fetches sprite data through eight pointers stored in the
+  // last eight bytes of the video matrix: `spriteAddress = bankBase +
+  // pointer × 64`. That is the only DIRECT evidence for where sprite data is,
+  // and the sprite analyzer had none of it — it guessed a 64-byte phase out of
+  // wherever code discovery happened to stop. This is the same move
+  // charset-analyzer makes with $D018, one level deeper: the register gives
+  // the screen, the screen gives the sprites.
+  //
+  // Deliberately permissive: a pointer is only a lead, so the recovered
+  // addresses are offered to the analyzer as probe regions and still have to
+  // pass its gate. Pointer 0 is skipped — it is the cleared value and aims at
+  // the bank base, which is the screen itself or ROM, never sprite data.
+  const spriteDataAddresses = new Set<number>();
+  for (const screenBase of screenAddresses) {
+    const pointerOffset = toOffset(screenBase + 0x03f8, context.mapping);
+    if (pointerOffset === undefined || pointerOffset + 7 >= context.buffer.length) {
+      continue;
+    }
+    const bankBase = screenBase & 0xc000;
+    for (let slot = 0; slot < 8; slot += 1) {
+      const pointer = context.buffer[pointerOffset + slot];
+      if (pointer === undefined || pointer === 0) {
+        continue;
+      }
+      const address = bankBase + pointer * 64;
+      if (toOffset(address, context.mapping) === undefined || toOffset(address + 63, context.mapping) === undefined) {
+        continue;
+      }
+      spriteDataAddresses.add(address);
+    }
+  }
+
+
   return {
     bankBases: Array.from(bankBases).sort((left, right) => left - right),
     bankSelectionConfirmed,
     screenAddresses: Array.from(screenAddresses).sort((left, right) => left - right),
     charsetAddresses: Array.from(charsetAddresses).sort((left, right) => left - right),
     bitmapAddresses: Array.from(bitmapAddresses).sort((left, right) => left - right),
+    spriteDataAddresses: Array.from(spriteDataAddresses).sort((left, right) => left - right),
     bitmapModeEnabled,
     multicolorEnabled,
     spriteRegisterTouches,

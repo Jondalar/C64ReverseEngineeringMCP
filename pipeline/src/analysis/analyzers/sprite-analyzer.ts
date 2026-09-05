@@ -9,6 +9,49 @@ interface SpriteBlockMetrics {
   transitionScore: number;
   paddingLooksValid: boolean;
   entropy: number;
+  /** Spec 816: mean bit agreement between row n and row n+1 (0..1). */
+  rowCoherence: number;
+  /** Spec 816: distinct byte values in the block (uniform fill ⇒ tiny). */
+  distinctBytes: number;
+  /** Spec 816: set-bit overlap between row n and row n+1 (0..1). */
+  shapeOverlap: number;
+}
+
+// Spec 816 §3. The gate that decides whether a 64-byte block can be a sprite
+// AT ALL. Before 816 the score was a sum of banded terms with generous floors:
+// a block that failed every single criterion still scored 0.49 against a 0.66
+// threshold, so the decision rode on 0.17 of range and 6502 code passed on the
+// strength of the floors alone.
+//
+// `rowCoherence` is the criterion the old scorer never had. A sprite is a
+// contiguous FIGURE — row n and row n+1 are nearly the same shape — while code
+// has no vertical relationship at all. Measured over 2 999 blocks of real
+// PRGs: the eight reference sprites score 0.86-0.92, 6502 code averages 0.64.
+// The upper bound rejects the other end, a uniform fill (all rows identical
+// ⇒ 1.0), which is padding or a cleared buffer, not a shape.
+const SPRITE_GATE = {
+  coherenceMin: 0.8,
+  // Raw bit agreement is inflated by SPARSITY: two nearly-empty rows agree on
+  // 22 of 24 bits while sharing no shape at all, which is how a table of bit
+  // masks scored 1.00 as a sprite. `shapeOverlap` divides by the union of the
+  // set bits instead, so agreement has to be about the FIGURE. The reference
+  // sprites sit at 0.60-0.86; the mask table that got through sits at 0.31.
+  shapeOverlapMin: 0.55,
+  coherenceMax: 0.985,
+  distinctBytesMin: 8,
+  densityMin: 0.02,
+  densityMax: 0.95,
+} as const;
+
+function passesSpriteGate(metrics: SpriteBlockMetrics): boolean {
+  return (
+    metrics.rowCoherence >= SPRITE_GATE.coherenceMin &&
+    metrics.rowCoherence <= SPRITE_GATE.coherenceMax &&
+    metrics.shapeOverlap >= SPRITE_GATE.shapeOverlapMin &&
+    metrics.distinctBytes >= SPRITE_GATE.distinctBytesMin &&
+    metrics.density >= SPRITE_GATE.densityMin &&
+    metrics.density <= SPRITE_GATE.densityMax
+  );
 }
 
 function shannonEntropy(block: Uint8Array): number {
@@ -60,23 +103,70 @@ function analyzeSpriteBlock(block: Uint8Array): SpriteBlockMetrics {
   const rowVariance =
     rowDensities.reduce((sum, value) => sum + Math.pow(value - averageDensity, 2), 0) / rowDensities.length;
 
+  // Spec 816: vertical coherence. Bit agreement between row n and row n+1,
+  // averaged over the 20 row pairs. A figure keeps its shape from one row to
+  // the next; 6502 code does not.
+  let agreement = 0;
+  let overlapSum = 0;
+  let overlapPairs = 0;
+  for (let row = 0; row < 20; row += 1) {
+    let matches = 0;
+    let intersection = 0;
+    let union = 0;
+    for (let byteIndex = 0; byteIndex < 3; byteIndex += 1) {
+      const upper = block[row * 3 + byteIndex] ?? 0;
+      const lower = block[(row + 1) * 3 + byteIndex] ?? 0;
+      matches += 8 - popCount(upper ^ lower);
+      intersection += popCount(upper & lower);
+      union += popCount(upper | lower);
+    }
+    agreement += matches / 24;
+    if (union > 0) {
+      overlapSum += intersection / union;
+      overlapPairs += 1;
+    }
+  }
+
   return {
     density,
     rowVariance,
     transitionScore: transitions / (21 * 24),
     paddingLooksValid: (block[63] ?? 0) === 0,
     entropy: shannonEntropy(block),
+    rowCoherence: agreement / 20,
+    distinctBytes: new Set(block).size,
+    shapeOverlap: overlapPairs > 0 ? overlapSum / overlapPairs : 0,
   };
 }
 
+function popCount(value: number): number {
+  let bits = 0;
+  let rest = value;
+  while (rest !== 0) {
+    rest &= rest - 1;
+    bits += 1;
+  }
+  return bits;
+}
+
 function scoreSpriteBlock(metrics: SpriteBlockMetrics): number {
-  const densityScore = metrics.density >= 0.03 && metrics.density <= 0.55 ? 0.45 : 0.1;
-  const varianceScore = metrics.rowVariance >= 0.002 && metrics.rowVariance <= 0.08 ? 0.25 : 0.08;
-  const transitionScore = metrics.transitionScore >= 0.08 && metrics.transitionScore <= 0.6 ? 0.2 : 0.05;
-  const entropyScore = metrics.entropy >= 1.2 && metrics.entropy <= 5.8 ? 0.18 : metrics.entropy <= 6.3 ? 0.08 : -0.04;
-  const notBlankBonus = metrics.density > 0.01 ? 0.1 : 0;
+  // Spec 816: the gate decides, the bands only grade. No floors — a block that
+  // passes the gate and nothing else lands at 0.08, far under the 0.66
+  // threshold, so the threshold means something again.
+  if (!passesSpriteGate(metrics)) {
+    return 0;
+  }
+  const coherenceScore = metrics.rowCoherence >= 0.84 ? 0.35 : 0.25;
+  // Widened from [0.03, 0.55]: real sprites are often SOLID (the reference
+  // ball sits at 0.79), and the old ceiling punished exactly those.
+  const densityScore = metrics.density >= 0.03 && metrics.density <= 0.9 ? 0.2 : 0;
+  const varianceScore = metrics.rowVariance >= 0.002 && metrics.rowVariance <= 0.15 ? 0.15 : 0;
+  const transitionScore = metrics.transitionScore >= 0.02 && metrics.transitionScore <= 0.6 ? 0.1 : 0;
+  const entropyScore = metrics.entropy >= 1.2 && metrics.entropy <= 5.8 ? 0.15 : 0;
   const paddingBonus = metrics.paddingLooksValid ? 0.08 : -0.12;
-  return clampConfidence(densityScore + varianceScore + transitionScore + entropyScore + notBlankBonus + paddingBonus);
+  return clampConfidence(
+    coherenceScore + densityScore + varianceScore + transitionScore + entropyScore + paddingBonus,
+  );
 }
 
 export class SpriteAnalyzer {
@@ -86,14 +176,46 @@ export class SpriteAnalyzer {
     const vic = extractVicEvidence(context);
     const candidates: SegmentCandidate[] = [];
 
+    // Spec 816.2 — the pointer anchor. `charset-analyzer` seeds its probe list
+    // from the $D018-confirmed charset bases IN ADDITION TO the candidate
+    // regions, because the region-only scan cannot surface what the region
+    // boundaries hide. Sprites get the same treatment one level deeper: the
+    // sprite pointers at screenBase+$3F8 name the blocks outright, so each
+    // recovered address is probed as its own 64-byte region even when code
+    // discovery claimed the ground around it.
+    const pointerConfirmed = new Set(vic.spriteDataAddresses);
+    const probeRegions: Array<{ start: number; end: number; vicConfirmed: boolean }> = [];
     for (const region of context.candidateRegions) {
+      probeRegions.push({ start: region.start, end: region.end, vicConfirmed: false });
+    }
+    for (const address of vic.spriteDataAddresses) {
+      probeRegions.push({ start: address, end: address + 63, vicConfirmed: true });
+    }
+
+    for (const region of probeRegions) {
       const startOffset = toOffset(region.start, context.mapping);
       const endOffset = toOffset(region.end, context.mapping);
       if (startOffset === undefined || endOffset === undefined) {
         continue;
       }
 
-      const regionLength = endOffset - startOffset + 1;
+      // Spec 816 / issue #8. A VIC sprite block is `sprite pointer × 64` inside
+      // a bank base that is itself a multiple of $4000, so sprite data always
+      // begins at an absolute address ≡ 0 mod $40. Candidate regions are the
+      // gaps code discovery left behind and start wherever the code stopped,
+      // so scanning from `region.start` puts the WHOLE 64-byte grid off-phase.
+      //
+      // This was not a false-positive problem, it was blindness: Bug 27 already
+      // rejects any candidate whose start is not $40-aligned, so in an
+      // off-phase region every run found was thrown away without a word. The
+      // reference fixture — eight textbook sprites at $2400, region opening at
+      // $200A — produced zero candidates before this line existed.
+      const misalignment = region.start % 0x40;
+      const alignSkip = misalignment === 0 ? 0 : 0x40 - misalignment;
+      const alignedRegionStart = region.start + alignSkip;
+      const alignedStartOffset = startOffset + alignSkip;
+
+      const regionLength = endOffset - alignedStartOffset + 1;
       const blockCount = Math.floor(regionLength / 64);
       if (blockCount === 0) {
         continue;
@@ -105,7 +227,7 @@ export class SpriteAnalyzer {
       const metricsRun: SpriteBlockMetrics[] = [];
 
       for (let blockIndex = 0; blockIndex < blockCount; blockIndex += 1) {
-        const offset = startOffset + blockIndex * 64;
+        const offset = alignedStartOffset + blockIndex * 64;
         const block = context.buffer.subarray(offset, offset + 64);
         const metrics = analyzeSpriteBlock(block);
         const score = scoreSpriteBlock(metrics);
@@ -128,13 +250,13 @@ export class SpriteAnalyzer {
         }
 
         if (!plausible && runStartBlock !== undefined) {
-          pushSpriteCandidate(vic, region.start, runStartBlock, blockIndex - 1, scores, metricsRun, previews, candidates);
+          pushSpriteCandidate(vic, alignedRegionStart, runStartBlock, blockIndex - 1, scores, metricsRun, previews, candidates, pointerConfirmed);
           runStartBlock = undefined;
         }
       }
 
       if (runStartBlock !== undefined) {
-        pushSpriteCandidate(vic, region.start, runStartBlock, blockCount - 1, scores, metricsRun, previews, candidates);
+        pushSpriteCandidate(vic, alignedRegionStart, runStartBlock, blockCount - 1, scores, metricsRun, previews, candidates, pointerConfirmed);
       }
     }
 
@@ -224,6 +346,7 @@ function pushSpriteCandidate(
   metricsRun: SpriteBlockMetrics[],
   previews: PreviewFrame[],
   candidates: SegmentCandidate[],
+  pointerConfirmed: ReadonlySet<number>,
 ): void {
   const spriteRegisterTouches = vic.spriteRegisterTouches;
   const start = regionStart + startBlock * 64;
@@ -239,11 +362,29 @@ function pushSpriteCandidate(
   const averageScore = scores.reduce((sum, value) => sum + value, 0) / Math.max(1, scores.length);
   const paddingRatio =
     metricsRun.filter((metrics) => metrics.paddingLooksValid).length / Math.max(1, metricsRun.length);
+  // Spec 816 §4. Byte $3F of a sprite block is never fetched by VIC — 21 rows
+  // × 3 bytes = 63 — so sprite data conventionally carries 0 there. A run in
+  // which fewer than half the blocks do is a data table that happens to have
+  // vertical structure, not a sprite set. Measured: this removes 43 of the 62
+  // false candidates the aligned scan surfaces, and keeps both reference
+  // fixtures (100 % padding) untouched.
+  const namedByPointer = pointerConfirmed.has(start);
+  // A VIC sprite pointer NAMES this block. Hand-packed sprite data that reuses
+  // byte $3F is real and would otherwise be dropped by the padding gate, so
+  // direct evidence overrides the convention — but only for the block the
+  // pointer actually names.
+  if (paddingRatio < 0.5 && !namedByPointer) {
+    return;
+  }
   const averageDensity =
     metricsRun.reduce((sum, metrics) => sum + metrics.density, 0) / Math.max(1, metricsRun.length);
   const averageEntropy =
     metricsRun.reduce((sum, metrics) => sum + metrics.entropy, 0) / Math.max(1, metricsRun.length);
+  const averageOverlap =
+    metricsRun.reduce((sum, metrics) => sum + metrics.shapeOverlap, 0) / Math.max(1, metricsRun.length);
   const hardwareBonus = spriteRegisterTouches >= 4 ? 0.08 : 0;
+  // Spec 816.2: a sprite pointer is direct evidence, not a shape guess.
+  const pointerBonus = namedByPointer ? 0.2 : 0;
   const runBonus = blockCount >= 2 && blockCount <= 8 ? 0.08 : 0.02;
   const paddingBonus = paddingRatio >= 0.75 ? 0.08 : paddingRatio >= 0.5 ? 0.02 : -0.14;
   const densityBonus = averageDensity >= 0.04 && averageDensity <= 0.42 ? 0.04 : -0.08;
@@ -258,7 +399,7 @@ function pushSpriteCandidate(
   // sprite).
   const charsetCollisionPenalty = isAddressInsideCharsetBank(start, vic.charsetAddresses) ? -0.25 : 0;
   const confidence = clampConfidence(
-    averageScore - 0.06 + runBonus + paddingBonus + densityBonus + entropyBonus + hardwareBonus + longRunPenalty + longRunPaddingPenalty + charsetCollisionPenalty,
+    averageScore - 0.06 + runBonus + paddingBonus + densityBonus + entropyBonus + hardwareBonus + pointerBonus + longRunPenalty + longRunPaddingPenalty + charsetCollisionPenalty,
   );
 
   const minimumConfidence = blockCount > 16 ? 0.88 : blockCount > 8 ? 0.82 : 0.68;
@@ -278,9 +419,13 @@ function pushSpriteCandidate(
         `Length is ${blockCount} x 64 bytes, matching C64 sprite storage.`,
         `Rendered blocks show non-empty 24x21 pixel silhouettes in ${formatAddress(start)}-${formatAddress(end)}.`,
         "Row density and transition metrics are closer to sprite shapes than random noise.",
+        `Vertical shape overlap between adjacent rows averages ${(averageOverlap * 100).toFixed(0)}% (a figure keeps its shape from row to row; 6502 code does not).`,
         `${Math.round(paddingRatio * 100)}% of candidate blocks have a zero padding byte at offset $3F.`,
         `Average block entropy is ${averageEntropy.toFixed(2)} bits/byte.`,
         spriteRegisterTouches >= 4 ? "Discovered code also touches VIC sprite registers, strengthening sprite classification." : "No direct sprite-register evidence was found yet.",
+        namedByPointer
+          ? `A VIC sprite pointer at screenBase+$3F8 names ${formatAddress(start)} directly — this is evidence, not a shape guess.`
+          : "No sprite pointer in the image names this address.",
       ],
       alternatives: [
         {

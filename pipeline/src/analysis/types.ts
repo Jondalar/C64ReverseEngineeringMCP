@@ -214,6 +214,12 @@ export interface HardwareWriteObservation {
 export interface HardwareEvidence {
   vicWrites: HardwareWriteObservation[];
   sidWrites: HardwareWriteObservation[];
+  /**
+   * Spec 816.2 — sprite data addresses recovered from the sprite pointers at
+   * screenBase+$3F8. Reported because it is EVIDENCE: a reader should be able
+   * to see which sprite classifications were anchored and which were guessed.
+   */
+  spriteDataAddresses: number[];
 }
 
 export interface TableUsageFact {
