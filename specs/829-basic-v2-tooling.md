@@ -80,6 +80,35 @@ detokenized, every `SYS`, `USR` and `LOAD` argument is extracted:
 `detectBasicSysEntry` becomes a thin caller of this, so the 24-byte window and the
 digits-only parse both disappear.
 
+**D4.1 — A `SYS` is a call, and it has to survive as one.** A cracked game that boots
+through BASIC is two artefacts in one file: a BASIC program and the machine code it jumps
+into. The link between them is the deliverable, so every extracted fact carries **where it
+was found**, not only what it found:
+
+```
+{ kind: "sys" | "usr" | "load", lineNumber, site, value?, fileName?, expression?, confidence }
+```
+
+`site` is the absolute address of the token byte itself (`loadAddress` + its offset in the
+line record) — the same anchor `evidence.source_address` carries on every control-flow
+edge this repo already produces. It is kept while the line records are walked, never
+recomputed from the rendered text, because the rendered text has lost the offsets.
+
+Two consequences that are not optional:
+
+- `walkBasicProgram` returns the program's `endAddress` (the final `$0000`). The BASIC
+  segment ends **there**, so the machine code after it is not swallowed by the BASIC
+  region and code discovery can still find it.
+- the resolved `value` becomes an `EntryPoint` with `source: "basic_sys"`, which is the
+  existing convention, so a code segment starts at the target and gets disassembled.
+
+**And this is the shape the knowledge graph needs later.** With `site` and `value` a
+producer can emit the edge that is missing today — from the BASIC line to the routine —
+without re-parsing anything: the source address is already an address in the same space
+the graph's ids are derived from (Spec 818's grammar). Nothing here builds that edge; the
+point is that 829 must not throw away the one field that makes it possible. A fact without
+a source address can be printed but never linked.
+
 **D5 — Control codes and colours get names, from a bundled table.** `{CLR}`, `{RVS ON}`,
 `{CYAN}`, `{DOWN}` in strings and `REM`s. This is issue #10's second half: the table is
 bundled, not fetched (828 D3), and it is small enough to be checked in. Rendering is
@@ -108,7 +137,12 @@ which moves the tool cap by two; that is stated here rather than discovered by t
 - `SYS` extraction covers all five D4 forms, and the unresolved one is reported as
   unresolved;
 - a machine-code PRG at `$0801` is **not** claimed as BASIC;
-- control codes round-trip by name.
+- control codes round-trip by name;
+- **the join survives (D4.1)**: a fixture with BASIC at `$0801`, `10 SYS 2080`, and real
+  6502 at `$0820` — the walk's `endAddress` lies below `$0820`, the fact's `value` is
+  2080, and its `site` is the address of the `$9E` byte, computed independently in the
+  test from the bytes the fixture built. Two `SYS` calls in one program yield two facts
+  with different `site` values.
 
 ## 5. Acceptance
 
@@ -122,4 +156,6 @@ which moves the tool cap by two; that is stated here rather than discovered by t
 - BASIC extensions (Simons' BASIC, Turbo, the C128's BASIC 7.0). The table is V2; an
   unknown token renders as `{$XX}` and round-trips, rather than being guessed at.
 - Executing BASIC. That is the runtime's job.
+- The graph edge itself. 829 produces the anchor (D4.1); emitting `basic_line → routine`
+  belongs to the knowledge-graph producers, which are not on this branch.
 - Re-typing the book. It is a cross-check on names (D1) and nothing from it is committed.
