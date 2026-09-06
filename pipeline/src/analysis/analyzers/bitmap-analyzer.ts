@@ -48,11 +48,21 @@ export class BitmapAnalyzer {
         if (startOffset === undefined || endOffset === undefined) {
           continue;
         }
-        const regionLength = endOffset - startOffset + 1;
+        // Spec 816 §5. Same defect the sprite analyzer had: a VIC bitmap base
+        // is `bankBase + (CB13 ? $2000 : 0)` with the bank base a multiple of
+        // $4000, so a bitmap always begins at an absolute address = 0 mod
+        // $2000. Candidate regions open wherever code discovery stopped, so
+        // stepping $2000 from `region.start` walks a grid that can never land
+        // on a real bitmap base.
+        const misalignment = region.start % 0x2000;
+        const alignSkip = misalignment === 0 ? 0 : 0x2000 - misalignment;
+        const alignedStartOffset = startOffset + alignSkip;
+
+        const regionLength = endOffset - alignedStartOffset + 1;
         if (regionLength < 8000) {
           continue;
         }
-        for (let offset = startOffset; offset + 7999 <= endOffset; offset += 0x2000) {
+        for (let offset = alignedStartOffset; offset + 7999 <= endOffset; offset += 0x2000) {
           candidateOffsets.add(offset);
         }
       }

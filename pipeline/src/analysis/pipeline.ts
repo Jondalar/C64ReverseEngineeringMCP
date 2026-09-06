@@ -557,6 +557,7 @@ export function analyzeMappedBuffer(
     hardwareEvidence: {
       vicWrites: vicEvidence.observedWrites,
       sidWrites: sidEvidence.observedWrites,
+      spriteDataAddresses: vicEvidence.spriteDataAddresses,
     },
     codeSemantics,
     evidenceGraph,
