@@ -31,6 +31,7 @@ are never touched by re-analysis and override the generated name in every query.
 | 820 | `c64re graph seed` (runs 819 then 820), and the import hook | READS · WRITES · READS_INDIRECT · WRITES_INDIRECT · USES_ZP · USES_HARDWARE · REFERENCES_DATA |
 | 821 | `c64re graph import-trace <file.c64retrace>` | the same types with `origin=runtime`, a `run` node, EXECUTES · HANDLES_IRQ · HANDLES_NMI |
 | 822.1 | `c64re graph migrate` (one shot, idempotent, incremental) + the human door (`name`, `link`, `assign-subsystem`) | the human layer: names, annotations (FTS5), claims + evidence from the legacy findings, subsystems |
+| 822.2 | every `save_finding` / `save_entity` / `link_entities` / `save_open_question` / user label (the doors), `analyze_prg` + manifest imports (the generated layer, replaced per artifact), `disasm_prg` with annotations (`annotations-import`: the file is a door) | **the store** for findings, entities, relations, open questions, user labels — the JSON files for them are gone (`knowledge/_legacy-822/` keeps the migrated copies for one release) |
 
 ## Asking it
 
@@ -47,6 +48,9 @@ c64re graph zp-usage <routine-id>              # zero-page addresses a routine t
 c64re graph uses-hardware VMCSB                # routines touching a register, READS/WRITES split
 c64re graph indirect '$FB'                     # every access through the pointer at $FB — the unknowns, as unknowns
 c64re graph stats | dump                        # counts / the canonical dump (Spec 818 D6)
+c64re graph migrate [--dry-run]                # 822: fold knowledge/*.json (or _legacy-822/) into the graph — idempotent, incremental
+c64re graph annotations-import <file> [--force] # 822.2: import <stem>_annotations.json into the human layer (disasm_prg does this on change)
+c64re graph export [--out <dir>]               # 822.2: the graph written back into the legacy record shapes (knowledge/export/*.json), for humans and git diff
 ```
 
 `--project <dir>` (default `C64RE_PROJECT_DIR` or cwd), `--json` for one JSON
@@ -68,6 +72,20 @@ Five default tools, thin over the same library, one formatter with the CLI:
 Every reply ends with a ```` ```json ```` block that equals `c64re graph <verb> --json`
 byte for byte. For where something is *described* in prose, `project_search`.
 
+## The record layer (Spec 822.2)
+
+`list_findings` / `list_entities` / `list_relations` / `list_open_questions`, the view
+builders and the 740.1 search index read the same graph through
+`src/knowledge-graph/records.ts`, which projects it into the record shapes they always
+took. The ids are the graph's: an entity id IS its node id
+(`wasteland:ram/block2_engine_0200:routine:25c1`), a finding is `ann:<sha1>` (prose) or
+`claim:<node>|<claim>` (a generated claim, one evidence ref per analysis run), a relation
+`edge:<from>|<type>|<to>`, a question keeps its id. A legacy id or a caller alias still
+resolves — `migration_log` is the alias table. A project that still carries the legacy
+JSON is cut over the first time it is opened (files → `knowledge/_legacy-822/`, one
+timeline note). Flows, artifacts, tasks, versions, loader models, LUT descriptors and
+workflow state stay JSON: they are not knowledge, they are joined by id string.
+
 ## The Graph tab (Spec 824)
 
 The workspace UI reads the same library through five `GET /api/graph/{find,node,edges,path,overview}`
@@ -88,7 +106,8 @@ npm run e2e:820             # memory access: fixture ground truth, lnr_boot coun
 npm run measure:820         # access-graph coverage over the field corpus (trend)
 npm run e2e:821             # runtime enrichment on a synthetic capture (no daemon needed)
 npm run e2e:821-real        # the same on a real .c64retrace when one is present (skips loudly)
-npm run e2e:822             # migration + human door on a tmp copy of Wasteland_EF (skips loudly without it)
+npm run e2e:822             # migration + human door + the 822.2 cut-over through the service, on tmp copies of Wasteland_EF (skips loudly without it)
+npm run check:822-no-json-readers   # 822.2: nothing under src/ reads or writes the five migrated JSON stores (the migration, cut-over and export excepted)
 npm run e2e:823             # the five graph tools through the real MCP server over stdio
 npm run smoke:824-routes    # the five /api/graph routes on a real workspace server
 npm run smoke:824           # the Graph tab at bundle + source level (after ui:build)

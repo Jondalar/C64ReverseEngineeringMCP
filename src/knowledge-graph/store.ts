@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "../platform-kb/sqlite-quiet.js";
 import { deriveProjectId, IdRuleError, parseId, spaceForParsed, type ProjectIdParts } from "./ids.js";
+import { canonicalJson } from "./json.js";
 import { GRAPH_DDL, GRAPH_SCHEMA_VERSION, type Confidence, type EdgeRow, type Layer, type NodeRow, type Origin } from "./schema.js";
 
 export interface NodeInput {
@@ -140,7 +141,7 @@ export class GraphStore {
       address,
       end_address: input.endAddress ?? null,
       name: input.name ?? null,
-      attrs: JSON.stringify(input.attrs ?? {}, Object.keys(input.attrs ?? {}).sort()),
+      attrs: canonicalJson(input.attrs ?? {}),
       origin: input.origin,
       confidence: input.confidence,
       producer,
@@ -162,7 +163,7 @@ export class GraphStore {
       confidence: input.confidence,
       producer,
       owner,
-      evidence: JSON.stringify(ev, Object.keys(ev).sort()),
+      evidence: canonicalJson(ev),
     };
   }
 
@@ -205,14 +206,19 @@ export class GraphStore {
     }
   }
 
-  /** The one door for human rows (Spec 822 widens it). Upserts a human node. */
+  /** The one door for human rows (Spec 822 widens it). Upserts a human node.
+   *  822.2: the conflict branch also takes `producer` and `origin`, so a row the
+   *  annotation-file import put there (producer '822') becomes door-owned
+   *  ('human') the moment a door writes it — a re-import of the file then keeps
+   *  it (`kept-door-row`) instead of overwriting the door's name. */
   upsertHuman(node: NodeInput, producer = "human"): NodeRow {
     if (this.readOnly) throw new Error("store is read-only");
     const row = this.toNodeRow({ ...node, origin: node.origin ?? "user", confidence: node.confidence ?? "user_asserted" }, "human", producer);
     this.db.prepare(
       `INSERT INTO nodes (id, layer, kind, space, owner, bank, run_owner, address, end_address, name, attrs, origin, confidence, producer, evidence)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-       ON CONFLICT(id, layer) DO UPDATE SET name = excluded.name, attrs = excluded.attrs, end_address = excluded.end_address, evidence = excluded.evidence`,
+       ON CONFLICT(id, layer) DO UPDATE SET name = excluded.name, attrs = excluded.attrs, end_address = excluded.end_address, evidence = excluded.evidence,
+         producer = excluded.producer, origin = excluded.origin, confidence = excluded.confidence`,
     ).run(row.id, row.layer, row.kind, row.space, row.owner, row.bank, null, row.address, row.end_address, row.name, row.attrs, row.origin, row.confidence, row.producer, row.evidence);
     return row;
   }

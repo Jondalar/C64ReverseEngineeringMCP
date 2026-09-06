@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 266,
-  "defaultCount": 156,
+  "total": 265,
+  "defaultCount": 155,
   "advancedCount": 110,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -1206,25 +1206,6 @@
       "pathMode": "no-path"
     },
     {
-      "name": "import_annotations_as_findings",
-      "namespace": "import",
-      "sourceFile": "server-tools/analysis-workflow.ts",
-      "tier": "default",
-      "role": "knowledge-write",
-      "swimlane": "disassembly-improve",
-      "useWhen": "Promote annotation routine docs into durable findings.",
-      "notFor": "Drafting annotations — use propose_annotations.",
-      "adjacentTools": [
-        "propose_annotations",
-        "save_finding"
-      ],
-      "e2eUseCases": [
-        "E2E-C"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "no-path"
-    },
-    {
       "name": "import_manifest_artifact",
       "namespace": "import",
       "sourceFile": "project-knowledge/mcp-tools.ts",
@@ -2133,7 +2114,7 @@
       "notFor": "Applying + rebuilding — use disasm_prg with annotations.",
       "adjacentTools": [
         "disasm_prg",
-        "import_annotations_as_findings"
+        "save_finding"
       ],
       "e2eUseCases": [
         "E2E-C"

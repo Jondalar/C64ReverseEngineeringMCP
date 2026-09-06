@@ -102,6 +102,7 @@ cli.ts → server.ts (MCP tools/prompts) → run-cli.ts (spawns node) → pipeli
 ### Key Modules
 
 - `src/server.ts` — All MCP tool and prompt definitions (15 tools, 6 prompts)
+- `src/knowledge-graph/records.ts` — Spec 822.2: the graph (`knowledge/graph.sqlite`) projected into the finding / entity / relation / question / label record shapes, and the doors every `save_*` goes through. `cutover.ts` folds a legacy project's JSON stores in on open.
 - `src/run-cli.ts` — Spawns pipeline as child process
 - `src/disk-extractor.ts` + `src/disk/*.ts` — D64/G64 disk image parsing
 - `pipeline/src/analysis/pipeline.ts` — Main analysis orchestrator; runs 9 analyzers
@@ -140,14 +141,15 @@ memory; that file decides.
 - **SegmentKind** (26 values): `code`, `text`, `sprite`, `charset`, `bitmap`, `pointer_table`, `unknown`, etc.
 - **ReferenceType** (8 values): `entry`, `call`, `jump`, `branch`, `fallthrough`, `pointer`, `read`, `write`
 - **AnalysisReport**: Contains `segments`, `crossReferences`, `entryPoints`, `symbols`, `ramHypotheses`, `hardwareEvidence`
-- **Annotations**: `SegmentAnnotation` (reclassify segments — Spec 055 effective-segments overlay supports cross-boundary reshape), `LabelAnnotation` (named addresses), `RoutineAnnotation` (documented routines — auto-emitted as findings via Spec 055 `emitAnnotationFindings`)
+- **Annotations**: `SegmentAnnotation` (reclassify segments — Spec 055 effective-segments overlay supports cross-boundary reshape), `LabelAnnotation` (named addresses), `RoutineAnnotation` (documented routines — since Spec 822.2 imported into the graph's human layer as `routine` nodes by `disasm_prg`; Spec 055's `emitAnnotationFindings` is retired)
 - **ArtifactRecord** carries `internal?: boolean` (Spec 058 — auto-classified, hides infrastructure files from user views), lineage fields (`derivedFrom`, `lineageRoot`, `versionRank`, `versionLabel`, `versions[]` — Spec 025), `phase`/`phaseFrozen` (Spec 034), `platform` (Spec 020), `loadContexts[]` (Spec 023), `relevance` (Spec 041).
 - **EntityRecord** also carries `internal?: boolean` (derived from primary linked artifact when not set).
 - **FindingRecord** carries top-level `addressRange` (Spec 053 / Bug 25) used by `archivePhase1Noise` matcher; matcher falls back to `evidence[0].addressRange` for legacy data (Bug 28).
 
 ## Closed-Loop Sweep (Spec 057 / R26)
 
-`disasm_prg` (when annotations consumed) and `save_finding` (when
+`disasm_prg` (when annotations consumed — the file is imported into the
+graph's human layer, Spec 822 D6) and `save_finding` (when
 `tags=["routine"]` + `addressRange` set) automatically run
 `archivePhase1Noise` + `sweepQuestionResolutions` and append a footer:
 
@@ -158,6 +160,11 @@ Auto-archive: archived 18 findings, answered 23 questions [scope=artifact:<id>, 
 Soft fail: parent op never breaks because the closed loop hit a snag.
 For per-file feedback, both `archive_phase1_noise` and
 `auto_resolve_questions` accept optional `artifact_id` (Spec 056 / R27).
+Since Spec 822.2 the sweep runs on the graph: coverage = routine findings
+plus the human `routine` nodes the annotation files produced; a covered
+hypothesis claim is archived (`superseded_by`) and its `validation` flips to
+`answered` — that is the "questions answered" the footer counts (the
+importers' validation prompts are claim state, not question rows).
 
 ## UI Visibility Rules
 

@@ -5,6 +5,14 @@
 // canonical dump identical), incremental by the same ledger (a record the JSON
 // gained after the first run is picked up by the next).
 //
+// 822.2 — the same core is the GENERATED IMPORT PATH after the cut-over:
+// `importRecords` feeds in-memory legacy-shaped records (analysis-import,
+// manifest-import, inventory sync) through `applyLegacyRecords`, after purging
+// the artifact's previous contribution (D2: re-analysis replaces the generated
+// layer of what it touched; evidence per run, D5). `importAnnotationFile` is
+// the annotation-file door (D6): re-imported when the file's hash changed,
+// door-owned rows (producer 'human') are never touched.
+//
 // The legacy row → 818 id resolver (§5), as measured on Wasteland_EF:
 //   RAM behaviour (ram hypotheses, display states, state_variable segments)
 //     → `<slug>:ram:addr:<hex4>`, no owner — zero page is one address space
@@ -31,6 +39,7 @@ import { basename, join, relative } from "node:path";
 import type { ArtifactRecord, EntityRecord, FindingRecord, FlowRecord, OpenQuestionRecord, RelationRecord, UserLabelOverride } from "../../project-knowledge/types.js";
 import type { DatabaseSync, StatementSync } from "../../platform-kb/sqlite-quiet.js";
 import { deriveProjectId, IdRuleError, parseId, spaceForParsed, type Ctx } from "../ids.js";
+import { canonicalJson } from "../json.js";
 import { contextForArtifact } from "../producers/artifact.js";
 import type { Confidence, Layer, NodeRow, Origin } from "../schema.js";
 import { GraphStore, graphPath, readProjectSlug } from "../store.js";
@@ -86,11 +95,24 @@ export interface MigrateSummary {
   files: FileSummary[];
   humanLayerHash: string;
   cutoverAt: string;
+  /** how many legacy records were read from knowledge/_legacy-822/ instead of knowledge/ */
+  legacyDirFiles: string[];
 }
 
-type AddressRange = { start: number; end: number; bank?: number; label?: string };
+/** The legacy record shapes an importer hands in (a subset of the JSON stores). */
+export interface LegacyInput {
+  artifacts: ArtifactRecord[];
+  entities: EntityRecord[];
+  findings: FindingRecord[];
+  relations: RelationRecord[];
+  questions: OpenQuestionRecord[];
+  flows: FlowRecord[];
+  labels: UserLabelOverride[];
+}
 
-interface Target {
+export type AddressRange = { start: number; end: number; bank?: number; label?: string };
+
+export interface Target {
   id: string;
   kind: string;
   ctx: Ctx;
@@ -128,16 +150,16 @@ interface EdgeDraft {
 
 type ClaimDraft = Omit<ClaimRow, "producer">;
 
-const EDGE_TYPE: Record<string, string> = {
+export const EDGE_TYPE: Record<string, string> = {
   calls: "CALLS", reads: "READS", writes: "WRITES", loads: "LOADS", stores: "STORES", contains: "CONTAINS",
   "maps-to": "MAPS_TO", "depends-on": "DEPENDS_ON", "derived-from": "DERIVED_FROM", precedes: "PRECEDES",
   follows: "FOLLOWS", references: "REFERENCES_DATA", documents: "DOCUMENTS", other: "RELATES_TO",
 };
 
 // tags every analyze_prg producer sets; the remaining tag is the value (tags are stored sorted)
-const PRODUCER_TAGS = new Set(["analysis-import", "ram-hypothesis", "segment-classification", "display-state", "display-transfer", "segment", "entry-point", "xref", "entrypoint-map", "derived-question", "user"]);
+export const PRODUCER_TAGS = new Set(["analysis-import", "ram-hypothesis", "segment-classification", "display-state", "display-transfer", "segment", "entry-point", "xref", "entrypoint-map", "derived-question", "user"]);
 
-const HUMAN_KIND: Record<string, string> = {
+export const HUMAN_KIND: Record<string, string> = {
   routine: "routine", "irq-handler": "routine", "entry-point": "entry", symbol: "label", "code-segment": "segment",
   "data-table": "data_block", "lookup-table": "data_block", "pointer-table": "data_block",
   "memory-region": "region", "screen-region": "region", "loader-stage": "stage",
@@ -146,11 +168,15 @@ const HUMAN_KIND: Record<string, string> = {
   chip: "chip", "cartridge-bank": "bank", "disk-track": "track", other: "other",
 };
 
+/** The six legacy stores 822 migrates; after the cut-over they live under knowledge/_legacy-822/. */
+export const LEGACY_STORE_FILES = ["entities.json", "findings.json", "relations.json", "open-questions.json", "labels.user.json"] as const;
+export const LEGACY_DIR = "_legacy-822";
+
 // ------------------------------------------------------------------ helpers
 
 const hex4 = (n: number) => (n & 0xffff).toString(16).padStart(4, "0");
 const hex4U = (n: number) => (n & 0xffff).toString(16).toUpperCase().padStart(4, "0");
-const sortedJson = (v: Record<string, unknown>) => JSON.stringify(v, Object.keys(v).sort());
+const sortedJson = (v: Record<string, unknown>) => canonicalJson(v);
 const clip = (s: string | undefined, n = 600) => (s === undefined ? null : s.length > n ? `${s.slice(0, n)}…` : s);
 const compact = (o: Record<string, unknown>): Record<string, unknown> => {
   const out: Record<string, unknown> = {};
@@ -168,7 +194,7 @@ function sha256File(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-function findAnnotationFiles(dir: string, out: string[] = [], depth = 0): string[] {
+export function findAnnotationFiles(dir: string, out: string[] = [], depth = 0): string[] {
   if (depth > 8 || !existsSync(dir)) return out;
   for (const entry of readdirSync(dir)) {
     if (entry === "node_modules" || entry.startsWith(".") || (depth === 0 && entry === "knowledge")) continue;
@@ -192,17 +218,21 @@ function newer(a: string, b: string): boolean {
   return a > b;
 }
 
+/** The legacy id normalisation analysis-import / manifest-import use (`stableId`). */
+export function legacyIdToken(s: string): string {
+  return s.replace(/[^a-zA-Z0-9_-]+/g, "-").toLowerCase();
+}
+
 // ------------------------------------------------------------------ ledger + writer
 
-class Ledger {
+export class Ledger {
   /** migrated by an earlier run, or claimed by this run — a legacy id is processed once */
   readonly seen = new Set<string>();
-  private readonly logged = new Set<string>();
   readonly counts: Record<string, StoreSummary> = {};
 
   constructor(private readonly db: DatabaseSync, readonly runId: number) {
     for (const row of db.prepare("SELECT legacy_store, legacy_id FROM migration_log").all() as Array<{ legacy_store: string; legacy_id: string }>) {
-      this.seen.add(`${row.legacy_store} ${row.legacy_id}`);
+      this.seen.add(`${row.legacy_store} ${row.legacy_id}`);
     }
     this.insert = db.prepare("INSERT INTO migration_log (legacy_store, legacy_id, action, target_table, target_id, note, run_id) VALUES (?,?,?,?,?,?,?)");
   }
@@ -218,12 +248,12 @@ class Ledger {
   already(store: string, id: string): boolean {
     const b = this.bucket(store);
     b.total += 1;
-    if (this.seen.has(`${store} ${id}`)) { b.already += 1; return true; }
+    if (this.seen.has(`${store} ${id}`)) { b.already += 1; return true; }
     return false;
   }
 
   log(store: string, id: string, action: MigrationAction, targetTable: string | null, targetId: string | null, note: string | null = null): void {
-    const key = `${store} ${id}`;
+    const key = `${store} ${id}`;
     if (this.seen.has(key)) throw new Error(`migration_log: ${store}/${id} logged twice`);
     this.seen.add(key);
     this.insert.run(store, id, action, targetTable, targetId, note, this.runId);
@@ -236,7 +266,7 @@ class Ledger {
   }
 }
 
-class Writer {
+export class Writer {
   private readonly getNode: StatementSync;
   private readonly insNode: StatementSync;
   private readonly insNodeIgnore: StatementSync;
@@ -352,19 +382,47 @@ class Writer {
 
 // ------------------------------------------------------------------ resolver
 
-class Resolver {
+/** A payload the graph already knows — the owner stems an importer's rows resolve to after the cut-over. */
+export interface GraphPayload {
+  id: string;
+  owner: string;
+  sourceArtifactId?: string;
+}
+
+/** Payload nodes in the graph, by id and by source artifact (both layers, human first). */
+export function graphPayloads(db: DatabaseSync): GraphPayload[] {
+  const rows = db.prepare("SELECT id, owner, attrs FROM nodes WHERE kind = 'payload' ORDER BY id, CASE layer WHEN 'human' THEN 0 ELSE 1 END").all() as Array<{ id: string; owner: string | null; attrs: string }>;
+  const out: GraphPayload[] = [];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (seen.has(r.id) || !r.owner) continue;
+    seen.add(r.id);
+    let src: string | undefined;
+    try { src = (JSON.parse(r.attrs) as { payload?: { source_artifact_id?: string } }).payload?.source_artifact_id; } catch { /* attrs is JSON by CHECK */ }
+    out.push({ id: r.id, owner: r.owner, sourceArtifactId: src });
+  }
+  return out;
+}
+
+export class Resolver {
   readonly artById = new Map<string, ArtifactRecord>();
   readonly entById = new Map<string, EntityRecord>();
   readonly payloadBySource = new Map<string, EntityRecord>();
   readonly classOf = new Map<string, Classification>();
+  private readonly graphPayloadById = new Map<string, GraphPayload>();
+  private readonly graphPayloadBySource = new Map<string, GraphPayload>();
   private readonly targets = new Map<string, Target | null>();
 
-  constructor(readonly slug: string, artifacts: ArtifactRecord[], entities: EntityRecord[]) {
+  constructor(readonly slug: string, artifacts: ArtifactRecord[], entities: EntityRecord[], payloads: GraphPayload[] = []) {
     for (const a of artifacts) this.artById.set(a.id, a);
     for (const e of entities) {
       this.entById.set(e.id, e);
       this.classOf.set(e.id, classifyEntity(e));
       if (e.kind === "payload" && e.payloadSourceArtifactId && !this.payloadBySource.has(e.payloadSourceArtifactId)) this.payloadBySource.set(e.payloadSourceArtifactId, e);
+    }
+    for (const p of payloads) {
+      this.graphPayloadById.set(p.id, p);
+      if (p.sourceArtifactId && !this.graphPayloadBySource.has(p.sourceArtifactId)) this.graphPayloadBySource.set(p.sourceArtifactId, p);
     }
   }
 
@@ -372,6 +430,15 @@ class Resolver {
   ownerFor(e: EntityRecord): { owner: string; note?: "ctx-by-stem" } | undefined {
     const pl = e.payloadId ? this.entById.get(e.payloadId) : undefined;
     if (pl && pl.kind === "payload") return { owner: normStem(pl.name) };
+    if (e.payloadId) {
+      // after the cut-over a payloadId is a graph node id (or an alias the ledger resolved to one)
+      const gp = this.graphPayloadById.get(e.payloadId);
+      if (gp) return { owner: gp.owner };
+      try {
+        const parsed = parseId(e.payloadId);
+        if (parsed.form === "project" && parsed.ctx.owner) return { owner: parsed.ctx.owner };
+      } catch { /* not a graph id */ }
+    }
     if (e.kind === "payload" || e.kind === "disk-file") return { owner: normStem(e.name) };
     const order: ArtifactRecord[] = [];
     const seen = new Set<string>();
@@ -383,6 +450,8 @@ class Resolver {
       order.push(a);
       const p = this.payloadBySource.get(a.id);
       if (p) return { owner: normStem(p.name) };
+      const gp = this.graphPayloadBySource.get(a.id);
+      if (gp) return { owner: gp.owner };
       for (const s of a.sourceArtifactIds ?? []) { const b = this.artById.get(s); if (b) queue.push(b); }
     }
     const binary = order.find((a) => a.kind === "prg" || a.kind === "raw" || a.kind === "crt" || /\.(prg|bin)$/iu.test(a.relativePath ?? a.path ?? ""));
@@ -461,46 +530,537 @@ class Resolver {
   }
 }
 
+// ------------------------------------------------------------------ the core: legacy-shaped records → graph rows
+
+export interface MigrationContext {
+  db: DatabaseSync;
+  slug: string;
+  now: string;
+  ledger: Ledger;
+  writer: Writer;
+  resolver: Resolver;
+  summary: Pick<MigrateSummary, "nodesByKind" | "files">;
+}
+
+export function payloadAttrs(e: EntityRecord): Record<string, unknown> | undefined {
+  const p = compact({
+    load_address: e.payloadLoadAddress, format: e.payloadFormat, packer: e.payloadPacker, source_artifact_id: e.payloadSourceArtifactId,
+    depacked_artifact_id: e.payloadDepackedArtifactId, asm_artifact_ids: e.payloadAsmArtifactIds, content_hash: e.payloadContentHash,
+    loader_model_id: e.payloadLoaderModelId, claimed_by_lut_id: e.payloadClaimedByLutId, claimed_by_row: e.payloadClaimedByRow, disk_hint: e.payloadDiskHint,
+  });
+  return Object.keys(p).length ? p : undefined;
+}
+
+/** Runs the §5 mapping over legacy-shaped records inside the caller's transaction. */
+export function applyLegacyRecords(ctx: MigrationContext, input: Omit<LegacyInput, "artifacts">): void {
+  const { db, slug, now, ledger, writer, resolver, summary } = ctx;
+  const { entities, findings, relations, questions, flows, labels } = input;
+  const migrated = MIGRATION_PRODUCER;
+
+  // ---------------------------------------------------------- entities → nodes + evidence
+  const nodeDrafts = new Map<string, NodeDraft>();
+  const foldEntity: EntityRecord[] = [];
+  const entityAction = new Map<string, { action: MigrationAction; note: string | null; target: Target | undefined }>();
+
+  for (const e of entities) {
+    if (ledger.already("entities", e.id)) continue;
+    const cls = resolver.classOf.get(e.id)!;
+    const t = resolver.target(e);
+    if (!t) { foldEntity.push(e); continue; }
+    const capturedAt = e.evidence?.[0]?.capturedAt ?? e.updatedAt ?? e.createdAt ?? now;
+    const tags = e.tags ?? [];
+    const valueTag = tags.find((x) => !PRODUCER_TAGS.has(x));
+    // 822.2: the fields a projection back into the EntityRecord shape needs
+    // (payload_id, related ids, aliases, internal) ride along in attrs.
+    const roundTrip = compact({
+      payload_id: e.payloadId, related_entity_ids: e.relatedEntityIds?.length ? e.relatedEntityIds : undefined,
+      internal: e.internal === true ? true : undefined, aliases: e.aliases?.length ? e.aliases : undefined,
+      artifact_ids: e.artifactIds?.length ? e.artifactIds : undefined, legacy_id: e.id,
+    });
+    const attrs: Record<string, unknown> = cls.layer === "generated"
+      ? compact({
+          ...roundTrip,
+          legacy_kind: e.kind, tags, score: e.confidence, status: e.status, captured_at: capturedAt,
+          segment_kind: tags.includes("segment") ? valueTag : undefined,
+          entry_source: e.kind === "entry-point" ? tags.find((x) => x !== "analysis-import" && x !== "entry-point") : undefined,
+          addressless: t.note === "addressless" ? true : undefined,
+          ctx_by_stem: t.note === "ctx-by-stem" ? true : undefined,
+          payload: e.kind === "payload" || e.kind === "disk-file" ? payloadAttrs(e) : undefined,
+          medium_spans: e.mediumSpans?.length ? e.mediumSpans : undefined,
+          medium_role: e.mediumRole,
+        })
+      : compact({
+          ...roundTrip,
+          legacy_kind: e.kind, legacy_origin: "user", tags, score: e.confidence, status: e.status, captured_at: capturedAt,
+          payload: e.kind === "payload" ? payloadAttrs(e) : undefined,
+          medium_spans: e.mediumSpans?.length ? e.mediumSpans : undefined,
+          medium_role: e.mediumRole, ownerless: t.note === "ownerless" ? true : undefined,
+          addressless: t.note === "addressless" ? true : undefined,
+          evidence_refs: e.evidence?.length ? e.evidence : undefined,
+        });
+    const draft: NodeDraft = {
+      id: t.id, layer: cls.layer, kind: t.kind, ctx: t.ctx, address: t.address, endAddress: t.endAddress,
+      name: t.kind === "addr" && cls.layer === "generated" ? null : e.name,
+      attrs, origin: cls.origin, confidence: cls.layer === "human" ? "user_asserted" : confidenceForScore(e.confidence, cls.origin),
+      capturedAt, runOwner: t.ctx.owner ?? null,
+    };
+    const key = `${t.id} ${cls.layer}`;
+    const prev = nodeDrafts.get(key);
+    if (!prev) { nodeDrafts.set(key, draft); entityAction.set(e.id, { action: "created", note: t.note ?? null, target: t }); }
+    else {
+      if (newer(capturedAt, prev.capturedAt)) nodeDrafts.set(key, draft); // newest wins (D5)
+      entityAction.set(e.id, { action: "merged", note: t.note ?? null, target: t });
+    }
+    writer.evidence({
+      target_table: "nodes", target_key: t.id, legacy_id: e.id, artifact_id: e.artifactIds?.[0] ?? null, excerpt: clip(e.summary),
+      captured_at: capturedAt, producer: migrated, attrs: sortedJson(compact({ layer: cls.layer, kind: e.kind, name: e.name, score: e.confidence })),
+    });
+  }
+  const nodeOutcome = new Map<string, string>();
+  for (const [key, d] of nodeDrafts) {
+    nodeOutcome.set(key, writer.node(d));
+    if (d.layer === "generated") summary.nodesByKind[d.kind] = (summary.nodesByKind[d.kind] ?? 0) + 1;
+  }
+  for (const [legacyId, a] of entityAction) {
+    const key = `${a.target!.id} ${resolver.classOf.get(legacyId)!.layer}`;
+    const outcome = nodeOutcome.get(key);
+    const action: MigrationAction = a.action === "created" && (outcome === "created" || outcome === "shared") ? "created" : "merged";
+    const note = a.note ?? (outcome === "kept" ? "kept-door-row" : null);
+    ledger.log("entities", legacyId, action, "nodes", a.target!.id, note);
+  }
+  for (const e of foldEntity) {
+    // no address at all (traces, a save descriptor): prose on the project, not a node
+    const cls = resolver.classOf.get(e.id)!;
+    const id = annotationId(null, `entity:${e.kind}`, e.name);
+    writer.annotation({
+      id, node_id: null, kind: `entity:${e.kind}`, title: e.name, body: e.summary ?? null, name: e.name, tags: JSON.stringify(e.tags ?? []),
+      source_path: null, legacy_id: e.id, layer: cls.layer, origin: cls.origin, confidence: cls.layer === "human" ? "user_asserted" : confidenceForScore(e.confidence, cls.origin),
+      score: e.confidence ?? null, status: e.status ?? "active", producer: migrated,
+      attrs: sortedJson(compact({ legacy_kind: e.kind, legacy_origin: cls.layer === "human" ? "user" : undefined, artifact_ids: e.artifactIds, related_entity_ids: e.relatedEntityIds, evidence_refs: e.evidence?.length ? e.evidence : undefined, payload: payloadAttrs(e), medium_spans: e.mediumSpans?.length ? e.mediumSpans : undefined, medium_role: e.mediumRole, aliases: e.aliases?.length ? e.aliases : undefined, internal: e.internal === true ? true : undefined })),
+      created_at: e.createdAt ?? now, updated_at: e.updatedAt ?? now,
+    });
+    writer.evidence({ target_table: "annotations", target_key: id, legacy_id: e.id, artifact_id: e.artifactIds?.[0] ?? null, excerpt: clip(e.summary), captured_at: e.evidence?.[0]?.capturedAt ?? e.createdAt ?? now, producer: migrated, attrs: sortedJson(compact({ kind: e.kind, name: e.name, score: e.confidence })) });
+    ledger.log("entities", e.id, "folded", "annotations", id, "no-address");
+  }
+  // the summary → an `entity` annotation on the node, for hand-made rows (§5)
+  for (const e of entities) {
+    const a = entityAction.get(e.id);
+    const cls = resolver.classOf.get(e.id)!;
+    if (!a || cls.layer !== "human" || !e.summary) continue;
+    const id = annotationId(a.target!.id, "entity", e.name);
+    writer.annotation({
+      id, node_id: a.target!.id, kind: "entity", title: e.name, body: e.summary, name: e.name, tags: JSON.stringify(e.tags ?? []), source_path: null, legacy_id: e.id,
+      layer: "human", origin: cls.origin, confidence: "user_asserted", score: e.confidence ?? null, status: e.status ?? "active", producer: migrated,
+      attrs: sortedJson(compact({ legacy_kind: e.kind, legacy_origin: "user" })), created_at: e.createdAt ?? now, updated_at: e.updatedAt ?? now,
+    });
+  }
+
+  // ---------------------------------------------------------- findings → claims / annotations
+  const claimDrafts = new Map<string, ClaimDraft>();
+  const claimOfFinding = new Map<string, { node: string; claim: string }>();
+  const findingLog: Array<[string, MigrationAction, string | null, string | null, string | null]> = [];
+
+  const claimFor = (f: FindingRecord): { node: string; claim: string; value: string; labelHint?: string } | undefined => {
+    const tags = f.tags ?? [];
+    const ent = (f.entityIds ?? []).map((id) => resolver.entById.get(id)).find((x): x is EntityRecord => Boolean(x));
+    const range = f.addressRange as AddressRange | undefined;
+    const valueTag = tags.find((x) => !PRODUCER_TAGS.has(x));
+    if (tags.includes("ram-hypothesis")) {
+      const start = range?.start ?? (ent?.addressRange as AddressRange | undefined)?.start;
+      if (start === undefined) return undefined;
+      const kind = (ent?.tags ?? []).find((x) => !PRODUCER_TAGS.has(x)) ?? f.title.match(/behaves like (\S+)/u)?.[1] ?? "unknown";
+      return { node: deriveProjectId({ slug, ctx: { space: "ram" }, kind: "addr", address: start }), claim: "behaves_like", value: kind, labelHint: ent?.name };
+    }
+    if (tags.includes("segment-classification")) {
+      const t = ent ? resolver.target(ent) : undefined;
+      if (!t) return undefined;
+      return { node: t.id, claim: "segment_kind", value: valueTag ?? f.title.match(/classified as (\S+)/u)?.[1] ?? "unknown" };
+    }
+    if (tags.includes("display-state")) {
+      const t = ent ? resolver.target(ent) : undefined;
+      if (!t) return undefined;
+      return { node: t.id, claim: "display_state", value: "inferred" };
+    }
+    if (tags.includes("display-transfer")) {
+      const start = range?.start ?? f.evidence?.[0]?.addressRange?.start;
+      if (start === undefined) return undefined;
+      return { node: deriveProjectId({ slug, ctx: { space: "ram" }, kind: "addr", address: start }), claim: "display_transfer", value: valueTag ?? "unknown" };
+    }
+    const t = ent ? resolver.target(ent) : undefined;
+    const start = range?.start;
+    const node = t?.id ?? (start !== undefined ? deriveProjectId({ slug, ctx: { space: "ram" }, kind: "addr", address: start }) : undefined);
+    if (!node) return undefined;
+    return { node, claim: valueTag ?? f.kind, value: f.kind };
+  };
+
+  const nodeForHumanFinding = (f: FindingRecord): string | null => {
+    const range = f.addressRange as AddressRange | undefined;
+    if (range) return deriveProjectId({ slug, ctx: { space: "ram" }, kind: "addr", address: range.start & 0xffff });
+    for (const id of f.entityIds ?? []) {
+      const e = resolver.entById.get(id);
+      const t = e ? resolver.target(e) : undefined;
+      if (t) return t.id;
+      // a graph node id (post-cut-over record)
+      try { parseId(id); return id; } catch { /* not a graph id */ }
+    }
+    return null;
+  };
+
+  for (const f of findings) {
+    const cls = classifyFinding(f);
+    const capturedAt = f.evidence?.[0]?.capturedAt ?? f.createdAt ?? now;
+    if (cls.bucket === "analysis-import") {
+      const c = claimFor(f);
+      if (c) claimOfFinding.set(f.id, { node: c.node, claim: c.claim });
+      if (ledger.already("findings", f.id)) continue;
+      if (!c) { findingLog.push([f.id, "skipped", null, null, "no-node"]); continue; }
+      const key = `${c.node} ${c.claim}`;
+      const draft: ClaimDraft = {
+        node_id: c.node, claim: c.claim, value: c.value, layer: "generated", origin: "static", confidence: confidenceForScore(f.confidence, "static"),
+        score: f.confidence ?? null, status: f.status === "archived" ? "archived" : "active", validation: "unvalidated", validated_by: null,
+        superseded_by: f.archivedBy ?? null, attrs: sortedJson(compact({ label_hint: c.labelHint, legacy_kind: f.kind, title: f.title, legacy_status: f.status, tags: f.tags })), updated_at: capturedAt,
+      };
+      const prev = claimDrafts.get(key);
+      if (!prev) { claimDrafts.set(key, draft); findingLog.push([f.id, "created", "claims", `${c.node}|${c.claim}`, null]); }
+      else {
+        if (newer(capturedAt, prev.updated_at)) claimDrafts.set(key, draft);
+        findingLog.push([f.id, "merged", "claims", `${c.node}|${c.claim}`, null]);
+      }
+      writer.evidence({
+        target_table: "claims", target_key: `${c.node}|${c.claim}`, legacy_id: f.id, artifact_id: f.artifactIds?.[0] ?? null, excerpt: clip(f.summary),
+        captured_at: capturedAt, producer: migrated, attrs: sortedJson(compact({ value: c.value, score: f.confidence, status: f.status, title: f.title, address_range: f.addressRange ?? f.evidence?.[0]?.addressRange })),
+      });
+      continue;
+    }
+    if (ledger.already("findings", f.id)) continue;
+    if (cls.bucket === "annotation-mirror") {
+      // Spec 055's mirror of the annotation file: the file is imported below, the row is not migrated (D6)
+      ledger.log("findings", f.id, "folded", null, null, "annotation-file-is-source");
+      continue;
+    }
+    const nodeId = nodeForHumanFinding(f);
+    const kind = `finding:${f.kind}`;
+    const id = annotationId(nodeId, kind, f.title);
+    const outcome = writer.annotation({
+      id, node_id: nodeId, kind, title: f.title, body: f.summary ?? null, name: null, tags: JSON.stringify(f.tags ?? []), source_path: null, legacy_id: f.id,
+      layer: cls.layer, origin: cls.origin, confidence: cls.layer === "human" ? "user_asserted" : confidenceForScore(f.confidence, cls.origin),
+      score: f.confidence ?? null, status: f.status ?? "proposed", producer: migrated,
+      attrs: sortedJson(compact({ legacy_origin: cls.layer === "human" ? "user" : undefined, entity_ids: f.entityIds, artifact_ids: f.artifactIds, relation_ids: f.relationIds, flow_ids: f.flowIds, payload_id: f.payloadId, address_range: f.addressRange, archived_by: f.archivedBy })),
+      created_at: f.createdAt ?? now, updated_at: f.updatedAt ?? now,
+    });
+    writer.evidence({ target_table: "annotations", target_key: id, legacy_id: f.id, artifact_id: f.artifactIds?.[0] ?? null, excerpt: clip(f.summary), captured_at: capturedAt, producer: migrated, attrs: sortedJson(compact({ kind: f.kind, title: f.title, score: f.confidence, status: f.status })) });
+    (f.evidence ?? []).forEach((ev, i) => writer.evidence({
+      target_table: "annotations", target_key: id, legacy_id: `${f.id}#${i}`, artifact_id: ev.artifactId ?? null,
+      excerpt: clip(ev.excerpt ?? ev.note ?? ev.title), captured_at: ev.capturedAt ?? capturedAt, producer: migrated,
+      attrs: sortedJson(compact({ kind: ev.kind, title: ev.title, note: ev.note, address_range: ev.addressRange, entity_id: ev.entityId, finding_id: ev.findingId, file: ev.fileLocation })),
+    }));
+    ledger.log("findings", f.id, outcome === "created" ? "created" : "merged", "annotations", id, outcome === "kept" ? "kept-door-row" : null);
+  }
+  const claimOutcome = new Map<string, string>();
+  for (const [key, c] of claimDrafts) claimOutcome.set(key, writer.claim(c));
+  for (const [id, action, table, target, note] of findingLog) {
+    if (action === "created" && target) {
+      const outcome = claimOutcome.get(target.replace("|", " "));
+      ledger.log("findings", id, outcome === "created" ? "created" : "merged", table, target, outcome === "kept" ? "kept-door-row" : note);
+    } else ledger.log("findings", id, action, table, target, note);
+  }
+
+  // ---------------------------------------------------------- relations → edges
+  const edgeDrafts = new Map<string, EdgeDraft>();
+  const relationLog: Array<[string, MigrationAction, string, string]> = [];
+  const graphEndpoint = (id: string): Target | undefined => {
+    try {
+      const p = parseId(id);
+      if (p.form === "project") return { id, kind: p.kind, ctx: p.ctx, address: p.address, endAddress: null };
+      if (p.form === "subsystem") return { id, kind: "subsystem", ctx: { space: "ram" }, address: 0, endAddress: null };
+      return { id, kind: p.kind, ctx: { space: "ram" }, address: p.address, endAddress: null };
+    } catch { return undefined; }
+  };
+  for (const r of relations) {
+    if (ledger.already("relations", r.id)) continue;
+    const src = resolver.entById.get(r.sourceEntityId);
+    const tgt = resolver.entById.get(r.targetEntityId);
+    const cls = classifyRelation(r, src && resolver.classOf.get(src.id), tgt && resolver.classOf.get(tgt.id));
+    const from = src ? resolver.target(src) : graphEndpoint(r.sourceEntityId);
+    const to = tgt ? resolver.target(tgt) : graphEndpoint(r.targetEntityId);
+    const capturedAt = r.evidence?.[0]?.capturedAt ?? r.createdAt ?? now;
+    if (!from || !to) {
+      const nodeId = from?.id ?? to?.id ?? null;
+      const kind = `relation:${r.kind}`;
+      const id = annotationId(nodeId, kind, r.title);
+      writer.annotation({
+        id, node_id: nodeId, kind, title: r.title, body: r.summary ?? null, name: null, tags: "[]", source_path: null, legacy_id: r.id,
+        layer: cls.layer, origin: cls.origin, confidence: cls.layer === "human" ? "user_asserted" : confidenceForScore(r.confidence, cls.origin),
+        score: r.confidence ?? null, status: r.status ?? "active", producer: migrated,
+        attrs: sortedJson(compact({ legacy_origin: cls.layer === "human" ? "user" : undefined, source_entity_id: r.sourceEntityId, target_entity_id: r.targetEntityId, source_name: src?.name, target_name: tgt?.name, artifact_ids: r.artifactIds })),
+        created_at: r.createdAt ?? now, updated_at: r.updatedAt ?? now,
+      });
+      writer.evidence({ target_table: "annotations", target_key: id, legacy_id: r.id, artifact_id: r.artifactIds?.[0] ?? null, excerpt: clip(r.summary), captured_at: capturedAt, producer: migrated, attrs: sortedJson(compact({ kind: r.kind, title: r.title, score: r.confidence })) });
+      ledger.log("relations", r.id, "folded", "annotations", id, "endpoint-not-a-node");
+      continue;
+    }
+    const type = EDGE_TYPE[r.kind] ?? r.kind.toUpperCase().replace(/-/gu, "_");
+    const key = `${from.id} ${type} ${to.id} ${cls.layer}`;
+    const draft: EdgeDraft = {
+      from: from.id, type, to: to.id, layer: cls.layer, origin: cls.origin, owner: from.ctx.owner ?? null, score: r.confidence ?? 0.5,
+      confidence: cls.layer === "human" ? "user_asserted" : confidenceForScore(r.confidence, cls.origin),
+      evidence: cls.layer === "human"
+        ? compact({ legacy_id: r.id, title: r.title, summary: r.summary, score: r.confidence, status: r.status, legacy_origin: "user", artifact_ids: r.artifactIds, kind: r.kind, created_at: r.createdAt, updated_at: r.updatedAt })
+        : compact({ title: r.title, kind: r.kind, score: r.confidence, status: r.status }),
+    };
+    const prev = edgeDrafts.get(key);
+    if (!prev) { edgeDrafts.set(key, draft); relationLog.push([r.id, "created", `${from.id}|${type}|${to.id}`, key]); }
+    else { if (draft.score > prev.score) edgeDrafts.set(key, draft); relationLog.push([r.id, "merged", `${from.id}|${type}|${to.id}`, key]); }
+    writer.evidence({
+      target_table: "edges", target_key: `${from.id}|${type}|${to.id}`, legacy_id: r.id, artifact_id: r.artifactIds?.[0] ?? null, excerpt: clip(r.summary),
+      captured_at: capturedAt, producer: migrated, attrs: sortedJson(compact({ layer: cls.layer, kind: r.kind, title: r.title, score: r.confidence })),
+    });
+  }
+  const edgeOutcome = new Map<string, boolean>();
+  for (const [key, e] of edgeDrafts) edgeOutcome.set(key, writer.edge(e));
+  for (const [id, action, target, key] of relationLog) {
+    ledger.log("relations", id, action === "created" && edgeOutcome.get(key) === false ? "merged" : action, "edges", target, null);
+  }
+
+  // ---------------------------------------------------------- questions → claims.validation / questions
+  for (const q of questions) {
+    if (ledger.already("open-questions", q.id)) continue;
+    const cls = classifyQuestion(q);
+    if (cls.bucket === "heuristic") {
+      const findingId = q.findingIds?.[0] ?? q.answeredByFindingId;
+      const c = findingId ? claimOfFinding.get(findingId) : undefined;
+      const answered = q.status === "answered" || q.answeredByFindingId !== undefined;
+      if (c) {
+        writer.validate(c.node, c.claim, answered ? "answered" : "unvalidated", q.answeredByFindingId ?? null);
+        ledger.log("open-questions", q.id, "folded", "claims", `${c.node}|${c.claim}`, answered ? "answered" : null);
+      } else ledger.log("open-questions", q.id, "folded", null, null, "finding-not-a-claim");
+      continue;
+    }
+    const range = q.addressRange as AddressRange | undefined;
+    let nodeId: string | null = range ? deriveProjectId({ slug, ctx: { space: "ram" }, kind: "addr", address: range.start & 0xffff }) : null;
+    if (!nodeId) for (const id of q.entityIds ?? []) { const e = resolver.entById.get(id); const t = e ? resolver.target(e) : graphEndpoint(id); if (t) { nodeId = t.id; break; } }
+    const outcome = writer.question({
+      id: q.id, node_id: nodeId, kind: q.kind, title: q.title, body: q.description ?? null, status: q.status ?? "open", priority: q.priority ?? "medium",
+      layer: cls.layer, origin: cls.origin, answer: q.answerSummary ?? null, answered_by: q.answeredByFindingId ?? null, producer: migrated,
+      attrs: sortedJson(compact({ legacy_origin: cls.layer === "human" ? "user" : undefined, source: q.source, score: q.confidence, entity_ids: q.entityIds, finding_ids: q.findingIds, artifact_ids: q.artifactIds, auto_resolvable: q.autoResolvable, auto_resolve_hint: q.autoResolveHint, address_range: q.addressRange, tags: (q as { tags?: string[] }).tags })),
+      created_at: q.createdAt ?? now, updated_at: q.updatedAt ?? now,
+    });
+    (q.evidence ?? []).forEach((ev, i) => writer.evidence({
+      target_table: "questions", target_key: q.id, legacy_id: `${q.id}#${i}`, artifact_id: ev.artifactId ?? null, excerpt: clip(ev.excerpt ?? ev.note ?? ev.title),
+      captured_at: ev.capturedAt ?? q.createdAt ?? now, producer: migrated, attrs: sortedJson(compact({ kind: ev.kind, title: ev.title, note: ev.note, address_range: ev.addressRange })),
+    }));
+    ledger.log("open-questions", q.id, outcome === "created" ? "created" : "merged", "questions", q.id, outcome === "kept" ? "kept-door-row" : null);
+  }
+
+  // ---------------------------------------------------------- user labels → human nodes (Spec 754 §3.3f)
+  for (const l of labels) {
+    if (ledger.already("labels", l.id)) continue;
+    const range = l.addressRange as AddressRange | undefined;
+    let target: Target | undefined;
+    if (l.targetKind === "address" && range) target = { id: deriveProjectId({ slug, ctx: { space: "ram" }, kind: "addr", address: range.start & 0xffff }), kind: "addr", ctx: { space: "ram" }, address: range.start & 0xffff, endAddress: range.end > range.start ? range.end & 0xffff : null };
+    else if (l.targetKind === "entity" && l.targetId) { const e = resolver.entById.get(l.targetId); target = e ? resolver.target(e) : graphEndpoint(l.targetId); }
+    if (!target) {
+      const id = annotationId(null, "label-override", `${l.targetKind}:${l.targetId ?? ""}`);
+      writer.annotation({ id, node_id: null, kind: "label-override", title: l.label, body: l.note ?? null, name: l.label, tags: "[]", source_path: null, legacy_id: l.id, layer: "human", origin: "imported", confidence: "user_asserted", score: null, status: "active", producer: migrated, attrs: sortedJson(compact({ target_kind: l.targetKind, target_id: l.targetId, legacy_origin: "user" })), created_at: l.createdAt ?? now, updated_at: l.updatedAt ?? now });
+      ledger.log("labels", l.id, "folded", "annotations", id, "target-not-a-node");
+      continue;
+    }
+    const outcome = writer.node({ id: target.id, layer: "human", kind: target.kind, ctx: target.ctx, address: target.address, endAddress: target.endAddress, name: l.label, attrs: compact({ legacy_id: l.id, legacy_kind: "label-override", legacy_origin: "user", note: l.note, target_kind: l.targetKind, target_id: l.targetId, captured_at: l.updatedAt ?? now, created_at: l.createdAt ?? now }), origin: "imported", confidence: "user_asserted", capturedAt: l.updatedAt ?? now, runOwner: null });
+    ledger.log("labels", l.id, outcome === "created" ? "created" : "merged", "nodes", target.id, outcome === "kept" ? "kept-door-row" : null);
+  }
+
+  // ---------------------------------------------------------- flows: regenerable from the analysis artifacts (819)
+  for (const fl of flows) {
+    if (ledger.already("flows", fl.id)) continue;
+    ledger.log("flows", fl.id, "skipped-regenerable", null, null, fl.kind);
+  }
+  void db;
+}
+
+// ------------------------------------------------------------------ *_annotations.json → human nodes + annotations (D6)
+
+export interface AnnotationFileResult extends FileSummary {
+  /** false when the file's hash equals the last import's (nothing re-read) */
+  changed: boolean;
+}
+
+function annotationMeta(db: DatabaseSync, stem: string): { hash: string } | undefined {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(`annotations_imported.${stem}`) as { value: string } | undefined;
+  if (!row) return undefined;
+  try { return JSON.parse(row.value) as { hash: string }; } catch { return undefined; }
+}
+
+/**
+ * One annotation file into the human layer. Idempotent by the ledger while the
+ * file is unchanged; when its hash differs from the last import, the rows the
+ * FILE produced (producer '822', source_path = this file) are replaced — a row
+ * the door has since renamed (producer 'human') is kept (D3: "kept-door-row").
+ */
+export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, path: string, artifacts: ArtifactRecord[], options: { force?: boolean } = {}): AnnotationFileResult {
+  const { db, slug, now, ledger, writer } = ctx;
+  const migrated = MIGRATION_PRODUCER;
+  const stem = basename(path).replace(/_annotations\.json$/u, "");
+  const owner = normStem(stem);
+  const ledgerStore = `annotations:${stem}`;
+  const rel = relative(projectDir, path);
+  const hash = sha256File(path);
+  const previous = annotationMeta(db, stem);
+  const changed = options.force === true || previous === undefined || previous.hash !== hash;
+  if (previous !== undefined && changed) {
+    // the file changed since its last import: retire what the FILE put there, keep what the door wrote
+    db.prepare("DELETE FROM annotations WHERE producer = ? AND source_path = ?").run(migrated, rel);
+    db.prepare("DELETE FROM nodes WHERE layer = 'human' AND producer = ? AND json_extract(attrs, '$.source_path') = ?").run(migrated, rel);
+    db.prepare("DELETE FROM migration_log WHERE legacy_store = ?").run(ledgerStore);
+    const l = ledger as unknown as { seen: Set<string> };
+    for (const k of [...l.seen]) if (k.startsWith(`${ledgerStore} `)) l.seen.delete(k);
+  }
+  const analysisArtifact = artifacts.find((a) => (a.relativePath ?? a.path ?? "").endsWith(`${stem.replace(/_disasm$/u, "")}_analysis.json`));
+  const actx: Ctx = analysisArtifact ? contextForArtifact(analysisArtifact, owner) : { space: "ram", owner };
+  let parsed: { routines?: unknown[]; labels?: unknown[]; segments?: unknown[] };
+  try { parsed = JSON.parse(readFileSync(path, "utf8")) as typeof parsed; } catch {
+    const fs: AnnotationFileResult = { stem, owner, path: rel, routines: 0, labels: 0, segments: 0, dropped: -1, changed };
+    ctx.summary.files.push(fs);
+    return fs;
+  }
+  const fs: AnnotationFileResult = { stem, owner, path: rel, routines: 0, labels: 0, segments: 0, dropped: 0, changed };
+  const fileNodeDrafts = new Map<string, NodeDraft>();
+  const fileAnnotations = new Map<string, AnnotationRow>();
+  const fileLog: Array<[string, string, string]> = []; // store, id, node id
+  const put = (kind: string, address: number, endAddress: number | null, name: string | null, attrs: Record<string, unknown>, legacyId: string, annotation?: { kind: string; title: string; body: string | null; name: string | null }) => {
+    let id: string;
+    try { id = deriveProjectId({ slug, ctx: actx, kind, address }); } catch { fs.dropped += 1; return; }
+    if (ledger.already(ledgerStore, legacyId)) return;
+    fileLog.push([ledgerStore, legacyId, id]);
+    fileNodeDrafts.set(`${id} human`, {
+      id, layer: "human", kind, ctx: actx, address, endAddress, name, attrs: { ...attrs, source_path: rel, captured_at: now },
+      origin: "imported", confidence: "user_asserted", capturedAt: now, runOwner: null,
+    });
+    if (annotation) {
+      const aid = annotationId(id, annotation.kind, annotation.title);
+      fileAnnotations.set(aid, { id: aid, node_id: id, kind: annotation.kind, title: annotation.title, body: annotation.body, name: annotation.name, tags: "[]", source_path: rel, legacy_id: `${ledgerStore}/${legacyId}`, layer: "human", origin: "imported", confidence: "user_asserted", score: null, status: "active", producer: migrated, attrs: "{}", created_at: now, updated_at: now });
+    }
+  };
+  for (const r of (parsed.routines ?? []) as Array<Record<string, unknown>>) {
+    const address = parseHex(r.address);
+    const name = typeof r.name === "string" ? r.name.trim() : "";
+    if (address === undefined || !name) { fs.dropped += 1; continue; }
+    fs.routines += 1;
+    const comment = typeof r.comment === "string" && r.comment.trim() ? r.comment.trim() : null;
+    put("routine", address, null, name, compact({ legacy_kind: "annotation-routine", abi: r.abi }), `routine:${hex4(address)}`, { kind: "routine", title: name, body: comment, name });
+  }
+  for (const l of (parsed.labels ?? []) as Array<Record<string, unknown>>) {
+    const address = parseHex(l.address);
+    const label = typeof l.label === "string" ? l.label.trim() : "";
+    if (address === undefined || !label) { fs.dropped += 1; continue; }
+    fs.labels += 1;
+    const comment = typeof l.comment === "string" && l.comment.trim() ? l.comment.trim() : null;
+    put("label", address, null, label, compact({ legacy_kind: "annotation-label", comment }), `label:${hex4(address)}`, comment ? { kind: "label", title: label, body: comment, name: label } : undefined);
+  }
+  for (const s of (parsed.segments ?? []) as Array<Record<string, unknown>>) {
+    const start = parseHex(s.start);
+    const end = parseHex(s.end);
+    if (start === undefined || end === undefined || end < start) { fs.dropped += 1; continue; }
+    fs.segments += 1;
+    const label = typeof s.label === "string" && s.label.trim() ? s.label.trim() : null;
+    const comment = typeof s.comment === "string" && s.comment.trim() ? s.comment.trim() : null;
+    const kind = typeof s.kind === "string" ? s.kind : "unknown";
+    put("segment", start, end > start ? end : null, label, compact({ legacy_kind: "annotation-segment", segment_kind: kind, comment }), `segment:${hex4(start)}`,
+      comment || label ? { kind: "segment", title: `${kind} $${hex4U(start)}-$${hex4U(end)}`, body: comment, name: label } : undefined);
+  }
+  ctx.summary.files.push(fs);
+  db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .run(`annotations_imported.${stem}`, JSON.stringify({ hash, mtimeMs: statSync(path).mtimeMs, importedAt: now, path: rel }));
+  const fileOutcome = new Map<string, string>();
+  for (const [key, d] of fileNodeDrafts) fileOutcome.set(key, writer.node(d));
+  for (const a of fileAnnotations.values()) writer.annotation(a);
+  const fileSeen = new Set<string>();
+  for (const [store, legacyId, id] of fileLog) {
+    const key = `${id} human`;
+    const outcome = fileOutcome.get(key);
+    const first = !fileSeen.has(key);
+    fileSeen.add(key);
+    ledger.log(store, legacyId, first && outcome === "created" ? "created" : "merged", "nodes", id, outcome === "kept" ? "kept-door-row" : null);
+  }
+  return fs;
+}
+
+// ------------------------------------------------------------------ reading the legacy stores
+
+/** knowledge/<file> if present, else knowledge/_legacy-822/<file> (after the cut-over). */
+function legacyPath(knowledge: string, file: string, legacyDirFiles: string[]): string {
+  const live = join(knowledge, file);
+  if (existsSync(live)) return live;
+  const moved = join(knowledge, LEGACY_DIR, file);
+  if (existsSync(moved)) legacyDirFiles.push(file);
+  return moved;
+}
+
+export function readLegacyInput(projectDir: string, legacyDirFiles: string[] = []): LegacyInput & { annotationFiles: string[]; sourceHash: string } {
+  const knowledge = join(projectDir, "knowledge");
+  const artifacts = readItems<ArtifactRecord>(join(knowledge, "artifacts.json"));
+  const entities = readItems<EntityRecord>(legacyPath(knowledge, "entities.json", legacyDirFiles));
+  const findings = readItems<FindingRecord>(legacyPath(knowledge, "findings.json", legacyDirFiles));
+  const relations = readItems<RelationRecord>(legacyPath(knowledge, "relations.json", legacyDirFiles));
+  const questions = readItems<OpenQuestionRecord>(legacyPath(knowledge, "open-questions.json", legacyDirFiles));
+  const flows = readItems<FlowRecord>(legacyPath(knowledge, "flows.json", legacyDirFiles));
+  const labels = readItems<UserLabelOverride>(legacyPath(knowledge, "labels.user.json", legacyDirFiles));
+  const annotationFiles = findAnnotationFiles(projectDir);
+  const sourceHash = createHash("sha256");
+  for (const f of ["artifacts", "entities", "findings", "relations", "open-questions", "flows", "labels.user"]) {
+    const p = f === "artifacts" ? join(knowledge, "artifacts.json") : legacyPath(knowledge, `${f}.json`, []);
+    sourceHash.update(`${f}:${existsSync(p) ? sha256File(p) : "-"}\n`);
+  }
+  for (const p of annotationFiles) sourceHash.update(`${relative(projectDir, p)}:${sha256File(p)}\n`);
+  return { artifacts, entities, findings, relations, questions, flows, labels, annotationFiles, sourceHash: sourceHash.digest("hex") };
+}
+
 // ------------------------------------------------------------------ the migration
+
+function empty(): StoreSummary {
+  return { total: 0, created: 0, merged: 0, folded: 0, skipped: 0, already: 0, ctxByStem: 0 };
+}
+
+function emptySummary(projectDir: string, slug: string, dryRun: boolean, sourceHash: string, textIndex: TextIndex): MigrateSummary {
+  return {
+    projectDir, slug, dryRun, runId: 0, sourceHash, ms: 0, textIndex,
+    stores: { entities: empty(), findings: empty(), relations: empty(), "open-questions": empty(), labels: empty(), flows: empty(), annotations: empty() },
+    graph: {}, nodesByKind: {}, files: [], humanLayerHash: "", cutoverAt: "", legacyDirFiles: [],
+  };
+}
+
+function finishRun(db: DatabaseSync, store: GraphStore, ledger: Ledger, summary: MigrateSummary, now: string): void {
+  const setMeta = db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+  const cutover = (db.prepare("SELECT value FROM meta WHERE key = 'cutover_at'").get() as { value: string } | undefined)?.value ?? now;
+  setMeta.run("cutover_at", cutover);
+  summary.cutoverAt = cutover;
+  store.recordProducer(MIGRATION_PRODUCER);
+  summary.humanLayerHash = humanLayerHash(db);
+  setMeta.run("human_layer_hash", summary.humanLayerHash);
+  for (const k of Object.keys(summary.stores) as Array<keyof MigrateSummary["stores"]>) summary.stores[k] = ledger.counts[k] ?? empty();
+  const totals = Object.values(summary.stores).reduce((acc, s) => ({ created: acc.created + s.created, merged: acc.merged + s.merged, folded: acc.folded + s.folded, skipped: acc.skipped + s.skipped, already: acc.already + s.already }), { created: 0, merged: 0, folded: 0, skipped: 0, already: 0 });
+  db.prepare("UPDATE migration_runs SET finished_at = ?, created = ?, merged = ?, folded = ?, skipped = ?, already = ? WHERE run_id = ?")
+    .run(new Date().toISOString(), totals.created, totals.merged, totals.folded, totals.skipped, totals.already, ledger.runId);
+  summary.graph = graphCounts(db);
+}
 
 export function migrateProject(options: MigrateOptions): MigrateSummary {
   const t0 = process.hrtime.bigint();
   const projectDir = options.projectDir;
   const now = options.now ?? new Date().toISOString();
   const slug = readProjectSlug(projectDir);
-  const knowledge = join(projectDir, "knowledge");
   const dryRun = options.dryRun === true;
   const graphExisted = existsSync(graphPath(projectDir));
 
   // ---- legacy stores (one at a time; the 70 MB project parses in well under a second)
-  const artifacts = readItems<ArtifactRecord>(join(knowledge, "artifacts.json"));
-  const entities = readItems<EntityRecord>(join(knowledge, "entities.json"));
-  const findings = readItems<FindingRecord>(join(knowledge, "findings.json"));
-  const relations = readItems<RelationRecord>(join(knowledge, "relations.json"));
-  const questions = readItems<OpenQuestionRecord>(join(knowledge, "open-questions.json"));
-  const flows = readItems<FlowRecord>(join(knowledge, "flows.json"));
-  const labels = readItems<UserLabelOverride>(join(knowledge, "labels.user.json"));
-  const annotationFiles = findAnnotationFiles(projectDir);
+  const legacyDirFiles: string[] = [];
+  const input = readLegacyInput(projectDir, legacyDirFiles);
 
-  const sourceHash = createHash("sha256");
-  for (const f of ["artifacts", "entities", "findings", "relations", "open-questions", "flows", "labels.user"]) {
-    const p = join(knowledge, `${f}.json`);
-    sourceHash.update(`${f}:${existsSync(p) ? sha256File(p) : "-"}\n`);
-  }
-  for (const p of annotationFiles) sourceHash.update(`${relative(projectDir, p)}:${sha256File(p)}\n`);
-
-  const resolver = new Resolver(slug, artifacts, entities);
   const store = GraphStore.open(projectDir);
   const db = store.db;
   const { textIndex } = ensureSchema822(db);
-
-  const summary: MigrateSummary = {
-    projectDir, slug, dryRun, runId: 0, sourceHash: sourceHash.digest("hex"), ms: 0, textIndex,
-    stores: {
-      entities: empty(), findings: empty(), relations: empty(), "open-questions": empty(), labels: empty(), flows: empty(), annotations: empty(),
-    },
-    graph: {}, nodesByKind: {}, files: [], humanLayerHash: "", cutoverAt: "",
-  };
+  const resolver = new Resolver(slug, input.artifacts, input.entities, graphPayloads(db));
+  const summary = emptySummary(projectDir, slug, dryRun, input.sourceHash, textIndex);
+  summary.legacyDirFiles = legacyDirFiles;
 
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -508,390 +1068,10 @@ export function migrateProject(options: MigrateOptions): MigrateSummary {
     summary.runId = runId;
     const ledger = new Ledger(db, runId);
     const writer = new Writer(db);
-    const migrated = MIGRATION_PRODUCER;
-
-    // ---------------------------------------------------------- entities → nodes + evidence
-    const nodeDrafts = new Map<string, NodeDraft>();
-    const nodeCreatedBy = new Map<string, string>(); // node id → first legacy id this run
-    const foldEntity: EntityRecord[] = [];
-    const entityAction = new Map<string, { action: MigrationAction; note: string | null; target: Target | undefined }>();
-
-    for (const e of entities) {
-      if (ledger.already("entities", e.id)) continue;
-      const cls = resolver.classOf.get(e.id)!;
-      const t = resolver.target(e);
-      if (!t) { foldEntity.push(e); continue; }
-      const capturedAt = e.evidence?.[0]?.capturedAt ?? e.updatedAt ?? e.createdAt ?? now;
-      const tags = e.tags ?? [];
-      const valueTag = tags.find((x) => !PRODUCER_TAGS.has(x));
-      const attrs: Record<string, unknown> = cls.layer === "generated"
-        ? compact({
-            legacy_kind: e.kind, tags, score: e.confidence, status: e.status, captured_at: capturedAt,
-            segment_kind: tags.includes("segment") ? valueTag : undefined,
-            entry_source: e.kind === "entry-point" ? tags.find((x) => x !== "analysis-import" && x !== "entry-point") : undefined,
-            addressless: t.note === "addressless" ? true : undefined,
-            ctx_by_stem: t.note === "ctx-by-stem" ? true : undefined,
-            payload: e.kind === "payload" || e.kind === "disk-file" ? payloadAttrs(e) : undefined,
-            medium_spans: e.mediumSpans?.length ? e.mediumSpans : undefined,
-          })
-        : compact({
-            legacy_id: e.id, legacy_kind: e.kind, legacy_origin: "user", tags, score: e.confidence, status: e.status, captured_at: capturedAt,
-            aliases: e.aliases?.length ? e.aliases : undefined,
-            payload: e.kind === "payload" ? payloadAttrs(e) : undefined,
-            medium_spans: e.mediumSpans?.length ? e.mediumSpans : undefined,
-            medium_role: e.mediumRole, ownerless: t.note === "ownerless" ? true : undefined,
-          });
-      const draft: NodeDraft = {
-        id: t.id, layer: cls.layer, kind: t.kind, ctx: t.ctx, address: t.address, endAddress: t.endAddress,
-        name: t.kind === "addr" && cls.layer === "generated" ? null : e.name,
-        attrs, origin: cls.origin, confidence: cls.layer === "human" ? "user_asserted" : confidenceForScore(e.confidence, cls.origin),
-        capturedAt, runOwner: t.ctx.owner ?? null,
-      };
-      const key = `${t.id} ${cls.layer}`;
-      const prev = nodeDrafts.get(key);
-      if (!prev) { nodeDrafts.set(key, draft); nodeCreatedBy.set(key, e.id); entityAction.set(e.id, { action: "created", note: t.note ?? null, target: t }); }
-      else {
-        if (newer(capturedAt, prev.capturedAt)) nodeDrafts.set(key, draft); // newest wins (D5)
-        entityAction.set(e.id, { action: "merged", note: t.note ?? null, target: t });
-      }
-      writer.evidence({
-        target_table: "nodes", target_key: t.id, legacy_id: e.id, artifact_id: e.artifactIds?.[0] ?? null, excerpt: clip(e.summary),
-        captured_at: capturedAt, producer: migrated, attrs: sortedJson(compact({ layer: cls.layer, kind: e.kind, name: e.name, score: e.confidence })),
-      });
-    }
-    const nodeOutcome = new Map<string, string>();
-    for (const [key, d] of nodeDrafts) {
-      nodeOutcome.set(key, writer.node(d));
-      if (d.layer === "generated") summary.nodesByKind[d.kind] = (summary.nodesByKind[d.kind] ?? 0) + 1;
-    }
-    for (const [legacyId, a] of entityAction) {
-      const key = `${a.target!.id} ${resolver.classOf.get(legacyId)!.layer}`;
-      const outcome = nodeOutcome.get(key);
-      const action: MigrationAction = a.action === "created" && (outcome === "created" || outcome === "shared") ? "created" : "merged";
-      const note = a.note ?? (outcome === "kept" ? "kept-door-row" : null);
-      ledger.log("entities", legacyId, action, "nodes", a.target!.id, note);
-    }
-    for (const e of foldEntity) {
-      // no address at all (traces, a save descriptor): prose on the project, not a node
-      const cls = resolver.classOf.get(e.id)!;
-      const id = annotationId(null, `entity:${e.kind}`, e.name);
-      writer.annotation({
-        id, node_id: null, kind: `entity:${e.kind}`, title: e.name, body: e.summary ?? null, name: e.name, tags: JSON.stringify(e.tags ?? []),
-        source_path: null, legacy_id: e.id, layer: cls.layer, origin: cls.origin, confidence: cls.layer === "human" ? "user_asserted" : confidenceForScore(e.confidence, cls.origin),
-        score: e.confidence ?? null, status: e.status ?? "active", producer: migrated,
-        attrs: sortedJson(compact({ legacy_kind: e.kind, legacy_origin: cls.layer === "human" ? "user" : undefined, artifact_ids: e.artifactIds, related_entity_ids: e.relatedEntityIds })),
-        created_at: e.createdAt ?? now, updated_at: e.updatedAt ?? now,
-      });
-      writer.evidence({ target_table: "annotations", target_key: id, legacy_id: e.id, artifact_id: e.artifactIds?.[0] ?? null, excerpt: clip(e.summary), captured_at: e.evidence?.[0]?.capturedAt ?? e.createdAt ?? now, producer: migrated, attrs: sortedJson(compact({ kind: e.kind, name: e.name, score: e.confidence })) });
-      ledger.log("entities", e.id, "folded", "annotations", id, "no-address");
-    }
-    // the summary → an `entity` annotation on the node, for hand-made rows (§5)
-    for (const e of entities) {
-      const a = entityAction.get(e.id);
-      const cls = resolver.classOf.get(e.id)!;
-      if (!a || cls.layer !== "human" || !e.summary) continue;
-      const id = annotationId(a.target!.id, "entity", e.name);
-      writer.annotation({
-        id, node_id: a.target!.id, kind: "entity", title: e.name, body: e.summary, name: e.name, tags: JSON.stringify(e.tags ?? []), source_path: null, legacy_id: e.id,
-        layer: "human", origin: cls.origin, confidence: "user_asserted", score: e.confidence ?? null, status: e.status ?? "active", producer: migrated,
-        attrs: sortedJson(compact({ legacy_kind: e.kind, legacy_origin: "user" })), created_at: e.createdAt ?? now, updated_at: e.updatedAt ?? now,
-      });
-    }
-
-    // ---------------------------------------------------------- findings → claims / annotations
-    const claimDrafts = new Map<string, ClaimDraft>();
-    const claimOfFinding = new Map<string, { node: string; claim: string }>();
-    const claimFirst = new Map<string, string>();
-    const findingLog: Array<[string, MigrationAction, string | null, string | null, string | null]> = [];
-
-    const claimFor = (f: FindingRecord): { node: string; claim: string; value: string; labelHint?: string } | undefined => {
-      const tags = f.tags ?? [];
-      const ent = (f.entityIds ?? []).map((id) => resolver.entById.get(id)).find((x): x is EntityRecord => Boolean(x));
-      const range = f.addressRange as AddressRange | undefined;
-      const valueTag = tags.find((x) => !PRODUCER_TAGS.has(x));
-      if (tags.includes("ram-hypothesis")) {
-        const start = range?.start ?? (ent?.addressRange as AddressRange | undefined)?.start;
-        if (start === undefined) return undefined;
-        const kind = (ent?.tags ?? []).find((x) => !PRODUCER_TAGS.has(x)) ?? f.title.match(/behaves like (\S+)/u)?.[1] ?? "unknown";
-        return { node: deriveProjectId({ slug, ctx: { space: "ram" }, kind: "addr", address: start }), claim: "behaves_like", value: kind, labelHint: ent?.name };
-      }
-      if (tags.includes("segment-classification")) {
-        const t = ent ? resolver.target(ent) : undefined;
-        if (!t) return undefined;
-        return { node: t.id, claim: "segment_kind", value: valueTag ?? f.title.match(/classified as (\S+)/u)?.[1] ?? "unknown" };
-      }
-      if (tags.includes("display-state")) {
-        const t = ent ? resolver.target(ent) : undefined;
-        if (!t) return undefined;
-        return { node: t.id, claim: "display_state", value: "inferred" };
-      }
-      if (tags.includes("display-transfer")) {
-        const start = range?.start ?? f.evidence?.[0]?.addressRange?.start;
-        if (start === undefined) return undefined;
-        return { node: deriveProjectId({ slug, ctx: { space: "ram" }, kind: "addr", address: start }), claim: "display_transfer", value: valueTag ?? "unknown" };
-      }
-      const t = ent ? resolver.target(ent) : undefined;
-      const start = range?.start;
-      const node = t?.id ?? (start !== undefined ? deriveProjectId({ slug, ctx: { space: "ram" }, kind: "addr", address: start }) : undefined);
-      if (!node) return undefined;
-      return { node, claim: valueTag ?? f.kind, value: f.kind };
-    };
-
-    const nodeForHumanFinding = (f: FindingRecord): string | null => {
-      const range = f.addressRange as AddressRange | undefined;
-      if (range) return deriveProjectId({ slug, ctx: { space: "ram" }, kind: "addr", address: range.start & 0xffff });
-      for (const id of f.entityIds ?? []) {
-        const e = resolver.entById.get(id);
-        const t = e ? resolver.target(e) : undefined;
-        if (t) return t.id;
-      }
-      return null;
-    };
-
-    for (const f of findings) {
-      const cls = classifyFinding(f);
-      const capturedAt = f.evidence?.[0]?.capturedAt ?? f.createdAt ?? now;
-      if (cls.bucket === "analysis-import") {
-        const c = claimFor(f);
-        if (c) claimOfFinding.set(f.id, { node: c.node, claim: c.claim });
-        if (ledger.already("findings", f.id)) continue;
-        if (!c) { findingLog.push([f.id, "skipped", null, null, "no-node"]); continue; }
-        const key = `${c.node} ${c.claim}`;
-        const draft: ClaimDraft = {
-          node_id: c.node, claim: c.claim, value: c.value, layer: "generated", origin: "static", confidence: confidenceForScore(f.confidence, "static"),
-          score: f.confidence ?? null, status: f.status === "archived" ? "archived" : "active", validation: "unvalidated", validated_by: null,
-          superseded_by: f.archivedBy ?? null, attrs: sortedJson(compact({ label_hint: c.labelHint, legacy_kind: f.kind, title: f.title })), updated_at: capturedAt,
-        };
-        const prev = claimDrafts.get(key);
-        if (!prev) { claimDrafts.set(key, draft); claimFirst.set(key, f.id); findingLog.push([f.id, "created", "claims", `${c.node}|${c.claim}`, null]); }
-        else {
-          if (newer(capturedAt, prev.updated_at)) claimDrafts.set(key, draft);
-          findingLog.push([f.id, "merged", "claims", `${c.node}|${c.claim}`, null]);
-        }
-        writer.evidence({
-          target_table: "claims", target_key: `${c.node}|${c.claim}`, legacy_id: f.id, artifact_id: f.artifactIds?.[0] ?? null, excerpt: clip(f.summary),
-          captured_at: capturedAt, producer: migrated, attrs: sortedJson(compact({ value: c.value, score: f.confidence, status: f.status, title: f.title })),
-        });
-        continue;
-      }
-      if (ledger.already("findings", f.id)) continue;
-      if (cls.bucket === "annotation-mirror") {
-        // Spec 055's mirror of the annotation file: the file is imported below, the row is not migrated (D6)
-        ledger.log("findings", f.id, "folded", null, null, "annotation-file-is-source");
-        continue;
-      }
-      const nodeId = nodeForHumanFinding(f);
-      const kind = `finding:${f.kind}`;
-      const id = annotationId(nodeId, kind, f.title);
-      const outcome = writer.annotation({
-        id, node_id: nodeId, kind, title: f.title, body: f.summary ?? null, name: null, tags: JSON.stringify(f.tags ?? []), source_path: null, legacy_id: f.id,
-        layer: cls.layer, origin: cls.origin, confidence: cls.layer === "human" ? "user_asserted" : confidenceForScore(f.confidence, cls.origin),
-        score: f.confidence ?? null, status: f.status ?? "proposed", producer: migrated,
-        attrs: sortedJson(compact({ legacy_origin: cls.layer === "human" ? "user" : undefined, entity_ids: f.entityIds, artifact_ids: f.artifactIds, relation_ids: f.relationIds, flow_ids: f.flowIds, payload_id: f.payloadId, address_range: f.addressRange, archived_by: f.archivedBy })),
-        created_at: f.createdAt ?? now, updated_at: f.updatedAt ?? now,
-      });
-      writer.evidence({ target_table: "annotations", target_key: id, legacy_id: f.id, artifact_id: f.artifactIds?.[0] ?? null, excerpt: clip(f.summary), captured_at: capturedAt, producer: migrated, attrs: sortedJson(compact({ kind: f.kind, title: f.title, score: f.confidence, status: f.status })) });
-      (f.evidence ?? []).forEach((ev, i) => writer.evidence({
-        target_table: "annotations", target_key: id, legacy_id: `${f.id}#${i}`, artifact_id: ev.artifactId ?? null,
-        excerpt: clip(ev.excerpt ?? ev.note ?? ev.title), captured_at: ev.capturedAt ?? capturedAt, producer: migrated,
-        attrs: sortedJson(compact({ kind: ev.kind, title: ev.title, address_range: ev.addressRange, entity_id: ev.entityId, finding_id: ev.findingId, file: ev.fileLocation })),
-      }));
-      ledger.log("findings", f.id, outcome === "created" ? "created" : "merged", "annotations", id, outcome === "kept" ? "kept-door-row" : null);
-    }
-    const claimOutcome = new Map<string, string>();
-    for (const [key, c] of claimDrafts) claimOutcome.set(key, writer.claim(c));
-    for (const [id, action, table, target, note] of findingLog) {
-      if (action === "created" && target) {
-        const outcome = claimOutcome.get(target.replace("|", " "));
-        ledger.log("findings", id, outcome === "created" ? "created" : "merged", table, target, outcome === "kept" ? "kept-door-row" : note);
-      } else ledger.log("findings", id, action, table, target, note);
-    }
-
-    // ---------------------------------------------------------- relations → edges
-    const edgeDrafts = new Map<string, EdgeDraft>();
-    const relationLog: Array<[string, MigrationAction, string, string]> = [];
-    for (const r of relations) {
-      if (ledger.already("relations", r.id)) continue;
-      const src = resolver.entById.get(r.sourceEntityId);
-      const tgt = resolver.entById.get(r.targetEntityId);
-      const cls = classifyRelation(r, src && resolver.classOf.get(src.id), tgt && resolver.classOf.get(tgt.id));
-      const from = src ? resolver.target(src) : undefined;
-      const to = tgt ? resolver.target(tgt) : undefined;
-      const capturedAt = r.evidence?.[0]?.capturedAt ?? r.createdAt ?? now;
-      if (!from || !to) {
-        const nodeId = from?.id ?? to?.id ?? null;
-        const kind = `relation:${r.kind}`;
-        const id = annotationId(nodeId, kind, r.title);
-        writer.annotation({
-          id, node_id: nodeId, kind, title: r.title, body: r.summary ?? null, name: null, tags: "[]", source_path: null, legacy_id: r.id,
-          layer: cls.layer, origin: cls.origin, confidence: cls.layer === "human" ? "user_asserted" : confidenceForScore(r.confidence, cls.origin),
-          score: r.confidence ?? null, status: r.status ?? "active", producer: migrated,
-          attrs: sortedJson(compact({ legacy_origin: cls.layer === "human" ? "user" : undefined, source_entity_id: r.sourceEntityId, target_entity_id: r.targetEntityId, source_name: src?.name, target_name: tgt?.name, artifact_ids: r.artifactIds })),
-          created_at: r.createdAt ?? now, updated_at: r.updatedAt ?? now,
-        });
-        writer.evidence({ target_table: "annotations", target_key: id, legacy_id: r.id, artifact_id: r.artifactIds?.[0] ?? null, excerpt: clip(r.summary), captured_at: capturedAt, producer: migrated, attrs: sortedJson(compact({ kind: r.kind, title: r.title, score: r.confidence })) });
-        ledger.log("relations", r.id, "folded", "annotations", id, "endpoint-not-a-node");
-        continue;
-      }
-      const type = EDGE_TYPE[r.kind] ?? r.kind.toUpperCase().replace(/-/gu, "_");
-      const key = `${from.id} ${type} ${to.id} ${cls.layer}`;
-      const draft: EdgeDraft = {
-        from: from.id, type, to: to.id, layer: cls.layer, origin: cls.origin, owner: from.ctx.owner ?? null, score: r.confidence ?? 0.5,
-        confidence: cls.layer === "human" ? "user_asserted" : confidenceForScore(r.confidence, cls.origin),
-        evidence: cls.layer === "human" ? compact({ legacy_id: r.id, title: r.title, summary: r.summary, score: r.confidence, legacy_origin: "user" }) : {},
-      };
-      const prev = edgeDrafts.get(key);
-      if (!prev) { edgeDrafts.set(key, draft); relationLog.push([r.id, "created", `${from.id}|${type}|${to.id}`, key]); }
-      else { if (draft.score > prev.score) edgeDrafts.set(key, draft); relationLog.push([r.id, "merged", `${from.id}|${type}|${to.id}`, key]); }
-      writer.evidence({
-        target_table: "edges", target_key: `${from.id}|${type}|${to.id}`, legacy_id: r.id, artifact_id: r.artifactIds?.[0] ?? null, excerpt: clip(r.summary),
-        captured_at: capturedAt, producer: migrated, attrs: sortedJson(compact({ layer: cls.layer, kind: r.kind, title: r.title, score: r.confidence })),
-      });
-    }
-    const edgeOutcome = new Map<string, boolean>();
-    for (const [key, e] of edgeDrafts) edgeOutcome.set(key, writer.edge(e));
-    for (const [id, action, target, key] of relationLog) {
-      ledger.log("relations", id, action === "created" && edgeOutcome.get(key) === false ? "merged" : action, "edges", target, null);
-    }
-
-    // ---------------------------------------------------------- questions → claims.validation / questions
-    for (const q of questions) {
-      if (ledger.already("open-questions", q.id)) continue;
-      const cls = classifyQuestion(q);
-      if (cls.bucket === "heuristic") {
-        const findingId = q.findingIds?.[0] ?? q.answeredByFindingId;
-        const c = findingId ? claimOfFinding.get(findingId) : undefined;
-        const answered = q.status === "answered" || q.answeredByFindingId !== undefined;
-        if (c) {
-          writer.validate(c.node, c.claim, answered ? "answered" : "unvalidated", q.answeredByFindingId ?? null);
-          ledger.log("open-questions", q.id, "folded", "claims", `${c.node}|${c.claim}`, answered ? "answered" : null);
-        } else ledger.log("open-questions", q.id, "folded", null, null, "finding-not-a-claim");
-        continue;
-      }
-      const range = q.addressRange as AddressRange | undefined;
-      let nodeId: string | null = range ? deriveProjectId({ slug, ctx: { space: "ram" }, kind: "addr", address: range.start & 0xffff }) : null;
-      if (!nodeId) for (const id of q.entityIds ?? []) { const e = resolver.entById.get(id); const t = e ? resolver.target(e) : undefined; if (t) { nodeId = t.id; break; } }
-      const outcome = writer.question({
-        id: q.id, node_id: nodeId, kind: q.kind, title: q.title, body: q.description ?? null, status: q.status ?? "open", priority: q.priority ?? "medium",
-        layer: cls.layer, origin: cls.origin, answer: q.answerSummary ?? null, answered_by: q.answeredByFindingId ?? null, producer: migrated,
-        attrs: sortedJson(compact({ legacy_origin: cls.layer === "human" ? "user" : undefined, source: q.source, score: q.confidence, entity_ids: q.entityIds, finding_ids: q.findingIds, artifact_ids: q.artifactIds, auto_resolvable: q.autoResolvable, auto_resolve_hint: q.autoResolveHint })),
-        created_at: q.createdAt ?? now, updated_at: q.updatedAt ?? now,
-      });
-      (q.evidence ?? []).forEach((ev, i) => writer.evidence({
-        target_table: "questions", target_key: q.id, legacy_id: `${q.id}#${i}`, artifact_id: ev.artifactId ?? null, excerpt: clip(ev.excerpt ?? ev.note ?? ev.title),
-        captured_at: ev.capturedAt ?? q.createdAt ?? now, producer: migrated, attrs: sortedJson(compact({ kind: ev.kind, title: ev.title })),
-      }));
-      ledger.log("open-questions", q.id, outcome === "created" ? "created" : "merged", "questions", q.id, outcome === "kept" ? "kept-door-row" : null);
-    }
-
-    // ---------------------------------------------------------- user labels → human nodes (Spec 754 §3.3f)
-    for (const l of labels) {
-      if (ledger.already("labels", l.id)) continue;
-      const range = l.addressRange as AddressRange | undefined;
-      let target: Target | undefined;
-      if (l.targetKind === "address" && range) target = { id: deriveProjectId({ slug, ctx: { space: "ram" }, kind: "addr", address: range.start & 0xffff }), kind: "addr", ctx: { space: "ram" }, address: range.start & 0xffff, endAddress: range.end > range.start ? range.end & 0xffff : null };
-      else if (l.targetKind === "entity" && l.targetId) { const e = resolver.entById.get(l.targetId); target = e ? resolver.target(e) : undefined; }
-      if (!target) {
-        const id = annotationId(null, "label-override", `${l.targetKind}:${l.targetId ?? ""}`);
-        writer.annotation({ id, node_id: null, kind: "label-override", title: l.label, body: l.note ?? null, name: l.label, tags: "[]", source_path: null, legacy_id: l.id, layer: "human", origin: "imported", confidence: "user_asserted", score: null, status: "active", producer: migrated, attrs: sortedJson(compact({ target_kind: l.targetKind, target_id: l.targetId, legacy_origin: "user" })), created_at: l.createdAt ?? now, updated_at: l.updatedAt ?? now });
-        ledger.log("labels", l.id, "folded", "annotations", id, "target-not-a-node");
-        continue;
-      }
-      const outcome = writer.node({ id: target.id, layer: "human", kind: target.kind, ctx: target.ctx, address: target.address, endAddress: target.endAddress, name: l.label, attrs: compact({ legacy_id: l.id, legacy_kind: "label-override", legacy_origin: "user", note: l.note, captured_at: l.updatedAt ?? now }), origin: "imported", confidence: "user_asserted", capturedAt: l.updatedAt ?? now, runOwner: null });
-      ledger.log("labels", l.id, outcome === "created" ? "created" : "merged", "nodes", target.id, outcome === "kept" ? "kept-door-row" : null);
-    }
-
-    // ---------------------------------------------------------- flows: regenerable from the analysis artifacts (819)
-    for (const fl of flows) {
-      if (ledger.already("flows", fl.id)) continue;
-      ledger.log("flows", fl.id, "skipped-regenerable", null, null, fl.kind);
-    }
-
-    // ---------------------------------------------------------- *_annotations.json → human nodes + annotations (D6)
-    const fileNodeDrafts = new Map<string, NodeDraft>();
-    const fileAnnotations = new Map<string, AnnotationRow>();
-    const fileLog: Array<[string, string, string]> = []; // store, id, node id
-    for (const path of annotationFiles) {
-      const stem = basename(path).replace(/_annotations\.json$/u, "");
-      const owner = normStem(stem);
-      const ledgerStore = `annotations:${stem}`;
-      const rel = relative(projectDir, path);
-      const analysisArtifact = artifacts.find((a) => (a.relativePath ?? a.path ?? "").endsWith(`${stem.replace(/_disasm$/u, "")}_analysis.json`));
-      const ctx: Ctx = analysisArtifact ? contextForArtifact(analysisArtifact, owner) : { space: "ram", owner };
-      let parsed: { routines?: unknown[]; labels?: unknown[]; segments?: unknown[] };
-      try { parsed = JSON.parse(readFileSync(path, "utf8")) as typeof parsed; } catch { summary.files.push({ stem, owner, path: rel, routines: 0, labels: 0, segments: 0, dropped: -1 }); continue; }
-      const fs: FileSummary = { stem, owner, path: rel, routines: 0, labels: 0, segments: 0, dropped: 0 };
-      const put = (kind: string, address: number, endAddress: number | null, name: string | null, attrs: Record<string, unknown>, legacyId: string, annotation?: { kind: string; title: string; body: string | null; name: string | null }) => {
-        let id: string;
-        try { id = deriveProjectId({ slug, ctx, kind, address }); } catch { fs.dropped += 1; return; }
-        if (ledger.already(ledgerStore, legacyId)) return;
-        fileLog.push([ledgerStore, legacyId, id]);
-        fileNodeDrafts.set(`${id} human`, {
-          id, layer: "human", kind, ctx, address, endAddress, name, attrs: { ...attrs, source_path: rel, captured_at: now },
-          origin: "imported", confidence: "user_asserted", capturedAt: now, runOwner: null,
-        });
-        if (annotation) {
-          const aid = annotationId(id, annotation.kind, annotation.title);
-          fileAnnotations.set(aid, { id: aid, node_id: id, kind: annotation.kind, title: annotation.title, body: annotation.body, name: annotation.name, tags: "[]", source_path: rel, legacy_id: `${ledgerStore}/${legacyId}`, layer: "human", origin: "imported", confidence: "user_asserted", score: null, status: "active", producer: migrated, attrs: "{}", created_at: now, updated_at: now });
-        }
-      };
-      for (const r of (parsed.routines ?? []) as Array<Record<string, unknown>>) {
-        const address = parseHex(r.address);
-        const name = typeof r.name === "string" ? r.name.trim() : "";
-        if (address === undefined || !name) { fs.dropped += 1; continue; }
-        fs.routines += 1;
-        const comment = typeof r.comment === "string" && r.comment.trim() ? r.comment.trim() : null;
-        put("routine", address, null, name, compact({ legacy_kind: "annotation-routine", abi: r.abi }), `routine:${hex4(address)}`, { kind: "routine", title: name, body: comment, name });
-      }
-      for (const l of (parsed.labels ?? []) as Array<Record<string, unknown>>) {
-        const address = parseHex(l.address);
-        const label = typeof l.label === "string" ? l.label.trim() : "";
-        if (address === undefined || !label) { fs.dropped += 1; continue; }
-        fs.labels += 1;
-        const comment = typeof l.comment === "string" && l.comment.trim() ? l.comment.trim() : null;
-        put("label", address, null, label, compact({ legacy_kind: "annotation-label", comment }), `label:${hex4(address)}`, comment ? { kind: "label", title: label, body: comment, name: label } : undefined);
-      }
-      for (const s of (parsed.segments ?? []) as Array<Record<string, unknown>>) {
-        const start = parseHex(s.start);
-        const end = parseHex(s.end);
-        if (start === undefined || end === undefined || end < start) { fs.dropped += 1; continue; }
-        fs.segments += 1;
-        const label = typeof s.label === "string" && s.label.trim() ? s.label.trim() : null;
-        const comment = typeof s.comment === "string" && s.comment.trim() ? s.comment.trim() : null;
-        const kind = typeof s.kind === "string" ? s.kind : "unknown";
-        put("segment", start, end > start ? end : null, label, compact({ legacy_kind: "annotation-segment", segment_kind: kind, comment }), `segment:${hex4(start)}`,
-          comment || label ? { kind: "segment", title: `${kind} $${hex4U(start)}-$${hex4U(end)}`, body: comment, name: label } : undefined);
-      }
-      summary.files.push(fs);
-      db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-        .run(`annotations_imported.${stem}`, JSON.stringify({ hash: sha256File(path), mtimeMs: statSync(path).mtimeMs, importedAt: now, path: rel }));
-    }
-    const fileOutcome = new Map<string, string>();
-    for (const [key, d] of fileNodeDrafts) fileOutcome.set(key, writer.node(d));
-    for (const a of fileAnnotations.values()) writer.annotation(a);
-    const fileSeen = new Set<string>();
-    for (const [store, legacyId, id] of fileLog) {
-      const key = `${id} human`;
-      const outcome = fileOutcome.get(key);
-      const first = !fileSeen.has(key);
-      fileSeen.add(key);
-      ledger.log(store, legacyId, first && outcome === "created" ? "created" : "merged", "nodes", id, outcome === "kept" ? "kept-door-row" : null);
-    }
-
-    // ---------------------------------------------------------- meta + run record
-    const setMeta = db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
-    const cutover = (db.prepare("SELECT value FROM meta WHERE key = 'cutover_at'").get() as { value: string } | undefined)?.value ?? now;
-    setMeta.run("cutover_at", cutover);
-    summary.cutoverAt = cutover;
-    store.recordProducer(MIGRATION_PRODUCER);
-    summary.humanLayerHash = humanLayerHash(db);
-    setMeta.run("human_layer_hash", summary.humanLayerHash);
-    for (const k of Object.keys(summary.stores) as Array<keyof MigrateSummary["stores"]>) summary.stores[k] = ledger.counts[k] ?? empty();
-    const totals = Object.values(summary.stores).reduce((acc, s) => ({ created: acc.created + s.created, merged: acc.merged + s.merged, folded: acc.folded + s.folded, skipped: acc.skipped + s.skipped, already: acc.already + s.already }), { created: 0, merged: 0, folded: 0, skipped: 0, already: 0 });
-    db.prepare("UPDATE migration_runs SET finished_at = ?, created = ?, merged = ?, folded = ?, skipped = ?, already = ? WHERE run_id = ?")
-      .run(new Date().toISOString(), totals.created, totals.merged, totals.folded, totals.skipped, totals.already, runId);
-    summary.graph = graphCounts(db);
-
+    const ctx: MigrationContext = { db, slug, now, ledger, writer, resolver, summary };
+    applyLegacyRecords(ctx, input);
+    for (const path of input.annotationFiles) applyAnnotationFile(ctx, projectDir, path, input.artifacts);
+    finishRun(db, store, ledger, summary, now);
     if (dryRun) db.exec("ROLLBACK");
     else db.exec("COMMIT");
   } catch (error) {
@@ -908,17 +1088,134 @@ export function migrateProject(options: MigrateOptions): MigrateSummary {
   return summary;
 }
 
-function empty(): StoreSummary {
-  return { total: 0, created: 0, merged: 0, folded: 0, skipped: 0, already: 0, ctxByStem: 0 };
+// ------------------------------------------------------------------ 822.2 — the generated import path after the cut-over
+
+export interface ImportRecordsOptions {
+  projectDir: string;
+  /** an open, writable store to use (the caller owns the connection); opened and closed here otherwise */
+  store?: GraphStore;
+  /** the caller already holds BEGIN IMMEDIATE on `store`; no transaction is opened or committed here */
+  inTransaction?: boolean;
+  /** the analysis / manifest artifact whose previous contribution is retired first (D2) */
+  purgeArtifactId?: string;
+  /** legacy ids to retire before applying (a door re-save of a generated record) */
+  purgeLegacyIds?: Array<{ store: "entities" | "findings" | "relations" | "open-questions" | "labels"; id: string }>;
+  now?: string;
 }
 
-function payloadAttrs(e: EntityRecord): Record<string, unknown> | undefined {
-  const p = compact({
-    load_address: e.payloadLoadAddress, format: e.payloadFormat, packer: e.payloadPacker, source_artifact_id: e.payloadSourceArtifactId,
-    depacked_artifact_id: e.payloadDepackedArtifactId, asm_artifact_ids: e.payloadAsmArtifactIds, content_hash: e.payloadContentHash,
-    loader_model_id: e.payloadLoaderModelId, claimed_by_lut_id: e.payloadClaimedByLutId, claimed_by_row: e.payloadClaimedByRow, disk_hint: e.payloadDiskHint,
-  });
-  return Object.keys(p).length ? p : undefined;
+export interface ImportRecordsResult {
+  runId: number;
+  stores: MigrateSummary["stores"];
+  nodesByKind: Record<string, number>;
+  purged: { evidence: number; ledger: number; nodes: number; claims: number; edges: number; annotations: number };
+  ms: number;
+}
+
+/** Retire the generated 822 rows that no evidence row backs any more (after a purge). */
+function sweepOrphans(db: DatabaseSync): { nodes: number; claims: number; edges: number; annotations: number } {
+  const claims = Number(db.prepare("DELETE FROM claims WHERE producer = '822' AND layer = 'generated' AND NOT EXISTS (SELECT 1 FROM evidence e WHERE e.target_table = 'claims' AND e.target_key = claims.node_id || '|' || claims.claim)").run().changes);
+  const nodes = Number(db.prepare("DELETE FROM nodes WHERE producer = '822' AND layer = 'generated' AND kind <> 'addr' AND NOT EXISTS (SELECT 1 FROM evidence e WHERE e.target_table = 'nodes' AND e.target_key = nodes.id)").run().changes);
+  const edges = Number(db.prepare("DELETE FROM edges WHERE producer = '822' AND layer = 'generated' AND NOT EXISTS (SELECT 1 FROM evidence e WHERE e.target_table = 'edges' AND e.target_key = edges.from_id || '|' || edges.type || '|' || edges.to_id)").run().changes);
+  const annotations = Number(db.prepare("DELETE FROM annotations WHERE producer = '822' AND layer = 'generated' AND NOT EXISTS (SELECT 1 FROM evidence e WHERE e.target_table = 'annotations' AND e.target_key = annotations.id)").run().changes);
+  return { nodes, claims, edges, annotations };
+}
+
+/**
+ * Legacy-shaped records from a deterministic importer (analysis-import,
+ * manifest-import, inventory sync) into the generated layer, through the same
+ * §5 mapping as the migration. One transaction: purge the artifact's previous
+ * contribution (its evidence rows + ledger entries, then the rows nothing
+ * backs), apply, log. Human rows are not addressed by any statement here.
+ */
+export function importRecords(input: Partial<Omit<LegacyInput, "artifacts">>, options: ImportRecordsOptions): ImportRecordsResult {
+  const t0 = process.hrtime.bigint();
+  const projectDir = options.projectDir;
+  const now = options.now ?? new Date().toISOString();
+  const slug = readProjectSlug(projectDir);
+  const owned = options.store === undefined;
+  const store = options.store ?? GraphStore.open(projectDir);
+  const db = store.db;
+  const { textIndex } = ensureSchema822(db);
+  const artifacts = readItems<ArtifactRecord>(join(projectDir, "knowledge", "artifacts.json"));
+  const full: Omit<LegacyInput, "artifacts"> = {
+    entities: input.entities ?? [], findings: input.findings ?? [], relations: input.relations ?? [], questions: input.questions ?? [], flows: input.flows ?? [], labels: input.labels ?? [],
+  };
+  const summary = emptySummary(projectDir, slug, false, "", textIndex);
+  const purged = { evidence: 0, ledger: 0, nodes: 0, claims: 0, edges: 0, annotations: 0 };
+  const inTx = options.inTransaction !== true;
+  if (inTx) db.exec("BEGIN IMMEDIATE");
+  try {
+    if (options.purgeArtifactId) {
+      const token = legacyIdToken(options.purgeArtifactId);
+      purged.evidence += Number(db.prepare("DELETE FROM evidence WHERE producer = '822' AND artifact_id = ? AND (legacy_id LIKE ? OR legacy_id LIKE ? OR legacy_id LIKE ? OR legacy_id LIKE ?)").run(options.purgeArtifactId, `entity-${token}-%`, `finding-${token}-%`, `relation-${token}-%`, `question-${token}-%`).changes);
+      purged.ledger += Number(db.prepare("DELETE FROM migration_log WHERE legacy_store IN ('entities','findings','relations','open-questions') AND (legacy_id LIKE ? OR legacy_id LIKE ? OR legacy_id LIKE ? OR legacy_id LIKE ?)").run(`entity-${token}-%`, `finding-${token}-%`, `relation-${token}-%`, `question-${token}-%`).changes);
+    }
+    for (const p of options.purgeLegacyIds ?? []) {
+      purged.evidence += Number(db.prepare("DELETE FROM evidence WHERE producer = '822' AND (legacy_id = ? OR legacy_id LIKE ?)").run(p.id, `${p.id}#%`).changes);
+      purged.ledger += Number(db.prepare("DELETE FROM migration_log WHERE legacy_store = ? AND legacy_id = ?").run(p.store, p.id).changes);
+    }
+    if (purged.evidence > 0 || purged.ledger > 0) {
+      const s = sweepOrphans(db);
+      purged.nodes += s.nodes; purged.claims += s.claims; purged.edges += s.edges; purged.annotations += s.annotations;
+    }
+    const runId = Number((db.prepare("INSERT INTO migration_runs (started_at, source_hash, dry_run) VALUES (?, ?, 0)").run(now, `import:${options.purgeArtifactId ?? "door"}`)).lastInsertRowid);
+    summary.runId = runId;
+    const ledger = new Ledger(db, runId);
+    const writer = new Writer(db);
+    const resolver = new Resolver(slug, artifacts, full.entities, graphPayloads(db));
+    applyLegacyRecords({ db, slug, now, ledger, writer, resolver, summary }, full);
+    finishRun(db, store, ledger, summary, now);
+    if (inTx) db.exec("COMMIT");
+  } catch (error) {
+    if (inTx) { try { db.exec("ROLLBACK"); } catch { /* already rolled back */ } }
+    if (owned) store.close();
+    throw error;
+  }
+  if (owned) store.close();
+  return { runId: summary.runId, stores: summary.stores, nodesByKind: summary.nodesByKind, purged, ms: Number(process.hrtime.bigint() - t0) / 1e6 };
+}
+
+export interface ImportAnnotationFileOptions {
+  projectDir: string;
+  store?: GraphStore;
+  /** the caller already holds BEGIN IMMEDIATE on `store` */
+  inTransaction?: boolean;
+  /** re-import even when the hash is unchanged */
+  force?: boolean;
+  now?: string;
+}
+
+/** The annotation-file door (D6): `disasm_prg` and `c64re graph annotations-import` call this. */
+export function importAnnotationFile(path: string, options: ImportAnnotationFileOptions): AnnotationFileResult & { runId: number; ms: number } {
+  const t0 = process.hrtime.bigint();
+  const projectDir = options.projectDir;
+  const now = options.now ?? new Date().toISOString();
+  const slug = readProjectSlug(projectDir);
+  const owned = options.store === undefined;
+  const store = options.store ?? GraphStore.open(projectDir);
+  const db = store.db;
+  const { textIndex } = ensureSchema822(db);
+  const artifacts = readItems<ArtifactRecord>(join(projectDir, "knowledge", "artifacts.json"));
+  const summary = emptySummary(projectDir, slug, false, "", textIndex);
+  const inTx = options.inTransaction !== true;
+  if (inTx) db.exec("BEGIN IMMEDIATE");
+  let result: AnnotationFileResult;
+  try {
+    const runId = Number((db.prepare("INSERT INTO migration_runs (started_at, source_hash, dry_run) VALUES (?, ?, 0)").run(now, `annotations:${sha256File(path)}`)).lastInsertRowid);
+    summary.runId = runId;
+    const ledger = new Ledger(db, runId);
+    const writer = new Writer(db);
+    const resolver = new Resolver(slug, artifacts, [], graphPayloads(db));
+    result = applyAnnotationFile({ db, slug, now, ledger, writer, resolver, summary }, projectDir, path, artifacts, { force: options.force });
+    finishRun(db, store, ledger, summary, now);
+    if (inTx) db.exec("COMMIT");
+  } catch (error) {
+    if (inTx) { try { db.exec("ROLLBACK"); } catch { /* already rolled back */ } }
+    if (owned) store.close();
+    throw error;
+  }
+  if (owned) store.close();
+  return { ...result, runId: summary.runId, ms: Number(process.hrtime.bigint() - t0) / 1e6 };
 }
 
 export function graphCounts(db: DatabaseSync): Record<string, number> {

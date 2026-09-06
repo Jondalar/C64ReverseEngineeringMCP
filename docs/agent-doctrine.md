@@ -221,12 +221,11 @@ steer at once, so:
 The persistent state lives in:
 
 - `knowledge/project.json`
-- `knowledge/entities.json`
-- `knowledge/findings.json`
-- `knowledge/relations.json`
+- `knowledge/graph.sqlite` — findings, entities, relations, open questions, user labels
+  (Spec 822.2: the knowledge graph is the store; `save_*` / `list_*` read and write it,
+  and `graph_*` walks it)
 - `knowledge/flows.json`
 - `knowledge/tasks.json`
-- `knowledge/open-questions.json`
 - `knowledge/artifacts.json`
 - `knowledge/notes.md`
 - `knowledge/agent-state.json` + `knowledge/NEXT.md` (managed by `agent_*` tools)

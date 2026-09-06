@@ -2,13 +2,16 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync,
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { basename, extname, relative, resolve } from "node:path";
-import { importAnalysisKnowledge, stampImportedKnowledgeWithPayload } from "./analysis-import.js";
+import { importAnalysisKnowledge, stampImportedKnowledgeWithPayload, type ImportedAnalysisKnowledge } from "./analysis-import.js";
 import { seedControlFlowForArtifact } from "../knowledge-graph/producers/artifact.js";
+import { KnowledgeRecords } from "../knowledge-graph/records.js";
+import { ensureCutover } from "../knowledge-graph/cutover.js";
+import { importAnnotationFile, type LegacyInput } from "../knowledge-graph/migrate/migrate.js";
+import { normStem } from "../knowledge-graph/migrate/classify.js";
 import { importManifestKnowledge } from "./manifest-import.js";
 import { isHeuristicQuestion } from "./question-triage.js";
 import { buildAnnotatedListingView, buildCartridgeLayoutView, buildDiskLayoutView, buildFlowGraphView, buildLoadSequenceView, buildMediumLayoutView, buildMemoryMapView, buildProjectDashboardView } from "./view-builders.js";
 import { ProjectKnowledgeStorage, defaultProjectSlug } from "./storage.js";
-import { annotationSegmentsToOverlays, overlayCovering } from "./effective-segments.js";
 import { recommendedLifecyclePhase, applyDiscoveryCoverageGate, applyMediaFloor } from "../agent-orchestrator/lifecycle.js";
 import { computeDiscoveryCoverage, discoveryCoverageComplete } from "./medium-coverage.js";
 import {
@@ -107,6 +110,30 @@ function createId(prefix: string, title: string): string {
 
 function uniqueStrings(values: string[] | undefined): string[] {
   return [...new Set((values ?? []).filter(Boolean))].sort();
+}
+
+// Spec 822.2 — the importers' drafts, completed to the record shapes the graph
+// importer maps (§5). Questions carry source=heuristic-phase1 (Spec 036): the
+// mapping folds them into claims.validation instead of minting question rows.
+function importDraftsToRecords(imported: Pick<ImportedAnalysisKnowledge, "entities" | "findings" | "relations" | "openQuestions">, now: string): Partial<Omit<LegacyInput, "artifacts">> {
+  return {
+    entities: imported.entities.map((e) => ({
+      relatedEntityIds: [], payloadAsmArtifactIds: [], mediumSpans: [], aliases: [], status: "active" as const, createdAt: now, updatedAt: now,
+      ...(e as Partial<EntityRecord>),
+    } as EntityRecord)),
+    findings: imported.findings.map((f) => ({
+      relationIds: [], flowIds: [], createdAt: now, updatedAt: now,
+      ...(f as Partial<FindingRecord>),
+    } as FindingRecord)),
+    relations: imported.relations.map((r) => ({
+      createdAt: now, updatedAt: now,
+      ...(r as Partial<RelationRecord>),
+    } as RelationRecord)),
+    questions: imported.openQuestions.map((q) => ({
+      source: "heuristic-phase1" as const, createdAt: now, updatedAt: now,
+      ...(q as Partial<OpenQuestionRecord>),
+    } as OpenQuestionRecord)),
+  };
 }
 
 function dedupEvidence<T extends { kind?: string; artifactId?: string; address?: number; note?: string }>(items: T[]): T[] {
@@ -738,10 +765,17 @@ export interface BuildAllViewsResult {
 
 export class ProjectKnowledgeService {
   readonly storage: ProjectKnowledgeStorage;
+  /** Spec 822.2 — the graph is the store for findings, entities, relations, open questions and user labels. */
+  readonly records: KnowledgeRecords;
 
   constructor(projectRoot: string) {
     this.storage = new ProjectKnowledgeStorage(resolve(projectRoot));
     this.storage.ensureProjectStructure();
+    this.records = new KnowledgeRecords(this.storage.paths.root);
+    // Spec 822.2 cut-over: a project that still carries the legacy JSON stores is
+    // migrated on open (idempotent by the ledger, logged to the timeline) and the
+    // files parked under knowledge/_legacy-822/. A fresh project never had them.
+    ensureCutover(this.storage.paths.root);
   }
 
   getProjectRoot(): string {
@@ -886,16 +920,18 @@ export class ProjectKnowledgeService {
     const project = this.requireProject();
     const workflowPlan = this.storage.loadWorkflowPlan();
     const workflowState = this.syncWorkflowState(workflowPlan);
+    const graphCounts = this.records.counts();
     return {
       project,
       counts: {
         artifacts: this.storage.loadArtifacts().items.length,
-        entities: this.storage.loadEntities().items.length,
-        findings: this.storage.loadFindings().items.length,
-        relations: this.storage.loadRelations().items.length,
+        // Spec 822.2 — the graph's counts for the migrated record types
+        entities: graphCounts.entities,
+        findings: graphCounts.findings,
+        relations: graphCounts.relations,
         flows: this.storage.loadFlows().items.length,
         tasks: this.storage.loadTasks().items.length,
-        openQuestions: this.storage.loadOpenQuestions().items.length,
+        openQuestions: graphCounts.openQuestions,
         checkpoints: this.storage.listCheckpoints().length,
       },
       workflowPlan,
@@ -1127,82 +1163,21 @@ export class ProjectKnowledgeService {
     const remapEvidence = (ev?: { artifactId?: string; [k: string]: unknown }[]) =>
       (ev ?? []).map((e) => (e.artifactId ? { ...e, artifactId: remap(e.artifactId) } : e));
 
-    // entities: artifactIds[], payloadSourceArtifactId,
-    // payloadDepackedArtifactId, payloadAsmArtifactIds[], evidence[].artifactId
-    {
-      const s = this.storage.loadEntities();
-      let touched = 0;
-      const next = s.items.map((item) => {
-        const aids = remapList(item.artifactIds);
-        const psrc = remap(item.payloadSourceArtifactId);
-        const pdep = remap(item.payloadDepackedArtifactId);
-        const pasm = remapList(item.payloadAsmArtifactIds);
-        const ev = remapEvidence(item.evidence as { artifactId?: string }[] | undefined);
-        const changed =
-          JSON.stringify(aids) !== JSON.stringify(item.artifactIds ?? []) ||
-          psrc !== item.payloadSourceArtifactId ||
-          pdep !== item.payloadDepackedArtifactId ||
-          JSON.stringify(pasm) !== JSON.stringify(item.payloadAsmArtifactIds ?? []) ||
-          JSON.stringify(ev) !== JSON.stringify(item.evidence ?? []);
-        if (changed) {
-          touched += 1;
-          return {
-            ...item,
-            artifactIds: aids,
-            payloadSourceArtifactId: psrc,
-            payloadDepackedArtifactId: pdep,
-            payloadAsmArtifactIds: pasm,
-            evidence: ev as typeof item.evidence,
-            updatedAt: ts,
-          };
-        }
-        return item;
-      });
-      counts.entities = touched;
-      if (!opts.dryRun && touched > 0) {
-        this.storage.saveEntities({ ...s, updatedAt: ts, items: next });
-      }
-    }
-
-    // findings: artifactIds[], evidence[].artifactId
-    {
-      const s = this.storage.loadFindings();
-      let touched = 0;
-      const next = s.items.map((item) => {
-        const aids = remapList(item.artifactIds);
-        const ev = remapEvidence(item.evidence as { artifactId?: string }[] | undefined);
-        if (JSON.stringify(aids) !== JSON.stringify(item.artifactIds ?? []) ||
-            JSON.stringify(ev) !== JSON.stringify(item.evidence ?? [])) {
-          touched += 1;
-          return { ...item, artifactIds: aids, evidence: ev as typeof item.evidence, updatedAt: ts };
-        }
-        return item;
-      });
-      counts.findings = touched;
-      if (!opts.dryRun && touched > 0) {
-        this.storage.saveFindings({ ...s, updatedAt: ts, items: next });
-      }
-    }
-
-    // relations: artifactIds[], evidence[].artifactId
-    // (sourceEntityId / targetEntityId reference entities, not artifacts.)
-    {
-      const s = this.storage.loadRelations();
-      let touched = 0;
-      const next = s.items.map((item) => {
-        const aids = remapList(item.artifactIds);
-        const ev = remapEvidence(item.evidence as { artifactId?: string }[] | undefined);
-        if (JSON.stringify(aids) !== JSON.stringify(item.artifactIds ?? []) ||
-            JSON.stringify(ev) !== JSON.stringify(item.evidence ?? [])) {
-          touched += 1;
-          return { ...item, artifactIds: aids, evidence: ev as typeof item.evidence, updatedAt: ts };
-        }
-        return item;
-      });
-      counts.relations = touched;
-      if (!opts.dryRun && touched > 0) {
-        this.storage.saveRelations({ ...s, updatedAt: ts, items: next });
-      }
+    // entities / findings / relations / open-questions live in the graph
+    // (Spec 822.2): the evidence rows and the attrs / evidence JSON that name
+    // an artifact are rewritten there in one transaction.
+    if (opts.dryRun) {
+      const mentions = (o: unknown) => { const s = JSON.stringify(o); return [...idRemap.keys()].some((k) => s.includes(`"${k}"`)); };
+      counts.entities = this.records.listEntities().filter(mentions).length;
+      counts.findings = this.records.listFindings().filter(mentions).length;
+      counts.relations = this.records.listRelations().filter(mentions).length;
+      counts.openQuestions = this.records.listOpenQuestions().filter(mentions).length;
+    } else {
+      const g = this.records.remapArtifactIds(idRemap);
+      counts.entities = g.entities;
+      counts.findings = g.findings;
+      counts.relations = g.relations;
+      counts.openQuestions = g.openQuestions;
     }
 
     // flows: artifactIds[], nodes[].artifactId, evidence[].artifactId
@@ -1253,34 +1228,7 @@ export class ProjectKnowledgeService {
       }
     }
 
-    // open-questions: artifactIds[], evidence[].artifactId, autoResolveHint
-    {
-      const s = this.storage.loadOpenQuestions();
-      let touched = 0;
-      const next = s.items.map((item) => {
-        const aids = remapList(item.artifactIds);
-        const ev = remapEvidence(item.evidence as { artifactId?: string }[] | undefined);
-        let hint = item.autoResolveHint;
-        if (hint && typeof hint === "object" && hint.kind === "phase-reached") {
-          const r = remap(hint.artifactId);
-          if (r !== hint.artifactId) hint = { ...hint, artifactId: r! };
-        } else if (hint && typeof hint === "object" && hint.kind === "annotation-applied") {
-          const r = remap(hint.artifactId);
-          if (r !== hint.artifactId) hint = { ...hint, artifactId: r! };
-        }
-        if (JSON.stringify(aids) !== JSON.stringify(item.artifactIds ?? []) ||
-            JSON.stringify(ev) !== JSON.stringify(item.evidence ?? []) ||
-            hint !== item.autoResolveHint) {
-          touched += 1;
-          return { ...item, artifactIds: aids, evidence: ev as typeof item.evidence, autoResolveHint: hint, updatedAt: ts };
-        }
-        return item;
-      });
-      counts.openQuestions = touched;
-      if (!opts.dryRun && touched > 0) {
-        this.storage.saveOpenQuestions({ ...s, updatedAt: ts, items: next });
-      }
-    }
+    // open-questions: in the graph (Spec 822.2) — rewritten with the entities / findings / relations above.
 
     return counts;
   }
@@ -1327,28 +1275,24 @@ export class ProjectKnowledgeService {
       this.storage.saveArtifacts({ ...artifactStore, updatedAt: ts, items: updatedArtifacts });
     }
 
-    // Pass 2: entities. Always use the just-updated artifact map (even
-    // on dry-run) so entity flag is predicted correctly assuming the
-    // artifact pass would have applied.
+    // Pass 2: entities (the graph, Spec 822.2). Always use the just-updated
+    // artifact map (even on dry-run) so entity flag is predicted correctly
+    // assuming the artifact pass would have applied.
     const artifactsById = new Map(updatedArtifacts.map((a) => [a.id, a] as const));
-    const entityStore = this.storage.loadEntities();
-    const updatedEntities = entityStore.items.map((e) => {
+    for (const e of this.records.listEntities()) {
       if (e.internal !== undefined) {
         out.entitiesAlreadyFlagged += 1;
-        return e;
+        continue;
       }
       const primaryId = e.payloadSourceArtifactId ?? e.artifactIds?.[0];
-      if (!primaryId) return e;
+      if (!primaryId) continue;
       const primary = artifactsById.get(primaryId);
-      if (!primary || primary.internal !== true) return e;
+      if (!primary || primary.internal !== true) continue;
       out.entitiesUpdated += 1;
       if (out.sample.length < 20) {
         out.sample.push({ kind: "entity", id: e.id, title: e.name, internal: true });
       }
-      return { ...e, internal: true, updatedAt: ts };
-    });
-    if (!dryRun && out.entitiesUpdated > 0) {
-      this.storage.saveEntities({ ...entityStore, updatedAt: ts, items: updatedEntities });
+      if (!dryRun) this.records.patchEntity(e.id, { internal: true });
     }
 
     return out;
@@ -1368,7 +1312,6 @@ export class ProjectKnowledgeService {
     sample: Array<{ entityId: string; name: string; hash: string }>;
   } {
     const dryRun = opts?.dryRun ?? false;
-    const entityStore = this.storage.loadEntities();
     const artifacts = this.storage.loadArtifacts();
     const artifactById = new Map(artifacts.items.map((a) => [a.id, a] as const));
     const out: {
@@ -1379,27 +1322,23 @@ export class ProjectKnowledgeService {
       updated: 0, skippedAlreadyHashed: 0, skippedNoSource: 0,
       skippedAggregatorSource: 0, skippedFileMissing: 0, sample: [],
     };
-    const ts = nowIso();
-    const updatedItems = entityStore.items.map((e) => {
+    for (const e of this.records.listEntities()) {
       const isPayloadBearing = e.kind === "payload" || e.payloadLoadAddress !== undefined;
-      if (!isPayloadBearing) return e;
-      if (e.payloadContentHash) { out.skippedAlreadyHashed += 1; return e; }
+      if (!isPayloadBearing) continue;
+      if (e.payloadContentHash) { out.skippedAlreadyHashed += 1; continue; }
       const srcId = e.payloadSourceArtifactId;
-      if (!srcId) { out.skippedNoSource += 1; return e; }
+      if (!srcId) { out.skippedNoSource += 1; continue; }
       const srcArt = artifactById.get(srcId);
-      if (!srcArt) { out.skippedNoSource += 1; return e; }
-      if (srcArt.kind === "manifest") { out.skippedAggregatorSource += 1; return e; }
-      if (!existsSync(srcArt.path)) { out.skippedFileMissing += 1; return e; }
+      if (!srcArt) { out.skippedNoSource += 1; continue; }
+      if (srcArt.kind === "manifest") { out.skippedAggregatorSource += 1; continue; }
+      if (!existsSync(srcArt.path)) { out.skippedFileMissing += 1; continue; }
       const hash = sha256OfFile(srcArt.path);
-      if (!hash) { out.skippedFileMissing += 1; return e; }
+      if (!hash) { out.skippedFileMissing += 1; continue; }
       out.updated += 1;
       if (out.sample.length < 10) {
         out.sample.push({ entityId: e.id, name: e.name, hash });
       }
-      return { ...e, payloadContentHash: hash, updatedAt: ts };
-    });
-    if (!dryRun && out.updated > 0) {
-      this.storage.saveEntities({ ...entityStore, updatedAt: ts, items: updatedItems });
+      if (!dryRun) this.records.patchEntity(e.id, { payloadContentHash: hash });
     }
     return out;
   }
@@ -1420,9 +1359,7 @@ export class ProjectKnowledgeService {
     sample: Array<{ entityId: string; name: string; hash: string }>;
   } {
     const dryRun = opts?.dryRun ?? false;
-    const entityStore = this.storage.loadEntities();
     const artifacts = this.storage.loadArtifacts().items;
-    const entityById = new Map(entityStore.items.map((e) => [e.id, e] as const));
     const out: {
       updated: number; skippedAlreadyHashed: number; manifestsScanned: number;
       skippedNoMatch: number; skippedFileMissing: number;
@@ -1431,15 +1368,14 @@ export class ProjectKnowledgeService {
       updated: 0, skippedAlreadyHashed: 0, manifestsScanned: 0,
       skippedNoMatch: 0, skippedFileMissing: 0, sample: [],
     };
-    const ts = nowIso();
-    const updatedById = new Map<string, typeof entityStore.items[number]>();
     for (const art of artifacts) {
       if (art.kind !== "manifest") continue;
       out.manifestsScanned += 1;
       const imported = importManifestKnowledge(art);
       if (!imported) continue;
       for (const importedEntity of imported.entities) {
-        const target = entityById.get(importedEntity.id);
+        // the manifest's legacy id resolves through the ledger to the graph node
+        const target = this.records.getEntity(importedEntity.id);
         if (!target) { out.skippedNoMatch += 1; continue; }
         if (target.payloadContentHash) { out.skippedAlreadyHashed += 1; continue; }
         const hash = importedEntity.payloadContentHash;
@@ -1448,12 +1384,8 @@ export class ProjectKnowledgeService {
         if (out.sample.length < 10) {
           out.sample.push({ entityId: target.id, name: target.name, hash });
         }
-        updatedById.set(target.id, { ...target, payloadContentHash: hash, updatedAt: ts });
+        if (!dryRun) this.records.patchEntity(target.id, { payloadContentHash: hash });
       }
-    }
-    if (!dryRun && out.updated > 0) {
-      const nextItems = entityStore.items.map((e) => updatedById.get(e.id) ?? e);
-      this.storage.saveEntities({ ...entityStore, updatedAt: ts, items: nextItems });
     }
     return out;
   }
@@ -1475,297 +1407,21 @@ export class ProjectKnowledgeService {
     referenceRemapCounts: Record<string, number>;
     sample: Array<{ key: string; survivorId: string; survivorName: string; mergedNames: string[] }>;
   } {
-    const dryRun = opts?.dryRun ?? false;
-    const entityStore = this.storage.loadEntities();
-    const artifacts = this.storage.loadArtifacts();
-    const artifactById = new Map(artifacts.items.map((a) => [a.id, a] as const));
-
-    // Group payload-bearing entities by hash, then by (source, load).
-    // Non-payload entities pass through untouched.
-    const isPayloadBearing = (e: typeof entityStore.items[number]) =>
-      e.kind === "payload" || e.payloadLoadAddress !== undefined;
-    const groups = new Map<string, typeof entityStore.items>();
-    const passThrough: typeof entityStore.items = [];
-    for (const e of entityStore.items) {
-      if (!isPayloadBearing(e)) {
-        passThrough.push(e);
-        continue;
-      }
-      // Bug 33 Fix B: aggregator skip in migration too. When srcArt is
-      // a manifest (or any aggregator kind), the (src, load) fallback
-      // would false-merge unrelated payloads sharing a load address.
-      // Force solo-key bucket so they survive untouched unless hash
-      // matches a sibling.
-      const srcArt = e.payloadSourceArtifactId ? artifactById.get(e.payloadSourceArtifactId) : undefined;
-      const srcIsAggregator = srcArt?.kind === "manifest";
-      const key = e.payloadContentHash
-        ? `hash:${e.payloadContentHash}`
-        : (!srcIsAggregator && e.payloadSourceArtifactId !== undefined && e.payloadLoadAddress !== undefined)
-          ? `src+load:${e.payloadSourceArtifactId}@${e.payloadLoadAddress}`
-          : `solo:${e.id}`;
-      const list = groups.get(key) ?? [];
-      list.push(e);
-      groups.set(key, list);
-    }
-
-    const idRemap = new Map<string, string>();
-    const survivors: typeof entityStore.items = [...passThrough];
-    const sample: Array<{ key: string; survivorId: string; survivorName: string; mergedNames: string[] }> = [];
-    let duplicateGroupCount = 0;
-    let mergedRowCount = 0;
-    let manifestEntitiesMarkedInternal = 0;
-
-    for (const [key, group] of groups) {
-      if (group.length === 1) {
-        // Solo entity: still apply manifest-internal classification.
-        const e = group[0]!;
-        const src = e.payloadSourceArtifactId ? artifactById.get(e.payloadSourceArtifactId) : undefined;
-        if (src?.internal === true && e.internal !== true) {
-          manifestEntitiesMarkedInternal += 1;
-          survivors.push({ ...e, internal: true, updatedAt: nowIso() });
-        } else {
-          survivors.push(e);
-        }
-        continue;
-      }
-      duplicateGroupCount += 1;
-      // Survivor: prefer kind=="payload" first, then earliest createdAt.
-      const sorted = [...group].sort((a, b) => {
-        const aPayload = a.kind === "payload" ? 0 : 1;
-        const bPayload = b.kind === "payload" ? 0 : 1;
-        if (aPayload !== bPayload) return aPayload - bPayload;
-        return a.createdAt.localeCompare(b.createdAt);
-      });
-      const survivor = sorted[0]!;
-      const merged = sorted.slice(1);
-      mergedRowCount += merged.length;
-      const aliasUnion = new Set<string>([
-        ...(survivor.aliases ?? []),
-        ...merged.flatMap((m) => [m.name, ...(m.aliases ?? [])]),
-      ]);
-      aliasUnion.delete(survivor.name);
-      const survivorMerged = {
-        ...survivor,
-        aliases: [...aliasUnion].sort(),
-        artifactIds: uniqueStrings([survivor.artifactIds, ...merged.map((m) => m.artifactIds)].flat()),
-        relatedEntityIds: uniqueStrings([survivor.relatedEntityIds, ...merged.map((m) => m.relatedEntityIds)].flat()),
-        payloadAsmArtifactIds: uniqueStrings([
-          survivor.payloadAsmArtifactIds ?? [],
-          ...merged.map((m) => m.payloadAsmArtifactIds ?? []),
-        ].flat()),
-        evidence: dedupEvidence([survivor.evidence ?? [], ...merged.map((m) => m.evidence ?? [])].flat()),
-        tags: uniqueStrings([survivor.tags, ...merged.map((m) => m.tags)].flat()),
-        payloadContentHash: survivor.payloadContentHash
-          ?? merged.find((m) => m.payloadContentHash)?.payloadContentHash,
-        updatedAt: nowIso(),
-      };
-      // Manifest-internal classification: if the survivor's source
-      // artifact is internal, mark the entity internal.
-      const src = survivorMerged.payloadSourceArtifactId
-        ? artifactById.get(survivorMerged.payloadSourceArtifactId)
-        : undefined;
-      if (src?.internal === true && survivorMerged.internal !== true) {
-        survivorMerged.internal = true;
-        manifestEntitiesMarkedInternal += 1;
-      }
-      survivors.push(survivorMerged);
-      for (const m of merged) {
-        idRemap.set(m.id, survivor.id);
-      }
-      if (sample.length < 10) {
-        sample.push({
-          key,
-          survivorId: survivor.id,
-          survivorName: survivor.name,
-          mergedNames: merged.map((m) => m.name),
-        });
-      }
-    }
-
-    const referenceRemapCounts = this.remapEntityReferences(idRemap, { dryRun });
-
-    if (!dryRun && (duplicateGroupCount > 0 || manifestEntitiesMarkedInternal > 0)) {
-      this.storage.saveEntities({
-        ...entityStore,
-        updatedAt: nowIso(),
-        items: survivors.sort((a, b) => a.id.localeCompare(b.id)),
-      });
-      this.appendTimelineEvent({
-        kind: "note",
-        title: `Payload entity registry deduped`,
-        summary: `merged ${mergedRowCount} duplicates into ${duplicateGroupCount} survivors; marked ${manifestEntitiesMarkedInternal} manifest-source entities internal`,
-        payload: { mergedRowCount, duplicateGroupCount, manifestEntitiesMarkedInternal, referenceRemapCounts },
-      });
-    }
-
+    // Spec 822.2: payload identity is DERIVED in the graph — one node per
+    // (owner stem, load address), and saveEntity folds a re-registration by
+    // content hash / (source, load) into that node's aliases — and the migration
+    // merged the legacy duplicates by derived id. There is nothing left to dedupe
+    // after the cut-over; the tool keeps its shape and reports the survivors.
+    void opts;
+    const payloads = this.records.listEntities().filter((e) => e.kind === "payload" || e.payloadLoadAddress !== undefined);
     return {
-      duplicateGroupCount,
-      mergedRowCount,
-      survivorCount: survivors.length,
-      manifestEntitiesMarkedInternal,
-      referenceRemapCounts,
-      sample,
+      duplicateGroupCount: 0,
+      mergedRowCount: 0,
+      survivorCount: payloads.length,
+      manifestEntitiesMarkedInternal: 0,
+      referenceRemapCounts: { entities: 0, findings: 0, relations: 0, flows: 0, tasks: 0, openQuestions: 0, checkpoints: 0, artifacts: 0 },
+      sample: [],
     };
-  }
-
-  // Walks each non-entity store and rewrites references from deprecated
-  // entity ids to survivor ids. Used by dedupePayloadEntities.
-  private remapEntityReferences(
-    idRemap: Map<string, string>,
-    opts: { dryRun: boolean },
-  ): Record<string, number> {
-    const counts: Record<string, number> = {
-      entities: 0,
-      findings: 0,
-      relations: 0,
-      flows: 0,
-      tasks: 0,
-      openQuestions: 0,
-      checkpoints: 0,
-      artifacts: 0,
-    };
-    if (idRemap.size === 0) return counts;
-    const remap = (id?: string): string | undefined => (id && idRemap.has(id) ? idRemap.get(id)! : id);
-    const remapList = (ids?: string[]): string[] => uniqueStrings((ids ?? []).map((id) => idRemap.get(id) ?? id));
-    const ts = nowIso();
-
-    // entities: relatedEntityIds, payloadId
-    {
-      const s = this.storage.loadEntities();
-      let touched = 0;
-      const next = s.items.map((item) => {
-        const rel = remapList(item.relatedEntityIds);
-        const pid = remap(item.payloadId);
-        if (JSON.stringify(rel) !== JSON.stringify(item.relatedEntityIds ?? []) || pid !== item.payloadId) {
-          touched += 1;
-          return { ...item, relatedEntityIds: rel, payloadId: pid, updatedAt: ts };
-        }
-        return item;
-      });
-      counts.entities = touched;
-      if (!opts.dryRun && touched > 0) {
-        this.storage.saveEntities({ ...s, updatedAt: ts, items: next });
-      }
-    }
-
-    // findings: entityIds, payloadId
-    {
-      const s = this.storage.loadFindings();
-      let touched = 0;
-      const next = s.items.map((item) => {
-        const eids = remapList(item.entityIds);
-        const pid = remap(item.payloadId);
-        if (JSON.stringify(eids) !== JSON.stringify(item.entityIds ?? []) || pid !== item.payloadId) {
-          touched += 1;
-          return { ...item, entityIds: eids, payloadId: pid, updatedAt: ts };
-        }
-        return item;
-      });
-      counts.findings = touched;
-      if (!opts.dryRun && touched > 0) {
-        this.storage.saveFindings({ ...s, updatedAt: ts, items: next });
-      }
-    }
-
-    // relations: sourceEntityId, targetEntityId
-    {
-      const s = this.storage.loadRelations();
-      let touched = 0;
-      const next = s.items.map((item) => {
-        const src = remap(item.sourceEntityId);
-        const tgt = remap(item.targetEntityId);
-        if (src !== item.sourceEntityId || tgt !== item.targetEntityId) {
-          touched += 1;
-          return { ...item, sourceEntityId: src!, targetEntityId: tgt!, updatedAt: ts };
-        }
-        return item;
-      });
-      counts.relations = touched;
-      if (!opts.dryRun && touched > 0) {
-        this.storage.saveRelations({ ...s, updatedAt: ts, items: next });
-      }
-    }
-
-    // flows: entityIds, nodes[].entityId
-    {
-      const s = this.storage.loadFlows();
-      let touched = 0;
-      const next = s.items.map((item) => {
-        const eids = remapList(item.entityIds);
-        const nodes = (item.nodes ?? []).map((n) => (n.entityId ? { ...n, entityId: remap(n.entityId) } : n));
-        if (JSON.stringify(eids) !== JSON.stringify(item.entityIds ?? []) ||
-            JSON.stringify(nodes) !== JSON.stringify(item.nodes ?? [])) {
-          touched += 1;
-          return { ...item, entityIds: eids, nodes, updatedAt: ts };
-        }
-        return item;
-      });
-      counts.flows = touched;
-      if (!opts.dryRun && touched > 0) {
-        this.storage.saveFlows({ ...s, updatedAt: ts, items: next });
-      }
-    }
-
-    // tasks: entityIds
-    {
-      const s = this.storage.loadTasks();
-      let touched = 0;
-      const next = s.items.map((item) => {
-        const eids = remapList(item.entityIds);
-        if (JSON.stringify(eids) !== JSON.stringify(item.entityIds ?? [])) {
-          touched += 1;
-          return { ...item, entityIds: eids, updatedAt: ts };
-        }
-        return item;
-      });
-      counts.tasks = touched;
-      if (!opts.dryRun && touched > 0) {
-        this.storage.saveTasks({ ...s, updatedAt: ts, items: next });
-      }
-    }
-
-    // open-questions: entityIds, autoResolveHint(.entityId)
-    {
-      const s = this.storage.loadOpenQuestions();
-      let touched = 0;
-      const next = s.items.map((item) => {
-        const eids = remapList(item.entityIds);
-        let hint = item.autoResolveHint;
-        if (hint && typeof hint === "object" && hint.kind === "finding-with-entity") {
-          const r = remap(hint.entityId);
-          if (r !== hint.entityId) hint = { ...hint, entityId: r! };
-        }
-        if (JSON.stringify(eids) !== JSON.stringify(item.entityIds ?? []) || hint !== item.autoResolveHint) {
-          touched += 1;
-          return { ...item, entityIds: eids, autoResolveHint: hint, updatedAt: ts };
-        }
-        return item;
-      });
-      counts.openQuestions = touched;
-      if (!opts.dryRun && touched > 0) {
-        this.storage.saveOpenQuestions({ ...s, updatedAt: ts, items: next });
-      }
-    }
-
-    // artifacts: entityIds
-    {
-      const s = this.storage.loadArtifacts();
-      let touched = 0;
-      const next = s.items.map((item) => {
-        const eids = remapList(item.entityIds);
-        if (JSON.stringify(eids) !== JSON.stringify(item.entityIds ?? [])) {
-          touched += 1;
-          return { ...item, entityIds: eids, updatedAt: ts };
-        }
-        return item;
-      });
-      counts.artifacts = touched;
-      if (!opts.dryRun && touched > 0) {
-        this.storage.saveArtifacts({ ...s, updatedAt: ts, items: next });
-      }
-    }
-
-    return counts;
   }
 
   // Spec 025: call before overwriting an artifact's on-disk file so the
@@ -2609,177 +2265,61 @@ export class ProjectKnowledgeService {
   // edited annotations doesn't accumulate stale ranges. Returns
   // counts. Idempotent: re-running with same annotations produces the
   // same findings (same ids).
-  emitAnnotationFindings(args: {
-    sourcePrgArtifactId: string;
+  /**
+   * Spec 822 D6 — the annotation-file door. `<stem>_annotations.json` is imported
+   * into the human layer (routine / label / segment nodes + their prose) when its
+   * hash changed since the last import (`meta.annotations_imported.<stem>`); a row
+   * the door renamed since is kept. Replaces Spec 055's `emitAnnotationFindings`:
+   * the graph row IS the mirror, no `finding-routine-*` / `finding-segclass-*` is
+   * minted and nothing has to be purged by id prefix.
+   */
+  importAnnotations(args: {
+    sourcePrgArtifactId?: string;
     annotationsPath: string;
-    analysisJsonPath?: string;
+    force?: boolean;
   }): {
-    routinesEmitted: number;
-    segmentReclassesEmitted: number;
-    staleRemoved: number;
+    routines: number;
+    labels: number;
+    segments: number;
+    dropped: number;
+    changed: boolean;
+    owner: string;
     annotationsArtifactId?: string;
   } {
-    const sourcePrg = this.listArtifacts().find((a) => a.id === args.sourcePrgArtifactId);
-    if (!sourcePrg) {
-      return { routinesEmitted: 0, segmentReclassesEmitted: 0, staleRemoved: 0 };
-    }
     if (!existsSync(args.annotationsPath)) {
-      return { routinesEmitted: 0, segmentReclassesEmitted: 0, staleRemoved: 0 };
+      return { routines: 0, labels: 0, segments: 0, dropped: 0, changed: false, owner: "" };
     }
-    let annotations: {
-      segments?: Array<{ start?: string | number; end?: string | number; kind?: string; label?: string }>;
-      routines?: Array<{ address?: string | number; name?: string; comment?: string }>;
-    };
-    try {
-      annotations = JSON.parse(readFileSync(args.annotationsPath, "utf8"));
-    } catch {
-      return { routinesEmitted: 0, segmentReclassesEmitted: 0, staleRemoved: 0 };
-    }
-    let analysis: { segments?: Array<{ start: number; end: number; kind: string }> } | undefined;
-    if (args.analysisJsonPath && existsSync(args.analysisJsonPath)) {
-      try { analysis = JSON.parse(readFileSync(args.analysisJsonPath, "utf8")); } catch { /* ok */ }
-    }
-    const binaryStem = sourcePrg.relativePath.replace(/\.[^./]+$/, "").replace(/^.*\//, "");
-    function parseHexOrNum(v: string | number | undefined): number | undefined {
-      if (v === undefined) return undefined;
-      if (typeof v === "number") return v;
-      const s = v.replace(/^\$/, "").replace(/^0x/i, "");
-      const n = Number.parseInt(s, 16);
-      return Number.isFinite(n) ? n : undefined;
-    }
-    // Spec 751.3 — single-source the annotation overlay parsing + precedence
-    // through the shared effective-segments module (this was an inline 3rd copy
-    // of the Spec 055 overlay, BUG-034). annotationSegmentsToOverlays parses the
-    // hex/number addresses; overlayCovering resolves the annotation owner
-    // (later-by-start wins). effectiveSegmentEndAt keeps its kind+source walk so
-    // routine-end derivation is byte-for-byte unchanged.
-    const annotationSegs = annotationSegmentsToOverlays(annotations.segments).sort((a, b) => a.start - b.start);
-    const analysisSegs = (analysis?.segments ?? []).filter((s) => typeof s.start === "number" && typeof s.end === "number" && s.end >= s.start);
-    function effectiveOwnerAt(addr: number): { kind: string; source: "annotation" | "analysis" } | undefined {
-      const annOwner = overlayCovering(annotationSegs, addr);
-      if (annOwner) return { kind: annOwner.kind, source: "annotation" };
-      for (const s of analysisSegs) {
-        if (s.start <= addr && addr <= s.end) return { kind: s.kind, source: "analysis" };
+    let annotationsArtifactId: string | undefined;
+    if (args.sourcePrgArtifactId) {
+      const sourcePrg = this.listArtifacts().find((a) => a.id === args.sourcePrgArtifactId);
+      if (sourcePrg) {
+        // Ensure the annotations file is a registered artifact (as Spec 055 did).
+        const binaryStem = sourcePrg.relativePath.replace(/\.[^./]+$/, "").replace(/^.*\//, "");
+        let annotationsArtifact = this.listArtifacts().find((a) => a.path === args.annotationsPath);
+        if (!annotationsArtifact) {
+          const relativeAnnotations = relative(this.storage.paths.root, args.annotationsPath).replace(/\\/g, "/");
+          annotationsArtifact = this.saveArtifact({
+            kind: "other",
+            scope: "knowledge",
+            title: `${binaryStem} annotations`,
+            path: relativeAnnotations,
+            sourceArtifactIds: [args.sourcePrgArtifactId],
+            role: "annotations",
+          });
+        }
+        annotationsArtifactId = annotationsArtifact.id;
       }
-      return undefined;
     }
-    function effectiveSegmentEndAt(addr: number): number | undefined {
-      // Walk forward while owner stays same. Cap at end of address space we know.
-      const start = effectiveOwnerAt(addr);
-      if (!start) return undefined;
-      let last = addr;
-      const upperBound = Math.max(
-        ...annotationSegs.map((s) => s.end),
-        ...analysisSegs.map((s) => s.end),
-        addr,
-      );
-      for (let a = addr + 1; a <= upperBound; a += 1) {
-        const o = effectiveOwnerAt(a);
-        if (!o || o.kind !== start.kind || o.source !== start.source) break;
-        last = a;
-      }
-      return last;
-    }
-    // 1. Clean-slate purge per binaryStem.
-    const idPrefixRoutine = `finding-routine-${binaryStem}-`;
-    const idPrefixSegclass = `finding-segclass-${binaryStem}-`;
-    const allExisting = this.listFindings();
-    const stale = allExisting
-      .filter((f) => f.id.startsWith(idPrefixRoutine) || f.id.startsWith(idPrefixSegclass))
-      .map((f) => f.id);
-    const staleRemoved = this.removeFindingsById(stale);
-
-    // 2. Ensure annotations file is a registered artifact.
-    let annotationsArtifact = this.listArtifacts().find((a) => a.path === args.annotationsPath);
-    if (!annotationsArtifact) {
-      const relativeAnnotations = relative(this.storage.paths.root, args.annotationsPath).replace(/\\/g, "/");
-      annotationsArtifact = this.saveArtifact({
-        kind: "other",
-        scope: "knowledge",
-        title: `${binaryStem} annotations`,
-        path: relativeAnnotations,
-        sourceArtifactIds: [args.sourcePrgArtifactId],
-        role: "annotations",
+    const r = importAnnotationFile(args.annotationsPath, { projectDir: this.storage.paths.root, force: args.force });
+    if (r.changed) {
+      this.appendTimelineEvent({
+        kind: "note",
+        title: `Annotations imported: ${basename(args.annotationsPath)}`,
+        artifactId: annotationsArtifactId,
+        summary: `${r.routines} routines, ${r.labels} labels, ${r.segments} segments → human layer under ${r.owner}${r.dropped > 0 ? ` (${r.dropped} entries dropped)` : ""}`,
       });
     }
-    const linkedArtifactIds = [args.sourcePrgArtifactId, annotationsArtifact.id];
-
-    // 3. Routine emit. Sort by address, derive end via hybrid.
-    type Routine = { address: number; name: string; comment?: string };
-    const routines: Routine[] = ((annotations.routines ?? [])
-      .map((r) => {
-        const address = parseHexOrNum(r.address);
-        if (address === undefined || !r.name) return undefined;
-        return { address, name: r.name, comment: r.comment } as Routine;
-      })
-      .filter((r): r is Routine => r !== undefined))
-      .sort((a, b) => a.address - b.address);
-    let routinesEmitted = 0;
-    for (let i = 0; i < routines.length; i += 1) {
-      const r = routines[i]!;
-      const segEnd = effectiveSegmentEndAt(r.address);
-      const next = routines[i + 1];
-      let end: number;
-      if (segEnd !== undefined && next !== undefined) {
-        end = Math.min(segEnd, next.address - 1);
-      } else if (segEnd !== undefined) {
-        end = segEnd;
-      } else if (next !== undefined) {
-        end = next.address - 1;
-      } else {
-        end = r.address; // sentinel: single byte
-      }
-      if (end < r.address) end = r.address;
-      const idHexStart = r.address.toString(16).toUpperCase().padStart(4, "0");
-      const idHexEnd = end.toString(16).toUpperCase().padStart(4, "0");
-      const id = `${idPrefixRoutine}${idHexStart}-${idHexEnd}`;
-      this.saveFinding({
-        id,
-        kind: "classification",
-        title: `Routine ${r.name} $${idHexStart}-$${idHexEnd}`,
-        summary: r.comment ?? `Routine ${r.name} from annotations.`,
-        confidence: 0.95,
-        status: "active",
-        artifactIds: linkedArtifactIds,
-        addressRange: { start: r.address, end },
-        tags: ["routine", "annotation"],
-      });
-      routinesEmitted += 1;
-    }
-
-    // 4. Segment-reclass emit. Walk annotation segments; for each, if
-    // any covered address has analysis owner with a different kind,
-    // emit one finding per such (start..end) annotation segment.
-    let segmentReclassesEmitted = 0;
-    for (const annSeg of annotationSegs) {
-      let hasReclass = false;
-      for (const aSeg of analysisSegs) {
-        if (aSeg.end < annSeg.start || aSeg.start > annSeg.end) continue;
-        if (aSeg.kind !== annSeg.kind) { hasReclass = true; break; }
-      }
-      if (!hasReclass) continue;
-      const idHexStart = annSeg.start.toString(16).toUpperCase().padStart(4, "0");
-      const idHexEnd = annSeg.end.toString(16).toUpperCase().padStart(4, "0");
-      const id = `${idPrefixSegclass}${idHexStart}-${idHexEnd}`;
-      this.saveFinding({
-        id,
-        kind: "classification",
-        title: `Segment reclassified to ${annSeg.kind}${annSeg.label ? ` (${annSeg.label})` : ""} $${idHexStart}-$${idHexEnd}`,
-        summary: `Annotation reclassified analysis segment to ${annSeg.kind}.`,
-        confidence: 0.85,
-        status: "active",
-        artifactIds: linkedArtifactIds,
-        addressRange: { start: annSeg.start, end: annSeg.end },
-        tags: ["segment-classification", "annotation"],
-      });
-      segmentReclassesEmitted += 1;
-    }
-    return {
-      routinesEmitted,
-      segmentReclassesEmitted,
-      staleRemoved,
-      annotationsArtifactId: annotationsArtifact.id,
-    };
+    return { routines: r.routines, labels: r.labels, segments: r.segments, dropped: r.dropped, changed: r.changed, owner: r.owner, annotationsArtifactId };
   }
 
   // Spec 057 R26: closed-loop sweep helper. Runs archivePhase1Noise +
@@ -2857,6 +2397,16 @@ export class ProjectKnowledgeService {
       && inScope(f)
     );
     const routines = routinesWithRange.length > 0 ? routinesWithRange : routineFindings;
+    // Spec 822.2: the annotation files' routines are human `routine` nodes in the
+    // graph (D6), not mirror findings. They cover like a routine finding did; the
+    // artifact scope maps to the owner stem the file was imported under.
+    const scopeOwner = opts.artifactId ? this.ownerStemForArtifact(opts.artifactId) : undefined;
+    const routineNodes = this.records.listRoutineNodes().filter((r) => !scopeOwner || r.owner === scopeOwner);
+    type Coverer = { id: string; range: { start: number; end: number }; artifactId?: string };
+    const coverers: Coverer[] = [
+      ...routines.map((r) => ({ id: r.id, range: { start: r.addressRange!.start, end: r.addressRange!.end }, artifactId: r.artifactIds?.[0] })),
+      ...routineNodes.map((r) => ({ id: r.id, range: { start: r.address, end: r.endAddress ?? r.address } })),
+    ];
     // Bug 28: hypothesis findings auto-emitted by analyze_prg only set
     // addressRange on evidence[0], not top-level. Treat evidence[0]
     // addressRange as the effective range fallback so the matcher
@@ -2878,11 +2428,7 @@ export class ProjectKnowledgeService {
       // still match against routine coverage.
       const cr = effectiveRangeOf(candidate);
       if (!cr) continue;
-      const coverer = routines.find((r) => {
-        const rr = r.addressRange;
-        if (!rr) return false;
-        return rr.start <= cr.start && rr.end >= cr.end;
-      });
+      const coverer = coverers.find((r) => r.range.start <= cr.start && r.range.end >= cr.end);
       if (!coverer) continue;
       preview.push({ findingId: candidate.id, title: candidate.title, supersededBy: coverer.id });
       if (!opts.dryRun) {
@@ -2930,19 +2476,9 @@ export class ProjectKnowledgeService {
       return undefined;
     }
     // Build the coverage list. Entry: { artifactId?, range, source }.
-    // Routines + segment-confirmed/rejected.
+    // Routines (findings + human routine nodes) + segment-confirmed/rejected.
     type CoverageEntry = { artifactId?: string; range: { start: number; end: number }; source: string; sourceId: string };
-    const coverage: CoverageEntry[] = [];
-    for (const r of routines) {
-      const rr = r.addressRange;
-      if (!rr) continue;
-      coverage.push({
-        artifactId: r.artifactIds?.[0],
-        range: { start: rr.start, end: rr.end },
-        source: "routine-finding",
-        sourceId: r.id,
-      });
-    }
+    const coverage: CoverageEntry[] = coverers.map((c) => ({ artifactId: c.artifactId, range: c.range, source: "routine-finding", sourceId: c.id }));
     // Segment-confirmation coverage: read analysis-json artifacts.
     const analysisJsons = this.listArtifacts().filter((a) =>
       a.path.endsWith("_analysis.json")
@@ -2997,15 +2533,26 @@ export class ProjectKnowledgeService {
         });
         questionsAnswered += 1;
       }
+      // Spec 822.2: the importers' validation prompts are claim validation state
+      // (D4). A claim the sweep just archived, or one whose node a routine covers,
+      // is validated by that coverer — the same "question answered" the old rows meant.
+      questionsAnswered += this.records.validateCoveredClaims(coverers.map((c) => ({ id: c.id, range: c.range })), { scopeArtifactId: opts.artifactId });
     }
     return {
       findingsArchived: opts.dryRun ? preview.length : archived,
       questionsAnswered,
-      routinesScanned: routines.length,
+      routinesScanned: routines.length + routineNodes.length,
       preview,
       scope: opts.artifactId ? "artifact" : "project",
       scopeArtifactId: opts.artifactId,
     };
+  }
+
+  /** The owner stem (818 D1) an artifact's rows live under: its file stem, normalised like the importers do. */
+  private ownerStemForArtifact(artifactId: string): string | undefined {
+    const artifact = this.getArtifactById(artifactId);
+    if (!artifact) return undefined;
+    return normStem(basename(artifact.relativePath || artifact.path || artifact.title));
   }
 
   // Spec 053 (Bug 20): mark a sprite/charset/bitmap segment as
@@ -3187,8 +2734,7 @@ export class ProjectKnowledgeService {
   // auto-close; low-confidence become resolution-pending.
   // Returns count summary so callers can surface it.
   resolveQuestionsForFinding(findingId: string, opts: { artifactId?: string } = {}): { autoResolved: number; pending: number } {
-    const allFindings = this.listFindings();
-    const finding = allFindings.find((f) => f.id === findingId);
+    const finding = this.records.getFinding(findingId);
     if (!finding) return { autoResolved: 0, pending: 0 };
     const profile = this.getProjectProfile();
     const proposeOnly = profile?.questionAutoResolveMode === "propose-only";
@@ -3543,16 +3089,9 @@ export class ProjectKnowledgeService {
 
   // Spec 037: set / clear payload-level disk hint.
   setPayloadDiskHint(payloadEntityId: string, hint?: "drive-code" | "protected" | "raw-unanalyzed" | "bad-crc" | "gap"): EntityRecord | undefined {
-    const store = this.storage.loadEntities();
-    const entity = store.items.find((item) => item.id === payloadEntityId);
+    const entity = this.records.getEntity(payloadEntityId);
     if (!entity) return undefined;
-    const updated: EntityRecord = { ...entity, payloadDiskHint: hint, updatedAt: nowIso() };
-    this.storage.saveEntities({
-      ...store,
-      updatedAt: nowIso(),
-      items: store.items.map((item) => (item.id === payloadEntityId ? updated : item)),
-    });
-    return updated;
+    return this.records.patchEntity(entity.id, { payloadDiskHint: hint });
   }
 
   // Spec 041: set artifact relevance tag.
@@ -4092,102 +3631,11 @@ export class ProjectKnowledgeService {
   }
 
   saveEntity(input: SaveEntityInput) {
-    const store = this.storage.loadEntities();
-    const timestamp = nowIso();
-    let existing = input.id ? store.items.find((item) => item.id === input.id) : undefined;
-    // Spec 060 / Bug 31: payload entity dedup. When the caller is
-    // registering a payload-bearing entity (kind=="payload" or
-    // payloadLoadAddress set) and no explicit id matches, look up an
-    // existing entity by payloadContentHash (primary) or by
-    // (payloadSourceArtifactId, payloadLoadAddress) (fallback). On
-    // match: reuse existing.id, fold the new name into aliases[] if
-    // different from the existing name. Prevents disk-extract +
-    // pipeline-cli registering the same payload under two names.
-    if (!existing && (input.kind === "payload" || input.payloadLoadAddress !== undefined)) {
-      if (input.payloadContentHash) {
-        existing = store.items.find((item) => item.payloadContentHash === input.payloadContentHash);
-      }
-      // Bug 33 Fix B: aggregator skip. The (srcArtifact, loadAddress)
-      // fallback assumes srcArtifact is a 1:1 reference to the payload
-      // bytes. But for aggregator-kind sources (manifest, crt, archive),
-      // one srcArt legitimately backs N payloads. Two of them sharing a
-      // load address (e.g. multiple PRGs at $4000 sprite/bitmap base)
-      // would false-merge under the fallback. Skip when srcArt is a
-      // manifest; rely on the hash primary key instead.
-      if (!existing && input.payloadSourceArtifactId !== undefined && input.payloadLoadAddress !== undefined) {
-        const srcArt = this.storage.loadArtifacts().items.find((a) => a.id === input.payloadSourceArtifactId);
-        const srcIsAggregator = srcArt?.kind === "manifest";
-        if (!srcIsAggregator) {
-          existing = store.items.find((item) =>
-            item.payloadSourceArtifactId === input.payloadSourceArtifactId
-            && item.payloadLoadAddress === input.payloadLoadAddress);
-        }
-      }
-    }
-    // Aliases: union existing.aliases + input.aliases + (new name if
-    // different from existing.name).
-    const aliasUnion = new Set<string>([
-      ...(existing?.aliases ?? []),
-      ...(input.aliases ?? []),
-    ]);
-    if (existing && input.name && input.name !== existing.name) {
-      aliasUnion.add(input.name);
-    }
-    aliasUnion.delete(existing?.name ?? "");
-    // Bug 26 / Spec 058: derive internal flag from the primary linked
-    // artifact unless the caller overrides explicitly.
-    let derivedInternal: boolean | undefined;
-    if (input.internal !== undefined) {
-      derivedInternal = input.internal;
-    } else if (existing?.internal !== undefined) {
-      derivedInternal = existing.internal;
-    } else {
-      const primaryArtifactId =
-        input.payloadSourceArtifactId
-        ?? existing?.payloadSourceArtifactId
-        ?? input.artifactIds?.[0]
-        ?? existing?.artifactIds?.[0];
-      if (primaryArtifactId) {
-        const primary = this.storage.loadArtifacts().items.find((a) => a.id === primaryArtifactId);
-        if (primary?.internal === true) derivedInternal = true;
-      }
-    }
-    const entity = {
-      id: input.id ?? existing?.id ?? createId("entity", input.name),
-      kind: existing?.kind ?? input.kind,
-      // Survivor name wins; new name folds into aliases[] above.
-      name: existing?.name ?? input.name,
-      summary: input.summary ?? existing?.summary,
-      status: input.status ?? existing?.status ?? "active",
-      confidence: input.confidence ?? existing?.confidence ?? 0.5,
-      evidence: input.evidence ?? existing?.evidence ?? [],
-      artifactIds: uniqueStrings([...(input.artifactIds ?? []), ...(existing?.artifactIds ?? [])]),
-      relatedEntityIds: uniqueStrings([...(input.relatedEntityIds ?? []), ...(existing?.relatedEntityIds ?? [])]),
-      addressRange: input.addressRange ?? existing?.addressRange,
-      mediumSpans: input.mediumSpans ?? existing?.mediumSpans ?? [],
-      mediumRole: input.mediumRole ?? existing?.mediumRole,
-      payloadId: input.payloadId ?? existing?.payloadId,
-      payloadLoadAddress: input.payloadLoadAddress ?? existing?.payloadLoadAddress,
-      payloadFormat: input.payloadFormat ?? existing?.payloadFormat,
-      payloadPacker: input.payloadPacker ?? existing?.payloadPacker,
-      payloadSourceArtifactId: input.payloadSourceArtifactId ?? existing?.payloadSourceArtifactId,
-      payloadDepackedArtifactId: input.payloadDepackedArtifactId ?? existing?.payloadDepackedArtifactId,
-      payloadAsmArtifactIds: uniqueStrings([...(input.payloadAsmArtifactIds ?? []), ...(existing?.payloadAsmArtifactIds ?? [])]),
-      payloadContentHash: input.payloadContentHash ?? existing?.payloadContentHash,
-      payloadLoaderModelId: input.payloadLoaderModelId ?? existing?.payloadLoaderModelId,
-      payloadClaimedByLutId: input.payloadClaimedByLutId ?? existing?.payloadClaimedByLutId,
-      payloadClaimedByRow: input.payloadClaimedByRow ?? existing?.payloadClaimedByRow,
-      tags: uniqueStrings([...(input.tags ?? []), ...(existing?.tags ?? [])]),
-      aliases: [...aliasUnion].sort(),
-      internal: derivedInternal === true ? true : undefined,
-      createdAt: existing?.createdAt ?? timestamp,
-      updatedAt: timestamp,
-    };
-    this.storage.saveEntities({
-      ...store,
-      updatedAt: timestamp,
-      items: upsertRecord(store.items, entity),
-    });
+    // Spec 822.2 — the graph: a record tagged by a deterministic importer lands in
+    // the generated layer, everything else is a door write into the human layer.
+    // Payload identity (Spec 060 / Bug 31 / Bug 33) and the internal flag (Spec 058)
+    // are decided in the record layer.
+    const entity = this.records.saveEntity(input);
     this.appendTimelineEvent({
       kind: "entity.saved",
       title: `Entity saved: ${entity.name}`,
@@ -4198,16 +3646,18 @@ export class ProjectKnowledgeService {
   }
 
   listEntities(filters?: { kind?: string; status?: string; artifactId?: string }): EntityRecord[] {
-    return this.storage.loadEntities().items
-      .filter((entity) => !filters?.kind || entity.kind === filters.kind)
-      .filter((entity) => !filters?.status || entity.status === filters.status)
-      .filter((entity) => !filters?.artifactId || entity.artifactIds.includes(filters.artifactId))
+    return this.records.listEntities(filters)
       .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  /** One entity by graph id, folded-prose id or legacy / caller alias (Spec 822.2). */
+  getEntity(ref: string | undefined): EntityRecord | undefined {
+    return this.records.getEntity(ref);
   }
 
   /** Spec 752 L1 — does this finding cite a backing EXTRACT artifact (the
    *  extracted bytes / its disasm / analysis), directly or via its payload? */
-  private findingHasBackingExtract(finding: FindingRecord): boolean {
+  private findingHasBackingExtract(finding: Pick<FindingRecord, "artifactIds" | "evidence" | "payloadId">): boolean {
     const EXTRACT_KINDS = new Set(["analysis-run", "generated-source", "prg", "listing"]);
     const EXTRACT_ROLES = new Set(["analysis-json", "disasm", "prg-analysis", "kickassembler-source", "64tass-source"]);
     const artifacts = this.storage.loadArtifacts().items;
@@ -4223,9 +3673,8 @@ export class ProjectKnowledgeService {
     // its disasm/asm, or an extract-KIND source (a d64/manifest source does NOT
     // count: the disk image is not the payload's extract).
     if (finding.payloadId !== undefined) {
-      const ent = this.storage.loadEntities().items.find(
-        (e) => e.id === finding.payloadId || e.payloadId === finding.payloadId,
-      );
+      const ent = this.records.getEntity(finding.payloadId)
+        ?? this.records.listEntities().find((e) => e.payloadId === finding.payloadId);
       if (ent) {
         if ((ent.payloadAsmArtifactIds ?? []).some((id) => isExtract(id))) return true;
         if (isExtract(ent.payloadSourceArtifactId) || isExtract(ent.artifactIds?.[0])) return true;
@@ -4235,47 +3684,31 @@ export class ProjectKnowledgeService {
   }
 
   saveFinding(input: SaveFindingInput): FindingRecord {
-    const store = this.storage.loadFindings();
-    const timestamp = nowIso();
-    const existing = input.id ? store.items.find((item) => item.id === input.id) : undefined;
-    const finding: FindingRecord = {
-      id: input.id ?? existing?.id ?? createId("finding", input.title),
-      kind: input.kind,
-      title: input.title,
-      summary: input.summary,
-      status: input.status ?? existing?.status ?? "proposed",
-      confidence: input.confidence ?? existing?.confidence ?? 0.5,
+    const existing = input.id ? this.records.getFinding(input.id) : undefined;
+    const merged = {
       evidence: input.evidence ?? existing?.evidence ?? [],
-      entityIds: uniqueStrings(input.entityIds ?? existing?.entityIds),
       artifactIds: uniqueStrings(input.artifactIds ?? existing?.artifactIds),
-      relationIds: uniqueStrings(input.relationIds ?? existing?.relationIds),
-      flowIds: uniqueStrings(input.flowIds ?? existing?.flowIds),
       payloadId: input.payloadId ?? existing?.payloadId,
       addressRange: input.addressRange ?? existing?.addressRange,
-      archivedBy: input.archivedBy ?? existing?.archivedBy,
-      tags: uniqueStrings(input.tags ?? existing?.tags),
-      createdAt: existing?.createdAt ?? timestamp,
-      updatedAt: timestamp,
     };
+    let tags = uniqueStrings(input.tags ?? existing?.tags);
     // Spec 752 L1 — extract-backing. A finding about a file/payload MUST cite a
     // backing extract artifact (the extracted bytes / its _disasm.asm /
     // _analysis.json). Soft: tag `ungrounded` + a timeline event; NEVER throw —
-    // auto-producers (importAnalysisKnowledge, import_annotations_as_findings)
-    // already cite the analysis artifact so they pass. A trace runId+cycle or a
-    // heuristic does not count.
-    const filePayloadScoped = finding.payloadId !== undefined
-      || (finding.addressRange !== undefined
-        && finding.tags.some((t) => t === "routine" || t === "segment-classification" || t === "annotation"));
-    if (filePayloadScoped && !this.findingHasBackingExtract(finding)) {
-      if (!finding.tags.includes("ungrounded")) finding.tags = [...finding.tags, "ungrounded"];
-    } else if (finding.tags.includes("ungrounded")) {
-      finding.tags = finding.tags.filter((t) => t !== "ungrounded"); // re-grounded on re-save
+    // auto-producers (importAnalysisKnowledge) already cite the analysis artifact
+    // so they pass. A trace runId+cycle or a heuristic does not count.
+    const filePayloadScoped = merged.payloadId !== undefined
+      || (merged.addressRange !== undefined
+        && tags.some((t) => t === "routine" || t === "segment-classification" || t === "annotation"));
+    if (filePayloadScoped && !this.findingHasBackingExtract(merged)) {
+      if (!tags.includes("ungrounded")) tags = [...tags, "ungrounded"];
+    } else if (tags.includes("ungrounded")) {
+      tags = tags.filter((t) => t !== "ungrounded"); // re-grounded on re-save
     }
-    this.storage.saveFindings({
-      ...store,
-      updatedAt: timestamp,
-      items: upsertRecord(store.items, finding),
-    });
+    // Spec 822.2 — the graph: importer-tagged findings become claims / generated
+    // prose, a `claim:` id updates that claim's status, everything else is a
+    // `finding:<kind>` annotation in the human layer (D3).
+    const finding = this.records.saveFinding({ ...input, tags });
     this.appendTimelineEvent({
       kind: "finding.saved",
       title: `Finding saved: ${finding.title}`,
@@ -4302,15 +3735,14 @@ export class ProjectKnowledgeService {
 
   // Bug 29: backfill addressRange on existing open questions. Source
   // priority: linked finding's addressRange first, else evidence[0].
-  // One-shot migration for projects whose questions were emitted
-  // before the producer fix landed. Returns count updated.
+  // Idempotent; after Spec 822.2 a question anchored to a node already
+  // answers with the node's address, so this only touches the rest.
   backfillQuestionAddressRanges(): number {
-    const store = this.storage.loadOpenQuestions();
     const findings = this.listFindings();
     const findingsById = new Map(findings.map((f) => [f.id, f]));
     let updated = 0;
-    const items = store.items.map((q) => {
-      if (q.addressRange) return q;
+    for (const q of this.records.listOpenQuestions()) {
+      if (q.addressRange) continue;
       let range: { start: number; end: number; bank?: number; label?: string } | undefined;
       for (const fid of q.findingIds) {
         const f = findingsById.get(fid);
@@ -4319,80 +3751,43 @@ export class ProjectKnowledgeService {
       if (!range) {
         range = q.evidence?.find((e) => e.addressRange)?.addressRange;
       }
-      if (!range) return q;
+      if (!range) continue;
       updated += 1;
-      return { ...q, addressRange: range, updatedAt: nowIso() };
-    });
-    if (updated > 0) {
-      this.storage.saveOpenQuestions({ ...store, updatedAt: nowIso(), items });
+      this.records.saveOpenQuestion({ id: q.id, kind: q.kind, title: q.title, addressRange: range });
     }
     return updated;
   }
 
   // Bug 28: backfill top-level addressRange on existing findings whose
-  // evidence[0] carries one but the top-level slot is empty. One-shot
-  // migration for projects whose findings.json was written before the
-  // analysis-import producer fix landed. Returns count updated.
+  // evidence[0] carries one but the top-level slot is empty. Claims answer
+  // with their node's address already (Spec 822.2), so only prose findings
+  // are touched. Idempotent. Returns count updated.
   backfillFindingAddressRanges(): number {
-    const store = this.storage.loadFindings();
     let updated = 0;
-    const items = store.items.map((f) => {
-      if (f.addressRange) return f;
+    for (const f of this.records.listFindings()) {
+      if (f.addressRange || f.id.startsWith("claim:")) continue;
       const fromEvidence = f.evidence?.find((e) => e.addressRange)?.addressRange;
-      if (!fromEvidence) return f;
+      if (!fromEvidence) continue;
       updated += 1;
-      return { ...f, addressRange: fromEvidence, updatedAt: nowIso() };
-    });
-    if (updated > 0) {
-      this.storage.saveFindings({ ...store, updatedAt: nowIso(), items });
+      this.records.saveFinding({ id: f.id, kind: f.kind, title: f.title, addressRange: fromEvidence });
     }
     return updated;
   }
 
-  // Spec 055: bulk delete by id, used by clean-slate emit (purge stale
-  // routine/segclass findings before re-emit). Returns count removed.
+  // Spec 055: bulk delete by id. Returns count removed.
   removeFindingsById(ids: string[]): number {
-    if (ids.length === 0) return 0;
-    const idSet = new Set(ids);
-    const store = this.storage.loadFindings();
-    const before = store.items.length;
-    const items = store.items.filter((f) => !idSet.has(f.id));
-    if (items.length === before) return 0;
-    this.storage.saveFindings({ ...store, updatedAt: nowIso(), items });
-    return before - items.length;
+    return this.records.removeFindings(ids);
   }
 
   listFindings(filters?: { kind?: string; status?: string; entityId?: string }): FindingRecord[] {
-    return this.storage.loadFindings().items
-      .filter((finding) => !filters?.kind || finding.kind === filters.kind)
-      .filter((finding) => !filters?.status || finding.status === filters.status)
-      .filter((finding) => !filters?.entityId || finding.entityIds.includes(filters.entityId))
+    return this.records.listFindings(filters)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
   linkEntities(input: LinkEntitiesInput): RelationRecord {
-    const store = this.storage.loadRelations();
-    const timestamp = nowIso();
-    const existing = input.id ? store.items.find((item) => item.id === input.id) : undefined;
-    const relation: RelationRecord = {
-      id: input.id ?? existing?.id ?? createId("relation", input.title),
-      kind: input.kind,
-      title: input.title,
-      sourceEntityId: input.sourceEntityId,
-      targetEntityId: input.targetEntityId,
-      summary: input.summary,
-      status: input.status ?? existing?.status ?? "active",
-      confidence: input.confidence ?? existing?.confidence ?? 0.5,
-      evidence: input.evidence ?? existing?.evidence ?? [],
-      artifactIds: uniqueStrings(input.artifactIds ?? existing?.artifactIds),
-      createdAt: existing?.createdAt ?? timestamp,
-      updatedAt: timestamp,
-    };
-    this.storage.saveRelations({
-      ...store,
-      updatedAt: timestamp,
-      items: upsertRecord(store.items, relation),
-    });
+    // Spec 822.2 — a human edge (or, importer-tagged, a generated one); both
+    // endpoints resolve to graph nodes (a legacy / caller alias through the ledger).
+    const relation = this.records.saveRelation(input);
     this.appendTimelineEvent({
       kind: "relation.saved",
       title: `Relation saved: ${relation.title}`,
@@ -4403,10 +3798,7 @@ export class ProjectKnowledgeService {
   }
 
   listRelations(filters?: { kind?: string; entityId?: string; artifactId?: string }): RelationRecord[] {
-    return this.storage.loadRelations().items
-      .filter((relation) => !filters?.kind || relation.kind === filters.kind)
-      .filter((relation) => !filters?.entityId || relation.sourceEntityId === filters.entityId || relation.targetEntityId === filters.entityId)
-      .filter((relation) => !filters?.artifactId || relation.artifactIds.includes(filters.artifactId))
+    return this.records.listRelations(filters)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
@@ -4517,34 +3909,12 @@ export class ProjectKnowledgeService {
   }
 
   saveOpenQuestion(input: SaveOpenQuestionInput): OpenQuestionRecord {
-    const store = this.storage.loadOpenQuestions();
-    const timestamp = nowIso();
-    const existing = input.id ? store.items.find((item) => item.id === input.id) : undefined;
-    const question: OpenQuestionRecord = {
-      id: input.id ?? existing?.id ?? createId("question", input.title),
-      kind: input.kind,
-      title: input.title,
-      description: input.description,
-      status: input.status ?? existing?.status ?? "open",
-      priority: input.priority ?? existing?.priority ?? "medium",
-      confidence: input.confidence ?? existing?.confidence ?? 0.5,
-      evidence: input.evidence ?? existing?.evidence ?? [],
-      entityIds: uniqueStrings(input.entityIds ?? existing?.entityIds),
-      artifactIds: uniqueStrings(input.artifactIds ?? existing?.artifactIds),
-      findingIds: uniqueStrings(input.findingIds ?? existing?.findingIds),
-      source: input.source ?? existing?.source ?? "untagged",
-      autoResolvable: input.autoResolvable ?? existing?.autoResolvable,
-      autoResolveHint: input.autoResolveHint ?? existing?.autoResolveHint,
-      addressRange: input.addressRange ?? existing?.addressRange,
-      createdAt: existing?.createdAt ?? timestamp,
-      updatedAt: timestamp,
-      answeredByFindingId: input.answeredByFindingId ?? existing?.answeredByFindingId,
-      answerSummary: input.answerSummary ?? existing?.answerSummary,
-    };
-    this.storage.saveOpenQuestions({
-      ...store,
-      updatedAt: timestamp,
-      items: upsertRecord(store.items, question),
+    // Spec 822.2 — the `questions` table through the door. A door write is a
+    // human-layer row whatever its `source` says (D3); only the importers'
+    // heuristic prompts fold into claims.validation, and they never come here.
+    const question = this.records.saveOpenQuestion({
+      ...input,
+      autoResolveHint: input.autoResolveHint as OpenQuestionRecord["autoResolveHint"],
     });
     this.appendTimelineEvent({
       kind: "question.saved",
@@ -4556,24 +3926,21 @@ export class ProjectKnowledgeService {
   }
 
   listOpenQuestions(filters?: { status?: string; priority?: string; entityId?: string; findingId?: string; excludeHeuristic?: boolean }): OpenQuestionRecord[] {
-    return this.storage.loadOpenQuestions().items
-      .filter((question) => !filters?.status || question.status === filters.status)
-      .filter((question) => !filters?.priority || question.priority === filters.priority)
-      .filter((question) => !filters?.entityId || question.entityIds.includes(filters.entityId))
-      .filter((question) => !filters?.findingId || question.findingIds.includes(filters.findingId))
+    return this.records.listOpenQuestions({ status: filters?.status, priority: filters?.priority, entityId: filters?.entityId, findingId: filters?.findingId })
       // Spec 748.2 (BUG-032): de-rot the default surface — drop heuristic
-      // analyze_prg validation prompts so the real questions are visible.
+      // validation prompts so the real questions are visible. (After Spec 822.2 the
+      // importers' prompts are claim validation state, not rows; a heuristic-tagged
+      // question can only be one saved through the door.)
       .filter((question) => !filters?.excludeHeuristic || !isHeuristicQuestion(question))
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
   // --- Spec 754 §3.3f (Block F) — user labels (canonical addr→name store) ---
-  // The dormant UserLabelStore (storage already had load/save) becomes the ONE
-  // place the monitor reads + writes symbols. addr→name resolution layers user
-  // labels (highest precedence) over the analysis effective-segment labels.
+  // Spec 822.2: a user label IS a human node name (attrs.legacy_kind =
+  // 'label-override'); the monitor's addr→name resolution reads the graph.
 
   /** Create/replace a user label. A second label at the same start address
-   *  replaces the first (re-labelling), unless an explicit id is given. */
+   *  replaces the first (re-labelling): the human row at that address. */
   saveUserLabel(input: {
     id?: string;
     label: string;
@@ -4583,60 +3950,25 @@ export class ProjectKnowledgeService {
     targetKind?: UserLabelOverride["targetKind"];
     targetId?: string;
   }): UserLabelOverride {
-    const store = this.storage.loadUserLabels();
-    const ts = nowIso();
-    const range =
-      input.addressRange ??
-      (input.address !== undefined ? { start: input.address & 0xffff, end: input.address & 0xffff } : undefined);
-    const targetKind = input.targetKind ?? "address";
-    const existing = input.id
-      ? store.items.find((item) => item.id === input.id)
-      : range && targetKind === "address"
-        ? store.items.find((item) => item.targetKind === "address" && item.addressRange?.start === range.start)
-        : undefined;
-    const record: UserLabelOverride = {
-      id: input.id ?? existing?.id ?? createId("label", input.label),
-      kind: "label-override",
-      label: input.label,
-      targetKind,
-      targetId: input.targetId ?? existing?.targetId,
-      addressRange: range ?? existing?.addressRange,
-      note: input.note ?? existing?.note,
-      createdAt: existing?.createdAt ?? ts,
-      updatedAt: ts,
-    };
-    this.storage.saveUserLabels({ ...store, updatedAt: ts, items: upsertRecord(store.items, record) });
-    return record;
+    return this.records.saveUserLabel(input);
   }
 
   /** All user labels, sorted by address. */
   listUserLabels(): UserLabelOverride[] {
-    return this.storage
-      .loadUserLabels()
-      .items.slice()
+    return this.records.listUserLabels()
+      .slice()
       .sort((a, b) => (a.addressRange?.start ?? 0) - (b.addressRange?.start ?? 0));
   }
 
   /** Remove a user label by id, exact name, or `$addr`/`addr` (hex). */
   removeUserLabel(key: string): UserLabelOverride | undefined {
-    const store = this.storage.loadUserLabels();
-    const addr = /^\$?[0-9a-fA-F]{1,4}$/.test(key) ? parseInt(key.replace(/^\$/, ""), 16) & 0xffff : undefined;
-    const idx = store.items.findIndex(
-      (item) =>
-        item.id === key ||
-        item.label === key ||
-        (addr !== undefined && item.targetKind === "address" && item.addressRange?.start === addr),
-    );
-    if (idx < 0) return undefined;
-    const [removed] = store.items.splice(idx, 1);
-    this.storage.saveUserLabels({ ...store, updatedAt: nowIso(), items: store.items });
-    return removed;
+    return this.records.removeUserLabel(key);
   }
 
   /** addr→name index from user labels only (highest-precedence layer). */
   buildUserLabelIndex(): Map<number, string> {
     const map = new Map<number, string>();
-    for (const item of this.storage.loadUserLabels().items) {
+    for (const item of this.records.listUserLabels()) {
       if (item.targetKind === "address" && item.addressRange) {
         map.set(item.addressRange.start & 0xffff, item.label);
       }
@@ -4664,26 +3996,17 @@ export class ProjectKnowledgeService {
         .find((p) => p.payloadSourceArtifactId !== undefined && sourceArtifactIds.has(p.payloadSourceArtifactId));
       if (payload) stampImportedKnowledgeWithPayload(imported, payload.id);
     }
-    this.purgeImportedKnowledgeForArtifact(artifactId, ["analysis-import"]);
-    for (const entity of imported.entities) {
-      this.saveEntity(entity);
-    }
-    for (const finding of imported.findings) {
-      this.saveFinding(finding);
-    }
-    for (const relation of imported.relations) {
-      this.linkEntities(relation);
-    }
+    this.purgeImportedKnowledgeForArtifact(artifactId);
+    // Spec 822.2 — the generated layer: entities → nodes, findings → claims (one
+    // evidence row per run, D5), relations → edges, low-confidence validation
+    // prompts → claims.validation. The artifact's previous contribution is
+    // retired first (D2). Flows stay in flows.json (regenerable, 819 owns them).
+    const now = nowIso();
+    const graphImport = this.records.importGenerated(importDraftsToRecords(imported, now), { artifactId });
     for (const flow of imported.flows) {
       this.saveFlow(flow);
     }
-    for (const question of imported.openQuestions) {
-      // Spec 036: questions imported from analysis-run artifacts are
-      // by definition heuristic Phase-1 output. Tag them so the UI
-      // can sort them below human-review questions.
-      this.saveOpenQuestion({ ...question, source: "heuristic-phase1" });
-    }
-    // Spec 819 D7 — the control-flow producer runs alongside the JSON import.
+    // Spec 819 D7 — the control-flow producer runs alongside the import.
     // Additive (818 D10): it writes only knowledge/graph.sqlite, and a failure
     // here must never break the import that already happened.
     let graphNote = "";
@@ -4703,7 +4026,7 @@ export class ProjectKnowledgeService {
         `${imported.relations.length} relations`,
         `${imported.flows.length} flows`,
         `${imported.openQuestions.length} open questions`,
-      ].join(" / ") + graphNote,
+      ].join(" / ") + ` → generated layer run ${graphImport.runId} (${Object.entries(graphImport.nodesByKind).map(([k, v]) => `${v} ${k}`).join(", ") || "no nodes"}; purged ${graphImport.purged.nodes} nodes / ${graphImport.purged.claims} claims)` + graphNote,
     });
     return {
       artifact,
@@ -4724,10 +4047,9 @@ export class ProjectKnowledgeService {
     if (!imported) {
       throw new Error(`Artifact is not a readable supported manifest: ${artifact.path}`);
     }
-    this.purgeImportedKnowledgeForArtifact(artifactId, ["manifest-import"]);
-    for (const entity of imported.entities) {
-      this.saveEntity(entity);
-    }
+    // Spec 822.2 — generated / imported layer through the graph importer (D2 purge by artifact).
+    const now = nowIso();
+    this.records.importGenerated(importDraftsToRecords({ entities: imported.entities, findings: imported.findings, relations: imported.relations, openQuestions: [] }, now), { artifactId });
     // Spec 784 (GAP 2): create the LoaderModel record(s) the imported payloads reference
     // via payloadLoaderModelId, so a disk extraction's DOS files show under
     // list_loader_models with kernal-directory provenance (idempotent by id).
@@ -4744,12 +4066,6 @@ export class ProjectKnowledgeService {
       const seed = seededModels[modelId] ?? { kind: modelId };
       this.saveLoaderModel({ id: modelId, kind: seed.kind, indexLocation: seed.indexLocation, notes: seed.notes });
     }
-    for (const finding of imported.findings) {
-      this.saveFinding(finding);
-    }
-    for (const relation of imported.relations) {
-      this.linkEntities(relation);
-    }
     this.appendTimelineEvent({
       kind: "note",
       title: `Imported manifest: ${imported.title}`,
@@ -4761,11 +4077,12 @@ export class ProjectKnowledgeService {
       ].join(" / "),
     });
     // Spec 752 — payload entities (those carrying a source artifact + load
-    // address) are the L2 auto-chain targets.
+    // address) are the L2 auto-chain targets. After the cut-over the ids are the
+    // graph node ids the legacy ids resolved to.
     const importedPayloadEntityIds = imported.entities
       .filter((e) => (e as { payloadSourceArtifactId?: string }).payloadSourceArtifactId
         || ["payload", "disk-file", "cart-chunk", "chip"].includes((e as { kind?: string }).kind ?? ""))
-      .map((e) => e.id);
+      .map((e) => this.records.resolveEntityId(e.id) ?? e.id);
     return {
       artifact,
       importedEntityCount: imported.entities.length,
@@ -5043,12 +4360,13 @@ export class ProjectKnowledgeService {
     return {
       project: this.requireProject(),
       artifacts: this.storage.loadArtifacts().items,
-      entities: this.storage.loadEntities().items,
-      findings: this.storage.loadFindings().items,
-      relations: this.storage.loadRelations().items,
+      // Spec 822.2 — the graph, projected into the record shapes the views read
+      entities: this.records.listEntities(),
+      findings: this.records.listFindings(),
+      relations: this.records.listRelations(),
       flows: this.storage.loadFlows().items,
       tasks: this.storage.loadTasks().items,
-      openQuestions: this.storage.loadOpenQuestions().items,
+      openQuestions: this.records.listOpenQuestions(),
       timeline: this.storage.readTimeline(50),
       checkpoints: this.storage.listCheckpoints(),
       // Spec 750.2 — the addressing tables, so the views can draw the index as well
@@ -5233,39 +4551,11 @@ export class ProjectKnowledgeService {
     return { path, view };
   }
 
-  private purgeImportedKnowledgeForArtifact(artifactId: string, importTags: string[]): void {
+  // Spec 822.2: entities / findings / relations / open-questions of an import are
+  // retired inside the graph importer (D2 purge by artifact); only the flows
+  // store — still JSON, regenerable — is purged here.
+  private purgeImportedKnowledgeForArtifact(artifactId: string): void {
     const timestamp = nowIso();
-
-    const entityStore = this.storage.loadEntities();
-    const nextEntities = entityStore.items.filter((entity) => !(entity.artifactIds.includes(artifactId) && entity.tags.some((tag) => importTags.includes(tag))));
-    if (nextEntities.length !== entityStore.items.length) {
-      this.storage.saveEntities({
-        ...entityStore,
-        updatedAt: timestamp,
-        items: nextEntities,
-      });
-    }
-
-    const findingStore = this.storage.loadFindings();
-    const nextFindings = findingStore.items.filter((finding) => !(finding.artifactIds.includes(artifactId) && finding.tags.some((tag) => importTags.includes(tag))));
-    if (nextFindings.length !== findingStore.items.length) {
-      this.storage.saveFindings({
-        ...findingStore,
-        updatedAt: timestamp,
-        items: nextFindings,
-      });
-    }
-
-    const relationStore = this.storage.loadRelations();
-    const nextRelations = relationStore.items.filter((relation) => !relation.id.startsWith(`relation-${artifactId}-`));
-    if (nextRelations.length !== relationStore.items.length) {
-      this.storage.saveRelations({
-        ...relationStore,
-        updatedAt: timestamp,
-        items: nextRelations,
-      });
-    }
-
     const flowStore = this.storage.loadFlows();
     const nextFlows = flowStore.items.filter((flow) => !flow.id.startsWith(`flow-${artifactId}-`));
     if (nextFlows.length !== flowStore.items.length) {
@@ -5273,16 +4563,6 @@ export class ProjectKnowledgeService {
         ...flowStore,
         updatedAt: timestamp,
         items: nextFlows,
-      });
-    }
-
-    const questionStore = this.storage.loadOpenQuestions();
-    const nextQuestions = questionStore.items.filter((question) => !question.id.startsWith(`question-${artifactId}-`));
-    if (nextQuestions.length !== questionStore.items.length) {
-      this.storage.saveOpenQuestions({
-        ...questionStore,
-        updatedAt: timestamp,
-        items: nextQuestions,
       });
     }
   }

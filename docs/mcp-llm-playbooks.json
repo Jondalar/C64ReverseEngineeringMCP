@@ -615,10 +615,10 @@
         },
         {
           "actor": "llm",
-          "action": "Draft annotations; promote to findings.",
+          "action": "Draft annotations; re-run disasm_prg with them (the file is a door into the knowledge graph); record what you concluded.",
           "tools": [
             "propose_annotations",
-            "import_annotations_as_findings",
+            "disasm_prg",
             "save_finding",
             "agent_record_step"
           ],

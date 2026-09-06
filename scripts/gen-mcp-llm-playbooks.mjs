@@ -144,7 +144,7 @@ const PLAYBOOKS = [
     steps: [
       { actor: "llm", action: "Heuristic analysis pass.", tools: ["analyze_prg", "inspect_address_range"], persist: ["analysis report"] },
       { actor: "llm", action: "Disassemble + resolve ROM/symbol references.", tools: ["disasm_prg", "disasm_menu", "c64ref_lookup"], persist: ["disasm artifact"] },
-      { actor: "llm", action: "Draft annotations; promote to findings.", tools: ["propose_annotations", "import_annotations_as_findings", "save_finding", "agent_record_step"], persist: ["annotations", "findings"] },
+      { actor: "llm", action: "Draft annotations; re-run disasm_prg with them (the file is a door into the knowledge graph); record what you concluded.", tools: ["propose_annotations", "disasm_prg", "save_finding", "agent_record_step"], persist: ["annotations", "findings"] },
     ],
     stopConditions: ["A readable disassembly + draft annotations exist."],
     nextActions: ["Validate with a targeted trace (Disassembly + Trace Validation)."],

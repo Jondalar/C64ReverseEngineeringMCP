@@ -271,7 +271,7 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
     const saved = await call("save_entity", { kind: "payload", name: "asset-0" });
     // Take the id from the write, not by pattern-matching a list: an id prefix is not
     // part of any contract, and guessing one is how a green test starts lying.
-    const pid = (saved.match(/\b(ent[-_][A-Za-z0-9-]+|[a-z]+-[a-z0-9-]{6,})\b/) ?? [])[1];
+    const pid = (saved.match(/^ID:\s*(\S+)/m) ?? [])[1];
     ok("9g a payload exists to be claimed", Boolean(pid), saved.split("\n").slice(0, 2).join(" | "));
     if (pid) {
       const linked = await call("link_payload_to_lut_row", { payload_id: pid, descriptor_id: idMatch[1], row_index: 0 });

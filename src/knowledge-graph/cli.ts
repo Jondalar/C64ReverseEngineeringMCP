@@ -8,7 +8,8 @@ import { seedControlFlow } from "./producers/control-flow.js";
 import { seedMemoryAccess } from "./producers/memory-access.js";
 import { importRuntimeTrace, removeRuntimeRun } from "./producers/runtime.js";
 import { irqHandlers, pointerTargets, runs as listRuns, runtimeObservations, unconfirmed, unexplained } from "./query-runtime.js";
-import { migrateProject } from "./migrate/migrate.js";
+import { importAnnotationFile, migrateProject } from "./migrate/migrate.js";
+import { exportGraphRecords } from "./export.js";
 import { assignSubsystem, linkNodes, nameNode } from "./migrate/human.js";
 import { annotations as nodeAnnotations, searchAnnotations, subsystem as subsystemView, subsystems as listSubsystems } from "./query-human.js";
 import { edgesWalk, nodeCard, overview, resolveRef, shortestPath, type EdgeKind, type Focus } from "./cards.js";
@@ -44,6 +45,8 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   unexplained                   821: runtime rows with no static edge
   irq-handlers                  821: HANDLES_IRQ / HANDLES_NMI from the runs
   migrate [--dry-run]           822: migrate knowledge/*.json into the graph (idempotent, incremental)
+  export [--out <dir>]          822.2: write the graph back into the legacy record shapes (knowledge/export/*.json) for humans and git diff
+  annotations-import <file> [--force]   822.2: the annotation-file door — import <stem>_annotations.json into the human layer
   annotations <id>              822: annotations + claims on a node
   search <text>                 822: full-text search over annotations
   subsystems | subsystem <name> 822: the subsystem layer
@@ -53,7 +56,7 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   dump                          canonical dump of the generated layer (818 D6)
   stats                         row counts and meta`;
 
-interface Args { verb: string; positional: string[]; project: string; json: boolean; owner?: string; direction?: "in" | "out" | "both"; kind?: string; origin?: string; depth?: 1 | 2; focus?: string; limit?: number }
+interface Args { verb: string; positional: string[]; project: string; json: boolean; owner?: string; direction?: "in" | "out" | "both"; kind?: string; origin?: string; depth?: 1 | 2; focus?: string; limit?: number; out?: string; force?: boolean }
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
@@ -72,6 +75,8 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--depth") extra.depth = Number(argv[++i]) === 2 ? 2 : 1;
     else if (a === "--focus") extra.focus = argv[++i];
     else if (a === "--limit") extra.limit = Number(argv[++i]);
+    else if (a === "--out") extra.out = argv[++i];
+    else if (a === "--force") extra.force = true;
     else positional.push(a);
   }
   const [verb = "help", ...rest] = positional;
@@ -146,6 +151,18 @@ export async function runGraphCli(argv: string[]): Promise<void> {
   if (args.verb === "migrate") {
     const r = migrateProject({ projectDir: args.project, dryRun: argv.includes("--dry-run") });
     out(JSON.stringify(r, null, 1), r);
+    return;
+  }
+  if (args.verb === "export") {
+    const r = exportGraphRecords(args.project, args.out ? resolve(args.out) : undefined);
+    out(r.files.map((f) => `${f.path}  ${f.records} records`).join("\n"), r);
+    return;
+  }
+  if (args.verb === "annotations-import") {
+    const file = args.positional[0];
+    if (!file) throw new Error("annotations-import needs a <stem>_annotations.json path");
+    const r = importAnnotationFile(resolve(file), { projectDir: args.project, force: args.force });
+    out(`${r.path}: ${r.routines} routines, ${r.labels} labels, ${r.segments} segments${r.dropped ? `, ${r.dropped} dropped` : ""} (${r.changed ? "imported" : "unchanged since the last import"}; owner ${r.owner}, run ${r.runId}, ${r.ms.toFixed(0)} ms)`, r);
     return;
   }
   if (args.verb === "name") {

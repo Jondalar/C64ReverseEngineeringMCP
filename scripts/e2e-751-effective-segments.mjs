@@ -137,9 +137,11 @@ ok(imported.importedEntityCount > 0, "import minted entities from analysis segme
 const seg0900Entity = svc.listEntities().find((e) => e.addressRange?.start === 0x0900 && e.addressRange?.end === 0x09ff);
 ok(seg0900Entity?.kind === mapSegmentKindToEntityKind("code"), "entity record $0900 keeps heuristic kind (overlay is non-destructive)", `kind=${seg0900Entity?.kind}`);
 
-const emit = svc.emitAnnotationFindings({ sourcePrgArtifactId: prgArtifact.id, annotationsPath: intAnnPath, analysisJsonPath: intAnalysisPath });
-ok(emit.routinesEmitted >= 1, "751.3 parity: routine finding still emitted", `routines=${emit.routinesEmitted}`);
-ok(emit.segmentReclassesEmitted >= 1, "751.3 parity: segment-reclass finding still emitted", `segclass=${emit.segmentReclassesEmitted}`);
+// Spec 822.2: the annotations file is a door into the graph's human layer (D6) — routines and
+// segment reclasses become human nodes, not mirror findings (emitAnnotationFindings is retired).
+const emit = svc.importAnnotations({ sourcePrgArtifactId: prgArtifact.id, annotationsPath: intAnnPath });
+ok(emit.routines >= 1, "751.3 parity: routine imported into the human layer", `routines=${emit.routines}`);
+ok(emit.segments >= 1, "751.3 parity: segment reclass imported into the human layer", `segments=${emit.segments}`);
 
 // Memory-map view: $0900 region shows the annotation (data) kind + the flag.
 const mm = svc.buildMemoryMapView().view;

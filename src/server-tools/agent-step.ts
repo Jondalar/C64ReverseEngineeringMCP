@@ -21,9 +21,9 @@ import { hasProjectMarker } from "../project-root.js";
 // rebuild is immediately followed by a workflow-state.json self-touch (same sync
 // transaction), which would otherwise mark every just-rebuilt view "stale" by a
 // few ms and loop agent_next_step on inventory-sync forever (§11 step-loop guard).
+// Spec 822.2: findings / entities / relations / open-questions are rows in graph.sqlite.
 const KNOWLEDGE_FILES_FOR_STALE = [
-  "knowledge/entities.json", "knowledge/findings.json", "knowledge/relations.json",
-  "knowledge/flows.json", "knowledge/tasks.json", "knowledge/open-questions.json",
+  "knowledge/graph.sqlite", "knowledge/flows.json", "knowledge/tasks.json",
   "knowledge/artifacts.json",
 ];
 const VIEW_FILES_FOR_STALE = [

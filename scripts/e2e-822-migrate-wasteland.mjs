@@ -12,7 +12,8 @@
 //     a rename through the door survives the next re-seed, generated twin present
 //   - conflict rule: human name in find(), generated name via layer=generated
 //   - searchAnnotations (FTS5), subsystem door + query, annotations() with the D8 doc join, answerQuestion
-//   - 2 × 200 concurrent save_finding through the door → 400 rows; the JSON path's loss count recorded
+//   - 2 × 200 concurrent save_finding through the door → 400 rows; 822.2: the same through the SERVICE after the cut-over
+//   - 822.2: opening a legacy copy as a project cuts it over (files → _legacy-822/, timeline, projections answer, second open no-op)
 //   - PENDING (loud, exit 0) without the fixture — the smoke-740 shape
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:822
@@ -306,30 +307,95 @@ const rowsB = Number(store.db.prepare("SELECT COUNT(*) AS n FROM annotations WHE
 eq(rowsA + rowsB, 400, `graph door: 2 × 200 concurrent save_finding → rows (${msC.toFixed(0)} ms both writers)`);
 store.close();
 
-// the same run against the JSON path, once, on a small fresh project — the number that justified D9
-const jsonProject = mkdtempSync(join(tmpdir(), "c64re-822-json-"));
-const jsonChild = `
-  const { ProjectKnowledgeService } = await import(${JSON.stringify(join(ROOT, "dist/project-knowledge/service.js"))});
-  const [project, tag] = process.argv.slice(1);
-  const svc = new ProjectKnowledgeService(project);
-  for (let i = 0; i < 200; i += 1) svc.saveFinding({ kind: "observation", title: tag + " finding " + i, tags: [tag] });
-`;
-try {
-  execFileSync(process.execPath, ["--input-type=module", "-e", `const { ProjectKnowledgeService } = await import(${JSON.stringify(join(ROOT, "dist/project-knowledge/service.js"))}); new ProjectKnowledgeService(process.argv[1]).initProject({ name: "822 json race" });`, "--", jsonProject], { stdio: ["ignore", "ignore", "pipe"] });
-  const tJ = process.hrtime.bigint();
-  const jr = await Promise.all(["json-a", "json-b"].map((tag) => new Promise((res) => {
-    const p = spawn(process.execPath, ["--input-type=module", "-e", jsonChild, "--", jsonProject, tag], { stdio: ["ignore", "ignore", "pipe"] });
+// ---------------------------------------------------------------- 5b. 822.2 — the cut-over through the service
+//
+// A SECOND fresh copy of the legacy store, opened the way every MCP tool opens a
+// project: `new ProjectKnowledgeService(dir)`. The constructor folds the legacy
+// JSON into the graph, parks the files under knowledge/_legacy-822/, logs it to
+// the timeline; the record projections answer with the migrated rows; a second
+// open is a no-op; 2 × 200 concurrent save_finding THROUGH THE SERVICE land
+// 400/400 (the JSON path this replaced lost 200 of 400 — recorded in §"Built").
+{
+  const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
+  const cut = mkdtempSync(join(tmpdir(), "c64re-822-cut-"));
+  mkdirSync(join(cut, "knowledge"), { recursive: true });
+  for (const f of readdirSync(join(WASTELAND, "knowledge"))) {
+    if (!f.endsWith(".json") && f !== "notes.md") continue;
+    copyFileSync(join(WASTELAND, "knowledge", f), join(cut, "knowledge", f));
+  }
+  for (const src of annotationFiles) {
+    const dst = join(cut, relative(WASTELAND, src));
+    mkdirSync(dirname(dst), { recursive: true });
+    copyFileSync(src, dst);
+  }
+  const legacyFiles = ["entities.json", "findings.json", "relations.json", "open-questions.json", "labels.user.json"];
+  const tCut = process.hrtime.bigint();
+  const svc = new ProjectKnowledgeService(cut);
+  const msCut = Number(process.hrtime.bigint() - tCut) / 1e6;
+  check(legacyFiles.every((f) => !existsSync(join(cut, "knowledge", f)) && existsSync(join(cut, "knowledge", "_legacy-822", f))), `opening the project cut it over: the five legacy files moved to knowledge/_legacy-822/ (${msCut.toFixed(0)} ms)`);
+  check(existsSync(join(cut, "knowledge", "flows.json")) && existsSync(join(cut, "knowledge", "artifacts.json")), "flows.json and artifacts.json stay JSON (not knowledge / regenerable)");
+  const cutStore = GraphStore.open(cut, { readOnly: true });
+  const cutRuns = Number(cutStore.db.prepare("SELECT COUNT(*) AS n FROM migration_runs WHERE dry_run = 0").get().n);
+  const cutLedger = Number(cutStore.db.prepare("SELECT COUNT(*) AS n FROM migration_log").get().n);
+  const cutoverAt = cutStore.db.prepare("SELECT value FROM meta WHERE key = 'cutover_at'").get()?.value;
+  const claimsN = Number(cutStore.db.prepare("SELECT COUNT(*) AS n FROM claims").get().n);
+  const findingAnnN = Number(cutStore.db.prepare("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'finding:%'").get().n);
+  const questionsN = Number(cutStore.db.prepare("SELECT COUNT(*) AS n FROM questions").get().n);
+  cutStore.close();
+  eq(cutLedger, legacyTotal, "cut-over ledger = the same legacy records the migration gate read");
+  check(Boolean(cutoverAt), `meta.cutover_at stamped (${cutoverAt})`);
+  const timeline = readFileSync(join(cut, "session", "timeline.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  check(timeline.some((e) => /Spec 822 cut-over/.test(e.title)), "the cut-over is a timeline event");
+  const status = svc.getProjectStatus();
+  eq(status.counts.findings, claimsN + findingAnnN, "project_status counts findings from the graph (claims + prose)");
+  eq(status.counts.openQuestions, questionsN, "project_status counts open questions from the graph");
+  const findings = svc.listFindings();
+  check(findings.length === claimsN + findingAnnN && findings.some((f) => f.id.startsWith("claim:")) && findings.some((f) => f.id.startsWith("ann:")), `listFindings = ${findings.length} (claims as generated findings, prose as human findings)`);
+  const claim31 = findings.find((f) => f.id === `claim:${slug}:ram:addr:0031|behaves_like`);
+  check(claim31 && claim31.kind === "hypothesis" && claim31.tags.includes("analysis-import") && claim31.tags.includes("ram-hypothesis") && claim31.addressRange?.start === 0x31 && claim31.evidence.length === 58, `the $0031 claim projects as one hypothesis finding with 58 evidence refs (${claim31?.evidence.length})`);
+  const entities = svc.listEntities();
+  check(entities.length > 4000 && entities.every((e) => e.id && e.kind && e.name), `listEntities = ${entities.length} records, every one with id / kind / name`);
+  const orch = entities.find((e) => e.name === "area_load_orchestrator" && e.kind === "routine");
+  check(orch && orch.id === `${slug}:ram/${OWNER}:routine:25c1` && orch.kind === "routine" && orch.addressRange?.start === 0x25c1, `a hand entity keeps its kind and address under its graph id (${orch?.id})`);
+  const payloads = svc.listEntities({ kind: "payload" });
+  check(payloads.length >= 185 && payloads.some((p) => p.payloadSourceArtifactId), `payload entities project with their payload fields (${payloads.length})`);
+  const relations = svc.listRelations();
+  check(relations.length > 2000 && relations.every((r) => r.sourceEntityId && r.targetEntityId && r.kind), `listRelations = ${relations.length} edges as relation records`);
+  const questions = svc.listOpenQuestions();
+  check(questions.length === questionsN && questions.every((q) => q.status && q.priority), `listOpenQuestions = ${questions.length} (heuristic prompts are claim validation state, not rows)`);
+  // an alias from the legacy era still resolves through the ledger
+  const legacyEntity = JSON.parse(readFileSync(join(cut, "knowledge", "_legacy-822", "entities.json"), "utf8")).items.find((e) => e.name === "area_load_orchestrator" && e.kind === "routine");
+  check(legacyEntity && svc.getEntity(legacyEntity.id)?.id === orch?.id, `a legacy entity id resolves to its graph node through the ledger (${legacyEntity?.id} → ${orch?.id})`);
+  // second open: no second migration, nothing moved
+  const t2 = process.hrtime.bigint();
+  new ProjectKnowledgeService(cut);
+  const ms2 = Number(process.hrtime.bigint() - t2) / 1e6;
+  const s2 = GraphStore.open(cut, { readOnly: true });
+  eq(Number(s2.db.prepare("SELECT COUNT(*) AS n FROM migration_runs WHERE dry_run = 0").get().n), cutRuns, `a second open runs no migration (${ms2.toFixed(0)} ms)`);
+  s2.close();
+  // a door write through the service, then the same 2 × 200 race THROUGH THE SERVICE
+  const saved = svc.saveFinding({ kind: "observation", title: "cut-over gate finding", summary: "written through the service after the cut", addressRange: { start: 0x25c1, end: 0x25c1 }, tags: ["gate-822"] });
+  check(/^ann:/.test(saved.id) && svc.listFindings().some((f) => f.id === saved.id && f.tags.includes("gate-822")), `save_finding through the service → ${saved.id}, listed back`);
+  check(!legacyFiles.some((f) => existsSync(join(cut, "knowledge", f))), "no legacy JSON file reappeared after the write");
+  const svcChild = `
+    const { ProjectKnowledgeService } = await import(${JSON.stringify(join(ROOT, "dist/project-knowledge/service.js"))});
+    const [project, tag] = process.argv.slice(1);
+    const svc = new ProjectKnowledgeService(project);
+    for (let i = 0; i < 200; i += 1) svc.saveFinding({ kind: "observation", title: tag + " finding " + i, tags: [tag], addressRange: { start: 0x1000 + i, end: 0x1000 + i } });
+  `;
+  const tS = process.hrtime.bigint();
+  const sr = await Promise.all(["svc-a", "svc-b"].map((tag) => new Promise((res) => {
+    const p = spawn(process.execPath, ["--input-type=module", "-e", svcChild, "--", cut, tag], { stdio: ["ignore", "ignore", "pipe"] });
     let err = ""; p.stderr.on("data", (d) => { err += d; });
     p.on("exit", (code) => res({ tag, code, err }));
   })));
-  const msJ = Number(process.hrtime.bigint() - tJ) / 1e6;
-  const items = JSON.parse(readFileSync(join(jsonProject, "knowledge", "findings.json"), "utf8")).items;
-  const kept = items.filter((f) => f.tags.includes("json-a") || f.tags.includes("json-b")).length;
-  const died = jr.filter((r) => r.code !== 0).map((r) => `${r.tag}: ${r.err.split("\n").find((l) => /Error/.test(l)) ?? `exit ${r.code}`}`);
-  info(`JSON path (Spec 822 §1, D9): 2 × 200 concurrent save_finding → ${kept} of 400 rows survive, ${400 - kept} lost (${msJ.toFixed(0)} ms; exits ${jr.map((r) => r.code).join(",")}${died.length ? `; ${died.join("; ")}` : ""})`);
-  check(rowsA + rowsB === 400, `the graph lost 0 where the JSON path lost ${400 - kept}`);
-} catch (e) {
-  info(`JSON path race not measured: ${String(e.message).slice(0, 160)}`);
+  const msS = Number(process.hrtime.bigint() - tS) / 1e6;
+  for (const r of sr) check(r.code === 0 && !/ExperimentalWarning/.test(r.err), `service writer ${r.tag} exit ${r.code}${r.err ? ` stderr: ${r.err.slice(0, 200)}` : ""}`);
+  const s3 = GraphStore.open(cut, { readOnly: true });
+  const svcRows = Number(s3.db.prepare("SELECT COUNT(*) AS n FROM annotations WHERE tags LIKE '%svc-a%' OR tags LIKE '%svc-b%'").get().n);
+  s3.close();
+  eq(svcRows, 400, `2 × 200 concurrent save_finding THROUGH THE SERVICE → rows (${msS.toFixed(0)} ms; the JSON path lost 200 of 400 here before the cut)`);
+  check(msS < 20_000, `400 service writes on the 47k-record graph in ${(msS / 1000).toFixed(1)} s (< 20 s: a save projects ONE record, not the store)`);
 }
 
 // ---------------------------------------------------------------- 6. the CLI stays quiet; timing

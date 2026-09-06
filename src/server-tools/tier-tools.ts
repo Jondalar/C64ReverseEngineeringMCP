@@ -59,7 +59,10 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "extract_disk", "extract_crt", "disk_sector_allocation",
   // Record knowledge
   "save_finding", "save_entity", "save_open_question", "propose_annotations",
-  "import_annotations_as_findings", "link_payload_to_asm", "link_entities",
+  // Spec 822.2: import_annotations_as_findings retired — the annotations file is
+  // a door into the graph (D6): disasm_prg imports it, `c64re graph annotations-import`
+  // for a file disasm_prg never saw.
+  "link_payload_to_asm", "link_entities",
   // BUG-024 — register a carved code-derived/custom-loader block as a first-class
   // payload (load addr + format + source .prg + medium spans) so it renders on the
   // disk/memory views like a CBM/LUT-extracted payload. Common in cracks.

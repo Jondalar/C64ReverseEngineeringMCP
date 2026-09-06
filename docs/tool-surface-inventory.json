@@ -1,5 +1,5 @@
 {
-  "total": 266,
+  "total": 265,
   "specCount": 42,
   "advancedCandidate": 110,
   "byNamespace": {
@@ -21,7 +21,6 @@
     "record": 5,
     "suggest": 4,
     "get": 3,
-    "import": 3,
     "mark": 3,
     "run": 3,
     "scan": 3,
@@ -33,6 +32,7 @@
     "declare": 2,
     "dedupe": 2,
     "disasm": 2,
+    "import": 2,
     "propose": 2,
     "read": 2,
     "render": 2,
@@ -212,8 +212,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "backfill",
       "hasSpec": false,
-      "firstSentence": "Bug 28: walk findings.json and copy evidence[0].addressRange to top-level addressRange when missing.",
-      "desc": "Bug 28: walk findings.json and copy evidence[0].addressRange to top-level addressRange when missing. One-shot migration for projects whose hypothesis findings only have evidence-level ranges. Returns count updated. Idempotent.",
+      "firstSentence": "Bug 28: walk the findings and copy evidence[0].addressRange to top-level addressRange when missing.",
+      "desc": "Bug 28: walk the findings and copy evidence[0].addressRange to top-level addressRange when missing. One-shot migration for projects whose hypothesis findings only have evidence-level ranges. Returns count updated. Idempotent.",
       "tier": "advanced?"
     },
     {
@@ -248,8 +248,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "backfill",
       "hasSpec": false,
-      "firstSentence": "Bug 29: walk open-questions.json and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing.",
-      "desc": "Bug 29: walk open-questions.json and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing. One-shot migration. Returns count updated. Idempotent.",
+      "firstSentence": "Bug 29: walk the open questions and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing.",
+      "desc": "Bug 29: walk the open questions and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing. One-shot migration. Returns count updated. Idempotent.",
       "tier": "advanced?"
     },
     {
@@ -674,15 +674,6 @@
       "firstSentence": "Import a saved analysis JSON artifact into structured entities and findings.",
       "desc": "Import a saved analysis JSON artifact into structured entities and findings.",
       "tier": "advanced?"
-    },
-    {
-      "name": "import_annotations_as_findings",
-      "file": "server-tools/analysis-workflow.ts",
-      "ns": "import",
-      "hasSpec": false,
-      "firstSentence": "Turn an existing annotations file (routines + segment reclassifications) into project findings, one per routine and per reclassification.",
-      "desc": "Turn an existing annotations file (routines + segment reclassifications) into project findings, one per routine and per reclassification. Use for older projects, after hand-editing annotations, or to seed the auto-archive matchers. Not for generating annotations (use propose_annotations). Inputs: binary stem / annotations path. Returns: count of findings emitted. Idempotent per binary.",
-      "tier": "default?"
     },
     {
       "name": "import_manifest_artifact",

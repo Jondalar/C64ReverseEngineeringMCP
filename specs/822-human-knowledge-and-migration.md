@@ -1,6 +1,6 @@
 # Spec 822 — Human knowledge integration + migration of the existing store
 
-**Status:** PARTLY BUILT 2026-09-06 — 822.1 (migration, human door, query extensions) built, gate `npm run e2e:822` GREEN (90/0) on a tmp copy of Wasteland_EF; 822.2 (readers off JSON, JSON writes deleted, `check:822-drift` / `check:822-no-json-readers`) NOT built
+**Status:** BUILT 2026-09-06 — 822.1 (migration, human door, query extensions) and 822.2 (the cut: the graph is the authority for findings, entities, relations, annotations, open questions and user labels; the JSON store for them is neither read nor written; §11). Gates `npm run e2e:822` GREEN (111/0 on a tmp copy of Wasteland_EF) and `npm run check:822-no-json-readers` GREEN.
 **Origin:** `C64RE_Semantic_Knowledge_Graph_Draft_Spec.md` §"Human Annotations",
 §"Subsystems", §"Generated vs Persistent Knowledge" ("Reanalyse darf generierte
 Informationen löschen … aber niemals Human Knowledge ungefragt überschreiben"),
@@ -292,6 +292,11 @@ between them.
    `check:822-drift` projects the graph back into the JSON record shape and diffs it
    against the files; red means a writer bypassed the graph. This is the window, and the
    only time two stores hold the same fact.
+   *As built (§11): the window was skipped.* 822.2 went straight to the cut on the spec
+   branch — the migration is idempotent and incremental by the ledger, so a project is
+   cut over the first time the new code opens it, and there was never a day on which two
+   stores held the same fact. `check:822-drift` was therefore not built; the gate that
+   closes the window is `check:822-no-json-readers` alone.
 2. **822.2 — read from the graph, stop writing JSON.** `list_*`, the view builders,
    `project_search` (D10), the monitor's labels, and `archivePhase1Noise` /
    `sweepQuestionResolutions` (now claim-status updates) read the graph. The JSON mirror
@@ -443,14 +448,99 @@ one-line fix is `new DatabaseSync(path, { timeout: 5000 })` in `store.ts` (D9 sa
 400 survive, one writer dies on `ENOENT rename findings.json.tmp`** — the number that
 justified D9.
 
-**822.2 needs:** `service.ts` hooks (`saveFinding → recordFinding`, `saveEntity →
-nameNode`, `linkEntities → linkNodes`, `saveOpenQuestion → askQuestion`,
-`save_user_label → nameNode`) behind `meta.cutover_at`; `check:822-drift`
-(project the graph back into the record shape, diff against the files);
-`disasm_prg` calling the annotation-file import when `meta.annotations_imported.<stem>`
-is older than the file; `project_search` re-pointed (D10); `list_*` and the view
-builders reading `nodes`/`annotations`/`claims`; `emitAnnotationFindings` and
-`import_annotations_as_findings` deleted; `check:822-no-json-readers`; the
-`_legacy-822/` move; `c64re graph migrate|annotations|search|subsystem|name|link|answer`
-in `cli.ts`; the 823 fold (`graph_find origin=human`, `graph_node` card with
-`annotations()`); the 822 row in `docs/tools/knowledge-graph.md`.
+**822.2 needed** (2026-09-06, morning): the `service.ts` hooks, `disasm_prg` calling the
+annotation-file import, `project_search` re-pointed, `list_*` and the view builders off
+JSON, `emitAnnotationFindings` and `import_annotations_as_findings` deleted,
+`check:822-no-json-readers`, the `_legacy-822/` move. Built the same day — §11.
+
+## 11. 822.2 — the cut (built 2026-09-06)
+
+**What moved.** `ProjectKnowledgeService` no longer has a JSON store for findings,
+entities, relations, open questions or user labels: `storage.ts` lost their path keys,
+loaders and savers, `ensureLayout` no longer creates the files, and the five
+`*StoreSchema` types are gone. In their place `src/knowledge-graph/records.ts`
+(`KnowledgeRecords`) projects the graph into the record shapes everything downstream
+has always consumed — `EntityRecord`, `FindingRecord`, `RelationRecord`,
+`OpenQuestionRecord`, `UserLabelOverride` — and routes every writer through the 822
+doors or the 822 importer:
+
+| the service method | writes | reads back from |
+|---|---|---|
+| `saveEntity` | human: `upsertHuman` node + `entity` annotation for the summary (payload identity by content hash / (source, load) is an indexed lookup, Bug 31); importer-tagged (`analysis-import`, `manifest-import`, `inventory-import`): the generated layer through `importRecords` | `nodes` (producer 822 \| human, both layers, human first) + folded `entity:*` prose |
+| `saveFinding` | human: `recordFinding` → a `finding:<kind>` annotation, evidence rows per ref; importer-tagged → claims; a `claim:` id → that claim's `status` / `superseded_by` | `finding:*` annotations + `claims` (a claim is a generated `hypothesis` finding with one evidence ref per run — `$0031` projects as ONE finding with 58 refs) |
+| `linkEntities` | human: `upsertLink` (a human edge, record fields in `evidence`); an endpoint that is prose or unresolved → a `relation:<kind>` annotation, never a throw | `edges` (producer 822 \| human) + `relation:*` prose |
+| `saveOpenQuestion` | `upsertQuestion` — a door row is human whatever its `source` (D3) | `questions` |
+| `saveUserLabel` | `upsertHuman` on the `addr` node (`attrs.legacy_kind = label-override`) | human nodes with that attr |
+| `importAnalysisArtifact` / `importManifestArtifact` | `importRecords` with `purgeArtifactId` (D2: the artifact's evidence rows + ledger entries go, then every 822 generated row nothing backs); heuristic questions fold into `claims.validation` (D4) | — |
+| `importAnnotations` (was `emitAnnotationFindings`) | `importAnnotationFile`: re-imported when the file's hash changed (`meta.annotations_imported.<stem>`); rows the door renamed since (producer `human`) are kept | — |
+
+**Ids.** An entity id IS its graph node id; a finding is `ann:<sha1>` (prose) or
+`claim:<node>|<claim>`; a relation `edge:<from>|<type>|<to>` (or `ann:` when prose); a
+question keeps its id. Legacy ids (`entity-…`, `finding-…`) and caller aliases
+(`aj:<ref>`, `entity-payload-<slug>`) resolve through `migration_log`, which is the alias
+table: a door write with an unknown alias records it there. `getEntity(legacyId)` on the
+cut-over Wasteland copy answers with the graph node (gate).
+
+**What changed shape.** Nothing in the MCP tool output lines; the VALUES of ids did
+(above). `list_open_questions` no longer has heuristic rows to hide — the importers'
+validation prompts are `claims.validation` (D4), so `include_heuristic` only affects
+questions saved through the door with `source=heuristic-phase1`. `list_entities` returns
+the graph's 822 + human rows (819/820/821 routines and labels stay behind the `graph_*`
+tools; they are not knowledge entities). `dedupe_payload_entities` reports zero groups:
+payload identity is derived, the migration merged the legacy duplicates. Flows stay in
+`flows.json` (regenerable, not knowledge; `list_flows` and the flow-graph view are
+unchanged) — moving them is a later slice, as is anti-patterns (never in the migration).
+
+**The closed loop on claims.** `archivePhase1Noise` runs the same algorithm over the
+projections; its coverage is routine findings (tags `routine`/`annotation` + range) PLUS
+the human `routine` nodes the annotation files produced (extent = next routine − 1 within
+the owner, capped by the containing human segment). A covered hypothesis claim gets
+`status=archived`, `superseded_by=<coverer>`; a covered claim's `validation` flips to
+`answered` (`validated_by=<coverer>`) — that is the "paired question answered" of the
+JSON era, and it is what the sweep footer counts. `sweepQuestionResolutions` is
+unchanged (question rows). `emitAnnotationFindings`, `removeFindingsById`'s prefix purge,
+`import_annotations_as_findings` (DEFAULT_TOOLS 156 → 155 used, cap unchanged) and
+`remapEntityReferences` are deleted; `c64re graph annotations-import <file>` covers a
+file `disasm_prg` never saw.
+
+**The cut-over.** `ensureCutover(projectDir)` in `ProjectKnowledgeService`'s constructor
+and in `buildProjectSearchIndex`: five `existsSync`; when a legacy file is live and
+`knowledge/project.json` exists, `migrateProject` runs (idempotent, incremental), the
+five files move to `knowledge/_legacy-822/` (with a README), and the timeline gets one
+note. `migrateProject` reads `knowledge/_legacy-822/` when a file is no longer live, so
+`c64re graph migrate` re-runs stay idempotent after the move. `meta.cutover_at` is also
+stamped by the first door write into a fresh project. `c64re graph export [--out]` writes
+the graph back into the five record shapes under `knowledge/export/` for humans.
+
+**Two defects the cut found in 822.1 / 818 code, fixed.** (1) `JSON.stringify(v,
+Object.keys(v).sort())` — used for `nodes.attrs`, `edges.evidence` and every 822 `attrs`
+column — sorts the top-level keys but, as a replacer ARRAY, drops every nested key not
+also a top-level name: a payload's `{format, content_hash}` was stored as `{}`, a medium
+span as `[{}]`. `src/knowledge-graph/json.ts` (`canonicalJson`, recursive sort) replaces
+it everywhere; the e2e-822 dump comparison is unaffected (both runs serialise the same
+way). (2) `upsertHuman`'s conflict branch kept the old `producer`, so a door rename of a
+file-imported row still said `822` and a re-import of the file would have overwritten it;
+the branch now takes `producer` / `origin` / `confidence` too, and the file import
+purges only `producer = '822'` rows for that file (`kept-door-row` holds).
+
+**Gates.** `npm run check:822-no-json-readers` (`scripts/check-822-no-json-readers.mjs`):
+every `.ts/.js/.mjs` under `src/` outside `src/knowledge-graph/migrate/**`, `cutover.ts`
+and `export.ts` — no line names one of the five files, calls
+`load|save(Entities|Findings|Relations|OpenQuestions|UserLabels)`, reaches a
+`knowledge(...)` path key for them, or parses a `*StoreSchema`. GREEN. `npm run e2e:822`
+grew a §5b: a second fresh copy of Wasteland_EF opened as a project cuts over in ~1 s
+(files moved, ledger = 46 936, timeline event), `project_status` counts come from the
+graph, `listFindings` = claims + prose with the `$0031` claim as one hypothesis finding
+carrying 58 refs, a legacy entity id resolves through the ledger, a second open runs no
+migration, and 2 × 200 concurrent `save_finding` THROUGH THE SERVICE land 400/400 in
+9.8 s (the JSON path lost 200 of 400 here before the cut; a save projects one record, not
+the store). Regression kept green: `test:project-knowledge`, `e2e:751`, `e2e:758`,
+`e2e:024`, `smoke:740`, `e2e:748`, `e2e:bug033`, `smoke:bug033-label`, `e2e:759`,
+`e2e:750-lut`, `smoke:741`, sprint 37/46/54, `e2e:818`–`823`, `check:platform-kb`,
+`check:docs-current`, `e2e-mcp-no-internal-recommendations`, the surface probe (its two
+pre-existing fails only), the inventory `--check`. Smoke assertions changed, minimally:
+`project-knowledge-smoke` (a nested store is recognised by `artifacts.json`, the audit
+cache is refreshed by touching `graph.sqlite`, the import's validation prompts are
+asserted as claims), `e2e-751` (`importAnnotations` instead of `emitAnnotationFindings`),
+`e2e-024` (the payload is read through the service, not `entities.json`), `e2e-750-lut`
+(the payload id is taken from the write's own `ID:` line).

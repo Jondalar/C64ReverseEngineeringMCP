@@ -80,9 +80,7 @@ import {
   MemoryMapViewSchema,
   type MediumLayoutView,
   MediumLayoutViewSchema,
-  OpenQuestionStoreSchema,
   type OpenQuestionRecord,
-  type OpenQuestionStore,
   PROJECT_KNOWLEDGE_SCHEMA_VERSION,
   type ProjectCheckpoint,
   ProjectCheckpointSchema,
@@ -95,20 +93,12 @@ import {
   type WorkflowState,
   WorkflowStateSchema,
   type RelationRecord,
-  type RelationStore,
-  RelationStoreSchema,
   type TimelineEvent,
   TimelineEventSchema,
   type ToolRunRecord,
   ToolRunRecordSchema,
-  type UserLabelStore,
-  UserLabelStoreSchema,
-  EntityStoreSchema,
   type EntityRecord,
-  type EntityStore,
-  FindingStoreSchema,
   type FindingRecord,
-  type FindingStore,
   type TaskRecord,
   type TaskStore,
   TaskStoreSchema,
@@ -140,12 +130,8 @@ export interface ProjectKnowledgePaths {
   sessionCheckpoints: string;
   knowledgeProject: string;
   knowledgeArtifacts: string;
-  knowledgeEntities: string;
-  knowledgeFindings: string;
-  knowledgeRelations: string;
   knowledgeFlows: string;
   knowledgeTasks: string;
-  knowledgeOpenQuestions: string;
   knowledgeContainers: string;
   knowledgeLoaderEntryPoints: string;
   knowledgeLutDescriptors: string;
@@ -163,7 +149,6 @@ export interface ProjectKnowledgePaths {
   knowledgeRuntimeDiffs: string;
   knowledgeBuildPipelines: string;
   knowledgeBuildRuns: string;
-  knowledgeLabelsUser: string;
   knowledgeArtifactVersions: string;
   snapshotsRoot: string;
   knowledgeNotes: string;
@@ -270,12 +255,8 @@ export class ProjectKnowledgeStorage {
     }
 
     this.ensureJsonFile(this.paths.knowledgeArtifacts, emptyStore<ArtifactRecord>());
-    this.ensureJsonFile(this.paths.knowledgeEntities, emptyStore<EntityRecord>());
-    this.ensureJsonFile(this.paths.knowledgeFindings, emptyStore<FindingRecord>());
-    this.ensureJsonFile(this.paths.knowledgeRelations, emptyStore<RelationRecord>());
     this.ensureJsonFile(this.paths.knowledgeFlows, emptyStore<FlowRecord>());
     this.ensureJsonFile(this.paths.knowledgeTasks, emptyStore<TaskRecord>());
-    this.ensureJsonFile(this.paths.knowledgeOpenQuestions, emptyStore<OpenQuestionRecord>());
     this.ensureJsonFile(this.paths.knowledgeContainers, emptyStore<ContainerEntry>());
     this.ensureJsonFile(this.paths.knowledgeLoaderEntryPoints, emptyStore<LoaderEntryPoint>());
     this.ensureJsonFile(this.paths.knowledgeLutDescriptors, emptyStore<LutDescriptor>());
@@ -291,7 +272,6 @@ export class ProjectKnowledgeStorage {
     this.ensureJsonFile(this.paths.knowledgeRuntimeDiffs, emptyStore<RuntimeDiff>());
     this.ensureJsonFile(this.paths.knowledgeBuildPipelines, emptyStore<BuildPipeline>());
     this.ensureJsonFile(this.paths.knowledgeBuildRuns, emptyStore<BuildRun>());
-    this.ensureJsonFile(this.paths.knowledgeLabelsUser, emptyStore<UserLabelStore["items"][number]>());
     this.ensureJsonFile(this.paths.knowledgeArtifactVersions, emptyStore<ArtifactVersionGroup>());
     this.ensureJsonFile(this.paths.knowledgePhasePlan, emptyWorkflowPlan() as unknown as JsonValue);
     this.ensureJsonFile(this.paths.knowledgeWorkflowState, emptyWorkflowState() as unknown as JsonValue);
@@ -515,35 +495,11 @@ export class ProjectKnowledgeStorage {
     return parsed;
   }
 
-  loadEntities(): EntityStore {
-    return EntityStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeEntities, emptyStore<EntityRecord>()));
-  }
 
-  saveEntities(store: EntityStore): EntityStore {
-    const parsed = EntityStoreSchema.parse(store);
-    writeJsonAtomically(this.paths.knowledgeEntities, parsed as unknown as JsonValue);
-    return parsed;
-  }
 
-  loadFindings(): FindingStore {
-    return FindingStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeFindings, emptyStore<FindingRecord>()));
-  }
 
-  saveFindings(store: FindingStore): FindingStore {
-    const parsed = FindingStoreSchema.parse(store);
-    writeJsonAtomically(this.paths.knowledgeFindings, parsed as unknown as JsonValue);
-    return parsed;
-  }
 
-  loadRelations(): RelationStore {
-    return RelationStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeRelations, emptyStore<RelationRecord>()));
-  }
 
-  saveRelations(store: RelationStore): RelationStore {
-    const parsed = RelationStoreSchema.parse(store);
-    writeJsonAtomically(this.paths.knowledgeRelations, parsed as unknown as JsonValue);
-    return parsed;
-  }
 
   loadFlows(): FlowStore {
     return FlowStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeFlows, emptyStore<FlowRecord>()));
@@ -565,25 +521,9 @@ export class ProjectKnowledgeStorage {
     return parsed;
   }
 
-  loadOpenQuestions(): OpenQuestionStore {
-    return OpenQuestionStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeOpenQuestions, emptyStore<OpenQuestionRecord>()));
-  }
 
-  saveOpenQuestions(store: OpenQuestionStore): OpenQuestionStore {
-    const parsed = OpenQuestionStoreSchema.parse(store);
-    writeJsonAtomically(this.paths.knowledgeOpenQuestions, parsed as unknown as JsonValue);
-    return parsed;
-  }
 
-  loadUserLabels(): UserLabelStore {
-    return UserLabelStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeLabelsUser, emptyStore<UserLabelStore["items"][number]>()));
-  }
 
-  saveUserLabels(store: UserLabelStore): UserLabelStore {
-    const parsed = UserLabelStoreSchema.parse(store);
-    writeJsonAtomically(this.paths.knowledgeLabelsUser, parsed as unknown as JsonValue);
-    return parsed;
-  }
 
   // Spec 730 §7.1 — artifact version groups (metadata-only "best version" model).
   loadArtifactVersionGroups(): ArtifactVersionGroupStore {
@@ -767,12 +707,8 @@ export function createProjectKnowledgePaths(projectRoot: string): ProjectKnowled
     sessionCheckpoints: join(root, "session", "checkpoints"),
     knowledgeProject: join(root, "knowledge", "project.json"),
     knowledgeArtifacts: join(root, "knowledge", "artifacts.json"),
-    knowledgeEntities: join(root, "knowledge", "entities.json"),
-    knowledgeFindings: join(root, "knowledge", "findings.json"),
-    knowledgeRelations: join(root, "knowledge", "relations.json"),
     knowledgeFlows: join(root, "knowledge", "flows.json"),
     knowledgeTasks: join(root, "knowledge", "tasks.json"),
-    knowledgeOpenQuestions: join(root, "knowledge", "open-questions.json"),
     knowledgeContainers: join(root, "knowledge", "containers.json"),
     knowledgeLoaderEntryPoints: join(root, "knowledge", "loader-entry-points.json"),
     knowledgeLutDescriptors: join(root, "knowledge", "lut-descriptors.json"),
@@ -790,7 +726,6 @@ export function createProjectKnowledgePaths(projectRoot: string): ProjectKnowled
     knowledgeRuntimeDiffs: join(root, "knowledge", "runtime-diffs.json"),
     knowledgeBuildPipelines: join(root, "knowledge", "build-pipelines.json"),
     knowledgeBuildRuns: join(root, "knowledge", "build-runs.json"),
-    knowledgeLabelsUser: join(root, "knowledge", "labels.user.json"),
     knowledgeArtifactVersions: join(root, "knowledge", "artifact-versions.json"),
     snapshotsRoot: join(root, "snapshots"),
     knowledgeNotes: join(root, "knowledge", "notes.md"),

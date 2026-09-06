@@ -126,10 +126,10 @@ try {
   const region = mm && (mm.regions || mm.view?.regions || []).find((r) => r.start === 0x4000 && /engine_4000/.test(r.title || ""));
   ok(Boolean(region), "12 memory map has the payload region at $4000", region ? `${region.title} $${region.start.toString(16)}-$${region.end.toString(16)}` : "not found");
 
-  // Knowledge store carries the disk spans the disk view needs.
-  const entPath = join(projectDir, "knowledge", "entities.json");
-  const ents = existsSync(entPath) ? JSON.parse(readFileSync(entPath, "utf8")) : {};
-  const list = Array.isArray(ents) ? ents : (ents.items || ents.entities || ents.records || []);
+  // Knowledge store carries the disk spans the disk view needs. Spec 822.2: the
+  // store is knowledge/graph.sqlite, read through the service's projection.
+  const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
+  const list = new ProjectKnowledgeService(projectDir).listEntities();
   const payload = list.find((e) => e.name === "engine_4000" && e.kind === "payload");
   const span = payload?.mediumSpans?.find((s) => s.kind === "sector" && s.track === 20 && s.sector === 5);
   ok(Boolean(span), "13 payload carries disk medium span T20/S5 (disk view input, part 4)",
