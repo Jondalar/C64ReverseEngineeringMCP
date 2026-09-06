@@ -12,6 +12,7 @@
 
 import { existsSync, statSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const argv = process.argv.slice(2);
@@ -33,7 +34,7 @@ if (!existsSync(resolve(repoDir, "scripts", "workspace.mjs"))) {
   process.exit(2);
 }
 
-const { ensureUiLauncher } = await import(resolve(ROOT, "dist/project-knowledge/ui-launcher.js"));
+const { ensureUiLauncher } = await import(pathToFileURL(resolve(ROOT, "dist/project-knowledge/ui-launcher.js")));
 const result = ensureUiLauncher(projectDir, repoDir);
 
 console.log(`project: ${projectDir}`);
