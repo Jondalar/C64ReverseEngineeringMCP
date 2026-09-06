@@ -1,6 +1,6 @@
 # Spec 825 — Graph explorer: the whole project, four projections, sigma.js
 
-**Status:** BUILT 2026-09-06 on branch `spec-825-graph-explorer` — gates `smoke:825-routes` 32/0, `smoke:825` 85/0; `smoke:824` 16/0, `smoke:824-2` 24/0, `smoke:824-routes` 11/0, `e2e:823` 28/0, `smoke:product-ui` 14/0 (§9) — written after looking at both UIs side by side on
+**Status:** BUILT 2026-09-06, merged to master — gates `smoke:825-routes` 32/0, `smoke:825` 85/0; `smoke:824` 16/0, `smoke:824-2` 24/0, `smoke:824-routes` 11/0, `e2e:823` 28/0, `smoke:product-ui` 14/0 (§9) — written after looking at both UIs side by side on
 Wasteland_EF (the 824 tab) and on this repo (GitNexus `serve`, the C64RE index)
 **Origin:** Spec 824 D3 — "A whole-project explorer is a new spec." This is it. The
 question that produced it: *what is missing to build a UI as good as GitNexus's, with
