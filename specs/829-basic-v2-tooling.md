@@ -1,6 +1,6 @@
 # Spec 829 — BASIC V2 tooling: detokenize, list, tokenize
 
-**Status:** PROPOSED 2026-09-06
+**Status:** BUILT 2026-09-06 on branch `spec-829-basic-v2` — gate `npm run e2e:829` 86/0, hermetic; build, `test:project-knowledge`, `e2e:748`, `check:docs-current`, `smoke:741`, `smoke:disasm-sync`, `check:wiki` green (§8)
 **Origin:** Issue #11 (mrr19121970): `disasm_prg` renders a stock BASIC PRG's token bytes
 as 6502 garbage, because it treats every PRG as machine code. Also closes the second half
 of issue #10 (PETSCII control codes and colour names), which is not an address lookup and
@@ -177,3 +177,60 @@ which moves the tool cap by two; that is stated here rather than discovered by t
 - The graph edge itself. 829 produces the anchor (D4.1); emitting `basic_line → routine`
   belongs to the knowledge-graph producers, which are not on this branch.
 - Re-typing the book. It is a cross-check on names (D1) and nothing from it is committed.
+
+## 8. Built — what reading the code changed
+
+**`basic_stub` does not mean what the name suggests, and that reframed D6.**
+`makeCodeCandidate` sets it when a code run starts at an entry point whose source is
+`basic_sys` — it is the **machine code the SYS jumps into**, not the token bytes. So
+`basic_stub` really is 6502 and rightly answers yes at every "is this code" site; the new
+`basic` kind is the token bytes and answers no. Three of the four consumers therefore
+needed no code change, only a comment recording why the answer is no:
+
+- `utils.ts` `calculateStats` — "how many bytes are 6502?" → no, while the `kind !==
+  "unknown"` test above it still counts the region as claimed, which is the other half of
+  the truth.
+- `utils.ts` `kindPriority` — the one site asking "does this kind carry the program
+  here?" → yes, highest (125). The claim is a completed chain walk, not a heuristic
+  score, so no byte-shape analyzer may carve a slice out of the middle of a program.
+- `pipeline.ts` branch target — "does this land somewhere executable?" → no,
+  deliberately, so a branch into the BASIC region counts as an offender and demotes a
+  mis-decoded island.
+- `evidence-graph.ts` / `display-analysis.ts` — no: a `basic` segment produces no
+  instruction facts, so there is nothing to hang a routine node or a VIC write on. The
+  BASIC→ML link travels on the fact's `site`/`value` (D4.1) instead.
+
+`prg-disasm.ts`'s four `code || basic_stub` tests are deliberately untouched: `basic`
+falls through them to the data renderer, and that fall-through **is** the fix for issue
+#11.
+
+**`USR` is not an entry point.** The first wiring emitted one for a resolved `USR`
+argument. That argument is the float parameter handed to the routine whose address sits
+in the vector at `$0311/$0312` — it is not an address, so `USR 2080` would have claimed
+code at 2080. Only `SYS` yields an entry point now; the `USR` fact is still extracted and
+still printed, it just does not claim to be code.
+
+**An unresolved `SYS` is reported, but not in the entry point's `reason`.** That string
+becomes the summary of the entry-point entity for one address, so a note about a
+different line would be filed under the wrong address. The `basic` segment's score
+reasons carry every fact with its expression, and `basic_list` prints them all.
+
+**Acceptance, on a fixture built for it** — `10 SYS 2080` at `$0801`, padding, real 6502
+at `$0820`:
+
+```
+entryPoints: $0820 basic_sys
+  $0801-$080C  basic
+  $080D-$081F  unknown
+  $0820-$082B  basic_stub      <- the SYS target, found
+  $0830-$0835  code            <- reached via JSR $0830
+```
+
+And a three-line pure BASIC program with no `SYS` becomes one `basic` segment that
+`disasm_prg` renders as `.byte` rows under a segment header, instead of dragging the
+disassembler through the token bytes.
+
+**Pre-existing, not this spec's:** `probe:tool-surface` 17/2 — `runtime_trace_start` and
+`validate_extraction` cite "Spec NNN", `runtime_candidate_*` and `runtime_find_cheat`
+lack an alternative pointer. Both tools added here pass every description rule; the
+default surface is 153 with the cap raised to match (D7).

@@ -16,6 +16,13 @@ function confirmedInstructions(context: AnalyzerContext): InstructionFact[] {
 }
 
 function confirmedCodeSegments(segments: Segment[]): Segment[] {
+  // Spec 829 D6 — `basic` is deliberately NOT added. This site asks "which
+  // segments execute, so I can attribute VIC/display register writes to them?"
+  // The display state is derived from decoded 6502 instruction facts, and a
+  // `basic` segment produces none — including it would invent a display region
+  // out of token bytes that happen to sit near a $D0xx-looking pair. A BASIC
+  // program does of course POKE the VIC, but that is a BASIC statement, not an
+  // instruction fact, and reading it is 829's `extractBasicFacts` job.
   return segments
     .filter((segment) => segment.kind === "code" || segment.kind === "basic_stub")
     .sort((left, right) => left.start - right.start);

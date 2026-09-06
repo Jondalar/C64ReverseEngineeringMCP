@@ -248,7 +248,7 @@ This file MUST contain:
 }
 \`\`\`
 
-**Available segment kinds:** code, basic_stub, text, petscii_text, screen_code_text, sprite, charset, charset_source, screen_ram, screen_source, bitmap, bitmap_source, hires_bitmap, multicolor_bitmap, color_source, sid_driver, music_data, sid_related_code, pointer_table, lookup_table, state_variable, compressed_data, dead_code, padding
+**Available segment kinds:** code, basic, basic_stub, text, petscii_text, screen_code_text, sprite, charset, charset_source, screen_ram, screen_source, bitmap, bitmap_source, hires_bitmap, multicolor_bitmap, color_source, sid_driver, music_data, sid_related_code, pointer_table, lookup_table, state_variable, compressed_data, dead_code, padding
 
 **Requirements:**
 - EVERY segment marked \`unknown\` MUST be reclassified — analyze cross-references and byte patterns
@@ -616,7 +616,8 @@ Analyze every segment and produce a JSON annotations file at \`${output_path}\`.
 ## Available SegmentKinds
 
 Use these values for the \`kind\` field:
-- **code**, **basic_stub** — executable code
+- **code**, **basic_stub** — executable code (basic_stub = machine code entered from a BASIC SYS)
+- **basic** — a tokenized BASIC V2 program; token bytes, NOT 6502, and never disassembled
 - **text**, **petscii_text**, **screen_code_text** — text data
 - **sprite** — 64-byte aligned sprite pixel data
 - **charset**, **charset_source** — character set definitions

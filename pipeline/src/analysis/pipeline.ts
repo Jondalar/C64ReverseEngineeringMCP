@@ -286,6 +286,12 @@ export function demoteBrokenCodeIslands(
         const signed = off >= 0x80 ? off - 0x100 : off;
         const target = (mapping.startAddress + i + 2 + signed) & 0xffff;
         const targetKind = kindAt(target);
+        // Spec 829 D6 — `basic` is deliberately NOT added. The question here is
+        // "does this branch land somewhere executable?", and a branch into a
+        // tokenized BASIC program lands in data — which is exactly the evidence
+        // this demotion pass exists to collect. Leaving `basic` out makes such a
+        // branch count as an offender, so a mis-decoded island that branches
+        // into the BASIC region gets demoted instead of confirmed.
         if (targetKind !== "code" && targetKind !== "basic_stub") {
           branchIntoData += 1;
         }

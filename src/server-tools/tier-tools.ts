@@ -52,6 +52,10 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Analyse / disassemble
   "analyze_prg", "disasm_prg", "disasm_menu", "inspect_address_range",
   "inspect_disk", "assemble_source", "c64ref_lookup",
+  // BASIC V2: read a tokenized program (and its SYS target) before assuming a
+  // PRG is 6502, and write one back. A cracked game very often boots through
+  // BASIC, and until now that boot was disassembled as machine code.
+  "basic_list", "basic_tokenize",
   // BUG-039 — poll the background job analyze_prg returns for large PRGs (job
   // mode prevents the >180s host stall that dropped the MCP connection).
   "analysis_job_status",
@@ -252,8 +256,13 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * mean hand-driving mount, type, joystick, run and screenshot in a loop, one call
  * per waypoint, and getting a different result each time. One door that takes the
  * whole schedule is less surface for an agent to hold, not more — and there is no
- * other tool where an input carries its own duration. */
-export const DEFAULT_TIER_CAP = 151;
+ * other tool where an input carries its own duration.
+ * 2026-09-06 raised 151→153 for Spec 829's `basic_list` + `basic_tokenize` — stated
+ * here rather than left for the probe to discover. Both earn the slot for the same
+ * reason: a PRG that loads at $0801 was being disassembled as 6502 across its token
+ * bytes (issue #11), so the default surface had no way to READ the boot that a
+ * cracked game most often arrives with, or to name the address it SYSes into. */
+export const DEFAULT_TIER_CAP = 153;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

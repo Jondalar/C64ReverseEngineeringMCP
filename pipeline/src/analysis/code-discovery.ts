@@ -1,5 +1,6 @@
 import { decodeInstruction, hasFallthrough, isBranchInstruction, isCallInstruction, isJumpInstruction } from "../lib/mos6502";
 import { hex16 } from "../lib/format";
+import { BasicProgramInfo, detectBasicProgram } from "./prg";
 import { BasicBlock, CodeAnalysis, CrossReference, EntryPoint, InstructionFact, MemoryMapping, SegmentCandidate } from "./types";
 import { clampConfidence, createCoverageMap, findUnclaimedRegions, formatAddress, segmentLength, toOffset } from "./utils";
 
@@ -96,8 +97,64 @@ function recoverSeeds(instructions: InstructionFact[], buffer: Buffer, mapping: 
   return [...seeds];
 }
 
+/** Spec 829 D4.1 — the `basic` candidate for a walked BASIC V2 program.
+ *  ONE segment over the whole program: the chain walk proved where it starts
+ *  and ends, so there is nothing for a byte-shape analyzer to subdivide. Its
+ *  reasons carry every extracted fact, INCLUDING the unresolved ones — that is
+ *  where `detectBasicSysEntry` deliberately does not put them, because there
+ *  they would be filed under one target address instead of under the program. */
+function makeBasicCandidate(program: BasicProgramInfo): SegmentCandidate {
+  const factReasons = program.facts.map((fact) => {
+    const where = `line ${fact.lineNumber}, token at ${formatAddress(fact.site)}`;
+    if (fact.kind === "load") {
+      return `LOAD ${fact.fileName !== undefined ? `"${fact.fileName}"` : "(name unresolved)"} (${where}).`;
+    }
+    const verb = fact.kind.toUpperCase();
+    if (fact.value === undefined) {
+      return `${verb} UNRESOLVED: ${fact.expression ?? "expression not constant"} (${where}).`;
+    }
+    return `${verb} ${formatAddress(fact.value)} (${fact.value}), ${fact.confidence} (${where}).`;
+  });
+
+  return {
+    analyzerId: "code",
+    kind: "basic",
+    start: program.start,
+    end: program.end,
+    score: {
+      confidence: clampConfidence(0.99),
+      reasons: [
+        `Tokenized BASIC V2 ${program.isStub ? "SYS launcher" : "program"}: the line-record chain walked cleanly over ` +
+          `${program.lineCount} line(s) from ${formatAddress(program.start)} to ${formatAddress(program.end)} (Spec 829 D2).`,
+        `Not 6502 — the disassembler renders this region as data, not instructions (Spec 829 D6, issue #11).`,
+        `Machine code discovery resumes at ${formatAddress(program.firstAddressAfter)} (Spec 829 D4.1).`,
+        ...factReasons,
+      ],
+    },
+    attributes: {
+      basicLineCount: program.lineCount,
+      basicFirstAddressAfter: program.firstAddressAfter,
+      basicFacts: program.facts,
+    },
+  };
+}
+
 export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
-  const queue = options.entryPoints.map((entryPoint) => entryPoint.address);
+  // Spec 829 D4.1 — a BASIC program at the head of the image is walked BEFORE
+  // recursive descent starts, so descent can be kept out of it. The ML the
+  // program SYSes into sits AFTER the program's terminator and is still
+  // discovered normally: the entry point for it came from the SYS itself.
+  const basicProgram = detectBasicProgram(options.buffer, options.mapping);
+  const insideBasic = (address: number): boolean =>
+    basicProgram !== undefined && address >= basicProgram.start && address < basicProgram.firstAddressAfter;
+
+  // An entry point that lands INSIDE the tokenized program is not an entry
+  // point into code — most often it is deriveEntryPoints' `prg_header`
+  // fallback pointing at $0801, which is exactly how a pure BASIC program used
+  // to get disassembled as 6502 from its first token byte.
+  const queue = options.entryPoints
+    .map((entryPoint) => entryPoint.address)
+    .filter((address) => !insideBasic(address));
   const visitedStarts = new Set<number>();
   const claimedBytes = new Map<number, number>();
   const instructions: InstructionFact[] = [];
@@ -116,6 +173,13 @@ export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
 
     while (address >= options.mapping.startAddress && address <= options.mapping.endAddress) {
       if (visitedStarts.has(address)) {
+        break;
+      }
+
+      // Spec 829 D4.1 — never decode into the tokenized program, whichever way
+      // the walk got here (fallthrough off the end of a preceding run, or a
+      // branch/jump target that happens to land in the token bytes).
+      if (insideBasic(address)) {
         break;
       }
 
@@ -236,6 +300,13 @@ export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
 
   const sortedInstructions = instructions.sort((left, right) => left.address - right.address);
   const codeCandidates = buildCodeCandidates(sortedInstructions, options.entryPoints);
+  // Spec 829 D4.1 — ONE `basic` segment over the whole program, emitted next to
+  // the code candidates so it is in the coverage map below. That is what keeps
+  // the probable-code linear scanner (which rakes every UNCLAIMED region) from
+  // re-deriving 6502 across the token bytes the descent above just refused.
+  if (basicProgram) {
+    codeCandidates.unshift(makeBasicCandidate(basicProgram));
+  }
   const basicBlocks = buildBasicBlocks(sortedInstructions, leaders);
   const coverage = createCoverageMap(options.mapping, codeCandidates);
   const unclaimedRegions = findUnclaimedRegions(options.mapping, coverage);

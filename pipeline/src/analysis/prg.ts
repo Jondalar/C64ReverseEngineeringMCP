@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { analyzeBasicProgram, BasicFact } from "../lib/basic-v2";
+import { formatAddress } from "./utils";
 import { MemoryMapping, EntryPoint } from "./types";
 
 export interface LoadedPrg {
@@ -78,50 +80,107 @@ export function loadRaw(rawPath: string, loadAddress: number): LoadedPrg {
   return { buffer, mapping };
 }
 
+/** Spec 829 D4/D4.1 — a walked BASIC V2 program at the head of the image.
+ *  `firstAddressAfter` is where the machine code the program SYSes into may
+ *  begin; code discovery starts there so the ML is not swallowed by the BASIC
+ *  region. `facts` carries every SYS/USR/LOAD with its `site` (the absolute
+ *  address of the token byte), resolved or not. */
+export interface BasicProgramInfo {
+  start: number;
+  end: number;
+  firstAddressAfter: number;
+  lineCount: number;
+  /** True for a two-line launcher that exists only to SYS somewhere. */
+  isStub: boolean;
+  facts: BasicFact[];
+}
+
+/**
+ * Spec 829 D2 — decide whether the image IS a tokenized BASIC V2 program by
+ * walking its line-record chain, and return the program with its extracted
+ * facts. Returns undefined when the image does not load where BASIC does, or
+ * when the chain breaks — a half-walk is never reported as a partial success,
+ * because half-rendering is how issue #11 became a bug.
+ */
+export function detectBasicProgram(buffer: Buffer, mapping: MemoryMapping): BasicProgramInfo | undefined {
+  // Same gate as before: only an image that loads at (or below) the BASIC
+  // start can be a BASIC program. The 24-byte window and the digits-only
+  // parse are gone — the walk decides, over the whole image (Spec 829 D2).
+  if (mapping.startAddress > 0x0801) {
+    return undefined;
+  }
+
+  const walk = analyzeBasicProgram(buffer, mapping.startAddress);
+  if (!walk.ok) {
+    return undefined;
+  }
+
+  return {
+    start: walk.programRange.start,
+    // `programRange` is inclusive and ends on the second byte of the
+    // terminating $0000, so machine code may begin at `end + 1` — that is the
+    // whole point of the walker returning it (D4.1).
+    end: walk.programRange.end,
+    firstAddressAfter: walk.programRange.end + 1,
+    lineCount: walk.lines.length,
+    isStub: walk.isStub,
+    facts: walk.facts,
+  };
+}
+
+/**
+ * Spec 829 D4 — a thin caller of the walker. Public shape is unchanged
+ * (`{ address, source: "basic_sys", reason, symbol }`), so every existing
+ * caller keeps working; what changed is that it now finds `SYS(2064)`,
+ * `SYS 2*4096`, a SYS past byte 24 and a second SYS in the same program.
+ *
+ * An UNRESOLVED fact (`SYS PEEK(43)+256*PEEK(44)`) never becomes an entry
+ * point — inventing an address is exactly the confident nonsense 829 exists to
+ * remove. It is not dropped silently either: it is reported on the `basic`
+ * segment's reasons (code-discovery.ts) and in full by `basic_list`. It is
+ * deliberately NOT appended to the `reason` here, because this string becomes
+ * the summary of the entry-point entity for THIS address
+ * (`analysis-import.ts` → `entities[kind=entry-point]`, addressRange = this
+ * address only); a note about a different line would be a claim filed under
+ * the wrong address.
+ */
 export function detectBasicSysEntry(buffer: Buffer, mapping: MemoryMapping): EntryPoint[] {
-  if (mapping.startAddress > 0x0801 || buffer.length < 12) {
+  const program = detectBasicProgram(buffer, mapping);
+  if (!program) {
     return [];
   }
 
-  const sysToken = 0x9e;
-  const tokenIndex = buffer.indexOf(sysToken, 0);
-  if (tokenIndex === -1 || tokenIndex > 24) {
-    return [];
-  }
-
-  let cursor = tokenIndex + 1;
-  let digits = "";
-  while (cursor < buffer.length) {
-    const byte = buffer[cursor];
-    if (byte >= 0x30 && byte <= 0x39) {
-      digits += String.fromCharCode(byte);
-      cursor += 1;
+  const entries: EntryPoint[] = [];
+  for (const fact of program.facts) {
+    // SYS only. A `USR` argument is the FLOAT parameter handed to the routine
+    // whose address sits in the vector at $0311/$0312 — it is not an address, so
+    // `USR 2080` would otherwise produce an entry point that is not one. The
+    // fact is still extracted and still printed by basic_list; it just does not
+    // claim to be code, and $0311 is where the actual target is read from.
+    if (fact.kind !== "sys") {
       continue;
     }
-    if (byte === 0x20) {
-      cursor += 1;
+    const target = fact.value;
+    if (target === undefined || !Number.isFinite(target)) {
       continue;
     }
-    break;
-  }
-
-  if (digits.length === 0) {
-    return [];
-  }
-
-  const address = Number.parseInt(digits, 10);
-  if (Number.isNaN(address) || address < mapping.startAddress || address > mapping.endAddress) {
-    return [];
-  }
-
-  return [
-    {
-      address,
+    if (target < mapping.startAddress || target > mapping.endAddress) {
+      continue;
+    }
+    entries.push({
+      address: target,
       source: "basic_sys",
-      reason: `Detected BASIC SYS stub with target ${digits}.`,
-      symbol: "basicSysEntry",
-    },
-  ];
+      reason:
+        `BASIC line ${fact.lineNumber} ${fact.kind.toUpperCase()}s ${formatAddress(target)} (${target}); ` +
+        `token at ${formatAddress(fact.site)}, ${fact.confidence}.`,
+      // The first target keeps the historical symbol so single-SYS files —
+      // nearly all of them — render exactly as before; further targets get a
+      // distinct one so two SYS calls do not collide on one label.
+      symbol: entries.length === 0 ? "basicSysEntry" : `basicSysEntry_${formatAddress(target).slice(1)}`,
+    });
+  }
+
+  return entries;
 }
 
 interface VectorPair {
