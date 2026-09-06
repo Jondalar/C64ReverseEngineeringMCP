@@ -77,3 +77,8 @@ jobs:
       # be the platform it runs on.
       - name: Trace storage location (Spec 827)
         run: npm run e2e:827
+
+      # Spec 828 — hermetic on purpose: the fix is that a lookup must not need
+      # the network, so its gate must not either.
+      - name: Reference coverage (Spec 828)
+        run: npm run e2e:828

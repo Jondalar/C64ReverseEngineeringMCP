@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 export interface C64RefSourceSpec {
   id: string;
   path: string;
-  kind: "c64disasm" | "kernal_api";
+  kind: "c64disasm" | "kernal_api" | "memory_map" | "io_map" | "symbols";
   titleHint: string;
 }
 
@@ -12,11 +12,13 @@ export interface C64RefKnowledgeAnnotation {
   sourceId: string;
   sourcePath: string;
   sourceTitle: string;
-  kind: "code" | "data" | "api";
+  kind: "code" | "data" | "api" | "memory" | "io" | "symbol";
   heading: string;
   description: string;
   section?: string;
   bytes?: number[];
+  /** Spec 817: last address of a range entry (`$0003-$0004`), inclusive. */
+  endAddress?: number;
 }
 
 export interface C64RefKnowledgeEntry {
@@ -24,6 +26,10 @@ export interface C64RefKnowledgeEntry {
   addressHex: string;
   primaryHeading: string;
   primaryLabel?: string;
+  /** Spec 817: canonical symbol from c64ref `symbols.txt` (D6510, R6510, VMCSB …). */
+  symbol?: string;
+  /** Spec 817: inclusive end of the widest range entry that starts here, if any. */
+  endAddress?: number;
   annotations: C64RefKnowledgeAnnotation[];
   labels: string[];
   sections: string[];
@@ -61,6 +67,20 @@ export const C64REF_SOURCE_SPECS: C64RefSourceSpec[] = [
   { id: "kernal_dh", path: "src/kernal/kernal_dh.txt", kind: "kernal_api", titleHint: "Dan Heeb KERNAL" },
   { id: "kernal_mlr", path: "src/kernal/kernal_mlr.txt", kind: "kernal_api", titleHint: "Machine Language Routines KERNAL" },
   { id: "kernal_64intern", path: "src/kernal/kernal_64intern.txt", kind: "kernal_api", titleHint: "64 intern KERNAL" },
+  // Spec 817 — the ranges the ROM sources never covered. Zero page, the RAM map
+  // and every I/O register come from the same repo, in the same grammar the
+  // KERNAL API files use ("hex addresses start at column 0, symbols at 13").
+  { id: "c64mem_mapc64", path: "src/c64mem/c64mem_mapc64.txt", kind: "memory_map", titleHint: "Mapping the Commodore 64 memory map" },
+  { id: "c64mem_prg", path: "src/c64mem/c64mem_prg.txt", kind: "memory_map", titleHint: "Programmer's Reference Guide memory map" },
+  { id: "c64mem_64intern", path: "src/c64mem/c64mem_64intern.txt", kind: "memory_map", titleHint: "64 intern memory map" },
+  { id: "c64mem_sta", path: "src/c64mem/c64mem_sta.txt", kind: "memory_map", titleHint: "STA memory map" },
+  { id: "c64mem_64er", path: "src/c64mem/c64mem_64er.txt", kind: "memory_map", titleHint: "64'er memory map" },
+  { id: "c64mem_jb", path: "src/c64mem/c64mem_jb.txt", kind: "memory_map", titleHint: "Jim Butterfield memory map" },
+  { id: "c64mem_64map", path: "src/c64mem/c64mem_64map.txt", kind: "memory_map", titleHint: "64MAP memory map" },
+  { id: "c64mem_src", path: "src/c64mem/c64mem_src.txt", kind: "memory_map", titleHint: "ROM source memory map" },
+  { id: "c64io_mapc64", path: "src/c64io/c64io_mapc64.txt", kind: "io_map", titleHint: "Mapping the Commodore 64 I/O registers" },
+  { id: "c64io_prg", path: "src/c64io/c64io_prg.txt", kind: "io_map", titleHint: "Programmer's Reference Guide I/O registers" },
+  { id: "c64mem_symbols", path: "src/c64mem/symbols.txt", kind: "symbols", titleHint: "c64ref canonical symbols" },
   { id: "kernal_128intern", path: "src/kernal/kernal_128intern.txt", kind: "kernal_api", titleHint: "128 intern KERNAL" },
 ];
 
@@ -254,6 +274,101 @@ function parseKernalApi(spec: C64RefSourceSpec, title: string, text: string): Ar
   return annotations;
 }
 
+// Spec 817. The memory-map and I/O files share the KERNAL-API grammar, with two
+// additions `parseKernalApi` does not handle: RANGE entries (`$0003-$0004
+// ADRAY1 …`, `$D000-$D02E  VIC-II Chip Registers`) and a symbol column that is
+// present on some lines and absent on others. A range is recorded once, at its
+// start address, with `endAddress`; the symbol is whatever sits in column 13
+// and looks like one (upper-case, ≤ 8 chars), and the heading is the rest.
+function parseMemoryMap(
+  spec: C64RefSourceSpec,
+  title: string,
+  text: string,
+  kind: "memory" | "io",
+): Array<C64RefKnowledgeAnnotation & { address: number }> {
+  const annotations: Array<C64RefKnowledgeAnnotation & { address: number }> = [];
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  let current: (C64RefKnowledgeAnnotation & { address: number; bodyLines: string[] }) | undefined;
+
+  const flush = () => {
+    if (!current) return;
+    const description = cleanHeading(current.bodyLines.join(" "));
+    annotations.push({
+      address: current.address,
+      endAddress: current.endAddress,
+      sourceId: current.sourceId,
+      sourcePath: current.sourcePath,
+      sourceTitle: current.sourceTitle,
+      kind: current.kind,
+      heading: cleanHeading(current.heading),
+      description: description || cleanHeading(current.heading),
+      section: current.section,
+    });
+    current = undefined;
+  };
+
+  for (const line of lines) {
+    const match = line.match(/^\$([0-9A-F]{4})(?:-\$([0-9A-F]{4}))?(.*)$/u);
+    if (match) {
+      flush();
+      const address = parseInt(match[1]!, 16);
+      const endAddress = match[2] ? parseInt(match[2]!, 16) : undefined;
+      // Columns are absolute in the file: address token(s) then padding to 13.
+      const tail = line.length > 13 ? line.slice(13) : "";
+      const symbolMatch = tail.match(/^([A-Z][A-Z0-9_]{1,7})(?:\s{2,}|\s*$)(.*)$/u);
+      const symbol = symbolMatch ? symbolMatch[1]! : undefined;
+      const heading = cleanHeading((symbolMatch ? symbolMatch[2]! : tail).trim());
+      current = {
+        address,
+        endAddress,
+        sourceId: spec.id,
+        sourcePath: spec.path,
+        sourceTitle: title,
+        kind,
+        heading: heading || symbol || formatHexWord(address),
+        description: heading || symbol || formatHexWord(address),
+        section: symbol,
+        bodyLines: [],
+      };
+      continue;
+    }
+    if (current) {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith("#")) {
+        current.bodyLines.push(trimmed);
+      }
+    }
+  }
+
+  flush();
+  return annotations;
+}
+
+// Spec 817. `symbols.txt` is the canonical symbol list the c64ref site is
+// generated from: `$0001 R6510`, `$0007 CHARAC # also INTEGR`. One symbol per
+// address; the comment after `#` is dropped. These become `entry.symbol`, the
+// name a renderer prints — the prose headings stay descriptions.
+function parseSymbols(spec: C64RefSourceSpec, title: string, text: string): Array<C64RefKnowledgeAnnotation & { address: number }> {
+  const annotations: Array<C64RefKnowledgeAnnotation & { address: number }> = [];
+  for (const raw of text.replace(/\r\n/g, "\n").split("\n")) {
+    const match = raw.match(/^\$([0-9A-F]{4})\s+([A-Z][A-Z0-9_]*)(?:\s+#.*)?\s*$/u);
+    if (!match) continue;
+    const address = parseInt(match[1]!, 16);
+    const symbol = match[2]!;
+    annotations.push({
+      address,
+      sourceId: spec.id,
+      sourcePath: spec.path,
+      sourceTitle: title,
+      kind: "symbol",
+      heading: symbol,
+      description: symbol,
+      section: symbol,
+    });
+  }
+  return annotations;
+}
+
 function collectLabels(annotation: C64RefKnowledgeAnnotation): string[] {
   const labels = new Set<string>();
   if (annotation.section && /^[A-Z0-9_#$@.+/-]{2,}$/u.test(annotation.section)) {
@@ -305,7 +420,18 @@ function mergeKnowledgeEntries(
         description: annotation.description,
         section: annotation.section,
         bytes: annotation.bytes,
+        endAddress: annotation.endAddress,
       });
+      // Spec 817: symbols.txt is canonical and wins; a memory/io symbol column
+      // fills in only where the canonical list has nothing.
+      if (annotation.kind === "symbol") {
+        existing.symbol = annotation.section;
+      } else if (!existing.symbol && (annotation.kind === "memory" || annotation.kind === "io") && annotation.section) {
+        existing.symbol = annotation.section;
+      }
+      if (annotation.endAddress !== undefined && (existing.endAddress === undefined || annotation.endAddress > existing.endAddress)) {
+        existing.endAddress = annotation.endAddress;
+      }
       for (const label of labels) {
         if (!existing.labels.includes(label)) {
           existing.labels.push(label);
@@ -359,8 +485,11 @@ export async function buildC64RefRomKnowledge(outputPath: string): Promise<C64Re
 
   for (const spec of C64REF_SOURCE_SPECS) {
     const { title, text } = await fetchSourceText(spec);
-    const entries = spec.kind === "c64disasm"
-      ? parseC64Disasm(spec, title, text)
+    const entries =
+      spec.kind === "c64disasm" ? parseC64Disasm(spec, title, text)
+      : spec.kind === "memory_map" ? parseMemoryMap(spec, title, text, "memory")
+      : spec.kind === "io_map" ? parseMemoryMap(spec, title, text, "io")
+      : spec.kind === "symbols" ? parseSymbols(spec, title, text)
       : parseKernalApi(spec, title, text);
     parsedSources.push({
       sourceId: spec.id,

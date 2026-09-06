@@ -76,6 +76,7 @@
     "smoke:ui-launcher": "npm run build:mcp && node scripts/smoke-ui-launcher.mjs",
     "smoke:model-router": "node scripts/smoke-model-router.mjs",
     "e2e:827": "npm run build:mcp && node scripts/e2e-827-trace-location.mjs",
+    "e2e:828": "npm run build:mcp && node scripts/e2e-828-reference-coverage.mjs",
     "smoke:bug015": "npm run build:mcp && node scripts/smoke-bug015-init-media-sort.mjs",
     "smoke:bug013": "npm run build:mcp && node scripts/smoke-bug013-drive-picker-project-only.mjs",
     "smoke:bug008-009": "npm run ui:build && node scripts/smoke-bug008-009-disk-tab.mjs",
