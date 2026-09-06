@@ -138,6 +138,8 @@ and then opens the browser. For a project that predates the launchers:
 npm run launchers -- --project /path/to/project
 ```
 
+Windows, start to finish: [docs/windows-setup.md](docs/windows-setup.md).
+
 ## Working on a smaller plan
 
 `contrib/claude/skills/model-router` is the doctrine for spending model capacity when
