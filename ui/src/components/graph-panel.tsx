@@ -418,7 +418,7 @@ export function GraphPanel({
                 {humanGroups.length === 0 ? <span className="graph-muted"> (none yet — assign-subsystem is the door)</span> : null}
                 <ul>
                   {humanGroups.map((g) => (
-                    <li key={g.id}><button type="button" className={isolate === g.id ? "on" : ""} onClick={() => setIsolate(isolate === g.id ? null : g.id)}>{g.label} · {g.size}</button></li>
+                    <li key={g.id}><button type="button" className={isolate === g.id ? "on" : ""} onClick={() => setIsolate(isolate === g.id ? null : g.id)}><span className="graph-legend-swatch" style={{ background: g.color }} />{g.label} · {g.size}</button></li>
                   ))}
                 </ul>
               </div>
@@ -426,7 +426,7 @@ export function GraphPanel({
                 <span className="graph-muted">computed:</span>
                 <ul>
                   {computedGroups.map((g) => (
-                    <li key={g.id}><button type="button" className={isolate === g.id ? "on" : ""} onClick={() => setIsolate(isolate === g.id ? null : g.id)}>{g.label}{g.top.length ? ` · top: ${g.top.join(", ")}` : ""}</button></li>
+                    <li key={g.id}><button type="button" className={isolate === g.id ? "on" : ""} onClick={() => setIsolate(isolate === g.id ? null : g.id)}><span className="graph-legend-swatch" style={{ background: g.color }} />{g.label}{g.top.length ? ` · top: ${g.top.join(", ")}` : ""}</button></li>
                   ))}
                   {computedGroups.length === 0 ? <li className="graph-muted">(nothing to partition)</li> : null}
                 </ul>

@@ -1125,6 +1125,8 @@
 .graph-legend ul { list-style: none; margin: 2px 0 0; padding: 0; }
 .graph-legend button { text-align: left; font-size: 12px; background: transparent; border: 0; color: inherit; cursor: pointer; padding: 1px 0; }
 .graph-legend button.on { text-decoration: underline; color: var(--accent-2); }
+/* Spec 825 D4 — colour IS the community axis, so the legend has to carry it. */
+.graph-legend-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: baseline; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45); }
 /* D8 — the SAME AsmView, mounted beside the canvas instead of over the tab.
    Nothing in AsmView changes; only where it mounts, and that is CSS. */
 .graph-dock { position: relative; min-height: 320px; flex: 1 1 auto; }

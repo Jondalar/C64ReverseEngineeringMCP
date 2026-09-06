@@ -35,9 +35,29 @@ export const LAYERS_WIDTH = 4096;
 export const LAYERS_BAND_HEIGHT = 420;
 export const LAYERS_ROW = 46;
 export const LAYERS_ROWS_PER_BAND = 8;
-export const ADDRESS_LANE_HEIGHT = 4096;
-export const ADDRESS_ROW = 420;
+/**
+ * D3 Address — the geometry of the lane stack.
+ *
+ * The band height is DERIVED from how many lanes there are. A cartridge project
+ * has one lane per bank: Wasteland_EF has sixty-odd, and at a fixed 4096 per
+ * lane the stack was four times taller than the 64 KiB address axis is wide, so
+ * the whole memory map drew as one vertical string. Lanes are meant to be bands
+ * ACROSS the address axis, so the stack is capped at a fraction of it. A small
+ * project (ram / zp / io / rom) keeps the generous 4096 it had.
+ */
+export const ADDRESS_SPAN = 0x10000;
+export const ADDRESS_STACK_RATIO = 0.3;
+export const ADDRESS_MAX_LANE_HEIGHT = 4096;
 export const ADDRESS_ROWS_PER_LANE = 8;
+
+export function addressLaneHeight(laneCount: number): number {
+  return Math.min(ADDRESS_MAX_LANE_HEIGHT, (ADDRESS_SPAN * ADDRESS_STACK_RATIO) / Math.max(1, laneCount));
+}
+
+/** Rows inside one lane: they must fit the band, so they scale with it. */
+export function addressRowHeight(laneCount: number): number {
+  return addressLaneHeight(laneCount) / (ADDRESS_ROWS_PER_LANE + 1);
+}
 export const RADIAL_RING = 900;
 export const SEED_SCALE = 2400;
 
@@ -176,8 +196,8 @@ export function laneOf(node: LayoutNode, lanes: AddressLane[]): number {
 }
 
 /** The lane a y coordinate falls in — the inverse of `addressLayout`'s y, for the gate and the axis. */
-export function laneOfY(y: number): number {
-  return Math.floor(y / ADDRESS_LANE_HEIGHT);
+export function laneOfY(y: number, laneCount: number): number {
+  return Math.floor(y / addressLaneHeight(laneCount));
 }
 
 /**
@@ -195,10 +215,12 @@ export function addressLayout(graph: Graph): Positions {
     perLane.set(lane, list);
   }
   const out: Positions = {};
+  const laneHeight = addressLaneHeight(lanes.length);
+  const rowHeight = addressRowHeight(lanes.length);
   for (const [lane, list] of perLane) {
     list.sort(byAddressThenId);
     list.forEach((n, i) => {
-      out[n.id] = { x: n.attrs.address, y: lane * ADDRESS_LANE_HEIGHT + (i % ADDRESS_ROWS_PER_LANE) * ADDRESS_ROW };
+      out[n.id] = { x: n.attrs.address, y: lane * laneHeight + (i % ADDRESS_ROWS_PER_LANE) * rowHeight };
     });
   }
   return out;

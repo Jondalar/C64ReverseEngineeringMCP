@@ -29,6 +29,13 @@ export interface CommunityGroup {
   size: number;
   /** the highest-degree members, for the legend line */
   top: string[];
+  /**
+   * The swatch the legend draws. It travels ON the group rather than being
+   * looked up in the panel on purpose: `graph-panel.tsx` imports this module
+   * TYPE-ONLY, and one value import would pull graphology and Louvain into
+   * `index-*.js` — the D2 lazy chunk the gate checks for.
+   */
+  color: string;
 }
 
 export interface CommunityResult {
@@ -95,7 +102,7 @@ export function communities(graph: Graph, options: CommunityOptions = {}): Commu
     const cid = `human:${sub}`;
     for (const m of members) assignment[m] ??= cid;
     assignment[sub] = cid;
-    groups.push({ id: cid, label: nameOf(graph, sub), kind: "human", size: members.length, top: [...members].sort((a, b) => degree(b) - degree(a) || (a < b ? -1 : 1)).slice(0, 2).map((m) => nameOf(graph, m)) });
+    groups.push({ id: cid, label: nameOf(graph, sub), kind: "human", size: members.length, color: communityColor(cid), top: [...members].sort((a, b) => degree(b) - degree(a) || (a < b ? -1 : 1)).slice(0, 2).map((m) => nameOf(graph, m)) });
   }
   const humanCount = groups.length;
 
@@ -144,6 +151,7 @@ export function communities(graph: Graph, options: CommunityOptions = {}): Commu
       label: `computed · ${members.length} nodes`,
       kind: "computed",
       size: members.length,
+      color: communityColor(cid),
       top: [...members].sort((a, b) => degree(b) - degree(a) || (a < b ? -1 : 1)).slice(0, 2).map((m) => nameOf(graph, m)),
     });
   });
@@ -154,15 +162,56 @@ export function communities(graph: Graph, options: CommunityOptions = {}): Commu
 }
 
 /**
- * A stable colour per community id. Human subsystems get the warm half of the
- * wheel, computed ones the cool half, so the legend reads "named" vs "guessed"
- * before anyone reads a word.
+ * D4 — the palette. HEX, and that is not a style choice.
+ *
+ * sigma 3's `parseColor` understands `#rgb`, `#rrggbb`, `rgb()`, `rgba()` and
+ * the named colours. An `hsl()` string matches none of those and falls through
+ * to `{r:0,g:0,b:0}` — so the first build drew all 13 060 nodes BLACK on a
+ * near-black panel, which read on screen as "the palette is wrong" (§10) when
+ * it was a parse failure. `smoke:825` now runs every colour this module can
+ * return through sigma's own parser, so it cannot come back.
+ *
+ * Two fixed ramps rather than a hash over the hue wheel: a hashed hue lands on
+ * navy and on brown as readily as on cyan, and both vanish at 3 px against
+ * `rgba(7,14,24,…)`. These are picked for that ground — human subsystems warm,
+ * computed cool, so the legend reads "named" vs "guessed" before anyone reads a
+ * word.
  */
+export const HUMAN_COLORS = [
+  "#ffb457", "#ff8f6b", "#ffd166", "#f97f9e",
+  "#ffab5e", "#e9a0ff", "#ff7a6d", "#f7c948",
+] as const;
+
+export const COMPUTED_COLORS = [
+  "#5ec8f5", "#6ee7b7", "#8ea6ff", "#4dd8d0",
+  "#b39dff", "#7ee081", "#5aa9ff", "#63d2a4",
+  "#9fbdff", "#7fe3ff",
+] as const;
+
+/**
+ * The nodes with no code edge at all — 7 868 of 13 060 on Wasteland_EF. They
+ * are scaffolding (I/O registers, listing addresses, labels), not a community,
+ * and §10 asked for a treatment that is visibly *different* rather than one
+ * more dark grey. A cool slate at a third of the size says "structure, not
+ * subject" without competing with the coloured half.
+ */
+export const UNCOLORED_COLOR = "#4a5470";
+
+/** Stable per id: same graph, same colours, twice. */
 export function communityColor(id: string): string {
-  if (id === "") return "#6b7280";
+  if (id === "") return UNCOLORED_COLOR;
   let h = 2166136261;
   for (let i = 0; i < id.length; i += 1) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619); }
-  const human = id.startsWith("human:");
-  const hue = (human ? 0 : 170) + ((h >>> 0) % 150);
-  return `hsl(${hue % 360}, ${human ? 72 : 58}%, ${human ? 58 : 62}%)`;
+  const ramp = id.startsWith("human:") ? HUMAN_COLORS : COMPUTED_COLORS;
+  return ramp[(h >>> 0) % ramp.length]!;
+}
+
+/**
+ * D4 — size carries degree, and membership carries weight. A node outside every
+ * community is drawn small on purpose: it is there so an edge has somewhere to
+ * land, not because anyone is looking at it.
+ */
+export function nodeSize(degree: number, inCommunity: boolean): number {
+  const base = 2.6 + Math.min(13, Math.log2(1 + Math.max(0, degree)) * 2.1);
+  return inCommunity ? base : Math.max(1.5, base * 0.5);
 }

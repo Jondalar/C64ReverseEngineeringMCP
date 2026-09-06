@@ -168,7 +168,7 @@ const lanes = layouts.addressLanes(banked);
 check(lanes.some((l) => l.id === "bank:7") && lanes.some((l) => l.id === "bank:9"), `Address: one lane per bank in the scope (${lanes.map((l) => l.id).join(", ")})`);
 const bankedPos = layouts.addressLayout(banked);
 const laneUsage = new Map();
-banked.forEachNode((id, a) => { if (a.bank === null || a.bank === undefined) return; const lane = layouts.laneOfY(bankedPos[id].y); laneUsage.set(a.bank, (laneUsage.get(a.bank) ?? new Set()).add(lane)); });
+banked.forEachNode((id, a) => { if (a.bank === null || a.bank === undefined) return; const lane = layouts.laneOfY(bankedPos[id].y, lanes.length); laneUsage.set(a.bank, (laneUsage.get(a.bank) ?? new Set()).add(lane)); });
 check([...laneUsage.values()].every((s) => s.size === 1) && new Set([...laneUsage.entries()].map(([, s]) => [...s][0])).size === laneUsage.size, "Address: each bank's nodes sit in exactly one lane, and no two banks share one");
 
 // --- Radial
@@ -251,6 +251,51 @@ for (const r of [canvasMod.reduceNode("a", nodeAttrs, st(baseLens), fakeGraph), 
   check(r.x === undefined && r.y === undefined, "a reducer never returns an x or a y — a lens cannot move anything (D5)");
 }
 check(JSON.stringify(canvasMod.DEFAULT_HIDDEN_KINDS) === JSON.stringify(["entry", "segment"]), "D5 default lenses: entry and segment nodes start hidden");
+
+// --- §10: the Address lane stack stays a stack of BANDS, whatever the bank count
+check(layouts.addressLaneHeight(4) === layouts.ADDRESS_MAX_LANE_HEIGHT, "a four-lane project keeps the generous 4096-tall band it always had");
+const wide = layouts.addressLaneHeight(60) * 60;
+check(wide <= layouts.ADDRESS_SPAN, `sixty banks stack to ${Math.round(wide)} — inside the 65 536 address axis, so the map reads wider than it is tall`);
+check(layouts.addressRowHeight(60) * layouts.ADDRESS_ROWS_PER_LANE < layouts.addressLaneHeight(60), "the rows inside a lane fit inside that lane, at any bank count");
+check(layouts.laneOfY(layouts.addressLaneHeight(60) * 7 + 1, 60) === 7, "laneOfY still inverts the y, with the lane count it was drawn at");
+
+// --- §10: the palette must survive sigma's own colour parser
+//
+// This is the gate the first build did not have. `communityColor` returned
+// `hsl(...)`, sigma 3's parseColor understands hex / rgb / rgba / named only,
+// and every unparsed colour becomes {r:0,g:0,b:0} — 13 060 black nodes on a
+// near-black panel. A palette is a render CONTRACT, so it is checked against
+// the renderer, not against taste.
+const { parseColor } = await import("sigma/utils");
+const isBlack = (c) => { const p = parseColor(c); return p.r === 0 && p.g === 0 && p.b === 0; };
+const palette = [...comms.HUMAN_COLORS, ...comms.COMPUTED_COLORS, comms.UNCOLORED_COLOR];
+check(palette.length >= 16, `the palette has ${palette.length} colours: ${comms.HUMAN_COLORS.length} human + ${comms.COMPUTED_COLORS.length} computed + the uncoloured slate`);
+check(palette.every((c) => /^#[0-9a-f]{6}$/i.test(c)), "every palette colour is hex — the one notation sigma, CSS and a swatch all read the same way");
+check(palette.every((c) => !isBlack(c)), "sigma's parseColor renders no palette colour black (the §10 defect, as a gate)");
+check(isBlack("hsl(200, 58%, 62%)"), "…and the reason: sigma parses an hsl() string to BLACK, silently");
+for (const id of ["human:sub:loader", "computed:0", "computed:7", ""]) {
+  check(!isBlack(comms.communityColor(id)) || id === "", `communityColor(${JSON.stringify(id)}) = ${comms.communityColor(id)} is drawable`);
+}
+check(comms.communityColor("computed:3") === comms.communityColor("computed:3"), "communityColor is stable for an id");
+check(comms.HUMAN_COLORS.every((c) => !comms.COMPUTED_COLORS.includes(c)), "the human ramp and the computed ramp share no colour — named vs guessed is legible without reading");
+check(comms.communityColor("") === comms.UNCOLORED_COLOR, "a node in no community gets the scaffolding colour, not a community one");
+
+// --- §10: the uncoloured half is demoted, not just recoloured
+check(comms.nodeSize(40, false) < comms.nodeSize(40, true) * 0.6, "a node outside every community is drawn markedly smaller (D4)");
+check(comms.nodeSize(0, true) < comms.nodeSize(4000, true), "size still carries degree");
+check(comms.nodeSize(4000, true) <= 16, "and it is capped, so one hub cannot own the canvas");
+
+// --- §10: the legend carries the swatch, and it travels ON the group
+check(cPlain.groups.every((g) => /^#[0-9a-f]{6}$/i.test(g.color)), "every community group carries its own hex swatch for the legend");
+check(!/from "\.\.\/lib\/graph-communities/.test(panel.replace(/import type[^;]*;/g, "")), "graph-panel.tsx imports graph-communities TYPE-ONLY — a value import would drag Louvain into index-*.js");
+check(/graph-legend-swatch/.test(panel), "the legend draws the swatch: colour is the community axis (D4)");
+
+// --- §10: labels belong to the focus set, not to every platform node
+check(canvas.includes("labelRenderedSizeThreshold: 15"), "the label threshold is raised: at fit zoom on 13 000 nodes, sigma prints none");
+check(/labelColor:\s*\{\s*color:\s*"#/.test(canvas), "labels have an explicit light colour — sigma's default is #000 on a near-black panel");
+check(!/data\.platform === true && \(data\.name/.test(canvas), "no blanket forceLabel for platform nodes (that was most of the text soup)");
+check(canvasMod.displayLabel({ address: 0x0328, name: "Vector to Kernal STOP Routine, and then some more", label: null }).length <= 6 + 1 + canvasMod.MAX_LABEL_CHARS, "a c64ref heading is truncated for the canvas; the full text stays in the node card");
+check(canvasMod.displayLabel({ address: 0x1000, name: null, label: null }) === "$1000", "a node with no name still shows its address");
 
 // --- switching views never re-fetches: the layouts take a graph, not a URL
 check(!/fetch\(|\/api\//.test(layoutsSrc), "graph-layouts.ts has no fetch and no route — switching views re-positions, it cannot re-load");

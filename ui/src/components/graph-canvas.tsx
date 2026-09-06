@@ -107,10 +107,22 @@ export function applyPositions(graph: { setNodeAttribute: (n: string, k: string,
   }
 }
 
-/** The label sigma prints. The human name wins; the generated label is the fallback; an address is always there. */
-function displayLabel(n: CanvasNode): string {
+/**
+ * The label sigma prints. The human name wins; the generated label is the
+ * fallback; an address is always there.
+ *
+ * Truncated, because a platform node's name is a c64ref *heading* — "Vector to
+ * Kernal STOP Routine", "Flag: Enable or Disable Changing Character Sets". At
+ * fit zoom a few dozen of those are a wall of prose across the canvas (§10).
+ * The full text is one click away in the node card.
+ */
+export const MAX_LABEL_CHARS = 26;
+
+export function displayLabel(n: CanvasNode): string {
   const name = n.name ?? n.label;
-  return name ? `${hex(n.address)} ${name}` : hex(n.address);
+  if (!name) return hex(n.address);
+  const short = name.length > MAX_LABEL_CHARS ? `${name.slice(0, MAX_LABEL_CHARS - 1)}\u2026` : name;
+  return `${hex(n.address)} ${short}`;
 }
 
 type SigmaLike = {
@@ -156,7 +168,7 @@ export function GraphCanvas({ nodes, edges, view, focus, lens, onSelect, onCommu
       for (const n of nodes) {
         graph.addNode(n.id, {
           ...n,
-          size: 3 + Math.min(14, Math.log2(1 + n.degree) * 2.2),
+          size: comms.nodeSize(n.degree, true),
           label: displayLabel(n),
           x: 0,
           y: 0,
@@ -173,14 +185,17 @@ export function GraphCanvas({ nodes, edges, view, focus, lens, onSelect, onCommu
         }
         // `type` belongs to SIGMA (it picks the render program with it); the
         // store's edge type lives in `edgeType`, and the pure libs read that.
-        graph.addEdge(e.from, e.to, { edgeType: e.type, types: [e.type], origin: e.origin, layer: e.layer, n: e.n, type: "arrow", size: 0.6 });
+        graph.addEdge(e.from, e.to, { edgeType: e.type, types: [e.type], origin: e.origin, layer: e.layer, n: e.n, type: "arrow", size: 0.45 });
       }
 
       const community = comms.communities(graph);
       const color = (id: string) => comms.communityColor(community.assignment[id] ?? "");
       for (const n of nodes) {
-        graph.setNodeAttribute(n.id, "community", community.assignment[n.id] ?? "");
+        const cid = community.assignment[n.id] ?? "";
+        graph.setNodeAttribute(n.id, "community", cid);
         graph.setNodeAttribute(n.id, "color", color(n.id));
+        // outside every community = scaffolding: small, cool, and never labelled
+        graph.setNodeAttribute(n.id, "size", comms.nodeSize(n.degree, cid !== ""));
       }
       modelRef.current = { graph, assignment: community.assignment, color };
       onCommunities(community.groups, community.modularity);
@@ -189,10 +204,19 @@ export function GraphCanvas({ nodes, edges, view, focus, lens, onSelect, onCommu
 
       sigma = new Sigma(graph as never, hostRef.current, {
         renderEdgeLabels: false,
-        defaultEdgeColor: "rgba(140,150,190,0.35)",
-        labelRenderedSizeThreshold: 8,
-        labelDensity: 0.4,
-        labelGridCellSize: 90,
+        defaultEdgeColor: "rgba(126,140,190,0.13)",
+        // sigma's own default is #000 — black text on a near-black panel, which
+        // is half of why the first screenshot was unreadable (§10).
+        labelColor: { color: "#d7e0f5" },
+        labelFont: "ui-monospace, SFMono-Regular, Menlo, monospace",
+        labelSize: 11,
+        labelWeight: "500",
+        // §10 — labels belong to the focus set and to whatever survives a zoom.
+        // The threshold is in RENDERED px, so at fit zoom on 13 000 nodes it
+        // prints nothing and every step in prints a few more.
+        labelRenderedSizeThreshold: 15,
+        labelDensity: 0.06,
+        labelGridCellSize: 220,
         allowInvalidContainer: true,
         nodeReducer: (id: string, data: Record<string, unknown>) => reduceNode(id, data, stateRef.current, graph as never),
         edgeReducer: (id: string, data: Record<string, unknown>) => reduceEdge(id, data, stateRef.current, graph as never),
@@ -214,7 +238,16 @@ export function GraphCanvas({ nodes, edges, view, focus, lens, onSelect, onCommu
         fa2Ref.current = worker;
         worker.start();
         setRunning(true);
-        window.setTimeout(() => { try { worker.stop(); } catch { /* already gone */ } setRunning(false); }, 6000);
+        // Measured on Wasteland_EF (13 060 nodes / 49 k edges): after 6 s the
+        // circular seed is still a circle — FA2 has barely left it, and the
+        // first screenshot was a ring with a hairball across the middle. By
+        // ~30 s the communities have separated. The stop button is right there
+        // for a smaller graph that settles sooner.
+        window.setTimeout(() => {
+          try { worker.stop(); } catch { /* already gone */ }
+          setRunning(false);
+          sigmaRef.current?.getCamera().animatedReset();
+        }, 30000);
       }
 
       setStatus("");
@@ -304,11 +337,14 @@ export function reduceNode(id: string, data: Record<string, unknown>, state: Red
   const anchor = state.hovered ?? state.focus;
   if (anchor && graph.hasNode(anchor)) {
     const near = anchor === id || graph.neighbors(anchor).includes(id);
-    if (!near) res.color = "rgba(120,126,150,0.22)";
-    else if (anchor === id) { res.highlighted = true; res.forceLabel = true; }
-    else res.forceLabel = true;
+    if (!near) res.color = "rgba(120,126,150,0.18)";
+    else if (anchor === id) { res.highlighted = true; res.forceLabel = true; res.zIndex = 2; }
+    else { res.forceLabel = true; res.zIndex = 1; }
   }
-  if (data.platform === true && (data.name ?? data.label)) res.forceLabel = true;
+  // NO blanket label for platform nodes: a project sees hundreds of KERNAL and
+  // I/O entries at once and each one carries a c64ref heading, so forcing them
+  // all was most of the text soup (§10). A platform node is labelled when it is
+  // the focus, when it is hovered, or when the zoom has earned it.
   return res;
 }
 
