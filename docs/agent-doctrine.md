@@ -172,6 +172,19 @@ touch, is there a path — query the graph (`graph_find`, `graph_edges`,
 is the structural inventory of a project you have not read. For where something
 is *described*, `project_search` / `project_find_related`.
 
+For a *calling-convention* question — what does this routine take in A / X / Y,
+which zero-page cells are its parameters, what is its return status, which values
+does the mode byte take — read the routine's card (`graph_node`): since Spec 826
+it carries the computed `signature` (in / out / clobbers / preserves / stack, and
+`partial` with the site when a callee is unknown) and the `args` domain across
+every caller (`A ∈ {$01, $02, $03}`, static and runtime-observed). A signature is
+computed from the code, not asserted: it over-approximates inputs on
+path-insensitive joins and says so per location. Name what a value *means*
+through `annotate` (`kind: "abi"`) or `routines[].abi` in the annotations file;
+the human line is printed beside the computed one, never merged. Do not answer an
+ABI question from the transport edges alone — that is the mistake Spec 826 exists
+to prevent.
+
 ### 1.1. There is exactly one runtime
 
 **The `runtime_*` MCP tools are the only runtime you have.** There is no

@@ -1,4 +1,4 @@
-# The knowledge graph (Specs 817–824)
+# The knowledge graph (Specs 817–826)
 
 One store per project, `<project>/knowledge/graph.sqlite`, plus the shared
 platform store `resources/platform-kb.sqlite` (Spec 817). Every node id is
@@ -32,6 +32,10 @@ are never touched by re-analysis and override the generated name in every query.
 | 821 | `c64re graph import-trace <file.c64retrace>` | the same types with `origin=runtime`, a `run` node, EXECUTES · HANDLES_IRQ · HANDLES_NMI |
 | 822.1 | `c64re graph migrate` (one shot, idempotent, incremental) + the human door (`name`, `link`, `assign-subsystem`) | the human layer: names, annotations (FTS5), claims + evidence from the legacy findings, subsystems |
 | 822.2 | every `save_finding` / `save_entity` / `link_entities` / `save_open_question` / user label (the doors), `analyze_prg` + manifest imports (the generated layer, replaced per artifact), `disasm_prg` with annotations (`annotations-import`: the file is a door) | **the store** for findings, entities, relations, open questions, user labels — the JSON files for them are gone (`knowledge/_legacy-822/` keeps the migrated copies for one release) |
+| 826.0 | `c64re graph resolve` — runs after every seed and inside `annotations-import` / `migrate` | RESOLVES_TO from an ownerless `addr` node to the ONE routine / data block / label another artifact has at that address (routine > data_block > label; several of the top kind → ambiguous, listed in meta). Walks follow it and name the hop in `evidence.via` |
+| 826.0 | `annotations-import` / `migrate` (the T3/T4 rule, per file) | a human label without a generated twin → CONTAINS from the containing routine; a non-code segment or an outside label → a `data_block` node; a human routine inside a generated one → STARTS_INSIDE; outside every routine → `boundary: unseen-by-discovery` |
+| 826 | `c64re graph seed` (runs 819 → 820 → resolve → 826), and the import hook | per routine a SIGNATURE self-edge (`in` / `out` / `clobbers` / `preserves` / `stack`, `partial` with the site); PASSES beside every CALLS with the arguments sliced from the call site; JUMPS_TO for `pha pha rts` dispatch; the KERNAL's ABI from `platform_abi` in the platform store |
+| 826 | `c64re graph import-trace` (821, extended) | a runtime CALLS row per call site with `args_observed` — A / X / Y / C at every retiring `jsr`, value → count |
 
 ## Asking it
 
@@ -51,11 +55,45 @@ c64re graph stats | dump                        # counts / the canonical dump (S
 c64re graph migrate [--dry-run]                # 822: fold knowledge/*.json (or _legacy-822/) into the graph — idempotent, incremental
 c64re graph annotations-import <file> [--force] # 822.2: import <stem>_annotations.json into the human layer (disasm_prg does this on change)
 c64re graph export [--out <dir>]               # 822.2: the graph written back into the legacy record shapes (knowledge/export/*.json), for humans and git diff
+c64re graph resolve                            # 826.0: the RESOLVES_TO pass by hand (seed runs it)
+c64re graph boundaries [--entries]             # 826.0: where a human drew a routine boundary 819 did not — splits, unseen, data outside code; --entries = analyze_prg entry points
+c64re graph signature '$FC00'                  # 826: in / out / clobbers / preserves / stack of a routine, partial and where
+c64re graph args '$FC00'                       # 826: what every caller passes — A ∈ {$01 ×2, $02 ×1, $03 ×1}, X ← $27E1, Y ← op:$2805; observed values beside the static ones
 ```
 
 `--project <dir>` (default `C64RE_PROJECT_DIR` or cwd), `--json` for one JSON
 document on stdout and nothing else. The same functions are the library
 `src/knowledge-graph/query.ts`.
+
+### Signatures (Spec 826)
+
+A 6502 routine declares no interface, but it has one, and it is computed: over
+819's block graph the producer finds what a routine reads before it writes
+(`in` — the parameters), what it leaves written at `rts` (`out`), what it
+destroys (`clobbers`) and what a balanced `pha … pla` keeps (`preserves`),
+over registers, the flags that matter (C and V like registers, N and Z only when
+a branch reads them), zero page, absolute cells, stack slots and **patched
+operands** (`sta $2801` makes `op:$2801` a parameter of the routine at
+`$2800`). A `jsr` contributes its callee's summary — bottom-up over the call
+graph, the KERNAL's from `platform_abi`, a cross-artifact callee through
+RESOLVES_TO — and an unknown callee makes the summary `partial` with the site
+named, never silently complete. Stack height is tracked per block: `pha pha rts`
+becomes a JUMPS_TO, `pla pla rts` returns to the caller's caller, `tsx; lda
+$0101,x` marks inline arguments after the `jsr`.
+
+At every call site the producer slices backwards to the last write of each
+parameter and records it on a PASSES edge: `A = #$01 @ $2801`, `X ← $27E1`,
+`Y ← op:$2805`. Across all callers the immediates form the **domain** of a
+parameter — `A ∈ {01, 02, 03}` for Wasteland's `$FC00` is the mode byte the
+docs knew and the graph did not. The machine finds *that* there is a mode byte
+and *which values* it takes; what `02` means is a human line (`annotate` with
+`kind: "abi"`, or `routines[].abi` in the annotations file) printed beside the
+computed one, never merged into it. 821 adds what the runtime saw:
+`args_observed` per call site, so `A ∈ {01,02,03}` (static) and `A ∈ {01,02}`
+(observed, 412 calls) sit on the same edge.
+
+The card (`graph_node`, the Graph tab) shows `signature:` and `args:`; the CLI
+verbs are `signature` and `args`.
 
 ## The MCP tools (Spec 823)
 
@@ -111,4 +149,8 @@ npm run check:822-no-json-readers   # 822.2: nothing under src/ reads or writes 
 npm run e2e:823             # the five graph tools through the real MCP server over stdio
 npm run smoke:824-routes    # the five /api/graph routes on a real workspace server
 npm run smoke:824           # the Graph tab at bundle + source level (after ui:build)
+npm run e2e:826             # signatures: the twelve-routine fixture with ground truth for every decision, seed twice identical
+npm run e2e:826-boundaries  # 826.0 T3/T4: the by-kind rule on a fixture, RESOLVES_TO onto a named table, re-import idempotent
+npm run e2e:826-runtime-args # 826 D6: args_observed on a synthetic trace, the card and its formatter
+npm run measure:826         # signature coverage and argument domains on Wasteland_EF (skips loudly without it)
 ```
