@@ -113,7 +113,7 @@ try {
   const blobAsm = join(work, "blob_reloc.asm");
   disasm(blob, blobAsm, [{ fileStart: "$C300", fileEnd: "$C306", runtimeAddr: "$FC00", label: "fastloader" }]);
   const asm1 = readFileSync(blobAsm, "utf8");
-  const tass1 = readFileSync(blobAsm.replace(/\.asm$/, ".tass"), "utf8");
+  const tass1 = readFileSync(blobAsm.replace(/\.asm$/, ".tas"), "utf8");
 
   ok(/^\s*\.pc\s*=\s*\$C300\b/m.test(asm1), "1 KickAss has .pc = $C300 (stored pc)");
   ok(/^\s*\.pseudopc\s+\$FC00\s*\{/m.test(asm1), "1 KickAss has .pseudopc $FC00 {");
@@ -125,7 +125,7 @@ try {
   ok(!/\.pseudopc/.test(tass1), "1 64tass output has no leftover .pseudopc");
 
   await assertByteExact("1", blobAsm, "kickassembler", blob);
-  await assertByteExact("1", blobAsm.replace(/\.asm$/, ".tass"), "64tass", blob);
+  await assertByteExact("1", blobAsm.replace(/\.asm$/, ".tas"), "64tass", blob);
 
   // ---- Scenario 2: embedded payload — stub + relocated blob in one file ----
   // $C000: JMP $FC00 (4C 00 FC) then relocated fastloader stored $C003 → $FC00
@@ -141,14 +141,14 @@ try {
   ok((asm2.match(/lda\s+\$FFFF,y/gi) || []).length === 1, "2 relocated bytes emitted exactly once (no double emission)");
   await assertByteExact("2", embAsm, "kickassembler", embedded);
 
-  // one source per payload: exactly one .asm + one .tass, no extra split files
-  ok(existsSync(embAsm) && existsSync(embAsm.replace(/\.asm$/, ".tass")), "2 one .asm + one .tass per payload");
+  // one source per payload: exactly one .asm + one .tas, no extra split files
+  ok(existsSync(embAsm) && existsSync(embAsm.replace(/\.asm$/, ".tas")), "2 one .asm + one .tas per payload");
 
   // ---- Scenario 3: default run (no relocations) — opt-in, unchanged ----
   const defAsm = join(work, "embedded_default.asm");
   disasm(embedded, defAsm, undefined);
   const asm3 = readFileSync(defAsm, "utf8");
-  const tass3 = readFileSync(defAsm.replace(/\.asm$/, ".tass"), "utf8");
+  const tass3 = readFileSync(defAsm.replace(/\.asm$/, ".tas"), "utf8");
   ok(!/\.pseudopc/.test(asm3), "3 default KickAss emits no .pseudopc");
   ok(!/\.logical/.test(tass3) && !/\.here/.test(tass3), "3 default 64tass emits no .logical/.here");
   await assertByteExact("3", defAsm, "kickassembler", embedded);
@@ -182,7 +182,7 @@ try {
   ok(/\/\/\s*GCR decode table/.test(asm4) && /\/\/\s*receive \+ self-mod fetch/.test(asm4), "4 subSegment comments rendered");
   ok(!/\.byte\s+\$B9/.test(asm4), "4 code bytes NOT emitted as .byte (real instructions)");
   await assertByteExact("4", mixedAsm, "kickassembler", mixed);
-  await assertByteExact("4", mixedAsm.replace(/\.asm$/, ".tass"), "64tass", mixed);
+  await assertByteExact("4", mixedAsm.replace(/\.asm$/, ".tas"), "64tass", mixed);
 
   // ---- Scenario 5: relocations + analysis combine (gap via analysis) ----
   // $C000 entry code (analysis-driven gap) + relocated blob $C006 → $E000.

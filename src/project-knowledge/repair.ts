@@ -112,6 +112,7 @@ function inferKind(relPath: string): Parameters<ProjectKnowledgeService["saveArt
       return "raw";
     case ".asm":
     case ".tas":
+    case ".tass":
       return "generated-source";
     case ".md":
       return "report";
@@ -141,7 +142,7 @@ function inferRole(relPath: string): string | undefined {
   if (lower.endsWith(".analysis.json") || lower.endsWith("_analysis.json")) return "analysis-json";
   if (basename(lower) === "manifest.json") return "manifest";
   if (lower.endsWith(".asm")) return "kickassembler-source";
-  if (lower.endsWith(".tas")) return "64tass-source";
+  if (lower.endsWith(".tas") || lower.endsWith(".tass")) return "64tass-source";
   if (lower.includes("ram") && lower.endsWith(".md")) return "ram-report";
   if (lower.includes("pointer") && lower.endsWith(".md")) return "pointer-report";
   return undefined;

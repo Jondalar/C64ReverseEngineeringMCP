@@ -69,7 +69,7 @@ export function versionFormatForArtifact(artifact: ArtifactRecord): ArtifactVers
   const fmt = (artifact.format ?? "").toLowerCase();
   const path = (artifact.relativePath ?? artifact.path ?? "").toLowerCase();
   if (fmt === "kickass" || fmt === "asm" || path.endsWith(".asm")) return "kickass";
-  if (fmt === "64tass" || fmt === "tass" || path.endsWith(".tas")) return "64tass";
+  if (fmt === "64tass" || fmt === "tass" || path.endsWith(".tas") || path.endsWith(".tass")) return "64tass";
   if (fmt === "markdown" || fmt === "md" || path.endsWith(".md")) return "markdown";
   if (fmt === "json" || path.endsWith(".json")) return "json";
   if (fmt === "sym" || path.endsWith(".sym")) return "sym";

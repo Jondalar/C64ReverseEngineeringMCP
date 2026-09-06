@@ -75,6 +75,7 @@ function artifactKindFor(path) {
     case ".crt":
       return "crt";
     case ".asm":
+    case ".tas":
     case ".tass":
       return "generated-source";
     case ".md":
@@ -98,7 +99,7 @@ function roleFor(path) {
   if (file === "manifest.json" && (normalizedPath.includes("/analysis/extracted/") || normalizedPath.includes("/analysis/crt/") || normalizedPath.includes("/cart/"))) return "crt-manifest";
   if (file.endsWith("_analysis.json")) return "analysis-json";
   if (file.endsWith("_disasm.asm")) return "kickassembler-source";
-  if (file.endsWith("_disasm.tass")) return "64tass-source";
+  if (file.endsWith("_disasm.tas") || file.endsWith("_disasm.tass")) return "64tass-source";
   if (file.endsWith("_final.asm")) return "final-kickassembler-source";
   if (file.endsWith("_final.tass")) return "final-64tass-source";
   if (file.endsWith("_disasm_annotations.json")) return "semantic-annotations";
@@ -120,7 +121,7 @@ function formatFor(path) {
   if (file.endsWith(".json")) return "json";
   if (file.endsWith(".md")) return "markdown";
   if (file.endsWith(".asm")) return "asm";
-  if (file.endsWith(".tass")) return "tass";
+  if (file.endsWith(".tas") || file.endsWith(".tass")) return "tass";
   if (file.endsWith(".g64")) return "g64";
   if (file.endsWith(".d64")) return "d64";
   if (file.endsWith(".crt")) return "crt";

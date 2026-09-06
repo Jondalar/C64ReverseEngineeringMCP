@@ -131,7 +131,7 @@ memory; that file decides.
 ## Output File Naming
 
 - `<name>_analysis.json` — Phase 1 heuristic output
-- `<name>_disasm.asm` / `<name>_disasm.tass` — Disassembly (KickAssembler / 64tass)
+- `<name>_disasm.asm` / `<name>_disasm.tas` — Disassembly (KickAssembler / 64tass). Projects written before 2026-09-06 hold `.tass`; every reader accepts both, the renderer writes `.tas`.
 - `<name>_annotations.json` — Phase 2 LLM annotations
 - `<name>_RAM_STATE_FACTS.md` / `<name>_POINTER_TABLE_FACTS.md` — Analysis reports
 

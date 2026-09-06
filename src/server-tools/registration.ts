@@ -40,6 +40,8 @@ export const DEFAULT_PATTERNS: RegistrationPattern[] = [
   { glob: "analysis/**/*_annotations.json", kind: "report", scope: "analysis", role: "annotations", format: "json" },
   { glob: "analysis/**/*_disasm.asm", kind: "listing", scope: "analysis", role: "disasm", format: "asm" },
   { glob: "analysis/**/*_disasm.tas", kind: "generated-source", scope: "generated", role: "disasm-tass", format: "tass" },
+  // pre-2026-09-06 output; the renderer writes `.tas` now, old projects keep theirs
+  { glob: "analysis/**/*_disasm.tass", kind: "generated-source", scope: "generated", role: "disasm-tass", format: "tass" },
   { glob: "analysis/**/raw_sectors/**/*.bin", kind: "raw", scope: "analysis", role: "raw-sector", format: "bin" },
   { glob: "analysis/runtime/**/session.json", kind: "checkpoint", scope: "session", role: "vice-session", format: "json" },
   { glob: "analysis/runtime/**/trace/summary.json", kind: "report", scope: "session", role: "trace-summary", format: "json" },
@@ -57,6 +59,7 @@ export const DEFAULT_PATTERNS: RegistrationPattern[] = [
   // human-authored source the resolver should prefer over generated output.
   { glob: "analysis/**/*.asm", kind: "generated-source", scope: "analysis", role: "semantic-source", format: "asm" },
   { glob: "analysis/**/*.tas", kind: "generated-source", scope: "analysis", role: "semantic-source", format: "tass" },
+  { glob: "analysis/**/*.tass", kind: "generated-source", scope: "analysis", role: "semantic-source", format: "tass" },
   { glob: "analysis/**/*.sym", kind: "other", scope: "analysis", role: "symbols", format: "sym" },
   { glob: "analysis/**/*.md", kind: "other", scope: "analysis", role: "semantic-notes", format: "md" },
 ];

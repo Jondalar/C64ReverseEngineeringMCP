@@ -1,4 +1,4 @@
-// Spec 249 — Bidirectional .asm / .tass sync helpers.
+// Spec 249 — Bidirectional .asm / .tas sync helpers.
 //
 // parseAsmFile:  extract labels + inline comments from an existing
 //                disassembly file produced by prg-disasm.ts so

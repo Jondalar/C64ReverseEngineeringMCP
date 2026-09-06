@@ -11,7 +11,10 @@ import { importAnalysisKnowledge } from "../project-knowledge/analysis-import.js
 
 const KNOWN_EXTENSIONS = new Set([
   ".prg", ".crt", ".d64", ".g64", ".bin",
-  ".asm", ".tas", ".sym",
+  // `.tass` is the pre-2026-09-06 64tass suffix: the renderer writes `.tas`
+  // now, but a project made before the rename still holds `.tass` files and they
+  // must keep registering.
+  ".asm", ".tas", ".tass", ".sym",
   ".json", ".md", ".html", ".png", ".jsonl",
 ]);
 

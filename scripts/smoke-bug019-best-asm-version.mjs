@@ -27,7 +27,7 @@ ok(!/\.sort\(\(\[left\], \[right\]\) => dialectOrder/.test(best), "5 old dialect
 
 // ---- behavioral: replicate the exact rules and assert the repro outcome ----
 // (mirrors asmArtifactPriority + bestAsmSourcesForArtifacts ordering)
-const dialectOf = (p) => p.toLowerCase().endsWith(".tass") ? "64tass" : p.toLowerCase().endsWith(".asm") ? "kickass" : "plain";
+const dialectOf = (p) => /\.tass?$/.test(p.toLowerCase()) ? "64tass" : p.toLowerCase().endsWith(".asm") ? "kickass" : "plain";
 function priority(a) {
   let base;
   switch (a.role) {
