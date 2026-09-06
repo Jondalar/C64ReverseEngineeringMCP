@@ -12,6 +12,10 @@
 import { existsSync, readdirSync, readFileSync, statSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, basename, dirname } from "node:path";
 import { loadEffectiveSegments } from "./effective-segments.js";
+import { parseId } from "../knowledge-graph/ids.js";
+import { GraphStore, graphPath } from "../knowledge-graph/store.js";
+import { seedControlFlow } from "../knowledge-graph/producers/control-flow.js";
+import { seedMemoryAccess } from "../knowledge-graph/producers/memory-access.js";
 
 export interface AddressIndexEntry {
   owner: string;   // artifact stem, e.g. "block2_engine_0200"
@@ -124,38 +128,153 @@ export function resolveCrossArtifact(
 export interface XrefEntry { owner: string; source: number; target: number; type: string; operandText?: string; }
 
 const XREF_CACHE_RELPATH = join("knowledge", ".cache", "xref-index.json");
+const XREF_CACHE_VERSION = 2; // Spec 820.2: entries come from the graph; a v1 cache (JSON walk) is rebuilt
 
-export function buildXrefIndex(projectDir: string): XrefEntry[] {
+// Spec 820.2 (D7) — the xref index reads the project graph: 819's control-flow
+// edges (call / jump / branch) and 820's access edges (read / write / the
+// indirect pair / data references), one entry per (source, target, type).
+// The JSON walk survives under `source: "json"` for the parity gate; an owner
+// with no rows is seeded on demand where the project can be seeded, and
+// otherwise walked from the JSON with a NOTE — never silently.
+const XREF_EDGE_TYPES = ["CALLS", "CALLS_ROM", "JUMPS_TO", "BRANCHES_TO", "READS", "WRITES", "READS_INDIRECT", "WRITES_INDIRECT", "REFERENCES_DATA"] as const;
+const XREF_TYPE_LABEL: Record<string, string> = {
+  CALLS: "call", CALLS_ROM: "call", JUMPS_TO: "jump", BRANCHES_TO: "branch",
+  READS: "read", WRITES: "write", READS_INDIRECT: "read-indirect", WRITES_INDIRECT: "write-indirect", REFERENCES_DATA: "data",
+};
+
+export type XrefIndexSource = "graph" | "graph-seeded" | "json";
+
+export interface XrefIndexBuild {
+  xrefs: XrefEntry[];
+  /** every fallback, named — printed to stderr by `buildXrefIndex`, kept in the cache */
+  notes: string[];
+  /** per artifact stem: where its entries came from */
+  sources: Record<string, XrefIndexSource>;
+}
+
+function xrefsFromJson(p: string, stem: string): XrefEntry[] {
   const out: XrefEntry[] = [];
-  for (const p of findAnalysisJsons(projectDir)) {
-    const stem = basename(p).replace(/_analysis\.json$/, "");
-    let report: { codeAnalysis?: { xrefs?: unknown[] }; probableCodeAnalysis?: { xrefs?: unknown[] } };
-    try { report = JSON.parse(readFileSync(p, "utf8")); } catch { continue; }
-    const xrefs = [...(report.codeAnalysis?.xrefs ?? []), ...(report.probableCodeAnalysis?.xrefs ?? [])] as Array<{ sourceAddress?: number; targetAddress?: number; type?: string; operandText?: string }>;
-    for (const x of xrefs) {
-      if (typeof x.sourceAddress !== "number" || typeof x.targetAddress !== "number") continue;
-      out.push({ owner: stem, source: x.sourceAddress & 0xffff, target: x.targetAddress & 0xffff, type: x.type ?? "ref", operandText: x.operandText });
-    }
+  let report: { codeAnalysis?: { xrefs?: unknown[] }; probableCodeAnalysis?: { xrefs?: unknown[] } };
+  try { report = JSON.parse(readFileSync(p, "utf8")); } catch { return out; }
+  const xrefs = [...(report.codeAnalysis?.xrefs ?? []), ...(report.probableCodeAnalysis?.xrefs ?? [])] as Array<{ sourceAddress?: number; targetAddress?: number; type?: string; operandText?: string }>;
+  for (const x of xrefs) {
+    if (typeof x.sourceAddress !== "number" || typeof x.targetAddress !== "number") continue;
+    out.push({ owner: stem, source: x.sourceAddress & 0xffff, target: x.targetAddress & 0xffff, type: x.type ?? "ref", operandText: x.operandText });
   }
   return out;
+}
+
+function xrefsFromGraph(store: GraphStore, owner: string, stem: string): XrefEntry[] {
+  const rows = store.db
+    .prepare(
+      `SELECT type, to_id, evidence FROM edges WHERE layer = 'generated' AND owner = ? AND producer IN ('819','820') AND type IN (${XREF_EDGE_TYPES.map(() => "?").join(",")}) ORDER BY from_id, type, to_id, evidence_key`,
+    )
+    .all(owner, ...XREF_EDGE_TYPES) as Array<{ type: string; to_id: string; evidence: string }>;
+  const out: XrefEntry[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    let target: number;
+    try {
+      const parsed = parseId(row.to_id);
+      if (parsed.form === "subsystem") continue;
+      target = parsed.address;
+    } catch { continue; }
+    const ev = JSON.parse(row.evidence) as Record<string, unknown>;
+    if (typeof ev.source_address !== "number") continue;
+    if (typeof ev.via_zp === "number") continue; // D3 second edge: an inferred target, not a stated reference
+    const type = XREF_TYPE_LABEL[row.type] ?? row.type.toLowerCase();
+    const key = `${ev.source_address}|${target}|${type}`;
+    if (seen.has(key)) continue; // CALLS + CALLS_ROM on one jsr (819 D4) is one reference
+    seen.add(key);
+    const entry: XrefEntry = { owner: stem, source: ev.source_address & 0xffff, target: target & 0xffff, type };
+    if (typeof ev.operand === "string" && ev.operand) entry.operandText = ev.operand;
+    out.push(entry);
+  }
+  return out;
+}
+
+function countOwnerRows(store: GraphStore, owner: string): number {
+  return Number((store.db.prepare("SELECT COUNT(*) AS n FROM edges WHERE layer = 'generated' AND owner = ? AND producer IN ('819','820')").get(owner) as { n: number }).n);
+}
+
+export function buildXrefIndexDetailed(projectDir: string, options: { source?: "graph" | "json" } = {}): XrefIndexBuild {
+  const xrefs: XrefEntry[] = [];
+  const notes: string[] = [];
+  const sources: Record<string, XrefIndexSource> = {};
+  const jsons = findAnalysisJsons(projectDir);
+  if (options.source === "json") {
+    for (const p of jsons) {
+      const stem = basename(p).replace(/_analysis\.json$/, "");
+      xrefs.push(...xrefsFromJson(p, stem));
+      sources[stem] = "json";
+    }
+    return { xrefs, notes, sources };
+  }
+  const path = graphPath(projectDir);
+  const canSeed = existsSync(join(projectDir, "knowledge", "project.json"));
+  let store: GraphStore | undefined = existsSync(path) ? GraphStore.open(projectDir, { readOnly: true }) : undefined;
+  try {
+    for (const p of jsons) {
+      const stem = basename(p).replace(/_analysis\.json$/, "");
+      const owner = stem.toLowerCase();
+      let rows = store ? countOwnerRows(store, owner) : 0;
+      let seeded = false;
+      if (rows === 0 && canSeed) {
+        try {
+          store?.close();
+          store = undefined;
+          seedControlFlow({ projectDir, analysisPath: p, owner });
+          seedMemoryAccess({ projectDir, analysisPath: p, owner });
+          store = GraphStore.open(projectDir, { readOnly: true });
+          rows = countOwnerRows(store, owner);
+          seeded = true;
+        } catch (error) {
+          notes.push(`[820.2] xref index: seeding ${stem} on demand failed (${error instanceof Error ? error.message : String(error)}) — entries from the JSON walk`);
+          if (!store && existsSync(path)) store = GraphStore.open(projectDir, { readOnly: true });
+        }
+      }
+      if (rows > 0 && store) {
+        xrefs.push(...xrefsFromGraph(store, owner, stem));
+        sources[stem] = seeded ? "graph-seeded" : "graph";
+        if (seeded) notes.push(`[820.2] xref index: ${stem} seeded on demand (819+820) into ${path}`);
+        continue;
+      }
+      if (!notes.some((n) => n.includes(`seeding ${stem}`))) {
+        notes.push(`[820.2] xref index: knowledge graph ABSENT for ${stem} (${store ? `${path} holds no rows for owner ${owner}` : `no ${path}`}${canSeed ? "" : "; no knowledge/project.json to seed from"}) — entries from the JSON walk`);
+      }
+      xrefs.push(...xrefsFromJson(p, stem));
+      sources[stem] = "json";
+    }
+  } finally {
+    store?.close();
+  }
+  return { xrefs, notes, sources };
+}
+
+export function buildXrefIndex(projectDir: string, options: { source?: "graph" | "json" } = {}): XrefEntry[] {
+  const built = buildXrefIndexDetailed(projectDir, options);
+  for (const note of built.notes) console.error(note);
+  return built.xrefs;
 }
 
 export function loadXrefIndex(projectDir: string): XrefEntry[] {
   const cachePath = join(projectDir, XREF_CACHE_RELPATH);
   const jsons = findAnalysisJsons(projectDir);
-  const newest = jsons.reduce((m, p) => { try { return Math.max(m, statSync(p).mtimeMs); } catch { return m; } }, 0);
+  const inputs = [...jsons, graphPath(projectDir)];
+  const newest = inputs.reduce((m, p) => { try { return Math.max(m, statSync(p).mtimeMs); } catch { return m; } }, 0);
   try {
     if (existsSync(cachePath)) {
-      const cached = JSON.parse(readFileSync(cachePath, "utf8")) as { builtMs: number; xrefs: XrefEntry[] };
-      if (cached.builtMs >= newest) return cached.xrefs;
+      const cached = JSON.parse(readFileSync(cachePath, "utf8")) as { version?: number; builtMs: number; xrefs: XrefEntry[] };
+      if (cached.version === XREF_CACHE_VERSION && cached.builtMs >= newest) return cached.xrefs;
     }
   } catch { /* rebuild */ }
-  const xrefs = buildXrefIndex(projectDir);
+  const built = buildXrefIndexDetailed(projectDir);
+  for (const note of built.notes) console.error(note);
   try {
     mkdirSync(dirname(cachePath), { recursive: true });
-    writeFileSync(cachePath, JSON.stringify({ builtMs: Date.now(), xrefs }));
+    writeFileSync(cachePath, JSON.stringify({ version: XREF_CACHE_VERSION, builtMs: Date.now(), xrefs: built.xrefs, notes: built.notes, sources: built.sources }));
   } catch { /* best-effort */ }
-  return xrefs;
+  return built.xrefs;
 }
 
 /** Project-wide xrefs touching `addr`: `into` = callers anywhere, `outof` = its own refs. */

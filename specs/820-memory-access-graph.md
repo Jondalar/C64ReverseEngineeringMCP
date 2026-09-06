@@ -1,6 +1,6 @@
 # Spec 820 — Memory access graph
 
-**Status:** BUILT 2026-09-06 (820.1 producer + queries) — gate `npm run e2e:820` GREEN (21/0); 820.2 (D7, the four walks) NOT built
+**Status:** BUILT 2026-09-06 — 820.1 producer + queries (gate `npm run e2e:820` GREEN 21/0) and 820.2 D7, the four walks read the store (gate `npm run e2e:820-2` GREEN 40/0, 1 WARN naming an 819 producer defect — §10)
 **Origin:** `C64RE_Semantic_Knowledge_Graph_Draft_Spec.md` §"Memory Access" / §"Indirect
 Access" / §"Zero Page" / §"Memory Regions" / MVP Phase 2 — the third slice of the draft.
 Keys on 817 (platform store, platform node ids) and 818 (project graph, the id grammar,
@@ -298,9 +298,55 @@ same-routine construction (0.5 %). `codeSemantics.indirectPointers` records 12
 constructions on lnr_boot and sets `constantTarget` on almost none: the pointer
 bytes are loaded dynamically. That is the number 821 exists to change.
 
-**Not built — 820.2, D7.** The four private walks (`inspect-range.ts`
-xref-into-range, `ram_report`'s access table, `address-index.ts`'s
-`buildXrefIndex`, `evidence-graph.ts` reads_from/writes_to) still read the JSON.
-Replacing them is an output-parity job — the acceptance says the diff must be
-empty — and is left as the named remainder rather than done without the parity
-check.
+**820.2, D7** — the four private walks — was the named remainder; built the
+same day, §10.
+
+## 10. 820.2 — the four walks
+
+`inspect_address_range` (VIC register program + xrefs into the range),
+`ram_report`'s access table, `address-index.ts`'s `buildXrefIndex` and the
+`evidenceGraph` `reads_from` / `writes_to` edges read `knowledge/graph.sqlite`.
+The JSON walk survives in each file under `source: "json"` — the gate's control
+arm, nothing else calls it. Gate `scripts/e2e-820-2-walk-parity.mjs`
+(`npm run e2e:820-2`): one seeded project from lnr_boot, both arms on the same
+input, every difference classified or red.
+
+**Two halves, two fallbacks.** The pipeline (CommonJS) cannot import the ESM
+producers; `pipeline/src/analysis/graph-reader.ts` reads the store FILE the way
+`platform-kb.ts` reads the platform store, and when the graph is absent the
+renderer keeps the JSON walk and SAYS so — a header line in `ram_report`, an
+`attributes.note` on every affected evidence edge. The MCP side
+(`inspect-range.ts`, `address-index.ts`) seeds 819+820 on demand when the
+project has `knowledge/project.json`, and reports "seeded on demand"; a
+directory that cannot be seeded gets the JSON walk and an `ABSENT` note. Owner
+= the analysis stem; the renderer derives it from `binaryName` when the caller
+(`pipeline/src/cli.ts ram-report`, `pipeline.ts`'s analysis-time
+`buildEvidenceGraph`) passes none — pass `{ projectDir, owner }` from those two
+call sites to make them read the store on a re-run.
+
+**Parity, measured on lnr_boot.** Byte-identical: every non-xref section of
+`inspect_address_range` in five ranges (the VIC register program among them),
+372 of 375 `ram_report` address blocks, the Purpose Hypotheses, the evidence
+graph (lnr_boot: 13 nodes, 6 edges; a fixture with a confirmed copy loop into
+the screen: `writes_to` + 2 × `reads_from`, bases from the graph's indexed
+READS/WRITES inside the copy window, identical). The diff that remains, all of
+it listed and asserted by the gate — nothing else passes:
+
+| walk | difference | why the graph is right |
+|---|---|---|
+| xrefs (inspect + index) | 3 435 `(fallthrough)` lines gone | adjacency, not a reference; 818 has no such edge |
+| xrefs | 580 `(branch)` → `(read)`/`(write)` | discovery tags every memory operand `branch` (819 D3) |
+| xrefs | +1 183 read, +1 140 write, +138 read-indirect, +66 write-indirect, +89 data | 820's edges — the answer the index could not give |
+| xrefs | 15 `jmp (abs)` `(jump)` lines gone | **store gap**: 819 skips `jmp ind`, 820 D1 says "control flow is 818's" — nobody records the vector read |
+| xrefs | +330 `call` to `pc+3` | **819 producer defect**: its xref loop does not skip `type: "fallthrough"`, so a jsr's return address becomes CALLS. The gate WARNs, asserts the bucket is exactly jsr→pc+3, and goes green when `control-flow.ts` skips them |
+| ram_report | 327 rows with zero touches gone | the JSON walk aggregated every direct-operand instruction (jsr/jmp targets, undocumented opcodes) before checking the mnemonic — "$0079 is touched from decoded code, Reads=0, writes=0" |
+| ram_report | 3 rows' provenance/confidence ($0054 $0073 $FFFF) | the same defect: a confirmed `jsr $0073` counted as a confirmed touch of an address only probable code accesses |
+| ram_report | $0003 +1 indirect read | `ora ($03,x)` — the JSON walk knew `(zp),y` only; 820 D1 knows both |
+| ram_report / inspect | one header line | says which graph (or that none) was read |
+
+`ramAccesses` and `ramHypotheses` stay in the JSON (D7; 822 owns that
+migration); the immediate value a store carries is still read off the
+instruction before it — a value lookup, not an access walk, and the graph
+does not hold it. D3 second edges (`via_zp`) are inferred targets: shown in
+`inspect_address_range` as `(read via $20)`, kept out of the access table and
+the xref index.

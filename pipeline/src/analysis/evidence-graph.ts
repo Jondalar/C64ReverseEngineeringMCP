@@ -7,6 +7,80 @@ import {
   Segment,
 } from "./types";
 import { clampConfidence, formatAddress } from "./utils";
+import { loadAccessEdges, type AccessEdge } from "./graph-reader";
+
+export interface EvidenceGraphOptions {
+  /**
+   * `graph` (default): reads_from / writes_to bases come from the knowledge
+   * graph's Spec 820 rows inside each copy window; absent graph (or no owner
+   * to look it up by) → the JSON copy-routine bases, every such edge carrying
+   * a loud note. `json`: the pre-820 walk, silent — the parity gate's control.
+   */
+  source?: "graph" | "json";
+  projectDir?: string;
+  /** the 819/820 owner (analysis stem). Analysis-time callers have none yet. */
+  owner?: string;
+}
+
+interface CopyBases {
+  destinationBases: number[];
+  sourceBases: number[];
+  /** set when the bases did NOT come from the graph, or when graph and JSON disagree */
+  note?: string;
+}
+
+function isHardwareAddress(address: number): boolean {
+  return (address >= 0xd000 && address <= 0xdfff) || address === 0xdd00;
+}
+
+function sameList(left: number[], right: number[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+/**
+ * Spec 820.2 (D7): the bases a copy loop reads and writes, from the store.
+ * The copy analyzer's own rule (code-semantics.ts `collectCopyRoutines`): an
+ * indexed store `st? abs,<reg>` / an indexed load `lda abs,<reg>` inside the
+ * loop, hardware excluded. The graph holds exactly those instructions as
+ * indexed READS / WRITES edges with their pc, so the same rule over the edges
+ * yields the same bases — and the gate proves it.
+ */
+function copyBasesResolver(
+  semantics: CodeSemantics,
+  options: EvidenceGraphOptions,
+): (copy: CodeSemantics["copyRoutines"][number]) => CopyBases {
+  const fromJson = (copy: CodeSemantics["copyRoutines"][number], note?: string): CopyBases => ({
+    destinationBases: copy.destinationBases,
+    sourceBases: copy.sourceBases,
+    note,
+  });
+  if (options.source === "json") return (copy) => fromJson(copy);
+  const owner = options.owner;
+  if (!owner) {
+    const note = "knowledge graph not consulted: no owner given (an analysis-time call has no seeded artifact yet) — reads_from/writes_to derived from codeSemantics.copyRoutines (820.2 fallback)";
+    return (copy) => fromJson(copy, note);
+  }
+  const lookup = loadAccessEdges({ projectDir: options.projectDir, owner });
+  if (lookup.status === "absent") {
+    const note = `knowledge graph ABSENT — ${lookup.reason}; reads_from/writes_to derived from codeSemantics.copyRoutines (820.2 fallback)`;
+    return (copy) => fromJson(copy, note);
+  }
+  const edges: AccessEdge[] = lookup.edges.filter((edge) => edge.viaZp === undefined && edge.indexed);
+  return (copy) => {
+    const mode = `abs,${copy.indexRegister}`;
+    const inWindow = edges.filter((edge) => edge.pc >= copy.start && edge.pc <= copy.end && edge.addressingMode === mode && !isHardwareAddress(edge.target));
+    const destinationBases = Array.from(new Set(inWindow.filter((edge) => edge.type === "WRITES" && edge.mnemonic.startsWith("st")).map((edge) => edge.target))).sort((left, right) => left - right);
+    const sourceBases = Array.from(new Set(inWindow.filter((edge) => edge.type === "READS" && edge.mnemonic === "lda").map((edge) => edge.target))).sort((left, right) => left - right);
+    const agrees = sameList(destinationBases, copy.destinationBases) && sameList(sourceBases, copy.sourceBases);
+    return {
+      destinationBases,
+      sourceBases,
+      note: agrees
+        ? undefined
+        : `graph and JSON disagree for copy ${formatAddress(copy.start)}-${formatAddress(copy.end)}: graph dst=[${destinationBases.map(formatAddress).join(", ")}] src=[${sourceBases.map(formatAddress).join(", ")}], codeSemantics.copyRoutines dst=[${copy.destinationBases.map(formatAddress).join(", ")}] src=[${copy.sourceBases.map(formatAddress).join(", ")}] — the graph is rendered; re-seed if the JSON is newer`,
+    };
+  };
+}
 
 function nodeId(kind: string, start: number, end?: number): string {
   return end === undefined ? `${kind}:${start.toString(16)}` : `${kind}:${start.toString(16)}-${end.toString(16)}`;
@@ -206,10 +280,12 @@ export function buildEvidenceGraph(
   semantics: CodeSemantics,
   vic: VicEvidence,
   segments: Segment[],
+  options: EvidenceGraphOptions = {},
 ): EvidenceGraph {
   const nodes = new Map<string, EvidenceNode>();
   const edges = new Map<string, EvidenceEdge>();
   const targetMap = addDisplayTargetNodes(nodes, edges, vic);
+  const basesOf = copyBasesResolver(semantics, options);
 
   for (const pointer of semantics.indirectPointers.filter((fact) => fact.provenance === "confirmed_code")) {
     const pointerId = nodeId("pointer", pointer.start, pointer.end);
@@ -337,7 +413,12 @@ export function buildEvidenceGraph(
       });
     }
 
-    for (const targetBase of copy.destinationBases) {
+    // Spec 820.2 (D7): the bases come from the graph's access edges inside the
+    // copy window; the copy NODE above stays the analyzer's fact.
+    const bases = basesOf(copy);
+    const accessAttributes = bases.note ? { accessSource: "json-walk", note: bases.note } : undefined;
+
+    for (const targetBase of bases.destinationBases) {
       for (const targetId of targetMap.values()) {
         const targetNode = nodes.get(targetId);
         if (!targetNode || targetNode.start === undefined || targetNode.end === undefined) {
@@ -350,14 +431,15 @@ export function buildEvidenceGraph(
             kind: "writes_to",
             confidence: copy.confidence,
             reasons: [`Copy destination ${formatAddress(targetBase)} falls inside ${targetNode.label}.`],
+            ...(accessAttributes ? { attributes: accessAttributes } : {}),
           });
         }
       }
     }
 
-    for (const sourceBase of copy.sourceBases) {
+    for (const sourceBase of bases.sourceBases) {
       const regionStart = sourceBase;
-      const regionEnd = sourceBase + (copy.destinationBases.length >= 6 ? 0x2ff : 0xff);
+      const regionEnd = sourceBase + (bases.destinationBases.length >= 6 ? 0x2ff : 0xff);
       const sourceId = regionNodeId(regionStart, regionEnd);
       addNode(nodes, {
         id: sourceId,
@@ -375,6 +457,7 @@ export function buildEvidenceGraph(
         kind: "reads_from",
         confidence: copy.confidence,
         reasons: [`Copy source ${formatAddress(sourceBase)} is read repeatedly by the routine.`],
+        ...(accessAttributes ? { attributes: accessAttributes } : {}),
       });
     }
   }

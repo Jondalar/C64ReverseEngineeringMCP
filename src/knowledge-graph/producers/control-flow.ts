@@ -115,6 +115,7 @@ export function seedControlFlow(options: SeedControlFlowOptions): SeedControlFlo
   const callTargets = new Set<number>();
   const branchTargets = new Set<number>();
   for (const x of xrefs) {
+    if (x.type === "fallthrough") continue;
     const src = instructions.get(x.sourceAddress);
     const mn = (x.mnemonic ?? src?.mnemonic ?? "").toLowerCase();
     if (mn === "jsr") callTargets.add(x.targetAddress);
@@ -164,6 +165,7 @@ export function seedControlFlow(options: SeedControlFlowOptions): SeedControlFlo
   // ---- labels (D1): jmp/branch targets that are not routines
   const labelStarts = new Set<number>();
   for (const x of xrefs) {
+    if (x.type === "fallthrough") continue;
     const src = instructions.get(x.sourceAddress);
     const mn = (x.mnemonic ?? src?.mnemonic ?? "").toLowerCase();
     if ((mn === "jmp" && src?.addressingMode !== "ind") || BRANCHES.has(mn)) {
@@ -219,6 +221,11 @@ export function seedControlFlow(options: SeedControlFlowOptions): SeedControlFlo
   };
 
   for (const x of xrefs) {
+    // 820.2 found this: discovery emits a `fallthrough` xref for every jsr
+    // (source = the jsr, target = pc+3). Typed by the source's mnemonic that
+    // became a CALLS edge to the return address — 330 phantom calls on
+    // lnr_boot. Adjacency is not an 818 edge type; skip it.
+    if (x.type === "fallthrough") continue;
     const src = instructions.get(x.sourceAddress);
     if (!src) continue;
     const mn = src.mnemonic.toLowerCase();
