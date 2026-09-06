@@ -38,6 +38,16 @@ export function resolveAddressesIn(store: GraphStore, options: { inTransaction?:
   const candidates = db.prepare(
     "SELECT DISTINCT id, kind, layer FROM nodes WHERE address = ? AND space = ? AND kind IN ('routine', 'label', 'data_block') AND (? IS NULL OR bank IS NULL OR bank = ?) ORDER BY id",
   );
+  // 826.0 T4 — an address INSIDE a named table (`lda $FDF5` into
+  // zone_sector_interleave_tbl $FDD4-$FDFF) belongs to that data block: the
+  // reference lands on the name, with the offset said. Only ranged data
+  // blocks; a routine's extent is not an alias (a jump into its middle is a
+  // label, 819's business).
+  const ranged = db.prepare("SELECT DISTINCT id, kind, layer, space, bank, address, end_address FROM nodes WHERE kind = 'data_block' AND end_address IS NOT NULL AND end_address > address ORDER BY id")
+    .all() as unknown as Array<CandRow & { space: string; bank: number | null; address: number; end_address: number }>;
+  const containing = (a: AddrRow) => ranged
+    .filter((d) => d.space === a.space && d.address < a.address && a.address <= d.end_address && (a.bank === null || d.bank === null || d.bank === a.bank))
+    .sort((x, y) => (x.end_address - x.address) - (y.end_address - y.address) || x.id.localeCompare(y.id));
   const del = db.prepare("DELETE FROM edges WHERE producer = ? AND owner IS NULL");
   const ins = db.prepare(
     "INSERT OR IGNORE INTO edges (from_id, type, to_id, layer, evidence_key, origin, confidence, producer, owner, evidence) VALUES (?, 'RESOLVES_TO', ?, 'generated', '', 'static', 'inferred', ?, NULL, ?)",
@@ -66,6 +76,19 @@ export function resolveAddressesIn(store: GraphStore, options: { inTransaction?:
         resolved += 1;
       } else if (ids.length > 1) {
         ambiguous.push({ id: a.id, candidates: all });
+      } else {
+        // nothing AT the address: the smallest data block that CONTAINS it (T4)
+        const uniq = containing(a);
+        if (uniq.length >= 1) {
+          const d = uniq[0]!;
+          const tight = uniq.filter((r) => r.address === d.address);
+          if (tight.length === 1) {
+            ins.run(a.id, d.id, RESOLVE_PRODUCER, JSON.stringify({ rule: "826.0-T4", candidates: uniq.length, kind: d.kind, layer: d.layer, offset: a.address - d.address }));
+            resolved += 1;
+          } else {
+            ambiguous.push({ id: a.id, candidates: uniq.map((r) => r.id) });
+          }
+        }
       }
     }
     store.setMeta("resolve.ambiguous", JSON.stringify(ambiguous));

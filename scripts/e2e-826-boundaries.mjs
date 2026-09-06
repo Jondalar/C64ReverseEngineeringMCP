@@ -2,7 +2,7 @@
 // Spec 826.0 T3/T4 — human nodes without a generated twin, by kind, against a
 // ground-truth fixture the real pipeline analyzes and 819 + 820 seed.
 //
-//   $1000 entry:  lda $1400 ; jsr $1020 ; rts                       extent $1000-$1006
+//   $1000 entry:  lda $1400 ; jsr $1020 ; rts                       extent $1000-$1009
 //   $1020 sub:    ldx #3 ; loop: dex ; bne loop ; rts               extent $1020-$1025, 819 label at $1022
 //   $1400-$1410   a byte table (data, read by entry)
 //   $1500         a lonely data byte nothing reads
@@ -51,7 +51,7 @@ writeFileSync(join(project, "knowledge", "project.json"), JSON.stringify({ schem
 
 const image = new Uint8Array(0x0700).fill(0xea); // $1000-$16FF, NOPs
 const put = (addr, bytes) => image.set(bytes, addr - 0x1000);
-put(0x1000, [0xad, 0x00, 0x14, 0x20, 0x20, 0x10, 0x60]);       // lda $1400 ; jsr $1020 ; rts
+put(0x1000, [0xad, 0x00, 0x14, 0xad, 0x05, 0x14, 0x20, 0x20, 0x10, 0x60]); // lda $1400 ; lda $1405 (INSIDE the table) ; jsr $1020 ; rts
 put(0x1020, [0xa2, 0x03, 0xca, 0xd0, 0xfd, 0x60]);             // ldx #3 ; loop: dex ; bne loop ; rts
 put(0x1400, Array.from({ length: 17 }, (_, i) => 0x30 + i)); // a byte table
 put(0x1500, [0xff]);
@@ -76,7 +76,7 @@ const A = (a) => `s826:ram:addr:${a}`;
 let graph = Graph.open(project);
 const w1000 = graph.resolve(R("1000"));
 const w1020 = graph.resolve(R("1020"));
-check(!w1000.dangling && w1000.endAddress === 0x1006, `W1000 is a generated routine with extent $1000-$1006 (${w1000.endAddress?.toString(16)})`);
+check(!w1000.dangling && w1000.endAddress === 0x1009, `W1000 is a generated routine with extent $1000-$1009 (${w1000.endAddress?.toString(16)})`);
 check(!w1020.dangling && w1020.endAddress === 0x1025, `W1020 is a generated routine with extent $1020-$1025 (${w1020.endAddress?.toString(16)})`);
 check(graph.resolve(L("1022")).layers.includes("generated"), "819 made the label at $1022 (branch target) — the twin case");
 check(graph.resolve(R("1003")).dangling && graph.resolve(R("1600")).dangling && graph.resolve(L("1025")).dangling && graph.resolve(L("1500")).dangling, "no generated row at $1003 / $1600 (routines) or $1025 / $1500 (labels)");
@@ -149,7 +149,11 @@ check(graph.resolve(`s826:ram/fixture:segment:1400`).name === "my_table", "the s
 const resolves = graph.store.db.prepare("SELECT to_id, producer FROM edges WHERE from_id = ? AND type = 'RESOLVES_TO'").all(A("1400"));
 check(resolves.length === 1 && resolves[0].to_id === D("1400") && resolves[0].producer === "826r", `RESOLVES_TO ${A("1400")} → my_table (producer 826r)`);
 const reads = graph.edgesOutOf(R("1000")).filter((e) => e.type === "READS" && e.to === D("1400"));
-check(reads.length === 1 && reads[0].evidence.via === A("1400") && reads[0].toNode.name === "my_table", `edgesOutOf(W1000): the READS lands on my_table with evidence.via = ${A("1400")}`);
+check(reads.length === 2 && reads.every((e) => e.toNode.name === "my_table") && reads.some((e) => e.evidence.via === A("1400")) && reads.some((e) => e.evidence.via === A("1405")), `edgesOutOf(W1000): both READS land on my_table — via ${A("1400")} (first byte) and via ${A("1405")} (inside the range)`);
+// 826.0 T4 range rule: an address INSIDE the table resolves to it, offset said
+const inside = graph.store.db.prepare("SELECT to_id, evidence FROM edges WHERE from_id = ? AND type = 'RESOLVES_TO'").all(A("1405"));
+check(inside.length === 1 && inside[0].to_id === D("1400") && JSON.parse(inside[0].evidence).offset === 5 && JSON.parse(inside[0].evidence).rule === "826.0-T4", `RESOLVES_TO ${A("1405")} → my_table with offset 5 (the range rule)`);
+check(graph.edgesInto(D("1400")).filter((e) => e.type === "READS").length === 2, "edgesInto(my_table) counts both READS through the aliases");
 check(graph.readers(0x1400).some((e) => e.from === R("1000")), "readers($1400) still answers W1000");
 
 // routine inside a generated routine → STARTS_INSIDE + boundary, never a label
@@ -170,12 +174,12 @@ check(graph.resolve("s826:ram/nobody:routine:2000").attrs.boundary === undefined
 
 const b = boundaries(graph);
 console.log(formatBoundaries(b).split("\n").map((l) => `        ${l}`).join("\n"));
-check(b.splits.length === 1 && b.splits[0].id === R("1003") && b.splits[0].name === "entry_call" && b.splits[0].container.id === R("1000") && b.splits[0].container.address === 0x1000 && b.splits[0].container.end === 0x1006, "boundaries().splits = [entry_call inside W1000 $1000-$1006]");
+check(b.splits.length === 1 && b.splits[0].id === R("1003") && b.splits[0].name === "entry_call" && b.splits[0].container.id === R("1000") && b.splits[0].container.address === 0x1000 && b.splits[0].container.end === 0x1009, "boundaries().splits = [entry_call inside W1000 $1000-$1009]");
 check(b.unseen.length === 1 && b.unseen[0].id === R("1600") && b.unseen[0].name === "hidden_routine" && b.unseen[0].owner === "fixture", "boundaries().unseen = [hidden_routine]");
 check(b.dataOutsideCode.length === 1 && b.dataOutsideCode[0].id === L("1500") && b.dataOutsideCode[0].dataBlock === D("1500"), "boundaries().dataOutsideCode = [lonely_byte → its data_block]");
 check(b.unseededOwners.length === 1 && b.unseededOwners[0].owner === "nobody" && b.unseededOwners[0].humanNodes === 3, "boundaries().unseededOwners = [nobody: 3 human nodes]");
 eq(JSON.stringify(boundaryEntries(graph)), JSON.stringify(["$1600"]), "boundaryEntries()");
-check(formatBoundaries(b).includes("$1600 hidden_routine") && formatBoundaries(b).includes("$1003 entry_call  inside $1000-$1006 W1000"), "formatBoundaries: one line per item");
+check(formatBoundaries(b).includes("$1600 hidden_routine") && formatBoundaries(b).includes("$1003 entry_call  inside $1000-$1009 W1000"), "formatBoundaries: one line per item");
 const ambiguous = JSON.parse(graph.store.getMeta("resolve.ambiguous") ?? "[]");
 info(`resolve.ambiguous after the import: ${JSON.stringify(ambiguous)}`);
 graph.close();

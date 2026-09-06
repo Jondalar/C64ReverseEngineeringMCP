@@ -879,7 +879,7 @@ function argsAt(o: OwnerCtx, ra: RoutineAnalysis, call: CallSite, kb: PlatformKb
       if (!writesReg(i, r)) continue;
       const mn = i.mnemonic.toLowerCase();
       const site = siteOf(i);
-      if (mn === "jsr") { const c = ra.calls.find((x) => x.instr.address === i.address); return { source: "callee", from: c?.to ?? c?.callee.id, site }; }
+      if (mn === "jsr") { const c = ra.calls.find((x) => x.instr.address === i.address); return { source: "callee", from: (c && c.callee.kind !== "unknown" && c.callee.id) || c?.to || c?.callee.id, site }; }
       const load = (mn === "lda" && r === "A") || (mn === "ldx" && r === "X") || (mn === "ldy" && r === "Y") || (mn === "lax" && (r === "A" || r === "X"));
       if (load) {
         if (i.addressingMode === "imm") {
@@ -909,7 +909,7 @@ function argsAt(o: OwnerCtx, ra: RoutineAnalysis, call: CallSite, kb: PlatformKb
     for (let k = upto - 1; k >= 0; k -= 1) {
       const i = seq[k]!;
       const mn = i.mnemonic.toLowerCase();
-      if (mn === "jsr") { const c = ra.calls.find((x) => x.instr.address === i.address); if (!c || c.callee.kind === "unknown" || c.callee.defs.includes(f)) return { source: "callee", from: c?.to ?? c?.callee.id, site: siteOf(i) }; continue; }
+      if (mn === "jsr") { const c = ra.calls.find((x) => x.instr.address === i.address); if (!c || c.callee.kind === "unknown" || c.callee.defs.includes(f)) return { source: "callee", from: (c && c.callee.kind !== "unknown" && c.callee.id) || c?.to || c?.callee.id, site: siteOf(i) }; continue; }
       if (!effects(mn, i.addressingMode).writes.includes(f as Loc)) continue;
       if (mn === "sec" || mn === "sed" || mn === "sei") return { source: "flag", value: 1, site: siteOf(i) };
       if (mn === "clc" || mn === "cld" || mn === "cli" || mn === "clv") return { source: "flag", value: 0, site: siteOf(i) };
@@ -921,7 +921,7 @@ function argsAt(o: OwnerCtx, ra: RoutineAnalysis, call: CallSite, kb: PlatformKb
     for (let k = upto - 1; k >= 0; k -= 1) {
       const i = seq[k]!;
       const mn = i.mnemonic.toLowerCase();
-      if (mn === "jsr") { const c = ra.calls.find((x) => x.instr.address === i.address); if (!c || c.callee.kind === "unknown" || c.callee.defs.includes(loc)) return { source: "callee", from: c?.to ?? c?.callee.id, site: siteOf(i) }; continue; }
+      if (mn === "jsr") { const c = ra.calls.find((x) => x.instr.address === i.address); if (!c || c.callee.kind === "unknown" || c.callee.defs.includes(loc)) return { source: "callee", from: (c && c.callee.kind !== "unknown" && c.callee.id) || c?.to || c?.callee.id, site: siteOf(i) }; continue; }
       const w = memLoc(o, i, preAt.get(i.address) ?? entryState()).write;
       const extra = o.extraDefs.get(i.address) ?? [];
       if (!w.includes(loc) && !extra.includes(loc)) continue;

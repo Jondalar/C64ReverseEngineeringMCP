@@ -432,3 +432,29 @@ not a looser rule. `preserves` is empty on `$FC00` because it clobbers
 everything it touches, which is true. The observed-args side (D6 second
 paragraph) is built and gated on a synthetic trace; a real WL1 capture through
 `import-trace` is the acceptance still to run.
+
+**Second field test (WL1, same day).** T1 confirmed on the data: 328 → 60
+`CALLS_ROM`, 268 carry `rom_alternative`, `c64:rom:bbc7` = 0. T2 confirmed
+(366 `RESOLVES_TO`, `addr:fc00 → reloc_fc00:routine:fc00`). T5 "reproduces
+not": WL1 counted `nodes WHERE id LIKE '%:zp:%'` and found none — correct, the
+zp node is synthesised by the query layer, there is no row; `graph edges
+c64:zp:00fe --in` lists the 31+ writers. T4 was **half built**: the data blocks
+existed, `REFERENCES_DATA` still reached them at 0 places, because references
+land INSIDE a table (`lda $FDF5` into `zone_sector_interleave_tbl` $FDD4–$FDFF)
+and the pass resolved exact addresses only. The range rule is in now: nothing at
+the address → the smallest ranged data block containing it, `evidence.offset`
+said; `RESOLVES_TO` 366 → 933 on the copy, 61 of the 137 anonymous
+`REFERENCES_DATA` targets now reach a name, and `graph edges …data_block:fdd4
+--in` shows a `jsr $FDF5` from `$049E` into the "table" — a contradiction the
+human range and 819 have to settle, surfaced instead of hidden. Argument slices
+now name the RESOLVED callee (`callee …reloc_fc00:routine:fc00`, not the addr
+alias). WL1's reading of `args '$FC00'` against `ORIGINAL_DISK_LOADER.md`: the
+in-set A X Y $FD $FE $FF is the documented ABI 1:1, `out zp:$FC` and `C` are the
+return status, `A ← op:$2805` is the write path (mode 2 never appears as a
+literal because it travels through the patched operand — the graph names the
+source, the docs needed prose), Y ← $23 / $22 are tracks 35 / 34, `zp:$FF ← $5A`
+is the directory sector. Not covered, named: the end page in `$FD` is computed
+(base-hi + block count) at half the sites and shows as `?`; "X counts down and
+skips track 18" is a loop invariant, not an argument; X = $0F from
+`set_dir_ptr_3100` is in an unseeded owner or only via a patched operand.
+`preserves: —` and `I` in `clobbers` are true (the fastloader runs under `sei`).
