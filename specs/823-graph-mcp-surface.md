@@ -283,3 +283,12 @@ forbidden imports; it checks the import list now, not the prose.
 `e2e-mcp-tool-boundaries` (checks 4/6: `sandbox_*`,
 `register_payloads_from_manifest`) were red on `master` before 823 and name no
 `graph_*` tool. Recorded here so the next reader does not read them as 823's.
+
+## 11. Amended 2026-09-06 — Spec 826.0 T6
+
+`graph_find` (and `c64re graph find`) ranks an exact name first, then the
+substring hits, then the platform store, then nodes whose **annotation text**
+matches (822's `annotations_fts`, phrase-prefix query); each hit says how it
+matched (`matched: name | platform | annotation`). "sector" finds
+`resolve_id_to_ts` through what its annotation says, which the substring search
+could not (WL1's field test).

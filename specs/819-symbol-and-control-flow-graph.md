@@ -278,3 +278,22 @@ lnr_boot: 84 ms to seed; `callers(c64:rom:ffd2)` = 6, of which 2 carry
 `ambiguity: ram-under-rom` (D4 — the image holds a RAM copy of the KERNAL) and
 4 are direct; every one carries `instruction: "jsr $FFD2"`. Seed twice →
 identical canonical dump; a human name on a routine survives a re-seed.
+
+## 9. Amended 2026-09-06 — Spec 826.0 T1 and T2
+
+**T1 (D4 narrowed).** A `jsr` into RAM under ROM emits **both** edges only
+when the image has no decoded code at the target. Decoded code there means
+the ROM is banked out to run it: `CALLS` only, `evidence.rom_alternative`
+keeps the ROM node, `ambiguity: ram-under-rom` stays. WL1 measured 306 of 328
+`CALLS_ROM` on Wasteland_EF pointing at game code under BASIC — every "who calls
+the KERNAL" answer polluted. `romCalls` and the overview's KERNAL section
+therefore count ROM calls now.
+
+**T2 (D5 completed).** An outside-the-image `jsr` still lands on the ownerless
+`addr` node, but a project-wide pass (`producers/resolve.ts`, producer `826r`,
+after every seed and via `c64re graph resolve`) adds `RESOLVES_TO` from the
+`addr` node to the ONE routine / label / data block any owner has at that
+`(space, bank, address)`; several → no edge, the ambiguity in
+`meta.resolve.ambiguous`. `edgesInto` / `edgesOutOf` (and so `callers`,
+`callees`, `path`) follow the alias and name the hop in `evidence.via`. Gate:
+e2e:819 T2 (alpha → beta across owners; gamma makes it ambiguous again).

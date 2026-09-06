@@ -336,3 +336,14 @@ rule (`routine-needs-owner`, `addr-no-owner`, `crt-needs-bank`,
 `slug-is-platform`, `addr`, `pkind`). Human row survives a re-seed and is
 reported `orphaned` when its generated twin is gone; `c64:rom:0000` comes back
 dangling, `c64:rom:ffd2` resolves to CHROUT through the platform file.
+
+## 9. Amended 2026-09-06 — Spec 826.0 T5
+
+`Graph.resolve` no longer returns `dangling` for a platform id the platform
+store has no row for: a platform id names its kind and address in its own
+grammar (D1), so `c64:zp:00fe` is a zero-page cell whether or not the book has
+a line for it — `platform: true, name: null, attrs.synthesized`. The kind is
+checked against the address, so `c64:rom:0000` (D7's case, asserted by the
+gate) stays dangling. `nodesAt("$00FE")` appends the zp / io / rom node by
+address alone. Reason: 820 put edges on `$FB-$FE` — the pointers one looks for —
+and nothing could walk them backwards (WL1's field test). Gate: e2e:819 T5.
