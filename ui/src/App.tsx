@@ -5805,7 +5805,9 @@ export function App() {
           <div className="panel-card empty-state">{loading ? "Loading workspace snapshot..." : "No snapshot loaded."}</div>
         </main>
       ) : (
-        <main className={activeTab === "docs" || activeTab === "live" || activeTab === "home" ? "app-main-grid docs-mode" : "app-main-grid"}>
+        // Spec 825 §4: the Graph tab is one full-width explorer (canvas + its own
+        // inspector), so it takes the single-column treatment Docs/Live/Home have.
+        <main className={activeTab === "docs" || activeTab === "live" || activeTab === "home" || activeTab === "graph" ? "app-main-grid docs-mode" : "app-main-grid"}>
           <nav className="tab-strip" aria-label="Workspace views">
             {orderedTabs.map((tab) => (
               <button
@@ -6034,7 +6036,10 @@ export function App() {
                 widget folds into the Dashboard. */}
           </section>
 
-          {activeTab !== "docs" && activeTab !== "live" && activeTab !== "home" ? (
+          {/* Spec 825 §4 — the Graph tab brings its own inspector (card, legend,
+              docked source), so the shell's generic aside would only steal 360 px
+              from the canvas and say "select a memory region". */}
+          {activeTab !== "docs" && activeTab !== "live" && activeTab !== "home" && activeTab !== "graph" ? (
             <aside className="workspace-side">
               {selectedCartChunk ? (
                 <CartChunkInspector

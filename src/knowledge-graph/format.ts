@@ -3,7 +3,7 @@
 // ```json block is byte-identical to what `c64re graph … --json` prints, and
 // the gate asserts it. Compact hits, stable ids, never a listing excerpt.
 
-import type { ArgsDomain, NodeCard, OverviewSection, PathResult, SignatureCard, Walk, WalkEdge } from "./cards.js";
+import type { ArgsDomain, NodeCard, OverviewSection, PathResult, SignatureCard, Subgraph, Walk, WalkEdge } from "./cards.js";
 import type { ResolvedNode } from "./query.js";
 
 const hex = (a: number) => `$${a.toString(16).toUpperCase().padStart(4, "0")}`;
@@ -153,4 +153,29 @@ export function formatPath(result: PathResult): Formatted {
 export function formatOverview(sections: OverviewSection[]): Formatted {
   const text = sections.map((s) => `## ${s.label} — ${s.count}\n${s.top.length ? s.top.map((t) => `  ${String(t.count).padStart(4)}  ${t.id}${t.name ? `  ${t.name}` : ""}`).join("\n") : "  (none)"}`).join("\n");
   return { text, json: { sections } };
+}
+
+/**
+ * Spec 825 D1 — the bulk projection. The JSON IS the route body and the CLI's
+ * `--json`, byte for byte (823 D7, once more); the text is a census, never
+ * 11 000 lines, because nobody reads a subgraph in a terminal — they count it.
+ */
+export function formatSubgraph(sub: Subgraph): Formatted {
+  if (sub.truncated) {
+    const text = `${sub.counts.nodes} nodes — too many to project (limit 50000). Scopes that fit:\n${sub.next.length ? sub.next.map((s) => `  ${s}`).join("\n") : "  (none — narrow by owner or bank)"}`;
+    return { text, json: sub };
+  }
+  const tally = (xs: string[]) => [...xs.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map<string, number>()).entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+  const kinds = tally(sub.nodes.map((n) => (n.platform ? `${n.kind} (platform)` : n.dangling ? `${n.kind} (dangling)` : n.kind)));
+  const types = [...sub.edges.reduce((m, e) => m.set(e.type, (m.get(e.type) ?? 0) + e.n), new Map<string, number>()).entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+  const text = [
+    `scope ${sub.scope} — ${sub.counts.nodes} nodes, ${sub.counts.edges} edges (${sub.counts.rows} rows)`,
+    "## nodes by kind",
+    ...kinds.map(([k, n]) => `  ${String(n).padStart(6)}  ${k}`),
+    "## edge rows by type",
+    ...types.map(([t, n]) => `  ${String(n).padStart(6)}  ${t}`),
+    "## subsystems",
+    ...(sub.subsystems.length ? sub.subsystems.map((s) => `  ${String(s.members).padStart(6)}  ${s.id}${s.name ? `  ${s.name}` : ""}`) : ["  (none — assign-subsystem is the door)"]),
+  ].join("\n");
+  return { text, json: sub };
 }

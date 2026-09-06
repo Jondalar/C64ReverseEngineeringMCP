@@ -1,6 +1,6 @@
 # Spec 825 — Graph explorer: the whole project, four projections, sigma.js
 
-**Status:** PROPOSED 2026-09-06 — written after looking at both UIs side by side on
+**Status:** BUILT 2026-09-06 on branch `spec-825-graph-explorer` — gates `smoke:825-routes` 32/0, `smoke:825` 59/0; `smoke:824` 16/0, `smoke:824-2` 24/0, `smoke:824-routes` 11/0, `e2e:823` 28/0, `smoke:product-ui` 14/0 (§9) — written after looking at both UIs side by side on
 Wasteland_EF (the 824 tab) and on this repo (GitNexus `serve`, the C64RE index)
 **Origin:** Spec 824 D3 — "A whole-project explorer is a new spec." This is it. The
 question that produced it: *what is missing to build a UI as good as GitNexus's, with
@@ -302,3 +302,47 @@ frozen list amended as D1/D2 say). `ui:typecheck` stays at its 15 pre-existing e
   every payload analysed may sit near it. Revisit with the first project that trips it.
 - **OQ5 — Louvain resolution.** One value for every project, or a slider with a default;
   a slider is cheap once the function is pure.
+
+## 9. Built — measured, and where the spec was wrong
+
+**Wasteland_EF, read-only:** 13 060 nodes, 28 761 collapsed edges over 35 837 store
+rows (1.25 rows per edge), 579 synthesised platform endpoints, 0 dangling. The aggregate
+runs in 95–206 ms plus 22 ms to serialise. Louvain finds **162 communities at modularity
+0.845** in 40 ms — 0 human, because nobody has used `assign-subsystem` on that project
+yet, which is exactly the honest picture D4 asked for. Layouts: seed 9.6 ms, Layers
+4.0 ms, Address 9.1 ms across 68 lanes, Radial 5.7 ms. ForceAtlas2 ×300 is 9.8 s
+synchronously in node — in the browser that is the worker, not the UI thread. The lazy
+chunk holds sigma 89.9 kB + graphology 60.9 kB + communities 23.9 kB + layouts 10.8 kB +
+FA2 5.8 kB; the initial bundle grows 492.3 → 505.0 kB raw (142.5 → 146.2 kB gzipped),
+which is the route strings and the panel, as D2 intended.
+
+**D7's byte target is missed and stays missed: 11.92 MB raw against "under 3 MB".**
+Gzipped it is 374 kB and the time target is met with room. The cause is not the data but
+823 D7: the route body is byte-identical to `graph subgraph --json`, and that shared
+formatter pretty-prints. Compacting it would move every 823 and 824 route body at once,
+so it was left alone rather than fixed quietly here. If the number matters later, the
+honest fix is a `?pretty=0` on the route, not a different formatter for one caller.
+
+**Four things the implementation found that the spec did not know:**
+
+- **`type` is sigma's, not ours.** Sigma reads the edge attribute `type` to choose a
+  render program, so a store type of `READS` in that field is a hard "could not find a
+  suitable program" failure. Store types live in `edgeType`; sigma gets `type: "arrow"`.
+- **Sigma's camera is y-up.** The layouts stay in D3's screen orientation — Layers bands
+  read top to bottom as written — and `applyPositions` negates y at the render boundary.
+  Keeping the flip out of the pure functions is what keeps them testable in node.
+- **Louvain over code edges leaves most nodes without one.** Giving each a singleton
+  community produced a legend of 8 028 entries. A node with no code edge now gets no
+  community and draws grey; 162 real ones remain.
+- **The Graph tab needed the full width.** Inside the shell's three-column layout the
+  canvas was 411 px next to an inspector saying "select a memory region". It takes the
+  single-column treatment now, at 962 px, which is what §4 draws.
+
+**One pre-existing bug fixed on the way:** `smoke-product-ui.mjs` parsed every WebSocket
+message as JSON, including the daemon's binary VIC frames, so it crashed whenever a live
+session happened to be streaming. One `isBinary` guard.
+
+**Still open:** the docked source pane could not be exercised end to end — the browser
+fixture has no `_disasm.asm`, so the button sits behind the same `sourceJump` guard 824.2
+already gates. And `assign-subsystem` remains unused in the field, so the human half of
+D4's legend has never been seen with real data.

@@ -4,8 +4,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { extname, join, normalize, relative, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
-import { edgesWalk, nodeCard, overview as graphOverview, resolveRef, shortestPath, type EdgeKind, type Focus } from "../knowledge-graph/cards.js";
-import { formatEdges, formatFind, formatNode, formatOverview, formatPath } from "../knowledge-graph/format.js";
+import { edgesWalk, nodeCard, overview as graphOverview, resolveRef, shortestPath, subgraph as graphSubgraph, SubgraphNotFound, type EdgeKind, type Focus, type OriginFilter } from "../knowledge-graph/cards.js";
+import { formatEdges, formatFind, formatNode, formatOverview, formatPath, formatSubgraph } from "../knowledge-graph/format.js";
 import { Graph } from "../knowledge-graph/query.js";
 import { resolveProjectDir } from "./resolve-project-dir.js";
 import { persistInspectEvidence } from "./inspect-evidence-persist.js";
@@ -457,6 +457,13 @@ const server = createServer((req, res) => {
   // Spec 824 D1 — five GET routes, one per 823 tool, the body IS the tool's JSON
   // block (the same formatter, called once more). No graph logic here: a bad
   // ref is 400, a missing graph is 404 with `next` naming the product step.
+  // Spec 825 D1 adds the sixth, `subgraph` — the BULK projection, the only one
+  // with no MCP twin (825 §7). Anything but GET on /api/graph/* is 405.
+  if (requestUrl.pathname.startsWith("/api/graph/") && req.method !== "GET") {
+    res.setHeader("Allow", "GET");
+    send(res, jsonResponse(405, { error: `${req.method ?? "?"} is not allowed on ${requestUrl.pathname} — the graph routes are read-only GETs (825 D9)`, allow: ["GET"] }));
+    return;
+  }
   if (requestUrl.pathname.startsWith("/api/graph/") && req.method === "GET") {
     const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
       ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
@@ -509,8 +516,23 @@ const server = createServer((req, res) => {
         send(res, jsonResponse(200, formatPath(shortestPath(graph, a.id, b.id, (q("via") as "calls" | "calls+jumps" | "any" | undefined) ?? "any", num("max_depth") ?? 8)).json));
       } else if (verb === "overview") {
         send(res, jsonResponse(200, formatOverview(graphOverview(graph, (q("focus") ?? "all") as Focus, num("top") ?? 10)).json));
+      } else if (verb === "subgraph") {
+        // 825 D1 — one aggregate, one formatter: this body IS `c64re graph subgraph --json`.
+        const kindsArg = q("kinds");
+        try {
+          send(res, jsonResponse(200, formatSubgraph(graphSubgraph(graph, {
+            scope: q("scope") ?? "all",
+            depth: num("depth"),
+            kinds: kindsArg ? kindsArg.split(",").map((k) => k.trim()).filter(Boolean) : undefined,
+            origin: q("origin") as OriginFilter | undefined,
+            bank,
+          })).json));
+        } catch (error) {
+          if (error instanceof SubgraphNotFound) { send(res, jsonResponse(404, { error: error.message, scope: q("scope") ?? "all" })); return; }
+          throw error;
+        }
       } else {
-        send(res, jsonResponse(404, { error: `unknown graph route "${verb}"`, routes: ["find", "node", "edges", "path", "overview"] }));
+        send(res, jsonResponse(404, { error: `unknown graph route "${verb}"`, routes: ["find", "node", "edges", "path", "overview", "subgraph"] }));
       }
     } catch (error) {
       send(res, jsonResponse(400, { error: error instanceof Error ? error.message : String(error), projectDir }));

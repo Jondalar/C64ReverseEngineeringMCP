@@ -88,7 +88,10 @@ try {
     const w = new WebSocket("ws://127.0.0.1:4312"); const id = 1;
     const t = setTimeout(() => { try { w.close(); } catch {} reject(new Error("ws timeout")); }, 8000);
     w.on("open", () => w.send(JSON.stringify({ jsonrpc: "2.0", id, method: "session/list", params: {} })));
-    w.on("message", (d) => { const m = JSON.parse(d.toString()); if (m.id === id) { clearTimeout(t); w.close(); resolve(m.result); } });
+    // A live session broadcasts BINARY VIC frames on this socket; JSON.parse on
+    // one of those is an uncaught throw that kills the whole smoke. Only the
+    // text frames are JSON-RPC.
+    w.on("message", (d, isBinary) => { if (isBinary) return; const m = JSON.parse(d.toString()); if (m.id === id) { clearTimeout(t); w.close(); resolve(m.result); } });
     w.on("error", (e) => { clearTimeout(t); reject(e); });
   });
   ok(Array.isArray(sessions) && sessions.length > 0, "11 runtime WS has a live session for the Live tab", `sessions=${sessions?.length}`);
