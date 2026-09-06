@@ -6,6 +6,8 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { seedControlFlow } from "./producers/control-flow.js";
 import { seedMemoryAccess } from "./producers/memory-access.js";
+import { importRuntimeTrace, removeRuntimeRun } from "./producers/runtime.js";
+import { irqHandlers, pointerTargets, runs as listRuns, runtimeObservations, unconfirmed, unexplained } from "./query-runtime.js";
 import { edgesWalk, nodeCard, overview, resolveRef, shortestPath, type EdgeKind, type Focus } from "./cards.js";
 import { formatEdges, formatFind, formatNode, formatOverview, formatPath } from "./format.js";
 import { Graph, type EdgeHit, type ResolvedNode } from "./query.js";
@@ -30,6 +32,14 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   zp-usage <routine-id>         ZP addresses a routine touches, by role
   uses-hardware <$addr|name>    routines touching a register, READS/WRITES split
   indirect <routine-id|$zp>     the *_INDIRECT edges — the unknowns, as unknowns
+  import-trace <file.c64retrace> [--owner <stem>]   821: import a trace run (origin=runtime rows)
+  remove-run <run-id>           821: drop one run's rows
+  runs                          821: imported runs
+  observations <id|$addr>       821: runtime rows for a node or address
+  pointer-targets <$zp>         821: what a zero-page pointer actually pointed at
+  unconfirmed <routine-id>      821: static access edges no run observed
+  unexplained                   821: runtime rows with no static edge
+  irq-handlers                  821: HANDLES_IRQ / HANDLES_NMI from the runs
   dump                          canonical dump of the generated layer (818 D6)
   stats                         row counts and meta`;
 
@@ -105,6 +115,21 @@ export async function runGraphCli(argv: string[]): Promise<void> {
       return { owner: cf.owner, controlFlow: cf, memoryAccess: ma };
     });
     out(results.map((r) => `${r.owner.padEnd(40)} 819: routines=${r.controlFlow.routines} labels=${r.controlFlow.labels} edges=${JSON.stringify(r.controlFlow.edges)} ${r.controlFlow.ms.toFixed(0)}ms | 820: edges=${JSON.stringify(r.memoryAccess.edges)} indirect-resolved=${r.memoryAccess.indirectResolved} ${r.memoryAccess.ms.toFixed(0)}ms`).join("\n"), results);
+    return;
+  }
+
+  if (args.verb === "import-trace") {
+    const file = args.positional[0];
+    if (!file) throw new Error("import-trace needs a .c64retrace path");
+    const r = importRuntimeTrace({ projectDir: args.project, tracePath: resolve(file), owner: args.owner });
+    out(JSON.stringify(r), r);
+    return;
+  }
+  if (args.verb === "remove-run") {
+    const id = args.positional[0];
+    if (!id) throw new Error("remove-run needs a run id");
+    const r = removeRuntimeRun(args.project, id);
+    out(JSON.stringify(r), r);
     return;
   }
 
@@ -209,6 +234,12 @@ export async function runGraphCli(argv: string[]): Promise<void> {
         out(hits.length ? hits.map(edgeLine).join("\n") : "(none)", hits);
         return;
       }
+      case "runs": { const r = listRuns(graph); out(JSON.stringify(r, null, 1), r); return; }
+      case "observations": { if (!a) throw new Error("observations needs an id or address"); const r = runtimeObservations(graph, a); out(JSON.stringify(r, null, 1), r); return; }
+      case "pointer-targets": { if (!a) throw new Error("pointer-targets needs a ZP address"); const r = pointerTargets(graph, a); out(JSON.stringify(r, null, 1), r); return; }
+      case "unconfirmed": { if (!a) throw new Error("unconfirmed needs a routine id"); const r = unconfirmed(graph, a); out(JSON.stringify(r, null, 1), r); return; }
+      case "unexplained": { const r = unexplained(graph); out(JSON.stringify(r, null, 1), r); return; }
+      case "irq-handlers": { const r = irqHandlers(graph); out(JSON.stringify(r, null, 1), r); return; }
       case "uses-kernal": {
         if (!a) throw new Error("uses-kernal needs a ROM name or address (CHROUT, $FFD2)");
         const targets = graph.find(a).filter((n) => n.platform && n.space === "rom");

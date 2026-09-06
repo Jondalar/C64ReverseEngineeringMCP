@@ -1,6 +1,6 @@
 # Spec 821 — Runtime graph enrichment
 
-**Status:** PROPOSED (2026-09-05)
+**Status:** BUILT 2026-09-06 — gate `scripts/e2e-821-runtime-enrichment.mjs` GREEN 48/0 (no daemon, synthetic capture); `scripts/e2e-821-real.mjs` GREEN 8/0 on the two local captures (42 MB, 266 MB), skips loudly without one. See §9.
 **Origin:** `C64RE_Semantic_Knowledge_Graph_Draft_Spec.md` §"Runtime Graph Enrichment" /
 §"Confidence und Unsicherheit" / MVP Phase 3 / Guardrail "Runtime-Beobachtungen dürfen
 nicht automatisch als statische Wahrheit gelten" — the fourth slice; fills the NULL 820 D3
@@ -260,3 +260,88 @@ Gates: `scripts/e2e-821-runtime-enrichment.mjs` (`npm run e2e:821`) and
   that could have reached the routine. A scenario name (812/814 `.feature`) on the `Run`
   node would let it say "not seen in the title scenario" — if the runtime writes one into
   `defJson` or a MARK, which was not checked here.
+
+## 9. Built — what the gate found on the way
+
+`src/knowledge-graph/producers/runtime.ts` (`importRuntimeTrace`, `removeRuntimeRun`,
+`runNodeIdFor`), `src/knowledge-graph/query-runtime.ts` (`runtimeObservations`,
+`pointerTargets`, `runs`, `unconfirmed`, `unexplained`, `irqHandlers`, `executions` —
+standalone functions over 818's `Graph`), gates `scripts/e2e-821-runtime-enrichment.mjs`
+and `scripts/e2e-821-real.mjs`. Built against the store **as 818 shipped it**, not §4:
+no columns were added. Every D2 field (`pc ea run_id count first_cycle last_cycle
+mutations values flow bank_ctx bank_ctx_conf via_zp role note …`) lives in the edge's
+`evidence` JSON; identity is the primary key with `evidence_key = run:<run_id>:pc:<hex4>`,
+so the same trace twice is one row set and a second run adds rows. The Run node has no
+address, and the grammar demands one, so it takes 822's subsystem form —
+`<slug>:sub:run-<run_id>`, `kind=run`, address 0 — and is the replacement unit
+(`run_owner` = the run id): re-import replaces, `removeRuntimeRun` deletes, shared `addr`
+nodes stay. `HANDLES_IRQ`/`HANDLES_NMI` go **from the Run node** to the handler (D7 said
+from the routine; `to_id` is NOT NULL and the run is the thing that entered it).
+
+**The bus record's `pc` is not the instruction address.** Read off the producer
+(`../TRX64/crates/trx64-trace/src/lib.rs`) and confirmed on both local captures before
+the first line: a RAM_WRITE carries the CPU's *live* pc at the access — already past the
+operand bytes — and the retiring CPU_STEP **follows** the accesses it made, at the same
+cycle. `sta $D016` at `$FD0F` arrives as `pc=$FD12`. Section 1's "`addr` is the effective
+address" was right; its implicit "`pc` is the writer" was not (`trace_memory_map`'s
+`writer_pcs` is a `COUNT(DISTINCT pc)` over these live pcs — a count of next-instruction
+addresses, close in number, wrong as a listing). The importer buffers
+accesses and attributes them to the next CPU_STEP (`pc_source: retire` on the run node);
+a capture without the cpu domain falls back to the bus pc and says so (`pc_source: bus`).
+Two more producer facts: every C64 access is op `0x11`, the I/O window included
+(`IO_WRITE` has no live producer) — classification is by address; and opcode/operand
+fetches are not on the bus lane but **pointer fetches are**, so `lda ($20),y` is three
+rows: `$20` and `$21` with `role=pointer`, the effective address with `via_zp=$20`. That
+is how `via_zp` is known without a static edge: from the retiring step's opcode and
+operand bytes, through `src/monitor/disasm6502.ts`.
+
+**Implied stack traffic is not "what the static pass missed".** The first gate run listed
+the `rti` pops and `rts`/`jsr` return-address bytes under `note='no static edge'` — true,
+and noise: 820 OQ2 excludes the stack by construction. They keep their rows with
+`role=stack` (the entry pushes `role=interrupt-push`) and are exempt from the note, so
+`unexplained(run)` on the fixture is exactly the `sta $D020` nobody's routine contains.
+
+**The target follows the reconstructed map.** A read of `$A000` lands on `c64:rom:a000`
+only while `$01` shows BASIC ROM; after the run writes `$35` it lands on the project's
+`addr` node with `bank_ctx="01=35 dd00=97 cart=-"` `observed` — before that write the
+same read says `inferred`. `bank_ctx` is always the raw triple: 818's ctx tokens name where
+bytes *are*, and no `$01` value maps to one. A platform node is used only when the
+platform file has one **of the kind the lens shows**; `$0400` resolves to `c64:ram:0400`
+(VICSCN), `$A734` to `<slug>:ram:addr:a734`. `CART_READ` records are summarised on the
+run node (`cart_banks_read`) and not used per access: their cycle is the residency's first
+read, written at drain time, so they are not in stream order.
+
+**OQ1, measured and decided.** `traces/e2e746.c64retrace` (42 MB, 2 466 496 events,
+844 932 steps, 934 898 accesses, 1 058 distinct pcs) imports in **436 ms** at 5.7 M
+events/s, peak RSS 189 MB, into **6 194 rows** — 6 of its pcs are the KERNAL RAM test
+(`$FD6E-$FD81`) walking `$0400-$A000`, 39 937 addresses each. Rule: a `(pc, access)` keeps
+one row per distinct address up to `maxRowsPerPc` (4 096); past that the pc collapses into
+contiguous spans (`note: collapsed`, `span_end`, `distinct`, per-span `count`), pointer
+fetches never collapsed. Both shapes are visible; `pointerTargets` reads both. On the same
+capture `pointerTargets($F3)` folds 1 082 rows into **one** span `$D800-$DBE7` (2 085
+accesses, 1 000 distinct) — the colour-RAM clear; `HANDLES_IRQ → $FF48 ×58`. The 266 MB
+`leak-gate.c64retrace` (15 430 371 events) imports in 1.8 s, 5 125 rows, RSS 486 MB: the
+growth is the reader's 256 MiB streaming window (`CAPTURE_WINDOW_BYTES`, touched only as
+far as the file reaches), not the fold — size ×6.3, RSS ×2.6. Two v1 captures on disk are
+header-only; they import as a run with zero rows, not as an error.
+
+**`EXECUTES` answers OQ4's half.** The run writes `EXECUTES` (run → routine, step count,
+distinct pcs, first/last cycle) for every routine it retired an instruction in;
+`unconfirmed(routine)` reports `executedIn` beside `notSeen`, so "no run got there" and
+"runs got there and this instruction never fired" are different answers. The scenario name
+question (a `.feature` on the Run node) is still open. `deriveFlow`'s array API cannot
+stream, so the FlowTracker rules are replayed incrementally in the producer — same rules,
+same NMI-from-main limitation; a streaming export from `flow-focus.ts` would let both share
+one state machine.
+
+Not built here: the MCP tool `graph_import_trace` and the `c64re graph` verbs (Spec 823's
+surface; the functions are exported and named for it), the `readers`/`writers` `--origin`
+filter (818's rows already carry `origin`; a consumer filters). Gate proofs: the §4
+invariant is 0 after import and after a forged `origin:"static"` / `confidence:"certain"`
+option — both refused by name (`runtime-origin`, `runtime-confidence`) with the dump hash
+unchanged; every non-821 row is byte-identical after import; `writers($D018)` returns the
+static `certain` row and the runtime `count=3 values=[21,29]` row from the same routine;
+same file twice → same canonical hash; same `runId`, different bytes → replaced in place,
+one Run node; `runtimeDaemon.traceRead` spied, never called; a child-process import prints
+nothing on stderr.
+
