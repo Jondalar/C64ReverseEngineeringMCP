@@ -54,6 +54,24 @@ OCR-damaged (`ASCO` for `ASC(`, `cos o` for `COS(`) and omits `POKE`, `LEFT$`, `
 from it is copied into the repo — the same rule Spec 817 applies to the c64ref prose:
 a keyword is a fact, a book's paragraph is not ours to ship.
 
+**D1.1 — What the tokeniser does after `DATA`, settled at the ROM.** CRUNCH copies
+literally inside quotes and after `REM`; whether it also does so after `DATA` decides how
+half the DATA statements in the corpus are stored, so it was read rather than assumed:
+
+```
+$A5D8  CMP #$49     compare with the DATA token minus ':'  ($83 - $3A)
+$A5DC  STA $0F      store token-$3A; for DATA that is $49 = %01001001
+$A598  BIT $0F
+$A59A  BVS $A5C9    bit 6 set -> save the byte, continue WITHOUT tokenising
+$A5D4  SBC #$3A / BEQ  a ':' stores $00 and tokenising resumes
+```
+
+`$49` carries exactly the bit `BVS` tests. So `DATA ONE` stores the letters `O`, `N`, `E`
+— it does **not** become an `ON` token, which is a widespread belief and wrong. Verified
+end to end on bytes: `10 DATA ONE,TWO` tokenises to `83 20 4F 4E 45 2C 54 57 4F`. The
+behaviour is a named constant in `basic-v2.ts` carrying this trace, so nobody "fixes" it
+back.
+
 **D2 — Whether it IS BASIC is decided by walking the line records, not by guessing.** From
 the load address: a 2-byte next-line pointer, a 2-byte line number, tokens, a `$00`
 terminator; the chain must ascend, stay inside the image, and end at a `$0000` pointer.
