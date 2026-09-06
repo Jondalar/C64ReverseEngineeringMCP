@@ -94,6 +94,15 @@ for (const action of ["start", "stop", "restart"]) {
   check(text.includes("if errorlevel 1 pause"), `ui-${action}.cmd: pauses on error so a double-click shows what broke`);
 }
 check(startCmd.startsWith("@echo off"), "the shims start with @echo off");
+for (const n of ["ui-start.cmd", "ui-stop.cmd", "ui-restart.cmd"]) {
+  // a .cmd is read in the console's OEM codepage — anything above 7-bit is a guess
+  const nonAscii = [...read(n)].filter((c) => c.charCodeAt(0) > 126);
+  check(nonAscii.length === 0, `${n}: pure ASCII (OEM codepage)${nonAscii.length ? ` — found ${JSON.stringify(nonAscii.join(""))}` : ""}`);
+}
+// Windows PowerShell 5.1 reads a BOM-less file in the ANSI codepage.
+const ps1Raw = readFileSync(join(projectDir, "ui.ps1"));
+check(ps1Raw[0] === 0xef && ps1Raw[1] === 0xbb && ps1Raw[2] === 0xbf, "ui.ps1: starts with a UTF-8 BOM (5.1 reads a BOM-less file as ANSI)");
+check(readFileSync(join(projectDir, "ui.sh"))[0] !== 0xef, "ui.sh: no BOM (a shebang must be the first two bytes)");
 
 // ---------------------------------------------------------------- Windows PowerShell 5.1 only
 
@@ -104,7 +113,7 @@ const ps7Only = [
   [/Get-Content[^\n]*-AsByteStream/, "-AsByteStream (PS7)"],
 ];
 for (const [re, what] of ps7Only) check(!re.test(ps1), `ui.ps1: no ${what}`);
-check(ps1.includes("#Requires -Version 5.1"), "ui.ps1: declares #Requires -Version 5.1");
+check(ps1.replace("\uFEFF", "").startsWith("#Requires -Version 5.1") && ps1.includes("#Requires -Version 5.1"), "ui.ps1: #Requires -Version 5.1 is the first line after the BOM");
 check(!/`\r?\n/.test(ps1), "ui.ps1: no backtick line continuations (they do not survive a copy-paste)");
 
 // ---------------------------------------------------------------- behaviour the script must have
