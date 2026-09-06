@@ -346,3 +346,24 @@ session happened to be streaming. One `isBinary` guard.
 fixture has no `_disasm.asm`, so the button sits behind the same `sourceJump` guard 824.2
 already gates. And `assign-subsystem` remains unused in the field, so the human half of
 D4's legend has never been seen with real data.
+
+## 10. Open after the first look on screen (2026-09-06)
+
+Seen by the owner and confirmed on a screenshot of Wasteland_EF, all four views:
+
+- **The palette is wrong on the dark ground.** Nodes render near-black against
+  the panel background, so 13 060 of them read as one blob rather than as
+  communities. D4 says colour IS the community axis; right now it carries no
+  information. Needs a palette chosen against this background — light, saturated,
+  and distinct at 3 px — plus a visibly different treatment for the uncoloured
+  nodes (the 7 868 without a code edge) instead of another dark grey.
+- **Labels draw for far too many nodes.** They overlap into unreadable text soup
+  at fit zoom. OQ1 left the threshold open; the answer from the screen is that
+  labels belong to the focus set and to whatever survives a zoom, not to the
+  whole graph.
+- The Address view shows the shape is right — one dense band along the RAM lane
+  plus the ROM/IO lanes — but the same two problems make it hard to read.
+
+None of this is in the layouts or the data; it is the render pass in
+`graph-canvas.tsx` (node colour, size and `labelRenderedSizeThreshold`). Cheap to
+fix, and worth fixing before anyone judges the four projections.
