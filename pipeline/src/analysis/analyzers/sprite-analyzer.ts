@@ -93,7 +93,15 @@ export class SpriteAnalyzer {
         continue;
       }
 
-      const regionLength = endOffset - startOffset + 1;
+      // Sprite blocks must be $40-byte aligned on the C64.
+      // Advance to the first $40-aligned address within this region so that
+      // every block boundary we compute lands on a valid sprite boundary.
+      const misalignment = region.start % 0x40;
+      const alignSkip = misalignment === 0 ? 0 : (0x40 - misalignment);
+      const alignedRegionStart = region.start + alignSkip;
+      const alignedStartOffset = startOffset + alignSkip;
+
+      const regionLength = endOffset - alignedStartOffset + 1;
       const blockCount = Math.floor(regionLength / 64);
       if (blockCount === 0) {
         continue;
@@ -105,7 +113,7 @@ export class SpriteAnalyzer {
       const metricsRun: SpriteBlockMetrics[] = [];
 
       for (let blockIndex = 0; blockIndex < blockCount; blockIndex += 1) {
-        const offset = startOffset + blockIndex * 64;
+        const offset = alignedStartOffset + blockIndex * 64;
         const block = context.buffer.subarray(offset, offset + 64);
         const metrics = analyzeSpriteBlock(block);
         const score = scoreSpriteBlock(metrics);
@@ -128,13 +136,13 @@ export class SpriteAnalyzer {
         }
 
         if (!plausible && runStartBlock !== undefined) {
-          pushSpriteCandidate(vic, region.start, runStartBlock, blockIndex - 1, scores, metricsRun, previews, candidates);
+          pushSpriteCandidate(vic, alignedRegionStart, runStartBlock, blockIndex - 1, scores, metricsRun, previews, candidates);
           runStartBlock = undefined;
         }
       }
 
       if (runStartBlock !== undefined) {
-        pushSpriteCandidate(vic, region.start, runStartBlock, blockCount - 1, scores, metricsRun, previews, candidates);
+        pushSpriteCandidate(vic, alignedRegionStart, runStartBlock, blockCount - 1, scores, metricsRun, previews, candidates);
       }
     }
 
