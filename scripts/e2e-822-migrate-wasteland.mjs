@@ -257,6 +257,11 @@ check(s1.textIndex === "fts5", `searchAnnotations uses ${s1.textIndex} (FTS5 pre
 check(s1.hits.length > 0 && s1.hits.every((h) => h.layer === "human"), `searchAnnotations("fastloader", human) → ${s1.hits.length} hits, all human`);
 const s2 = searchAnnotations(g3, "fastloader", { layer: "generated" });
 check(s2.hits.every((h) => h.layer === "generated"), `searchAnnotations("fastloader", generated) → ${s2.hits.length} hits, all generated`);
+// 826.0 T6 — find() reaches nodes through their annotation text, after the name hits
+const f6 = g3.find("sector");
+const nameHits = f6.filter((h) => h.matched === "name").length;
+const annHits = f6.filter((h) => h.matched === "annotation").length;
+check(annHits > 0 && f6.findIndex((h) => h.matched === "annotation") >= nameHits, `find("sector") → ${nameHits} by name, then ${annHits} by annotation text (826.0 T6)`);
 const orch = store.db.prepare("SELECT id FROM nodes WHERE layer='human' AND name='area_load_orchestrator'").get();
 check(orch && orch.id === `${slug}:ram/${OWNER}:routine:25c1`, `hand-made routine area_load_orchestrator resolved under its payload owner (${orch?.id})`);
 if (orch) {
