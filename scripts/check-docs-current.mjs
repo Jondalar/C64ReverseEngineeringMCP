@@ -62,10 +62,17 @@ function liveDocs() {
   return out;
 }
 
+// C64RE does not own TRX64, and CI runs without it. Anything that can only be
+// confirmed by reading that checkout is therefore SKIPPED — loudly — when it is
+// absent, never failed: a gate that goes red for a repo the runner was never
+// given is a gate everyone learns to ignore.
+let siblingPresent = false;
+
 // ---------- rule 1: no dead relative links ----------
 
 function checkLinks(files) {
   let checked = 0;
+  const crossRepo = [];
   for (const f of files) {
     const src = readFileSync(join(ROOT, f), "utf8");
     for (const m of src.matchAll(/\]\(([^)\s]+)\)/g)) {
@@ -77,12 +84,13 @@ function checkLinks(files) {
       if (!target.endsWith(".md")) continue;
       checked++;
       const abs = resolve(ROOT, dirname(f), target);
-      if (!existsSync(abs)) {
-        fails.push(`${f} → ${target} does not exist`);
-      }
+      if (existsSync(abs)) continue;
+      if (!abs.startsWith(`${ROOT}/`)) { crossRepo.push(`${f} → ${target}`); continue; }
+      fails.push(`${f} → ${target} does not exist`);
     }
   }
   notes.push(`${checked} relative links checked across ${files.length} live docs`);
+  if (crossRepo.length) notes.push(`skip  ${crossRepo.length} link(s) into a sibling repo that is not checked out here: ${crossRepo.join(", ")}`);
 }
 
 // ---------- rule 2: what the docs promise must exist ----------
@@ -117,7 +125,8 @@ function codeMentions() {
   // teaches people to ignore it. Skipped silently when the checkout is absent, so this
   // never becomes a hard dependency on a repo C64RE does not own.
   const sibling = process.env.C64RE_TRX64_SRC ?? resolve(ROOT, "..", "TRX64", "crates");
-  if (existsSync(sibling)) {
+  siblingPresent = existsSync(sibling);
+  if (siblingPresent) {
     const walkRs = (abs) => {
       for (const e of readdirSync(abs)) {
         if (e === "target" || e === "vendor" || e.startsWith(".")) continue;
@@ -160,6 +169,7 @@ function checkPromises(files) {
     BANNER.test(src.split("\n").slice(0, 12).join("\n"));
 
   let envChecked = 0, runChecked = 0, skipped = 0;
+  const unconfirmed = [];
   for (const f of files) {
     const src = readFileSync(join(ROOT, f), "utf8");
     if (exempt(f, src)) { skipped++; continue; }
@@ -169,7 +179,8 @@ function checkPromises(files) {
       for (const m of line.matchAll(/\bC64RE_[A-Z0-9_]+\b/g)) {
         envChecked++;
         if (!code.includes(m[0])) {
-          fails.push(`${f}:${i + 1} documents ${m[0]}, which no source or script reads`);
+          if (siblingPresent) fails.push(`${f}:${i + 1} documents ${m[0]}, which no source or script reads`);
+          else unconfirmed.push(`${f}:${i + 1} ${m[0]}`);
         }
       }
       for (const m of line.matchAll(/npm run ([a-z0-9:_-]+)/g)) {
@@ -184,6 +195,12 @@ function checkPromises(files) {
     `${envChecked} env-var + ${runChecked} \`npm run\` mentions checked, ` +
       `${skipped} historical/spec files exempt`,
   );
+  if (unconfirmed.length) {
+    notes.push(
+      `skip  ${unconfirmed.length} env var(s) no local source reads and the sibling runtime cannot confirm ` +
+        `(check out ../TRX64 or set C64RE_TRX64_SRC to make this strict): ${unconfirmed.join(", ")}`,
+    );
+  }
 }
 
 // ---------- run ----------
