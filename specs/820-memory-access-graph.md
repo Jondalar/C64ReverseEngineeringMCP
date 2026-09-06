@@ -1,6 +1,6 @@
 # Spec 820 — Memory access graph
 
-**Status:** PROPOSED (2026-09-05)
+**Status:** BUILT 2026-09-06 (820.1 producer + queries) — gate `npm run e2e:820` GREEN (21/0); 820.2 (D7, the four walks) NOT built
 **Origin:** `C64RE_Semantic_Knowledge_Graph_Draft_Spec.md` §"Memory Access" / §"Indirect
 Access" / §"Zero Page" / §"Memory Regions" / MVP Phase 2 — the third slice of the draft.
 Keys on 817 (platform store, platform node ids) and 818 (project graph, the id grammar,
@@ -258,3 +258,49 @@ Gates: `scripts/e2e-820-memory-access.mjs` (`npm run e2e:820`) and
 - **OQ3 — Routine granularity for `from`.** If 818 partitions by `jsr` targets only, a
   large IRQ handler is one routine and `zpUsage` is coarse. A `block_start` column from
   `codeAnalysis.basicBlocks` (`types.ts:143-147`) is cheap and reversible — and unasked-for.
+
+## 9. Built — what the gate found on the way
+
+`src/knowledge-graph/producers/memory-access.ts`, three queries on `Graph`
+(`zpUsage`, `usesHardware`, `indirectAccesses`; `readers`/`writers` now answer),
+CLI verbs `zp-usage`, `uses-hardware`, `indirect`, `seed` runs 819 then 820,
+the import hook runs both. Gates `e2e:820` and `measure:820`.
+
+**Built against 818 as built, not as sketched.** Two deviations from §4:
+
+- `to_id` is `NOT NULL` and part of the primary key. "The target is unknown"
+  is therefore not a NULL: the `*_INDIRECT` edge points at the **pointer**
+  (`c64:zp:0020`), and its evidence carries `pointer_zp` and
+  `target: "unknown"`. Same information, and the pointer becomes queryable as
+  a node — `indirect $FB` lists every access through `$FB`.
+- No columns were added to `edges`; `pc`, `mnemonic`, `addr_mode`,
+  `operand_text`, `indexed`, `via_zp`, `provenance` live in the `evidence`
+  JSON, queried with `json_extract`. 818's schema stays the one schema.
+
+**Two defects found by the fixture, both in the input, not the producer.**
+The first gate run classified 1 read, 3 writes, 0 read-modify-writes, 0
+hardware accesses on a fixture that has `lda $D011 / sta $D011 / inc $D019 /
+sta $DC0D`: discovery marks every instruction with an absolute operand
+`isControlFlow: true` — `lda $D011` is control flow on paper. That is 819 §1's
+typing defect seen from the other side; the classifier now decides by mnemonic
+and ignores the flag. The second: `sta $20` did not land on `c64:zp:0020` but
+on a project address, because `$20` is not documented in the platform store.
+Zero page, I/O and ROM now derive their platform id from the address alone
+(undocumented → a dangling platform id, visible, never a project-private copy);
+only RAM is the platform's where the platform documents it.
+
+**Counts reconcile** on lnr_boot exactly as §6 asked: direct READS+WRITES rows
+2 323 = 1 008 + 965 + 2 × 175; 204 INDIRECT rows; every INDIRECT edge says
+`unknown`; every `via_zp` edge has its construction. 74 ms. Corpus
+(`measure:820`, 21 reports): 3 110 direct, 211 indirect, 512 hardware, 2 060 ZP,
+201 data references — and **1 of 211 indirect accesses resolved** by a
+same-routine construction (0.5 %). `codeSemantics.indirectPointers` records 12
+constructions on lnr_boot and sets `constantTarget` on almost none: the pointer
+bytes are loaded dynamically. That is the number 821 exists to change.
+
+**Not built — 820.2, D7.** The four private walks (`inspect-range.ts`
+xref-into-range, `ram_report`'s access table, `address-index.ts`'s
+`buildXrefIndex`, `evidence-graph.ts` reads_from/writes_to) still read the JSON.
+Replacing them is an output-parity job — the acceptance says the diff must be
+empty — and is left as the named remainder rather than done without the parity
+check.

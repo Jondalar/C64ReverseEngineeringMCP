@@ -282,6 +282,44 @@ export class Graph {
     return rows.map((e) => this.hit(e));
   }
 
+  // ------------------------------------------------------------ 820 D5 verbs
+
+  /** Every ZP address a routine touches, grouped by role, with counts. */
+  zpUsage(routineId: string): Array<{ address: number; id: string; role: string; count: number }> {
+    const tally = new Map<string, { address: number; id: string; role: string; count: number }>();
+    for (const e of this.edgesOutOf(routineId, ["USES_ZP"])) {
+      const role = String(e.evidence.role ?? "direct");
+      const k = `${e.to}|${role}`;
+      const cur = tally.get(k) ?? { address: e.toNode.address, id: e.to, role, count: 0 };
+      cur.count += 1;
+      tally.set(k, cur);
+    }
+    return [...tally.values()].sort((a, b) => a.address - b.address || a.role.localeCompare(b.role));
+  }
+
+  /** Routines touching a hardware register, READS/WRITES split, provenance shown. */
+  usesHardware(spec: AddrSpec): Array<{ routine: string; reads: number; writes: number; provenance: Set<string> }> {
+    const out = new Map<string, { routine: string; reads: number; writes: number; provenance: Set<string> }>();
+    for (const n of this.nodesAt(spec)) {
+      for (const e of this.edgesInto(n.id, ["READS", "WRITES"])) {
+        const cur = out.get(e.from) ?? { routine: e.from, reads: 0, writes: 0, provenance: new Set<string>() };
+        if (e.type === "READS") cur.reads += 1; else cur.writes += 1;
+        cur.provenance.add(String(e.evidence.provenance ?? e.origin));
+        out.set(e.from, cur);
+      }
+    }
+    return [...out.values()].sort((a, b) => a.routine.localeCompare(b.routine));
+  }
+
+  /** The unknowns, listed as unknowns: *_INDIRECT edges of a routine, or through a ZP pointer. */
+  indirectAccesses(idOrZp: string): EdgeHit[] {
+    const types = ["READS_INDIRECT", "WRITES_INDIRECT"];
+    if (/^(?:\$|0x)?[0-9a-f]{1,4}$/iu.test(idOrZp)) {
+      return this.nodesAt(idOrZp).flatMap((n) => this.edgesInto(n.id, types));
+    }
+    return this.edgesOutOf(idOrZp, types);
+  }
+
   private byKind(kind: string, owner?: string): ResolvedNode[] {
     const rows = this.nodesByKind.all(kind, owner ?? null, owner ?? null) as unknown as NodeRow[];
     const byId = new Map<string, NodeRow[]>();

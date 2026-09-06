@@ -5,6 +5,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { seedControlFlow } from "./producers/control-flow.js";
+import { seedMemoryAccess } from "./producers/memory-access.js";
 import { Graph, type EdgeHit, type ResolvedNode } from "./query.js";
 import { GraphStore } from "./store.js";
 
@@ -20,7 +21,10 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   routines [--owner <stem>]     routine nodes
   labels <routine-id>           labels a routine CONTAINS
   uses-kernal <name|$addr>      callers of a platform ROM node (CHROUT, $FFD2)
-  seed [--owner <stem>]         run the control-flow producer over every _analysis.json (or one)
+  seed [--owner <stem>]         run the producers (819 control flow, 820 memory access) over every _analysis.json (or one)
+  zp-usage <routine-id>         ZP addresses a routine touches, by role
+  uses-hardware <$addr|name>    routines touching a register, READS/WRITES split
+  indirect <routine-id|$zp>     the *_INDIRECT edges — the unknowns, as unknowns
   dump                          canonical dump of the generated layer (818 D6)
   stats                         row counts and meta`;
 
@@ -83,8 +87,12 @@ export async function runGraphCli(argv: string[]): Promise<void> {
       ? findAnalysisJsons(args.project).filter((p) => p.toLowerCase().endsWith(`${args.owner}_analysis.json`))
       : findAnalysisJsons(args.project);
     if (files.length === 0) throw new Error(`no _analysis.json under ${args.project}${args.owner ? ` for owner ${args.owner}` : ""}`);
-    const results = files.map((analysisPath) => seedControlFlow({ projectDir: args.project, analysisPath }));
-    out(results.map((r) => `${r.owner.padEnd(40)} routines=${r.routines} labels=${r.labels} addr=${r.addrNodes} edges=${JSON.stringify(r.edges)} rom-ambiguous=${r.ambiguousRomCalls} ${r.ms.toFixed(0)}ms`).join("\n"), results);
+    const results = files.map((analysisPath) => {
+      const cf = seedControlFlow({ projectDir: args.project, analysisPath });
+      const ma = seedMemoryAccess({ projectDir: args.project, analysisPath });
+      return { owner: cf.owner, controlFlow: cf, memoryAccess: ma };
+    });
+    out(results.map((r) => `${r.owner.padEnd(40)} 819: routines=${r.controlFlow.routines} labels=${r.controlFlow.labels} edges=${JSON.stringify(r.controlFlow.edges)} ${r.controlFlow.ms.toFixed(0)}ms | 820: edges=${JSON.stringify(r.memoryAccess.edges)} indirect-resolved=${r.memoryAccess.indirectResolved} ${r.memoryAccess.ms.toFixed(0)}ms`).join("\n"), results);
     return;
   }
 
@@ -145,6 +153,25 @@ export async function runGraphCli(argv: string[]): Promise<void> {
         if (!a) throw new Error("labels needs a routine id");
         const nodes = graph.labels(a);
         out(nodes.length ? nodes.map(nodeLine).join("\n") : "(none)", nodes);
+        return;
+      }
+      case "zp-usage": {
+        if (!a) throw new Error("zp-usage needs a routine id");
+        const rows = graph.zpUsage(a);
+        out(rows.length ? rows.map((r) => `$${r.address.toString(16).toUpperCase().padStart(4, "0")}  ${r.role.padEnd(12)} ×${r.count}  ${r.id}`).join("\n") : "(none)", rows);
+        return;
+      }
+      case "uses-hardware": {
+        if (!a) throw new Error("uses-hardware needs an address or register name");
+        const spec = /^(?:\$|0x)?[0-9a-f]{1,4}$/iu.test(a) ? a : (graph.find(a).find((n) => n.platform)?.address ?? a);
+        const rows = graph.usesHardware(spec);
+        out(rows.length ? rows.map((r) => `${r.routine.padEnd(52)} reads=${r.reads} writes=${r.writes} [${[...r.provenance].join(",")}]`).join("\n") : "(none)", rows.map((r) => ({ ...r, provenance: [...r.provenance] })));
+        return;
+      }
+      case "indirect": {
+        if (!a) throw new Error("indirect needs a routine id or a ZP address");
+        const hits = graph.indirectAccesses(a);
+        out(hits.length ? hits.map(edgeLine).join("\n") : "(none)", hits);
         return;
       }
       case "uses-kernal": {

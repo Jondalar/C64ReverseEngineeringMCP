@@ -28,7 +28,7 @@ are never touched by re-analysis and override the generated name in every query.
 |---|---|---|
 | 817 | `npm run build:platform-kb` | platform ZP / RAM / I/O / ROM nodes, regions |
 | 819 | `c64re graph seed`, and `importAnalysisArtifact` after every JSON import | routines, labels; CALLS · CALLS_ROM · JUMPS_TO · BRANCHES_TO · CONTAINS |
-| 820 (proposed) | memory-access producer | READS · WRITES · USES_ZP · USES_HARDWARE · REFERENCES_DATA |
+| 820 | `c64re graph seed` (runs 819 then 820), and the import hook | READS · WRITES · READS_INDIRECT · WRITES_INDIRECT · USES_ZP · USES_HARDWARE · REFERENCES_DATA |
 | 821 (proposed) | `.c64retrace` importer | the same types with `origin=runtime` |
 | 822 (proposed) | migration | the human layer, the existing findings/entities |
 
@@ -42,6 +42,10 @@ c64re graph callees wasteland:ram/main:routine:0810
 c64re graph path <from-id> <to-id>             # shortest control-flow path
 c64re graph routines --owner block2_engine_0200
 c64re graph uses-kernal SETLFS
+c64re graph writers '$D018'                    # who writes VMCSB — across every artifact in the project
+c64re graph zp-usage <routine-id>              # zero-page addresses a routine touches, by role
+c64re graph uses-hardware VMCSB                # routines touching a register, READS/WRITES split
+c64re graph indirect '$FB'                     # every access through the pointer at $FB — the unknowns, as unknowns
 c64re graph stats | dump                        # counts / the canonical dump (Spec 818 D6)
 ```
 
@@ -58,4 +62,6 @@ A human row whose generated twin disappeared comes back **orphaned**, kept.
 npm run check:platform-kb   # 817: one platform table, re-seed identical, names from the store
 npm run e2e:818             # grammar refusals, idempotence, human/orphan, resolution, stderr empty
 npm run e2e:819             # ground-truth fixture + 21 real reports: zero false branches
+npm run e2e:820             # memory access: fixture ground truth, lnr_boot counts reconcile, no invented target
+npm run measure:820         # access-graph coverage over the field corpus (trend)
 ```
