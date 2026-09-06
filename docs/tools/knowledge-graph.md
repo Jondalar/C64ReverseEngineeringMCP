@@ -37,6 +37,8 @@ are never touched by re-analysis and override the generated name in every query.
 | 826 | `c64re graph seed` (runs 819 → 820 → resolve → 826), and the import hook | per routine a SIGNATURE self-edge (`in` / `out` / `clobbers` / `preserves` / `stack`, `partial` with the site); PASSES beside every CALLS with the arguments sliced from the call site; JUMPS_TO for `pha pha rts` dispatch; the KERNAL's ABI from `platform_abi` in the platform store |
 | 826 | `c64re graph import-trace` (821, extended) | a runtime CALLS row per call site with `args_observed` — A / X / Y / C at every retiring `jsr`, value → count |
 
+**Taking an existing project into the graph:** [migrating-a-project-to-the-graph.md](../migrating-a-project-to-the-graph.md) — the runbook, including the two traps (drive code seeded as C64, and `entry_points` constraining rather than adding).
+
 ## Asking it
 
 ```sh
