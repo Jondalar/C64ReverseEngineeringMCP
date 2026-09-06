@@ -156,7 +156,7 @@ Disk Layout (4 G64) + Disk Geometry donut + a right "Disk file" inspector. Data 
 | Disk file inspector: header | name, blocks, load addr, origin, disk image | diskLayout file | keep |
 | Disk file inspector: Sector chain | T18/S2, link, step | diskLayout file.sectorChain | keep (extend to all entities) |
 | Disk file inspector: Source/Versions (make-current/mark-stale) | per-file disasm versions | firehose artifact versions | rebuild — version mgmt is firehose; "current/stale" = the dedup problem |
-| Inspector actions: mon / .asm.tass / reverse-workflow / +task / +question | open/act | WS + POST | keep |
+| Inspector actions: mon / .asm.tas / reverse-workflow / +task / +question | open/act | WS + POST | keep |
 
 *Observation:* **the donut + sector analysis are good; the bug is the incomplete entity→sector mapping** (8 of ~186+). The fix is in the EXISTING data pipeline: map every catalogued entity (the 186 area-assets, which know their T/S) onto the disk layout. This is THE thing the user is pointing at.
 

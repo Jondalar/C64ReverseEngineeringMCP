@@ -988,7 +988,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
 
   server.tool(
     "link_cart_chunk_to_asm",
-    "Use to associate a specific cartridge bank/slot chunk with its .asm or .tass disassembly artifact — records a derived-from relation so the cartridge inspector UI surfaces the correct source file for that chunk. Not for bulk chunk promotion (use bulk_create_cart_chunk_payloads) or for packer/format metadata (use record_cart_chunk_packer). Inputs: absolute or project-relative path to the runtime_luts/all_luts.json, chunk identified by (bank, slot, offset_in_bank, length) or by (lut, idx), and the asm_artifact_id from list_artifacts. Updates the knowledge store; no files are written.",
+    "Use to associate a specific cartridge bank/slot chunk with its .asm or .tas disassembly artifact — records a derived-from relation so the cartridge inspector UI surfaces the correct source file for that chunk. Not for bulk chunk promotion (use bulk_create_cart_chunk_payloads) or for packer/format metadata (use record_cart_chunk_packer). Inputs: absolute or project-relative path to the runtime_luts/all_luts.json, chunk identified by (bank, slot, offset_in_bank, length) or by (lut, idx), and the asm_artifact_id from list_artifacts. Updates the knowledge store; no files are written.",
     {
       lut_path: z.string().describe("Path to runtime_luts/all_luts.json (relative or absolute)."),
       project_dir: z.string().optional().describe("Override project dir; defaults to env C64RE_PROJECT_DIR."),
@@ -998,7 +998,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       length: z.number().int().positive().optional(),
       lut: z.string().optional(),
       idx: z.number().int().nonnegative().optional(),
-      asm_artifact_id: z.string().describe("ID of the ArtifactRecord for the .asm/.tass output."),
+      asm_artifact_id: z.string().describe("ID of the ArtifactRecord for the .asm/.tas output."),
       summary: z.string().optional().describe("Optional human-readable note shown on the relation."),
     },
     safeHandler("link_cart_chunk_to_asm", async ({ lut_path, project_dir, bank, slot, offset_in_bank, length, lut, idx, asm_artifact_id, summary }) => {

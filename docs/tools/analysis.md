@@ -8,15 +8,15 @@ TRXDis pipeline.
 | Tool | Description |
 |---|---|
 | `analyze_prg` | Heuristic analysis of a PRG → JSON with segments, cross-references, RAM facts, pointer tables. |
-| `disasm_prg` | Disassemble a PRG → KickAssembler `.asm` + 64tass `.tass` (both generated automatically). Re-running after annotations re-renders with labels and segment kinds applied. |
+| `disasm_prg` | Disassemble a PRG → KickAssembler `.asm` + 64tass `.tas` (both generated automatically). Re-running after annotations re-renders with labels and segment kinds applied. |
 | `ram_report` | Generate a RAM-state facts report (markdown) from analysis JSON. |
 | `pointer_report` | Generate a pointer-table facts report (markdown) from analysis JSON. |
-| `assemble_source` | Assemble a generated `.asm` or `.tass` file with KickAssembler or 64tass, optionally verifying byte-identical rebuilds. |
+| `assemble_source` | Assemble a generated `.asm` or `.tas` file with KickAssembler or 64tass, optionally verifying byte-identical rebuilds. |
 
 ## Output filenames
 
 - `<name>_analysis.json` — Phase 1 heuristic output
-- `<name>_disasm.asm` / `<name>_disasm.tass` — Disassembly (KickAssembler / 64tass)
+- `<name>_disasm.asm` / `<name>_disasm.tas` — Disassembly (KickAssembler / 64tass)
 - `<name>_annotations.json` — Phase 2 LLM annotations
 - `<name>_RAM_STATE_FACTS.md` / `<name>_POINTER_TABLE_FACTS.md` — Reports
 
@@ -60,7 +60,7 @@ Every `disasm_prg` call produces two assembler dialects:
 | File | Format | Assembler |
 |---|---|---|
 | `<name>.asm` | KickAssembler | <http://theweb.dk/KickAssembler/> |
-| `<name>.tass` | 64tass | <https://sourceforge.net/projects/tass64/> |
+| `<name>.tas` | 64tass | <https://sourceforge.net/projects/tass64/> |
 
 Key syntax differences handled by the converter:
 
@@ -72,4 +72,4 @@ Key syntax differences handled by the converter:
 | Data/labels | `.byte`, `label:` | `.byte`, `label:` (identical) |
 
 Both formats carry the same annotations. Byte-identical rebuilds work with
-either KickAssembler on `<name>.asm` or 64tass on `<name>.tass`.
+either KickAssembler on `<name>.asm` or 64tass on `<name>.tas`.

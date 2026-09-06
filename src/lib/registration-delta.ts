@@ -11,7 +11,7 @@ import { importAnalysisKnowledge } from "../project-knowledge/analysis-import.js
 
 const KNOWN_EXTENSIONS = new Set([
   ".prg", ".crt", ".d64", ".g64", ".bin",
-  ".asm", ".tass", ".sym",
+  ".asm", ".tas", ".sym",
   ".json", ".md", ".html", ".png", ".jsonl",
 ]);
 

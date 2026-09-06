@@ -4042,7 +4042,7 @@ export class ProjectKnowledgeService {
       const isManual = existing.currentSource === "manual";
       // Auto current = best AVAILABLE candidate, PREFERRING a primary listing over a
       // `related` companion (BUG-033: a `.sym` must never auto-win over the `.asm`/
-      // `.tass`). Fall to a related one only when no primary is available.
+      // `.tas`). Fall to a related one only when no primary is available.
       const autoTop = ordered.find((c) => isAvail(c) && c.role !== "related")
         ?? ordered.find((c) => isAvail(c));
       const currentId = isManual && this.getArtifactById(existing.currentArtifactId)

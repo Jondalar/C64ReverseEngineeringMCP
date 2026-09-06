@@ -32,7 +32,7 @@ const STALE_RANK = 0;
 
 // Map an artifact's free-form registration `role` string to a version role.
 // Registration assigns: `disasm` / `disasm-tass` (generated), `semantic-source`
-// (hand-authored .asm/.tass), `symbols`, `semantic-notes`, `doc`, etc.
+// (hand-authored .asm/.tas), `symbols`, `semantic-notes`, `doc`, etc.
 export function versionRoleForArtifact(artifact: ArtifactRecord): ArtifactVersionRole {
   const role = (artifact.role ?? "").toLowerCase();
   const path = (artifact.relativePath ?? artifact.path ?? "").toLowerCase();
@@ -69,7 +69,7 @@ export function versionFormatForArtifact(artifact: ArtifactRecord): ArtifactVers
   const fmt = (artifact.format ?? "").toLowerCase();
   const path = (artifact.relativePath ?? artifact.path ?? "").toLowerCase();
   if (fmt === "kickass" || fmt === "asm" || path.endsWith(".asm")) return "kickass";
-  if (fmt === "64tass" || fmt === "tass" || path.endsWith(".tass")) return "64tass";
+  if (fmt === "64tass" || fmt === "tass" || path.endsWith(".tas")) return "64tass";
   if (fmt === "markdown" || fmt === "md" || path.endsWith(".md")) return "markdown";
   if (fmt === "json" || path.endsWith(".json")) return "json";
   if (fmt === "sym" || path.endsWith(".sym")) return "sym";
@@ -79,7 +79,7 @@ export function versionFormatForArtifact(artifact: ArtifactRecord): ArtifactVers
 // Subject key for a source artifact: the base stem with the trailing
 // `_disasm` / `_semantic` / `_notes` qualifier stripped, so all versions of one
 // payload cluster into one group. "02_2.0_disasm.asm" and
-// "02_2.0_semantic.tass" both yield "02_2.0".
+// "02_2.0_semantic.tas" both yield "02_2.0".
 export function subjectIdForArtifact(artifact: ArtifactRecord): string {
   const path = artifact.relativePath ?? artifact.path ?? artifact.title;
   const file = path.split("/").pop() ?? path;
@@ -88,7 +88,7 @@ export function subjectIdForArtifact(artifact: ArtifactRecord): string {
 }
 
 // Source-source artifacts are the only ones the version model competes over
-// (.asm / .tass / .sym / source notes). Media, JSON sidecars, views, traces, raw
+// (.asm / .tas / .sym / source notes). Media, JSON sidecars, views, traces, raw
 // sectors etc. are not "versions of a listing" and are excluded.
 export function isVersionedSourceArtifact(artifact: ArtifactRecord): boolean {
   const path = (artifact.relativePath ?? artifact.path ?? "").toLowerCase();

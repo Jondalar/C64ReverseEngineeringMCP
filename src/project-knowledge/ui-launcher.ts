@@ -65,8 +65,13 @@ kill_ports() {
 }
 
 start() {
-  if is_up "$HTTP_PORT" || is_up "$WS_PORT"; then
-    echo "[ui.sh] already running (:$HTTP_PORT / :$WS_PORT) — use './ui.sh restart'"; exit 0
+  # WS_PORT (the runtime daemon) is shared/external by design and can be up on
+  # its own (e.g. an MCP session started it) without the workspace itself
+  # running — so only HTTP_PORT (this workspace's own server) is evidence of
+  # "already running". OR-ing in WS_PORT here caused start to silently no-op
+  # whenever the daemon was already up, never launching the HTTP backend.
+  if is_up "$HTTP_PORT"; then
+    echo "[ui.sh] already running (:$HTTP_PORT) — use './ui.sh restart'"; exit 0
   fi
   cd "$REPO" || { echo "[ui.sh] repo not found: $REPO"; exit 1; }
   echo "[ui.sh] starting workspace -> HTTP :$HTTP_PORT  WS :$WS_PORT   (log: $LOG)"
@@ -211,7 +216,13 @@ function Test-PortUp([int] $Port) { return ((Get-PortOwner $Port).Count -gt 0) }
 # parent leaves the children listening.
 function Stop-Tree([int] $TargetPid) {
   if ($TargetPid -le 4) { return }   # 0 = idle, 4 = System — never
-  & taskkill.exe /PID $TargetPid /T /F 2>&1 | Out-Null
+  # No stderr redirection at all (not even 2>$null): under
+  # $ErrorActionPreference='Stop', PowerShell 5.1 wraps ANY redirected error
+  # stream from a native exe in a terminating ErrorRecord — even redirected to
+  # null — so a PID that already crashed/exited ("process not found") aborts
+  # the whole script. Leaving stream 2 unredirected lets it print to the host
+  # (harmless noise) without going through PowerShell's error stream.
+  & taskkill.exe /PID $TargetPid /T /F | Out-Null
 }
 
 function Stop-Workspace {
@@ -250,8 +261,13 @@ function Build-Backend {
 }
 
 function Start-Workspace {
-  if ((Test-PortUp $HTTP_PORT) -or (Test-PortUp $WS_PORT)) {
-    Write-Ui "already running (:$HTTP_PORT / :$WS_PORT) - use ui-restart.cmd"
+  # WS_PORT (the runtime daemon) is shared/external by design and can be up on
+  # its own (e.g. an MCP session started it) without the workspace itself
+  # running — so only HTTP_PORT (this workspace's own server) is evidence of
+  # "already running". OR-ing in WS_PORT here caused start to silently no-op
+  # whenever the daemon was already up, never launching the HTTP backend.
+  if (Test-PortUp $HTTP_PORT) {
+    Write-Ui "already running (:$HTTP_PORT) - use ui-restart.cmd"
     return
   }
   $repo = Get-Repo
