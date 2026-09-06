@@ -32,18 +32,22 @@ import { disasm6502, type AddressingMode } from "../../monitor/disasm6502.js";
 import { PlatformKb, type PlatformNode } from "../../platform-kb/read.js";
 import { ACCESS_WRITE, TraceOp, type DecodedEvent } from "../../trace/binary-format.js";
 import { streamCaptureEvents, type CaptureHeader } from "../../trace/capture-stream.js";
-import { deriveProjectId, deriveSubsystemId, IdRuleError, type Ctx } from "../ids.js";
+import { derivePlatformId, deriveProjectId, deriveSubsystemId, IdRuleError, platformForCtx, type Ctx } from "../ids.js";
 import { GraphStore, readProjectSlug, type EdgeInput, type NodeInput } from "../store.js";
 
 export const RUNTIME_PRODUCER = "821";
 const ORIGIN = "runtime" as const;
 const CONFIDENCE = "observed" as const;
-/** Edge types this producer writes. READS/WRITES/USES_* are 820's types with a different origin. */
-export const RUNTIME_EDGE_TYPES = ["READS", "WRITES", "USES_ZP", "USES_HARDWARE", "HANDLES_IRQ", "HANDLES_NMI", "EXECUTES"] as const;
+/** Edge types this producer writes. READS, WRITES, USES_ZP, USES_HARDWARE and CALLS are 819/820's types with a different origin. */
+export const RUNTIME_EDGE_TYPES = ["READS", "WRITES", "USES_ZP", "USES_HARDWARE", "CALLS", "HANDLES_IRQ", "HANDLES_NMI", "EXECUTES"] as const;
 /** Static access types whose presence at a pc means "the static side saw this instruction" (D3). */
 const STATIC_ACCESS_TYPES = ["READS", "WRITES", "READS_INDIRECT", "WRITES_INDIRECT", "USES_ZP", "USES_HARDWARE", "REFERENCES_DATA"];
+/** Static call types — the same D3 check for a retiring `jsr` (826 D6). */
+const STATIC_CALL_TYPES = ["CALLS", "CALLS_ROM"];
 
 const MAX_VALUES = 8;
+/** 826 D6 — distinct values kept per register at one call site; beyond that the rest is one `…` count. */
+const MAX_ARG_VALUES = 32;
 const DEFAULT_MAX_ROWS_PER_PC = 4096;
 /** An instruction makes at most a handful of accesses (an interrupt entry adds 3 pushes);
  *  more than this without a retiring step means the cpu domain is missing mid-stream. */
@@ -227,6 +231,54 @@ interface Step { pc: number; opcode: number; b1: number; b2: number; x: number; 
 
 interface Instr { address: number; opcode: number }
 
+// ------------------------------------------------------------------ observed arguments (826 D6)
+// At every retiring `jsr` the CPU_STEP carries the register file; A, X, Y and the
+// carry (P bit 0) are what a 6502 caller passes. Per call site the values are
+// collapsed to value → count, capped at MAX_ARG_VALUES distinct per register —
+// the rest is counted under "…". The runtime CALLS row is a confirmation beside
+// 819's static one (821 D1/D3): same type, origin=runtime, never a promotion.
+
+type ArgReg = "A" | "X" | "Y" | "C";
+const ARG_REGS: readonly ArgReg[] = ["A", "X", "Y", "C"];
+
+interface ArgSet { values: Map<number, number>; rest: number }
+
+interface CallSite {
+  pc: number;
+  target: number;
+  count: number;
+  first: number;
+  last: number;
+  flow: FlowKind;
+  flows?: Partial<Record<FlowKind, number>>;
+  bankCtx: string;
+  bankConf: "observed" | "inferred";
+  bankVariants?: Set<string>;
+  /** $01 at the first retire — the lens the target was resolved under */
+  p01: number;
+  args: Record<ArgReg, ArgSet>;
+}
+
+function noteArg(set: ArgSet, v: number): void {
+  const n = set.values.get(v);
+  if (n !== undefined) { set.values.set(v, n + 1); return; }
+  if (set.values.size < MAX_ARG_VALUES) set.values.set(v, 1);
+  else set.rest += 1;
+}
+
+/** `{ A: { "$01": 2, "$02": 1 }, C: { "0": 3 } }` — hex for the registers, the bit for the carry, sorted by value. */
+function argsObserved(args: Record<ArgReg, ArgSet>): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  for (const reg of ARG_REGS) {
+    const set = args[reg];
+    const rec: Record<string, number> = {};
+    for (const [v, n] of [...set.values.entries()].sort((a, b) => a[0] - b[0])) rec[reg === "C" ? String(v) : `$${hex2(v).toUpperCase()}`] = n;
+    if (set.rest > 0) rec["…"] = set.rest;
+    out[reg] = rec;
+  }
+  return out;
+}
+
 function indirectShape(mode: AddressingMode, b1: number, b2: number, x: number): { pointer: [number, number]; viaZp?: number; role: "pointer" | "vector" } | undefined {
   if (mode === "(zp),y") return { pointer: [b1, (b1 + 1) & 0xff], viaZp: b1, role: "pointer" };
   if (mode === "(zp,x)") { const base = (b1 + x) & 0xff; return { pointer: [base, (base + 1) & 0xff], viaZp: base, role: "pointer" }; }
@@ -266,6 +318,8 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
   const routinesByPage = new Map<number, RoutineRow[]>();
   const staticPcs = new Set<number>();
   let staticAccessEdges = 0;
+  const staticCallPcs = new Set<number>();
+  let staticCallEdges = 0;
   try {
     const routines = store.db.prepare("SELECT DISTINCT id, owner, address, end_address FROM nodes WHERE kind = 'routine' ORDER BY address, id").all() as unknown as RoutineRow[];
     for (const r of routines) {
@@ -286,6 +340,17 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
       const ev = JSON.parse(row.evidence) as Record<string, unknown>;
       const pc = typeof ev.pc === "number" ? ev.pc : typeof ev.source_address === "number" ? ev.source_address : undefined;
       if (pc !== undefined) staticPcs.add(pc & 0xffff);
+    }
+    // 826 D6 — the static call sites (819), so a runtime jsr nobody decoded says so
+    const callRows = store.db.prepare(
+      `SELECT evidence, owner FROM edges WHERE layer = 'generated' AND origin = 'static' AND type IN (${STATIC_CALL_TYPES.map(() => "?").join(",")})`,
+    ).all(...STATIC_CALL_TYPES) as unknown as Array<{ evidence: string; owner: string | null }>;
+    for (const row of callRows) {
+      if (options.owner !== undefined && row.owner !== null && row.owner !== options.owner) continue;
+      staticCallEdges += 1;
+      const ev = JSON.parse(row.evidence) as Record<string, unknown>;
+      const pc = typeof ev.source_address === "number" ? ev.source_address : typeof ev.pc === "number" ? ev.pc : undefined;
+      if (pc !== undefined) staticCallPcs.add(pc & 0xffff);
     }
   } catch (error) {
     store.close();
@@ -328,6 +393,7 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
   const pending: Access[] = [];
   const irq = new Map<number, { flow: FlowKind; count: number; first: number; last: number }>();
   const exec = new Map<string, { steps: number; first: number; last: number; pcs: Set<number> }>();
+  const calls = new Map<number, CallSite>(); // 826 D6 — per jsr site
   const pcsSeen = new Set<number>();
   const marks: string[] = [];
   const cartBanks = new Set<number>();
@@ -467,6 +533,28 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
             if (x) { x.steps += 1; x.last = ev.cycle; x.pcs.add(pc); } else exec.set(rid, { steps: 1, first: ev.cycle, last: ev.cycle, pcs: new Set([pc]) });
           }
           flushPending(step);
+          if (step.opcode === OP_JSR) {
+            // 826 D6 — the register file at the retiring jsr IS the argument list
+            const a = ev.a! & 0xff, y = ev.y! & 0xff, c = ev.p! & 1;
+            const ctxNow = bankCtx();
+            let site = calls.get(pc);
+            if (!site) {
+              site = {
+                pc, target: step.b1 | (step.b2 << 8), count: 0, first: ev.cycle, last: ev.cycle, flow: r.lane, bankCtx: ctxNow, bankConf: p01Observed ? "observed" : "inferred", p01,
+                args: { A: { values: new Map(), rest: 0 }, X: { values: new Map(), rest: 0 }, Y: { values: new Map(), rest: 0 }, C: { values: new Map(), rest: 0 } },
+              };
+              calls.set(pc, site);
+            }
+            site.count += 1;
+            site.last = ev.cycle;
+            if (site.flow !== r.lane) { site.flows ??= { [site.flow]: site.count - 1 }; site.flows[r.lane] = (site.flows[r.lane] ?? 0) + 1; }
+            else if (site.flows) site.flows[r.lane] = (site.flows[r.lane] ?? 0) + 1;
+            if (site.bankCtx !== ctxNow) { site.bankVariants ??= new Set([site.bankCtx]); site.bankVariants.add(ctxNow); }
+            noteArg(site.args.A, a);
+            noteArg(site.args.X, step.x);
+            noteArg(site.args.Y, y);
+            noteArg(site.args.C, c);
+          }
           if ((cpuSteps & 0xfffff) === 0) rss();
           return;
         }
@@ -534,7 +622,7 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
   const unattributed = new Set<number>();
   let opcodeMismatch = 0;
   let noStaticEdge = 0;
-  const fromOf = (pc: number, opcode: number, implicit = false): { from: string; note?: string } => {
+  const fromOf = (pc: number, opcode: number, implicit = false, kind: "access" | "call" = "access"): { from: string; note?: string } => {
     const rid = routineOf(pc);
     const notes: string[] = [];
     if (opcode >= 0 && staticOpcode.size > 0) {
@@ -542,7 +630,8 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
       if (so !== undefined && so !== opcode) notes.push("opcode mismatch");
     }
     // an implied stack access has no static edge by construction — not a miss
-    if (staticAccessEdges > 0 && !implicit && !staticPcs.has(pc)) notes.push("no static edge");
+    if (kind === "access" && staticAccessEdges > 0 && !implicit && !staticPcs.has(pc)) notes.push("no static edge");
+    if (kind === "call" && staticCallEdges > 0 && !staticCallPcs.has(pc)) notes.push("no static edge");
     if (notes.includes("opcode mismatch")) opcodeMismatch += 1;
     if (notes.includes("no static edge")) noStaticEdge += 1;
     if (rid && !notes.includes("opcode mismatch")) return { from: rid, note: notes[0] };
@@ -552,7 +641,7 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
 
   // ---- edges
   const edges: EdgeInput[] = [];
-  const counts: ImportRuntimeTraceResult["rows"] = { READS: 0, WRITES: 0, USES_ZP: 0, USES_HARDWARE: 0, HANDLES_IRQ: 0, HANDLES_NMI: 0, EXECUTES: 0, collapsedSpans: 0 };
+  const counts: ImportRuntimeTraceResult["rows"] = { READS: 0, WRITES: 0, USES_ZP: 0, USES_HARDWARE: 0, CALLS: 0, HANDLES_IRQ: 0, HANDLES_NMI: 0, EXECUTES: 0, collapsedSpans: 0 };
   const evKey = (pc: number) => `run:${runId}:pc:${hex4(pc)}`;
   const uses = new Map<string, { from: string; type: "USES_ZP" | "USES_HARDWARE"; to: string; pc: number; ea: number; reads: number; writes: number; first: number; last: number; flow: FlowKind; bankCtx: string; bankConf: string; note?: string }>();
   const noteUses = (from: string, type: "USES_ZP" | "USES_HARDWARE", to: string, o: { pc: number; ea: number; write: boolean; count: number; first: number; last: number; flow: FlowKind; bankCtx: string; bankConf: string }, note?: string) => {
@@ -625,6 +714,27 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
     edges.push({ from: u.from, type: u.type, to: u.to, evidenceKey: evKey(u.pc), origin: ORIGIN, confidence: CONFIDENCE, evidence });
     counts[u.type] += 1;
   }
+  // 826 D6 — one runtime CALLS row per jsr site, with the observed arguments. The
+  // callee is the routine at the target (any owner, the file's own containment
+  // lookup), else the platform ROM node when the target is ROM under the $01 the
+  // run had at the first retire (826.0 T5 resolves it without a book line), else
+  // the shared addr node.
+  for (const site of [...calls.values()].sort((a, b) => a.pc - b.pc)) {
+    const { from, note } = fromOf(site.pc, OP_JSR, false, "call");
+    const target = site.target & 0xffff;
+    const rid = routineOf(target);
+    const to = rid ?? (lensFor(target, site.p01, false) === "rom" ? derivePlatformId(platformForCtx(ctx), target) : addrNode(target));
+    const evidence: Record<string, unknown> = {
+      pc: site.pc, target, run_id: runId, count: site.count, first_cycle: site.first, last_cycle: site.last, flow: site.flow,
+      bank_ctx: site.bankCtx, bank_ctx_conf: site.bankConf, pc_source: "retire", opcode: OP_JSR, mnemonic: "jsr", addr_mode: "abs",
+      instruction: `jsr $${hex4(target).toUpperCase()}`, args_observed: argsObserved(site.args),
+    };
+    if (site.flows) evidence.flow_counts = site.flows;
+    if (site.bankVariants) evidence.bank_ctx_variants = [...site.bankVariants].sort();
+    if (note) evidence.note = note;
+    edges.push({ from, type: "CALLS", to, evidenceKey: evKey(site.pc), origin: ORIGIN, confidence: CONFIDENCE, evidence });
+    counts.CALLS += 1;
+  }
   // D7 — interrupt entries, from the run node to the handler
   let irqEntries = 0;
   let nmiEntries = 0;
@@ -653,7 +763,7 @@ export function importRuntimeTrace(options: ImportRuntimeTraceOptions): ImportRu
     created_at: meta.createdAt, cycle_start: cycleStart, cycle_end: cycleEnd, trace_path: tracePath, trace_bytes: traceBytes, format_version: header.version,
     events: stream.eventCount, cpu_steps: cpuSteps, accesses, distinct_pcs: pcsSeen.size, pc_source: pcSource,
     opcode_check: staticOpcode.size > 0 ? "analysis" : "none", static_access_edges: staticAccessEdges,
-    irq_entries: irqEntries, nmi_entries: nmiEntries, collapsed_pcs: collapsed.size, max_rows_per_pc: maxRowsPerPc,
+    irq_entries: irqEntries, nmi_entries: nmiEntries, collapsed_pcs: collapsed.size, max_rows_per_pc: maxRowsPerPc, call_sites: calls.size,
     bank_ctx_final: bankCtx(), bank_ctx_conf: p01Observed ? "observed" : "inferred", cart_banks_read: [...cartBanks].sort((a, b) => a - b), marks,
   };
   nodes.push({ id: runNodeId, kind: "run", name: runId, attrs: runAttrs, origin: ORIGIN, confidence: CONFIDENCE, evidence: [{ trace_path: tracePath, trace_bytes: traceBytes }] });

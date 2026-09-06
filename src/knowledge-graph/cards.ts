@@ -3,8 +3,39 @@
 // card, a neighbourhood walk, the shortest paths, the project overview.
 
 import { isPlatformId } from "./ids.js";
+import { observedDomain } from "./query-runtime.js";
 import { CONTROL_FLOW_TYPES } from "./schema.js";
 import type { EdgeHit, Graph, ResolvedNode } from "./query.js";
+
+/** 826 D7 — the routine's computed interface, locations as strings, on the card. */
+export interface SignatureCard {
+  in: string[];
+  out: string[];
+  clobbers: string[];
+  preserves: string[];
+  /** `balanced` · `unbalanced @$XXXX` · `unknown` */
+  stack: string;
+  /** `<because> @ <site>` when the summary is incomplete (826 D2), else null */
+  partial: string | null;
+  /** the human `abi` annotation, printed BESIDE the computed line, never merged (826 D8) */
+  humanAbi: string | null;
+}
+
+/** 826 D6 — per register (or location): the static immediates / sources at the call sites, and what the runs passed. */
+export type ArgsDomain = Record<string, { static: Record<string, number>; observed: Record<string, number> }>;
+
+/** 826 D6 — one argument on a CALLS edge, joined from its sibling PASSES edge; `label` is the printable value or source. */
+export interface WalkArg {
+  source: string;
+  label: string;
+  site?: string;
+}
+
+/** An edge in a walk: the hit, plus the static call-site arguments when a PASSES sibling exists (826 D6). */
+export type WalkEdge = EdgeHit & { args?: Record<string, WalkArg> };
+
+/** Edge types that are presentation-joined onto the card / the CALLS line and not walked as edges of their own. */
+const JOINED_TYPES = new Set(["SIGNATURE", "PASSES"]);
 
 export type Direction = "in" | "out" | "both";
 export type EdgeKind =
@@ -74,10 +105,98 @@ export interface NodeCard {
   rom: string[];
   zeroPage: string[];
   runtime: { observed: boolean; edges: number; runs: string[] };
+  /** 826 D7 — null unless a SIGNATURE row exists for the node */
+  signature: SignatureCard | null;
+  /** 826 D6 — null unless a PASSES or runtime CALLS row lands on the node */
+  argsDomain: ArgsDomain | null;
   next: Array<{ tool: string; args: Record<string, unknown> }>;
 }
 
 const hex = (a: number) => `$${a.toString(16).toUpperCase().padStart(4, "0")}`;
+const hex2 = (v: number) => `$${(v & 0xff).toString(16).toUpperCase().padStart(2, "0")}`;
+
+const strList = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x : x && typeof x === "object" && typeof (x as { loc?: unknown }).loc === "string" ? (x as { loc: string }).loc : String(x))) : []);
+
+/** 826 D7 — read `evidence` of the routine's SIGNATURE self-edge (producer 826); defensive: the producer may not have run. */
+function signatureOf(graph: Graph, node: ResolvedNode): SignatureCard | null {
+  if (node.platform || node.dangling) return null;
+  const ev = graph.edgesOutOf(node.id, ["SIGNATURE"])[0]?.evidence;
+  const humanAbi = humanAbiOf(graph, node);
+  if (!ev || typeof ev !== "object") return humanAbi ? { in: [], out: [], clobbers: [], preserves: [], stack: "unknown", partial: null, humanAbi } : null;
+  const stackRaw = ev.stack as { delta?: unknown; balanced?: unknown; unbalanced_at?: unknown } | null | undefined;
+  const nodeStack = (node.attrs.stack ?? {}) as { unbalanced_at?: unknown };
+  let stack = "unknown";
+  if (stackRaw && typeof stackRaw === "object") {
+    if (stackRaw.balanced === true) stack = "balanced";
+    else if (stackRaw.balanced === false) {
+      const at = typeof stackRaw.unbalanced_at === "string" ? stackRaw.unbalanced_at : typeof nodeStack.unbalanced_at === "string" ? nodeStack.unbalanced_at : typeof nodeStack.unbalanced_at === "number" ? hex(nodeStack.unbalanced_at) : null;
+      stack = at ? `unbalanced @${at}` : "unbalanced";
+    }
+  }
+  const p = ev.partial as { because?: unknown; site?: unknown } | null | undefined;
+  const partial = p && typeof p === "object" ? `${typeof p.because === "string" ? p.because : "partial"}${typeof p.site === "string" ? ` @ ${p.site}` : ""}` : null;
+  return { in: strList(ev.in), out: strList(ev.out), clobbers: strList(ev.clobbers), preserves: strList(ev.preserves), stack, partial, humanAbi };
+}
+
+/** 826 D8 — the human `abi` line: an `abi` annotation on the node, else `attrs.abi` on the human row (the annotations.json door). */
+function humanAbiOf(graph: Graph, node: ResolvedNode): string | null {
+  try {
+    const row = graph.store.db.prepare("SELECT body FROM annotations WHERE node_id = ? AND kind = 'abi' AND status = 'active' ORDER BY updated_at DESC LIMIT 1").get(node.id) as { body: string | null } | undefined;
+    if (row?.body) return row.body;
+  } catch { /* a graph without the 822 tables has no annotations */ }
+  try {
+    const row = graph.store.db.prepare("SELECT attrs FROM nodes WHERE id = ? AND layer = 'human'").get(node.id) as { attrs: string } | undefined;
+    if (row) {
+      const abi = (JSON.parse(row.attrs) as Record<string, unknown>).abi;
+      if (typeof abi === "string" && abi.trim()) return abi;
+    }
+  } catch { /* no human row */ }
+  return null;
+}
+
+/** The printable form of one PASSES argument (826 D6): `#$01` for an immediate, the cell's address for a load, the location otherwise. */
+function argLabel(graph: Graph, a: Record<string, unknown>): WalkArg {
+  const source = typeof a.source === "string" ? a.source : "unknown";
+  const site = typeof a.site === "string" ? a.site : undefined;
+  const from = typeof a.from === "string" ? a.from : undefined;
+  let label = "?";
+  if (source === "imm" && typeof a.value === "number") label = `#${hex2(a.value)}`;
+  else if ((source === "mem" || source === "zp") && from) label = from.includes(":") ? hex(graph.resolve(from).address) : from;
+  else if (source === "flag") label = /\bsec$/iu.test(site ?? "") ? "1" : /\bclc$/iu.test(site ?? "") ? "0" : "flag";
+  else if (from) label = from;
+  return site ? { source, label, site } : { source, label };
+}
+
+/** The domain key of one PASSES argument: `$01` for an immediate, the cell id for a load, `?` for unknown. */
+function argKey(a: Record<string, unknown>): string {
+  const source = typeof a.source === "string" ? a.source : "unknown";
+  if (source === "imm" && typeof a.value === "number") return hex2(a.value);
+  if (source === "flag") { const site = typeof a.site === "string" ? a.site : ""; return /\bsec$/iu.test(site) ? "1" : /\bclc$/iu.test(site) ? "0" : "flag"; }
+  if (source === "unknown") return "?";
+  return typeof a.from === "string" ? a.from : "?";
+}
+
+/** 826 D6 — static domain from the PASSES rows into the node, observed from the runtime CALLS rows. */
+function argsDomainOf(graph: Graph, node: ResolvedNode): ArgsDomain | null {
+  if (node.dangling) return null;
+  const out: ArgsDomain = {};
+  const slot = (reg: string) => (out[reg] ??= { static: {}, observed: {} });
+  for (const e of graph.edgesInto(node.id, ["PASSES"])) {
+    const args = e.evidence.args;
+    if (!args || typeof args !== "object") continue;
+    for (const [reg, a] of Object.entries(args as Record<string, unknown>)) {
+      if (!a || typeof a !== "object") continue;
+      const k = argKey(a as Record<string, unknown>);
+      const s = slot(reg).static;
+      s[k] = (s[k] ?? 0) + 1;
+    }
+  }
+  for (const [reg, vals] of Object.entries(observedDomain(graph, node.id))) {
+    const o = slot(reg).observed;
+    for (const [v, c] of Object.entries(vals)) o[v] = (o[v] ?? 0) + c;
+  }
+  return Object.keys(out).length ? out : null;
+}
 
 export function nodeCard(graph: Graph, node: ResolvedNode): NodeCard {
   const ins = node.platform || node.dangling ? graph.edgesInto(node.id) : graph.edgesInto(node.id);
@@ -121,6 +240,8 @@ export function nodeCard(graph: Graph, node: ResolvedNode): NodeCard {
     rom: uniq(outs.filter((e) => e.type === "CALLS_ROM").map(labelOf)),
     zeroPage: uniq(outs.filter((e) => e.type === "USES_ZP").map(labelOf)),
     runtime: { observed: runtime.length > 0, edges: runtime.length, runs },
+    signature: signatureOf(graph, node),
+    argsDomain: argsDomainOf(graph, node),
     next,
   };
 }
@@ -140,7 +261,7 @@ export interface Walk {
   kind: EdgeKind;
   origin: OriginFilter;
   depth: number;
-  edges: EdgeHit[];
+  edges: WalkEdge[];
   total: number;
   truncated: boolean;
 }
@@ -153,7 +274,21 @@ export function edgesWalk(graph: Graph, roots: ResolvedNode[], options: WalkOpti
   const limit = Math.min(options.limit ?? 25, 200);
   const types = typesForKind(kind);
   const seen = new Set<string>();
-  const out: EdgeHit[] = [];
+  const out: WalkEdge[] = [];
+  // 826 D6 — the static arguments of a CALLS edge live on a sibling PASSES edge with the
+  // same (from, to, evidence_key); joined here so the formatter stays a formatter.
+  const passesFrom = new Map<string, EdgeHit[]>();
+  const argsFor = (e: EdgeHit): Record<string, WalkArg> | undefined => {
+    if (e.type !== "CALLS") return undefined;
+    let list = passesFrom.get(e.from);
+    if (!list) { list = graph.edgesOutOf(e.from, ["PASSES"]); passesFrom.set(e.from, list); }
+    const sib = list.find((p) => p.to === e.to && p.evidenceKey === e.evidenceKey);
+    const raw = sib?.evidence.args;
+    if (!raw || typeof raw !== "object") return undefined;
+    const args: Record<string, WalkArg> = {};
+    for (const [reg, a] of Object.entries(raw as Record<string, unknown>)) if (a && typeof a === "object") args[reg] = argLabel(graph, a as Record<string, unknown>);
+    return Object.keys(args).length ? args : undefined;
+  };
   let frontier = roots.map((r) => r.id);
   for (let d = 0; d < depth; d += 1) {
     const next: string[] = [];
@@ -161,12 +296,13 @@ export function edgesWalk(graph: Graph, roots: ResolvedNode[], options: WalkOpti
       const hits = [
         ...(direction !== "out" ? graph.edgesInto(id, types) : []),
         ...(direction !== "in" ? graph.edgesOutOf(id, types) : []),
-      ].filter((e) => originMatches(e, origin));
+      ].filter((e) => originMatches(e, origin) && !JOINED_TYPES.has(e.type));
       for (const e of hits) {
         const k = `${e.from}|${e.type}|${e.to}|${e.evidenceKey}|${e.layer}`;
         if (seen.has(k)) continue;
         seen.add(k);
-        out.push(e);
+        const args = argsFor(e);
+        out.push(args ? { ...e, args } : e);
         next.push(direction === "in" ? e.from : e.to);
       }
     }

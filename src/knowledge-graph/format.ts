@@ -3,8 +3,8 @@
 // ```json block is byte-identical to what `c64re graph … --json` prints, and
 // the gate asserts it. Compact hits, stable ids, never a listing excerpt.
 
-import type { NodeCard, OverviewSection, PathResult, Walk } from "./cards.js";
-import type { EdgeHit, ResolvedNode } from "./query.js";
+import type { ArgsDomain, NodeCard, OverviewSection, PathResult, SignatureCard, Walk, WalkEdge } from "./cards.js";
+import type { ResolvedNode } from "./query.js";
 
 const hex = (a: number) => `$${a.toString(16).toUpperCase().padStart(4, "0")}`;
 
@@ -33,7 +33,32 @@ export function formatFind(query: string, nodes: ResolvedNode[], limit: number):
   return { text, json };
 }
 
-function edgeLine(e: EdgeHit): string {
+/** A ∈ … order: the registers first, then the carry, then every other location alphabetically. */
+const REG_ORDER: Record<string, number> = { A: 0, X: 1, Y: 2, C: 3 };
+const byReg = (a: string, b: string) => (REG_ORDER[a] ?? 9) - (REG_ORDER[b] ?? 9) || a.localeCompare(b);
+
+/** 826 D6 — the static call-site arguments on a CALLS line: `A=#$01 X←$27E1 Y←op:$2805 C=1`. */
+function argsSuffix(args: Record<string, { source: string; label: string }> | undefined): string {
+  if (!args) return "";
+  const parts = Object.keys(args).sort(byReg).map((reg) => { const a = args[reg]!; return a.source === "imm" || a.source === "flag" ? `${reg}=${a.label}` : `${reg}←${a.label}`; });
+  return parts.length ? ` args: ${parts.join(" ")}` : "";
+}
+
+/** 826 D6 — the observed values on a runtime CALLS line: `observed: A∈{$01,$02} C∈{0}` (up to 6 values per register, then …). */
+function observedSuffix(raw: unknown): string {
+  if (!raw || typeof raw !== "object") return "";
+  const parts: string[] = [];
+  for (const reg of Object.keys(raw as Record<string, unknown>).sort(byReg)) {
+    const vals = (raw as Record<string, unknown>)[reg];
+    if (!vals || typeof vals !== "object") continue;
+    const keys = Object.keys(vals as Record<string, unknown>);
+    if (!keys.length) continue;
+    parts.push(`${reg}∈{${keys.slice(0, 6).join(",")}${keys.length > 6 ? ",…" : ""}}`);
+  }
+  return parts.length ? ` observed: ${parts.join(" ")}` : "";
+}
+
+function edgeLine(e: WalkEdge): string {
   const ev = e.evidence;
   const where = typeof ev.source_address === "number" ? hex(ev.source_address as number) : typeof ev.pc === "number" ? hex(ev.pc as number) : "";
   const instr = typeof ev.instruction === "string" ? ev.instruction : "";
@@ -41,8 +66,35 @@ function edgeLine(e: EdgeHit): string {
   const amb = ev.ambiguity ? ` [${String(ev.ambiguity)}]` : "";
   const unk = ev.target === "unknown" ? ` [target unknown, pointer ${hex(Number(ev.pointer_zp ?? 0))}]` : "";
   const dang = e.toNode.dangling ? " [DANGLING]" : "";
+  const args = e.type === "CALLS" ? `${argsSuffix(e.args)}${e.origin === "runtime" ? observedSuffix(ev.args_observed) : ""}` : "";
   const name = (n: ResolvedNode) => (n.name ? ` ${n.name}` : "");
-  return `${e.type.padEnd(15)} ${hex(e.fromNode.address)}${name(e.fromNode)} → ${hex(e.toNode.address)}${name(e.toNode)} | ${e.origin}/${e.confidence} | ${where} ${instr}${rt}${amb}${unk}${dang}\n    from=${e.from}\n    to=${e.to}`;
+  return `${e.type.padEnd(15)} ${hex(e.fromNode.address)}${name(e.fromNode)} → ${hex(e.toNode.address)}${name(e.toNode)} | ${e.origin}/${e.confidence} | ${where} ${instr}${rt}${amb}${unk}${dang}${args}\n    from=${e.from}\n    to=${e.to}`;
+}
+
+/** 826 D7 — `in: A X zp:$F3 · out: zp:$FC C · clobbers: A X Y · preserves: — · stack: balanced`. */
+export function signatureLine(s: SignatureCard): string {
+  const list = (xs: string[]) => (xs.length ? xs.join(" ") : "—");
+  return `in: ${list(s.in)} · out: ${list(s.out)} · clobbers: ${list(s.clobbers)} · preserves: ${list(s.preserves)} · stack: ${s.stack}`;
+}
+
+/** 826 D6 — `A ∈ {$01 ×2, $02 ×1} (observed $01 ×40, $02 ×2) · X ← $27E1 ×1`. */
+export function argsLine(domain: ArgsDomain): string {
+  const parts: string[] = [];
+  for (const reg of Object.keys(domain).sort(byReg)) {
+    const d = domain[reg]!;
+    const imm = Object.entries(d.static).filter(([k]) => /^\$[0-9A-F]{2}$/u.test(k) || (reg === "C" && /^[01]$/u.test(k)));
+    const other = Object.entries(d.static).filter(([k]) => !imm.some(([i]) => i === k));
+    const segs: string[] = [];
+    if (imm.length) segs.push(`${reg} ∈ {${imm.map(([k, n]) => `${k} ×${n}`).join(", ")}}`);
+    for (const [k, n] of other) segs.push(`${reg} ← ${k} ×${n}`);
+    const obs = Object.entries(d.observed);
+    if (obs.length) {
+      const o = `observed ${obs.map(([k, n]) => `${k} ×${n}`).join(", ")}`;
+      if (segs.length) segs[segs.length - 1] += ` (${o})`; else segs.push(`${reg} ${o}`);
+    }
+    if (segs.length) parts.push(segs.join(" · "));
+  }
+  return parts.join(" · ");
 }
 
 export function formatEdges(walk: Walk): Formatted {
@@ -50,7 +102,7 @@ export function formatEdges(walk: Walk): Formatted {
     ref: walk.ref, roots: walk.roots, direction: walk.direction, kind: walk.kind, origin: walk.origin, depth: walk.depth,
     edges: walk.edges.map((e) => ({
       type: e.type, from: { id: e.from, address: hex(e.fromNode.address), name: e.fromNode.name }, to: { id: e.to, address: hex(e.toNode.address), name: e.toNode.name, dangling: e.toNode.dangling },
-      origin: e.origin, confidence: e.confidence, layer: e.layer, evidence: e.evidence,
+      origin: e.origin, confidence: e.confidence, layer: e.layer, evidence: e.evidence, ...(e.args ? { args: e.args } : {}),
     })),
     total: walk.total, truncated: walk.truncated,
   };
@@ -71,6 +123,17 @@ export function formatNode(card: NodeCard): Formatted {
   if (card.hardware.length) lines.push(`  hardware: ${card.hardware.join(", ")}`);
   if (card.rom.length) lines.push(`  rom: ${card.rom.join(", ")}`);
   if (card.zeroPage.length) lines.push(`  zero page: ${card.zeroPage.slice(0, 16).join(", ")}${card.zeroPage.length > 16 ? " …" : ""}`);
+  // 826 D7/D8 — the computed signature, then the human abi on its OWN line, never merged
+  if (card.signature) {
+    const s = card.signature;
+    if (s.in.length || s.out.length || s.clobbers.length || s.preserves.length || s.stack !== "unknown" || s.partial) lines.push(`  signature: ${signatureLine(s)}`);
+    if (s.partial) lines.push(`  partial: ${s.partial}`);
+    if (s.humanAbi) lines.push(`  human abi: ${s.humanAbi}`);
+  }
+  if (card.argsDomain) {
+    const a = argsLine(card.argsDomain);
+    if (a) lines.push(`  args: ${a}`);
+  }
   lines.push(`  runtime: ${card.runtime.observed ? `observed in ${card.runtime.runs.length} run(s) ${card.runtime.runs.join(",")} (${card.runtime.edges} edges)` : "not observed in any trace run"}`);
   return { text: lines.join("\n"), json: card };
 }

@@ -9,14 +9,63 @@ import type { AsmViewSource } from "./AsmView.js";
 
 type Hit = { id: string; kind: string; address: string; bank: number | null; name: string | null; origin: string; orphaned: boolean; dangling: boolean; owner: string | null };
 type EdgeEnd = { id: string; address: string; name: string | null; dangling?: boolean };
-type Edge = { type: string; from: EdgeEnd; to: EdgeEnd; origin: string; confidence: string; layer: string; evidence: Record<string, unknown> };
+/** Spec 826 D6 — the static call-site arguments joined onto a CALLS edge (`A=#$01 X←$27E1`) */
+type WalkArg = { source: string; label: string; site?: string };
+type Edge = { type: string; from: EdgeEnd; to: EdgeEnd; origin: string; confidence: string; layer: string; evidence: Record<string, unknown>; args?: Record<string, WalkArg> };
 type Walk = { ref: string; roots: string[]; direction: string; kind: string; origin: string; depth: number; edges: Edge[]; total: number; truncated: boolean };
+/** Spec 826 D7 — the routine's computed interface; `humanAbi` is the human's line, shown beside it, never merged (D8) */
+type Signature = { in: string[]; out: string[]; clobbers: string[]; preserves: string[]; stack: string; partial: string | null; humanAbi: string | null };
+/** Spec 826 D6 — per register: the static domain at the call sites and what the runs passed */
+type ArgsDomain = Record<string, { static: Record<string, number>; observed: Record<string, number> }>;
 type Card = {
   id: string; kind: string; address: string; range: string | null; bank: number | null; owner: string | null; platform: boolean; dangling: boolean;
   generatedLabel: string | null; humanName: string | null; layers: string[]; orphaned: boolean; confidence?: string;
   subsystems: string[]; edgeCounts: { in: Record<string, number>; out: Record<string, number> };
   hardware: string[]; rom: string[]; zeroPage: string[]; runtime: { observed: boolean; edges: number; runs: string[] };
+  signature?: Signature | null; argsDomain?: ArgsDomain | null;
 };
+
+const REG_ORDER: Record<string, number> = { A: 0, X: 1, Y: 2, C: 3 };
+const byReg = (a: string, b: string) => (REG_ORDER[a] ?? 9) - (REG_ORDER[b] ?? 9) || a.localeCompare(b);
+const list = (xs: string[]) => (xs.length ? xs.join(" ") : "—");
+
+/** `in: A X · out: zp:$FC C · clobbers: A X Y · preserves: — · stack: balanced` — the same line the CLI prints */
+function signatureText(s: Signature): string {
+  return `in: ${list(s.in)} · out: ${list(s.out)} · clobbers: ${list(s.clobbers)} · preserves: ${list(s.preserves)} · stack: ${s.stack}`;
+}
+
+/** `A ∈ {$01 ×2, $02 ×1} (observed $01 ×40) · X ← $27E1 ×1` */
+function argsText(domain: ArgsDomain): string {
+  const parts: string[] = [];
+  for (const reg of Object.keys(domain).sort(byReg)) {
+    const d = domain[reg]!;
+    const imm = Object.entries(d.static).filter(([k]) => /^\$[0-9A-F]{2}$/.test(k) || (reg === "C" && /^[01]$/.test(k)));
+    const other = Object.entries(d.static).filter(([k]) => !imm.some(([i]) => i === k));
+    const segs: string[] = [];
+    if (imm.length) segs.push(`${reg} ∈ {${imm.map(([k, n]) => `${k} ×${n}`).join(", ")}}`);
+    for (const [k, n] of other) segs.push(`${reg} ← ${k} ×${n}`);
+    const obs = Object.entries(d.observed);
+    if (obs.length) {
+      const o = `observed ${obs.map(([k, n]) => `${k} ×${n}`).join(", ")}`;
+      if (segs.length) segs[segs.length - 1] += ` (${o})`; else segs.push(`${reg} ${o}`);
+    }
+    if (segs.length) parts.push(segs.join(" · "));
+  }
+  return parts.join(" · ");
+}
+
+/** the CALLS lane suffix: static `A=#$01 X←$27E1`, runtime `A∈{$01,$02}` */
+function edgeArgsText(e: Edge): string {
+  if (e.type !== "CALLS") return "";
+  const out: string[] = [];
+  if (e.args) out.push(Object.keys(e.args).sort(byReg).map((r) => { const a = e.args![r]!; return a.source === "imm" || a.source === "flag" ? `${r}=${a.label}` : `${r}←${a.label}`; }).join(" "));
+  const obs = e.evidence.args_observed;
+  if (e.origin === "runtime" && obs && typeof obs === "object") {
+    const regs = Object.keys(obs as Record<string, unknown>).sort(byReg).map((r) => { const v = (obs as Record<string, Record<string, number>>)[r] ?? {}; const ks = Object.keys(v); return ks.length ? `${r}∈{${ks.slice(0, 4).join(",")}${ks.length > 4 ? ",…" : ""}}` : ""; }).filter(Boolean);
+    if (regs.length) out.push(regs.join(" "));
+  }
+  return out.length ? ` · ${out.join(" ")}` : "";
+}
 type Overview = { sections: Array<{ id: string; label: string; count: number; top: Array<{ id: string; name: string | null; count: number }> }> };
 
 export type ListingJump = { entityId: string } | { reason: string };
@@ -137,7 +186,7 @@ export function GraphPanel({
       <g key={`${side}-${e.type}-${end.id}-${i}`} className={`flow-node-group graph-lane-node${e.dim ? " dimmed" : ""}${end.dangling ? " dangling" : ""}`} onClick={() => !end.dangling && onFocus(end.id)}>
         <rect className="flow-node-rect" x={x} y={y} width={LANE} height={ROW - 6} rx={4} />
         <text className="flow-node-kind" x={x + 6} y={y + 11}>{e.type}{e.origin === "runtime" ? " · runtime" : ""}</text>
-        <text className="flow-node-title" x={x + 6} y={y + 21}>{end.address} {end.name ?? ""}{typeof e.evidence.instruction === "string" ? ` — ${String(e.evidence.instruction)}` : ""}</text>
+        <text className="flow-node-title" x={x + 6} y={y + 21}>{end.address} {end.name ?? ""}{typeof e.evidence.instruction === "string" ? ` — ${String(e.evidence.instruction)}` : ""}{edgeArgsText(e)}</text>
         <line className="flow-edge-line" x1={side === "in" ? x + LANE : x} y1={y + (ROW - 6) / 2} x2={side === "in" ? W / 2 - 110 : W / 2 + 110} y2={H / 2} opacity={e.dim ? 0.15 : 1} />
       </g>
     );
@@ -201,6 +250,12 @@ export function GraphPanel({
             {card.hardware.length ? <div className="graph-card-row">hardware: {card.hardware.join(", ")}</div> : null}
             {card.rom.length ? <div className="graph-card-row">rom: {card.rom.join(", ")}</div> : null}
             {card.zeroPage.length ? <div className="graph-card-row">zero page: {card.zeroPage.slice(0, 12).join(", ")}{card.zeroPage.length > 12 ? " …" : ""}</div> : null}
+            {/* Spec 826 D7 — the computed signature; D8 — the human abi on its own row, never merged into it */}
+            {card.signature && (card.signature.in.length || card.signature.out.length || card.signature.clobbers.length || card.signature.preserves.length || card.signature.stack !== "unknown" || card.signature.partial) ? (
+              <div className="graph-card-row graph-card-signature">signature: {signatureText(card.signature)}{card.signature.partial ? <span className="graph-muted"> · partial: {card.signature.partial}</span> : null}</div>
+            ) : null}
+            {card.signature?.humanAbi ? <div className="graph-card-row graph-card-human-abi">human abi: {card.signature.humanAbi}</div> : null}
+            {card.argsDomain && argsText(card.argsDomain) ? <div className="graph-card-row graph-card-args">args: {argsText(card.argsDomain)}</div> : null}
             {(() => {
               const jump = card.platform ? { reason: "a platform node — its writers and callers are the useful jump" } : listingJump(parseAddr(card.address));
               return "entityId" in jump

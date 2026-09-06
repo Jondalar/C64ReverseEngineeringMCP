@@ -167,6 +167,79 @@ export function executions(graph: Graph, routineId: string): EdgeHit[] {
   return graph.edgesInto(routineId, ["EXECUTES"]).filter((e) => e.origin === "runtime");
 }
 
+// ------------------------------------------------------------------ observed arguments (826 D6)
+
+export interface ObservedArgs {
+  /** the jsr site, `$1002` */
+  site: string;
+  run: string;
+  from: string;
+  to: string;
+  /** retires of this jsr in the run */
+  count: number;
+  /** register → value → count, `{ A: { "$01": 2 }, C: { "0": 2 } }`; a capped register carries `"…": rest` */
+  args: Record<string, Record<string, number>>;
+}
+
+/** A callee ref: an id, an address (`"$1100"`, `0x1100`) or a name — the nodes it names. */
+function calleeNodes(graph: Graph, ref: string | number): ResolvedNode[] {
+  if (typeof ref === "number") return graph.nodesAt(ref);
+  const text = ref.trim();
+  if (text.includes(":")) {
+    const n = graph.resolve(text);
+    return n.dangling ? [] : [n];
+  }
+  return graph.find(text);
+}
+
+const hex4u = (n: number) => `$${(n & 0xffff).toString(16).toUpperCase().padStart(4, "0")}`;
+
+/**
+ * 826 D6 — what the runs actually passed: the runtime CALLS rows INTO the callee,
+ * one per (jsr site, run), each with the register values the retiring jsr carried.
+ * Runtime rows only; a static PASSES edge is the other half (the card joins them).
+ */
+export function observedArgs(graph: Graph, calleeRef: string | number, options: { run?: string } = {}): ObservedArgs[] {
+  const out: ObservedArgs[] = [];
+  const seen = new Set<string>();
+  for (const n of calleeNodes(graph, calleeRef)) {
+    for (const e of graph.edgesInto(n.id, ["CALLS"])) {
+      if (e.origin !== "runtime") continue;
+      const key = `${e.from}|${e.evidenceKey}|${e.owner ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const run = str(e.evidence.run_id) ?? e.owner ?? "";
+      if (options.run && run !== options.run) continue;
+      const raw = e.evidence.args_observed;
+      const args: Record<string, Record<string, number>> = {};
+      if (raw && typeof raw === "object") {
+        for (const [reg, vals] of Object.entries(raw as Record<string, unknown>)) {
+          if (!vals || typeof vals !== "object") continue;
+          const rec: Record<string, number> = {};
+          for (const [v, c] of Object.entries(vals as Record<string, unknown>)) if (typeof c === "number") rec[v] = c;
+          args[reg] = rec;
+        }
+      }
+      const pc = num(e.evidence.pc);
+      out.push({ site: pc === null ? e.evidenceKey : hex4u(pc), run, from: e.from, to: e.to, count: num(e.evidence.count) ?? 0, args });
+    }
+  }
+  return out.sort((a, b) => a.run.localeCompare(b.run) || a.site.localeCompare(b.site));
+}
+
+/** All sites and runs merged: register → value → count. Empty registers are dropped. */
+export function observedDomain(graph: Graph, calleeRef: string | number, options: { run?: string } = {}): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  for (const site of observedArgs(graph, calleeRef, options)) {
+    for (const [reg, vals] of Object.entries(site.args)) {
+      const rec = out[reg] ?? {};
+      for (const [v, c] of Object.entries(vals)) rec[v] = (rec[v] ?? 0) + c;
+      if (Object.keys(rec).length) out[reg] = rec;
+    }
+  }
+  return out;
+}
+
 // ------------------------------------------------------------------ pointer targets
 
 /**
