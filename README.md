@@ -138,6 +138,14 @@ and then opens the browser. For a project that predates the launchers:
 npm run launchers -- --project /path/to/project
 ```
 
+## Working on a smaller plan
+
+`contrib/claude/skills/model-router` is the doctrine for spending model capacity when
+the session runs Sonnet: `/deep` answers one hard turn on Opus without changing
+the session model, `/cheap` puts a mechanical turn on Haiku, and the `reasoner`
+(Opus) / `bulk` (Haiku) subagents let Claude route a sub-question by itself. The
+skill carries the install command and is honest about what it does *not* save.
+
 ## What to expect
 
 This is my (dkl / Jondalar) personal Reverse Engineering Toolbox packaged
