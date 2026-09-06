@@ -5,6 +5,7 @@
 // no graph logic lives here. Read-only: naming goes through save_*.
 
 import { useEffect, useMemo, useState } from "react";
+import type { AsmViewSource } from "./AsmView.js";
 
 type Hit = { id: string; kind: string; address: string; bank: number | null; name: string | null; origin: string; orphaned: boolean; dangling: boolean; owner: string | null };
 type EdgeEnd = { id: string; address: string; name: string | null; dangling?: boolean };
@@ -19,6 +20,8 @@ type Card = {
 type Overview = { sections: Array<{ id: string; label: string; count: number; top: Array<{ id: string; name: string | null; count: number }> }> };
 
 export type ListingJump = { entityId: string } | { reason: string };
+/** Spec 824.2 — the ASM source(s) for a node's owner, or why there is none */
+export type SourceJump = { title: string; sources: AsmViewSource[] } | { reason: string };
 
 const FILTERS: Array<{ id: string; label: string; types: string[] }> = [
   { id: "code", label: "Code", types: ["CALLS", "JUMPS_TO", "BRANCHES_TO", "CONTAINS"] },
@@ -42,6 +45,8 @@ export function GraphPanel({
   onFocus,
   listingJump,
   onJumpToListing,
+  sourceJump,
+  onJumpToSource,
 }: {
   projectDir: string;
   focusRef: string | null;
@@ -49,6 +54,10 @@ export function GraphPanel({
   /** address → listing entity, decided by the caller (App owns the listing) */
   listingJump: (address: number) => ListingJump;
   onJumpToListing: (entityId: string) => void;
+  /** Spec 824.2 — owner (analysis stem) → its ASM sources, decided by the caller (App owns the artifacts) */
+  sourceJump: (owner: string | null) => SourceJump;
+  /** open the AsmView overlay on these sources at the address */
+  onJumpToSource: (title: string, sources: AsmViewSource[], address: number) => void;
 }) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Hit[] | null>(null);
@@ -197,6 +206,13 @@ export function GraphPanel({
               return "entityId" in jump
                 ? <button type="button" className="graph-jump" onClick={() => onJumpToListing(jump.entityId)}>Open in Annotated Listing</button>
                 : <span className="graph-card-row graph-muted">{jump.reason}</span>;
+            })()}
+            {(() => {
+              // Spec 824.2 — jump INTO the source line: the owner's ASM, opened at the node's address
+              const src = card.platform ? { reason: "a platform node has no project source" } : sourceJump(card.owner);
+              return "sources" in src
+                ? <button type="button" className="graph-jump graph-jump-source" onClick={() => onJumpToSource(src.title, src.sources, parseAddr(card.address))}>Open in source</button>
+                : <span className="graph-card-row graph-muted">{src.reason}</span>;
             })()}
           </div>
           <svg className="flow-svg graph-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`neighbourhood of ${card.id}`}>

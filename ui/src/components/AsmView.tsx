@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { buildAsmAddressMap, findLineForAddress, linesAtAddress } from "../lib/asm-address-map.js";
 
 export interface AsmViewSource {
   id: string;
@@ -12,6 +13,13 @@ interface AsmViewProps {
   projectDir?: string;
   sources: AsmViewSource[];
   onClose: () => void;
+  /**
+   * Spec 824.2 — open scrolled to the line that stands for this address. The
+   * line is found by ui/src/lib/asm-address-map.ts from the listing's own
+   * markers (origin, WXXXX labels, SEGMENT headers, counted instruction bytes);
+   * when the address is not in the source, the header says so.
+   */
+  jumpToAddress?: number;
 }
 
 interface LoadedSource {
@@ -68,10 +76,11 @@ function tokenizeAsmLine(line: string, dialect: AsmViewSource["dialect"]): Array
   return tokens;
 }
 
-export function AsmView({ title, projectDir, sources, onClose }: AsmViewProps) {
+export function AsmView({ title, projectDir, sources, onClose, jumpToAddress }: AsmViewProps) {
   const [activeId, setActiveId] = useState<string>(sources[0]?.id ?? "");
   const active = sources.find((source) => source.id === activeId) ?? sources[0];
   const [cache, setCache] = useState<Record<string, LoadedSource>>({});
+  const gridRef = useRef<HTMLPreElement | null>(null);
 
   useEffect(() => {
     if (!active) return;
@@ -107,13 +116,43 @@ export function AsmView({ title, projectDir, sources, onClose }: AsmViewProps) {
     return loaded.text.split("\n");
   }, [active, cache]);
 
+  // Spec 824.2 — the address→line map is rebuilt per loaded source (each
+  // dialect tab is its own text); the hit is every line starting at the
+  // address (the WXXXX label and the instruction under it), or the one line
+  // whose bytes contain it.
+  const jump = useMemo(() => {
+    if (jumpToAddress === undefined || lines.length === 0 || !active) return null;
+    const map = buildAsmAddressMap(lines, active.dialect);
+    const hit = findLineForAddress(map, jumpToAddress);
+    const rows = new Set<number>(hit ? (hit.exact ? linesAtAddress(map, jumpToAddress) : [hit.line]) : []);
+    return { hit, rows, drift: map.driftAt.length };
+  }, [jumpToAddress, lines, active]);
+
+  useEffect(() => {
+    if (!jump?.hit) return;
+    const row = gridRef.current?.querySelector(".asm-row-hit");
+    if (row && typeof (row as HTMLElement).scrollIntoView === "function") (row as HTMLElement).scrollIntoView({ block: "center" });
+  }, [jump, activeId]);
+
+  const hex4 = (value: number) => `$${value.toString(16).toUpperCase().padStart(4, "0")}`;
+  const jumpStatus = jumpToAddress === undefined ? null : (
+    <span className="asm-jump-status">
+      {" · "}
+      {jump === null
+        ? `→ ${hex4(jumpToAddress)}`
+        : jump.hit
+          ? `→ ${hex4(jumpToAddress)} at line ${jump.hit.line + 1}${jump.hit.exact ? "" : ` (inside the line starting at ${hex4(jump.hit.address)})`}${jump.drift ? ` · map drifted at ${jump.drift} anchor(s)` : ""}`
+          : `→ ${hex4(jumpToAddress)} is not in this source`}
+    </span>
+  );
+
   return (
     <div className="hex-overlay-backdrop" onClick={onClose}>
       <div className="hex-overlay asm-overlay" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
         <header className="hex-overlay-header">
           <div>
             <h3>{title}</h3>
-            <p>{active?.path ?? ""} · {active?.dialect ?? "plain"}</p>
+            <p>{active?.path ?? ""} · {active?.dialect ?? "plain"}{jumpStatus}</p>
           </div>
           <div className="hex-overlay-header-actions">
             {sources.length > 1 ? (
@@ -141,9 +180,9 @@ export function AsmView({ title, projectDir, sources, onClose }: AsmViewProps) {
           ) : cache[active.id]?.status === "error" ? (
             <div className="hex-overlay-error">{cache[active.id]?.error}</div>
           ) : (
-            <pre className="asm-grid">
+            <pre className="asm-grid" ref={gridRef}>
               {lines.map((line, lineIndex) => (
-                <div key={lineIndex} className="asm-row">
+                <div key={lineIndex} className={jump?.rows.has(lineIndex) ? "asm-row asm-row-hit" : "asm-row"}>
                   <span className="asm-lineno">{String(lineIndex + 1).padStart(5, " ")}</span>
                   <span className="asm-line">
                     {tokenizeAsmLine(line, active.dialect).map((token, idx) => (

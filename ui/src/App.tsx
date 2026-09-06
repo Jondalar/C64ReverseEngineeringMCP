@@ -5184,7 +5184,7 @@ export function App() {
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number>; markers?: Array<{ offset: number; label: string }> } | null>(null);
-  const [asmOverlay, setAsmOverlay] = useState<{ title: string; sources: AsmViewSource[] } | null>(null);
+  const [asmOverlay, setAsmOverlay] = useState<{ title: string; sources: AsmViewSource[]; jumpToAddress?: number } | null>(null);
   const [todoComposer, setTodoComposer] = useState<TodoComposerState | null>(null);
   const [todoSaving, setTodoSaving] = useState(false);
   const [todoError, setTodoError] = useState<string | null>(null);
@@ -5201,9 +5201,28 @@ export function App() {
     [snapshot, showAllVersions],
   );
 
-  function openAsmOverlay(title: string, sources: AsmViewSource[]) {
+  function openAsmOverlay(title: string, sources: AsmViewSource[], jumpToAddress?: number) {
     if (sources.length === 0) return;
-    setAsmOverlay({ title, sources });
+    setAsmOverlay(jumpToAddress === undefined ? { title, sources } : { title, sources, jumpToAddress });
+  }
+
+  // Spec 824.2 — the ASM sources for a graph node's owner. The owner is the
+  // analysis stem (`<stem>_analysis.json` → `<stem>`, lower-cased), so the
+  // graph's own rendering is `<stem>_disasm.asm`; it goes first, the curated
+  // versions the §7 resolver prefers follow as tabs. No match is said, not hidden.
+  function asmSourcesForOwner(owner: string | null): { title: string; sources: AsmViewSource[] } | { reason: string } {
+    if (!snapshot) return { reason: "no workspace loaded" };
+    if (!owner) return { reason: "node has no owner (no analysis stem) — nothing to open" };
+    const stem = owner.toLowerCase();
+    // visibleArtifacts = latest per lineage (Bug 24), or every version when the header toggle is on
+    const pool = visibleArtifacts.filter((a) => /\.(asm|tass)$/i.test(a.relativePath));
+    const candidates = pool.filter((a) => subjectIdForArtifactPath(a.relativePath).toLowerCase() === stem);
+    if (candidates.length === 0) return { reason: `no ASM for owner "${owner}" — run disasm_prg on ${owner}` };
+    const best = bestAsmSourcesForArtifacts(candidates, snapshot.artifactVersionGroups ?? []);
+    const generated = candidates.filter((a) => /_disasm\.asm$/i.test(a.relativePath)).map(asmSourceForArtifact);
+    const seen = new Set<string>();
+    const sources = [...generated, ...best].filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true)));
+    return { title: `${owner} · source`, sources };
   }
   const [selectedCartChunk, setSelectedCartChunk] = useState<CartChunkSelection | null>(null);
   const [selectedDiskFile, setSelectedDiskFile] = useState<DiskFileSelection | null>(null);
@@ -6007,6 +6026,8 @@ export function App() {
                   return { entityId: entry.entityId };
                 }}
                 onJumpToListing={(entityId) => { handleSelectEntity(entityId, "listing"); setActiveTab("listing"); }}
+                sourceJump={asmSourcesForOwner}
+                onJumpToSource={(title, sources, address) => openAsmOverlay(title, sources, address)}
               />
             ) : null}
             {/* Spec 059 / UX1: standalone Activity tab removed; the
@@ -6107,6 +6128,7 @@ export function App() {
           title={asmOverlay.title}
           projectDir={snapshot?.project.rootPath}
           sources={asmOverlay.sources}
+          jumpToAddress={asmOverlay.jumpToAddress}
           onClose={() => setAsmOverlay(null)}
         />
       ) : null}

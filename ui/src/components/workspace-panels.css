@@ -1101,6 +1101,7 @@
 .graph-card-meta, .graph-card-row { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .graph-flag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: rgba(231, 92, 92, 0.18); color: var(--accent-3); }
 .graph-jump { margin-top: 8px; }
+.graph-jump + .graph-jump { margin-left: 6px; }
 .graph-muted { color: var(--muted); font-size: 12px; }
 .graph-lane-node.dimmed { opacity: 0.25; }
 .graph-lane-node.dangling .flow-node-rect { stroke-dasharray: 4 3; }

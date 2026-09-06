@@ -1,6 +1,6 @@
 # Spec 824 — Graph UI
 
-**Status:** BUILT 2026-09-06 (824.1) — gates `npm run smoke:824-routes` 11/0, `npm run smoke:824` 14/0; 824.2 (jump into AsmView source lines) NOT built
+**Status:** BUILT 2026-09-06 — 824.1 gates `npm run smoke:824-routes` 11/0, `npm run smoke:824` 14/0; 824.2 (jump into AsmView source lines) BUILT, gate `npm run smoke:824-2` 25/0 (§10)
 **Origin:** `C64RE_Semantic_Knowledge_Graph_Draft_Spec.md` §"Graph UI" — GitNexus-like
 exploration, the eight node filters, click-to-listing. §"Phase 5 — Cross-Project RE" is
 **named** here as what comes after, and not designed.
@@ -249,3 +249,42 @@ lineage helpers, `artifactVersionGroups` possibly undefined) — the same 15 wit
 changes stashed. `ui:typecheck` is not in the build chain, which is how they survived;
 recorded here so the next reader does not read them as this slice's. `smoke-product-ui`
 passes all 11 checks and then crashes in the `ws` client's teardown — also pre-existing.
+
+## 10. 824.2 — the source-line jump
+
+Built 2026-09-06. D5 case 3 said the jump into `AsmView` needs an address→line map
+"nothing provides today". It turned out the rendered listing already carries enough
+to rebuild one, so no pipeline side file and no `/api` route were added (OQ4 closed:
+the map lives in the UI, computed from the document `AsmView` already fetches).
+
+**The markers relied on** (`pipeline/src/lib/prg-disasm.ts`, unchanged): the origin
+(`.pc = $XXXX "code"` / 64tass `* = $XXXX`), the relocation block (`.pseudopc $XXXX {`
+… `}` / `.logical` … `.here`), the segment header comment (`// SEGMENT $XXXX-$YYYY`),
+the generated label `WXXXX:` at every referenced address, and the byte-countable
+directives (`.byte`, `.word`, `.fill`, `.text`). Plain code lines carry no address, so
+`ui/src/lib/asm-address-map.ts` counts instruction bytes forward from the last anchor —
+the size follows from the operand form the renderer writes (`$HH` zero page, `$HHHH` or
+a label absolute, `#` immediate, `(…),y` / `(…,x)` two bytes, `(…)` three, a branch two,
+`.abs` / `@w` forced three) — and re-synchronises at every anchor. Two passes, so a
+hand-written zero-page label used before its `.label` definition still sizes as two
+bytes. Every anchor that disagrees with the running count is recorded in `driftAt`:
+the map reports its own confidence, and `AsmView` shows it in the header. Measured:
+the ui-smoke sample (4 labels), its 64tass image, and a 795-line analysis-driven
+listing with 94 labels and annotation blocks all map with zero drift.
+
+**The UI:** `AsmView` takes `jumpToAddress?: number`, highlights every line that starts
+at the address (the `WXXXX` label and the instruction under it, `.asm-row-hit`), scrolls
+it to centre, and says in the header `→ $4020 at line 88`, `(inside the line starting at
+$…)` for a mid-instruction address, or `is not in this source`. The Graph card gains
+**Open in source** next to the listing jump: the node's `owner` (the analysis stem) is
+resolved in `App` to `<stem>_disasm.asm` first — the graph's own rendering — with the
+§7 best-version tabs after it; no ASM for the owner, no owner, or a platform node is
+said on the card, never a silent no-op. The neighbourhood, chips and D5.1 listing jump
+are untouched.
+
+**Gate:** `npm run smoke:824-2` — `scripts/smoke-824-2-source-jump.mjs`, 25/0: the
+mapper unit-tested against a fixture with every marker above (24 addresses in both
+dialects, an outside address is `undefined`, a deliberately wrong count is reported as
+drift), the prop / action / wiring present in source, and the bundle carrying them.
+`ui:typecheck` stays at the 15 pre-existing errors (§9); `smoke:824` and
+`smoke-product-ui` stay green.
