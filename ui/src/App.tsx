@@ -1,6 +1,7 @@
 import { createContext, startTransition, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { HexView } from "./components/HexView.js";
 import { AsmView, type AsmViewSource } from "./components/AsmView.js";
+import { GraphPanel } from "./components/graph-panel.js";
 import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
 import { latestArtifactsByLineage, lineageVersionCount, isLatestInLineage } from "./lib/lineage.js";
 import { isInternalArtifact, isInternalEntity } from "./lib/internal.js";
@@ -51,7 +52,7 @@ import type {
 // findings/entities/flows/relations (record-list tabs — surface inside
 // inspector instead), load (folded into Flow sub-mode), activity
 // (folded into Dashboard).
-type TabId = "home" | "live" | "dashboard" | "questions" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "flow" | "listing";
+type TabId = "home" | "live" | "dashboard" | "questions" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "flow" | "listing" | "graph";
 
 interface UiConfig {
   defaultProjectDir: string;
@@ -154,6 +155,7 @@ const allTabs: Array<{ id: TabId; label: string; phases: Phase[] }> = [
   { id: "graphics", label: "Graphics", phases: ["discovery", "re"] },
   { id: "listing", label: "Annotated Listing", phases: ["re"] },
   { id: "flow", label: "Flow Graph", phases: ["re"] },
+  { id: "graph", label: "Graph", phases: ["discovery", "re"] }, // Spec 824 — the knowledge graph, a neighbourhood at a time
   { id: "scrub", label: "Scrub", phases: ["re"] },
   // Utilities — NOT phase peers. Reached via the utility cluster + cockpit links.
   { id: "dashboard", label: "Health", phases: [] },
@@ -203,6 +205,7 @@ function cockpitToolAvailable(snapshot: WorkspaceUiSnapshot, tab: TabId): boolea
     case "memory": return snapshot.views.memoryMap.cells.length > 0;
     case "listing": return snapshot.views.annotatedListing.entries.length > 0;
     case "flow": return snapshot.views.flowGraph.nodes.length > 0 || snapshot.views.loadSequence.items.length > 0;
+    case "graph": return true; // Spec 824 D2 — the panel itself reports "no graph yet" with the product step
     default: return true; // payloads / graphics / docs / live / questions / home
   }
 }
@@ -3816,6 +3819,13 @@ function ListingPanel({
   onSelectEntity: (entityId: string) => void;
 }) {
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
+  // Spec 824 D5.1 — a selection made elsewhere (the Graph tab) scrolls the row
+  // into view; before this the row highlighted and stayed off-screen.
+  const tableRef = useRef<HTMLTableElement | null>(null);
+  useEffect(() => {
+    const row = tableRef.current?.querySelector("tr.active-row");
+    if (row && typeof (row as HTMLElement).scrollIntoView === "function") (row as HTMLElement).scrollIntoView({ block: "center" });
+  }, [selectedEntityId]);
   const entries = snapshot.views.annotatedListing.entries.filter((entry) => {
     if (!deferredQuery) {
       return true;
@@ -3841,7 +3851,7 @@ function ListingPanel({
         />
       </label>
       <div className="listing-table-wrap">
-        <table className="data-table">
+        <table className="data-table" ref={tableRef}>
           <thead>
             <tr>
               <th>Range</th>
@@ -5168,6 +5178,7 @@ export function App() {
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
   const [tabSelections, setTabSelections] = useState<Partial<Record<TabId, string>>>({});
+  const [graphFocus, setGraphFocus] = useState<string | null>(null); // Spec 824 — the focused graph ref
   const [selectedDocPath, setSelectedDocPath] = useState<string | null>(null);
   const [docContent, setDocContent] = useState("");
   const [docLoading, setDocLoading] = useState(false);
@@ -5982,6 +5993,21 @@ export function App() {
                 />
                 <AnnotationDraftPanel projectDir={snapshot.project.rootPath} />
               </>
+            ) : null}
+            {activeTab === "graph" ? (
+              <GraphPanel
+                projectDir={snapshot.project.rootPath}
+                focusRef={graphFocus}
+                onFocus={setGraphFocus}
+                listingJump={(address) => {
+                  // Spec 824 D5.1 — the listing entry whose range holds the address, if it has an entity
+                  const entry = snapshot.views.annotatedListing.entries.find((e) => e.start <= address && address <= e.end);
+                  if (!entry) return { reason: "not in the annotated listing" };
+                  if (!entry.entityId) return { reason: "listing entry has no entity (listing defect, not papered over)" };
+                  return { entityId: entry.entityId };
+                }}
+                onJumpToListing={(entityId) => { handleSelectEntity(entityId, "listing"); setActiveTab("listing"); }}
+              />
             ) : null}
             {/* Spec 059 / UX1: standalone Activity tab removed; the
                 widget folds into the Dashboard. */}

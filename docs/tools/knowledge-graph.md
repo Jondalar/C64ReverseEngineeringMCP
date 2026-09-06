@@ -68,6 +68,13 @@ Five default tools, thin over the same library, one formatter with the CLI:
 Every reply ends with a ```` ```json ```` block that equals `c64re graph <verb> --json`
 byte for byte. For where something is *described* in prose, `project_search`.
 
+## The Graph tab (Spec 824)
+
+The workspace UI reads the same library through five `GET /api/graph/{find,node,edges,path,overview}`
+routes (the body is the tool's JSON block) and shows a **neighbourhood**: one focus node,
+incoming edges left, outgoing right, filter chips per edge family, the project overview
+when nothing is focused. A node inside an annotated-listing entry opens in the listing.
+
 An edge whose target is in neither file comes back **dangling**, never dropped.
 A human row whose generated twin disappeared comes back **orphaned**, kept.
 
@@ -80,4 +87,6 @@ npm run e2e:819             # ground-truth fixture + 21 real reports: zero false
 npm run e2e:820             # memory access: fixture ground truth, lnr_boot counts reconcile, no invented target
 npm run measure:820         # access-graph coverage over the field corpus (trend)
 npm run e2e:823             # the five graph tools through the real MCP server over stdio
+npm run smoke:824-routes    # the five /api/graph routes on a real workspace server
+npm run smoke:824           # the Graph tab at bundle + source level (after ui:build)
 ```

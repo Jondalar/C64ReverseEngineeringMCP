@@ -1,6 +1,6 @@
 # Spec 824 — Graph UI
 
-**Status:** PROPOSED (2026-09-05)
+**Status:** BUILT 2026-09-06 (824.1) — gates `npm run smoke:824-routes` 11/0, `npm run smoke:824` 14/0; 824.2 (jump into AsmView source lines) NOT built
 **Origin:** `C64RE_Semantic_Knowledge_Graph_Draft_Spec.md` §"Graph UI" — GitNexus-like
 exploration, the eight node filters, click-to-listing. §"Phase 5 — Cross-Project RE" is
 **named** here as what comes after, and not designed.
@@ -217,3 +217,35 @@ handler calls `handleSelectEntity(…, "listing")`; `ListingPanel` contains `scr
   Overview costs one `/api/graph/overview` call on load versus D7. Try it, measure it.
 - **OQ4 — Where the address→line map lives (824.2).** Listing route parsing the
   disassembler's address column, or a pipeline side file — belongs with 720.
+
+## 9. Built — what the gate found on the way
+
+Routes first (D1): five `GET /api/graph/*` in `src/workspace-ui/server.ts`, one per
+823 tool, the body IS the tool's JSON block — 823's formatter called once more, and
+`smoke-824-graph-routes` asserts `/api/graph/find` equals `c64re graph find --json`
+byte for byte. No graph yet → `404 { error, next: [analyze_prg, project_inventory_sync,
+c64re graph seed] }`; a missing arg → `400 { error }`; an unknown verb → 404 with the
+route list. Then the panel: `ui/src/components/graph-panel.tsx` — a `graph` tab in
+`allTabs` next to Flow Graph (one shell; `/v3.html` stays 404), the overview when nothing
+is focused, a focus node with its incoming lane on the left and outgoing lane on the
+right in FlowPanel's own SVG vocabulary (`flow-svg`, `flow-node-*`), eight filter chips
+that DIM rather than remove, depth 1–2, dangling targets dashed, `truncated` said. No
+new dependency; the smoke freezes the list.
+
+D5.1 as specified: click → `handleSelectEntity(entityId, "listing")` + tab switch, and
+`ListingPanel` gained the one thing it lacked — a `useEffect` that scrolls `tr.active-row`
+into view when the selection changes. A node whose address is in no listing entry, or in
+an entry without `entityId`, says so on the card instead of inventing a selection. 824.2
+(jump into `AsmView` source lines — needs an address→line map nothing provides) is
+named, not built.
+
+`cockpitToolAvailable` returns `true` for the tab rather than "overview reports a node":
+that would cost a fetch inside a synchronous snapshot function; the panel itself reports
+"no graph yet" with the product step, which is the same information one click later.
+
+**Pre-existing, not 824's:** `npm run ui:typecheck` reports 15 errors in `App.tsx` /
+`workspace-panels.tsx` (ArtifactRecord / EntityRecord shape mismatches around the
+lineage helpers, `artifactVersionGroups` possibly undefined) — the same 15 with the 824
+changes stashed. `ui:typecheck` is not in the build chain, which is how they survived;
+recorded here so the next reader does not read them as this slice's. `smoke-product-ui`
+passes all 11 checks and then crashes in the `ws` client's teardown — also pre-existing.

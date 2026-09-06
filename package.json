@@ -28,6 +28,8 @@
     "e2e:820": "npm run build:mcp && node scripts/e2e-820-memory-access.mjs",
     "measure:820": "node scripts/measure-820-access-coverage.mjs",
     "e2e:823": "npm run build:mcp && node scripts/e2e-823-graph-mcp.mjs",
+    "smoke:824-routes": "npm run build:mcp && node scripts/smoke-824-graph-routes.mjs",
+    "smoke:824": "npm run ui:build && node scripts/smoke-824-graph-ui.mjs",
     "bootstrap:workspace": "npm run build:mcp && node scripts/bootstrap-existing-re-workspace.mjs",
     "test:project-knowledge": "npm run build:mcp && node scripts/project-knowledge-smoke.mjs",
     "test:lifecycle": "npm run build:mcp && node scripts/lifecycle-crosswalk-smoke.mjs",
