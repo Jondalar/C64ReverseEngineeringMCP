@@ -250,7 +250,8 @@ export interface WalkOptions {
   direction?: Direction;
   kind?: EdgeKind;
   origin?: OriginFilter;
-  depth?: 1 | 2;
+  /** hops; 823 uses 1 | 2, 825's `focus:` scope walks up to 4 */
+  depth?: number;
   limit?: number;
 }
 
@@ -272,6 +273,20 @@ export function edgesWalk(graph: Graph, roots: ResolvedNode[], options: WalkOpti
   const origin = options.origin ?? "any";
   const depth = options.depth ?? 1;
   const limit = Math.min(options.limit ?? 25, 200);
+  const all = edgesWalkAll(graph, roots, options);
+  return { ref: roots.map((r) => r.id).join(","), roots: roots.map((r) => r.id), direction, kind, origin, depth, edges: all.slice(0, limit), total: all.length, truncated: all.length > limit };
+}
+
+/**
+ * The walk itself, UNLIMITED — 823's `edgesWalk` is this plus a slice, and
+ * 825's `focus:` scope is this without one, so the two can never disagree
+ * about which nodes a neighbourhood contains (825 §5).
+ */
+export function edgesWalkAll(graph: Graph, roots: ResolvedNode[], options: WalkOptions = {}): WalkEdge[] {
+  const direction = options.direction ?? "out";
+  const kind = options.kind ?? "any";
+  const origin = options.origin ?? "any";
+  const depth = options.depth ?? 1;
   const types = typesForKind(kind);
   const seen = new Set<string>();
   const out: WalkEdge[] = [];
@@ -308,7 +323,7 @@ export function edgesWalk(graph: Graph, roots: ResolvedNode[], options: WalkOpti
     }
     frontier = next;
   }
-  return { ref: roots.map((r) => r.id).join(","), roots: roots.map((r) => r.id), direction, kind, origin, depth, edges: out.slice(0, limit), total: out.length, truncated: out.length > limit };
+  return out;
 }
 
 export interface PathResult {
@@ -385,4 +400,272 @@ export function overview(graph: Graph, focus: Focus = "all", topN = 10): Overvie
 
 export function isPlatform(id: string): boolean {
   return isPlatformId(id);
+}
+
+// ---------------------------------------------------------------- Spec 825 D1
+// The BULK projection: the whole scope in one body, so a renderer builds ONE
+// in-memory model and every view is a projection of it. Deliberately not a
+// sixth MCP tool (825 §7) — an LLM does not want 11 000 nodes; a canvas does.
+
+/** 825 D1 — 50 000 nodes is the "load anyway" threshold; above it the body says so and names the scopes that fit. */
+export const SUBGRAPH_NODE_LIMIT = 50_000;
+
+export interface SubgraphNode {
+  id: string;
+  kind: string;
+  /** `$XXXX` */
+  address: string;
+  /** `$XXXX` when the node has an extent, else null */
+  end: string | null;
+  bank: number | null;
+  owner: string | null;
+  /** the GENERATED label */
+  label: string | null;
+  /** the HUMAN name — two fields, never merged (824 acceptance) */
+  name: string | null;
+  layers: string[];
+  platform: boolean;
+  dangling: boolean;
+  /** store rows touching this node inside the subgraph */
+  degree: number;
+}
+
+export interface SubgraphEdge {
+  from: string;
+  to: string;
+  type: string;
+  origin: string;
+  layer: string;
+  confidence: string;
+  /** store rows collapsed into this edge */
+  n: number;
+}
+
+export interface Subgraph {
+  scope: string;
+  nodes: SubgraphNode[];
+  edges: SubgraphEdge[];
+  subsystems: Array<{ id: string; name: string | null; members: number }>;
+  truncated: boolean;
+  /** the scopes that fit when `truncated`, else empty */
+  next: string[];
+  counts: { nodes: number; edges: number; rows: number };
+}
+
+export interface SubgraphOptions {
+  /** `all` · `owner:<stem>` · `bank:<n>` · `subsystem:<id|name>` · `focus:<ref>` */
+  scope?: string;
+  /** with `focus:` — BFS hops, 1–4, default 2 */
+  depth?: number;
+  /** node kinds to include; undefined = all */
+  kinds?: string[];
+  origin?: OriginFilter;
+  /** 824's bank selector, forwarded to `resolveRef` */
+  bank?: number;
+}
+
+/** A scope that names something the graph does not have — the route answers 404, not 400. */
+export class SubgraphNotFound extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SubgraphNotFound";
+  }
+}
+
+interface StoreNode {
+  kind: string;
+  address: number;
+  end: number | null;
+  owner: string | null;
+  bank: number | null;
+  label: string | null;
+  name: string | null;
+  layers: string[];
+}
+
+interface RawEdge { from: string; type: string; to: string; layer: string; origin: string; confidence: string }
+
+/** byte order, not locale order — the body has to hash the same on every machine */
+const byString = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+function parseScope(scope: string): { kind: "all" | "owner" | "bank" | "subsystem" | "focus"; arg: string } {
+  const text = scope.trim() || "all";
+  if (text === "all") return { kind: "all", arg: "" };
+  const m = /^(owner|bank|subsystem|focus):(.+)$/su.exec(text);
+  if (!m) throw new Error(`scope "${scope}" is not all | owner:<stem> | bank:<n> | subsystem:<id> | focus:<ref>`);
+  return { kind: m[1] as "owner" | "bank" | "subsystem" | "focus", arg: m[2]!.trim() };
+}
+
+function readStoreNodes(graph: Graph): Map<string, StoreNode> {
+  const rows = graph.store.db.prepare("SELECT id, layer, kind, address, end_address, name, owner, bank FROM nodes ORDER BY id, layer").all() as Array<{
+    id: string; layer: string; kind: string; address: number; end_address: number | null; name: string | null; owner: string | null; bank: number | null;
+  }>;
+  const out = new Map<string, StoreNode>();
+  for (const r of rows) {
+    const cur = out.get(r.id);
+    if (!cur) {
+      out.set(r.id, {
+        kind: r.kind, address: r.address, end: r.end_address, owner: r.owner, bank: r.bank,
+        label: r.layer === "generated" ? r.name : null, name: r.layer === "human" ? r.name : null, layers: [r.layer],
+      });
+      continue;
+    }
+    if (r.layer === "generated") { cur.label = r.name; cur.kind = r.kind; cur.address = r.address; cur.owner = r.owner; cur.bank = r.bank; }
+    else cur.name = r.name;
+    if (r.end_address !== null) cur.end = r.end_address;
+    if (!cur.layers.includes(r.layer)) cur.layers.push(r.layer);
+  }
+  for (const v of out.values()) v.layers.sort();
+  return out;
+}
+
+function readEdges(graph: Graph): RawEdge[] {
+  return graph.store.db.prepare("SELECT from_id AS \"from\", type, to_id AS \"to\", layer, origin, confidence FROM edges").all() as unknown as RawEdge[];
+}
+
+function edgeOriginMatches(e: RawEdge, origin: OriginFilter): boolean {
+  if (origin === "any") return true;
+  if (origin === "human") return e.layer === "human";
+  return e.origin === origin;
+}
+
+/**
+ * 825 D1 — the scope, whole: nodes with the generated label and the human name
+ * apart, edges COLLAPSED per (from, to, type, origin, layer) with `n` = the
+ * store rows behind them, every endpoint present (a platform id synthesised
+ * from the platform KB, anything else flagged `dangling`), everything sorted
+ * by id so the body hashes stably.
+ */
+export function subgraph(graph: Graph, options: SubgraphOptions = {}): Subgraph {
+  const scopeText = (options.scope ?? "all").trim() || "all";
+  const scope = parseScope(scopeText);
+  const origin: OriginFilter = options.origin ?? "any";
+  const kinds = options.kinds && options.kinds.length ? new Set(options.kinds) : undefined;
+  const depth = Math.max(1, Math.min(4, Math.trunc(options.depth ?? 2)));
+
+  const store = readStoreNodes(graph);
+  const resolvedCache = new Map<string, ResolvedNode>();
+  const resolved = (id: string): ResolvedNode => {
+    let n = resolvedCache.get(id);
+    if (!n) { n = graph.resolve(id); resolvedCache.set(id, n); }
+    return n;
+  };
+  const kindOf = (id: string): string => store.get(id)?.kind ?? resolved(id).kind;
+  const keepKind = (id: string): boolean => !kinds || kinds.has(kindOf(id));
+
+  const allEdges = readEdges(graph);
+
+  // ---- the core: what the scope names, before any edge pulls a neighbour in
+  const core = new Set<string>();
+  let walked: WalkEdge[] | undefined;
+  if (scope.kind === "all") {
+    for (const id of store.keys()) core.add(id);
+  } else if (scope.kind === "owner") {
+    if (!scope.arg) throw new Error("owner: needs an analysis stem");
+    for (const [id, n] of store) if (n.owner === scope.arg) core.add(id);
+  } else if (scope.kind === "bank") {
+    const bank = /^(?:\$|0x)/iu.test(scope.arg) ? parseInt(scope.arg.replace(/^(?:\$|0x)/iu, ""), 16) : Number.parseInt(scope.arg, 10);
+    if (!Number.isInteger(bank)) throw new Error(`bank "${scope.arg}" is not a number ($07, 0x07 or 7)`);
+    for (const [id, n] of store) if (n.bank === bank) core.add(id);
+  } else if (scope.kind === "subsystem") {
+    const wanted = [...store.entries()].filter(([id, n]) => n.kind === "subsystem" && (id === scope.arg || n.name === scope.arg || id.endsWith(`:sub:${scope.arg}`))).map(([id]) => id);
+    if (wanted.length === 0) throw new SubgraphNotFound(`no subsystem "${scope.arg}" — assign-subsystem is the door (822)`);
+    for (const id of wanted) {
+      core.add(id);
+      for (const e of allEdges) {
+        if (e.type === "CONTAINS" && e.from === id) core.add(e.to);
+        if (e.type === "BELONGS_TO" && e.to === id) core.add(e.from);
+      }
+    }
+  } else {
+    const roots = resolveRef(graph, scope.arg, options.bank);
+    if (roots.length === 0) throw new SubgraphNotFound(`no node for "${scope.arg}"`);
+    walked = edgesWalkAll(graph, roots, { direction: "both", depth, origin });
+    for (const r of roots) core.add(r.id);
+    for (const e of walked) { core.add(e.from); core.add(e.to); }
+  }
+  for (const id of [...core]) if (!keepKind(id)) core.delete(id);
+
+  if (core.size > SUBGRAPH_NODE_LIMIT) {
+    const owners = new Map<string, number>();
+    const banks = new Map<number, number>();
+    for (const n of store.values()) {
+      if (n.owner) owners.set(n.owner, (owners.get(n.owner) ?? 0) + 1);
+      if (n.bank !== null) banks.set(n.bank, (banks.get(n.bank) ?? 0) + 1);
+    }
+    const next = [
+      ...[...owners.entries()].filter(([, c]) => c <= SUBGRAPH_NODE_LIMIT).map(([o]) => `owner:${o}`),
+      ...[...banks.entries()].filter(([, c]) => c <= SUBGRAPH_NODE_LIMIT).map(([b]) => `bank:${b}`),
+    ].sort(byString);
+    return { scope: scopeText, nodes: [], edges: [], subsystems: [], truncated: true, next, counts: { nodes: core.size, edges: 0, rows: 0 } };
+  }
+
+  // ---- the edges, collapsed. `all` takes every row; a narrowed scope takes
+  //      every row with an END in the core, so what the scope touches is visible.
+  const collapsed = new Map<string, SubgraphEdge>();
+  const collapse = (e: RawEdge) => {
+    const key = `${e.from} ${e.to} ${e.type} ${e.origin} ${e.layer}`;
+    const cur = collapsed.get(key);
+    if (cur) { cur.n += 1; if (e.confidence < cur.confidence) cur.confidence = e.confidence; return; }
+    collapsed.set(key, { from: e.from, to: e.to, type: e.type, origin: e.origin, layer: e.layer, confidence: e.confidence, n: 1 });
+  };
+  if (walked) {
+    for (const e of walked) {
+      if (!keepKind(e.from) || !keepKind(e.to)) continue;
+      collapse({ from: e.from, type: e.type, to: e.to, layer: e.layer, origin: e.origin, confidence: e.confidence });
+    }
+  } else {
+    const inScope = scope.kind === "all" ? () => true : (e: RawEdge) => core.has(e.from) || core.has(e.to);
+    for (const e of allEdges) {
+      if (!edgeOriginMatches(e, origin) || !inScope(e) || !keepKind(e.from) || !keepKind(e.to)) continue;
+      collapse(e);
+    }
+  }
+  const edges = [...collapsed.values()].sort((a, b) => byString(a.from, b.from) || byString(a.to, b.to) || byString(a.type, b.type) || byString(a.origin, b.origin) || byString(a.layer, b.layer));
+
+  // ---- the nodes: the core plus every endpoint, so no edge dangles off-canvas
+  const ids = new Set(core);
+  const degree = new Map<string, number>();
+  for (const e of edges) {
+    ids.add(e.from);
+    ids.add(e.to);
+    degree.set(e.from, (degree.get(e.from) ?? 0) + e.n);
+    degree.set(e.to, (degree.get(e.to) ?? 0) + e.n);
+  }
+  const nodes: SubgraphNode[] = [...ids].sort(byString).map((id) => {
+    const s = store.get(id);
+    if (s) {
+      return {
+        id, kind: s.kind, address: hex(s.address), end: s.end !== null && s.end !== s.address ? hex(s.end) : null,
+        bank: s.bank, owner: s.owner, label: s.label, name: s.name, layers: s.layers,
+        platform: false, dangling: false, degree: degree.get(id) ?? 0,
+      };
+    }
+    // no store row: the platform KB answers, or it is a dangling reference (D1)
+    const r = resolved(id);
+    return {
+      id, kind: r.kind, address: hex(r.address), end: null, bank: r.bank, owner: r.owner,
+      label: r.name, name: null, layers: r.dangling ? [] : r.layers,
+      platform: r.platform, dangling: r.dangling, degree: degree.get(id) ?? 0,
+    };
+  });
+
+  const subsystems = [...store.entries()].filter(([, n]) => n.kind === "subsystem").map(([id, n]) => {
+    let members = 0;
+    for (const e of allEdges) {
+      if (e.type === "CONTAINS" && e.from === id && ids.has(e.to)) members += 1;
+      else if (e.type === "BELONGS_TO" && e.to === id && ids.has(e.from)) members += 1;
+    }
+    return { id, name: n.name ?? n.label, members };
+  }).sort((a, b) => byString(a.id, b.id));
+
+  return {
+    scope: scopeText,
+    nodes,
+    edges,
+    subsystems,
+    truncated: false,
+    next: [],
+    counts: { nodes: nodes.length, edges: edges.length, rows: edges.reduce((a, e) => a + e.n, 0) },
+  };
 }

@@ -17,8 +17,8 @@ import { importAnnotationFile, migrateProject } from "./migrate/migrate.js";
 import { exportGraphRecords } from "./export.js";
 import { assignSubsystem, linkNodes, nameNode } from "./migrate/human.js";
 import { annotations as nodeAnnotations, searchAnnotations, subsystem as subsystemView, subsystems as listSubsystems } from "./query-human.js";
-import { edgesWalk, nodeCard, overview, resolveRef, shortestPath, type EdgeKind, type Focus } from "./cards.js";
-import { formatEdges, formatFind, formatNode, formatOverview, formatPath } from "./format.js";
+import { edgesWalk, nodeCard, overview, resolveRef, shortestPath, subgraph, type EdgeKind, type Focus, type OriginFilter } from "./cards.js";
+import { formatEdges, formatFind, formatNode, formatOverview, formatPath, formatSubgraph } from "./format.js";
 import { Graph, type EdgeHit, type ResolvedNode } from "./query.js";
 import { GraphStore } from "./store.js";
 
@@ -28,6 +28,7 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   node <ref>                    the card for one node (823)
   edges <ref> [--in|--out|--both] [--kind K] [--origin O] [--depth 1|2]   the neighbourhood walk (823)
   overview [--focus F]          the project's structural map (823)
+  subgraph [--scope S] [--depth N] [--kinds K,K] [--origin O]   825: the whole scope in one body (all | owner:<stem> | bank:<n> | subsystem:<id> | focus:<ref>)
   callers <id>                  CALLS / CALLS_ROM into a node
   callees <id>                  CALLS / CALLS_ROM out of a node
   readers <$addr>               READS into the node(s) at an address
@@ -66,7 +67,7 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   dump                          canonical dump of the generated layer (818 D6)
   stats                         row counts and meta`;
 
-interface Args { verb: string; positional: string[]; project: string; json: boolean; owner?: string; direction?: "in" | "out" | "both"; kind?: string; origin?: string; depth?: 1 | 2; focus?: string; limit?: number; out?: string; force?: boolean }
+interface Args { verb: string; positional: string[]; project: string; json: boolean; owner?: string; direction?: "in" | "out" | "both"; kind?: string; origin?: string; depth?: number; focus?: string; limit?: number; out?: string; force?: boolean; scope?: string; kinds?: string; bank?: number }
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
@@ -82,7 +83,10 @@ function parseArgs(argv: string[]): Args {
     else if (a === "--in" || a === "--out" || a === "--both") extra.direction = a.slice(2) as Args["direction"];
     else if (a === "--kind") extra.kind = argv[++i];
     else if (a === "--origin") extra.origin = argv[++i];
-    else if (a === "--depth") extra.depth = Number(argv[++i]) === 2 ? 2 : 1;
+    else if (a === "--depth") extra.depth = Math.max(1, Math.min(4, Number(argv[++i]) || 1));
+    else if (a === "--scope") extra.scope = argv[++i];
+    else if (a === "--kinds") extra.kinds = argv[++i];
+    else if (a === "--bank") extra.bank = Number(argv[++i]);
     else if (a === "--focus") extra.focus = argv[++i];
     else if (a === "--limit") extra.limit = Number(argv[++i]);
     else if (a === "--out") extra.out = argv[++i];
@@ -292,6 +296,19 @@ export async function runGraphCli(argv: string[]): Promise<void> {
       }
       case "overview": {
         const f = formatOverview(overview(graph, (args.focus ?? "all") as Focus, args.limit ?? 10));
+        out(f.text, f.json);
+        return;
+      }
+      // 825 D1 — the same aggregate and the same formatter the workspace route
+      // calls; `--json` here and GET /api/graph/subgraph are one document.
+      case "subgraph": {
+        const f = formatSubgraph(subgraph(graph, {
+          scope: args.scope ?? a ?? "all",
+          depth: args.depth,
+          kinds: args.kinds ? args.kinds.split(",").map((k) => k.trim()).filter(Boolean) : undefined,
+          origin: args.origin as OriginFilter | undefined,
+          bank: args.bank,
+        }));
         out(f.text, f.json);
         return;
       }

@@ -1,6 +1,6 @@
 # Spec 825 — Graph explorer: the whole project, four projections, sigma.js
 
-**Status:** PROPOSED 2026-09-06 — written after looking at both UIs side by side on
+**Status:** BUILT 2026-09-06 on branch `spec-825-graph-explorer` — gates `smoke:825-routes` 32/0, `smoke:825` 85/0; `smoke:824` 16/0, `smoke:824-2` 24/0, `smoke:824-routes` 11/0, `e2e:823` 28/0, `smoke:product-ui` 14/0 (§9) — written after looking at both UIs side by side on
 Wasteland_EF (the 824 tab) and on this repo (GitNexus `serve`, the C64RE index)
 **Origin:** Spec 824 D3 — "A whole-project explorer is a new spec." This is it. The
 question that produced it: *what is missing to build a UI as good as GitNexus's, with
@@ -302,3 +302,102 @@ frozen list amended as D1/D2 say). `ui:typecheck` stays at its 15 pre-existing e
   every payload analysed may sit near it. Revisit with the first project that trips it.
 - **OQ5 — Louvain resolution.** One value for every project, or a slider with a default;
   a slider is cheap once the function is pure.
+
+## 9. Built — measured, and where the spec was wrong
+
+**Wasteland_EF, read-only:** 13 060 nodes, 28 761 collapsed edges over 35 837 store
+rows (1.25 rows per edge), 579 synthesised platform endpoints, 0 dangling. The aggregate
+runs in 95–206 ms plus 22 ms to serialise. Louvain finds **162 communities at modularity
+0.845** in 40 ms — 0 human, because nobody has used `assign-subsystem` on that project
+yet, which is exactly the honest picture D4 asked for. Layouts: seed 9.6 ms, Layers
+4.0 ms, Address 9.1 ms across 68 lanes, Radial 5.7 ms. ForceAtlas2 ×300 is 9.8 s
+synchronously in node — in the browser that is the worker, not the UI thread. The lazy
+chunk holds sigma 89.9 kB + graphology 60.9 kB + communities 23.9 kB + layouts 10.8 kB +
+FA2 5.8 kB; the initial bundle grows 492.3 → 505.0 kB raw (142.5 → 146.2 kB gzipped),
+which is the route strings and the panel, as D2 intended.
+
+**D7's byte target is missed and stays missed: 11.92 MB raw against "under 3 MB".**
+Gzipped it is 374 kB and the time target is met with room. The cause is not the data but
+823 D7: the route body is byte-identical to `graph subgraph --json`, and that shared
+formatter pretty-prints. Compacting it would move every 823 and 824 route body at once,
+so it was left alone rather than fixed quietly here. If the number matters later, the
+honest fix is a `?pretty=0` on the route, not a different formatter for one caller.
+
+**Four things the implementation found that the spec did not know:**
+
+- **`type` is sigma's, not ours.** Sigma reads the edge attribute `type` to choose a
+  render program, so a store type of `READS` in that field is a hard "could not find a
+  suitable program" failure. Store types live in `edgeType`; sigma gets `type: "arrow"`.
+- **Sigma's camera is y-up.** The layouts stay in D3's screen orientation — Layers bands
+  read top to bottom as written — and `applyPositions` negates y at the render boundary.
+  Keeping the flip out of the pure functions is what keeps them testable in node.
+- **Louvain over code edges leaves most nodes without one.** Giving each a singleton
+  community produced a legend of 8 028 entries. A node with no code edge now gets no
+  community and draws grey; 162 real ones remain.
+- **The Graph tab needed the full width.** Inside the shell's three-column layout the
+  canvas was 411 px next to an inspector saying "select a memory region". It takes the
+  single-column treatment now, at 962 px, which is what §4 draws.
+
+**One pre-existing bug fixed on the way:** `smoke-product-ui.mjs` parsed every WebSocket
+message as JSON, including the daemon's binary VIC frames, so it crashed whenever a live
+session happened to be streaming. One `isBinary` guard.
+
+**Still open:** the docked source pane could not be exercised end to end — the browser
+fixture has no `_disasm.asm`, so the button sits behind the same `sourceJump` guard 824.2
+already gates. And `assign-subsystem` remains unused in the field, so the human half of
+D4's legend has never been seen with real data.
+
+## 10. The first look on screen, and what it found (2026-09-06)
+
+Seen by the owner on Wasteland_EF, all four views. Three defects, all in the
+render pass — none in the layouts, none in the data. All three are fixed and all
+three are now gated, because every one of them was invisible to a gate that read
+source and positions but never asked the renderer what it would draw.
+
+**D10.1 — the palette was not a palette, it was a parse failure.**
+`communityColor` returned `hsl(...)`. sigma 3's `parseColor` understands hex,
+`rgb()`, `rgba()` and the named colours; anything else falls through to
+`{r:0,g:0,b:0}`, silently. So all 13 060 nodes drew BLACK on a near-black panel
+and the community axis carried nothing at all. The fix is two fixed hex ramps —
+warm for human subsystems, cool for computed ones — chosen against
+`rgba(7,14,24,…)` rather than hashed onto the hue wheel, where a third of the
+circle is navy and brown and invisible at 3 px. `smoke:825` now runs every
+colour the module can return through sigma's own parser, and asserts that an
+`hsl()` string parses to black, so the reason is in the gate and not only here.
+
+**D10.2 — the uncoloured half needed a different treatment, not a darker grey.**
+7 868 of the 13 060 nodes have no code edge: I/O registers, listing addresses,
+labels. They are scaffolding. `nodeSize(degree, inCommunity)` halves them and
+they get one cool slate (`#4a5470`), so the coloured half reads as the subject
+and they read as the ground.
+
+**D10.3 — labels were forced on every platform node.** `reduceNode` ended with
+`if (data.platform === true && …) res.forceLabel = true`, and a project sees
+hundreds of KERNAL and I/O entries at once, each carrying a c64ref *heading* —
+"Flag: Enable or Disable Changing Character Sets". That was the text soup. Now:
+no blanket force, `labelRenderedSizeThreshold` 8 → 15, `labelDensity` 0.4 →
+0.06, an explicit light `labelColor` (sigma's default is `#000`, which is the
+other half of why nothing was readable), and every name truncated to 26
+characters for the canvas. The full text was always one click away in the node
+card. This answers OQ1 from the screen: labels belong to the focus set and to
+whatever a zoom earns.
+
+Two more things the screenshot showed that the spec had not asked about:
+
+**D10.4 — six seconds of ForceAtlas2 is not a layout.** On 13 060 nodes / 49 k
+edges the circular seed was still a circle when the worker stopped, so the first
+view was a ring with a hairball across it. 30 s, then an automatic fit. The stop
+button is there for a smaller graph that settles sooner.
+
+**D10.5 — the Address lane stack has to scale with the bank count.** At a fixed
+`ADDRESS_LANE_HEIGHT = 4096`, Wasteland_EF's sixty-odd EasyFlash banks stacked
+to four times the height of the 64 KiB address axis, and the whole memory map
+drew as a vertical string. The lane height is now derived from the lane count
+and capped at 30 % of the address span, so a four-lane project keeps exactly the
+geometry it had and a sixty-bank cartridge reads as what it is: one band across
+`$0300`–`$FF00` for RAM, and a tower of bank lanes standing on `$8000`–`$9FFF`.
+
+The lesson for the next spec of this shape: a render contract (a colour, a
+threshold, a lane height) is only tested by handing it to the renderer or by
+computing what the renderer will do with it. Reading the source proves the call
+was written, not that anything comes out visible.

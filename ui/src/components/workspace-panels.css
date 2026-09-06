@@ -1103,6 +1103,32 @@
 .graph-jump { margin-top: 8px; }
 .graph-jump + .graph-jump { margin-left: 6px; }
 .graph-muted { color: var(--muted); font-size: 12px; }
-.graph-lane-node.dimmed { opacity: 0.25; }
-.graph-lane-node.dangling .flow-node-rect { stroke-dasharray: 4 3; }
-.graph-svg { max-height: 70vh; }
+
+/* Spec 825 — the explorer: one canvas, four projections, an inspector that docks */
+.graph-views { display: flex; gap: 4px; }
+.graph-view { font-size: 12px; padding: 2px 10px; border-radius: 4px; border: 1px solid rgba(92, 92, 128, 0.35); background: transparent; cursor: pointer; color: inherit; }
+.graph-view.on { background: rgba(124, 108, 238, 0.28); border-color: rgba(124, 108, 238, 0.7); }
+.graph-kind-chips { align-items: center; }
+.graph-explorer { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 10px; min-height: 0; height: 72vh; }
+.graph-panel.docked .graph-explorer { grid-template-columns: minmax(0, 1fr) 560px; }
+@media (max-width: 1100px) { .graph-explorer { grid-template-columns: 1fr; height: auto; } }
+.graph-canvas-wrap { position: relative; min-width: 0; min-height: 320px; border: 1px solid rgba(92, 92, 128, 0.22); border-radius: 6px; background: rgba(7, 14, 24, 0.65); overflow: hidden; }
+.graph-canvas { position: absolute; inset: 0; }
+.graph-canvas-placeholder { display: flex; align-items: center; justify-content: center; min-height: 320px; }
+.graph-canvas-status { position: absolute; left: 10px; top: 8px; font-size: 12px; color: var(--muted); }
+.graph-canvas-controls { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 6px; }
+.graph-canvas-controls button { font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(92, 92, 128, 0.4); background: rgba(11, 22, 34, 0.85); color: inherit; cursor: pointer; }
+.graph-inspector { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; }
+.graph-legend { padding: 8px 10px; border: 1px solid rgba(92, 92, 128, 0.18); border-radius: 6px; background: rgba(11, 22, 34, 0.4); }
+.graph-legend h4 { margin: 0 0 6px; font-size: 13px; color: var(--accent-2); }
+.graph-legend-group { margin-bottom: 6px; font-size: 12px; }
+.graph-legend ul { list-style: none; margin: 2px 0 0; padding: 0; }
+.graph-legend button { text-align: left; font-size: 12px; background: transparent; border: 0; color: inherit; cursor: pointer; padding: 1px 0; }
+.graph-legend button.on { text-decoration: underline; color: var(--accent-2); }
+/* Spec 825 D4 — colour IS the community axis, so the legend has to carry it. */
+.graph-legend-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: baseline; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45); }
+/* D8 — the SAME AsmView, mounted beside the canvas instead of over the tab.
+   Nothing in AsmView changes; only where it mounts, and that is CSS. */
+.graph-dock { position: relative; min-height: 320px; flex: 1 1 auto; }
+.graph-dock .hex-overlay-backdrop { position: relative; inset: auto; background: none; padding: 0; display: block; }
+.graph-dock .hex-overlay.asm-overlay { width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; }

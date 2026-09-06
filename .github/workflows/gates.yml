@@ -82,3 +82,14 @@ jobs:
       # the network, so its gate must not either.
       - name: Reference coverage (Spec 828)
         run: npm run e2e:828
+
+      # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
+      # synthetic PRG with the bundled pipeline and seeds a temp project, and
+      # the explorer gate reads the built bundle plus the two pure lib files.
+      # No ROMs, no media, no assembler, no runtime daemon. (`measure:825` is
+      # NOT here: it needs a real project and it measures, it does not gate.)
+      - name: Graph subgraph route (Spec 825 D1)
+        run: npm run smoke:825-routes
+
+      - name: Graph explorer (Spec 825)
+        run: npm run smoke:825
