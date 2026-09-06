@@ -41,6 +41,7 @@ import type { DatabaseSync, StatementSync } from "../../platform-kb/sqlite-quiet
 import { deriveProjectId, IdRuleError, parseId, spaceForParsed, type Ctx } from "../ids.js";
 import { canonicalJson } from "../json.js";
 import { contextForArtifact } from "../producers/artifact.js";
+import { resolveAddressesIn } from "../producers/resolve.js";
 import type { Confidence, Layer, NodeRow, Origin } from "../schema.js";
 import { GraphStore, graphPath, readProjectSlug } from "../store.js";
 import { classifyEntity, classifyFinding, classifyQuestion, classifyRelation, confidenceForScore, normStem, type Classification } from "./classify.js";
@@ -540,6 +541,8 @@ export interface MigrationContext {
   writer: Writer;
   resolver: Resolver;
   summary: Pick<MigrateSummary, "nodesByKind" | "files">;
+  /** the open store `db` belongs to — the 826.0 RESOLVES_TO pass runs on it after an annotation file made data blocks */
+  store?: GraphStore;
 }
 
 export function payloadAttrs(e: EntityRecord): Record<string, unknown> | undefined {
@@ -879,10 +882,57 @@ export function applyLegacyRecords(ctx: MigrationContext, input: Omit<LegacyInpu
 
 // ------------------------------------------------------------------ *_annotations.json → human nodes + annotations (D6)
 
-export interface AnnotationFileResult extends FileSummary {
+/** Spec 826.0 T3/T4 — what the boundary rule did for one file's human nodes that have no generated twin. */
+export interface BoundaryCounts {
+  /** labels a generated routine of the owner contains → `CONTAINS` (T3) */
+  attached: number;
+  /** `data_block` nodes this file produced: every non-code segment, and every label outside all routines (T4) */
+  dataBlocks: number;
+  /** human routines that start strictly inside a generated routine → `STARTS_INSIDE` + `boundary: human-splits-generated` (T3) */
+  splits: number;
+  /** human routines outside every generated routine of the owner → `boundary: unseen-by-discovery` (T3) */
+  unseen: number;
+  /** twin-less nodes of a file whose owner has no generated routine at all — nothing was done to them */
+  unseededOwner: number;
+}
+
+export interface AnnotationFileResult extends FileSummary, BoundaryCounts {
   /** false when the file's hash equals the last import's (nothing re-read) */
   changed: boolean;
 }
+
+const BOUNDARY_RULE = "826.0-T3";
+/** a human `segment` of these kinds names code, not data — it gets no data_block */
+const CODE_SEGMENT_KINDS: ReadonlySet<string> = new Set(["code", "probable_code"]);
+
+interface GeneratedRoutine { id: string; address: number; end: number }
+
+/** 819's routines under one ctx with their extents; a routine without an extent covers only its start. */
+function generatedRoutinesIn(db: DatabaseSync, ctx: Ctx): GeneratedRoutine[] {
+  const rows = db.prepare("SELECT id, address, end_address FROM nodes WHERE layer = 'generated' AND kind = 'routine' AND space = ? AND owner IS ? AND bank IS ? ORDER BY address")
+    .all(ctx.space, ctx.owner ?? null, ctx.bank ?? null) as unknown as Array<{ id: string; address: number; end_address: number | null }>;
+  return rows.map((r) => ({ id: r.id, address: r.address, end: r.end_address ?? r.address }));
+}
+
+/**
+ * The generated routine holding `address` — the smallest extent wins, then the
+ * later start. `strict` excludes a routine's own start: a human routine at a
+ * generated start IS that routine (a twin), not a split of it.
+ */
+function containingRoutine(routines: GeneratedRoutine[], address: number, strict: boolean): GeneratedRoutine | undefined {
+  let best: GeneratedRoutine | undefined;
+  for (const r of routines) {
+    const inside = strict ? r.address < address && address <= r.end : r.address <= address && address <= r.end;
+    if (!inside) continue;
+    const span = r.end - r.address;
+    const bestSpan = best ? best.end - best.address : Number.POSITIVE_INFINITY;
+    if (!best || span < bestSpan || (span === bestSpan && r.address > best.address)) best = r;
+  }
+  return best;
+}
+
+/** One record the file parsed (before the ledger decided whether a draft is written) — the boundary rule works from these. */
+interface AnnotationRecord { kind: "routine" | "label" | "segment"; address: number; endAddress: number | null; name: string | null; segmentKind?: string }
 
 function annotationMeta(db: DatabaseSync, stem: string): { hash: string } | undefined {
   const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(`annotations_imported.${stem}`) as { value: string } | undefined;
@@ -906,6 +956,9 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
   const hash = sha256File(path);
   const previous = annotationMeta(db, stem);
   const changed = options.force === true || previous === undefined || previous.hash !== hash;
+  // 826.0 T4 — data blocks the file made earlier; if this run retires them the RESOLVES_TO pass must re-run even when it makes none
+  const priorDataBlocks = Number((db.prepare("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'human' AND kind = 'data_block' AND producer = ? AND json_extract(attrs, '$.source_path') = ?").get(migrated, rel) as { n: number }).n);
+  const retiring = previous !== undefined && changed && priorDataBlocks > 0;
   if (previous !== undefined && changed) {
     // the file changed since its last import: retire what the FILE put there, keep what the door wrote
     db.prepare("DELETE FROM annotations WHERE producer = ? AND source_path = ?").run(migrated, rel);
@@ -917,18 +970,21 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
   const analysisArtifact = artifacts.find((a) => (a.relativePath ?? a.path ?? "").endsWith(`${stem.replace(/_disasm$/u, "")}_analysis.json`));
   const actx: Ctx = analysisArtifact ? contextForArtifact(analysisArtifact, owner) : { space: "ram", owner };
   let parsed: { routines?: unknown[]; labels?: unknown[]; segments?: unknown[] };
+  const noBoundary: BoundaryCounts = { attached: 0, dataBlocks: 0, splits: 0, unseen: 0, unseededOwner: 0 };
   try { parsed = JSON.parse(readFileSync(path, "utf8")) as typeof parsed; } catch {
-    const fs: AnnotationFileResult = { stem, owner, path: rel, routines: 0, labels: 0, segments: 0, dropped: -1, changed };
+    const fs: AnnotationFileResult = { stem, owner, path: rel, routines: 0, labels: 0, segments: 0, dropped: -1, changed, ...noBoundary };
     ctx.summary.files.push(fs);
     return fs;
   }
-  const fs: AnnotationFileResult = { stem, owner, path: rel, routines: 0, labels: 0, segments: 0, dropped: 0, changed };
+  const fs: AnnotationFileResult = { stem, owner, path: rel, routines: 0, labels: 0, segments: 0, dropped: 0, changed, ...noBoundary };
   const fileNodeDrafts = new Map<string, NodeDraft>();
   const fileAnnotations = new Map<string, AnnotationRow>();
+  const fileRecords: AnnotationRecord[] = [];
   const fileLog: Array<[string, string, string]> = []; // store, id, node id
-  const put = (kind: string, address: number, endAddress: number | null, name: string | null, attrs: Record<string, unknown>, legacyId: string, annotation?: { kind: string; title: string; body: string | null; name: string | null }) => {
+  const put = (kind: AnnotationRecord["kind"], address: number, endAddress: number | null, name: string | null, attrs: Record<string, unknown>, legacyId: string, annotation?: { kind: string; title: string; body: string | null; name: string | null }) => {
     let id: string;
     try { id = deriveProjectId({ slug, ctx: actx, kind, address }); } catch { fs.dropped += 1; return; }
+    fileRecords.push({ kind, address, endAddress, name, segmentKind: typeof attrs.segment_kind === "string" ? attrs.segment_kind : undefined });
     if (ledger.already(ledgerStore, legacyId)) return;
     fileLog.push([ledgerStore, legacyId, id]);
     fileNodeDrafts.set(`${id} human`, {
@@ -970,6 +1026,56 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
   ctx.summary.files.push(fs);
   db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
     .run(`annotations_imported.${stem}`, JSON.stringify({ hash, mtimeMs: statSync(path).mtimeMs, importedAt: now, path: rel }));
+
+  // ---- 826.0 T3/T4 — the human nodes without a generated twin, by kind (computed
+  // before the drafts are written so a boundary attr is part of the row, not a
+  // second write). The rule is a pure function of (this file, the owner's 819
+  // routines): its edges are retired and re-derived on every run, its data_block
+  // nodes go through the ledger like every other row the file produces.
+  const boundaryEdges: EdgeDraft[] = [];
+  const boundaryAttrs = new Map<string, string>(); // human node id → attrs.boundary
+  db.prepare("DELETE FROM edges WHERE producer = ? AND json_extract(evidence, '$.source_path') = ?").run(migrated, rel);
+  const hasTwin = db.prepare("SELECT 1 FROM nodes WHERE id = ? AND layer = 'generated'");
+  const idOf = (kind: string, address: number): string | undefined => { try { return deriveProjectId({ slug, ctx: actx, kind, address }); } catch { return undefined; } };
+  const routines = fileRecords.length > 0 ? generatedRoutinesIn(db, actx) : [];
+  if (routines.length === 0) {
+    for (const r of fileRecords) { const id = idOf(r.kind, r.address); if (id && !hasTwin.get(id)) fs.unseededOwner += 1; }
+  } else {
+    const putDataBlock = (address: number, endAddress: number | null, name: string | null, attrs: Record<string, unknown>): void => {
+      const id = idOf("data_block", address);
+      if (!id) { fs.dropped += 1; return; }
+      const legacyId = `data_block:${hex4(address)}`;
+      if (ledger.already(ledgerStore, legacyId)) return;
+      const outcome = writer.node({ id, layer: "human", kind: "data_block", ctx: actx, address, endAddress, name, attrs: { ...attrs, source_path: rel, captured_at: now }, origin: "imported", confidence: "user_asserted", capturedAt: now, runOwner: null });
+      ledger.log(ledgerStore, legacyId, outcome === "created" ? "created" : "merged", "nodes", id, outcome === "kept" ? "kept-door-row" : null);
+      fs.dataBlocks += 1;
+    };
+    const edge = (from: string, type: string, to: string, evidence: Record<string, unknown>) =>
+      boundaryEdges.push({ from, type, to, layer: "human", origin: "imported", confidence: "inferred", owner: actx.owner ?? null, evidence: { rule: BOUNDARY_RULE, source_path: rel, ...evidence }, score: 0 });
+    // segments first: the ranged data_block outranks the point one a label at the same address would make
+    for (const r of fileRecords) {
+      if (r.kind !== "segment" || CODE_SEGMENT_KINDS.has(r.segmentKind ?? "")) continue;
+      const end = r.endAddress ?? r.address;
+      putDataBlock(r.address, r.endAddress, r.name ?? `${r.segmentKind ?? "unknown"} $${hex4U(r.address)}-$${hex4U(end)}`, { legacy_kind: "annotation-segment", segment_kind: r.segmentKind ?? "unknown" });
+    }
+    for (const r of fileRecords) {
+      if (r.kind === "segment") continue;
+      const id = idOf(r.kind, r.address);
+      if (!id || hasTwin.get(id)) continue; // a twin: the normal case, both layers at one id
+      if (r.kind === "label") {
+        const container = containingRoutine(routines, r.address, false);
+        if (container) { edge(container.id, "CONTAINS", id, {}); fs.attached += 1; continue; }
+        putDataBlock(r.address, null, r.name, { legacy_kind: "annotation-label", boundary: "data-outside-code" });
+        boundaryAttrs.set(id, "data-outside-code");
+      } else {
+        const container = containingRoutine(routines, r.address, true);
+        if (container) { edge(id, "STARTS_INSIDE", container.id, { container: container.id }); boundaryAttrs.set(id, "human-splits-generated"); fs.splits += 1; }
+        else { boundaryAttrs.set(id, "unseen-by-discovery"); fs.unseen += 1; }
+      }
+    }
+    for (const [id, value] of boundaryAttrs) { const d = fileNodeDrafts.get(`${id} human`); if (d) d.attrs = { ...d.attrs, boundary: value }; }
+  }
+
   const fileOutcome = new Map<string, string>();
   for (const [key, d] of fileNodeDrafts) fileOutcome.set(key, writer.node(d));
   for (const a of fileAnnotations.values()) writer.annotation(a);
@@ -981,6 +1087,19 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
     fileSeen.add(key);
     ledger.log(store, legacyId, first && outcome === "created" ? "created" : "merged", "nodes", id, outcome === "kept" ? "kept-door-row" : null);
   }
+  // a row this run did not (re)write — unchanged file, or a door-owned row — still carries the boundary it is in
+  const getAttrs = db.prepare("SELECT attrs FROM nodes WHERE id = ? AND layer = 'human'");
+  const setAttrs = db.prepare("UPDATE nodes SET attrs = ? WHERE id = ? AND layer = 'human'");
+  for (const [id, value] of boundaryAttrs) {
+    if (fileOutcome.get(`${id} human`) === "created" || fileOutcome.get(`${id} human`) === "merged") continue;
+    const row = getAttrs.get(id) as { attrs: string } | undefined;
+    if (!row) continue;
+    const attrs = JSON.parse(row.attrs) as Record<string, unknown>;
+    if (attrs.boundary === value) continue;
+    setAttrs.run(sortedJson({ ...attrs, boundary: value }), id);
+  }
+  for (const e of boundaryEdges) writer.edge(e);
+  if ((fs.dataBlocks > 0 || retiring) && ctx.store) resolveAddressesIn(ctx.store, { inTransaction: true });
   return fs;
 }
 
@@ -1068,7 +1187,7 @@ export function migrateProject(options: MigrateOptions): MigrateSummary {
     summary.runId = runId;
     const ledger = new Ledger(db, runId);
     const writer = new Writer(db);
-    const ctx: MigrationContext = { db, slug, now, ledger, writer, resolver, summary };
+    const ctx: MigrationContext = { db, slug, now, ledger, writer, resolver, summary, store };
     applyLegacyRecords(ctx, input);
     for (const path of input.annotationFiles) applyAnnotationFile(ctx, projectDir, path, input.artifacts);
     finishRun(db, store, ledger, summary, now);
@@ -1206,7 +1325,7 @@ export function importAnnotationFile(path: string, options: ImportAnnotationFile
     const ledger = new Ledger(db, runId);
     const writer = new Writer(db);
     const resolver = new Resolver(slug, artifacts, [], graphPayloads(db));
-    result = applyAnnotationFile({ db, slug, now, ledger, writer, resolver, summary }, projectDir, path, artifacts, { force: options.force });
+    result = applyAnnotationFile({ db, slug, now, ledger, writer, resolver, summary, store }, projectDir, path, artifacts, { force: options.force });
     finishRun(db, store, ledger, summary, now);
     if (inTx) db.exec("COMMIT");
   } catch (error) {

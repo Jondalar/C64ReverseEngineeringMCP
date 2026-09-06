@@ -416,6 +416,59 @@ let stderr = "";
 try { execFileSync(process.execPath, [join(ROOT, "dist/cli.js"), "graph", "stats", "--project", project, "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }); }
 catch (e) { stderr = String(e.stderr ?? e.message); }
 check(stderr === "", "c64re graph stats on the migrated graph: stderr empty");
+
+// ---------------------------------------------------------------- 7. 826.0 T3/T4 — the boundary rule over the seeded owners
+//
+// The migration in §1 ran on a graph with no 819 routine at all (the temp copy starts
+// from JSON), so every owner was unseeded there and the rule touched nothing — the §1
+// counts stay what they are. Here every _analysis.json the fixture has is seeded (the
+// 18 owners WL1 carried on 2026-09-06), then the 16 annotation files are re-imported
+// (force) so the rule judges them against real extents.
+{
+  const { importAnnotationFile } = await import(join(ROOT, "dist/knowledge-graph/migrate/migrate.js"));
+  const { boundaries, boundaryEntries, formatBoundaries } = await import(join(ROOT, "dist/knowledge-graph/query-boundaries.js"));
+  const analysisFiles = findFiles(WASTELAND, "_analysis.json");
+  const tSeed = process.hrtime.bigint();
+  let seeded = 0;
+  for (const src of analysisFiles) {
+    const dst = join(project, relative(WASTELAND, src));
+    mkdirSync(dirname(dst), { recursive: true });
+    copyFileSync(src, dst);
+    try { seedControlFlow({ projectDir: project, analysisPath: dst }); seeded += 1; }
+    catch (e) { info(`819 seed ${src.replace(/^.*\//, "")} failed: ${String(e.message).slice(0, 120)}`); }
+  }
+  info(`819 seeded ${seeded}/${analysisFiles.length} analysis files in ${(Number(process.hrtime.bigint() - tSeed) / 1e6).toFixed(0)} ms`);
+  const tImp = process.hrtime.bigint();
+  const results = annotationFiles.map((src) => importAnnotationFile(join(project, relative(WASTELAND, src)), { projectDir: project, force: true }));
+  const msImp = Number(process.hrtime.bigint() - tImp) / 1e6;
+  // two files carry the same owner with the same content (block2_engine_0200 + _disasm, block3_game_7E00 + _disasm):
+  // the graph holds their rows once, so the counts are summed per distinct owner (the larger file speaks for it)
+  const perOwner = new Map();
+  for (const r of results) { const p = perOwner.get(r.owner); if (!p || r.routines + r.labels + r.segments > p.routines + p.labels + p.segments) perOwner.set(r.owner, r); }
+  const sum = (k) => [...perOwner.values()].reduce((a, r) => a + r[k], 0);
+  const counts = { attached: sum("attached"), dataBlocks: sum("dataBlocks"), splits: sum("splits"), unseen: sum("unseen"), unseededOwner: sum("unseededOwner") };
+  info(`826.0 T3/T4 over ${results.length} files / ${perOwner.size} owners (${msImp.toFixed(0)} ms, force): ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(" ")}`);
+  for (const r of results) info(`  ${r.stem.padEnd(40)} attached=${String(r.attached).padStart(3)} dataBlocks=${String(r.dataBlocks).padStart(3)} splits=${String(r.splits).padStart(3)} unseen=${String(r.unseen).padStart(3)} unseededOwner=${String(r.unseededOwner).padStart(3)}`);
+  check(results.every((r) => r.changed && r.dropped === 0), "every file re-imported (changed=true, nothing dropped)");
+  check(counts.splits + counts.unseen >= 20, `splits + unseen = ${counts.splits + counts.unseen} (>= 20; WL1 measured 28)`);
+  check(counts.attached > 0 && counts.dataBlocks > 0, `labels attached (${counts.attached}) and data blocks made (${counts.dataBlocks})`);
+  const g7 = Graph.open(project);
+  const b = boundaries(g7);
+  const unseeded = b.unseededOwners.map((o) => o.owner);
+  check(unseeded.includes("block2_engine_0200_0a00_0fff") && unseeded.includes("block2_engine_0200_2600"), `boundaries().unseededOwners names the two never-seeded owners: ${b.unseededOwners.map((o) => `${o.owner}(${o.humanNodes})`).join(", ")}`);
+  eq(counts.unseededOwner, [...perOwner.values()].filter((r) => unseeded.includes(r.owner)).reduce((a, r) => a + r.routines + r.labels + r.segments, 0), "unseededOwner = every node of the never-seeded files");
+  eq(b.splits.length, counts.splits, "boundaries().splits agrees with the import counts");
+  eq(b.unseen.length, counts.unseen, "boundaries().unseen agrees with the import counts");
+  const entries = boundaryEntries(g7);
+  check(entries.length > 0 && entries.length <= counts.unseen && entries.every((e) => /^\$[0-9A-F]{4}$/.test(e)) && entries.join() === [...entries].sort().join(), `boundaryEntries(): ${entries.length} entry_points, $XXXX, sorted (${entries.slice(0, 6).join(" ")}${entries.length > 6 ? " …" : ""})`);
+  const zone = g7.store.db.prepare("SELECT id, address, end_address, attrs FROM nodes WHERE layer = 'human' AND kind = 'data_block' AND name = 'zone_sector_interleave_tbl'").all();
+  check(zone.length === 1 && zone[0].address === 0xfdd4 && zone[0].end_address === 0xfdff && /reloc_fc00:data_block:fdd4$/.test(zone[0].id) && JSON.parse(zone[0].attrs).segment_kind === "lookup_table", `the segment zone_sector_interleave_tbl produced ${zone[0]?.id} $FDD4-$FDFF (lookup_table)`);
+  check(!g7.store.db.prepare("SELECT 1 FROM nodes WHERE layer = 'human' AND kind = 'data_block' AND json_extract(attrs, '$.legacy_kind') = 'annotation-segment' AND json_extract(attrs, '$.segment_kind') IN ('code', 'probable_code')").get(), "no data_block was made for a code segment");
+  const sample = b.splits.slice(0, 3).map((s) => `${s.name}@$${s.address.toString(16).toUpperCase()} inside ${s.container.name}`).join("; ");
+  info(`splits sample: ${sample}`);
+  console.log(formatBoundaries(b).split("\n").filter((l) => !l.startsWith("  ") || /^  \$/.test(l)).slice(0, 40).map((l) => `        ${l}`).join("\n"));
+  g7.close();
+}
 const total = Number(process.hrtime.bigint() - t0) / 1e6;
 check(total < 180_000, `whole gate in ${(total / 1000).toFixed(1)} s`);
 

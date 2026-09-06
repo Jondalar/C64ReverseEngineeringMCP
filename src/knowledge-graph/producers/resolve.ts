@@ -48,14 +48,24 @@ export function resolveAddressesIn(store: GraphStore, options: { inTransaction?:
     del.run(RESOLVE_PRODUCER);
     for (const a of addrs) {
       const rows = candidates.all(a.address, a.space, a.bank, a.bank) as unknown as CandRow[];
-      const ids = [...new Set(rows.map((r) => r.id))].filter((id) => id !== a.id);
+      const all = [...new Set(rows.map((r) => r.id))].filter((id) => id !== a.id);
+      // Precedence by kind: a jsr into $2000 means the ROUTINE there even when a
+      // human label sits on the same address; a named table (data_block, 826.0
+      // T4) outranks the label at its first byte. Ambiguous only within the
+      // highest kind present.
+      const kindOf = (id: string) => rows.find((r) => r.id === id)!.kind;
+      let ids: string[] = [];
+      for (const kind of ["routine", "data_block", "label"]) {
+        ids = all.filter((id) => kindOf(id) === kind);
+        if (ids.length > 0) break;
+      }
       if (ids.length === 1) {
         const target = ids[0]!;
         const cand = rows.find((r) => r.id === target)!;
-        ins.run(a.id, target, RESOLVE_PRODUCER, JSON.stringify({ rule: "826.0-T2", candidates: 1, kind: cand.kind, layer: cand.layer }));
+        ins.run(a.id, target, RESOLVE_PRODUCER, JSON.stringify({ rule: "826.0-T2", candidates: all.length, kind: cand.kind, layer: cand.layer }));
         resolved += 1;
       } else if (ids.length > 1) {
-        ambiguous.push({ id: a.id, candidates: ids });
+        ambiguous.push({ id: a.id, candidates: all });
       }
     }
     store.setMeta("resolve.ambiguous", JSON.stringify(ambiguous));

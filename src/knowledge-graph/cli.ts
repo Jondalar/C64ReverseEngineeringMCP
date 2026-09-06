@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { seedControlFlow } from "./producers/control-flow.js";
 import { seedMemoryAccess } from "./producers/memory-access.js";
 import { resolveAddresses } from "./producers/resolve.js";
+import { boundaries, boundaryEntries, formatBoundaries } from "./query-boundaries.js";
 import { importRuntimeTrace, removeRuntimeRun } from "./producers/runtime.js";
 import { irqHandlers, pointerTargets, runs as listRuns, runtimeObservations, unconfirmed, unexplained } from "./query-runtime.js";
 import { importAnnotationFile, migrateProject } from "./migrate/migrate.js";
@@ -35,6 +36,7 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   uses-kernal <name|$addr>      callers of a platform ROM node (CHROUT, $FFD2)
   seed [--owner <stem>]         run the producers (819 control flow, 820 memory access, 826.0 resolve) over every _analysis.json (or one)
   resolve                       826.0 T2: the project-wide RESOLVES_TO pass (addr aliases → the one routine/label/data block at that address)
+  boundaries [--entries]        826.0 T3/T4: where a human drew a routine boundary 819 did not (splits, unseen, data outside code); --entries prints the unseen starts for analyze_prg
   zp-usage <routine-id>         ZP addresses a routine touches, by role
   uses-hardware <$addr|name>    routines touching a register, READS/WRITES split
   indirect <routine-id|$zp>     the *_INDIRECT edges — the unknowns, as unknowns
@@ -139,6 +141,15 @@ export async function runGraphCli(argv: string[]): Promise<void> {
   if (args.verb === "resolve") {
     const r = resolveAddresses(args.project);
     out(`addr nodes=${r.addrNodes} RESOLVES_TO=${r.resolved} ambiguous=${r.ambiguous} ${r.ms.toFixed(0)}ms`, r);
+    return;
+  }
+  if (args.verb === "boundaries") {
+    const g = Graph.open(args.project);
+    try {
+      if (argv.includes("--entries")) { const e = boundaryEntries(g); out(e.join("\n") || "(none)", e); return; }
+      const r = boundaries(g);
+      out(formatBoundaries(r), r);
+    } finally { g.close(); }
     return;
   }
 
