@@ -20,7 +20,7 @@ import { AnnotationsIndex, buildAnnotationsIndex, loadAnnotations } from "./anno
 import { buildEffectiveSegments, type AnnotationSegmentOverlay } from "./effective-segments";
 import { convertKickAsmToTass } from "./tass-converter";
 import { findC64IoMetadata, formatC64IoAddress, isC64IoAddress } from "./c64-symbols";
-import { getPlatformOverrides, type PlatformTag } from "../platform-knowledge/index";
+import { platformNode, type PlatformTag } from "./platform-kb";
 
 // Spec 048: per-render platform override. Set at the top of
 // disassemblePrgToKickAsm; consulted by the comment generators.
@@ -419,7 +419,7 @@ function commentTextFromTarget(targetAddress: number | undefined): string {
     return "";
   }
 
-  const metadata = findC64IoMetadata(targetAddress);
+  const metadata = findC64IoMetadata(targetAddress, activePlatform);
   if (!metadata) {
     return "";
   }
@@ -451,18 +451,9 @@ const MNEMONIC_DESCRIPTIONS: Record<string, string> = {
   bvs: "branch if overflow", bvc: "branch if no overflow",
 };
 
-const C64_KERNAL: Record<number, string> = {
-  0xFFD2: "CHROUT (print char)", 0xFFCF: "CHRIN (read char)", 0xFFE4: "GETIN (get key)",
-  0xFFE1: "STOP (check stop key)", 0xFFCC: "CLRCHN (clear channels)",
-  0xFF81: "CINT (init screen)", 0xFFA5: "ACPTR (serial in)", 0xFFA8: "CIOUT (serial out)",
-  0xFFBA: "SETLFS", 0xFFBD: "SETNAM", 0xFFC0: "OPEN", 0xFFC3: "CLOSE",
-  0xFFD5: "LOAD", 0xFFD8: "SAVE", 0xEA81: "KERNAL IRQ return",
-};
-
-const ZP_COMMON: Record<number, string> = {
-  0x01: "CPU port (ROM/IO banking)",
-  0x00: "CPU DDR",
-};
+// Spec 817: the KERNAL and zero-page tables that lived here were two of the four
+// disagreeing copies of "what is at this address". Names come from the platform
+// knowledge store now (./platform-kb); nothing in this file names an address.
 
 function generateInstructionComment(
   instruction: InstructionFact,
@@ -477,7 +468,7 @@ function generateInstructionComment(
 
   // 1. IO register comment (existing behavior, but we extend it)
   if (target !== undefined) {
-    const ioMeta = findC64IoMetadata(target);
+    const ioMeta = findC64IoMetadata(target, activePlatform);
     if (ioMeta) {
       // For stores: try to include the value being written
       if (mnem.startsWith("st") && prevInstruction) {
@@ -498,12 +489,9 @@ function generateInstructionComment(
 
   // 2. KERNAL call (or platform-specific ROM symbol — Spec 048)
   if ((mnem === "jsr" || mnem === "jmp") && target !== undefined) {
-    const overrides = getPlatformOverrides(activePlatform);
-    if (overrides.rom[target]) {
-      return `// ${overrides.rom[target]}`;
-    }
-    if (C64_KERNAL[target]) {
-      return `// ${C64_KERNAL[target]}`;
+    const rom = platformNode(activePlatform, target);
+    if (rom && rom.kind === "rom") {
+      return `// ${rom.label}`;
     }
     // Spec 759 P2 — a call/jump that leaves THIS file resolves to the owning
     // artifact's label via the cross-artifact index (shift-left): `jsr $022a`
@@ -525,14 +513,10 @@ function generateInstructionComment(
 
   // 3. Zero-page stores/loads with known meaning (platform overlay first)
   if (mode === "zp" && operand !== undefined) {
-    const overrides = getPlatformOverrides(activePlatform);
-    if (overrides.zp[operand]) {
+    const zp = platformNode(activePlatform, operand);
+    if (zp && zp.kind === "zp") {
       const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
-      return `// ${desc} ${overrides.zp[operand]}`;
-    }
-    if (ZP_COMMON[operand]) {
-      const desc = MNEMONIC_DESCRIPTIONS[mnem] ?? mnem;
-      return `// ${desc} ${ZP_COMMON[operand]}`;
+      return `// ${desc} ${zp.label}`;
     }
   }
 

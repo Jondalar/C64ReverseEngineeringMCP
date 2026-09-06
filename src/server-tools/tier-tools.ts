@@ -59,7 +59,10 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "extract_disk", "extract_crt", "disk_sector_allocation",
   // Record knowledge
   "save_finding", "save_entity", "save_open_question", "propose_annotations",
-  "import_annotations_as_findings", "link_payload_to_asm", "link_entities",
+  // Spec 822.2: import_annotations_as_findings retired — the annotations file is
+  // a door into the graph (D6): disasm_prg imports it, `c64re graph annotations-import`
+  // for a file disasm_prg never saw.
+  "link_payload_to_asm", "link_entities",
   // BUG-024 — register a carved code-derived/custom-loader block as a first-class
   // payload (load addr + format + source .prg + medium spans) so it renders on the
   // disk/memory views like a CBM/LUT-extracted payload. Common in cracks.
@@ -150,6 +153,9 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Spec 740.1 — Project Wiki + Knowledge Retrieval. The normal "where is X?"
   // entry point + neighbour walk + index rebuild + wiki coverage lint.
   "project_search", "project_find_related", "project_reindex_search", "project_wiki_lint",
+  // Spec 823 — the knowledge graph's five doors (817–822 build the graph; these
+  // are the only tools over it). Thin by gate: parse → one library call → format.
+  "graph_find", "graph_node", "graph_edges", "graph_path", "graph_overview",
   // Spec 748 (BUG-032) — persistent project STEERING (the steering-file analogue):
   // always-apply rules injected at the top of agent_onboard every session.
   "project_steering_set",
@@ -252,8 +258,15 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * mean hand-driving mount, type, joystick, run and screenshot in a loop, one call
  * per waypoint, and getting a different result each time. One door that takes the
  * whole schedule is less surface for an agent to hold, not more — and there is no
- * other tool where an input carries its own duration. */
-export const DEFAULT_TIER_CAP = 151;
+ * other tool where an input carries its own duration.
+ * 2026-09-06 raised 151→156 for the five graph_* tools (Spec 823). The cap was
+ * FULL, so this is said plainly: five tools that answer "who calls / who writes /
+ * what does this touch / is there a path / where are the unknowns" from an index
+ * replace the loop of read_artifact + inspect_address_range + a 5 000-line
+ * listing that an agent runs today to answer the same question by hand. Less
+ * surface to hold per question, not more — the runtime_scene_reel argument. If
+ * 151 must hold, 823 OQ1 names project_wiki_lint as the demotion candidate. */
+export const DEFAULT_TIER_CAP = 156;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";

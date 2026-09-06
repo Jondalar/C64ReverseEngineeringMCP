@@ -694,7 +694,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // producer fix that populates top-level addressRange.
   server.tool(
     "backfill_finding_address_ranges",
-    "Bug 28: walk findings.json and copy evidence[0].addressRange to top-level addressRange when missing. One-shot migration for projects whose hypothesis findings only have evidence-level ranges. Returns count updated. Idempotent.",
+    "Bug 28: walk the findings and copy evidence[0].addressRange to top-level addressRange when missing. One-shot migration for projects whose hypothesis findings only have evidence-level ranges. Returns count updated. Idempotent.",
     { project_dir: z.string().optional() },
     safeHandler("backfill_finding_address_ranges", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
@@ -707,7 +707,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // producer fix populating addressRange (inherited from parent finding).
   server.tool(
     "backfill_question_address_ranges",
-    "Bug 29: walk open-questions.json and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing. One-shot migration. Returns count updated. Idempotent.",
+    "Bug 29: walk the open questions and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing. One-shot migration. Returns count updated. Idempotent.",
     { project_dir: z.string().optional() },
     safeHandler("backfill_question_address_ranges", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));

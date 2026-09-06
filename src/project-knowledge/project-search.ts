@@ -1,9 +1,10 @@
 // Spec 740.1 — Project Wiki + Knowledge Retrieval MVP.
 //
 // A deterministic, project-local search index over the curated wiki (docs/*.md,
-// knowledge/notes.md, CLAUDE.md), the structured knowledge stores
-// (findings/entities/relations/flows/open-questions/artifacts/artifact-versions),
-// selected views, and ASM/TASS section headers. NO embeddings, NO vector DB, NO
+// knowledge/notes.md, CLAUDE.md), the structured knowledge stores (findings /
+// entities / relations / open-questions from the graph — Spec 822 D10 — plus
+// flows / artifacts / artifact-versions from JSON), selected views, and ASM/TASS
+// section headers. NO embeddings, NO vector DB, NO
 // network. The cache is a navigation aid; the raw sources stay authoritative.
 //
 // The index indexes SMALL records (markdown sections, one record per structured
@@ -12,6 +13,8 @@
 
 import { existsSync, readFileSync, readdirSync, statSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, relative, basename, extname } from "node:path";
+import { ensureCutover } from "../knowledge-graph/cutover.js";
+import { KnowledgeRecords } from "../knowledge-graph/records.js";
 
 export type ProjectSearchKind =
   | "finding" | "open_question" | "entity" | "relation" | "flow"
@@ -324,10 +327,43 @@ export function buildProjectSearchIndex(projectDir: string): ProjectSearchIndex 
     } as ProjectSearchRecord;
   }));
 
-  storeRec(join("knowledge", "findings.json"), "finding", (f) => ({ id: f.id, title: f.title ?? f.id, summary: f.summary ?? "", rankHints: { manual: true } }));
-  storeRec(join("knowledge", "open-questions.json"), "open_question", (q) => ({ id: q.id, title: q.title ?? q.id, summary: q.summary ?? "", rankHints: { manual: true } }));
-  storeRec(join("knowledge", "entities.json"), "entity", (e) => ({ id: e.id, title: e.name ?? e.id, summary: e.summary ?? e.description ?? "", artifactIds: e.artifactIds ?? [], entityIds: [e.id], rankHints: { manual: true, internal: e.internal === true } }));
-  storeRec(join("knowledge", "relations.json"), "relation", (rl) => ({ id: rl.id, title: rl.title ?? `${rl.kind}: ${rl.sourceEntityId} → ${rl.targetEntityId}`, summary: rl.summary ?? "", entityIds: [rl.sourceEntityId, rl.targetEntityId].filter(Boolean), relationIds: [rl.id], rankHints: { manual: true } }));
+  // Spec 822 D10 — findings, open questions, entities and relations are read from
+  // the graph (knowledge/graph.sqlite), projected into the record shape this index
+  // has always taken; human rows rank `manual`, generated rows `generated`. A
+  // project still carrying the legacy JSON is cut over first (Spec 822.2).
+  const graphRec = (
+    kind: ProjectSearchKind, items: any[], sourcePath: string,
+    map: (rec: any) => Partial<ProjectSearchRecord> & { id: string; title: string },
+  ) => {
+    try {
+      for (const rec of items) {
+        const base = map(rec);
+        const summary = clip(base.summary ?? "", 200);
+        const addr = base.addressRange ?? addrRangeOf(rec);
+        records.push({
+          kind, summary, snippet: clip(base.summary ?? summary, 240),
+          tags: base.tags ?? rec.tags ?? [],
+          addressRange: addr,
+          artifactIds: base.artifactIds ?? rec.artifactIds ?? [],
+          entityIds: base.entityIds ?? rec.entityIds ?? [],
+          relationIds: base.relationIds ?? rec.relationIds ?? [],
+          sourcePath, updatedAt: rec.updatedAt,
+          rankHints: base.rankHints,
+          addrTokens: tokensForRecord(base.title, summary, "", addr),
+          ...base,
+        } as ProjectSearchRecord);
+      }
+      if (!sourcesRead.includes(sourcePath)) sourcesRead.push(sourcePath);
+    } catch (e) { warnings.push(`${sourcePath} (${kind}): ${e instanceof Error ? e.message : String(e)}`); }
+  };
+  const GRAPH = join("knowledge", "graph.sqlite");
+  try { ensureCutover(root); } catch (e) { warnings.push(`${GRAPH}: cut-over failed: ${e instanceof Error ? e.message : String(e)}`); }
+  const graph = new KnowledgeRecords(root);
+  const generated = (rec: { tags?: string[]; id?: string }) => (rec.tags ?? []).some((t) => t === "analysis-import" || t === "manifest-import" || t === "inventory-import") || String(rec.id ?? "").startsWith("claim:");
+  graphRec("finding", graph.listFindings(), GRAPH, (f) => ({ id: f.id, title: f.title ?? f.id, summary: f.summary ?? "", rankHints: generated(f) ? { generated: true } : { manual: true } }));
+  graphRec("open_question", graph.listOpenQuestions(), GRAPH, (q) => ({ id: q.id, title: q.title ?? q.id, summary: q.description ?? "", rankHints: q.source === "static-analysis" || q.source === "heuristic-phase1" ? { generated: true } : { manual: true } }));
+  graphRec("entity", graph.listEntities(), GRAPH, (e) => ({ id: e.id, title: e.name ?? e.id, summary: e.summary ?? "", artifactIds: e.artifactIds ?? [], entityIds: [e.id], rankHints: { ...(generated(e) ? { generated: true } : { manual: true }), internal: e.internal === true } }));
+  graphRec("relation", graph.listRelations(), GRAPH, (rl) => ({ id: rl.id, title: rl.title ?? `${rl.kind}: ${rl.sourceEntityId} → ${rl.targetEntityId}`, summary: rl.summary ?? "", entityIds: [rl.sourceEntityId, rl.targetEntityId].filter(Boolean), relationIds: [rl.id], rankHints: { manual: true } }));
   storeRec(join("knowledge", "flows.json"), "flow", (fl) => ({ id: fl.id, title: fl.title ?? fl.id, summary: fl.summary ?? "", rankHints: { manual: true } }));
   storeRec(join("knowledge", "artifacts.json"), "artifact", (art) => {
     const vinfo = versionByArtifact.get(art.id);

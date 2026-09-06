@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 260,
-  "defaultCount": 150,
+  "total": 265,
+  "defaultCount": 155,
   "advancedCount": 110,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -1095,6 +1095,103 @@
       "pathMode": "no-path"
     },
     {
+      "name": "graph_edges",
+      "namespace": "graph",
+      "sourceFile": "server-tools/graph-tools.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Callers, callees, readers, writers, references, ROM/ZP/hardware use, indirect accesses — direction × kind × origin.",
+      "notFor": "A route between two nodes — use graph_path.",
+      "adjacentTools": [
+        "graph_node",
+        "graph_path",
+        "inspect_address_range"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "graph_find",
+      "namespace": "graph",
+      "sourceFile": "server-tools/graph-tools.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Resolve a name, address, register or ROM entry to graph nodes with stable ids — the start of any structural question.",
+      "notFor": "Where a topic is described in prose — use project_search.",
+      "adjacentTools": [
+        "graph_node",
+        "graph_edges",
+        "project_search"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "graph_node",
+      "namespace": "graph",
+      "sourceFile": "server-tools/graph-tools.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "disassembly-improve",
+      "useWhen": "The card for one node: label vs human name, edge counts, hardware/ROM/ZP touched, runtime observation.",
+      "notFor": "Walking the neighbourhood — use graph_edges.",
+      "adjacentTools": [
+        "graph_find",
+        "graph_edges"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "graph_overview",
+      "namespace": "graph",
+      "sourceFile": "server-tools/graph-tools.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "The structural map of a project: entries, IRQ handlers, banking sites, hot hardware/ROM/ZP, unresolved indirect accesses.",
+      "notFor": "One node — use graph_node.",
+      "adjacentTools": [
+        "graph_find",
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "graph_path",
+      "namespace": "graph",
+      "sourceFile": "server-tools/graph-tools.ts",
+      "tier": "default",
+      "role": "knowledge-read",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Shortest control-flow path between two nodes with per-hop evidence.",
+      "notFor": "A node's direct edges — use graph_edges.",
+      "adjacentTools": [
+        "graph_edges",
+        "graph_find"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "import_analysis_report",
       "namespace": "import",
       "sourceFile": "project-knowledge/mcp-tools.ts",
@@ -1106,25 +1203,6 @@
       "adjacentTools": [],
       "e2eUseCases": [],
       "keepDecision": "keep-advanced",
-      "pathMode": "no-path"
-    },
-    {
-      "name": "import_annotations_as_findings",
-      "namespace": "import",
-      "sourceFile": "server-tools/analysis-workflow.ts",
-      "tier": "default",
-      "role": "knowledge-write",
-      "swimlane": "disassembly-improve",
-      "useWhen": "Promote annotation routine docs into durable findings.",
-      "notFor": "Drafting annotations — use propose_annotations.",
-      "adjacentTools": [
-        "propose_annotations",
-        "save_finding"
-      ],
-      "e2eUseCases": [
-        "E2E-C"
-      ],
-      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {
@@ -2036,7 +2114,7 @@
       "notFor": "Applying + rebuilding — use disasm_prg with annotations.",
       "adjacentTools": [
         "disasm_prg",
-        "import_annotations_as_findings"
+        "save_finding"
       ],
       "e2eUseCases": [
         "E2E-C"
@@ -3582,6 +3660,24 @@
       "keepDecision": "keep-advanced",
       "pathMode": "repo-dev-only",
       "useInstead": "runtime_session_start"
+    },
+    {
+      "name": "runtime_scene_reel",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/scene-reel.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "runtime_session_close",

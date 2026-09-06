@@ -1,9 +1,113 @@
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
 import { loadEffectiveSegments, overlayCovering } from "../project-knowledge/effective-segments.js";
+import { platformKb } from "../platform-kb/read.js";
+import { parseId } from "../knowledge-graph/ids.js";
+import { GraphStore, graphPath } from "../knowledge-graph/store.js";
+import { ownerFromAnalysisPath, seedControlFlow } from "../knowledge-graph/producers/control-flow.js";
+import { seedMemoryAccess } from "../knowledge-graph/producers/memory-access.js";
+
+// Spec 820.2 (D7) — the two walks of this file (VIC-register stores, xrefs into
+// the range) read the project graph's 819/820 rows. The JSON walk survives
+// under `source: "json"` for the parity gate only; an absent graph is seeded
+// on demand when the project can be seeded, and otherwise SAID, never silent.
+
+interface GraphRefEdge {
+  type: string;
+  to: string;
+  target: number;
+  pc: number;
+  mnemonic: string;
+  addressingMode: string;
+  provenance?: string;
+  indexed: boolean;
+  viaZp?: number;
+  pointerZp?: number;
+}
+
+interface ProjectGraphView {
+  status: "graph" | "graph-seeded" | "absent";
+  owner: string;
+  note: string;
+  edges: GraphRefEdge[];
+}
+
+const REF_EDGE_TYPES = ["CALLS", "CALLS_ROM", "JUMPS_TO", "BRANCHES_TO", "READS", "WRITES", "READS_INDIRECT", "WRITES_INDIRECT", "REFERENCES_DATA"] as const;
+const REF_LABEL: Record<string, string> = {
+  CALLS: "call", CALLS_ROM: "call", JUMPS_TO: "jump", BRANCHES_TO: "branch",
+  READS: "read", WRITES: "write", READS_INDIRECT: "read-indirect", WRITES_INDIRECT: "write-indirect", REFERENCES_DATA: "data",
+};
+
+function findProjectDirUp(analysisPath: string): string | undefined {
+  let dir = dirname(resolve(analysisPath));
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (existsSync(join(dir, "knowledge"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
+function readOwnerEdges(projectDir: string, owner: string): GraphRefEdge[] {
+  const store = GraphStore.open(projectDir, { readOnly: true });
+  try {
+    const rows = store.db
+      .prepare(
+        `SELECT type, to_id, evidence FROM edges WHERE layer = 'generated' AND owner = ? AND producer IN ('819','820') AND type IN (${REF_EDGE_TYPES.map(() => "?").join(",")}) ORDER BY from_id, type, to_id, evidence_key`,
+      )
+      .all(owner, ...REF_EDGE_TYPES) as Array<{ type: string; to_id: string; evidence: string }>;
+    const edges: GraphRefEdge[] = [];
+    for (const row of rows) {
+      let target: number;
+      try {
+        const parsed = parseId(row.to_id);
+        if (parsed.form === "subsystem") continue;
+        target = parsed.address;
+      } catch { continue; }
+      const ev = JSON.parse(row.evidence) as Record<string, unknown>;
+      if (typeof ev.source_address !== "number") continue;
+      edges.push({
+        type: row.type, to: row.to_id, target, pc: ev.source_address,
+        mnemonic: String(ev.mnemonic ?? "").toLowerCase(), addressingMode: String(ev.addressing_mode ?? ""),
+        provenance: typeof ev.provenance === "string" ? ev.provenance : undefined, indexed: ev.indexed === true,
+        viaZp: typeof ev.via_zp === "number" ? ev.via_zp : undefined, pointerZp: typeof ev.pointer_zp === "number" ? ev.pointer_zp : undefined,
+      });
+    }
+    return edges;
+  } finally {
+    store.close();
+  }
+}
+
+/** The project graph for this analysis' owner: read it, else seed it on demand, else say why not. */
+export function resolveProjectGraph(analysisPath: string, projectDir?: string): ProjectGraphView {
+  const owner = ownerFromAnalysisPath(analysisPath);
+  const dir = projectDir ?? findProjectDirUp(analysisPath);
+  if (!dir) return { status: "absent", owner, edges: [], note: `Graph: ABSENT — no project directory (knowledge/) above ${analysisPath}; VIC program and xrefs rendered from the JSON walk.` };
+  const path = graphPath(dir);
+  let edges: GraphRefEdge[] = [];
+  if (existsSync(path)) {
+    try { edges = readOwnerEdges(dir, owner); } catch (error) {
+      return { status: "absent", owner, edges: [], note: `Graph: ABSENT — ${path} could not be read (${error instanceof Error ? error.message : String(error)}); VIC program and xrefs rendered from the JSON walk.` };
+    }
+    if (edges.length > 0) return { status: "graph", owner, edges, note: `Graph: ${path} owner=${owner} (819+820, ${edges.length} reference edges)` };
+  }
+  if (!existsSync(join(dir, "knowledge", "project.json"))) {
+    return { status: "absent", owner, edges: [], note: `Graph: ABSENT — ${existsSync(path) ? `${path} holds no rows for owner ${owner}` : `no ${path}`} and no knowledge/project.json in ${dir} to seed from (project_init); VIC program and xrefs rendered from the JSON walk.` };
+  }
+  try {
+    seedControlFlow({ projectDir: dir, analysisPath, owner });
+    seedMemoryAccess({ projectDir: dir, analysisPath, owner });
+    edges = readOwnerEdges(dir, owner);
+  } catch (error) {
+    return { status: "absent", owner, edges: [], note: `Graph: ABSENT — seeding owner ${owner} on demand failed (${error instanceof Error ? error.message : String(error)}); VIC program and xrefs rendered from the JSON walk.` };
+  }
+  return { status: "graph-seeded", owner, edges, note: `Graph: seeded on demand (819+820) into ${path} for owner ${owner} (${edges.length} reference edges)` };
+}
 
 interface AnalysisInstruction {
   address: number;
@@ -44,37 +148,16 @@ interface AnalysisReport {
   };
 }
 
-const VIC_REGS: Record<number, string> = {
-  0xd000: "sprite0_x", 0xd001: "sprite0_y", 0xd002: "sprite1_x", 0xd003: "sprite1_y",
-  0xd004: "sprite2_x", 0xd005: "sprite2_y", 0xd006: "sprite3_x", 0xd007: "sprite3_y",
-  0xd008: "sprite4_x", 0xd009: "sprite4_y", 0xd00a: "sprite5_x", 0xd00b: "sprite5_y",
-  0xd00c: "sprite6_x", 0xd00d: "sprite6_y", 0xd00e: "sprite7_x", 0xd00f: "sprite7_y",
-  0xd010: "sprite_x_msb",
-  0xd011: "control1 (D011)",
-  0xd012: "raster",
-  0xd015: "sprite_enable (D015)",
-  0xd016: "control2 (D016)",
-  0xd017: "sprite_y_expand",
-  0xd018: "memory_setup (D018)",
-  0xd019: "irq_status",
-  0xd01a: "irq_enable",
-  0xd01b: "sprite_priority",
-  0xd01c: "sprite_multicolor_mode",
-  0xd01d: "sprite_x_expand",
-  0xd01e: "sprite_collision_sprite",
-  0xd01f: "sprite_collision_data",
-  0xd020: "border_color (D020)",
-  0xd021: "bg_color_0 (D021)",
-  0xd022: "bg_color_1 (D022)",
-  0xd023: "bg_color_2 (D023)",
-  0xd024: "bg_color_3",
-  0xd025: "sprite_mc1 (D025)",
-  0xd026: "sprite_mc2 (D026)",
-  0xd027: "sprite0_color", 0xd028: "sprite1_color", 0xd029: "sprite2_color",
-  0xd02a: "sprite3_color", 0xd02b: "sprite4_color", 0xd02c: "sprite5_color",
-  0xd02d: "sprite6_color", 0xd02e: "sprite7_color",
-  0xdd00: "vic_bank_select (DD00)",
-};
+// Spec 817: the 29-entry VIC register name table that lived here was the fifth
+// copy of "what is at $D018" in this repo — the gate found it the day it was
+// written. Register names come from resources/platform-kb.sqlite; what stays
+// here is the RANGE this tool reports on (VIC registers + the CIA2 bank select).
+function trackedVicRegisterName(address: number): string | undefined {
+  const tracked = (address >= 0xd000 && address <= 0xd02e) || address === 0xdd00;
+  if (!tracked) return undefined;
+  const node = platformKb().node("c64", address);
+  return node ? (node.symbol ?? node.name) : undefined;
+}
 
 function hex16(value: number): string {
   return value.toString(16).toUpperCase().padStart(4, "0");
@@ -141,17 +224,46 @@ function inferImmediateValueBefore(
   return undefined;
 }
 
-function collectVicWrites(report: AnalysisReport): VicWriteEvent[] {
+function collectVicWrites(report: AnalysisReport, graph?: ProjectGraphView): VicWriteEvent[] {
   const all = ([] as AnalysisInstruction[]).concat(
     report.codeAnalysis?.instructions ?? [],
     report.probableCodeAnalysis?.instructions ?? [],
   );
   all.sort((left, right) => left.address - right.address);
   const events: VicWriteEvent[] = [];
+  if (graph && graph.status !== "absent") {
+    // Spec 820.2: the stores come from the graph's WRITES rows; the VALUE a
+    // store carries is still read off the instruction before it (a value
+    // lookup, not an access walk). D3 second edges (via_zp) are inferred
+    // targets, not stated stores, and stay out of the register program.
+    const indexByPc = new Map<number, number>(all.map((inst, index) => [inst.address, index]));
+    const seen = new Set<string>();
+    const stores = graph.edges
+      .filter((e) => e.type === "WRITES" && e.viaZp === undefined && (e.mnemonic === "sta" || e.mnemonic === "stx" || e.mnemonic === "sty"))
+      .sort((left, right) => left.pc - right.pc || left.target - right.target);
+    for (const store of stores) {
+      const name = trackedVicRegisterName(store.target);
+      if (!name) continue;
+      const key = `${store.pc}:${store.target}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const reg: "a" | "x" | "y" = store.mnemonic === "sta" ? "a" : store.mnemonic === "stx" ? "x" : "y";
+      const index = indexByPc.get(store.pc);
+      events.push({
+        instructionAddress: store.pc,
+        registerAddress: store.target,
+        registerName: name,
+        inferredValue: index === undefined ? undefined : inferImmediateValueBefore(all, index, reg),
+        addressingMode: store.addressingMode,
+        provenance: store.provenance === "probable_code" ? "probable_code" : store.provenance === "confirmed_code" ? "confirmed_code" : undefined,
+      });
+    }
+    return events;
+  }
   for (let index = 0; index < all.length; index += 1) {
     const inst = all[index]!;
     if (inst.targetAddress === undefined) continue;
-    const name = VIC_REGS[inst.targetAddress];
+    const name = trackedVicRegisterName(inst.targetAddress);
     if (!name) continue;
     if (inst.mnemonic !== "sta" && inst.mnemonic !== "stx" && inst.mnemonic !== "sty") continue;
     const reg: "a" | "x" | "y" = inst.mnemonic === "sta" ? "a" : inst.mnemonic === "stx" ? "x" : "y";
@@ -205,14 +317,18 @@ function describeBankSelect(value: number): { base: number; description: string 
   return { base, description: `bank ${bankIndex} ($${hex16(base)}-$${hex16(base + 0x3fff)})` };
 }
 
-interface InspectArgs {
+export interface InspectArgs {
   prgPath: string;
   startAddress: number;
   endAddress: number;
   analysisPath?: string;
+  /** the project root holding knowledge/graph.sqlite; found by walking up from the analysis when omitted */
+  projectDir?: string;
+  /** `graph` (default) reads the store; `json` is the pre-820 walk, kept for the parity gate */
+  source?: "graph" | "json";
 }
 
-function buildReport(args: InspectArgs): string {
+export function buildReport(args: InspectArgs): string {
   const analysisPath = args.analysisPath ?? findAnalysisJsonForPrg(args.prgPath);
   if (!analysisPath) {
     throw new Error(`No analysis JSON found for ${args.prgPath}. Run analyze_prg first or pass analysis_json explicitly.`);
@@ -220,11 +336,13 @@ function buildReport(args: InspectArgs): string {
   const report = JSON.parse(readFileSync(analysisPath, "utf8")) as AnalysisReport;
   const startAddress = args.startAddress;
   const endAddress = args.endAddress;
+  const graph = args.source === "json" ? undefined : resolveProjectGraph(analysisPath, args.projectDir);
 
   const lines: string[] = [];
   lines.push(`# Address-range usage report`);
   lines.push(`Range: $${hex16(startAddress)}–$${hex16(endAddress)} (${endAddress - startAddress + 1} bytes)`);
   lines.push(`Analysis: ${analysisPath}`);
+  if (graph) lines.push(graph.note);
   lines.push("");
 
   // Containing segments — Spec 751: apply the annotation overlay (effective
@@ -245,7 +363,7 @@ function buildReport(args: InspectArgs): string {
   lines.push("");
 
   // VIC writes (full register set, with decoded meaning where possible)
-  const vicEvents = collectVicWrites(report);
+  const vicEvents = collectVicWrites(report, graph);
   // Track most-recent $DD00 to interpret $D018 in context.
   let lastBankBase = 0x0000;
   lines.push(`## VIC register program (${vicEvents.length} stores)`);
@@ -275,25 +393,39 @@ function buildReport(args: InspectArgs): string {
   }
   lines.push("");
 
-  // Xrefs into the range
-  const allXrefs: AnalysisXref[] = ([] as AnalysisXref[]).concat(
-    report.codeAnalysis?.xrefs ?? [],
-    report.probableCodeAnalysis?.xrefs ?? [],
-  );
-  const xrefsIn = allXrefs.filter((xref) => xref.targetAddress >= startAddress && xref.targetAddress <= endAddress);
-  lines.push(`## Code → range xrefs (${xrefsIn.length})`);
-  // Group by source instruction address for readability.
-  const grouped = new Map<number, AnalysisXref[]>();
-  for (const xref of xrefsIn) {
-    const list = grouped.get(xref.sourceAddress) ?? [];
-    list.push(xref);
-    grouped.set(xref.sourceAddress, list);
+  // Xrefs into the range — Spec 820.2: from the graph's reference edges
+  // (control flow from 819, data access from 820); the JSON xref list only
+  // under source=json. Grouped by source instruction address for readability.
+  const grouped = new Map<number, string[]>();
+  let xrefCount = 0;
+  if (graph && graph.status !== "absent") {
+    const tokens = new Map<number, Set<string>>();
+    for (const e of graph.edges) {
+      if (e.target < startAddress || e.target > endAddress) continue;
+      const label = e.viaZp !== undefined ? `${REF_LABEL[e.type]} via $${hex8(e.viaZp)}` : REF_LABEL[e.type] ?? e.type.toLowerCase();
+      const token = `$${hex16(e.target)}(${label})`;
+      const set = tokens.get(e.pc) ?? new Set<string>();
+      if (!set.has(token)) { set.add(token); xrefCount += 1; }
+      tokens.set(e.pc, set);
+    }
+    for (const [pc, set] of tokens) grouped.set(pc, [...set].sort());
+  } else {
+    const allXrefs: AnalysisXref[] = ([] as AnalysisXref[]).concat(
+      report.codeAnalysis?.xrefs ?? [],
+      report.probableCodeAnalysis?.xrefs ?? [],
+    );
+    for (const xref of allXrefs) {
+      if (xref.targetAddress < startAddress || xref.targetAddress > endAddress) continue;
+      xrefCount += 1;
+      const list = grouped.get(xref.sourceAddress) ?? [];
+      list.push(`$${hex16(xref.targetAddress)}(${xref.type})`);
+      grouped.set(xref.sourceAddress, list);
+    }
   }
+  lines.push(`## Code → range xrefs (${xrefCount})`);
   const sortedSources = Array.from(grouped.keys()).sort((left, right) => left - right);
   for (const src of sortedSources.slice(0, 80)) {
-    const list = grouped.get(src)!;
-    const targets = list.map((xref) => `$${hex16(xref.targetAddress)}(${xref.type})`).join(" ");
-    lines.push(`- $${hex16(src)} -> ${targets}`);
+    lines.push(`- $${hex16(src)} -> ${grouped.get(src)!.join(" ")}`);
   }
   if (sortedSources.length > 80) {
     lines.push(`- ... and ${sortedSources.length - 80} more sources (truncated)`);
@@ -356,6 +488,7 @@ export function registerInspectRangeTools(server: McpServer, context: ServerTool
           startAddress: parseHex(start_address),
           endAddress: parseHex(end_address),
           analysisPath: analysisAbs,
+          projectDir: pd,
         });
         return { content: [{ type: "text" as const, text }] };
       } catch (error) {

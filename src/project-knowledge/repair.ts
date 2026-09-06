@@ -35,15 +35,13 @@ interface ProjectRepairOptions {
   limit?: number;
 }
 
+// Spec 822.2: the JSON stores merge-fragments can still fold. Findings, entities,
+// relations, open-questions and user labels live in knowledge/graph.sqlite; a
+// nested legacy copy of those is migrated by opening it as a project, not merged.
 const STORE_FILES = [
-  "entities.json",
-  "findings.json",
-  "relations.json",
   "flows.json",
   "tasks.json",
-  "open-questions.json",
   "artifacts.json",
-  "labels.user.json",
 ];
 
 function nowIso(): string {
@@ -263,11 +261,8 @@ export function repairProject(projectRoot: string, options: ProjectRepairOptions
       if (mode === "safe") {
         try {
           const imported = service.importAnalysisArtifact(artifact.id);
-          filesChanged.add(join(root, "knowledge", "entities.json"));
-          filesChanged.add(join(root, "knowledge", "findings.json"));
-          filesChanged.add(join(root, "knowledge", "relations.json"));
+          filesChanged.add(join(root, "knowledge", "graph.sqlite"));
           filesChanged.add(join(root, "knowledge", "flows.json"));
-          filesChanged.add(join(root, "knowledge", "open-questions.json"));
           executed.push(`imported ${artifact.id}: ${imported.importedEntityCount} entities, ${imported.importedFindingCount} findings`);
         } catch (error) {
           skipped.push(`import-analysis ${artifact.id}: ${error instanceof Error ? error.message : String(error)}`);
@@ -284,9 +279,7 @@ export function repairProject(projectRoot: string, options: ProjectRepairOptions
       if (mode === "safe") {
         try {
           const imported = service.importManifestArtifact(artifact.id);
-          filesChanged.add(join(root, "knowledge", "entities.json"));
-          filesChanged.add(join(root, "knowledge", "findings.json"));
-          filesChanged.add(join(root, "knowledge", "relations.json"));
+          filesChanged.add(join(root, "knowledge", "graph.sqlite"));
           executed.push(`imported ${artifact.id}: ${imported.importedEntityCount} entities, ${imported.importedFindingCount} findings`);
         } catch (error) {
           skipped.push(`import-manifest ${artifact.id}: ${error instanceof Error ? error.message : String(error)}`);

@@ -12,6 +12,7 @@ import {
   Segment,
 } from "./types";
 import { clampConfidence, formatAddress } from "./utils";
+import { loadAccessEdges, ownerFromBinaryName, type AccessEdge } from "./graph-reader";
 
 const DIRECT_ADDRESSING_MODES = new Set(["zp", "zp,x", "zp,y", "abs", "abs,x", "abs,y"]);
 const INDIRECT_ZERO_PAGE_MODES = new Set(["(zp),y"]);
@@ -213,6 +214,67 @@ function collectRamAccesses(context: AnalyzerContext): RamAccessFact[] {
     }
   }
 
+  return finalizeAggregates(aggregates);
+}
+
+/**
+ * Spec 820.2 (D7): the same access table, read from the knowledge graph's 820
+ * rows instead of a private walk of the instruction list. The classification
+ * is the producer's (820 D1); this only regroups its edges per address the
+ * way `collectRamAccesses` grouped instructions. What the graph does not hold
+ * — the immediate value a store carries — is looked up at the write's pc
+ * (`lda #imm` immediately before it), which is a value lookup, not an access
+ * walk. D3 second edges (`via_zp`, an inferred target) are not stated
+ * accesses and stay out of the table.
+ */
+function collectRamAccessesFromGraph(
+  edges: AccessEdge[],
+  pools: Array<{ provenance: CodeProvenance; instructions: InstructionFact[] }>,
+): RamAccessFact[] {
+  const aggregates = new Map<number, AggregatedRamAccess>();
+  const immediateByPc = new Map<number, number>();
+  for (const pool of pools) {
+    for (let index = 0; index < pool.instructions.length; index += 1) {
+      const instruction = pool.instructions[index];
+      if (!WRITE_MNEMONICS.has(instruction.mnemonic)) continue;
+      const value = inferImmediateWriteValue(pool.instructions, index, instruction);
+      if (value !== undefined && !immediateByPc.has(instruction.address)) immediateByPc.set(instruction.address, value);
+    }
+  }
+
+  for (const edge of edges) {
+    if (edge.viaZp !== undefined) continue;
+    const mnemonic = edge.mnemonic;
+    if (edge.type === "READS_INDIRECT" || edge.type === "WRITES_INDIRECT") {
+      if (edge.pointerZp === undefined) continue;
+      const aggregate = ensureAggregate(aggregates, edge.pointerZp);
+      aggregate.provenances.add(edge.provenance);
+      if (READ_MNEMONICS.has(mnemonic)) {
+        aggregate.indirectReads.push(edge.pc);
+      } else if (WRITE_MNEMONICS.has(mnemonic) || READ_MODIFY_WRITE_MNEMONICS.has(mnemonic)) {
+        aggregate.indirectWrites.push(edge.pc);
+      }
+      continue;
+    }
+    if (!isStaticRamAddress(edge.target)) continue;
+    const aggregate = ensureAggregate(aggregates, edge.target);
+    aggregate.provenances.add(edge.provenance);
+    if (READ_MODIFY_WRITE_MNEMONICS.has(mnemonic)) {
+      // one READS and one WRITES row per RMW (820 D1) — count the pc once
+      if (edge.type === "WRITES") aggregate.readModifyWrites.push(edge.pc);
+    } else if (READ_MNEMONICS.has(mnemonic)) {
+      (edge.indexed ? aggregate.indexedReads : aggregate.directReads).push(edge.pc);
+    } else if (WRITE_MNEMONICS.has(mnemonic)) {
+      (edge.indexed ? aggregate.indexedWrites : aggregate.directWrites).push(edge.pc);
+      const immediateValue = immediateByPc.get(edge.pc);
+      if (immediateValue !== undefined) aggregate.immediateWriteValues.push(immediateValue);
+    }
+  }
+
+  return finalizeAggregates(aggregates);
+}
+
+function finalizeAggregates(aggregates: Map<number, AggregatedRamAccess>): RamAccessFact[] {
   return Array.from(aggregates.values())
     .map((aggregate) => {
       const directReads = uniqueSorted(aggregate.directReads);
@@ -515,8 +577,54 @@ function formatRefs(addresses: number[], limit = 6): string {
   return addresses.length > limit ? `${shown.join(", ")}, ...` : shown.join(", ");
 }
 
-export function renderRamStateMarkdown(report: { binaryName: string; codeSemantics?: CodeSemantics; codeAnalysis?: { instructions: InstructionFact[] } }): string {
-  const ramAccesses = report.codeSemantics?.ramAccesses ?? [];
+export interface RenderRamStateOptions {
+  /**
+   * `graph` (default): the access table comes from knowledge/graph.sqlite's
+   * Spec 820 rows; when the graph is absent the JSON walk renders with a loud
+   * note. `json`: the pre-820 walk, silent — the parity gate's control arm.
+   */
+  source?: "graph" | "json";
+  /** where knowledge/graph.sqlite lives; default C64RE_PROJECT_DIR, then cwd */
+  projectDir?: string;
+  /** the 819/820 owner (analysis stem); default: the binary's stem */
+  owner?: string;
+}
+
+export interface RamStateReportInput {
+  binaryName: string;
+  codeSemantics?: CodeSemantics;
+  codeAnalysis?: { instructions: InstructionFact[] };
+  probableCodeAnalysis?: { instructions: InstructionFact[] };
+}
+
+/** The access table and where it came from — exported so the gate can assert the source. */
+export function resolveRamAccesses(
+  report: RamStateReportInput,
+  options: RenderRamStateOptions = {},
+): { ramAccesses: RamAccessFact[]; source: "graph" | "json"; note?: string } {
+  if (options.source === "json") return { ramAccesses: report.codeSemantics?.ramAccesses ?? [], source: "json" };
+  const owner = options.owner ?? ownerFromBinaryName(report.binaryName);
+  const lookup = loadAccessEdges({ projectDir: options.projectDir, owner });
+  if (lookup.status === "absent") {
+    return {
+      ramAccesses: report.codeSemantics?.ramAccesses ?? [],
+      source: "json",
+      note: `Access table: KNOWLEDGE GRAPH ABSENT — ${lookup.reason}. Rendered from the JSON walk (codeSemantics.ramAccesses) instead; seed the graph and re-run ram_report.`,
+    };
+  }
+  const pools: Array<{ provenance: CodeProvenance; instructions: InstructionFact[] }> = [];
+  if (report.codeAnalysis?.instructions?.length) pools.push({ provenance: "confirmed_code", instructions: report.codeAnalysis.instructions });
+  if (report.probableCodeAnalysis?.instructions?.length) pools.push({ provenance: "probable_code", instructions: report.probableCodeAnalysis.instructions });
+  return {
+    ramAccesses: collectRamAccessesFromGraph(lookup.edges, pools),
+    source: "graph",
+    note: `Access table: knowledge graph ${lookup.path} (owner ${lookup.owner}, ${lookup.edges.length} Spec 820 access edges).`,
+  };
+}
+
+export function renderRamStateMarkdown(report: RamStateReportInput, options: RenderRamStateOptions = {}): string {
+  const resolved = resolveRamAccesses(report, options);
+  const ramAccesses = resolved.ramAccesses;
   const ramHypotheses = report.codeSemantics?.ramHypotheses ?? [];
   const instructions = report.codeAnalysis?.instructions ?? [];
   const instructionIndexByAddress = new Map<number, number>(instructions.map((instruction, index) => [instruction.address, index]));
@@ -525,6 +633,10 @@ export function renderRamStateMarkdown(report: { binaryName: string; codeSemanti
   lines.push(`# RAM State Facts for ${report.binaryName}`);
   lines.push("");
   lines.push("Generated from deterministic analysis facts.");
+  if (resolved.note) {
+    lines.push("");
+    lines.push(resolved.note);
+  }
   lines.push("");
   lines.push("## Address Candidates");
   lines.push("");

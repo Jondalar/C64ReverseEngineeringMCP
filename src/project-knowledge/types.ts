@@ -2070,15 +2070,10 @@ export const RuntimeEventSummaryStoreSchema = createRecordListSchema(RuntimeEven
 export const RuntimeDiffStoreSchema = createRecordListSchema(RuntimeDiffSchema);
 export const BuildPipelineStoreSchema = createRecordListSchema(BuildPipelineSchema);
 export const BuildRunStoreSchema = createRecordListSchema(BuildRunSchema);
-export const EntityStoreSchema = createRecordListSchema(EntityRecordSchema);
-export const FindingStoreSchema = createRecordListSchema(FindingRecordSchema);
-export const RelationStoreSchema = createRecordListSchema(RelationRecordSchema);
+// Spec 822.2: no store schema for entities / findings / relations / open-questions /
+// user labels — those records are projected from knowledge/graph.sqlite (records.ts).
 export const FlowStoreSchema = createRecordListSchema(FlowRecordSchema);
 export const TaskStoreSchema = createRecordListSchema(TaskRecordSchema);
-export const OpenQuestionStoreSchema = createRecordListSchema(OpenQuestionRecordSchema);
-export const UserLabelStoreSchema = RecordListMetaSchema.extend({
-  items: z.array(UserLabelOverrideSchema).default([]),
-});
 export const ArtifactVersionGroupStoreSchema = createRecordListSchema(ArtifactVersionGroupSchema);
 
 export type ProjectMetadata = z.infer<typeof ProjectMetadataSchema>;
@@ -2165,13 +2160,8 @@ export type LoadSequenceView = z.infer<typeof LoadSequenceViewSchema>;
 export type WorkspaceUiSnapshot = z.infer<typeof WorkspaceUiSnapshotSchema>;
 export type EvidenceRef = z.infer<typeof EvidenceRefSchema>;
 export type ArtifactStore = z.infer<typeof ArtifactStoreSchema>;
-export type EntityStore = z.infer<typeof EntityStoreSchema>;
-export type FindingStore = z.infer<typeof FindingStoreSchema>;
-export type RelationStore = z.infer<typeof RelationStoreSchema>;
 export type FlowStore = z.infer<typeof FlowStoreSchema>;
 export type TaskStore = z.infer<typeof TaskStoreSchema>;
-export type OpenQuestionStore = z.infer<typeof OpenQuestionStoreSchema>;
-export type UserLabelStore = z.infer<typeof UserLabelStoreSchema>;
 export type ArtifactVersionRole = z.infer<typeof ArtifactVersionRoleSchema>;
 export type ArtifactVersionFormat = z.infer<typeof ArtifactVersionFormatSchema>;
 export type ArtifactVersionMember = z.infer<typeof ArtifactVersionMemberSchema>;

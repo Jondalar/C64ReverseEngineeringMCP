@@ -43,13 +43,12 @@ interface ProjectAuditOptions {
   registrationSampleLimit?: number;
 }
 
+// Spec 822.2: findings / entities / relations / open-questions / user labels are
+// rows in knowledge/graph.sqlite; its mtime is the knowledge signal for them.
 const KNOWLEDGE_FILES = [
-  "knowledge/entities.json",
-  "knowledge/findings.json",
-  "knowledge/relations.json",
+  "knowledge/graph.sqlite",
   "knowledge/flows.json",
   "knowledge/tasks.json",
-  "knowledge/open-questions.json",
   "knowledge/artifacts.json",
   "knowledge/phase-plan.json",
   "knowledge/workflow-state.json",
@@ -138,10 +137,9 @@ function looksLikeKnowledgeStore(dir: string): boolean {
   const markerFiles = [
     "phase-plan.json",
     "workflow-state.json",
-    "entities.json",
-    "findings.json",
+    "graph.sqlite",
     "artifacts.json",
-    "open-questions.json",
+    "tasks.json",
   ];
   return markerFiles.some((file) => existsSync(join(dir, file)));
 }

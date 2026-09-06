@@ -2741,6 +2741,16 @@ button {
   user-select: none;
 }
 
+/* Spec 824.2 — the line(s) a source jump landed on */
+.asm-row-hit {
+  background: rgba(88, 166, 255, 0.16);
+  box-shadow: inset 2px 0 0 #58a6ff;
+}
+
+.asm-jump-status {
+  color: #58a6ff;
+}
+
 .asm-line {
   flex: 1 1 auto;
 }

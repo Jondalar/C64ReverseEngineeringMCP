@@ -26,7 +26,16 @@ function lifecycle(event: string, detail?: Record<string, unknown>): void {
 // CLAUDE.md / agent config; everything else (the default) launches
 // the MCP stdio server.
 const argv = process.argv.slice(2);
-if (argv[0] === "setup") {
+if (argv[0] === "graph") {
+  // Spec 818 D8: `c64re graph <verb>` — the CLI over the knowledge-graph query
+  // API. Stdout is the answer (one JSON document with --json), stderr the errors.
+  await import("./knowledge-graph/cli.js").then(async (mod) => {
+    await mod.runGraphCli(argv.slice(1));
+  }).catch((error: unknown) => {
+    console.error(`[c64re graph] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
+} else if (argv[0] === "setup") {
   await import("./setup-cli.js").then(async (mod) => {
     await mod.runSetup(argv.slice(1));
   }).catch((error: unknown) => {

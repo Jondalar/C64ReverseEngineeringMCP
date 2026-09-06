@@ -441,24 +441,23 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           }
         } else {
           result.stdout += `\nAnnotations applied from: ${annotationsPath}`;
-          // Spec 055 R25: auto-emit routine + segment-reclass findings
-          // from the annotations file. Soft fail — disasm success stands
-          // even if emit hits an error.
+          // Spec 822 D6: the annotations file is a door — import it into the
+          // graph's human layer (routines / labels / segments) when it changed
+          // since the last import. Soft fail — disasm success stands even if the
+          // import hits an error.
           try {
             const knowledgeService = new ProjectKnowledgeService(pd);
             const sourceArtifact = knowledgeService.listArtifacts().find((a) => a.path === prgAbs);
+            const imported = knowledgeService.importAnnotations({ sourcePrgArtifactId: sourceArtifact?.id, annotationsPath });
+            result.stdout += imported.changed
+              ? `\nAnnotations imported into the graph: ${imported.routines} routines, ${imported.labels} labels, ${imported.segments} segments (owner ${imported.owner}).`
+              : `\nAnnotations unchanged since the last import (${imported.routines} routines, ${imported.labels} labels, ${imported.segments} segments in the graph).`;
             if (sourceArtifact) {
-              const emit = knowledgeService.emitAnnotationFindings({
-                sourcePrgArtifactId: sourceArtifact.id,
-                annotationsPath,
-                analysisJsonPath: analysis_json ? resolve(pd, analysis_json) : undefined,
-              });
-              result.stdout += `\nFindings emitted: ${emit.routinesEmitted} routines, ${emit.segmentReclassesEmitted} reclasses (${emit.staleRemoved} stale removed).`;
               // Spec 057 R26: closed-loop sweep, scoped to this PRG.
               result.stdout += `\n${runAndFormatClosedLoopSweep(knowledgeService, { artifactId: sourceArtifact.id })}`;
             }
-          } catch (emitError) {
-            result.stdout += `\nFindings emit: FAILED — ${emitError instanceof Error ? emitError.message : String(emitError)}`;
+          } catch (importError) {
+            result.stdout += `\nAnnotations import: FAILED — ${importError instanceof Error ? importError.message : String(importError)}`;
           }
         }
         if (knowledgeRegistration.runPath) {
@@ -680,56 +679,8 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
     }),
   );
 
-  // Spec 055 R25: standalone tool to (re-)emit findings from an
-  // existing *_annotations.json. disasm_prg auto-emits during the
-  // consume pass; this tool covers projects whose annotations were
-  // never run through disasm_prg and explicit re-emit after manual
-  // edits.
-  server.tool(
-    "import_annotations_as_findings",
-    "Turn an existing annotations file (routines + segment reclassifications) into project findings, one per routine and per reclassification. Use for older projects, after hand-editing annotations, or to seed the auto-archive matchers. Not for generating annotations (use propose_annotations). Inputs: binary stem / annotations path. Returns: count of findings emitted. Idempotent per binary.",
-    {
-      project_dir: z.string().optional(),
-      artifact_id: z.string().describe("Source PRG artifact id."),
-      annotations_path: z.string().optional().describe("Defaults to <stem>_annotations.json next to the PRG."),
-      analysis_json: z.string().optional().describe("Optional analysis JSON for effective-segments overlay (improves routine end derivation)."),
-    },
-    safeHandler("import_annotations_as_findings", async ({ project_dir, artifact_id, annotations_path, analysis_json }) => {
-      const pd = context.projectDir(project_dir, true);
-      const knowledgeService = new ProjectKnowledgeService(pd);
-      const sourceArtifact = knowledgeService.listArtifacts().find((a) => a.id === artifact_id);
-      if (!sourceArtifact) {
-        return context.cliResultToContent({
-          stdout: "",
-          stderr: `Artifact not found: ${artifact_id}`,
-          exitCode: 1,
-        });
-      }
-      const annoAbs = annotations_path
-        ? resolve(pd, annotations_path)
-        : sourceArtifact.path.replace(/\.[^./]+$/, "_annotations.json");
-      const analysisAbs = analysis_json ? resolve(pd, analysis_json) : undefined;
-      try {
-        const emit = knowledgeService.emitAnnotationFindings({
-          sourcePrgArtifactId: artifact_id,
-          annotationsPath: annoAbs,
-          analysisJsonPath: analysisAbs,
-        });
-        const lines = [
-          `Findings emitted from ${annoAbs}:`,
-          `  Routines: ${emit.routinesEmitted}`,
-          `  Segment reclassifications: ${emit.segmentReclassesEmitted}`,
-          `  Stale removed: ${emit.staleRemoved}`,
-        ];
-        if (emit.annotationsArtifactId) lines.push(`  Annotations artifact: ${emit.annotationsArtifactId}`);
-        return context.cliResultToContent({ stdout: lines.join("\n"), stderr: "", exitCode: 0 });
-      } catch (error) {
-        return context.cliResultToContent({
-          stdout: "",
-          stderr: error instanceof Error ? error.message : String(error),
-          exitCode: 1,
-        });
-      }
-    }),
-  );
+  // Spec 822.2: `import_annotations_as_findings` (Spec 055 R25) is retired — the
+  // annotations file is a door into the graph's human layer (D6), imported by
+  // disasm_prg when it changed and by `c64re graph annotations-import <file>`;
+  // no finding is minted from it any more.
 }

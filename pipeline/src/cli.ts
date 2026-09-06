@@ -264,7 +264,10 @@ function main(): void {
     }
     const outputPath = resolve(args[1] ?? "analysis/main-game/RAM_STATE_FACTS.md");
     const report = JSON.parse(readFileSync(resolve(analysisPath), "utf8"));
-    writeFileSync(outputPath, renderRamStateMarkdown(report), "utf8");
+    // 820.2: the access table reads knowledge/graph.sqlite for this owner when it
+    // exists (owner = the analysis stem); absent → the JSON walk with a loud note.
+    const owner = basename(resolve(analysisPath)).replace(/_analysis\.json$/u, "").toLowerCase();
+    writeFileSync(outputPath, renderRamStateMarkdown(report, { projectDir: process.env.C64RE_PROJECT_DIR, owner }), "utf8");
     registerCliArtifact({
       kind: "report",
       scope: "generated",

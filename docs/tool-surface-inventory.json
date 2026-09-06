@@ -1,5 +1,5 @@
 {
-  "total": 261,
+  "total": 265,
   "specCount": 42,
   "advancedCandidate": 110,
   "byNamespace": {
@@ -15,12 +15,12 @@
     "backfill": 5,
     "depack": 5,
     "extract": 5,
+    "graph": 5,
     "inspect": 5,
     "link": 5,
     "record": 5,
     "suggest": 4,
     "get": 3,
-    "import": 3,
     "mark": 3,
     "run": 3,
     "scan": 3,
@@ -32,6 +32,7 @@
     "declare": 2,
     "dedupe": 2,
     "disasm": 2,
+    "import": 2,
     "propose": 2,
     "read": 2,
     "render": 2,
@@ -211,8 +212,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "backfill",
       "hasSpec": false,
-      "firstSentence": "Bug 28: walk findings.json and copy evidence[0].addressRange to top-level addressRange when missing.",
-      "desc": "Bug 28: walk findings.json and copy evidence[0].addressRange to top-level addressRange when missing. One-shot migration for projects whose hypothesis findings only have evidence-level ranges. Returns count updated. Idempotent.",
+      "firstSentence": "Bug 28: walk the findings and copy evidence[0].addressRange to top-level addressRange when missing.",
+      "desc": "Bug 28: walk the findings and copy evidence[0].addressRange to top-level addressRange when missing. One-shot migration for projects whose hypothesis findings only have evidence-level ranges. Returns count updated. Idempotent.",
       "tier": "advanced?"
     },
     {
@@ -247,8 +248,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "backfill",
       "hasSpec": false,
-      "firstSentence": "Bug 29: walk open-questions.json and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing.",
-      "desc": "Bug 29: walk open-questions.json and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing. One-shot migration. Returns count updated. Idempotent.",
+      "firstSentence": "Bug 29: walk the open questions and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing.",
+      "desc": "Bug 29: walk the open questions and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing. One-shot migration. Returns count updated. Idempotent.",
       "tier": "advanced?"
     },
     {
@@ -621,6 +622,51 @@
       "tier": "default?"
     },
     {
+      "name": "graph_edges",
+      "file": "server-tools/graph-tools.ts",
+      "ns": "graph",
+      "hasSpec": false,
+      "firstSentence": "The neighbourhood walk: callers, callees, readers, writers, references, ROM calls, zero-page and hardware use, containment, indirect (unknown-target) accesses — one tool, chosen by direction × kind × origin.",
+      "desc": "The neighbourhood walk: callers, callees, readers, writers, references, ROM calls, zero-page and hardware use, containment, indirect (unknown-target) accesses — one tool, chosen by direction × kind × origin. Use to answer \"who calls X\", \"who writes $D018\", \"what does this routine touch\", \"what did a trace observe here\". Not for finding the node in the first place (use graph_find) or for a route between two nodes (use graph_path). Inputs: ref, direction (in|out|both), kind, origin (static|runtime|human|any), depth 1–2, limit. Returns: one line per edge with its instruction evidence, plus a JSON block; truncated is stated.",
+      "tier": "default?"
+    },
+    {
+      "name": "graph_find",
+      "file": "server-tools/graph-tools.ts",
+      "ns": "graph",
+      "hasSpec": false,
+      "firstSentence": "Resolve a name, address, register, ROM entry or label to knowledge-graph nodes — every context that has one, with stable ids.",
+      "desc": "Resolve a name, address, register, ROM entry or label to knowledge-graph nodes — every context that has one, with stable ids. Use to start any structural question (\"where is the routine that…\", \"what is at $D018 in this project\") before opening a listing. Not for prose lookups of where a topic is described (use project_search). Inputs: query, optional kind / origin / bank / limit. Returns: ranked one-line hits plus a machine-readable JSON block whose ids round-trip into graph_node and graph_edges.",
+      "tier": "default?"
+    },
+    {
+      "name": "graph_node",
+      "file": "server-tools/graph-tools.ts",
+      "ns": "graph",
+      "hasSpec": false,
+      "firstSentence": "The card for one knowledge-graph node: kind, range, its generated label and its human name side by side, edge counts by type, the hardware / ROM / zero page it touches, and whether a trace run ever observed it.",
+      "desc": "The card for one knowledge-graph node: kind, range, its generated label and its human name side by side, edge counts by type, the hardware / ROM / zero page it touches, and whether a trace run ever observed it. Use after graph_find to understand a routine or an address before reading its code. Not for walking the neighbourhood (use graph_edges) or for prose findings (use project_search). Inputs: ref, optional bank. Returns: the card plus a JSON block with next[] follow-up calls.",
+      "tier": "default?"
+    },
+    {
+      "name": "graph_overview",
+      "file": "server-tools/graph-tools.ts",
+      "ns": "graph",
+      "hasSpec": false,
+      "firstSentence": "The project's structural map from the graph: entry points, IRQ/NMI handlers seen in trace runs, banking sites, the hardware registers and KERNAL routines most used, the hottest zero page, subsystems, and the indirect accesses that still have no resolution.",
+      "desc": "The project's structural map from the graph: entry points, IRQ/NMI handlers seen in trace runs, banking sites, the hardware registers and KERNAL routines most used, the hottest zero page, subsystems, and the indirect accesses that still have no resolution. Use as the first question on a project you have not read, or to find where the unknowns are. Not for one node (use graph_node) or prose (use project_search). Inputs: optional focus, bank. Returns: per-section top-N with counts, plus a JSON block.",
+      "tier": "default?"
+    },
+    {
+      "name": "graph_path",
+      "file": "server-tools/graph-tools.ts",
+      "ns": "graph",
+      "hasSpec": false,
+      "firstSentence": "Is there a control-flow path from one node to another, and through what.",
+      "desc": "Is there a control-flow path from one node to another, and through what. Use to connect an entry point to a routine, or a routine to a KERNAL call, before reading the code in between. Not for listing a node's direct edges (use graph_edges). Inputs: from, to (ids, addresses or names), via (calls | calls+jumps | any), max_depth. Returns: the shortest path as hops with per-hop evidence, or \"no path\" with the size of the reachable frontier, plus a JSON block.",
+      "tier": "default?"
+    },
+    {
       "name": "import_analysis_report",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "import",
@@ -628,15 +674,6 @@
       "firstSentence": "Import a saved analysis JSON artifact into structured entities and findings.",
       "desc": "Import a saved analysis JSON artifact into structured entities and findings.",
       "tier": "advanced?"
-    },
-    {
-      "name": "import_annotations_as_findings",
-      "file": "server-tools/analysis-workflow.ts",
-      "ns": "import",
-      "hasSpec": false,
-      "firstSentence": "Turn an existing annotations file (routines + segment reclassifications) into project findings, one per routine and per reclassification.",
-      "desc": "Turn an existing annotations file (routines + segment reclassifications) into project findings, one per routine and per reclassification. Use for older projects, after hand-editing annotations, or to seed the auto-archive matchers. Not for generating annotations (use propose_annotations). Inputs: binary stem / annotations path. Returns: count of findings emitted. Idempotent per binary.",
-      "tier": "default?"
     },
     {
       "name": "import_manifest_artifact",

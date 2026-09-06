@@ -1,6 +1,7 @@
 import { createContext, startTransition, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { HexView } from "./components/HexView.js";
 import { AsmView, type AsmViewSource } from "./components/AsmView.js";
+import { GraphPanel } from "./components/graph-panel.js";
 import { CartridgeMemoryGrid } from "./components/CartridgeMemoryGrid.js";
 import { latestArtifactsByLineage, lineageVersionCount, isLatestInLineage } from "./lib/lineage.js";
 import { isInternalArtifact, isInternalEntity } from "./lib/internal.js";
@@ -51,7 +52,7 @@ import type {
 // findings/entities/flows/relations (record-list tabs — surface inside
 // inspector instead), load (folded into Flow sub-mode), activity
 // (folded into Dashboard).
-type TabId = "home" | "live" | "dashboard" | "questions" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "flow" | "listing";
+type TabId = "home" | "live" | "dashboard" | "questions" | "docs" | "memory" | "graphics" | "scrub" | "cartridge" | "disk" | "payloads" | "flow" | "listing" | "graph";
 
 interface UiConfig {
   defaultProjectDir: string;
@@ -154,6 +155,7 @@ const allTabs: Array<{ id: TabId; label: string; phases: Phase[] }> = [
   { id: "graphics", label: "Graphics", phases: ["discovery", "re"] },
   { id: "listing", label: "Annotated Listing", phases: ["re"] },
   { id: "flow", label: "Flow Graph", phases: ["re"] },
+  { id: "graph", label: "Graph", phases: ["discovery", "re"] }, // Spec 824 — the knowledge graph, a neighbourhood at a time
   { id: "scrub", label: "Scrub", phases: ["re"] },
   // Utilities — NOT phase peers. Reached via the utility cluster + cockpit links.
   { id: "dashboard", label: "Health", phases: [] },
@@ -203,6 +205,7 @@ function cockpitToolAvailable(snapshot: WorkspaceUiSnapshot, tab: TabId): boolea
     case "memory": return snapshot.views.memoryMap.cells.length > 0;
     case "listing": return snapshot.views.annotatedListing.entries.length > 0;
     case "flow": return snapshot.views.flowGraph.nodes.length > 0 || snapshot.views.loadSequence.items.length > 0;
+    case "graph": return true; // Spec 824 D2 — the panel itself reports "no graph yet" with the product step
     default: return true; // payloads / graphics / docs / live / questions / home
   }
 }
@@ -3816,6 +3819,13 @@ function ListingPanel({
   onSelectEntity: (entityId: string) => void;
 }) {
   const deferredQuery = useDeferredValue(query.trim().toLowerCase());
+  // Spec 824 D5.1 — a selection made elsewhere (the Graph tab) scrolls the row
+  // into view; before this the row highlighted and stayed off-screen.
+  const tableRef = useRef<HTMLTableElement | null>(null);
+  useEffect(() => {
+    const row = tableRef.current?.querySelector("tr.active-row");
+    if (row && typeof (row as HTMLElement).scrollIntoView === "function") (row as HTMLElement).scrollIntoView({ block: "center" });
+  }, [selectedEntityId]);
   const entries = snapshot.views.annotatedListing.entries.filter((entry) => {
     if (!deferredQuery) {
       return true;
@@ -3841,7 +3851,7 @@ function ListingPanel({
         />
       </label>
       <div className="listing-table-wrap">
-        <table className="data-table">
+        <table className="data-table" ref={tableRef}>
           <thead>
             <tr>
               <th>Range</th>
@@ -5168,12 +5178,13 @@ export function App() {
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(null);
   const [tabSelections, setTabSelections] = useState<Partial<Record<TabId, string>>>({});
+  const [graphFocus, setGraphFocus] = useState<string | null>(null); // Spec 824 — the focused graph ref
   const [selectedDocPath, setSelectedDocPath] = useState<string | null>(null);
   const [docContent, setDocContent] = useState("");
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   const [hexOverlay, setHexOverlay] = useState<{ path: string; title?: string; baseAddress?: number; offset?: number; length?: number; fetchUrl?: string; bytes?: Uint8Array; packerHint?: string; packerContext?: Record<string, string | number>; markers?: Array<{ offset: number; label: string }> } | null>(null);
-  const [asmOverlay, setAsmOverlay] = useState<{ title: string; sources: AsmViewSource[] } | null>(null);
+  const [asmOverlay, setAsmOverlay] = useState<{ title: string; sources: AsmViewSource[]; jumpToAddress?: number } | null>(null);
   const [todoComposer, setTodoComposer] = useState<TodoComposerState | null>(null);
   const [todoSaving, setTodoSaving] = useState(false);
   const [todoError, setTodoError] = useState<string | null>(null);
@@ -5190,9 +5201,28 @@ export function App() {
     [snapshot, showAllVersions],
   );
 
-  function openAsmOverlay(title: string, sources: AsmViewSource[]) {
+  function openAsmOverlay(title: string, sources: AsmViewSource[], jumpToAddress?: number) {
     if (sources.length === 0) return;
-    setAsmOverlay({ title, sources });
+    setAsmOverlay(jumpToAddress === undefined ? { title, sources } : { title, sources, jumpToAddress });
+  }
+
+  // Spec 824.2 — the ASM sources for a graph node's owner. The owner is the
+  // analysis stem (`<stem>_analysis.json` → `<stem>`, lower-cased), so the
+  // graph's own rendering is `<stem>_disasm.asm`; it goes first, the curated
+  // versions the §7 resolver prefers follow as tabs. No match is said, not hidden.
+  function asmSourcesForOwner(owner: string | null): { title: string; sources: AsmViewSource[] } | { reason: string } {
+    if (!snapshot) return { reason: "no workspace loaded" };
+    if (!owner) return { reason: "node has no owner (no analysis stem) — nothing to open" };
+    const stem = owner.toLowerCase();
+    // visibleArtifacts = latest per lineage (Bug 24), or every version when the header toggle is on
+    const pool = visibleArtifacts.filter((a) => /\.(asm|tass)$/i.test(a.relativePath));
+    const candidates = pool.filter((a) => subjectIdForArtifactPath(a.relativePath).toLowerCase() === stem);
+    if (candidates.length === 0) return { reason: `no ASM for owner "${owner}" — run disasm_prg on ${owner}` };
+    const best = bestAsmSourcesForArtifacts(candidates, snapshot.artifactVersionGroups ?? []);
+    const generated = candidates.filter((a) => /_disasm\.asm$/i.test(a.relativePath)).map(asmSourceForArtifact);
+    const seen = new Set<string>();
+    const sources = [...generated, ...best].filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true)));
+    return { title: `${owner} · source`, sources };
   }
   const [selectedCartChunk, setSelectedCartChunk] = useState<CartChunkSelection | null>(null);
   const [selectedDiskFile, setSelectedDiskFile] = useState<DiskFileSelection | null>(null);
@@ -5983,6 +6013,23 @@ export function App() {
                 <AnnotationDraftPanel projectDir={snapshot.project.rootPath} />
               </>
             ) : null}
+            {activeTab === "graph" ? (
+              <GraphPanel
+                projectDir={snapshot.project.rootPath}
+                focusRef={graphFocus}
+                onFocus={setGraphFocus}
+                listingJump={(address) => {
+                  // Spec 824 D5.1 — the listing entry whose range holds the address, if it has an entity
+                  const entry = snapshot.views.annotatedListing.entries.find((e) => e.start <= address && address <= e.end);
+                  if (!entry) return { reason: "not in the annotated listing" };
+                  if (!entry.entityId) return { reason: "listing entry has no entity (listing defect, not papered over)" };
+                  return { entityId: entry.entityId };
+                }}
+                onJumpToListing={(entityId) => { handleSelectEntity(entityId, "listing"); setActiveTab("listing"); }}
+                sourceJump={asmSourcesForOwner}
+                onJumpToSource={(title, sources, address) => openAsmOverlay(title, sources, address)}
+              />
+            ) : null}
             {/* Spec 059 / UX1: standalone Activity tab removed; the
                 widget folds into the Dashboard. */}
           </section>
@@ -6081,6 +6128,7 @@ export function App() {
           title={asmOverlay.title}
           projectDir={snapshot?.project.rootPath}
           sources={asmOverlay.sources}
+          jumpToAddress={asmOverlay.jumpToAddress}
           onClose={() => setAsmOverlay(null)}
         />
       ) : null}

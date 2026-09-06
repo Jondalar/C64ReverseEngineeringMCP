@@ -1077,3 +1077,32 @@
 .app-main-grid.wb-embedded > .workspace-main { min-width: 0; min-height: 0; overflow: auto; }
 .app-main-grid.wb-embedded > .workspace-side { min-height: 0; overflow: auto; }
 @media (max-width: 900px) { .app-main-grid.wb-embedded { grid-template-columns: 1fr; } }
+
+/* Spec 824 — Graph tab: a neighbourhood, not the graph */
+.graph-panel { display: flex; flex-direction: column; gap: 12px; }
+.graph-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.graph-search { flex: 1 1 320px; min-width: 240px; }
+.graph-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.graph-chip { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(124, 108, 238, 0.4); background: rgba(124, 108, 238, 0.12); cursor: pointer; }
+.graph-chip.off { opacity: 0.4; text-decoration: line-through; }
+.graph-depth { font-size: 12px; color: var(--muted); }
+.graph-empty { padding: 12px; border: 1px dashed rgba(92, 92, 128, 0.3); border-radius: 6px; color: var(--muted); }
+.graph-hits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.graph-hits button { text-align: left; }
+.graph-overview { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.graph-overview section h4 { margin: 0 0 6px; font-size: 13px; color: var(--accent-2); }
+.graph-overview ul { list-style: none; margin: 0; padding: 0; }
+.graph-overview button { text-align: left; font-size: 12px; }
+.graph-focus { display: flex; flex-direction: column; gap: 8px; }
+.graph-card { padding: 10px 12px; border: 1px solid rgba(92, 92, 128, 0.18); border-radius: 6px; background: rgba(11, 22, 34, 0.5); }
+.graph-card-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.graph-card-head code { font-size: 11px; color: var(--muted); }
+.graph-card-label { color: var(--muted); font-size: 12px; }
+.graph-card-meta, .graph-card-row { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.graph-flag { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: rgba(231, 92, 92, 0.18); color: var(--accent-3); }
+.graph-jump { margin-top: 8px; }
+.graph-jump + .graph-jump { margin-left: 6px; }
+.graph-muted { color: var(--muted); font-size: 12px; }
+.graph-lane-node.dimmed { opacity: 0.25; }
+.graph-lane-node.dangling .flow-node-rect { stroke-dasharray: 4 3; }
+.graph-svg { max-height: 70vh; }

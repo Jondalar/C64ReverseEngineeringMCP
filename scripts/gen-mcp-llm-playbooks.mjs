@@ -36,6 +36,7 @@ const PLAYBOOKS = [
       { actor: "llm", action: "Ask the user's objective (crack / EasyFlash port / analysis / bugfix / routine) and set role + workflow.", tools: ["agent_set_role", "start_re_workflow"], persist: ["role", "workflow profile"], askHumanWhen: "the objective is not stated" },
       { actor: "human", action: "Drop .d64/.g64/.crt/.prg + context into the project folder (or give absolute paths).", tools: [], persist: [] },
       { actor: "llm", action: "For a resumed project, search existing knowledge before re-deriving anything: find where a topic/address/track is already described and pull together the records around a payload. Rebuild the index first if the project changed on disk.", tools: ["project_reindex_search", "project_search", "project_find_related"], persist: ["located records", "related groups"], askHumanWhen: "the search returns nothing for a topic you expected to exist" },
+      { actor: "llm", action: "Answer a structural question from the graph before opening a listing: resolve a name or address to nodes, read the node card, walk callers / writers / hardware use, find a path, or take the project overview to see entry points, banking sites and the unresolved indirect accesses.", tools: ["graph_find", "graph_node", "graph_edges", "graph_path", "graph_overview"], persist: ["node ids", "the structural picture"], askHumanWhen: "the graph is empty for an artifact you expected to be analyzed (run project_inventory_sync / c64re graph seed)" },
       { actor: "llm", action: "Ask the orchestrator for the single next product step; run the inventory/media-sync step or follow its named tool.", tools: ["agent_next_step", "agent_run_step"], persist: ["next-step suggestion", "branch alternatives"] },
       { actor: "llm", action: "Confirm next action and record the step.", tools: ["c64re_whats_next", "agent_propose_next", "agent_record_step"], persist: ["next-action proposal"] },
     ],
@@ -143,7 +144,7 @@ const PLAYBOOKS = [
     steps: [
       { actor: "llm", action: "Heuristic analysis pass.", tools: ["analyze_prg", "inspect_address_range"], persist: ["analysis report"] },
       { actor: "llm", action: "Disassemble + resolve ROM/symbol references.", tools: ["disasm_prg", "disasm_menu", "c64ref_lookup"], persist: ["disasm artifact"] },
-      { actor: "llm", action: "Draft annotations; promote to findings.", tools: ["propose_annotations", "import_annotations_as_findings", "save_finding", "agent_record_step"], persist: ["annotations", "findings"] },
+      { actor: "llm", action: "Draft annotations; re-run disasm_prg with them (the file is a door into the knowledge graph); record what you concluded.", tools: ["propose_annotations", "disasm_prg", "save_finding", "agent_record_step"], persist: ["annotations", "findings"] },
     ],
     stopConditions: ["A readable disassembly + draft annotations exist."],
     nextActions: ["Validate with a targeted trace (Disassembly + Trace Validation)."],

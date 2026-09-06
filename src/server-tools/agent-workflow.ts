@@ -140,13 +140,11 @@ interface ProposalCandidate {
   suggestion: string;
 }
 
+// Spec 822.2: the migrated record types live in knowledge/graph.sqlite.
 const KNOWLEDGE_FILES = [
-  "knowledge/entities.json",
-  "knowledge/findings.json",
-  "knowledge/relations.json",
+  "knowledge/graph.sqlite",
   "knowledge/flows.json",
   "knowledge/tasks.json",
-  "knowledge/open-questions.json",
   "knowledge/artifacts.json",
 ];
 

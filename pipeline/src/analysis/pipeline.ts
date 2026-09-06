@@ -538,7 +538,12 @@ export function analyzeMappedBuffer(
     ...semanticsWithDisplay,
     ...ramStateFacts,
   };
-  const evidenceGraph = buildEvidenceGraph(codeSemantics, vicEvidence, segments);
+  // 820.2: on a re-analysis the store already holds this owner's 820 rows; the
+  // first analysis takes the loud JSON fallback (the graph cannot exist yet).
+  const evidenceGraph = buildEvidenceGraph(codeSemantics, vicEvidence, segments, {
+    projectDir: process.env.C64RE_PROJECT_DIR,
+    owner: binaryName.replace(/\.(prg|bin)$/iu, "").toLowerCase(),
+  });
   const stats = calculateStats(mapping, segments);
 
   // Spec 741 §3.2: detect copy-loop relocations from the decoded instruction

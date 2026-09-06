@@ -129,7 +129,10 @@ try {
   assert.equal(allViews.loadSequence.view.items.length >= 1, true);
   assert.equal(allViews.flowGraph.view.nodes.length >= 2, true);
   assert.equal(allViews.flowGraph.view.edges.length >= 1, true);
-  assert.equal(service.listOpenQuestions().length >= 1, true);
+  // Spec 822.2: the import's low-confidence validation prompts are `claims.validation`
+  // state on the graph (822 D4), not question rows; the findings they belonged to are
+  // the generated claims.
+  assert.equal(service.listFindings().some((f) => f.id.startsWith("claim:") && f.tags.includes("analysis-import")), true);
   assert.equal(service.listRelations().length >= 1, true);
 
   const cleanAudit = auditProject(root);
@@ -139,7 +142,8 @@ try {
 
   const nestedKnowledge = join(root, "media", "knowledge");
   mkdirSync(nestedKnowledge, { recursive: true });
-  writeFileSync(join(nestedKnowledge, "entities.json"), `${JSON.stringify({ schemaVersion: 1, updatedAt: new Date().toISOString(), items: [] }, null, 2)}\n`);
+  // Spec 822.2: entities live in graph.sqlite; a nested store is recognised by the JSON stores that remain
+  writeFileSync(join(nestedKnowledge, "artifacts.json"), `${JSON.stringify({ schemaVersion: 1, updatedAt: new Date().toISOString(), items: [] }, null, 2)}\n`);
   const fragmentedAudit = auditProject(root);
   assert.equal(fragmentedAudit.severity, "high");
   assert.equal(fragmentedAudit.counts.nestedKnowledgeStores, 1);
@@ -304,7 +308,8 @@ try {
     assert.equal(second.cacheStatus, "cached");
     assert.equal(second.cachedAt, first.cachedAt);
 
-    const entitiesPath = join(cacheRoot, "knowledge", "entities.json");
+    // Spec 822.2: the entity store is knowledge/graph.sqlite — touching it must refresh the audit cache
+    const entitiesPath = join(cacheRoot, "knowledge", "graph.sqlite");
     const future = new Date(Date.now() + 5000);
     utimesSync(entitiesPath, future, future);
 
