@@ -1,0 +1,74 @@
+name: gates
+
+# The hermetic subset: everything here runs on a bare runner with no C64 ROMs,
+# no media, no assembler and no runtime daemon. That is the whole design — a
+# gate that needs an asset the runner cannot have is a gate that goes red for
+# the wrong reason, gets ignored, and takes the rest of CI with it. That is
+# exactly what happened here before: four workflows referenced 36 scripts that
+# Spec 806 deleted with the TypeScript emulator, the nightly went red every day
+# from June, and by July nothing ran at all.
+#
+# What is NOT here, and stays a local gate: anything needing resources/roms,
+# a KickAssembler/64tass binary, real disk images, or the TRX64 daemon —
+# smoke:741, check:platform-kb, the e2e:82x graph gates, measure:*.
+#
+# Two gates are red on master as of 2026-09-06 and are therefore left out until
+# they are fixed, rather than being added and muted:
+#   test:lifecycle    D structural-enrichment: got "discovery" want "re"
+#   test:mcp-workflow custom-GCR lenient decode
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Both halves: ESM server + CommonJS pipeline. A TypeScript error in
+      # either is the most common breakage and the cheapest to catch.
+      - name: Build
+        run: npm run build
+
+      - name: Build the workspace bundle
+        run: npm run ui:build
+
+      # Rule 9 — no document may describe a world that no longer exists.
+      - name: Docs are current
+        run: npm run check:docs-current
+
+      - name: Cartridge type ids agree with VICE
+        run: npm run check:cart-type-ids
+
+      - name: Project knowledge store
+        run: npm run test:project-knowledge
+
+      - name: Project steering (Spec 748)
+        run: npm run e2e:748
+
+      # The launchers are generated text for a machine this runner is not, so
+      # the generator is what gets checked: quoting, CRLF, the PowerShell 5.1
+      # traps. The pwsh half skips loudly when PowerShell is absent.
+      - name: Workspace launchers
+        run: npm run smoke:ui-launcher
+
+      - name: Model router skills and agents
+        run: npm run smoke:model-router
