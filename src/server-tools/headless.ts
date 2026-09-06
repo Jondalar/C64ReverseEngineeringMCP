@@ -236,13 +236,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // daemon session is built producers-on (Spec 746.1) so iec/drive/memory have data.
   server.tool(
     "runtime_trace_start",
-    "Start a streaming trace on a RUNNING session (no need to pre-declare trace_out at session_start). Use to begin capturing the live shared session's execution into a .c64retrace binary timeline (the authority) + a queryable trace.duckdb index. Pick domains (default c64-cpu+memory; add drive8-cpu/iec/vic for the full picture). Then drive with runtime_session_run, stamp phases with runtime_mark, finalize with runtime_trace_finalize, and read the swimlane/offline-stepping with runtime_swimlane_slice / query with trace_store_*. Not for a one-shot scenario (use runtime_session_start trace_out=). DISCIPLINE: a broad trace CONFIRMS a hypothesis you formed by READING the code — it is not a way to find structure. You MUST pass `hypothesis` (a concrete $address + what you read that points there) or the call is refused. Inputs: session_id, hypothesis, optional domains, optional output path. Returns: runId + store path + domains.",
+    "Start a streaming trace on a RUNNING session (no need to pre-declare trace_out at session_start). Use to begin capturing the live shared session's execution into a .c64retrace binary timeline (the authority) + a queryable trace.duckdb index. Pick domains (default c64-cpu+memory; add drive8-cpu/iec/vic for the full picture). Then drive with runtime_session_run, stamp phases with runtime_mark, finalize with runtime_trace_finalize, and read the swimlane/offline-stepping with runtime_swimlane_slice / query with trace_store_*. Not for a one-shot scenario (use runtime_session_start trace_out=). DISCIPLINE: a broad trace CONFIRMS a hypothesis you formed by READING the code — it is not a way to find structure. You MUST pass `hypothesis` (a concrete $address + what you read that points there) or the call is refused. Inputs: session_id, hypothesis, optional domains, optional output path. Returns: runId + store path + domains. Spec 827: with no `output` the capture goes to the per-user trace directory (%LOCALAPPDATA%/Application Support/XDG, override C64RE_TRACE_DIR), NOT into the project — a trace is gigabytes of continuously rewritten binary and a synced project directory is the worst place for it; `<project>/runtime/traces.json` records where each capture went.",
     {
       session_id: z.string(),
       hypothesis: z.string().optional().describe("REQUIRED (read-before-trace gate): the read-derived reason for this trace — a concrete $address you are investigating + what you READ that points there (a routine, annotation, or finding). E.g. \"$C000 should hold the manual-check result; input routine at $B800 stores the typed word there\". Fishing (no address / no rationale) is refused — read the code first (disasm_prg / inspect_address_range / project_search), form the hypothesis, THEN trace to confirm it."),
       domains: z.array(z.enum(["c64-cpu", "drive8-cpu", "iec", "vic", "sid", "memory", "drive-mechanism", "cart-read"])).optional()
         .describe("Trace domains. Default ['c64-cpu','memory']. The CPU firehose is the swimlane truth; add drive8-cpu/iec for IEC-bus + drive stepping, vic for raster. Two ARMED-ONLY read-set lanes, both produced by the runtime rather than in-process: 'drive-mechanism' arms the 1541 head + block-read (track/sector) lane for a loader-lens capture — read it with runtime_loader_lens; 'cart-read' arms the cartridge bank residency lane (Spec 785) — feed it to validate_extraction to diff a manifest's cart slot spans. Neither belongs in a parity trace."),
-      output: z.string().optional().describe("Path (abs or under the project) for the trace store. Default traces/live_<ts>.duckdb."),
+      output: z.string().optional().describe("Path (abs or under the project) for the trace store. Omit it: the default is the per-user trace directory outside the project (Spec 827). A path inside a OneDrive/Dropbox/iCloud folder is obeyed but warned about."),
     },
     safeHandler("runtime_trace_start", async ({ session_id, hypothesis, domains, output }) => {
       // Read-before-trace discipline gate: refuse a fished trace (no read-derived
@@ -261,18 +261,37 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         if (!sub.allowed) return { content: [{ type: "text" as const, text: sub.refusal! }] };
       }
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
-      // resolve the output path against the caller's project (project-agnostic daemon)
+      const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+      // Spec 827 — a capture defaults OUTSIDE the project: 20 GB of index and log
+      // in one project measured on 2026-09-06, in the very tree a user syncs. An
+      // explicit `output` is still obeyed exactly as before; it only gets a warning
+      // when it lands in a sync client's folder.
+      const { defaultTraceOut, recordTracePointer, syncWarning } = await import("../trace/trace-location.js");
       let absOut: string | undefined = output;
       if (output) {
         const { resolveTraceOut } = await import("./runtime-trace-sink.js");
-        const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
         absOut = resolveTraceOut(output, proj);
+      } else if (proj) {
+        absOut = defaultTraceOut(proj);
       }
       const r = await runtimeDaemon.traceStartDomains<{ run: { runId: string }; outputPath: string; domains: string[] }>(session_id, doms, absOut);
+      const storePath = r.outputPath ?? absOut;
+      const pointer = proj && storePath
+        ? recordTracePointer(proj, {
+            runId: r.run?.runId,
+            duckdbPath: storePath,
+            retracePath: storePath.endsWith(".duckdb") ? `${storePath.slice(0, -".duckdb".length)}.c64retrace` : undefined,
+            startedAt: new Date().toISOString(),
+            domains: r.domains,
+          })
+        : undefined;
+      const warning = storePath ? syncWarning(storePath) : undefined;
       return { content: [{ type: "text" as const, text: [
         `Trace started (Runtime Daemon) — run ${r.run.runId}`,
         `Domains: ${r.domains.join(", ")}`,
         `Store: ${r.outputPath}`,
+        ...(pointer ? [`Recorded in: ${pointer}`] : []),
+        ...(warning ? [warning] : []),
         `Drive the session (runtime_session_run / runtime_until), stamp phases with runtime_mark, then runtime_trace_finalize. Read it with runtime_swimlane_slice / trace_store_*.`,
       ].join("\n") }] };
     },

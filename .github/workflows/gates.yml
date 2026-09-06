@@ -72,3 +72,8 @@ jobs:
 
       - name: Model router skills and agents
         run: npm run smoke:model-router
+
+      # Spec 827 — pure path policy, so the platform it targets does not have to
+      # be the platform it runs on.
+      - name: Trace storage location (Spec 827)
+        run: npm run e2e:827
