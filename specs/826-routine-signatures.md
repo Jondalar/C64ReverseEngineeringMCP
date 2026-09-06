@@ -1,8 +1,9 @@
 # Spec 826 — Routine signatures: registers, flags, zero page, stack, patched operands
 
-**Status:** PROPOSED 2026-09-06 — being built the same day, on branch
-`spec-817-one-platform-knowledge-base`, together with 826.0 (the six graph-fidelity
-fixes from the first field test)
+**Status:** BUILT 2026-09-06 on branch `spec-817-one-platform-knowledge-base` —
+826.0 (the six fidelity fixes) and D1–D8; gates `e2e:826` 51/0, `e2e:826-boundaries`
+40/0, `e2e:826-runtime-args` 44/0, `check:platform-kb` (ABI rows), every earlier
+graph gate green (§9)
 **Origin:** WL1's first field test of the 823 tools on Wasteland_EF (2026-09-06): a
 graph-only answer to "how does the game find payloads on the disk" got the transport
 right and the ABI wrong — Mode / Track / Block index travel in A / X / Y, not in zero
@@ -349,3 +350,85 @@ one `imm` argument; ms for the pass. Numbers into §9.
 - **OQ4 — IRQ handlers.** An IRQ entry's `in` is the interrupted context; the handler's
   signature is meaningful only as `clobbers` / `preserves` (it must preserve
   everything). Report `preserves` for `HANDLES_IRQ` targets; do not report `in`.
+
+## 9. Built — what the gate found on the way
+
+**826.0 first, all six.** T1 in `control-flow.ts` (decoded code under ROM →
+`CALLS` only, `evidence.rom_alternative`); T2 as `producers/resolve.ts` (producer
+`826r`, project-wide, after every seed and inside the annotation importer;
+candidates ranked routine > data_block > label because a human label at a
+table's first byte must not make the table ambiguous); T3/T4 in
+`applyAnnotationFile` by kind, with `c64re graph boundaries [--entries]`; T5 in
+`Graph.resolve` / `nodesAt` (a platform id synthesised from its grammar, kind
+checked against the address so `c64:rom:0000` stays dangling for 818's gate);
+T6 in `Graph.find` (exact name, substring, platform, then `annotations_fts`,
+each hit saying how it matched). Gate cases: `e2e:819` 15 → 26 (T1 under BASIC,
+T2 alpha → beta across owners and gamma making it ambiguous again, T5),
+`e2e:822` 111 → 122 (T3/T4 on the Wasteland copy, T6 `find("sector")` = 11 by
+name then 38 by annotation), `e2e:826-boundaries` 40/0 on a fixture with every
+rule. The 822 gate itself had to learn that its fixture is a cut-over project
+now: it rebuilds the pre-cut-over layout from `knowledge/_legacy-822/`.
+
+**D4 — the ABI is in the store.** `platform_abi` (schema 2): 44 entries — the
+KERNAL jump table plus STROUT / LINPRT / GIVAYF / GETADR / CLRSCR — as 168
+`(address, location, role)` rows from `src/platform-kb/abi.ts`, the second
+sanctioned hand table next to `extensions.ts`. `PlatformKb.abi()` returns
+`undefined` for an unknown entry (unknown is not empty). `check:platform-kb`
+asserts CHROUT `in=[A]`, SETLFS `in=[A,X,Y]`, LOAD `out ∋ C`, every ABI address
+is a `rom` node. The pipeline's own `kernal-abi.ts` (register *roles* for the
+immediate rewrite) stays; the two tables serve different readers and the gate
+checks their names agree.
+
+**D1/D2/D3/D5/D6/D7 — `producers/signatures.ts`, `isa-6502.ts`.** Effects for
+all 75 mnemonics. Registers use a forward symbolic pass with sets at joins
+(so `pha … pla` is a save and `txa; sta $F4` is a use of X); memory, flags,
+stack slots and `op:` locations use classic backward liveness; `certain` = the
+first-use block dominates every exit and no path defines the location before
+it. Interprocedural over Tarjan SCCs across ALL owners in one run (a recursive
+SCC iterates to a fixpoint, cap 8). **The signature is a `SIGNATURE` self-edge**
+(from = to = the routine, producer `826`, replaced per owner) rather than
+`attrs.signature`: `replaceGenerated` cannot update 819's rows, and a second
+row per id is exactly what 818 forbids. `PASSES` edges carry the D6 slice with
+819's `src:` key so a walk joins them onto the CALLS line. `partial` carries a
+`root` (the original site) so a propagated reason never nests. One extra stack
+pattern was needed on the corpus: the KERNAL IRQ frame (`pla tay pla tax pla
+rti`, height −3) is `kernal-irq-exit`, balanced. Argument slices skip index
+families (`mem:$1000+X` is a table consumed, not a value passed) and `mem:?`.
+Cross-owner patched operands (D3 "another routine") are same-owner only.
+
+**The defect the first real run found.** `$FC00` lies in the KERNAL range and
+outside the caller's image, so `calleeIdOf` called it "ROM without an ABI row"
+— unknown — and the fastloader's argument domain was empty although 826.0 T2
+had the alias. A documented ROM entry (an ABI row) is the KERNAL; anything else
+under the ROM range consults `RESOLVES_TO` first. The fixture gained the
+cross-owner case (44 → 51 checks).
+
+**Numbers.** Fixture: 11 routines, 10 signed, 1 partial, 5 PASSES, 1 rts
+dispatch; `svc.in = {A, X, Y}`, `keep.preserves = {A, X}`, `patch.out ∋
+op:$11A1`, `usesop.in ∋ op:$11A1`, `args $1100` = `A ∈ {$01, $02, $03}` from
+three sites. Corpus (21 reports): lnr_boot 210 routines in 132 ms, 115 signed /
+95 partial (39 `jmp (abs)` vectors, 30 propagated from those, 16 jumps into
+undecoded or outside the image). **Wasteland_EF** (a temp copy, the whole chain
+`c64re graph seed` in 1.3 s): 18 owners, 939 routines, 368 signed / 571 partial
+/ 7 unknown stack, 1 223 PASSES; resolve 366 `RESOLVES_TO`, 64 ambiguous
+(mostly `$022A`-style cells that two artifacts both annotate); T3/T4 after
+`graph migrate`: attached 462, data blocks 433, splits 73, unseen 12, 287 human
+rows under the two owners 819 never seeded (`block2_engine_0200_0a00_0fff`,
+`block2_engine_0200_2600` — H1, the human's call). WL1's "28" became 85 because
+819's extents on this project are huge (`load_to_C800` $053C–$2855 contains
+dozens of human routines) and every one is a split. And the question that
+started the spec: `c64re graph args '$FC00'` → 7 call sites, `A ← imm $01 (3),
+$00, $03, op:$2805, $7FA1`, `X ← op:$2801, imm $00/$08/$0A/$0E/$10, $0011`, `Y ←
+op:$2803, imm $22 (2), $01/$04/$23, $0010` — the mode byte, the patched
+operands at `$2801/$2803/$2805` and the register ABI the docs knew, now in the
+graph; `c64:rom:ffd2` has no callers (grep-verified by WL1: the game never calls
+CHROUT); `path($2687 → $FC00)` crosses the artifact boundary in three hops;
+`c64:zp:00fe` has 31+ writers.
+
+**Still open (named, not hidden).** 571 of 939 Wasteland routines are `partial`,
+almost all through `jmp (abs)` vectors and jumps into undecoded bytes — 821's
+runtime observations and 758's discovery seeds are the way to fewer unknowns,
+not a looser rule. `preserves` is empty on `$FC00` because it clobbers
+everything it touches, which is true. The observed-args side (D6 second
+paragraph) is built and gated on a synthetic trace; a real WL1 capture through
+`import-trace` is the acceptance still to run.
