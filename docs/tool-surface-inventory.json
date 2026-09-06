@@ -1,6 +1,6 @@
 {
-  "total": 265,
-  "specCount": 42,
+  "total": 267,
+  "specCount": 43,
   "advancedCandidate": 110,
   "byNamespace": {
     "runtime": 83,
@@ -27,6 +27,7 @@
     "set": 3,
     "analyze": 2,
     "auto": 2,
+    "basic": 2,
     "bulk": 2,
     "c64ref": 2,
     "declare": 2,
@@ -140,8 +141,8 @@
       "file": "server-tools/analysis-workflow.ts",
       "ns": "analysis",
       "hasSpec": false,
-      "firstSentence": "Use to poll a background analysis job started by analyze_prg (returned a job_id when the PRG was too large to finish synchronously).",
-      "desc": "Use to poll a background analysis job started by analyze_prg (returned a job_id when the PRG was too large to finish synchronously). Not for launching the analysis itself (use analyze_prg). Returns the full original tool result once done. Inputs: job_id. Returns: running (elapsed) | done (result) | failed (error).",
+      "firstSentence": "Use to poll a background job started by analyze_prg (PRG too large to finish synchronously) or by runtime_loader_lens (capture too large to fold synchronously) — both hand back a job_id instead of stalling the call.",
+      "desc": "Use to poll a background job started by analyze_prg (PRG too large to finish synchronously) or by runtime_loader_lens (capture too large to fold synchronously) — both hand back a job_id instead of stalling the call. Not for launching the work itself (use analyze_prg / runtime_loader_lens). Returns the full original tool result once done. Inputs: job_id. Returns: running (elapsed) | done (result) | failed (error).",
       "tier": "default?"
     },
     {
@@ -185,8 +186,8 @@
       "file": "server-tools/assembly.ts",
       "ns": "assemble",
       "hasSpec": false,
-      "firstSentence": "Assemble a .asm (KickAssembler) or .tass (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG.",
-      "desc": "Assemble a .asm (KickAssembler) or .tass (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG. Use to verify a disassembly rebuilds correctly. Not for generating the source (use disasm_prg). Inputs: source path, optional original PRG. Returns: assembled binary path + cmp result.",
+      "firstSentence": "Assemble a .asm (KickAssembler) or .tas (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG.",
+      "desc": "Assemble a .asm (KickAssembler) or .tas (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG. Use to verify a disassembly rebuilds correctly. Not for generating the source (use disasm_prg). Inputs: source path, optional original PRG. Returns: assembled binary path + cmp result.",
       "tier": "default?"
     },
     {
@@ -251,6 +252,24 @@
       "firstSentence": "Bug 29: walk the open questions and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing.",
       "desc": "Bug 29: walk the open questions and copy the linked finding's addressRange (or evidence[0].addressRange as fallback) to the question's top-level addressRange when missing. One-shot migration. Returns count updated. Idempotent.",
       "tier": "advanced?"
+    },
+    {
+      "name": "basic_list",
+      "file": "server-tools/basic.ts",
+      "ns": "basic",
+      "hasSpec": false,
+      "firstSentence": "List a tokenized BASIC V2 program from a PRG and extract its SYS / USR / LOAD facts — the listing, plus the address the BASIC boot jumps into and the address of the token byte that jumps there.",
+      "desc": "List a tokenized BASIC V2 program from a PRG and extract its SYS / USR / LOAD facts — the listing, plus the address the BASIC boot jumps into and the address of the token byte that jumps there. Use on any PRG that loads at $0801 BEFORE disassembling it: a stock BASIC boot is token bytes, not 6502, and its SYS target is the real entry point into the machine code. Not for machine-code PRGs — on one it answers NOT BASIC and names the byte offset where the line chain broke, instead of half-rendering it (use analyze_prg / disasm_prg for those) — and not for writing BASIC (use basic_tokenize). Inputs: prg_path, optional project_dir, optional json. Returns: the listing, the program's address range and end, and each SYS/USR/LOAD with its line number, its resolved target (or the unresolved expression) and the address of its token byte.",
+      "tier": "default?"
+    },
+    {
+      "name": "basic_tokenize",
+      "file": "server-tools/basic.ts",
+      "ns": "basic",
+      "hasSpec": false,
+      "firstSentence": "Tokenize BASIC V2 source text into a .prg — the inverse of basic_list.",
+      "desc": "Tokenize BASIC V2 source text into a .prg — the inverse of basic_list. Use to build a loader stub, or to turn an edited listing back into bytes; the round trip is byte-identical, which is what makes a listing worth trusting. Not for assembling 6502 source (use assemble_source), and not for reading a program that already exists (use basic_list). Inputs: text, output_path, optional project_dir and load_address (default $0801). Returns: the written PRG path, its load address and byte count.",
+      "tier": "default?"
     },
     {
       "name": "build_all_views",
@@ -527,8 +546,8 @@
       "file": "server-tools/analysis-workflow.ts",
       "ns": "disasm",
       "hasSpec": false,
-      "firstSentence": "Disassemble a PRG to KickAssembler .asm + 64tass .tass, segment-aware when given an analysis JSON.",
-      "desc": "Disassemble a PRG to KickAssembler .asm + 64tass .tass, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze_prg / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze_prg) or for menus/multi-file containers (use disasm_menu). A `<stem>_annotations.json` next to the PRG/ASM is auto-applied — exact shape: labels[{address,label,comment?}], routines[{address,name,comment}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, platform, relocations. Returns: .asm/.tass artifact paths.",
+      "firstSentence": "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON.",
+      "desc": "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze_prg / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze_prg) or for menus/multi-file containers (use disasm_menu). A `<stem>_annotations.json` next to the PRG/ASM is auto-applied — exact shape: labels[{address,label,comment?}], routines[{address,name,comment}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, platform, relocations. Returns: .asm/.tas artifact paths.",
       "tier": "default?"
     },
     {
@@ -609,7 +628,7 @@
       "ns": "get",
       "hasSpec": false,
       "firstSentence": "Get the current best version artifact for a single source subject — the one the UI opens by default.",
-      "desc": "Get the current best version artifact for a single source subject — the one the UI opens by default. Use when you want the right .asm/.tass to read or act on for a payload, without choosing among versions yourself: it returns the manually-pinned current if one exists, otherwise the highest-ranked source (curated/semantic beats generated). Pass the subject stem (e.g. '02_2.0') or any artifact id belonging to the subject. Not for listing the alternatives (use list_artifact_versions) and not for changing the current (use set_current_artifact_version). Returns the current artifact's id, path, role, and format.",
+      "desc": "Get the current best version artifact for a single source subject — the one the UI opens by default. Use when you want the right .asm/.tas to read or act on for a payload, without choosing among versions yourself: it returns the manually-pinned current if one exists, otherwise the highest-ranked source (curated/semantic beats generated). Pass the subject stem (e.g. '02_2.0') or any artifact id belonging to the subject. Not for listing the alternatives (use list_artifact_versions) and not for changing the current (use set_current_artifact_version). Returns the current artifact's id, path, role, and format.",
       "tier": "default?"
     },
     {
@@ -734,8 +753,8 @@
       "file": "server-tools/compression.ts",
       "ns": "link",
       "hasSpec": false,
-      "firstSentence": "Use to associate a specific cartridge bank/slot chunk with its .asm or .tass disassembly artifact — records a derived-from relation so the cartridge inspector UI surfaces the correct source file for that chunk.",
-      "desc": "Use to associate a specific cartridge bank/slot chunk with its .asm or .tass disassembly artifact — records a derived-from relation so the cartridge inspector UI surfaces the correct source file for that chunk. Not for bulk chunk promotion (use bulk_create_cart_chunk_payloads) or for packer/format metadata (use record_cart_chunk_packer). Inputs: absolute or project-relative path to the runtime_luts/all_luts.json, chunk identified by (bank, slot, offset_in_bank, length) or by (lut, idx), and the asm_artifact_id from list_artifacts. Updates the knowledge store; no files are written.",
+      "firstSentence": "Use to associate a specific cartridge bank/slot chunk with its .asm or .tas disassembly artifact — records a derived-from relation so the cartridge inspector UI surfaces the correct source file for that chunk.",
+      "desc": "Use to associate a specific cartridge bank/slot chunk with its .asm or .tas disassembly artifact — records a derived-from relation so the cartridge inspector UI surfaces the correct source file for that chunk. Not for bulk chunk promotion (use bulk_create_cart_chunk_payloads) or for packer/format metadata (use record_cart_chunk_packer). Inputs: absolute or project-relative path to the runtime_luts/all_luts.json, chunk identified by (bank, slot, offset_in_bank, length) or by (lut, idx), and the asm_artifact_id from list_artifacts. Updates the knowledge store; no files are written.",
       "tier": "default?"
     },
     {
@@ -789,7 +808,7 @@
       "ns": "list",
       "hasSpec": false,
       "firstSentence": "List every known version of a single source subject (one payload / listing identity) with its role, format, rank, and status, and which one is current.",
-      "desc": "List every known version of a single source subject (one payload / listing identity) with its role, format, rank, and status, and which one is current. Use when you need to see the alternatives for a payload's .asm/.tass source — for example before opening or before choosing a different version. The subject id is the base stem shared by a payload's sources (e.g. \"02_2.0\" for 02_2.0_disasm.asm + 02_2.0_semantic.tass); pass an artifact id and the tool resolves its subject. Not for listing all artifacts in the project (use list_artifacts) and not for reading file bytes (use read_artifact). Returns the version group: current artifact, source (auto/manual), needs-decision flag, and the ordered version list.",
+      "desc": "List every known version of a single source subject (one payload / listing identity) with its role, format, rank, and status, and which one is current. Use when you need to see the alternatives for a payload's .asm/.tas source — for example before opening or before choosing a different version. The subject id is the base stem shared by a payload's sources (e.g. \"02_2.0\" for 02_2.0_disasm.asm + 02_2.0_semantic.tas); pass an artifact id and the tool resolves its subject. Not for listing all artifacts in the project (use list_artifacts) and not for reading file bytes (use read_artifact). Returns the version group: current artifact, source (auto/manual), needs-decision flag, and the ordered version list.",
       "tier": "default?"
     },
     {
@@ -1491,7 +1510,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step).",
-      "desc": "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step). Give `source_path` (an .asm/.tass file, assembled here → bytes) OR pre-assembled `bytes`. `space` ram|roml|romh + `bank` + `addr` (CPU window addr) target RAM or a cart bank (795). Re-adding at the same target REPLACES (iterate a fix). Inputs: session_id, id, addr, space?, bank?, source_path?|bytes?. Returns: the candidate.",
+      "desc": "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step). Give `source_path` (an .asm/.tas file, assembled here → bytes) OR pre-assembled `bytes`. `space` ram|roml|romh + `bank` + `addr` (CPU window addr) target RAM or a cart bank (795). Re-adding at the same target REPLACES (iterate a fix). Inputs: session_id, id, addr, space?, bank?, source_path?|bytes?. Returns: the candidate.",
       "tier": "default?"
     },
     {
@@ -1625,8 +1644,8 @@
       "file": "server-tools/headless.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Set joystick port-2 state (up/down/left/right/fire) on a session.",
-      "desc": "Set joystick port-2 state (up/down/left/right/fire) on a session. Use to drive game input. Not for keyboard (use runtime_type). Inputs: session_id, direction/fire flags. Returns: applied state.",
+      "firstSentence": "Set or HOLD joystick state on a session.",
+      "desc": "Set or HOLD joystick state on a session. Use to drive game input. Not for keyboard (use runtime_type). Two modes. Without `hold_frames` it sets the port state and returns immediately — the machine keeps free-running in real time, so a press lasts as long as it takes you to make the next call, which is a moment you do not control. With `hold_frames` the press is FRAME-LOCKED: the tool pauses the machine, applies the state, advances exactly that many frames, releases, and restores whether the machine was running. That is the same thing runtime_scene_reel does, and it is what you want against a title that debounces its own $DC00/$DC01 poll behind a raster-frame wait — a menu that samples once per frame will step once per press instead of zero or five times at random. Reach for hold_frames FIRST for any menu or in-game input; the bare set mode is for holding a direction across several other calls on purpose. Inputs: session_id, direction/fire flags, optional port (1 or 2, default 2), optional hold_frames. Returns: applied state, and for a hold the cycle window it covered.",
       "tier": "default?"
     },
     {
@@ -2074,9 +2093,9 @@
       "name": "runtime_trace_start",
       "file": "server-tools/headless.ts",
       "ns": "runtime",
-      "hasSpec": false,
+      "hasSpec": true,
       "firstSentence": "Start a streaming trace on a RUNNING session (no need to pre-declare trace_out at session_start).",
-      "desc": "Start a streaming trace on a RUNNING session (no need to pre-declare trace_out at session_start). Use to begin capturing the live shared session's execution into a .c64retrace binary timeline (the authority) + a queryable trace.duckdb index. Pick domains (default c64-cpu+memory; add drive8-cpu/iec/vic for the full picture). Then drive with runtime_session_run, stamp phases with runtime_mark, finalize with runtime_trace_finalize, and read the swimlane/offline-stepping with runtime_swimlane_slice / query with trace_store_*. Not for a one-shot scenario (use runtime_session_start trace_out=). DISCIPLINE: a broad trace CONFIRMS a hypothesis you formed by READING the code — it is not a way to find structure. You MUST pass `hypothesis` (a concrete $address + what you read that points there) or the call is refused. Inputs: session_id, hypothesis, optional domains, optional output path. Returns: runId + store path + domains.",
+      "desc": "Start a streaming trace on a RUNNING session (no need to pre-declare trace_out at session_start). Use to begin capturing the live shared session's execution into a .c64retrace binary timeline (the authority) + a queryable trace.duckdb index. Pick domains (default c64-cpu+memory; add drive8-cpu/iec/vic for the full picture). Then drive with runtime_session_run, stamp phases with runtime_mark, finalize with runtime_trace_finalize, and read the swimlane/offline-stepping with runtime_swimlane_slice / query with trace_store_*. Not for a one-shot scenario (use runtime_session_start trace_out=). DISCIPLINE: a broad trace CONFIRMS a hypothesis you formed by READING the code — it is not a way to find structure. You MUST pass `hypothesis` (a concrete $address + what you read that points there) or the call is refused. Inputs: session_id, hypothesis, optional domains, optional output path. Returns: runId + store path + domains. Spec 827: with no `output` the capture goes to the per-user trace directory (%LOCALAPPDATA%/Application Support/XDG, override C64RE_TRACE_DIR), NOT into the project — a trace is gigabytes of continuously rewritten binary and a synced project directory is the worst place for it; `<project>/runtime/traces.json` records where each capture went.",
       "tier": "default?"
     },
     {
@@ -2103,7 +2122,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Queue text into a session's keyboard buffer (CIA1 matrix), as if typed.",
-      "desc": "Queue text into a session's keyboard buffer (CIA1 matrix), as if typed. Use to enter BASIC commands / LOAD lines. Not for joystick (use runtime_joystick). Inputs: session_id, text, optional timing. Returns: queued confirmation.",
+      "desc": "Queue text into a session's keyboard buffer (CIA1 matrix), as if typed. Use to enter BASIC commands / LOAD lines. Not for joystick (use runtime_joystick). Without `settle` the text is only QUEUED: the daemon plays it out as the machine runs, and since the live session free-runs in real time between calls, your next tool call can land in the middle of the typing and read a half-typed line. With `settle: true` the tool pauses the machine, advances exactly the machine time the queue needs, and restores whether it was running — when the call returns, the text HAS been typed. Use settle whenever the next thing you do depends on the typing having finished (a LOAD, a RUN, a menu entry). Inputs: session_id, text, optional timing, optional settle/extra_frames. Returns: queued confirmation, and for a settle the cycle window it covered.",
       "tier": "default?"
     },
     {

@@ -125,6 +125,14 @@ function segmentForAddress(address: number, segments: Segment[]): Segment | unde
 
 function addRoutineNode(nodes: Map<string, EvidenceNode>, segments: Segment[], address: number, reason: string): string | undefined {
   const segment = segmentForAddress(address, segments);
+  // Spec 829 D6 — `basic` is deliberately NOT added. This site asks "is the
+  // segment at this address a 6502 ROUTINE I can hang control-flow evidence
+  // on?" A tokenized BASIC program is not one: it has no instructions, no
+  // basic blocks and no callers in the 6502 sense, so a `routine` node over it
+  // would be a node with nothing behind it. The BASIC→ML link is carried
+  // instead by the SYS fact's `site`/`value` pair (D4.1), which is an address
+  // in the same space; emitting that edge is a graph-producer job, not this
+  // function's (829 §6 non-goals).
   if (!segment || (segment.kind !== "code" && segment.kind !== "basic_stub")) {
     return undefined;
   }

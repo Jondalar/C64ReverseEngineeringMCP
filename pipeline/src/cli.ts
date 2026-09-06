@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { parseCrt, writeCrtOutputs } from "./lib/crt";
 import { exportMenuPayloads, reconstructBootPayloads } from "./lib/easyflash";
+import { analyzeBasicProgram, stripPrgHeader, tokenize, toPrg } from "./lib/basic-v2";
 import { emitKickAssemblerSources } from "./lib/kickasm";
 import { disassemblePrgToKickAsm, RelocationEntry } from "./lib/prg-disasm";
 import { analyzePrgFile, analyzeRawFile, writeAnalysisReport } from "./analysis/pipeline";
@@ -58,6 +59,8 @@ function usage(): never {
       "  node dist/cli.js disasm-menu [analysisDir] [outputDir]",
       "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [analysisJson] [--platform c64|c1541] [--relocations <json>]",
       "  node dist/cli.js analyze-prg <prg> [outputJson] [entryHex,...]",
+      "  node dist/cli.js basic-list <prg> [--json]",
+      "  node dist/cli.js basic-tokenize <textFile> <outputPrg> [--load-address $0801]",
       "  node dist/cli.js ram-report <analysisJson> [outputMd]",
       "  node dist/cli.js pointer-report <analysisJson> [outputMd]",
       "  node dist/cli.js analyze-sample [outputJson]",
@@ -239,6 +242,153 @@ function main(): void {
     } catch {
       // best effort; payload auto-creation is optional
     }
+    return;
+  }
+
+  // Spec 829 D7 — the pipeline half of `basic_list`. `src/` (ESM) cannot import
+  // `pipeline/src/` (CommonJS) (Spec 817 §1), so this verb IS how the MCP tool
+  // reaches the detokenizer: server-tools/basic.ts spawns it via runCli.
+  if (command === "basic-list") {
+    const asJson = args.includes("--json");
+    const prgPath = args.find((arg) => !arg.startsWith("--"));
+    if (!prgPath) {
+      usage();
+    }
+    const prgAbs = resolve(prgPath);
+    const file = readFileSync(prgAbs);
+    if (file.length < 3) {
+      throw new Error(`PRG too small: ${prgAbs} is ${file.length} bytes; need at least 3 (2-byte header + body).`);
+    }
+    const { loadAddress, body } = stripPrgHeader(file);
+
+    const walk = analyzeBasicProgram(body, loadAddress);
+    if (!walk.ok) {
+      // Spec 829 D2 — a broken chain is reported as NOT BASIC with the offset
+      // where it broke. It is not an exception: "this file is machine code"
+      // is a real answer, and half-rendering is how issue #11 became a bug.
+      if (asJson) {
+        process.stdout.write(`${JSON.stringify({ ok: false, file: prgAbs, loadAddress, reason: walk.reason, offset: walk.offset }, null, 2)}\n`);
+      } else {
+        process.stdout.write(
+          [
+            `File: ${prgAbs}`,
+            `Load address: $${loadAddress.toString(16).toUpperCase().padStart(4, "0")}`,
+            "",
+            `NOT a tokenized BASIC V2 program: ${walk.reason}`,
+            `Chain broke at body offset ${walk.offset} ($${(loadAddress + walk.offset).toString(16).toUpperCase().padStart(4, "0")}).`,
+            "",
+            "Use analyze_prg / disasm_prg — this is machine code, not BASIC.",
+          ].join("\n") + "\n",
+        );
+      }
+      return;
+    }
+
+    const { listing, facts } = walk;
+    const hex4 = (value: number): string => `$${value.toString(16).toUpperCase().padStart(4, "0")}`;
+
+    if (asJson) {
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            ok: true,
+            file: prgAbs,
+            loadAddress,
+            programRange: walk.programRange,
+            endAddress: walk.endAddress,
+            lineCount: walk.lines.length,
+            isStub: walk.isStub,
+            ascendingLineNumbers: walk.ascendingLineNumbers,
+            listing,
+            facts,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      return;
+    }
+
+    const lines: string[] = [
+      `File: ${prgAbs}`,
+      `Load address: ${hex4(loadAddress)}`,
+      `BASIC ${walk.isStub ? "SYS launcher" : "program"}: ${hex4(walk.programRange.start)}-${hex4(walk.programRange.end)}, ` +
+        `${walk.lines.length} line(s), terminator at ${hex4(walk.endAddress)}; anything from ${hex4(walk.programRange.end + 1)} on is not BASIC.`,
+      ...(walk.ascendingLineNumbers ? [] : ["Line numbers do NOT ascend — the listing was written by machine code, not the editor."]),
+      "",
+      listing.replace(/\n+$/, ""),
+      "",
+    ];
+    if (facts.length === 0) {
+      lines.push("Facts: none (no SYS, USR or LOAD in this program).");
+    } else {
+      lines.push("Facts:");
+      for (const fact of facts) {
+        const where = `line ${fact.lineNumber}, token at ${hex4(fact.site)}`;
+        if (fact.kind === "load") {
+          lines.push(`  LOAD ${fact.fileName !== undefined ? `"${fact.fileName}"` : "(name unresolved)"} — ${where}`);
+        } else if (fact.value === undefined) {
+          lines.push(`  ${fact.kind.toUpperCase()} UNRESOLVED: ${fact.expression ?? "expression is not constant"} — ${where} [${fact.confidence}]`);
+        } else {
+          lines.push(`  ${fact.kind.toUpperCase()} ${hex4(fact.value)} (${fact.value}) — ${where} [${fact.confidence}]`);
+        }
+      }
+    }
+    process.stdout.write(`${lines.join("\n")}\n`);
+    return;
+  }
+
+  // Spec 829 D3 — the inverse of basic-list. The round trip is the gate: a
+  // lister nobody can invert is a lister nobody can trust.
+  if (command === "basic-tokenize") {
+    let loadAddress = 0x0801;
+    const positional: string[] = [];
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index]!;
+      if (arg === "--load-address" || arg === "--loadAddress") {
+        const value = args[index + 1];
+        if (!value) throw new Error("--load-address requires a value");
+        loadAddress = Number.parseInt(value.startsWith("$") ? value.slice(1) : value, 16);
+        if (Number.isNaN(loadAddress)) throw new Error(`Invalid --load-address: ${value}`);
+        index += 1;
+        continue;
+      }
+      if (arg.startsWith("--load-address=")) {
+        const value = arg.slice("--load-address=".length);
+        loadAddress = Number.parseInt(value.startsWith("$") ? value.slice(1) : value, 16);
+        if (Number.isNaN(loadAddress)) throw new Error(`Invalid --load-address: ${value}`);
+        continue;
+      }
+      positional.push(arg);
+    }
+    const textPath = positional[0];
+    const outputPrg = positional[1];
+    if (!textPath || !outputPrg) {
+      usage();
+    }
+    const textAbs = resolve(textPath);
+    const outputAbs = resolve(outputPrg);
+    const text = readFileSync(textAbs, "utf8");
+    const body = tokenize(text, loadAddress);
+    const prg = Buffer.from(toPrg(loadAddress, body));
+    writeFileSync(outputAbs, prg);
+    registerCliArtifact({
+      kind: "prg",
+      scope: "generated",
+      title: `${basename(outputAbs)} (tokenized BASIC V2)`,
+      path: outputAbs,
+      format: "prg",
+      role: "basic_program",
+      producedByTool: "pipeline_cli:basic-tokenize",
+    });
+    process.stdout.write(
+      [
+        `Source: ${textAbs}`,
+        `Output: ${outputAbs}`,
+        `Load address: $${loadAddress.toString(16).toUpperCase().padStart(4, "0")}`,
+        `Bytes: ${prg.length} (2-byte header + ${body.length} body)`,
+      ].join("\n") + "\n",
+    );
     return;
   }
 

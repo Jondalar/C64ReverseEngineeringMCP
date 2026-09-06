@@ -38,7 +38,11 @@ const ok = (msg) => notes.push(`  PASS  ${msg}`);
 
 // Files that MAY contain address→name literals: the seeder's extension table
 // and the ABI table (checked separately in 4).
-const ALLOW = new Set(["src/platform-kb/extensions.ts", "src/platform-kb/abi.ts", "pipeline/src/lib/kernal-abi.ts"]);
+// Spec 829: basic-v2.ts maps PETSCII CHARACTER codes ($05 WHT, $0D RETURN, $93
+// CLR) to names. Those are not addresses — nothing in that file says what lives
+// at a memory location, which is the thing this gate exists to keep in one
+// place. The literals only look like addresses to the regex below.
+const ALLOW = new Set(["src/platform-kb/extensions.ts", "src/platform-kb/abi.ts", "pipeline/src/lib/kernal-abi.ts", "pipeline/src/lib/basic-v2.ts"]);
 // An address literal used as a MAP KEY for a string: `0xd018: "..."` (object) or
 // `[0xd018, "..."]` (Map tuple). Hardware, ROM and zero-page ranges only. A call
 // argument like `def(0x00, "brk", …)` is an opcode table, not a name map, and

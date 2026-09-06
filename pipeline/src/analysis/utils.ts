@@ -151,6 +151,13 @@ export function calculateStats(mapping: MemoryMapping, segments: Segment[]): Ana
     if (segment.kind !== "unknown") {
       claimedBytes += segment.length;
     }
+    // Spec 829 D6 — `basic` is deliberately NOT counted here. The question this
+    // site asks is "how many bytes of this image are 6502 machine code?", and a
+    // tokenized BASIC program is none. It still counts as CLAIMED above (the
+    // `kind !== "unknown"` test), which is the other half of the truth: the
+    // region is understood, it is just not code. `basic_stub` stays in, because
+    // it marks the machine code a BASIC SYS jumps INTO — real 6502 that really
+    // does belong in this total.
     if (segment.kind === "code" || segment.kind === "basic_stub") {
       codeBytes += segment.length;
     }
@@ -166,6 +173,15 @@ export function calculateStats(mapping: MemoryMapping, segments: Segment[]): Ana
 
 export function kindPriority(kind: SegmentKind): number {
   switch (kind) {
+    // Spec 829 D6 — HIGHEST priority, above every other kind. This is the one
+    // site where `basic` must answer "yes, I carry the program here": the claim
+    // is not a heuristic score but a completed chain walk (D2) — every line
+    // record's link pointer ascends, stays in the image and ends at $0000. No
+    // byte-shape analyzer (text, charset, sprite) can outrank a structural
+    // proof, and the whole point of the segment is that nothing else gets to
+    // reclassify a slice out of the middle of the program.
+    case "basic":
+      return 125;
     case "basic_stub":
       return 120;
     case "code":

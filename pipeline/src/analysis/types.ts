@@ -1,5 +1,14 @@
 export type SegmentKind =
   | "basic_stub"
+  // Spec 829 D6 — the tokenized BASIC V2 program itself, proven by walking its
+  // line-record chain (D2). `basic_stub` KEEPS its meaning and the two never
+  // collide: `basic_stub` marks the MACHINE CODE a BASIC SYS jumps into (see
+  // makeCodeCandidate in code-discovery.ts — it keys off an entry point whose
+  // source is `basic_sys`), so a `basic_stub` segment really is 6502 and every
+  // "is this code?" site rightly says yes to it. A `basic` segment is the
+  // token bytes, which are not 6502 at all — rendering them as instructions is
+  // issue #11 — so those same sites must say no.
+  | "basic"
   | "code"
   | "text"
   | "screen_code_text"

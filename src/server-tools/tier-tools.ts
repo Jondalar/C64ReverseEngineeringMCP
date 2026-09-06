@@ -52,6 +52,10 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Analyse / disassemble
   "analyze_prg", "disasm_prg", "disasm_menu", "inspect_address_range",
   "inspect_disk", "assemble_source", "c64ref_lookup",
+  // BASIC V2: read a tokenized program (and its SYS target) before assuming a
+  // PRG is 6502, and write one back. A cracked game very often boots through
+  // BASIC, and until now that boot was disassembled as machine code.
+  "basic_list", "basic_tokenize",
   // BUG-039 — poll the background job analyze_prg returns for large PRGs (job
   // mode prevents the >180s host stall that dropped the MCP connection).
   "analysis_job_status",
@@ -259,14 +263,21 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * per waypoint, and getting a different result each time. One door that takes the
  * whole schedule is less surface for an agent to hold, not more — and there is no
  * other tool where an input carries its own duration.
- * 2026-09-06 raised 151→156 for the five graph_* tools (Spec 823). The cap was
  * FULL, so this is said plainly: five tools that answer "who calls / who writes /
  * what does this touch / is there a path / where are the unknowns" from an index
  * replace the loop of read_artifact + inspect_address_range + a 5 000-line
  * listing that an agent runs today to answer the same question by hand. Less
  * surface to hold per question, not more — the runtime_scene_reel argument. If
- * 151 must hold, 823 OQ1 names project_wiki_lint as the demotion candidate. */
-export const DEFAULT_TIER_CAP = 156;
+ * 151 must hold, 823 OQ1 names project_wiki_lint as the demotion candidate.
+ *
+ * 2026-09-06, second raise, 156 → 158 for Spec 829's `basic_list` +
+ * `basic_tokenize` — stated here rather than left for the probe to discover.
+ * They earn the slot for the same kind of reason: a PRG that loads at $0801 was
+ * being disassembled as 6502 across its token bytes (issue #11), so the default
+ * surface had no way to READ the boot a cracked game most often arrives with, or
+ * to name the address it SYSes into. The two raises are independent — 823's five
+ * graph tools and 829's two — and they merged into one number here. */
+export const DEFAULT_TIER_CAP = 158;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";
