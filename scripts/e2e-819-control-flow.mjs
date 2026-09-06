@@ -98,6 +98,78 @@ graph = Graph.open(project);
 check(graph.resolve(R("1020")).name === "get_one", "human name survives a re-seed");
 graph.close();
 
+// ---------------------------------------------------------------- 826.0 T1 / T2 / T5
+
+{
+  const { resolveAddresses, ambiguousAddresses } = await import(join(ROOT, "dist/knowledge-graph/producers/resolve.js"));
+  const { PlatformKb } = await import(join(ROOT, "dist/platform-kb/read.js"));
+  const analyze = (prgPath, analysisPath, load) => execFileSync(process.execPath, [join(ROOT, "dist/pipeline/cli.cjs"), "analyze-prg", prgPath, analysisPath, load], { cwd: ROOT, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, C64RE_PROJECT_DIR: project } });
+  const makePrg = (name, load, size, parts) => {
+    const img = new Uint8Array(size).fill(0xea);
+    for (const [addr, bytes] of parts) img.set(bytes, addr - load);
+    const p = new Uint8Array(size + 2);
+    p[0] = load & 0xff; p[1] = load >> 8; p.set(img, 2);
+    const prgPath = join(project, "analysis", `${name}.prg`);
+    const analysisPath = join(project, "analysis", `${name}_analysis.json`);
+    writeFileSync(prgPath, p);
+    analyze(prgPath, analysisPath, load.toString(16));
+    return analysisPath;
+  };
+
+  // T1 — code UNDER BASIC: the jsr target is decoded code in the image → CALLS only, the ROM named as the alternative
+  const kb = new PlatformKb();
+  let romTarget;
+  for (let a = 0xbb10; a < 0xbbf0; a += 1) { const n = kb.node("c64", a); if (n && n.kind === "rom") { romTarget = a; break; } }
+  kb.close();
+  if (romTarget === undefined) {
+    console.log("  skip  T1: no documented BASIC ROM entry in $BB10-$BBF0 — loudly skipped, not passed");
+  } else {
+    const lo = romTarget & 0xff;
+    const ub = makePrg("under_basic", 0xbb00, 0x100, [[0xbb00, [0x20, lo, 0xbb, 0x60]], [romTarget, [0xa9, 0x01, 0x60]]]);
+    seedControlFlow({ projectDir: project, analysisPath: ub });
+    const g = Graph.open(project);
+    const hex = romTarget.toString(16).padStart(4, "0");
+    const out = g.callees(`s819:ram/under_basic:routine:bb00`);
+    const calls = out.filter((e) => e.type === "CALLS");
+    const romCalls = out.filter((e) => e.type === "CALLS_ROM");
+    check(calls.length === 1 && calls[0].to === `s819:ram/under_basic:routine:${hex}` && calls[0].evidence.ambiguity === "ram-under-rom" && calls[0].evidence.rom_alternative === `c64:rom:${hex}`, `T1: jsr $${hex.toUpperCase()} into decoded code under BASIC → CALLS with evidence.rom_alternative`);
+    check(romCalls.length === 0 && g.romCalls("under_basic").length === 0, "T1: no CALLS_ROM for code under BASIC (306 of 328 on Wasteland were this)");
+    g.close();
+  }
+
+  // T2 — two owners, one address: alpha calls $2000, beta HAS $2000 → RESOLVES_TO, callers / callees / path cross the boundary
+  const alpha = makePrg("alpha", 0x1000, 0x100, [[0x1000, [0x20, 0x00, 0x20, 0x60]]]);
+  const beta = makePrg("beta", 0x2000, 0x100, [[0x2000, [0xa9, 0x01, 0x60]]]);
+  seedControlFlow({ projectDir: project, analysisPath: alpha });
+  seedControlFlow({ projectDir: project, analysisPath: beta });
+  const r = resolveAddresses(project);
+  check(r.resolved >= 1 && r.ambiguous === 0, `T2: resolve pass → RESOLVES_TO=${r.resolved} ambiguous=${r.ambiguous} (${r.ms.toFixed(0)} ms)`);
+  let g = Graph.open(project);
+  const A = "s819:ram/alpha:routine:1000";
+  const B = "s819:ram/beta:routine:2000";
+  const into = g.callers(B);
+  check(into.some((e) => e.from === A && e.type === "CALLS" && e.evidence.via === "s819:ram:addr:2000"), "T2: callers(beta $2000) includes alpha's jsr, evidence.via = the addr alias");
+  const outA = g.callees(A);
+  check(outA.length === 1 && outA[0].to === B && outA[0].toNode.kind === "routine" && outA[0].evidence.via === "s819:ram:addr:2000", "T2: callees(alpha) lands on beta's ROUTINE, not the addr node");
+  const p = g.path(A, B);
+  check(p && p.length === 1 && p[0].to === B, "T2: path(alpha → beta) crosses the artifact boundary in one hop");
+  check(g.edgesOutOf("s819:ram:addr:2000").some((e) => e.type === "RESOLVES_TO" && e.to === B), "T2: the addr node carries RESOLVES_TO → beta");
+  g.close();
+  // a third owner at the same address → ambiguous: no edge, the ambiguity recorded
+  const gamma = makePrg("gamma", 0x2000, 0x100, [[0x2000, [0xa9, 0x02, 0x60]]]);
+  seedControlFlow({ projectDir: project, analysisPath: gamma });
+  const r2 = resolveAddresses(project);
+  g = Graph.open(project);
+  const amb = ambiguousAddresses(g.store);
+  check(r2.ambiguous === 1 && amb.length === 1 && amb[0].id === "s819:ram:addr:2000" && amb[0].candidates.length === 2, "T2: a second owner at $2000 → no RESOLVES_TO, ambiguity recorded (2 candidates)");
+  check(g.callers(B).length === 0 && g.callees(A)[0].toNode.kind === "addr", "T2: ambiguous alias → callees(alpha) is the addr node again, visible not guessed");
+  // T5 — a zero-page cell without a book line is a node by grammar
+  const fe = g.nodesAt("$00FE");
+  check(fe.some((n) => n.id === "c64:zp:00fe" && !n.dangling && n.platform), "T5: nodesAt($00FE) includes c64:zp:00fe (synthesized from the grammar)");
+  check(g.resolve("c64:zp:00fe").dangling === false && g.resolve("c64:rom:0000").dangling === true, "T5: c64:zp:00fe resolves; c64:rom:0000 (kind contradicts address) stays dangling (818 D7)");
+  g.close();
+}
+
 // ---------------------------------------------------------------- corpus
 
 const corpus = join(ROOT, "analysis/tmp/spec-816");
