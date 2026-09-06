@@ -97,7 +97,7 @@
 | `analyze_prg` | analyze | server-tools/analysis-workflow.ts |  | default? |  | Run the heuristic analysis pipeline on a PRG and produce structured JSON — segments, cross-references, RAM facts, pointer tables. |
 | `apply_patch_recipe` | apply | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 027: apply a patch recipe. |
 | `archive_phase1_noise` | archive | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 053 (Bug 20): walk hypothesis-kind findings with addressRange, archive any that fall fully inside a routine annotation finding's addressRange. |
-| `assemble_source` | assemble | server-tools/assembly.ts |  | default? |  | Assemble a .asm (KickAssembler) or .tass (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG. |
+| `assemble_source` | assemble | server-tools/assembly.ts |  | default? |  | Assemble a .asm (KickAssembler) or .tas (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG. |
 | `auto_resolve_questions` | auto | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 052: run the catch-up sweep across all auto-resolvable questions (Pfad A + B). |
 | `auto_tag_relevance` | auto | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 041: heuristic-classify all artifacts and propose relevance tags (loader / protection / save / kernal / asset). |
 | `backfill_finding_address_ranges` | backfill | project-knowledge/mcp-tools.ts |  | advanced? |  | Bug 28: walk findings.json and copy evidence[0].addressRange to top-level addressRange when missing. |
@@ -136,7 +136,7 @@
 | `depack_rle` | depack | server-tools/compression.ts |  | default? |  | Decompress the built-in C64 RLE format used by Mike's loader. |
 | `diff_scenario_runs` | diff | project-knowledge/mcp-tools.ts | Y | default? |  | Spec 030: diff two recorded scenario runs (baseline vs candidate). |
 | `disasm_menu` | disasm | server-tools/disk-g64.ts |  | default? |  | Disassemble every payload in an extracted menu/multi-file container to KickAssembler sources at once. |
-| `disasm_prg` | disasm | server-tools/analysis-workflow.ts |  | default? |  | Disassemble a PRG to KickAssembler .asm + 64tass .tass, segment-aware when given an analysis JSON. |
+| `disasm_prg` | disasm | server-tools/analysis-workflow.ts |  | default? |  | Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON. |
 | `disk_sector_allocation` | disk | server-tools/media.ts |  | default? |  | Report per-track/sector ownership for an extracted disk — system (BAM/dir), kernal file, custom file, unclaimed padding, orphan data — and flag overlaps. |
 | `export_menu` | export | server-tools/disk-g64.ts |  | default? |  | Export menu payload binaries from extracted CRT data. |
 | `extract_crt` | extract | server-tools/media.ts |  | default? |  | Parse a cartridge image (.crt, e.g. |
@@ -154,7 +154,7 @@
 | `inspect_g64_blocks` | inspect | server-tools/disk-g64.ts |  | default? |  | Inspect a G64 track or half-track at raw GCR block level and return JSON plus an ASCII ring map. |
 | `inspect_g64_syncs` | inspect | server-tools/disk-g64.ts |  | default? |  | Inspect sync marks on a raw G64 half-track and report bit-aligned sync positions. |
 | `inspect_g64_track` | inspect | server-tools/disk-g64.ts |  | default? |  | Decode a specific G64 track via GCR and report discovered sectors, missing IDs, duplicates, and raw track metadata. |
-| `link_cart_chunk_to_asm` | link | server-tools/compression.ts |  | default? |  | Link a cartridge LUT chunk to a disassembly (.asm/.tass) artifact via a RelationRecord. |
+| `link_cart_chunk_to_asm` | link | server-tools/compression.ts |  | default? |  | Link a cartridge LUT chunk to a disassembly (.asm/.tas) artifact via a RelationRecord. |
 | `link_entities` | link | project-knowledge/mcp-tools.ts |  | default? |  | Create a typed relation between two saved entities (e.g. |
 | `link_payload_to_asm` | link | server-tools/payloads.ts |  | default? |  | Attach an ASM artifact to a payload entity when the automatic stem-match is wrong. |
 | `link_payload_to_runtime` | link | server-tools/payloads.ts |  | default? |  | Record a runtime-trace artifact that proves where this payload lands at runtime. |

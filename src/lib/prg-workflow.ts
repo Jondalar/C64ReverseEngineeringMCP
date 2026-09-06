@@ -103,7 +103,7 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
   mkdirSync(dirname(baseAbs), { recursive: true });
   const analysisPath = `${baseAbs}_analysis.json`;
   const asmPath = `${baseAbs}_disasm.asm`;
-  const tassPath = `${baseAbs}_disasm.tass`;
+  const tassPath = `${baseAbs}_disasm.tas`;
   const ramReportPath = `${baseAbs}_RAM_STATE_FACTS.md`;
   const pointerReportPath = `${baseAbs}_POINTER_TABLE_FACTS.md`;
   const mode: WorkflowMode = opts.mode ?? "full";

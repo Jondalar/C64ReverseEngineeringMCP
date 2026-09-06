@@ -8,10 +8,11 @@
 
 import { spawn } from "node:child_process";
 import { resolve as resolvePath } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const repoRoot = resolvePath(import.meta.dirname, "..");
 const { resolveProjectDir, hasDevSamples } = await import(
-  `${repoRoot}/dist/workspace-ui/resolve-project-dir.js`
+  pathToFileURL(`${repoRoot}/dist/workspace-ui/resolve-project-dir.js`)
 );
 
 const argv = process.argv.slice(2);
@@ -66,7 +67,7 @@ if (process.env.C64RE_RUNTIME_ENDPOINT || process.env.C64RE_RUNTIME_WS) {
   // C64RE_TRX64_BIN / the sibling release build). Spec 806: there is no second tier,
   // so `mode === "none"` means "not built" and the run stops with that message.
   const { resolveDaemonSpawn } = await import(
-    `${repoRoot}/dist/runtime/resolve-daemon-spawn.js`
+    pathToFileURL(`${repoRoot}/dist/runtime/resolve-daemon-spawn.js`)
   );
   const plan = resolveDaemonSpawn({ repoRoot, projectDir, port: "4312" });
   if (plan.warn) console.warn(`[workspace] ${plan.warn}`);

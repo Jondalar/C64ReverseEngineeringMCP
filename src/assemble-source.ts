@@ -70,7 +70,7 @@ function resolveAssemblerSelection(selection: AssemblerSelection, sourcePath: st
   }
 
   const extension = extname(sourcePath).toLowerCase();
-  if (extension === ".tass") {
+  if (extension === ".tas") {
     return "64tass";
   }
   if (extension === ".asm") {
@@ -81,7 +81,7 @@ function resolveAssemblerSelection(selection: AssemblerSelection, sourcePath: st
 
 function defaultOutputPathForSource(sourcePath: string): string {
   const extension = extname(sourcePath).toLowerCase();
-  if (extension === ".asm" || extension === ".tass") {
+  if (extension === ".asm" || extension === ".tas") {
     return sourcePath.slice(0, -extension.length) + ".prg";
   }
   return `${sourcePath}.prg`;

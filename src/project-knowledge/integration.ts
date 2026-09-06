@@ -35,7 +35,7 @@ function inferArtifactKind(path: string): ArtifactKind {
     case ".g64":
       return "g64";
     case ".asm":
-    case ".tass":
+    case ".tas":
       return "generated-source";
     case ".md":
       return "report";

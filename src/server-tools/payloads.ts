@@ -130,7 +130,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       }
 
       // BUG-024 — auto stem-match disassembly artifacts (block_X.prg ↔
-      // block_X_disasm.asm/.tass) so list_payloads shows asm coverage, like the
+      // block_X_disasm.asm/.tas) so list_payloads shows asm coverage, like the
       // extraction pipeline does. Explicit asm_artifact_ids override.
       let asmArtifactIds = args.asm_artifact_ids;
       if ((!asmArtifactIds || asmArtifactIds.length === 0) && sourceArtifactId) {

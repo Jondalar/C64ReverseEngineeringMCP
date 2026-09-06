@@ -23,7 +23,7 @@ export interface RegistrationPattern {
 // Spec 730.3 / §7: the analysis-folder globs are broadened from the original
 // `analysis/disk/**`-only coverage to `analysis/**`, so disasm output produced
 // outside the disk subtree is still registered. The trailing block adds the
-// "semantic / hand-curated source" patterns (.asm/.tass/.sym/.md authored by a
+// "semantic / hand-curated source" patterns (.asm/.tas/.sym/.md authored by a
 // human under analysis folders) so a better-than-generated source file on disk
 // becomes visible to the artifact resolver instead of being invisible
 // (BUG-019). These come AFTER the generated `*_disasm.*` patterns so a generated
@@ -39,7 +39,7 @@ export const DEFAULT_PATTERNS: RegistrationPattern[] = [
   { glob: "analysis/**/*_analysis.json", kind: "analysis-run", scope: "analysis", role: "prg-analysis", format: "json" },
   { glob: "analysis/**/*_annotations.json", kind: "report", scope: "analysis", role: "annotations", format: "json" },
   { glob: "analysis/**/*_disasm.asm", kind: "listing", scope: "analysis", role: "disasm", format: "asm" },
-  { glob: "analysis/**/*_disasm.tass", kind: "generated-source", scope: "generated", role: "disasm-tass", format: "tass" },
+  { glob: "analysis/**/*_disasm.tas", kind: "generated-source", scope: "generated", role: "disasm-tass", format: "tass" },
   { glob: "analysis/**/raw_sectors/**/*.bin", kind: "raw", scope: "analysis", role: "raw-sector", format: "bin" },
   { glob: "analysis/runtime/**/session.json", kind: "checkpoint", scope: "session", role: "vice-session", format: "json" },
   { glob: "analysis/runtime/**/trace/summary.json", kind: "report", scope: "session", role: "trace-summary", format: "json" },
@@ -56,7 +56,7 @@ export const DEFAULT_PATTERNS: RegistrationPattern[] = [
   // pattern above (first-match-wins in the scan loop). Role marks them as
   // human-authored source the resolver should prefer over generated output.
   { glob: "analysis/**/*.asm", kind: "generated-source", scope: "analysis", role: "semantic-source", format: "asm" },
-  { glob: "analysis/**/*.tass", kind: "generated-source", scope: "analysis", role: "semantic-source", format: "tass" },
+  { glob: "analysis/**/*.tas", kind: "generated-source", scope: "analysis", role: "semantic-source", format: "tass" },
   { glob: "analysis/**/*.sym", kind: "other", scope: "analysis", role: "symbols", format: "sym" },
   { glob: "analysis/**/*.md", kind: "other", scope: "analysis", role: "semantic-notes", format: "md" },
 ];

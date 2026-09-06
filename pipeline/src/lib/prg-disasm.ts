@@ -2779,7 +2779,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   writeFileSync(outputPath, kickAsmOutput, "utf8");
 
   // Also emit 64tass version alongside the KickAssembler output
-  const tassPath = outputPath.replace(/\.asm$/i, ".tass");
+  const tassPath = outputPath.replace(/\.asm$/i, ".tas");
   if (tassPath !== outputPath) {
     writeFileSync(tassPath, convertKickAsmToTass(kickAsmOutput), "utf8");
   }

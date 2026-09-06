@@ -82,7 +82,7 @@ disasm_prg(prg_path="<path>.prg", output_asm="<path>_disasm.asm", entry_points=[
 This produces:
 
 - `<path>_disasm.asm`
-- `<path>_disasm.tass`
+- `<path>_disasm.tas`
 
 ### Step 1.3: Generate reports
 
@@ -97,7 +97,7 @@ You should now have:
 
 - `<path>_analysis.json`
 - `<path>_disasm.asm`
-- `<path>_disasm.tass`
+- `<path>_disasm.tas`
 - `<path>_ram_facts.md`
 - `<path>_pointer_facts.md`
 
@@ -214,7 +214,7 @@ disasm_prg(prg_path="<path>.prg", output_asm="<path>_final.asm", entry_points=["
 This should produce:
 
 - `<path>_final.asm`
-- `<path>_final.tass`
+- `<path>_final.tas`
 
 ### Step 3.2: Verify byte-identical rebuild
 
@@ -229,7 +229,7 @@ Annotations must never alter bytes.
 Final deliverables:
 
 - `<path>_final.asm`
-- `<path>_final.tass`
+- `<path>_final.tas`
 - `<path>_rebuilt.prg`
 
 ## Important Rules
