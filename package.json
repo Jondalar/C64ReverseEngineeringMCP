@@ -29,6 +29,7 @@
     "measure:820": "node scripts/measure-820-access-coverage.mjs",
     "e2e:821": "npm run build:mcp && node scripts/e2e-821-runtime-enrichment.mjs",
     "e2e:821-real": "npm run build:mcp && node scripts/e2e-821-real.mjs",
+    "e2e:822": "npm run build:mcp && node scripts/e2e-822-migrate-wasteland.mjs",
     "e2e:823": "npm run build:mcp && node scripts/e2e-823-graph-mcp.mjs",
     "smoke:824-routes": "npm run build:mcp && node scripts/smoke-824-graph-routes.mjs",
     "smoke:824": "npm run ui:build && node scripts/smoke-824-graph-ui.mjs",

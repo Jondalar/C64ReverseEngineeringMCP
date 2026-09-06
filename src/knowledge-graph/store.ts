@@ -62,7 +62,9 @@ export class GraphStore {
   readonly db: DatabaseSync;
 
   private constructor(readonly path: string, readonly readOnly: boolean) {
-    this.db = new DatabaseSync(path, { readOnly });
+    // Spec 822 D9: a second process opening during another's BEGIN IMMEDIATE
+    // must wait, not fail — `timeout` applies before the first PRAGMA runs.
+    this.db = new DatabaseSync(path, { readOnly, timeout: 5000 });
     if (!readOnly) {
       // Spec 822 D9 write discipline, adopted at the first writer: WAL so a
       // reader never blocks a writer, a busy timeout so two producers queue

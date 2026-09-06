@@ -8,6 +8,9 @@ import { seedControlFlow } from "./producers/control-flow.js";
 import { seedMemoryAccess } from "./producers/memory-access.js";
 import { importRuntimeTrace, removeRuntimeRun } from "./producers/runtime.js";
 import { irqHandlers, pointerTargets, runs as listRuns, runtimeObservations, unconfirmed, unexplained } from "./query-runtime.js";
+import { migrateProject } from "./migrate/migrate.js";
+import { assignSubsystem, linkNodes, nameNode } from "./migrate/human.js";
+import { annotations as nodeAnnotations, searchAnnotations, subsystem as subsystemView, subsystems as listSubsystems } from "./query-human.js";
 import { edgesWalk, nodeCard, overview, resolveRef, shortestPath, type EdgeKind, type Focus } from "./cards.js";
 import { formatEdges, formatFind, formatNode, formatOverview, formatPath } from "./format.js";
 import { Graph, type EdgeHit, type ResolvedNode } from "./query.js";
@@ -40,6 +43,13 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   unconfirmed <routine-id>      821: static access edges no run observed
   unexplained                   821: runtime rows with no static edge
   irq-handlers                  821: HANDLES_IRQ / HANDLES_NMI from the runs
+  migrate [--dry-run]           822: migrate knowledge/*.json into the graph (idempotent, incremental)
+  annotations <id>              822: annotations + claims on a node
+  search <text>                 822: full-text search over annotations
+  subsystems | subsystem <name> 822: the subsystem layer
+  name <id> <name>              822: the human door — name a node (human row, never touched by re-analysis)
+  link <from> <TYPE> <to>       822: a human edge
+  assign-subsystem <name> <id…> 822: put nodes into a subsystem
   dump                          canonical dump of the generated layer (818 D6)
   stats                         row counts and meta`;
 
@@ -129,6 +139,35 @@ export async function runGraphCli(argv: string[]): Promise<void> {
     const id = args.positional[0];
     if (!id) throw new Error("remove-run needs a run id");
     const r = removeRuntimeRun(args.project, id);
+    out(JSON.stringify(r), r);
+    return;
+  }
+
+  if (args.verb === "migrate") {
+    const r = migrateProject({ projectDir: args.project, dryRun: argv.includes("--dry-run") });
+    out(JSON.stringify(r, null, 1), r);
+    return;
+  }
+  if (args.verb === "name") {
+    const [id, ...rest] = args.positional;
+    if (!id || rest.length === 0) throw new Error("name needs <id> <name>");
+    const g = Graph.open(args.project);
+    const kind = g.resolve(id).kind; g.close();
+    const r = nameNode(args.project, { id, kind, name: rest.join(" ") });
+    out(JSON.stringify(r), r);
+    return;
+  }
+  if (args.verb === "link") {
+    const [from, type, to] = args.positional;
+    if (!from || !type || !to) throw new Error("link needs <from> <TYPE> <to>");
+    const r = linkNodes(args.project, { from, type, to });
+    out(String(r), { linked: r });
+    return;
+  }
+  if (args.verb === "assign-subsystem") {
+    const [name, ...members] = args.positional;
+    if (!name || members.length === 0) throw new Error("assign-subsystem needs <name> <id…>");
+    const r = assignSubsystem(args.project, { name, members });
     out(JSON.stringify(r), r);
     return;
   }
@@ -234,6 +273,10 @@ export async function runGraphCli(argv: string[]): Promise<void> {
         out(hits.length ? hits.map(edgeLine).join("\n") : "(none)", hits);
         return;
       }
+      case "annotations": { if (!a) throw new Error("annotations needs an id"); const r = nodeAnnotations(graph, a); out(JSON.stringify(r, null, 1), r); return; }
+      case "search": { if (!a) throw new Error("search needs text"); const r = searchAnnotations(graph, a); out(JSON.stringify(r, null, 1), r); return; }
+      case "subsystems": { const r = listSubsystems(graph); out(r.map(nodeLine).join("\n") || "(none)", r); return; }
+      case "subsystem": { if (!a) throw new Error("subsystem needs a name"); const r = subsystemView(graph, a); out(JSON.stringify(r ?? null, null, 1), r ?? null); return; }
       case "runs": { const r = listRuns(graph); out(JSON.stringify(r, null, 1), r); return; }
       case "observations": { if (!a) throw new Error("observations needs an id or address"); const r = runtimeObservations(graph, a); out(JSON.stringify(r, null, 1), r); return; }
       case "pointer-targets": { if (!a) throw new Error("pointer-targets needs a ZP address"); const r = pointerTargets(graph, a); out(JSON.stringify(r, null, 1), r); return; }

@@ -30,7 +30,7 @@ are never touched by re-analysis and override the generated name in every query.
 | 819 | `c64re graph seed`, and `importAnalysisArtifact` after every JSON import | routines, labels; CALLS · CALLS_ROM · JUMPS_TO · BRANCHES_TO · CONTAINS |
 | 820 | `c64re graph seed` (runs 819 then 820), and the import hook | READS · WRITES · READS_INDIRECT · WRITES_INDIRECT · USES_ZP · USES_HARDWARE · REFERENCES_DATA |
 | 821 | `c64re graph import-trace <file.c64retrace>` | the same types with `origin=runtime`, a `run` node, EXECUTES · HANDLES_IRQ · HANDLES_NMI |
-| 822 (proposed) | migration | the human layer, the existing findings/entities |
+| 822.1 | `c64re graph migrate` (one shot, idempotent, incremental) + the human door (`name`, `link`, `assign-subsystem`) | the human layer: names, annotations (FTS5), claims + evidence from the legacy findings, subsystems |
 
 ## Asking it
 
@@ -88,6 +88,7 @@ npm run e2e:820             # memory access: fixture ground truth, lnr_boot coun
 npm run measure:820         # access-graph coverage over the field corpus (trend)
 npm run e2e:821             # runtime enrichment on a synthetic capture (no daemon needed)
 npm run e2e:821-real        # the same on a real .c64retrace when one is present (skips loudly)
+npm run e2e:822             # migration + human door on a tmp copy of Wasteland_EF (skips loudly without it)
 npm run e2e:823             # the five graph tools through the real MCP server over stdio
 npm run smoke:824-routes    # the five /api/graph routes on a real workspace server
 npm run smoke:824           # the Graph tab at bundle + source level (after ui:build)

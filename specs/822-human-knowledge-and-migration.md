@@ -1,6 +1,6 @@
 # Spec 822 — Human knowledge integration + migration of the existing store
 
-**Status:** PROPOSED (2026-09-05)
+**Status:** PARTLY BUILT 2026-09-06 — 822.1 (migration, human door, query extensions) built, gate `npm run e2e:822` GREEN (90/0) on a tmp copy of Wasteland_EF; 822.2 (readers off JSON, JSON writes deleted, `check:822-drift` / `check:822-no-json-readers`) NOT built
 **Origin:** `C64RE_Semantic_Knowledge_Graph_Draft_Spec.md` §"Human Annotations",
 §"Subsystems", §"Generated vs Persistent Knowledge" ("Reanalyse darf generierte
 Informationen löschen … aber niemals Human Knowledge ungefragt überschreiben"),
@@ -362,3 +362,95 @@ Wasteland_EF outside the repo, PENDING without the fixture — the
   in the graph; a later slice that moves doc sections in makes it a second index.
 - **OQ4 — Retention of `_legacy-822/`.** "One release" assumes 716; until then, one
   tagged commit after 822.2.
+
+## 10. Built — what the gate found on the way
+
+`src/knowledge-graph/migrate/{schema-822,classify,migrate,human}.ts`,
+`src/knowledge-graph/query-human.ts`, gate `scripts/e2e-822-migrate-wasteland.mjs`
+(`npm run e2e:822`). This is **822.1** only: the migration, the widened human door,
+the query extensions, the gate. **822.2 is not built** — no reader moved off the
+JSON, no JSON write deleted, no `check:822-drift`, no `check:822-no-json-readers`,
+no dual-write hook in `service.ts`, no `c64re graph` verbs, no 823 tool. The board
+carries 822 as PARTLY BUILT, as §6 said it would.
+
+**The spec's §5 estimates were wrong where they were estimates; the gate asserts
+what the resolver measures.** Re-measured 2026-09-06 on the real store (46 936
+legacy records + 3 016 annotation-file entries, 942 ms, one transaction):
+
+| legacy | → graph | spec said | measured |
+|---|---|---|---|
+| 22 246 `analysis-import` entities | generated nodes | 6 605 | **4 612** = 363 `addr` + 2 684 `entry` + 1 565 `segment` |
+| 571 manifest / inventory entities | generated nodes | 571 | **377** = 128 `chip` + 64 `bank` + 185 `payload` |
+| 31 hand entities | human nodes / prose | 31 | **18 nodes + 22 `entity` annotations + 5 prose** (4 traces, 1 save descriptor: no address) |
+| 9 421 `analysis-import` findings | claims + evidence | 1 725 + 9 421 | **1 189 + 9 421** (363 `behaves_like`, 824 `segment_kind`, 2 `display_transfer`) |
+| 204 `annotation` findings | folded | 204 | 204 |
+| 49 hand findings + 6 manifest | annotations | 49 | 49 human + **3** generated (6 findings, 3 titles) + 55 evidence rows |
+| 7 654 generated relations | generated edges | 3 369 | **2 595** (7 398 → 2 467, 256 `contains` → 128) |
+| 17 hand relations | human edges | 17 | **12** + 5 folded to prose (an endpoint has no address) |
+| 3 640 heuristic questions | `claims.validation` | 0 rows | 0 rows; **55** answered → **8** claims `answered` |
+| 12 other questions | `questions` | 12 | 12 (11 generated / static, 1 human) |
+| 69 flows | skipped-regenerable | 69 | 69 |
+| 16 annotation files | human nodes | 271 / 1 085 / 228 | **317 / 1 341 / 238** by (owner, address) — the spec counted by address alone |
+| `$0031` | one claim, 58 evidence | ✓ | ✓ — 56 `pointer_pair`, **2 `counter`**; the claim carries the newest run's value (D5) |
+| ctx-by-stem | — | OQ1 | **1 097** entities under 11 rebuild-check / drive-code stems no payload claims |
+
+**Legacy code-segments and entry points are not `routine` / `label` nodes.** §5 said
+`entry-point → label`, `code-segment → routine`. The 819 producer INSERTs those ids
+plainly inside `replaceGenerated`; a row 822 had put there first would make the next
+seed throw on the primary key — and the gate re-seeds 819 after the migration (§7,
+human invariant). So 822 writes `entry` and `segment` under the owner: the legacy
+segment and the 819 routine at one address are two producers' views, side by side in
+`graph find`, and 822's generated kinds (`entry`, `segment`, `payload`, `chip`,
+`bank`) never meet 819/820/821's (`routine`, `label`, `addr`, `run`). `addr` is shared
+by design (OR IGNORE). The other id decisions: `state_variable` segments, RAM
+hypotheses and display states are `addr` (zero page is one space whoever noticed it);
+every other segment kind, `unknown` included, stays payload-resident under its owner
+(818 D2 — a text segment at `$7E00` in three overlays is three nodes, like code); two
+cart images with the same bank layout share `crt/<bank>:chip:8000`, each image in
+evidence; an area asset with no load address sits at `:payload:0000` with
+`attrs.addressless` — the grammar has no address-less project form yet (818 D1
+"later slices append"); a hand entity with no address at all is prose, `folded`.
+
+**Migrated human rows carry `origin=imported`**, whatever the legacy door was, and
+`attrs.legacy_origin=user` keeps the fact; door writes after the cut-over are
+`origin=user`, `producer=human`. A door row is never overwritten by a re-run
+(`kept-door-row` in the log). When a hand entity and an annotation file name the same
+address, the file wins the node's name — it is the corpus the disassembler reads (D6)
+— and the entity's name and summary survive as its `entity` annotation.
+
+**Idempotence is the ledger, not delete-and-reinsert.** `migration_log` is keyed
+`(legacy_store, legacy_id)`; a second run reports every id `already`, performs zero
+`created|merged|folded|skipped` actions, and the canonical dump (818 generated + human
++ every 822 table but `migration_runs`, 40 MB) is byte-identical. The same ledger
+makes the migration incremental: a record the JSON gains during the 822.1 window is
+picked up by the next run, which is what the dual-write window needs.
+
+**Schema deviations from §4**, all additive: `annotations.layer` (the six manifest
+findings are generated prose with no node; the human-layer hash needs the column),
+`producer` and `attrs` on every 822 table (a re-run and a door must tell their rows
+apart), `annotations.seq INTEGER PRIMARY KEY` (FTS5 external content needs a rowid
+that survives VACUUM; a TEXT key's does not), `migration_log.note` (`ctx-by-stem` is
+a note on a `created` row — one row per legacy id is the invariant). FTS5 is present
+in Node 22.21.1 / SQLite 3.50.4 and used; `meta.annotations_text_index` records it and
+`searchAnnotations` falls back to LIKE on a build without it.
+
+**The door found a defect in the store.** Two processes writing 200 findings each
+through `recordFinding`: the second open failed with SQLITE_BUSY on
+`PRAGMA journal_mode = WAL`, which `store.ts` runs *before* it sets `busy_timeout`.
+`openStore()` in `human.ts` retries with back-off (400 of 400 rows, 80 ms); the
+one-line fix is `new DatabaseSync(path, { timeout: 5000 })` in `store.ts` (D9 said so)
+— 818's file, reported, not edited. The same 2 × 200 against the JSON path: **200 of
+400 survive, one writer dies on `ENOENT rename findings.json.tmp`** — the number that
+justified D9.
+
+**822.2 needs:** `service.ts` hooks (`saveFinding → recordFinding`, `saveEntity →
+nameNode`, `linkEntities → linkNodes`, `saveOpenQuestion → askQuestion`,
+`save_user_label → nameNode`) behind `meta.cutover_at`; `check:822-drift`
+(project the graph back into the record shape, diff against the files);
+`disasm_prg` calling the annotation-file import when `meta.annotations_imported.<stem>`
+is older than the file; `project_search` re-pointed (D10); `list_*` and the view
+builders reading `nodes`/`annotations`/`claims`; `emitAnnotationFindings` and
+`import_annotations_as_findings` deleted; `check:822-no-json-readers`; the
+`_legacy-822/` move; `c64re graph migrate|annotations|search|subsystem|name|link|answer`
+in `cli.ts`; the 823 fold (`graph_find origin=human`, `graph_node` card with
+`annotations()`); the 822 row in `docs/tools/knowledge-graph.md`.
