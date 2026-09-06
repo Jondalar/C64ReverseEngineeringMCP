@@ -89,7 +89,7 @@ with three edge groups. The renderer is `FlowPanel`'s: inline SVG, lanes, straig
 the existing `.flow-node-*` / `.flow-edge-line` classes with per-kind modifiers. **No new
 dependency**: at 60 nodes a force layout buys nothing a four-lane layout (callers · focus
 · callees · memory/hardware/ROM targets) does not, and d3-force (~30 kB) or cytoscape
-(~400 kB) is cost without measured benefit. A whole-project explorer is a new spec.
+(~400 kB) is cost without measured benefit. A whole-project explorer is a new spec — **Spec 825**, which revises this decision with the measured reason (the lanes failed at 80 edges).
 
 **D4 — The eight filters, mapped.** Chips above the canvas, each a predicate on the 823
 JSON the routes already return — no second classification in the browser:
