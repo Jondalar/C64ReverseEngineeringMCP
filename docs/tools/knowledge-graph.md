@@ -56,6 +56,7 @@ c64re graph migrate [--dry-run]                # 822: fold knowledge/*.json (or 
 c64re graph annotations-import <file> [--force] # 822.2: import <stem>_annotations.json into the human layer (disasm_prg does this on change)
 c64re graph export [--out <dir>]               # 822.2: the graph written back into the legacy record shapes (knowledge/export/*.json), for humans and git diff
 c64re graph resolve                            # 826.0: the RESOLVES_TO pass by hand (seed runs it)
+c64re graph machine t18s12-15_0300 c1541       # 826.0 T7: this owner is DRIVE code — 1541 ROM / ZP / VIA ids, drv space; no args lists the declarations
 c64re graph boundaries [--entries]             # 826.0: where a human drew a routine boundary 819 did not — splits, unseen, data outside code; --entries = analyze_prg entry points
 c64re graph signature '$FC00'                  # 826: in / out / clobbers / preserves / stack of a routine, partial and where
 c64re graph args '$FC00'                       # 826: what every caller passes — A ∈ {$01 ×2, $02 ×1, $03 ×1}, X ← $27E1, Y ← op:$2805; observed values beside the static ones

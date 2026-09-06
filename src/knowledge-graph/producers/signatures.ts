@@ -32,6 +32,7 @@ import { join } from "node:path";
 import { PlatformKb } from "../../platform-kb/read.js";
 import { platformKindForAddress, type PlatformAbi, type PlatformTag } from "../../platform-kb/schema.js";
 import { deriveProjectId, derivePlatformId, parseId, platformForCtx, type Ctx } from "../ids.js";
+import { contextForOwner } from "./machine.js";
 import { GraphStore, readProjectSlug, type EdgeInput, type NodeInput } from "../store.js";
 import { BRANCHES, effects, indexRegister, type Loc } from "../isa-6502.js";
 import { ownerFromAnalysisPath } from "./control-flow.js";
@@ -288,7 +289,7 @@ function findAnalysisJsons(dir: string, out: string[] = [], depth = 0): string[]
 function loadOwner(store: GraphStore, analysisPath: string, options: SeedSignaturesOptions, slug: string): OwnerCtx {
   const report = JSON.parse(readFileSync(analysisPath, "utf8")) as Report;
   const owner = options.owner ?? ownerFromAnalysisPath(analysisPath);
-  const ctx: Ctx = options.ctx ?? { space: "ram", owner };
+  const ctx: Ctx = options.ctx ?? contextForOwner(options.projectDir, owner, undefined, analysisPath).ctx; // 826.0 T7 — the declared machine counts
   const tag = platformForCtx(ctx);
   const instructions = new Map<number, Instruction>();
   for (const i of report.codeAnalysis?.instructions ?? []) instructions.set(i.address, i);

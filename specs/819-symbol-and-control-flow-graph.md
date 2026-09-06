@@ -297,3 +297,14 @@ after every seed and via `c64re graph resolve`) adds `RESOLVES_TO` from the
 `meta.resolve.ambiguous`. `edgesInto` / `edgesOutOf` (and so `callers`,
 `callees`, `path`) follow the alias and name the hop in `evidence.via`. Gate:
 e2e:819 T2 (alpha → beta across owners; gamma makes it ambiguous again).
+
+**T7 (D4 by machine).** 2026-09-06, WL1's third finding: drive code seeded as
+C64 RAM wore KERNAL names on 173 zero-page edges and called a C64 table at
+`$FDF5`. The owner's machine now decides (`producers/machine.ts`: the artifact
+record's `platform`, else `c64re graph machine <owner> c1541`, else the C64 with
+a hint when the path smells of the drive). For the 1541 the ROM range is
+authoritative (`c1541:rom:fdf5`, no RAM under it); for the C64 only a documented
+ROM entry is a ROM call, an undocumented ROM-range target outside the image is an
+`addr` node with `evidence.rom_alternative`, so the resolve pass can alias it to
+the routine another owner has there (the fastloader at `$FC00`). Gate: e2e:819
+T7 (34/0).

@@ -22,7 +22,7 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { PlatformKb } from "../../platform-kb/read.js";
-import type { PlatformTag } from "../../platform-kb/schema.js";
+import { platformKindForAddress, type PlatformTag } from "../../platform-kb/schema.js";
 import { deriveProjectId, derivePlatformId, platformForCtx, type Ctx } from "../ids.js";
 import { GraphStore, readProjectSlug, type EdgeInput, type NodeInput } from "../store.js";
 
@@ -247,8 +247,19 @@ export function seedControlFlow(options: SeedControlFlowOptions): SeedControlFlo
     const target = x.targetAddress;
 
     if (isJsr) {
-      const rom = platform?.node(platformTag, target);
-      const romNode = rom && rom.kind === "rom" ? derivePlatformId(platformTag, target) : undefined;
+      // 826.0 T7 — which machine's ROM, and whether it IS the ROM:
+      //   c1541: $C000-$FFFF is always ROM (no RAM under it) — the address
+      //          decides, whether or not the symbol cache names it (T5 resolves
+      //          the id); a drive's jsr $FDF5 is c1541:rom:fdf5.
+      //   c64:   RAM can live under the ROM (Wasteland's fastloader at $FC00),
+      //          so only a DOCUMENTED ROM entry (a KB row) is a ROM call; an
+      //          undocumented address in the ROM range outside this image is a
+      //          project addr node — aliasable to another owner's routine by
+      //          the resolve pass — with the ROM named as the alternative.
+      const kindByAddr = platformKindForAddress(platformTag, target);
+      const documentedRom = platform?.node(platformTag, target)?.kind === "rom";
+      const romNode = kindByAddr === "rom" && (documentedRom || platformTag === "c1541") ? derivePlatformId(platformTag, target) : undefined;
+      if (kindByAddr === "rom" && !romNode) evidence.rom_alternative = derivePlatformId(platformTag, target);
       const inImageCode = instructions.has(target) || inImage(target);
       if (romNode && inImageCode) {
         // D4: two memories at one address — named ambiguity. 826.0 T1: the ROM

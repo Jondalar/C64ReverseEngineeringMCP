@@ -40,7 +40,7 @@ import type { ArtifactRecord, EntityRecord, FindingRecord, FlowRecord, OpenQuest
 import type { DatabaseSync, StatementSync } from "../../platform-kb/sqlite-quiet.js";
 import { deriveProjectId, IdRuleError, parseId, spaceForParsed, type Ctx } from "../ids.js";
 import { canonicalJson } from "../json.js";
-import { contextForArtifact } from "../producers/artifact.js";
+import { contextForOwner } from "../producers/machine.js";
 import { resolveAddressesIn } from "../producers/resolve.js";
 import type { Confidence, Layer, NodeRow, Origin } from "../schema.js";
 import { GraphStore, graphPath, readProjectSlug } from "../store.js";
@@ -968,7 +968,7 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
     for (const k of [...l.seen]) if (k.startsWith(`${ledgerStore} `)) l.seen.delete(k);
   }
   const analysisArtifact = artifacts.find((a) => (a.relativePath ?? a.path ?? "").endsWith(`${stem.replace(/_disasm$/u, "")}_analysis.json`));
-  const actx: Ctx = analysisArtifact ? contextForArtifact(analysisArtifact, owner) : { space: "ram", owner };
+  const actx: Ctx = contextForOwner(projectDir, owner, analysisArtifact, analysisArtifact?.path ?? analysisArtifact?.relativePath).ctx; // 826.0 T7 — the declared machine counts
   let parsed: { routines?: unknown[]; labels?: unknown[]; segments?: unknown[] };
   const noBoundary: BoundaryCounts = { attached: 0, dataBlocks: 0, splits: 0, unseen: 0, unseededOwner: 0 };
   try { parsed = JSON.parse(readFileSync(path, "utf8")) as typeof parsed; } catch {

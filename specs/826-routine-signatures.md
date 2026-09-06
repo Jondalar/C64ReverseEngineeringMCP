@@ -270,6 +270,21 @@ boundary needs T2; a search for the routine needs T6) and they unblock WL1 now.
   false, name: null`, kind and address from the id. `nodesAt("$00FE")` appends the
   `zp` node for every address `< $0100`, the `io` node for `$D000-$DFFF`, the `rom` node
   for `$A000-$BFFF` / `$E000-$FFFF`. `edgesInto(c64:zp:00fe)` then answers.
+- **T7 — an artifact needs a machine** (WL1's third finding, same day): 1541
+  drivecode seeded as C64 RAM — `jsr $FDF5` resolved to a C64 table, 173 zero-page
+  edges wore KERNAL names, and it *looked plausible*. 818's grammar had `drv/<owner>`
+  and platform c1541 from the start; nothing set it, because neither the report nor
+  the artifact record says which machine. `producers/machine.ts`: the machine is a
+  fact declared once per owner — `c64re graph machine <owner> c1541` (meta
+  `machine.<owner>`) — or the artifact record's `platform` (Spec 020); default C64,
+  and every seed SAYS which of the three it used, with a **hint** (not a guess) when
+  the path smells of the drive and nothing is declared. Every producer and the
+  annotation importer take their ctx from `contextForOwner`. The ROM range is the
+  MACHINE's map, not the book's index: `jsr $BB13` is a ROM call although c64ref
+  documents `$BB12` only; a 1541 `jsr $FDF5` is `c1541:rom:fdf5` whether or not the
+  symbol cache names it (T5 resolves it). Re-seeding an owner under its declared
+  machine moves its rows (`ram/` → `drv/`, replacement unit = owner); its annotations
+  follow on the next `migrate`.
 - **T6 — find over the annotations.** `Graph.find(q)`: exact name, then `LIKE`, then
   `annotations_fts MATCH q` joined to `node_id` (822's index), ranked in that order,
   the FTS hits flagged `matched: "annotation"`.
@@ -458,3 +473,14 @@ is the directory sector. Not covered, named: the end page in `$FD` is computed
 skips track 18" is a loop invariant, not an argument; X = $0F from
 `set_dir_ptr_3100` is in an unseeded owner or only via a patched operand.
 `preserves: —` and `I` in `clobbers` are true (the fastloader runs under `sei`).
+
+**Third field test (WL1, same day) — T7.** The `jsr $FDF5` into the "table" was
+1541 drive code calling the DOS ROM: `t18s12-15_0300` and `t18s11_0700` had been
+seeded as C64 RAM, 173 zero-page edges wore KERNAL names, and it looked
+plausible — worse than the CALLS_ROM pollution, which was obviously wrong. The
+machine is a declared fact per owner now (`producers/machine.ts`, `c64re graph
+machine`), the seed prints which machine it used and why, and the C64 ROM rule
+is by documented entry while the 1541's is by address (§4 T7, 819 §9). On the
+copy after declaring both drive owners: their rows moved to `drv/`, `jsr $FDF5`
+→ `c1541:rom:fdf5`, `lda $31` → `c1541:zp:0031`, the data block at `$FDD4` lost
+its phantom caller. e2e:819 34/0.

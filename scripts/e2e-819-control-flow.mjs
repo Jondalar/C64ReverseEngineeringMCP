@@ -23,6 +23,7 @@ import { join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const { seedControlFlow } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
+const { seedMemoryAccess } = await import(join(ROOT, "dist/knowledge-graph/producers/memory-access.js"));
 const { GraphStore } = await import(join(ROOT, "dist/knowledge-graph/store.js"));
 const { Graph } = await import(join(ROOT, "dist/knowledge-graph/query.js"));
 
@@ -167,6 +168,41 @@ graph.close();
   const fe = g.nodesAt("$00FE");
   check(fe.some((n) => n.id === "c64:zp:00fe" && !n.dangling && n.platform), "T5: nodesAt($00FE) includes c64:zp:00fe (synthesized from the grammar)");
   check(g.resolve("c64:zp:00fe").dangling === false && g.resolve("c64:rom:0000").dangling === true, "T5: c64:zp:00fe resolves; c64:rom:0000 (kind contradicts address) stays dangling (818 D7)");
+  g.close();
+
+  // T7 — an artifact needs a machine: drive code declared c1541 seeds under drv/ with 1541 ROM / ZP / VIA ids
+  const { contextForOwner, declareMachine, declaredMachines } = await import(join(ROOT, "dist/knowledge-graph/producers/machine.js"));
+  const { ownerFromAnalysisPath } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
+  mkdirSync(join(project, "analysis", "drivecode"), { recursive: true });
+  const drvImg = new Uint8Array(0x100).fill(0xea);
+  drvImg.set([0x20, 0xe9, 0xf5, 0xa5, 0x31, 0x8d, 0x00, 0x18, 0x60], 0); // $0300: jsr $F5E9 ; lda $31 ; sta $1800 ; rts
+  const drvPrg = new Uint8Array(0x102); drvPrg[0] = 0x00; drvPrg[1] = 0x03; drvPrg.set(drvImg, 2);
+  const drvPrgPath = join(project, "analysis", "drivecode", "t18s12_0300.prg");
+  const drvAnalysis = join(project, "analysis", "drivecode", "t18s12_0300_analysis.json");
+  writeFileSync(drvPrgPath, drvPrg);
+  analyze(drvPrgPath, drvAnalysis, "300");
+  const drvOwner = ownerFromAnalysisPath(drvAnalysis);
+  const before = contextForOwner(project, drvOwner, undefined, drvAnalysis);
+  check(before.machine === "c64" && before.source === "default" && typeof before.hint === "string" && before.hint.includes("c64re graph machine"), `T7: undeclared drive code defaults to c64 WITH a hint (${before.source})`);
+  seedControlFlow({ projectDir: project, analysisPath: drvAnalysis, owner: drvOwner, ctx: before.ctx });
+  g = Graph.open(project);
+  // as C64 code, $F5E9 is an undocumented address in the ROM range: an addr node with the ROM named as the alternative (RAM could live under it)
+  check(!g.resolve(`s819:ram/${drvOwner}:routine:0300`).dangling && g.callees(`s819:ram/${drvOwner}:routine:0300`).some((e) => (e.type === "CALLS_ROM" && e.to === "c64:rom:f5e9") || (e.type === "CALLS" && e.to === "s819:ram:addr:f5e9" && e.evidence.rom_alternative === "c64:rom:f5e9")), "T7: seeded as c64 it wears C64 ids — addr:f5e9 with rom_alternative c64:rom:f5e9 (the mistake WL1 found, visible not hidden)");
+  g.close();
+  declareMachine(project, drvOwner, "c1541");
+  const after = contextForOwner(project, drvOwner, undefined, drvAnalysis);
+  check(after.machine === "c1541" && after.source === "declared" && after.ctx.space === "drv" && after.hint === undefined, "T7: declared → c1541, space drv, no hint");
+  check(declaredMachines(project).some((m) => m.owner === drvOwner && m.machine === "c1541"), "T7: the declaration is listed");
+  seedControlFlow({ projectDir: project, analysisPath: drvAnalysis, owner: drvOwner, ctx: after.ctx });
+  seedMemoryAccess({ projectDir: project, analysisPath: drvAnalysis, owner: drvOwner, ctx: after.ctx });
+  g = Graph.open(project);
+  const drvR = `s819:drv/${drvOwner}:routine:0300`;
+  check(!g.resolve(drvR).dangling && g.resolve(`s819:ram/${drvOwner}:routine:0300`).dangling, "T7: re-seed moved the routine to drv/ and removed the ram/ row (replacement unit = owner)");
+  const drvOut = g.edgesOutOf(drvR);
+  const romCall = drvOut.find((e) => e.type === "CALLS_ROM");
+  check(romCall && romCall.to === "c1541:rom:f5e9" && romCall.toNode.platform && !romCall.toNode.dangling, `T7: jsr $F5E9 → c1541:rom:f5e9 (1541 DOS ROM by the machine's map, synthesized when the cache has no name)`);
+  check(drvOut.some((e) => e.type === "USES_ZP" && e.to === "c1541:zp:0031"), "T7: lda $31 → c1541:zp:0031 (a DOS variable, not a KERNAL name)");
+  check(drvOut.some((e) => e.type === "USES_HARDWARE" && e.to === "c1541:io:1800" && e.toNode.symbol === "VIA1_PRB"), "T7: sta $1800 → c1541:io:1800 VIA1_PRB");
   g.close();
 }
 

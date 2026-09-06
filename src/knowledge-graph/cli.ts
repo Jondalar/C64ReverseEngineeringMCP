@@ -4,7 +4,8 @@
 
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { seedControlFlow } from "./producers/control-flow.js";
+import { ownerFromAnalysisPath, seedControlFlow } from "./producers/control-flow.js";
+import { contextForOwner, declareMachine, declaredMachines } from "./producers/machine.js";
 import { seedMemoryAccess } from "./producers/memory-access.js";
 import { resolveAddresses } from "./producers/resolve.js";
 import { boundaries, boundaryEntries, formatBoundaries } from "./query-boundaries.js";
@@ -38,6 +39,7 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   uses-kernal <name|$addr>      callers of a platform ROM node (CHROUT, $FFD2)
   seed [--owner <stem>]         run the producers (819 control flow, 820 memory access, 826.0 resolve) over every _analysis.json (or one)
   resolve                       826.0 T2: the project-wide RESOLVES_TO pass (addr aliases → the one routine/label/data block at that address)
+  machine [<owner> <c64|c1541>] 826.0 T7: declare which machine an owner's code runs on (drive code → c1541: drv space, 1541 ROM/ZP/VIA); no args lists the declarations
   boundaries [--entries]        826.0 T3/T4: where a human drew a routine boundary 819 did not (splits, unseen, data outside code); --entries prints the unseen starts for analyze_prg
   signature <ref>               826: a routine's computed calling convention — in / out / clobbers / preserves / stack, partial and where
   args <ref>                    826: what every caller passes — the value DOMAIN per live-in location (A ∈ {$01,$02,$03}), static and observed
@@ -133,15 +135,27 @@ export async function runGraphCli(argv: string[]): Promise<void> {
       : findAnalysisJsons(args.project);
     if (files.length === 0) throw new Error(`no _analysis.json under ${args.project}${args.owner ? ` for owner ${args.owner}` : ""}`);
     const results = files.map((analysisPath) => {
-      const cf = seedControlFlow({ projectDir: args.project, analysisPath });
-      const ma = seedMemoryAccess({ projectDir: args.project, analysisPath });
-      return { owner: cf.owner, controlFlow: cf, memoryAccess: ma };
+      // 826.0 T7 — the owner's machine: declared, or the C64 with a hint when the path smells of the drive
+      const owner = ownerFromAnalysisPath(analysisPath);
+      const machine = contextForOwner(args.project, owner, undefined, analysisPath);
+      const cf = seedControlFlow({ projectDir: args.project, analysisPath, owner, ctx: machine.ctx });
+      const ma = seedMemoryAccess({ projectDir: args.project, analysisPath, owner, ctx: machine.ctx });
+      return { owner: cf.owner, machine, controlFlow: cf, memoryAccess: ma };
     });
     // 826.0 T2 — one project-wide pass after every owner is in
     const resolved = resolveAddresses(args.project);
     // 826 — signatures, after the aliases exist (a cross-owner callee's summary needs RESOLVES_TO)
     const sigs = seedSignatures(args.owner ? { projectDir: args.project, analysisPath: files[0]! } : { projectDir: args.project });
-    out(`${results.map((r) => `${r.owner.padEnd(40)} 819: routines=${r.controlFlow.routines} labels=${r.controlFlow.labels} edges=${JSON.stringify(r.controlFlow.edges)} ${r.controlFlow.ms.toFixed(0)}ms | 820: edges=${JSON.stringify(r.memoryAccess.edges)} indirect-resolved=${r.memoryAccess.indirectResolved} ${r.memoryAccess.ms.toFixed(0)}ms`).join("\n")}\n826.0 resolve: addr nodes=${resolved.addrNodes} RESOLVES_TO=${resolved.resolved} ambiguous=${resolved.ambiguous} ${resolved.ms.toFixed(0)}ms\n826 signatures: routines=${sigs.routines} signed=${sigs.signed} partial=${sigs.partial} unknown-stack=${sigs.unknownStack} passes=${sigs.passes} dispatches=${sigs.dispatches} ${sigs.ms.toFixed(0)}ms`, { results, resolve: resolved, signatures: sigs });
+    const hints = results.filter((r) => r.machine.hint).map((r) => `HINT ${r.machine.hint}`);
+    out(`${results.map((r) => `${r.owner.padEnd(40)} ${r.machine.machine} (${r.machine.source}) | 819: routines=${r.controlFlow.routines} labels=${r.controlFlow.labels} edges=${JSON.stringify(r.controlFlow.edges)} ${r.controlFlow.ms.toFixed(0)}ms | 820: edges=${JSON.stringify(r.memoryAccess.edges)} indirect-resolved=${r.memoryAccess.indirectResolved} ${r.memoryAccess.ms.toFixed(0)}ms`).join("\n")}\n826.0 resolve: addr nodes=${resolved.addrNodes} RESOLVES_TO=${resolved.resolved} ambiguous=${resolved.ambiguous} ${resolved.ms.toFixed(0)}ms\n826 signatures: routines=${sigs.routines} signed=${sigs.signed} partial=${sigs.partial} unknown-stack=${sigs.unknownStack} passes=${sigs.passes} dispatches=${sigs.dispatches} ${sigs.ms.toFixed(0)}ms${hints.length ? `\n${hints.join("\n")}` : ""}`, { results, resolve: resolved, signatures: sigs });
+    return;
+  }
+  if (args.verb === "machine") {
+    const [owner, machine] = args.positional;
+    if (!owner) { const list = declaredMachines(args.project); out(list.map((m) => `${m.owner.padEnd(40)} ${m.machine}`).join("\n") || "(no machine declared — every owner seeds as c64)", list); return; }
+    if (machine !== "c64" && machine !== "c1541") throw new Error("machine needs <owner> <c64|c1541>");
+    declareMachine(args.project, owner.toLowerCase(), machine);
+    out(`${owner.toLowerCase()} → ${machine}. Re-seed the owner (c64re graph seed --owner ${owner.toLowerCase()}) and re-import its annotations (c64re graph migrate) so its rows move to the ${machine === "c1541" ? "drv" : "ram"} space.`, { owner: owner.toLowerCase(), machine });
     return;
   }
   if (args.verb === "signature") {
