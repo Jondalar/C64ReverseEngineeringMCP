@@ -11,8 +11,10 @@
 // 819 D3  edges    = one per xref, typed by the INSTRUCTION, not the xref's
 //                    `type` (the discovery tags every non-jsr/jmp absolute
 //                    operand `branch`; a `sta $D011` is not a branch)
-// 819 D4  CALLS_ROM to the platform's rom node; a target that is ALSO an
-//                    in-image instruction (RAM under ROM) gets both edges,
+// 819 D4  CALLS_ROM to the platform's rom node; a target that is ALSO in the
+//                    image (RAM under ROM) — 826.0 T1: decoded code there means
+//                    the ROM is banked out: CALLS only, `evidence.rom_alternative`
+//                    keeps the ROM node; undecoded bytes there keep both edges,
 //                    `inferred`, with the ambiguity named
 // 819 D5  a target with no instruction: inside the image → routine with
 //                    attrs.undecoded; outside → an `addr` node, dangling-visible
@@ -249,11 +251,18 @@ export function seedControlFlow(options: SeedControlFlowOptions): SeedControlFlo
       const romNode = rom && rom.kind === "rom" ? derivePlatformId(platformTag, target) : undefined;
       const inImageCode = instructions.has(target) || inImage(target);
       if (romNode && inImageCode) {
-        // D4: two memories at one address — both edges, named ambiguity
+        // D4: two memories at one address — named ambiguity. 826.0 T1: the ROM
+        // can only be the callee where the image has NO decoded code at the
+        // target; a game that puts CODE under BASIC has banked BASIC out to run
+        // it, so a jsr into that code is a CALLS with the ROM as the named
+        // alternative — not a CALLS_ROM (WL1 measured 306 of 328 CALLS_ROM on
+        // Wasteland pointing at game code, every KERNAL question polluted).
+        // Undecoded bytes under ROM keep both edges: nothing says which.
         ambiguous += 1;
+        const decodedCode = instructions.has(target);
         const amb = { ...evidence, ambiguity: "ram-under-rom", candidates: [targetNode(target, true), romNode] };
-        addEdge({ from, type: "CALLS", to: targetNode(target, true), evidenceKey: key, origin: "static", confidence: "inferred", evidence: amb });
-        addEdge({ from, type: "CALLS_ROM", to: romNode, evidenceKey: key, origin: "static", confidence: "inferred", evidence: amb });
+        addEdge({ from, type: "CALLS", to: targetNode(target, true), evidenceKey: key, origin: "static", confidence: decodedCode ? confidence : "inferred", evidence: decodedCode ? { ...amb, rom_alternative: romNode } : amb });
+        if (!decodedCode) addEdge({ from, type: "CALLS_ROM", to: romNode, evidenceKey: key, origin: "static", confidence: "inferred", evidence: amb });
       } else if (romNode) {
         addEdge({ from, type: "CALLS_ROM", to: romNode, evidenceKey: key, origin: "static", confidence, evidence });
       } else {

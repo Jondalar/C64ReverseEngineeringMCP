@@ -9,7 +9,7 @@
 // on, kept in exactly one place. It has no runtime dependency on node:sqlite so
 // it can be imported anywhere.
 
-export const PLATFORM_KB_SCHEMA_VERSION = 1;
+export const PLATFORM_KB_SCHEMA_VERSION = 2; // 2: Spec 826 D4 adds platform_abi
 
 export type PlatformTag = "c64" | "c1541";
 export type PlatformNodeKind = "zp" | "ram" | "io" | "rom";
@@ -114,4 +114,35 @@ CREATE TABLE platform_region (
   source        TEXT NOT NULL
 );
 CREATE INDEX platform_region_span ON platform_region (platform, start_address, end_address);
+CREATE TABLE platform_abi (
+  platform  TEXT NOT NULL,
+  address   INTEGER NOT NULL,
+  location  TEXT NOT NULL,
+  role      TEXT NOT NULL CHECK (role IN ('in', 'out', 'clobbers', 'preserves')),
+  note      TEXT,
+  source    TEXT NOT NULL,
+  PRIMARY KEY (platform, address, location, role)
+);
+CREATE INDEX platform_abi_addr ON platform_abi (platform, address);
 `;
+
+/** Spec 826 D4 — one row per (routine, location, role): the calling convention of a ROM entry. */
+export interface PlatformAbiRow {
+  platform: PlatformTag;
+  address: number;
+  /** 826 D1 location names: `A` `X` `Y` `SP` `C` `Z` `N` `V` `D` `I`, `zp:$XX`, `mem:$XXXX` */
+  location: string;
+  role: "in" | "out" | "clobbers" | "preserves";
+  note: string | null;
+  source: string;
+}
+
+/** The summary a signature pass uses for a `jsr` into a ROM entry (826 D2). */
+export interface PlatformAbi {
+  address: number;
+  in: string[];
+  out: string[];
+  clobbers: string[];
+  preserves: string[];
+  note: string | null;
+}

@@ -6,6 +6,7 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { seedControlFlow } from "./producers/control-flow.js";
 import { seedMemoryAccess } from "./producers/memory-access.js";
+import { resolveAddresses } from "./producers/resolve.js";
 import { importRuntimeTrace, removeRuntimeRun } from "./producers/runtime.js";
 import { irqHandlers, pointerTargets, runs as listRuns, runtimeObservations, unconfirmed, unexplained } from "./query-runtime.js";
 import { importAnnotationFile, migrateProject } from "./migrate/migrate.js";
@@ -32,7 +33,8 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   routines [--owner <stem>]     routine nodes
   labels <routine-id>           labels a routine CONTAINS
   uses-kernal <name|$addr>      callers of a platform ROM node (CHROUT, $FFD2)
-  seed [--owner <stem>]         run the producers (819 control flow, 820 memory access) over every _analysis.json (or one)
+  seed [--owner <stem>]         run the producers (819 control flow, 820 memory access, 826.0 resolve) over every _analysis.json (or one)
+  resolve                       826.0 T2: the project-wide RESOLVES_TO pass (addr aliases → the one routine/label/data block at that address)
   zp-usage <routine-id>         ZP addresses a routine touches, by role
   uses-hardware <$addr|name>    routines touching a register, READS/WRITES split
   indirect <routine-id|$zp>     the *_INDIRECT edges — the unknowns, as unknowns
@@ -129,7 +131,14 @@ export async function runGraphCli(argv: string[]): Promise<void> {
       const ma = seedMemoryAccess({ projectDir: args.project, analysisPath });
       return { owner: cf.owner, controlFlow: cf, memoryAccess: ma };
     });
-    out(results.map((r) => `${r.owner.padEnd(40)} 819: routines=${r.controlFlow.routines} labels=${r.controlFlow.labels} edges=${JSON.stringify(r.controlFlow.edges)} ${r.controlFlow.ms.toFixed(0)}ms | 820: edges=${JSON.stringify(r.memoryAccess.edges)} indirect-resolved=${r.memoryAccess.indirectResolved} ${r.memoryAccess.ms.toFixed(0)}ms`).join("\n"), results);
+    // 826.0 T2 — one project-wide pass after every owner is in
+    const resolved = resolveAddresses(args.project);
+    out(`${results.map((r) => `${r.owner.padEnd(40)} 819: routines=${r.controlFlow.routines} labels=${r.controlFlow.labels} edges=${JSON.stringify(r.controlFlow.edges)} ${r.controlFlow.ms.toFixed(0)}ms | 820: edges=${JSON.stringify(r.memoryAccess.edges)} indirect-resolved=${r.memoryAccess.indirectResolved} ${r.memoryAccess.ms.toFixed(0)}ms`).join("\n")}\n826.0 resolve: addr nodes=${resolved.addrNodes} RESOLVES_TO=${resolved.resolved} ambiguous=${resolved.ambiguous} ${resolved.ms.toFixed(0)}ms`, { results, resolve: resolved });
+    return;
+  }
+  if (args.verb === "resolve") {
+    const r = resolveAddresses(args.project);
+    out(`addr nodes=${r.addrNodes} RESOLVES_TO=${r.resolved} ambiguous=${r.ambiguous} ${r.ms.toFixed(0)}ms`, r);
     return;
   }
 

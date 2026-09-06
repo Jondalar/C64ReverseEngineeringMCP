@@ -8,6 +8,7 @@ import type { ArtifactRecord } from "../../project-knowledge/types.js";
 import type { Ctx } from "../ids.js";
 import { ownerFromAnalysisPath, seedControlFlow, type SeedControlFlowResult } from "./control-flow.js";
 import { seedMemoryAccess, type SeedMemoryAccessResult } from "./memory-access.js";
+import { resolveAddresses, type ResolveResult } from "./resolve.js";
 
 export function contextForArtifact(artifact: Pick<ArtifactRecord, "platform" | "loadContexts">, owner: string): Ctx {
   const bank = artifact.loadContexts?.find((c) => typeof c.bank === "number")?.bank;
@@ -16,13 +17,14 @@ export function contextForArtifact(artifact: Pick<ArtifactRecord, "platform" | "
   return { space: "ram", owner };
 }
 
-/** Seeds the graph for an analysis-run artifact — 819 control flow, then 820 memory access; undefined when it is not one. */
-export function seedControlFlowForArtifact(projectDir: string, artifact: ArtifactRecord): (SeedControlFlowResult & { memoryAccess: SeedMemoryAccessResult }) | undefined {
+/** Seeds the graph for an analysis-run artifact — 819 control flow, 820 memory access, then the 826.0 RESOLVES_TO pass; undefined when it is not one. */
+export function seedControlFlowForArtifact(projectDir: string, artifact: ArtifactRecord): (SeedControlFlowResult & { memoryAccess: SeedMemoryAccessResult; resolve: ResolveResult }) | undefined {
   const path = artifact.path ? resolve(projectDir, artifact.path) : undefined;
   if (!path || !path.endsWith("_analysis.json") || !existsSync(path)) return undefined;
   const owner = ownerFromAnalysisPath(path);
   const ctx = contextForArtifact(artifact, owner);
   const controlFlow = seedControlFlow({ projectDir, analysisPath: path, owner, ctx });
   const memoryAccess = seedMemoryAccess({ projectDir, analysisPath: path, owner, ctx });
-  return { ...controlFlow, memoryAccess };
+  const resolved = resolveAddresses(projectDir);
+  return { ...controlFlow, memoryAccess, resolve: resolved };
 }

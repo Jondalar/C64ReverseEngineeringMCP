@@ -38,7 +38,7 @@ const ok = (msg) => notes.push(`  PASS  ${msg}`);
 
 // Files that MAY contain address→name literals: the seeder's extension table
 // and the ABI table (checked separately in 4).
-const ALLOW = new Set(["src/platform-kb/extensions.ts", "pipeline/src/lib/kernal-abi.ts"]);
+const ALLOW = new Set(["src/platform-kb/extensions.ts", "src/platform-kb/abi.ts", "pipeline/src/lib/kernal-abi.ts"]);
 // An address literal used as a MAP KEY for a string: `0xd018: "..."` (object) or
 // `[0xd018, "..."]` (Map tuple). Hardware, ROM and zero-page ranges only. A call
 // argument like `def(0x00, "brk", …)` is an opcode table, not a name map, and
@@ -141,6 +141,32 @@ try {
   else ok(`kernal-abi.ts (${entries.length} entries) agrees with the store`);
 } catch (error) {
   fail(`kernal-abi check failed: ${error.message}`);
+}
+
+// ---------------------------------------------------------------- 4b. Spec 826 D4 — the ABI rows ARE the spec
+try {
+  const { abiNames } = await import(join(ROOT, "dist/platform-kb/abi.js"));
+  const names = abiNames();
+  const entries = kb.abiEntries("c64");
+  if (entries.length !== names.size) fail(`platform_abi covers ${entries.length} entries, abi.ts names ${names.size}`);
+  const bad = [];
+  for (const [address, name] of names) {
+    const n = kb.node("c64", address);
+    if (!n || n.kind !== "rom") { bad.push(`$${address.toString(16).toUpperCase()} ${name}: not a rom node in the store`); continue; }
+    if (n.symbol && n.symbol.toUpperCase() !== name.toUpperCase() && !(name === "CLRSCR")) bad.push(`$${address.toString(16).toUpperCase()} abi=${name} store=${n.symbol}`);
+  }
+  if (bad.length) fail(`platform_abi rows disagree with the store:\n      ${bad.join("\n      ")}`);
+  const chrout = kb.abi("c64", 0xffd2);
+  const setlfs = kb.abi("c64", 0xffba);
+  const load = kb.abi("c64", 0xffd5);
+  const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+  if (!chrout || !same(chrout.in, ["A"]) || chrout.out.length || chrout.clobbers.length) fail(`CHROUT abi is ${JSON.stringify(chrout)}, expected in=[A] out=[] clobbers=[]`);
+  else if (!setlfs || !same(setlfs.in, ["A", "X", "Y"])) fail(`SETLFS abi is ${JSON.stringify(setlfs)}, expected in=[A,X,Y]`);
+  else if (!load || !same(load.in, ["A", "X", "Y"]) || !load.out.includes("C")) fail(`LOAD abi is ${JSON.stringify(load)}, expected in=[A,X,Y] out∋C`);
+  else if (kb.abi("c64", 0x1234) !== undefined) fail("abi($1234) must be undefined (unknown callee is unknown, not empty)");
+  else ok(`platform_abi: ${entries.length} ROM entries, CHROUT in=[A], SETLFS in=[A,X,Y], LOAD out∋C, unknown → undefined (Spec 826 D4)`);
+} catch (error) {
+  fail(`platform_abi check failed: ${error.message}`);
 }
 
 // ---------------------------------------------------------------- 5. rendered

@@ -9,7 +9,8 @@
 // DANGLING reference, never dropped.
 
 import { PlatformKb } from "../platform-kb/read.js";
-import { isPlatformId, parseId, type Ctx } from "./ids.js";
+import { platformKindForAddress, type PlatformTag } from "../platform-kb/schema.js";
+import { derivePlatformId, isPlatformId, parseId, type Ctx } from "./ids.js";
 import { CONTROL_FLOW_TYPES, type EdgeRow, type Layer, type NodeRow } from "./schema.js";
 import { GraphStore } from "./store.js";
 
@@ -36,6 +37,8 @@ export interface ResolvedNode {
   /** named by an edge but present in neither file */
   dangling: boolean;
   symbol?: string | null;
+  /** 826.0 T6 — how `find` matched this node */
+  matched?: "name" | "annotation" | "platform";
 }
 
 export interface EdgeHit {
@@ -111,6 +114,8 @@ export class Graph {
   private readonly edgesFrom;
   private readonly nodesByName;
   private readonly nodesByKind;
+  private readonly aliasTarget;
+  private readonly aliasesOf;
 
   constructor(readonly store: GraphStore, readonly platform: PlatformKb | undefined) {
     const db = store.db;
@@ -120,6 +125,10 @@ export class Graph {
     this.edgesFrom = db.prepare("SELECT * FROM edges WHERE from_id = ? ORDER BY to_id, type, evidence_key, layer");
     this.nodesByName = db.prepare("SELECT * FROM nodes WHERE name LIKE ? ORDER BY id, layer LIMIT 200");
     this.nodesByKind = db.prepare("SELECT * FROM nodes WHERE kind = ? AND (? IS NULL OR owner = ?) ORDER BY id, layer");
+    // 826.0 T2 — an ownerless `addr` node may RESOLVES_TO the one routine / label /
+    // data block another owner has at that address; the walks follow it.
+    this.aliasTarget = db.prepare("SELECT to_id FROM edges WHERE from_id = ? AND type = 'RESOLVES_TO' ORDER BY layer LIMIT 1");
+    this.aliasesOf = db.prepare("SELECT from_id FROM edges WHERE to_id = ? AND type = 'RESOLVES_TO' ORDER BY from_id");
   }
 
   static open(projectDir: string, options: { platformDb?: string; writable?: boolean } = {}): Graph {
@@ -143,12 +152,29 @@ export class Graph {
   resolve(id: string): ResolvedNode {
     if (isPlatformId(id)) {
       const p = this.platform?.byId(id);
-      if (!p) return dangling(id);
-      return {
-        id: p.id, kind: p.kind, name: p.symbol ? `${p.symbol} ${p.name}` : p.name, symbol: p.symbol, address: p.address, endAddress: null,
-        space: p.kind === "io" ? "io" : p.kind === "rom" ? "rom" : "ram", owner: null, bank: null, attrs: { source: p.source },
-        origin: "imported", confidence: "certain", layers: ["generated"], orphaned: false, platform: true, dangling: false,
-      };
+      if (p) {
+        return {
+          id: p.id, kind: p.kind, name: p.symbol ? `${p.symbol} ${p.name}` : p.name, symbol: p.symbol, address: p.address, endAddress: null,
+          space: p.kind === "io" ? "io" : p.kind === "rom" ? "rom" : "ram", owner: null, bank: null, attrs: { source: p.source },
+          origin: "imported", confidence: "certain", layers: ["generated"], orphaned: false, platform: true, dangling: false,
+        };
+      }
+      // 826.0 T5 — a platform id names its kind and address in its own grammar;
+      // `c64:zp:00fe` is a zero-page cell whether or not the book has a line
+      // for it. The KB has no row → no name, but a node, so the edges 820 put
+      // on it can be walked backwards. An id whose kind contradicts its address
+      // (`c64:rom:0000`, 818's D7 case) and an unparseable id stay dangling.
+      try {
+        const parsed = parseId(id);
+        if (parsed.form === "platform" && parsed.kind === platformKindForAddress(parsed.platform, parsed.address)) {
+          return {
+            id, kind: parsed.kind, name: null, symbol: null, address: parsed.address, endAddress: null,
+            space: parsed.kind === "io" ? "io" : parsed.kind === "rom" ? "rom" : "ram", owner: null, bank: null, attrs: { synthesized: true },
+            origin: "imported", confidence: "certain", layers: ["generated"], orphaned: false, platform: true, dangling: false,
+          };
+        }
+      } catch { /* not a platform id after all */ }
+      return dangling(id);
     }
     const rows = this.nodesById.all(id) as unknown as NodeRow[];
     return mergeRows(rows) ?? dangling(id);
@@ -170,6 +196,19 @@ export class Graph {
         if (p && (!a.space || this.resolve(p.id).space === a.space)) out.push(this.resolve(p.id));
       }
     }
+    // 826.0 T5 — zero page, I/O and ROM have a platform node by address alone
+    // (818 D1's grammar); `$00FE` answers with `c64:zp:00fe` even without a
+    // book line, so the writers 820 recorded there can be asked for.
+    const tag: PlatformTag = a.space === "drv" ? "c1541" : "c64";
+    const pkind = platformKindForAddress(tag, a.address);
+    if (pkind !== "ram") {
+      const pid = derivePlatformId(tag, a.address);
+      if (!out.some((n) => n.id === pid)) {
+        const n = this.resolve(pid);
+        const spaceOk = !a.space || n.space === a.space || ((a.space === "ram" || a.space === "crt" || a.space === "drv") && n.space === "ram");
+        if (!n.dangling && spaceOk) out.push(n);
+      }
+    }
     return out;
   }
 
@@ -181,12 +220,33 @@ export class Graph {
     };
   }
 
-  edgesInto(id: string, types?: readonly string[]): EdgeHit[] {
-    return (this.edgesTo.all(id) as unknown as EdgeRow[]).filter((e) => !types || types.includes(e.type)).map((e) => this.hit(e));
+  /**
+   * Edges into a node. 826.0 T2: edges that land on an `addr` alias of this
+   * node (`RESOLVES_TO` from the alias) are included, re-pointed at the node,
+   * with `evidence.via` naming the alias — so a `jsr $FC00` from one artifact
+   * counts as a caller of the routine another artifact has at $FC00.
+   */
+  edgesInto(id: string, types?: readonly string[], followAliases = true): EdgeHit[] {
+    const direct = (this.edgesTo.all(id) as unknown as EdgeRow[]).filter((e) => !types || types.includes(e.type)).map((e) => this.hit(e));
+    if (!followAliases) return direct;
+    const node = direct[0]?.toNode ?? this.resolve(id);
+    const viaAliases = (this.aliasesOf.all(id) as Array<{ from_id: string }>).flatMap((a) =>
+      this.edgesInto(a.from_id, types, false)
+        .filter((e) => e.type !== "RESOLVES_TO")
+        .map((e) => ({ ...e, to: id, toNode: node, evidence: { ...e.evidence, via: a.from_id } })),
+    );
+    return viaAliases.length ? [...direct, ...viaAliases] : direct;
   }
 
+  /** Edges out of a node; an edge onto an `addr` alias is re-pointed at what the alias RESOLVES_TO (826.0 T2). */
   edgesOutOf(id: string, types?: readonly string[]): EdgeHit[] {
-    return (this.edgesFrom.all(id) as unknown as EdgeRow[]).filter((e) => !types || types.includes(e.type)).map((e) => this.hit(e));
+    return (this.edgesFrom.all(id) as unknown as EdgeRow[]).filter((e) => !types || types.includes(e.type)).map((e) => {
+      const h = this.hit(e);
+      if (h.type === "RESOLVES_TO" || h.toNode.kind !== "addr") return h;
+      const t = this.aliasTarget.get(h.to) as { to_id: string } | undefined;
+      if (!t) return h;
+      return { ...h, to: t.to_id, toNode: this.resolve(t.to_id), evidence: { ...h.evidence, via: h.to } };
+    });
   }
 
   // ------------------------------------------------------------ 818 D8 verbs
@@ -224,10 +284,26 @@ export class Graph {
     const rows = this.nodesByName.all(`%${text}%`) as unknown as NodeRow[];
     const byId = new Map<string, NodeRow[]>();
     for (const r of rows) byId.set(r.id, [...(byId.get(r.id) ?? []), r]);
-    const out = [...byId.values()].map((rs) => mergeRows(rs)!);
+    const lower = text.toLowerCase();
+    const out: ResolvedNode[] = [...byId.values()].map((rs) => ({ ...mergeRows(rs)!, matched: "name" as const }));
+    // exact name first, then the substring hits in id order (stable)
+    out.sort((x, y) => Number((y.name ?? "").toLowerCase() === lower) - Number((x.name ?? "").toLowerCase() === lower));
     for (const platform of ["c64", "c1541"] as const) {
-      for (const p of this.platform?.search(platform, text, 10) ?? []) out.push(this.resolve(p.id));
+      for (const p of this.platform?.search(platform, text, 10) ?? []) out.push({ ...this.resolve(p.id), matched: "platform" });
     }
+    // 826.0 T6 — the annotations' text (822's FTS5 index), after the names:
+    // "sector" finds resolve_id_to_ts through what its annotation SAYS.
+    try {
+      const fts = this.store.db.prepare(
+        "SELECT DISTINCT a.node_id AS id FROM annotations_fts f JOIN annotations a ON a.seq = f.rowid WHERE annotations_fts MATCH ? AND a.node_id IS NOT NULL AND a.status = 'active' LIMIT 50",
+      );
+      const q = `"${text.replace(/"/gu, "\"\"")}"*`;
+      for (const r of fts.all(q) as Array<{ id: string }>) {
+        if (out.some((n) => n.id === r.id)) continue;
+        const n = this.resolve(r.id);
+        if (!n.dangling) out.push({ ...n, matched: "annotation" });
+      }
+    } catch { /* a graph without the 822 schema has no annotations to search */ }
     return out;
   }
 

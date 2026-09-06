@@ -7,7 +7,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { formatAddr4, formatHex4, platformNodeId, type PlatformNodeKind, type PlatformTag } from "./schema.js";
+import { formatAddr4, formatHex4, platformNodeId, type PlatformAbi, type PlatformNodeKind, type PlatformTag } from "./schema.js";
 import { DatabaseSync } from "./sqlite-quiet.js";
 
 export interface PlatformNode {
@@ -108,6 +108,32 @@ export class PlatformKb {
     for (const row of this.db.prepare("SELECT key, value FROM platform_meta").all() as Array<{ key: string; value: string }>) out[row.key] = row.value;
     return out;
   }
+
+  /**
+   * Spec 826 D4 — the calling convention of a ROM entry, or undefined when the
+   * store has no rows for it (an unknown callee is `unknown`, never `[]`).
+   * A schema-1 store (no `platform_abi` table) answers undefined for everything.
+   */
+  abi(platform: PlatformTag, address: number): PlatformAbi | undefined {
+    if (this.abiStmt === null) return undefined;
+    if (this.abiStmt === undefined) {
+      try { this.abiStmt = this.db.prepare("SELECT location, role, note FROM platform_abi WHERE platform = ? AND address = ? ORDER BY role, location"); } catch { this.abiStmt = null; return undefined; }
+    }
+    const rows = this.abiStmt.all(platform, address & 0xffff) as Array<{ location: string; role: "in" | "out" | "clobbers" | "preserves"; note: string | null }>;
+    if (rows.length === 0) return undefined;
+    const out: PlatformAbi = { address: address & 0xffff, in: [], out: [], clobbers: [], preserves: [], note: rows[0]!.note };
+    for (const r of rows) out[r.role].push(r.location);
+    return out;
+  }
+
+  /** Every ROM entry with an ABI row (826 D4), address-ordered. */
+  abiEntries(platform: PlatformTag): number[] {
+    try {
+      return (this.db.prepare("SELECT DISTINCT address FROM platform_abi WHERE platform = ? ORDER BY address").all(platform) as Array<{ address: number }>).map((r) => r.address);
+    } catch { return []; }
+  }
+
+  private abiStmt: ReturnType<DatabaseSync["prepare"]> | null | undefined = undefined;
 
   close(): void {
     this.db.close();

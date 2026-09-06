@@ -23,12 +23,14 @@ import {
   type C64RefKnowledgeEntry,
 } from "../c64ref-rom-knowledge.js";
 import { EXTENSION_SOURCE, loadExtensions } from "./extensions.js";
+import { loadAbi } from "./abi.js";
 import {
   PLATFORM_KB_DDL,
   PLATFORM_KB_SCHEMA_VERSION,
   platformKindForAddress,
   platformNodeId,
   platformRegionId,
+  type PlatformAbiRow,
   type PlatformNodeRow,
   type PlatformRegionRow,
   type PlatformTag,
@@ -90,7 +92,7 @@ export function snapshotPresent(repoRoot: string): boolean {
   return existsSync(defaultC64RefKnowledgePath(repoRoot));
 }
 
-function buildRows(repoRoot: string): { nodes: PlatformNodeRow[]; regions: PlatformRegionRow[]; meta: Record<string, string> } {
+function buildRows(repoRoot: string): { nodes: PlatformNodeRow[]; regions: PlatformRegionRow[]; abi: PlatformAbiRow[]; meta: Record<string, string> } {
   const knowledge = loadC64RefRomKnowledge(defaultC64RefKnowledgePath(repoRoot));
   const nodes = new Map<string, PlatformNodeRow>();
   const regions = new Map<string, PlatformRegionRow>();
@@ -150,6 +152,7 @@ function buildRows(repoRoot: string): { nodes: PlatformNodeRow[]; regions: Platf
   return {
     nodes: [...nodes.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
     regions: [...regions.values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+    abi: loadAbi(), // Spec 826 D4 — already sorted
     meta,
   };
 }
@@ -171,6 +174,8 @@ function writeStore(path: string, rows: ReturnType<typeof buildRows>): void {
     for (const n of rows.nodes) node.run(n.id, n.platform, n.kind, n.address, n.symbol, n.name, n.description, n.source, n.layer, n.origin, n.confidence);
     const region = db.prepare("INSERT INTO platform_region (id, platform, start_address, end_address, name, source) VALUES (?,?,?,?,?,?)");
     for (const r of rows.regions) region.run(r.id, r.platform, r.startAddress, r.endAddress, r.name, r.source);
+    const abi = db.prepare("INSERT INTO platform_abi (platform, address, location, role, note, source) VALUES (?,?,?,?,?,?)");
+    for (const a of rows.abi) abi.run(a.platform, a.address, a.location, a.role, a.note, a.source);
     db.exec("COMMIT");
     db.exec(`PRAGMA user_version = ${PLATFORM_KB_SCHEMA_VERSION};`);
     db.exec("VACUUM");
@@ -186,8 +191,10 @@ export function platformKbContentHash(path: string): string {
   const db = new DatabaseSync(path, { readOnly: true });
   try {
     const hash = createHash("sha256");
-    for (const table of ["platform_meta", "platform_node", "platform_region"]) {
-      const orderBy = table === "platform_meta" ? "key" : "id";
+    const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as Array<{ name: string }>).map((r) => r.name);
+    for (const table of ["platform_meta", "platform_node", "platform_region", "platform_abi"]) {
+      if (!tables.includes(table)) continue; // a schema-1 store has no abi table: its hash covers what it has
+      const orderBy = table === "platform_meta" ? "key" : table === "platform_abi" ? "platform, address, role, location" : "id";
       for (const row of db.prepare(`SELECT * FROM ${table} ORDER BY ${orderBy}`).all()) {
         hash.update(JSON.stringify(row, Object.keys(row as object).sort()));
         hash.update("\n");
@@ -203,10 +210,10 @@ export function defaultPlatformKbPath(repoRoot: string): string {
   return join(repoRoot, "resources", "platform-kb.sqlite");
 }
 
-export function seedPlatformKb(repoRoot: string, outPath = defaultPlatformKbPath(repoRoot)): { nodes: number; regions: number; path: string } {
+export function seedPlatformKb(repoRoot: string, outPath = defaultPlatformKbPath(repoRoot)): { nodes: number; regions: number; abi: number; path: string } {
   const rows = buildRows(repoRoot);
   writeStore(outPath, rows);
-  return { nodes: rows.nodes.length, regions: rows.regions.length, path: outPath };
+  return { nodes: rows.nodes.length, regions: rows.regions.length, abi: rows.abi.length, path: outPath };
 }
 
 export function verifyPlatformKb(repoRoot: string, committed = defaultPlatformKbPath(repoRoot)): { ok: boolean; committedHash: string; freshHash: string; skipped?: string } {

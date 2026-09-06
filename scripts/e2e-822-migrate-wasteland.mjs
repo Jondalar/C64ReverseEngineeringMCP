@@ -27,7 +27,12 @@ const ROOT = resolve(import.meta.dirname, "..");
 const WASTELAND = process.env.C64RE_WASTELAND_EF ?? "/Users/alex/Development/C64/Cracking/Wasteland_EF";
 
 console.log("Spec 822 — human knowledge integration + migration, Wasteland_EF acceptance\n");
-if (!existsSync(join(WASTELAND, "knowledge", "entities.json"))) {
+// 822.2 cut a project over on open: the six stores then live in knowledge/_legacy-822/.
+// The gate tests the migration, so it rebuilds the PRE-cut-over layout in its temp copy
+// from whichever place still has the files.
+const LEGACY_DIR = "_legacy-822";
+const legacySource = (f) => (existsSync(join(WASTELAND, "knowledge", f)) ? join(WASTELAND, "knowledge", f) : join(WASTELAND, "knowledge", LEGACY_DIR, f));
+if (!existsSync(legacySource("entities.json"))) {
   console.log(`PENDING — Wasteland_EF fixture not present at ${WASTELAND} (set C64RE_WASTELAND_EF). 0 pass, 0 fail. NOT green, NOT run.`);
   process.exit(0);
 }
@@ -56,6 +61,10 @@ mkdirSync(join(project, "knowledge"), { recursive: true });
 for (const f of readdirSync(join(WASTELAND, "knowledge"))) {
   if (!f.endsWith(".json") && f !== "notes.md") continue;
   copyFileSync(join(WASTELAND, "knowledge", f), join(project, "knowledge", f));
+}
+// the six stores a cut-over project keeps under _legacy-822/ go back to the root of the copy
+for (const f of ["entities.json", "findings.json", "relations.json", "open-questions.json", "labels.user.json", "flows.json"]) {
+  if (!existsSync(join(project, "knowledge", f)) && existsSync(join(WASTELAND, "knowledge", LEGACY_DIR, f))) copyFileSync(join(WASTELAND, "knowledge", LEGACY_DIR, f), join(project, "knowledge", f));
 }
 function findFiles(dir, suffix, out = [], depth = 0) {
   if (depth > 8) return out;
@@ -322,6 +331,9 @@ store.close();
   for (const f of readdirSync(join(WASTELAND, "knowledge"))) {
     if (!f.endsWith(".json") && f !== "notes.md") continue;
     copyFileSync(join(WASTELAND, "knowledge", f), join(cut, "knowledge", f));
+  }
+  for (const f of ["entities.json", "findings.json", "relations.json", "open-questions.json", "labels.user.json", "flows.json"]) {
+    if (!existsSync(join(cut, "knowledge", f)) && existsSync(join(WASTELAND, "knowledge", LEGACY_DIR, f))) copyFileSync(join(WASTELAND, "knowledge", LEGACY_DIR, f), join(cut, "knowledge", f));
   }
   for (const src of annotationFiles) {
     const dst = join(cut, relative(WASTELAND, src));
