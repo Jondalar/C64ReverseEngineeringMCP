@@ -8,6 +8,8 @@ import { seedControlFlow } from "./producers/control-flow.js";
 import { seedMemoryAccess } from "./producers/memory-access.js";
 import { resolveAddresses } from "./producers/resolve.js";
 import { boundaries, boundaryEntries, formatBoundaries } from "./query-boundaries.js";
+import { seedSignatures } from "./producers/signatures.js";
+import { argsDomain, formatArgs, formatSignature, signatureOf } from "./query-signatures.js";
 import { importRuntimeTrace, removeRuntimeRun } from "./producers/runtime.js";
 import { irqHandlers, pointerTargets, runs as listRuns, runtimeObservations, unconfirmed, unexplained } from "./query-runtime.js";
 import { importAnnotationFile, migrateProject } from "./migrate/migrate.js";
@@ -37,6 +39,8 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   seed [--owner <stem>]         run the producers (819 control flow, 820 memory access, 826.0 resolve) over every _analysis.json (or one)
   resolve                       826.0 T2: the project-wide RESOLVES_TO pass (addr aliases → the one routine/label/data block at that address)
   boundaries [--entries]        826.0 T3/T4: where a human drew a routine boundary 819 did not (splits, unseen, data outside code); --entries prints the unseen starts for analyze_prg
+  signature <ref>               826: a routine's computed calling convention — in / out / clobbers / preserves / stack, partial and where
+  args <ref>                    826: what every caller passes — the value DOMAIN per live-in location (A ∈ {$01,$02,$03}), static and observed
   zp-usage <routine-id>         ZP addresses a routine touches, by role
   uses-hardware <$addr|name>    routines touching a register, READS/WRITES split
   indirect <routine-id|$zp>     the *_INDIRECT edges — the unknowns, as unknowns
@@ -135,7 +139,33 @@ export async function runGraphCli(argv: string[]): Promise<void> {
     });
     // 826.0 T2 — one project-wide pass after every owner is in
     const resolved = resolveAddresses(args.project);
-    out(`${results.map((r) => `${r.owner.padEnd(40)} 819: routines=${r.controlFlow.routines} labels=${r.controlFlow.labels} edges=${JSON.stringify(r.controlFlow.edges)} ${r.controlFlow.ms.toFixed(0)}ms | 820: edges=${JSON.stringify(r.memoryAccess.edges)} indirect-resolved=${r.memoryAccess.indirectResolved} ${r.memoryAccess.ms.toFixed(0)}ms`).join("\n")}\n826.0 resolve: addr nodes=${resolved.addrNodes} RESOLVES_TO=${resolved.resolved} ambiguous=${resolved.ambiguous} ${resolved.ms.toFixed(0)}ms`, { results, resolve: resolved });
+    // 826 — signatures, after the aliases exist (a cross-owner callee's summary needs RESOLVES_TO)
+    const sigs = seedSignatures(args.owner ? { projectDir: args.project, analysisPath: files[0]! } : { projectDir: args.project });
+    out(`${results.map((r) => `${r.owner.padEnd(40)} 819: routines=${r.controlFlow.routines} labels=${r.controlFlow.labels} edges=${JSON.stringify(r.controlFlow.edges)} ${r.controlFlow.ms.toFixed(0)}ms | 820: edges=${JSON.stringify(r.memoryAccess.edges)} indirect-resolved=${r.memoryAccess.indirectResolved} ${r.memoryAccess.ms.toFixed(0)}ms`).join("\n")}\n826.0 resolve: addr nodes=${resolved.addrNodes} RESOLVES_TO=${resolved.resolved} ambiguous=${resolved.ambiguous} ${resolved.ms.toFixed(0)}ms\n826 signatures: routines=${sigs.routines} signed=${sigs.signed} partial=${sigs.partial} unknown-stack=${sigs.unknownStack} passes=${sigs.passes} dispatches=${sigs.dispatches} ${sigs.ms.toFixed(0)}ms`, { results, resolve: resolved, signatures: sigs });
+    return;
+  }
+  if (args.verb === "signature") {
+    const ref = args.positional[0];
+    if (!ref) throw new Error("signature needs a routine ref ($addr, id or name)");
+    const g = Graph.open(args.project);
+    try {
+      const nodes = resolveRef(g, ref, undefined).filter((n) => n.kind === "routine");
+      if (nodes.length === 0) throw new Error(`no routine for "${ref}"`);
+      const sig = signatureOf(g, nodes[0]!.id);
+      out(sig ? `${nodes[0]!.id}\n  ${formatSignature(sig)}` : `${nodes[0]!.id}\n  no signature yet — run: c64re graph seed`, { id: nodes[0]!.id, signature: sig ?? null });
+    } finally { g.close(); }
+    return;
+  }
+  if (args.verb === "args") {
+    const ref = args.positional[0];
+    if (!ref) throw new Error("args needs a routine ref ($addr, id or name)");
+    const g = Graph.open(args.project);
+    try {
+      const nodes = resolveRef(g, ref, undefined).filter((n) => n.kind === "routine");
+      if (nodes.length === 0) throw new Error(`no routine for "${ref}"`);
+      const d = argsDomain(g, nodes[0]!.id);
+      out(`${nodes[0]!.id}\n${formatArgs(d)}`, { id: nodes[0]!.id, args: d });
+    } finally { g.close(); }
     return;
   }
   if (args.verb === "resolve") {

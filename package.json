@@ -33,7 +33,7 @@
     "e2e:822": "npm run build:mcp && node scripts/e2e-822-migrate-wasteland.mjs",
     "check:822-no-json-readers": "node scripts/check-822-no-json-readers.mjs",
     "e2e:823": "npm run build:mcp && node scripts/e2e-823-graph-mcp.mjs",
-    "e2e:826": "npm run build:mcp && node scripts/e2e-826-signatures.mjs",
+    "e2e:826": "npm run build && node scripts/e2e-826-signatures.mjs",
     "e2e:826-boundaries": "npm run build:mcp && node scripts/e2e-826-boundaries.mjs",
     "e2e:826-runtime-args": "npm run build:mcp && node scripts/e2e-826-runtime-args.mjs",
     "measure:826": "node scripts/measure-826-signatures.mjs",
