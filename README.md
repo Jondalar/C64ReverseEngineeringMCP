@@ -120,6 +120,24 @@ One bundle: project knowledge — artifacts, findings, memory maps, media, disas
 and the live runtime view are the same app. The daemon owns the clock, monitor, media and
 traces; browser and MCP are both clients, so a reload never resets a session.
 
+**In the project folder itself**, `project_init` leaves launchers so nobody has to
+remember any of the above:
+
+| | |
+|---|---|
+| macOS / Linux | `./ui.sh start` · `restart` · `stop` · `status` · `logs` · `build-ui` |
+| Windows | double-click **ui-start.cmd** / **ui-stop.cmd** / **ui-restart.cmd**, or `powershell -ExecutionPolicy Bypass -File .\ui.ps1 <action>` |
+
+Both sets are written into every project, because a project folder travels between
+machines. `ui.ps1` takes the project from its own location, so the folder can be copied
+or renamed; only the path to *this repo* is baked, and `C64RE_REPO` overrides it
+(`setx C64RE_REPO "C:\path\to\C64ReverseEngineeringMCP"`). `start` waits for the port
+and then opens the browser. For a project that predates the launchers:
+
+```bash
+npm run launchers -- --project /path/to/project
+```
+
 ## What to expect
 
 This is my (dkl / Jondalar) personal Reverse Engineering Toolbox packaged

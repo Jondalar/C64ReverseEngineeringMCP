@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { resolveProjectDir } from "../project-root.js";
@@ -114,10 +114,13 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       // project steering file (injected at the top of agent_onboard). Default
       // only; never clobbers a hand-written steering.md.
       const steeringSeed = ensureDefaultSteering(projectRoot);
-      // Convenience: a `ui.sh` launcher in the project root to start/restart the
-      // workspace (HTTP UI :4310 + runtime daemon :4312) pointed at this project.
-      // Idempotent + never clobbers a hand-edited ui.sh.
+      // Convenience: workspace launchers in the project root to start/restart
+      // the workspace (HTTP UI :4310 + runtime daemon :4312) pointed at this
+      // project — `ui.sh` for macOS/Linux, `ui.ps1` + the ui-start/stop/restart
+      // `.cmd` shims for Windows. Both sets on every platform: a project folder
+      // travels between machines. Idempotent + never clobbers a hand-edited one.
       const uiLauncher = ensureUiLauncher(projectRoot, options.repoDir);
+      const uiCreated = uiLauncher.files.filter((f) => f.created).map((f) => basename(f.path));
       const workflow = service.initializeWorkflowContract({
         canonicalDocPaths: [
           resolve(options.repoDir, "docs", "workflow.md"),
@@ -153,7 +156,8 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         ``,
         `Wiki scaffolded: ${wikiScaffold.created.length ? wikiScaffold.created.join(", ") : "already present"}`,
         `Steering (extract-first doctrine): ${steeringSeed}`,
-        `UI launcher: ${uiLauncher.created ? `created ${uiLauncher.path} (./ui.sh start|restart|stop|status)` : "already present (not overwritten)"}`,
+        `UI launcher: ${uiCreated.length ? `created ${uiCreated.join(", ")}` : "already present (not overwritten)"}`,
+        `  macOS / Linux: ./ui.sh start|restart|stop|status|logs   ·   Windows: double-click ui-start.cmd / ui-stop.cmd / ui-restart.cmd`,
         `Input media sorted: ${mediaSort.sorted.length} file(s)`,
         ...mediaSort.sorted.map((s) => `  ${s.from} → ${s.to} (${s.kind})`),
         ...(mediaSort.skipped.length > 0
