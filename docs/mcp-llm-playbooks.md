@@ -40,10 +40,14 @@ inventory.
    - tools: `project_reindex_search`, `project_search`, `project_find_related`
    - persist: located records, related groups
    - ask human when: the search returns nothing for a topic you expected to exist
-5. _(llm)_ Ask the orchestrator for the single next product step; run the inventory/media-sync step or follow its named tool.
+5. _(llm)_ Answer a structural question from the graph before opening a listing: resolve a name or address to nodes, read the node card, walk callers / writers / hardware use, find a path, or take the project overview to see entry points, banking sites and the unresolved indirect accesses.
+   - tools: `graph_find`, `graph_node`, `graph_edges`, `graph_path`, `graph_overview`
+   - persist: node ids, the structural picture
+   - ask human when: the graph is empty for an artifact you expected to be analyzed (run project_inventory_sync / c64re graph seed)
+6. _(llm)_ Ask the orchestrator for the single next product step; run the inventory/media-sync step or follow its named tool.
    - tools: `agent_next_step`, `agent_run_step`
    - persist: next-step suggestion, branch alternatives
-6. _(llm)_ Confirm next action and record the step.
+7. _(llm)_ Confirm next action and record the step.
    - tools: `c64re_whats_next`, `agent_propose_next`, `agent_record_step`
    - persist: next-action proposal
 

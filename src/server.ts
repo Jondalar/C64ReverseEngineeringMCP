@@ -15,6 +15,7 @@ import { registerAssemblyTools } from "./server-tools/assembly.js";
 import { registerCompressionTools } from "./server-tools/compression.js";
 import { registerGraphicsRenderTools } from "./server-tools/graphics-render.js";
 import { registerInspectRangeTools } from "./server-tools/inspect-range.js";
+import { registerGraphTools } from "./server-tools/graph-tools.js";
 import { registerDiskG64Tools } from "./server-tools/disk-g64.js";
 import { registerHeadlessTools } from "./server-tools/headless.js";
 import { registerRuntimeTools } from "./server-tools/runtime.js";
@@ -163,6 +164,7 @@ function createServer(): McpServer {
   registerCompressionTools(server, toolContext);
   registerGraphicsRenderTools(server, toolContext);
   registerInspectRangeTools(server, toolContext);
+  registerGraphTools(server, toolContext);
   registerDiskG64Tools(server, toolContext);
   registerHeadlessTools(server, toolContext);
   registerRuntimeTools(server, toolContext);
@@ -214,6 +216,7 @@ export function collectToolInventory(): { name: string; description: string; fil
   group("server-tools/compression.ts", () => registerCompressionTools(server, toolContext));
   group("server-tools/graphics-render.ts", () => registerGraphicsRenderTools(server, toolContext));
   group("server-tools/inspect-range.ts", () => registerInspectRangeTools(server, toolContext));
+  group("server-tools/graph-tools.ts", () => registerGraphTools(server, toolContext));
   group("server-tools/disk-g64.ts", () => registerDiskG64Tools(server, toolContext));
   group("server-tools/headless.ts", () => registerHeadlessTools(server, toolContext));
   group("server-tools/runtime.ts", () => registerRuntimeTools(server, toolContext));

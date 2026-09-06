@@ -51,7 +51,22 @@ c64re graph stats | dump                        # counts / the canonical dump (S
 
 `--project <dir>` (default `C64RE_PROJECT_DIR` or cwd), `--json` for one JSON
 document on stdout and nothing else. The same functions are the library
-`src/knowledge-graph/query.ts`; MCP tools over it are Spec 823.
+`src/knowledge-graph/query.ts`.
+
+## The MCP tools (Spec 823)
+
+Five default tools, thin over the same library, one formatter with the CLI:
+
+| tool | answers |
+|---|---|
+| `graph_find` | resolve a name / address / register / ROM entry to nodes with stable ids |
+| `graph_node` | the card: generated label and human name side by side, edge counts, hardware / ROM / ZP touched, runtime observation |
+| `graph_edges` | callers · callees · readers · writers · references · ROM / ZP / hardware use · indirect — `direction × kind × origin`, depth 1–2 |
+| `graph_path` | shortest control-flow path with per-hop evidence, or "no path" + frontier |
+| `graph_overview` | entries, IRQ handlers, banking sites, hot hardware / ROM / ZP, subsystems, unresolved indirect accesses |
+
+Every reply ends with a ```` ```json ```` block that equals `c64re graph <verb> --json`
+byte for byte. For where something is *described* in prose, `project_search`.
 
 An edge whose target is in neither file comes back **dangling**, never dropped.
 A human row whose generated twin disappeared comes back **orphaned**, kept.
@@ -64,4 +79,5 @@ npm run e2e:818             # grammar refusals, idempotence, human/orphan, resol
 npm run e2e:819             # ground-truth fixture + 21 real reports: zero false branches
 npm run e2e:820             # memory access: fixture ground truth, lnr_boot counts reconcile, no invented target
 npm run measure:820         # access-graph coverage over the field corpus (trend)
+npm run e2e:823             # the five graph tools through the real MCP server over stdio
 ```

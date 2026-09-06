@@ -1,6 +1,6 @@
 # Spec 823 — MCP surface over the graph query API
 
-**Status:** PROPOSED (2026-09-05)
+**Status:** BUILT 2026-09-06 — gate `npm run e2e:823` GREEN (28/0)
 **Origin:** `C64RE_Semantic_Knowledge_Graph_Draft_Spec.md` §"MCP" · §"CLI" · §"Phase 4 —
 Agent Integration". The graph exists after Specs 818–822 as a library; 823 is the door.
 **Anchor:** Spec 818 (`src/knowledge-graph/`) · Spec 740.1 (the current retrieval tools)
@@ -242,3 +242,44 @@ slice, not follow-ups. **`check:runtime-invisible`**, **`check:wiki`**.
   on a real project before picking a number.
 - **OQ4 — Bank as a ref.** `bank:07:$8000` is the draft's spelling; the tool accepts
   whatever grammar 818 derives its ids from.
+
+## 10. Built — what the gate found on the way
+
+`src/server-tools/graph-tools.ts` (five tools, thin by gate), the aggregates in
+`src/knowledge-graph/cards.ts` (node card, neighbourhood walk, shortest path,
+overview) and the ONE formatter `src/knowledge-graph/format.ts` that the CLI
+and the tools share — `c64re graph find … --json` and `graph_find`'s JSON block
+are byte-identical, asserted. `DEFAULT_TOOLS` + 5, cap 151 → 156 with the reason
+in the comment block. D8's three doctrine-text changes landed in the same commit:
+`docs/agent-doctrine.md` §1, `src/server-instructions.ts` under STATIC-FIRST,
+and a playbook step in `gen-mcp-llm-playbooks.mjs`. Inventory, use-case matrix
+and playbooks regenerated.
+
+**Deviations, as built:**
+- `graph_path` returns ONE shortest path (BFS), not "≤ 3"; on none it reports
+  the reachable frontier size, as specified. Three alternative paths need a
+  k-shortest walk the library does not have yet.
+- `graph_find`'s `kind` values are the graph's own (`routine · label · addr ·
+  zp · io · rom · ram · subsystem · run`), not the draft's
+  (`register · rom_routine · data_block · region`) — the id grammar's kinds are
+  the vocabulary, and a second one would be a second answer.
+- Annotations on the node card (≤ 5 with finding ids) wait for 822's human
+  layer; the card carries `humanName` and `subsystems` today.
+- `changes_banking` / `handles_irq` edge kinds are accepted and answer empty
+  until 821 writes `HANDLES_IRQ` rows; banking sites in `graph_overview` are
+  derived from WRITES to `$01` / `$DD00` / `$DE00` / `$DE02` now, which is what a
+  static producer can know.
+
+**What the gate found.** The first round-trip failed on every call: the server's
+`context.projectDir()` refuses a directory that is not an initialized project
+(`knowledge/phase-plan.json` …), so the gate now creates its project through the
+real door, `project_init`, before analyzing and seeding — a better gate. The D1
+"no fs, no sqlite" check then failed on its own comment, which named the three
+forbidden imports; it checks the import list now, not the prose.
+
+**Pre-existing reds, not this spec's.** `probe-tool-surface` (check 9/11:
+`validate_extraction`, the `runtime_candidate_*` descriptions),
+`probe-mcp-llm-playbooks` (check 9: ten tools in no playbook) and
+`e2e-mcp-tool-boundaries` (checks 4/6: `sandbox_*`,
+`register_payloads_from_manifest`) were red on `master` before 823 and name no
+`graph_*` tool. Recorded here so the next reader does not read them as 823's.

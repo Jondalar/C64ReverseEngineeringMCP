@@ -166,6 +166,12 @@ Minimum persistence contract after a substantive step:
 knowledge before re-deriving it. `project_wiki_lint` is the default way to find
 important records that still lack wiki coverage.
 
+For a *structural* question — who calls, who writes, what does this routine
+touch, is there a path — query the graph (`graph_find`, `graph_edges`,
+`graph_node`, `graph_path`) **before reading a disassembly**; `graph_overview`
+is the structural inventory of a project you have not read. For where something
+is *described*, `project_search` / `project_find_related`.
+
 ### 1.1. There is exactly one runtime
 
 **The `runtime_*` MCP tools are the only runtime you have.** There is no

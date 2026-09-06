@@ -75,6 +75,22 @@
         },
         {
           "actor": "llm",
+          "action": "Answer a structural question from the graph before opening a listing: resolve a name or address to nodes, read the node card, walk callers / writers / hardware use, find a path, or take the project overview to see entry points, banking sites and the unresolved indirect accesses.",
+          "tools": [
+            "graph_find",
+            "graph_node",
+            "graph_edges",
+            "graph_path",
+            "graph_overview"
+          ],
+          "persist": [
+            "node ids",
+            "the structural picture"
+          ],
+          "askHumanWhen": "the graph is empty for an artifact you expected to be analyzed (run project_inventory_sync / c64re graph seed)"
+        },
+        {
+          "actor": "llm",
           "action": "Ask the orchestrator for the single next product step; run the inventory/media-sync step or follow its named tool.",
           "tools": [
             "agent_next_step",

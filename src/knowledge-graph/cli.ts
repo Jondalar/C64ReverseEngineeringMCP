@@ -6,12 +6,17 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { seedControlFlow } from "./producers/control-flow.js";
 import { seedMemoryAccess } from "./producers/memory-access.js";
+import { edgesWalk, nodeCard, overview, resolveRef, shortestPath, type EdgeKind, type Focus } from "./cards.js";
+import { formatEdges, formatFind, formatNode, formatOverview, formatPath } from "./format.js";
 import { Graph, type EdgeHit, type ResolvedNode } from "./query.js";
 import { GraphStore } from "./store.js";
 
 const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
 
   find <$addr|id|name>          nodes at an address, one id, or a name substring
+  node <ref>                    the card for one node (823)
+  edges <ref> [--in|--out|--both] [--kind K] [--origin O] [--depth 1|2]   the neighbourhood walk (823)
+  overview [--focus F]          the project's structural map (823)
   callers <id>                  CALLS / CALLS_ROM into a node
   callees <id>                  CALLS / CALLS_ROM out of a node
   readers <$addr>               READS into the node(s) at an address
@@ -28,22 +33,29 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   dump                          canonical dump of the generated layer (818 D6)
   stats                         row counts and meta`;
 
-interface Args { verb: string; positional: string[]; project: string; json: boolean; owner?: string }
+interface Args { verb: string; positional: string[]; project: string; json: boolean; owner?: string; direction?: "in" | "out" | "both"; kind?: string; origin?: string; depth?: 1 | 2; focus?: string; limit?: number }
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
   let project = process.env.C64RE_PROJECT_DIR ?? process.cwd();
   let json = false;
   let owner: string | undefined;
+  const extra: Partial<Args> = {};
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i]!;
     if (a === "--json") json = true;
     else if (a === "--project") project = argv[++i] ?? project;
     else if (a === "--owner") owner = argv[++i];
+    else if (a === "--in" || a === "--out" || a === "--both") extra.direction = a.slice(2) as Args["direction"];
+    else if (a === "--kind") extra.kind = argv[++i];
+    else if (a === "--origin") extra.origin = argv[++i];
+    else if (a === "--depth") extra.depth = Number(argv[++i]) === 2 ? 2 : 1;
+    else if (a === "--focus") extra.focus = argv[++i];
+    else if (a === "--limit") extra.limit = Number(argv[++i]);
     else positional.push(a);
   }
   const [verb = "help", ...rest] = positional;
-  return { verb, positional: rest, project: resolve(project), json, owner };
+  return { verb, positional: rest, project: resolve(project), json, owner, ...extra };
 }
 
 function findAnalysisJsons(dir: string, out: string[] = [], depth = 0): string[] {
@@ -114,8 +126,28 @@ export async function runGraphCli(argv: string[]): Promise<void> {
       }
       case "find": {
         if (!a) throw new Error("find needs an address, id or name");
-        const nodes = graph.find(a);
-        out(nodes.length ? nodes.map(nodeLine).join("\n") : "(nothing)", nodes);
+        const f = formatFind(a, resolveRef(graph, a), args.limit ?? 10);
+        out(f.text, f.json);
+        return;
+      }
+      case "node": {
+        if (!a) throw new Error("node needs a ref");
+        const nodes = resolveRef(graph, a);
+        if (nodes.length !== 1) { const f = formatFind(a, nodes, 10); out(nodes.length ? `"${a}" is ambiguous — pick an id:\n${f.text}` : f.text, f.json); return; }
+        const f = formatNode(nodeCard(graph, nodes[0]!));
+        out(f.text, f.json);
+        return;
+      }
+      case "edges": {
+        if (!a) throw new Error("edges needs a ref");
+        const roots = resolveRef(graph, a);
+        const f = formatEdges(edgesWalk(graph, roots, { direction: args.direction, kind: args.kind as EdgeKind | undefined, origin: args.origin as never, depth: args.depth, limit: args.limit }));
+        out(f.text, f.json);
+        return;
+      }
+      case "overview": {
+        const f = formatOverview(overview(graph, (args.focus ?? "all") as Focus, args.limit ?? 10));
+        out(f.text, f.json);
         return;
       }
       case "callers":
@@ -139,9 +171,12 @@ export async function runGraphCli(argv: string[]): Promise<void> {
         return;
       }
       case "path": {
-        if (!a || !b) throw new Error("path needs <from-id> <to-id>");
-        const p = graph.path(a, b);
-        out(p ? p.map(edgeLine).join("\n") : "(no path)", p ?? null);
+        if (!a || !b) throw new Error("path needs <from> <to>");
+        const from = resolveRef(graph, a)[0];
+        const to = resolveRef(graph, b)[0];
+        if (!from || !to) throw new Error(`cannot resolve ${!from ? a : b}`);
+        const f = formatPath(shortestPath(graph, from.id, to.id));
+        out(f.text, f.json);
         return;
       }
       case "routines": {

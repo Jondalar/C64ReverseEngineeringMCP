@@ -127,7 +127,8 @@ try {
 const ms = Number(process.hrtime.bigint() - t0) / 1e6;
 let parsed;
 try { parsed = JSON.parse(stdout); } catch { parsed = undefined; }
-check(Array.isArray(parsed) && parsed.some((n) => n.id === "c64:io:d018"), "CLI --json: stdout parses, contains c64:io:d018");
+const hits = Array.isArray(parsed) ? parsed : parsed?.hits;
+check(Array.isArray(hits) && hits.some((n) => n.id === "c64:io:d018"), "CLI --json: stdout parses, contains c64:io:d018");
 check(stderr === "" && !/ExperimentalWarning/.test(stdout), `CLI stderr empty, no ExperimentalWarning (${ms.toFixed(0)} ms incl. node start)`);
 
 // in-process open + one query + close
