@@ -1024,15 +1024,21 @@ export function seedSignatures(options: SeedSignaturesOptions): SeedSignaturesRe
       if (own) return { id: own };
       const undecodedOwn = o.nodeAt.get(target);
       if (undecodedOwn && undecodedOwn.includes(":routine:")) return { id: undecodedOwn, reason: `callee undecoded (${hex4(target)})` };
+      // A documented ROM entry (an ABI row) is the KERNAL. Anything else under
+      // the ROM range may be RAM under ROM: Wasteland's fastloader lives at
+      // $FC00, seeded from its own artifact — the alias (826.0 T2) decides
+      // BEFORE the address range does, or every cross-owner call under the
+      // KERNAL is "ROM without an ABI row" and the domain of $FC00 is empty.
       const kind = platformKindForAddress(o.tag, target);
-      if (kind === "rom" && !o.inImage(target)) return { id: derivePlatformId(o.tag, target), rom: true };
+      const romId = kind === "rom" ? derivePlatformId(o.tag, target) : undefined;
+      if (romId && !o.inImage(target) && kb?.abi(o.tag, target)) return { id: romId, rom: true };
       let addrId: string | undefined;
       try { addrId = deriveProjectId({ slug: o.slug, ctx: { space: o.ctx.space }, kind: "addr", address: target }); } catch { addrId = undefined; }
       if (addrId) {
         const r = resolvesTo.get(addrId) as { to_id: string } | undefined;
         if (r && r.to_id.includes(":routine:")) return { id: r.to_id };
       }
-      if (kind === "rom") return { id: derivePlatformId(o.tag, target), rom: true };
+      if (romId) return { id: romId, rom: true };
       return { reason: `callee unknown (${hex4(target)})` };
     };
     const calleeAt = (o: OwnerCtx, target: number, _site: Instruction): Callee => {

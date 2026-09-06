@@ -161,6 +161,39 @@ check((dom.domain.Y ?? []).some((e) => e.key === "$05") && (dom.domain.Y ?? []).
 check(formatSignature(svc).startsWith("in: A X Y · out: "), `formatSignature(svc) starts with "in: A X Y · out: "`);
 graph.close();
 
+// ---- cross-owner: alpha calls $FC00, beta HAS $FC00 (RAM under the KERNAL, Wasteland's fastloader shape) → the alias, not the ROM
+const makePrg = (name, load, size, patches, entries) => {
+  const img = new Uint8Array(size).fill(0xea);
+  for (const [a, bytes] of patches) img.set(bytes, a - load);
+  const p = new Uint8Array(size + 2); p[0] = load & 0xff; p[1] = load >> 8; p.set(img, 2);
+  const prgP = join(project, "analysis", `${name}.prg`);
+  const anaP = join(project, "analysis", `${name}_analysis.json`);
+  writeFileSync(prgP, p);
+  execFileSync(process.execPath, [join(ROOT, "dist/pipeline/cli.cjs"), "analyze-prg", prgP, anaP, entries], { cwd: ROOT, stdio: ["ignore", "ignore", "pipe"], env: { ...process.env, C64RE_PROJECT_DIR: project } });
+  return anaP;
+};
+const alpha = makePrg("alpha", 0x1000, 0x20, [[0x1000, [0xa9, 0x01, 0xa2, 0x12, 0x20, 0x00, 0xfc, 0x60]]], "1000");   // lda #$01 ; ldx #$12 ; jsr $FC00 ; rts
+const beta = makePrg("beta", 0xfc00, 0x10, [[0xfc00, [0x85, 0xf3, 0x86, 0xf4, 0x60]]], "fc00");                          // sta $F3 ; stx $F4 ; rts
+for (const ap of [alpha, beta]) { seedControlFlow({ projectDir: project, analysisPath: ap }); seedMemoryAccess({ projectDir: project, analysisPath: ap }); }
+const rs2 = resolveAddresses(project);
+const r3 = seedSignatures({ projectDir: project });
+graph = Graph.open(project);
+const A = "s826:ram/alpha:routine:1000";
+const B = "s826:ram/beta:routine:fc00";
+check(rs2.resolved >= 1 && graph.edgesOutOf(A, ["CALLS"]).some((e) => e.to === B && e.evidence.via === "s826:ram:addr:fc00"), `cross-owner: alpha's jsr $FC00 RESOLVES_TO beta's routine (resolve=${rs2.resolved})`);
+const sigA = signatureOf(graph, A);
+const sigB = signatureOf(graph, B);
+console.log(`  info  alpha: ${sigA ? formatSignature(sigA) : "—"}\n  info  beta:  ${sigB ? formatSignature(sigB) : "—"}`);
+check(sigB && setEq(locs(sigB.in), ["A", "X"]), `beta.in = {A, X} (${locs(sigB?.in).join(" ")})`);
+check(sigA && sigA.partial === null, `alpha is NOT partial although $FC00 is under the KERNAL ROM (${sigA?.partial?.because ?? "ok"})`);
+check(sigA && locs(sigA.out).includes("zp:$F3"), "alpha.out ∋ zp:$F3 — beta's summary was applied at the jsr");
+const crossPasses = graph.edgesInto(B, ["PASSES"]);
+check(crossPasses.length === 1 && crossPasses[0].from === A && crossPasses[0].evidence.via === "s826:ram:addr:fc00" && crossPasses[0].evidence.args.A?.value === 1 && crossPasses[0].evidence.args.X?.value === 0x12, `PASSES alpha → beta reaches the routine through the alias with A=#$01 X=#$12 (${JSON.stringify(crossPasses.map((e) => [e.from, e.evidence.via, e.evidence.args]))})`);
+const domB = argsDomain(graph, B);
+check(domB.sites === 1 && (domB.domain.A ?? []).some((e) => e.key === "$01") && (domB.domain.X ?? []).some((e) => e.key === "$12"), `args beta ($FC00 across owners): A ∈ {$01}, X ∈ {$12}`);
+check(r3.owners.length === 3 && r3.partial === 1, `whole-project seed: 3 owners, still exactly one partial (${r3.partial})`);
+graph.close();
+
 // ---- idempotence + the human layer survives
 let store = GraphStore.open(project);
 const h1 = store.contentHash();
@@ -177,7 +210,7 @@ if (!same) {
   const diff = d2.filter((l) => !d1.includes(l)).concat(d1.filter((l) => !d2.includes(l)));
   console.log(diff.slice(0, 6).map((l) => `        ${l.slice(0, 200)}`).join("\n"));
 }
-check(r2.routines === r1.routines && r2.passes === r1.passes && r2.dispatches === r1.dispatches, "second seed reports the same counts");
+check(r2.routines === r3.routines && r2.passes === r3.passes && r2.dispatches === r3.dispatches, "second seed reports the same counts");
 store.close();
 graph = Graph.open(project);
 const human = graph.resolve(R("1100"));
