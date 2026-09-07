@@ -97,16 +97,61 @@ function parseArgs(argv: string[]): Args {
   return { verb, positional: rest, project: resolve(project), json, owner, ...extra };
 }
 
+/**
+ * Spec 830 D4 — `artifacts/generated/` is never walked.
+ *
+ * Registration mirrors every payload's analysis to
+ * `artifacts/generated/payloads/<entity-id>/<stem>_analysis.json`. That is a
+ * COPY, and it can be an old one. The owner comes from the file STEM, so the
+ * mirror seeds every owner a second time; `"…/analysis/…"` sorts before
+ * `"…/artifacts/…"`, the replacement unit is (producer, run_owner), and the
+ * STALE copy therefore lands last and wins. Measured on Neuromancer: owner
+ * `02_a` seeded once with routines=14 labels=25 and once with routines=8
+ * labels=11, and the second one is what the graph kept — so routines had no
+ * extents, `graph boundaries` invented splits, and every byte-coverage number
+ * was wrong. Nothing in the output said two files had claimed one owner.
+ */
+const GENERATED_MIRROR = join("artifacts", "generated");
+
 function findAnalysisJsons(dir: string, out: string[] = [], depth = 0): string[] {
   if (depth > 6 || !existsSync(dir)) return out;
   for (const entry of readdirSync(dir)) {
     if (entry === "node_modules" || entry.startsWith(".")) continue;
     const p = join(dir, entry);
     const st = statSync(p);
-    if (st.isDirectory()) findAnalysisJsons(p, out, depth + 1);
+    if (st.isDirectory()) {
+      if (p.includes(GENERATED_MIRROR)) continue;
+      findAnalysisJsons(p, out, depth + 1);
+    }
     else if (entry.endsWith("_analysis.json")) out.push(p);
   }
   return out.sort();
+}
+
+/**
+ * Spec 830 D5 — two files claiming one owner is an error, not a race.
+ *
+ * D4 removes the known source of duplicates; the CLASS is "some other copy of
+ * a `_analysis.json` is lying around", and last-write-wins is silent. A graph
+ * that is quietly wrong is worse than a seed that stops and says why.
+ */
+export function assertOneFilePerOwner(projectDir: string, files: string[], ownerOf: (path: string) => string): void {
+  const byOwner = new Map<string, string[]>();
+  for (const file of files) {
+    const owner = ownerOf(file);
+    byOwner.set(owner, [...(byOwner.get(owner) ?? []), file]);
+  }
+  const clashes = [...byOwner.entries()].filter(([, paths]) => paths.length > 1).sort();
+  if (clashes.length === 0) return;
+
+  const rel = (p: string) => (p.startsWith(projectDir) ? p.slice(projectDir.length).replace(/^\/+/, "") : p);
+  const detail = clashes
+    .map(([owner, paths]) => `two analysis files claim owner "${owner}":\n${paths.map((p) => `  ${rel(p)}`).join("\n")}`)
+    .join("\n");
+  throw new Error(
+    `${detail}\nThe last one seeded would silently win and the graph would hold it. ` +
+    `Seed one owner at a time (--owner <owner>) or move the copy out of the project.`,
+  );
 }
 
 function nodeLine(n: ResolvedNode): string {
@@ -138,6 +183,8 @@ export async function runGraphCli(argv: string[]): Promise<void> {
       ? findAnalysisJsons(args.project).filter((p) => p.toLowerCase().endsWith(`${args.owner}_analysis.json`))
       : findAnalysisJsons(args.project);
     if (files.length === 0) throw new Error(`no _analysis.json under ${args.project}${args.owner ? ` for owner ${args.owner}` : ""}`);
+    // Spec 830 D5 — before anything is written, not after half of it is
+    assertOneFilePerOwner(args.project, files, ownerFromAnalysisPath);
     const results = files.map((analysisPath) => {
       // 826.0 T7 — the owner's machine: declared, or the C64 with a hint when the path smells of the drive
       const owner = ownerFromAnalysisPath(analysisPath);

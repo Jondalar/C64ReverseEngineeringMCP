@@ -101,6 +101,14 @@ interface RenderAnalysisContext {
   displayTransfersByStart: Map<number, DisplayTransferFact[]>;
   annotations?: AnnotationsIndex;
   operandOverrides: Map<number, string>;
+  /**
+   * Spec 830 D1 — declared entry points that sit strictly INSIDE a decoded
+   * instruction. The 6502 multi-entry idiom hides them in the operand of a
+   * `BIT` used as a skip, and a label cannot be emitted at a byte the renderer
+   * never stops on. Every address in here makes the owning instruction render
+   * as `.byte` up to it, which is byte-identical and gives the label a home.
+   */
+  entrySplits: Set<number>;
 }
 
 function cloneSegment(base: Segment, start: number, end: number, kind = base.kind): Segment {
@@ -775,6 +783,7 @@ function buildAnalysisContext(report: AnalysisReport, prg: PrgImage): RenderAnal
     tableFactsByStart: groupByStart(report.codeSemantics?.tableUsages?.filter((fact) => fact.provenance === "confirmed_code")),
     displayTransfersByStart: groupByStart(report.codeSemantics?.displayTransfers),
     operandOverrides: new Map<number, string>(),
+    entrySplits: new Set<number>(),
   };
 }
 
@@ -821,6 +830,58 @@ function buildAnnotatedSegments(segments: Segment[], annotations?: AnnotationsIn
   }
 
   return splitSegments.sort((left, right) => left.start - right.start);
+}
+
+/**
+ * Spec 830 D1/D2 — a DECLARED entry point inside an operand splits its
+ * instruction.
+ *
+ * The idiom this exists for:
+ *
+ *     a9 00     lda #$00        <- entry 0
+ *     2c        .byte $2C       <- BIT abs swallows the next two bytes
+ *     a9 04     lda #$04        <- entry 1, INSIDE that operand
+ *     2c        .byte $2C
+ *     a9 01     lda #$01        <- entry 2
+ *     48        pha             <- the common body all three fall into
+ *
+ * Those entries are callable and named, so the renderer prints their name at
+ * every call site — and printed nothing at the address itself, because the
+ * line loop only labels an instruction START. 449 symbols used, 11 undefined,
+ * and the rebuild that Spec 019 promises is byte-identical fails to assemble.
+ *
+ * D2 — only a DECLARED entry splits: an annotated routine, an annotated label,
+ * or an explicit entry point. Deliberately NOT every mid-instruction reference:
+ * a `sta` into an operand is a self-modifying patch and must keep rendering as
+ * `<owner>+<offset>` (the two "mid-instruction target" branches in
+ * `buildAnalysisContext`), and splitting on a speculative `probable_code` xref
+ * would let one bad decode shred a real instruction. The declared set is also
+ * exactly the population that can produce an undefined symbol, because nothing
+ * else mints a name.
+ */
+function applyDeclaredEntrySplits(context: RenderAnalysisContext): void {
+  const declared = new Set<number>();
+  for (const entry of context.report.entryPoints ?? []) declared.add(entry.address & 0xffff);
+  for (const address of context.annotations?.routinesByAddress.keys() ?? []) declared.add(address & 0xffff);
+  for (const address of context.annotations?.labelsByAddress.keys() ?? []) declared.add(address & 0xffff);
+
+  for (const address of declared) {
+    const owner = context.instructionOwnerByAddress.get(address);
+    if (owner === undefined || owner === address) continue;
+    context.entrySplits.add(address);
+    // the whole point: it now has a definition, so a reference to it resolves
+    context.labelSet.add(address);
+  }
+}
+
+/** The first declared entry strictly inside `[address, address + size)`, if any. */
+function firstEntrySplitInside(context: RenderAnalysisContext, address: number, size: number): number | undefined {
+  let found: number | undefined;
+  for (let offset = 1; offset < size; offset += 1) {
+    const probe = address + offset;
+    if (context.entrySplits.has(probe)) { found = probe; break; }
+  }
+  return found;
 }
 
 function applyAnnotationSegmentSplits(context: RenderAnalysisContext): void {
@@ -2152,6 +2213,115 @@ function renderAnalysisPreface(context: RenderAnalysisContext): string[] {
   return lines;
 }
 
+/**
+ * Spec 830 D3 — a label outside this file's mapping is an EQUATE.
+ *
+ * `seedJumpTableTargets` / `seedWordTableTargets` add a table's targets to the
+ * label set with no range check, so a jump table that dispatches into another
+ * payload puts `$BF56` in there; the annotations name it `overlay_invoke_a`;
+ * the operand renders as that name and nothing ever defines it. The listing
+ * already knows they are foreign — it annotates them "→ chunk_B800 (code)" —
+ * so this writes down what it already says.
+ *
+ * `.label`, not a code label: the address is not in this file and must not
+ * look as though it were.
+ */
+/**
+ * Spec 830 D3 — the backstop: every symbol the listing USES must be DEFINED.
+ *
+ * D1 fixes the entry-in-an-operand case and the out-of-mapping case has its own
+ * section, but the failure class is broader than either. `state_handler_table`
+ * at `$487D` is rendered by `emitPointerTableSegment`, which steps two bytes at
+ * a time and only labels the even offsets — so the split table's HIGH half at
+ * `$487E`, which the code reads as `lda W487E,x`, is named and never defined.
+ * Every data emitter that steps by more than one byte has that hole, and each
+ * one of them fails the same way: KickAssembler stops, and `disasm_prg` reports
+ * its own listing as not byte-identical.
+ *
+ * So rather than chase the emitters one at a time, the invariant is enforced
+ * where it can be checked — over the lines that were actually produced. An
+ * equate emits no bytes, so adding one can never change the rebuild; leaving a
+ * symbol undefined always breaks it.
+ */
+function renderUndefinedSymbolEquates(context: RenderAnalysisContext, rendered: string[]): string[] {
+  // name -> address, the inverse of makeLabel over everything that can be named
+  const addressOf = new Map<string, number>();
+  const remember = (address: number): void => {
+    const name = makeLabel(address & 0xffff);
+    if (!addressOf.has(name)) addressOf.set(name, address & 0xffff);
+  };
+  for (const address of context.labelSet) remember(address);
+  for (const address of context.annotations?.labelsByAddress.keys() ?? []) remember(address);
+  for (const address of context.annotations?.routinesByAddress.keys() ?? []) remember(address);
+
+  const defined = new Set<string>();
+  const used = new Set<string>();
+  let inBlockComment = false;
+  for (const line of rendered) {
+    let code = line;
+    if (inBlockComment) {
+      const close = code.indexOf("*/");
+      if (close < 0) continue;
+      code = code.slice(close + 2);
+      inBlockComment = false;
+    }
+    // `//` FIRST when it comes first: this file's banner is `//*******`, whose
+    // second and third characters are `/*`, and treating that as an unclosed
+    // block comment swallows the rest of the listing.
+    const lineFirst = code.indexOf("//");
+    const blockFirst = code.indexOf("/*");
+    if (lineFirst >= 0 && (blockFirst < 0 || lineFirst < blockFirst)) {
+      code = code.slice(0, lineFirst);
+    } else if (blockFirst >= 0) {
+      const close = code.indexOf("*/", blockFirst + 2);
+      if (close < 0) { inBlockComment = true; code = code.slice(0, blockFirst); }
+      else code = code.slice(0, blockFirst) + code.slice(close + 2);
+      const trailing = code.indexOf("//");
+      if (trailing >= 0) code = code.slice(0, trailing);
+    }
+    code = code.replace(/"(?:[^"\\]|\\.)*"/g, "").replace(/'(?:[^'\\]|\\.)*'/g, "");
+    if (code.trim().length === 0) continue;
+
+    const label = /^([A-Za-z_][A-Za-z0-9_]*)\s*:/.exec(code);
+    if (label) { defined.add(label[1]!); code = code.slice(label[0].length); }
+    const equate = /^\s*\.label\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(code);
+    if (equate) { defined.add(equate[1]!); continue; }
+
+    // drop the leading mnemonic or directive; what is left is the operand, with
+    // the hex literals removed first ($2C would otherwise read as the name "C")
+    const operand = code.replace(/^\s*(\.?[A-Za-z_][A-Za-z0-9_]*)/, "").replace(/\$[0-9A-Fa-f]+/g, "");
+    for (const match of operand.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) {
+      const name = match[0]!;
+      if (name === "x" || name === "y" || name === "a") continue;
+      used.add(name);
+    }
+  }
+
+  const missing = [...used].filter((name) => !defined.has(name) && addressOf.has(name));
+  if (missing.length === 0) return [];
+  missing.sort((left, right) => addressOf.get(left)! - addressOf.get(right)!);
+
+  const lines = ["// Equates for named addresses this listing references but does not define"];
+  for (const name of missing) lines.push(`      .label ${name} = ${formatAddress(addressOf.get(name)!)}`);
+  lines.push("");
+  return lines;
+}
+
+function renderExternalLabelEquates(context: RenderAnalysisContext): string[] {
+  const { startAddress, endAddress } = context.report.mapping;
+  const foreign = Array.from(context.labelSet)
+    .filter((address) => address < startAddress || address > endAddress)
+    .sort((left, right) => left - right);
+  if (foreign.length === 0) return [];
+
+  const lines: string[] = ["// Addresses referenced from this file but defined in another payload"];
+  for (const address of foreign) {
+    lines.push(`      .label ${makeLabel(address)} = ${formatAddress(address)}`);
+  }
+  lines.push("");
+  return lines;
+}
+
 function renderAddressAliasLabels(context: RenderAnalysisContext, prg: PrgImage): string[] {
   const lines: string[] = [];
   const codeLikeSegments = buildAnnotatedSegments(context.segments, context.annotations?.segmentAnnotations)
@@ -2209,6 +2379,17 @@ function renderCodeSegment(
 
     if (context.labelSet.has(instruction.address)) {
       lines.push(`${makeLabel(instruction.address)}:${labelCommentTextFromAnalysis(instruction.address, context.xrefsByTarget)}`);
+    }
+
+    // Spec 830 D1 — a declared entry sits inside this instruction's operand.
+    // Emit the bytes up to it (byte-identical: `.byte $2C` IS the BIT opcode)
+    // and resume decoding at the entry, which now gets its own label line.
+    const entrySplit = firstEntrySplitInside(context, instruction.address, instruction.size);
+    if (entrySplit !== undefined) {
+      emitByteRange(prg.data, prg.loadAddress, instruction.address, entrySplit - 1, lines);
+      address = entrySplit;
+      prevInstruction = undefined;
+      continue;
     }
     for (const fact of context.copyFactsByStart.get(instruction.address) ?? []) {
       lines.push(renderCopyFact(fact));
@@ -2711,6 +2892,9 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     applyKernalAbiOperandOverrides(analysisContext);
     applyZpPointerSetupOverrides(analysisContext);
     applyAnnotationImmediateOverrides(analysisContext);
+    // Spec 830 D1 — after the annotations are in, because a routine annotation
+    // is one of the three things that can DECLARE an entry.
+    applyDeclaredEntrySplits(analysisContext);
   }
 
   const packerHints = analysisReport?.packerHints ?? [];
@@ -2745,13 +2929,21 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     ? normalizeRelocations(options.relocations, prg)
     : undefined;
   if (relocations && analysisContext) {
+    const body: string[] = [];
+    renderWithAnalysisAndRelocations(prg, analysisContext, body, relocations);
     lines.push(...renderAddressAliasLabels(analysisContext, prg));
-    renderWithAnalysisAndRelocations(prg, analysisContext, lines, relocations);
+    lines.push(...renderExternalLabelEquates(analysisContext));
+    lines.push(...renderUndefinedSymbolEquates(analysisContext, [...lines, ...body]));
+    lines.push(...body);
   } else if (relocations) {
     renderWithRelocations(prg, options.entryPoints ?? [], lines, relocations);
   } else if (analysisContext) {
+    const body: string[] = [];
+    renderWithAnalysis(prg, analysisContext, body);
     lines.push(...renderAddressAliasLabels(analysisContext, prg));
-    renderWithAnalysis(prg, analysisContext, lines);
+    lines.push(...renderExternalLabelEquates(analysisContext));
+    lines.push(...renderUndefinedSymbolEquates(analysisContext, [...lines, ...body]));
+    lines.push(...body);
   } else {
     renderLegacy(prg, options.entryPoints ?? [], lines);
   }
