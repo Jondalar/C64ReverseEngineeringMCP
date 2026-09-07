@@ -29,6 +29,12 @@ Bytes → structure → meaning, and the third step is the one that matters.
 4. **Verification** — assemble with KickAssembler/64tass and rebuild the original byte
    for byte. `cmp -l` decides; annotations never touch bytes.
 
+A BASIC V2 program is not machine code and is not disassembled as if it were:
+`basic_list` walks its line records, detokenises against the table the ROM itself
+carries, names the PETSCII control codes, and reports which `SYS` hands control to
+which address — so a BASIC loader and the machine code it starts are one story.
+`basic_tokenize` is the inverse, and the round trip is byte-identical.
+
 ![Semantic disassembly](docs/img/semantic-disassembly.png)
 
 *Step 3: a game engine's jump table, named — and verified byte-identical.*
@@ -38,9 +44,18 @@ Bytes → structure → meaning, and the third step is the one that matters.
 *Step 1: block attribution per track and sector, a file's sector chain, its sources.*
 ## The knowledge base
 
-Findings, entities, relations, payloads, flows, open questions — written to the project
-and linked to artifacts and addresses they came from. Runtime evidence is registered as
-an artifact and attached to a finding.
+Findings, entities, relations, payloads, flows, open questions — linked to the artifacts
+and addresses they came from. Runtime evidence is registered as an artifact and attached
+to a finding.
+
+Since Spec 822.2 all of it lives in **one graph** per project
+(`knowledge/graph.sqlite`), not in a folder of JSON files. Two layers: what the
+analysers derived and what a human asserted, kept apart and never overwriting each
+other. Routines carry a computed signature — which registers they take, return, clobber
+and preserve, and what they do to the stack — because assembler declares no interface
+and the answer has to be computed rather than guessed. The Graph tab draws the whole
+project four ways: force, layers, rings from a focus, and along the address axis with a
+lane per bank.
 
 - Every claim carries its evidence and the address range it covers.
 - Artifacts are versioned with lineage.

@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 265,
-  "defaultCount": 155,
+  "total": 267,
+  "defaultCount": 157,
   "advancedCount": 110,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -391,6 +391,45 @@
         "E2E-G"
       ],
       "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "basic_list",
+      "namespace": "basic",
+      "sourceFile": "server-tools/basic.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Read a BASIC V2 PRG: walk its line records, detokenise, name the PETSCII control codes, and report the SYS targets that hand control to machine code.",
+      "notFor": "A machine-code payload — use analyze_prg then disasm_prg.",
+      "adjacentTools": [
+        "disasm_prg",
+        "analyze_prg",
+        "basic_tokenize"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "basic_tokenize",
+      "namespace": "basic",
+      "sourceFile": "server-tools/basic.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Turn BASIC V2 source text back into a .prg — a loader stub, or an edited listing. The round trip with basic_list is byte-identical.",
+      "notFor": "Assembling 6502 source — use assemble_source.",
+      "adjacentTools": [
+        "basic_list",
+        "assemble_source"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     },
     {

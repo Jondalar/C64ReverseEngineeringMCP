@@ -1,6 +1,6 @@
 # Spec 829 — BASIC V2 tooling: detokenize, list, tokenize
 
-**Status:** BUILT 2026-09-06 on branch `spec-829-basic-v2` — gate `npm run e2e:829` 86/0, hermetic; build, `test:project-knowledge`, `e2e:748`, `check:docs-current`, `smoke:741`, `smoke:disasm-sync`, `check:wiki` green (§8)
+**Status:** BUILT 2026-09-06, merged to master — gate `npm run e2e:829` 86/0, hermetic; build, `test:project-knowledge`, `e2e:748`, `check:docs-current`, `smoke:741`, `smoke:disasm-sync`, `check:wiki` green (§8)
 **Origin:** Issue #11 (mrr19121970): `disasm_prg` renders a stock BASIC PRG's token bytes
 as 6502 garbage, because it treats every PRG as machine code. Also closes the second half
 of issue #10 (PETSCII control codes and colour names), which is not an address lookup and
