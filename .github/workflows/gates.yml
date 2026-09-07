@@ -102,6 +102,12 @@ jobs:
       - name: Seed owner collision (Spec 830)
         run: npm run e2e:830-seed
 
+      # Spec 831 — hermetic: a temp project, the path library, the route and the
+      # two call sites read as source. The point of the spec is that the path is
+      # decided on this side, so it can be checked without a daemon.
+      - name: Dump location and receipt (Spec 831)
+        run: npm run e2e:831
+
       # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
       # synthetic PRG with the bundled pipeline and seeds a temp project, and
       # the explorer gate reads the built bundle plus the two pure lib files.

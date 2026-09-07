@@ -336,6 +336,34 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Spec 831 D2 — where the next dump goes, and the directory made ready.
+  //
+  // The workbench reaches the daemon directly, and the daemon resolves a
+  // relative path against its own cwd — the tools repo, not the project. So the
+  // path is decided HERE and handed over absolute. Rule 6: the policy is a
+  // library with its own gate, this is the one route over it, and the button
+  // comes third.
+  if (requestUrl.pathname === "/api/runtime/dump-target") {
+    const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
+      ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)
+      : options.projectDir;
+    void (async () => {
+      try {
+        const { dumpTargetFor, ensureDumpDir } = await import("../runtime/dump-location.js");
+        const { syncWarning } = await import("../trace/trace-location.js");
+        const target = dumpTargetFor(projectDir, requestUrl.searchParams.get("label")?.trim() || "dump");
+        ensureDumpDir(projectDir);
+        // D6 — a note, never a refusal: a project inside a sync client is the
+        // user's arrangement, and a dump is written once, so it is not the
+        // object 827 had to move out.
+        send(res, jsonResponse(200, { projectDir, ...target, note: syncWarning(target.path) }));
+      } catch (error) {
+        send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error), projectDir }));
+      }
+    })();
+    return;
+  }
+
   if (requestUrl.pathname === "/api/workspace") {
     const projectDir = requestUrl.searchParams.get("projectDir")?.trim()
       ? resolve(process.cwd(), requestUrl.searchParams.get("projectDir")!)

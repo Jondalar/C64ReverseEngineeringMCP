@@ -575,6 +575,10 @@
 .wb-live .wb-controls button.wb-trace-on { border-color: #e0506a; color: #e0506a; }
 .wb-live .wb-controls-spacer { flex: 1; }
 .wb-live .wb-fps { color: var(--c64-fg-muted); font-size: 11px; }
+/* Spec 831 D3 — a dump that gives no receipt is indistinguishable from a
+   no-op, which is exactly what the button looked like. Click to dismiss. */
+.wb-dump-msg { font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--c64-fg-muted); max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.wb-dump-msg.wb-dump-bad { color: #e0506a; }
 
 /* Spec 761.2 — ring-bound scrub timeline (video-player seekbar). */
 .wb-live .wb-scrub {
