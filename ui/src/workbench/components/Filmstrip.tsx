@@ -9,6 +9,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { getClient } from "../ws-client.js";
+import { api } from "../rest-client.js";
 
 interface Thumb {
   id: string; cycles: number; frame: number; pinned: boolean;
@@ -78,14 +79,23 @@ export function Filmstrip(
       if (then === "run") setRunState?.("running");
     } finally { setBusy(false); }
   };
+  // Spec 831 D5 — the same treatment as the Live control: the path comes from
+  // the server and is absolute, and the result is visible. The restore first is
+  // deliberate and worth keeping — what this dumps is the FRAME the user
+  // clicked, not the live machine.
+  const [dumpMsg, setDumpMsg] = useState<{ text: string; bad: boolean } | null>(null);
   const dump = async (id: string) => {
     setBusy(true);
+    setDumpMsg({ text: "dumping…", bad: false });
     try {
       await getClient().call("checkpoint/restore", { session_id: sessionId, id, then: "pause" });
       setSel(id);
-      const path = `dumps/scrub-${id}-${Date.now()}.c64re`;
-      const r = await getClient().call<{ path: string }>("snapshot/dump", { session_id: sessionId, path });
-      console.log("[filmstrip] dumped →", r?.path ?? path);
+      const target = await api.dumpTarget(`scrub-${id}`);
+      const r = await getClient().call<{ path: string; fileBytes?: number }>("snapshot/dump", { session_id: sessionId, path: target.path });
+      const kb = r?.fileBytes ? ` ${(r.fileBytes / 1024).toFixed(0)} KB` : " ok";
+      setDumpMsg({ text: `⬇${kb} · ${target.relativePath}`, bad: false });
+    } catch (e) {
+      setDumpMsg({ text: `dump failed: ${e instanceof Error ? e.message : String(e)}`, bad: true });
     } finally { setBusy(false); }
   };
 
@@ -143,7 +153,8 @@ export function Filmstrip(
           <>
             <span className="wb-film-hint">{sel ? `@ cycle ${cycOf(sel) ?? "?"} · shift-click a 2nd frame for a range` : "click a frame to rewind · shift-click a 2nd for a range"}</span>
             <button disabled={!sel || busy} onClick={() => sel && restore(sel, "run")}>▶ Continue</button>
-            <button disabled={!sel || busy} onClick={() => sel && dump(sel)}>⬇ Dump .c64re</button>
+            <button disabled={!sel || busy} onClick={() => sel && dump(sel)} title="Restore this frame, then dump it to <project>/runtime/dumps">⬇ Dump .c64re</button>
+            {dumpMsg ? <span className={dumpMsg.bad ? "wb-dump-msg wb-dump-bad" : "wb-dump-msg"} title={dumpMsg.text} onClick={() => setDumpMsg(null)}>{dumpMsg.text}</span> : null}
           </>
         )}
       </div>

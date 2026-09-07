@@ -6,6 +6,7 @@
 import React, { useEffect, useRef, useState, type ReactNode } from "react";
 import { getClient, BIN_TYPE_AUDIO_BUFFER } from "../ws-client.js";
 import { WebAudioPlayer } from "../audio-player.js";
+import { api } from "../rest-client.js";
 
 interface Props {
   sessionId: string;
@@ -109,14 +110,30 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
   // Spec 769.5 — the top button is "Dump" (a durable .c64re state dump), not a
   // camera screenshot. Dumps the current machine state (= the scrubbed-to anchor
   // when the user clicked a filmstrip frame, since that restores the machine).
+  //
+  // Spec 831 — the path comes from the server and is ABSOLUTE. It used to be
+  // `dumps/dump-<ts>.c64re`, and the daemon resolves a relative path against its
+  // own working directory, so four .c64re files landed in the tools repo instead
+  // of in the project whose machine they described. And the result went to
+  // console.log, which is why nobody noticed for two months: D3, a durable
+  // artifact that gives no receipt is indistinguishable from a no-op.
+  const [dumpMsg, setDumpMsg] = useState<{ text: string; bad: boolean } | null>(null);
+  const [dumping, setDumping] = useState(false);
   const snapshot = async () => {
-    if (!sessionId) return;
+    if (!sessionId || dumping) return;
+    setDumping(true);
+    setDumpMsg({ text: "dumping…", bad: false });
     try {
-      const path = `dumps/dump-${Date.now()}.c64re`;
-      const r = await c.call<{ path: string; fileBytes: number }>("snapshot/dump", { session_id: sessionId, path });
-      console.log("dump →", r.path, `(${r.fileBytes} bytes)`);
-    } catch (e) { console.error("dump:", e); }
-    onSnapshotTaken();
+      const target = await api.dumpTarget("dump");
+      const r = await c.call<{ path: string; fileBytes: number }>("snapshot/dump", { session_id: sessionId, path: target.path });
+      const kb = r?.fileBytes ? ` ${(r.fileBytes / 1024).toFixed(0)} KB` : " ok";
+      setDumpMsg({ text: `⬇${kb} · ${target.relativePath}${target.note ? " · " + target.note : ""}`, bad: false });
+      // D4 — the screenshot is a claim that something was captured, so it only
+      // happens when something was.
+      onSnapshotTaken();
+    } catch (e) {
+      setDumpMsg({ text: `dump failed: ${e instanceof Error ? e.message : String(e)}`, bad: true });
+    } finally { setDumping(false); }
   };
 
   // Spec 746.9 — Trace AN/AUS, the third control gate (UI + API + Monitor). Starts/
@@ -242,7 +259,7 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
         {runState === "running" ? "⏸ Pause" : "▶ Run"}
       </button>
       <button onClick={step} disabled={runState !== "paused"} title="Step one instruction">⤳ Step</button>
-      <button onClick={snapshot} title="Dump machine state to a durable .c64re file">⬇ Dump</button>
+      <button onClick={snapshot} disabled={!sessionId || dumping} title="Dump machine state to a durable .c64re file under <project>/runtime/dumps">⬇ Dump</button>
       <button
         onClick={toggleTrace}
         disabled={runState === "off"}
@@ -264,6 +281,9 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
       {toolsSlot}
       <span className="wb-controls-spacer" />
       {runState === "running" && <span className="wb-fps">{fps} fps</span>}
+      {dumpMsg ? (
+        <span className={dumpMsg.bad ? "wb-dump-msg wb-dump-bad" : "wb-dump-msg"} title={dumpMsg.text} onClick={() => setDumpMsg(null)}>{dumpMsg.text}</span>
+      ) : null}
       {statusSlot}
     </div>
   );

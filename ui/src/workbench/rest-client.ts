@@ -87,8 +87,20 @@ async function postJson<T>(path: string, payload: unknown): Promise<T> {
 
 export interface ArtifactItem { id: string; title: string; kind: string; path?: string; relativePath?: string; role?: string; status?: string; internal?: boolean }
 
+/** Spec 831 — where the next `.c64re` dump goes. Absolute, because the daemon's
+ *  working directory is not the project's. */
+export interface DumpTarget {
+  projectDir: string;
+  path: string;
+  relativePath: string;
+  dir: string;
+  name: string;
+  note?: string;
+}
+
 export const api = {
   config: () => getJson<ProjectConfig>("/api/config"),
+  dumpTarget: (label: string) => getJson<DumpTarget>(`/api/runtime/dump-target?label=${encodeURIComponent(label)}`),
   runtimeStatus: () => getJson<RuntimeStatus>("/api/runtime-status"),
   workspace: () => getJson<WorkspaceSnapshot>("/api/workspace"),
   docs: () => getJson<{ projectDir: string; docs: DocEntry[] }>("/api/docs"),
