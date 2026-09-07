@@ -92,8 +92,8 @@ export function Filmstrip(
       setSel(id);
       const target = await api.dumpTarget(`scrub-${id}`);
       const r = await getClient().call<{ path: string; fileBytes?: number }>("snapshot/dump", { session_id: sessionId, path: target.path });
-      const kb = r?.fileBytes ? ` · ${(r.fileBytes / 1024).toFixed(0)} KB` : "";
-      setDumpMsg({ text: `⬇ ${target.relativePath}${kb}`, bad: false });
+      const kb = r?.fileBytes ? ` ${(r.fileBytes / 1024).toFixed(0)} KB` : " ok";
+      setDumpMsg({ text: `⬇${kb} · ${target.relativePath}`, bad: false });
     } catch (e) {
       setDumpMsg({ text: `dump failed: ${e instanceof Error ? e.message : String(e)}`, bad: true });
     } finally { setBusy(false); }

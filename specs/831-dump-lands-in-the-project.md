@@ -4,9 +4,11 @@
 other gate green. End-to-end proven without the browser: the route's absolute
 path handed to the live daemon returned `fileBytes: 1471326` and the file
 appeared at `Wasteland_EF/runtime/dumps/` (removed again — it was a probe).
-**The rendered button itself is NOT verified**: `safari-mcp` disconnected before
-the click, and Chrome is not an option here. The DOM feedback is asserted
-against the source by the gate, not seen on screen.
+Then seen on screen: clicking `⬇ Dump` in Safari puts
+`⬇ 1455 KB · runtime/dumps/dump-…c64re` in the control bar and the file is
+there. The size leads because the bar is tight — the ellipsis eats the nonce,
+never the fact that it worked or where it went; the full string is the `title`.
+(Three probe dumps were made in the course of that and removed again.)
 **Origin:** The owner clicked `⬇ Dump` in the Live tab and asked whether it does
 anything. It does — and neither answer was visible.
 **Anchor:** `DOCTRINE.md` rule 6 (API first) · Spec 827 (where a capture lives,

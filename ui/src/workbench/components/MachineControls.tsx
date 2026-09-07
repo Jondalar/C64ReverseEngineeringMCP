@@ -126,8 +126,8 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
     try {
       const target = await api.dumpTarget("dump");
       const r = await c.call<{ path: string; fileBytes: number }>("snapshot/dump", { session_id: sessionId, path: target.path });
-      const kb = r?.fileBytes ? ` · ${(r.fileBytes / 1024).toFixed(0)} KB` : "";
-      setDumpMsg({ text: `⬇ ${target.relativePath}${kb}${target.note ? " · " + target.note : ""}`, bad: false });
+      const kb = r?.fileBytes ? ` ${(r.fileBytes / 1024).toFixed(0)} KB` : " ok";
+      setDumpMsg({ text: `⬇${kb} · ${target.relativePath}${target.note ? " · " + target.note : ""}`, bad: false });
       // D4 — the screenshot is a claim that something was captured, so it only
       // happens when something was.
       onSnapshotTaken();
