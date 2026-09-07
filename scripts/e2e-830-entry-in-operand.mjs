@@ -129,25 +129,61 @@ check(/sta\s+W0801\+1/.test(asm), "a `sta` into an operand still renders `<owner
 check(!hasLine(/^W0802:/), "…and the patched byte gets no label of its own, so the jsr stays one instruction");
 check(!/\.byte \$20\b/.test(asm), "the jsr the patch targets was not split into bytes");
 
+// ------------------------------- 830.1 an instruction may not cross a segment end
+//
+// Two live cases in one real payload, one of them introduced by D1 itself:
+// `cpy W6AD2` decodes three bytes at $6AA2 in a segment that ends at $6AA3
+// (older than 830, invisible because the file did not assemble at all), and
+// `jmp $FFFF` at $6E9B has a declared label at $6E9C, so D1 resumes the decode
+// there — three bytes in a segment ending at $6E9D. Either way the NEXT segment
+// then re-emits a byte that was already written: +1, and every address after it
+// shifts.
+//
+//   0801  20 07 08   jsr body
+//   0804  4C 04 08   jmp *
+//   0807  A9 01      lda #$01          body
+//   0809  4C FF FF   jmp $FFFF         3 bytes, but the segment ends at $080A
+//   080C  A4 6E 1D   data
+const OVERRUN = [0x20, 0x07, 0x08, 0x4c, 0x04, 0x08, 0xa9, 0x01, 0x4c, 0xff, 0xff, 0xa4, 0x6e, 0x1d];
+const odir = mkdtempSync(join(tmpdir(), "c64re-830-overrun-"));
+const oPrg = join(odir, "overrun.prg");
+writeFileSync(oPrg, Buffer.from([LOAD & 0xff, LOAD >> 8, ...OVERRUN]));
+writeFileSync(join(odir, "overrun_annotations.json"), JSON.stringify({
+  // the boundary lands INSIDE the jmp's operand
+  segments: [{ start: "080b", end: "080e", kind: "data", label: "tail_data" }],
+  routines: [], labels: [], jumpTables: [], pointerTables: [],
+}, null, 2));
+const oAnalysis = join(odir, "overrun_analysis.json");
+execFileSync(process.execPath, [cli, "analyze-prg", oPrg, oAnalysis, "0801", "--no-register"], { stdio: "pipe" });
+const oAsm = join(odir, "overrun.asm");
+execFileSync(process.execPath, [cli, "disasm-prg", oPrg, oAsm, "", oAnalysis, "--no-register"], { stdio: "pipe" });
+const overrunAsm = readFileSync(oAsm, "utf8");
+const overrunCode = overrunAsm.split("\n").map((l) => l.split("//")[0]).join("\n");
+
+check(/\.byte \$4C, \$FF\b/.test(overrunCode), "an instruction that would cross the segment end is emitted as bytes, clamped AT the end");
+check(!/\bjmp \$FFFF/.test(overrunCode), "…so it is not emitted whole, which would hand the next segment a byte that was already written");
+check((overrunCode.match(/\$A4/g) ?? []).length === 1, "the first byte of the next segment appears exactly once (+1 byte and every later address shifting is the failure this guards)");
+
 // ------------------------------------------------------------- byte identity
 const jar = process.env.C64RE_KICKASS_JAR ?? "/Applications/KickAssembler/KickAss.jar";
 if (!existsSync(jar)) {
   skip(`byte-identical rebuild: KickAssembler not found at ${jar} (set C64RE_KICKASS_JAR) — the check is skipped, not passed`);
 } else {
-  const outPrg = join(dir, "rebuilt.prg");
-  let assembled = true;
-  let assemblerOutput = "";
-  try {
-    assemblerOutput = execFileSync("java", ["-jar", jar, asmPath, "-o", outPrg], { stdio: "pipe" }).toString();
-  } catch (e) {
-    assembled = false;
-    assemblerOutput = `${e.stdout ?? ""}${e.stderr ?? ""}`;
-  }
-  check(assembled, `KickAssembler accepts the listing${assembled ? "" : `:\n${assemblerOutput.split("\n").filter((l) => /Error/.test(l)).slice(0, 4).join("\n")}`}`);
-  if (assembled) {
-    const before = readFileSync(prgPath);
+  for (const [what, srcAsm, srcPrg] of [["the idiom", asmPath, prgPath], ["the segment overrun", oAsm, oPrg]]) {
+    const outPrg = `${srcPrg}.rebuilt`;
+    let assembled = true;
+    let assemblerOutput = "";
+    try {
+      assemblerOutput = execFileSync("java", ["-jar", jar, srcAsm, "-o", outPrg], { stdio: "pipe" }).toString();
+    } catch (e) {
+      assembled = false;
+      assemblerOutput = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+    }
+    check(assembled, `KickAssembler accepts ${what}${assembled ? "" : `:\n${assemblerOutput.split("\n").filter((l) => /Error/.test(l)).slice(0, 4).join("\n")}`}`);
+    if (!assembled) continue;
+    const before = readFileSync(srcPrg);
     const after = readFileSync(outPrg);
-    check(before.equals(after), `the rebuild is byte-identical (${before.length} bytes)`);
+    check(before.equals(after), `${what} rebuilds byte-identical (${before.length} bytes${before.length === after.length ? "" : `, got ${after.length}`})`);
   }
 }
 

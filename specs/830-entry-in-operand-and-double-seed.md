@@ -1,6 +1,6 @@
 # Spec 830 — An entry point inside an operand, and the seed that ran twice
 
-**Status:** BUILT 2026-09-07, merged to master — `e2e:830` 14/0 (incl. a real byte-identical
+**Status:** BUILT 2026-09-07, merged to master; §6 (830.1) built 2026-09-07 after a second report from the same session — `e2e:830` 14/0 (incl. a real byte-identical
 KickAssembler rebuild), `e2e:830-seed` 10/0; `smoke:741` and `e2e:741` still
 green (the relocation render path shares the seam); every other `gates.yml` gate
 green. Measured on Neuromancer: byte-identical payloads **8 of 11 → 11 of 11**,
@@ -206,3 +206,46 @@ that reads as correct:
 - Resolving cross-payload symbols to a real definition. An equate is honest —
   the address is elsewhere. Linking payloads is the graph's job, not the
   listing's.
+
+## 6. 830.1 — an instruction may not cross the end of its segment
+
+Reported by the Neuromancer session after the merge, with the case isolated to
+the byte: at `$6E9B` the payload holds `4c ff ff a4 6e 1d 6f` — `jmp $FFFF`, a
+self-modified dispatch, immediately followed by a pointer table at `$6E9E`. A
+declared label `operate_overlay_jmp_operand` sits at `$6E9C`, the patch target,
+so D1 correctly splits the `jmp` and resumes decoding at `$6E9C`. What decodes
+there is `ff ff a4` — three bytes, in a segment that ends at `$6E9D`. The run
+was emitted whole, the next segment then emitted `$A4` again, and the rebuild
+came out **one byte long**, with every address after it shifted.
+
+The reporter framed it exactly right: the invariant that D1 establishes for the
+label was not carried into the byte run the split produces. It is the mirror
+image of §3b's pointer table, where an emitter stepped PAST a label; here a
+decode steps past a boundary.
+
+**D6 — an instruction that would cross `segment.end` is emitted as `.byte`,
+clamped at the end.** The segment says those bytes are something else; decoding
+them as part of an instruction is a claim the segment already contradicts.
+
+Bisecting the reporter's second, un-isolated `+1` found the same rule with an
+older cause and nothing to do with 830: `cpy W6AD2` decodes three bytes at
+`$6AA2` in a segment ending at `$6AA3`, reached through the inline-string
+mechanism, which resumes after a 2-byte inline argument without checking what
+is left of the segment. It had been latent for as long as the file has existed
+and was invisible because the file never assembled far enough to reach it. The
+reporter localised it to `$6AFC`–`$6B04`; the symbol file put it at
+`$6A7D`–`$6AA4`, which is why bisecting by assembled label address beats
+bisecting by eye.
+
+Measured after D6:
+
+- **Neuromancer** `chunk_4300` with all 694 annotations: 12 543 bytes,
+  byte-identical, zero KickAssembler errors. All 11 payloads identical.
+- **Wasteland_EF 14 → 16 of 18 identical.** Two of the four failures that
+  predate 830 — `main_ovl_7E00` and `t18s12-15_0300` — were this same defect,
+  older. The remaining two have other causes.
+
+`e2e:830` grows to 19/0: a second fixture puts a segment boundary inside a
+`jmp`'s operand and asserts the clamped `.byte $4C, $FF`, that the whole `jmp`
+is NOT emitted, that the next segment's first byte appears exactly once, and —
+when KickAssembler is present — that both fixtures rebuild byte-identical.

@@ -2381,6 +2381,23 @@ function renderCodeSegment(
       lines.push(`${makeLabel(instruction.address)}:${labelCommentTextFromAnalysis(instruction.address, context.xrefsByTarget)}`);
     }
 
+    // Spec 830.1 — an instruction may not cross the end of its segment. The
+    // segment says the bytes past it are something else, and emitting the whole
+    // instruction anyway makes the NEXT segment start with a byte that was
+    // already written: +1 byte, and every address after it shifts.
+    //
+    // Two live cases in one payload. `cpy W6AD2` decodes three bytes at $6AA2
+    // in a segment that ends at $6AA3 — that one predates 830 and was invisible
+    // because the file did not assemble at all. And `jmp $FFFF` at $6E9B has a
+    // declared label at $6E9C, so D1 resumes there, where `ff ff a4` decodes
+    // three bytes in a segment ending at $6E9D — that one 830 introduced, by
+    // resuming a decode without carrying the segment bound into it.
+    const overrun = instruction.address + instruction.size - 1 > segment.end;
+    if (overrun) {
+      emitByteRange(prg.data, prg.loadAddress, instruction.address, segment.end, lines);
+      break;
+    }
+
     // Spec 830 D1 — a declared entry sits inside this instruction's operand.
     // Emit the bytes up to it (byte-identical: `.byte $2C` IS the BIT opcode)
     // and resume decoding at the entry, which now gets its own label line.
