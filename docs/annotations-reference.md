@@ -67,3 +67,37 @@ and the rest still apply. `disasm_prg` reports it:
 
 If you expected more annotations to apply, check that `skipped` line — a wrong field key
 is dropped, not applied.
+
+## An entry point inside another instruction (Spec 830)
+
+The 6502 multi-entry idiom uses `BIT` as a skip, so several entries set a
+different register and fall into one body:
+
+```
+$4ACA  a9 00     lda #$00        <- entry
+$4ACC  2c        BIT abs, swallowing the next two bytes
+$4ACD  a9 04     lda #$04        <- ALSO an entry, inside that operand
+$4ACF  2c
+$4AD0  a9 01     lda #$01        <- and another
+$4AD8  48        pha             <- the common body
+```
+
+Annotate those addresses as ordinary `routines` (or `labels`). **The file needs
+no way to express a skip byte** — the renderer reads the bytes. When a declared
+entry falls strictly inside a decoded instruction, that instruction is emitted
+as `.byte` up to the entry, which is the same byte and therefore still rebuilds
+byte-identical, and the entry gets its label at its own address:
+
+```
+overlay_call_fn0:  lda #$00
+                   .byte $2C
+overlay_call_fn4:  lda #$04
+```
+
+Only a DECLARED entry does this — an annotated routine, an annotated label, or
+an explicit entry point. A `sta` that writes into an operand is a
+self-modifying patch, not an entry, and keeps rendering as `<owner>+<offset>`.
+
+An address you name that lives in **another payload** is emitted as an equate
+(`.label window_clear = $C0A9`) rather than a label, because it is not in this
+file. Nothing else is needed for a cross-payload name to assemble.

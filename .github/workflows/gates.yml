@@ -83,6 +83,16 @@ jobs:
       - name: Reference coverage (Spec 828)
         run: npm run e2e:828
 
+      # Spec 830 — both hermetic: the renderer gate builds its own PRG and runs
+      # the bundled analyzer on it (the byte-identical rebuild half skips loudly
+      # when KickAssembler is absent, which on a bare runner it is), and the seed
+      # gate makes a temp project with a mirror in it.
+      - name: Entry point inside an operand (Spec 830)
+        run: npm run e2e:830
+
+      - name: Seed owner collision (Spec 830)
+        run: npm run e2e:830-seed
+
       # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
       # synthetic PRG with the bundled pipeline and seeds a temp project, and
       # the explorer gate reads the built bundle plus the two pure lib files.
