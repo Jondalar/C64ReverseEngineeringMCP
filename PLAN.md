@@ -121,7 +121,7 @@ media, no assembler and no runtime daemon. It is there so a pull request from
 outside this machine says something about itself; a **human reads the PR and
 decides**, and branch protection blocks only force-push and branch deletion, not
 merging. Anything needing an asset the runner cannot have stays a local gate:
-`smoke:741`, `check:platform-kb`, the `e2e:82x` graph gates, `measure:*`. A gate
+`smoke:741`, `check:platform-kb`, the graph e2e set, `measure:*`. A gate
 that goes red for the wrong reason gets ignored and takes the rest of CI with
 it — which is exactly what happened here before, when four workflows referenced
 36 scripts that Spec 806 had deleted and the nightly went red every day from

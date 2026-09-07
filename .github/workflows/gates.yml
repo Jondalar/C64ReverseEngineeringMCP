@@ -10,7 +10,10 @@ name: gates
 #
 # What is NOT here, and stays a local gate: anything needing resources/roms,
 # a KickAssembler/64tass binary, real disk images, or the TRX64 daemon —
-# smoke:741, check:platform-kb, the e2e:82x graph gates, measure:*.
+# smoke:741, check:platform-kb, the graph e2e set (e2e:818-e2e:823), measure:*.
+# e2e:830 is here and DOES use KickAssembler when it is present: it skips that
+# one check loudly on a runner that has no jar, and still asserts the clamped
+# byte output either way.
 #
 # Two gates are red on master as of 2026-09-06 and are therefore left out until
 # they are fixed, rather than being added and muted:
@@ -82,6 +85,12 @@ jobs:
       # the network, so its gate must not either.
       - name: Reference coverage (Spec 828)
         run: npm run e2e:828
+
+      # Spec 829 — hermetic: the token table is checked against the ROM's own
+      # ordering, the DATA rule and the round trip against real bytes. No ROM
+      # image, no network, no assembler.
+      - name: BASIC V2 tooling (Spec 829)
+        run: npm run e2e:829
 
       # Spec 830 — both hermetic: the renderer gate builds its own PRG and runs
       # the bundled analyzer on it (the byte-identical rebuild half skips loudly
