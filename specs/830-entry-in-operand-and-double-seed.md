@@ -1,11 +1,14 @@
 # Spec 830 — An entry point inside an operand, and the seed that ran twice
 
-**Status:** BUILT 2026-09-07 — `e2e:830` 14/0 (incl. a real byte-identical
+**Status:** BUILT 2026-09-07, merged to master — `e2e:830` 14/0 (incl. a real byte-identical
 KickAssembler rebuild), `e2e:830-seed` 10/0; `smoke:741` and `e2e:741` still
 green (the relocation render path shares the seam); every other `gates.yml` gate
 green. Measured on Neuromancer: byte-identical payloads **8 of 11 → 11 of 11**,
 the three fixed being exactly the three reported. Wasteland_EF unchanged at
-14 identical / 4 pre-existing failures — no regression.
+14 identical / 4 pre-existing failures — no regression. Verified independently
+by the reporting session, which assembled the repaired listing itself rather
+than trusting `disasm_prg`'s own verdict: zero errors, zero warnings, rebuild
+byte-identical at 12 543 bytes.
 **Origin:** Two defects reported by the Neuromancer session while indexing that
 project. Both reproduced here against its real payload before a line was
 written.
