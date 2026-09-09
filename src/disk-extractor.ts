@@ -31,6 +31,12 @@ export interface ExtractedDiskFile {
   track: number;
   sector: number;
   loadAddress?: number;
+  /** Spec 832 D2 — the payload's byte format as the extractor KNOWS it: "prg" only
+   *  when the file is a PRG whose first two bytes survived `loadAddressRejection`,
+   *  "raw" otherwise. Optional so manifests written before 832 still parse. */
+  format?: "prg" | "raw";
+  /** Why `loadAddress` is absent on a PRG-typed entry (Spec 832 D2). */
+  loadAddressNote?: string;
   relativePath: string;
   sectorChain: ExtractedDiskFileSector[];
   md5?: string;
@@ -110,7 +116,11 @@ export function readDiskDirectory(imagePath: string): ExtractedDiskManifest {
       sizeBytes: 0,
       track: entry.track,
       sector: entry.sector,
+      // readDiskDirectory never reads a file's bytes, so it never learns a load
+      // address — it does not guess one from the directory entry either.
       loadAddress: entry.loadAddress,
+      format: entry.type === "PRG" && entry.loadAddress !== undefined ? "prg" : "raw",
+      loadAddressNote: entry.loadAddressNote,
       relativePath: "",
       sectorChain: traceFileSectorChain((t, s) => parser.getSector(t, s), entry),
       origin_detail: {
@@ -149,7 +159,11 @@ export function extractDiskImage(imagePath: string, outputDir: string): Extracte
       sizeBytes: bytes.length,
       track: entry.track,
       sector: entry.sector,
+      // Set by extractFile above — present only when the first two bytes can be an
+      // address for a file this size (Spec 832 D2).
       loadAddress: entry.loadAddress,
+      format: entry.type === "PRG" && entry.loadAddress !== undefined ? "prg" : "raw",
+      loadAddressNote: entry.loadAddressNote,
       relativePath,
       sectorChain: traceFileSectorChain((t, s) => parser.getSector(t, s), entry),
       md5: md5Hex(bytes),

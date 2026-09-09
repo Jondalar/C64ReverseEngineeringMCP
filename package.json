@@ -102,6 +102,7 @@
     "e2e:830": "node scripts/e2e-830-entry-in-operand.mjs",
     "e2e:830-seed": "node scripts/e2e-830-seed-owner-collision.mjs",
     "e2e:831": "npm run build:mcp && node scripts/e2e-831-dump-location.mjs",
+    "e2e:832-disk": "npm run build:mcp && node scripts/e2e-832-disk.mjs",
     "e2e:829": "npm run build && node scripts/e2e-829-basic-v2.mjs",
     "smoke:bug015": "npm run build:mcp && node scripts/smoke-bug015-init-media-sort.mjs",
     "smoke:bug013": "npm run build:mcp && node scripts/smoke-bug013-drive-picker-project-only.mjs",
