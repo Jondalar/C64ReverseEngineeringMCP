@@ -25,7 +25,18 @@ check(/if \(absMedia && !r\.attached\)/.test(src), "media/open runs only when th
 check(!/^\s*if \(absMedia\) \{$/m.test(src), "…and the unconditional form is gone — that form swapped the medium under the human");
 check(/refusedLine/.test(src), "an attach with a media_path answers with a refusal rather than silently ignoring it");
 check(/runtime_media_mount/.test(src), "…and names the door for a DELIBERATE swap of the shared medium");
-check(/runtime_sandbox_run|runtime_scene_reel/.test(src), "…and the door for running your own medium on your own machine");
+check(/runtime_scene_reel/.test(src), "…and the door for running your own medium on your own machine");
+// A message that names a tool is a promise that the tool exists. This one
+// named runtime_sandbox_run before it was built — the same defect the spec is
+// about, committed inside the fix for it.
+const invNames = new Set((JSON.parse(readFileSync(join(ROOT, "docs/tool-surface-inventory.json"), "utf8")).tools ?? []).map((t) => t.name));
+// Comments quote retired and neighbouring tool names on purpose — the same
+// trap Spec 830's gate hit — so strip them before looking at what a CALLER
+// would be told.
+const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((l) => !/^\s*(\/\/|\*)/.test(l)).join("\n");
+const named = [...codeOnly.matchAll(/`[^`]*?\b(runtime_[a-z_0-9]+)\b[^`]*?`/g)].map((m) => m[1]);
+const missing = [...new Set(named)].filter((n) => !invNames.has(n));
+check(missing.length === 0, `every runtime tool named in a message to the caller exists${missing.length ? ` — missing: ${missing.join(", ")}` : ` (${new Set(named).size} named)`}`);
 
 // D2 — whose machine, said where a caller reads it.
 const inv = JSON.parse(readFileSync(join(ROOT, "docs/tool-surface-inventory.json"), "utf8"));
