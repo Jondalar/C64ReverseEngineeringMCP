@@ -448,17 +448,68 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
         // Spec 832 D4b: a sector with no data block yields no bytes, so it gets
         // no .bin — a file of invented filler is worse than no file at all. The
         // metadata still lists it, with `dataStatus` saying why it is empty.
-        const written: Array<string | null> = [];
-        for (const sector of decoded) {
-          if (sector.data.length === 0) {
-            written.push(null);
-            continue;
+        //
+        // Spec 833 D4: the filename no longer carries a verdict it cannot
+        // express. It used to be `t<tt>s<ss>.invalid.bin` whenever the DATA
+        // CHECKSUM failed — which on a custom-CRC disk is every real sector
+        // (The Pawn's 683, Impossible Mission II's 631), so a caller who
+        // skipped `.invalid` skipped exactly the bytes it came for. And since
+        // 832 every file that gets written holds real bytes off the disk, so
+        // the suffix marked nothing worth avoiding. `dataStatus` in
+        // track-metadata.json is the truth; the tool's own output counts the
+        // non-`ok` ones so nobody has to open the JSON to find out.
+        //
+        // Widening the name makes one case collide that two names used to keep
+        // apart: a protected track can carry two pairs claiming the same
+        // (track, sector) — say one clean and one with a failed data checksum —
+        // and both now want `t<tt>s<ss>.bin`. The rule, deterministic and
+        // decided before anything is written, never last-write-wins:
+        //   1. a pair with no bytes never competes (it writes no file at all),
+        //   2. otherwise the best `dataStatus` owns the name — ok beats
+        //      checksum_error beats gcr_error. This is the rule the disk-layout
+        //      view-builder already applies to a twice-listed sector
+        //      ("data-present wins", view-builders.ts),
+        //   3. ties go to the pair the ring walk met first — `sectors` arrives
+        //      in ring-walk order within a sector id, because the sort in
+        //      extractTrackSectorsDetailed is stable.
+        // The losing pair is never written and never overwrites: it stays in
+        // `files[]` with `path: null` and `duplicateOf` naming the file that
+        // won, and the tool output says so, so the second copy is visible in
+        // the artifact and still reachable with read_g64_sector_candidate.
+        const sectorFileName = (sector: { track: number; sector: number }): string =>
+          `t${String(sector.track).padStart(2, "0")}s${String(sector.sector).padStart(2, "0")}.bin`;
+        const dataStatusRank = (status: string): number =>
+          status === "ok" ? 0 : status === "checksum_error" ? 1 : status === "gcr_error" ? 2 : 3;
+
+        const ownerByFileName = new Map<string, number>();
+        decoded.forEach((sector, index) => {
+          if (sector.data.length === 0) return;
+          const fileName = sectorFileName(sector);
+          const holder = ownerByFileName.get(fileName);
+          if (holder === undefined
+            || dataStatusRank(sector.dataStatus) < dataStatusRank(decoded[holder]!.dataStatus)) {
+            ownerByFileName.set(fileName, index);
           }
-          const fileName = `t${String(sector.track).padStart(2, "0")}s${String(sector.sector).padStart(2, "0")}${sector.dataValid ? "" : ".invalid"}.bin`;
+        });
+
+        const written: Array<string | null> = decoded.map(() => null);
+        for (const [fileName, index] of ownerByFileName) {
           const outputPath = join(outDir, fileName);
-          writeFileSync(outputPath, sector.data);
-          written.push(outputPath);
+          writeFileSync(outputPath, decoded[index]!.data);
+          written[index] = outputPath;
         }
+        const duplicateOf: Array<string | null> = decoded.map((sector, index) =>
+          sector.data.length === 0 || written[index] !== null ? null : sectorFileName(sector));
+
+        // Spec 833 D4 — the count the filename used to (badly) carry, stated
+        // where it can be stated properly: per status, over every decoded
+        // sector, written or not.
+        const statusCounts: Record<string, number> = { ok: 0, checksum_error: 0, gcr_error: 0, no_data_block: 0 };
+        for (const sector of decoded) {
+          statusCounts[sector.dataStatus] = (statusCounts[sector.dataStatus] ?? 0) + 1;
+        }
+        const nonOkCount = decoded.length - (statusCounts.ok ?? 0);
+        const duplicateCount = duplicateOf.filter((name) => name !== null).length;
 
         const metadataPath = join(outDir, "track-metadata.json");
         writeFileSync(metadataPath, `${JSON.stringify({
@@ -467,6 +518,9 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
           requestedSectors: sectors ?? null,
           decodedCount: decoded.length,
           filesWritten: written.filter((path) => path !== null).length,
+          dataStatusCounts: statusCounts,
+          nonOkCount,
+          duplicateSectorIdCount: duplicateCount,
           // Spec 832 D4c — two readers walk a track and they can disagree. Record
           // both counts here so the disagreement lives in the artifact.
           readers: {
@@ -488,6 +542,11 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
             dataStatus: sector.dataStatus,
             bytes: sector.data.length,
             path: written[index],
+            // Spec 833 D4: null unless a second pair on this track claims the
+            // same id and lost the name — then it says which file holds the
+            // copy that won, so `path: null` is never ambiguous between "no
+            // bytes" (see dataStatus) and "another copy owns the filename".
+            duplicateOf: duplicateOf[index],
           })),
         }, null, 2)}\n`, "utf8");
 
@@ -521,13 +580,18 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
           `Knowledge written to: ${join(pd, "knowledge")}`,
           `Decoded sectors: ${decoded.length}`,
           `Sector files written: ${written.filter((path) => path !== null).length}`,
+          // Spec 833 D4 — the filename says nothing about data health any more,
+          // so the count says it here instead of in a suffix that lied.
+          `Sectors with non-ok data status: ${nonOkCount} of ${decoded.length} (checksum_error ${statusCounts.checksum_error ?? 0}, gcr_error ${statusCounts.gcr_error ?? 0}, no_data_block ${statusCounts.no_data_block ?? 0})`,
           `Readers: GCR ring walk ${extraction.decodedSectorCount} sectors / firmware-style scan ${extraction.viceHeaderCount} headers${extraction.decodedSectorCount === extraction.viceHeaderCount ? "" : "  (READERS DISAGREE)"}`,
           `Header candidates refused (not extracted): ${extraction.rejectedHeaders.length}`,
+          `Duplicate sector ids (one file per id, best data status wins): ${duplicateCount}`,
           `Metadata: ${metadataPath}`,
         ];
-        for (const sector of decoded) {
-          lines.push(`- ${sector.track}/${sector.sector}  ${sector.data.length} bytes  header=${sector.headerValid ? "ok" : "bad"}  data=${sector.dataStatus}`);
-        }
+        decoded.forEach((sector, index) => {
+          const duplicate = duplicateOf[index];
+          lines.push(`- ${sector.track}/${sector.sector}  ${sector.data.length} bytes  header=${sector.headerValid ? "ok" : "bad"}  data=${sector.dataStatus}${duplicate ? `  (duplicate id, not written; ${duplicate} holds the copy that won)` : ""}`);
+        });
         for (const candidate of extraction.rejectedHeaders) {
           lines.push(`! refused header @bit ${candidate.headerStartBit}  claims ${candidate.claimsTrack}/${candidate.claimsSector}  id=$${candidate.headerId.toString(16).toUpperCase().padStart(2, "0")}  reason=${candidate.reason}`);
         }

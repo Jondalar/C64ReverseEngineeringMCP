@@ -228,7 +228,15 @@ ok(flaggedEntry?.bytes === 256 && flaggedEntry?.dataStatus === "checksum_error",
 
 const bins = readdirSync(outDir).filter((name) => name.endsWith(".bin"));
 ok(bins.length === SECTORS - 1, "one .bin per sector that actually had bytes", `${bins.length} files`);
-ok(bins.some((name) => name.includes(".invalid")), "the failing-CRC sector keeps its .invalid marker", bins.filter((n) => n.includes(".invalid")).join(","));
+// Spec 833 D4 retired the `.invalid` suffix: the DATA CHECKSUM is not a
+// property a filename can express (on a custom-CRC disk it fails for every real
+// sector), so the flag lives in track-metadata.json — asserted just above — and
+// the file is plain `t<tt>s<ss>.bin`. e2e:833-sectors owns that rule now.
+ok(
+  bins.includes(`t${TRACK}s${String(BROKEN_DATA_CHECKSUM).padStart(2, "0")}.bin`),
+  "the failing-CRC sector is written under the plain name, its verdict in the metadata (833 D4)",
+  bins.filter((n) => n.includes(`s${BROKEN_DATA_CHECKSUM}`)).join(","),
+);
 ok(!bins.some((name) => /t240|s240/.test(name)), "no phantom sector file was written");
 ok(bins.every((name) => readFileSync(join(outDir, name)).length === 256), "every written sector file is 256 real bytes");
 

@@ -1136,7 +1136,8 @@ export function buildDiskLayoutView(context: ViewBuildContext): DiskLayoutView {
       // Lenient GCR content probe: a custom-GCR image (Pawn et al) has a valid
       // SYNC + header + data-nibble sequence but a non-standard data-block header/
       // CRC, so parser.getSector() returns null. decodeGCRTrack() reads the same
-      // payload the extract_g64_sectors MCP tool dumps (as .invalid.bin) — that is
+      // payload the extract_g64_sectors MCP tool dumps (as t<tt>s<ss>.bin, with
+      // the failed data CRC recorded in track-metadata.json — Spec 833 D4) — that is
       // how the disk's data becomes visible without the CBM directory/BAM. Cached
       // per track (decode is per-track, this function is called per sector).
       const lenient = parser as unknown as { getRawTrackBytes?: (track: number) => Uint8Array | null };
