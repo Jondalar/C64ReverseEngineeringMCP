@@ -20,7 +20,7 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:833-sandbox
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -212,6 +212,18 @@ async function callRun(args) {
 for (const d of [project, loose]) rmSync(d, { recursive: true, force: true });
 process.chdir(dirname(ROOT));
 rmSync(neutralCwd, { recursive: true, force: true });
+
+// ---------------------------------------------------------------- Spec 834
+// sandbox_depack DECLARED `project_dir` and resolved with no hint, so the
+// parameter a caller passed was read by nobody. Same tool family, same gate.
+const depackSrc = readFileSync(join(ROOT, "src/server-tools/sandbox-depack.ts"), "utf8");
+check(/ctx\.projectDir\(args\.project_dir \?\? args\.input_path/.test(depackSrc),
+  "834 sandbox_depack resolves `project_dir ?? input_path` — the parameter it declares is finally read");
+check(!/ctx\.projectDir\(\s*undefined/.test(depackSrc),
+  "834 sandbox_depack no longer resolves hintless");
+const portSrc = readFileSync(join(ROOT, "scripts/e2e-mcp-path-portability.mjs"), "utf8");
+check(!/"sandbox_depack"/.test(portSrc),
+  "834 it left the KNOWN_HINTLESS allowlist — the list shrank, the only direction it may move");
 
 console.log(`\n${failCount === 0 ? "GREEN" : "RED"} e2e:833-sandbox: ${pass} pass, ${failCount} fail.`);
 process.exit(failCount === 0 ? 0 : 1);

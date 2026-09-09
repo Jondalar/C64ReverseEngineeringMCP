@@ -29,7 +29,7 @@ export function registerSandboxDepackTool(server: McpServer, ctx: ServerToolCont
     "sandbox_depack",
     "Run a game's OWN 6502 depacker/decryptor over packed bytes and get the plaintext back — the sandbox CPU executes the resident routine against ANY packed blob, no MCP code change per variant. Use when a payload is self-decrypting (XOR / RLE / custom crypto) so disasm_prg sees real code: point it at the resident loader, the depack entry_pc, and the zeropage source-pointer convention (default $52/$53). It runs to sentinel RTS / stop_pc / max_steps; the contiguous run of writes at dest_address (or the largest contiguous run) is returned as the unpacked bytes. Not for a standard packer (use try_depack / suggest_depacker); not for running arbitrary code (use sandbox_6502_run).",
     {
-      project_dir: z.string().optional(),
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from input_path to knowledge/phase-plan.json."),
       input_path: z.string().describe("Path to the packed source bytes (chip dump, disk file, raw blob)."),
       offset: z.string().optional().describe("Hex offset into input_path where the packed payload starts. Default 0."),
       length: z.string().optional().describe("Optional hex length to slice (default: from offset to end of file)."),
@@ -69,7 +69,13 @@ export function registerSandboxDepackTool(server: McpServer, ctx: ServerToolCont
       ),
     },
     async (args) => {
-      const projectRoot = ctx.projectDir(undefined, true);
+      // Spec 834 — the hint. This tool DECLARED `project_dir` and then resolved
+      // with no hint at all, so the parameter a caller passed was read by
+      // nobody and the root came from C64RE_PROJECT_DIR or the process cwd.
+      // `input_path` is the packed blob and is always present, so it is the
+      // honest fallback: the same `project_dir ?? <a path the call already
+      // carries>` shape every other path-taking tool uses.
+      const projectRoot = ctx.projectDir(args.project_dir ?? args.input_path, true);
       const inputAbs = resolve(projectRoot, args.input_path);
       const inputBuf = readFileSync(inputAbs);
       const offset = args.offset ? parseHexU(args.offset, 0xffffff) : 0;
