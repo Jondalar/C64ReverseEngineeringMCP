@@ -1,6 +1,6 @@
 # Spec 833 — A tool may not claim what it did not do
 
-**Status:** BUILT 2026-09-09 — `e2e:833-render` 38/0, `e2e:833-sectors` 35/0,
+**Status:** BUILT 2026-09-09 — `e2e:833-render` 49/0, `e2e:833-sectors` 35/0,
 `e2e:833-sandbox` 25/0, all three hermetic and in `gates.yml`; every existing
 gate green. Three agents, one class each. Measured on the render fixture:
 without `analysis_json` 0 of 8 in-image names before and **8 of 8** after; with
@@ -235,21 +235,36 @@ carried them here, in both rounds.
   runtime-addressed while the annotations are file-addressed, so applying both
   is a duplicate-definition hazard — and the header states that instead.
 
-## 5c. Two more of the same shape, found and NOT fixed
+## 5c. Two more of the same shape — found during the build, fixed after it
 
-Both are this spec's own title and neither is in its decisions, so they are
-recorded rather than quietly folded in:
+Both are this spec's own title. They were recorded rather than folded in while
+the three agents were running, and closed once they were:
 
-- The `disasm_prg` wrapper's `hasAnnotations` looks only beside the ASM, while
-  the renderer also looks beside the PRG and beside the analysis JSON. A file in
-  either of the other two places still produces "NEXT STEP: create an
-  annotations file" over a listing that applied them. D3's new `Listing:` line
-  exposes the contradiction; the hint itself is untouched.
-- Two **explicit** `labels[]` entries carrying the same name at different
-  addresses both get definitions, which breaks the rebuild. `usedLabels` guards
-  routines and now segments; it never guarded explicit labels. This predates 832
-  and is the one item here that can produce a red rebuild rather than a
-  misleading line.
+**D6 — one identifier, one definition; one address, one name.** Two *explicit*
+`labels[]` entries carrying the same name at different addresses both got a
+definition, KickAssembler stopped at "already defined", and the byte-identical
+rebuild this renderer exists to protect went red with nothing anywhere saying
+why. `usedLabels` guarded routines (BUG-033) and, since D2, segments — it never
+guarded the explicit labels it was seeded from. This predates 832 and is the
+only item in this family that fails in the assembler rather than quietly in the
+listing.
+
+First wins, in file order, and the loser is reported in the tolerant-skip
+summary — which is where a human already looks for "why did my annotation not
+apply" — while the address keeps its auto-label so the rebuild stays green. The
+same treatment covers one address named twice, which used to let the last entry
+win silently: the same defect with the operands swapped.
+
+**D7 — the wrapper looks where the renderer looks.** `hasAnnotations` in
+`analysis-workflow.ts` checked beside the ASM only, while `loadAnnotations`
+checks beside the PRG, beside the output ASM and beside the analysis JSON. A
+file in either of the other two produced "NEXT STEP: create an annotations
+file" printed over a listing that had just applied them. The wrapper now walks
+the renderer's own candidate order, so the two agree.
+
+Both are asserted in `e2e:833-render` rather than in a new gate — they live in
+the files it already drives. Proven as a real gate by removing the D6 guard and
+re-running: **6 failures**, including the KickAssembler rebuild.
 
 ## 6. Gates
 

@@ -1,4 +1,4 @@
-import { basename, resolve, join } from "node:path";
+import { basename, dirname, resolve, join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -393,7 +393,22 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       const result = await runCli("disasm-prg", args, { projectDir: pd });
       if (result.exitCode === 0) {
         const annotationsPath = outAbs.replace(/\.asm$/i, "_annotations.json");
-        const hasAnnotations = existsSync(annotationsPath);
+        // Spec 833 §5c — this used to look ONLY beside the ASM while the
+        // renderer looks in three places (beside the PRG, beside the output
+        // ASM, beside the analysis JSON — `loadAnnotations` in
+        // pipeline/src/lib/annotations.ts). A file in either of the other two
+        // therefore produced "NEXT STEP: create an annotations file" printed
+        // over a listing that had just applied them. Same resolution order as
+        // the renderer, so the wrapper and the thing it wraps agree.
+        const annotationCandidates = [
+          annotationsPath,
+          prgAbs.replace(/\.[^./]+$/, "_annotations.json"),
+          ...(analysis_json ? [resolve(pd, analysis_json).replace(/\.[^./]+$/, "_annotations.json")] : []),
+          join(dirname(outAbs), "annotations.json"),
+          join(dirname(prgAbs), "annotations.json"),
+        ];
+        const foundAnnotationsPath = annotationCandidates.find((candidate) => existsSync(candidate));
+        const hasAnnotations = foundAnnotationsPath !== undefined;
         const tassPath = outAbs.replace(/\.asm$/i, ".tas");
         const knowledgeRegistration = context.tryRegisterKnowledgeArtifacts(pd, {
           toolName: "disasm_prg",

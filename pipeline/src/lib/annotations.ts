@@ -200,6 +200,38 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
       noteSkip({ section: "label", reason: `address ${lbl.address} has no label`, hint: mistypedKeyHint(lbl, "label", ["name", "ident", "symbol"]) });
       continue;
     }
+    // Spec 833 §5c — an explicit label was the one population NOTHING guarded.
+    // `usedLabels` protected routines (BUG-033) and, since 833 D2, segments;
+    // two `labels[]` entries carrying the same name at different addresses both
+    // got a definition, KickAssembler stopped at "already defined", and the
+    // byte-identical rebuild this file exists to protect went red — with no
+    // line anywhere saying why. It is the only defect in this family that fails
+    // loudly in the assembler instead of quietly in the listing.
+    //
+    // First wins, in file order, and the loser is REPORTED: the tolerant-skip
+    // summary is where a human already looks for "why did my annotation not
+    // apply", and the address keeps its auto-label so the rebuild stays green.
+    if (usedLabels.has(lbl.label)) {
+      const firstAt = [...labelsByAddress.entries()].find(([, l]) => l.label === lbl.label)?.[0];
+      noteSkip({
+        section: "label",
+        reason: `duplicate label name "${lbl.label}" at ${lbl.address}` +
+          (firstAt !== undefined ? ` — already defined at $${firstAt.toString(16).toUpperCase().padStart(4, "0")}` : ""),
+        hint: "two definitions of one identifier break the rebuild; the first wins and this address keeps its auto-label",
+      });
+      continue;
+    }
+    // The same ADDRESS twice used to let the last entry win silently, which is
+    // the same defect with the operands swapped.
+    const existing = labelsByAddress.get(addr);
+    if (existing) {
+      noteSkip({
+        section: "label",
+        reason: `address ${lbl.address} already labelled "${existing.label}" — "${lbl.label}" ignored`,
+        hint: "one address carries one name; remove the duplicate entry",
+      });
+      continue;
+    }
     labelsByAddress.set(addr, lbl);
     usedLabels.add(lbl.label);
   }
