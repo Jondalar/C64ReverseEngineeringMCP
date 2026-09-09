@@ -1,6 +1,10 @@
 # Spec 832 — Six defects the Ultima VI session found, and what they have in common
 
-**Status:** PROPOSED 2026-09-09
+**Status:** BUILT 2026-09-09 — `e2e:832-annotations` 17/0, `e2e:832-disk` 37/0,
+`e2e:832-gcr` 33/0, `e2e:832-ids` 37/0, `e2e:832-lut` 15/0, all five hermetic
+and in `gates.yml`; every existing gate green. Built by four agents, one per
+class, each in its own worktree — three of them corrected this spec, and those
+corrections are recorded inline below rather than only in their reports.
 **Origin:** Eight reports from the Ultima VI session, all reproducible. Six are
 defects; two are model gaps and are recorded, not built (§6).
 **Anchor:** `DOCTRINE.md` rule 5 (read before you hypothesise) · Spec 830 (a
@@ -70,6 +74,17 @@ for every `type === "PRG"` directory entry. Ultima VI's data files are records
 beginning `$FF,<id>`, so a 6-byte file claims to load at `$FFxx`, `end < start`,
 and the graph's `CHECK (end_address IS NULL OR end_address >= address)` rejects
 it. The whole manifest import is then discarded — one bad row costs every row.
+
+**Corrected during the build — the spec had the arithmetic wrong.** With
+`result[0] | (result[1] << 8)` the header `$FF,<id>` yields `$<id>FF`, not
+`$FFxx` — `$01FF`…`$CAFF`, exactly the reporter's own numbers. And `end` is
+never below `start` at that point: the CHECK trips because `load + size - 1`
+exceeds `$FFFF` and the graph masks the end to 16 bits, wrapping it under the
+start. So it is the size condition that catches the real files, not the low
+bound. A small record at, say, `$02FF` cannot be disproved by any per-file
+rule at all — the give-away is `$FF` in every file's low byte across the whole
+set, which is corpus-level evidence a per-file reader cannot see, and no rule
+was invented for it.
 
 **Decision, two parts.** (a) A load address is only recorded when it is
 plausible for the file's size: `load + length - 2 <= 0xFFFF`, and not a value
