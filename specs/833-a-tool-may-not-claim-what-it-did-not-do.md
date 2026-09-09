@@ -81,11 +81,33 @@ made the second one worse:
 
 **Decision:** the filename stops carrying a verdict it cannot express. Every
 extracted sector is `t<tt>s<ss>.bin`; `dataStatus` in `track-metadata.json`
-(`ok` / `checksum_error` / `gcr_error`) is the truth, and the tool's own output
-says how many sectors carry a non-`ok` status so nobody has to go looking. This
-widens what matches `t<tt>s<ss>.bin` rather than narrowing it, so a reader that
-already globs that pattern gains the custom-CRC sectors it was silently missing
-and loses nothing.
+(`ok` / `checksum_error` / `gcr_error` / `no_data_block`) is the truth, and the
+tool's own output says how many sectors carry a non-`ok` status so nobody has to
+go looking. This widens what matches `t<tt>s<ss>.bin` rather than narrowing it,
+so a reader that already globs that pattern gains the custom-CRC sectors it was
+silently missing.
+
+Three corrections from the build:
+
+- The status list above originally omitted `no_data_block`, which 832 added and
+  which is the one status that legitimately produces no file at all. It is what
+  explains a `path: null` entry, so a reader of the spec alone would misread the
+  artifact.
+- "and loses nothing" was too strong. **Two pairs on one track claiming the same
+  (track, sector) used to land on two filenames and now compete for one** — the
+  spec did not consider the case. Resolved before anything is written, never
+  last-write-wins: a pair with no bytes never competes; otherwise the best
+  `dataStatus` owns the name (`ok` > `checksum_error` > `gcr_error`, the rule
+  `view-builders.ts` already applies to a twice-listed sector); ties go to the
+  pair the ring walk met first. The loser keeps its `files[]` entry with
+  `path: null` and a `duplicateOf` naming the winner, so `path: null` is never
+  ambiguous between "no bytes" and "another copy owns the name". Its bytes are
+  still reachable through `read_g64_sector_candidate` and `inspect_g64_track`,
+  but it does lose its file, and that qualifier belongs here.
+- Measured read-only on five real images: IM2 683 sectors / 631 non-ok, Pawn s1
+  683/683, LN3 s1 683/666, Ultima VI dungeon 683/0, Brubaker side1 683/0 — every
+  file matches `t<tt>s<ss>.bin`, and **zero duplicate-id collisions on any of
+  them**. The collision rule is a safety net, not a hot path.
 
 ## 5. D5 — a default tool that cannot find its project, and the gate that let it
 
@@ -106,6 +128,15 @@ nested schemas from now on; a rule that only sees the top level is a rule with a
 hole in it, and this is the second finding on this one tool — the other being
 that it is in the default surface at all (`e2e-mcp-project-inventory` 4c, red
 before this spec and out of scope here).
+
+## 5b. A working fact about the agents, learned twice
+
+An agent given `isolation: "worktree"` is based on **master**, not on the
+branch the parent is working in. Both 832 and 833 were written on a branch and
+committed before the agents were launched, and both times every agent reported
+the spec absent from its worktree. A spec an agent must read has to be on master
+first, or its decisions have to travel in the prompt — which is what actually
+carried them here, in both rounds.
 
 ## 6. Gates
 
