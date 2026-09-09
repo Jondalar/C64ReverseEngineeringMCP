@@ -128,6 +128,18 @@ jobs:
       - name: LUT refusal names its class limit (Spec 832 §8)
         run: npm run e2e:832-lut
 
+      # Spec 833 — all three hermetic: synthetic PRGs, a GCR track from this
+      # repo's own encoder, and a temp project with C64RE_PROJECT_DIR removed
+      # from the child environment so the fallback cannot rescue the resolver.
+      - name: Render truth (Spec 833 D1/D2/D3)
+        run: npm run e2e:833-render
+
+      - name: Sector filenames (Spec 833 D4)
+        run: npm run e2e:833-sectors
+
+      - name: Sandbox project hint (Spec 833 D5)
+        run: npm run e2e:833-sandbox
+
       # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
       # synthetic PRG with the bundled pipeline and seeds a temp project, and
       # the explorer gate reads the built bundle plus the two pure lib files.

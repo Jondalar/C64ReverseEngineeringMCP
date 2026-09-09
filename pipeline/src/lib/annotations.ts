@@ -228,6 +228,29 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
       }
     }
   }
+  // Spec 833 D2 — a segment annotation's label names the segment START, and
+  // until now that name reached nothing: the segment loop above fills
+  // `segmentsByStart` and `segmentAnnotations` only, so it never entered
+  // `labelsByAddress` and `makeLabel` could not answer with it. The name existed
+  // in the file, in the graph, and in the segment's block comment — and nowhere
+  // in the listing, on the analysis path as much as the legacy one. The only
+  // `labelsByAddress.set` for a segment start was `overlayRelocLabels`, which is
+  // the relocation path.
+  //
+  // Precedence is the one that already exists here: an explicit label wins (set
+  // first), then a routine (BUG-033 above), then a segment. Same collision rule
+  // too — a duplicate identifier keeps the auto-label rather than minting a
+  // second definition of the same name and breaking the rebuild. The segment's
+  // `comment` is deliberately NOT carried onto the label: it is already rendered
+  // as the segment's block comment, and it is free-form multi-line prose that
+  // has no business on an inline label line.
+  for (const { start, annotation } of segmentAnnotations) {
+    if (!annotation.label || labelsByAddress.has(start)) continue;
+    const ident = toLabelIdent(annotation.label);
+    if (!ident || usedLabels.has(ident)) continue;
+    labelsByAddress.set(start, { address: annotation.start, label: ident });
+    usedLabels.add(ident);
+  }
   for (const pt of annotations.pointerTables ?? []) {
     const start = parseHex(pt.start);
     const end = parseHex(pt.end);

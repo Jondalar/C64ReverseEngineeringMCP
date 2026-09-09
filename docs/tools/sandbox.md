@@ -15,6 +15,20 @@ undoc NOPs, JAM). No I/O bus, no banking — just a flat 64K
 |---|---|
 | `sandbox_6502_run` | Load code/data into a flat 64K RAM, optionally hook PCs to feed bytes from an input stream (e.g. replace a serial-recv subroutine), execute until a stop PC / sentinel RTS / max steps / unimplemented opcode, and return the writes plus final CPU state. |
 
+## Project resolution (Spec 833 D5)
+
+Relative paths — `loads[].prg_path`, `loads[].raw_path`, `input_stream_path`,
+`output_path` — resolve against the project root, and the root is found the same
+way every other path-taking tool finds it: an explicit `project_dir`, else by
+walking up from the **first path in `loads[]`** to `knowledge/phase-plan.json`.
+The tool used to pass the resolver no hint at all, which left it depending on
+`C64RE_PROJECT_DIR` or on the process cwd happening to sit inside a project.
+
+A `loads[]` made only of `hex_bytes` carries no path, and such a run needs no
+project either: every byte is inline. The root is therefore resolved on first
+use rather than up front, so a fully inline run never asks for one and no longer
+fails outside a project for a filesystem it does not touch.
+
 ## Stream-byte hook
 
 When the CPU enters a hooked PC it synthesises **"A = next stream byte;
