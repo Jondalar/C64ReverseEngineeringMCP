@@ -123,6 +123,9 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
         lines.push(`Missing sectors: ${analysis.missingSectors.length ? analysis.missingSectors.join(", ") : "none"}`);
         lines.push(`Unexpected sectors: ${analysis.unexpectedSectors.length ? analysis.unexpectedSectors.join(", ") : "none"}`);
         lines.push(`Invalid data blocks: ${analysis.invalidDataCount}`);
+        lines.push(`Sectors with no data block: ${analysis.missingDataBlockCount}`);
+        lines.push(`Header candidates refused (not sectors): ${analysis.rejectedHeaders.length}`);
+        lines.push(`Firmware-style scan headers: ${analysis.viceHeaderCount}${analysis.viceHeaderCount === analysis.sectors.length ? "" : "  (READERS DISAGREE)"}`);
         const blockInspection = parser.inspectTrackBlocks(track, 96);
         if (blockInspection) {
           const jsonSummary = {
@@ -139,6 +142,9 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
             decodedSectorCount: analysis.sectors.length,
             invalidHeaderCount: analysis.invalidHeaderCount,
             invalidDataCount: analysis.invalidDataCount,
+            missingDataBlockCount: analysis.missingDataBlockCount,
+            viceHeaderCount: analysis.viceHeaderCount,
+            rejectedHeaders: analysis.rejectedHeaders,
             sectors: analysis.sectors,
           };
           lines.push("");
@@ -154,7 +160,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
         lines.push("");
         lines.push("Decoded sectors:");
         for (const sector of analysis.sectors) {
-          lines.push(`- ${sector.track}/${sector.sector}  header=${sector.headerValid ? "ok" : "bad"}  data=${sector.dataValid ? "ok" : "bad"}  bytes=${sector.dataLength}`);
+          lines.push(`- ${sector.track}/${sector.sector}  header=${sector.headerValid ? "ok" : "bad"}  data=${sector.dataStatus}  bytes=${sector.dataLength}`);
         }
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (error) {
@@ -434,12 +440,20 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
         const pd = context.projectDir(project_dir ?? image_path, true);
         const imageAbs = resolve(pd, image_path);
         const parser = loadG64Parser(context, image_path, pd);
-        const decoded = parser.extractTrackSectors(track, sectors);
+        const extraction = parser.extractTrackSectorsDetailed(track, sectors);
+        const decoded = extraction.sectors;
         const outDir = output_dir ? resolve(pd, output_dir) : g64SectorDefaultOutputDir(context, imageAbs, track, pd);
         mkdirSync(outDir, { recursive: true });
 
-        const written: string[] = [];
+        // Spec 832 D4b: a sector with no data block yields no bytes, so it gets
+        // no .bin — a file of invented filler is worse than no file at all. The
+        // metadata still lists it, with `dataStatus` saying why it is empty.
+        const written: Array<string | null> = [];
         for (const sector of decoded) {
+          if (sector.data.length === 0) {
+            written.push(null);
+            continue;
+          }
           const fileName = `t${String(sector.track).padStart(2, "0")}s${String(sector.sector).padStart(2, "0")}${sector.dataValid ? "" : ".invalid"}.bin`;
           const outputPath = join(outDir, fileName);
           writeFileSync(outputPath, sector.data);
@@ -452,11 +466,26 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
           track,
           requestedSectors: sectors ?? null,
           decodedCount: decoded.length,
+          filesWritten: written.filter((path) => path !== null).length,
+          // Spec 832 D4c — two readers walk a track and they can disagree. Record
+          // both counts here so the disagreement lives in the artifact.
+          readers: {
+            gcrRingWalk: {
+              sectorsDecoded: extraction.decodedSectorCount,
+              headersRejected: extraction.rejectedHeaders.length,
+            },
+            viceStyleScanner: {
+              headersFound: extraction.viceHeaderCount,
+            },
+            agree: extraction.decodedSectorCount === extraction.viceHeaderCount,
+          },
+          rejectedHeaders: extraction.rejectedHeaders,
           files: decoded.map((sector, index) => ({
             track: sector.track,
             sector: sector.sector,
             headerValid: sector.headerValid,
             dataValid: sector.dataValid,
+            dataStatus: sector.dataStatus,
             bytes: sector.data.length,
             path: written[index],
           })),
@@ -490,11 +519,17 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
           `Track: ${track}`,
           `Output: ${outDir}`,
           `Knowledge written to: ${join(pd, "knowledge")}`,
-          `Decoded sectors written: ${decoded.length}`,
+          `Decoded sectors: ${decoded.length}`,
+          `Sector files written: ${written.filter((path) => path !== null).length}`,
+          `Readers: GCR ring walk ${extraction.decodedSectorCount} sectors / firmware-style scan ${extraction.viceHeaderCount} headers${extraction.decodedSectorCount === extraction.viceHeaderCount ? "" : "  (READERS DISAGREE)"}`,
+          `Header candidates refused (not extracted): ${extraction.rejectedHeaders.length}`,
           `Metadata: ${metadataPath}`,
         ];
         for (const sector of decoded) {
-          lines.push(`- ${sector.track}/${sector.sector}  ${sector.data.length} bytes  header=${sector.headerValid ? "ok" : "bad"}  data=${sector.dataValid ? "ok" : "bad"}`);
+          lines.push(`- ${sector.track}/${sector.sector}  ${sector.data.length} bytes  header=${sector.headerValid ? "ok" : "bad"}  data=${sector.dataStatus}`);
+        }
+        for (const candidate of extraction.rejectedHeaders) {
+          lines.push(`! refused header @bit ${candidate.headerStartBit}  claims ${candidate.claimsTrack}/${candidate.claimsSector}  id=$${candidate.headerId.toString(16).toUpperCase().padStart(2, "0")}  reason=${candidate.reason}`);
         }
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (error) {
