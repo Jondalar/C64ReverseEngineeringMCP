@@ -149,6 +149,20 @@ jobs:
       - name: Sandbox project hint (Spec 833 D5)
         run: npm run e2e:833-sandbox
 
+      # Spec 834 — all three hermetic: a temp project, C64RE_PROJECT_DIR
+      # deleted from the child and the cwd moved outside any project, so no
+      # fallback can rescue the resolver. The daemon is stubbed; they assert
+      # RESOLUTION, never a run, which is why an absent runtime cannot decide
+      # the verdict.
+      - name: Headless project hints (Spec 834 §2)
+        run: npm run e2e:834-headless
+
+      - name: Trace-store resolution (Spec 834 §3)
+        run: npm run e2e:834-trace-store
+
+      - name: Scene reel project hint (Spec 834 §4)
+        run: npm run e2e:834-scene-reel
+
       # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
       # synthetic PRG with the bundled pipeline and seeds a temp project, and
       # the explorer gate reads the built bundle plus the two pure lib files.

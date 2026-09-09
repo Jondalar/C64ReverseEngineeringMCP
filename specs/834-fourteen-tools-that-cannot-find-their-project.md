@@ -1,8 +1,11 @@
 # Spec 834 — Fourteen tools that cannot find their project
 
-**Status:** PROPOSED 2026-09-09 — `sandbox_depack`, the fifteenth, is fixed here
-already because it was the one that also *lied*: it declared `project_dir` and
-resolved without it.
+**Status:** BUILT 2026-09-09 — `e2e:834-headless` 118/0, `e2e:834-trace-store`
+93/0, `e2e:834-scene-reel` 41/0, all three hermetic and in `gates.yml`;
+`KNOWN_HINTLESS` is **empty** and the portability rule has no exceptions left;
+every existing gate green. Three agents, one shape each. `sandbox_depack`, the
+fifteenth, was fixed when this spec was written because it was the one that also
+*lied*: it declared `project_dir` and resolved without it.
 **Origin:** Spec 833 D5 widened `e2e-mcp-path-portability` to walk nested
 schemas. It was hunting one tool and found fifteen.
 **Anchor:** the path-portability rule in the tool-matrix header · Spec 833 (the
@@ -136,6 +139,24 @@ Not folded in: it is a different caller with a different resolution (the UI
 server is started WITH its project and knows it), and mixing that into a batch
 about the MCP tool surface would hide it. It needs its own decision about where
 the UI's trace routes get their root — a question this spec does not ask.
+
+## 6c. Two things the build found that change the count
+
+**Two of the six were worse than §2 says.** `runtime_render_screen` and
+`runtime_recorder_dump` never called `resolveHeadlessProjectDir` at all — they
+resolved NO project. They appeared on the allowlist only because the portability
+gate's test is per FILE: one hintless `.projectDir(` anywhere in `headless.ts`
+marked every path-taking tool in it. Their real defect is worse than "the wrong
+project": the PNG landed against the **MCP process cwd**, and the dump path went
+raw to the **project-agnostic daemon**, which resolves it against its own cwd
+while serving several projects.
+
+**Fifteen was a floor, not a count.** `runtime_trace_start` is a sixteenth
+instance the gate could not see, because its path parameter is called `output`
+and the walk's name matcher did not know that word. It is fixed with `output` as
+its hint, and `PATH_NAME` now also knows `output`, `out`, `source`, `dest` and
+their kin — a name list is only as good as the names people chose, and the right
+moment to widen it is when a case walks in.
 
 ## 7. Not in this spec
 

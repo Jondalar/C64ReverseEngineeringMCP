@@ -16,7 +16,12 @@
 // matches a whole segment (`path`, `dir`, `file`) or one of the `_path` /
 // `_dir` / `_file` suffixes the surface actually uses, so `pathMode`-style
 // substrings and `profile` do not get swept in.
-const PATH_NAME = /^(.*_)?(path|paths|dir|dirs|directory|file|files|filename)$/i;
+// Spec 834 — `output` and `out` are here because `runtime_trace_start` is a
+// SIXTEENTH instance of the defect this walk exists to find, and the walk could
+// not see it: its path parameter is called `output`, which matched nothing. A
+// name list is only as good as the names people chose, so a parameter that IS a
+// path under another word is exactly the case worth adding when it turns up.
+const PATH_NAME = /^(.*_)?(path|paths|dir|dirs|directory|file|files|filename|output|out|outfile|source|src|dest|destination)$/i;
 
 export function isPathParamName(name) {
   return PATH_NAME.test(name);
