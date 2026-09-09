@@ -144,6 +144,15 @@ What is left is: write the fact down once, with its evidence, in a place where a
 query can find it and a re-analysis cannot quietly overwrite it. That is the
 whole idea.
 
+## Where these pages live
+
+This page is written and checked in the main repository under `docs/wiki/` and
+published into the wiki by hand. `npm run check:wiki` verifies both halves: that
+the source pages are correct — every spec reference exists, every tool named is
+a real tool, every example parses against the live parser — and that the
+published copy still matches them, read over git rather than over the raw CDN,
+which serves a stale page for minutes after a push.
+
 ## Related
 
 - Reference for the tools, producers and edge types: `docs/tools/knowledge-graph.md`

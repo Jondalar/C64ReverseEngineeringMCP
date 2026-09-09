@@ -2,6 +2,12 @@ Welcome to the C64ReverseEngineeringMCP wiki!
 
 We will collect small snippets and explanations of features here.
 
+These pages are written and checked in the main repository under `docs/wiki/`,
+then published here. `npm run check:wiki` proves the pages there are correct —
+every spec reference exists, every tool named is a real tool, every example
+parses — and also compares this published copy against them, so a page that was
+edited and never published is caught instead of quietly drifting.
+
 ## Pages
 
 - **[The Knowledge Graph](The-Knowledge-Graph)** — where a reverse-engineering
