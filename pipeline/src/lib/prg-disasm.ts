@@ -833,6 +833,57 @@ function buildAnnotatedSegments(segments: Segment[], annotations?: AnnotationsIn
 }
 
 /**
+ * The addresses a human NAMED: annotation routines and annotation labels.
+ *
+ * `buildAnnotationsIndex` folds a routine's name into `labelsByAddress` too, so
+ * the two keysets overlap — the union is the population that can mint a NAME,
+ * which is what both passes below care about. `report.entryPoints` is
+ * deliberately NOT in here: an entry point is a declaration of reachability,
+ * not of a name, and Spec 830's split set adds it separately.
+ */
+function collectAnnotatedAddresses(context: RenderAnalysisContext): Set<number> {
+  const named = new Set<number>();
+  for (const address of context.annotations?.routinesByAddress.keys() ?? []) named.add(address & 0xffff);
+  for (const address of context.annotations?.labelsByAddress.keys() ?? []) named.add(address & 0xffff);
+  return named;
+}
+
+/**
+ * Spec 832 D1 — a routine annotation CREATES its label; it does not only
+ * rename one that already existed.
+ *
+ * `makeLabel` answers from `annotations.labelsByAddress`, so an annotated
+ * routine's name is available at its address — but `makeLabel` is only ever
+ * consulted at addresses already in `context.labelSet`, and `labelSet` is built
+ * from segment starts and from what the analyser could REFERENCE. A routine the
+ * human named at an address nothing jumps to therefore had a name that nothing
+ * printed: measured on the reporting project, 22 of 39 annotation names reached
+ * the listing and 17 did not, while the header still said "Semantic annotations
+ * applied" and the graph showed all 24 routines.
+ *
+ * A human naming an address IS the declaration that the address matters — the
+ * same principle Spec 830 used for a declared entry. So every annotated address
+ * inside the rendered mapping joins `labelSet`, and the three shapes 830 already
+ * built take it from there:
+ *
+ *   - strictly inside an instruction's operand → `applyDeclaredEntrySplits`
+ *     splits the instruction into `.byte` and the entry gets its own line;
+ *   - inside a data segment → `emitByteRange` emits the interior label;
+ *   - outside the mapping → `renderExternalLabelEquates` writes an equate,
+ *     which is why the range check below is a range check and not a nod: the
+ *     address is elsewhere and must not look as if it were defined here.
+ *
+ * Nothing here emits a byte, so byte-identity is untouched by construction.
+ */
+function applyDeclaredLabelDefinitions(context: RenderAnalysisContext): void {
+  const { startAddress, endAddress } = context.report.mapping;
+  for (const address of collectAnnotatedAddresses(context)) {
+    if (address < startAddress || address > endAddress) continue;
+    context.labelSet.add(address);
+  }
+}
+
+/**
  * Spec 830 D1/D2 — a DECLARED entry point inside an operand splits its
  * instruction.
  *
@@ -860,10 +911,8 @@ function buildAnnotatedSegments(segments: Segment[], annotations?: AnnotationsIn
  * else mints a name.
  */
 function applyDeclaredEntrySplits(context: RenderAnalysisContext): void {
-  const declared = new Set<number>();
+  const declared = new Set<number>(collectAnnotatedAddresses(context));
   for (const entry of context.report.entryPoints ?? []) declared.add(entry.address & 0xffff);
-  for (const address of context.annotations?.routinesByAddress.keys() ?? []) declared.add(address & 0xffff);
-  for (const address of context.annotations?.labelsByAddress.keys() ?? []) declared.add(address & 0xffff);
 
   for (const address of declared) {
     const owner = context.instructionOwnerByAddress.get(address);
@@ -2912,6 +2961,8 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     // Spec 830 D1 — after the annotations are in, because a routine annotation
     // is one of the three things that can DECLARE an entry.
     applyDeclaredEntrySplits(analysisContext);
+    // Spec 832 D1 — and a named address is a labelled address, split or not.
+    applyDeclaredLabelDefinitions(analysisContext);
   }
 
   const packerHints = analysisReport?.packerHints ?? [];
