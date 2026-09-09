@@ -64,9 +64,21 @@ export function resolveDaemonSpawn(opts: {
   // 2) the sibling release daemon — the default and only runtime. Path overridable via
   //    `C64RE_TRX64_BIN` (on Windows the .exe suffix is added / accepted automatically).
   const winExe = process.platform === "win32" ? ".exe" : "";
+  // Spec 836 — a git WORKTREE is not beside the sibling. `repoRoot/..` resolves
+  // to `.claude/worktrees/` for an agent working in one, so the daemon looked
+  // like it was not installed and every gate that needs it skipped "loudly"
+  // while being wrong. The main checkout is two levels up from a worktree
+  // (`<repo>/.claude/worktrees/<name>`), so that candidate is tried too. Found
+  // by an agent whose live half was skipping for a runtime that was right
+  // there.
+  const siblingFrom = (root: string) => resolvePath(root, "..", "TRX64", "target", "release", `trx64-daemon${winExe}`);
+  const worktreeMain = /[/\\]\.claude[/\\]worktrees[/\\][^/\\]+$/.test(repoRoot)
+    ? resolvePath(repoRoot, "..", "..", "..")
+    : undefined;
   let trx64 =
     process.env.C64RE_TRX64_BIN?.trim() ||
-    resolvePath(repoRoot, "..", "TRX64", "target", "release", `trx64-daemon${winExe}`);
+    [siblingFrom(repoRoot), ...(worktreeMain ? [siblingFrom(worktreeMain)] : [])].find((p) => existsSync(p)) ||
+    siblingFrom(repoRoot);
   // Accept an explicit C64RE_TRX64_BIN given without the .exe suffix on Windows.
   if (winExe && !existsSync(trx64) && existsSync(trx64 + winExe)) trx64 += winExe;
   if (existsSync(trx64)) {
