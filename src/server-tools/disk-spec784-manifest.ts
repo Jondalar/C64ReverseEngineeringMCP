@@ -48,7 +48,10 @@ export function buildDiskSpec784Manifest(
       name,
       derivedBy: file.origin === "custom" ? CUSTOM_LUT_MODEL : KERNAL_DIRECTORY_MODEL,
       loadAddress: file.loadAddress ?? null,
-      format: file.type === "PRG" ? "prg" : "raw",
+      // Spec 832 D2 — the extractor's own verdict, not the directory's type byte:
+      // a PRG-typed entry whose first two bytes cannot be a load address is raw
+      // bytes, and this manifest must not claim otherwise either.
+      format: file.format ?? (file.type === "PRG" && file.loadAddress !== undefined ? "prg" : "raw"),
       contentHash: file.md5 ?? null,
       length: file.sizeBytes,
       bytesPath: relative(projectRoot, join(extracted.outputDir, file.relativePath)),

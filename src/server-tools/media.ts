@@ -247,6 +247,8 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
             const knowledgeService = new ProjectKnowledgeService(pd);
             const imported = knowledgeService.importManifestArtifact(knowledgeRegistration.outputArtifacts[0]);
             lines.push("", `Imported manifest knowledge: ${imported.importedEntityCount} entities, ${imported.importedFindingCount} findings, ${imported.importedRelationCount} relations`);
+            // Spec 832 D2 (b): a row the importer refused is reported, not swallowed.
+            for (const row of imported.skippedRows) lines.push(`  skipped row #${row.index} "${row.name}": ${row.reason}`);
             // Spec 752 L2 — register each extracted file as its own artifact +
             // relink the entity (so it is a real, analysable non-internal
             // payload), then auto-disasm + analyse every extracted payload.
@@ -344,6 +346,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
           const knowledgeService = new ProjectKnowledgeService(pd);
           const imported = knowledgeService.importManifestArtifact(reg.outputArtifacts[0]);
           lines.push(`Imported manifest knowledge: ${imported.importedEntityCount} entities, ${imported.importedFindingCount} findings, ${imported.importedRelationCount} relations`);
+          for (const row of imported.skippedRows) lines.push(`  skipped row #${row.index} "${row.name}": ${row.reason}`);
           linkExtractedPayloadFiles(pd, reg.outputArtifacts[0]);
           try {
             const chain = await autoAnalyzeExtractedPayloads(pd, imported.importedPayloadEntityIds, { mode: "quick" });

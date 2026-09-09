@@ -8,7 +8,13 @@ export interface DiskFileEntry {
   size: number;
   track: number;
   sector: number;
+  /** Set ONLY when the file's first two bytes can actually be a load address for a
+   *  file of this length — see `loadAddressRejection`. Absent means "not asserted",
+   *  not "zero". */
   loadAddress?: number;
+  /** Why `loadAddress` is absent although the entry is a PRG: the first two bytes
+   *  and the reason they cannot be an address. Spec 832 D2. */
+  loadAddressNote?: string;
 }
 
 export interface DiskDirectory {
@@ -68,6 +74,57 @@ export function extractFilename(bytes: Uint8Array): string {
     name += petToAscii(bytes[i]);
   }
   return name.trim();
+}
+
+// Spec 832 D2 — a load address is a HYPOTHESIS about two bytes, not a fact about
+// the file. Ultima VI's data files are records that begin $FF,<record id>, so
+// reading them as a little-endian address produced $01FF…$CAFF for t001…t202 —
+// the record header announced as an address, and with it an end < start range the
+// knowledge graph rejects outright.
+//
+// This predicate does not guess what IS an address; it names what CANNOT be one,
+// from what the bytes and the machine can support. Everything it cannot disprove
+// stays a load address — a whitelist of "known good" addresses would be exactly
+// the invention this defect is about.
+export const MIN_C64_LOAD_ADDRESS = 0x0200;
+export const TOP_OF_C64_MEMORY = 0xffff;
+
+/**
+ * Why the first two bytes of `totalBytes`-long CBM file cannot be its load
+ * address — `undefined` when nothing rules them out.
+ *
+ * @param load       the little-endian value of the first two bytes
+ * @param totalBytes the whole extracted file, header bytes included
+ */
+export function loadAddressRejection(load: number, totalBytes: number): string | undefined {
+  // (1) There must be something to load. Two bytes are a header and nothing else;
+  //     an address for zero bytes of payload places nothing anywhere, and the
+  //     range it produces (start..start-1) is empty by construction.
+  const body = totalBytes - 2;
+  if (body < 1) {
+    return "the file is only the two bytes themselves — no payload to place at any address";
+  }
+  // (2) The load must fit under the top of memory. The KERNAL LOAD stores through
+  //     ($AE) upward one byte at a time and ends at $FFFF; there is no wrap. A file
+  //     whose body would run past the top of the address space was never loaded
+  //     there — and this is the condition the record files fail hardest, because
+  //     $CAFF plus a multi-kilobyte record wraps and yields end < start.
+  if (load + body - 1 > TOP_OF_C64_MEMORY) {
+    return `$${hex4(load)} + ${body} bytes runs past $FFFF — a load cannot wrap the address space`;
+  }
+  // (3) Nothing below $0200 is a load target. Zero page holds LOAD's own working
+  //     pointers ($AE/$AF is the store pointer it walks, $C3/$C4 the requested
+  //     address) and $0000/$0001 is the CPU's port register, not RAM to fill; the
+  //     stack page holds the return chain the routine itself needs. A file landing
+  //     there would destroy the routine loading it, so no CBM file claims it.
+  if (load < MIN_C64_LOAD_ADDRESS) {
+    return `$${hex4(load)} is in the zero page / stack page — LOAD's own pointers and return chain live there`;
+  }
+  return undefined;
+}
+
+function hex4(value: number): string {
+  return value.toString(16).toUpperCase().padStart(4, "0");
 }
 
 export function getFileType(typeByte: number): DiskFileEntry["type"] {
@@ -209,7 +266,21 @@ export function extractFileFromChain(
   }
 
   if (entry.type === "PRG" && result.length >= 2) {
-    entry.loadAddress = result[0] | (result[1] << 8);
+    // Spec 832 D2: record the address only when these two bytes can BE one. A
+    // record file keeps its bytes and says so in loadAddressNote; the caller sees
+    // "no load address", which is the honest answer, instead of $CAFF.
+    const load = result[0] | (result[1] << 8);
+    const rejection = loadAddressRejection(load, result.length);
+    if (rejection === undefined) {
+      entry.loadAddress = load;
+      entry.loadAddressNote = undefined;
+    } else {
+      entry.loadAddress = undefined;
+      entry.loadAddressNote = `first two bytes $${hex4(load)} are not a load address: ${rejection}`;
+    }
+    // `stripLoadAddress` stays the CALLER's assertion ("drop the PRG header for
+    // me"), not ours — it is unchanged by the verdict above, so no existing
+    // caller silently gets different bytes out of this function.
     if (stripLoadAddress) {
       return result.slice(2);
     }

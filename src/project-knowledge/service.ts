@@ -8,7 +8,7 @@ import { KnowledgeRecords } from "../knowledge-graph/records.js";
 import { ensureCutover } from "../knowledge-graph/cutover.js";
 import { importAnnotationFile, type LegacyInput } from "../knowledge-graph/migrate/migrate.js";
 import { normStem } from "../knowledge-graph/migrate/classify.js";
-import { importManifestKnowledge } from "./manifest-import.js";
+import { describeManifestAttempts, importManifestKnowledge, readManifestKnowledge, type ManifestSkippedRow } from "./manifest-import.js";
 import { isHeuristicQuestion } from "./question-triage.js";
 import { buildAnnotatedListingView, buildCartridgeLayoutView, buildDiskLayoutView, buildFlowGraphView, buildLoadSequenceView, buildMediumLayoutView, buildMemoryMapView, buildProjectDashboardView } from "./view-builders.js";
 import { ProjectKnowledgeStorage, defaultProjectSlug } from "./storage.js";
@@ -750,6 +750,11 @@ export interface ManifestImportResult {
   /** Spec 752 — ids of the imported payload entities (disk-file / cart-chunk /
    *  payload), so the L2 auto-chain can disasm+analyse each extracted PRG. */
   importedPayloadEntityIds: string[];
+  /** Spec 832 D3 — which manifest schema actually read the file. */
+  schema: string;
+  /** Spec 832 D2 (b) — rows that could not be asserted. One bad row costs itself,
+   *  never the rest of the import, and it is reported here rather than dropped. */
+  skippedRows: ManifestSkippedRow[];
 }
 
 export interface BuildAllViewsResult {
@@ -4043,9 +4048,15 @@ export class ProjectKnowledgeService {
     if (!artifact) {
       throw new Error(`Unknown artifact id: ${artifactId}`);
     }
-    const imported = importManifestKnowledge(artifact);
+    // Spec 832 D3 — the CONTENT decides. The role only orders the attempts; a
+    // refusal names every schema the file was tried against, so the caller learns
+    // which shape was expected instead of "not a supported manifest".
+    const read = readManifestKnowledge(artifact);
+    const imported = read.knowledge;
     if (!imported) {
-      throw new Error(`Artifact is not a readable supported manifest: ${artifact.path}`);
+      throw new Error(
+        `No manifest schema reads ${artifact.path}. Tried:\n${describeManifestAttempts(read.attempts)}`,
+      );
     }
     // Spec 822.2 — generated / imported layer through the graph importer (D2 purge by artifact).
     const now = nowIso();
@@ -4074,6 +4085,8 @@ export class ProjectKnowledgeService {
         `${imported.entities.length} entities`,
         `${imported.findings.length} findings`,
         `${imported.relations.length} relations`,
+        // Spec 832 D2 (b): a skipped row is part of the record, not a silence.
+        ...(imported.skipped.length > 0 ? [`${imported.skipped.length} rows skipped (${imported.skipped.map((row) => `#${row.index} ${row.name}: ${row.reason}`).join("; ")})`] : []),
       ].join(" / "),
     });
     // Spec 752 — payload entities (those carrying a source artifact + load
@@ -4089,6 +4102,8 @@ export class ProjectKnowledgeService {
       importedFindingCount: imported.findings.length,
       importedRelationCount: imported.relations.length,
       importedPayloadEntityIds,
+      schema: imported.schema,
+      skippedRows: imported.skipped,
     };
   }
 
