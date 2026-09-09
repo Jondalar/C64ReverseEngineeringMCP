@@ -1727,7 +1727,18 @@ export class ProjectKnowledgeService {
   declareLoaderEntryPoint(input: Omit<LoaderEntryPoint, "id" | "createdAt" | "updatedAt"> & { id?: string }): LoaderEntryPoint {
     const store = this.storage.loadLoaderEntryPoints();
     const timestamp = nowIso();
-    const id = input.id ?? createId("loader-ep", `${input.artifactId}-${input.address.toString(16)}`);
+    // Spec 832 D6 — an id identifies; it does not describe. The address used to
+    // be baked into this slug, so correcting a typo'd address ($3E73 for $3E83)
+    // updated the field and left the id asserting the old one for ever. New ids
+    // are derived from the artifact plus a per-artifact ordinal: a stable
+    // discriminator that says nothing about the record's contents, so no later
+    // field edit can make the id lie. Two entry points on one artifact still get
+    // distinct ids (different ordinal, and createId's stamp+random on top).
+    // Ids that already exist are NEVER rewritten — an explicit `input.id` is
+    // honoured verbatim and a matched record keeps `existing.id` below, because
+    // rewriting an id breaks every stored reference to it.
+    const ordinal = store.items.filter((item) => item.artifactId === input.artifactId).length + 1;
+    const id = input.id ?? createId("loader-ep", `${input.artifactId}-${ordinal}`);
     const existing = store.items.find((item) => item.id === id)
       ?? store.items.find((item) => item.artifactId === input.artifactId && item.address === input.address && item.kind === input.kind);
     const entry: LoaderEntryPoint = {
