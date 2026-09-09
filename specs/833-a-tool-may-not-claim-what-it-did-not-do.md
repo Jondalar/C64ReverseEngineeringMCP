@@ -122,14 +122,55 @@ path-taking tools resolve through the project resolver, never the process cwd.
 **Decision, two parts.** (a) The tool takes an optional `project_dir` like every
 other, and in its absence takes the hint from the first path in `loads[]` —
 which it already resolves against the project root, so the information was there
-all along. (b) `scripts/e2e-mcp-path-portability.mjs` did not catch this because
+all along. A `loads[]` made only of `hex_bytes` carries no path, and the spec had
+no answer for it; the build's answer is better than the one it would have got.
+Such a run needs no project AT ALL — every byte is inline, and a root is only
+ever used to resolve a RELATIVE path — so the root is now resolved on first use
+and memoised, not up front. A fully inline run never asks for one and no longer
+fails outside a project for a filesystem it never touches. Resolving eagerly
+would have left that one shape permanently cwd-coupled with no way to fix it by
+passing a hint. (b) `scripts/e2e-mcp-path-portability.mjs` did not catch this because
 the paths are NESTED (`loads[].prg_path`) rather than top-level. The gate walks
 nested schemas from now on; a rule that only sees the top level is a rule with a
 hole in it, and this is the second finding on this one tool — the other being
 that it is in the default surface at all (`e2e-mcp-project-inventory` 4c, red
 before this spec and out of scope here).
 
-## 5b. A working fact about the agents, learned twice
+### 5a. What the widened gate found — the hole is 15 tools wide
+
+§5 presented D5 as one tool and one gate hole. Measured once the gate could see
+nested schemas: of 70 default tools that take a path, **15 hand the resolver no
+hint at all.**
+
+| file | tools | shape |
+|---|---|---|
+| `server-tools/headless.ts` | `runtime_session_start`, `runtime_loader_lens`, `runtime_load_prg`, `runtime_run_prg`, `runtime_render_screen`, `runtime_recorder_dump` | `resolveHeadlessProjectDir(context)` — hintless at every call site, each try/caught, so the miss is silent. `prg_path` / `media_path` sit unused. |
+| `server-tools/trace-store.ts` | the seven `trace_store_*` / `trace_memory_map` readers | a relative store path resolved against `proj ?? process.cwd()` — an explicit, commented cwd fallback |
+| `server-tools/scene-reel.ts` | `runtime_scene_reel` | `context.projectDir()`, hintless and NOT caught — the closest twin to D5 |
+| `server-tools/sandbox-depack.ts` | `sandbox_depack` | **declares `project_dir` and resolves with `ctx.projectDir(undefined, true)`** — the parameter a caller passes is read by nobody |
+
+None were fixed here, on purpose: the brief was to find them, not to widen a
+defect batch into a sweep. The gate freezes them in a `KNOWN_HINTLESS`
+allowlist, so the hole can shrink and cannot grow.
+
+`sandbox_depack` deserves naming twice. It advertises a parameter and ignores
+it, which is this spec's own title in one line, in the file next door to the
+one D5 fixes. §8 excludes it only on the *tier* question — its ignored
+parameter is covered by nothing, and that is an omission in this spec rather
+than a decision.
+
+Two more things the build turned up, neither fixed:
+
+- **`pathMode` in the tool matrix is a hand-kept name list**, not derived:
+  `PATH_TOOLS` in `gen-mcp-tool-usecase-matrix.mjs` holds 24 names against 70
+  real path-taking default tools, so `sandbox_6502_run` still reads `no-path`
+  there. The live schema walk in the gate now supersedes that list as the source
+  of truth; correcting the generated matrix would churn ~46 rows and belongs
+  with whoever decides about the 15.
+- `docs/tools/sandbox.md` opened by pointing at `src/sandbox/cpu6502.ts`, which
+  no longer exists — the TypeScript shadow went when the real core landed.
+
+### 5b. A working fact about the agents, learned twice
 
 An agent given `isolation: "worktree"` is based on **master**, not on the
 branch the parent is working in. Both 832 and 833 were written on a branch and
