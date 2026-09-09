@@ -48,11 +48,44 @@ rule it now breaks, and after Spec 827 a trace store lives OUTSIDE the project
 under a per-user data root, so resolving one against the cwd is answering a
 question nobody is asking any more.
 
+**Corrected by the build: for this family the hint is nearly a formality, and
+the spec implied otherwise.** An ABSOLUTE store path needs no project at all —
+a capture under the 827 per-user root has no project marker above it to walk up
+to anyway. A RELATIVE one handed to `resolveProjectDir` is equivalent to
+hintless, because the search start is resolved against the cwd before the walk
+begins. `project_dir ?? path` is implemented as D1 says and satisfies the
+portability rule, but the load-bearing fix is the CANDIDATE SEARCH:
+`<project>/<input>`, then `traceDirForProject(project)/<input>`, then the 827
+pointer file at `<project>/runtime/traces.json` — newest first, matched on file
+name, trailing segment or `runId` — each candidate PROBED rather than composed,
+so a relative path finds a real store instead of a plausible one.
+
+Neither the pointer file nor the computed directory is sufficient alone, which
+is why both are in the chain. `traceDirForProject` is computed from the CURRENT
+`C64RE_TRACE_DIR`, so a capture written while that pointed elsewhere is
+invisible to it and only the pointer can answer; and the pointer is append-only
+and soft-fail by 827's own design, so a capture whose pointer write failed is
+found only by the computed directory.
+
 ## 4. `runtime_scene_reel` — the closest twin, and uncaught
 
 `context.projectDir()` in `src/server-tools/scene-reel.ts`, hintless and NOT in
 a try/catch, with `feature_path`, `out_path` and `media_path` right there. It
 fails outright outside a project, which at least is loud.
+
+Corrected by the build: unlike `sandbox_depack`, which declared `project_dir`
+and ignored it, this tool **declared none at all** — it never offered a caller
+any way to say where they were. D1's "not a new parameter where one exists" does
+not cover that case; here one had to be added. Its hint order is
+`feature_path → media_path → out_path`, and the reasoning is worth keeping: the
+first two are INPUTS that already exist, and the feature file is the anchor the
+tool already trusts (`resolveMedium` looks beside it before it looks in the
+project). `out_path` is an OUTPUT that need not exist yet and whose own contract
+is "relative to the project dir", so deriving that project dir from it is
+circular — it is in the list only because it is the one REQUIRED argument, which
+is what makes the hint never `undefined`. The resolution also moved BELOW the
+argument guards, so a call missing its scenario is told that, instead of being
+told about a project it never reached.
 
 ## 5. `sandbox_depack` — fixed in this spec
 
@@ -90,6 +123,20 @@ one of them is normal.
 fourteen are done, `KNOWN_HINTLESS` is `new Set()` and the gate's rule becomes
 unconditional. An allowlist that never empties is a rule nobody believes.
 
+## 6b. A second cwd fallback, one level down — found, NOT fixed
+
+`absStorePath()` in `src/server-tools/trace-read.ts` resolves a relative store
+path against `process.env.C64RE_PROJECT_DIR ?? process.cwd()`. It is dead for
+MCP callers once §3 lands — they now always hand it an absolute path — but the
+**workspace-UI REST endpoints reach `traceRead` directly**
+(`src/workspace-ui/server.ts:439`), so the same defect survives on the UI's side
+of the same store.
+
+Not folded in: it is a different caller with a different resolution (the UI
+server is started WITH its project and knows it), and mixing that into a batch
+about the MCP tool surface would hide it. It needs its own decision about where
+the UI's trace routes get their root — a question this spec does not ask.
+
 ## 7. Not in this spec
 
 - Whether `sandbox_6502_run` and `sandbox_depack` belong in `DEFAULT_TOOLS` at
@@ -100,15 +147,21 @@ unconditional. An allowlist that never empties is a rule nobody believes.
   schema walk already supersedes it as the source of truth; regenerating the
   matrix is a separate, mechanical change and would churn a generated file.
 
-## 8. Gate
+## 8. Gates
 
-`e2e:834-hints` — for each of the fourteen: the tool resolves from an explicit
-`project_dir`; resolves from its own path argument when that is absent; and does
-neither from `C64RE_PROJECT_DIR` nor from the process cwd (both removed in the
-child). Plus: `KNOWN_HINTLESS` is empty and the portability rule has no
-exceptions left.
+One per shape, not one for all fourteen as first written — they fail
+differently, they were built in parallel, and a shared gate file would have been
+three agents editing one script. `e2e:834-headless`, `e2e:834-trace-store`,
+`e2e:834-scene-reel`: for each tool, resolution from an explicit `project_dir`;
+resolution from its own path argument when that is absent; and from neither
+`C64RE_PROJECT_DIR` nor the process cwd, both removed in the child. Plus, once
+all three land: `KNOWN_HINTLESS` is empty and the rule has no exceptions.
+
+`KNOWN_HINTLESS` is FILE-granular, not per-tool — the portability gate flags a
+tool when its FILE contains a hintless `.projectDir(` call — so the list empties
+in steps of a whole file, and only after the last of the three is clean.
 
 ## 9. Acceptance
 
-`e2e:834-hints` green and in `gates.yml`; `e2e-mcp-path-portability` green with
+the three gates green and in `gates.yml`; `e2e-mcp-path-portability` green with
 an empty allowlist; every existing gate still green.
