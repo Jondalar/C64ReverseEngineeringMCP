@@ -279,7 +279,16 @@ runtime_scene_reel
   out_path     = brubaker.gif
   media_path   = /path/to/27_Golden_Disk_64_03_1992_s1.d64   # optional: resolves the Given ONLY
   delay_ms     = 900                                          # optional, default 700
+  project_dir  = /path/to/project                             # optional, see below
 ```
+
+The relative paths above are relative to the project dir, and `project_dir` says
+which one. Omit it and the project is found by walking up from `feature_path` —
+else `media_path`, else `out_path` — to `knowledge/phase-plan.json` (Spec 834 §4).
+The first two already exist; `out_path` is the file this call is about to write,
+so it comes last and only stands in when the scenario was passed inline with no
+medium. If nothing on that list is inside a project, the call says so instead of
+picking one for you.
 
 Output:
 

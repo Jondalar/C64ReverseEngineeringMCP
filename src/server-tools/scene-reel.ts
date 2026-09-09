@@ -47,6 +47,10 @@ export function registerSceneReelTool(server: McpServer, context: ServerToolCont
     "runtime_scene_reel",
     "Run a written capture scenario on a private throwaway machine and assemble an animated release reel (animated GIF: GIF89a, 384x272 including border, hard cuts, uniform delay, <=512000 bytes). Use it when a release, a crack or a trainer needs documentation screenshots in playthrough order — title, menu, in-game — produced the same way twice. The scenario is Gherkin, the same notation and the same .feature files as scenario goals: `Given the disk \"x.g64\"`, then `When I wait 170 frames` / `And I type \"LOAD{QUOTE}*{QUOTE},8,1{RETURN}\"` / `And I hold joystick 2 down for 3 frames` / `And I wait until the drive is idle within 8000 frames` / `And I capture \"title\"`, then `Then the reel has at least 5 screens`. Every step that lasts states its own duration, and the machine is stopped between steps, so the same text replays to the same bytes. Frames come straight from the video chip's 16-colour indices, so nothing is re-quantized. Not for driving the session you are debugging in, and not for one picture of the machine you are already looking at — use runtime_render_screen instead. Inputs: feature (text) or feature_path, out_path. Returns: the reel's path, frame count, byte size, and the cycle each capture landed on.",
     {
+      project_dir: z
+        .string()
+        .optional()
+        .describe("Project root directory. When omitted, resolved by walking up from feature_path — else media_path, else out_path — to knowledge/phase-plan.json."),
       feature: z
         .string()
         .optional()
@@ -83,14 +87,42 @@ export function registerSceneReelTool(server: McpServer, context: ServerToolCont
     },
     safeHandler("runtime_scene_reel", async (args) => {
       const {
-        feature, feature_path, scenario: wanted, out_path, media_path,
+        project_dir, feature, feature_path, scenario: wanted, out_path, media_path,
         delay_ms, max_bytes, save_feature_to, budget_seconds,
       } = args;
-      const projectDir = context.projectDir();
-      const abs = (p: string): string => (isAbsolute(p) ? p : resolvePath(projectDir, p));
 
       if (!feature && !feature_path) return text("runtime_scene_reel: give `feature` (the Gherkin text) or `feature_path`.");
       if (feature && feature_path) return text("runtime_scene_reel: give `feature` OR `feature_path`, not both.");
+
+      // Spec 834 §4/D1 — the project hint. This resolved with `context.projectDir()`,
+      // no hint at all, while three usable paths sat in the arguments: the resolver
+      // then had nothing to walk up from and fell back to C64RE_PROJECT_DIR or to the
+      // process cwd happening to sit inside a project — the cwd coupling no DEFAULT
+      // tool may have. Outside a project it failed outright, which is loud but still
+      // wrong: the caller had already said where they were.
+      //
+      // The order is by what each path IS, not by where it sits in the schema:
+      //   feature_path  — an INPUT that must already exist (the handler refuses a
+      //                   missing one two lines down), and the anchor this tool
+      //                   already trusts: `resolveMedium` looks beside the feature
+      //                   file before it looks in the project dir. The scenario is
+      //                   the document the run belongs to, so it names the project.
+      //   media_path    — also an existing INPUT, the medium the run starts from.
+      //                   Second because a feature may be passed inline, and then
+      //                   this is the only path that points at something real.
+      //   out_path      — last, and only because it is the one argument that is
+      //                   always present. It is an OUTPUT: it need not exist yet,
+      //                   nor need its directory, so walking up from it climbs
+      //                   through directories nobody has created; and its own
+      //                   contract is "absolute, or relative to the project dir",
+      //                   which makes deriving that same project dir from a
+      //                   relative one circular. It covers exactly one shape —
+      //                   an inline feature with no media_path — and there it
+      //                   still beats no hint at all.
+      // Since `out_path` is required, the hint is never `undefined`: the defect's
+      // own signature cannot come back through this call.
+      const projectDir = context.projectDir(project_dir ?? feature_path ?? media_path ?? out_path);
+      const abs = (p: string): string => (isAbsolute(p) ? p : resolvePath(projectDir, p));
 
       let source: string;
       let sourceFile: string | undefined;
