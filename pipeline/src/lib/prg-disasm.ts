@@ -2551,10 +2551,76 @@ function renderWithAnalysis(prg: PrgImage, analysis: RenderAnalysisContext, line
   }
 }
 
-function renderLegacy(prg: PrgImage, entryPoints: number[], lines: string[]): void {
+/**
+ * Spec 833 D1(b) — the legacy path gets the names.
+ *
+ * Without an analysis JSON there is no `RenderAnalysisContext`, so none of the
+ * machinery Spec 832 D1 used exists here: no `labelSet`, no
+ * `instructionOwnerByAddress`, no equate backstop. What DOES exist is the same
+ * declaration — a human naming an address is the statement that the address
+ * matters — and the linear decode already knows where every instruction starts.
+ * That is enough, and it is all this needs:
+ *
+ *   - an annotated address that IS an instruction start joins `labels`, so the
+ *     line loop prints `name:` there;
+ *   - an annotated address strictly INSIDE an instruction joins `labels` too,
+ *     but its definition is an equate — the legacy twin of
+ *     `renderAddressAliasLabels`, because the line loop only labels instruction
+ *     starts and the linear decode cannot be split the way Spec 830 splits the
+ *     analysed one. Being in `labels` is what makes the reference come out as
+ *     `jsr entry_b` rather than `jsr W081A+1`: a declared address wins over the
+ *     owner+offset form, exactly as a declared entry does on the analysis path.
+ *     An UNdeclared mid-instruction target keeps `<owner>+<offset>`, which is
+ *     the self-mod shape Spec 830 D2 protects;
+ *   - an annotated address OUTSIDE this image is skipped entirely — the same
+ *     range check `applyDeclaredLabelDefinitions` makes, for the same reason:
+ *     the address is elsewhere and must not look as if it were defined here.
+ *
+ * Nothing here emits a byte. Labels and equates are symbolic, and the operand
+ * width still comes from the decoded fact (`requiresExactWidthRendering`), not
+ * from the expression, so byte-identity holds by construction.
+ */
+function declareAnnotatedLegacyLabels(
+  annotations: AnnotationsIndex | undefined,
+  prg: PrgImage,
+  index: InstructionIndex,
+  labels: Set<number>,
+): string[] {
+  if (!annotations) return [];
+  const first = prg.loadAddress;
+  const last = prg.loadAddress + prg.data.length - 1;
+  // the same population as `collectAnnotatedAddresses`: a routine whose name
+  // lost the BUG-033 collision keeps its auto-label, and it is still a declared
+  // address, so it is still labelled here.
+  const declared = new Set<number>();
+  for (const address of annotations.labelsByAddress.keys()) declared.add(address & 0xffff);
+  for (const address of annotations.routinesByAddress.keys()) declared.add(address & 0xffff);
+
+  const aliases: number[] = [];
+  for (const address of [...declared].sort((left, right) => left - right)) {
+    if (address < first || address > last) continue;
+    labels.add(address);
+    if (!index.byAddress.has(address)) aliases.push(address);
+  }
+  if (aliases.length === 0) return [];
+
+  const lines = ["// Address aliases for annotated addresses that fall inside an instruction"];
+  for (const address of aliases) lines.push(`      .label ${makeLabel(address)} = ${formatAddress(address)}`);
+  lines.push("");
+  return lines;
+}
+
+function renderLegacy(
+  prg: PrgImage,
+  entryPoints: number[],
+  lines: string[],
+  annotations?: AnnotationsIndex,
+): void {
   const instructions = decodeLinear(prg.loadAddress, prg.data);
   const index = buildInstructionIndex(instructions);
   const labels = collectLabels(instructions, index, entryPoints);
+  // before the xrefs, so an annotated address collects the references to it
+  lines.push(...declareAnnotatedLegacyLabels(annotations, prg, index, labels));
   const xrefs = collectCrossReferences(instructions, labels, index);
   const ownerByAddress = new Map<number, number>();
   for (const instruction of instructions) {
@@ -2918,6 +2984,83 @@ function renderWithAnalysisAndRelocations(prg: PrgImage, analysis: RenderAnalysi
   }
 }
 
+/**
+ * Spec 833 D1(a) — the header says what HAPPENED to the annotations.
+ *
+ * `annotationsFile ? "Semantic annotations applied" : …` asserted a rendering
+ * result from the existence of a file, and for the whole life of the legacy
+ * path that assertion was false: the index was built only when there was also
+ * an analysis context, so the file was found, nothing was indexed, and the
+ * listing carried 1 250 `W`-labels under a line saying the names were in.
+ *
+ * A tool may not claim what it did not do, so the three outcomes are three
+ * different lines, and the not-applied one carries the reason in the line a
+ * human is already reading rather than in a doc they would have to go find.
+ * The two prefixes are stable text: `disasm_prg` quotes this line back as the
+ * listing's own verdict (D3).
+ */
+type AnnotationRenderMode = "analysis" | "legacy" | "relocation";
+
+function countAnnotations(index: AnnotationsIndex): { names: number; structural: number } {
+  return {
+    names: index.labelsByAddress.size,
+    structural: index.segmentAnnotations.length + index.pointerTables.length
+      + index.jumpTables.length + index.immediatesByAddress.size,
+  };
+}
+
+function annotationHeaderLine(index: AnnotationsIndex | undefined, mode: AnnotationRenderMode): string {
+  if (!index) return "//  No semantic annotations found";
+  const { names, structural } = countAnnotations(index);
+  const skipped = index.skipped.length > 0 ? `, ${index.skipped.length} skipped` : "";
+  const notApplied = (reason: string): string => `//  Semantic annotations found but NOT applied: ${reason}${skipped}`;
+
+  if (mode === "relocation") {
+    return notApplied("relocation rendering without an analysis JSON — pass analysis_json to apply them");
+  }
+  if (mode === "analysis") {
+    if (names === 0 && structural === 0) return notApplied("the file declares no names and no segment/table annotations");
+    return `//  Semantic annotations applied: ${names} names, ${structural} segment/table annotations${skipped}`;
+  }
+  // legacy: names apply (D1b), the structural half needs the analyser's segments
+  if (names === 0) {
+    return notApplied(
+      structural > 0
+        ? `the file declares no names, and its ${structural} segment/table annotations need an analysis JSON`
+        : "the file declares no names and no segment/table annotations",
+    );
+  }
+  const rest = structural > 0
+    ? ` — the file's ${structural} segment/table annotations need an analysis JSON and were NOT applied`
+    : "";
+  return `//  Semantic annotations applied: ${names} names${skipped}${rest}`;
+}
+
+/**
+ * GAP 3 — make tolerant-skip visible: one ordered summary of what applied vs
+ * what was dropped (a mistyped field key like `addr`/`name` drops the entry
+ * silently otherwise). Goes to the pipeline stdout the `disasm_prg` tool
+ * returns. Spec 833 D1: it now runs on the legacy path too, and counts what
+ * that path actually applies.
+ */
+function reportAnnotationApplication(index: AnnotationsIndex, mode: AnnotationRenderMode): void {
+  const { names, structural } = countAnnotations(index);
+  const applied = mode === "analysis"
+    ? names + structural + index.routinesByAddress.size
+    : mode === "legacy" ? names : 0;
+  const note = mode === "legacy" && structural > 0
+    ? " — segment/table annotations need an analysis JSON"
+    : mode === "relocation" ? " — relocation rendering without an analysis JSON applies none" : "";
+  if (index.skipped.length > 0) {
+    console.log(`[annotations] applied ${applied}, skipped ${index.skipped.length}${note}:`);
+    for (const s of index.skipped) {
+      console.log(`  - ${s.section}: ${s.reason}${s.hint ? ` — ${s.hint}` : ""}`);
+    }
+  } else {
+    console.log(`[annotations] applied ${applied}, skipped 0${note}`);
+  }
+}
+
 export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, options: PrgDisasmOptions = {}): void {
   // Spec 048: set per-render platform override. Default c64.
   activePlatform = options.platform ?? "c64";
@@ -2931,25 +3074,21 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   const annotationsFile = loadAnnotations(resolvedPrgPath)
     ?? (outputPath ? loadAnnotations(resolve(outputPath)) : undefined)
     ?? (options.analysisPath ? loadAnnotations(resolve(options.analysisPath)) : undefined);
-  if (annotationsFile && analysisContext) {
-    const idx = buildAnnotationsIndex(annotationsFile);
-    analysisContext.annotations = idx;
-    // GAP 3 — make tolerant-skip visible: one ordered summary of what applied vs what
-    // was dropped (a mistyped field key like `addr`/`name` drops the entry silently
-    // otherwise). Goes to the pipeline stdout the disasm_prg tool returns.
-    const applied = idx.labelsByAddress.size + idx.segmentAnnotations.length + idx.routinesByAddress.size
-      + idx.pointerTables.length + idx.jumpTables.length + idx.immediatesByAddress.size;
-    if (idx.skipped.length > 0) {
-      console.log(`[annotations] applied ${applied}, skipped ${idx.skipped.length}:`);
-      for (const s of idx.skipped) {
-        console.log(`  - ${s.section}: ${s.reason}${s.hint ? ` — ${s.hint}` : ""}`);
-      }
-    } else {
-      console.log(`[annotations] applied ${applied}, skipped 0`);
-    }
+  // Spec 833 D1 — the index is built whenever a file was FOUND. It used to be
+  // built only `if (annotationsFile && analysisContext)`, which is why running
+  // without an analysis JSON found the file, indexed nothing, printed
+  // "Semantic annotations applied", and rendered 1 250 `W`-labels and not one
+  // of the human's names.
+  const annotationsIndex = annotationsFile ? buildAnnotationsIndex(annotationsFile) : undefined;
+  if (annotationsIndex && analysisContext) {
+    analysisContext.annotations = annotationsIndex;
     applyAnnotationSegmentSplits(analysisContext);
     applyAnnotationDataTables(analysisContext, prg);
   }
+  // Set BEFORE the operand overrides below: `applyKernalAbiOperandOverrides` and
+  // `applyZpPointerSetupOverrides` resolve pointer labels through `makeLabel`,
+  // which reads exactly this. The legacy path's assignment is further down,
+  // where the render mode is known.
   activeAnnotations = analysisContext?.annotations;
   activeExternalEntries = loadExternalIndex(prg.loadAddress, prg.loadAddress + prg.data.length - 1);
   activeExternalAbi = loadExternalAbi();
@@ -2965,6 +3104,25 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     applyDeclaredLabelDefinitions(analysisContext);
   }
 
+  // Spec 741 (Slice A): when a relocation map is supplied, render via the
+  // relocation-aware partition path (gaps + .pseudopc blocks). Without it,
+  // behaviour is byte-for-byte unchanged (analysis or legacy as before).
+  // Computed HERE, before the header, because which renderer runs is what
+  // decides whether the annotations reach the listing (Spec 833 D1a).
+  const relocations = options.relocations && options.relocations.length > 0
+    ? normalizeRelocations(options.relocations, prg)
+    : undefined;
+  const renderMode: AnnotationRenderMode = analysisContext
+    ? "analysis"
+    : relocations ? "relocation" : "legacy";
+  // The legacy renderer is the second consumer of the index; the relocation
+  // renderer without an analysis context is not one — it overlays its own
+  // runtime-addressed sub-segment labels on whatever is active, and the
+  // annotations are in FILE addresses, so feeding them in there would be a
+  // second, different claim. It says so in the header instead.
+  if (renderMode === "legacy") activeAnnotations = annotationsIndex;
+  if (annotationsIndex) reportAnnotationApplication(annotationsIndex, renderMode);
+
   const packerHints = analysisReport?.packerHints ?? [];
   const lines: string[] = [
     "//****************************",
@@ -2972,7 +3130,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     "//  ",
     "//  Source in KickAssembler format",
     analysisContext ? "//  Analysis-driven rendering enabled" : "//  Legacy linear rendering",
-    annotationsFile ? "//  Semantic annotations applied" : "//  No semantic annotations found",
+    annotationHeaderLine(annotationsIndex, renderMode),
   ];
   if (packerHints.length > 0) {
     lines.push("//  ");
@@ -2990,12 +3148,6 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   lines.push(`      .pc = $${formatHex16(prg.loadAddress)} "code"`);
   lines.push("");
 
-  // Spec 741 (Slice A): when a relocation map is supplied, render via the
-  // relocation-aware partition path (gaps + .pseudopc blocks). Without it,
-  // behaviour is byte-for-byte unchanged (analysis or legacy as before).
-  const relocations = options.relocations && options.relocations.length > 0
-    ? normalizeRelocations(options.relocations, prg)
-    : undefined;
   if (relocations && analysisContext) {
     const body: string[] = [];
     renderWithAnalysisAndRelocations(prg, analysisContext, body, relocations);
@@ -3013,7 +3165,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     lines.push(...renderUndefinedSymbolEquates(analysisContext, [...lines, ...body]));
     lines.push(...body);
   } else {
-    renderLegacy(prg, options.entryPoints ?? [], lines);
+    renderLegacy(prg, options.entryPoints ?? [], lines, annotationsIndex);
   }
 
   activeAnnotations = undefined;

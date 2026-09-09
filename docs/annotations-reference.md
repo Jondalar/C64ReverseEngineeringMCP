@@ -68,6 +68,33 @@ and the rest still apply. `disasm_prg` reports it:
 If you expected more annotations to apply, check that `skipped` line — a wrong field key
 is dropped, not applied.
 
+## With and without an `analysis_json` (Spec 833)
+
+`disasm_prg` renders either way, and the annotations apply either way — but not all
+of them:
+
+| | names (`labels`, `routines`, a `segments` entry's `label`) | `segments` kind, `pointerTables`, `jumpTables`, `immediates` |
+|---|---|---|
+| with `analysis_json` | applied | applied |
+| without | applied | **not applied** — retyping a byte range needs the analyser's segments |
+
+An annotated address **outside** the rendered file is named only on the analysis path,
+where the analyser records the reference; the legacy listing does not reference it and
+does not claim it.
+
+The listing's header line says which of these happened, and the `disasm_prg` output
+quotes that line back as `Listing: …`:
+
+```
+//  Semantic annotations applied: 39 names, 6 segment/table annotations
+//  Semantic annotations applied: 39 names — the file's 6 segment/table annotations need an analysis JSON and were NOT applied
+//  Semantic annotations found but NOT applied: the file declares no names and no segment/table annotations
+//  No semantic annotations found
+```
+
+The `Graph:` line beside it is about the knowledge graph, not about the listing — a
+graph import that says "unchanged" is not a statement that the names reached the ASM.
+
 ## An entry point inside another instruction (Spec 830)
 
 The 6502 multi-entry idiom uses `BIT` as a skip, so several entries set a

@@ -86,6 +86,30 @@ function summarizePackerHints(hints: PackerHintRecord[]): string[] {
   return lines;
 }
 
+/**
+ * Spec 833 D3 — the listing's own verdict on the annotations, read back from
+ * the listing.
+ *
+ * The renderer writes exactly one header line saying what happened to them:
+ * applied and how many, found-and-not-applied with the reason, or none found.
+ * This wrapper does not render, so it does not get to say — it quotes. That is
+ * the whole fix: a caller now reads a rendering result from the renderer and a
+ * graph result from the graph, instead of taking one line for both.
+ */
+function listingAnnotationStatus(asmPath: string): string {
+  try {
+    // the header is the first ~10 lines; a listing can be megabytes
+    const line = readFileSync(asmPath, "utf8")
+      .slice(0, 4096)
+      .split("\n")
+      .find((l) => /^\/\/\s+(?:No s|S)emantic annotations/.test(l));
+    if (line) return line.replace(/^\/\/\s+/, "");
+  } catch {
+    // fall through — an unreadable listing is reported as unknown, never as applied
+  }
+  return "annotation status unknown — the listing header could not be read";
+}
+
 async function rebuildVerification(args: {
   projectDir: string;
   asmPath: string;
@@ -304,7 +328,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "disasm_prg",
-    "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze_prg / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze_prg) or for menus/multi-file containers (use disasm_menu). A `<stem>_annotations.json` next to the PRG/ASM is auto-applied — exact shape: labels[{address,label,comment?}], routines[{address,name,comment}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, platform, relocations. Returns: .asm/.tas artifact paths.",
+    "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze_prg / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze_prg) or for menus/multi-file containers (use disasm_menu). A `<stem>_annotations.json` next to the PRG/ASM is auto-applied: names (labels, routines, a segment's `label`) apply with or without `analysis_json`, while segment kinds and pointer/jump/immediate tables need `analysis_json` — the listing's header line says which happened, and the tool output quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, platform, relocations. Returns: .asm/.tas artifact paths.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from prg_path to knowledge/phase-plan.json."),
       prg_path: z.string().describe("Path to the .prg file"),
@@ -422,6 +446,13 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           prgPath: prgAbs,
         });
         result.stdout = (result.stdout || "Disassembly complete.") + `\nOutput: ${outAbs}\nKnowledge written to: ${resolve(pd, "knowledge")}\n${verificationSummary}`;
+        // Spec 833 D3 — what the LISTING did with the annotations, read back
+        // from the listing's own header, stated before and separately from what
+        // the GRAPH holds. Printed in both branches: the renderer also looks for
+        // an annotations file next to the PRG and next to the analysis JSON, so
+        // `hasAnnotations` (which looks next to the ASM) is this wrapper's guess,
+        // not the renderer's answer.
+        result.stdout += `\nListing: ${listingAnnotationStatus(outAbs)}`;
         if (!hasAnnotations) {
           result.stdout += `\n\nNEXT STEP: Read the full ASM with read_artifact, then create ${annotationsPath} with segment reclassifications, semantic labels, and routine documentation. Then run disasm_prg again to produce the final annotated version.`;
           // Spec 038: track NEXT-hint as auto-suggested task.
@@ -440,7 +471,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
             // best effort
           }
         } else {
-          result.stdout += `\nAnnotations applied from: ${annotationsPath}`;
+          result.stdout += `\nAnnotations file: ${annotationsPath}`;
           // Spec 822 D6: the annotations file is a door — import it into the
           // graph's human layer (routines / labels / segments) when it changed
           // since the last import. Soft fail — disasm success stands even if the
@@ -449,9 +480,16 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
             const knowledgeService = new ProjectKnowledgeService(pd);
             const sourceArtifact = knowledgeService.listArtifacts().find((a) => a.path === prgAbs);
             const imported = knowledgeService.importAnnotations({ sourcePrgArtifactId: sourceArtifact?.id, annotationsPath });
+            // Spec 833 D3 — this line is about the GRAPH and says so. It used to
+            // read "Annotations unchanged since the last import (24 routines, 15
+            // labels, 5 segments in the graph)", which a caller took for "the
+            // annotations are in" — so when the listing then showed `W26D2` the
+            // conclusion was that the import was broken. The import was fine; the
+            // renderer was not, and the two outcomes had been sharing one line's
+            // credibility. The Listing line above is the rendering result.
             result.stdout += imported.changed
-              ? `\nAnnotations imported into the graph: ${imported.routines} routines, ${imported.labels} labels, ${imported.segments} segments (owner ${imported.owner}).`
-              : `\nAnnotations unchanged since the last import (${imported.routines} routines, ${imported.labels} labels, ${imported.segments} segments in the graph).`;
+              ? `\nGraph: imported ${imported.routines} routines, ${imported.labels} labels, ${imported.segments} segments into the knowledge graph (owner ${imported.owner}) — graph contents, not the listing.`
+              : `\nGraph: unchanged since the last import; the graph holds ${imported.routines} routines, ${imported.labels} labels, ${imported.segments} segments — graph contents, not the listing.`;
             if (sourceArtifact) {
               // Spec 057 R26: closed-loop sweep, scoped to this PRG.
               result.stdout += `\n${runAndFormatClosedLoopSweep(knowledgeService, { artifactId: sourceArtifact.id })}`;

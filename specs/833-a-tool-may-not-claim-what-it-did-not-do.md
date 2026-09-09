@@ -36,6 +36,30 @@ alone. Running `disasm_prg` without `analysis_json` is exactly the "just let me
 look at it" case, which is when a human least wants to be told the labels are
 somewhere else.
 
+**Corrected during the build — "the names" is not "the annotations".** Only the
+NAMES can cross without an analysis context. A `segments` entry's `kind`, a
+`pointerTables`/`jumpTables`/`immediates` entry — the structural half — retypes
+byte ranges the ANALYSER produced, and there are no segments to retype on the
+legacy path. So the fix is: names apply in both modes, the structural half
+applies only with an analysis JSON, and the header names that split rather than
+rounding it to "applied". Two consequences fall out of the same honesty. An
+annotated address strictly inside an instruction gets an equate, not a label —
+definitions are only emitted at instruction starts, so putting it in the label
+set would mint a reference to a name nothing defines. And an annotated address
+OUTSIDE the image is skipped: that is the range check
+`applyDeclaredLabelDefinitions` already makes, and the legacy path never
+references such an address, so it names nothing and claims nothing.
+
+Also corrected: the relocation renderer WITHOUT an analysis context does not get
+the index. It overlays its own runtime-addressed sub-segment labels on whatever
+is active, and the annotations are in FILE addresses; feeding them in would be a
+second claim of a different kind, with a real duplicate-definition hazard where
+a runtime address and a file address coincide. The header says so instead —
+which is the whole rule, applied to the path where the answer is "no".
+
+Measured on the gate's fixture, before → after: without `analysis_json`, 0 of 8
+in-image names to 8 of 8; with it, 8 of 9 to 9 of 9 (the ninth is D2's).
+
 ## 2. D2 — a segment annotation's label is a third path that goes nowhere
 
 `buildAnnotationsIndex`'s segment loop fills `segmentsByStart` and
@@ -64,6 +88,16 @@ defect was first reported, and it cost the reporter a wrong diagnosis.
 **Decision:** the two outcomes are stated separately and neither borrows the
 other's credibility. The graph line says what the graph holds; the render line
 says how many annotations the listing applied, or that it applied none.
+
+**Built as:** `Listing: <the listing's own header line>` and `Graph: … — graph
+contents, not the listing.` The wrapper does not render, so it does not compute
+the render line: it reads D1(a)'s header back out of the ASM and quotes it. That
+also closed a smaller instance of the same shape found while building — the
+wrapper's `hasAnnotations` looks only next to the ASM while the renderer also
+looks next to the PRG and next to the analysis JSON, so a file found in either
+of the other two places used to produce a "no annotations, write some" hint over
+a listing that had applied them. The quoted line is the renderer's answer and is
+printed in both branches, so the two can no longer disagree silently.
 
 ## 4. D4 — `.invalid` in a filename now marks files that are fine
 
