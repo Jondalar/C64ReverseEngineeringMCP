@@ -163,6 +163,11 @@ jobs:
       - name: Scene reel project hint (Spec 834 §4)
         run: npm run e2e:834-scene-reel
 
+      # Spec 835 — hermetic: it reads the generated tool surface and the
+      # source, no daemon and no network.
+      - name: The session tool says what it accepts (Spec 835)
+        run: npm run e2e:835
+
       # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
       # synthetic PRG with the bundled pipeline and seeds a temp project, and
       # the explorer gate reads the built bundle plus the two pure lib files.
