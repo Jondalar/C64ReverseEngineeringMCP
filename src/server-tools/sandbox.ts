@@ -56,6 +56,7 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
     "sandbox_6502_run",
     "Run a 6502 routine in an isolated sandbox: load code/data into a flat 64K RAM, optionally hook PCs to feed bytes from an input stream (e.g. replace a serial-recv subroutine), execute until a stop PC / sentinel RTS / max steps / unimplemented opcode, and return the writes plus final CPU state. Use this for porting depackers, crypto, and custom I/O routines without standing up a full C64 emulator. Sentinel RTS exits when the stack returns to $FFFE (pre-staged at $01FE=$FD, $01FF=$FF). The CPU supports common undocumented opcodes (RLA, SLO, RRA, ISC, LAX, SAX, DCP, ALR, ARR, AXS, ANC, undoc NOPs, JAM). Not for depacking specifically (use sandbox_depack) or a full-machine boot (use runtime_session_run).",
     {
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from the first path in loads[] to knowledge/phase-plan.json."),
       loads: z.array(memBlockSchema).min(1).describe("Memory loads applied in order. Each entry must specify exactly one of prg_path / raw_path / hex_bytes."),
       initial_pc: z.string().describe("Hex PC where execution starts."),
       initial_zp: z.record(z.string(), z.number().int().min(0).max(255)).optional().describe("Zero-page seed values, keyed by hex zp address (e.g. {\"06\": 0, \"07\": 64})."),
@@ -76,7 +77,26 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
     },
     safeHandler("sandbox_6502_run", async (args) => {
       try {
-        const projectRoot = context.projectDir(undefined, true);
+        // Spec 833 D5 — the project hint. Every other path-taking tool passes one
+        // (`project_dir ?? image_path` in disk-g64.ts); this one passed
+        // `undefined`, so the resolver had nothing to walk up from and fell back
+        // to C64RE_PROJECT_DIR or to the process cwd happening to sit inside a
+        // project — the cwd coupling a DEFAULT tool may not have. The hint is an
+        // explicit project_dir, else the first loads[] entry that carries a path,
+        // which the tool already resolves against the project root.
+        const firstLoadPath = args.loads.map((entry) => entry.prg_path ?? entry.raw_path).find((p) => !!p);
+        const projectHint = args.project_dir ?? firstLoadPath;
+        // A loads[] made only of hex_bytes carries NO path — and such a run needs
+        // no project either: every byte is inline, and a project root is only ever
+        // used to resolve a RELATIVE path. So the root is resolved on first use
+        // instead of up front: a fully inline run never asks for one, and no
+        // longer fails outside a project for a filesystem it does not touch. A run
+        // that does name a path gets the hint above; only a relative path with no
+        // project_dir and no other load path to walk up from still reaches the
+        // resolver's env/cwd fallback, and it then fails with the resolver's own
+        // message naming what to pass.
+        let resolvedProjectRoot: string | undefined;
+        const projectRoot = (): string => (resolvedProjectRoot ??= context.projectDir(projectHint, true));
         const loads: SandboxLoad[] = args.loads.map((entry, idx) => {
           const provided = [entry.prg_path, entry.raw_path, entry.hex_bytes].filter(Boolean).length;
           if (provided !== 1) {
@@ -84,14 +104,14 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
           }
           if (entry.prg_path) {
             return {
-              prgPath: resolve(projectRoot, entry.prg_path),
+              prgPath: resolve(projectRoot(), entry.prg_path),
               loadAddressOverride: entry.load_address_override ? parseHexWord(entry.load_address_override) : undefined,
               mapping: entry.mapping,
             };
           }
           if (entry.raw_path) {
             if (!entry.address) throw new Error(`loads[${idx}]: address is required for raw_path`);
-            return { rawPath: resolve(projectRoot, entry.raw_path), address: parseHexWord(entry.address), mapping: entry.mapping };
+            return { rawPath: resolve(projectRoot(), entry.raw_path), address: parseHexWord(entry.address), mapping: entry.mapping };
           }
           if (!entry.address) throw new Error(`loads[${idx}]: address is required for hex_bytes`);
           return { bytes: parseHexBytes(entry.hex_bytes!), address: parseHexWord(entry.address), mapping: entry.mapping };
@@ -105,7 +125,7 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
         let inputStream: number[] | undefined;
         if (args.input_stream_path) {
           const { readFileSync } = await import("node:fs");
-          inputStream = Array.from(readFileSync(resolve(projectRoot, args.input_stream_path)));
+          inputStream = Array.from(readFileSync(resolve(projectRoot(), args.input_stream_path)));
         } else if (args.input_stream_hex) {
           inputStream = parseHexBytes(args.input_stream_hex);
         }
@@ -153,7 +173,7 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
         if (args.output_path && result.writtenSpan) {
           const { writeFileSync, mkdirSync } = await import("node:fs");
           const { dirname } = await import("node:path");
-          const outPath = resolve(projectRoot, args.output_path);
+          const outPath = resolve(projectRoot(), args.output_path);
           mkdirSync(dirname(outPath), { recursive: true });
           const buf = Buffer.alloc(2 + result.writtenSpan.bytes.length);
           buf[0] = result.writtenSpan.start & 0xff;

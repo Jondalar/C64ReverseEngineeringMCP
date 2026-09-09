@@ -196,13 +196,20 @@ function createServer(): McpServer {
  *  (advanced included), so the probe/gen never drift from a frozen inventory JSON. Runs the
  *  same registration path as createServer() but with `.tool` overridden to capture instead
  *  of register (handlers never execute); `file` is the source module of each register group. */
-export function collectToolInventory(): { name: string; description: string; file: string }[] {
-  const inv: { name: string; description: string; file: string }[] = [];
+export function collectToolInventory(): { name: string; description: string; file: string; schema?: Record<string, unknown> }[] {
+  // `schema` is the raw ZodRawShape a tool was registered with (undefined for a
+  // no-argument tool). Spec 833 D5(b): the path-portability gate walks it for
+  // path parameters at ANY depth — `sandbox_6502_run` takes its paths NESTED
+  // (`loads[].prg_path`), so a top-level-only view read it as taking none.
+  const inv: { name: string; description: string; file: string; schema?: Record<string, unknown> }[] = [];
   let currentFile = "";
   const server = new McpServer({ name: "c64-re-inventory", version: "0.0.0" }, { capabilities: {} });
   (server as { tool: (...a: unknown[]) => unknown }).tool = (...args: unknown[]): unknown => {
     if (typeof args[0] === "string" && typeof args[1] === "string") {
-      inv.push({ name: args[0], description: args[1], file: currentFile });
+      const shape = (args[2] && typeof args[2] === "object" && !Array.isArray(args[2]) && typeof args[2] !== "function")
+        ? args[2] as Record<string, unknown>
+        : undefined;
+      inv.push({ name: args[0], description: args[1], file: currentFile, schema: shape });
     }
     return { update() {}, remove() {}, enable() {}, disable() {} };
   };
