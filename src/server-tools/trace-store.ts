@@ -4,14 +4,15 @@
 // resolver: paths must point to a `.duckdb` file or a directory that
 // contains `trace.duckdb`.
 
-import { resolve as resolvePath, isAbsolute } from "node:path";
-import { existsSync, statSync, writeFileSync } from "node:fs";
+import { basename, resolve as resolvePath, isAbsolute } from "node:path";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 import { traceStoreFn } from "./trace-read.js";
 import { buildMemoryMapText } from "./trace-memory-map.js";
+import { traceDirForProject, traceRoot, tracePointerPath, type TracePointer } from "../trace/trace-location.js";
 
 // Spec 802 — ONE read path, no exception. The store is read INSIDE the runtime
 // (it owns the format and the index; clients ask, they never open it themselves).
@@ -47,26 +48,137 @@ type QueryRow = unknown[];
 // root and then discarded it — every non-root path failed with "directory has
 // no trace.duckdb". Resolve the input itself: absolute as-is, relative under
 // the project dir.
-export function resolveStorePath(input: string, context: ServerToolContext): string {
-  const proj = (() => { try { return context.projectDir(undefined, false); } catch { return undefined; } })();
-  const abs = isAbsolute(input) ? resolvePath(input) : resolvePath(proj ?? process.cwd(), input);
-  if (!existsSync(abs)) {
-    // Spec 746.x — a MISSING .duckdb is acceptable when its .c64retrace authority
-    // exists: the reader path (ensureIndex) rebuilds the index from it lazily
-    // (recovers an orphaned store, e.g. a multi-GB trace whose index never built).
-    // Pass the path through so the rebuild can run instead of being blocked here.
-    const retrace = abs.endsWith(".duckdb") ? abs.slice(0, -".duckdb".length) + ".c64retrace" : abs + ".c64retrace";
-    if (existsSync(retrace)) return abs;
-    throw new Error(`trace store path not found: ${abs}`);
+//
+// Spec 834 D1/D2 — the hint, and the end of the cwd fallback. This resolver used
+// to ask `context.projectDir(undefined, false)` (nothing to walk up from) and
+// then fall back to `resolvePath(process.cwd(), input)`. Both are gone:
+//   D1  each of the seven readers passes `project_dir ?? path`, the same shape
+//       as `disk-g64.ts` and the Spec 833 sandbox tools.
+//   D2  a relative path resolves against the project the caller named — and
+//       Spec 827 moved a capture OUT of the project, so "against the project"
+//       means three real places, tried in order and each PROBED for a store that
+//       actually exists: `<project>/<input>` (a store deliberately kept inside
+//       the project), `<trace dir>/<input>` (where a capture lands now), and
+//       `<project>/runtime/traces.json`, the 827 pointer file recording where
+//       each capture really went — the only candidate that finds a store
+//       captured under a `C64RE_TRACE_DIR` that is no longer set.
+// An ABSOLUTE path never asks for a project at all: that is the flow that runs
+// in practice (`defaultTraceOut` composes an absolute path and `headless.ts`
+// hands it back as `absOut`), and a capture under the per-user data root has no
+// project marker above it to walk up to anyway.
+
+/** The `.c64retrace` binary log beside an index — the Spec 726.B authority. */
+function retraceFor(abs: string): string {
+  return abs.endsWith(".duckdb") ? abs.slice(0, -".duckdb".length) + ".c64retrace" : abs + ".c64retrace";
+}
+
+/**
+ * Does this absolute path name a REAL store? Returns the path a reader should
+ * open, or undefined. Three shapes, all load-bearing:
+ *  - a file: the store itself (or a `.c64retrace` handed to the sidecar writer);
+ *  - a directory holding `trace.duckdb`;
+ *  - a MISSING `.duckdb` whose `.c64retrace` exists — Spec 746.x recovery: the
+ *    reader path (`ensureIndex`, runtime-side since Spec 802) rebuilds the index
+ *    from the log lazily, so the path passes through instead of being blocked
+ *    here (recovers an orphaned store, e.g. a multi-GB trace whose index never
+ *    built).
+ */
+function probeStore(abs: string): string | undefined {
+  if (existsSync(abs)) {
+    if (!statSync(abs).isDirectory()) return abs;
+    const inside = resolvePath(abs, "trace.duckdb");
+    return existsSync(inside) ? inside : undefined;
   }
-  if (statSync(abs).isDirectory()) {
-    const candidate = resolvePath(abs, "trace.duckdb");
-    if (!existsSync(candidate)) {
-      throw new Error(`directory has no trace.duckdb: ${abs}`);
-    }
-    return candidate;
+  return existsSync(retraceFor(abs)) ? abs : undefined;
+}
+
+/** Spec 827's pointer file, parsed. Never throws: a missing or corrupt pointer is
+ *  one candidate fewer, not a failed read. */
+function pointerEntries(projectDir: string): TracePointer[] {
+  try {
+    const parsed = JSON.parse(readFileSync(tracePointerPath(projectDir), "utf8")) as { traces?: TracePointer[] };
+    return Array.isArray(parsed.traces) ? parsed.traces : [];
+  } catch {
+    return [];
   }
-  return abs;
+}
+
+/** The path this pointer entry offers for `input`, or undefined. Matched on the
+ *  file name or a trailing path segment — a caller types the name of a capture,
+ *  not the per-user data root it landed in — and last on the run id, which is
+ *  what `runtime_trace_finalize` prints. */
+function pointerMatch(entry: TracePointer, input: string): string | undefined {
+  const wanted = input.replace(/\\/gu, "/").replace(/^\.\//u, "");
+  for (const recorded of [entry.duckdbPath, entry.retracePath]) {
+    if (!recorded) continue;
+    const norm = recorded.replace(/\\/gu, "/");
+    if (basename(norm) === basename(wanted) || norm.endsWith(`/${wanted}`)) return entry.duckdbPath ?? recorded;
+  }
+  if (entry.runId && entry.runId === wanted) return entry.duckdbPath;
+  return undefined;
+}
+
+function resolveRelativeStore(input: string, context: ServerToolContext, projectHint?: string): string {
+  let proj: string;
+  try {
+    proj = context.projectDir(projectHint ?? input, false);
+  } catch (error) {
+    throw new Error([
+      `trace store path "${input}" is relative and no project could be resolved, so there is nothing to resolve it against.`,
+      `Pass project_dir, or an absolute store path.`,
+      `Spec 827 keeps a capture OUTSIDE the project: captures live under the per-user trace dir `
+        + `(${traceRoot()}/<project key>) and <project>/runtime/traces.json records where each one went.`,
+      error instanceof Error ? error.message : String(error),
+    ].join("\n"));
+  }
+
+  const tried: string[] = [];
+  for (const candidate of [resolvePath(proj, input), resolvePath(traceDirForProject(proj), input)]) {
+    tried.push(candidate);
+    const hit = probeStore(candidate);
+    if (hit) return hit;
+  }
+
+  // The 827 pointer file, newest capture first.
+  const entries = pointerEntries(proj);
+  for (const entry of [...entries].reverse()) {
+    const recorded = pointerMatch(entry, input);
+    if (!recorded) continue;
+    const candidate = resolvePath(recorded);
+    tried.push(`${candidate}  (from runtime/traces.json)`);
+    const hit = probeStore(candidate);
+    if (hit) return hit;
+  }
+
+  const known = entries.map((e) => e.duckdbPath).filter((p): p is string => !!p);
+  throw new Error([
+    `trace store not found for "${input}" in project ${proj}.`,
+    `Tried:`,
+    ...tried.map((t) => `  ${t}`),
+    `Spec 827 keeps a capture OUTSIDE the project: captures live under ${traceDirForProject(proj)} `
+      + `and ${tracePointerPath(proj)} records where each one went.`,
+    known.length
+      ? `That pointer file lists ${known.length} capture(s): ${known.slice(-5).join(", ")}`
+      : `That pointer file lists no capture yet — nothing has been finalized into this project.`,
+  ].join("\n"));
+}
+
+/**
+ * Resolve a store argument to the path a reader should open.
+ *
+ * @param projectHint Spec 834 D1 — `project_dir ?? <the tool's own store path>`.
+ *                    Consulted only when `input` is relative.
+ */
+export function resolveStorePath(input: string, context: ServerToolContext, projectHint?: string): string {
+  if (!isAbsolute(input)) return resolveRelativeStore(input, context, projectHint);
+  // The flow that actually runs: absolute in, absolute out, no project consulted.
+  const abs = resolvePath(input);
+  const hit = probeStore(abs);
+  if (hit) return hit;
+  if (existsSync(abs) && statSync(abs).isDirectory()) {
+    throw new Error(`directory has no trace.duckdb: ${abs}`);
+  }
+  throw new Error(`trace store path not found: ${abs}`);
 }
 
 // BUG-035's caller-side `ensureTraceIndex` (a wrapper over C64RE's TS
@@ -84,10 +196,11 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     "trace_store_info",
     "Report the DuckDB trace-store status — runs, event counts, schema. Use to see what trace evidence exists. Not for querying events (use trace_store_query). Inputs: optional run id. Returns: store summary.",
     {
-      path: z.string().describe("Path to trace.duckdb or its parent directory."),
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json. Consulted only when path is relative — an absolute store path is opened as given."),
+      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
     },
-    safeHandler("trace_store_info", async ({ path }) => {
-      const dbPath = resolveStorePath(path, context);
+    safeHandler("trace_store_info", async ({ project_dir, path }) => {
+      const dbPath = resolveStorePath(path, context, project_dir ?? path);
       const info = await traceStoreFn<StoreInfo>("getInfo", dbPath);
       const lines = [`trace_store_info: ${dbPath}`, ``, `meta:`];
       for (const [k, v] of Object.entries(info.meta)) lines.push(`  ${k} = ${v}`);
@@ -104,10 +217,11 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     "trace_store_anchor_list",
     "List named trace anchors (saved cycle/PC markers) for a run. Use to see bookmarked points in a trace. Not for finding the nearest one (use trace_store_anchor_find). Inputs: run id. Returns: anchors.",
     {
-      path: z.string().describe("Path to trace.duckdb or its parent directory."),
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json. Consulted only when path is relative — an absolute store path is opened as given."),
+      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
     },
-    safeHandler("trace_store_anchor_list", async ({ path }) => {
-      const dbPath = resolveStorePath(path, context);
+    safeHandler("trace_store_anchor_list", async ({ project_dir, path }) => {
+      const dbPath = resolveStorePath(path, context, project_dir ?? path);
       const rows = await traceStoreFn<AnchorRow[]>("listAnchors", dbPath);
       const lines = [`anchors (${rows.length}):`, ``];
       lines.push(`name\tcpu\tpc\toccurrences\tfirst_clock\tlast_clock`);
@@ -122,12 +236,13 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     "trace_store_anchor_find",
     "Find the trace anchor nearest a cycle/PC. Use to jump to a bookmarked point. Not for listing all (use trace_store_anchor_list). Inputs: run id, cycle/PC. Returns: nearest anchor.",
     {
-      path: z.string().describe("Path to trace.duckdb or its parent directory."),
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json. Consulted only when path is relative — an absolute store path is opened as given."),
+      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
       name: z.string().describe("Anchor name (alphanumeric/underscore/dash only)."),
       limit: z.number().int().positive().max(10000).optional().describe("Max occurrences to return (default 200)."),
     },
-    safeHandler("trace_store_anchor_find", async ({ path, name, limit }) => {
-      const dbPath = resolveStorePath(path, context);
+    safeHandler("trace_store_anchor_find", async ({ project_dir, path, name, limit }) => {
+      const dbPath = resolveStorePath(path, context, project_dir ?? path);
       const rows = await traceStoreFn<AnchorOccurrenceRow[]>("findAnchor", dbPath, { name, limit: limit ?? 200 });
       const lines = [`occurrences of '${name}' (${rows.length}):`, ``];
       lines.push(`occ\tpc\tclock\tseq`);
@@ -140,16 +255,17 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     "trace_store_top_pcs",
     "Return the most-executed PCs in a trace run (hot spots). Use to find where time goes. Not for a specific PC's events (use trace_store_query). Inputs: run id, limit. Returns: ranked PCs.",
     {
-      path: z.string().describe("Path to trace.duckdb or its parent directory."),
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json. Consulted only when path is relative — an absolute store path is opened as given."),
+      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
       cpu: z.enum(["c64", "drive8"]).describe("CPU side."),
       limit: z.number().int().positive().max(200).optional().describe("Max rows (default 20)."),
       hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. Hotspot ranking is the archetypal 'reached for statistics instead of reading the code' — it CONFIRMS where a routine you already located spends time; it is not how you find structure. Fishing (no address / no rationale) is refused — read first (disasm_prg / inspect_address_range / project_search)."),
     },
-    safeHandler("trace_store_top_pcs", async ({ path, cpu, limit, hypothesis }) => {
+    safeHandler("trace_store_top_pcs", async ({ project_dir, path, cpu, limit, hypothesis }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
       const gate = checkRuntimeDiscipline(hypothesis, { tool: "trace_store_top_pcs", act: "ranking the hottest PCs (statistics)" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
-      const dbPath = resolveStorePath(path, context);
+      const dbPath = resolveStorePath(path, context, project_dir ?? path);
       const rows = await traceStoreFn<TopPcRow[]>("topPcs", dbPath, { cpu, limit: limit ?? 20 });
       const lines = [`top ${rows.length} PCs for cpu=${cpu}:`, ``];
       for (const r of rows) lines.push(`${fmtHex(r.pc)}\t${r.count}`);
@@ -161,12 +277,13 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     "trace_store_bus_find",
     "Find IEC/bus events in the trace store ($DD00 / CIA2 / VIA reads+writes). Use to debug loader/bus protocols from durable evidence. Not for CPU PCs (use trace_store_top_pcs). Inputs: run id, lane/value filters. Returns: bus events.",
     {
-      path: z.string().describe("Path to trace.duckdb or its parent directory."),
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json. Consulted only when path is relative — an absolute store path is opened as given."),
+      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
       addr: z.string().describe("Address as hex (e.g. $DD00, 0xDD00, DD00) or decimal."),
       limit: z.number().int().positive().max(10000).optional().describe("Max rows (default 100)."),
     },
-    safeHandler("trace_store_bus_find", async ({ path, addr, limit }) => {
-      const dbPath = resolveStorePath(path, context);
+    safeHandler("trace_store_bus_find", async ({ project_dir, path, addr, limit }) => {
+      const dbPath = resolveStorePath(path, context, project_dir ?? path);
       const cleaned = String(addr).trim().replace(/^\$/, "").replace(/^0x/i, "");
       let n: number;
       if (/^[0-9a-fA-F]+$/.test(cleaned) && (cleaned.length > 1 || /[a-fA-F]/.test(cleaned))) {
@@ -187,12 +304,13 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     "trace_store_query",
     "Run a structured query over the DuckDB trace store (by PC, address, event family, cycle range). Use for durable trace evidence. Not for live state (use runtime_monitor_*). Inputs: query filters. Returns: matching rows.",
     {
-      path: z.string().describe("Path to trace.duckdb or its parent directory."),
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json. Consulted only when path is relative — an absolute store path is opened as given."),
+      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
       sql: z.string().describe("Read-only SELECT or WITH query."),
       limit: z.number().int().positive().max(2000).optional().describe("Max rows returned (default 200)."),
     },
-    safeHandler("trace_store_query", async ({ path, sql, limit }) => {
-      const dbPath = resolveStorePath(path, context);
+    safeHandler("trace_store_query", async ({ project_dir, path, sql, limit }) => {
+      const dbPath = resolveStorePath(path, context, project_dir ?? path);
       const rows = await traceStoreFn<QueryRow[]>("safeQuery", dbPath, { sql, limit: limit ?? 200 });
       const lines = [`query (${rows.length} rows):`, ``];
       for (const r of rows) {
@@ -210,7 +328,8 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     "trace_memory_map",
     "Reconstruct a per-page RAM memory map from a trace store: which pages are CODE (executed), DATA-W (written — incl. indirect STA (zp),Y targets the decode path can't see), DATA-R (read-only), or untouched; per-region write/read/mutation counts (old≠new = the persistence surface) + writer-PC count; and a 'provably free' free-hole list (untouched this run AND not static-occupied). Use for porting/footprint work (free EF-legal RAM, what mutates). Optional static_ranges reconciles with the module load-map. Coverage = THIS RUN ONLY (a trace is one path) — this is runtime behaviour, NOT identity grounding. Not for 'what is this block' (extract+disasm). Inputs: store path, cpu, optional static_ranges. Returns: ASCII page map + region table + free holes.",
     {
-      path: z.string().describe("Path to trace.duckdb or its parent directory."),
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json. Consulted only when path is relative — an absolute store path is opened as given."),
+      path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
       cpu: z.enum(["c64", "drive8"]).optional().describe("CPU side (default c64)."),
       static_ranges: z.array(z.object({
         from: z.number().int().describe("Inclusive start address."),
@@ -220,11 +339,11 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
       run_label: z.string().optional().describe("Optional run label for the header."),
       hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. The page map CONFIRMS a free-RAM/footprint hypothesis for porting; it is runtime behaviour for ONE path, NOT identity grounding, and not how you discover what a block is. Fishing (no address / no rationale) is refused — read first (disasm_prg / inspect_address_range / project_search)."),
     },
-    safeHandler("trace_memory_map", async ({ path, cpu, static_ranges, run_label, hypothesis }) => {
+    safeHandler("trace_memory_map", async ({ project_dir, path, cpu, static_ranges, run_label, hypothesis }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
       const gate = checkRuntimeDiscipline(hypothesis, { tool: "trace_memory_map", act: "reconstructing a per-page RAM map" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
-      const dbPath = resolveStorePath(path, context);
+      const dbPath = resolveStorePath(path, context, project_dir ?? path);
       // Spec 802 — the two SQL passes run inside the runtime (`store_fn`/`safeQuery`,
       // which self-heals an orphaned `.c64retrace` via its own bounded index-ensure —
       // the old BUG-035 caller-side ensureTraceIndex is no longer needed). Only the

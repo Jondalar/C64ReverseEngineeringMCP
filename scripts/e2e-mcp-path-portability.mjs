@@ -112,25 +112,11 @@ if (!existsSync(dist)) {
   //    as the sandbox defect, on paths Spec 833 did not open (its §8 keeps the
   //    surrounding decisions out of scope). The list may shrink; a tool that is
   //    not on it fails, so the hole cannot grow.
-  const KNOWN_HINTLESS = new Set([
-    // server-tools/headless.ts — resolveHeadlessProjectDir() is called with no
-    // hint at any of its call sites; each is try/caught, so the miss is silent
-    // rather than fatal.
-    "runtime_session_start", "runtime_loader_lens", "runtime_load_prg",
-    "runtime_run_prg", "runtime_render_screen", "runtime_recorder_dump",
-    // server-tools/trace-store.ts — resolveStorePath() resolves a relative store
-    // path against `proj ?? process.cwd()`; the cwd fallback is explicit there.
-    "trace_store_info", "trace_store_anchor_list", "trace_store_anchor_find",
-    "trace_store_top_pcs", "trace_store_bus_find", "trace_store_query",
-    "trace_memory_map",
-    // server-tools/scene-reel.ts — `context.projectDir()`, hintless and not
-    // caught: the closest twin to the sandbox defect, with feature_path /
-    // out_path / media_path sitting right there unused.
-    "runtime_scene_reel",
-    // sandbox_depack was here and is fixed (Spec 834): it now resolves
-    // `project_dir ?? input_path`. The list shrank, which is the direction it
-    // is allowed to move.
-  ]);
+  // Spec 834 D4 — EMPTY, and that is the point. This froze what Spec 833's
+  // widening exposed: 15 default tools resolving with no hint. All 15 are
+  // fixed, so the rule now has no exceptions. An allowlist that never empties
+  // is a rule nobody believes.
+  const KNOWN_HINTLESS = new Set([]);
   // Any receiver, not just `context` — sandbox-depack.ts names it `ctx`, and a
   // rule that only matches one spelling is the same hole one level down.
   const HINTLESS_CALL = /\.projectDir\(\s*(\)|undefined)/;
