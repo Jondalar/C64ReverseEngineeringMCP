@@ -127,10 +127,9 @@ if (!existsSync(dist)) {
     // caught: the closest twin to the sandbox defect, with feature_path /
     // out_path / media_path sitting right there unused.
     "runtime_scene_reel",
-    // server-tools/sandbox-depack.ts — the sharpest of the set: it DECLARES
-    // `project_dir` (line 32) and then resolves with `ctx.projectDir(undefined,
-    // true)` (line 72), so the parameter a caller passes is read by nobody.
-    "sandbox_depack",
+    // sandbox_depack was here and is fixed (Spec 834): it now resolves
+    // `project_dir ?? input_path`. The list shrank, which is the direction it
+    // is allowed to move.
   ]);
   // Any receiver, not just `context` — sandbox-depack.ts names it `ctx`, and a
   // rule that only matches one spelling is the same hole one level down.
