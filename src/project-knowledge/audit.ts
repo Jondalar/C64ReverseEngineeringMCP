@@ -29,6 +29,9 @@ export interface ProjectAuditResult {
     missingArtifacts: number;
     brokenArtifactPaths: number;
     unregisteredFiles: number;
+    // Spec 832 D5 — machine output below a tool-owned directory. Counted and
+    // reported, but never folded into unregisteredFiles: it is not debt.
+    toolOutputFiles: number;
     unimportedAnalysisArtifacts: number;
     unimportedManifestArtifacts: number;
     staleViews: number;
@@ -287,9 +290,11 @@ export function auditProject(projectRoot: string, options: ProjectAuditOptions =
 
   const includeFileScan = options.includeFileScan ?? true;
   let unregisteredCount = 0;
+  let toolOutputCount = 0;
   if (includeFileScan) {
     const delta = scanRegistrationDelta(root, options.registrationSampleLimit ?? 25);
     unregisteredCount = delta.unregisteredCount;
+    toolOutputCount = delta.toolOutputCount;
     if (delta.unregisteredCount > 0) {
       addFinding(findings, {
         id: "unregistered-files",
@@ -298,6 +303,23 @@ export function auditProject(projectRoot: string, options: ProjectAuditOptions =
         paths: delta.unregistered,
         whyItMatters: "Agents can create useful files that later sessions and the UI cannot discover through artifacts.json.",
         suggestedFix: "Register intentional artifacts and ignore or move scratch files.",
+      });
+    }
+    // Spec 832 D5 — the same files, addressed to nobody. A tool that fills its
+    // own output directory writes thousands of them in one call; counting those
+    // as debt produced a finding that stood at 4 101 for ever and taught its
+    // reader to skip audits. The count stays visible, as tool output.
+    if (delta.toolOutputCount > 0) {
+      const byDir = Object.entries(delta.toolOutputByDir)
+        .sort((a, b) => b[1] - a[1])
+        .map(([prefix, n]) => `${prefix}/**: ${n} file(s)`);
+      addFinding(findings, {
+        id: "tool-output-files",
+        severity: "low",
+        title: `Tool output on disk: ${delta.toolOutputCount} file(s) below tool-owned directories`,
+        paths: [...byDir, ...delta.toolOutput],
+        whyItMatters: "These were written by a c64re tool into a directory it owns and fills. They are machine output, not files a human left lying around, and registering them one by one is not work anyone should do.",
+        suggestedFix: "Nothing per file. Register the run's manifest (analysis/**/manifest.json, track-metadata.json) — the manifest is the artifact that stands for the bulk.",
       });
     }
   }
@@ -386,6 +408,7 @@ export function auditProject(projectRoot: string, options: ProjectAuditOptions =
       missingArtifacts: pathProblems.missing.length,
       brokenArtifactPaths: pathProblems.broken.length,
       unregisteredFiles: unregisteredCount,
+      toolOutputFiles: toolOutputCount,
       unimportedAnalysisArtifacts: unimportedAnalysis.length,
       unimportedManifestArtifacts: unimportedManifests.length,
       staleViews: staleViews.length,
@@ -586,7 +609,7 @@ export function renderProjectAudit(audit: ProjectAuditResult): string {
   lines.push(`Safe repair available: ${audit.safeRepairAvailable ? "yes" : "no"}`);
   lines.push(``);
   lines.push(`## Counts`);
-  lines.push(`nestedKnowledgeStores=${audit.counts.nestedKnowledgeStores} missingArtifacts=${audit.counts.missingArtifacts} brokenArtifactPaths=${audit.counts.brokenArtifactPaths} unregisteredFiles=${audit.counts.unregisteredFiles} unimportedAnalysisArtifacts=${audit.counts.unimportedAnalysisArtifacts} unimportedManifestArtifacts=${audit.counts.unimportedManifestArtifacts} staleViews=${audit.counts.staleViews}`);
+  lines.push(`nestedKnowledgeStores=${audit.counts.nestedKnowledgeStores} missingArtifacts=${audit.counts.missingArtifacts} brokenArtifactPaths=${audit.counts.brokenArtifactPaths} unregisteredFiles=${audit.counts.unregisteredFiles} toolOutputFiles=${audit.counts.toolOutputFiles} unimportedAnalysisArtifacts=${audit.counts.unimportedAnalysisArtifacts} unimportedManifestArtifacts=${audit.counts.unimportedManifestArtifacts} staleViews=${audit.counts.staleViews}`);
   lines.push(``);
   lines.push(`## Findings`);
   if (audit.findings.length === 0) {

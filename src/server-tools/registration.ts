@@ -333,6 +333,7 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
       lines.push(`Candidates scanned: ${delta.totalCandidates}`);
       lines.push(`Already registered: ${delta.alreadyRegistered}`);
       lines.push(`Unregistered: ${delta.unregisteredCount}`);
+      lines.push(`Tool output (machine-written, not debt): ${delta.toolOutputCount}`);
       lines.push(``);
       if (delta.unregisteredCount > 0) {
         lines.push(`By extension:`);
@@ -343,6 +344,16 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
         for (const f of delta.unregistered) lines.push(`  ${f}`);
       } else {
         lines.push(`✓ No unregistered files. Artifact store is in sync.`);
+      }
+      // Spec 832 D5 — files a tool wrote into a directory it owns and fills are
+      // reported here, apart from the human's list. Nothing to do per file: the
+      // run's manifest is the artifact that stands for the bulk.
+      if (delta.toolOutputCount > 0) {
+        lines.push(``);
+        lines.push(`Tool output by directory:`);
+        const byDir = Object.entries(delta.toolOutputByDir).sort((a, b) => b[1] - a[1]);
+        for (const [prefix, n] of byDir) lines.push(`  ${prefix}/**: ${n}`);
+        lines.push(`  (register the run's manifest, not each file)`);
       }
       return textContent(lines.join("\n"));
     }),
