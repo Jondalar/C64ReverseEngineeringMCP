@@ -69,7 +69,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // Path to Murder boot trace.
   server.tool(
     "runtime_session_start",
-    "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, cycle-accurate 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). ONE MACHINE PER PROCESS: a daemon process runs exactly ONE live machine — the human's UI and you co-drive the SAME session (shared-attach). Before starting, list/status existing sessions and attach to one instead; a SECOND in-process session is NOT isolated — it rebinds the process-global VIC/drive and corrupts the first session's rendering (boot text goes black) until a process restart. For a truly isolated machine (e.g. a throwaway build test) use a SEPARATE backend process. Not for a one-shot PRG run without a persistent session (use runtime_run_prg). Inputs: media_path — ANY of .d64/.g64/.crt/.prg/.c64re, identified by CONTENT not by extension, and optional: a session is a machine, and a medium is something you put in it. A .crt is inserted, a disk is mounted, a .c64re REPLACES the machine, and a .prg is loaded — and typed RUN only when it loads at $0801 behind a valid BASIC line (which is also how SYS-stub releases are meant to start; anything else loads and stops). disk_path is the deprecated alias, kept so existing callers keep working. Also optional: device_id, pal, trace_out, trace_domains. Returns: session id + resolved config + trace status when streaming.",
+    "Start a headless C64+1541 session — the product runtime (real KERNAL/BASIC, cycle-accurate 1541, event-catchup). Use to begin a runtime session for loading/running/inspecting a title, from ANY medium: pass media_path=<file> for a .crt cartridge, a .d64/.g64/.d81 disk, a .prg or a .c64re snapshot — the daemon reads the file to decide which, so a cartridge start needs no separate tool and no placeholder disk. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). ONE MACHINE PER PROCESS: a daemon process runs exactly ONE live machine — the human's UI and you co-drive the SAME session (shared-attach). Before starting, list/status existing sessions and attach to one instead; a SECOND in-process session is NOT isolated — it rebinds the process-global VIC/drive and corrupts the first session's rendering (boot text goes black) until a process restart. For a truly isolated machine (e.g. a throwaway build test) use a SEPARATE backend process. Not for a one-shot PRG run without a persistent session (use runtime_run_prg). Inputs: media_path — ANY of .d64/.g64/.crt/.prg/.c64re, identified by CONTENT not by extension, and optional: a session is a machine, and a medium is something you put in it. A .crt is inserted, a disk is mounted, a .c64re REPLACES the machine, and a .prg is loaded — and typed RUN only when it loads at $0801 behind a valid BASIC line (which is also how SYS-stub releases are meant to start; anything else loads and stops). disk_path is the deprecated alias, kept so existing callers keep working. Also optional: device_id, pal, trace_out, trace_domains. Returns: session id + resolved config + trace status when streaming.",
     {
       // BUG-041 — a session is a MACHINE; a medium is something you put in it. This
       // used to be a REQUIRED disk_path that a shared attach never acted on (the daemon
@@ -80,28 +80,28 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // The type is decided by CONTENT in the DAEMON (media/open), never here: putting
       // it in the tool would mean the next client reimplements it with a different edge
       // case at $0801.
-      media_path: z.string().optional(),
+      media_path: z.string().optional().describe("The medium to put in the machine: a .crt CARTRIDGE, a .d64 / .g64 / .d81 disk, a .prg, or a .c64re snapshot. One parameter for all of them — the daemon decides the type from the file's CONTENT, so a cartridge needs nothing special here. Absolute, or relative to the project. Omit it to attach to the shared session as it stands."),
       /** @deprecated use media_path — kept so existing callers keep working. */
-      disk_path: z.string().optional(),
+      disk_path: z.string().optional().describe("Deprecated alias for media_path, kept so existing callers keep working. The name is misleading: media_path takes a cartridge or a snapshot just as well as a disk."),
       // Spec 834 D1 — which project this session belongs to, in the shape every
       // other path-taking tool uses: named, or walked up from the call's own path.
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from media_path (or trace_out) to knowledge/phase-plan.json."),
-      device_id: z.number().int().min(8).max(11).optional(),
-      pal: z.boolean().optional(),
-      start_track: z.number().int().min(1).max(40).optional(),
-      write_protected: z.boolean().optional(),
+      device_id: z.number().int().min(8).max(11).optional().describe("Drive number the medium is mounted on (8–11). Disk media only; ignored for a cartridge."),
+      pal: z.boolean().optional().describe("PAL timing (6569). Default true; NTSC is not supported."),
+      start_track: z.number().int().min(1).max(40).optional().describe("Park the drive head on this track before the run — for a loader that assumes where it left off. Disk media only."),
+      write_protected: z.boolean().optional().describe("Mount the disk read-only. Note the project default is read/write with auto-persist back into the original image, so set this when the run must not change the medium."),
       // Spec 723.2/723.4a: neither useCycleLockstep nor useMicrocodedCpu is a
       // product/workflow param — the runtime is true-drive + microcoded
       // unconditionally. Neither is exposed here.
       // Spec 093: diagnostic ring buffers.
-      trace_iec: z.boolean().optional(),
-      trace_iec_capacity: z.number().int().min(8).max(65536).optional(),
-      trace_drive: z.boolean().optional(),
-      trace_drive_capacity: z.number().int().min(8).max(65536).optional(),
+      trace_iec: z.boolean().optional().describe("Keep an in-memory IEC bus ring for this session (ATN/CLK/DATA transitions). For a durable capture use trace_out + trace_domains instead."),
+      trace_iec_capacity: z.number().int().min(8).max(65536).optional().describe("How many IEC transitions the in-memory ring holds before it wraps."),
+      trace_drive: z.boolean().optional().describe("Keep an in-memory 1541 ring (head steps, byte-ready, block reads). For a durable capture use trace_out + trace_domains instead."),
+      trace_drive_capacity: z.number().int().min(8).max(65536).optional().describe("How many drive events the in-memory ring holds before it wraps."),
       // Spec 093: KERNAL trap toggles (default false for real serial).
-      enable_kernal_fileio_traps: z.boolean().optional(),
-      enable_kernal_serial_traps: z.boolean().optional(),
-      enable_kernal_io_traps: z.boolean().optional(),
+      enable_kernal_fileio_traps: z.boolean().optional().describe("Shortcut the KERNAL's file I/O instead of running it cycle by cycle. Faster, but a loader that depends on the real timing will behave differently — leave it off when the timing is the subject."),
+      enable_kernal_serial_traps: z.boolean().optional().describe("Shortcut the KERNAL's serial routines. Off for any fastloader work: the custom transfer IS the thing under study."),
+      enable_kernal_io_traps: z.boolean().optional().describe("Shortcut the remaining KERNAL I/O entry points. Same caveat as the other two traps."),
       // Spec 726: persistent runtime trace. When set, the session streams a
       // durable trace.duckdb (query later with trace_store_* / runtime_query_events).
       trace_out: z.string().optional().describe("Path (abs or under the project) for the trace.duckdb. Enables persistent streaming trace capture."),

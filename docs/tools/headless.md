@@ -22,6 +22,39 @@ Leitregel: Capability → TRX64, Meaning/Memory → C64RE.
 `docs/tool-surface-inventory.md` is a May-2026 audit snapshot, not the current surface —
 the live answer is `DEFAULT_TOOLS` in `src/server-tools/tier-tools.ts`.
 
+## Starting a session — from a cartridge, a disk, a PRG or a snapshot
+
+One parameter, `media_path`, takes all of them. The daemon decides the type by
+reading the file, so a cartridge start needs no separate tool and no placeholder
+disk:
+
+```
+runtime_session_start  media_path = analysis/cart/game.crt
+runtime_session_start  media_path = input/disk/game.g64   device_id = 8
+runtime_session_start  media_path = analysis/payloads/loader.prg
+runtime_session_start  media_path = runtime/dumps/dump-1788791926009.c64re
+runtime_session_start                                    # attach to the shared session as it stands
+```
+
+`disk_path` is a deprecated alias kept for existing callers. Its name is the
+reason this section exists: a session is a MACHINE and a medium is something you
+put in it, but the parameter was called `disk_path` and was once required — so
+starting from a cartridge meant naming a `.g64` nobody used just to satisfy the
+schema, and then mounting the CRT separately (BUG-041). That is long fixed, and
+until now nothing said so where a caller would look.
+
+Swapping a cartridge in a session that is already running is the monitor's
+`swapcrt`, through `runtime_monitor`.
+
+**"Sandbox" means two different things in this repo**, which is worth knowing
+before searching for one. `sandbox_6502_run` and `sandbox_depack` are a CPU sandbox —
+no machine at all: a flat 64K of RAM and the real 6502 core, with no VIC, no CIA, no
+drive, no KERNAL — the right tool for running a depacker over some bytes. An
+ephemeral MACHINE — a whole C64 on its own port, born with a budget and ending
+itself when it runs out — is started the same way as any other session, with
+this tool. If you want a cartridge to boot, you want a machine, not the CPU
+sandbox.
+
 ## Monitor, Interrupts, And Rendering
 
 > The `runtime_*` / monitor / recorder / checkpoint MCP tools are a
