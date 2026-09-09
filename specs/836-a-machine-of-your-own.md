@@ -78,6 +78,49 @@ one whose description says what it cannot do.
   shared one, ends on its budget, and leaves nothing behind; every runtime tool's
   description says which machine it touches.
 
+## 3a. D3, as built — where the interactive line fell
+
+`runtime_sandbox_run` (`src/server-tools/runtime-sandbox.ts`) over a new driver
+(`src/reel/run-sandbox.ts`) on the EXISTING `sandbox-session.ts`, which is
+unchanged: same spawner, same budget-and-die contract, second caller.
+
+**The rule:** a call may express anything COMPLETE IN ITSELF; nothing whose value
+depends on a later call.
+
+- **In** — a medium (`media_path`, content-typed, so the cartridge case works),
+  a schedule of steps in the capture-scenario notation (`parseStep`, shared with
+  812/810 — waits, typing, held keys, held joystick, `insert`), a **run-until**
+  (`I wait until the drive is idle / the CPU reaches $XXXX / the screen shows "…"
+  / $XXXX is $YY / the screen is still for N frames within N frames`), the text
+  screen, the registers, memory dumps with a bus lens, and one GIF frame.
+- **Out** — a `session_id`, and with it every interactive verb: stepping,
+  breakpoints, the monitor, rewind, a second read of the same machine. Not
+  because the runtime cannot do them but because each is half a conversation, and
+  the machine is gone when the answer is read. `I wait until the CPU reaches
+  $0810` and `runtime_until` are the same runtime capability in two shapes; only
+  the first is honest about being over when it returns.
+- **Also out** — `I capture` (refused, pointing at the reel) and the two REGION
+  predicates: a region is defined by a scenario or the project store, and a
+  sandbox run has neither.
+
+**§1's "needs no work in the runtime repo" holds for the cartridge and disk cases
+and NOT for a bare `.prg`.** Measured on the real daemon: `media/open` on a PRG
+sets `session.injected`, and `full_machine_gate` then advances a machine with no
+cart and no disk on the isolated `cpu6510` core — no VIC, no CIAs, no SID, no
+1541. The screen freezes, `advance_to_frame` fails, and a typed key is never
+scanned. D3 does not fix that (it is a TRX64 gate, and the fix is the same
+argument the gate's own `media_attached` comment already makes for disks); it
+DETECTS it, by asking the runtime whether its VIC is sweeping, and says `NOT A
+WHOLE MACHINE` above the report. **Open, for TRX64:** should poking a PRG into a
+BOOTED machine re-classify it as an instruction exerciser at all?
+
+Two smaller things the build had to learn, both now in the driver: a sandbox
+daemon hands over a machine at its RESET vector, so the sandbox switches it on
+and waits for the BASIC prompt before putting anything in (a PRG poked in earlier
+is walked over by the cold start; a key typed earlier is typed into nothing); and
+the daemon's autostart `RUN` sits in a buffer only its own running loop drains,
+so a paused sandbox presses the key itself and says so.
+
 ## 4. Acceptance
 
 Both gates green and in `gates.yml`; every existing gate green; the human's live

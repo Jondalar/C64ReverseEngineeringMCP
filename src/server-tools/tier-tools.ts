@@ -114,6 +114,14 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // own durations — a hidden tool would leave callers hand-orchestrating the
   // primitives, which is the situation the spec was written to end.
   "runtime_scene_reel",
+  // Spec 836 D3 — the SAME private machine, reachable without a .feature file.
+  // Default for the reason the defect exists: a caller who wants to try their own
+  // medium without disturbing anyone had no door but `runtime_session_start`, and
+  // that one attaches to the machine a human is co-driving. A private door that is
+  // invisible on the default surface does not prevent that mistake — it only makes
+  // it harder to explain afterwards. It replaces orchestration rather than adding
+  // to it: one call instead of start/mount/type/run/render against the wrong machine.
+  "runtime_sandbox_run",
   // Spec 725 §3.8 — Monitor / frozen-inspect facade.
   // Spec 766 — runtime_monitor: the one-tool monitor REPL (whole interactive
   // monitor in one call). A default product tool, not advanced.
@@ -276,7 +284,14 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * being disassembled as 6502 across its token bytes (issue #11), so the default
  * surface had no way to READ the boot a cracked game most often arrives with, or
  * to name the address it SYSes into. The two raises are independent — 823's five
- * graph tools and 829's two — and they merged into one number here. */
+ * graph tools and 829's two — and they merged into one number here.
+ *
+ * 2026-09-09, NOT raised: Spec 836's `runtime_sandbox_run` takes the one free slot
+ * this number had left, so the default surface now sits at 158 of 158. Said here
+ * rather than discovered by the next person: the next promotion raises this number
+ * deliberately, with its reason, or demotes something. It was not raised for 836
+ * because a tool that keeps a second caller off the human's machine is exactly the
+ * kind that must be reachable — and it fit. */
 export const DEFAULT_TIER_CAP = 158;
 
 export function tierForTool(name: string): ToolTier {

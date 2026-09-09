@@ -1,9 +1,9 @@
 {
-  "total": 267,
+  "total": 268,
   "specCount": 45,
   "advancedCandidate": 110,
   "byNamespace": {
-    "runtime": 83,
+    "runtime": 84,
     "list": 20,
     "project": 11,
     "save": 10,
@@ -1917,6 +1917,15 @@
       "firstSentence": "Replay several scenarios as one batch.",
       "desc": "Replay several scenarios as one batch. Returns batchId + progress for polling.",
       "tier": "advanced?"
+    },
+    {
+      "name": "runtime_sandbox_run",
+      "file": "server-tools/runtime-sandbox.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Run a medium on a MACHINE OF YOUR OWN — a private daemon on its own port, started as a child of this call, born with a budget and ending itself when the budget runs out.",
+      "desc": "Run a medium on a MACHINE OF YOUR OWN — a private daemon on its own port, started as a child of this call, born with a budget and ending itself when the budget runs out. It never reaches the SHARED session the human co-drives: nothing is mounted into that machine, nothing power-cycles it, and nothing you do here is visible in the human's UI. Use it to boot a cartridge, disk, PRG or snapshot of your own and find out what it does — give it the medium, an optional schedule of steps, and say what you want read back. Steps use the capture-scenario notation, one per line: `I wait 170 frames` / `I type \"LOAD{QUOTE}*{QUOTE},8,1{RETURN}\"` / `I wait until the drive is idle within 8000 frames` / `I hold joystick 2 fire for 3 frames` / `I wait until the CPU reaches $0810 within 4000 frames`. Every step that lasts carries its own duration and the machine is stopped between steps, so the same list replays to the same bytes. WHAT IT CANNOT DO, deliberately: it returns NO session id. The machine is gone before you read the answer, so nothing can attach to it, step it, breakpoint it, open the monitor on it, rewind it or read its memory a second time — a sandbox you could come back to would be a second shared machine, and there is only one of those. Ask for everything you want in THIS call. For an interactive debug loop — stepping, breakpoints, the monitor, rewind, a session that stays — use runtime_session_start and the shared machine. Not for a documentation reel out of a .feature file (use runtime_scene_reel), and not for a picture of the session you are already debugging in (use runtime_render_screen). Inputs: media_path, steps, read_memory, frame_path, screen, budget_seconds. Returns: the private port, a line per step, the end cycle + PC + registers, the text screen, and the memory you asked for.",
+      "tier": "default?"
     },
     {
       "name": "runtime_save_vsf",

@@ -51,9 +51,56 @@ before searching for one. `sandbox_6502_run` and `sandbox_depack` are a CPU sand
 no machine at all: a flat 64K of RAM and the real 6502 core, with no VIC, no CIA, no
 drive, no KERNAL — the right tool for running a depacker over some bytes. An
 ephemeral MACHINE — a whole C64 on its own port, born with a budget and ending
-itself when it runs out — is started the same way as any other session, with
-this tool. If you want a cartridge to boot, you want a machine, not the CPU
-sandbox.
+itself when it runs out — is the next section, `runtime_sandbox_run`. If you want
+a cartridge to boot, you want a machine, not the CPU sandbox.
+
+## A machine of your own — `runtime_sandbox_run`
+
+`runtime_session_start` is the SHARED machine: one per daemon process, the one
+the human's UI is showing, co-driven and never power-cycled for a test. When it
+attaches, a `media_path` is **refused** rather than applied — mounting into it is
+`runtime_media_mount`'s job, or the monitor's `swapcrt`.
+
+A medium of your own goes in a machine of your own:
+
+```
+runtime_sandbox_run  media_path = input/disk/game.g64 \
+                     steps      = ['I type "LOAD{QUOTE}*{QUOTE},8,1{RETURN}"',
+                                   'I wait until the drive is idle within 8000 frames',
+                                   'I wait 120 frames'] \
+                     read_memory = ["$0400:1000", "$d018:1@io"] \
+                     frame_path  = analysis/boot.gif
+```
+
+It spawns its own `trx64-daemon` on its own port as a CHILD of the call, switches
+it on, waits for the BASIC prompt, puts the medium in, walks the steps, reports,
+and ends the machine. It is born with a budget (default 120 s, max 600) and ends
+itself when the budget runs out whether or not anyone is still listening — that
+budget is what makes starting one safe.
+
+**Where the line is drawn, and why.** A sandbox exists for one call, so the call
+may ask for anything COMPLETE IN ITSELF: a bounded run, a wait on a state the
+machine reaches by itself (`I wait until the CPU reaches $0810 within 4000
+frames`), the text screen, the registers, a memory dump, one GIF frame. It may
+not ask for anything whose value depends on a LATER call — a breakpoint you stop
+at and then decide from, a step you repeat, a monitor prompt — because there is
+no later call: **the tool returns no `session_id` and nothing can attach to it.**
+A sandbox you could come back to would be a second shared machine, and doctrine
+rule 2 allows exactly one. For an interactive debug loop, use the shared machine.
+
+The step notation is the capture scenario's, the same parser as
+`runtime_scene_reel` and `.feature` goals — minus `I capture`, which is refused
+here with a pointer at the reel. Two ways to say "wait 170 frames" is how a repo
+ends up with two of everything.
+
+**One case is not a whole machine.** A `.prg` opened into a sandbox with no disk
+and no cartridge makes the runtime latch it as an instruction exerciser and
+advance it on an isolated CPU core: no VIC, no CIAs, no SID, no 1541. The CPU,
+registers and memory stay real; the screen freezes, no frame can be taken and a
+typed key is never scanned. The tool detects this (it asks the runtime whether
+its VIC is sweeping) and says `NOT A WHOLE MACHINE` above the report rather than
+handing back a stale screen. A cartridge or a disk keeps the whole machine — put
+the PRG on a `.d64`, or load it into the shared session, which stays whole.
 
 ## Monitor, Interrupts, And Rendering
 
