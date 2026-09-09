@@ -3,11 +3,16 @@
 Lightweight, self-contained 6502 sandbox for porting depackers, crypto
 routines, and custom I/O code without standing up a full emulated C64.
 
-The sandbox CPU lives in `src/sandbox/cpu6502.ts` and supports the
-documented 6502 ISA plus the undocumented opcodes commonly seen in
-depacker wrappers (RLA, SLO, RRA, ISC, LAX, SAX, DCP, ALR, ARR, AXS, ANC,
-undoc NOPs, JAM). No I/O bus, no banking — just a flat 64K
-`Uint8Array` plus a write log.
+The sandbox does not carry a CPU of its own. It runs the REAL 6502 core in a
+scratch instance (`src/sandbox/sandbox-runner-realcore.ts`, reached through
+`src/sandbox/index.ts`), which is why a depacker that leans on an undocumented
+opcode behaves here exactly as it does anywhere else — there is no second
+implementation to disagree with.
+
+This paragraph used to describe a TypeScript CPU at `src/sandbox/cpu6502.ts`.
+That file went with the in-repo emulator (Spec 806) and the doc kept pointing at
+it for months, which is the failure mode a tools page has: nobody re-reads the
+first paragraph.
 
 ## Tool
 
@@ -15,7 +20,7 @@ undoc NOPs, JAM). No I/O bus, no banking — just a flat 64K
 |---|---|
 | `sandbox_6502_run` | Load code/data into a flat 64K RAM, optionally hook PCs to feed bytes from an input stream (e.g. replace a serial-recv subroutine), execute until a stop PC / sentinel RTS / max steps / unimplemented opcode, and return the writes plus final CPU state. |
 
-## Project resolution (Spec 833 D5)
+## Project resolution (Spec 833 D5, Spec 834)
 
 Relative paths — `loads[].prg_path`, `loads[].raw_path`, `input_stream_path`,
 `output_path` — resolve against the project root, and the root is found the same
@@ -23,6 +28,10 @@ way every other path-taking tool finds it: an explicit `project_dir`, else by
 walking up from the **first path in `loads[]`** to `knowledge/phase-plan.json`.
 The tool used to pass the resolver no hint at all, which left it depending on
 `C64RE_PROJECT_DIR` or on the process cwd happening to sit inside a project.
+
+`sandbox_depack` works the same way and was a sharper case of it: it DECLARED
+`project_dir` and then resolved without it, so the parameter a caller passed was
+read by nobody (Spec 834). It now resolves `project_dir ?? input_path`.
 
 A `loads[]` made only of `hex_bytes` carries no path, and such a run needs no
 project either: every byte is inline. The root is therefore resolved on first
