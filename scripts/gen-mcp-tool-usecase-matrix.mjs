@@ -39,7 +39,7 @@ const PATH_TOOLS = new Set([
   "inspect_disk", "extract_disk", "extract_crt", "disk_sector_allocation",
   "analyze_prg", "disasm_prg", "disasm_menu", "assemble_source",
   "runtime_session_start", "runtime_media_mount", "runtime_media_swap", "runtime_load_prg",
-  "runtime_media_browse",
+  "runtime_media_browse", "runtime_sandbox_run",
   "trace_store_info", "trace_store_query", "trace_store_top_pcs", "trace_store_bus_find",
   "trace_store_anchor_list", "trace_store_anchor_find",
   "runtime_query_events", "runtime_swimlane_slice", "runtime_trace_taint",

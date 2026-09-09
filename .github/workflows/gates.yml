@@ -173,6 +173,11 @@ jobs:
       - name: An attach never swaps the shared medium (Spec 836)
         run: npm run e2e:836-attach
 
+      # Spec 836 D3 — the live half needs the runtime binary and skips loudly
+      # without it; everything else is source and surface.
+      - name: A machine of your own (Spec 836 D3)
+        run: npm run e2e:836-sandbox
+
       # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
       # synthetic PRG with the bundled pipeline and seeds a temp project, and
       # the explorer gate reads the built bundle plus the two pure lib files.

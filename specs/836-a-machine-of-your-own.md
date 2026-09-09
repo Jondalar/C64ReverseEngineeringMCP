@@ -1,6 +1,8 @@
 # Spec 836 — A machine of your own
 
-**Status:** PROPOSED 2026-09-09
+**Status:** BUILT 2026-09-09 — `e2e:836-attach` 11/0 and `e2e:836-sandbox`
+65/0 hermetic (80/0 with the runtime binary present), both in `gates.yml`; every
+existing gate green.
 **Origin:** A project session tried to start a headless runtime with its own
 cartridge and got the human's live Wasteland session instead. Investigating that
 turned up a defect worse than the missing feature.
@@ -42,6 +44,18 @@ describe scratch instances INSIDE one process and that is a different thing; a
 second process on its own port is enough for "let me try something without
 touching your machine", and it already runs.
 
+**Corrected by the build — that is true for a cartridge and a disk, and FALSE
+for a bare `.prg`.** `media/open` sets `session.injected`, and the runtime's
+`full_machine_gate` then advances a machine with no cart and no disk on the
+isolated CPU core: no VIC, no CIAs, no SID, no drive. Measured — raster frozen,
+`advance_to_frame` failing, PC parked at `$E5CD`, typed keys never scanned. That
+gate's own comment already makes the same argument for disks, so the PRG case
+reads as the next instance of a bug it half-fixed. It belongs to the runtime and
+is NOT fixed here; the tool detects it (it asks the runtime whether its VIC is
+sweeping), says `NOT A WHOLE MACHINE` above the report with what to do instead,
+and skips the frame rather than encoding a stale screen. **Open for the runtime
+repo.**
+
 ## 2. Decisions
 
 **D1 — an attach never changes the shared machine's medium.** When
@@ -69,14 +83,95 @@ The scope question the build must answer: how much of the interactive surface
 duration of one call. Whatever the answer, the honest version of this tool is the
 one whose description says what it cannot do.
 
+### 2a. Where the interactive line fell, and why
+
+The spec left this to the build and the answer is worth keeping: **a call may
+express anything complete in itself; nothing whose value depends on a later
+call.**
+
+In: a medium, a schedule in the capture-scenario notation (waits, typing, held
+keys, joystick, `insert`), a run-until (drive idle, PC reaches an address, the
+screen shows text, a byte equals a value, the screen is still for N frames), the
+text screen, registers, memory with a bus lens, one GIF frame.
+
+Out: the `session_id` — and with it stepping, breakpoints, the monitor, rewind
+and any second read. Not because the runtime cannot: `runtime_until` and "wait
+until the CPU reaches $0810" are the same capability. Because each interactive
+verb is half a conversation, and only the other shape is honest about being over
+when it returns.
+
+Two things nobody foresaw, both now in the driver: a sandbox daemon hands over a
+machine **at its reset vector**, so the sandbox switches it on and waits for the
+BASIC prompt (~120 frames) before anything goes in; and the daemon's autostart
+`RUN` sits in a buffer only its own running loop drains, so a paused sandbox
+presses the key itself and says so.
+
+### 2b. A defect this found in the tooling, fixed here
+
+`resolveDaemonSpawn` looked for the runtime at `repoRoot/../TRX64`. From a git
+worktree that resolves to `.claude/worktrees/TRX64`, which does not exist — so
+**every agent working in a worktree got a false "no runtime" skip**, from this
+gate and from the reel's, for a binary sitting right there. Every loud skip I
+read as ground truth today came from a worktree. The main checkout is two levels
+above a worktree and is now tried as a second candidate.
+
 ## 3. Gates
 
 - `e2e:836-attach` — a `media_path` on an attach is refused and the shared
   machine's medium is unchanged; the refusal names `runtime_media_mount` and the
   sandbox tool; a create (no daemon running) still opens its medium.
 - `e2e:836-sandbox` — the private machine runs on its own port, is not the
-  shared one, ends on its budget, and leaves nothing behind; every runtime tool's
-  description says which machine it touches.
+  shared one, ends on its budget, and leaves nothing behind; every parameter is
+  described; the shared endpoint is named exactly once in the whole sandbox
+  path, inside the guard that refuses it. The live half skips loudly without the
+  runtime binary.
+- `e2e:836-attach` also asserts a rule the first version of this spec broke
+  within an hour of writing it: **every runtime tool named in a string a caller
+  is shown must exist.** D1's refusal pointed at `runtime_sandbox_run` before it
+  was built.
+
+## 3a. D3, as built — where the interactive line fell
+
+`runtime_sandbox_run` (`src/server-tools/runtime-sandbox.ts`) over a new driver
+(`src/reel/run-sandbox.ts`) on the EXISTING `sandbox-session.ts`, which is
+unchanged: same spawner, same budget-and-die contract, second caller.
+
+**The rule:** a call may express anything COMPLETE IN ITSELF; nothing whose value
+depends on a later call.
+
+- **In** — a medium (`media_path`, content-typed, so the cartridge case works),
+  a schedule of steps in the capture-scenario notation (`parseStep`, shared with
+  812/810 — waits, typing, held keys, held joystick, `insert`), a **run-until**
+  (`I wait until the drive is idle / the CPU reaches $XXXX / the screen shows "…"
+  / $XXXX is $YY / the screen is still for N frames within N frames`), the text
+  screen, the registers, memory dumps with a bus lens, and one GIF frame.
+- **Out** — a `session_id`, and with it every interactive verb: stepping,
+  breakpoints, the monitor, rewind, a second read of the same machine. Not
+  because the runtime cannot do them but because each is half a conversation, and
+  the machine is gone when the answer is read. `I wait until the CPU reaches
+  $0810` and `runtime_until` are the same runtime capability in two shapes; only
+  the first is honest about being over when it returns.
+- **Also out** — `I capture` (refused, pointing at the reel) and the two REGION
+  predicates: a region is defined by a scenario or the project store, and a
+  sandbox run has neither.
+
+**§1's "needs no work in the runtime repo" holds for the cartridge and disk cases
+and NOT for a bare `.prg`.** Measured on the real daemon: `media/open` on a PRG
+sets `session.injected`, and `full_machine_gate` then advances a machine with no
+cart and no disk on the isolated `cpu6510` core — no VIC, no CIAs, no SID, no
+1541. The screen freezes, `advance_to_frame` fails, and a typed key is never
+scanned. D3 does not fix that (it is a TRX64 gate, and the fix is the same
+argument the gate's own `media_attached` comment already makes for disks); it
+DETECTS it, by asking the runtime whether its VIC is sweeping, and says `NOT A
+WHOLE MACHINE` above the report. **Open, for TRX64:** should poking a PRG into a
+BOOTED machine re-classify it as an instruction exerciser at all?
+
+Two smaller things the build had to learn, both now in the driver: a sandbox
+daemon hands over a machine at its RESET vector, so the sandbox switches it on
+and waits for the BASIC prompt before putting anything in (a PRG poked in earlier
+is walked over by the cold start; a key typed earlier is typed into nothing); and
+the daemon's autostart `RUN` sits in a buffer only its own running loop drains,
+so a paused sandbox presses the key itself and says so.
 
 ## 4. Acceptance
 
