@@ -113,6 +113,41 @@ metadata records the count the VICE-style scanner found beside its own, so the
 two readers disagreeing is visible in the artifact instead of in a human's
 memory.
 
+**(b) was dangerously worded, and the build caught it.** "An unreadable data
+block" invites gating on `data.gcrValid` — and that is not a readability signal.
+The 325-byte data read overshoots the block, so group 64 of 65 lands in the tail
+gap and fails as a matter of course: measured, The Pawn fails exactly group 64
+on all 683 sectors, Last Ninja III on 665 of 666, Accolade on 11 of 11. Gating
+there takes Pawn from 19 extracted sectors to 0 — the exact regression the
+two-implementations rule exists to prevent. The line belongs at *no data block
+present at all* (`blockId !== 0x07`), which is the 1541's own "22 READ ERROR".
+On the corpus that case occurs zero times, so (b) is a no-op on real disks and
+closes only the invention hole. Anyone reading the empty `no_data_block` column
+later should know it was never expected to fire.
+
+**(a) turned out to cost nothing, and that was measured rather than assumed.**
+The obvious objection was that Pawn and motm carry deliberately corrupt headers,
+so a checksum gate would refuse real sectors. Across eight images the number of
+pairs with block id `$08` whose header checksum fails is **0** — the corruption
+on those titles is in the DATA blocks. Where a disk ever does carry a custom
+header checksum it now surfaces as a refused `header_checksum_error` candidate
+plus a reader disagreement in the metadata, which is what (c) is for.
+
+**And the invention was not where the spec pointed.** The `new Uint8Array(256)`
+branch this spec named was already unreachable — `readAlignedBytesFromBit`
+always returns the length asked for, so the ternary is always true. The real
+fabrication was running `decodeGCRDataBlock` over a block that was not a data
+block at all. Same defect, one level further in.
+
+Measured on eight real images (read-only): dungeon 684 → 683, The Pawn 701 →
+683, Last Ninja III 697 → 683, five others unchanged. Every image now agrees
+exactly with the firmware-style scanner, no image lost a real sector, no real
+sector lost a byte, and **5 632 invented bytes** are gone. Pawn's 683 and
+Impossible Mission II's 631 custom-CRC sectors are still extracted at a full 256
+bytes, flagged — the workbench half of the two-implementations rule survives
+intact. The removed Ultima VI pair is `not_a_header id=$13 claims 240/240`: the
+reported eighteenth sector, confirmed.
+
 ## 6. D5 — machine output is not human debt (report 4)
 
 `.bin` is in `KNOWN_EXTENSIONS` and `analysis` in `SCAN_ROOTS`
@@ -215,7 +250,9 @@ of this spec a reader could be surprised by.
 
 ## 9b. Gates already red before this spec
 
-`test:lifecycle`, `test:mcp-workflow` and `e2e:752` (`REVIEW steering
+`test:lifecycle`, `test:mcp-workflow`, `e2e:disk-raw-default` (`7d
+set_payload_disk_hint`), `check:mcp-product-surface` (two description rules) and
+`e2e:752` (`REVIEW steering
 idempotency survives a heading edit` — `ensureDefaultSteering()` returns
 `appended` where the gate wants `present`) are red on master and stay red here.
 Reproduced on this branch with no change applied, so nothing in 832 is credited
