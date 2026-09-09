@@ -3,8 +3,9 @@
 // the workspace project resolver has no silent process.cwd()/samples fallback.
 import { readFileSync, readdirSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
+import { pathParamsOf } from "./lib/schema-path-walk.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
@@ -73,6 +74,90 @@ writeFileSync(join(tmp, "game.d64"), Buffer.alloc(16, 0));
 const outsideRepo = !tmp.startsWith(ROOT);
 ok(outsideRepo, "5 temp project dir is outside the C64RE repo", tmp);
 ok(existsSync(join(tmp, "game.d64")), "5b user media addressable by absolute path from any cwd", join(tmp, "game.d64"));
+
+// 6 + 7. Spec 833 D5(b) — the rule now WALKS the schema, at any depth.
+//
+// Checks 1 and 2 read the matrix, and the matrix's pathMode comes from a hand-kept
+// name list. `sandbox_6502_run` takes its paths NESTED — `loads[].prg_path`,
+// `loads[].raw_path` — so nothing here ever looked at them, the tool read as
+// taking no path at all, and it resolved its project from `undefined`: no hint,
+// so C64RE_PROJECT_DIR or the process cwd. A rule that only sees the top level is
+// a rule with a hole in it. From here the live schemas are the input.
+const dist = join(ROOT, "dist/server.js");
+if (!existsSync(dist)) {
+  ok(false, "6 dist/server.js is built (run npm run build:mcp)", dist);
+} else {
+  const { collectToolInventory } = await import(pathToFileURL(dist).href);
+  const { tierForTool } = await import(pathToFileURL(join(ROOT, "dist/server-tools/tier-tools.js")).href);
+  const inv = collectToolInventory().filter((t) => t.schema);
+
+  // 6. the walk reaches a NESTED path parameter. `sandbox_6502_run` is the case
+  //    that taught us the hole exists, so it is the case that keeps it shut.
+  const sandbox = inv.find((t) => t.name === "sandbox_6502_run");
+  const sandboxPaths = sandbox ? pathParamsOf(sandbox.schema) : [];
+  const nestedSandbox = sandboxPaths.filter((p) => p.nested).map((p) => p.path);
+  ok(nestedSandbox.includes("loads[].prg_path") && nestedSandbox.includes("loads[].raw_path"),
+    "6 the schema walk sees NESTED path parameters (sandbox_6502_run loads[])", nestedSandbox.join(",") || "none");
+
+  const nestedAll = inv.flatMap((t) => pathParamsOf(t.schema).filter((p) => p.nested).map((p) => `${t.name}.${p.path}`));
+  ok(nestedAll.length > 0, "6b nested path parameters exist and are counted", `${nestedAll.length} across the surface`);
+
+  // 7. a default tool that takes a path must give the resolver a HINT to walk up
+  //    from. Read file-granular: a source file whose project resolution is called
+  //    with no hint at all (`context.projectDir()` / `context.projectDir(undefined`)
+  //    cannot be handing one of its tools' paths to the resolver. `project_dir`
+  //    itself is not counted as "takes a path" — it IS the hint.
+  //
+  //    KNOWN_HINTLESS freezes what this widening exposed. These are the same shape
+  //    as the sandbox defect, on paths Spec 833 did not open (its §8 keeps the
+  //    surrounding decisions out of scope). The list may shrink; a tool that is
+  //    not on it fails, so the hole cannot grow.
+  const KNOWN_HINTLESS = new Set([
+    // server-tools/headless.ts — resolveHeadlessProjectDir() is called with no
+    // hint at any of its call sites; each is try/caught, so the miss is silent
+    // rather than fatal.
+    "runtime_session_start", "runtime_loader_lens", "runtime_load_prg",
+    "runtime_run_prg", "runtime_render_screen", "runtime_recorder_dump",
+    // server-tools/trace-store.ts — resolveStorePath() resolves a relative store
+    // path against `proj ?? process.cwd()`; the cwd fallback is explicit there.
+    "trace_store_info", "trace_store_anchor_list", "trace_store_anchor_find",
+    "trace_store_top_pcs", "trace_store_bus_find", "trace_store_query",
+    "trace_memory_map",
+    // server-tools/scene-reel.ts — `context.projectDir()`, hintless and not
+    // caught: the closest twin to the sandbox defect, with feature_path /
+    // out_path / media_path sitting right there unused.
+    "runtime_scene_reel",
+    // server-tools/sandbox-depack.ts — the sharpest of the set: it DECLARES
+    // `project_dir` (line 32) and then resolves with `ctx.projectDir(undefined,
+    // true)` (line 72), so the parameter a caller passes is read by nobody.
+    "sandbox_depack",
+  ]);
+  // Any receiver, not just `context` — sandbox-depack.ts names it `ctx`, and a
+  // rule that only matches one spelling is the same hole one level down.
+  const HINTLESS_CALL = /\.projectDir\(\s*(\)|undefined)/;
+  const srcCache = new Map();
+  const resolvesHintless = (file) => {
+    if (!srcCache.has(file)) {
+      const abs = join(ROOT, "src", file);
+      srcCache.set(file, existsSync(abs)
+        && readFileSync(abs, "utf8").split("\n").filter((l) => !/^\s*\/\//.test(l)).some((l) => HINTLESS_CALL.test(l)));
+    }
+    return srcCache.get(file);
+  };
+
+  const pathTaking = inv
+    .map((t) => ({ ...t, tier: tierForTool(t.name), paths: pathParamsOf(t.schema).map((p) => p.path).filter((p) => p !== "project_dir") }))
+    .filter((t) => t.tier === "default" && t.paths.length > 0);
+  const hintless = pathTaking.filter((t) => resolvesHintless(t.file));
+  const unexpected = hintless.filter((t) => !KNOWN_HINTLESS.has(t.name));
+  ok(unexpected.length === 0, "7 every default path-taking tool resolves its project from a hint (or is a frozen known)",
+    unexpected.map((t) => `${t.name}@${t.file}`).join(",") || `${hintless.length} known, 0 new`);
+
+  console.log(`\n--- nested-path walk (Spec 833 D5b) ---`);
+  console.log(`default tools taking a path (project_dir aside): ${pathTaking.length}`);
+  console.log(`nested path parameters seen: ${nestedAll.length}`);
+  for (const t of hintless) console.log(`  hintless  ${t.name.padEnd(28)} ${t.file}  ${t.paths.slice(0, 3).join(",")}`);
+}
 
 console.log(`\n--- report ---`);
 console.log(`temp external project: ${tmp}`);
