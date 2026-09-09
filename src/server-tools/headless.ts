@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 // Spec 723.4b: standalone HeadlessSessionManager + its record formatters retired.
@@ -29,12 +29,16 @@ function formatHexByte(value: number): string {
   return value.toString(16).toUpperCase().padStart(2, "0");
 }
 
-function resolveHeadlessProjectDir(context: ServerToolContext, hintPath?: string): string {
+// Spec 834 D1 — the hint is a PARAMETER every caller has to state, not something
+// a call site can omit by accident. The old shape took `hintPath?` and, with none
+// given, resolved `context.projectDir(undefined, true)`: the resolver then has
+// nothing to walk up from and answers from C64RE_PROJECT_DIR, or from the process
+// cwd happening to sit inside a project. Every headless call site carried a path
+// all along — media_path, prg_path, capture_path, the file it is about to write —
+// and threw it away, so the tool worked quietly against the wrong project or none.
+function resolveHeadlessProjectDir(context: ServerToolContext, hintPath: string | undefined): string {
   // Spec 723.4b: no longer consults the standalone HeadlessSessionManager.
-  if (hintPath) {
-    return context.projectDir(hintPath, true);
-  }
-  return context.projectDir(undefined, true);
+  return context.projectDir(hintPath, true);
 }
 
 // Spec 723.4b: headlessSessionToContent + headlessRunResultToContent removed —
@@ -79,6 +83,9 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       media_path: z.string().optional(),
       /** @deprecated use media_path — kept so existing callers keep working. */
       disk_path: z.string().optional(),
+      // Spec 834 D1 — which project this session belongs to, in the shape every
+      // other path-taking tool uses: named, or walked up from the call's own path.
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from media_path (or trace_out) to knowledge/phase-plan.json."),
       device_id: z.number().int().min(8).max(11).optional(),
       pal: z.boolean().optional(),
       start_track: z.number().int().min(1).max(40).optional(),
@@ -105,7 +112,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     // read by the removed in-process branch. Left in the schema (accepted + ignored, as
     // in daemon mode today) — pruning the input surface is a separate decision.
     safeHandler("runtime_session_start", async ({
-      media_path, disk_path, device_id, pal, start_track, write_protected,
+      media_path, disk_path, project_dir, device_id, pal, start_track, write_protected,
       trace_out, trace_domains,
     }) => {
       // BUG-041 — one input. `disk_path` is the deprecated alias.
@@ -122,12 +129,27 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // the disk + the trace.duckdb always land in the *caller's* project — not the
       // daemon's. (projectDir-at-spawn below is only the daemon's default-session /
       // UI base; it is not load-bearing for MCP-created sessions.)
-      const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+      // Spec 834 D1 — the hint is a path this call already carries: the project the
+      // caller named, else the medium being put in the machine, else the trace it is
+      // about to write. D3 — and it is no longer wrapped in a try/catch that turned
+      // "which project am I in" into `undefined`: that is not the daemon-is-absent
+      // failure DOCTRINE rule 1 asks a tool to survive and report, and swallowing it
+      // is exactly how a session ends up resolving its disk against the wrong root.
+      const projectHint = project_dir ?? mediaIn ?? trace_out;
+      // A bare attach names no path at all — no medium, no trace — and nothing below
+      // is then resolved against a root, so the resolver is not asked. Same decision
+      // Spec 833 recorded for a hex_bytes-only sandbox run: asking hintlessly IS the
+      // defect, so where the answer is not needed the question is not put.
+      const mcpProject = projectHint === undefined
+        ? undefined
+        : resolveHeadlessProjectDir(context, projectHint);
       const { resolveTraceOut } = await import("./runtime-trace-sink.js");
       // Resolve to ABSOLUTE the same way the trace path is (absolute as-is, else
       // under the MCP's project). NOTE: context.projectDir() returns the project
       // ROOT, not a resolved file path — it is the wrong tool for this.
       const absMedia = mediaIn
+        // A medium implies a hint above, so mcpProject is a resolved root here or the
+        // call has already thrown — the cwd branch is unreachable with a medium.
         ? (resolve(mcpProject ?? process.cwd(), mediaIn))
         : undefined;
       const absTraceOut = trace_out ? resolveTraceOut(trace_out, mcpProject) : undefined;
@@ -255,13 +277,18 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // (payload-extraction-from-medium). Gate it like loader_lens itself: standard-GCR =>
       // the payload is a static depack, so don't capture a landing-map trace for it.
       if (doms.includes("drive-mechanism")) {
-        const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+        // Spec 834 — not one of the six (its own path parameter is `output`, which the
+        // portability walk does not read as a path name), but it is the same helper and
+        // the same rule: hand it the path the call carries. With no `output` — the Spec
+        // 827 default, where the capture goes to the per-user trace directory — this
+        // call genuinely has no path, and it resolves as it did before.
+        const proj = (() => { try { return resolveHeadlessProjectDir(context, output); } catch { return undefined; } })();
         const { checkSubstrateDiscipline } = await import("./substrate-gate.js");
         const sub = await checkSubstrateDiscipline(proj, { tool: "runtime_trace_start (drive-mechanism / loader-lens capture)" });
         if (!sub.allowed) return { content: [{ type: "text" as const, text: sub.refusal! }] };
       }
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+      const proj = (() => { try { return resolveHeadlessProjectDir(context, output); } catch { return undefined; } })();
       // Spec 827 — a capture defaults OUTSIDE the project: 20 GB of index and log
       // in one project measured on 2026-09-06, in the very tree a user syncs. An
       // explicit `output` is still obeyed exactly as before; it only gets a warning
@@ -366,20 +393,23 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       capture_path: z.string().describe("Path (abs or under the project) to the .c64retrace binary capture."),
       hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): the read-derived reason — a concrete $address (the payload/routine you already located by reading the drivecode disasm / an entity / a finding) + what pointed you there. Fishing (no address / no rationale) is refused. If the disk is standard-GCR the payload is a static depack — read + sandbox_depack, not the loader-lens."),
       min_run_len: z.number().int().positive().optional().describe("Min contiguous RAM-write run counted as a payload landing (default 16 — filters scratch)."),
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from capture_path to knowledge/phase-plan.json."),
     },
-    safeHandler("runtime_loader_lens", async ({ capture_path, hypothesis, min_run_len }) => {
+    safeHandler("runtime_loader_lens", async ({ capture_path, hypothesis, min_run_len, project_dir }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
       const gate = checkRuntimeDiscipline(hypothesis, { tool: "runtime_loader_lens", act: "reading a loader-lens landing map (which block a payload came from)" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const { landingMapFromCaptureFile } = await import("../trace/loader-lens.js");
-      const { resolve, isAbsolute } = await import("node:path");
-      const proj = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
+      // Spec 834 D1 — the hint is the capture this call is about to read. D3 — the
+      // catch is gone; it mattered most here, because the substrate gate two lines
+      // down is handed this root and with `undefined` it had no medium to check.
+      const proj = resolveHeadlessProjectDir(context, project_dir ?? capture_path);
       // Tier 2 substrate gate — the landing map is payload-extraction-from-medium: if the
       // medium is standard-GCR the payload is a static depack, not a runtime job (the Cybernoid block).
       const { checkSubstrateDiscipline } = await import("./substrate-gate.js");
       const sub = await checkSubstrateDiscipline(proj, { tool: "runtime_loader_lens" });
       if (!sub.allowed) return { content: [{ type: "text" as const, text: sub.refusal! }] };
-      const abs = isAbsolute(capture_path) ? capture_path : resolve(proj ?? process.cwd(), capture_path);
+      const abs = isAbsolute(capture_path) ? capture_path : resolve(proj, capture_path);
       const { basename } = await import("node:path");
       // BUG-052 — folding a multi-GB capture takes longer than the host's per-tool
       // stall limit, and a call declared "stalled" costs the whole stdio connection.
@@ -480,15 +510,19 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       session_id: z.string(),
       prg_path: z.string(),
       load_address: z.string().optional().describe("Override load address (hex). Default = PRG header."),
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from prg_path to knowledge/phase-plan.json."),
     },
-    safeHandler("runtime_load_prg", async ({ session_id, prg_path, load_address }) => {
+    safeHandler("runtime_load_prg", async ({ session_id, prg_path, load_address, project_dir }) => {
       const addr = load_address ? parseHexWord(load_address) : undefined;
       // BUG-028 — inject into the SHARED daemon session. The path is resolved
       // absolute against the MCP's project (the project-agnostic daemon, localhost,
       // reads the caller's file — same rule as session_start's disk_path).
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
-      const absPrg = resolve(mcpProject ?? process.cwd(), prg_path);
+      // Spec 834 D1/D3 — the hint is the PRG this call is about to inject, and a
+      // project that cannot be found is reported instead of being replaced by the
+      // process cwd (which is how one relative prg_path could reach two different files).
+      const mcpProject = resolveHeadlessProjectDir(context, project_dir ?? prg_path);
+      const absPrg = resolve(mcpProject, prg_path);
       const r = await runtimeDaemon.loadPrg<{ loadAddress: number; endAddress: number; bytesLoaded: number }>(session_id, absPrg, addr);
       return { content: [{ type: "text" as const, text: [
         `PRG loaded into RAM (Runtime Daemon).`,
@@ -506,12 +540,18 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   server.tool(
     "runtime_run_prg",
     "Load AND start a .prg in one shot (the macro that was missing). Loads the PRG into the shared session, then autostarts: a BASIC program (load address $0801) → types RUN; machine code → `g <entry>` (continue at the entry; default = the load address, or pass `run` for an explicit entry like a SYS target). Use to just-run a .prg without disk/monitor steps; not for loading without starting (use runtime_load_prg). Inputs: session_id, prg_path, optional run (hex entry address for machine code). Returns: load address + the autostart action taken.",
-    { session_id: z.string(), prg_path: z.string(), run: z.string().optional().describe("Machine-code entry (hex, e.g. '1000' or '$1000'). Omit for BASIC autostart / default load-address entry.") },
-    safeHandler("runtime_run_prg", async ({ session_id, prg_path, run }) => {
+    {
+      session_id: z.string(),
+      prg_path: z.string(),
+      run: z.string().optional().describe("Machine-code entry (hex, e.g. '1000' or '$1000'). Omit for BASIC autostart / default load-address entry."),
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from prg_path to knowledge/phase-plan.json."),
+    },
+    safeHandler("runtime_run_prg", async ({ session_id, prg_path, run, project_dir }) => {
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
       const entry = run ? parseHexWord(run) : undefined;
-      const mcpProject = (() => { try { return resolveHeadlessProjectDir(context); } catch { return undefined; } })();
-      const abs = resolve(mcpProject ?? process.cwd(), prg_path);
+      // Spec 834 D1/D3 — same as runtime_load_prg: hint from prg_path, failure visible.
+      const mcpProject = resolveHeadlessProjectDir(context, project_dir ?? prg_path);
+      const abs = resolve(mcpProject, prg_path);
       // The shared backend macro (runtime/run_prg) — same path the UI .prg-drop
       // uses: loadPrgBytes (sets BASIC VARTAB) + autostart (BASIC RUN / g entry).
       const { loadAddress, action } = await runtimeDaemon.runPrg<{ loadAddress: number; action: string }>(session_id, abs, entry);
@@ -662,8 +702,16 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     {
       session_id: z.string(),
       path: z.string().describe("Output PNG path"),
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json."),
     },
-    safeHandler("runtime_render_screen", async ({ session_id, path }) => {
+    safeHandler("runtime_render_screen", async ({ session_id, path, project_dir }) => {
+      // Spec 834 D1 — this tool resolved no project at all: the PNG is written by the
+      // MCP process, so a relative `path` landed wherever that process happened to be
+      // standing. The hint is the output path itself (or the project the caller named),
+      // and the PNG is written under the resolved root. D3 — no catch: an unfindable
+      // project is reported rather than replaced by the cwd.
+      const proj = resolveHeadlessProjectDir(context, project_dir ?? path);
+      const outPath = isAbsolute(path) ? path : resolve(proj, path);
       // Spec 744.4c — render the shared Runtime Daemon session's screen. The daemon
       // returns a base64 PNG (same frame the UI sees); write it to the requested path.
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
@@ -672,10 +720,10 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const b64 = dataUrl.includes(",") ? dataUrl.slice(dataUrl.indexOf(",") + 1) : dataUrl;
       const buf = Buffer.from(b64, "base64");
       const { writeFileSync } = await import("node:fs");
-      writeFileSync(path, buf);
+      writeFileSync(outPath, buf);
       return { content: [{ type: "text" as const, text: [
         `runtime_render_screen — session ${session_id} (Runtime Daemon)`,
-        `Output: ${path}`,
+        `Output: ${outPath}`,
         `Dimensions: ${shot.width ?? "?"}×${shot.height ?? "?"}`,
         `Bytes: ${buf.length}`,
       ].join("\n") }] };
@@ -770,11 +818,24 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   server.tool(
     "runtime_recorder_dump",
     "Dump a recorder anchor (a past scrub point, by seq from runtime_recorder_list) to a durable .c64re snapshot file. The recorder's unique value: persist a point from MINUTES of cheap history, then undump it (runtime_session_undump) and replay it with tracing on. Not for the live moment (use the checkpoint/dump path). Inputs: session_id, seq, path. Returns: dump result (file bytes, embedded media, cycle/pc).",
-    { session_id: z.string(), seq: z.number(), path: z.string() },
-    safeHandler("runtime_recorder_dump", async ({ session_id, seq, path }) => {
+    {
+      session_id: z.string(),
+      seq: z.number(),
+      path: z.string(),
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json."),
+    },
+    safeHandler("runtime_recorder_dump", async ({ session_id, seq, path, project_dir }) => {
+      // Spec 834 D1 — this tool resolved no project either, and it hands the path to
+      // the DAEMON: a project-agnostic host that may serve several projects at once, so
+      // a relative path landed against ITS working directory rather than the caller's
+      // project. Same rule runtime_session_start states for its medium — the MCP
+      // resolves against its own project and hands the daemon an absolute path. D3 — a
+      // project that cannot be found is reported, not silently substituted.
+      const proj = resolveHeadlessProjectDir(context, project_dir ?? path);
+      const outPath = isAbsolute(path) ? path : resolve(proj, path);
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const r = await runtimeDaemon.recorderDump(session_id, seq, path);
-      return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };
+      const r = await runtimeDaemon.recorderDump(session_id, seq, outPath);
+      return { content: [{ type: "text" as const, text: `${JSON.stringify(r, null, 2)}\nDump path: ${outPath}` }] };
     },
 ));
 
