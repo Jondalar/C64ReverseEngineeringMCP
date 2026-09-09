@@ -360,5 +360,66 @@ if (!existsSync(mcpCli)) {
   }
 }
 
+// ------------------------------------------------------- §5c, closed
+// Two instances of this spec's own shape were found during the build and left
+// unfixed. Both are fixed now, and both are asserted here rather than in a new
+// gate: they live in the files this gate already drives.
+
+// (1) The one that goes RED rather than merely misleading. Two explicit
+//     labels[] entries with one name at two addresses both got a definition,
+//     KickAssembler stopped at "already defined", and the byte-identical
+//     rebuild failed with nothing saying why. usedLabels guarded routines and
+//     segments and never guarded explicit labels.
+{
+  const dir = mkdtempSync(join(tmpdir(), "c64re-833-dup-"));
+  const LOAD = 0x0801;
+  //  0801 A9 01  lda #$01   0803 A9 02  lda #$02   0805 60  rts
+  writeFileSync(join(dir, "dup.prg"), Buffer.from([LOAD & 0xff, LOAD >> 8, 0xa9, 0x01, 0xa9, 0x02, 0x60]));
+  writeFileSync(join(dir, "dup_annotations.json"), JSON.stringify({
+    labels: [
+      { address: "0801", label: "twice" },
+      { address: "0803", label: "twice" },      // same NAME, other address
+      { address: "0805", label: "once" },
+      { address: "0805", label: "again" },      // same ADDRESS, other name
+    ],
+    routines: [], segments: [], pointerTables: [], jumpTables: [],
+  }, null, 2));
+  const analysis = join(dir, "dup_analysis.json");
+  execFileSync(process.execPath, [join(ROOT, "dist/pipeline/cli.cjs"), "analyze-prg", join(dir, "dup.prg"), analysis, "0801", "--no-register"], { stdio: "pipe" });
+  const asmPath = join(dir, "dup.asm");
+  const out = execFileSync(process.execPath, [join(ROOT, "dist/pipeline/cli.cjs"), "disasm-prg", join(dir, "dup.prg"), asmPath, "", analysis, "--no-register"], { stdio: "pipe" }).toString();
+  const asm = readFileSync(asmPath, "utf8");
+  const defs = (name) => (asm.match(new RegExp(`^${name}:`, "gm")) ?? []).length;
+
+  check(defs("twice") === 1, `a duplicate label NAME is defined exactly once (got ${defs("twice")}) — two definitions break the rebuild`);
+  check(defs("again") === 0, "a second name on one ADDRESS does not get a definition either");
+  check(defs("once") === 1, "…and the first name on that address keeps its own");
+  check(/duplicate label name "twice"/.test(out), "the drop is REPORTED in the skipped summary, where a human looks for 'why did my annotation not apply'");
+  check(/already labelled "once"/.test(out), "…and so is the duplicate address");
+
+  const jar = process.env.C64RE_KICKASS_JAR ?? "/Applications/KickAssembler/KickAss.jar";
+  if (!existsSync(jar)) {
+    console.log("  SKIP  the duplicate-label rebuild: KickAssembler not found — skipped, not passed");
+  } else {
+    const rebuilt = join(dir, "dup.rebuilt.prg");
+    let assembled = true;
+    try { execFileSync("java", ["-jar", jar, asmPath, "-o", rebuilt], { stdio: "pipe" }); } catch { assembled = false; }
+    check(assembled, "KickAssembler accepts a listing whose annotations name one identifier twice");
+    if (assembled) check(readFileSync(join(dir, "dup.prg")).equals(readFileSync(rebuilt)), "…and it rebuilds byte-identical");
+  }
+}
+
+// (2) The harmless one: the wrapper looked for an annotations file beside the
+//     ASM only, while the renderer looks beside the PRG and beside the analysis
+//     JSON too — so "NEXT STEP: create an annotations file" could be printed
+//     over a listing that had just applied them.
+{
+  const wrapper = readFileSync(join(ROOT, "src/server-tools/analysis-workflow.ts"), "utf8");
+  check(/annotationCandidates/.test(wrapper), "the wrapper resolves annotations through a candidate list, not one guess");
+  check(/prgAbs\.replace\(/.test(wrapper), "…including beside the PRG, which is where the renderer looks first");
+  check(/analysis_json \? \[resolve\(pd, analysis_json\)/.test(wrapper), "…and beside the analysis JSON");
+  check(!/const hasAnnotations = existsSync\(annotationsPath\)/.test(wrapper), "…and no longer decides from the ASM's neighbour alone");
+}
+
 console.log(`\n${failCount ? "RED" : "GREEN"}  Spec 833 render: ${pass} pass, ${failCount} fail.`);
 process.exit(failCount ? 1 : 0);
