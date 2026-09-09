@@ -112,6 +112,7 @@
     "e2e:833-sandbox": "npm run build:mcp && node scripts/e2e-833-sandbox.mjs",
     "e2e:834-headless": "npm run build:mcp && node scripts/e2e-834-headless.mjs",
     "e2e:834-trace-store": "npm run build:mcp && node scripts/e2e-834-trace-store.mjs",
+    "e2e:834-scene-reel": "npm run build:mcp && node scripts/e2e-834-scene-reel.mjs",
     "e2e:829": "npm run build && node scripts/e2e-829-basic-v2.mjs",
     "smoke:bug015": "npm run build:mcp && node scripts/smoke-bug015-init-media-sort.mjs",
     "smoke:bug013": "npm run build:mcp && node scripts/smoke-bug013-drive-picker-project-only.mjs",
