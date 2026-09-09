@@ -12,7 +12,9 @@
 //   node scripts/check-wiki.mjs
 //   node scripts/check-wiki.mjs --publish   # copy into a wiki clone (path in $C64RE_WIKI)
 
-import { readFileSync, readdirSync, existsSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync, readdirSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -116,6 +118,71 @@ for (const page of pages) {
     }
   }
   ok(bad.length === 0, `${name}: ${blocks} gherkin example(s) parse`, bad.slice(0, 3).join(" | ") || "clean");
+}
+
+// ---- is what is PUBLISHED what is in here? ----------------------------------
+//
+// The gate above proves the pages in this repo are correct. It says nothing
+// about the pages a reader actually sees, because publishing is a manual copy
+// into a separate wiki repo — and that step was silently skipped for a whole
+// spec: `Capture-Scenarios` carried Spec 834's project_dir paragraph here and
+// not there, and nothing noticed until somebody went to publish something else.
+//
+// Read over GIT, not over raw.githubusercontent.com. The raw endpoint is behind
+// a CDN and served the previous Home.md for minutes after a push — a check that
+// reports drift that is not there is a check people learn to ignore, which is
+// the failure this repo already had with four dead workflows. `git ls-remote`
+// and a depth-1 clone see what was actually pushed.
+//
+// It needs the network, so it cannot join the hermetic CI set (Spec 828 made
+// that argument for a lookup and it holds for a check). Offline, or with no
+// remote, it SKIPS LOUDLY: an unrunnable check must say it did not run.
+//
+//   --no-remote   skip it deliberately
+const wikiRemote = (() => {
+  if (process.argv.includes("--no-remote")) return undefined;
+  const env = process.env.C64RE_WIKI_GIT?.trim();
+  if (env) return env;
+  try {
+    const url = execFileSync("git", ["-C", ROOT, "remote", "get-url", "origin"], { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    return /\.wiki\.git$/.test(url) ? url : url.replace(/(\.git)?$/, ".wiki.git");
+  } catch {
+    return undefined;
+  }
+})();
+
+if (!wikiRemote) {
+  console.log(`\n  SKIP  published wiki not compared: no git origin (set C64RE_WIKI_GIT, or pass --no-remote) — skipped, not passed`);
+} else {
+  let clone;
+  try {
+    clone = mkdtempSync(join(tmpdir(), "c64re-wiki-"));
+    execFileSync("git", ["clone", "--depth", "1", "--quiet", wikiRemote, clone], { stdio: ["ignore", "ignore", "pipe"], timeout: 60_000 });
+  } catch (e) {
+    const why = e instanceof Error ? (e.stderr?.toString().trim() || e.message) : String(e);
+    console.log(`\n  SKIP  published wiki not compared: ${wikiRemote} unreachable — skipped, not passed`);
+    console.log(`        ${why.split("\n")[0]}`);
+    clone = undefined;
+  }
+  if (clone) {
+    const drift = [];
+    for (const page of pages) {
+      const here = readFileSync(join(WIKI, page), "utf8").replace(/\r\n/g, "\n");
+      const there = join(clone, page);
+      if (!existsSync(there)) { drift.push(`${page}: never published`); continue; }
+      // Only line endings are forgiven: a published page differing by anything
+      // else is still a page somebody has to look at.
+      if (readFileSync(there, "utf8").replace(/\r\n/g, "\n") !== here) drift.push(`${page}: published copy differs`);
+    }
+    const extra = readdirSync(clone).filter((f) => f.endsWith(".md") && !pages.includes(f));
+    for (const f of extra) drift.push(`${f}: published but not in docs/wiki (edited in the web UI?)`);
+    ok(drift.length === 0, `published wiki matches docs/wiki (${pages.length} pages)`,
+      drift.slice(0, 4).join(" | ") || "in sync");
+    if (drift.length > 0) {
+      console.log(`        run: C64RE_WIKI=<a clone of ${wikiRemote}> npm run publish:wiki   then commit and push there`);
+    }
+    rmSync(clone, { recursive: true, force: true });
+  }
 }
 
 // ---- optional publish -------------------------------------------------------
