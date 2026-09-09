@@ -108,6 +108,26 @@ jobs:
       - name: Dump location and receipt (Spec 831)
         run: npm run e2e:831
 
+      # Spec 832 — the Ultima VI reports. All five hermetic: synthetic PRGs,
+      # a synthesised GCR track built from this repo's own encoder, and temp
+      # projects. No ROMs, no real media, no daemon. (e2e:832-annotations uses
+      # KickAssembler for the byte-identity half and skips that check loudly
+      # without a jar, the same way e2e:830 does.)
+      - name: Annotation labels (Spec 832 D1)
+        run: npm run e2e:832-annotations
+
+      - name: Disk load address and manifest readers (Spec 832 D2/D3)
+        run: npm run e2e:832-disk
+
+      - name: GCR extraction fidelity (Spec 832 D4)
+        run: npm run e2e:832-gcr
+
+      - name: Audit policy and ids (Spec 832 D5/D6)
+        run: npm run e2e:832-ids
+
+      - name: LUT refusal names its class limit (Spec 832 §8)
+        run: npm run e2e:832-lut
+
       # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
       # synthetic PRG with the bundled pipeline and seeds a temp project, and
       # the explorer gate reads the built bundle plus the two pure lib files.

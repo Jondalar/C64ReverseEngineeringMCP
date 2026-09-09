@@ -214,12 +214,55 @@ export function findAllSyncMarks(data: Uint8Array): SyncMark[] {
   return syncs;
 }
 
+/**
+ * Why a sector's payload is what it is (Spec 832 D4b).
+ *
+ * `ok`             — data block present, GCR-clean, checksum matches.
+ * `checksum_error` — data block present and readable; its checksum does not
+ *                    match. The bytes ARE on the disk (custom CRC / deliberate
+ *                    corruption is normal on protected originals), so they are
+ *                    still handed out — flagged, not dropped.
+ * `gcr_error`      — data block present ($07) but at least one 5-bit group does
+ *                    not decode. Also normal: the 325-byte read overshoots the
+ *                    block, so the LAST group routinely lands in the tail gap
+ *                    (measured: Pawn/LN3/Accolade fail exactly group 64 on every
+ *                    sector). Bytes are handed out, flagged.
+ * `no_data_block`  — there is no data block here at all (block id != $07).
+ *                    Nothing was read, so NO bytes are produced. This is the
+ *                    case that used to invent 256 bytes.
+ */
+export type GCRDataStatus = "ok" | "checksum_error" | "gcr_error" | "no_data_block";
+
 export interface DecodedSector {
   track: number;
   sector: number;
+  /** Empty when `dataStatus === "no_data_block"` — never invented filler. */
   data: Uint8Array;
   headerValid: boolean;
   dataValid: boolean;
+  dataStatus: GCRDataStatus;
+}
+
+/** Why a header/data pair was NOT promoted to a sector (Spec 832 D4a). */
+export type GCRHeaderRejection = "gcr_error" | "not_a_header" | "header_checksum_error";
+
+export interface RejectedHeaderCandidate {
+  headerStartBit: number;
+  dataStartBit: number;
+  header: GCRHeaderInspection;
+  reason: GCRHeaderRejection;
+}
+
+export interface GCRTrackDecode {
+  sectors: DecodedSector[];
+  /**
+   * Pairs the ring walk saw and refused to call sectors. Reported, not
+   * extracted: gap noise that happens to GCR-decode lives here instead of
+   * becoming a sector id.
+   */
+  rejected: RejectedHeaderCandidate[];
+  /** What the firmware-style scanner (`scanSectorHeadersLikeVice`) found. */
+  viceHeaderCount: number;
 }
 
 export interface GCRHeaderInspection {
@@ -449,27 +492,80 @@ export function renderGCRTrackAscii(inspected: GCRTrackInspection, trackByteLeng
   return chars.join("");
 }
 
-export function decodeGCRTrack(trackData: Uint8Array): DecodedSector[] {
+/**
+ * Walk a track's header/data pairs and decide, per pair, whether it is a sector.
+ *
+ * Spec 832 D4. The line this draws is the tolerant workbench's line, not the
+ * strict drive's:
+ *
+ *   HEADER — a pair becomes a sector only if its header is a real header:
+ *   the nibbles decode, the block id is $08, and the header checksum matches.
+ *   A sector ID is an ASSERTION about where these bytes live on the disk; it
+ *   may not be minted out of gap noise that happens to GCR-decode. Everything
+ *   that fails lands in `rejected` — visible, but never extracted. (Measured
+ *   across Pawn, IM2, LN3, Ultima V/VI, Brubaker, Accolade, GI Joe: every one
+ *   of the 683/700 genuine headers passes its checksum, so this costs no real
+ *   sector; the Ultima VI dungeon phantom — block id $13 claiming track 240
+ *   sector 240 — is exactly what it removes.)
+ *
+ *   DATA — tolerance lives HERE, and stays. A data block whose checksum fails
+ *   or whose GCR is partly undecodable is still the plaintext the loader wrote,
+ *   so its bytes are handed out with `dataStatus` saying what is wrong. Only
+ *   when there is no data block at all ($07 missing) do we produce no bytes:
+ *   the old code decoded the gap anyway and handed back 256 bytes that were
+ *   never on the disk.
+ */
+export function decodeGCRTrackDetailed(trackData: Uint8Array): GCRTrackDecode {
   const sectors: DecodedSector[] = [];
+  const rejected: RejectedHeaderCandidate[] = [];
   const inspected = inspectGCRTrack(trackData);
-  const syncs = inspected.syncs;
   const seen = new Set<string>();
 
   for (const pair of inspected.pairs) {
-    if (!pair.header.gcrValid) continue;
+    if (!pair.header.valid) {
+      rejected.push({
+        headerStartBit: pair.headerStartBit,
+        dataStartBit: pair.dataStartBit,
+        header: pair.header,
+        reason: !pair.header.gcrValid
+          ? "gcr_error"
+          : pair.header.headerId !== 0x08
+            ? "not_a_header"
+            : "header_checksum_error",
+      });
+      continue;
+    }
     const key = `${pair.header.track}:${pair.header.sector}:${pair.dataSync.bitIndex}`;
     if (seen.has(key)) continue;
     seen.add(key);
+
+    const block = decodeGCRDataBlock(readAlignedBytesFromBit(trackData, pair.dataStartBit, 325), 0);
+    const present = block.blockId === 0x07;
+    const dataStatus: GCRDataStatus = !present
+      ? "no_data_block"
+      : block.valid
+        ? "ok"
+        : block.gcrValid
+          ? "checksum_error"
+          : "gcr_error";
+
     sectors.push({
       track: pair.header.track,
       sector: pair.header.sector,
-      data: readAlignedBytesFromBit(trackData, pair.dataStartBit, 325).length === 325
-        ? decodeGCRDataBlock(readAlignedBytesFromBit(trackData, pair.dataStartBit, 325), 0).data
-        : new Uint8Array(256),
-      headerValid: pair.header.valid,
-      dataValid: pair.data.valid,
+      data: present ? block.data : new Uint8Array(0),
+      headerValid: true,
+      dataValid: block.valid,
+      dataStatus,
     });
   }
 
-  return sectors;
+  return {
+    sectors,
+    rejected,
+    viceHeaderCount: scanSectorHeadersLikeVice(trackData).length,
+  };
+}
+
+export function decodeGCRTrack(trackData: Uint8Array): DecodedSector[] {
+  return decodeGCRTrackDetailed(trackData).sectors;
 }

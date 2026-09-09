@@ -14,11 +14,15 @@ import {
 import {
   type DecodedSector,
   type GCRBlockPairInspection,
+  type GCRDataStatus,
   type GCRHeaderCandidate,
+  type GCRHeaderRejection,
   type GCRReadSectorResult,
+  type GCRTrackDecode,
   type GCRTrackInspection,
   type SyncMark,
   decodeGCRTrack,
+  decodeGCRTrackDetailed,
   findSectorHeaderLikeVice,
   findAllSyncMarks,
   inspectGCRTrack,
@@ -41,7 +45,33 @@ export interface G64TrackSectorInfo {
   sector: number;
   headerValid: boolean;
   dataValid: boolean;
+  dataStatus: GCRDataStatus;
   dataLength: number;
+}
+
+/**
+ * A header/data pair the GCR ring walk refused to call a sector (Spec 832 D4a):
+ * its header did not decode, was not a header block, or failed its checksum.
+ * Reported so a disagreement between the two readers is visible, never extracted.
+ */
+export interface G64RejectedHeaderInfo {
+  headerStartBit: number;
+  claimsTrack: number;
+  claimsSector: number;
+  headerId: number;
+  checksum: number;
+  reason: GCRHeaderRejection;
+}
+
+function toRejectedHeaderInfo(walk: GCRTrackDecode): G64RejectedHeaderInfo[] {
+  return walk.rejected.map((candidate) => ({
+    headerStartBit: candidate.headerStartBit,
+    claimsTrack: candidate.header.track,
+    claimsSector: candidate.header.sector,
+    headerId: candidate.header.headerId,
+    checksum: candidate.header.checksum,
+    reason: candidate.reason,
+  }));
 }
 
 export interface G64TrackAnalysis {
@@ -60,6 +90,12 @@ export interface G64TrackAnalysis {
   unexpectedSectors: number[];
   invalidHeaderCount: number;
   invalidDataCount: number;
+  /** Sectors whose header was fine but which carried no data block at all. */
+  missingDataBlockCount: number;
+  /** Header/data pairs refused as sectors (Spec 832 D4a). */
+  rejectedHeaders: G64RejectedHeaderInfo[];
+  /** Header count from the firmware-style scan/search loop, for comparison. */
+  viceHeaderCount: number;
 }
 
 export interface G64SlotInfo {
@@ -318,6 +354,14 @@ export class G64Parser implements DiskImage {
     return trackData ? decodeGCRTrack(trackData) : [];
   }
 
+  /** Sectors plus the pairs that were refused, plus the other reader's count. */
+  private decodeTrackDetailed(trackNum: number): GCRTrackDecode {
+    const trackData = this.getRawTrack(trackNum);
+    return trackData
+      ? decodeGCRTrackDetailed(trackData)
+      : { sectors: [], rejected: [], viceHeaderCount: 0 };
+  }
+
   getTrackAnalysis(trackNum: number): G64TrackAnalysis | null {
     const slotIndex = this.trackToSlotIndex(trackNum);
     const rawOffset = this.trackOffsets[slotIndex];
@@ -330,7 +374,8 @@ export class G64Parser implements DiskImage {
       return null;
     }
 
-    const decoded = decodeGCRTrack(trackData);
+    const walk = decodeGCRTrackDetailed(trackData);
+    const decoded = walk.sectors;
     const expectedSectorCount = Number.isInteger(trackNum)
       ? SECTORS_PER_TRACK[Math.floor(trackNum)]
       : undefined;
@@ -343,6 +388,7 @@ export class G64Parser implements DiskImage {
         sector: sector.sector,
         headerValid: sector.headerValid,
         dataValid: sector.dataValid,
+        dataStatus: sector.dataStatus,
         dataLength: sector.data.length,
       };
     });
@@ -378,8 +424,13 @@ export class G64Parser implements DiskImage {
       duplicateSectors,
       missingSectors,
       unexpectedSectors,
-      invalidHeaderCount: decoded.filter((sector) => !sector.headerValid).length,
+      // Spec 832 D4a: a bad header is no longer smuggled in as a sector, so the
+      // "invalid header" count now comes from the pairs that were REFUSED.
+      invalidHeaderCount: walk.rejected.length,
       invalidDataCount: decoded.filter((sector) => !sector.dataValid).length,
+      missingDataBlockCount: decoded.filter((sector) => sector.dataStatus === "no_data_block").length,
+      rejectedHeaders: toRejectedHeaderInfo(walk),
+      viceHeaderCount: walk.viceHeaderCount,
     };
   }
 
@@ -512,18 +563,47 @@ export class G64Parser implements DiskImage {
     data: Uint8Array;
     dataValid: boolean;
     headerValid: boolean;
+    dataStatus: GCRDataStatus;
   }> {
+    return this.extractTrackSectorsDetailed(trackNum, sectors).sectors;
+  }
+
+  /**
+   * Spec 832 D4c — extraction with BOTH readers' verdicts attached, so the
+   * artifact can record that the GCR ring walk and the firmware-style scanner
+   * disagreed instead of leaving it in a human's memory.
+   */
+  extractTrackSectorsDetailed(trackNum: number, sectors?: number[]): {
+    sectors: Array<{
+      track: number;
+      sector: number;
+      data: Uint8Array;
+      dataValid: boolean;
+      headerValid: boolean;
+      dataStatus: GCRDataStatus;
+    }>;
+    rejectedHeaders: G64RejectedHeaderInfo[];
+    decodedSectorCount: number;
+    viceHeaderCount: number;
+  } {
     const wanted = sectors ? new Set(sectors) : undefined;
-    return this.decodeTrack(trackNum)
-      .filter((sector) => !wanted || wanted.has(sector.sector))
-      .sort((left, right) => left.sector - right.sector)
-      .map((sector) => ({
-        track: sector.track,
-        sector: sector.sector,
-        data: sector.data,
-        dataValid: sector.dataValid,
-        headerValid: sector.headerValid,
-      }));
+    const walk = this.decodeTrackDetailed(trackNum);
+    return {
+      sectors: walk.sectors
+        .filter((sector) => !wanted || wanted.has(sector.sector))
+        .sort((left, right) => left.sector - right.sector)
+        .map((sector) => ({
+          track: sector.track,
+          sector: sector.sector,
+          data: sector.data,
+          dataValid: sector.dataValid,
+          headerValid: sector.headerValid,
+          dataStatus: sector.dataStatus,
+        })),
+      rejectedHeaders: toRejectedHeaderInfo(walk),
+      decodedSectorCount: walk.sectors.length,
+      viceHeaderCount: walk.viceHeaderCount,
+    };
   }
 
   private buildFingerprints(): G64TrackFingerprint[] {

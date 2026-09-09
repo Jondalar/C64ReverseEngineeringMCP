@@ -149,7 +149,35 @@ const byRole = (d: LutDescriptor, role: LutColumnRole): LutColumn | undefined =>
 export function checkDescriptor(d: LutDescriptor): string[] {
   const problems: string[] = [];
   if (d.layout === "packed" && d.recordStride === undefined && !d.columns.some((c) => c.stride !== undefined)) {
-    problems.push("layout=packed needs `recordStride` (or a per-column `stride`)");
+    // Spec 832 §8 — this message used to stop at "needs `recordStride`", which
+    // reads as a forgotten field. For a table that HAS no stride it is a class
+    // limit, and a caller who hears "field missing" reasonably goes looking for
+    // a workaround: the Ultima VI session stored its twelve rows through
+    // `save_entity` instead, where nothing can resolve them any more.
+    //
+    // This model expresses ONE addressing class: closed form, `base + n*stride`,
+    // so a row's address is a function of the row index and constants and the
+    // descriptor is checkable against the image without being executed. A
+    // delimiter-terminated record — a marker, a variable-length name, a flag, a
+    // target — is the other class: row n's address depends on the BYTES of rows
+    // 0..n-1. Spec 750's anchor does not exist for it either, because the loader
+    // walks such a table with a pointer and there is no indexed instruction to
+    // read a stride from.
+    //
+    // It is also the more dangerous shape: at a fixed stride a wrong byte moves
+    // one row, while a misread delimiter moves every following row and each one
+    // still looks plausible. So the answer is not to widen the model — it is to
+    // convert, and to declare the converted table. What that target looks like
+    // belongs to the project doing the conversion; this tool does not describe
+    // it, and must not.
+    problems.push(
+      "layout=packed needs `recordStride` (or a per-column `stride`). " +
+      "If the records have no fixed stride at all — a delimiter or a variable-length " +
+      "field decides where the next one starts — then this is not a missing field: " +
+      "this model only expresses closed-form addressing (row n at `base + n*stride`). " +
+      "Convert the table into a fixed-stride form and declare that, rather than " +
+      "storing the rows by hand where nothing can resolve them.",
+    );
   }
   if (d.rowCount === undefined && d.terminator === undefined) {
     problems.push("needs `rowCount` or a `terminator` — otherwise the table has no end");
