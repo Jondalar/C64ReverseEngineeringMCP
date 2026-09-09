@@ -1,6 +1,11 @@
 # Spec 833 — A tool may not claim what it did not do
 
-**Status:** PROPOSED 2026-09-09
+**Status:** BUILT 2026-09-09 — `e2e:833-render` 38/0, `e2e:833-sectors` 35/0,
+`e2e:833-sandbox` 25/0, all three hermetic and in `gates.yml`; every existing
+gate green. Three agents, one class each. Measured on the render fixture:
+without `analysis_json` 0 of 8 in-image names before and **8 of 8** after; with
+it, 8 of 9 before (the segment label missing) and **9 of 9** after. Byte-identical
+rebuild verified in both modes.
 **Origin:** Follow-ups from the Ultima VI session after 832 landed, plus two
 things found while checking them. 832 fixed six instances of one shape; these
 are five more of the same shape, three of them on paths 832 did not reach.
@@ -212,6 +217,39 @@ committed before the agents were launched, and both times every agent reported
 the spec absent from its worktree. A spec an agent must read has to be on master
 first, or its decisions have to travel in the prompt — which is what actually
 carried them here, in both rounds.
+
+### 1a. Corrections from the build
+
+- **"the legacy path gets the names" conflates names with annotations.** Only
+  NAMES can cross without an analysis context. `segments[].kind`,
+  `pointerTables`, `jumpTables` and `immediates` retype ranges the ANALYSER
+  produced, and on the legacy path there are no analysed segments to retype. The
+  header now says exactly that rather than implying the file was applied whole.
+- **The spec did not say what happens to an annotated address outside the image,
+  or to one that falls mid-instruction.** Both needed a decision: out of image is
+  skipped (the same range check the analysis path makes); mid-instruction gets an
+  equate plus the name, which is the legacy twin of `renderAddressAliasLabels` —
+  a linear decode cannot be split the way 830 splits an analysed one.
+- **There is a third mode the spec did not mention:** relocation without
+  analysis. It deliberately does NOT get the index — its sub-segment labels are
+  runtime-addressed while the annotations are file-addressed, so applying both
+  is a duplicate-definition hazard — and the header states that instead.
+
+## 5c. Two more of the same shape, found and NOT fixed
+
+Both are this spec's own title and neither is in its decisions, so they are
+recorded rather than quietly folded in:
+
+- The `disasm_prg` wrapper's `hasAnnotations` looks only beside the ASM, while
+  the renderer also looks beside the PRG and beside the analysis JSON. A file in
+  either of the other two places still produces "NEXT STEP: create an
+  annotations file" over a listing that applied them. D3's new `Listing:` line
+  exposes the contradiction; the hint itself is untouched.
+- Two **explicit** `labels[]` entries carrying the same name at different
+  addresses both get definitions, which breaks the rebuild. `usedLabels` guards
+  routines and now segments; it never guarded explicit labels. This predates 832
+  and is the one item here that can produce a red rebuild rather than a
+  misleading line.
 
 ## 6. Gates
 
