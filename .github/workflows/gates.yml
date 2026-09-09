@@ -58,6 +58,15 @@ jobs:
       - name: Docs are current
         run: npm run check:docs-current
 
+      # The generated tool surface must match the live one. This went stale on
+      # master when Spec 833 D3 reworded disasm_prg's description: the check
+      # lives inside check:mcp-product-surface, which is NOT in this workflow
+      # (it needs assets a runner does not have), so CI stayed green over a
+      # generated file describing the old state — rule 9, missed by a gate that
+      # was never here. This one line is hermetic; the rest of that suite is not.
+      - name: Generated tool surface is current
+        run: npm run gen:tool-surface -- --check
+
       - name: Cartridge type ids agree with VICE
         run: npm run check:cart-type-ids
 
