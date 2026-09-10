@@ -6,6 +6,7 @@ import { createDiskParser, G64Parser } from "../disk/index.js";
 import type { G64LutReference } from "../disk/g64-parser.js";
 import { runCli } from "../run-cli.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { deviceSafeName } from "../lib/id-path.js";
 import type { ServerToolContext } from "./types.js";
 
 function g64SectorDefaultOutputDir(context: ServerToolContext, imagePath: string, track: number, projectDir?: string): string {
@@ -13,7 +14,12 @@ function g64SectorDefaultOutputDir(context: ServerToolContext, imagePath: string
     projectDir ?? context.projectDir(imagePath, true),
     "analysis",
     "g64",
-    basename(imagePath, extname(imagePath)),
+    // Spec 838 D1 — the stem comes from a file the host already accepted, so the
+    // only thing that has to change is the one name Windows refuses outright:
+    // `CON.g64` would give `analysis/g64/CON/`, a directory that cannot be
+    // created or checked out there. Everything else is left alone on purpose —
+    // renaming it would move the directory every existing project already has.
+    deviceSafeName(basename(imagePath, extname(imagePath))),
     `track-${String(track).replace(".", "_")}`,
   );
 }

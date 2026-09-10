@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync,
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { basename, extname, relative, resolve } from "node:path";
+import { idDirUnder } from "../lib/id-path.js";
 import { importAnalysisKnowledge, stampImportedKnowledgeWithPayload, type ImportedAnalysisKnowledge } from "./analysis-import.js";
 import { seedControlFlowForArtifact } from "../knowledge-graph/producers/artifact.js";
 import { KnowledgeRecords } from "../knowledge-graph/records.js";
@@ -1440,7 +1441,10 @@ export class ProjectKnowledgeService {
     if (!existsSync(artifact.path)) return undefined;
     const hash = sha256OfFile(artifact.path);
     if (!hash) return undefined;
-    const snapshotDir = resolve(this.storage.paths.snapshotsRoot, artifactId);
+    // Spec 838 D1 — an artifact id is not a path either. Most are minted by
+    // createId() and pass through verbatim; a caller-supplied one need not.
+    // A snapshot directory written before Spec 838 is reused where it is.
+    const snapshotDir = idDirUnder(this.storage.paths.snapshotsRoot, artifactId).absolute;
     if (!existsSync(snapshotDir)) {
       mkdirSync(snapshotDir, { recursive: true });
     }

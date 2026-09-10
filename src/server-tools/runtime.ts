@@ -554,8 +554,11 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       };
       const { writeDelta } = await import("../candidate-delta.js");
       const { resolve } = await import("node:path");
+      const { safeSegment } = await import("../lib/id-path.js");
       const projectDir = process.env.C64RE_PROJECT_DIR ?? process.cwd();
-      const outDir = out_dir ? resolve(projectDir, out_dir) : resolve(projectDir, `delta-${exp.id}`);
+      // Spec 838 D1 — a candidate id is an identifier, and `delta-<id>` is a
+      // directory. Sanitised for the strictest platform we target, not this one.
+      const outDir = out_dir ? resolve(projectDir, out_dir) : resolve(projectDir, `delta-${safeSegment(exp.id)}`);
       const res = writeDelta({ id: exp.id, patches: exp.patches ?? [] }, outDir);
       return { content: [{ type: "text" as const, text: JSON.stringify(res, null, 2) }] };
     }),
