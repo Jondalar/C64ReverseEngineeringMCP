@@ -172,6 +172,24 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   const [controlOwner, setControlOwner] = useState<"human" | "llm">("human");
   const [exploreSelection, setExploreSelection] = useState<{x:number;y:number;w:number;h:number} | null>(null);
   const fpsCounterRef = useRef({ frames: 0, lastT: Date.now() });
+  // Spec 837 — the UI already KNEW the stream had stopped (this counter reads
+  // zero while the machine says it is running) and said nothing, so a dead
+  // picture looked like a slow boot. The last time a frame actually arrived is
+  // the honest signal; the placeholder alone is not.
+  const lastFrameAtRef = useRef(0);
+  const [frameStalledFor, setFrameStalledFor] = useState(0);
+
+  // A ticking count of seconds since the last frame, evaluated only while the
+  // machine claims to be running. Paused is not a stall — a still picture is
+  // the correct output of a paused machine.
+  useEffect(() => {
+    if (runState !== "running") { setFrameStalledFor(0); return; }
+    const t = window.setInterval(() => {
+      const last = lastFrameAtRef.current;
+      setFrameStalledFor(last === 0 ? 0 : Math.floor((Date.now() - last) / 1000));
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, [runState]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameImgRef = useRef<ImageData | null>(null); // reused per-frame (no 50fps GC churn)
 
@@ -268,6 +286,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     const client = getClient();
     const off = client.onBinary(BIN_TYPE_VIC_FRAME, (frame) => {
       drawFrame(frame.payload);
+      lastFrameAtRef.current = Date.now();
       const c = fpsCounterRef.current;
       c.frames++;
       const now = Date.now();
@@ -650,7 +669,19 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
               />
               {!hasFrame && (
                 <div className="wb-screen-empty">
-                  <p>No frame yet — emulator booting…</p>
+                  {/* Spec 837 — "booting" was a guess, and a wrong one after an
+                      undump: the machine is paused, and a paused machine sent no
+                      frame at all, so this sat here for ever while everything
+                      else reported a healthy machine. Say which of the two it
+                      is, and offer the way out. */}
+                  <p>{runState === "running" ? "No frame yet — emulator booting…" : "No frame yet — the machine is paused, so it is not sending one."}</p>
+                  <button type="button" onClick={() => void grabScreenshot.current()}>Show the current frame</button>
+                </div>
+              )}
+              {hasFrame && frameStalledFor >= 5 && (
+                <div className="wb-screen-stalled">
+                  <p>Running, but no frame for {frameStalledFor}s — the picture may be stale.</p>
+                  <button type="button" onClick={() => void grabScreenshot.current()}>Refresh it</button>
                 </div>
               )}
             </>
