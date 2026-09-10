@@ -483,19 +483,36 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_session_status",
-    "Snapshot a running session's machine state — both CPUs, IEC bus, drive, cycle counts. Use to check where execution is. Not for the agent-API surface report (use runtime_status, advanced). Inputs: session_id. Returns: CPU/IEC/drive snapshot.",
-    { session_id: z.string() },
+    "Snapshot a running session's machine state — the C64 CPU, the drive (motor, head, LED, what is mounted and whether it is dirty) and the cartridge (type, bank, activity), plus cycle counts. Use to check where execution is and what the machine has in it. For the 1541's own CPU registers use runtime_monitor `device drive8` then `r`. Not for the agent-API surface report (use runtime_status, advanced). Inputs: session_id. Returns: CPU + drive + cartridge snapshot.",
+    { session_id: z.string().describe("Session to report on — \"shared\" is the live machine the human is watching") },
     safeHandler("runtime_session_status", async ({ session_id }) => {
       // Spec 744.4c — read the session from the shared Runtime Daemon (the same
       // machine the UI drives), not a private MCP-process session.
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
       const { c64Cycles, mode, cpu } = await runtimeDaemon.state(session_id);
+      // Spec 839 — this tool SAID "both CPUs, IEC bus, drive" and returned one CPU.
+      // A tool may not claim what it does not do (Spec 833), and the cheap repair was
+      // to shrink the sentence; the right one is to fetch what the human already sees
+      // on the cockpit. Both are soft: a status call that fails must not take the
+      // status report down with it, because the CPU line is still the answer to
+      // "where is execution".
+      const soft = async <T>(what: string, f: () => Promise<T>): Promise<T | string> => {
+        try { return await f(); } catch (e) { return `unavailable (${e instanceof Error ? e.message : String(e)}) — ${what}`; }
+      };
+      const [drive, cart] = await Promise.all([
+        soft("drive status", () => runtimeDaemon.driveStatus(session_id)),
+        soft("cartridge status", () => runtimeDaemon.cartStatus(session_id)),
+      ]);
+      const render = (v: unknown, none: string) =>
+        v == null ? none : typeof v === "string" ? v : JSON.stringify(v);
       return { content: [{ type: "text" as const, text: [
         `Runtime session status (Runtime Daemon) — ${session_id}`,
         ``,
         `C64 CPU: PC=${formatHexWord(cpu.pc)} A=${formatHexByte(cpu.a)} X=${formatHexByte(cpu.x)} Y=${formatHexByte(cpu.y)} SP=${formatHexByte(cpu.sp)} P=${formatHexByte(cpu.flags)}`,
         `         cycles=${c64Cycles}`,
         `Mode: ${mode}`,
+        `Drive 8: ${render(drive, "unavailable")}`,
+        `Cartridge: ${render(cart, "none inserted")}`,
       ].join("\n") }] };
     },
 ));
@@ -909,7 +926,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_monitor",
-    "Remote-control the interactive runtime monitor: run ANY monitor command string against the shared session and get its text output back. Use it for any monitor-style interaction — this is the WHOLE monitor REPL in ONE tool. Commands include: m/d (memory hex / disasm), r (registers), bp/del/enable (breakpoints), obs (observers — incl `obs <n> when exec|load|store <lo..hi> do break|log|trace` for non-halting scoped capture; `obs <n> del`), trace, `dump <path>` (= `snapshot <path>` — writes a .c64re state snapshot; our snapshot IS the dump) / `undump <path>` (= `restore`/`loadsnapshot` — loads one), n/z/step/g (run control), sym/inspect/xref, df (flow disasm), label/note, device c64|drive8, sidefx, bank. Run `help` for the verb list or `<verb> help` for one verb's syntax. The session is the shared live machine (human + LLM co-drive the same one); not for silent scripted batch runs on the live session (use a separate backend). Inputs: session_id, command (e.g. \"m 0400 042f\", \"obs t when exec ab01 do trace c64-cpu memory\", \"r\"). Returns: the monitor's text output (or its error string).",
+    "Remote-control the interactive runtime monitor: run ANY monitor command string against the shared session and get its text output back. Use it for any monitor-style interaction — this is the WHOLE monitor REPL in ONE tool, and most of what the human can do at the machine is HERE rather than in a named tool. MEMORY + CPU: m/d (hex dump / disasm), r (registers, `r a=$42` to set), sd (the real executed path), df (flow disasm), screen, bitmap, io, iec, bank, wr/f/t/c/h (write/fill/move/compare/hunt), a (assemble), device c64|drive8, sidefx. RUN CONTROL: g/x, until, z/step, n/next, ret, run, pause. BREAKPOINTS: bk / del / obs (observers — incl `obs <n> when exec|load|store <lo..hi> do break|log|trace` for non-halting scoped capture; `obs <n> del`). MACHINE: reset [warm|cold], power on|off, warp on|off, turbo (Spec 815 machine identity), rawframe. MEDIA + DRIVE (Spec 839): mount <path> (type read from CONTENT — .d64/.g64/.crt/.prg/.c64re), eject [cart|disk] (a disk eject leaves the drive running; a cartridge eject persists flash then COLD-RESETS the machine), drive, cart, drivepower (cold-reset the 1541 CPU only — the way out of a wedged fastloader), recent. STATE: `dump <path>` (= `snapshot <path>` — writes a .c64re state snapshot; our snapshot IS the dump) / `undump <path>` (= `restore`/`loadsnapshot`), savecrt, swapcrt, identify <path>. TRACE + ANALYSIS: trace, tracedb, traceindex, tracering <s> <e> (build a trace from the always-on ring AFTER the fact), map, taint, swimlane, chis. REVERSE-DEBUG: rstep/reverse (undo instructions), whowrote <addr> (last writers, with the caller chain), triage (crash causal chain), revdepth, diff. MARKS + TRANSPORT: mark/marks/unmark/goto, play back|fwd, frame ±N, rewind, cadence, window, ringdump. FILESYSTEM: pwd, cd, ls, load, save (the daemon's own working directory — a relative path in `mount` resolves against it). Run `help` for the full verb list or `<verb> help` for one verb's syntax. The session is the shared live machine (human + LLM co-drive the same one); not for silent scripted batch runs on the live session (use runtime_sandbox_run for a machine of your own). Inputs: session_id, command (e.g. \"m 0400 042f\", \"eject cart\", \"obs t when exec ab01 do trace c64-cpu memory\", \"r\"). Returns: the monitor's text output (or its error string).",
     { session_id: z.string(), command: z.string() },
     safeHandler("runtime_monitor", async ({ session_id, command }) => {
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");

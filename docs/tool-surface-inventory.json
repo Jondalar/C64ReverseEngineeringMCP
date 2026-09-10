@@ -1,9 +1,9 @@
 {
-  "total": 268,
-  "specCount": 45,
+  "total": 270,
+  "specCount": 47,
   "advancedCandidate": 110,
   "byNamespace": {
-    "runtime": 84,
+    "runtime": 86,
     "list": 20,
     "project": 11,
     "save": 10,
@@ -1734,8 +1734,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Eject the disk — open the drive door.",
-      "desc": "Eject the disk — open the drive door. The running 1541 senses the disk was removed (write-protect line), so this is STEP 1 of answering a game's \"Insert side N\" prompt: unmount, then runtime_session_run a bit to let the drive register the removal, then runtime_media_mount the new side and runtime_session_run again, then runtime_type the RETURN. Writes back if dirty; the drive keeps running. Use to remove media or to begin a hardware-style side-swap. Not for the first mount (use runtime_media_mount). Inputs: session_id. Returns: eject result.",
+      "firstSentence": "Take media OUT of the machine.",
+      "desc": "Take media OUT of the machine. role=drive8 (default): eject the disk — open the drive door. The running 1541 senses the disk was removed (write-protect line), so this is STEP 1 of answering a game's \"Insert side N\" prompt: unmount, then runtime_session_run a bit to let the drive register the removal, then runtime_media_mount the new side and runtime_session_run again, then runtime_type the RETURN. Dirty sectors are written back first; the drive keeps running. role=cartridge: PULL THE CARTRIDGE. Programmed flash/EEPROM is written back to the host .crt first, then the cart comes out, and pulling a cart COLD-RESETS the machine — that is what it does on real hardware, so RAM is gone and the C64 boots to BASIC. To save the flash and keep playing, use runtime_media_persist role=cartridge instead. role=auto: whatever is actually in the machine (cartridge first, else the disk). Use to remove media or to begin a hardware-style side-swap. Not for the first mount (use runtime_media_mount). Inputs: session_id, role. Returns: eject result.",
       "tier": "default?"
     },
     {
@@ -1751,9 +1751,9 @@
       "name": "runtime_monitor",
       "file": "server-tools/headless.ts",
       "ns": "runtime",
-      "hasSpec": false,
+      "hasSpec": true,
       "firstSentence": "Remote-control the interactive runtime monitor: run ANY monitor command string against the shared session and get its text output back.",
-      "desc": "Remote-control the interactive runtime monitor: run ANY monitor command string against the shared session and get its text output back. Use it for any monitor-style interaction — this is the WHOLE monitor REPL in ONE tool. Commands include: m/d (memory hex / disasm), r (registers), bp/del/enable (breakpoints), obs (observers — incl `obs <n> when exec|load|store <lo..hi> do break|log|trace` for non-halting scoped capture; `obs <n> del`), trace, `dump <path>` (= `snapshot <path>` — writes a .c64re state snapshot; our snapshot IS the dump) / `undump <path>` (= `restore`/`loadsnapshot` — loads one), n/z/step/g (run control), sym/inspect/xref, df (flow disasm), label/note, device c64|drive8, sidefx, bank. Run `help` for the verb list or `<verb> help` for one verb's syntax. The session is the shared live machine (human + LLM co-drive the same one); not for silent scripted batch runs on the live session (use a separate backend). Inputs: session_id, command (e.g. \"m 0400 042f\", \"obs t when exec ab01 do trace c64-cpu memory\", \"r\"). Returns: the monitor's text output (or its error string).",
+      "desc": "Remote-control the interactive runtime monitor: run ANY monitor command string against the shared session and get its text output back. Use it for any monitor-style interaction — this is the WHOLE monitor REPL in ONE tool, and most of what the human can do at the machine is HERE rather than in a named tool. MEMORY + CPU: m/d (hex dump / disasm), r (registers, `r a=$42` to set), sd (the real executed path), df (flow disasm), screen, bitmap, io, iec, bank, wr/f/t/c/h (write/fill/move/compare/hunt), a (assemble), device c64|drive8, sidefx. RUN CONTROL: g/x, until, z/step, n/next, ret, run, pause. BREAKPOINTS: bk / del / obs (observers — incl `obs <n> when exec|load|store <lo..hi> do break|log|trace` for non-halting scoped capture; `obs <n> del`). MACHINE: reset [warm|cold], power on|off, warp on|off, turbo (Spec 815 machine identity), rawframe. MEDIA + DRIVE (Spec 839): mount <path> (type read from CONTENT — .d64/.g64/.crt/.prg/.c64re), eject [cart|disk] (a disk eject leaves the drive running; a cartridge eject persists flash then COLD-RESETS the machine), drive, cart, drivepower (cold-reset the 1541 CPU only — the way out of a wedged fastloader), recent. STATE: `dump <path>` (= `snapshot <path>` — writes a .c64re state snapshot; our snapshot IS the dump) / `undump <path>` (= `restore`/`loadsnapshot`), savecrt, swapcrt, identify <path>. TRACE + ANALYSIS: trace, tracedb, traceindex, tracering <s> <e> (build a trace from the always-on ring AFTER the fact), map, taint, swimlane, chis. REVERSE-DEBUG: rstep/reverse (undo instructions), whowrote <addr> (last writers, with the caller chain), triage (crash causal chain), revdepth, diff. MARKS + TRANSPORT: mark/marks/unmark/goto, play back|fwd, frame ±N, rewind, cadence, window, ringdump. FILESYSTEM: pwd, cd, ls, load, save (the daemon's own working directory — a relative path in `mount` resolves against it). Run `help` for the full verb list or `<verb> help` for one verb's syntax. The session is the shared live machine (human + LLM co-drive the same one); not for silent scripted batch runs on the live session (use runtime_sandbox_run for a machine of your own). Inputs: session_id, command (e.g. \"m 0400 042f\", \"eject cart\", \"obs t when exec ab01 do trace c64-cpu memory\", \"r\"). Returns: the monitor's text output (or its error string).",
       "tier": "default?"
     },
     {
@@ -2031,8 +2031,8 @@
       "file": "server-tools/headless.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Snapshot a running session's machine state — both CPUs, IEC bus, drive, cycle counts.",
-      "desc": "Snapshot a running session's machine state — both CPUs, IEC bus, drive, cycle counts. Use to check where execution is. Not for the agent-API surface report (use runtime_status, advanced). Inputs: session_id. Returns: CPU/IEC/drive snapshot.",
+      "firstSentence": "Snapshot a running session's machine state — the C64 CPU, the drive (motor, head, LED, what is mounted and whether it is dirty) and the cartridge (type, bank, activity), plus cycle counts.",
+      "desc": "Snapshot a running session's machine state — the C64 CPU, the drive (motor, head, LED, what is mounted and whether it is dirty) and the cartridge (type, bank, activity), plus cycle counts. Use to check where execution is and what the machine has in it. For the 1541's own CPU registers use runtime_monitor `device drive8` then `r`. Not for the agent-API surface report (use runtime_status, advanced). Inputs: session_id. Returns: CPU + drive + cartridge snapshot.",
       "tier": "default?"
     },
     {
@@ -2150,6 +2150,24 @@
       "hasSpec": false,
       "firstSentence": "Resolve a frozen display pixel to its exact VIC/RAM provenance (screen/color/charset/bitmap/sprite refs) on a retained checkpoint, without advancing execution.",
       "desc": "Resolve a frozen display pixel to its exact VIC/RAM provenance (screen/color/charset/bitmap/sprite refs) on a retained checkpoint, without advancing execution. Use to explain what produces a given pixel. Not for live rendering (use runtime_render_screen). Inputs: checkpoint, x in 0..319, y in 0..199. Returns: provenance refs.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_vic_inspect_region",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Resolve a RECTANGLE of the frozen display to the distinct sources drawing it — the screen/colour/charset/bitmap/sprite refs behind every pixel in the box, deduplicated to a node list.",
+      "desc": "Resolve a RECTANGLE of the frozen display to the distinct sources drawing it — the screen/colour/charset/bitmap/sprite refs behind every pixel in the box, deduplicated to a node list. Use it to ask what an on-screen OBJECT is made of (a sprite, a status panel, a tile) instead of probing pixel by pixel. Not for one pixel (use runtime_vic_inspect_at) and not for where the bytes came FROM (use runtime_vic_origin). Coordinates are VISIBLE-frame pixels, 0..384 x 0..272 with the border included — NOT the 0..319 x 0..199 display frame runtime_vic_inspect_at uses. Inputs: session_id, x, y, width, height, optional checkpoint_id. Returns: { nodes }.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_vic_origin",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": true,
+      "firstSentence": "Spec 721's Visual-Origin Join: take a pixel of the frozen picture and answer where the bytes behind it CAME FROM — the VIC/RAM node, then an exact byte-hash match against the mounted medium (sprite / charset / bitmap blocks), plus what the project already knows about that asset.",
+      "desc": "Spec 721's Visual-Origin Join: take a pixel of the frozen picture and answer where the bytes behind it CAME FROM — the VIC/RAM node, then an exact byte-hash match against the mounted medium (sprite / charset / bitmap blocks), plus what the project already knows about that asset. Use it to tie something visible on screen back to a file, a sector and a disassembly. Not for what a pixel IS right now (use runtime_vic_inspect_at) and not for a whole object's composition (use runtime_vic_inspect_region). With nothing mounted the match set is empty and the answer says runtime_generated — that is an honest answer, not a failure. Coordinates are VISIBLE-frame pixels, 0..384 x 0..272 with the border included — NOT the display frame runtime_vic_inspect_at uses. Inputs: session_id, x, y, optional checkpoint_id. Returns: { node, classification, result, knowledge, medium }.",
       "tier": "default?"
     },
     {
