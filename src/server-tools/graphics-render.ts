@@ -11,6 +11,7 @@ import {
   type DecodedImage,
   type PaletteName,
 } from "../graphics-render/c64-decoders.js";
+import { ensureIdDirIn } from "../lib/id-path.js";
 import type { ServerToolContext } from "./types.js";
 
 const KIND_VALUES = ["sprite", "charset", "bitmap", "charmap"] as const;
@@ -262,9 +263,11 @@ export function registerGraphicsRenderTools(server: McpServer, context: ServerTo
         const probeKinds = (kinds && kinds.length > 0 ? kinds : ["sprite", "charset"]) as RenderKind[];
         const includeMc = include_multicolor ?? true;
         const palName: PaletteName = "colodore";
-        const runStamp = run_id ?? new Date().toISOString().replace(/[:.]/g, "-");
-        const outDir = join(pd, "session", "graphics-scan", runStamp);
-        mkdirSync(outDir, { recursive: true });
+        // Spec 838 D1 — `run_id` is an id the caller chose, and a directory is a
+        // filesystem write: the ISO stamp alone carries `:` until it is replaced,
+        // and a hand-passed id carries whatever the caller typed.
+        const runStamp = run_id ?? new Date().toISOString().replace(/[:.]/g, "-").toLowerCase();
+        const outDir = ensureIdDirIn(pd, "session/graphics-scan", runStamp).absolute;
 
         const buffer = readFileSync(inputAbs);
         const loadAddress = readPrgLoadAddress(inputAbs);

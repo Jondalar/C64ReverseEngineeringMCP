@@ -3,6 +3,7 @@ import { basename, dirname, relative, resolve } from "node:path";
 import { runCli } from "../run-cli.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { registerToolKnowledge } from "../project-knowledge/integration.js";
+import { ensureIdDirIn, PAYLOAD_OUTPUT_BASE } from "./id-path.js";
 
 export type WorkflowMode = "quick" | "full";
 
@@ -328,7 +329,13 @@ export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOpti
     throw new Error(`Entity ${opts.payloadId} has no load address and the source artifact is not a PRG. Set payloadLoadAddress / addressRange before running the workflow.`);
   }
 
-  const outputDir = opts.outputDir ?? `artifacts/generated/payloads/${payload.id}`;
+  // Spec 838 D1 — an entity id is not a path. `payload.id` is Spec 818's
+  // `slug:ctx:kind:addr`, so it carries `:` and often `/`; composed straight
+  // into a path it makes mkdir throw ENOENT on Windows and the L2 step never
+  // runs (issue #15). `payloadOutputDir` sanitises the segment for the
+  // strictest platform we target and reuses a pre-Spec-838 directory where it
+  // already is, so an existing project is not orphaned.
+  const outputDir = opts.outputDir ?? ensureIdDirIn(projectRoot, PAYLOAD_OUTPUT_BASE, payload.id).relative;
   const result = await runPrgReverseWorkflow({
     projectRoot,
     prgPath: artifact.relativePath,

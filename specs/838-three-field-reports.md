@@ -31,6 +31,29 @@ This is Spec 827's rule one level down: a path policy is a library with a gate,
 not an expression inlined at a call site. The gate runs the same assertions on
 every platform, because the platform it targets is not the one it runs on.
 
+**D1 — BUILT 2026-09-10.** `src/lib/id-path.ts` is the library: pure policy
+(`safeSegment`, `deviceSafeName`, `isDosDeviceName`) plus the one mkdir
+(`ensureIdDirUnder` / `ensureIdDirIn`). A segment that is already safe passes
+through verbatim, so nothing an existing project holds is renamed; anything the
+policy had to change carries eight hex of the id's own hash, so two ids can no
+longer meet in one directory — including two that differ only in case, which is
+one directory on Windows. A directory written before this spec is READ WHERE IT
+IS: `idDirUnder` returns the pre-existing raw-id path when it finds one, so a
+project written on macOS keeps working and only new work is portable.
+
+Six sites went through it: the reported one
+(`src/lib/prg-workflow.ts` → `artifacts/generated/payloads/<entity id>`),
+`snapshots/<artifact id>` (`src/project-knowledge/service.ts`),
+`session/checkpoints/<id>.json` and `analysis/runs/<id>.json`
+(`src/project-knowledge/storage.ts`), `session/graphics-scan/<run_id>`
+(`src/server-tools/graphics-render.ts`) and `delta-<candidate id>`
+(`src/server-tools/runtime.ts`). `analysis/g64/<image>/track-N/` gets the narrow
+guard only (`deviceSafeName`): its stem comes from a file the host already
+accepted, so the one thing that has to change is the name Windows refuses
+outright — renaming the rest would move a directory every existing project has.
+Gate: `npm run e2e:838-paths`, 165 assertions, hermetic, same table on every
+platform.
+
 ## 2. D2 — a harvest may not invent bytes (#17)
 
 `sandbox_depack` / `--harvest` return a CONTIGUOUS RAM window with no signal
