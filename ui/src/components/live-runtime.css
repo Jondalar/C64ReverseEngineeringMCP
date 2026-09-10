@@ -672,9 +672,24 @@
 .wb-live .wb-screen.llm { border-color: var(--c64-green, #5cdb5c); box-shadow: 0 0 0 1px var(--c64-green, #5cdb5c) inset; }
 .wb-live .wb-screen-empty {
   position: absolute; inset: 8px;
-  display: flex; align-items: center; justify-content: center;
+  display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center;
   color: var(--c64-fg-muted);
-  pointer-events: none;
+  /* Spec 837 — it carries a button now, so it may not swallow the click that
+     is the way out of the state it is reporting. */
+  pointer-events: auto;
+  text-align: center;
+}
+.wb-live .wb-screen-empty button,
+.wb-live .wb-screen-stalled button { font-size: 11px; cursor: pointer; }
+/* Spec 837 — running, but nothing arriving. Not the same as paused, and the
+   old placeholder could not say so because it only existed before the first
+   frame ever came. */
+.wb-live .wb-screen-stalled {
+  position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 10px; border-radius: 4px;
+  background: rgba(20, 8, 8, 0.86); border: 1px solid #e0506a; color: #e0506a;
+  font-size: 11px; white-space: nowrap;
 }
 .wb-live .wb-screen-hint {
   position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
