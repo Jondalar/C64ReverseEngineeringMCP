@@ -36,7 +36,7 @@ function resolveCallerMediaPath(path: string): string {
 
 async function mediaIngress(
   session_id: string,
-  req: { kind: "disk" | "prg" | "crt" | "eject"; path?: string; name?: string; mode?: "load" | "inject-run"; entry?: number; resetPolicy?: "reset" | "power-cycle"; role?: "drive8" | "cartridge" },
+  req: { kind: "disk" | "prg" | "crt" | "eject"; path?: string; name?: string; mode?: "load" | "inject-run"; entry?: number; resetPolicy?: "reset" | "power-cycle"; role?: "drive8" | "cartridge" | "auto" },
 ): Promise<unknown> {
   const { runtimeDaemon } = await import("../runtime/daemon-client.js");
   return runtimeDaemon.mediaIngress(session_id, req);
@@ -877,16 +877,23 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_media_unmount",
-    "Eject the disk — open the drive door. The running 1541 senses the disk was removed (write-protect line), so this is STEP 1 of answering a game's \"Insert side N\" prompt: unmount, then runtime_session_run a bit to let the drive register the removal, then runtime_media_mount the new side and runtime_session_run again, then runtime_type the RETURN. Writes back if dirty; the drive keeps running. Use to remove media or to begin a hardware-style side-swap. Not for the first mount (use runtime_media_mount). Inputs: session_id. Returns: eject result.",
+    "Take media OUT of the machine. role=drive8 (default): eject the disk — open the drive door. The running 1541 senses the disk was removed (write-protect line), so this is STEP 1 of answering a game's \"Insert side N\" prompt: unmount, then runtime_session_run a bit to let the drive register the removal, then runtime_media_mount the new side and runtime_session_run again, then runtime_type the RETURN. Dirty sectors are written back first; the drive keeps running. role=cartridge: PULL THE CARTRIDGE. Programmed flash/EEPROM is written back to the host .crt first, then the cart comes out, and pulling a cart COLD-RESETS the machine — that is what it does on real hardware, so RAM is gone and the C64 boots to BASIC. To save the flash and keep playing, use runtime_media_persist role=cartridge instead. role=auto: whatever is actually in the machine (cartridge first, else the disk). Use to remove media or to begin a hardware-style side-swap. Not for the first mount (use runtime_media_mount). Inputs: session_id, role. Returns: eject result.",
     {
-      session_id: z.string(),
-      slot: z.number().int().default(8),
+      session_id: z.string().describe("Session to take the media out of — \"shared\" is the live machine the human is watching"),
+      slot: z.number().int().default(8).describe("Drive slot for role=drive8: 8 (primary) or 9. Meaningless for a cartridge, which has no drive number."),
+      role: z.enum(["drive8", "cartridge", "auto"]).default("drive8").describe("What to take out: drive8 = the disk (drive keeps running), cartridge = pull the cart (persists flash, then COLD-RESETS the machine), auto = whatever is in there (cartridge first, else the disk)."),
     },
-    safeHandler("runtime_media_unmount", async ({ session_id, slot }) => {
-      if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
-      if (slot === 9) throw new Error("drive 9 not supported in v1 (drive8-only)");
+    safeHandler("runtime_media_unmount", async ({ session_id, slot, role }) => {
+      // Spec 839 / issue #18 — the slot guard is about a DRIVE. A cartridge has no
+      // drive number, so demanding 8-or-9 for one refused the only op that pulls it:
+      // the daemon has taken role "cartridge" (and slot 0, and "auto") since the UI
+      // needed it, and this tool was the single door that said no.
+      if (role === "drive8") {
+        if (slot !== 8 && slot !== 9) throw new Error(`slot must be 8 or 9, got ${slot}`);
+        if (slot === 9) throw new Error("drive 9 not supported in v1 (drive8-only)");
+      }
       // Spec 744.4c slice 2b — eject via the one abstract media op.
-      const result = await mediaIngress(session_id, { kind: "eject", role: "drive8" });
+      const result = await mediaIngress(session_id, { kind: "eject", role });
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }),
   );
@@ -1181,6 +1188,69 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
       const r = await runtimeDaemon.vicInspectAt(session_id, x, y, checkpoint_id);
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+    }),
+  );
+
+  // ── Spec 839 — the rest of the Visual-Origin Join (Spec 721) ────────────────
+  //
+  // `runtime_vic_inspect_at` resolves ONE pixel. The human's UI has had the other
+  // two halves since Spec 710/721 — a region, and the join from a visible thing to
+  // where it CAME FROM — and the LLM had neither, so "what draws this?" was a
+  // question only a human could ask of a running machine.
+  //
+  // Both stay MCP tools rather than monitor verbs: they answer with a node list and
+  // an asset match, and rendering that as monitor text would flatten exactly the
+  // structure a caller needs.
+  //
+  // `vic/inspect/promote` and `/evidence` are deliberately NOT exposed. Promote
+  // stores evidence in the DAEMON's session, which dies with it; C64RE's half of the
+  // Leitregel is meaning and memory, and that door is `save_finding` into the graph.
+  // Two evidence stores in front of one LLM is how findings get lost.
+
+  /** Region and origin both need a retained checkpoint, and `at_capture` is the one
+   *  place that captures + pins one. A caller without an id gets it from there, so
+   *  the capture policy stays in the daemon and does not fork. */
+  const checkpointFor = async (session_id: string, x: number, y: number, given?: string): Promise<string> => {
+    if (given) return given;
+    const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+    const r = await runtimeDaemon.vicInspectAt<{ checkpointId?: string }>(session_id, x, y);
+    if (!r?.checkpointId) throw new Error("could not capture a checkpoint to inspect (is the session running?)");
+    return r.checkpointId;
+  };
+
+  server.tool(
+    "runtime_vic_inspect_region",
+    "Resolve a RECTANGLE of the frozen display to the distinct sources drawing it — the screen/colour/charset/bitmap/sprite refs behind every pixel in the box, deduplicated to a node list. Use it to ask what an on-screen OBJECT is made of (a sprite, a status panel, a tile) instead of probing pixel by pixel. Not for one pixel (use runtime_vic_inspect_at) and not for where the bytes came FROM (use runtime_vic_origin). Coordinates are VISIBLE-frame pixels, 0..384 x 0..272 with the border included — NOT the 0..319 x 0..199 display frame runtime_vic_inspect_at uses. Inputs: session_id, x, y, width, height, optional checkpoint_id. Returns: { nodes }.",
+    {
+      session_id: z.string().describe("Session to inspect — \"shared\" is the live machine the human is watching"),
+      x: z.number().describe("Left edge, VISIBLE-frame pixels (0..384, border included)"),
+      y: z.number().describe("Top edge, VISIBLE-frame pixels (0..272, border included)"),
+      width: z.number().describe("Box width in visible-frame pixels"),
+      height: z.number().describe("Box height in visible-frame pixels"),
+      checkpoint_id: z.string().optional().describe("Inspect this retained checkpoint. Omitted: capture and pin a fresh one from the live machine (which pauses it), the same way runtime_vic_inspect_at does."),
+    },
+    safeHandler("runtime_vic_inspect_region", async ({ session_id, x, y, width, height, checkpoint_id }) => {
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const cp = await checkpointFor(session_id, x, y, checkpoint_id);
+      const r = await runtimeDaemon.vicInspectRegion(session_id, cp, { x, y, width, height });
+      return { content: [{ type: "text", text: JSON.stringify({ checkpointId: cp, ...(r as object) }, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_vic_origin",
+    "Spec 721's Visual-Origin Join: take a pixel of the frozen picture and answer where the bytes behind it CAME FROM — the VIC/RAM node, then an exact byte-hash match against the mounted medium (sprite / charset / bitmap blocks), plus what the project already knows about that asset. Use it to tie something visible on screen back to a file, a sector and a disassembly. Not for what a pixel IS right now (use runtime_vic_inspect_at) and not for a whole object's composition (use runtime_vic_inspect_region). With nothing mounted the match set is empty and the answer says runtime_generated — that is an honest answer, not a failure. Coordinates are VISIBLE-frame pixels, 0..384 x 0..272 with the border included — NOT the display frame runtime_vic_inspect_at uses. Inputs: session_id, x, y, optional checkpoint_id. Returns: { node, classification, result, knowledge, medium }.",
+    {
+      session_id: z.string().describe("Session to inspect — \"shared\" is the live machine the human is watching"),
+      x: z.number().describe("Pixel x, VISIBLE-frame (0..384, border included)"),
+      y: z.number().describe("Pixel y, VISIBLE-frame (0..272, border included)"),
+      checkpoint_id: z.string().optional().describe("Inspect this retained checkpoint. Omitted: capture and pin a fresh one from the live machine (which pauses it)."),
+    },
+    safeHandler("runtime_vic_origin", async ({ session_id, x, y, checkpoint_id }) => {
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const cp = await checkpointFor(session_id, x, y, checkpoint_id);
+      const r = await runtimeDaemon.vicOrigin(session_id, cp, x, y);
+      return { content: [{ type: "text", text: JSON.stringify({ checkpointId: cp, ...(r as object) }, null, 2) }] };
     }),
   );
 }

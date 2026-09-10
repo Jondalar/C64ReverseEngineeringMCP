@@ -190,6 +190,17 @@ jobs:
       - name: Code entered from another overlay (Spec 838 D3)
         run: npm run e2e:838-islands
 
+      # Spec 839 — what the human can do, the LLM can do. The media gate is
+      # hermetic (source + generated surface). The delta report needs the TRX64
+      # checkout to know what a daemon verb IS, and says so and passes when it is
+      # absent rather than guessing — guessing the verb list from string shapes is
+      # exactly how the first measurement of this delta went wrong.
+      - name: A cartridge comes out, and a tool says what it does (Spec 839)
+        run: npm run e2e:839-media
+
+      - name: UI reaches nothing the LLM cannot (Spec 839)
+        run: npm run check:ui-mcp-delta
+
       # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
       # synthetic PRG with the bundled pipeline and seeds a temp project, and
       # the explorer gate reads the built bundle plus the two pure lib files.

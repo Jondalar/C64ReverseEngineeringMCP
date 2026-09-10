@@ -301,6 +301,12 @@ class RuntimeDaemonClient {
   }
   listSessions() { return this.call<Array<{ sessionId: string; mode: string; diskPath: string; c64Cycles: number }>>("session/list"); }
   state(sessionId: string) { return this.call<{ c64Cycles: number; mode: string; runState?: string; controlOwner?: string; streamPump?: boolean; cpu: { pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number } }>("session/state", { session_id: sessionId }); }
+  /** Spec 839 — the drive and the cartridge as the machine has them right now. The
+   *  human reads both off the cockpit; `runtime_session_status` claimed to report them
+   *  and did not. Both are read-only status calls with no side effect on the machine. */
+  driveStatus(sessionId: string) { return this.call<Record<string, unknown>>("session/drive_status", { session_id: sessionId }); }
+  /** `null` when no cartridge is inserted — that is the answer, not a failure. */
+  cartStatus(sessionId: string) { return this.call<Record<string, unknown> | null>("session/cart_status", { session_id: sessionId }); }
   closeSession(sessionId: string) { return this.call<{ existed: boolean; released: string[] }>("session/close", { session_id: sessionId }); }
   /** Bounded run (cycles), tool-mode. The V3 session/run advances by a cycle budget. */
   run(sessionId: string, cycles: number) { return this.call<{ state: unknown }>("session/run", { session_id: sessionId, cycles, source: "llm" }); }
@@ -363,7 +369,10 @@ class RuntimeDaemonClient {
     kind?: "disk" | "prg" | "crt" | "eject";
     path?: string; bytes_b64?: string; name?: string;
     mode?: "load" | "inject-run"; entry?: number;
-    resetPolicy?: "reset" | "power-cycle"; role?: "drive8" | "cartridge";
+    // Spec 839 — "auto" is the daemon resolving the target against the live machine
+    // (cartridge if one is in, else the disk), atomically under its own lock. The
+    // cockpit has sent it since CLI-FEEL S7; the MCP could not name it.
+    resetPolicy?: "reset" | "power-cycle"; role?: "drive8" | "cartridge" | "auto";
   }) {
     return this.call<T>("media/ingress", { session_id: sessionId, ...req, source: "llm" });
   }
@@ -393,6 +402,21 @@ class RuntimeDaemonClient {
   }
   vicInspectAt<T = unknown>(sessionId: string, x: number, y: number, checkpointId?: string) {
     return this.call<T>("vic/inspect/at_capture", { session_id: sessionId, x, y, checkpoint_id: checkpointId });
+  }
+
+  /** Spec 839 / Spec 721 — the two halves of the Visual-Origin Join the human has in
+   *  the UI and the LLM did not. Both need a RETAINED checkpoint: `at_capture` is the
+   *  one place that captures and pins one, so a caller without an id gets it from
+   *  there rather than from a second capture policy living here.
+   *
+   *  Coordinates: these two take VISIBLE-frame pixels (0..384 x 0..272, border
+   *  included). `vicInspectAt` takes DISPLAY pixels (0..319 x 0..199). Same machine,
+   *  two frames of reference — see the tool descriptions. */
+  vicInspectRegion<T = unknown>(sessionId: string, checkpointId: string, region: { x: number; y: number; width: number; height: number }) {
+    return this.call<T>("vic/inspect/region", { session_id: sessionId, checkpoint_id: checkpointId, region });
+  }
+  vicOrigin<T = unknown>(sessionId: string, checkpointId: string, x: number, y: number) {
+    return this.call<T>("vic/inspect/origin", { session_id: sessionId, checkpoint_id: checkpointId, x, y });
   }
 
   // -- BUG-028 — INPUT/DRIVE on the SHARED daemon session. Read tools (status/

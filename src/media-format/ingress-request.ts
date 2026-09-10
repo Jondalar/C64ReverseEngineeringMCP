@@ -38,8 +38,10 @@ export interface MediaIngressInput {
   entry?: number;
   /** CRT only: reset policy. */
   resetPolicy?: "reset" | "power-cycle";
-  /** eject only: which device. */
-  role?: "drive8" | "cartridge";
+  /** eject only: which device. Spec 839 — "auto" lets the DAEMON resolve it against
+   *  the live machine (cartridge if one is inserted, else the disk on drive 8),
+   *  atomically under its own lock, with no read-then-eject race here. */
+  role?: "drive8" | "cartridge" | "auto";
 }
 
 /** Infer the media kind from a path extension (disk is the default). */

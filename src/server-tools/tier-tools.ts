@@ -133,6 +133,10 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "runtime_monitor_registers", "runtime_monitor_memory", "runtime_monitor_disasm",
   "runtime_step_into", "runtime_step_over", "runtime_until",
   "runtime_resolve_pc", "runtime_vic_inspect_at",
+  // Spec 839 — the other two halves of Spec 721's Visual-Origin Join. A tool is
+  // HIDDEN until it is in DEFAULT_TOOLS, and the whole point of this spec is that
+  // what the human can do the LLM can do.
+  "runtime_vic_inspect_region", "runtime_vic_origin",
   // Spec 725 §3.9 — TraceDB / evidence facade (DuckDB trace is a product
   // feature, not an internal debug escape hatch).
   "runtime_query_events", "runtime_swimlane_slice", "runtime_trace_taint",
