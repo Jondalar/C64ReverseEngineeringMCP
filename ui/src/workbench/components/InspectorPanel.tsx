@@ -2,6 +2,7 @@
 // Spec 424 — Drive/Cart rows with LED indicator + inline insert/eject.
 
 import React, { useCallback, useEffect, useState } from "react";
+import { KeysetPanel } from "../../components/KeysetPanel";
 import { getClient } from "../ws-client.js";
 
 interface Drive {
@@ -192,6 +193,8 @@ export function InspectorPanel({
   onMounted, joyMode = "off", setJoyMode, joyBits, pressedKeys,
 }: Props): React.JSX.Element {
   const [cpu, setCpu] = useState<CpuState | null>(null);
+  // Spec 841 — the keyset dialog, folded out under the JOY switch.
+  const [showKeyset, setShowKeyset] = useState(false);
   const [vic, setVic] = useState<VicState | null>(null);
   const [sid, setSid] = useState<SidState | null>(null);
   const [flow, setFlow] = useState<FlowState | null>(null);
@@ -469,9 +472,23 @@ export function InspectorPanel({
         />
       </section>
 
-      {/* Spec 310 — virtual joystick segmented control + live status. */}
+      {/* Spec 310 — virtual joystick segmented control + live status.
+          Spec 841 — and the keyset dialog, HERE rather than in a settings screen:
+          you find out that the stick has eaten W/A/S/D while you are playing, so
+          the way to fix it belongs next to the switch that caused it. */}
       <section>
-        <h3>Virtual JOY</h3>
+        <h3>
+          Virtual JOY
+          <button
+            onClick={() => setShowKeyset((v) => !v)}
+            title="Tasten zuordnen (pro Projekt)"
+            style={{
+              float: "right", padding: "0 6px", background: showKeyset ? "#4a90e2" : "#222",
+              color: showKeyset ? "#fff" : "#aaa", border: "1px solid #444", cursor: "pointer",
+              fontFamily: "monospace", fontSize: 11,
+            }}
+          >Tasten…</button>
+        </h3>
         <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
           {(["off", "port1", "port2"] as JoyMode[]).map(m => {
             const label = m === "off" ? "OFF" : m === "port1" ? "1" : "2";
@@ -504,6 +521,7 @@ export function InspectorPanel({
             }</td></tr>
           </tbody>
         </table>
+              {showKeyset && <KeysetPanel />}
       </section>
     </aside>
   );

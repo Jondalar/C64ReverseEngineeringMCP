@@ -1617,8 +1617,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Use to load the joystick/keyboard InputConfig (from ~/.config/c64re/joystick.json) before driving input.",
-      "desc": "Use to load the joystick/keyboard InputConfig (from ~/.config/c64re/joystick.json) before driving input. Not for saving it (use runtime_input_save_config).",
+      "firstSentence": "Read the resolved host-key → C64-action map for a project: which key on the HUMAN's keyboard drives which joystick direction or C64 key, merged from three levels (built-in default → the human's global ~/.config/c64re/input.json → <project>/runtime/input.json) with the SOURCE of each binding reported, so \"why is fire on M here\" is answerable without opening two files.",
+      "desc": "Read the resolved host-key → C64-action map for a project: which key on the HUMAN's keyboard drives which joystick direction or C64 key, merged from three levels (built-in default → the human's global ~/.config/c64re/input.json → <project>/runtime/input.json) with the SOURCE of each binding reported, so \"why is fire on M here\" is answerable without opening two files. Use it before driving input, or to explain a mapping. Note the runtime itself has no keyset — it takes actions (session/key_down, session/joystick_set), and the mapping belongs to each client; this is C64RE's. Not for changing one (use runtime_input_save_config). Inputs: optional project_dir. Returns: { bindings: [{action, code, source}], conflicts, swallowedByJoystick, paths }.",
       "tier": "advanced?"
     },
     {
@@ -1635,8 +1635,8 @@
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
       "hasSpec": false,
-      "firstSentence": "Use to save the joystick/keyboard InputConfig to ~/.config/c64re/joystick.json (never touches vicerc).",
-      "desc": "Use to save the joystick/keyboard InputConfig to ~/.config/c64re/joystick.json (never touches vicerc). Not for loading it (use runtime_input_load_config).",
+      "firstSentence": "Bind ONE C64 action to ONE host key, or clear that binding so it falls back a level.",
+      "desc": "Bind ONE C64 action to ONE host key, or clear that binding so it falls back a level. Writes only the override — a level never stores a copy of the whole map, because a copy drifts the moment the level below changes. scope=project (default) writes <project>/runtime/input.json, the game's own mapping; scope=global writes ~/.config/c64re/input.json, the human's preference across projects. Use it to move a joystick direction off a letter the game needs to type (the Ultima VI case: keyboard AND stick at once). Not for reading the map (use runtime_input_load_config). Never touches vicerc. Inputs: action, code (omit to clear), scope, project_dir. Returns: the level's bindings after the write.",
       "tier": "advanced?"
     },
     {

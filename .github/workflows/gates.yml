@@ -201,6 +201,12 @@ jobs:
       - name: UI reaches nothing the LLM cannot (Spec 839)
         run: npm run check:ui-mcp-delta
 
+      # Spec 841 — three levels merged per binding. Hermetic: the levels are
+      # injected, because a gate that depends on what happens to be in ~/.config
+      # is not a gate.
+      - name: A keyset belongs to the game (Spec 841)
+        run: npm run e2e:841-keyset
+
       # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
       # synthetic PRG with the bundled pipeline and seeds a temp project, and
       # the explorer gate reads the built bundle plus the two pure lib files.
