@@ -287,12 +287,24 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
  * graph tools and 829's two — and they merged into one number here.
  *
  * 2026-09-09, NOT raised: Spec 836's `runtime_sandbox_run` takes the one free slot
- * this number had left, so the default surface now sits at 158 of 158. Said here
- * rather than discovered by the next person: the next promotion raises this number
- * deliberately, with its reason, or demotes something. It was not raised for 836
- * because a tool that keeps a second caller off the human's machine is exactly the
- * kind that must be reachable — and it fit. */
-export const DEFAULT_TIER_CAP = 158;
+ * this number had left, so the default surface sat at 158 of 158.
+ *
+ * 2026-09-10, raised to 200 (owner's call). What this cap actually costs was
+ * measured wrong for a while, including by me: in this harness MCP tools are
+ * DEFERRED — the client holds their NAMES and fetches a schema only when it
+ * reaches for one — so a default tool does not carry its description in the
+ * context window permanently. The cap therefore buys a smaller thing than
+ * "context": it decides what is registered and so what a caller can FIND at
+ * all.
+ *
+ * That is still worth a limit, because finding is the real bottleneck: a
+ * surface nobody can survey sends a caller to the wrong tool by name
+ * similarity — which is exactly how a session looking for a sandboxed
+ * cartridge landed on `sandbox_6502_run`, a CPU sandbox with no machine in it.
+ * 200 leaves room for the verbs the workbench UI can reach and the tool
+ * surface cannot (measured 2026-09-10: fifteen, `media/unmount` among them)
+ * without pretending the number is free. */
+export const DEFAULT_TIER_CAP = 200;
 
 export function tierForTool(name: string): ToolTier {
   return DEFAULT_TOOLS.has(name) ? "default" : "advanced";
