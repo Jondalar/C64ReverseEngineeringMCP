@@ -1,6 +1,9 @@
 # Spec 838 — Three field reports: a Windows path, a harvest that invents bytes, and code nobody reaches
 
-**Status:** PROPOSED 2026-09-10
+**Status:** BUILT 2026-09-10 — `e2e:838-paths` 165/0, `e2e:838-harvest` 63/0
+(11/0 without the runtime binary), `e2e:838-islands` 51/0, all three in
+`gates.yml`; every existing gate green. Three agents, one decision each; all
+three corrected this spec.
 **Origin:** Issues #15, #17 and #16, all from the same reporter, all reproducible.
 **Anchor:** Spec 832 D4 (tolerant is not the same as inventing) · Spec 827
 (a path policy is a library with a gate) · the `entry_points` finding —
@@ -223,3 +226,54 @@ still owed; the three D-branches each kept off that file to avoid colliding in i
 
 Three gates green and in `gates.yml`; every existing gate green; the reporter's
 three cases fixed and, for D3, the rebuild still byte-identical.
+
+
+## 6. What the build corrected
+
+**D1 was six sites, not one, and two of them were an escape rather than a
+portability bug.** Spec 818's slug allows a single letter, so
+`c:ram/loader:routine:0801` is a LEGAL id that `path.win32.resolve` reads as a
+drive-relative path and follows out of the project; and `graphics-render.ts`
+took an LLM-supplied `run_id` straight into a path. The legacy lookup uses
+`join` plus a containment check, never `resolve`.
+
+Three more of my claims were wrong. The remaining payloads are **not** skipped —
+the chain catches per payload, so on Windows all eight fail; the reporter's
+"skipped" came from reading the summary line. The id also carries `/`, which on
+POSIX is a separator, not a reserved character, so a two-level directory is
+already being created silently today. And **a DOS device name cannot be fixed by
+a suffix**: Windows matches the component up to the first dot, so
+`com1.txt-1a2b3c4d` is still the device — the stem itself has to change, which
+is precisely the fix this spec implied would work.
+
+Existing projects are not orphaned: a pre-existing raw-id directory is still
+read and written where it is; only something with no directory yet gets the
+portable name.
+
+**D2's CLI half was never broken.** `trx64cli sandbox --harvest` already reports
+the runs beside the window; C64RE had them in hand and did not pass them on. And
+the defect was worse than the issue said: `writtenSpan` gap-filled between
+disjoint runs with **zero** — a plausible byte, indistinguishable from a stored
+one — which is 832 D4 exactly, in a second place nobody had looked. A gap is now
+an explicit `null`: `$00`–`$ff` is the whole domain of a byte, so no formatter
+or consumer can turn a hole into a value by accident, and the type makes the
+compiler ask every consumer what it does with one.
+
+**D3's honest answer to (a) is TELL, not split.** Honouring an entry point
+inside an instruction means decoding the same bytes at two alignments and
+emitting one; nothing in the analyzer can say which, and the byte-identical
+rebuild is the guarantee that would pay for the choice. So it is reported —
+naming the covering instruction and the seed — and refused. On the reporter's
+own project **3 of 190 entry points were being dropped in silence.**
+
+Making "seeds ADD, never replace" TRUE rather than hoped-for needed two measured
+leaks closed: the island probe now accepts a fall-through onto a confirmed
+instruction as a structured ending (a seed shortens the window an island has to
+terminate in), and Spec 047's demotion protected only a confirmed prefix — 195
+bytes of reached code in The Pawn were being demoted because 33 unconfirmed
+bytes sat in front of them.
+
+Measured, read-only: Neuromancer `chunk_4300` **1 111 → 8 930 code bytes** with
+a byte-identical rebuild; twelve payloads +11 295 bytes total; Wasteland
+`block2` +2 405 with 8 bytes lost, each named as an alignment conflict. With no
+graph present the output is byte-for-byte what it was.
