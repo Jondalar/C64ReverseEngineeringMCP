@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { analyzeBasicProgram, BasicFact } from "../lib/basic-v2";
 import { formatAddress } from "./utils";
-import { MemoryMapping, EntryPoint } from "./types";
+import { MemoryMapping, EntryPoint, EntryPointRejection } from "./types";
 
 export interface LoadedPrg {
   buffer: Buffer;
@@ -270,7 +270,20 @@ export function detectVectorEntries(buffer: Buffer, mapping: MemoryMapping): Ent
   return entries;
 }
 
-export function deriveEntryPoints(mapping: MemoryMapping, buffer: Buffer, userEntryPoints: number[] = []): EntryPoint[] {
+/**
+ * Spec 838 D3a — a user entry point outside the image used to disappear here
+ * without a word. It is now recorded in `rejected` so the caller can say so.
+ * Spec 838 D3b — `graphSeeds` are appended AFTER the `prg_header` fallback
+ * decision on purpose: a seed ADDS to the scan, it never replaces the entries
+ * the image itself provides (the fallback rule is judged on those alone).
+ */
+export function deriveEntryPoints(
+  mapping: MemoryMapping,
+  buffer: Buffer,
+  userEntryPoints: number[] = [],
+  graphSeeds: EntryPoint[] = [],
+  rejected?: EntryPointRejection[],
+): EntryPoint[] {
   const entryPoints: EntryPoint[] = [];
 
   for (const address of userEntryPoints) {
@@ -279,6 +292,13 @@ export function deriveEntryPoints(mapping: MemoryMapping, buffer: Buffer, userEn
         address,
         source: "user",
         reason: "User-specified entry point.",
+      });
+    } else {
+      rejected?.push({
+        address,
+        source: "user",
+        reason: "out_of_range",
+        detail: `outside this image ${formatAddress(mapping.startAddress)}-${formatAddress(mapping.endAddress)} — it was not seeded and did not constrain the scan`,
       });
     }
   }
@@ -296,6 +316,8 @@ export function deriveEntryPoints(mapping: MemoryMapping, buffer: Buffer, userEn
       });
     }
   }
+
+  entryPoints.push(...graphSeeds);
 
   return dedupeEntryPoints(entryPoints);
 }

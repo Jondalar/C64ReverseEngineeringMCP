@@ -19,13 +19,17 @@ import { deriveHardwareDataCandidates } from "./hardware-data-candidates";
 import { buildEvidenceGraph } from "./evidence-graph";
 import { extractRamStateFacts } from "./ram-state";
 import { detectRelocationProposals } from "./relocations";
+import { loadCodeSeeds, ownerFromBinaryName } from "./graph-reader";
 import {
   AnalysisOptions,
   AnalysisReport,
   AnalyzerContext,
   AnalyzerResult,
   CandidateRegion,
+  CodeSeedReport,
   CodeSemantics,
+  EntryPoint,
+  EntryPointRejection,
   Segment,
   SegmentAnalyzer,
 } from "./types";
@@ -212,6 +216,34 @@ export function demoteBrokenCodeIslands(
     return p - 1;
   };
 
+  /**
+   * Spec 838 D3 — BUG-021 solution #3 applied to the WHOLE segment, not only to
+   * its head. `confirmedPrefixEndFrom` protects one leading run, so a segment
+   * shaped confirmed / gap / confirmed lost its SECOND confirmed run to the
+   * demotion: measured on The Pawn's engine_1000, 195 bytes of recursively
+   * reached code at $1054-$1116 went to `.byte` because 33 unconfirmed bytes in
+   * front of it dragged the merged segment's confidence down. Recursively
+   * reached code is code wherever it sits in the segment.
+   */
+  const confirmedRuns = (from: number, to: number): Array<{ start: number; end: number; confirmed: boolean }> => {
+    const pieces: Array<{ start: number; end: number; confirmed: boolean }> = [];
+    let cursor = from;
+    while (cursor <= to) {
+      const runEnd = confirmedPrefixEndFrom(cursor, to);
+      if (runEnd >= cursor) {
+        pieces.push({ start: cursor, end: Math.min(runEnd, to), confirmed: true });
+        cursor = Math.min(runEnd, to) + 1;
+        continue;
+      }
+      // walk forward to the next confirmed instruction start
+      let gapEnd = cursor;
+      while (gapEnd + 1 <= to && confirmedEndByStart?.get(gapEnd + 1) === undefined) gapEnd += 1;
+      pieces.push({ start: cursor, end: gapEnd, confirmed: false });
+      cursor = gapEnd + 1;
+    }
+    return pieces;
+  };
+
   const rewritten: Segment[] = [];
   for (const segment of segments) {
     if (segment.kind !== "code") { rewritten.push(segment); continue; }
@@ -332,29 +364,36 @@ export function demoteBrokenCodeIslands(
         analyzerIds: Array.from(new Set([...segment.analyzerIds, "code-island-demote"])).sort(),
       });
 
-      // BUG-021 solution #1: when a recursively-confirmed code prefix exists
-      // and the demotion triggers are in the unreached tail, SPLIT instead of
-      // demoting the whole island: keep the valid control flow as code and
-      // isolate only the tail as unknown.
-      const prefixEnd = confirmedPrefixEndFrom(segment.start, segment.end);
-      if (confirmedEndByStart && prefixEnd >= segment.start && prefixEnd < segment.end) {
-        rewritten.push({
-          ...segment,
-          start: segment.start,
-          end: prefixEnd,
-          length: prefixEnd - segment.start + 1,
-          kind: "code" as const,
-          score: {
-            confidence: Math.max(segment.score.confidence, threshold),
-            reasons: [
-              `Kept as code (Spec 741 / BUG-021): recursively-reached control flow ${formatAddress(segment.start)}-${formatAddress(prefixEnd)}; mixed data tail split off.`,
-              ...segment.score.reasons.slice(0, 2),
-            ],
-            alternatives: segment.score.alternatives,
-          },
-          analyzerIds: Array.from(new Set([...segment.analyzerIds, "mixed-island-split"])).sort(),
-        });
-        rewritten.push(demotedTail(prefixEnd + 1, segment.end));
+      // BUG-021 solution #1: when recursively-confirmed code sits inside the
+      // island and the demotion triggers are in the unreached parts, SPLIT
+      // instead of demoting the whole island: keep the valid control flow as
+      // code and isolate only the rest as unknown.
+      //
+      // Spec 838 D3 widened this from "a confirmed PREFIX" to "every confirmed
+      // run": one unconfirmed gap in front of a confirmed run used to cost that
+      // run its classification.
+      const keptRun = (start: number, end: number): Segment => ({
+        ...segment,
+        start,
+        end,
+        length: end - start + 1,
+        kind: "code" as const,
+        score: {
+          confidence: Math.max(segment.score.confidence, threshold),
+          reasons: [
+            `Kept as code (Spec 741 / BUG-021): recursively-reached control flow ${formatAddress(start)}-${formatAddress(end)}; mixed data split off.`,
+            ...segment.score.reasons.slice(0, 2),
+          ],
+          alternatives: segment.score.alternatives,
+        },
+        analyzerIds: Array.from(new Set([...segment.analyzerIds, "mixed-island-split"])).sort(),
+      });
+
+      const pieces = confirmedEndByStart ? confirmedRuns(segment.start, segment.end) : [];
+      if (pieces.some((piece) => piece.confirmed)) {
+        for (const piece of pieces) {
+          rewritten.push(piece.confirmed ? keptRun(piece.start, piece.end) : demotedTail(piece.start, piece.end));
+        }
         continue;
       }
 
@@ -452,13 +491,63 @@ function demoteStatefulSpriteSegments(
   return mergeSegments(rewritten);
 }
 
+/**
+ * Spec 838 D3b — the graph-seed pass. It reads the project graph for addresses
+ * that are code but that recursive descent inside THIS image can never reach:
+ * a human `routine` node, a CALLS/JUMPS_TO from another overlay, a Spec 826
+ * RESOLVES_TO alias. The result is stated either way — an absent graph is a
+ * named reason in the listing, never a silent zero.
+ */
+function collectGraphSeeds(
+  binaryName: string,
+  mapping: AnalyzerContext["mapping"],
+  options: AnalysisOptions,
+): { entries: EntryPoint[]; report: CodeSeedReport; rejected: EntryPointRejection[] } {
+  const owner = ownerFromBinaryName(binaryName);
+  if (options.noGraphSeeds === true || process.env.C64RE_NO_GRAPH_SEEDS === "1") {
+    return { entries: [], rejected: [], report: { status: "disabled", owner, seeds: [], reason: "graph seeding turned off (C64RE_NO_GRAPH_SEEDS=1)" } };
+  }
+  let lookup;
+  try {
+    lookup = loadCodeSeeds({ projectDir: options.projectDir, owner, lo: mapping.startAddress, hi: mapping.endAddress });
+  } catch (error) {
+    return {
+      entries: [],
+      rejected: [],
+      report: { status: "absent", owner, seeds: [], reason: `graph unreadable: ${error instanceof Error ? error.message : String(error)}` },
+    };
+  }
+  if (lookup.status !== "ok") {
+    return { entries: [], rejected: [], report: { status: "absent", owner, path: lookup.path, seeds: [], reason: lookup.reason } };
+  }
+  const entries: EntryPoint[] = lookup.seeds.map((seed) => ({
+    address: seed.address,
+    source: "graph" as const,
+    reason: seed.detail,
+    seedOrigin: seed.origin,
+  }));
+  const rejected: EntryPointRejection[] = lookup.skipped.map((skip) => ({
+    address: skip.address,
+    source: "graph" as const,
+    reason: "owned_by_other" as const,
+    detail: skip.detail,
+  }));
+  return {
+    entries,
+    rejected,
+    report: { status: "ok", owner, path: lookup.path, seeds: lookup.seeds.map((seed) => ({ address: seed.address, origin: seed.origin, detail: seed.detail })) },
+  };
+}
+
 export function analyzeMappedBuffer(
   binaryName: string,
   buffer: Buffer,
   mapping: AnalyzerContext["mapping"],
   options: AnalysisOptions = {},
 ): AnalysisReport {
-  const entryPoints = deriveEntryPoints(mapping, buffer, options.userEntryPoints);
+  const graph = collectGraphSeeds(binaryName, mapping, options);
+  const derivationRejections: EntryPointRejection[] = [];
+  const entryPoints = deriveEntryPoints(mapping, buffer, options.userEntryPoints, graph.entries, derivationRejections);
   const context: AnalyzerContext = {
     binaryName,
     buffer,
@@ -578,6 +667,14 @@ export function analyzeMappedBuffer(
     probableCodeAnalysis: context.probableCode,
     stats,
     relocationProposals: relocationProposals.length > 0 ? relocationProposals : undefined,
+    // Spec 838 D3a — every refused entry point, from wherever it came, in one place.
+    rejectedEntryPoints: [
+      ...derivationRejections,
+      ...graph.rejected,
+      ...(context.discoveredCode?.rejectedEntryPoints ?? []),
+    ].sort((left, right) => left.address - right.address),
+    strandedByDecodeConflict: context.discoveredCode?.strandedByDecodeConflict,
+    codeSeedReport: graph.report,
   };
 }
 

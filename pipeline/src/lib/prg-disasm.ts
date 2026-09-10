@@ -2029,6 +2029,18 @@ function segmentHeader(segment: Segment, context?: RenderAnalysisContext): strin
     lines.push(`// ${segment.score.reasons[0]}`);
   }
 
+  // Spec 838 D3c — a region promoted out of `unknown` because the GRAPH named a
+  // seed must say which seed reached it, wherever the reason ended up in the
+  // list after segment merging. A wrong promotion should read as a named claim,
+  // not as a listing that merely looks plausible.
+  if (!reclassified) {
+    for (const reason of segment.score.reasons) {
+      if (isSeedReason(reason) && reason !== segment.score.reasons[0]) {
+        lines.push(`// ${reason}`);
+      }
+    }
+  }
+
   if (!reclassified && segment.kind === "code" && segment.analyzerIds.includes("probable-code") && !segment.analyzerIds.includes("code")) {
     lines.push("// probable code island: structured routine, but not yet reached from trusted entry points");
   }
@@ -2212,6 +2224,74 @@ function emitSpriteSegment(prg: PrgImage, segment: Segment, lines: string[]): vo
   }
 }
 
+/** Spec 838 D3c — the markers `makeCodeCandidate` puts in front of a graph-seeded run. */
+const SEED_REASON_PREFIXES = ["Reached ONLY because the graph named a seed", "Also reached from a graph seed"];
+const isSeedReason = (reason: string): boolean => SEED_REASON_PREFIXES.some((prefix) => reason.startsWith(prefix));
+
+/**
+ * Spec 838 D3a/D3b — the seed ledger. Two things the tool used to keep to
+ * itself: what the graph contributed, and which supplied entry points it
+ * refused. Both go into the listing header, because an `entry_points` address
+ * that quietly does nothing is exactly the reported bug (issue #16).
+ */
+function renderSeedLedger(report: AnalysisReport): string[] {
+  const lines: string[] = [];
+  const seedReport = report.codeSeedReport;
+  const rejected = report.rejectedEntryPoints ?? [];
+  if (!seedReport && rejected.length === 0) return lines;
+
+  lines.push("Code seeds (Spec 838 D3)");
+  if (seedReport) {
+    if (seedReport.status !== "ok") {
+      lines.push(`  graph seeds: none — ${seedReport.reason ?? "no reason recorded"}`);
+    } else if (seedReport.seeds.length === 0) {
+      lines.push(`  graph seeds: none in this image (owner "${seedReport.owner}", ${seedReport.path ?? "graph"})`);
+    } else {
+      const byOrigin = new Map<string, number>();
+      for (const seed of seedReport.seeds) byOrigin.set(seed.origin, (byOrigin.get(seed.origin) ?? 0) + 1);
+      lines.push(
+        `  graph seeds: ${seedReport.seeds.length} for owner "${seedReport.owner}" (` +
+          [...byOrigin.entries()].sort().map(([origin, count]) => `${origin}=${count}`).join(", ") +
+          `). They ADD to the speculative scan; nothing was taken away.`,
+      );
+      for (const seed of seedReport.seeds.slice(0, 24)) {
+        lines.push(`    ${formatAddress(seed.address)}  ${seed.origin}  ${seed.detail}`);
+      }
+      if (seedReport.seeds.length > 24) lines.push(`    ... ${seedReport.seeds.length - 24} more (full list in the analysis JSON: codeSeedReport.seeds)`);
+    }
+  }
+
+  // The refusals. `already_code` is a satisfied entry, not a loss — it is
+  // counted, not listed. Everything else is listed one by one: those are the
+  // addresses a caller supplied and did NOT get.
+  const satisfied = rejected.filter((r) => r.reason === "already_code");
+  const refused = rejected.filter((r) => r.reason !== "already_code");
+  if (satisfied.length > 0) {
+    lines.push(`  entry points already covered: ${satisfied.length} (the address was already an instruction start — nothing lost)`);
+  }
+  if (refused.length > 0) {
+    lines.push(`  entry points NOT seeded: ${refused.length} — an entry point CONSTRAINS this scan, so a refusal is said out loud:`);
+    for (const rejection of refused.slice(0, 24)) {
+      lines.push(`    ${formatAddress(rejection.address)}  [${rejection.source}/${rejection.reason}]  ${rejection.detail}`);
+    }
+    if (refused.length > 24) lines.push(`    ... ${refused.length - 24} more (full list in the analysis JSON: rejectedEntryPoints)`);
+  }
+
+  // The same conflict one level down: a byte no decode owns because two seeds
+  // disagreed about where the instruction starts. It is the only way a seed can
+  // still cost a byte, so it is stated rather than left to be discovered.
+  const stranded = report.strandedByDecodeConflict ?? [];
+  if (stranded.length > 0) {
+    lines.push(`  bytes stranded by a decode conflict: ${stranded.length} — two seeds decoded the same range at different alignments:`);
+    for (const item of stranded.slice(0, 12)) {
+      lines.push(`    ${formatAddress(item.address)}  blocked by the instruction at ${formatAddress(item.blockedBy)} (from seed ${formatAddress(item.blockerSeed)})`);
+    }
+    if (stranded.length > 12) lines.push(`    ... ${stranded.length - 12} more (full list in the analysis JSON: strandedByDecodeConflict)`);
+  }
+  lines.push("");
+  return lines;
+}
+
 function renderAnalysisPreface(context: RenderAnalysisContext): string[] {
   const lines: string[] = [];
   const earlySegments = context.segments.slice(0, 20);
@@ -2225,7 +2305,13 @@ function renderAnalysisPreface(context: RenderAnalysisContext): string[] {
     segment.kind === "screen_ram" ||
     segment.kind === "petscii_text",
   );
-  const entryPoints = context.report.entryPoints.map((entryPoint) => `${formatAddress(entryPoint.address)} (${entryPoint.source})`);
+  // Spec 838 D3b — graph seeds are entry points too, but they get their own
+  // ledger below; keeping them out of this line stops it growing to 190 items.
+  const graphSeedCount = context.report.entryPoints.filter((entryPoint) => entryPoint.source === "graph").length;
+  const entryPoints = context.report.entryPoints
+    .filter((entryPoint) => entryPoint.source !== "graph")
+    .map((entryPoint) => `${formatAddress(entryPoint.address)} (${entryPoint.source})`);
+  if (graphSeedCount > 0) entryPoints.push(`+ ${graphSeedCount} graph seed(s), listed below`);
   const remainingCount = Math.max(0, context.segments.length - earlySegments.length);
 
   lines.push("/*");
@@ -2235,6 +2321,7 @@ function renderAnalysisPreface(context: RenderAnalysisContext): string[] {
     lines.push(`Entry points: ${entryPoints.join(", ")}`);
     lines.push("");
   }
+  lines.push(...renderSeedLedger(context.report));
   lines.push("Early / structural segments");
   for (const segment of earlySegments) {
     lines.push(`${formatAddress(segment.start)}-${formatAddress(segment.end)}  ${segment.kind}`);

@@ -1,7 +1,7 @@
 import { decodeInstruction, hasFallthrough, isBranchInstruction, isCallInstruction, isJumpInstruction } from "../lib/mos6502";
 import { hex16 } from "../lib/format";
 import { BasicProgramInfo, detectBasicProgram } from "./prg";
-import { BasicBlock, CodeAnalysis, CrossReference, EntryPoint, InstructionFact, MemoryMapping, SegmentCandidate } from "./types";
+import { BasicBlock, CodeAnalysis, CrossReference, EntryPoint, EntryPointRejection, InstructionFact, MemoryMapping, SegmentCandidate } from "./types";
 import { clampConfidence, createCoverageMap, findUnclaimedRegions, formatAddress, segmentLength, toOffset } from "./utils";
 
 interface DiscoverCodeOptions {
@@ -152,14 +152,23 @@ export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
   // point into code — most often it is deriveEntryPoints' `prg_header`
   // fallback pointing at $0801, which is exactly how a pure BASIC program used
   // to get disassembled as 6502 from its first token byte.
-  const queue = options.entryPoints
+  //
+  // Spec 838 D3c — the queue carries the SEED each walk descended from, so a
+  // region promoted out of `unknown` can name what reached it. Without that a
+  // wrong promotion is merely plausible; with it, it is visible.
+  const queue: Array<{ address: number; root: number }> = options.entryPoints
     .map((entryPoint) => entryPoint.address)
-    .filter((address) => !insideBasic(address));
+    .filter((address) => !insideBasic(address))
+    .map((address) => ({ address, root: address }));
   const visitedStarts = new Set<number>();
   const claimedBytes = new Map<number, number>();
   const instructions: InstructionFact[] = [];
   const xrefs: CrossReference[] = [];
-  const leaders = new Set<number>(queue);
+  const leaders = new Set<number>(queue.map((item) => item.address));
+  /** instruction start → the seed address whose walk first reached it (Spec 838 D3c) */
+  const rootByStart = new Map<number, number>();
+  /** addresses where a walk stopped because another decode already owned the bytes (Spec 838 D3a) */
+  const blockedStarts = new Set<number>();
 
   // Spec 758 — recursive descent is run to a FIXED POINT: after the flow-reachable
   // queue drains, recover extra seeds (indirect-jump pointers §3.1, self-modified
@@ -168,7 +177,7 @@ export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
   // rebuild-safe (no speculative data→code promotion — that is the coherence pass).
   for (let iteration = 0; iteration < 8; iteration += 1) {
   while (queue.length > 0) {
-    const startAddress = queue.shift()!;
+    const { address: startAddress, root } = queue.shift()!;
     let address = startAddress;
 
     while (address >= options.mapping.startAddress && address <= options.mapping.endAddress) {
@@ -207,10 +216,16 @@ export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
       }
 
       if (overlapsExisting) {
+        // Spec 838 D3a, the byte-level twin of the refused entry point: two
+        // seeds decode the same bytes at two alignments and this walk lost.
+        // Whether that costs anything depends on where the other decode starts,
+        // so it is recorded now and judged after the descent has finished.
+        blockedStarts.add(address);
         break;
       }
 
       visitedStarts.add(address);
+      rootByStart.set(address, root);
       for (let index = 0; index < instruction.size; index += 1) {
         claimedBytes.set(address + index, address);
       }
@@ -245,16 +260,16 @@ export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
       }
 
       if (isCallInstruction(instruction) && instruction.targetAddress !== undefined) {
-        queue.push(instruction.targetAddress);
+        queue.push({ address: instruction.targetAddress, root });
         leaders.add(instruction.targetAddress);
       } else if (isJumpInstruction(instruction)) {
         if (instruction.mode === "abs" && instruction.targetAddress !== undefined) {
-          queue.push(instruction.targetAddress);
+          queue.push({ address: instruction.targetAddress, root });
           leaders.add(instruction.targetAddress);
         }
         break;
       } else if (isBranchInstruction(instruction) && instruction.targetAddress !== undefined) {
-        queue.push(instruction.targetAddress);
+        queue.push({ address: instruction.targetAddress, root });
         leaders.add(instruction.targetAddress);
         if (fallthroughAddress !== undefined) {
           leaders.add(fallthroughAddress);
@@ -288,7 +303,7 @@ export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
     let addedSeed = false;
     for (const seed of recovered) {
       if (!visitedStarts.has(seed) && seed >= options.mapping.startAddress && seed <= options.mapping.endAddress) {
-        queue.push(seed);
+        queue.push({ address: seed, root: seed });
         leaders.add(seed);
         addedSeed = true;
       }
@@ -298,8 +313,93 @@ export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
     }
   }
 
+  // ---------------------------------------------------------------- Spec 838 D3a
+  //
+  // An entry point that never became an instruction start was DROPPED, and until
+  // now it was dropped in silence — the reported symptom (issue #16): the caller
+  // supplies an address, the listing does not change, and nothing says why.
+  //
+  // The decision is TELL, not split. Three reasons, in order of weight:
+  //  1. `already_code` needs no split — the address IS an instruction start; the
+  //     entry was satisfied by another walk, nothing was lost.
+  //  2. `inside_instruction` COULD be split, and must not be: honouring it means
+  //     decoding the same bytes twice at two alignments, and only one of the two
+  //     can be emitted. The byte-identical rebuild (D3c) is the guarantee that
+  //     would pay for it. The conflict is real information, so the covering
+  //     instruction and the seed that claimed it are both named and the human
+  //     decides — the analyzer does not silently pick a winner.
+  //  3. everything else (`out_of_range`, `inside_basic`, `undecodable`) is a
+  //     refusal with an obvious cause, which was equally invisible before.
+  const rejectedEntryPoints: EntryPointRejection[] = [];
+  for (const entryPoint of options.entryPoints) {
+    const address = entryPoint.address;
+    if (visitedStarts.has(address)) {
+      const root = rootByStart.get(address);
+      if (root === address) continue; // this entry seeded its own walk
+      rejectedEntryPoints.push({
+        address,
+        source: entryPoint.source,
+        reason: "already_code",
+        detail: root === undefined
+          ? "already an instruction start"
+          : `already an instruction start — reached first from ${formatAddress(root)}; the entry added nothing and cost nothing`,
+      });
+      continue;
+    }
+    if (insideBasic(address)) {
+      rejectedEntryPoints.push({
+        address,
+        source: entryPoint.source,
+        reason: "inside_basic",
+        detail: `inside the tokenized BASIC program ${formatAddress(basicProgram!.start)}-${formatAddress(basicProgram!.firstAddressAfter - 1)} (Spec 829 D4.1) — not seeded`,
+      });
+      continue;
+    }
+    const owner = claimedBytes.get(address);
+    if (owner !== undefined && owner !== address) {
+      rejectedEntryPoints.push({
+        address,
+        source: entryPoint.source,
+        reason: "inside_instruction",
+        detail:
+          `IGNORED: it lands inside the instruction at ${formatAddress(owner)}, which was decoded from seed ` +
+          `${formatAddress(rootByStart.get(owner) ?? owner)}. Seeding it would need the same bytes decoded twice ` +
+          `at two alignments and only one can be emitted, so nothing was promoted here. If this address is the ` +
+          `real entry, the decode at ${formatAddress(owner)} is the thing that is wrong.`,
+      });
+      continue;
+    }
+    const offset = toOffset(address, options.mapping);
+    const decoded = offset === undefined ? undefined : decodeInstruction(options.buffer, offset, options.mapping.startAddress);
+    rejectedEntryPoints.push({
+      address,
+      source: entryPoint.source,
+      reason: "undecodable",
+      detail: decoded === undefined || decoded.isUnknown
+        ? `the byte there is not a decodable opcode — not seeded`
+        : `decode started but produced no instruction — not seeded`,
+    });
+  }
+
+  // Spec 838 D3a — bytes no decode ended up owning because two seeds disagreed
+  // about the alignment. Measured on Wasteland block2: supplying the 190-address
+  // entry list strands 3 single bytes this way. They are the residue of the same
+  // conflict the `inside_instruction` refusal names, and deciding which decode is
+  // right is exactly the guess this analyzer must not make — so it says so.
+  const strandedByDecodeConflict: Array<{ address: number; blockedBy: number; blockerSeed: number }> = [];
+  for (const address of [...blockedStarts].sort((left, right) => left - right)) {
+    if (claimedBytes.has(address)) continue;
+    let blocker: number | undefined;
+    for (let index = 0; index < 3; index += 1) {
+      const owner = claimedBytes.get(address + index);
+      if (owner !== undefined) { blocker = owner; break; }
+    }
+    if (blocker === undefined) continue;
+    strandedByDecodeConflict.push({ address, blockedBy: blocker, blockerSeed: rootByStart.get(blocker) ?? blocker });
+  }
+
   const sortedInstructions = instructions.sort((left, right) => left.address - right.address);
-  const codeCandidates = buildCodeCandidates(sortedInstructions, options.entryPoints);
+  const codeCandidates = buildCodeCandidates(sortedInstructions, options.entryPoints, rootByStart);
   // Spec 829 D4.1 — ONE `basic` segment over the whole program, emitted next to
   // the code candidates so it is in the coverage map below. That is what keeps
   // the probable-code linear scanner (which rakes every UNCLAIMED region) from
@@ -318,15 +418,23 @@ export function discoverCode(options: DiscoverCodeOptions): CodeAnalysis {
     xrefs,
     codeCandidates,
     unclaimedRegions,
+    rejectedEntryPoints,
+    strandedByDecodeConflict,
+    seedRoots: [...rootByStart.entries()].sort((l, r) => l[0] - r[0]).map(([address, rootAddress]) => ({ address, root: rootAddress })),
   };
 }
 
-function buildCodeCandidates(instructions: InstructionFact[], entryPoints: EntryPoint[]): SegmentCandidate[] {
+function buildCodeCandidates(
+  instructions: InstructionFact[],
+  entryPoints: EntryPoint[],
+  rootByStart: Map<number, number>,
+): SegmentCandidate[] {
   if (instructions.length === 0) {
     return [];
   }
 
   const entrySet = new Set(entryPoints.map((entryPoint) => entryPoint.address));
+  const entryByAddress = new Map(entryPoints.map((entryPoint) => [entryPoint.address, entryPoint] as const));
   const basicStubEntries = new Set(
     entryPoints.filter((entryPoint) => entryPoint.source === "basic_sys").map((entryPoint) => entryPoint.address),
   );
@@ -335,28 +443,60 @@ function buildCodeCandidates(instructions: InstructionFact[], entryPoints: Entry
   let runEnd = instructions[0].address + instructions[0].size - 1;
   let runEntry = entrySet.has(runStart);
   let runBasicStub = basicStubEntries.has(runStart);
+  let runRoots = new Set<number>([rootByStart.get(runStart) ?? runStart]);
+
+  const flush = (): void => {
+    candidates.push(makeCodeCandidate(runStart, runEnd, runEntry, runBasicStub, runRoots, entryByAddress));
+  };
 
   for (const instruction of instructions.slice(1)) {
     const instructionStart = instruction.address;
     const instructionEnd = instruction.address + instruction.size - 1;
     if (instructionStart <= runEnd + 1) {
       runEnd = Math.max(runEnd, instructionEnd);
+      const root = rootByStart.get(instructionStart);
+      if (root !== undefined) runRoots.add(root);
       continue;
     }
 
-    candidates.push(makeCodeCandidate(runStart, runEnd, runEntry, runBasicStub));
+    flush();
     runStart = instructionStart;
     runEnd = instructionEnd;
     runEntry = entrySet.has(runStart);
     runBasicStub = basicStubEntries.has(runStart);
+    runRoots = new Set<number>([rootByStart.get(runStart) ?? runStart]);
   }
 
-  candidates.push(makeCodeCandidate(runStart, runEnd, runEntry, runBasicStub));
+  flush();
   return candidates;
 }
 
-function makeCodeCandidate(start: number, end: number, entryPoint: boolean, basicStubEntry: boolean): SegmentCandidate {
+/**
+ * Spec 838 D3c — a run that only the graph reached must SAY which seed reached
+ * it. The reason line names the seed address and its origin, and
+ * `attributes.seededBy` carries the same thing structured, so a wrong promotion
+ * shows up as a named claim rather than as a plausible-looking listing.
+ */
+function makeCodeCandidate(
+  start: number,
+  end: number,
+  entryPoint: boolean,
+  basicStubEntry: boolean,
+  roots: Set<number>,
+  entryByAddress: Map<number, EntryPoint>,
+): SegmentCandidate {
   const kind = basicStubEntry ? "basic_stub" : "code";
+  const seeded = [...roots]
+    .sort((l, r) => l - r)
+    .map((address) => ({ address, entry: entryByAddress.get(address) }))
+    .filter((item): item is { address: number; entry: EntryPoint } => item.entry !== undefined);
+  const graphSeeds = seeded.filter((item) => item.entry.source === "graph");
+  const otherSeeds = seeded.filter((item) => item.entry.source !== "graph");
+  const seedLine = graphSeeds.length > 0
+    ? `${otherSeeds.length === 0 ? "Reached ONLY because the graph named a seed" : "Also reached from a graph seed"}: ${graphSeeds
+        .map((item) => `${formatAddress(item.address)} (${item.entry.seedOrigin ?? "graph"}) — ${item.entry.reason}`)
+        .join("; ")} [Spec 838 D3b]`
+    : undefined;
   return {
     analyzerId: "code",
     kind,
@@ -365,6 +505,7 @@ function makeCodeCandidate(start: number, end: number, entryPoint: boolean, basi
     score: {
       confidence: clampConfidence(kind === "basic_stub" ? 0.99 : 0.94),
       reasons: [
+        ...(seedLine ? [seedLine] : []),
         `Recursive traversal reached ${segmentLength(start, end)} bytes from a trusted entry point.`,
         `Control-flow edges remained valid within ${formatAddress(start)}-${formatAddress(end)}.`,
         basicStubEntry
@@ -374,6 +515,16 @@ function makeCodeCandidate(start: number, end: number, entryPoint: boolean, basi
             : "Region consists of reachable instructions rather than a naive linear opcode run.",
       ],
     },
+    attributes: seeded.length > 0
+      ? {
+          seededBy: seeded.map((item) => ({
+            address: item.address,
+            source: item.entry.source,
+            origin: item.entry.seedOrigin,
+            reason: item.entry.reason,
+          })),
+        }
+      : undefined,
   };
 }
 
