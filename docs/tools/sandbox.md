@@ -61,9 +61,60 @@ sandbox replaces them with byte-for-byte stream feeds.
 ## Returned data
 
 - final CPU state (PC / A / X / Y / SP / flags / cycle counter)
+- `writtenRuns` — every contiguous stretch the run STORED to, with its bytes
 - writes filtered by an optional `returnWritesRange`
-- a `writtenSpan` that flattens those writes into a contiguous byte buffer
-- optional memory snapshots of explicitly requested ranges
+- a `writtenSpan` bounding those runs, holes marked `null`
+- optional memory snapshots of explicitly requested ranges, un-written bytes
+  marked `null` (`observed` carries the raw window beside them)
+
+## Only what the run WROTE is payload (issue #17)
+
+A harvest is a slice of a whole machine, and most of a machine is not this
+routine's output. The sandbox used to hand back the slice and nothing else: the
+bytes the routine never stored came back as whatever was lying there — the
+power-on RAM pattern, KERNAL RAM-test leftovers, screen RAM, or the caller's own
+loaded bytes — and nothing marked them. A multi-block depacker writes DISJOINT
+runs, so the gaps between them were exactly where a reader picked up residue and
+read it as payload. That cost a reporter significant time on a three-disk game
+with a custom backward-LZ packer.
+
+This is Spec 832 D4 with different bytes: tolerant is not the same as inventing.
+An unreadable thing yields no bytes rather than plausible ones.
+
+**A gap is `null`.** Not a zero, not a mask a caller can forget to read, not the
+run list alone:
+
+- `null` is not a byte. `$00`–`$ff` is the whole domain of one, so nothing
+  downstream — a hex formatter, a comparison, a JSON consumer — can turn a hole
+  into a plausible value by accident. In TypeScript the field's type is
+  `(number | null)[]`, so the compiler makes every consumer in this repo say what
+  it does with a hole.
+- A parallel mask, or the run list on its own, leaves the byte array still
+  *looking* like data. Anyone who does not read the second channel ships residue,
+  which is the defect, not a fix for it.
+- The raw window is not lost — it survives as `observed` on each snapshot, and
+  the tool prints it only under `include_observed`. Reading residue stays
+  possible; it just cannot happen by accident.
+
+`writtenSpan` no longer gap-fills with zeroes (those zeroes were invented), and
+`output_path` writes **one PRG per run** — a PRG has no way to express a hole, so
+a gapped write set becomes several files rather than one file with fabricated
+bytes in the middle. A single contiguous run still writes one file at the exact
+path asked for. Past 64 runs it writes **nothing** and says so — a scattered
+routine's output is neither 200 fragments nor one span full of bytes it never
+stored, and `return_writes_start` / `return_writes_end` is how to ask for the
+part that is wanted.
+
+`sandbox_depack` returns one contiguous run as `unpacked` (it always did), and
+now also reports `writtenRuns` — every run the depacker wrote — plus
+`returnedRun`, so a multi-block depack says what it did not hand back instead of
+letting the caller widen the window and harvest the gaps.
+
+The runtime CLI's own harvest (`trx64cli sandbox --harvest`, sibling TRX64 repo)
+already reports the runs beside the window: `writtenRuns` in `--json`, `runs=[…]`
+in the text line. It is the C64RE side that was not passing that on.
+
+Gate: `npm run e2e:838-harvest`.
 
 ## Smoke test
 

@@ -188,6 +188,47 @@ async function rebuildVerification(args: {
   return summaryLine;
 }
 
+/**
+ * Spec 838 D3 — say at the tool surface what the analysis did about seeds. The
+ * reported bug (issue #16) is half a silent tool: `entry_points` addresses that
+ * did nothing, and a graph full of cross-overlay call sites that nobody fed to
+ * the disassembler. Both are now in the JSON; this puts them in the answer.
+ * Soft: a summary line never breaks the analysis.
+ */
+function describeCodeSeeds(analysisPath: string): string {
+  try {
+    if (!existsSync(analysisPath)) return "";
+    const report = JSON.parse(readFileSync(analysisPath, "utf8")) as {
+      codeSeedReport?: { status: string; owner: string; reason?: string; seeds?: Array<{ origin: string }> };
+      rejectedEntryPoints?: Array<{ address: number; reason: string }>;
+      strandedByDecodeConflict?: unknown[];
+    };
+    const lines: string[] = [];
+    const seeds = report.codeSeedReport;
+    if (seeds?.status === "ok" && (seeds.seeds?.length ?? 0) > 0) {
+      const byOrigin = new Map<string, number>();
+      for (const seed of seeds.seeds ?? []) byOrigin.set(seed.origin, (byOrigin.get(seed.origin) ?? 0) + 1);
+      lines.push(`Graph code seeds: ${seeds.seeds!.length} for owner "${seeds.owner}" — ${[...byOrigin].sort().map(([o, n]) => `${o}=${n}`).join(", ")}. Addresses only another overlay reaches are disassembled instead of rendered as .byte; the listing names which seed reached each region.`);
+    } else if (seeds && seeds.status !== "ok") {
+      lines.push(`Graph code seeds: none — ${seeds.reason ?? seeds.status}`);
+    }
+    const rejected = report.rejectedEntryPoints ?? [];
+    const refused = rejected.filter((r) => r.reason !== "already_code");
+    if (refused.length > 0) {
+      const byReason = new Map<string, number>();
+      for (const r of refused) byReason.set(r.reason, (byReason.get(r.reason) ?? 0) + 1);
+      lines.push(`Entry points NOT seeded: ${refused.length} (${[...byReason].sort().map(([r, n]) => `${r}=${n}`).join(", ")}) — see rejectedEntryPoints in the JSON. An entry_points list CONSTRAINS this scan; it does not simply add to it.`);
+    }
+    const stranded = report.strandedByDecodeConflict ?? [];
+    if (stranded.length > 0) {
+      lines.push(`Bytes stranded by a decode conflict: ${stranded.length} — two seeds decoded the same range at different alignments (strandedByDecodeConflict).`);
+    }
+    return lines.length > 0 ? `\n${lines.join("\n")}` : "";
+  } catch {
+    return "";
+  }
+}
+
 export function registerAnalysisWorkflowTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "analyze_prg",
@@ -196,7 +237,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from prg_path to knowledge/phase-plan.json."),
       prg_path: z.string().describe("Path to the .prg file (absolute or relative to project dir)"),
       output_json: z.string().optional().describe("Output path for the analysis JSON (default: next to PRG)"),
-      entry_points: z.array(z.string()).optional().describe("Hex entry point addresses, e.g. [\"0827\", \"3E07\"]"),
+      entry_points: z.array(z.string()).optional().describe("Hex entry point addresses, e.g. [\"0827\", \"3E07\"]. Usually unnecessary: when the project graph knows an address another overlay calls into, the scan seeds it by itself and reports what it used. A list does NOT simply add seeds — an address inside an instruction another seed already decoded cannot be honoured, and the analysis names the ones it refused (`rejectedEntryPoints`, also printed in the listing header)."),
     },
     safeHandler("analyze_prg", async ({ project_dir, prg_path, output_json, entry_points }) => {
       const pd = context.projectDir(project_dir ?? prg_path, true);
@@ -288,6 +329,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           }],
         });
         result.stdout = (result.stdout || "Analysis complete.") + `\nOutput: ${outAbs}\nKnowledge written to: ${resolve(pd, "knowledge")}`;
+        result.stdout += describeCodeSeeds(outAbs);
         if (knowledgeRegistration.outputArtifacts?.[0]) {
           try {
             const knowledgeService = new ProjectKnowledgeService(pd);

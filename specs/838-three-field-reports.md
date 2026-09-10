@@ -1,6 +1,9 @@
 # Spec 838 — Three field reports: a Windows path, a harvest that invents bytes, and code nobody reaches
 
-**Status:** PROPOSED 2026-09-10
+**Status:** BUILT 2026-09-10 — `e2e:838-paths` 165/0, `e2e:838-harvest` 63/0
+(11/0 without the runtime binary), `e2e:838-islands` 51/0, all three in
+`gates.yml`; every existing gate green. Three agents, one decision each; all
+three corrected this spec.
 **Origin:** Issues #15, #17 and #16, all from the same reporter, all reproducible.
 **Anchor:** Spec 832 D4 (tolerant is not the same as inventing) · Spec 827
 (a path policy is a library with a gate) · the `entry_points` finding —
@@ -31,6 +34,29 @@ This is Spec 827's rule one level down: a path policy is a library with a gate,
 not an expression inlined at a call site. The gate runs the same assertions on
 every platform, because the platform it targets is not the one it runs on.
 
+**D1 — BUILT 2026-09-10.** `src/lib/id-path.ts` is the library: pure policy
+(`safeSegment`, `deviceSafeName`, `isDosDeviceName`) plus the one mkdir
+(`ensureIdDirUnder` / `ensureIdDirIn`). A segment that is already safe passes
+through verbatim, so nothing an existing project holds is renamed; anything the
+policy had to change carries eight hex of the id's own hash, so two ids can no
+longer meet in one directory — including two that differ only in case, which is
+one directory on Windows. A directory written before this spec is READ WHERE IT
+IS: `idDirUnder` returns the pre-existing raw-id path when it finds one, so a
+project written on macOS keeps working and only new work is portable.
+
+Six sites went through it: the reported one
+(`src/lib/prg-workflow.ts` → `artifacts/generated/payloads/<entity id>`),
+`snapshots/<artifact id>` (`src/project-knowledge/service.ts`),
+`session/checkpoints/<id>.json` and `analysis/runs/<id>.json`
+(`src/project-knowledge/storage.ts`), `session/graphics-scan/<run_id>`
+(`src/server-tools/graphics-render.ts`) and `delta-<candidate id>`
+(`src/server-tools/runtime.ts`). `analysis/g64/<image>/track-N/` gets the narrow
+guard only (`deviceSafeName`): its stem comes from a file the host already
+accepted, so the one thing that has to change is the name Windows refuses
+outright — renaming the rest would move a directory every existing project has.
+Gate: `npm run e2e:838-paths`, 165 assertions, hermetic, same table on every
+platform.
+
 ## 2. D2 — a harvest may not invent bytes (#17)
 
 `sandbox_depack` / `--harvest` return a CONTIGUOUS RAM window with no signal
@@ -51,7 +77,54 @@ identifiable rather than implied. Nothing fills a gap with sandbox residue,
 ever. The reporter's option 2 (a doctrine note instead) is declined as the
 primary fix: a note does not stop the next person, and we have the data.
 
+**D2 BUILT 2026-09-10** — `e2e:838-harvest` 58/0 with the runtime binary, 11/0
+without it (the live half skips loudly). What a gap looks like, and why:
+
+**A gap is `null`, in the byte array itself** — not a mask, not the run list
+alone. `null` is not a byte: `$00`–`$ff` is the entire domain of one, so no hex
+formatter, comparison or JSON consumer can turn a hole into a plausible value by
+accident, and in TypeScript `(number | null)[]` makes the compiler ask every
+in-repo consumer what it does with one. A parallel mask or a run list beside an
+untouched byte array leaves the array still *looking* like data — anyone who does
+not read the second channel ships residue, which is the defect rather than a fix
+for it. The runs ARE reported as well (`writtenRuns`, with their bytes), as the
+summary a caller acts on; they are just never the only signal. The raw window
+survives as `observed` on each snapshot and prints only under `include_observed`,
+so reading residue stays possible but cannot happen by accident.
+
+Two things the spec did not name and the build had to decide:
+
+- **`writtenSpan` was already inventing, in the shape 832 D4 warned about.** It
+  gap-filled the holes between disjoint runs with **zero** — a plausible byte,
+  indistinguishable from a stored zero. The holes are `null` now.
+- **`output_path` cannot express a hole.** A PRG is a load address and a run of
+  bytes; there is no encoding for "never written". So a gapped write set is
+  written as **one file per run** (`<path>-$<lo>.<ext>`), never one file with
+  fabricated bytes in the middle. A single contiguous run still writes one file
+  at the exact path asked for; past 64 runs it writes nothing and says how to
+  narrow, because a scattered routine's output is neither 200 fragments nor one
+  span full of bytes it never stored.
+
+And one thing the spec got wrong: **the CLI half is not broken.** `trx64cli
+sandbox --harvest` (sibling TRX64 repo) already reports the runs beside the
+window — `writtenRuns` in `--json`, `runs=[$lo..$hi,…]` in the text line. What was
+missing was on the C64RE side, which had the runs in hand and did not pass them
+on: it flattened them into a span, gap-filled that span with zeroes, and handed a
+raw RAM slice back as `memorySnapshots[].bytes`. This branch is C64RE-only; no
+TRX64 change was needed.
+
+`sandbox_depack` never returned residue (`unpacked` was always one contiguous
+run) — its failure was silence: a multi-block depacker writes disjoint runs and
+the result named only the one it returned. It now reports `writtenRuns` +
+`returnedRun`, and the tool output names the runs it did not hand back.
+
 ## 3. D3 — code entered only from another overlay (#16)
+
+**D3 status: BUILT 2026-09-10** — gate `npm run e2e:838-islands`
+(`scripts/e2e-838-islands.mjs`, hermetic, 51 checks). The spec's own
+`**Status:**` line stays PROPOSED until D1 and D2 land; they are separate work.
+What was decided where the spec left a choice open is recorded at the end of
+this section.
 
 `disasm_prg` classifies a region as `unknown` and emits a `.byte` wall when its
 recursive traversal never REACHES it from a trusted entry inside the same PRG.
@@ -80,12 +153,127 @@ Do not turn this into a byte-shape heuristic. Spec 750 settled that: scanning
 for structure finds tables that are not there. The seeds come from the graph or
 from a human, or the region stays `unknown`.
 
+### 3.1 What was built, and what was decided
+
+**(a) TELL, not split.** An `entry_points` address inside an already-claimed
+extent is now recorded in `AnalysisReport.rejectedEntryPoints` with the reason
+and printed in the listing header. It is NOT seeded, for one reason: honouring
+it means decoding the same bytes twice at two alignments, and only one of the
+two can be emitted — the byte-identical rebuild (c) is the guarantee that would
+pay for the split, and the analyzer cannot tell which of the two decodes is
+right. So the conflict is stated instead: the covering instruction AND the seed
+it was decoded from are both named, and the human decides. The other refusals
+(`out_of_range`, `inside_basic`, `undecodable`, `owned_by_other`) are reported
+the same way; `already_code` is counted, not listed, because it cost nothing.
+The same conflict one level down — a byte no decode ends up owning because two
+seeds disagree — is reported as `strandedByDecodeConflict`. On Wasteland
+block2, 3 of the reporter's 190 entry points were being dropped in silence.
+
+**(b) Three seed sources, one subtraction.** `pipeline/src/analysis/graph-reader.ts`
+gains `loadCodeSeeds`, read-only over `knowledge/graph.sqlite`: a human-layer
+`routine` node of this owner (S1); a `CALLS` / `JUMPS_TO` edge from a DIFFERENT
+owner onto an ownerless `addr` node inside this image (S2); a Spec 826
+`RESOLVES_TO` alias pointing at a routine/label of this owner (S3). They enter
+as `EntryPoint`s with `source: "graph"`, appended AFTER the `prg_header`
+fallback decision so a seed can never displace what the image itself provides.
+The subtraction is the graph's own answer, not a guess: an S2 address whose
+`addr` node RESOLVES_TO a routine owned by somebody else is that overlay's
+code, and is refused with the reason. The space (`ram` / `drv`) is read from
+the owner's own rows, so drive code at $0700 is never seeded from C64 RAM.
+
+**Seeds ADD.** Two changes were needed to make that true rather than hoped for,
+both found by measurement, neither a byte-shape heuristic:
+
+  1. `probeIsland` treats "falls through onto a CONFIRMED instruction start" as
+     a structured ending. A probable-code island is searched inside an
+     UNCLAIMED region, so every byte a new seed confirms shortens the window the
+     island has to find its terminator in — the island then fails for lack of a
+     terminator and its bytes go to `.byte`. Measured on Wasteland block2: 70
+     bytes lost while 1574 were gained.
+  2. Spec 047's island demotion protected only a confirmed PREFIX. A segment
+     shaped confirmed / gap / confirmed lost its second confirmed run.
+     Measured on The Pawn's `engine_1000`: 195 bytes of recursively reached
+     code at $1054-$1116 demoted because 33 unconfirmed bytes sat in front of
+     it. Every confirmed run is now kept, wherever it sits.
+
+**(c) Named, and byte-identical.** A run a graph seed reached carries the seed
+address, its origin and its caller in the segment's reasons and in
+`attributes.seededBy`, and the renderer prints both that line and a seed ledger
+in the listing header. Measured on Neuromancer `chunk_4300`: `code` 1111 →
+8930 bytes, `unknown` 11242 → 3473, 0 bytes lost, rebuild byte-identical
+(12543 bytes). Across all 12 Neuromancer payloads: 0 bytes of `code` lost.
+
+**Not done, because it needs a guess.** A supplied entry point that lands inside
+an instruction is not honoured, and the handful of bytes stranded when two seeds
+disagree about alignment are not recovered. Both need somebody to decide which
+decode is right; the tool now says which two are in conflict and stops there.
+
 ## 4. Gates
 
 `e2e:838-paths`, `e2e:838-harvest`, `e2e:838-islands` — one per decision,
 hermetic, each asserting the RULE rather than the reported instance.
 
+`e2e:838-harvest` exists (`scripts/e2e-838-harvest.mjs`, wired in
+`package.json`). It runs a routine that writes two disjoint runs over a gap
+pre-filled with recognisable `$DE` residue, and asserts that the runs are
+reported, that the gap is never presented as payload, that `$DE` never comes back
+as data — window, span or file — and that a single contiguous write is still one
+run. It proves the residue was really there (via `observed`) so a green cannot
+come from a machine that merely happened to be zeroed. Its `gates.yml` row is
+still owed; the three D-branches each kept off that file to avoid colliding in it.
+
 ## 5. Acceptance
 
 Three gates green and in `gates.yml`; every existing gate green; the reporter's
 three cases fixed and, for D3, the rebuild still byte-identical.
+
+
+## 6. What the build corrected
+
+**D1 was six sites, not one, and two of them were an escape rather than a
+portability bug.** Spec 818's slug allows a single letter, so
+`c:ram/loader:routine:0801` is a LEGAL id that `path.win32.resolve` reads as a
+drive-relative path and follows out of the project; and `graphics-render.ts`
+took an LLM-supplied `run_id` straight into a path. The legacy lookup uses
+`join` plus a containment check, never `resolve`.
+
+Three more of my claims were wrong. The remaining payloads are **not** skipped —
+the chain catches per payload, so on Windows all eight fail; the reporter's
+"skipped" came from reading the summary line. The id also carries `/`, which on
+POSIX is a separator, not a reserved character, so a two-level directory is
+already being created silently today. And **a DOS device name cannot be fixed by
+a suffix**: Windows matches the component up to the first dot, so
+`com1.txt-1a2b3c4d` is still the device — the stem itself has to change, which
+is precisely the fix this spec implied would work.
+
+Existing projects are not orphaned: a pre-existing raw-id directory is still
+read and written where it is; only something with no directory yet gets the
+portable name.
+
+**D2's CLI half was never broken.** `trx64cli sandbox --harvest` already reports
+the runs beside the window; C64RE had them in hand and did not pass them on. And
+the defect was worse than the issue said: `writtenSpan` gap-filled between
+disjoint runs with **zero** — a plausible byte, indistinguishable from a stored
+one — which is 832 D4 exactly, in a second place nobody had looked. A gap is now
+an explicit `null`: `$00`–`$ff` is the whole domain of a byte, so no formatter
+or consumer can turn a hole into a value by accident, and the type makes the
+compiler ask every consumer what it does with one.
+
+**D3's honest answer to (a) is TELL, not split.** Honouring an entry point
+inside an instruction means decoding the same bytes at two alignments and
+emitting one; nothing in the analyzer can say which, and the byte-identical
+rebuild is the guarantee that would pay for the choice. So it is reported —
+naming the covering instruction and the seed — and refused. On the reporter's
+own project **3 of 190 entry points were being dropped in silence.**
+
+Making "seeds ADD, never replace" TRUE rather than hoped-for needed two measured
+leaks closed: the island probe now accepts a fall-through onto a confirmed
+instruction as a structured ending (a seed shortens the window an island has to
+terminate in), and Spec 047's demotion protected only a confirmed prefix — 195
+bytes of reached code in The Pawn were being demoted because 33 unconfirmed
+bytes sat in front of them.
+
+Measured, read-only: Neuromancer `chunk_4300` **1 111 → 8 930 code bytes** with
+a byte-identical rebuild; twelve payloads +11 295 bytes total; Wasteland
+`block2` +2 405 with 8 bytes lost, each named as an alignment conflict. With no
+graph present the output is byte-for-byte what it was.

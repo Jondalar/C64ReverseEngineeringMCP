@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import { idFileUnder } from "../lib/id-path.js";
 import {
   ArtifactStoreSchema,
   type ArtifactRecord,
@@ -558,7 +559,10 @@ export class ProjectKnowledgeStorage {
 
   saveCheckpoint(checkpoint: ProjectCheckpoint): ProjectCheckpoint {
     const parsed = ProjectCheckpointSchema.parse(checkpoint);
-    writeJsonAtomically(join(this.paths.sessionCheckpoints, `${parsed.id}.json`), parsed as unknown as JsonValue);
+    // Spec 838 D1 — a record id is not a file name. `createCheckpoint` mints
+    // one that passes through verbatim; `input.id` is caller-supplied and need
+    // not. A file written before Spec 838 keeps being written where it is.
+    writeJsonAtomically(idFileUnder(this.paths.sessionCheckpoints, parsed.id, ".json").absolute, parsed as unknown as JsonValue);
     return parsed;
   }
 
@@ -592,7 +596,7 @@ export class ProjectKnowledgeStorage {
 
   saveToolRun(record: ToolRunRecord): string {
     const parsed = ToolRunRecordSchema.parse(record);
-    const runPath = join(this.paths.analysisRuns, `${parsed.id}.json`);
+    const runPath = idFileUnder(this.paths.analysisRuns, parsed.id, ".json").absolute;
     writeJsonAtomically(runPath, parsed as unknown as JsonValue);
     writeJsonAtomically(join(this.paths.analysisLatest, `${parsed.toolName}.json`), parsed as unknown as JsonValue);
     return runPath;

@@ -8,6 +8,17 @@ interface DiscoverProbableCodeOptions {
   mapping: MemoryMapping;
   candidateRegions: Array<{ start: number; end: number }>;
   confirmedCodeCandidates: SegmentCandidate[];
+  /**
+   * Spec 838 D3 — every address recursive descent decoded an instruction AT.
+   * The islands below are probed inside UNCLAIMED regions, so every byte the
+   * confirmed scan claims shortens the window an island has to find its
+   * terminator in. Without this set, adding one seed can turn a whole island
+   * into `.byte` (measured: 70 bytes lost on Wasteland block2 while 1574 were
+   * gained). An island whose fallthrough lands exactly on a confirmed
+   * instruction start has not "run out of room": it flows into proven code, and
+   * that is control flow, not byte shape.
+   */
+  confirmedInstructionStarts?: Set<number>;
 }
 
 interface IslandProbe {
@@ -127,6 +138,7 @@ function probeIsland(
   mapping: MemoryMapping,
   regionEnd: number,
   support: ReferenceSupport,
+  confirmedStarts?: Set<number>,
 ): IslandProbe | undefined {
   const instructions: InstructionFact[] = [];
   const xrefs: CrossReference[] = [];
@@ -225,7 +237,18 @@ function probeIsland(
   }
 
   const last = instructions[instructions.length - 1];
-  const hasStructuredEnding = last.mnemonic === "rts" || last.mnemonic === "rti" || last.mnemonic === "jmp";
+  // Spec 838 D3 — an island whose fallthrough is a CONFIRMED instruction start
+  // ends in proven code. That is as structured an ending as an `rts`: the run
+  // continues into a region recursive descent already walked. Only counted when
+  // the island stayed inside its own region (its last byte is at or before
+  // regionEnd), so this never claims a byte the confirmed scan owns.
+  const fallsIntoConfirmedCode =
+    confirmedStarts !== undefined &&
+    last.fallthroughAddress !== undefined &&
+    last.address + last.size - 1 <= regionEnd &&
+    confirmedStarts.has(last.fallthroughAddress);
+  const hasStructuredEnding =
+    last.mnemonic === "rts" || last.mnemonic === "rti" || last.mnemonic === "jmp" || fallsIntoConfirmedCode;
   if (!hasStructuredEnding) {
     return undefined;
   }
@@ -288,7 +311,9 @@ function probeIsland(
   }
 
   const reasons = [
-    `Linear probe decoded ${instructions.length} consecutive instructions before a structured terminator.`,
+    fallsIntoConfirmedCode
+      ? `Linear probe decoded ${instructions.length} consecutive instructions and fell through into confirmed code at ${formatAddress(last.fallthroughAddress!)} (Spec 838 D3 — the island did not run out of room, it ran into proven code).`
+      : `Linear probe decoded ${instructions.length} consecutive instructions before a structured terminator.`,
     `${controlFlowCount} control-flow instruction(s) were observed inside the island.`,
     usefulStoreCount >= 2
       ? `${usefulStoreCount} store instruction(s) suggest stateful routine behavior rather than passive data.`
@@ -407,7 +432,7 @@ export function discoverProbableCode(options: DiscoverProbableCodeOptions): Prob
         branchRefs: branchRefs.get(address) ?? 0,
         wordRefs: wordRefs.get(address) ?? 0,
         vectorRefs: vectorRefs.get(address) ?? 0,
-      });
+      }, options.confirmedInstructionStarts);
       if (!probe) {
         continue;
       }

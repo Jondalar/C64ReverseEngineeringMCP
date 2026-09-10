@@ -178,6 +178,18 @@ jobs:
       - name: A machine of your own (Spec 836 D3)
         run: npm run e2e:836-sandbox
 
+      # Spec 838 — three field reports, three gates, all hermetic. The paths
+      # gate runs its Windows assertions on every platform on purpose: the
+      # platform it targets is not the platform it runs on.
+      - name: An id is not a path (Spec 838 D1)
+        run: npm run e2e:838-paths
+
+      - name: A harvest may not invent bytes (Spec 838 D2)
+        run: npm run e2e:838-harvest
+
+      - name: Code entered from another overlay (Spec 838 D3)
+        run: npm run e2e:838-islands
+
       # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
       # synthetic PRG with the bundled pipeline and seeds a temp project, and
       # the explorer gate reads the built bundle plus the two pure lib files.

@@ -100,8 +100,18 @@ test("multi-range snapshot — two returnMemoryRanges → two snapshots", () => 
   });
   assert.equal(r.stopReason, "sentinel_rts");
   assert.equal(r.memorySnapshots.length, 2, "two snapshots");
-  assert.deepEqual(r.memorySnapshots[0], { start: 0x0430, end: 0x0430, bytes: [0xaa] });
-  assert.deepEqual(r.memorySnapshots[1], { start: 0x0440, end: 0x0440, bytes: [0xbb] });
+  // Issue #17 — a snapshot now carries the written-only view (`bytes`, holes as
+  // null) beside the raw window (`observed`), so compare the fields, not the
+  // whole object. Both of these ranges were written, so neither has a hole.
+  assert.deepEqual(
+    { start: r.memorySnapshots[0]!.start, end: r.memorySnapshots[0]!.end, bytes: r.memorySnapshots[0]!.bytes },
+    { start: 0x0430, end: 0x0430, bytes: [0xaa] },
+  );
+  assert.deepEqual(
+    { start: r.memorySnapshots[1]!.start, end: r.memorySnapshots[1]!.end, bytes: r.memorySnapshots[1]!.bytes },
+    { start: 0x0440, end: 0x0440, bytes: [0xbb] },
+  );
+  assert.equal(r.memorySnapshots[0]!.unwritten, 0, "nothing un-written in a fully-stored window");
   // Two distinct write runs.
   assert.equal(r.writes.length, 2, "two distinct written addresses");
 });

@@ -19,6 +19,9 @@ export class ProbableCodeAnalyzer {
       mapping: context.mapping,
       candidateRegions: context.candidateRegions,
       confirmedCodeCandidates: context.discoveredCode.codeCandidates,
+      // Spec 838 D3 — so an island that flows into confirmed code is not lost
+      // just because a new seed shortened its unclaimed region.
+      confirmedInstructionStarts: new Set(context.discoveredCode.instructions.map((instruction) => instruction.address)),
     });
 
     context.probableCode = analysis;
