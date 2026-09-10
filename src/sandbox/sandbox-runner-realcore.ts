@@ -18,6 +18,13 @@
 //   * A single full-RAM harvest ($0000:0x10000); memory snapshots and the
 //     output PRG span are sliced from it locally (deterministic run).
 //
+// Issue #17 — the harvest is authoritative about what the run WROTE. The full
+// 64K slice above is a snapshot of a whole machine, most of which this routine
+// never touched; the write set says which of it is output. `writtenRuns` carries
+// the runs and their bytes, `memorySnapshots[].bytes` holes out everything the
+// run did not store, and `writtenSpan` no longer gap-fills with zeroes. See
+// sandbox-types.ts for the reasoning.
+//
 // Documented divergences from the shadow (inherent to the real-core write-map):
 //   * `writes` is the real core's DISTINCT-address write set (>$01ff), not the
 //     shadow's temporal event list — so `Writes returned: N` counts distinct
@@ -38,11 +45,13 @@ import { join } from "node:path";
 import type {
   CpuWrite,
   LoadMapping,
+  MemoryWindow,
   SandboxCpuState,
   SandboxLoad,
   SandboxRunOptions,
   SandboxRunResult,
   StopReason,
+  WrittenRun,
 } from "./sandbox-types.js";
 import { hexToBytes, hx2, hx4, resolveTrx64Cli, runTrx64Sandbox } from "./trx64cli.js";
 
@@ -152,43 +161,66 @@ export function runSandboxRealCore(options: SandboxRunOptions): SandboxRunResult
     // Full 64K RAM as written (raw slice, banking ignored).
     const ram = hexToBytes(j.harvest.hex);
 
+    // The run's FULL write set as a per-address mask — one byte per address is
+    // cheap (64 KiB) and it is what makes a gap answerable for any window the
+    // caller asks about. Deliberately NOT narrowed by returnWritesRange:
+    // "did the CPU store here" is a fact about the run, not about the filter.
+    const wrote = new Uint8Array(0x10000);
+    for (const { lo, hi } of j.writtenRuns) {
+      for (let a = lo; a <= hi; a++) wrote[a] = 1;
+    }
+
     // Reconstruct the shadow's write-derived fields from the real core's
     // write-map (contiguous runs of distinct written addresses >$01ff), clipped
     // to returnWritesRange when the caller set one.
     const range = options.returnWritesRange;
     const writes: CpuWrite[] = [];
     const writtenMap: Record<number, number> = {};
+    const writtenRuns: WrittenRun[] = [];
     for (const { lo, hi } of j.writtenRuns) {
       const a0 = range ? Math.max(lo, range.start) : lo;
       const a1 = range ? Math.min(hi, range.end) : hi;
+      if (a1 < a0) continue; // the clip removed this run entirely
+      const runBytes: number[] = [];
       for (let a = a0; a <= a1; a++) {
         const value = ram[a] ?? 0;
         writes.push({ address: a, value });
         writtenMap[a] = value;
+        runBytes.push(value);
       }
+      writtenRuns.push({ lo: a0, hi: a1, bytes: runBytes });
     }
 
-    // writtenSpan: min..max of the written addresses, gap-filled with 0 exactly
-    // like the shadow (sandbox-runner.ts:166-176).
+    // writtenSpan: min..max of the written addresses. The shadow gap-filled the
+    // holes with 0 (sandbox-runner.ts:166-176) — 0 is a plausible byte and the
+    // caller could not tell it from a stored zero, so the holes are now `null`.
+    // The span is a convenience; `writtenRuns` is the answer.
     let writtenSpan: SandboxRunResult["writtenSpan"] = null;
     const addrs = Object.keys(writtenMap).map(Number).sort((a, b) => a - b);
     if (addrs.length > 0) {
       const start = addrs[0]!;
       const end = addrs[addrs.length - 1]!;
-      const bytes: number[] = new Array(end - start + 1).fill(0);
+      const bytes: (number | null)[] = new Array(end - start + 1).fill(null);
       for (const [addrStr, value] of Object.entries(writtenMap)) {
         bytes[Number(addrStr) - start] = value;
       }
       writtenSpan = { start, end, bytes };
     }
 
-    // Memory snapshots: final RAM slices of the requested ranges (matches the
-    // shadow's Array.from(mem.subarray(start, end+1))).
-    const memorySnapshots = (options.returnMemoryRanges ?? []).map((r) => ({
-      start: r.start,
-      end: r.end,
-      bytes: Array.from(ram.subarray(r.start, r.end + 1)),
-    }));
+    // Memory snapshots. The raw RAM slice survives as `observed` — a caller who
+    // wants the machine's window (e.g. to read back bytes it LOADED) still has
+    // it, by name. `bytes` is the written-only view: a hole where this run never
+    // stored, so residue can never arrive as payload through the default field.
+    const memorySnapshots: MemoryWindow[] = (options.returnMemoryRanges ?? []).map((r) => {
+      const observed = Array.from(ram.subarray(r.start, r.end + 1));
+      let unwritten = 0;
+      const bytes = observed.map((value, i) => {
+        if (wrote[r.start + i]) return value;
+        unwritten += 1;
+        return null;
+      });
+      return { start: r.start, end: r.end, bytes, observed, unwritten };
+    });
 
     const finalState: SandboxCpuState = {
       pc: j.pc & 0xffff,
@@ -206,6 +238,7 @@ export function runSandboxRealCore(options: SandboxRunOptions): SandboxRunResult
       finalState,
       writes,
       writtenMap,
+      writtenRuns,
       writtenSpan,
       memorySnapshots,
       streamPos: j.streamPos,

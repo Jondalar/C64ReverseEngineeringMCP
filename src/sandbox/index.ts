@@ -2,6 +2,8 @@ export { runSandboxRealCore } from "./sandbox-runner-realcore.js";
 export type {
   SandboxCpuState,
   CpuWrite,
+  WrittenRun,
+  MemoryWindow,
   StopReason,
   LoadMapping,
   SandboxLoad,

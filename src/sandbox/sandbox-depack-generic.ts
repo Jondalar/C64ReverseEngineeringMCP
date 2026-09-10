@@ -14,6 +14,14 @@
 // overrides). The tool contract (`sandbox_depack` input schema + output
 // prose) is unchanged.
 //
+// Issue #17: the result is authoritative about what the depacker WROTE.
+// `unpacked` has always been one CONTIGUOUS run of stores (the run at
+// `dest_address`, or the largest one) — so it never contained residue. What it
+// did not say was that there were OTHER runs: a multi-block depacker writes
+// disjoint runs, and a caller who then harvested a window spanning them got the
+// machine's own bytes in the holes with nothing marking them. `writtenRuns` now
+// names every run, and `returnedRun` says which one came back.
+//
 // A missing `trx64cli` is an actionable error, not a silent drop back onto a
 // TS shadow (single-path doctrine). Spec 788 tail piece C (2026-07-15) deleted
 // the flat-64K TS `Cpu6502` shadow and the `genericSandboxDepackTs` migration
@@ -79,6 +87,17 @@ export interface SandboxDepackResult {
   entryPc: number;
   // Diagnostic: every write into the dest range, in temporal order.
   writes: Array<{ address: number; value: number }>;
+  // Issue #17 — EVERY contiguous run the depacker stored to, in address order,
+  // not just the one returned as `unpacked`. A multi-block depacker writes
+  // DISJOINT runs; the old result showed one of them and said nothing about the
+  // rest, so a caller who sliced a wider window got machine residue between them
+  // and could not tell. Deliberately NOT clipped by captureRange: the capture
+  // window steers which run is RETURNED, it does not make the other runs stop
+  // existing.
+  writtenRuns: Array<{ lo: number; hi: number; len: number }>;
+  // Which of `writtenRuns` `unpacked` is. Always one of them, never a span
+  // across a gap.
+  returnedRun: { lo: number; hi: number };
 }
 
 export class GenericSandboxDepackError extends Error {}
@@ -241,7 +260,21 @@ function interpretDepackRun(
   // unpacked dest bytes rather than raw store events.
   const writes = Array.from(unpacked, (value, i) => ({ address: (dest + i) & 0xffff, value }));
 
-  return { unpacked, destAddress: dest, steps: j.steps, stopReason: j.stopReason, entryPc: opts.entryPc, writes };
+  // Issue #17 — every run the depacker wrote, so the caller can SEE that a
+  // multi-block depack produced more than the one run returned here, and where
+  // the holes between them are. Unclipped by captureRange on purpose.
+  const writtenRuns = j.writtenRuns.map(({ lo, hi }) => ({ lo, hi, len: hi - lo + 1 }));
+
+  return {
+    unpacked,
+    destAddress: dest,
+    steps: j.steps,
+    stopReason: j.stopReason,
+    entryPc: opts.entryPc,
+    writes,
+    writtenRuns,
+    returnedRun: { lo: dest, hi: dest + len - 1 },
+  };
 }
 
 /**
