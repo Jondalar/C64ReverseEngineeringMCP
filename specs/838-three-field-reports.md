@@ -74,6 +74,47 @@ identifiable rather than implied. Nothing fills a gap with sandbox residue,
 ever. The reporter's option 2 (a doctrine note instead) is declined as the
 primary fix: a note does not stop the next person, and we have the data.
 
+**D2 BUILT 2026-09-10** — `e2e:838-harvest` 58/0 with the runtime binary, 11/0
+without it (the live half skips loudly). What a gap looks like, and why:
+
+**A gap is `null`, in the byte array itself** — not a mask, not the run list
+alone. `null` is not a byte: `$00`–`$ff` is the entire domain of one, so no hex
+formatter, comparison or JSON consumer can turn a hole into a plausible value by
+accident, and in TypeScript `(number | null)[]` makes the compiler ask every
+in-repo consumer what it does with one. A parallel mask or a run list beside an
+untouched byte array leaves the array still *looking* like data — anyone who does
+not read the second channel ships residue, which is the defect rather than a fix
+for it. The runs ARE reported as well (`writtenRuns`, with their bytes), as the
+summary a caller acts on; they are just never the only signal. The raw window
+survives as `observed` on each snapshot and prints only under `include_observed`,
+so reading residue stays possible but cannot happen by accident.
+
+Two things the spec did not name and the build had to decide:
+
+- **`writtenSpan` was already inventing, in the shape 832 D4 warned about.** It
+  gap-filled the holes between disjoint runs with **zero** — a plausible byte,
+  indistinguishable from a stored zero. The holes are `null` now.
+- **`output_path` cannot express a hole.** A PRG is a load address and a run of
+  bytes; there is no encoding for "never written". So a gapped write set is
+  written as **one file per run** (`<path>-$<lo>.<ext>`), never one file with
+  fabricated bytes in the middle. A single contiguous run still writes one file
+  at the exact path asked for; past 64 runs it writes nothing and says how to
+  narrow, because a scattered routine's output is neither 200 fragments nor one
+  span full of bytes it never stored.
+
+And one thing the spec got wrong: **the CLI half is not broken.** `trx64cli
+sandbox --harvest` (sibling TRX64 repo) already reports the runs beside the
+window — `writtenRuns` in `--json`, `runs=[$lo..$hi,…]` in the text line. What was
+missing was on the C64RE side, which had the runs in hand and did not pass them
+on: it flattened them into a span, gap-filled that span with zeroes, and handed a
+raw RAM slice back as `memorySnapshots[].bytes`. This branch is C64RE-only; no
+TRX64 change was needed.
+
+`sandbox_depack` never returned residue (`unpacked` was always one contiguous
+run) — its failure was silence: a multi-block depacker writes disjoint runs and
+the result named only the one it returned. It now reports `writtenRuns` +
+`returnedRun`, and the tool output names the runs it did not hand back.
+
 ## 3. D3 — code entered only from another overlay (#16)
 
 `disasm_prg` classifies a region as `unknown` and emits a `.byte` wall when its
@@ -107,6 +148,15 @@ from a human, or the region stays `unknown`.
 
 `e2e:838-paths`, `e2e:838-harvest`, `e2e:838-islands` — one per decision,
 hermetic, each asserting the RULE rather than the reported instance.
+
+`e2e:838-harvest` exists (`scripts/e2e-838-harvest.mjs`, wired in
+`package.json`). It runs a routine that writes two disjoint runs over a gap
+pre-filled with recognisable `$DE` residue, and asserts that the runs are
+reported, that the gap is never presented as payload, that `$DE` never comes back
+as data — window, span or file — and that a single contiguous write is still one
+run. It proves the residue was really there (via `observed`) so a green cannot
+come from a machine that merely happened to be zeroed. Its `gates.yml` row is
+still owed; the three D-branches each kept off that file to avoid colliding in it.
 
 ## 5. Acceptance
 

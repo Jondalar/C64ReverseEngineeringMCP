@@ -117,6 +117,7 @@
     "e2e:836-attach": "npm run build:mcp && node scripts/gen-tool-surface-inventory.mjs >/dev/null && node scripts/e2e-836-attach.mjs",
     "e2e:836-sandbox": "npm run build:mcp && node scripts/gen-tool-surface-inventory.mjs >/dev/null && node scripts/e2e-836-sandbox.mjs",
     "e2e:838-paths": "npm run build:mcp && node scripts/e2e-838-paths.mjs",
+    "e2e:838-harvest": "npm run build:mcp && node scripts/e2e-838-harvest.mjs",
     "e2e:829": "npm run build && node scripts/e2e-829-basic-v2.mjs",
     "smoke:bug015": "npm run build:mcp && node scripts/smoke-bug015-init-media-sort.mjs",
     "smoke:bug013": "npm run build:mcp && node scripts/smoke-bug013-drive-picker-project-only.mjs",

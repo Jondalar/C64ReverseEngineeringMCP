@@ -27,7 +27,7 @@ function textContent(text: string) {
 export function registerSandboxDepackTool(server: McpServer, ctx: ServerToolContext): void {
   server.tool(
     "sandbox_depack",
-    "Run a game's OWN 6502 depacker/decryptor over packed bytes and get the plaintext back — the sandbox CPU executes the resident routine against ANY packed blob, no MCP code change per variant. Use when a payload is self-decrypting (XOR / RLE / custom crypto) so disasm_prg sees real code: point it at the resident loader, the depack entry_pc, and the zeropage source-pointer convention (default $52/$53). It runs to sentinel RTS / stop_pc / max_steps; the contiguous run of writes at dest_address (or the largest contiguous run) is returned as the unpacked bytes. Not for a standard packer (use try_depack / suggest_depacker); not for running arbitrary code (use sandbox_6502_run).",
+    "Run a game's OWN 6502 depacker/decryptor over packed bytes and get the plaintext back — the sandbox CPU executes the resident routine against ANY packed blob, no MCP code change per variant. Use when a payload is self-decrypting (XOR / RLE / custom crypto) so disasm_prg sees real code: point it at the resident loader, the depack entry_pc, and the zeropage source-pointer convention (default $52/$53). It runs to sentinel RTS / stop_pc / max_steps; the contiguous run of writes at dest_address (or the largest contiguous run) is returned as the unpacked bytes. Only bytes the depacker actually STORED are ever written out — a multi-block depacker leaves DISJOINT runs, and the output names every run it wrote so you can see what this call did not return and re-run for the rest. A harvest taken before that rule existed may have carried sandbox residue in the holes between runs with nothing marking it, so re-run anything you kept from one. Not for a standard packer (use try_depack / suggest_depacker); not for running arbitrary code (use sandbox_6502_run).",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from input_path to knowledge/phase-plan.json."),
       input_path: z.string().describe("Path to the packed source bytes (chip dump, disk file, raw blob)."),
@@ -169,6 +169,22 @@ export function registerSandboxDepackTool(server: McpServer, ctx: ServerToolCont
           `  ${label} → ${outPath} · dest $${result.destAddress.toString(16)} · ` +
             `unpacked ${result.unpacked.length} · ${result.steps} steps, stop=${result.stopReason}`,
         );
+        // Issue #17 — a multi-block depacker writes DISJOINT runs and only one
+        // of them is in the file above. Say which ones are missing instead of
+        // letting the caller widen the window and harvest residue into the gaps.
+        const others = result.writtenRuns.filter(
+          (r) => !(r.lo === result.returnedRun.lo && r.hi === result.returnedRun.hi),
+        );
+        if (others.length > 0) {
+          const shown = others.slice(0, 8).map((r) => `$${r.lo.toString(16)}-$${r.hi.toString(16)} (${r.len})`);
+          const rest = others.length - shown.length;
+          lines.push(
+            `      NOT in that file — ${others.length} further written run(s): ${shown.join(", ")}` +
+              `${rest > 0 ? `, … +${rest} more` : ""}. The addresses between the runs were never ` +
+              `written by this depacker; harvesting across them returns sandbox residue, not payload. ` +
+              `Re-run with dest_address set to a run's start to get it.`,
+          );
+        }
       }
 
       const failed = outcomes.length - okCount;
