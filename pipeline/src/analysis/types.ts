@@ -44,7 +44,11 @@ export type ReferenceType =
   | "read"
   | "write";
 
-export type EntryPointSource = "prg_header" | "basic_sys" | "user" | "vector" | "heuristic";
+// Spec 838 D3b — `graph` is an address the project graph already knows is code:
+// a human `routine` node, a CALLS/JUMPS_TO edge from ANOTHER owner, or a Spec
+// 826 RESOLVES_TO target. It is an entry point like any other, kept as its own
+// source so the listing can name where the seed came from.
+export type EntryPointSource = "prg_header" | "basic_sys" | "user" | "vector" | "heuristic" | "graph";
 
 export type CandidateRegionSource = "whole_image" | "unclaimed" | "code_gap" | "user";
 
@@ -114,6 +118,44 @@ export interface EntryPoint {
   source: EntryPointSource;
   reason: string;
   symbol?: string;
+  /** Spec 838 D3b — the graph row this seed came from (`source === "graph"` only). */
+  seedOrigin?: CodeSeedOrigin;
+}
+
+/** Spec 838 D3b — where a `graph` entry point came from. */
+export type CodeSeedOrigin =
+  /** a human-layer `routine` node this owner has at the address */
+  | "human_routine"
+  /** a CALLS edge from a DIFFERENT owner onto an ownerless `addr` node in this image */
+  | "cross_owner_call"
+  /** a JUMPS_TO edge from a DIFFERENT owner (jump table, rts-dispatch — Spec 826 D5) */
+  | "cross_owner_jump"
+  /** a Spec 826.0 RESOLVES_TO alias that points at a routine/label of THIS owner */
+  | "resolved_alias";
+
+/**
+ * Spec 838 D3a — an entry point the scan did NOT seed, and why. The reported
+ * symptom was that these vanish: an address inside an already-claimed extent is
+ * dropped by the descent loop without a word, so the caller cannot tell a
+ * redundant entry from one that was refused.
+ */
+export interface EntryPointRejection {
+  address: number;
+  source: EntryPointSource | "graph";
+  reason:
+    /** outside [startAddress, endAddress] of this image */
+    | "out_of_range"
+    /** already an instruction START reached from another seed — nothing was lost */
+    | "already_code"
+    /** lands strictly INSIDE an instruction another seed already decoded */
+    | "inside_instruction"
+    /** inside the tokenized BASIC program (Spec 829 D4.1) */
+    | "inside_basic"
+    /** the byte at the address is not a decodable opcode */
+    | "undecodable"
+    /** a graph seed the graph itself assigns to a different owner (Spec 826 RESOLVES_TO) */
+    | "owned_by_other";
+  detail: string;
 }
 
 export interface MemoryMapping {
@@ -185,6 +227,16 @@ export interface CodeAnalysis {
   xrefs: CrossReference[];
   codeCandidates: SegmentCandidate[];
   unclaimedRegions: CandidateRegion[];
+  /** Spec 838 D3a — every entry point the descent refused, with the reason. */
+  rejectedEntryPoints?: EntryPointRejection[];
+  /**
+   * Spec 838 D3a — bytes no decode owns because two seeds disagreed about the
+   * instruction alignment: `address` is where a walk stopped, `blockedBy` the
+   * instruction that already held the bytes, `blockerSeed` the seed it came from.
+   */
+  strandedByDecodeConflict?: Array<{ address: number; blockedBy: number; blockerSeed: number }>;
+  /** Spec 838 D3c — instruction start → the seed address its walk descended from. */
+  seedRoots?: Array<{ address: number; root: number }>;
 }
 
 export interface ProbableCodeAnalysis {
@@ -467,6 +519,22 @@ export interface AnalysisReport {
   stats: AnalysisStats;
   packerHints?: PackerHint[];
   relocationProposals?: RelocationProposal[];
+  /** Spec 838 D3a — entry points (user OR graph) the scan refused, and why. */
+  rejectedEntryPoints?: EntryPointRejection[];
+  /** Spec 838 D3a — bytes stranded because two seeds decoded the same range differently. */
+  strandedByDecodeConflict?: Array<{ address: number; blockedBy: number; blockerSeed: number }>;
+  /** Spec 838 D3b — what the graph contributed, and where it could not be read. */
+  codeSeedReport?: CodeSeedReport;
+}
+
+/** Spec 838 D3b — the graph-seed pass, always stated: what it read, or why it did not. */
+export interface CodeSeedReport {
+  status: "ok" | "absent" | "disabled";
+  owner: string;
+  path?: string;
+  /** why nothing was read (`absent`/`disabled`); undefined on `ok`. */
+  reason?: string;
+  seeds: Array<{ address: number; origin: CodeSeedOrigin; detail: string }>;
 }
 
 export interface AnalysisOptions {
@@ -474,6 +542,10 @@ export interface AnalysisOptions {
   // Spec 047: when true, code-island demote uses 0.45 threshold
   // (more aggressive). Default false → conservative 0.3.
   demoteAggressive?: boolean;
+  /** Spec 838 D3b — project directory holding knowledge/graph.sqlite; defaults to C64RE_PROJECT_DIR. */
+  projectDir?: string;
+  /** Spec 838 D3b — set to skip the graph-seed pass entirely (measurement / A-B). */
+  noGraphSeeds?: boolean;
 }
 
 export interface SegmentAnalyzer {

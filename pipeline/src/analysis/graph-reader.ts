@@ -118,3 +118,145 @@ export function loadAccessEdges(options: { projectDir?: string; owner: string })
     db.close();
   }
 }
+
+// ---------------------------------------------------------------------------
+// Spec 838 D3b — code seeds from the graph.
+//
+// The defect (issue #16): recursive descent only reaches what is called from
+// INSIDE this image, so resident code entered from a different overlay renders
+// as a `.byte` wall. The graph has crossed that boundary since Spec 826 — it
+// holds the other overlay's `jsr $4315` as a CALLS edge onto the ownerless
+// `addr` node for $4315. This reader hands those addresses to the descent.
+//
+// Three sources, never a byte-shape guess (Spec 750):
+//   S1 human_routine     a human-layer `routine` node THIS owner has in range
+//   S2 cross_owner_call  CALLS / JUMPS_TO from a DIFFERENT owner onto an
+//      cross_owner_jump  ownerless `addr` node inside this image
+//   S3 resolved_alias    a Spec 826.0 RESOLVES_TO alias pointing at a
+//                        routine/label of THIS owner
+//
+// And ONE subtraction, which is the graph's own answer rather than a guess: an
+// S2 address whose `addr` node RESOLVES_TO a routine/label owned by SOMEBODY
+// ELSE belongs to that overlay, not to this one. It is reported, not dropped.
+
+export type CodeSeedOrigin = "human_routine" | "cross_owner_call" | "cross_owner_jump" | "resolved_alias";
+
+export interface CodeSeed {
+  address: number;
+  origin: CodeSeedOrigin;
+  /** human-readable provenance, e.g. `CALLS from owner "chunk_7400" (3 call sites)` */
+  detail: string;
+}
+
+export type CodeSeedLookup =
+  | { status: "ok"; path: string; owner: string; space: string; seeds: CodeSeed[]; skipped: Array<{ address: number; detail: string }> }
+  | { status: "absent"; owner: string; path?: string; reason: string };
+
+/** The ctx space (`ram` | `drv` | `crt`) an id names — `wl:ram/eng:routine:1234` → `ram`. */
+function ctxSpaceOfId(id: string): string | undefined {
+  const parts = id.split(":");
+  if (parts.length !== 4) return undefined;
+  return (parts[1] ?? "").split("/")[0];
+}
+
+/**
+ * Addresses the graph already knows are code inside [`lo`,`hi`] for one owner.
+ * Read-only; an absent or unseeded graph is a NAMED reason, never a silent zero
+ * (doctrine rule 1) — the caller prints it into the listing.
+ */
+export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo: number; hi: number }): CodeSeedLookup {
+  const owner = options.owner.toLowerCase();
+  const { lo, hi } = options;
+  const { path } = resolveGraphPath(options.projectDir);
+  if (!existsSync(path)) return { status: "absent", owner, path, reason: `no ${path} — nothing has been seeded (c64re graph seed)` };
+  const { DatabaseSync } = quietSqlite();
+  const db = new DatabaseSync(path, { readOnly: true });
+  try {
+    // The space this owner lives in comes from the owner's own rows, so drive
+    // code at $0700 is never seeded from a C64-RAM $0700 and vice versa.
+    const mine = db.prepare("SELECT id FROM nodes WHERE owner = ? ORDER BY id LIMIT 1").all(owner) as Array<{ id: string }>;
+    if (mine.length === 0) {
+      const owners = (db.prepare("SELECT DISTINCT owner FROM nodes WHERE owner IS NOT NULL ORDER BY owner").all() as Array<{ owner: string }>).map((r) => r.owner);
+      return { status: "absent", owner, path, reason: `${path} holds no nodes for owner "${owner}" (seeded owners: ${owners.length ? owners.join(", ") : "none"}) — c64re graph seed --owner ${owner}` };
+    }
+    const space = ctxSpaceOfId(mine[0]!.id) ?? "ram";
+    const inRange = (a: number): boolean => a >= lo && a <= hi;
+
+    const seeds = new Map<number, CodeSeed>();
+    const add = (address: number, origin: CodeSeedOrigin, detail: string): void => {
+      if (!inRange(address)) return;
+      if (!seeds.has(address)) seeds.set(address, { address, origin, detail });
+    };
+
+    // What the graph says lives at an address, by owner — used both for S3 and
+    // for the one subtraction below.
+    const resolvesTo = new Map<string, string>(); // addr id → target id
+    for (const row of db.prepare("SELECT from_id, to_id FROM edges WHERE type = 'RESOLVES_TO' ORDER BY from_id").all() as Array<{ from_id: string; to_id: string }>) {
+      if (!resolvesTo.has(row.from_id)) resolvesTo.set(row.from_id, row.to_id);
+    }
+    const ownerOfId = (id: string): string | undefined => {
+      const parts = id.split(":");
+      if (parts.length !== 4) return undefined;
+      const ctx = (parts[1] ?? "").split("/");
+      return ctx.length > 1 ? ctx[1] : undefined;
+    };
+
+    // S1 — a human said "there is a routine here".
+    for (const row of db
+      .prepare("SELECT id, name FROM nodes WHERE layer = 'human' AND kind = 'routine' AND owner = ? AND address BETWEEN ? AND ? ORDER BY address")
+      .all(owner, lo, hi) as Array<{ id: string; name: string | null }>) {
+      const a = addressOfId(row.id);
+      if (!a || ctxSpaceOfId(row.id) !== space) continue;
+      add(a.address, "human_routine", `human routine node${row.name ? ` "${row.name}"` : ""} (graph human layer)`);
+    }
+
+    // S2 — another overlay calls or jumps into this image.
+    const callers = new Map<number, Map<string, { type: string; count: number }>>();
+    for (const row of db
+      .prepare("SELECT type, to_id, owner, COUNT(*) AS sites FROM edges WHERE type IN ('CALLS','JUMPS_TO') AND to_id LIKE '%:addr:%' GROUP BY type, to_id, owner ORDER BY to_id")
+      .all() as Array<{ type: string; to_id: string; owner: string | null; sites: number }>) {
+      const a = addressOfId(row.to_id);
+      if (!a || a.kind !== "addr" || !inRange(a.address)) continue;
+      if (ctxSpaceOfId(row.to_id) !== space) continue;
+      const from = (row.owner ?? "").toLowerCase();
+      if (from === "" || from === owner) continue; // an edge of my own never crosses an overlay boundary
+      let byOwner = callers.get(a.address);
+      if (!byOwner) { byOwner = new Map(); callers.set(a.address, byOwner); }
+      const key = `${row.type}|${from}`;
+      const seen = byOwner.get(key);
+      if (seen) seen.count += Number(row.sites);
+      else byOwner.set(key, { type: row.type, count: Number(row.sites) });
+    }
+    const skipped: Array<{ address: number; detail: string }> = [];
+    for (const [address, byOwner] of [...callers.entries()].sort((l, r) => l[0] - r[0])) {
+      // The one subtraction: 826.0 already decided this address belongs to a
+      // different overlay. Say so instead of promoting somebody else's code.
+      const addrId = `${mine[0]!.id.split(":")[0]}:${space}:addr:${address.toString(16).padStart(4, "0")}`;
+      const target = resolvesTo.get(addrId);
+      const targetOwner = target ? ownerOfId(target) : undefined;
+      const sites = [...byOwner.values()].reduce((sum, v) => sum + v.count, 0);
+      const from = [...byOwner.entries()].map(([key, v]) => `${v.type} from "${key.split("|")[1]}"`).sort().join(", ");
+      if (targetOwner !== undefined && targetOwner !== owner) {
+        skipped.push({ address, detail: `${from}, but Spec 826 RESOLVES_TO ${target} — that address is owner "${targetOwner}"'s code, not this image's` });
+        continue;
+      }
+      const jumpOnly = [...byOwner.values()].every((v) => v.type === "JUMPS_TO");
+      add(address, jumpOnly ? "cross_owner_jump" : "cross_owner_call", `${from} (${sites} site${sites === 1 ? "" : "s"})`);
+    }
+
+    // S3 — a Spec 826 alias that already points at something of mine.
+    for (const [addrId, target] of resolvesTo) {
+      if (ctxSpaceOfId(addrId) !== space) continue;
+      const a = addressOfId(addrId);
+      if (!a || a.kind !== "addr" || !inRange(a.address)) continue;
+      if (ownerOfId(target) !== owner) continue;
+      const kind = target.split(":")[2] ?? "?";
+      if (kind !== "routine" && kind !== "label") continue;
+      add(a.address, "resolved_alias", `Spec 826 RESOLVES_TO ${target}`);
+    }
+
+    return { status: "ok", path, owner, space, seeds: [...seeds.values()].sort((l, r) => l.address - r.address), skipped };
+  } finally {
+    db.close();
+  }
+}
