@@ -8,6 +8,22 @@ export interface SegmentAnnotation {
   kind: SegmentKind;    // reclassified segment type
   label?: string;       // semantic label, e.g. "sprite_scroller_flag"
   comment?: string;     // human-readable explanation
+  /**
+   * Spec 842 — which address space `start`/`end` are in, when a `relocations`
+   * entry covers them. A relocated byte genuinely has two addresses: where it is
+   * STORED in the payload, and where it RUNS after the copy.
+   *
+   *   "runtime" (the default under a relocation) — the `.pseudopc` address. This is
+   *     what a human reads off the listing, what a breakpoint takes, and what the
+   *     graph is keyed on.
+   *   "file" — the stored position in the PRG.
+   *
+   * Outside any relocation the two are identical and this field changes nothing.
+   * Omitted, the space is INFERRED: a range inside a relocation's runtime window is
+   * runtime, one inside the file image is file. State it explicitly when a value
+   * could be read as either.
+   */
+  space?: "runtime" | "file";
 }
 
 export interface LabelAnnotation {
@@ -133,7 +149,7 @@ export interface AnnotationsIndex {
 // unparseable input; callers skip that one entry (see buildAnnotationsIndex) so
 // the remaining hand-written annotations still apply instead of the whole
 // pipeline dying on `parseHex(undefined)`.
-function parseHex(hex: string | undefined): number {
+export function parseHex(hex: string | undefined): number {
   return parseInt(String(hex ?? "").replace(/^\$/, ""), 16);
 }
 

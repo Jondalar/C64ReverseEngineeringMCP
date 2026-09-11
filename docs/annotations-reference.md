@@ -52,6 +52,32 @@ rename. It never overwrites a manual file.
 
 Hex may be written `0810` or `$0810` — the loader strips a leading `$`.
 
+## Relocated code: which address did you write? (Spec 842)
+
+A self-relocating loader is **stored** at one address and **runs** at another, so a byte
+in it has two addresses and both are real. When you pass `relocations` to `disasm_prg`,
+a `segments` entry may say which one it means:
+
+```jsonc
+{ "start": "$CA1B", "end": "$CA47", "kind": "text", "label": "credit_text",
+  "space": "runtime" }        // "runtime" (the default) | "file"
+```
+
+- **`runtime`** — the `.pseudopc` / `.logical` address, the one the listing shows and a
+  breakpoint takes. This is the default when the address falls inside a relocation's
+  runtime window, because it is what you read off the disassembly you are annotating.
+- **`file`** — the stored position in the PRG, for when that is what you have: a
+  hexdump offset, a sector, a byte pattern.
+
+Outside any relocation the two are identical and the field changes nothing.
+
+Both are always resolved: the listing renders the island inside the relocated block at
+its runtime PC with its stored bytes, and **the graph is keyed on the runtime
+address** — a trace hit, a checkpoint and `whowrote` all speak runtime — while keeping
+the stored address and the relocation beside it. The listing header reports which space
+each address was read in, and says so when a segment had to be clipped at a block
+boundary.
+
 ## Tolerant loading
 
 Loading never crashes. A missing section is treated as empty. An individual entry with an
