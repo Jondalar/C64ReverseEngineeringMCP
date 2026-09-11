@@ -482,12 +482,12 @@ export function InspectorPanel({
           Virtual JOY
           <button
             onClick={() => onOpenKeyset?.()}
-            title="Tastenbelegung — welche Taste deiner Tastatur welche C64-Aktion auslöst"
+            title="Key bindings — which key on YOUR keyboard drives which C64 action"
             style={{
               float: "right", padding: "0 6px", background: "#222", color: "#aaa",
               border: "1px solid #444", cursor: "pointer", fontFamily: "monospace", fontSize: 11,
             }}
-          >Tasten</button>
+          >Keys</button>
         </h3>
         <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
           {(["off", "port1", "port2"] as JoyMode[]).map(m => {

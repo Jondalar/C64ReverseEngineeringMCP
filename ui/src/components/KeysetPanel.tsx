@@ -3,7 +3,11 @@
 // Deliberately plain. The owner, asked: "die Liste ist genug. Keine chichi Optik,
 // nur funktional gut." Three things earn their place on screen and nothing else does:
 //
-//   1. the "woher" column — answers "why is fire on M here" without opening two
+// The UI strings are ENGLISH, like the rest of the workbench. They were German in the
+// first cut because the conversation was — which is not a reason, and the owner caught
+// it on sight.
+//
+//   1. the "from" column — answers "why is fire on M here" without opening two
 //      files, and its [x] drops this level's override so the action falls back;
 //   2. the scope switch, which is a TARGET (where the next edit lands), not a
 //      filter — where the existing bindings came from is already in each row;
@@ -129,7 +133,7 @@ export function KeysetPanel({ projectDir, onClose }: KeysetPanelProps): JSX.Elem
       setData((await r.json()) as KeysetResponse);
       setStatus("");
     } catch (e) {
-      setStatus(`Laden fehlgeschlagen: ${(e as Error).message}`);
+      setStatus(`Load failed: ${(e as Error).message}`);
     }
   }, [query]);
 
@@ -145,7 +149,7 @@ export function KeysetPanel({ projectDir, onClose }: KeysetPanelProps): JSX.Elem
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       await reload();
     } catch (e) {
-      setStatus(`Speichern fehlgeschlagen: ${(e as Error).message}`);
+      setStatus(`Save failed: ${(e as Error).message}`);
     }
   }, [projectDir, scope, reload]);
 
@@ -163,12 +167,12 @@ export function KeysetPanel({ projectDir, onClose }: KeysetPanelProps): JSX.Elem
 
   const frame = (body: JSX.Element): JSX.Element => (onClose
     ? (
-      <div className="wb-overlay" role="dialog" aria-label="Tastenbelegung">
+      <div className="wb-overlay" role="dialog" aria-label="Key bindings">
         <div className="wb-overlay-panel">
           <div className="wb-overlay-bar">
-            <strong>⌨ Tastenbelegung</strong>
+            <strong>⌨ Key bindings</strong>
             <span style={{ flex: 1 }} />
-            <button className="wb-btn" onClick={onClose}>schliessen</button>
+            <button className="wb-btn" onClick={onClose}>close</button>
           </div>
           {body}
         </div>
@@ -177,7 +181,7 @@ export function KeysetPanel({ projectDir, onClose }: KeysetPanelProps): JSX.Elem
     : body);
 
   if (!data) {
-    return frame(<div style={{ padding: 12 }}>{status || "Laden…"}</div>);
+    return frame(<div style={{ padding: 12 }}>{status || "Loading…"}</div>);
   }
 
   const rows = [...data.bindings].sort((a, b) => actionLabel(a.action).localeCompare(actionLabel(b.action)));
@@ -186,11 +190,11 @@ export function KeysetPanel({ projectDir, onClose }: KeysetPanelProps): JSX.Elem
   return frame(
     <div style={{ padding: 12, fontSize: 13 }}>
       <div style={{ marginBottom: 10 }}>
-        <strong>Änderungen gelten:</strong>{" "}
+        <strong>Changes apply:</strong>{" "}
         {(["global", "project"] as const).map((s) => (
           <label key={s} style={{ marginLeft: 12, cursor: "pointer" }}>
             <input type="radio" name="keysetScope" checked={scope === s} onChange={() => setScope(s)} />
-            {" "}{s === "global" ? "überall" : "nur in diesem Projekt"}
+            {" "}{s === "global" ? "everywhere" : "in this project only"}
           </label>
         ))}
         <div style={{ ...muted, fontSize: 11, marginTop: 4 }}>
@@ -201,9 +205,9 @@ export function KeysetPanel({ projectDir, onClose }: KeysetPanelProps): JSX.Elem
       <table style={{ borderCollapse: "collapse" }}>
         <thead>
           <tr style={{ ...muted, textAlign: "left", fontWeight: 400 }}>
-            <th style={cell}>C64-Aktion</th>
-            <th style={cell}>deine Taste</th>
-            <th style={cell}>woher</th>
+            <th style={cell}>C64 action</th>
+            <th style={cell}>your key</th>
+            <th style={cell}>from</th>
             <th style={cell}></th>
           </tr>
         </thead>
@@ -218,12 +222,12 @@ export function KeysetPanel({ projectDir, onClose }: KeysetPanelProps): JSX.Elem
                 <td style={{ ...cell, ...muted }}>{b.source}</td>
                 <td style={cell}>
                   <button onClick={() => setCapturing(isCapturing ? null : id)}>
-                    {isCapturing ? "Taste drücken…" : "ändern"}
+                    {isCapturing ? "press a key…" : "rebind"}
                   </button>
                   {b.source !== "default" && (
                     <button
                       onClick={() => void write(b.action, null)}
-                      title={`${b.source}-Überschreibung entfernen`}
+                      title={`remove the ${b.source} override`}
                       style={{ marginLeft: 6 }}
                     >
                       ×
@@ -237,10 +241,10 @@ export function KeysetPanel({ projectDir, onClose }: KeysetPanelProps): JSX.Elem
       </table>
 
       {!adding ? (
-        <button style={{ marginTop: 10 }} onClick={() => setAdding(true)}>+ Bindung hinzufügen</button>
+        <button style={{ marginTop: 10 }} onClick={() => setAdding(true)}>+ Add binding</button>
       ) : (
         <div style={{ marginTop: 10, padding: 10, border: "1px solid #3a4056" }}>
-          <div style={{ marginBottom: 6 }}><strong>Was soll der C64 tun?</strong></div>
+          <div style={{ marginBottom: 6 }}><strong>What should the C64 do?</strong></div>
           <label style={{ marginRight: 12 }}>
             <input
               type="radio" name="newKind" checked={newAction.kind === "joystick"}
@@ -251,7 +255,7 @@ export function KeysetPanel({ projectDir, onClose }: KeysetPanelProps): JSX.Elem
             <input
               type="radio" name="newKind" checked={newAction.kind === "key"}
               onChange={() => setNewAction({ kind: "key", matrix: "RUN_STOP" })}
-            />{" "}Taste
+            />{" "}Key
           </label>
 
           <div style={{ marginTop: 8 }}>
@@ -286,10 +290,10 @@ export function KeysetPanel({ projectDir, onClose }: KeysetPanelProps): JSX.Elem
 
           <div style={{ marginTop: 8 }}>
             <button onClick={() => setCapturing("__new__")}>
-              {capturing === "__new__" ? "Taste drücken…" : "Taste zuweisen"}
+              {capturing === "__new__" ? "press a key…" : "assign a key"}
             </button>
             <button style={{ marginLeft: 6 }} onClick={() => { setAdding(false); setCapturing(null); }}>
-              Abbrechen
+              Cancel
             </button>
           </div>
         </div>
@@ -297,13 +301,13 @@ export function KeysetPanel({ projectDir, onClose }: KeysetPanelProps): JSX.Elem
 
       {swallowed.length > 0 && (
         <div style={{ marginTop: 12, color: "#e0b050" }}>
-          ! Solange der Joystick an ist, tippen diese nicht: {swallowed.join("  ")}
+          ! While the joystick is on, these do not type: {swallowed.join("  ")}
         </div>
       )}
 
       {data.conflicts.length > 0 && (
         <div style={{ marginTop: 6, color: "#e07050" }}>
-          ! Doppelt belegt: {data.conflicts.map((c) => codeLabel(c.code)).join("  ")}
+          ! Bound twice: {data.conflicts.map((c) => codeLabel(c.code)).join("  ")}
         </div>
       )}
 

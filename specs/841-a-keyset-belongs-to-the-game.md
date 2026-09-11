@@ -104,6 +104,10 @@ already considered and declined — it is much more work, and for the case that
 started this (moving a joystick off the letters a game types) the list is the whole
 job.
 
+UI strings are **English**, like the rest of the workbench. The first cut wrote them
+in German because the conversation was in German — which is not a reason, and the
+owner caught it the moment he saw the panel.
+
 Functional, not decorated. Three things earn their place on screen:
 
 ```
