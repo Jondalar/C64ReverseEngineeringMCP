@@ -946,7 +946,10 @@ function annotationMeta(db: DatabaseSync, stem: string): { hash: string } | unde
  * FILE produced (producer '822', source_path = this file) are replaced — a row
  * the door has since renamed (producer 'human') is kept (D3: "kept-door-row").
  */
-export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, path: string, artifacts: ArtifactRecord[], options: { force?: boolean } = {}): AnnotationFileResult {
+export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, path: string, artifacts: ArtifactRecord[], options: { force?: boolean; relocations?: GraphRelocation[] } = {}): AnnotationFileResult {
+  // Spec 842 D4 — when the caller knows the relocations, the graph can key on the
+  // runtime address and still record where the bytes are stored.
+  const relocations = options.relocations;
   const { db, slug, now, ledger, writer } = ctx;
   const migrated = MIGRATION_PRODUCER;
   const stem = basename(path).replace(/_annotations\.json$/u, "");
@@ -1020,8 +1023,16 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
     const label = typeof s.label === "string" && s.label.trim() ? s.label.trim() : null;
     const comment = typeof s.comment === "string" && s.comment.trim() ? s.comment.trim() : null;
     const kind = typeof s.kind === "string" ? s.kind : "unknown";
-    put("segment", start, end > start ? end : null, label, compact({ legacy_kind: "annotation-segment", segment_kind: kind, comment }), `segment:${hex4(start)}`,
-      comment || label ? { kind: "segment", title: `${kind} $${hex4U(start)}-$${hex4U(end)}`, body: comment, name: label } : undefined);
+    // Spec 842 D4 — a relocated byte has two addresses, and the graph is keyed on the
+    // RUNTIME one: a trace hit, a checkpoint and `whowrote` all speak runtime, and a
+    // node keyed on the stored address joins to none of them. The stored address is
+    // kept alongside, with the relocation that relates them, so "where is this in the
+    // payload" stays answerable without the relocation table in hand.
+    const rel = resolveAnnotationAddresses(start, end, typeof s.space === "string" ? s.space : undefined, relocations);
+    put("segment", rel.address, rel.endAddress, label,
+      compact({ legacy_kind: "annotation-segment", segment_kind: kind, comment, ...rel.attrs }),
+      `segment:${hex4(rel.address)}`,
+      comment || label ? { kind: "segment", title: `${kind} $${hex4U(rel.address)}-$${hex4U(rel.endAddress ?? rel.address)}`, body: comment, name: label } : undefined);
   }
   ctx.summary.files.push(fs);
   db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
@@ -1305,7 +1316,69 @@ export interface ImportAnnotationFileOptions {
 }
 
 /** The annotation-file door (D6): `disasm_prg` and `c64re graph annotations-import` call this. */
-export function importAnnotationFile(path: string, options: ImportAnnotationFileOptions): AnnotationFileResult & { runId: number; ms: number } {
+/**
+ * Spec 842 D4 — resolve an annotation's two addresses for the graph.
+ *
+ * A relocated byte is STORED at one address and RUNS at another. The node is keyed on
+ * the RUNTIME address, because that is the address every other reading of the machine
+ * uses: a trace hit, a checkpoint, `whowrote`, a breakpoint. A graph keyed on the
+ * stored address cannot be joined to any of them.
+ *
+ * The stored address is not discarded — it is where the bytes actually are, and the
+ * only thing a hexdump or a sector agrees with. It is carried in the node's attrs
+ * together with the relocation that relates the two, so the pair is explained rather
+ * than merely asserted.
+ *
+ * Without relocations, or outside one, the two are identical and nothing is added.
+ */
+export interface GraphRelocation { fileStart: number; fileEnd: number; runtimeAddr: number }
+
+export function resolveAnnotationAddressesForTest(
+  start: number, end: number, space: string | undefined, relocations: GraphRelocation[] | undefined,
+): ReturnType<typeof resolveAnnotationAddresses> {
+  return resolveAnnotationAddresses(start, end, space, relocations);
+}
+
+function resolveAnnotationAddresses(
+  start: number,
+  end: number,
+  space: string | undefined,
+  relocations: GraphRelocation[] | undefined,
+): { address: number; endAddress: number | null; attrs: Record<string, unknown> } {
+  const plain = { address: start, endAddress: end > start ? end : null, attrs: {} as Record<string, unknown> };
+  if (!relocations || relocations.length === 0) return plain;
+  const runtimeEndOf = (r: GraphRelocation) => (r.runtimeAddr + (r.fileEnd - r.fileStart)) & 0xffff;
+
+  // Which space was the annotation written in? Explicit wins; otherwise runtime,
+  // because that is what an author reads off a listing (Spec 842 D1).
+  let stored: number;
+  let runtime: number;
+  let reloc: GraphRelocation | undefined;
+  if (space !== "file") {
+    reloc = relocations.find((r) => start >= r.runtimeAddr && start <= runtimeEndOf(r));
+  }
+  if (reloc) {
+    runtime = start;
+    stored = start - reloc.runtimeAddr + reloc.fileStart;
+  } else {
+    reloc = relocations.find((r) => start >= r.fileStart && start <= r.fileEnd);
+    if (!reloc) return plain;
+    stored = start;
+    runtime = start - reloc.fileStart + reloc.runtimeAddr;
+  }
+  const span = end - start;
+  return {
+    address: runtime,
+    endAddress: span > 0 ? (runtime + span) & 0xffff : null,
+    attrs: {
+      stored_address: stored,
+      stored_end_address: span > 0 ? (stored + span) & 0xffff : null,
+      relocated_from: { file_start: reloc.fileStart, file_end: reloc.fileEnd, runtime_addr: reloc.runtimeAddr },
+    },
+  };
+}
+
+export function importAnnotationFile(path: string, options: ImportAnnotationFileOptions & { relocations?: GraphRelocation[] }): AnnotationFileResult & { runId: number; ms: number } {
   const t0 = process.hrtime.bigint();
   const projectDir = options.projectDir;
   const now = options.now ?? new Date().toISOString();
@@ -1325,7 +1398,7 @@ export function importAnnotationFile(path: string, options: ImportAnnotationFile
     const ledger = new Ledger(db, runId);
     const writer = new Writer(db);
     const resolver = new Resolver(slug, artifacts, [], graphPayloads(db));
-    result = applyAnnotationFile({ db, slug, now, ledger, writer, resolver, summary, store }, projectDir, path, artifacts, { force: options.force });
+    result = applyAnnotationFile({ db, slug, now, ledger, writer, resolver, summary, store }, projectDir, path, artifacts, { force: options.force, relocations: options.relocations });
     finishRun(db, store, ledger, summary, now);
     if (inTx) db.exec("COMMIT");
   } catch (error) {

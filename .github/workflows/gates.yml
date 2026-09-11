@@ -201,6 +201,14 @@ jobs:
       - name: UI reaches nothing the LLM cannot (Spec 839)
         run: npm run check:ui-mcp-delta
 
+      # Spec 842 — a data island inside a relocated block. Synthetic: the
+      # reporter's shape, not his file, so the gate runs more than once.
+      - name: A data island survives relocation (Spec 842)
+        run: npm run e2e:842-reloc-data
+
+      - name: The graph knows where a relocated byte runs (Spec 842 D4)
+        run: npm run e2e:842-graph
+
       # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
       # synthetic PRG with the bundled pipeline and seeds a temp project, and
       # the explorer gate reads the built bundle plus the two pure lib files.

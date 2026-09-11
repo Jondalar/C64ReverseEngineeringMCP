@@ -229,6 +229,17 @@ function describeCodeSeeds(analysisPath: string): string {
   }
 }
 
+/**
+ * Spec 842 — a relocation address as the MCP schema accepts it: "$CA00", "CA00", or a
+ * number. NaN for anything else, which the caller filters — a malformed relocation
+ * must not silently become address 0 in the graph.
+ */
+function parseAddressLike(v: unknown): number {
+  if (typeof v === "number") return v & 0xffff;
+  if (typeof v === "string") return parseInt(v.replace(/^\$/, ""), 16) & 0xffff;
+  return Number.NaN;
+}
+
 export function registerAnalysisWorkflowTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "analyze_prg",
@@ -536,7 +547,21 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           try {
             const knowledgeService = new ProjectKnowledgeService(pd);
             const sourceArtifact = knowledgeService.listArtifacts().find((a) => a.path === prgAbs);
-            const imported = knowledgeService.importAnnotations({ sourcePrgArtifactId: sourceArtifact?.id, annotationsPath });
+            // Spec 842 D4 — hand the import the same relocations the listing was
+            // rendered with, so a relocated annotation lands in the graph at the
+            // address it RUNS at, with the address it is stored at beside it. The
+            // graph is what a trace hit, a checkpoint and `whowrote` are joined
+            // against, and all three speak runtime.
+            const graphRelocations = (relocations ?? []).map((r) => ({
+              fileStart: parseAddressLike(r.fileStart),
+              fileEnd: parseAddressLike(r.fileEnd),
+              runtimeAddr: parseAddressLike(r.runtimeAddr),
+            })).filter((r) => Number.isFinite(r.fileStart) && Number.isFinite(r.fileEnd) && Number.isFinite(r.runtimeAddr));
+            const imported = knowledgeService.importAnnotations({
+              sourcePrgArtifactId: sourceArtifact?.id,
+              annotationsPath,
+              relocations: graphRelocations.length > 0 ? graphRelocations : undefined,
+            });
             // Spec 833 D3 — this line is about the GRAPH and says so. It used to
             // read "Annotations unchanged since the last import (24 routines, 15
             // labels, 5 segments in the graph)", which a caller took for "the

@@ -2297,6 +2297,13 @@ export class ProjectKnowledgeService {
     sourcePrgArtifactId?: string;
     annotationsPath: string;
     force?: boolean;
+    /**
+     * Spec 842 D4 — the relocations the caller rendered with. With them the graph
+     * keys a relocated annotation on its RUNTIME address (what a trace, a checkpoint
+     * and `whowrote` all speak) and records the stored address beside it. Without
+     * them the two are the same and nothing changes.
+     */
+    relocations?: Array<{ fileStart: number; fileEnd: number; runtimeAddr: number }>;
   }): {
     routines: number;
     labels: number;
@@ -2330,7 +2337,7 @@ export class ProjectKnowledgeService {
         annotationsArtifactId = annotationsArtifact.id;
       }
     }
-    const r = importAnnotationFile(args.annotationsPath, { projectDir: this.storage.paths.root, force: args.force });
+    const r = importAnnotationFile(args.annotationsPath, { projectDir: this.storage.paths.root, force: args.force, relocations: args.relocations });
     if (r.changed) {
       this.appendTimelineEvent({
         kind: "note",

@@ -16,7 +16,7 @@ import {
   SplitPointerTableFact,
   TableUsageFact,
 } from "../analysis/types";
-import { AnnotationsIndex, buildAnnotationsIndex, loadAnnotations } from "./annotations";
+import { AnnotationsFile, AnnotationsIndex, buildAnnotationsIndex, loadAnnotations, parseHex } from "./annotations";
 import { buildEffectiveSegments, type AnnotationSegmentOverlay } from "./effective-segments";
 import { convertKickAsmToTass } from "./tass-converter";
 import { findC64IoMetadata, formatC64IoAddress, isC64IoAddress } from "./c64-symbols";
@@ -2997,6 +2997,176 @@ function renderGapLegacy(prg: PrgImage, startAddr: number, endAddr: number, line
   renderLegacy(sub, [startAddr], lines);
 }
 
+/**
+ * Spec 842 D1 — resolve BOTH addresses before anything else looks at them.
+ *
+ * A relocated byte has two, and an annotation may be written in either. Everything
+ * downstream of the index — the segment splits, the data tables, the segment map, the
+ * external-label equates — is written in FILE coordinates, because that is where the
+ * bytes are. So a runtime-space annotation is rewritten to file coordinates HERE, once,
+ * and the space it was written in is recorded so the projection into the relocated
+ * block can convert back and the header can say which one it read.
+ *
+ * Doing it at index time rather than at render time is what makes the promise in D1
+ * true: a `space:"file"` annotation and the runtime annotation that denotes the same
+ * bytes produce the same listing, because after this point they ARE the same
+ * annotation.
+ */
+function resolveAnnotationSpaces(
+  file: AnnotationsFile,
+  relocations: RelocationEntry[] | undefined,
+  prg: PrgImage,
+): AnnotationsFile {
+  if (!relocations || relocations.length === 0) return file;
+  const imageFirst = prg.loadAddress;
+  const imageLast = prg.loadAddress + prg.data.length - 1;
+  const runtimeEndOf = (r: RelocationEntry) => (r.runtimeAddr + (r.fileEnd - r.fileStart)) & 0xffff;
+  const toFile = (addr: number, declared: "runtime" | "file" | undefined): { addr: number; space: "runtime" | "file" } | null => {
+    if (declared === "file") return { addr, space: "file" };
+    const r = relocations.find((x) => addr >= x.runtimeAddr && addr <= runtimeEndOf(x));
+    if (r) return { addr: addr - r.runtimeAddr + r.fileStart, space: "runtime" };
+    // Not in a runtime window. Inside the image it is plainly a file address; outside
+    // it is neither, and saying nothing here lets the render path report it.
+    void imageFirst; void imageLast;
+    return { addr, space: "file" };
+  };
+  const segments = (file.segments ?? []).map((seg) => {
+    const start = parseHex(seg.start);
+    const end = parseHex(seg.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return seg;
+    // Anchor on the START. A segment that begins inside a runtime window and runs
+    // past its end is not ambiguous — it is a segment that overruns the block, and
+    // D2 clips it and says so. Resolving each end independently would instead leave
+    // it half in one space and half in the other, which is no address at all.
+    const s = toFile(start, seg.space);
+    if (!s) return seg;
+    const delta = s.addr - start;
+    const e = end + delta;
+    if (delta === 0) return { ...seg, space: s.space };
+    return { ...seg, start: formatHex16(s.addr), end: formatHex16(e & 0xffff), space: s.space };
+  });
+  return { ...file, segments };
+}
+
+/**
+ * Spec 842 — project annotation segments into the relocations that cover them.
+ *
+ * This is the join that was missing. Spec 741 §2a already renders a mixed code/data
+ * body inside a `.pseudopc` block — `renderRelocationBody` takes `subSegments`, walks
+ * them in order, decodes each CODE span on its own (so alignment is re-cut at every
+ * island, which is Spec 838 D3's rule one level down) and emits the rest as `.byte`.
+ * But `subSegments` is a field the CALLER supplies, and nothing ever derived it from
+ * the annotation file. So a data island in a relocated region took the ordinary path,
+ * `subtractRelocations` clipped it away, and the listing showed an empty `.byte`
+ * outside the block while the same bytes were decoded again as code inside it
+ * (issue #20).
+ *
+ * The address-space rule (Spec 842 D1): a relocated byte has two addresses and both
+ * are real. An annotation may say which one it means with `space`; when it does not,
+ * the space is inferred, preferring RUNTIME — that is the address a human reads off
+ * the listing he is annotating.
+ *
+ * Returns the sub-segments per relocation (keyed by `fileStart`, which
+ * `normalizeRelocations` has already made unique and non-overlapping) plus the notes
+ * the header prints, because "applied 14, skipped 0" while rendering none of them is
+ * a report that lies (Spec 833).
+ */
+interface SegmentProjection {
+  subSegmentsByRelocStart: Map<number, RelocationSubSegment[]>;
+  notes: string[];
+}
+
+function projectAnnotationSegments(
+  segmentAnnotations: AnnotationsIndex["segmentAnnotations"] | undefined,
+  relocations: RelocationEntry[],
+  prg: PrgImage,
+): SegmentProjection {
+  const byRelocStart = new Map<number, RelocationSubSegment[]>();
+  const notes: string[] = [];
+  if (!segmentAnnotations || segmentAnnotations.length === 0 || relocations.length === 0) {
+    return { subSegmentsByRelocStart: byRelocStart, notes };
+  }
+
+  const fileFirst = prg.loadAddress;
+  const fileLast = prg.loadAddress + prg.data.length - 1;
+  const runtimeEndOf = (r: RelocationEntry) => (r.runtimeAddr + (r.fileEnd - r.fileStart)) & 0xffff;
+
+  for (const { start, end, annotation } of segmentAnnotations) {
+    if (end < start) continue;
+    // By the time this runs, `resolveAnnotationSpaces` has put EVERY annotation into
+    // file coordinates (D1) — that is what makes a runtime annotation and the file
+    // annotation for the same bytes render identically. `space` survives only to say
+    // which one the author wrote, for the header.
+    const space: "runtime" | "file" = annotation.space === "runtime" ? "runtime" : "file";
+    const target = relocations.find((r) => start >= r.fileStart && start <= r.fileEnd);
+    if (!target) {
+      // Not in a relocation at all — the ordinary path owns it, unchanged. But a
+      // RUNTIME address that is also outside the file image would render as an empty
+      // directive there, which is the symptom #20 reported, so say so.
+      if (start < fileFirst || start > fileLast) {
+        notes.push(
+          `segment $${formatHex16(start)}-$${formatHex16(end)}${annotation.label ? ` (${annotation.label})` : ""}` +
+          ` is outside the file image and inside no relocation — nothing will be emitted for it`,
+        );
+      }
+      continue;
+    }
+
+    // Into runtime space, then clip to the block.
+    const relocRuntimeEnd = runtimeEndOf(target);
+    const rtStart = start - target.fileStart + target.runtimeAddr;
+    const rtEnd = end - target.fileStart + target.runtimeAddr;
+    const clippedStart = Math.max(rtStart, target.runtimeAddr);
+    const clippedEnd = Math.min(rtEnd, relocRuntimeEnd);
+    if (clippedEnd < clippedStart) continue;
+    if (clippedStart !== rtStart || clippedEnd !== rtEnd) {
+      // Clipped, and said so: half inside the block and half outside is a real answer
+      // but rarely the intended one.
+      notes.push(
+        `segment $${formatHex16(rtStart)}-$${formatHex16(rtEnd)}${annotation.label ? ` (${annotation.label})` : ""}` +
+        ` crosses the $${formatHex16(target.runtimeAddr)} block boundary — clipped to ` +
+        `$${formatHex16(clippedStart)}-$${formatHex16(clippedEnd)}`,
+      );
+    }
+
+    const list = byRelocStart.get(target.fileStart) ?? [];
+    list.push({
+      start: clippedStart,
+      end: clippedEnd,
+      kind: annotation.kind,
+      label: annotation.label,
+      comment: annotation.comment,
+    });
+    byRelocStart.set(target.fileStart, list);
+    notes.push(
+      `segment $${formatHex16(clippedStart)}-$${formatHex16(clippedEnd)} (${annotation.kind}` +
+      `${annotation.label ? `, ${annotation.label}` : ""}) → inside the $${formatHex16(target.runtimeAddr)} block` +
+      ` [${space} address]`,
+    );
+  }
+
+  // Fill the gaps with CODE. `renderRelocationBody` treats an uncovered span as data
+  // (byte-exact but useless), so handing it only the islands would turn a loader into
+  // one long `.byte` wall — the opposite of the bug, and just as wrong.
+  for (const reloc of relocations) {
+    const islands = byRelocStart.get(reloc.fileStart);
+    if (!islands || islands.length === 0) continue;
+    islands.sort((a, b) => a.start - b.start);
+    const runtimeEnd = runtimeEndOf(reloc);
+    const covered: RelocationSubSegment[] = [];
+    let cursor = reloc.runtimeAddr;
+    for (const island of islands) {
+      if (island.start > cursor) covered.push({ start: cursor, end: island.start - 1, kind: "code" });
+      covered.push(island);
+      cursor = Math.max(cursor, island.end + 1);
+    }
+    if (cursor <= runtimeEnd) covered.push({ start: cursor, end: runtimeEnd, kind: "code" });
+    byRelocStart.set(reloc.fileStart, covered);
+  }
+
+  return { subSegmentsByRelocStart: byRelocStart, notes };
+}
+
 // Spec 741 (Slice A): top-level renderer used when relocations are present.
 // Partitions the file address space into ordered gap / relocation chunks
 // so each byte is emitted exactly once. Relocation regions are authoritative
@@ -3054,16 +3224,38 @@ function renderWithAnalysisAndRelocations(prg: PrgImage, analysis: RenderAnalysi
   }
   if (aliasAddrs.length > 0) lines.push("");
 
+  // Spec 842 — hand each relocation the annotation segments that fall inside it, in
+  // runtime space, so the mixed code/data body Spec 741 §2a built actually receives
+  // the islands it was written for. Without this the islands take the file path,
+  // `subtractRelocations` clips them to nothing, and the block re-decodes the same
+  // bytes as code (issue #20). A caller-supplied `subSegments` still wins — it is the
+  // more specific statement.
+  const projection = projectAnnotationSegments(analysis.annotations?.segmentAnnotations, relocations, prg);
+  const effectiveRelocations = relocations.map((r) => {
+    const projected = projection.subSegmentsByRelocStart.get(r.fileStart);
+    return r.subSegments && r.subSegments.length > 0 ? r : (projected ? { ...r, subSegments: projected } : r);
+  });
+  for (const note of projection.notes) lines.push(`      // [relocation] ${note}`);
+  if (projection.notes.length > 0) lines.push("");
+
   type Item = { start: number; seg?: Segment; reloc?: RelocationEntry };
   const items: Item[] = [];
+  // Spec 842 — a segment whose range lies wholly OUTSIDE the file image has no bytes
+  // to emit, and rendering it produces the empty `.byte` directive issue #20 opens
+  // with. That is precisely what a RUNTIME-space annotation looks like on this path:
+  // $CA05 is nowhere in a file that spans $F300-$F328. The projection above has
+  // already given those to the block they belong to, where their stored bytes are.
+  const imageFirst = prg.loadAddress;
+  const imageLast = prg.loadAddress + prg.data.length - 1;
   for (const segment of buildAnnotatedSegments(analysis.segments, analysis.annotations?.segmentAnnotations)) {
+    if (segment.end < imageFirst || segment.start > imageLast) continue;
     for (const [s, e] of subtractRelocations(segment.start, segment.end, relocations)) {
       if (s > e) continue;
       const clipped = s === segment.start && e === segment.end ? segment : cloneSegment(segment, s, e);
       items.push({ start: s, seg: clipped });
     }
   }
-  for (const reloc of relocations) items.push({ start: reloc.fileStart, reloc });
+  for (const reloc of effectiveRelocations) items.push({ start: reloc.fileStart, reloc });
   items.sort((a, b) => a.start - b.start);
   for (const item of items) {
     if (item.reloc) renderRelocationBlock(prg, item.reloc, lines);
@@ -3166,7 +3358,14 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   // without an analysis JSON found the file, indexed nothing, printed
   // "Semantic annotations applied", and rendered 1 250 `W`-labels and not one
   // of the human's names.
-  const annotationsIndex = annotationsFile ? buildAnnotationsIndex(annotationsFile) : undefined;
+  // Spec 842 D1 — resolve runtime-space annotations to file coordinates BEFORE the
+  // index is built, so every downstream reader (segment splits, data tables, the
+  // segment map, the external-label equates) sees one address space and a runtime
+  // annotation renders exactly like the file annotation for the same bytes.
+  const resolvedAnnotationsFile = annotationsFile
+    ? resolveAnnotationSpaces(annotationsFile, options.relocations, prg)
+    : undefined;
+  const annotationsIndex = resolvedAnnotationsFile ? buildAnnotationsIndex(resolvedAnnotationsFile) : undefined;
   if (annotationsIndex && analysisContext) {
     analysisContext.annotations = annotationsIndex;
     applyAnnotationSegmentSplits(analysisContext);
