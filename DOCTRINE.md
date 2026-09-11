@@ -319,7 +319,11 @@ Named here so nobody spends time looking for them:
   doctrine that required a §-anchor in `vice-c64-arch.md` / `vice-1541-arch.md` /
   `vice-iec-arc42.md` went with them, and on 2026-08-12 so did the three documents,
   to `../TRX64/docs/`.
-- **`quarantine/1541-literal-vice`** — still exists, still quarantined. Do not advance,
-  do not merge; cherry-pick `-n` only.
+- **`quarantine/1541-literal-vice`** — branch DELETED 2026-09-11, kept as the tag
+  `archive/1541-literal-vice-2026-05-16` (107 commits, recoverable with
+  `git checkout -b <name> archive/1541-literal-vice-2026-05-16`). The cherry-pick
+  allowance went with it: everything the branch touches was deleted by Spec 806, so
+  there is nothing left to pick INTO, and as a source to read it is a port of VICE
+  where VICE itself is on disk.
 - **`specs/4XX-*.md`** — the old numbering the working process pointed at. Specs are in
   the 700–800 range now and the board is the registry.

@@ -44,14 +44,19 @@ they MUST NOT be cited as acceptance for any 4xx spec.
 |----------------------------------|-------------------------------------------|
 | `runtime-green-2026-05-16` (tag) | Frozen runtime baseline. **DO NOT MOVE.** |
 | `codex/1541-runtime-gates`       | Active branch. Gate work only. No emu changes without explicit user approval. |
-| `1541-literal-vice`              | **QUARANTINE.** Material lager. Do not advance. Do not merge. |
+| `1541-literal-vice`              | **GONE 2026-09-11.** Was a quarantined material lager; kept as the tag `archive/1541-literal-vice-2026-05-16`. |
 | `master`                         | Older stable; pre-Epic 440. Reference only. |
 | `stash@{0}`                      | WIP rotation hook experiments from 2026-05-16. Quarantined. |
 
-Cherry-picking from `1541-literal-vice` into `codex/1541-runtime-gates`
-is permitted **only** with `-n` (no-commit) and **only** if each
-imported change is then validated against the runtime gates before
-committing.
+The cherry-pick rule that stood here (`-n` only, validate against the gates before
+committing) is retired with the branch. Nothing in it can be cherry-picked any more:
+everything it touches — `src/ts-emulator/`, the TS 1541, `g64-parser.ts`, `via2d1541`,
+`drivecpu` — was deleted by Spec 806 on 2026-08-12. And as a source to READ it is
+second-best, because it was ported FROM VICE, which is on disk at
+`/Users/alex/Development/C64/Tools/vice/vice/src` and is the authority doctrine names.
+Read the C, not a four-month-old port of it.
+
+The 107 commits are not lost: `git checkout -b <name> archive/1541-literal-vice-2026-05-16`.
 
 ## Reference Oracle Inventory (state @ runtime-green-2026-05-16)
 
