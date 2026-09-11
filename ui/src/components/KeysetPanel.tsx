@@ -104,12 +104,15 @@ function useKeyCapture(onCapture: (code: string) => void, active: boolean): void
 interface KeysetPanelProps {
   /** Project whose overrides are edited. Omitted → the server's default project. */
   projectDir?: string;
+  /** Rendered as an overlay when given — the table needs more width than the
+   *  inspector column has, which is where it started and did not belong. */
+  onClose?: () => void;
 }
 
 const cell: React.CSSProperties = { padding: "3px 10px", verticalAlign: "middle" };
 const muted: React.CSSProperties = { color: "#8a90a0" };
 
-export function KeysetPanel({ projectDir }: KeysetPanelProps): JSX.Element {
+export function KeysetPanel({ projectDir, onClose }: KeysetPanelProps): JSX.Element {
   const [data, setData] = useState<KeysetResponse | null>(null);
   const [scope, setScope] = useState<"global" | "project">("project");
   const [capturing, setCapturing] = useState<string | null>(null); // actionId
@@ -158,14 +161,29 @@ export function KeysetPanel({ projectDir }: KeysetPanelProps): JSX.Element {
     if (target === "__new__") setAdding(false);
   }, capturing !== null);
 
+  const frame = (body: JSX.Element): JSX.Element => (onClose
+    ? (
+      <div className="wb-overlay" role="dialog" aria-label="Tastenbelegung">
+        <div className="wb-overlay-panel">
+          <div className="wb-overlay-bar">
+            <strong>⌨ Tastenbelegung</strong>
+            <span style={{ flex: 1 }} />
+            <button className="wb-btn" onClick={onClose}>schliessen</button>
+          </div>
+          {body}
+        </div>
+      </div>
+    )
+    : body);
+
   if (!data) {
-    return <div style={{ padding: 12 }}>{status || "Laden…"}</div>;
+    return frame(<div style={{ padding: 12 }}>{status || "Laden…"}</div>);
   }
 
   const rows = [...data.bindings].sort((a, b) => actionLabel(a.action).localeCompare(actionLabel(b.action)));
   const swallowed = data.swallowedByJoystick.map(codeLabel);
 
-  return (
+  return frame(
     <div style={{ padding: 12, fontSize: 13 }}>
       <div style={{ marginBottom: 10 }}>
         <strong>Änderungen gelten:</strong>{" "}

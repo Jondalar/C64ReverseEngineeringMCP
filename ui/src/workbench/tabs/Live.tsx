@@ -12,7 +12,7 @@
 // Per Spec 350: NO LOAD"*" / RUN buttons. Spec 353: explicit mount,
 // no auto-LOAD. Spec 354: pause → Explore overlay.
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { getClient, BIN_TYPE_VIC_FRAME } from "../ws-client.js";
 import type { TabProps } from "./Live.types.js";
 // Spec 754 — the monitor is now the pop-out (MON button → separate window,
@@ -23,6 +23,7 @@ import { MachineControls } from "../components/MachineControls.js";
 import { ExploreOverlay } from "../components/ExploreOverlay.js";
 import { Filmstrip } from "../components/Filmstrip.js";
 import { CaptureOverlay, type Shot } from "../components/CaptureOverlay.js";
+import { KeysetPanel } from "../../components/KeysetPanel.js";
 import { RecorderButton } from "../components/RecorderButton.js";
 import { ScenarioOverlay } from "../components/ScenarioOverlay.js";
 import type { RecordResult } from "../../../../src/reel/record-scenario.js";
@@ -422,6 +423,10 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
 
   // Spec 310 — virtual joystick UI state (per-tab; not persisted).
   const [joyMode, setJoyMode] = useState<JoystickMode>("off");
+  // Spec 841 — the keyset dialog is an OVERLAY, like Captures and Scenario. It
+  // started folded into the inspector column and did not fit: four columns and a
+  // warning line in 330px.
+  const [showKeyset, setShowKeyset] = useState(false);
   const [joyBits, setJoyBits] = useState<Record<JoyBit, boolean>>({ up: false, down: false, left: false, right: false, fire: false });
   const [pressedKeys, setPressedKeys] = useState<string[]>([]);
   // The last thing the transport said, shown under the screen and cleared after a
@@ -539,18 +544,19 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   // reads it through a ref so a reload does not tear down the key listeners.
   const keysetRef = useRef<ResolvedBinding[] | null>(null);
   const [keysetLoaded, setKeysetLoaded] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    void fetch("/api/input/keyset")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j: { bindings?: ResolvedBinding[] } | null) => {
-        if (cancelled || !j?.bindings) return;
-        keysetRef.current = j.bindings;
-        setKeysetLoaded(true);
-      })
-      .catch(() => { /* keep the built-in default; input must not depend on a fetch */ });
-    return () => { cancelled = true; };
+  // Re-fetchable, because closing the dialog must take effect on the next keystroke
+  // — a remap you have to reload the page for is a remap nobody trusts.
+  const reloadKeyset = useCallback(async () => {
+    try {
+      const r = await fetch("/api/input/keyset");
+      if (!r.ok) return;
+      const j = (await r.json()) as { bindings?: ResolvedBinding[] };
+      if (!j?.bindings) return;
+      keysetRef.current = j.bindings;
+      setKeysetLoaded((n) => !n);
+    } catch { /* keep what we have; input must not depend on a fetch */ }
   }, []);
+  useEffect(() => { void reloadKeyset(); }, [reloadKeyset]);
 
   // Spec 310 — live keyboard + virtual joystick passthrough.
   // While emulator runs: keydown → key_down WS, keyup → key_up WS.
@@ -659,8 +665,9 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       // stick.
       onBlur();
     };
-    // `keysetLoaded` is in the deps so the listeners are rebuilt once the fetch
-    // lands; until then they run on the built-in default rather than being dead.
+    // `keysetLoaded` is in the deps so the listeners are rebuilt whenever the keyset
+    // is (re)loaded — on mount, and again when the dialog closes. Until the first
+    // fetch lands they run on the built-in default rather than being dead.
   }, [sessionId, runState, joyMode, keysetLoaded]);
 
   // Force a single-frame re-render even when paused (= draw one screenshot
@@ -780,6 +787,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           }}
           joyMode={joyMode}
           setJoyMode={setJoyMode}
+          onOpenKeyset={() => setShowKeyset(true)}
           joyBits={joyBits}
           pressedKeys={pressedKeys}
         />
@@ -791,6 +799,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           both lie over the screen the way the inspect overlay does. Nothing was
           added to the bottom of this tab; the reel strip that used to live there
           is now the first of them. */}
+      {showKeyset && <KeysetPanel onClose={() => { setShowKeyset(false); void reloadKeyset(); }} />}
       {showCaptures && (
         <CaptureOverlay shots={shots} setShots={setShots} onClose={() => setShowCaptures(false)} />
       )}

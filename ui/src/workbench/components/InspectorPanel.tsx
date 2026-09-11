@@ -2,7 +2,6 @@
 // Spec 424 — Drive/Cart rows with LED indicator + inline insert/eject.
 
 import React, { useCallback, useEffect, useState } from "react";
-import { KeysetPanel } from "../../components/KeysetPanel";
 import { getClient } from "../ws-client.js";
 
 interface Drive {
@@ -45,6 +44,9 @@ interface Props {
   onMounted?: (slot: number, path: string) => void;
   joyMode?: JoyMode;
   setJoyMode?: (m: JoyMode) => void;
+  /** Spec 841 — open the keyset dialog. It is an OVERLAY, not a fold-out: the table
+   *  has four columns and a warning line, and this column is 330px wide. */
+  onOpenKeyset?: () => void;
   joyBits?: Record<JoyBit, boolean>;
   pressedKeys?: string[];
 }
@@ -190,11 +192,10 @@ function DeviceRow({
 
 export function InspectorPanel({
   sessionId, drive, drive9, cart, activeMedia = "", activeMedia9 = "", activeCartMedia = "",
-  onMounted, joyMode = "off", setJoyMode, joyBits, pressedKeys,
+  onMounted, joyMode = "off", setJoyMode, onOpenKeyset, joyBits, pressedKeys,
 }: Props): React.JSX.Element {
   const [cpu, setCpu] = useState<CpuState | null>(null);
-  // Spec 841 — the keyset dialog, folded out under the JOY switch.
-  const [showKeyset, setShowKeyset] = useState(false);
+
   const [vic, setVic] = useState<VicState | null>(null);
   const [sid, setSid] = useState<SidState | null>(null);
   const [flow, setFlow] = useState<FlowState | null>(null);
@@ -480,14 +481,13 @@ export function InspectorPanel({
         <h3>
           Virtual JOY
           <button
-            onClick={() => setShowKeyset((v) => !v)}
-            title="Tasten zuordnen (pro Projekt)"
+            onClick={() => onOpenKeyset?.()}
+            title="Tastenbelegung — welche Taste deiner Tastatur welche C64-Aktion auslöst"
             style={{
-              float: "right", padding: "0 6px", background: showKeyset ? "#4a90e2" : "#222",
-              color: showKeyset ? "#fff" : "#aaa", border: "1px solid #444", cursor: "pointer",
-              fontFamily: "monospace", fontSize: 11,
+              float: "right", padding: "0 6px", background: "#222", color: "#aaa",
+              border: "1px solid #444", cursor: "pointer", fontFamily: "monospace", fontSize: 11,
             }}
-          >Tasten…</button>
+          >Tasten</button>
         </h3>
         <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
           {(["off", "port1", "port2"] as JoyMode[]).map(m => {
@@ -521,7 +521,6 @@ export function InspectorPanel({
             }</td></tr>
           </tbody>
         </table>
-              {showKeyset && <KeysetPanel />}
       </section>
     </aside>
   );
