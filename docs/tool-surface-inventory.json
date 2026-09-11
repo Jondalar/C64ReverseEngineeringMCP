@@ -1,9 +1,9 @@
 {
-  "total": 270,
+  "total": 272,
   "specCount": 45,
   "advancedCandidate": 110,
   "byNamespace": {
-    "runtime": 86,
+    "runtime": 88,
     "list": 20,
     "project": 11,
     "save": 10,
@@ -1613,6 +1613,15 @@
       "tier": "default?"
     },
     {
+      "name": "runtime_inject_range",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Write a .bin file's bytes into the machine as an OVERLAY — swap a logo, a charset, a sprite, without rebuilding anything.",
+      "desc": "Write a .bin file's bytes into the machine as an OVERLAY — swap a logo, a charset, a sprite, without rebuilding anything. The bytes land in a candidate's patch set, so the original medium is untouched and a reset drops the layer rather than the change becoming permanent. Re-injecting the same address REPLACES the previous patch. Use it with runtime_rip_range to close the loop: rip, edit, inject. Not for a permanent change to a .d64/.crt (there is none — on a packed game the bytes do not lie in the image the way they appear on screen). Inputs: session_id, candidate_id, addr, bin_path, optional space and bank. Returns: the candidate.",
+      "tier": "default?"
+    },
+    {
       "name": "runtime_input_load_config",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
@@ -1889,6 +1898,15 @@
       "hasSpec": false,
       "firstSentence": "Time-travel: rewind the shared session to a past checkpoint, optionally continue from there.",
       "desc": "Time-travel: rewind the shared session to a past checkpoint, optionally continue from there. Seek by `cycle` (nearest checkpoint at/before it) or explicit `id`; default = the most recent. `then`: pause (land + inspect, default) | run (continue forward from there) | keep. Use to jump to a past machine state for inspection, or to re-run from a known point (e.g. the code-overlay debug loop: rewind → patch RAM via runtime_monitor → run → observe → repeat). Not for a plain forward run (use runtime_session_run). The human at the UI sees the same jump (one shared session). Inputs: session_id, optional cycle, optional id, optional then. Returns: the restored checkpoint ref + machine state.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_rip_range",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Extract a byte range out of the machine as a .bin file — a charset, a bitmap, a sprite block, a screen or colour map.",
+      "desc": "Extract a byte range out of the machine as a .bin file — a charset, a bitmap, a sprite block, a screen or colour map. Use it after identifying an element on the frozen screen (the Live tab's Inspect overlay reports the source ranges) to get the bytes out for editing or reuse. Reads a CHECKPOINT when given one, so a frozen screen yields exactly the bytes that drew it; otherwise the live machine. Not for a whole snapshot (use runtime_save_vsf) and not for writing bytes back (use runtime_inject_range). Inputs: session_id, addr, length, out_path, optional checkpoint_id and kind. Returns: { path, bytes, sha256 }.",
       "tier": "default?"
     },
     {
