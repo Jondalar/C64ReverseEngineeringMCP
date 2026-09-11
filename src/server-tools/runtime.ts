@@ -453,6 +453,83 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     return runtimeDaemon;
   };
 
+  // ── Spec 843 D9/D10 — rip a screen element out, and put a different one back ──
+  //
+  // The chain the owner asked for: point at something on the frozen screen, find out
+  // what it is, take the bytes, and later swap them. The identification half is the
+  // Inspect overlay; these two are the ends.
+  //
+  // Both speak the same unit — an address range — which is why they compose with the
+  // graph (a finding carries `addressRange`) and with the overlay model (a candidate
+  // patch targets an address). Neither invents machinery: a rip is a read of frozen
+  // RAM, an inject is `runtime_candidate_patch`.
+
+  server.tool(
+    "runtime_rip_range",
+    "Extract a byte range out of the machine as a .bin file — a charset, a bitmap, a sprite block, a screen or colour map. Use it after identifying an element on the frozen screen (the Live tab's Inspect overlay reports the source ranges) to get the bytes out for editing or reuse. Reads a CHECKPOINT when given one, so a frozen screen yields exactly the bytes that drew it; otherwise the live machine. Not for a whole snapshot (use runtime_save_vsf) and not for writing bytes back (use runtime_inject_range). Inputs: session_id, addr, length, out_path, optional checkpoint_id and kind. Returns: { path, bytes, sha256 }.",
+    {
+      session_id: z.string().describe("Session to read from — \"shared\" is the live machine the human is watching"),
+      addr: z.number().int().describe("Start address in CPU space, e.g. 0xE000 for a bitmap under a VIC bank"),
+      length: z.number().int().describe("How many bytes: 8 for one char, 2048 for a charset, 8000 for a bitmap, 64 per sprite"),
+      out_path: z.string().describe("Where to write the .bin, absolute or relative to the project"),
+      checkpoint_id: z.string().optional().describe("Read this retained checkpoint instead of the live machine — what the Inspect overlay froze, so the bytes are the ones that drew the picture"),
+      kind: z.string().optional().describe("What the bytes ARE (charset, bitmap, sprite, screen, colour) — recorded in the result so a later re-import knows how to read them"),
+    },
+    safeHandler("runtime_rip_range", async ({ session_id, addr, length, out_path, checkpoint_id, kind }) => {
+      if (length <= 0 || length > 0x10000) throw new Error(`length must be 1..65536, got ${length}`);
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      // The monitor's own memory read, so the bytes come through the same bank view
+      // the VIC used — not a flat RAM peek that would miss a cart or an I/O window.
+      const lens = checkpoint_id ? `checkpoint ${checkpoint_id}` : "live";
+      const r = checkpoint_id
+        ? await runtimeDaemon.checkpointReadMemory(session_id, checkpoint_id, addr, length)
+        : await runtimeDaemon.readMemoryRange(session_id, addr, length);
+      const bytes = (r as { bytes?: number[]; data?: number[] })?.bytes ?? (r as { data?: number[] })?.data ?? [];
+      if (bytes.length !== length) {
+        throw new Error(`read ${bytes.length} of ${length} bytes from ${lens} — refusing to write a short file`);
+      }
+      const { writeFileSync, mkdirSync } = await import("node:fs");
+      const { dirname, isAbsolute, resolve: resolvePath } = await import("node:path");
+      const abs = isAbsolute(out_path) ? out_path : resolvePath(process.env.C64RE_PROJECT_DIR ?? process.cwd(), out_path);
+      mkdirSync(dirname(abs), { recursive: true });
+      const buf = Buffer.from(bytes);
+      writeFileSync(abs, buf);
+      const { createHash } = await import("node:crypto");
+      const sha = createHash("sha256").update(buf).digest("hex");
+      return { content: [{ type: "text" as const, text: JSON.stringify({
+        path: abs, bytes: buf.length, sha256: sha, addr, length, kind: kind ?? null, source: lens,
+      }, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_inject_range",
+    "Write a .bin file's bytes into the machine as an OVERLAY — swap a logo, a charset, a sprite, without rebuilding anything. The bytes land in a candidate's patch set, so the original medium is untouched and a reset drops the layer rather than the change becoming permanent. Re-injecting the same address REPLACES the previous patch. Use it with runtime_rip_range to close the loop: rip, edit, inject. Not for a permanent change to a .d64/.crt (there is none — on a packed game the bytes do not lie in the image the way they appear on screen). Inputs: session_id, candidate_id, addr, bin_path, optional space and bank. Returns: the candidate.",
+    {
+      session_id: z.string().describe("Session the candidate belongs to"),
+      candidate_id: z.string().describe("Candidate to patch — the overlay layer, from runtime_candidate_create"),
+      addr: z.number().int().describe("CPU-space address the bytes go to — the same range the rip came from, unless you mean to move it"),
+      bin_path: z.string().describe("The .bin to write, absolute or relative to the project"),
+      space: z.enum(["ram", "roml", "romh"]).default("ram").describe("Which space the patch targets: ram, or a cartridge window (roml/romh)"),
+      bank: z.number().int().optional().describe("Cartridge bank, when space is roml or romh"),
+    },
+    safeHandler("runtime_inject_range", async ({ session_id, candidate_id, addr, bin_path, space, bank }) => {
+      const { readFileSync } = await import("node:fs");
+      const { isAbsolute, resolve: resolvePath } = await import("node:path");
+      const abs = isAbsolute(bin_path) ? bin_path : resolvePath(process.env.C64RE_PROJECT_DIR ?? process.cwd(), bin_path);
+      const buf = readFileSync(abs);
+      if (buf.length === 0) throw new Error(`${abs} is empty`);
+      if (buf.length > 0x10000) throw new Error(`${abs} is ${buf.length} bytes — larger than the address space`);
+      const d = await candidateDaemon();
+      const r = await d.call("runtime/candidate_patch", {
+        session_id, id: candidate_id, addr, space: space ?? "ram", bank, source: "", bytes: Array.from(buf),
+      });
+      return { content: [{ type: "text" as const, text: JSON.stringify({
+        injected: { path: abs, bytes: buf.length, addr, space: space ?? "ram", bank: bank ?? null }, candidate: r,
+      }, null, 2) }] };
+    }),
+  );
+
   server.tool(
     "runtime_candidate_create",
     "Create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set. Runs the NO-PATCH scenario once to cache the equivalence baseline. Start an iterate-your-own-code loop on a fixed snapshot. Inputs: session_id, anchor (checkpoint id), scenario {inputs, cycleBudget}. Returns: the candidate {id, ...}.",

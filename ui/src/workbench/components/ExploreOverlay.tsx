@@ -79,6 +79,10 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
   const [frame, setFrame] = useState<any | null>(null);
   const [node, setNode] = useState<VisualNode | null>(null);
   const [regionNodes, setRegionNodes] = useState<VisualNode[] | null>(null);
+  // Spec 843 D6 — contiguous source ranges the rectangle is a view of. This is the
+  // unit the rest of the chain speaks: a finding carries a range, an extract IS one,
+  // a patch targets one.
+  const [regionRanges, setRegionRanges] = useState<Array<{ kind: string; addr: number; length: number; bank?: number }>>([]);
   const [name, setName] = useState("");
   const [notes, setNotes] = useState("");
   const [status, setStatus] = useState<string>("");
@@ -210,7 +214,10 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
         lastTarget.current = { region };
         const r = await getClient().call<any>("vic/inspect/region", { session_id: sessionId, checkpoint_id: checkpointId, region });
         setRegionNodes(r.nodes ?? []); setNode(null); setOrigin(null);
-        setStatus(`Resolved ${r.nodes?.length ?? 0} node(s) in region`);
+        // Spec 843 D6 — the ranges are the answer; the node list is the sampling.
+        setRegionRanges(r.ranges ?? []);
+        const rs = (r.ranges ?? []).length;
+        setStatus(`Region: ${rs} source range(s) across ${r.nodes?.length ?? 0} sampled node(s)`);
       }
     } catch (err: any) {
       setStatus(`inspect resolve failed: ${err?.message ?? err}`);
@@ -226,13 +233,25 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
         name: name || undefined, notes: notes || undefined,
       });
       // Persist via the workspace knowledge HTTP API (NOT the WS transport).
+      // Spec 843 D7 — send the SOURCE RANGES. They are what becomes a finding with
+      // an `addressRange`, i.e. what `graph_find` and `list_findings` can reach. For
+      // a single node the ranges come from its own refs, so a point promote is
+      // knowledge too and not just a file.
+      const ranges = regionRanges.length > 0
+        ? regionRanges
+        : (node?.refs ?? []).map((rf) => ({ kind: rf.kind, addr: rf.addr, length: rf.length, bank: (rf as any).bank }));
       const resp = await fetch("/api/vic-inspect-evidence", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ evidence: r.evidence, name: name || undefined, notes: notes || undefined }),
+        body: JSON.stringify({ evidence: r.evidence, name: name || undefined, notes: notes || undefined, ranges }),
       });
       if (!resp.ok) throw new Error(await resp.text());
-      const { artifact } = await resp.json();
-      setStatus(`Saved knowledge artifact ${artifact?.id ?? "?"} (${r.evidence?.selectedNodes?.length ?? 0} node(s))`);
+      const { artifact, findingIds } = await resp.json();
+      const n = findingIds?.length ?? 0;
+      // Say which of the two happened. "Promoted → Knowledge" on the strength of a
+      // file write was the old message, and it was not true.
+      setStatus(n > 0
+        ? `In the graph: ${n} finding(s) with an address range · evidence artifact ${artifact?.id ?? "?"}`
+        : `Evidence artifact ${artifact?.id ?? "?"} saved — but NO findings: nothing had a source range, so this is not in the graph`);
     } catch (e: any) {
       setStatus(`promote/persist failed: ${e?.message ?? e}`);
     }
@@ -397,6 +416,25 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
               )}
             </div>
             <div className="wb-explore-text wb-muted">{origin.result?.evidence}</div>
+            {/* Spec 843 D11 — when nothing matched, say what was SEARCHED. This
+                matcher cannot succeed on a D64, a G64 or any packed game, so a bare
+                "runtime_generated" reads as a verdict when it is the absence of a
+                search. It cannot be fixed here; what it owes is not to mislead. */}
+            {origin.search && origin.classification !== "exact_asset" && (
+              <div style={{ marginTop: 6, fontSize: 12 }}>
+                <div className="wb-muted">
+                  searched: {origin.search.scanned} · {origin.search.candidates} candidate(s) · {origin.search.method}
+                </div>
+                <details>
+                  <summary className="wb-muted" style={{ cursor: "pointer" }}>why this may find nothing</summary>
+                  <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+                    {(origin.search.limits ?? []).map((l: string, i: number) => (
+                      <li key={i} className="wb-muted">{l}</li>
+                    ))}
+                  </ul>
+                </details>
+              </div>
+            )}
             {Array.isArray(origin.knowledge?.relations) && origin.knowledge.relations.length > 0 && (
               <table className="wb-regs"><tbody>
                 {origin.knowledge.relations.map((rl: any, i: number) => (
@@ -409,8 +447,26 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
         )}
         {regionNodes && (
           <div className="wb-explore-node">
-            <strong>{regionNodes.length} node(s)</strong>
-            {regionText(regionNodes).map((line, i) => (
+            {renderFrameMap()}
+            {/* The ranges first: what the rectangle IS. The glyph rows below are a
+                reading aid for text screens and empty for a bitmap, which is why
+                they were never an answer on their own. */}
+            {regionRanges.length > 0 ? (
+              <table className="wb-regs"><tbody>
+                {regionRanges.map((r, i) => (
+                  <tr key={i}>
+                    <td>{r.kind}</td>
+                    <td>{hex(r.addr)}</td>
+                    <td>+{r.length}</td>
+                    <td className="wb-muted">{r.bank != null ? `bank ${hex(r.bank)}` : ""}</td>
+                  </tr>
+                ))}
+              </tbody></table>
+            ) : (
+              <div className="wb-muted">no source ranges — the daemon returned none</div>
+            )}
+            <div className="wb-muted" style={{ marginTop: 4 }}>{regionNodes.length} sampled node(s)</div>
+            {regionText(regionNodes).filter((l) => l.trim().length > 3).map((line, i) => (
               <div key={i} className="wb-explore-text">{line}</div>
             ))}
           </div>

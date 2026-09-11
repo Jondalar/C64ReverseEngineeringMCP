@@ -118,6 +118,8 @@
     "e2e:836-sandbox": "npm run build:mcp && node scripts/gen-tool-surface-inventory.mjs >/dev/null && node scripts/e2e-836-sandbox.mjs",
     "e2e:839-media": "npm run build:mcp && node scripts/gen-tool-surface-inventory.mjs >/dev/null && node scripts/e2e-839-media.mjs",
     "check:ui-mcp-delta": "node scripts/check-ui-mcp-delta.mjs",
+    "e2e:843-inspect": "npm run build:mcp && node scripts/gen-tool-surface-inventory.mjs >/dev/null && node scripts/e2e-843-inspect.mjs",
+    "gen:annotations": "npm run build:mcp && node scripts/gen-annotations-from-graph.mjs",
     "e2e:841-keyset": "npm run build:mcp && node scripts/e2e-841-keyset.mjs",
     "e2e:842-reloc-data": "npm run build && node scripts/e2e-842-reloc-data.mjs",
     "e2e:842-graph": "npm run build:mcp && node scripts/e2e-842-graph.mjs",

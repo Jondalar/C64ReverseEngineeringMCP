@@ -1,6 +1,6 @@
 # Spec 843 — Click a pixel, name the thing
 
-**Status:** PROPOSED — ready to build
+**Status:** **BUILT 2026-09-11** — D1–D11
 **Branch:** `spec-843-inspect`
 **Repos:** C64RE (the overlay, the persistence) + TRX64 (per-line provenance, the byte payload)
 **Origin:** the owner, on the frozen Live screen: *"Ich wollte gerne im Freeze-State
@@ -156,7 +156,27 @@ path is unported. What this spec owes is honesty — the button must say what it
 searched and why it found nothing, instead of answering `runtime_generated` as though
 that were a result. The real fix is its own spec.
 
-## 5. Gates
+## 5. What was built, and what it cost
+
+All eleven, across both branches. Two things turned out different from the plan:
+
+**`runtime_rip_range` needed a daemon verb that did not exist.** Ripping the bytes
+that drew the picture means reading the CHECKPOINT, and `session/read_memory` reads
+the live machine — which has moved on. The alternatives were to restore the machine
+(destroying where the human was standing) or to rip bytes that are no longer the ones
+on screen. `checkpoint/read_memory` is the third answer.
+
+**`api/call` has no `readMemory`.** The allowlist carries `monitorMemory` and
+`monitorRegisters` and nothing else, so the first cut of the rip tool called a method
+that does not exist. Caught by reading the dispatch rather than by running it.
+
+D11 is the one that cannot be finished here, and the spec said so before the build:
+the origin matcher still cannot succeed on a D64, a G64 or a packed game. What it
+does now is report what it searched, with how many candidates and why the search may
+be structurally unable to find anything — so `runtime_generated` reads as "nothing was
+looked at" instead of as a verdict.
+
+## 6. Gates
 
 - `e2e:843-provenance` (TRX64) — a synthetic raster split: two different `$D018`
   values on two lines, and the resolver returns the right base for a pixel on each.
@@ -171,7 +191,7 @@ that were a result. The real fix is its own spec.
 - `check:annotations-projection` — the generated annotations file matches the graph
   (report, never a block).
 
-## 6. Not in this spec — the VIC block
+## 7. Not in this spec — the VIC block
 
 The right-hand VIC rows have their own defects, recorded here so they are not
 re-derived:

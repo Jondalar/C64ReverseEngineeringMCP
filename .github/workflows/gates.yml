@@ -215,6 +215,12 @@ jobs:
       - name: The graph knows where a relocated byte runs (Spec 842 D4)
         run: npm run e2e:842-graph
 
+      # Spec 843 — the frozen screen. Hermetic over source, surface and a temp
+      # project; the daemon half SKIPS loudly without a TRX64 checkout rather than
+      # passing on an absence.
+      - name: Click a pixel, name the thing (Spec 843)
+        run: npm run e2e:843-inspect
+
       # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
       # synthetic PRG with the bundled pipeline and seeds a temp project, and
       # the explorer gate reads the built bundle plus the two pure lib files.
