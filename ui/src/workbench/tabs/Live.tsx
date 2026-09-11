@@ -12,7 +12,7 @@
 // Per Spec 350: NO LOAD"*" / RUN buttons. Spec 353: explicit mount,
 // no auto-LOAD. Spec 354: pause → Explore overlay.
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { getClient, BIN_TYPE_VIC_FRAME } from "../ws-client.js";
 import type { TabProps } from "./Live.types.js";
 // Spec 754 — the monitor is now the pop-out (MON button → separate window,
@@ -23,6 +23,7 @@ import { MachineControls } from "../components/MachineControls.js";
 import { ExploreOverlay } from "../components/ExploreOverlay.js";
 import { Filmstrip } from "../components/Filmstrip.js";
 import { CaptureOverlay, type Shot } from "../components/CaptureOverlay.js";
+import { KeysetPanel } from "../../components/KeysetPanel.js";
 import { RecorderButton } from "../components/RecorderButton.js";
 import { ScenarioOverlay } from "../components/ScenarioOverlay.js";
 import type { RecordResult } from "../../../../src/reel/record-scenario.js";
@@ -133,16 +134,51 @@ function keyEventToC64Keys(e: KeyboardEvent): C64KeyName[] | null {
   return null;
 }
 
-// Spec 310 — virtual joystick mapping: WASD + Space → bits.
-// Returns the bit name (= JoystickState property) or null if not a joy key.
 type JoyBit = "up" | "down" | "left" | "right" | "fire";
-function joystickBitForCode(code: string): JoyBit | null {
-  switch (code) {
-    case "KeyW": return "up";
-    case "KeyA": return "left";
-    case "KeyS": return "down";
-    case "KeyD": return "right";
-    case "Space": return "fire";
+
+// Spec 841 — the host-key → C64-action map, resolved from three levels (built-in
+// default, the human's global, this project) by the workspace server. Spec 310's
+// hardcoded WASD switch lived here; it could not express "bind the stick to the
+// arrows so the game can still type W", which is the Ultima VI case.
+//
+// The daemon takes ACTIONS, not host keystrokes, so this translation is the
+// browser client's own — the table is HELD, never queried per keystroke.
+type C64Action =
+  | { kind: "joystick"; port: 1 | 2; bit: JoyBit }
+  | { kind: "key"; matrix: string };
+
+interface ResolvedBinding { action: C64Action; code: string; source: string }
+
+/** Host code → the joystick bit on THIS port, or null. */
+function joystickBitForCode(
+  bindings: ResolvedBinding[] | null,
+  code: string,
+  port: 1 | 2,
+): JoyBit | null {
+  if (!bindings) {
+    // Not loaded yet — the Spec 310 default, so input works from the first frame
+    // rather than being dead until a fetch returns.
+    if (port !== 2) return null;
+    switch (code) {
+      case "KeyW": return "up";
+      case "KeyA": return "left";
+      case "KeyS": return "down";
+      case "KeyD": return "right";
+      case "Space": return "fire";
+    }
+    return null;
+  }
+  for (const b of bindings) {
+    if (b.action.kind === "joystick" && b.action.port === port && b.code === code) return b.action.bit;
+  }
+  return null;
+}
+
+/** Host code → an explicitly bound C64 matrix key, or null for the default layout. */
+function boundC64KeyForCode(bindings: ResolvedBinding[] | null, code: string): string | null {
+  if (!bindings) return null;
+  for (const b of bindings) {
+    if (b.action.kind === "key" && b.code === code) return b.action.matrix;
   }
   return null;
 }
@@ -387,6 +423,10 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
 
   // Spec 310 — virtual joystick UI state (per-tab; not persisted).
   const [joyMode, setJoyMode] = useState<JoystickMode>("off");
+  // Spec 841 — the keyset dialog is an OVERLAY, like Captures and Scenario. It
+  // started folded into the inspector column and did not fit: four columns and a
+  // warning line in 330px.
+  const [showKeyset, setShowKeyset] = useState(false);
   const [joyBits, setJoyBits] = useState<Record<JoyBit, boolean>>({ up: false, down: false, left: false, right: false, fire: false });
   const [pressedKeys, setPressedKeys] = useState<string[]>([]);
   // The last thing the transport said, shown under the screen and cleared after a
@@ -500,6 +540,24 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     return () => clearTimeout(t);
   }, [transportNote]);
 
+  // Spec 841 — hold the resolved keyset. Fetched once per mount; the input effect
+  // reads it through a ref so a reload does not tear down the key listeners.
+  const keysetRef = useRef<ResolvedBinding[] | null>(null);
+  const [keysetLoaded, setKeysetLoaded] = useState(false);
+  // Re-fetchable, because closing the dialog must take effect on the next keystroke
+  // — a remap you have to reload the page for is a remap nobody trusts.
+  const reloadKeyset = useCallback(async () => {
+    try {
+      const r = await fetch("/api/input/keyset");
+      if (!r.ok) return;
+      const j = (await r.json()) as { bindings?: ResolvedBinding[] };
+      if (!j?.bindings) return;
+      keysetRef.current = j.bindings;
+      setKeysetLoaded((n) => !n);
+    } catch { /* keep what we have; input must not depend on a fetch */ }
+  }, []);
+  useEffect(() => { void reloadKeyset(); }, [reloadKeyset]);
+
   // Spec 310 — live keyboard + virtual joystick passthrough.
   // While emulator runs: keydown → key_down WS, keyup → key_up WS.
   // If joyMode != "off" and key is WASD+Space: route to joystick_set
@@ -524,9 +582,11 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       if (e.metaKey || e.altKey) return;
       const tgt = e.target as HTMLElement | null;
       if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
-      // Virtual joystick path: swallow WASD/Space when active.
+      // Virtual joystick path: swallow the bound keys when active. The MODE decides
+      // which port is live; the binding decides which key drives which direction ON
+      // that port, so port 1 and port 2 can carry different keys.
       if (joyMode !== "off") {
-        const bit = joystickBitForCode(e.code);
+        const bit = joystickBitForCode(keysetRef.current, e.code, joyMode === "port1" ? 1 : 2);
         if (bit) {
           e.preventDefault();
           if (joyState[bit]) return; // already down
@@ -535,8 +595,10 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           return;
         }
       }
-      // Keyboard path.
-      const keys = keyEventToC64Keys(e);
+      // Keyboard path. An explicitly bound C64 key wins over the layout translation —
+      // that is how a project puts RUN/STOP on Escape without touching the rest.
+      const bound = boundC64KeyForCode(keysetRef.current, e.code);
+      const keys = bound ? [bound] : keyEventToC64Keys(e);
       if (!keys) return;
       e.preventDefault();
       if (pressedDown.has(e.code)) return;
@@ -550,7 +612,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       const tgt = e.target as HTMLElement | null;
       if (tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable)) return;
       if (joyMode !== "off") {
-        const bit = joystickBitForCode(e.code);
+        const bit = joystickBitForCode(keysetRef.current, e.code, joyMode === "port1" ? 1 : 2);
         if (bit) {
           e.preventDefault();
           if (!joyState[bit]) return;
@@ -559,7 +621,10 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           return;
         }
       }
-      const keys = keyEventToC64Keys(e);
+      // Must mirror the keydown branch exactly: resolve the same way, or a bound key
+      // goes down and never comes up.
+      const bound = boundC64KeyForCode(keysetRef.current, e.code);
+      const keys = bound ? [bound] : keyEventToC64Keys(e);
       if (!keys) return;
       if (!pressedDown.has(e.code)) return;
       pressedDown.delete(e.code);
@@ -600,7 +665,10 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       // stick.
       onBlur();
     };
-  }, [sessionId, runState, joyMode]);
+    // `keysetLoaded` is in the deps so the listeners are rebuilt whenever the keyset
+    // is (re)loaded — on mount, and again when the dialog closes. Until the first
+    // fetch lands they run on the built-in default rather than being dead.
+  }, [sessionId, runState, joyMode, keysetLoaded]);
 
   // Force a single-frame re-render even when paused (= draw one screenshot
   // onto the canvas). Used after reset/power so a paused machine shows a frame.
@@ -719,6 +787,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           }}
           joyMode={joyMode}
           setJoyMode={setJoyMode}
+          onOpenKeyset={() => setShowKeyset(true)}
           joyBits={joyBits}
           pressedKeys={pressedKeys}
         />
@@ -730,6 +799,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           both lie over the screen the way the inspect overlay does. Nothing was
           added to the bottom of this tab; the reel strip that used to live there
           is now the first of them. */}
+      {showKeyset && <KeysetPanel onClose={() => { setShowKeyset(false); void reloadKeyset(); }} />}
       {showCaptures && (
         <CaptureOverlay shots={shots} setShots={setShots} onClose={() => setShowCaptures(false)} />
       )}

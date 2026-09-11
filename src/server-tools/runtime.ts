@@ -970,41 +970,58 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_input_load_config",
-    "Use to load the joystick/keyboard InputConfig (from ~/.config/c64re/joystick.json) before driving input. Not for saving it (use runtime_input_save_config).",
+    "Read the resolved host-key → C64-action map for a project: which key on the HUMAN's keyboard drives which joystick direction or C64 key, merged from three levels (built-in default → the human's global ~/.config/c64re/input.json → <project>/runtime/input.json) with the SOURCE of each binding reported, so \"why is fire on M here\" is answerable without opening two files. Use it before driving input, or to explain a mapping. Note the runtime itself has no keyset — it takes actions (session/key_down, session/joystick_set), and the mapping belongs to each client; this is C64RE's. Not for changing one (use runtime_input_save_config). Inputs: optional project_dir. Returns: { bindings: [{action, code, source}], conflicts, swallowedByJoystick, paths }.",
     {
-      config_path: z.string().optional(),
-      vicerc_path: z.string().optional(),
+      project_dir: z.string().optional().describe("Project whose overrides to apply. Omitted: C64RE_PROJECT_DIR, i.e. the project this server was started for."),
+      vicerc_path: z.string().optional().describe("ADVANCED. Seed the global level from a legacy VICE `vicerc` keyset when no global file exists yet."),
     },
-    safeHandler("runtime_input_load_config", async ({ config_path, vicerc_path }) => {
+    safeHandler("runtime_input_load_config", async ({ project_dir, vicerc_path }) => {
+      const { resolveKeyset, conflicts, swallowedByJoystick, globalKeysetPath, projectKeysetPath } =
+        await import("../input/keyset.js");
+      const projectDir = project_dir ?? process.env.C64RE_PROJECT_DIR ?? process.cwd();
+      const bindings = resolveKeyset({ projectDir });
       const { loadInputConfig } = await import("../input/input-config.js");
-      const cfg = loadInputConfig({ configPath: config_path, vicercPath: vicerc_path });
-      return { content: [{ type: "text", text: JSON.stringify(cfg, null, 2) }] };
+      // The gamepad + keyboard-mode halves are still the Spec 264 config's, and stay
+      // global on purpose: they are properties of the human's hardware, not the game.
+      const legacy = loadInputConfig({ vicercPath: vicerc_path });
+      return { content: [{ type: "text", text: JSON.stringify({
+        bindings,
+        conflicts: conflicts(bindings),
+        swallowedByJoystick: swallowedByJoystick(bindings),
+        paths: { global: globalKeysetPath(), project: projectKeysetPath(projectDir) },
+        keyboardMode: legacy.keyboardMode,
+        gamepad: legacy.gamepad,
+      }, null, 2) }] };
     }),
   );
 
   server.tool(
     "runtime_input_save_config",
-    "Use to save the joystick/keyboard InputConfig to ~/.config/c64re/joystick.json (never touches vicerc). Not for loading it (use runtime_input_load_config).",
+    "Bind ONE C64 action to ONE host key, or clear that binding so it falls back a level. Writes only the override — a level never stores a copy of the whole map, because a copy drifts the moment the level below changes. scope=project (default) writes <project>/runtime/input.json, the game's own mapping; scope=global writes ~/.config/c64re/input.json, the human's preference across projects. Use it to move a joystick direction off a letter the game needs to type (the Ultima VI case: keyboard AND stick at once). Not for reading the map (use runtime_input_load_config). Never touches vicerc. Inputs: action, code (omit to clear), scope, project_dir. Returns: the level's bindings after the write.",
     {
-      config: z.object({
-        version: z.literal(1),
-        keyboardMode: z.enum(["qwerty", "positional"]),
-        joystickPort: z.union([z.literal(1), z.literal(2)]),
-        keyset: z.object({
-          north: z.string(), east: z.string(), south: z.string(),
-          west: z.string(), fire: z.string(),
-        }),
-        gamepad: z.object({
-          axisH: z.number(), axisV: z.number(),
-          deadzone: z.number(), fireButton: z.number(),
-        }),
-      }),
-      config_path: z.string().optional(),
+      action: z.object({
+        kind: z.enum(["joystick", "key"]).describe("joystick = a direction or fire on a port; key = a C64 matrix key"),
+        port: z.union([z.literal(1), z.literal(2)]).optional().describe("joystick only: control port 1 or 2"),
+        bit: z.enum(["up", "down", "left", "right", "fire"]).optional().describe("joystick only: which direction, or fire"),
+        matrix: z.string().optional().describe("key only: the C64 matrix name — \"A\", \"F1\", \"RUN_STOP\", the same vocabulary session/key_down takes"),
+      }).describe("What the C64 should do — the binding is action ← key, so you start from what the GAME needs"),
+      code: z.string().optional().describe("The host key, as a browser KeyboardEvent.code: \"KeyW\", \"Space\", \"Numpad8\", \"ArrowUp\". OMIT to clear this level's override so the action falls back to the level below."),
+      scope: z.enum(["global", "project"]).default("project").describe("Where the binding lands: project = this game's mapping (default), global = the human's own across all projects"),
+      project_dir: z.string().optional().describe("Project to write to when scope=project. Omitted: C64RE_PROJECT_DIR."),
     },
-    safeHandler("runtime_input_save_config", async ({ config, config_path }) => {
-      const { saveInputConfig } = await import("../input/input-config.js");
-      saveInputConfig(config as any, config_path);
-      return { content: [{ type: "text", text: `Saved to ${config_path ?? "~/.config/c64re/joystick.json"}` }] };
+    safeHandler("runtime_input_save_config", async ({ action, code, scope, project_dir }) => {
+      const { setBinding, clearBinding, globalKeysetPath, projectKeysetPath, actionLabel } =
+        await import("../input/keyset.js");
+      const a = action.kind === "joystick"
+        ? { kind: "joystick" as const, port: (action.port ?? 2) as 1 | 2, bit: action.bit ?? "up" }
+        : { kind: "key" as const, matrix: action.matrix ?? "" };
+      if (a.kind === "joystick" && !action.bit) throw new Error("action.bit required for a joystick binding (up|down|left|right|fire)");
+      if (a.kind === "key" && !a.matrix) throw new Error("action.matrix required for a key binding (e.g. \"RUN_STOP\")");
+      const projectDir = project_dir ?? process.env.C64RE_PROJECT_DIR ?? process.cwd();
+      const path = scope === "global" ? globalKeysetPath() : projectKeysetPath(projectDir);
+      const bindings = code ? setBinding(path, a, code) : clearBinding(path, a);
+      const verb = code ? `${actionLabel(a)} <- ${code}` : `cleared ${actionLabel(a)}`;
+      return { content: [{ type: "text", text: `${verb}\n${path}\n${JSON.stringify(bindings, null, 2)}` }] };
     }),
   );
 

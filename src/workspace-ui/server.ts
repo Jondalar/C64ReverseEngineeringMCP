@@ -701,6 +701,72 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // ── Spec 841 — the keyset (C64 action ← host key) ────────────────────────────
+  //
+  // The daemon takes ACTIONS, not host keystrokes, so the host-key mapping is the
+  // client's own and this is where the browser client keeps it. Three levels merged
+  // per binding — default, the human's global, this project — with the source of each
+  // reported, because "why is fire on M here" has to be answerable without opening
+  // two files.
+  if (requestUrl.pathname === "/api/input/keyset" && req.method === "GET") {
+    void (async () => {
+      try {
+        const { resolveKeyset, conflicts, swallowedByJoystick, globalKeysetPath, projectKeysetPath } =
+          await import("../input/keyset.js");
+        const projectDir = requestUrl.searchParams.get("projectDir") ?? options.projectDir;
+        const bindings = resolveKeyset({ projectDir });
+        send(res, jsonResponse(200, {
+          bindings,
+          conflicts: conflicts(bindings),
+          swallowedByJoystick: swallowedByJoystick(bindings),
+          paths: { global: globalKeysetPath(), project: projectKeysetPath(projectDir) },
+        }));
+      } catch (e) {
+        send(res, jsonResponse(500, { error: e instanceof Error ? e.message : String(e) }));
+      }
+    })();
+    return;
+  }
+
+  // Write ONE binding at ONE level, or clear it. Never the whole map: a level holds
+  // only its overrides, which is what keeps it from drifting when the level below
+  // changes.
+  if (requestUrl.pathname === "/api/input/keyset" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      void (async () => {
+        try {
+          const { setBinding, clearBinding, globalKeysetPath, projectKeysetPath } =
+            await import("../input/keyset.js");
+          const payload = JSON.parse(body) as {
+            projectDir?: string;
+            scope?: "global" | "project";
+            action?: unknown;
+            code?: string | null;
+          };
+          const projectDir = payload.projectDir ?? options.projectDir;
+          const scope = payload.scope === "global" ? "global" : "project";
+          const path = scope === "global" ? globalKeysetPath() : projectKeysetPath(projectDir);
+          if (!payload.action) {
+            send(res, jsonResponse(400, { error: "action required" }));
+            return;
+          }
+          const action = payload.action as Parameters<typeof setBinding>[1];
+          // A null code is the dialog's [x]: drop this level's override so the action
+          // falls back to the level below, rather than binding it to nothing.
+          const bindings = payload.code
+            ? setBinding(path, action, payload.code)
+            : clearBinding(path, action);
+          send(res, jsonResponse(200, { ok: true, scope, path, bindings }));
+        } catch (e) {
+          send(res, jsonResponse(500, { error: e instanceof Error ? e.message : String(e) }));
+        }
+      })();
+    });
+    return;
+  }
+
   if (requestUrl.pathname === "/api/annotations/save" && req.method === "POST") {
     let body = "";
     req.on("data", (chunk) => { body += chunk; });

@@ -44,6 +44,9 @@ interface Props {
   onMounted?: (slot: number, path: string) => void;
   joyMode?: JoyMode;
   setJoyMode?: (m: JoyMode) => void;
+  /** Spec 841 — open the keyset dialog. It is an OVERLAY, not a fold-out: the table
+   *  has four columns and a warning line, and this column is 330px wide. */
+  onOpenKeyset?: () => void;
   joyBits?: Record<JoyBit, boolean>;
   pressedKeys?: string[];
 }
@@ -189,9 +192,10 @@ function DeviceRow({
 
 export function InspectorPanel({
   sessionId, drive, drive9, cart, activeMedia = "", activeMedia9 = "", activeCartMedia = "",
-  onMounted, joyMode = "off", setJoyMode, joyBits, pressedKeys,
+  onMounted, joyMode = "off", setJoyMode, onOpenKeyset, joyBits, pressedKeys,
 }: Props): React.JSX.Element {
   const [cpu, setCpu] = useState<CpuState | null>(null);
+
   const [vic, setVic] = useState<VicState | null>(null);
   const [sid, setSid] = useState<SidState | null>(null);
   const [flow, setFlow] = useState<FlowState | null>(null);
@@ -469,9 +473,22 @@ export function InspectorPanel({
         />
       </section>
 
-      {/* Spec 310 — virtual joystick segmented control + live status. */}
+      {/* Spec 310 — virtual joystick segmented control + live status.
+          Spec 841 — and the keyset dialog, HERE rather than in a settings screen:
+          you find out that the stick has eaten W/A/S/D while you are playing, so
+          the way to fix it belongs next to the switch that caused it. */}
       <section>
-        <h3>Virtual JOY</h3>
+        <h3>
+          Virtual JOY
+          <button
+            onClick={() => onOpenKeyset?.()}
+            title="Tastenbelegung — welche Taste deiner Tastatur welche C64-Aktion auslöst"
+            style={{
+              float: "right", padding: "0 6px", background: "#222", color: "#aaa",
+              border: "1px solid #444", cursor: "pointer", fontFamily: "monospace", fontSize: 11,
+            }}
+          >Tasten</button>
+        </h3>
         <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
           {(["off", "port1", "port2"] as JoyMode[]).map(m => {
             const label = m === "off" ? "OFF" : m === "port1" ? "1" : "2";
