@@ -75,6 +75,8 @@ function regionText(nodes: VisualNode[]): string[] {
 export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: Props): React.JSX.Element {
   const [checkpointId, setCheckpointId] = useState<string | null>(null);
   const [frameMode, setFrameMode] = useState<string>("");
+  // Spec 843 D3 — the frame's memory map, kept instead of discarded.
+  const [frame, setFrame] = useState<any | null>(null);
   const [node, setNode] = useState<VisualNode | null>(null);
   const [regionNodes, setRegionNodes] = useState<VisualNode[] | null>(null);
   const [name, setName] = useState("");
@@ -87,23 +89,70 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
   const overlayRef = useRef<HTMLDivElement>(null);
 
   // Open a checkpoint-bound inspect session on mount; close on unmount.
+  //
+  // Spec 843 D3 — `open` returns the whole frame memory map (bank, screen, char,
+  // bitmap and colour bases, the 64 registers, border and background). The UI used
+  // to keep `.mode` and drop the rest, which is why a ref read `$cf89` instead of
+  // "screen RAM +905, base $cc00, bank 3". An address without its base is a number,
+  // not an identity.
+  //
+  // Spec 843 D5 — the pin: `cpId` was a local assigned INSIDE the async IIFE, and
+  // the cleanup closed over it. Under StrictMode the first effect's cleanup runs
+  // before the assignment lands, so that checkpoint was pinned for ever — and pins
+  // are eviction-exempt, so the ring walks toward "every slot pinned, cannot
+  // capture". A ref is written synchronously by the time any cleanup can read it.
+  const openCpRef = useRef<string | null>(null);
+  // Spec 843 D4 — re-open when the machine moves under us. A Filmstrip scrub calls
+  // `checkpoint/restore` WITHOUT leaving `paused`, so this component never
+  // remounted: the canvas showed frame B and the panel answered with frame A's
+  // addresses, with nothing on screen to say so.
+  const [reopenNonce, setReopenNonce] = useState(0);
   useEffect(() => {
-    let cpId: string | null = null;
+    const onMoved = () => {
+      setNode(null);
+      setRegionNodes(null);
+      setOrigin(null);
+      setStatus("the machine moved — re-opening the inspect checkpoint");
+      setReopenNonce((n) => n + 1);
+    };
+    window.addEventListener("c64re:machine-moved", onMoved);
+    return () => window.removeEventListener("c64re:machine-moved", onMoved);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const r = await getClient().call<any>("vic/inspect/open", { session_id: sessionId });
-        cpId = r.checkpointId;
+        if (cancelled) {
+          // Unmounted while the call was in flight — close it rather than leaking
+          // a pin nobody holds a reference to.
+          getClient().call("vic/inspect/close", { session_id: sessionId, checkpoint_id: r.checkpointId }).catch(() => {});
+          return;
+        }
+        openCpRef.current = r.checkpointId;
         setCheckpointId(r.checkpointId);
         setFrameMode(r.frame?.mode ?? "");
-        setStatus(`Inspect open — checkpoint ${r.checkpointId}, ${r.frame?.mode ?? "?"}${r.provenance ? ` · provenance ${r.provenance.lines?.length ?? 0} lines` : " · no provenance"}`);
+        setFrame(r.frame ?? null);
+        const lines = r.provenance?.lines?.length ?? 0;
+        setStatus(`Inspect open — checkpoint ${r.checkpointId}, ${r.frame?.mode ?? "?"}`
+          + (lines > 0 ? ` · provenance ${lines} lines` : " · NO per-line provenance: a raster split will resolve against the frozen registers"));
       } catch (e: any) {
         setStatus(`vic/inspect/open failed: ${e?.message ?? e}`);
       }
     })();
     return () => {
-      if (cpId) getClient().call("vic/inspect/close", { session_id: sessionId, checkpoint_id: cpId }).catch(() => {});
+      cancelled = true;
+      const cpId = openCpRef.current;
+      openCpRef.current = null;
+      if (cpId) {
+        getClient().call("vic/inspect/close", { session_id: sessionId, checkpoint_id: cpId })
+          .catch((e: any) => console.warn("[inspect] close failed — a checkpoint stays pinned:", e?.message ?? e));
+      }
     };
-  }, [sessionId]);
+    // `reopenNonce` is in the deps so a scrub re-runs open/close as a pair: the old
+    // checkpoint is unpinned by this effect's cleanup before the new one is taken.
+  }, [sessionId, reopenNonce]);
 
   // The actual displayed-IMAGE rectangle inside the canvas element box. The
   // canvas is width/height:100% with object-fit:contain + a 2px border, so the
@@ -225,17 +274,64 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
 
   const rect = screenEl.getBoundingClientRect();
   const img = imageRect(); // true displayed-image rect (border + object-fit)
+  /**
+   * Spec 843 D3 — an address with its base is an identity; without one it is a
+   * number. `$cf89` says nothing; "screen $cc00 +905" says which cell of which
+   * screen in which bank.
+   */
+  const baseOf = (kind: string): { name: string; addr: number } | null => {
+    if (!frame) return null;
+    switch (kind) {
+      case "screen_ram": return frame.screenBase != null ? { name: "screen", addr: frame.screenBase } : null;
+      case "bitmap": return frame.bitmapBase != null ? { name: "bitmap", addr: frame.bitmapBase } : null;
+      case "charset": return frame.charBase != null ? { name: "chargen", addr: frame.charBase } : null;
+      case "color_ram": return { name: "colour", addr: 0xd800 };
+      default: return null;
+    }
+  };
+
   const renderRefs = (n: VisualNode) => (
     <table className="wb-regs"><tbody>
-      {n.refs.map((rf, i) => (
-        <tr key={i}>
-          <td>{rf.kind}</td><td>{hex(rf.addr)}</td>
-          <td>{rf.length}b</td><td>{rf.value != null ? hex(rf.value, 2) : ""}</td>
-          <td className="wb-muted">{rf.note ?? ""}</td>
-        </tr>
-      ))}
+      {n.refs.map((rf, i) => {
+        const base = baseOf(rf.kind);
+        const bytes: number[] | undefined = (rf as any).bytes;
+        return (
+          <tr key={i}>
+            <td>{rf.kind}</td>
+            <td>{hex(rf.addr)}</td>
+            {/* Where it sits in its own structure — the part that identifies it. */}
+            <td className="wb-muted">{base ? `${base.name} ${hex(base.addr)} +${rf.addr - base.addr}` : ""}</td>
+            <td>{rf.length}b</td>
+            {/* Spec 843 D2 — a multi-byte ref now carries its run, so the bytes that
+                ARE the picture are shown instead of an empty column. */}
+            <td style={{ fontFamily: "monospace" }}>
+              {bytes && bytes.length > 0
+                ? bytes.map((b) => b.toString(16).padStart(2, "0")).join(" ")
+                : rf.value != null ? hex(rf.value, 2) : ""}
+            </td>
+            <td className="wb-muted">{rf.note ?? ""}</td>
+          </tr>
+        );
+      })}
     </tbody></table>
   );
+
+  /** The frame's memory map, once, above the refs — the context every row is read against. */
+  const renderFrameMap = () => {
+    if (!frame) return null;
+    const cell = (label: string, v: unknown) =>
+      v == null ? null : <span key={label} style={{ marginRight: 14 }}><span className="wb-muted">{label} </span>{typeof v === "number" ? hex(v) : String(v)}</span>;
+    return (
+      <div style={{ marginBottom: 6, fontFamily: "monospace", fontSize: 12 }}>
+        {cell("bank", frame.bankBase)}
+        {cell("screen", frame.screenBase)}
+        {cell("chargen", frame.charBase)}
+        {cell("bitmap", frame.bitmapBase)}
+        {cell("colour", frame.colorBase ?? 0xd800)}
+        {frame.charRomShadow ? <span className="wb-muted">· char ROM shadow</span> : null}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -277,8 +373,14 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
                 {node.value != null && <span> char <strong className="wb-glyph">‘{glyphOf(node.value)}’</strong> code {hex(node.value, 2)}</span>}
                 {node.colorIndex != null && <span> color {node.colorIndex}</span>}
                 {node.raster && <span> raster line {node.raster.line}</span>}
+                {/* Spec 843 M4 — the PER-NODE mode. Under FLI it differs from the
+                    frame's, and that difference is the whole story of the cell. */}
+                {(node as any).mode && (node as any).mode !== frameMode && (
+                  <span> · mode <strong>{(node as any).mode}</strong> (frame: {frameMode})</span>
+                )}
               </div>
             )}
+            {renderFrameMap()}
             {renderRefs(node)}
             <button onClick={resolveOrigin} disabled={!checkpointId}>Resolve origin →</button>
           </div>

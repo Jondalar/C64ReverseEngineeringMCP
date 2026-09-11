@@ -76,6 +76,11 @@ export function Filmstrip(
       // shows the picture (auto-anchors omit the framebuffer). 769.5.
       await getClient().call("checkpoint/restore", { session_id: sessionId, id, then, render: then === "pause" });
       setSel(id);
+      // Spec 843 D4 — the machine moved without leaving `paused`, so anything bound
+      // to a CHECKPOINT rather than to the run state is now looking at a different
+      // picture than the one it holds. The Inspect overlay was the case: it kept
+      // frame A's addresses while the canvas showed frame B, silently.
+      window.dispatchEvent(new CustomEvent("c64re:machine-moved", { detail: { checkpointId: id } }));
       if (then === "run") setRunState?.("running");
     } finally { setBusy(false); }
   };
