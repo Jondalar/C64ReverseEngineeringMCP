@@ -96,6 +96,11 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
         title: answer,
         summary: `${def.name} (Spec 844 ${slot}). Evidence: ${evidence}`,
         tags,
+        // The evidence goes in evidence[], not only into the summary prose. The first
+        // real session exposed this as an own goal: slot_record's own findings tripped
+        // 846's `finding-without-evidence` check, because the text said "Evidence: ..."
+        // where nothing machine-readable was looking.
+        evidence: [{ kind: "note", title: `${def.name} (${slot})`, note: evidence, capturedAt: new Date().toISOString() }],
         ...(address_start !== undefined && address_end !== undefined
           ? { addressRange: { start: address_start, end: address_end } }
           : {}),

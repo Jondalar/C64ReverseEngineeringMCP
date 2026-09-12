@@ -94,12 +94,42 @@ export function parseNegativeClaim(text: string): NegativeClaim | undefined {
   for (const [re, verb] of NEGATIVE_PATTERNS) {
     const m = re.exec(text);
     if (m) {
-      const addresses = allAddresses(text);
-      if (addresses.length === 0) return undefined; // a negative about nothing nameable
+      // Addresses come from the SENTENCE the claim is in, never from the whole text.
+      //
+      // The first cut took every $address in the record. On the synthetic fixtures that
+      // was harmless — each finding was one short sentence — and on the first real
+      // session it produced a bad false positive: "Nothing reads a DOS sector link",
+      // buried in a 400-character summary, was checked against 38 addresses collected
+      // from the rest of that summary and "refuted" by an unrelated READS edge. The
+      // check answered a different question than the one the sentence asked.
+      //
+      // A negative with no address of its own is not actionable, and the branch below
+      // drops it — which is the right answer for that sentence.
+      const addresses = allAddresses(sentenceAround(text, m.index));
+      if (addresses.length === 0) return undefined;
       return { phrase: m[0].trim(), verb, addresses };
     }
   }
   return undefined;
+}
+
+/** The sentence containing `index`. Sentence-ending punctuation, newlines, or the ends. */
+function sentenceAround(text: string, index: number): string {
+  let start = 0;
+  for (let i = index; i > 0; i--) {
+    const ch = text[i];
+    if (ch === "\n" || ((ch === "." || ch === ";" || ch === "!" || ch === "?") && /\s/.test(text[i + 1] ?? " "))) {
+      start = i + 1; break;
+    }
+  }
+  let end = text.length;
+  for (let i = index; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "\n" || ((ch === "." || ch === ";" || ch === "!" || ch === "?") && /\s|$/.test(text[i + 1] ?? " "))) {
+      end = i; break;
+    }
+  }
+  return text.slice(start, end);
 }
 
 function allAddresses(text: string): number[] {
