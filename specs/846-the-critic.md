@@ -1,0 +1,144 @@
+# Spec 846 — The critic
+
+**Status:** DRAFT
+**Branch:** `spec-846-critic`
+**Repo:** C64RE
+**Origin:** the owner, on what he actually wants from the analysis phase:
+
+> "Ich WILL mich wegrationalisieren in der Analysephase. Ich will am Anfang den Scope
+> setzen und dann wieder kommen, wenn es die volle Analyse gibt bzw. der 1. PoC läuft."
+
+## 1. What is missing, precisely
+
+Three things stop being present when he leaves. Two of them are built:
+
+| | what he was | built |
+|---|---|---|
+| the FRAME | his ten questions | Spec 844 — the fourteen slots |
+| the MEMORY | the one who saw the connections | Spec 845 — the model layer and its re-entry read |
+| the **COUNTER-PRESSURE** | the one who did not believe "create.prg writes nothing" | **this spec** |
+
+Spec 844's ratchet counts runtime calls that leave no record, and that is not
+counter-pressure — it is satisfiable with `save_finding("looked at $4100")`. While he is
+watching, a cheap record is obvious. Unattended, it is indistinguishable from work. A
+counter is not an adversary.
+
+The Ultima VI session built the adversary itself, once it was asked: `contradictions[6]`,
+each naming which document was wrong and which was right; `gaps[14]` with a severity and
+a `nextRead`; `readyToDesign: false`. Five documents were rewritten as a result, with
+nobody standing over it. So the shape is known. What it needs is a home that does not
+require a human in the room.
+
+## 2. The part that needs no model at all
+
+This spec's central claim, and the reason it is worth building before the interesting
+half: **most of what he caught is mechanically checkable.**
+
+The corpus law from 844 §4.2 — *a scan proves presence, never absence* — cuts both ways.
+A negative claim is hard to ESTABLISH by scanning. It is easy to REFUTE by scanning,
+because a single contradicting edge is enough. Ultima VI's four false negatives each cost
+a rebuild, and every one of them is refutable against that project's own graph:
+
+| the claim | what the graph holds |
+|---|---|
+| "`$F3` is read by nothing, exhaustive scan" | `USES_ZP` edges into `$F3` |
+| "`$4800-$53FF` is unreferenced" | edges landing inside that range |
+| "only `$3E83` writes to disk" | other write edges to the same target |
+| "create.prg writes nothing" | the store the grep missed |
+
+The check is not "is this claim true" — that needs judgement. It is "this claim is
+NEGATIVE and the graph contains a counter-example", which is decidable, high precision
+when it fires, and carries its own evidence: the offending edge.
+
+**D1 — The negative-claim detector.** A finding whose text makes a universal negative
+("nothing reads", "never called", "unreferenced", "is not used", "only X writes") is
+matched against the graph for a counter-example. One counter-example is a CONTRADICTION,
+reported with the edge that proves it.
+
+Its limitation is stated rather than hidden: the claim is recognised by phrasing, the
+same way 844's S12 vocabulary gate works, so unusual wording escapes it. A check that
+catches four out of five confident false negatives at zero cost is worth having; one
+pretending to catch all five is not.
+
+**D2 — Six more checks that need nothing but the graph.** Each declares its own severity
+(D3) and each must produce the record that proves it, never a bare assertion:
+
+| check | finds | severity |
+|---|---|---|
+| negative claim refuted (D1) | a standing claim the graph contradicts | **blocking** |
+| refutation without a casualty | a `refutation` finding whose target still stands as active | **blocking** |
+| finding without evidence | the cheap record — 844's ratchet leak, closed | important |
+| overlapping boundaries at one level | two 845 containers claiming the same bytes | important |
+| empty boundary | a boundary asserted over nothing | important |
+| orphan ratio above threshold | model asserted but most of the graph outside it | important |
+| unreachable routine | no incoming edge and not an entry — dead code, or a missed seed | nice-to-have |
+
+"Refutation without a casualty" deserves its severity. Ultima VI's `amended[5]` records
+which documents a refutation forced to be rewritten; a refutation that invalidated nothing
+either was not acted on, or the thing it refuted is still being believed somewhere. Both
+are exactly the state this whole arc exists to prevent.
+
+**D3 — Severity belongs to the CHECK, not to the instance.** The calibration risk is real:
+a critic that finds nothing is worthless and one that finds everything blocks. The answer
+is not to judge each finding's importance — that is a model call and would be arbitrary
+and unauditable. It is to declare, once, per check, what its findings mean: **blocking**
+means a downstream claim is unsafe while it stands; **important** weakens the model;
+**nice-to-have** is hygiene. The table above is the whole calibration surface, and it can
+be argued with.
+
+## 3. The verdict
+
+**D4 — `readyToDesign`, computed, allowed to say no, and it names what would flip it.**
+
+Ready when: every required 844 slot is filled or `n/a`, no blocking critic finding stands,
+and coverage is at or above its threshold. Anything else is not ready, and the answer
+carries the list — which is the difference between a verdict and a timer.
+
+This replaces nothing: 844 already has `checkPhaseComplete`, and it becomes this. One
+question, one answer, one place.
+
+The second return trigger the owner named — *"der 1. PoC läuft"* — is mechanically
+cheaper and is NOT this: something runs and produces an expected result. It belongs with
+the scenario chain (810–814), not here.
+
+## 4. What is handed over rather than run
+
+**D5 — C64RE never calls a model.** Spec 773 decision #1 holds: *"C64RE ≠ 2.
+LLM-Runtime. Harness redet+denkt, C64RE merkt+zeigt."*
+
+The resolution is narrower than it first looked, and it is the whole reason this spec is
+allowed to exist: there is a field between REFUSING and DRIVING, and it is ASKING. Handing
+the harness a question is not running the model. So the critic has two halves:
+
+- what the graph can decide, C64RE decides (D1, D2)
+- what needs reading prose against prose, C64RE **formulates as a question** and the
+  harness answers, returning records through the ordinary doors
+
+C64RE holds the schedule, the checks and the verdict. It never holds a model client.
+
+**D6 — `settleBy` gets a carrier.** An open question that does not name the instrument
+which would settle it is, after a compact, only a bad conscience. Spec 845 named this as
+NOT built because `OpenQuestionRecord` has no tag carrier; this spec adds the field.
+Every gap the critic raises carries it, because the critic knows which check produced the
+gap and therefore what closes it.
+
+**D7 — When it runs.** On demand (`project_critique`), and as the answer to "is this
+done". Not on a timer and not in the background: a critic that runs unasked either burns
+budget or trains the session to ignore it.
+
+## 5. Open
+
+**The prompt shape for the handed-over half.** The deterministic checks can be specified
+here; what a prose-against-prose contradiction pass should ASK cannot be, before it has
+been tried on a real project. Ultima VI's six contradictions are the only sample, and one
+sample is a shape, not a spec.
+
+**The orphan ratio.** Like 844's coverage threshold and its ratchet limit: a number nobody
+has. Decidable on the first project that runs the check, not before.
+
+## 6. Not in this spec
+
+- Running the analysis loop itself. The critic is an instrument, not a driver.
+- The render — the HTML model. Downstream of this, and the owner has said the document
+  itself is beside the point.
+- The PoC return trigger. Scenario chain 810–814.
