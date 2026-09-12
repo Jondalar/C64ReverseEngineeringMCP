@@ -299,6 +299,8 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
     },
     safeHandler("extract_disk_custom_lut", async (args) => {
       const pd = context.projectDir(args.project_dir ?? args.image_path, true);
+      const slotGate = await (await import("../slots/gate.js")).checkSlotGate("extract_disk_custom_lut", pd);
+      if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
       const imageAbs = resolve(pd, args.image_path);
       const outAbs = args.output_dir ? resolve(pd, args.output_dir) : diskDefaultOutputDir(pd, imageAbs);
       const result = extractDiskCustomLut({

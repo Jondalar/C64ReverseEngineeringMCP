@@ -469,6 +469,12 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step). Give `source_path` (an .asm/.tas file, assembled here → bytes) OR pre-assembled `bytes`. `space` ram|roml|romh + `bank` + `addr` (CPU window addr) target RAM or a cart bank (795). Re-adding at the same target REPLACES (iterate a fix). Inputs: session_id, id, addr, space?, bank?, source_path?|bytes?. Returns: the candidate.",
     { session_id: z.string(), id: z.string(), addr: z.number(), space: z.enum(["ram", "roml", "romh"]).optional(), bank: z.number().optional(), source_path: z.string().optional(), bytes: z.array(z.number()).optional() },
     safeHandler("runtime_candidate_patch", async ({ session_id, id, addr, space, bank, source_path, bytes }) => {
+      // S11 gate: a patch ALLOCATES. Four corpus projects claimed free RAM from reading
+      // and all four were corrected by running, so a read-derived S11 does not open this.
+      {
+        const slotGate = await (await import("../slots/gate.js")).checkSlotGate("runtime_candidate_patch", process.env.C64RE_PROJECT_DIR?.trim() || undefined);
+        if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
+      }
       let src = "";
       let b = bytes;
       if (source_path && (!b || b.length === 0)) {

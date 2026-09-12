@@ -1,6 +1,6 @@
 # Spec 844 — The questions are a schema
 
-**Status:** PARTLY BUILT — D4 + D5 built and gated by `npm run e2e:844-teeth`; the slot store (D1/D2 over §4) is not built
+**Status:** BUILT — D1, D2, D4, D5. `npm run e2e:844-slots` + `npm run e2e:844-teeth`
 **Branch:** `spec-844-completeness`
 **Repo:** C64RE
 **Origin:** the owner, mid-way into Ultima VI with a project session:
@@ -168,23 +168,34 @@ LUT + EAPI), while every slot from S5 on is the same question either way. That i
 stating because it means the schema is ONE schema with three medium-shaped slots, not
 two parallel schemas.
 
-### 4.4 Built so far
-
-D4 and D5 only — the two teeth, not the fourteen slots. They were built first because
-they are the ones the owner's skepticism points at, they stand alone, and they are
-removable if they turn out to annoy more than they help.
+### 4.4 Built
 
 | File | What |
 |------|------|
-| `src/server-tools/citation-resolver.ts` | D4. Resolves every `$address` and record id in a hypothesis against routine nodes / findings / entities / graph nodes. Dormant on an empty project. |
-| `src/server-tools/runtime-ratchet.ts` | D5. `knowledge/runtime-ratchet.json`; threshold 4, `C64RE_RUNTIME_RATCHET=0` disables. |
-| `src/server-tools/discipline-gate.ts` | Both wired behind the unchanged form check, shared by all ten gated doors. |
-| `scripts/e2e-844-teeth.mjs` | `npm run e2e:844-teeth` — ten cases, and it can fail. |
+| `src/slots/schema.ts` | The fourteen slots as data: question, what fills it, `always` or conditional, REFUSE or REPORT, which doors it gates. `KNOWN_PENDING_DOORS` is the 834-shaped allowlist for a door that lives on another branch — it may shrink, not grow, and each entry carries a reason. |
+| `src/slots/state.ts` | D2. `slotReport(projectDir)` → per slot `filled / hypothesis / empty / n·a` plus the computed coverage. Fills either EXPLICITLY (a record tagged `slot:S3`) or DERIVED (registered media fill S2, ordered `loader-stage` entities fill S3, refutation findings fill S14). |
+| `src/slots/gate.ts` | D1. `checkSlotGate(door, …)`, the S12 vocabulary gate `checkCompletenessClaim`, and `checkPhaseComplete`. `C64RE_SLOT_GATE=0` disables all three. |
+| `src/server-tools/slots.ts` | `project_slots` (the completeness question) and `slot_record` (fill one, with evidence). Both in `DEFAULT_TOOLS` — a refusal that names a hidden tool is a dead end. |
+| `src/server-tools/citation-resolver.ts` | D4. |
+| `src/server-tools/runtime-ratchet.ts` | D5. `knowledge/runtime-ratchet.json`, threshold 4, `C64RE_RUNTIME_RATCHET=0` disables. |
+| `scripts/e2e-844-slots.mjs`, `scripts/e2e-844-teeth.mjs` | Both can fail; both do when the code is wrong. |
 
-The test proves the parts that matter and nothing it does not run: a fabricated `$C000`
-against a real corpus is refused, a resolving address is allowed, an empty project is
-allowed, the ratchet refuses on the 5th recordless run, and writing one finding releases
-it immediately.
+Gated doors, from §4.1: `register_payload` and `extract_disk_custom_lut` (S4, S2),
+`link_payload_to_asm` / `link_cart_chunk_to_asm` (S3), `runtime_candidate_patch` and
+`runtime_overlay_run` (S11), `render_docs` (S7/S9/S10), and `save_finding` for the S12
+vocabulary.
+
+**Two things the build changed about §4 itself, both found by the test:**
+
+**S4 may not be derived from payload entities.** It gates `register_payload`, so deriving
+it from the payloads that call produces would let the door feed itself — the first
+registration fills the slot that was supposed to precede it. The geometry is read off the
+directory or the LUT BEFORE anything is registered, so S4 is an explicit claim or it is
+nothing.
+
+**"Has this project begun" is one knowledge record.** Below that, no door is gated at all.
+A slot list applied to an empty directory refuses the first call anyone makes, which is
+the failure mode that is worse than having no gate.
 
 ### 4.5 What the slot list still does not settle
 

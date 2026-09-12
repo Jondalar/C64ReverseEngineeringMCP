@@ -918,6 +918,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       until_pc: z.number().optional(),
     },
     safeHandler("runtime_overlay_run", async ({ session_id, anchor_cycle, anchor_id, patches, run_cycles, until_pc }) => {
+      const slotGate = await (await import("../slots/gate.js")).checkSlotGate("runtime_overlay_run", process.env.C64RE_PROJECT_DIR?.trim() || undefined);
+      if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
       const r = await runtimeDaemon.overlayRun(session_id, { anchor_cycle, anchor_id, patches, run_cycles, until_pc });
       return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };

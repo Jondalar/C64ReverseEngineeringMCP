@@ -11,6 +11,7 @@ import { registerAgentWorkflowTools } from "./server-tools/agent-workflow.js";
 import { registerAnalysisWorkflowTools } from "./server-tools/analysis-workflow.js";
 import { registerMediaTools } from "./server-tools/media.js";
 import { registerArtifactTools } from "./server-tools/artifacts.js";
+import { registerSlotTools } from "./server-tools/slots.js";
 import { registerAssemblyTools } from "./server-tools/assembly.js";
 import { registerBasicTools } from "./server-tools/basic.js";
 import { registerCompressionTools } from "./server-tools/compression.js";
@@ -162,6 +163,7 @@ function createServer(): McpServer {
   registerAnalysisWorkflowTools(server, toolContext);
   registerMediaTools(server, toolContext);
   registerArtifactTools(server, toolContext);
+  registerSlotTools(server, toolContext);
   registerAssemblyTools(server, toolContext);
   registerBasicTools(server, toolContext);
   registerCompressionTools(server, toolContext);
@@ -223,6 +225,7 @@ export function collectToolInventory(): { name: string; description: string; fil
   group("server-tools/analysis-workflow.ts", () => registerAnalysisWorkflowTools(server, toolContext));
   group("server-tools/media.ts", () => registerMediaTools(server, toolContext));
   group("server-tools/artifacts.ts", () => registerArtifactTools(server, toolContext));
+  group("server-tools/slots.ts", () => registerSlotTools(server, toolContext));
   group("server-tools/assembly.ts", () => registerAssemblyTools(server, toolContext));
   group("server-tools/basic.ts", () => registerBasicTools(server, toolContext));
   group("server-tools/compression.ts", () => registerCompressionTools(server, toolContext));

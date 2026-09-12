@@ -102,6 +102,8 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
     },
     safeHandler("register_payload", async (args) => {
       const projectRoot = ctx.projectDir(args.project_dir);
+      const slotGate = await (await import("../slots/gate.js")).checkSlotGate("register_payload", projectRoot);
+      if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
       const service = new ProjectKnowledgeService(projectRoot);
       const addressRange = args.address_start !== undefined && args.address_end !== undefined
         ? { start: args.address_start, end: args.address_end, bank: args.bank }
@@ -476,6 +478,8 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
     },
     safeHandler("link_payload_to_asm", async (args) => {
       const projectRoot = ctx.projectDir(args.project_dir);
+      const slotGate = await (await import("../slots/gate.js")).checkSlotGate("link_payload_to_asm", projectRoot);
+      if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
       const service = new ProjectKnowledgeService(projectRoot);
       const payload = service.listEntities({ kind: "payload" }).find((e) => e.id === args.payload_id);
       if (!payload) throw new Error(`No payload with id ${args.payload_id}`);

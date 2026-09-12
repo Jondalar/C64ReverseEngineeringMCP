@@ -153,6 +153,13 @@ export class KnowledgeRecords {
     return existsSync(join(this.projectDir, "knowledge", "project.json"));
   }
 
+  /** The registered artifacts, read-only. Spec 844 §4 needs them to measure S12
+   *  coverage, and a slot report is not a reason to duplicate the artifacts.json
+   *  reader in a second place. */
+  listArtifacts(): ArtifactRecord[] {
+    return this.artifacts();
+  }
+
   private artifacts(): ArtifactRecord[] {
     const p = join(this.projectDir, "knowledge", "artifacts.json");
     if (!existsSync(p)) return [];

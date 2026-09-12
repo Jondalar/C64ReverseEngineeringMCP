@@ -45,6 +45,12 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // the product tool for every other step. Both keep internal maintenance tools
   // off the recommendation path (doNotCall only).
   "agent_next_step", "agent_run_step",
+  // Spec 844 — the completeness question. project_slots answers "for this disk set,
+  // these relationships are unnamed, here they are", which agent_next_step (a TO-DO
+  // question) structurally cannot; slot_record is the door that fills one. Both must be
+  // on the DEFAULT surface: a tool not in this set is HIDDEN, and a gate that refuses
+  // while naming a tool the caller cannot see is a dead end.
+  "project_slots", "slot_record",
   // Read knowledge
   "list_artifacts", "list_payloads", "list_findings", "list_open_questions",
   "list_entities", "list_flows", "read_artifact", "get_artifact_lineage",
