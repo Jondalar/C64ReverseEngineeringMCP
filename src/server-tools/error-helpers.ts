@@ -1,3 +1,4 @@
+import { hasProjectMarker } from "../project-root.js";
 // Spec 045: self-documenting errors. Every refusal / no-op response
 // should end with a "Recommended next action: ..." line so the agent
 // never has to guess. Used by the agent_* tool family and the
@@ -20,13 +21,19 @@ export function isProjectInitialised(projectDir: string): boolean {
   // resolveProjectDir / agent_onboard use). Previously this checked phase-plan.json
   // ONLY, so it drifted STRICTER than the resolver: a workflow-state-only project
   // resolved + onboarded fine but c64re_whats_next refused it as "not initialised".
-  try {
-    // Lazy require avoids pulling project-root (and its fs import) into this leaf
-    // module's load-critical path.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { hasProjectMarker } = require("../project-root.js") as typeof import("../project-root.js");
-    return hasProjectMarker(projectDir);
-  } catch {
-    return false;
-  }
+  //
+  // 2026-09-12 — and the fix for that reintroduced the bug through the back door. It
+  // used `require()`, which does not exist at runtime in this ESM bundle: the call threw
+  // on every invocation, the catch below returned false, and c64re_whats_next therefore
+  // refused EVERY project, always, with "Project not initialised".
+  //
+  // An unattended session reported the tool as unusable for its whole run and blamed a
+  // local hook that had blocked its agent_onboard call. That was a plausible diagnosis
+  // and the wrong one — the guard would have refused with or without the hook. Measured
+  // side by side on a real project: isProjectInitialised() false, hasProjectMarker() true.
+  //
+  // A static import is correct here. The comment below argued for a lazy one to keep
+  // project-root off this leaf module's load path; project-root imports only node:fs and
+  // node:path, so there is nothing to keep off it.
+  return hasProjectMarker(projectDir);
 }
