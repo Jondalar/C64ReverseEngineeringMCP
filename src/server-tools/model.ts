@@ -8,7 +8,20 @@
 // guessed it would produce exactly the confident-and-wrong record this spec exists to
 // stop. Membership underneath the boundary IS derived, and that is the whole split
 // (D2) — a dozen judgements index eleven thousand nodes.
-
+//
+// 2026-09-12 — these tools return TEXT ONLY, and that is deliberate.
+//
+// They used to pair the formatted report with a `structuredContent` summary, and the MCP
+// client shows only the structured half: the report was dropped on the floor every time.
+// A fresh session put through the re-entry test found it and named it the worst gap of
+// the run — `model_read`, the one tool built for exactly that entry, was the only one
+// that told it nothing, because all it ever saw was {"boundaries":9,"orphans":121,...}.
+// Counters instead of the model.
+//
+// agent_onboard was unaffected throughout: it returns text and nothing else, which is
+// why the handover worked while these did not. So the rule here is the same — the reader
+// is a model, the report is the product, and a machine summary that hides it is worse
+// than no machine summary.
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
@@ -56,7 +69,6 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
               `  model now: ${report.nodes.length} boundaries, ${report.memberTotal - report.orphans.length}/${report.memberTotal} nodes placed, ${report.orphans.length} orphaned`,
             ].join("\n"),
           }],
-          structuredContent: { id: node.id, level: node.level, members: mine?.members ?? 0, orphans: report.orphans.length },
         };
       } catch (e) {
         if (e instanceof ModelBoundaryError) {
@@ -78,18 +90,11 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
       const pd = context.projectDir(project_dir);
       if (model_only) {
         const r = await modelReport(pd);
-        return { content: [{ type: "text" as const, text: formatModel(r) }], structuredContent: { boundaries: r.nodes.length, orphans: r.orphans.length } };
+        return { content: [{ type: "text" as const, text: formatModel(r) }] };
       }
       const p = await reentryPackage(pd);
       return {
         content: [{ type: "text" as const, text: formatReentry(p) }],
-        structuredContent: {
-          boundaries: p.model.nodes.length,
-          orphans: p.model.orphans.length,
-          openSlots: p.openSlots.map((s) => s.id),
-          refutations: p.refutations.length,
-          coverage: p.coverage,
-        },
       };
     },
   );

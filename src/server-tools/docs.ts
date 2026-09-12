@@ -9,7 +9,20 @@
 // write their synthesis unprompted — 59 KB of it in one file, nine model documents in
 // another directory — they just write it invisibly. This makes existing behaviour
 // legible; it does not ask for new behaviour.
-
+//
+// 2026-09-12 — these tools return TEXT ONLY, and that is deliberate.
+//
+// They used to pair the formatted report with a `structuredContent` summary, and the MCP
+// client shows only the structured half: the report was dropped on the floor every time.
+// A fresh session put through the re-entry test found it and named it the worst gap of
+// the run — `model_read`, the one tool built for exactly that entry, was the only one
+// that told it nothing, because all it ever saw was {"boundaries":9,"orphans":121,...}.
+// Counters instead of the model.
+//
+// agent_onboard was unaffected throughout: it returns text and nothing else, which is
+// why the handover worked while these did not. So the rule here is the same — the reader
+// is a model, the report is the product, and a machine summary that hides it is worse
+// than no machine summary.
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
@@ -31,7 +44,6 @@ export function registerDocTools(server: McpServer, context: ServerToolContext):
         const d = await registerDoc(pd, path);
         return {
           content: [{ type: "text" as const, text: `Registered ${d.kind} "${d.title}" (${d.path}) — ${d.covers} coverage entr${d.covers === 1 ? "y" : "ies"}.` }],
-          structuredContent: { id: d.id, path: d.path, kind: d.kind, covers: d.covers },
         };
       } catch (e) {
         if (e instanceof DocRegisterError) {
@@ -53,12 +65,6 @@ export function registerDocTools(server: McpServer, context: ServerToolContext):
       const r = lintDocs(pd);
       return {
         content: [{ type: "text" as const, text: formatDocLint(r) }],
-        structuredContent: {
-          total: r.docs.length, declared: r.declaredCount,
-          undeclared: r.undeclared.map((d) => d.path),
-          malformed: r.malformed.map((d) => ({ path: d.path, error: d.error })),
-          dangling: r.dangling,
-        },
       };
     },
   );
@@ -90,7 +96,6 @@ export function registerDocTools(server: McpServer, context: ServerToolContext):
       const nodes = await listDocNodes(pd);
       return {
         content: [{ type: "text" as const, text: text + wrote }],
-        structuredContent: { documents: nodes.filter((n) => !n.placeholder).length },
       };
     },
   );

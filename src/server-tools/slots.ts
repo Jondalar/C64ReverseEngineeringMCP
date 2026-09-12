@@ -9,7 +9,20 @@
 // because a slot claim has a required shape: which slot, the answer, and the evidence
 // for it. S11 additionally demands the METHOD, because four corpus projects claimed free
 // RAM from reading and all four were corrected by running.
-
+//
+// 2026-09-12 — these tools return TEXT ONLY, and that is deliberate.
+//
+// They used to pair the formatted report with a `structuredContent` summary, and the MCP
+// client shows only the structured half: the report was dropped on the floor every time.
+// A fresh session put through the re-entry test found it and named it the worst gap of
+// the run — `model_read`, the one tool built for exactly that entry, was the only one
+// that told it nothing, because all it ever saw was {"boundaries":9,"orphans":121,...}.
+// Counters instead of the model.
+//
+// agent_onboard was unaffected throughout: it returns text and nothing else, which is
+// why the handover worked while these did not. So the rule here is the same — the reader
+// is a model, the report is the product, and a machine summary that hides it is worse
+// than no machine summary.
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
@@ -44,11 +57,6 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       }
       return {
         content: [{ type: "text" as const, text }],
-        structuredContent: {
-          coverage: report.coverage,
-          slots: report.states.map((s) => ({ id: s.slot.id, name: s.slot.name, status: s.status, detail: s.detail })),
-          missing: report.missing.map((s) => s.slot.id),
-        },
       };
     },
   );
@@ -153,7 +161,6 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
               : "Every required slot is now filled.",
           ].filter(Boolean).join("\n"),
         }],
-        structuredContent: { findingId: finding.id, slot, status: line?.status ?? "unknown" },
       };
     },
   );

@@ -6,7 +6,20 @@
 // C64RE supplies the questions; the HARNESS conducts the dialog. Same division as Spec
 // 846 D5 — handing over a question is not driving a model, and it is the only reason this
 // is allowed to exist next to Spec 773 decision #1.
-
+//
+// 2026-09-12 — these tools return TEXT ONLY, and that is deliberate.
+//
+// They used to pair the formatted report with a `structuredContent` summary, and the MCP
+// client shows only the structured half: the report was dropped on the floor every time.
+// A fresh session put through the re-entry test found it and named it the worst gap of
+// the run — `model_read`, the one tool built for exactly that entry, was the only one
+// that told it nothing, because all it ever saw was {"boundaries":9,"orphans":121,...}.
+// Counters instead of the model.
+//
+// agent_onboard was unaffected throughout: it returns text and nothing else, which is
+// why the handover worked while these did not. So the rule here is the same — the reader
+// is a model, the report is the product, and a machine summary that hides it is worse
+// than no machine summary.
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
@@ -35,7 +48,6 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
       }
       return {
         content: [{ type: "text" as const, text: lines.join("\n") }],
-        structuredContent: { present, contract, questions: present ? [] : KICKOFF_QUESTIONS },
       };
     },
   );
@@ -76,7 +88,6 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
       const path = saveContract(pd, contract);
       return {
         content: [{ type: "text" as const, text: `${formatContract(contract, true)}\n\nWritten: ${path}` }],
-        structuredContent: { path, contract },
       };
     },
   );
