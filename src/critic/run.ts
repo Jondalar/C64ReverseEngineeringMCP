@@ -229,8 +229,39 @@ function handoverQuestions(criticFindings: number, totalFindings: number): strin
 export async function verdict(projectDir: string): Promise<Verdict> {
   const blockers: string[] = [];
 
+  const { loadContract } = await import("../contract/contract.js");
+  const { contract, present } = loadContract(projectDir);
+
   const { slotReport } = await import("../slots/state.js");
   const slots = await slotReport(projectDir);
+
+  // Spec 848 — what the human asked for, checked. Without a contract only the defaults
+  // apply, which is the behaviour that existed before.
+  const d = contract.deliver ?? {};
+  if (d.namedRatio !== undefined && slots.naming.members > 0 && slots.naming.ratio < d.namedRatio) {
+    blockers.push(
+      `named ${(slots.naming.ratio * 100).toFixed(1)} % (${slots.naming.named}/${slots.naming.members} nodes) is below the ${(d.namedRatio * 100).toFixed(0)} % the contract asks for — coverage counts bytes in a RANGE, this counts things with a name`,
+    );
+  }
+  if (d.annotate?.length) {
+    const { KnowledgeRecords } = await import("../knowledge-graph/records.js");
+    const arts = new KnowledgeRecords(projectDir).listArtifacts();
+    for (const want of d.annotate) {
+      const has = arts.some((a) => /annotation/i.test(a.role ?? "") && (a.relativePath ?? a.title).includes(want));
+      if (!has) blockers.push(`the contract asks for "${want}" to be semantically annotated, and no annotations file covers it`);
+    }
+  }
+  if (d.documents?.length) {
+    const { lintDocs } = await import("../docs/scan.js");
+    const declared = lintDocs(projectDir).docs.filter((x) => x.declared);
+    for (const want of d.documents) {
+      const has = declared.some((x) =>
+        (x.frontmatter?.covers ?? []).some((c) =>
+          c.kind === "artifact" ? want.covers.includes(c.ref) : want.covers.toLowerCase().includes(c.start.toString(16))));
+      if (!has) blockers.push(`the contract asks for a document covering ${want.covers}${want.why ? ` (${want.why})` : ""}, and none declares it`);
+    }
+  }
+  void present;
   for (const s of slots.missing) {
     blockers.push(`slot ${s.slot.id} ${s.slot.name}: ${s.detail}`);
   }

@@ -10,6 +10,7 @@
     "e2e:845-model": "node scripts/e2e-845-model.mjs",
     "e2e:846-critic": "node scripts/e2e-846-critic.mjs",
     "e2e:847-docs": "node scripts/e2e-847-docs.mjs",
+    "e2e:848-contract": "node scripts/e2e-848-contract.mjs",
     "dev": "tsx watch src/cli.ts",
     "build": "tsc -p tsconfig.json && tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs && node dist/platform-kb/seed.js",
     "build:mcp": "tsc -p tsconfig.json",

@@ -51,7 +51,8 @@ function statePath(projectDir: string): string {
   return join(projectDir, "knowledge", "runtime-ratchet.json");
 }
 
-function threshold(): number {
+function threshold(contractLimit?: number): number {
+  if (contractLimit !== undefined && contractLimit >= 0) return contractLimit;
   const raw = process.env.C64RE_RUNTIME_RATCHET?.trim();
   if (!raw) return DEFAULT_THRESHOLD;
   const n = Number(raw);
@@ -87,7 +88,19 @@ function writeState(projectDir: string, s: RatchetState): void {
  * for one mistake.
  */
 export async function checkRatchet(tool: string, projectDir: string | undefined): Promise<RatchetVerdict> {
-  const limit = threshold();
+  // Spec 848 — the contract sets this per project; 4 is only what a project without one says.
+  // Precedence: a contract the human actually wrote > the env override > the default.
+  // loadContract() returns the DEFAULTS when no file exists, so the `present` flag is
+  // what decides — without it the env override became unreachable, which the e2e caught.
+  let contractLimit: number | undefined;
+  if (projectDir) {
+    try {
+      const { loadContract } = await import("../contract/contract.js");
+      const { contract, present } = loadContract(projectDir);
+      if (present) contractLimit = contract.limits?.runtimeRatchet;
+    } catch { /* no contract, no change */ }
+  }
+  const limit = threshold(contractLimit);
   if (limit === 0 || !projectDir || !existsSync(join(projectDir, "knowledge"))) {
     return { allowed: true, dormant: true };
   }

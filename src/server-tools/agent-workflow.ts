@@ -432,6 +432,23 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       // Order is deliberate. The REFUTATIONS come before anything else, because they are
       // the only part that saves work rather than asking for it: each one stops a rebuild
       // down a path already known to be wrong. Then what is unanswered, then the model.
+      // Spec 848 — the contract comes before everything, because it is the frame the
+      // rest is judged against: it decides which slots apply, what must be named, and
+      // what must be written up. A session that does not know what it owes cannot be
+      // said to have been told.
+      try {
+        const { loadContract, formatContract, KICKOFF_QUESTIONS } = await import("../contract/contract.js");
+        const { contract, present } = loadContract(projectRoot);
+        lines.push(``, `## ▶ What this project owes`);
+        lines.push(formatContract(contract, present));
+        if (!present) {
+          lines.push(``, `No contract yet. Ask the human these, then write the answers with \`contract_set\`:`);
+          for (const q of KICKOFF_QUESTIONS) lines.push(`- **${q.field}** — ${q.ask}`);
+          lines.push(`Every one asks for a DELIVERABLE. None asks what is true about the game — that is the work.`);
+        }
+        lines.push(``, `---`);
+      } catch { /* a project without the contract layer onboards as before */ }
+
       try {
         const { reentryPackage } = await import("../model/reentry.js");
         const pkg = await reentryPackage(projectRoot);

@@ -64,6 +64,9 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // document is written, doc_register right after, and wiki_index replaces the curated
   // docs/index.md that sat empty in both long-running projects for four months.
   "doc_register", "doc_lint", "doc_template", "wiki_index",
+  // Spec 848 — the human's expectations, stored. contract_show must be reachable at
+  // session start (it is what the onboarding hands over) and contract_set at kickoff.
+  "contract_show", "contract_set",
   // Read knowledge
   "list_artifacts", "list_payloads", "list_findings", "list_open_questions",
   "list_entities", "list_flows", "read_artifact", "get_artifact_lineage",

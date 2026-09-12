@@ -116,7 +116,11 @@ function stemOf(path: string): string {
   return dot > 0 ? base.slice(0, dot) : base;
 }
 
-function coverageThreshold(): number {
+function coverageThreshold(contractRatio?: number): number {
+  // Spec 848 — the contract decides. The env var stays as an override for a one-off run,
+  // and the hardcoded 0.6 is only what a project with neither says: it was picked blind
+  // and Ultima VI showed it wrong on first contact.
+  if (contractRatio !== undefined && contractRatio > 0 && contractRatio <= 1) return contractRatio;
   const raw = process.env.C64RE_COVERAGE_THRESHOLD?.trim();
   const n = raw ? Number(raw) : NaN;
   return Number.isFinite(n) && n > 0 && n <= 1 ? n : 0.6;
@@ -135,6 +139,13 @@ function unionSize(ranges: Array<{ start: number; end: number }>): number {
 }
 
 export async function slotReport(projectDir: string): Promise<SlotReport> {
+  const { loadContract } = await import("../contract/contract.js");
+  const { contract, contractPresent } = ((): { contract: import("../contract/contract.js").ProjectContract; contractPresent: boolean } => {
+    const r = loadContract(projectDir);
+    return { contract: r.contract, contractPresent: r.present };
+  })();
+  /** Slots this project owes. The contract may demand FEWER — 844 is a template. */
+  const owed = contractPresent ? contract.deliver?.slots : undefined;
   const { KnowledgeRecords } = await import("../knowledge-graph/records.js");
   const rec = new KnowledgeRecords(projectDir);
 
@@ -234,7 +245,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     covered += Math.min(unionSize(ranges), size);
   }
 
-  const threshold = coverageThreshold();
+  const threshold = coverageThreshold(contractPresent ? contract.deliver?.coverageRatio : undefined);
   const coverage: CoverageReport = {
     covered, total,
     ratio: total === 0 ? 0 : covered / total,
@@ -302,6 +313,9 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
 
   // ---- assemble -------------------------------------------------------------
   const states: SlotState[] = SLOTS.map((slot) => {
+    if (owed && !owed.includes(slot.id)) {
+      return { slot, status: "n/a" as const, detail: "the project contract does not ask for this one" };
+    }
     const cond = applies(slot);
     if (!cond.applies) return { slot, status: "n/a" as const, detail: cond.why };
 

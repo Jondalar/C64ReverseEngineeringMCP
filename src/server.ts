@@ -15,6 +15,7 @@ import { registerSlotTools } from "./server-tools/slots.js";
 import { registerModelTools } from "./server-tools/model.js";
 import { registerCriticTools } from "./server-tools/critic.js";
 import { registerDocTools } from "./server-tools/docs.js";
+import { registerContractTools } from "./server-tools/contract.js";
 import { registerAssemblyTools } from "./server-tools/assembly.js";
 import { registerBasicTools } from "./server-tools/basic.js";
 import { registerCompressionTools } from "./server-tools/compression.js";
@@ -170,6 +171,7 @@ function createServer(): McpServer {
   registerModelTools(server, toolContext);
   registerCriticTools(server, toolContext);
   registerDocTools(server, toolContext);
+  registerContractTools(server, toolContext);
   registerAssemblyTools(server, toolContext);
   registerBasicTools(server, toolContext);
   registerCompressionTools(server, toolContext);
@@ -235,6 +237,7 @@ export function collectToolInventory(): { name: string; description: string; fil
   group("server-tools/model.ts", () => registerModelTools(server, toolContext));
   group("server-tools/critic.ts", () => registerCriticTools(server, toolContext));
   group("server-tools/docs.ts", () => registerDocTools(server, toolContext));
+  group("server-tools/contract.ts", () => registerContractTools(server, toolContext));
   group("server-tools/assembly.ts", () => registerAssemblyTools(server, toolContext));
   group("server-tools/basic.ts", () => registerBasicTools(server, toolContext));
   group("server-tools/compression.ts", () => registerCompressionTools(server, toolContext));

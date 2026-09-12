@@ -18,6 +18,9 @@ import { slotReport, formatSlotReport } from "../slots/state.js";
 
 const SLOT_IDS = SLOTS.map((s) => s.id) as [SlotId, ...SlotId[]];
 
+/** Slots whose answer is not a claim about bytes, so no extract can back them. */
+const NON_ARTEFACT_SLOTS = new Set<SlotId>(["S1", "S13", "S14"]);
+
 export function registerSlotTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "project_slots",
@@ -101,6 +104,16 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
         // 846's `finding-without-evidence` check, because the text said "Evidence: ..."
         // where nothing machine-readable was looking.
         evidence: [{ kind: "note", title: `${def.name} (${slot})`, note: evidence, capturedAt: new Date().toISOString() }],
+        // Spec 848 — Spec 752's L1 tags a finding `ungrounded` when it cites no backing
+        // extract, and the first unattended run turned that into a deadlock: the agent
+        // complied with the S4 gate, filled five slots, and every one of those became an
+        // ungrounded finding that jammed the step recommender for the rest of the session.
+        //
+        // Part of the fix is here. L1 says "every finding ABOUT A FILE/PAYLOAD must cite a
+        // backing extract" — and S1 (which game is this) and S13 (the evidence standard)
+        // are not about a file. They are marked as such rather than left to look like
+        // unfinished work, which is a carve-out in the rule's own words, not a loophole.
+        ...(NON_ARTEFACT_SLOTS.has(slot) ? { tags: [...tags, "not-artifact-scoped"] } : {}),
         ...(address_start !== undefined && address_end !== undefined
           ? { addressRange: { start: address_start, end: address_end } }
           : {}),
