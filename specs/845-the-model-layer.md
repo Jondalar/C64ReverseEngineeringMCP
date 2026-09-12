@@ -1,6 +1,6 @@
 # Spec 845 — The model layer
 
-**Status:** DRAFT
+**Status:** BUILT — `npm run e2e:845-model`
 **Branch:** `spec-845-model-layer`
 **Repo:** C64RE
 **Origin:** the owner, on why the Ultima VI HTML model matters and why the HTML does not:
@@ -104,14 +104,40 @@ So: `slot_record` asserts the boundary as well, for the slots that have one. Com
 not merger. The model layer gets filled as a side effect of answering 844's questions,
 which is the point — nobody should have to build the model as separate work.
 
-## 5. Open
+## 5. Built
+
+| File | What |
+|------|------|
+| `src/model/types.ts` | The three levels, and which node kinds count as MEMBERS (`label`/`addr` are sub-routine detail; counting them would make every orphan report noise). |
+| `src/model/store.ts` | D1/D3. `assertBoundary` refuses without a citation, an inverted range, or an unknown level. |
+| `src/model/rollup.ts` | D2/D4/D5. Membership, rolled-up edges, orphans — all computed on read. |
+| `src/model/reentry.ts` | D6. Model + open slots + open questions + refutations, in one package. |
+| `src/server-tools/model.ts` | `model_assert`, `model_read`, `model_remove`, all on the DEFAULT surface. |
+| `src/slots/schema.ts` | D7. `CONTAINER_SLOTS` — the three slots that are boundaries, and at what level. |
+| `src/server-tools/slots.ts` | D7. `slot_record` takes `boundary_name` + a range and asserts the boundary alongside. |
+| `scripts/e2e-845-model.mjs` | 22 cases, each able to fail. |
+
+**One thing the build changed: a boundary is identified by its NAME, not by its start
+address.** The first cut derived the id from the range's first byte, and the test caught
+it on the second assertion: a component at $2000-$20FF inside a container at $2000-$3FFF
+produced the same id and silently overwrote its own parent. Model nodes therefore use the
+subsystem id form (`slug:sub:model.<name>`) and carry their range in `attrs`. Two
+boundaries may legitimately begin on the same byte; that is what a component at the head
+of its container IS.
+
+**Not built, and named rather than quietly dropped:** the `settleBy` field — an open
+question carrying the instrument that would settle it. `OpenQuestionRecord` has no tags
+and nothing else fits, and half of it here would be worse than none. It belongs with
+gaps and `nextRead` in the critic spec (§6), which is where it came from.
+
+## 6. Open
 
 **Whether `level` is three values or open.** The session used three
 (`container` / `component` / `code`) and three is enough for a C64 game; a closed set is
 checkable. An open set survives contact with a cartridge whose bank structure is a fourth
 level. Decidable at build time against a real cart project, not before.
 
-## 6. Not in this spec
+## 7. Not in this spec
 
 - The critic and the verdict — contradictions, gaps with `nextRead`, a computed
   `readyToDesign` that may say no. That is the unattended-run half and its own spec.

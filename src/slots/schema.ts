@@ -172,6 +172,23 @@ export const DOOR_SLOTS: ReadonlyMap<string, readonly SlotId[]> = (() => {
  * nobody can call would be the same defect wearing a different hat, so the gate test
  * checks every door name against the registered tools and only these are forgiven.
  */
+/**
+ * Spec 845 D7 — the slots that ARE boundaries, and at what level.
+ *
+ * Only three of the fourteen. That is the whole argument against merging `slot_record`
+ * with `model_assert`: ten of the others are descriptions, measurements, arithmetic or
+ * procedures, and pushing them through a container-shaped API would make the container
+ * fields optional — one door with a mode, which is two doors wearing one name. So the
+ * doors stay separate and this table is the seam: answering one of these three ALSO
+ * asserts the boundary, and the model layer fills as a side effect of answering 844's
+ * questions rather than as separate work.
+ */
+export const CONTAINER_SLOTS: ReadonlyMap<SlotId, "system" | "container" | "component"> = new Map([
+  ["S3", "container"],   // each boot stage is a deployable unit
+  ["S5", "container"],   // each resident runtime is one
+  ["S8", "component"],   // the engine's dispatcher / main loop / VM sit INSIDE a runtime
+]);
+
 export const KNOWN_PENDING_DOORS: ReadonlyMap<string, string> = new Map([
   ["runtime_inject_range", "Spec 843 D10 — built on branch spec-843-inspect, not yet merged to master. Remove this entry when it lands."],
 ]);

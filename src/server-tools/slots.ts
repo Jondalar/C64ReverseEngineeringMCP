@@ -13,7 +13,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
-import { SLOTS, SLOT_BY_ID, type SlotId } from "../slots/schema.js";
+import { SLOTS, SLOT_BY_ID, CONTAINER_SLOTS, type SlotId } from "../slots/schema.js";
 import { slotReport, formatSlotReport } from "../slots/state.js";
 
 const SLOT_IDS = SLOTS.map((s) => s.id) as [SlotId, ...SlotId[]];
@@ -61,8 +61,11 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       address_start: z.number().int().nonnegative().optional().describe("Start of the address range this answer covers, if it has one"),
       address_end: z.number().int().nonnegative().optional().describe("End of that range (inclusive)"),
       method: z.enum(["read", "run"]).optional().describe("REQUIRED for S11 (free RAM): was this established by READING (a hypothesis) or by RUNNING (settled)? Four corpus projects got this wrong in the same direction."),
+      boundary_name: z.string().optional().describe("For S3, S5 and S8 — the container this answer names, e.g. \"stage 2 loader\" or \"resident engine\". Given together with an address range it also asserts the Spec 845 model boundary, so the model fills as a side effect of answering this question (845 D7)."),
+      space: z.enum(["ram", "crt", "drv"]).default("ram").describe("Address space, when a boundary is being asserted alongside"),
+      owner: z.string().optional().describe("Bind the boundary to ONE artifact owner; omit to span the space"),
     },
-    async ({ project_dir, slot, answer, evidence, address_start, address_end, method }) => {
+    async ({ project_dir, slot, answer, evidence, address_start, address_end, method, boundary_name, space, owner }) => {
       const pd = context.projectDir(project_dir, true);
       const def = SLOT_BY_ID.get(slot)!;
 
@@ -98,6 +101,25 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
           : {}),
       });
 
+      // 845 D7 — a container-shaped slot also draws its boundary, when the caller gave
+      // enough to draw it. Not refused when they did not: S3 can be answered for a stage
+      // whose extent is not yet known, and demanding the range would push the answer out
+      // of the graph and into prose, which is the failure both specs exist to stop.
+      let boundary = "";
+      const level = CONTAINER_SLOTS.get(slot);
+      if (level && boundary_name && address_start !== undefined && address_end !== undefined) {
+        const { assertBoundary } = await import("../model/store.js");
+        const node = await assertBoundary(pd, {
+          name: boundary_name, level,
+          start: address_start, end: address_end,
+          description: answer, evidence: [evidence], slot,
+          space, owner,
+        });
+        boundary = `Boundary asserted: ${level} "${node.name}" $${node.start.toString(16).padStart(4, "0")}-$${node.end.toString(16).padStart(4, "0")}`;
+      } else if (level && !boundary_name) {
+        boundary = `Note: ${slot} is container-shaped. Pass boundary_name with a range and it also lands in the model (model_read).`;
+      }
+
       const report = await slotReport(pd);
       const line = report.states.find((s) => s.slot.id === slot);
       return {
@@ -105,6 +127,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
           type: "text" as const,
           text: [
             `Recorded ${slot} — ${def.name}: ${finding.id}`,
+            boundary,
             line ? `Slot is now: ${line.status} — ${line.detail}` : "",
             "",
             report.missing.length > 0

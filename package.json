@@ -7,6 +7,7 @@
   "scripts": {
     "e2e:844-teeth": "node scripts/e2e-844-teeth.mjs",
     "e2e:844-slots": "node scripts/e2e-844-slots.mjs",
+    "e2e:845-model": "node scripts/e2e-845-model.mjs",
     "dev": "tsx watch src/cli.ts",
     "build": "tsc -p tsconfig.json && tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs && node dist/platform-kb/seed.js",
     "build:mcp": "tsc -p tsconfig.json",

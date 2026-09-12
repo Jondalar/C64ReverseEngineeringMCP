@@ -51,6 +51,11 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // on the DEFAULT surface: a tool not in this set is HIDDEN, and a gate that refuses
   // while naming a tool the caller cannot see is a dead end.
   "project_slots", "slot_record",
+  // Spec 845 — the model layer. model_read is the RE-ENTRY read: after a compact or a
+  // /new it returns the boundaries with their citations, what is still open, and what was
+  // already refuted. It only helps if a fresh session can reach it without being told it
+  // exists, which means the default surface.
+  "model_read", "model_assert", "model_remove",
   // Read knowledge
   "list_artifacts", "list_payloads", "list_findings", "list_open_questions",
   "list_entities", "list_flows", "read_artifact", "get_artifact_lineage",
