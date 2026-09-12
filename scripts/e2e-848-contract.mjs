@@ -146,6 +146,22 @@ try {
     check("and it says what the number MEANS, not just that it is low",
       v.blockers.some((b) => /counts things with a name/.test(b)));
 
+    // annotate resolves against the MODEL, not against filenames — a contract is written
+    // at kickoff, when no address and no payload name is known yet.
+    saveContract(d, { goal: "annotate the loader wherever it turns out to be", deliver: { slots: ["S1"], annotate: ["loader"] } });
+    const vA = await verdict(d);
+    check("an annotate demand with no boundary yet says so, and names the cure",
+      vA.blockers.some((b) => /no model boundary is named for it yet \(model_assert\)/.test(b)),
+      vA.blockers.find((b) => /loader/.test(b)));
+
+    const { assertBoundary } = await import("../dist/model/store.js");
+    await assertBoundary(d, { name: "stage 2 loader", level: "container", start: 0x2000, end: 0x2200,
+      description: "the resident loader", evidence: ["header"], owner: "game" });
+    const vB = await verdict(d);
+    check("with the boundary asserted it reports how much of it carries names",
+      vB.blockers.some((b) => /"stage 2 loader" \(asked for as "loader"\) holds 2 routines\/tables and not one carries a human name/.test(b)),
+      vB.blockers.find((b) => /stage 2 loader/.test(b)));
+
     saveContract(d, { goal: "x and then some more words", deliver: { slots: ["S1"], documents: [{ covers: "$2000-$2040", why: "the loader" }] } });
     const v2 = await verdict(d);
     check("the verdict blocks on a demanded document that nobody declared",

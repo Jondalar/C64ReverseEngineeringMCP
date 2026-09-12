@@ -244,11 +244,53 @@ export async function verdict(projectDir: string): Promise<Verdict> {
     );
   }
   if (d.annotate?.length) {
-    const { KnowledgeRecords } = await import("../knowledge-graph/records.js");
-    const arts = new KnowledgeRecords(projectDir).listArtifacts();
+    // The first cut matched these words against artifact PATHS, and the trial showed why
+    // that is useless: a project's payloads are named after their disk directory entries
+    // — `a`, `i`, `p`, `s`, `01_neuromancer` — so "loader" matches nothing, ever, and the
+    // check would pass or fail by accident.
+    //
+    // A contract is written at kickoff, when nobody knows any address or filename. What
+    // the human CAN say is "the loader must be annotated, wherever it turns out to be".
+    // So the demand resolves against the Spec 845 MODEL: a boundary the session itself
+    // named, and the nodes inside it. That closes the loop — asserting a boundary is what
+    // makes the contract checkable, and the contract is what makes asserting it matter.
+    const { modelReport } = await import("../model/rollup.js");
+    const { isMachineName } = await import("../slots/state.js");
+    const model = await modelReport(projectDir);
+    const { GraphStore } = await import("../knowledge-graph/store.js");
+
     for (const want of d.annotate) {
-      const has = arts.some((a) => /annotation/i.test(a.role ?? "") && (a.relativePath ?? a.title).includes(want));
-      if (!has) blockers.push(`the contract asks for "${want}" to be semantically annotated, and no annotations file covers it`);
+      const boundary = model.nodes.find((n) => n.name.toLowerCase().includes(want.toLowerCase()));
+      if (!boundary) {
+        blockers.push(`the contract asks for "${want}" to be annotated, and no model boundary is named for it yet (model_assert)`);
+        continue;
+      }
+      let named = 0, total = 0;
+      try {
+        const store = GraphStore.open(projectDir, { readOnly: true });
+        try {
+          const rows = store.db.prepare(
+            `SELECT id, MAX(CASE WHEN layer='human' THEN name END) AS hn, MAX(name) AS an,
+                    MIN(address) AS address, MAX(owner) AS owner
+             FROM nodes WHERE kind IN ('routine','data_block','lookup_table','pointer_table')
+             GROUP BY id`,
+          ).all() as Array<{ hn: string | null; an: string | null; address: number; owner: string | null }>;
+          for (const r of rows) {
+            if (r.address < boundary.start || r.address > boundary.end) continue;
+            if (boundary.owner && r.owner !== boundary.owner) continue;
+            total++;
+            if (!isMachineName(r.hn ?? r.an)) named++;
+          }
+        } finally { store.close(); }
+      } catch { /* no graph — reported as unnamed below */ }
+
+      if (total === 0) {
+        blockers.push(`"${boundary.name}" is asserted for "${want}" but holds no routine or table to annotate — either the range is wrong or nothing in it has been disassembled`);
+      } else if (named === 0) {
+        blockers.push(`"${boundary.name}" (asked for as "${want}") holds ${total} routines/tables and not one carries a human name`);
+      } else if (named / total < (d.namedRatio ?? 0.5)) {
+        blockers.push(`"${boundary.name}" (asked for as "${want}") is ${(named / total * 100).toFixed(0)} % named — ${named} of ${total}`);
+      }
     }
   }
   if (d.documents?.length) {
