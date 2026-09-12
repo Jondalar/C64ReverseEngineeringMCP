@@ -27,6 +27,10 @@ export interface Refutation {
 
 export interface ReentryPackage {
   model: ModelReport;
+  /** The project's own synthesis, named. A session answering questions from a finished
+   *  project found the one document that carried five of its six answers with `find`,
+   *  because no tool mentioned it — and said so as its second-biggest complaint. */
+  documents: Array<{ path: string; title: string; declared: boolean; bytes: number }>;
   openSlots: Array<{ id: string; name: string; question: string; detail: string }>;
   openQuestions: string[];
   refutations: Refutation[];
@@ -38,6 +42,12 @@ export async function reentryPackage(projectDir: string): Promise<ReentryPackage
 
   const { slotReport } = await import("../slots/state.js");
   const slots = await slotReport(projectDir);
+
+  const { scanDocs } = await import("../docs/scan.js");
+  const documents = scanDocs(projectDir)
+    .filter((d) => !d.generated)
+    .sort((a, b) => b.bytes - a.bytes)
+    .map((d) => ({ path: d.path, title: d.frontmatter?.title ?? d.path, declared: d.declared, bytes: d.bytes }));
 
   const { KnowledgeRecords } = await import("../knowledge-graph/records.js");
   const rec = new KnowledgeRecords(projectDir);
@@ -57,6 +67,7 @@ export async function reentryPackage(projectDir: string): Promise<ReentryPackage
 
   return {
     model,
+    documents,
     openSlots: slots.missing.map((s) => ({
       id: s.slot.id, name: s.slot.name, question: s.slot.question, detail: s.detail,
     })),
@@ -69,6 +80,13 @@ export async function reentryPackage(projectDir: string): Promise<ReentryPackage
 export function formatReentry(p: ReentryPackage): string {
   const out: string[] = [];
   out.push(formatModel(p.model));
+
+  if (p.documents.length > 0) {
+    out.push("", "=== The project's own write-ups - read these before the raw records ===");
+    for (const d of p.documents.slice(0, 10)) {
+      out.push(`  ${(d.bytes / 1024).toFixed(0).padStart(4)} KB  ${d.path}${d.title !== d.path ? ` - ${d.title}` : ""}${d.declared ? "" : "  (undeclared)"}`);
+    }
+  }
 
   out.push("", "=== Already refuted - do not re-derive these ===");
   if (p.refutations.length === 0) {

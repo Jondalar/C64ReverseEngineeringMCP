@@ -443,7 +443,11 @@ export function loadOrBuildIndex(projectDir: string): ProjectSearchIndex {
 
 export interface SearchFilters { kind?: string; tag?: string; address?: string; artifactId?: string; entityId?: string; }
 export interface SearchHit {
-  id: string; kind: string; title: string; snippet: string; sourcePath: string; sourceAnchor?: string;
+  id: string; kind: string; title: string; snippet: string;
+  /** The record's whole summary, for `full_text` — the snippet is clipped at ~200 chars
+   *  and the clip lands consistently before the addresses a caller searched for. */
+  summary: string;
+  sourcePath: string; sourceAnchor?: string;
   tags: string[]; addressRange?: { start: number; end: number }; artifactIds: string[]; entityIds: string[]; why: string[]; score: number;
 }
 
@@ -504,7 +508,9 @@ export function searchIndex(index: ProjectSearchIndex, query: string, filters: S
     const s = scoreRecord(rec, q);
     if (!s) continue;
     scored.push({
-      id: rec.id, kind: rec.kind, title: rec.title, snippet: rec.snippet || rec.title, sourcePath: rec.sourcePath, sourceAnchor: rec.sourceAnchor,
+      id: rec.id, kind: rec.kind, title: rec.title, snippet: rec.snippet || rec.title,
+      summary: rec.summary || rec.snippet || rec.title,
+      sourcePath: rec.sourcePath, sourceAnchor: rec.sourceAnchor,
       tags: rec.tags, addressRange: rec.addressRange, artifactIds: rec.artifactIds, entityIds: rec.entityIds, why: s.why, score: s.score,
     });
   }

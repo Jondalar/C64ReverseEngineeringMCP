@@ -33,6 +33,15 @@ function renderHit(h: SearchHit): string {
   return `• [${h.kind}]${fmtAddr(h.addressRange)} ${h.title}\n    ${h.snippet}\n    ${h.sourcePath}${anchor}  | id=${h.id}${tail}\n    why: ${h.why.join("; ")}`;
 }
 
+/** Same hit, whole summary. `full_text: true` — see the note at the call site. */
+function renderHitFull(h: SearchHit): string {
+  const ids = [...h.artifactIds.slice(0, 2), ...h.entityIds.slice(0, 2)];
+  const tail = ids.length ? `  →${ids.join(",")}` : "";
+  const anchor = h.sourceAnchor ? `#${h.sourceAnchor}` : "";
+  const body = (h.summary && h.summary.length > h.snippet.length) ? h.summary : h.snippet;
+  return `• [${h.kind}]${fmtAddr(h.addressRange)} ${h.title}\n    ${h.sourcePath}${anchor}  | id=${h.id}${tail}\n    why: ${h.why.join("; ")}\n\n${body}`;
+}
+
 export function registerProjectSearchTools(server: McpServer, ctx: ServerToolContext): void {
   // project_reindex_search — rebuild the local cache.
   server.tool(
@@ -74,13 +83,19 @@ export function registerProjectSearchTools(server: McpServer, ctx: ServerToolCon
       artifact_id: z.string().optional().describe("Filter to records linked to this artifact id."),
       entity_id: z.string().optional().describe("Filter to records linked to this entity id."),
       limit: z.number().optional().describe("Max hits (default 10, max 50)."),
+      full_text: z.boolean().optional().describe("Return each hit's whole summary instead of a clipped snippet. Use when the question is about addresses or parameters — the clip lands at ~200 characters and those usually sit past it."),
     },
-    safeHandler("project_search", async (args: { project_dir?: string; query: string; kind?: string; tag?: string; address?: string; artifact_id?: string; entity_id?: string; limit?: number }) => {
+    safeHandler("project_search", async (args: { project_dir?: string; query: string; kind?: string; tag?: string; address?: string; artifact_id?: string; entity_id?: string; limit?: number; full_text?: boolean }) => {
       const dir = ctx.projectDir(args.project_dir);
       const index = loadOrBuildIndex(dir);
       const hits = searchIndex(index, args.query, { kind: args.kind, tag: args.tag, address: args.address, artifactId: args.artifact_id, entityId: args.entity_id }, args.limit ?? 10);
       if (hits.length === 0) return textContent(`No matches for "${args.query}". Try project_reindex_search if the project changed, or broaden the query.`);
-      return textContent(`${hits.length} hit(s) for "${args.query}":\n\n${hits.map(renderHit).join("\n\n")}`);
+      // A session answering questions from a finished project reported that every hit cost
+      // it a second round-trip: the snippet is clipped at ~200 characters and the clip
+      // lands consistently BEFORE the addresses, which is the part that was searched for.
+      // With fewer hits the whole summary is cheaper than the extra call.
+      const render = args.full_text ? renderHitFull : renderHit;
+      return textContent(`${hits.length} hit(s) for "${args.query}":\n\n${hits.map(render).join("\n\n")}`);
     }),
   );
 

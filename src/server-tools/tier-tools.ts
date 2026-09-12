@@ -70,6 +70,12 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Read knowledge
   "list_artifacts", "list_payloads", "list_findings", "list_open_questions",
   "list_entities", "list_flows", "read_artifact", "get_artifact_lineage",
+  // read_finding: project_search's own description has pointed callers at it for a long
+  // time and it did not exist. A session dropped into a finished project to answer
+  // questions from the record hit exactly that and fell back to running sqlite3 against
+  // knowledge/graph.sqlite — working around the tool surface to read the tool surface's
+  // own data.
+  "read_finding",
   "ram_report",
   // Analyse / disassemble
   "analyze_prg", "disasm_prg", "disasm_menu", "inspect_address_range",

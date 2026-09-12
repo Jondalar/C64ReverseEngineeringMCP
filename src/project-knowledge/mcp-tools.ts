@@ -211,8 +211,31 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
     },
     safeHandler("project_status", async ({ project_dir }) => {
-      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const root = resolveWorkspaceRoot(options, project_dir);
+      const service = new ProjectKnowledgeService(root);
       const status = service.getProjectStatus();
+
+      // The project's OWN synthesis documents, named here.
+      //
+      // A session dropped into a finished project to answer questions from the record
+      // reported that `project_status` "erwähnt docs/ mit keinem Wort": it lists the phase
+      // plan, the workflow state and the MCP repo's canonical docs — and not the one
+      // document in the project that answered five of its six questions. It found that
+      // with `find`, not with a tool, and the detour cost it most of its calls.
+      let docLines: string[] = [];
+      try {
+        const { scanDocs } = await import("../docs/scan.js");
+        const docs = scanDocs(root).filter((d) => !d.generated);
+        if (docs.length > 0) {
+          docLines = ["", `Project documents (${docs.length}) — start here, not with the raw records:`];
+          for (const d of [...docs].sort((a, b) => b.bytes - a.bytes).slice(0, 10)) {
+            const t = d.frontmatter?.title ? ` — ${d.frontmatter.title}` : d.declared ? "" : "  (undeclared)";
+            docLines.push(`  ${(d.bytes / 1024).toFixed(0).padStart(4)} KB  ${d.path}${t}`);
+          }
+          if (docs.length > 10) docLines.push(`  … ${docs.length - 10} more (doc_lint)`);
+        }
+      } catch { /* a project without the document layer prints what it always did */ }
+
       return textContent([
         `Project: ${status.project.name}`,
         `Root: ${status.project.rootPath}`,
@@ -234,6 +257,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Workflow state: ${status.paths.knowledgeWorkflowState}`,
         `Canonical docs: ${status.workflowPlan.canonicalDocPaths.join(", ") || "(none)"}`,
         `Canonical prompts: ${status.workflowPlan.canonicalPromptIds.join(", ") || "(none)"}`,
+        ...docLines,
         ``,
         `Phase status:`,
         ...status.workflowState.phases.map((phase) => formatWorkflowPhaseLine(phase)),
@@ -2007,6 +2031,37 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       return textContent(findings.map((finding) =>
         `${finding.id} | ${finding.kind} | ${finding.status} | c=${finding.confidence.toFixed(2)} | ${finding.title}`,
       ).join("\n"));
+    },
+));
+
+  server.tool(
+    "read_finding",
+    "Read ONE finding in full: title, summary, evidence, address range, tags and links. Use after project_search or list_findings points at an id — the search snippet is clipped and the addresses usually sit past the cut. Not a listing (use list_findings). Inputs: finding id. Returns: the whole record.",
+    {
+      project_dir: z.string().optional(),
+      id: z.string().describe("The finding id, as project_search or list_findings prints it"),
+    },
+    safeHandler("read_finding", async ({ project_dir, id }) => {
+      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const f = service.listFindings().find((x) => x.id === id || x.id.endsWith(id));
+      if (!f) return textContent(`No finding with id ${id}. list_findings shows what is there.`);
+      const lines = [
+        `# ${f.title}`,
+        `${f.kind} | ${f.status} | confidence ${f.confidence.toFixed(2)} | id=${f.id}`,
+      ];
+      const ar = f.addressRange ?? f.evidence?.[0]?.addressRange;
+      if (ar) lines.push(`range: $${ar.start.toString(16).padStart(4, "0")}-$${ar.end.toString(16).padStart(4, "0")}`);
+      if (f.tags?.length) lines.push(`tags: ${f.tags.join(", ")}`);
+      if (f.artifactIds?.length) lines.push(`artifacts: ${f.artifactIds.join(", ")}`);
+      if (f.entityIds?.length) lines.push(`entities: ${f.entityIds.join(", ")}`);
+      if (f.summary) lines.push("", f.summary);
+      if (f.evidence?.length) {
+        lines.push("", "## Evidence");
+        for (const e of f.evidence) {
+          lines.push(`- ${e.kind}: ${e.title ?? ""}${e.note ? ` — ${e.note}` : ""}${e.excerpt ? `\n  ${e.excerpt}` : ""}`);
+        }
+      }
+      return textContent(lines.join("\n"));
     },
 ));
 

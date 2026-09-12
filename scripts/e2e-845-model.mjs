@@ -174,6 +174,19 @@ try {
     const text = formatReentry(p);
     check("the re-entry text leads with 'do not re-derive'",
       /Already refuted - do not re-derive/.test(text) && /Still open/.test(text));
+
+    // A session answering questions from a finished project found the one document that
+    // carried five of its six answers with `find`, because no tool named it.
+    const { mkdirSync: mk, writeFileSync: wf } = await import("node:fs");
+    mk(join(d, "docs"), { recursive: true });
+    wf(join(d, "docs", "loader-model.md"),
+      "---\ntitle: The loader\nkind: synthesis\ncovers:\n  - $2000-$2040\nsources: [x.asm]\nstatus: current\n---\n\nbody\n");
+    const p2 = await reentryPackage(d);
+    check("D6: the package names the project's own write-ups",
+      p2.documents.some((x) => x.path === "docs/loader-model.md" && x.title === "The loader" && x.declared),
+      JSON.stringify(p2.documents));
+    check("and the text puts them before the raw records",
+      /write-ups - read these before the raw records/.test(formatReentry(p2)));
   }
 
   // --------------------------------------------------------------------- D7: the seam
