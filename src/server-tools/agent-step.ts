@@ -54,6 +54,7 @@ function countStaleViews(projectRoot: string): number {
 }
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { noteRecommendation } from "../agent-orchestrator/saturation.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { auditProject } from "../project-knowledge/audit.js";
 import { matchesGlob, scanRegistrationDelta } from "../lib/registration-delta.js";
@@ -127,6 +128,27 @@ export interface AgentNextStepResult {
   branches: AgentStepSuggestion[];
   blockedBy: Array<{ id: string; prompt: string; choices?: string[] }>;
   doNotCall: string[];
+  /** Set when the same step has been the answer for a while and nothing it waits on moved. */
+  saturation?: string;
+}
+
+/**
+ * Which completion checks currently HOLD, from the same signals the ladder reads.
+ *
+ * This is what separates "asked again" from "stuck": a recommendation repeating while
+ * the world changes is progress; repeating while nothing it waits for moves is not.
+ */
+function satisfiedChecks(signals: ProjectSignals): ReadonlySet<string> {
+  const s = new Set<string>();
+  if (signals.mediaArtifacts > 0) s.add("media-registered");
+  if (signals.extractedPayloads > 0) s.add("payloads-present");
+  if (signals.analysisArtifacts > 0) s.add("analysis-present");
+  if (signals.sourceArtifacts > 0) s.add("source-present");
+  if (signals.annotationArtifacts > 0) s.add("annotations-present");
+  if (signals.traceArtifacts > 0) s.add("trace-present");
+  if (signals.findings > 0) s.add("knowledge-present");
+  if (signals.unregisteredFiles === 0 && signals.unimportedManifests === 0 && signals.staleViews === 0) s.add("inventory-clean");
+  return s;
 }
 
 // ---------------------------------------------------------------------------
@@ -537,11 +559,21 @@ export function computeNextStep(projectRoot: string): AgentNextStepResult {
   const { primary, blockedBy } = pickPrimary(signals, projectRoot);
   const branches = buildBranches(primary, signals, projectRoot);
 
+  // Say so when the same answer has been standing while nothing it waits for moves.
+  // Reports, never blocks: the answer to "what do I do now" is never "nothing".
+  let saturation: string | undefined;
+  if (initialized) {
+    try {
+      saturation = noteRecommendation(projectRoot, primary.stepId, primary.completionChecks, satisfiedChecks(signals));
+    } catch { /* a counter must not break the tool it annotates */ }
+  }
+
   return {
     project: { name: projectName, dir: projectRoot },
     primary,
     branches,
     blockedBy,
+    saturation,
     doNotCall: [...FORBIDDEN_PRODUCT_TOOLS],
   };
 }
@@ -625,6 +657,7 @@ function renderNextStep(r: AgentNextStepResult): string {
   }
   lines.push(`Why: ${r.primary.why}`);
   lines.push(`Completion checks: ${r.primary.completionChecks.join(", ")}`);
+  if (r.saturation) lines.push(``, r.saturation);
   if (r.branches.length > 0) {
     lines.push(``);
     lines.push(`## Branches (valid iterative alternatives)`);

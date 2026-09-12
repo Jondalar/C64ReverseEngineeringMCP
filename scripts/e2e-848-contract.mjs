@@ -71,6 +71,35 @@ try {
       grounded.primary.phase === "runtime-trace", `phase=${grounded.primary.phase}`);
   }
 
+  // ------------------------------------------------- the saturation guard
+  {
+    const d = newProject(); dirs.push(d);
+    const { noteRecommendation } = await import("../dist/agent-orchestrator/saturation.js");
+    const none = new Set();
+
+    const first3 = [1, 2, 3].map(() => noteRecommendation(d, "static-analyze", ["analysis-present"], none));
+    check("a repeated answer is ordinary for the first few turns",
+      first3.every((x) => x === undefined), "a step is usually the answer more than once");
+
+    const fourth = noteRecommendation(d, "static-analyze", ["analysis-present"], none);
+    check("past the threshold it says how long it has been standing",
+      /4th time in a row/.test(fourth ?? "") && /analysis-present. has/.test(fourth ?? ""),
+      fourth?.slice(0, 80));
+    check("and it names the real possibility, not just the count",
+      /running it cannot satisfy that check/.test(fourth ?? ""),
+      "that is what the 27-minute jam actually was");
+
+    check("the streak resets when the awaited check is met",
+      noteRecommendation(d, "static-analyze", ["analysis-present"], new Set(["analysis-present"])) === undefined,
+      "repeating while the world changes is progress; repeating while nothing moves is not");
+    check("a different step also resets it",
+      noteRecommendation(d, "semantic-annotate", ["annotations-present"], none) === undefined);
+
+    // It must never become a refusal.
+    check("it is a NOTE, never a block", typeof (fourth ?? "") === "string" && /^NOTE:/.test(fourth ?? ""),
+      "a recommender that refuses to recommend is absurd");
+  }
+
   // ------------------------------------------------------------- named-ness
   {
     check("a machine name is recognised",
