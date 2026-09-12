@@ -420,6 +420,59 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         lines.push(`No \`knowledge/steering.md\`. Set persistent project rules (the discipline the agent must always apply — e.g. "after a load trace, derive the disk-T/S↔load cartography and register_payload the spans"; "after each action, record a finding + reconcile the related open question") with \`project_steering_set\`.`);
         lines.push(``);
       }
+      // Specs 844/845/846 — THE HANDOVER. The one thing that makes the rest of that arc
+      // more than passive machinery.
+      //
+      // Everything 844-846 built waits to be asked: the slots refuse when a door is
+      // called, the model answers when read, the critic speaks when invoked. A session
+      // that never calls them is a session the owner still has to hand-hold — which is
+      // exactly the complaint that started this ("ich rede mit Alzheimer-Patienten"). The
+      // memory existing and the session HAVING it are not the same thing.
+      //
+      // Order is deliberate. The REFUTATIONS come before anything else, because they are
+      // the only part that saves work rather than asking for it: each one stops a rebuild
+      // down a path already known to be wrong. Then what is unanswered, then the model.
+      try {
+        const { reentryPackage } = await import("../model/reentry.js");
+        const pkg = await reentryPackage(projectRoot);
+
+        if (pkg.refutations.length > 0) {
+          lines.push(``, `## ✖ ALREADY REFUTED — do not re-derive these (${pkg.refutations.length})`);
+          for (const r of pkg.refutations) {
+            lines.push(`- **${r.title}**`);
+            if (r.summary) lines.push(`  ${r.summary.split("\n")[0]}`);
+            if (r.amended.length) lines.push(`  _invalidated: ${r.amended.join(", ")}_`);
+          }
+          lines.push(``, `---`);
+        }
+
+        if (pkg.model.nodes.length > 0) {
+          lines.push(``, `## ▣ The model (${pkg.model.nodes.length} boundaries, ${pkg.model.memberTotal - pkg.model.orphans.length}/${pkg.model.memberTotal} nodes placed)`);
+          for (const n of [...pkg.model.nodes].sort((a, b) => a.start - b.start).slice(0, 20)) {
+            lines.push(`- ${n.level} **${n.name}** $${n.start.toString(16).padStart(4, "0")}-$${n.end.toString(16).padStart(4, "0")} — ${n.description}`);
+          }
+          lines.push(``, `Full model incl. the edges between boundaries: \`model_read\`.`, ``, `---`);
+        }
+
+        if (pkg.openSlots.length > 0) {
+          lines.push(``, `## ? Unanswered for this game (${pkg.openSlots.length} of 14)`);
+          lines.push(`These are the same questions in every multi-disk project, so they are a SCHEMA, not a checklist. Doors that deliver something depending on an empty one will refuse until it is filled (\`slot_record\`).`);
+          for (const s of pkg.openSlots) lines.push(`- **${s.id} ${s.name}** — ${s.question}`);
+          if (pkg.model.nodes.length === 0) {
+            lines.push(``, `Answering S3, S5 or S8 with \`boundary_name\` + a range also draws the model — it is not separate work.`);
+          }
+          lines.push(``, `---`);
+        }
+
+        if (pkg.coverage.total > 0) {
+          lines.push(``, `Coverage: ${pkg.coverage.covered} / ${pkg.coverage.total} bytes = ${(pkg.coverage.ratio * 100).toFixed(1)} % inside a known address range. "exhaustive" / "fully mapped" are claims ABOUT this number and are refused below its threshold.`, ``);
+        }
+
+        // The critic is announced, never auto-run: it reads the whole graph, and an
+        // onboarding that silently does that is an onboarding people learn to dread.
+        lines.push(`Adversarial pass over what this project already claims: \`project_critique\`.`, ``, `---`);
+      } catch { /* a project without the graph layer onboards exactly as before */ }
+
       // Spec 800 §C — runtime availability probe (every session). Surface the per-OS setup
       // recipe ONLY when the runtime is unavailable and cannot be auto-started; this is the
       // one place the runtime backend is named to the agent, and only at the setup boundary.
