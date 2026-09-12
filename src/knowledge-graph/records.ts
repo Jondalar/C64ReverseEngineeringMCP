@@ -919,6 +919,8 @@ export class KnowledgeRecords {
       artifactIds: uniq(arr(attrs.artifact_ids)),
       findingIds: uniq(arr(attrs.finding_ids).map((x) => this.mapFindingId(s.alias, x))),
       source: (str(attrs.source) ?? (q.layer === "human" ? "human-review" : "static-analysis")) as OpenQuestionRecord["source"],
+      // 846 D6 — surfaced, not newly stored: saveOpenQuestion has always written these.
+      tags: arr(attrs.tags).map((t) => String(t)),
       createdAt: q.created_at,
       updatedAt: q.updated_at,
     };

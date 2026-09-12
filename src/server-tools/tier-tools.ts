@@ -56,6 +56,10 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // already refuted. It only helps if a fresh session can reach it without being told it
   // exists, which means the default surface.
   "model_read", "model_assert", "model_remove",
+  // Spec 846 — the counter-pressure. project_critique is the adversarial pass the owner
+  // used to be; critic_checks is the severity table, on the surface so a finding that
+  // looks mis-ranked can be argued with instead of ignored.
+  "project_critique", "critic_checks",
   // Read knowledge
   "list_artifacts", "list_payloads", "list_findings", "list_open_questions",
   "list_entities", "list_flows", "read_artifact", "get_artifact_lineage",

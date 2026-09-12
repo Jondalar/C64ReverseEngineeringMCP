@@ -129,15 +129,37 @@ export async function checkCompletenessClaim(
   ].join("\n");
 }
 
-/** The slots a phase flip to done must have. Everything required and not n/a. */
+/**
+ * "Is this done?" — one question, one answer, one place.
+ *
+ * Spec 846 D4 absorbed this: the verdict is the slots AND the critic's blocking findings
+ * AND coverage, and it names every blocker rather than only the first kind it met. What
+ * stays here is the engagement guard — a project with no records is not answerable — and
+ * the refusal text, which must list what would flip the answer. A verdict that cannot say
+ * what would change it is a timer.
+ */
 export async function checkPhaseComplete(projectDir: string | undefined): Promise<SlotGateResult> {
   if (!projectDir || process.env.C64RE_SLOT_GATE === "0") return OK;
   let report: SlotReport;
   try { report = await slotReport(projectDir); } catch { return OK; }
   if (!engaged(report)) return OK;
-  const open = report.states.filter((s) => s.status === "empty" || s.status === "hypothesis");
-  if (open.length === 0) return OK;
-  return { allowed: false, refusal: slotRefusal("closing this phase", open) };
+
+  const { verdict } = await import("../critic/run.js");
+  const v = await verdict(projectDir);
+  if (v.ready) return OK;
+
+  return {
+    allowed: false,
+    refusal: [
+      "# Not done — the verdict is computed, and it says no.",
+      "",
+      `${v.blockers.length} blocker(s):`,
+      ...v.blockers.map((b) => `  - ${b}`),
+      "",
+      "`project_critique` shows each of these with the record that proves it.",
+      "`project_slots` shows the slot side. `critic_checks` explains the severities.",
+    ].join("\n"),
+  };
 }
 
 export type { SlotId };

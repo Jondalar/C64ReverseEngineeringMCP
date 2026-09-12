@@ -126,9 +126,14 @@ boundaries may legitimately begin on the same byte; that is what a component at 
 of its container IS.
 
 **Not built, and named rather than quietly dropped:** the `settleBy` field — an open
-question carrying the instrument that would settle it. `OpenQuestionRecord` has no tags
-and nothing else fits, and half of it here would be worse than none. It belongs with
-gaps and `nextRead` in the critic spec (§6), which is where it came from.
+question carrying the instrument that would settle it. Deferred to the critic spec (§6),
+which is where it came from.
+
+*Corrected 2026-09-12, while building 846:* this was deferred on the grounds that
+`OpenQuestionRecord` had no carrier, and that was wrong. `saveOpenQuestion` has always
+persisted `attrs.tags`; only `listOpenQuestions` dropped them on the way back out. The
+deferral was right for a different reason — `settleBy` is only worth having when
+something generates it, and that something is the critic.
 
 ## 6. Open
 

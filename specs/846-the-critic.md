@@ -1,6 +1,6 @@
 # Spec 846 — The critic
 
-**Status:** DRAFT
+**Status:** BUILT — `npm run e2e:846-critic`
 **Branch:** `spec-846-critic`
 **Repo:** C64RE
 **Origin:** the owner, on what he actually wants from the analysis phase:
@@ -126,7 +126,39 @@ gap and therefore what closes it.
 done". Not on a timer and not in the background: a critic that runs unasked either burns
 budget or trains the session to ignore it.
 
-## 5. Open
+## 5. Built
+
+| File | What |
+|------|------|
+| `src/critic/negative-claims.ts` | D1. Five claim shapes, including `only $X writes`, and the counter-example query per verb class. |
+| `src/critic/checks.ts` | D2/D3. The seven checks, each with its severity, what settles it, and why that severity. |
+| `src/critic/run.ts` | `critique()`, `verdict()`, and D5's `handoverQuestions` — questions, never a model call. |
+| `src/server-tools/critic.ts` | `project_critique` and `critic_checks`, both on the DEFAULT surface. |
+| `src/slots/gate.ts` | D4. `checkPhaseComplete` is now the verdict: slots AND blocking findings AND coverage, naming every blocker. |
+| `src/project-knowledge/types.ts`, `src/knowledge-graph/records.ts` | D6. |
+| `scripts/e2e-846-critic.mjs` | 22 cases. |
+
+The test fires D1 at Ultima VI's three address-shaped false negatives and the graph
+refutes all three, while the one true statement in the same set is left alone — precision
+is the property that matters here, and the test asserts it explicitly.
+
+**D6 was smaller than Spec 845 recorded.** `saveOpenQuestion` has always persisted
+`attrs.tags`; only `listOpenQuestions` dropped them on the way back out. So there was a
+carrier all along and 845's note that there was none was wrong. Surfacing the field was
+the whole change.
+
+**Two corrections the test forced:**
+
+`empty-boundary` and `orphan-ratio` were skipped when a project had no boundaries, and
+vanished from the "checks run" list with them. A check that disappears when it has nothing
+to look at is exactly what makes a quiet report unreadable — you cannot tell "found
+nothing" from "never ran". They are now always listed.
+
+The `only $X writes` refutation printed the claimed address as the place the counter-edge
+landed, which is not what it found. It now names the other doer: *"$4A10 also does it:
+WRITES edge $4A10 -> $DD00, the same target $3E83 reaches"*.
+
+## 6. Open
 
 **The prompt shape for the handed-over half.** The deterministic checks can be specified
 here; what a prose-against-prose contradiction pass should ASK cannot be, before it has
@@ -136,7 +168,7 @@ sample is a shape, not a spec.
 **The orphan ratio.** Like 844's coverage threshold and its ratchet limit: a number nobody
 has. Decidable on the first project that runs the check, not before.
 
-## 6. Not in this spec
+## 7. Not in this spec
 
 - Running the analysis loop itself. The critic is an instrument, not a driver.
 - The render — the HTML model. Downstream of this, and the owner has said the document

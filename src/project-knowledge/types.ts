@@ -1137,6 +1137,12 @@ export const OpenQuestionRecordSchema = z.object({
   updatedAt: TimestampSchema,
   answeredByFindingId: IdSchema.optional(),
   answerSummary: z.string().optional(),
+  // Spec 846 D6 — the carrier for `settleBy:<instrument>`. The write path already
+  // persisted question tags into attrs; only the read path dropped them, which is why
+  // Spec 845 recorded this as "no carrier" and deferred it. An open question that does
+  // not name the instrument which would settle it is, after a compact, a bad conscience
+  // and nothing more.
+  tags: z.array(z.string()).default([]),
 });
 
 export const UserLabelOverrideSchema = z.object({
