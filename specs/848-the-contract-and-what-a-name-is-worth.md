@@ -103,7 +103,72 @@ named routines.
 | `src/critic/run.ts`, `runtime-ratchet.ts` | The verdict and the ratchet read the contract. |
 | `scripts/e2e-848-contract.mjs` | 19 cases, fixtured on the real run's signal shape. |
 
-## 5. Not in this spec
+## 5. The validation run
+
+Same four disks, same folder, **the same prompt word for word** as the run in §1. The only
+difference was the machinery, and the contract — which said nothing the prompt said.
+
+| | run 1 | run 3 |
+|---|---|---|
+| annotation files | 0 | 5 |
+| named routines | 0 | 40 |
+| **NAMED** | **0.0 %** | **39.3 %** |
+| model boundaries | 2 | 9 |
+| declared documents | 0 | 1 |
+| slots filled | 7 | 9 |
+| entities / findings | 273 / 209 | 634 / 287 |
+
+It missed the contract by 0.7 points, and its own closing plan reads *"danach ist auch die
+40-%-Namensquote erledigt"* — planning against a number that was never in its prompt. It
+also reported, unprompted, that `save_finding` marked a finding UNGROUNDED and it re-saved
+with `artifact_ids`; that `project_critique` said not-ready and it removed the overlapping
+and empty boundaries it had made itself; and that S11 stayed a hypothesis because no
+runtime was reachable — its own words in the slot: *"NOT established — nothing has been
+run, so no byte has been shown free"*. That is the discipline four corpus projects failed.
+
+### 5.1 The re-entry test
+
+A second session, fresh, was dropped into the finished project and asked six questions
+about the game under one rule: **do not re-analyse anything**. It answered all six from the
+project alone in ten tool calls — the boot chain with addresses, the single disk gateway
+at `$4BEC`/`$4BEE` with its calling convention, four save slots of 2301 bytes, the
+container format, no copy protection.
+
+Its answer to "what is still uncertain, and how do you know" is the one that matters: it
+found that nothing had ever been executed, that S11 was explicitly not established, that
+two boundaries were empty, and that an earlier claim had already been retracted. **The
+memory carries the uncertainty, not only the assertions.**
+
+And it found the worst defect of the day, which was mine.
+
+## 6. What the run cost me to learn
+
+**Every read tool built across 845–848 was throwing its report away.** They paired the
+formatted text with a `structuredContent` summary, and the client shows only the
+structured half. `model_read` — the one tool built for exactly that re-entry — returned
+`{"boundaries":9,"orphans":121,…}`. Counters instead of the model. In the session's words:
+*"das eine Tool, das für genau diesen Einstieg gebaut ist, ist das einzige, das nichts
+gebracht hat."*
+
+`agent_onboard` was never affected, because it returns text and nothing else. That is
+exactly why the handover worked while these did not, and it is the rule now: the reader is
+a model, the report is the product, and a machine summary that hides it is worse than
+none.
+
+**A document demand had to speak the same language as `annotate`.** The run wrote the
+document that was asked for and declared it with the ranges it covers; the check compared
+the literal word "loader" against `$3E00-$42F9` and reported none existed. The session
+named it itself — *"kein Wissens-, sondern ein Deklarationsproblem"*. A role now resolves
+through the model to a range, and overlap satisfies it.
+
+**And `createId` is not deterministic, by design.** It appends a timestamp and a random
+suffix so two ids made in the same millisecond cannot collide — which meant the
+"deterministic" key used for version-decision questions deduplicated nothing, and every
+inventory sync filed the question again. The trial ended with 13 open questions of which
+11 were this, `04_i` and `02_a` four times each, burying the two that were about the game.
+An open question already asking this about this subject IS the question; it is reused.
+
+## 7. Not in this spec
 
 - The saturation guard — "I have recommended this step six times and its completion check
   has not moved". Right shape, needs history the recommender does not keep.

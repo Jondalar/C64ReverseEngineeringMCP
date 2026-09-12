@@ -3652,12 +3652,25 @@ export class ProjectKnowledgeService {
   }
 
   private openVersionDecisionQuestion(subject: string, ordered: ReturnType<typeof rankCandidate>[]): void {
+    // One question per subject, not one per sync.
+    //
+    // `createId` appends a timestamp AND a random suffix — deliberately, so two ids made
+    // in the same millisecond cannot collide — which means passing it a "deterministic"
+    // key here never deduplicated anything. Every inventory sync filed the question again.
+    // A real trial project ended with 13 open questions of which 11 were this, "04_i" and
+    // "02_a" four times each, burying the two that were actually about the game; the
+    // session reading it back called them "Auto-Rauschen" and had to dig for the real ones.
+    //
+    // An open question already asking this about this subject IS the question. Reuse it.
+    const existing = this.listOpenQuestions({ status: "open" })
+      .find((q) => q.kind === "version-decision" && q.title.includes(`"${subject}"`));
+
     const tiedNames = ordered
       .filter((c) => c.rank === ordered[0]!.rank)
       .map((c) => c.artifact.relativePath ?? c.artifact.title)
       .slice(0, 4);
     this.saveOpenQuestion({
-      id: createId("question", `version-decision-${subject}`),
+      id: existing?.id ?? createId("question", `version-decision-${subject}`),
       kind: "version-decision",
       title: `Which source is the current version for "${subject}"?`,
       description: `Two or more sources tie on rank for this subject; pick one as current in the Inspector. Candidates: ${tiedNames.join(", ")}.`,
