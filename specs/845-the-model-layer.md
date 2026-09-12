@@ -90,18 +90,28 @@ The refutations matter most here — six of them in Ultima VI, each one stopping
 down a path already known to be wrong. Re-reading is cheap; re-deriving is what we are
 paying for.
 
-## 4. Open
+## 4. Where this meets Spec 844
 
-**How the coarse boundaries get asserted in the first place.** A tool the model calls is
-the obvious answer, and 844's `slot_record` is the shape. But several containers ARE
-slots — S3's boot stages, S5's runtimes, S8's engine — so the two may be one door rather
-than two, and that decision changes both specs.
+**D7 — Two doors, one of which calls the other.** Several containers ARE slots: S3's boot
+stages, S5's runtimes, S8's engine. That looked like a reason to merge `slot_record` with
+the boundary-asserting door, and it is not. Of the fourteen slots only three or four are
+container-shaped; S4 is a description, S11 a measurement, S12 arithmetic, S13 and S14
+procedures. One door for both would push ten non-container slots through a
+container-shaped API, or make the container fields optional — which is one door with a
+mode, which is two doors wearing one name.
 
-**Whether `level` is three values or open.** The session used three. Three is enough for
-a C64 game and a closed set is checkable; an open set survives contact with a cartridge
-whose bank structure is a fourth level.
+So: `slot_record` asserts the boundary as well, for the slots that have one. Composition,
+not merger. The model layer gets filled as a side effect of answering 844's questions,
+which is the point — nobody should have to build the model as separate work.
 
-## 5. Not in this spec
+## 5. Open
+
+**Whether `level` is three values or open.** The session used three
+(`container` / `component` / `code`) and three is enough for a C64 game; a closed set is
+checkable. An open set survives contact with a cartridge whose bank structure is a fourth
+level. Decidable at build time against a real cart project, not before.
+
+## 6. Not in this spec
 
 - The critic and the verdict — contradictions, gaps with `nextRead`, a computed
   `readyToDesign` that may say no. That is the unattended-run half and its own spec.
