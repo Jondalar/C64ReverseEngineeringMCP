@@ -52,6 +52,11 @@ const NEGATIVE_PATTERNS: ReadonlyArray<readonly [RegExp, Verb]> = [
   [/\bread by (?:nothing|no one|nobody)\b/iu, "read"],
   [/\b(?:nothing|no one|nobody|no code|no routine)\s+(?:ever\s+)?reads?\b/iu, "read"],
   [/\bnever\s+read\b/iu, "read"],
+  // Object position. Ultima VI's actual claim was "create.prg writes nothing", and the
+  // first cut only matched "nothing writes" — a real miss on a real project.
+  [/\b(?:reads?)\s+nothing\b/iu, "read"],
+  [/\b(?:writes?)\s+nothing\b/iu, "write"],
+  [/\b(?:calls?)\s+nothing\b/iu, "call"],
   [/\b(?:nothing|no one|nobody|no code|no routine)\s+(?:ever\s+)?writes?\b/iu, "write"],
   [/\bnever\s+written\b/iu, "write"],
   [/\bwritten by (?:nothing|no one|nobody)\b/iu, "write"],
@@ -156,6 +161,23 @@ export function findCounterExample(
     ).all(span.start, span.end, ...types) as Array<{ type: string; from_id: string; to_id: string; address: number }>;
     const hit = rows[0];
     if (hit) return { edgeType: hit.type, from: hit.from_id, to: hit.to_id, address: hit.address };
+
+    // A to_id may point into the PLATFORM file rather than this project's nodes table —
+    // the graph schema says so outright, and USES_ZP is exactly that case: every one of
+    // Ultima VI's 4970 zero-page edges targets `c64:zp:xxxx`, which the join above cannot
+    // see. That is why "$F3 is read by nothing" survived the first version of this check
+    // against the very project whose rebuild it cost. Every id form ends in four hex
+    // digits, so a suffix match finds them; it is an unindexed scan, which is why it is
+    // only done for single addresses and not for a range of thousands.
+    if (span.start === span.end) {
+      const suffix = span.start.toString(16).padStart(4, "0");
+      const dangling = db.prepare(
+        `SELECT e.type, e.from_id, e.to_id FROM edges e
+         WHERE substr(e.to_id, -4) = ? ${typeClause} LIMIT 1`,
+      ).all(suffix, ...types) as Array<{ type: string; from_id: string; to_id: string }>;
+      const d = dangling[0];
+      if (d) return { edgeType: d.type, from: d.from_id, to: d.to_id, address: span.start };
+    }
   }
   return undefined;
 }

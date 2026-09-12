@@ -58,6 +58,17 @@ export interface CoverageReport {
 
 const SLOT_TAG = /^slot:(S\d{1,2})$/i;
 
+/** What COUNTS as bytes of the game. A generated .asm is an output, not a payload;
+ *  counting it would both double-count and measure text. */
+const MEASURABLE_KINDS = new Set(["prg", "raw", "extract"]);
+
+/** "analysis/disk/game/07_game.prg" -> "07_game", which is what the graph calls its owner. */
+function stemOf(path: string): string {
+  const base = path.split("/").pop() ?? path;
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(0, dot) : base;
+}
+
 function coverageThreshold(): number {
   const raw = process.env.C64RE_COVERAGE_THRESHOLD?.trim();
   const n = raw ? Number(raw) : NaN;
@@ -102,26 +113,60 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   }
 
   // ---- coverage (S12) -------------------------------------------------------
-  const ranges: Array<{ start: number; end: number }> = [];
-  for (const r of routines) if (r.endAddress != null) ranges.push({ start: r.address, end: r.endAddress });
-  for (const e of entities) if (e.addressRange) ranges.push(e.addressRange);
-  for (const f of findings) {
-    const ar = f.addressRange ?? f.evidence?.[0]?.addressRange;
-    if (ar) ranges.push(ar);
-  }
-  const artifacts = rec.listArtifacts();
+  //
+  // The first cut of this was wrong in two ways and a run against Ultima VI's real
+  // project showed both inside a second. It summed the fileSize of ALL 321 registered
+  // artifacts — 27 MB of generated .asm text and 23 MB of internal files included — and
+  // it unioned address ranges across every artifact at once, as though $2000 in one
+  // overlay were the same byte as $2000 in another. That capped the ratio at a few
+  // percent structurally, no matter how well anyone worked, and reported 0.1 %.
+  //
+  // So: coverage is computed PER OWNER, the way the bytes actually lie. An owner is a
+  // loadable file's stem, which is exactly what the graph already carries on its nodes.
+  // The denominator is every non-internal loadable artifact, INCLUDING the ones nobody
+  // has looked at yet — S12 asks how many of the bytes present are accounted for, and an
+  // unanalysed file is present.
+  const artifacts = rec.listArtifacts().filter((a) => !a.internal && MEASURABLE_KINDS.has(a.kind));
+
+  const rangesByOwner = new Map<string, Array<{ start: number; end: number }>>();
+  try {
+    const { GraphStore } = await import("../knowledge-graph/store.js");
+    const store = GraphStore.open(projectDir, { readOnly: true });
+    try {
+      const rows = store.db.prepare(
+        `SELECT owner, address, end_address FROM nodes
+         WHERE owner IS NOT NULL AND end_address IS NOT NULL
+           AND kind IN ('routine','segment','payload','data_block','entry')`,
+      ).all() as Array<{ owner: string; address: number; end_address: number }>;
+      for (const r of rows) {
+        const list = rangesByOwner.get(r.owner) ?? [];
+        list.push({ start: r.address, end: r.end_address });
+        rangesByOwner.set(r.owner, list);
+      }
+    } finally { store.close(); }
+  } catch { /* no graph yet — every artifact is simply uncovered */ }
+
   let total = 0;
+  let covered = 0;
   const unmeasured: string[] = [];
   for (const a of artifacts) {
-    if (a.addressRange) total += a.addressRange.end - a.addressRange.start + 1;
-    else if (a.fileSize && a.fileSize > 2) total += a.fileSize - 2; // minus the load address
-    else unmeasured.push(a.title);
+    const size = a.addressRange
+      ? a.addressRange.end - a.addressRange.start + 1
+      : (a.fileSize && a.fileSize > 2 ? a.fileSize - 2 : 0); // minus the load address
+    if (size <= 0) { unmeasured.push(a.title); continue; }
+    total += size;
+    const own = stemOf(a.relativePath ?? a.path ?? a.title);
+    const ranges = rangesByOwner.get(own);
+    if (!ranges) continue;
+    // Clipped to the file: ranges live in load-address space and a union can otherwise
+    // exceed the artifact it describes. The cap is a cap, not a measurement, and it is
+    // better than a ratio above 1.
+    covered += Math.min(unionSize(ranges), size);
   }
-  const covered = Math.min(unionSize(ranges), total || Number.MAX_SAFE_INTEGER);
+
   const threshold = coverageThreshold();
   const coverage: CoverageReport = {
-    covered: total === 0 ? 0 : covered,
-    total,
+    covered, total,
     ratio: total === 0 ? 0 : covered / total,
     unmeasured,
     threshold,

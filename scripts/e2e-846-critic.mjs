@@ -44,12 +44,15 @@ function seedGraph(dir) {
     { id: rid("game", "routine", 0x4a10), kind: "routine", name: "disk_write_b", endAddress: 0x4a30, origin: "static", confidence: "certain" },
     { id: rid("game", "routine", 0x4900), kind: "routine", name: "in_the_dead_range", endAddress: 0x4920, origin: "static", confidence: "certain" },
     { id: rid("game", "routine", 0x5000), kind: "routine", name: "caller", endAddress: 0x5020, origin: "static", confidence: "certain" },
-    { id: aid(0x00f3), kind: "addr", origin: "static", confidence: "certain" },
+    // NOTE: no node is created for $F3 on purpose. Ultima VI's USES_ZP edges point at
+    // `c64:zp:00f3`, which lives in the PLATFORM file and is not a row here — and the
+    // first version of the check joined on nodes and therefore could not see any of that
+    // project's 4970 zero-page edges.
     { id: aid(0xdd00), kind: "addr", origin: "static", confidence: "certain" },
   ];
   const edges = [
     // "$F3 is read by nothing" -> it is
-    { from: rid("game", "routine", 0x3913), type: "USES_ZP", to: aid(0x00f3), origin: "static", confidence: "certain" },
+    { from: rid("game", "routine", 0x3913), type: "USES_ZP", to: "c64:zp:00f3", origin: "static", confidence: "certain" },
     // "$4800-$53FF is unreferenced" -> a call lands at $4900
     { from: rid("game", "routine", 0x5000), type: "CALLS", to: rid("game", "routine", 0x4900), origin: "static", confidence: "certain" },
     // "only $3E83 writes to disk" -> $4A10 writes the same target
@@ -71,6 +74,8 @@ try {
       ["$4800-$53FF is unreferenced", "any"],
       ["the handler at $1BC9 is never called", "call"],
       ["only $3E83 writes to disk", "write"],
+      // Object position. Ultima VI's real wording, which the first cut did not match.
+      ["create.prg writes nothing to $0203", "write"],
     ];
     let ok = 0;
     for (const [text, verb] of cases) {
@@ -78,7 +83,7 @@ try {
       if (c && c.verb === verb) ok++;
       else console.log(`        miss: "${text}" -> ${JSON.stringify(c)}`);
     }
-    check("D1: the five claim shapes parse", ok === 5, `${ok}/5`);
+    check("D1: the six claim shapes parse", ok === 6, `${ok}/6`);
 
     check("ordinary prose is NOT a negative claim",
       parseNegativeClaim("stage 2 decompresses into $C000 and jumps there") === undefined);
@@ -108,6 +113,9 @@ try {
     check("D1: an `only` claim is refuted by naming the OTHER doer",
       refuted.some((f) => /also does it/.test(f.proof)),
       refuted.find((f) => /only/.test(f.title))?.proof);
+    check("D1: an edge into the PLATFORM file still refutes",
+      refuted.some((f) => /\$F3/.test(f.title) && /c64:zp:00f3/.test(f.proof)),
+      refuted.find((f) => /\$F3/.test(f.title))?.proof);
     check("D1: a refuted negative claim is BLOCKING",
       refuted.every((f) => f.severity === "blocking"));
   }

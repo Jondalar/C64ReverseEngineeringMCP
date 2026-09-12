@@ -158,6 +158,41 @@ The `only $X writes` refutation printed the claimed address as the place the cou
 landed, which is not what it found. It now names the other doer: *"$4A10 also does it:
 WRITES edge $4A10 -> $DD00, the same target $3E83 reaches"*.
 
+### 5.1 First run against a real project
+
+Ultima VI, read-only, its graph byte-identical afterwards. 73 ms for the critic, 189 ms
+for the slot report over 11 161 nodes.
+
+**Two bugs the synthetic test structurally could not find.**
+
+`USES_ZP` edges point at PLATFORM ids (`c64:zp:00f3`) which are not rows in the project's
+`nodes` table — the graph schema says so outright, and the check joined on `nodes`. It
+therefore could not see any of that project's 4 970 zero-page edges, which is exactly the
+class that refutes "`$F3` is read by nothing". The check missed the claim in the very
+project whose rebuild it cost. Single-address claims now also match on the id suffix.
+
+The object-position negative did not parse. Ultima VI's actual wording was *"create.prg
+writes nothing"*, and only "nothing writes" was matched.
+
+With both fixed, all four of that project's historical false negatives are refuted against
+its own graph, each naming the edge, and the one true statement in the same set is left
+alone. The regression cases are in the e2e, including an edge whose target deliberately
+has no local node.
+
+**What the critic found in the live project:** six blocking findings, all
+`refutation-without-casualty` — none of Ultima VI's six refutations records what it
+invalidated. That information exists; it is in the `amended[5]` list inside an HTML file,
+not in the graph. Twenty-five `unreachable-routine`, almost all drivecode entry points the
+C64-side graph cannot link to. Zero `finding-without-evidence`: that project's records all
+carry their proof.
+
+**And the coverage denominator was nonsense.** It summed the `fileSize` of all 321 (of
+2 454) registered artifacts — 27 MB of generated `.asm` text, 23 MB of internal files —
+and unioned address ranges across every artifact at once, as though `$2000` in one overlay
+were the same byte as `$2000` in another. That capped the ratio at a few percent
+structurally and reported 0.1 %. Coverage is now computed PER OWNER over loadable
+artifacts only: **30.2 % of 1 641 238 bytes**. A number, where there was noise.
+
 ## 6. Open
 
 **The prompt shape for the handed-over half.** The deterministic checks can be specified
