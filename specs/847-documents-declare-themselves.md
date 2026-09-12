@@ -1,6 +1,6 @@
 # Spec 847 — Documents declare themselves
 
-**Status:** DRAFT
+**Status:** BUILT — `npm run e2e:847-docs`
 **Branch:** `spec-847-documents-declare`
 **Repo:** C64RE
 **Origin:** the owner, after asking what became of Spec 740's wiki:
@@ -174,7 +174,35 @@ document is undeclared on day one — the check must report a backlog without it
 a catastrophe. And Ultima VI's nine model documents are the ones worth declaring first;
 they are the corpus's best synthesis and its most invisible.
 
-## 5. Not in this spec
+## 5. Built
+
+| File | What |
+|------|------|
+| `src/docs/frontmatter.ts` | D2. Parse, render, and the template. Hand-written for this shape — a full YAML parser accepts much we could not index and turns a typo into a different meaning. |
+| `src/docs/scan.ts` | Finds every `docs/` directory at any depth, separates undeclared from malformed, and reports dangling `amends:`. |
+| `src/docs/register.ts` | D3/D6. A document becomes a `document` node; the index is rendered from the declarations. |
+| `src/docs/cli.ts` | D7. `c64re doc lint | check | index` — the entry a hook calls. |
+| `src/server-tools/docs.ts` | `doc_register`, `doc_lint`, `doc_template`, `wiki_index`, all on the DEFAULT surface. |
+| `src/critic/checks.ts`, `run.ts` | D4/D5 as the 8th and 9th checks: `dangling-citation`, `stale-render`. |
+| `src/project-knowledge/service.ts` | D4. `render_docs` stamps what it rendered from. |
+| `scripts/e2e-847-docs.mjs` | 27 cases. |
+
+**The template's placeholders do not parse, and that is the design.** The first cut shipped
+`$XXXX-$YYYY` in the block a refusal hands back, and the test caught that the template
+itself was invalid. The obvious fix — make the placeholders parseable — is the wrong one:
+a pasted-but-unedited template would then silently declare an address range the document
+has nothing to do with, which is a false declaration and precisely what this arc exists to
+stop. So the placeholder is refused BY NAME: *"`covers` still holds the template
+placeholder `$XXXX-$YYYY` — replace it with the range or artifact this document actually
+explains"*.
+
+**A cited-but-absent document becomes a placeholder node.** `amends: A_overlay_model.md`
+where that file is not registered creates a stub the citation can point at, so the edge
+exists and the gap is a query (`placeholder: true`) rather than a dangling string. That is
+what makes Ultima VI's six document-naming refutations recoverable rather than merely
+reportable.
+
+## 6. Not in this spec
 
 - Writing anyone's synthesis. Nothing here generates prose, and the evidence is that
   sessions write it unprompted — they just write it invisibly.

@@ -46,6 +46,8 @@ export async function critique(projectDir: string): Promise<CriticReport> {
   const { KnowledgeRecords } = await import("../knowledge-graph/records.js");
   const rec = new KnowledgeRecords(projectDir);
   const allFindings = rec.listFindings();
+  const entityCount = rec.listEntities().length;
+  const questionCount = rec.listOpenQuestions().length;
 
   const { GraphStore } = await import("../knowledge-graph/store.js");
   let store: ReturnType<typeof GraphStore.open> | undefined;
@@ -141,6 +143,35 @@ export async function critique(projectDir: string): Promise<CriticReport> {
           add("orphan-ratio",
             `${model.orphans.length} of ${model.memberTotal} nodes sit outside every boundary`,
             `${(ratio * 100).toFixed(1)} % orphaned, limit ${(limit * 100).toFixed(0)} % (C64RE_ORPHAN_RATIO)`);
+        }
+      }
+    }
+
+    // ------------------------------------------- documents (847 D4/D5)
+    {
+      const { lintDocs } = await import("../docs/scan.js");
+      const lint = lintDocs(projectDir);
+
+      ran.push("dangling-citation");
+      for (const d of lint.dangling) {
+        add("dangling-citation",
+          `${d.from} cites a document that is not here`,
+          `\`amends: ${d.names.join(", ")}\` — no such document in this project`);
+      }
+
+      ran.push("stale-render");
+      for (const d of lint.docs) {
+        const g = d.frontmatter?.generated;
+        if (!g) continue;
+        const live = { findings: allFindings.length, entities: entityCount, questions: questionCount };
+        const drift = Object.entries(g.counts).filter(([k, v]) => {
+          const now = (live as Record<string, number>)[k];
+          return now !== undefined && now !== v;
+        });
+        if (drift.length > 0) {
+          add("stale-render",
+            `${d.path} was rendered from a different graph`,
+            drift.map(([k, v]) => `${k}: rendered ${v}, now ${(live as Record<string, number>)[k]}`).join("; ") + ` (rendered ${g.at.slice(0, 10)})`);
         }
       }
     }

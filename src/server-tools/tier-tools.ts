@@ -60,6 +60,10 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // used to be; critic_checks is the severity table, on the surface so a finding that
   // looks mis-ranked can be argued with instead of ignored.
   "project_critique", "critic_checks",
+  // Spec 847 — documents declare themselves. doc_template must be reachable BEFORE a
+  // document is written, doc_register right after, and wiki_index replaces the curated
+  // docs/index.md that sat empty in both long-running projects for four months.
+  "doc_register", "doc_lint", "doc_template", "wiki_index",
   // Read knowledge
   "list_artifacts", "list_payloads", "list_findings", "list_open_questions",
   "list_entities", "list_flows", "read_artifact", "get_artifact_lineage",

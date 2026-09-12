@@ -185,7 +185,7 @@ try {
 
   // ------------------------------------------------------------ severity + surface
   {
-    check("D3: every check declares a severity", CHECKS.every((c) => !!c.severity) && CHECKS.length === 7,
+    check("D3: every check declares a severity", CHECKS.every((c) => !!c.severity) && CHECKS.length >= 7,
       `${CHECKS.length} checks`);
     check("D3: every check says what would settle it", CHECKS.every((c) => c.settleBy.length > 10));
     check("exactly two checks are blocking",
@@ -202,8 +202,12 @@ try {
     const text = formatCritique(r);
     check("a project with no claims produces no blocking findings",
       r.counts.blocking === 0, `${r.counts.blocking} blocking`);
-    check("the report says which checks RAN, so silence is distinguishable from breakage",
-      r.ran.length === 7 && /Checks run:/.test(text), r.ran.join(","));
+    // Consistency rather than a hardcoded count: a number goes stale the moment a spec
+    // adds a check (847 added two), while this still catches the real defect — a check
+    // that is defined but never runs, which is how a critic goes quietly blind.
+    check("every DEFINED check actually runs, so silence is distinguishable from breakage",
+      r.ran.length === CHECKS.length && CHECKS.every((c) => r.ran.includes(c.id)) && /Checks run:/.test(text),
+      `${r.ran.length} ran of ${CHECKS.length} defined`);
     check("D5: the handover questions are questions, not prompts C64RE runs",
       r.handover.length === 0 || r.handover.every((q) => q.trim().endsWith("?")),
       r.handover[0] ?? "(none - fewer than two findings)");
