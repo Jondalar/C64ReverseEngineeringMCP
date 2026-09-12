@@ -38,11 +38,58 @@ export interface SlotState {
 
 export interface SlotReport {
   states: SlotState[];
+  /** 848 — named-ness, which coverage alone cannot see. */
+  naming: NamedReport;
   /** Knowledge records of any kind. Below, "has this project begun?" is asked of it. */
   records: number;
   /** Required slots that are empty. The answer to "what is still unmapped". */
   missing: SlotState[];
   coverage: CoverageReport;
+}
+
+/**
+ * Spec 848 — is this name a NAME, or is it an address wearing one?
+ *
+ * The first unattended run produced 273 entities and zero routine nodes. Its names were
+ * `unknown_3E00_41D8`, `addr_0006`, `entry_0300` — machine output from the analyser — plus
+ * the disk directory's own filenames. Coverage said 100 % and the orphan count said
+ * 220-of-229 placed, because both measure bytes inside a RANGE and a machine-named region
+ * is a range like any other. Both metrics were blind to the thing that actually matters.
+ */
+const MACHINE_NAME = /^(unknown|addr|code|data|seg|sub|block|chunk|entry|loc|w)[_-]?[0-9a-fA-F]{2,}(_[0-9a-fA-F]{2,})?$/i;
+
+/**
+ * Kinds where a name MEANS something.
+ *
+ * `payload` is excluded deliberately, and the first measurement is why: a payload node is
+ * named after its disk directory entry — `a`, `i`, `01_neuromancer` — and spans the whole
+ * file, so one of them painted an entire project "100 % named" while 176 of its 208 nodes
+ * carried machine names. A filename is not an understanding. `segment` is a machine split
+ * and `entry` is an address with a prefix; neither is either.
+ */
+const NAMED_KINDS = new Set(["routine", "data_block", "lookup_table", "pointer_table"]);
+
+export function isMachineName(name: string | null | undefined): boolean {
+  const n = (name ?? "").trim();
+  return n.length === 0 || MACHINE_NAME.test(n);
+}
+
+/**
+ * Named-ness is counted per NODE, not per byte — and the reason is structural, not a
+ * preference. An annotation gives a name and a start address; it does not give an
+ * extent. All 978 named routines in Ultima VI carry `end_address = null`, so "named
+ * bytes" cannot be computed from the layer where names live. The first cut measured
+ * bytes because coverage measures bytes, and reported 0 % for a project with 978 named
+ * routines.
+ */
+export interface NamedReport {
+  /** Meaning-bearing nodes carrying a human name. */
+  named: number;
+  /** Meaning-bearing nodes altogether. */
+  members: number;
+  ratio: number;
+  /** Of `members`, how many carry only a machine name. */
+  machineNamed: number;
 }
 
 export interface CoverageReport {
@@ -129,19 +176,42 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   const artifacts = rec.listArtifacts().filter((a) => !a.internal && MEASURABLE_KINDS.has(a.kind));
 
   const rangesByOwner = new Map<string, Array<{ start: number; end: number }>>();
+  // 848 — named-ness, counted over the nodes where a name means something.
+  let machineNamed = 0, memberNodes = 0;
   try {
     const { GraphStore } = await import("../knowledge-graph/store.js");
     const store = GraphStore.open(projectDir, { readOnly: true });
     try {
+      // The layers must be MERGED BY ID before anything is counted.
+      //
+      // The graph stores one id in up to two rows — PRIMARY KEY (id, layer). The
+      // machine layer carries `owner` and `end_address`; the human layer carries the
+      // NAME an annotation gave it. Ultima VI holds 1853 routine nodes: 799 with
+      // owner+extent, 978 with a real name, and ZERO with both. A query joining on
+      // owner can therefore never see a name, and the first cut of this measure
+      // reported 0 % named for a project with 978 named routines.
       const rows = store.db.prepare(
-        `SELECT owner, address, end_address FROM nodes
-         WHERE owner IS NOT NULL AND end_address IS NOT NULL
-           AND kind IN ('routine','segment','payload','data_block','entry')`,
-      ).all() as Array<{ owner: string; address: number; end_address: number }>;
+        `SELECT id,
+                MAX(CASE WHEN layer = 'human' THEN name END) AS human_name,
+                MAX(name)        AS any_name,
+                MAX(owner)       AS owner,
+                MAX(kind)        AS kind,
+                MIN(address)     AS address,
+                MAX(end_address) AS end_address
+         FROM nodes
+         WHERE kind IN ('routine','segment','payload','data_block','entry')
+         GROUP BY id
+         HAVING owner IS NOT NULL`,
+      ).all() as Array<{ human_name: string | null; any_name: string | null; owner: string; kind: string; address: number; end_address: number | null }>;
       for (const r of rows) {
-        const list = rangesByOwner.get(r.owner) ?? [];
-        list.push({ start: r.address, end: r.end_address });
-        rangesByOwner.set(r.owner, list);
+        if (r.end_address !== null) {
+          const list = rangesByOwner.get(r.owner) ?? [];
+          list.push({ start: r.address, end: r.end_address });
+          rangesByOwner.set(r.owner, list);
+        }
+        if (!NAMED_KINDS.has(r.kind)) continue;
+        memberNodes++;
+        if (isMachineName(r.human_name ?? r.any_name)) machineNamed++;
       }
     } finally { store.close(); }
   } catch { /* no graph yet — every artifact is simply uncovered */ }
@@ -262,8 +332,16 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     return { slot, status: "empty", detail: `no record tagged slot:${slot.id}` };
   });
 
+  const naming: NamedReport = {
+    named: memberNodes - machineNamed,
+    members: memberNodes,
+    ratio: memberNodes === 0 ? 0 : (memberNodes - machineNamed) / memberNodes,
+    machineNamed,
+  };
+
   return {
     states,
+    naming,
     records: findings.length + entities.length + routines.length,
     missing: states.filter((s) => s.status === "empty" || s.status === "hypothesis"),
     coverage,
