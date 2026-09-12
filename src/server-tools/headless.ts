@@ -286,7 +286,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Read-before-trace discipline gate: refuse a fished trace (no read-derived
       // hypothesis). Runtime confirms a hypothesis; it does not find one.
       const { checkTraceDiscipline } = await import("./discipline-gate.js");
-      const gate = checkTraceDiscipline(hypothesis);
+      const gate = await checkTraceDiscipline(hypothesis);
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const doms = domains ?? ["c64-cpu", "memory"];
       // Tier 2 substrate gate — the drive-mechanism lane arms a loader-lens capture
@@ -413,7 +413,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
     safeHandler("runtime_loader_lens", async ({ capture_path, hypothesis, min_run_len, project_dir }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
-      const gate = checkRuntimeDiscipline(hypothesis, { tool: "runtime_loader_lens", act: "reading a loader-lens landing map (which block a payload came from)" });
+      const gate = await checkRuntimeDiscipline(hypothesis, { tool: "runtime_loader_lens", act: "reading a loader-lens landing map (which block a payload came from)" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const { landingMapFromCaptureFile } = await import("../trace/loader-lens.js");
       // Spec 834 D1 — the hint is the capture this call is about to read. D3 — the

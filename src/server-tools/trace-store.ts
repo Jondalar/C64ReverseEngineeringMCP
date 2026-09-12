@@ -263,7 +263,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     },
     safeHandler("trace_store_top_pcs", async ({ project_dir, path, cpu, limit, hypothesis }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
-      const gate = checkRuntimeDiscipline(hypothesis, { tool: "trace_store_top_pcs", act: "ranking the hottest PCs (statistics)" });
+      const gate = await checkRuntimeDiscipline(hypothesis, { tool: "trace_store_top_pcs", act: "ranking the hottest PCs (statistics)" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const dbPath = resolveStorePath(path, context, project_dir ?? path);
       const rows = await traceStoreFn<TopPcRow[]>("topPcs", dbPath, { cpu, limit: limit ?? 20 });
@@ -341,7 +341,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     },
     safeHandler("trace_memory_map", async ({ project_dir, path, cpu, static_ranges, run_label, hypothesis }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
-      const gate = checkRuntimeDiscipline(hypothesis, { tool: "trace_memory_map", act: "reconstructing a per-page RAM map" });
+      const gate = await checkRuntimeDiscipline(hypothesis, { tool: "trace_memory_map", act: "reconstructing a per-page RAM map" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const dbPath = resolveStorePath(path, context, project_dir ?? path);
       // Spec 802 — the two SQL passes run inside the runtime (`store_fn`/`safeQuery`,

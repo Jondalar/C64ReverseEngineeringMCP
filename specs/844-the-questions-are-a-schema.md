@@ -1,6 +1,6 @@
 # Spec 844 — The questions are a schema
 
-**Status:** DRAFT — diagnosis and slot list settled; ready for build
+**Status:** PARTLY BUILT — D4 + D5 built and gated by `npm run e2e:844-teeth`; the slot store (D1/D2 over §4) is not built
 **Branch:** `spec-844-completeness`
 **Repo:** C64RE
 **Origin:** the owner, mid-way into Ultima VI with a project session:
@@ -53,7 +53,7 @@ the failure mode the product refused on purpose.
 layer is inert data"*, a roster the UI mirrors and nobody executes. Portable inert
 data is still inert. This spec is about making it BINDING.
 
-## 3. Decision — determinism lives in exactly two places
+## 3. Decision — where determinism can live
 
 Given §2, there are only two places a rule cannot be talked out of:
 
@@ -78,6 +78,29 @@ irreducibly a judgement and stays a model call. What becomes code is the frame a
 it: which slots must exist, in what order they can be filled, what evidence each one
 needs, and what refuses while one is empty. The graph is code; the nodes are models —
 the lesson he brought from work.
+
+**D4 — A citation must RESOLVE, not match.** The read-before-runtime gate that already
+exists was cited to the owner as precedent for a door with teeth. He read the predicate
+and answered in one sentence: *"was ist denn die Hypothese ohne die verweigert wird?
+doch einfach Text"*. He is right — `discipline-gate.ts` checked a `$XXXX` regex and
+twenty characters of prose, so `hypothesis="$C000 the loader probably copies the payload
+there"` passed on pure invention. A citation with teeth resolves against records the
+project already holds — routine nodes, findings, entities, graph nodes — all of which
+are produced by reading. A model cannot invent one that is already there. **The resolver
+is dormant while the project holds no analysis**, because a gate that fires before there
+is anything to cite bricks day one, which is worse than no gate.
+
+**D5 — The accrual ratchet.** §4 catches "a slot is empty". It does not catch what the
+owner actually had to break by hand: the Ultima VI session that ran runtime → build →
+runtime → build and would not come out until he forced it back to reading, analysing,
+documenting, concluding. No slot was violated there; work was happening and nothing was
+ACCRUING. So: count gated runtime/build calls since the durable record count last grew,
+and past a threshold the doors refuse and ask what those runs established. The way OUT
+is to write something down — including a NEGATIVE result, which S14 wants anyway. The
+count is derived by comparing the graph's record counts, not by hooking `save_*`, so a
+record written by any path at all releases the gate. Ultima VI measures the same thing
+after the fact: 39 of 41 findings on one date, two from the fifty-commit arc that
+followed.
 
 ## 4. The slot list
 
@@ -145,7 +168,25 @@ LUT + EAPI), while every slot from S5 on is the same question either way. That i
 stating because it means the schema is ONE schema with three medium-shaped slots, not
 two parallel schemas.
 
-### 4.4 What the slot list still does not settle
+### 4.4 Built so far
+
+D4 and D5 only — the two teeth, not the fourteen slots. They were built first because
+they are the ones the owner's skepticism points at, they stand alone, and they are
+removable if they turn out to annoy more than they help.
+
+| File | What |
+|------|------|
+| `src/server-tools/citation-resolver.ts` | D4. Resolves every `$address` and record id in a hypothesis against routine nodes / findings / entities / graph nodes. Dormant on an empty project. |
+| `src/server-tools/runtime-ratchet.ts` | D5. `knowledge/runtime-ratchet.json`; threshold 4, `C64RE_RUNTIME_RATCHET=0` disables. |
+| `src/server-tools/discipline-gate.ts` | Both wired behind the unchanged form check, shared by all ten gated doors. |
+| `scripts/e2e-844-teeth.mjs` | `npm run e2e:844-teeth` — ten cases, and it can fail. |
+
+The test proves the parts that matter and nothing it does not run: a fabricated `$C000`
+against a real corpus is refused, a resolving address is allowed, an empty project is
+allowed, the ratchet refuses on the 5th recordless run, and writing one finding releases
+it immediately.
+
+### 4.5 What the slot list still does not settle
 
 The coverage threshold in S12 is a number and nobody has one. It is per artifact, it is
 certainly not 100 % (padding, unused table space, genuine dead code exist), and picking
