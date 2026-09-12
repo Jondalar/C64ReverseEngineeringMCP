@@ -1004,6 +1004,8 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     safeHandler("link_cart_chunk_to_asm", async ({ lut_path, project_dir, bank, slot, offset_in_bank, length, lut, idx, asm_artifact_id, summary }) => {
       try {
         const pd = context.projectDir(project_dir ?? lut_path, true);
+        const slotGate = await (await import("../slots/gate.js")).checkSlotGate("link_cart_chunk_to_asm", pd);
+        if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
         const lutAbs = resolve(pd, lut_path);
         if (!existsSync(lutAbs)) {
           throw new Error(`runtime_luts file not found at ${lutAbs}`);

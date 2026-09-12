@@ -153,6 +153,13 @@ export class KnowledgeRecords {
     return existsSync(join(this.projectDir, "knowledge", "project.json"));
   }
 
+  /** The registered artifacts, read-only. Spec 844 §4 needs them to measure S12
+   *  coverage, and a slot report is not a reason to duplicate the artifacts.json
+   *  reader in a second place. */
+  listArtifacts(): ArtifactRecord[] {
+    return this.artifacts();
+  }
+
   private artifacts(): ArtifactRecord[] {
     const p = join(this.projectDir, "knowledge", "artifacts.json");
     if (!existsSync(p)) return [];
@@ -912,6 +919,8 @@ export class KnowledgeRecords {
       artifactIds: uniq(arr(attrs.artifact_ids)),
       findingIds: uniq(arr(attrs.finding_ids).map((x) => this.mapFindingId(s.alias, x))),
       source: (str(attrs.source) ?? (q.layer === "human" ? "human-review" : "static-analysis")) as OpenQuestionRecord["source"],
+      // 846 D6 — surfaced, not newly stored: saveOpenQuestion has always written these.
+      tags: arr(attrs.tags).map((t) => String(t)),
       createdAt: q.created_at,
       updatedAt: q.updated_at,
     };

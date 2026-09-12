@@ -190,7 +190,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_memory_access_map", async ({ session_id, cycles, classes, min_bytes, hypothesis }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
-      const gate = checkRuntimeDiscipline(hypothesis, { tool: "runtime_memory_access_map", act: "mapping live RAM read/write liveness" });
+      const gate = await checkRuntimeDiscipline(hypothesis, { tool: "runtime_memory_access_map", act: "mapping live RAM read/write liveness" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const hx = (n: number) => "$" + (n & 0xffff).toString(16).padStart(4, "0");
       const renderMap = (tally: Record<string, number>, regions: Array<{ start: number; end: number; cls: string; reads: number; writes: number }>) => {
@@ -371,7 +371,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_diff_snapshots", async ({ a_path, b_path, hypothesis }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
-      const gate = checkRuntimeDiscipline(hypothesis, { tool: "runtime_diff_snapshots", act: "diffing two machine snapshots" });
+      const gate = await checkRuntimeDiscipline(hypothesis, { tool: "runtime_diff_snapshots", act: "diffing two machine snapshots" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       // Spec 806 step 2 — the diff runs in the runtime (`diffSnapshots` + `formatDiff`
       // on the wide facade verb). The FILES are still read here, because the paths are
@@ -414,7 +414,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_component_diff", async ({ a_path, b_path, exclude, hypothesis }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
-      const gate = checkRuntimeDiscipline(hypothesis, {
+      const gate = await checkRuntimeDiscipline(hypothesis, {
         tool: "runtime_component_diff",
         act: "diffing two machine snapshots at component granularity",
       });
@@ -469,6 +469,12 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step). Give `source_path` (an .asm/.tas file, assembled here → bytes) OR pre-assembled `bytes`. `space` ram|roml|romh + `bank` + `addr` (CPU window addr) target RAM or a cart bank (795). Re-adding at the same target REPLACES (iterate a fix). Inputs: session_id, id, addr, space?, bank?, source_path?|bytes?. Returns: the candidate.",
     { session_id: z.string(), id: z.string(), addr: z.number(), space: z.enum(["ram", "roml", "romh"]).optional(), bank: z.number().optional(), source_path: z.string().optional(), bytes: z.array(z.number()).optional() },
     safeHandler("runtime_candidate_patch", async ({ session_id, id, addr, space, bank, source_path, bytes }) => {
+      // S11 gate: a patch ALLOCATES. Four corpus projects claimed free RAM from reading
+      // and all four were corrected by running, so a read-derived S11 does not open this.
+      {
+        const slotGate = await (await import("../slots/gate.js")).checkSlotGate("runtime_candidate_patch", process.env.C64RE_PROJECT_DIR?.trim() || undefined);
+        if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
+      }
       let src = "";
       let b = bytes;
       if (source_path && (!b || b.length === 0)) {
@@ -629,7 +635,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_follow_path", async (args) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
-      const gate = checkRuntimeDiscipline(args.hypothesis, { tool: "runtime_follow_path", act: "reconstructing the call/branch chain to an event" });
+      const gate = await checkRuntimeDiscipline(args.hypothesis, { tool: "runtime_follow_path", act: "reconstructing the call/branch chain to an event" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const q = {
         runId: args.run_id,
@@ -686,7 +692,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_trace_taint", async (args) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
-      const gate = checkRuntimeDiscipline(args.hypothesis, { tool: "runtime_trace_taint", act: "following data-flow taint" });
+      const gate = await checkRuntimeDiscipline(args.hypothesis, { tool: "runtime_trace_taint", act: "following data-flow taint" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const q = { runId: args.run_id, startCycle: args.start_cycle, startAddr: args.start_addr, maxDepth: args.max_depth, cycleWindow: args.cycle_window };
       const graph = await daemonTraceRead<any>("taint", args.duckdb_path, q);
@@ -707,7 +713,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_profile_loader", async (args) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
-      const gate = checkRuntimeDiscipline(args.hypothesis, { tool: "runtime_profile_loader", act: "profiling loader phases/hotspots" });
+      const gate = await checkRuntimeDiscipline(args.hypothesis, { tool: "runtime_profile_loader", act: "profiling loader phases/hotspots" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const profile = await daemonTraceRead<any>(
         "profile_loader", args.duckdb_path,

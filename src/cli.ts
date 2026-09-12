@@ -35,6 +35,16 @@ if (argv[0] === "graph") {
     console.error(`[c64re graph] ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
+} else if (argv[0] === "doc") {
+  // Spec 847 D7: `c64re doc lint|check|index`. The logic a write hook calls, kept HERE
+  // and not in the hook, because a hook lives in the harness and the harness is not the
+  // product — a pre-commit hook, CI or a person gets the identical answer.
+  await import("./docs/cli.js").then(async (mod) => {
+    await mod.runDocCli(argv.slice(1));
+  }).catch((error: unknown) => {
+    console.error(`[c64re doc] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
 } else if (argv[0] === "setup") {
   await import("./setup-cli.js").then(async (mod) => {
     await mod.runSetup(argv.slice(1));

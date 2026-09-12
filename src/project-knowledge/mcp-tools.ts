@@ -1246,7 +1246,10 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       scope: z.enum(["all", "findings", "entities", "open-questions", "anti-patterns", "project-profile"]).optional(),
     },
     safeHandler("render_docs", async ({ project_dir, scope }) => {
-      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const root = resolveWorkspaceRoot(options, project_dir);
+      const service = new ProjectKnowledgeService(root);
+      const slotGate = await (await import("../slots/gate.js")).checkSlotGate("render_docs", root);
+      if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
       const result = service.renderDocs(scope ?? "all");
       return textContent(`Rendered ${result.written.length} doc(s):\n${result.written.join("\n")}`);
     },
@@ -1928,7 +1931,13 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       }).optional(),
     },
     safeHandler("save_finding", async ({ project_dir, id, kind, title, summary, confidence, status, entity_ids, artifact_ids, relation_ids, flow_ids, tags, evidence, address_range }) => {
-      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const root = resolveWorkspaceRoot(options, project_dir);
+      // Spec 844 S12: "exhaustive" / "fully mapped" are not adjectives, they are claims
+      // about coverage — and Neuromancer's own docs make exactly that claim at ~15 %.
+      const claim = await (await import("../slots/gate.js")).checkCompletenessClaim(
+        `${title} ${summary ?? ""}`, root, "save_finding");
+      if (claim) return { content: [{ type: "text" as const, text: claim }] };
+      const service = new ProjectKnowledgeService(root);
       const finding = service.saveFinding({
         id,
         kind,

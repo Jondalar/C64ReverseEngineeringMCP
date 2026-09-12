@@ -45,6 +45,28 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // the product tool for every other step. Both keep internal maintenance tools
   // off the recommendation path (doNotCall only).
   "agent_next_step", "agent_run_step",
+  // Spec 844 — the completeness question. project_slots answers "for this disk set,
+  // these relationships are unnamed, here they are", which agent_next_step (a TO-DO
+  // question) structurally cannot; slot_record is the door that fills one. Both must be
+  // on the DEFAULT surface: a tool not in this set is HIDDEN, and a gate that refuses
+  // while naming a tool the caller cannot see is a dead end.
+  "project_slots", "slot_record",
+  // Spec 845 — the model layer. model_read is the RE-ENTRY read: after a compact or a
+  // /new it returns the boundaries with their citations, what is still open, and what was
+  // already refuted. It only helps if a fresh session can reach it without being told it
+  // exists, which means the default surface.
+  "model_read", "model_assert", "model_remove",
+  // Spec 846 — the counter-pressure. project_critique is the adversarial pass the owner
+  // used to be; critic_checks is the severity table, on the surface so a finding that
+  // looks mis-ranked can be argued with instead of ignored.
+  "project_critique", "critic_checks",
+  // Spec 847 — documents declare themselves. doc_template must be reachable BEFORE a
+  // document is written, doc_register right after, and wiki_index replaces the curated
+  // docs/index.md that sat empty in both long-running projects for four months.
+  "doc_register", "doc_lint", "doc_template", "wiki_index",
+  // Spec 848 — the human's expectations, stored. contract_show must be reachable at
+  // session start (it is what the onboarding hands over) and contract_set at kickoff.
+  "contract_show", "contract_set",
   // Read knowledge
   "list_artifacts", "list_payloads", "list_findings", "list_open_questions",
   "list_entities", "list_flows", "read_artifact", "get_artifact_lineage",

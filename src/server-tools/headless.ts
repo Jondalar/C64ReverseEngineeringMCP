@@ -286,7 +286,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Read-before-trace discipline gate: refuse a fished trace (no read-derived
       // hypothesis). Runtime confirms a hypothesis; it does not find one.
       const { checkTraceDiscipline } = await import("./discipline-gate.js");
-      const gate = checkTraceDiscipline(hypothesis);
+      const gate = await checkTraceDiscipline(hypothesis);
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const doms = domains ?? ["c64-cpu", "memory"];
       // Tier 2 substrate gate — the drive-mechanism lane arms a loader-lens capture
@@ -413,7 +413,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     },
     safeHandler("runtime_loader_lens", async ({ capture_path, hypothesis, min_run_len, project_dir }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
-      const gate = checkRuntimeDiscipline(hypothesis, { tool: "runtime_loader_lens", act: "reading a loader-lens landing map (which block a payload came from)" });
+      const gate = await checkRuntimeDiscipline(hypothesis, { tool: "runtime_loader_lens", act: "reading a loader-lens landing map (which block a payload came from)" });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
       const { landingMapFromCaptureFile } = await import("../trace/loader-lens.js");
       // Spec 834 D1 — the hint is the capture this call is about to read. D3 — the
@@ -918,6 +918,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       until_pc: z.number().optional(),
     },
     safeHandler("runtime_overlay_run", async ({ session_id, anchor_cycle, anchor_id, patches, run_cycles, until_pc }) => {
+      const slotGate = await (await import("../slots/gate.js")).checkSlotGate("runtime_overlay_run", process.env.C64RE_PROJECT_DIR?.trim() || undefined);
+      if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
       const r = await runtimeDaemon.overlayRun(session_id, { anchor_cycle, anchor_id, patches, run_cycles, until_pc });
       return { content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] };

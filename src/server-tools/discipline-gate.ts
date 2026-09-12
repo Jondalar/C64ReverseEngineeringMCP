@@ -28,6 +28,23 @@
 //
 // Always on (no flag). We can only learn if it lowers the human's correction load by
 // actually feeling it on a real project.
+//
+// 2026-09-12 — Spec 844. The owner read this predicate and put his finger through it in
+// one sentence: "was ist denn die Hypothese ohne die verweigert wird? doch einfach Text".
+// He is right, and it was cited to him as precedent for a gate with teeth, which it is
+// not: a regex for `$XXXX` plus twenty characters passes on pure invention. Two checks
+// now stand behind the form check, and both are async, which is why the exported gates
+// are:
+//
+//   • the CITATION RESOLVER (citation-resolver.ts) — the cited address must land in
+//     something the project has actually read. Dormant while the project holds no
+//     analysis, so it cannot brick an early phase.
+//   • the ACCRUAL RATCHET (runtime-ratchet.ts) — the failure the slot list does not
+//     catch: the Ultima VI session that ran runtime→build→runtime→build and had to be
+//     pulled out by hand. Gated calls that leave no durable record eventually refuse.
+//
+// The form check stays first and unchanged: it is the cheapest, it needs no project, and
+// a call that fails it never reaches the two expensive ones.
 
 const ADDRESS_RE = /\$[0-9A-Fa-f]{2,4}\b/;
 
@@ -53,24 +70,77 @@ function isReadDerived(hypothesis: string | undefined): { ok: boolean; why: stri
 }
 
 /** Gate a broad-trace arming call. `hypothesis` = the caller's stated, read-derived
- *  reason. Allowed only when it cites a concrete $address AND gives a real rationale. */
-export function checkTraceDiscipline(hypothesis: string | undefined): TraceDisciplineResult {
+ *  reason. Allowed only when it cites a concrete $address, gives a real rationale, that
+ *  citation RESOLVES against the project, and the project is still accruing records. */
+export async function checkTraceDiscipline(
+  hypothesis: string | undefined,
+  opts: { projectDir?: string } = {},
+): Promise<TraceDisciplineResult> {
   const r = isReadDerived(hypothesis);
-  if (r.ok) return { allowed: true };
-  return { allowed: false, refusal: traceRefusal(r.why) };
+  if (!r.ok) return { allowed: false, refusal: traceRefusal(r.why) };
+  return substanceChecks(hypothesis ?? "", { tool: "trace", act: "a broad trace", ...opts });
 }
 
 /** Gate any flight-to-runtime door that DISCOVERS structure/identity from the live
  *  machine or a capture (loader-lens landing map, data-flow taint, hotspot statistics,
  *  liveness map, …). Same read-derived predicate as the trace gate; the refusal is
  *  tailored to the tool's act so the redirect is concrete. */
-export function checkRuntimeDiscipline(
+export async function checkRuntimeDiscipline(
   hypothesis: string | undefined,
-  opts: { tool: string; act: string },
-): TraceDisciplineResult {
+  opts: { tool: string; act: string; projectDir?: string },
+): Promise<TraceDisciplineResult> {
   const r = isReadDerived(hypothesis);
-  if (r.ok) return { allowed: true };
-  return { allowed: false, refusal: runtimeRefusal(r.why, opts) };
+  if (!r.ok) return { allowed: false, refusal: runtimeRefusal(r.why, opts) };
+  return substanceChecks(hypothesis ?? "", opts);
+}
+
+/** The two checks behind the form check. Shared so every gated door has the same bar —
+ *  the lesson of Cybernoid, where the reflex simply picked the door that had no gate. */
+async function substanceChecks(
+  hypothesis: string,
+  opts: { tool: string; act: string; projectDir?: string },
+): Promise<TraceDisciplineResult> {
+  const projectDir = opts.projectDir ?? currentProjectDir();
+
+  const { resolveCitation } = await import("./citation-resolver.js");
+  const cite = await resolveCitation(hypothesis, projectDir);
+  if (!cite.resolved) {
+    return { allowed: false, refusal: citationRefusal(cite.detail, opts) };
+  }
+
+  const { checkRatchet } = await import("./runtime-ratchet.js");
+  const ratchet = await checkRatchet(opts.tool, projectDir);
+  if (!ratchet.allowed) return { allowed: false, refusal: ratchet.refusal };
+
+  return { allowed: true };
+}
+
+/** The project the gate is standing in, or undefined. Deliberately env-only and
+ *  non-throwing: resolveProjectDir() walks parents and throws when it finds nothing, and
+ *  a gate is the last place that may turn "no project" into an error. */
+function currentProjectDir(): string | undefined {
+  const env = process.env.C64RE_PROJECT_DIR?.trim();
+  return env && env.length > 0 ? env : undefined;
+}
+
+function citationRefusal(detail: string, opts: { tool: string; act: string }): string {
+  return [
+    `# ${opts.tool} refused — the citation does not resolve.`,
+    "",
+    `The hypothesis has the right SHAPE, but ${detail}.`,
+    "",
+    "A citation is not a formality. It has to name something this project has already",
+    `read, because ${opts.act} confirms a hypothesis — it does not manufacture one.`,
+    "",
+    "Cite one of:",
+    "  • an address inside a routine, finding or entity that exists (graph_find, list_findings)",
+    "  • an address the disassembly covers (disasm_prg, inspect_address_range)",
+    "  • a finding or entity id directly, e.g. the one that made you suspect this",
+    "",
+    "If none of those exists for the region yet, that IS the answer: read it first.",
+    "  • disasm_prg / the annotated listing for the region",
+    "  • project_search for what is already known",
+  ].join("\n");
 }
 
 function runtimeRefusal(why: string, opts: { tool: string; act: string }): string {

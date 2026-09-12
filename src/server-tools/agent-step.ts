@@ -278,6 +278,10 @@ interface LadderOutcome {
 // is pure over ProjectSignals, so it is asserted directly without scaffolding a project.
 export function pickPrimary(signals: ProjectSignals, projectDir: string): LadderOutcome {
   const blockedBy: Array<{ id: string; prompt: string; choices?: string[] }> = [];
+  // Steps a blocker forbids. A blocker may VETO; it may never decide what comes next.
+  // The invariant this buys, and it is asserted in the e2e: if any step can advance, the
+  // primary is a step and not a complaint.
+  const vetoed = new Set<string>();
 
   // 1. Project missing → project-init.
   if (!signals.initialized) {
@@ -373,18 +377,33 @@ export function pickPrimary(signals: ProjectSignals, projectDir: string): Ladder
     };
   }
 
-  // 7b. Spec 752 L1 — ungrounded findings outrank annotate / runtime-trace /
-  // record-knowledge. A file/payload finding must cite a backing extract before
-  // we move on; do not let the agent reach for tracing/stats as grounding.
+  // 7b. Spec 752 L1 — ungrounded findings VETO the runtime branch. They do not decide.
+  //
+  // This rule used to return `static-analyze` as the PRIMARY and stop, and the first
+  // unattended run showed what that costs. The agent hit Spec 844's S4 gate, complied,
+  // and filled five slots with `slot_record` — which wrote its evidence as prose and left
+  // the findings ungrounded. From then on this rule saw nine of them and parked the
+  // recommender on "run analyze_prg" for the rest of the session. Rule 8 —
+  // "source exists but has no annotations" — was true the whole time and never reached.
+  // The more correctly the agent followed one spec, the harder it jammed another.
+  //
+  // Two things were wrong and both are fixed here.
+  //
+  // A rule whose recommendation cannot repair its own trigger is an infinite loop by
+  // construction: running `analyze_prg` again changes nothing about a finding that cites
+  // no artifact. The cure is to re-save those findings, so the blocker NAMES them.
+  //
+  // And the intent was always narrower than the effect. L1 exists to stop a flight to
+  // RUNTIME for grounding — "a trace runId+cycle is NOT grounding". Annotation is static
+  // work and would improve the grounding it complains about, so vetoing it was never the
+  // point.
   if (signals.ungroundedFindings > 0) {
-    return {
-      primary: suggestStep(
-        "static-analyze",
-        `${signals.ungroundedFindings} finding(s) cite no backing extract (tagged \`ungrounded\` — L1). Extract the source payload (extract_disk / extract_crt auto-runs disasm + analyse), then re-save each finding with artifact_ids pointing at its _analysis.json / _disasm.asm. A trace runId+cycle or a heuristic is NOT grounding.`,
-        { project_dir: projectDir },
-      ),
-      blockedBy,
-    };
+    vetoed.add("runtime-trace");
+    vetoed.add("trace-query");
+    blockedBy.push({
+      id: "ungrounded-findings",
+      prompt: `${signals.ungroundedFindings} finding(s) cite no backing extract (tagged \`ungrounded\` — Spec 752 L1). Re-save each with artifact_ids pointing at its _analysis.json / _disasm.asm. A trace runId+cycle or a heuristic is NOT grounding, so the runtime steps stay closed until this is cleared.`,
+    });
   }
 
   // 8. Source without semantic annotations → semantic-annotate.
@@ -407,7 +426,9 @@ export function pickPrimary(signals: ProjectSignals, projectDir: string): Ladder
   // enforce at call time — the engine stops PROPOSING runtime before the static work is done,
   // instead of relying on the session to override it (Winter Games, 2026-07-06).
   if (signals.openQuestions > 0 && signals.traceArtifacts === 0) {
-    if (signals.loaderReadAnnotated && signals.hasReadHypothesis) {
+    // A veto narrows this to its static redirect — the runtime arm stays shut while
+    // something ungrounded stands, which is exactly what Spec 752 L1 meant to prevent.
+    if (signals.loaderReadAnnotated && signals.hasReadHypothesis && !vetoed.has("runtime-trace")) {
       return {
         primary: suggestStep(
           "runtime-trace",
@@ -433,7 +454,7 @@ export function pickPrimary(signals: ProjectSignals, projectDir: string): Ladder
   }
 
   // 10. Trace exists but not mined → trace-query.
-  if (signals.traceArtifacts > 0 && signals.findings === 0) {
+  if (signals.traceArtifacts > 0 && signals.findings === 0 && !vetoed.has("trace-query")) {
     return {
       primary: suggestStep(
         "trace-query",
