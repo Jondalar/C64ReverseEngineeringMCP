@@ -67,18 +67,38 @@ documents that are already being written from orphans into nodes.
 **D2 — Frontmatter is the declaration.** YAML at the top, small enough to be written by
 hand without resentment:
 
+The fields are not invented. They are what these documents ALREADY say, in prose, in
+their own opening paragraph. Ultima VI's `A_overlay_model.md` begins:
+
+> Static analysis only. Every address below was read out of `07_game.prg` (load `$0200`,
+> 16767 bytes, spans **$0200-$437E**) […] Where the rendered listing and the binary could
+> disagree, **the binary wins**: all "every store to X" claims come from an exhaustive
+> opcode scan of the 16767 bytes, not from grepping the `.asm`.
+> Sources: `07_game.asm` / `.sym` / `.prg`, `u6_ovl_c000_t{3,4,5}.prg`, …
+
+That is `covers`, `sources`, and — in the middle — **the evidence standard, per document**.
+Spec 844 made S13 a project-level slot; at document level it is sharper, and a session
+wrote it there unprompted.
+
 ```yaml
 ---
-title: EasyFlash port — bank layout and the LUT
+title: The engine's overlay / resource model
 kind: synthesis            # synthesis | reference | generated | decision
 covers:
-  - $4800-$53FF            # address ranges this document explains
+  - $0200-$437E            # address ranges this document explains
   - artifact:07_game.prg
-claims: [F-3312, F-3410]   # findings this document argues from
+sources: [07_game.asm, u6_ovl_c000_t3.prg]
+method: >
+  Static analysis only; where listing and binary disagree the binary wins.
+  Every "all stores to X" claim is an exhaustive opcode scan, not a grep.
 amends: A_overlay_model.md # what it corrects, if anything
 status: current            # current | superseded
 ---
 ```
+
+`claims: [F-3312]` was in the first draft and is dropped: **not one document in any
+project names a finding id.** By this spec's own rule a field nobody fills is worse than
+no field, because it makes the declaration look complete.
 
 **D3 — A document is a node, not a second store.** The owner's own question asked whether
 a JSON store should sit next to the graph; it should not. Spec 822.2 removed exactly that
@@ -136,15 +156,23 @@ The hook's shape matters too. Not block/allow: it refuses and returns the frontm
 template for that document kind, so the fix is one edit away. That is the Spec 834
 pattern — refuse and say exactly what is missing — applied at the file boundary.
 
-## 4. Open
+## 4. Settled by looking rather than asked
 
-**The field set.** The block in D2 is a proposal, not a decision. `covers` is certainly
-right; `claims` may turn out to be noise a session will not maintain, and a field nobody
-fills is worse than no field because it makes the declaration look complete.
+Both of this spec's open points turned out to be answerable from the projects themselves.
 
-**Whether documents outside `docs/` count.** Ultima VI keeps nine of its most valuable
-documents in `docs/model/`, which is inside; a project could just as well keep them beside
-the source. Scanning the whole tree is a different cost and a different failure mode.
+**The field set** is above: it mirrors what the documents already write in prose, minus
+`claims`, which nothing anywhere writes.
+
+**Where documents live.** `docs/`, but not only the top one. Wasteland_EF has 148 Markdown
+files, 108 of them "outside `docs/`" — and every one of those sits in a NESTED docs
+directory (`cart_EF/docs/engine`, `editor/docs`, `cart_EF/docs/port`). The rule is
+therefore any `docs/` directory in the project tree, not the project's own.
+
+Two facts for the build to plan against: no project document anywhere carries frontmatter
+today (the only YAML headers in the corpus belong to `.claude/skills`), so every existing
+document is undeclared on day one — the check must report a backlog without it reading as
+a catastrophe. And Ultima VI's nine model documents are the ones worth declaring first;
+they are the corpus's best synthesis and its most invisible.
 
 ## 5. Not in this spec
 
