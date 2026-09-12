@@ -1,6 +1,6 @@
 # Spec 844 — The questions are a schema
 
-**Status:** DRAFT — the diagnosis is settled, the slot list is not
+**Status:** DRAFT — diagnosis and slot list settled; ready for build
 **Branch:** `spec-844-completeness`
 **Repo:** C64RE
 **Origin:** the owner, mid-way into Ultima VI with a project session:
@@ -79,17 +79,78 @@ it: which slots must exist, in what order they can be filled, what evidence each
 needs, and what refuses while one is empty. The graph is code; the nodes are models —
 the lesson he brought from work.
 
-## 4. Open — the owner is being asked
+## 4. The slot list
 
-**The slot list itself.** Which relationships must a multi-disk game have named before
-it counts as mapped? He has run this several times and knows the recurring set; it is
-project knowledge, not something to be derived from the code. Without it this spec has
-a mechanism and nothing to enforce.
+Answered by the owner, and cross-checked against seven finished projects — Accolade
+Comics, Brubaker, Fire King, Lykia, Wasteland, Neuromancer, Ultima VI — each read by an
+isolated agent that was asked what actually mattered in the reverse engineering. Ten of
+the slots are his list verbatim. Four came out of the corpus: the projects failed on
+them repeatedly and never once wrote the failure down as a slot.
 
-Also open, and smaller: whether an unmet precondition REFUSES or REPORTS. Refusing is
-what made 834 work. Reporting is what `check:ui-mcp-delta` does. The right answer is
-probably both, split by which slot — but that is a decision that follows the list, not
-one that precedes it.
+A slot is: a NAME, the EVIDENCE that fills it, whether it is required for every project
+or only under a condition, and what happens while it is empty. The last column is the
+§3 open question — REFUSE or REPORT — decided per slot rather than globally, which is
+what the list makes possible. REFUSE means a tool throws with the slot name in the
+message. REPORT means it appears in a completeness query and in `agent_next_step`.
+
+### 4.1 The slots
+
+| # | Slot | Filled by | Required | Empty ⇒ |
+|---|------|-----------|----------|---------|
+| S1 | **Context** | The game's identity: c64-wiki (or equivalent) URL, year, publisher, how many disk sides / what cartridge. One link is enough — he said so, and no project in the corpus ever recorded it. | always | REPORT |
+| S2 | **Medium** | The media set as artifacts: every d64/g64/d81/crt/tap, which one boots, and for G64 whether the GCR is standard or custom. | always | REFUSE — the payload doors already do this (`extract_disk*`), the slot makes it visible instead of a surprise |
+| S3 | **Boot chain** | Each stage named with its entry address and what hands over to what: disk = BAM + directory + KERNAL stub → stage 2; cart = cold-start vector → first resident. Fully disassembled, not "it loads something". | always | REFUSE |
+| S4 | **Data geometry** | Where payloads sit and how they are addressed — track/sector list, LUT, chunk table, file index — plus per payload its packing and the identity of the depacker that reads it. | always | REFUSE for payload registration |
+| S5 | **Runtime count** | How many resident images exist, each with the address window it occupies. One is an answer; so is nine. | always | REPORT |
+| S6 | **Runtime linkage** | With more than one: who loads whom, over which shared RAM they talk, at which address the handover happens. His own note — more than one runtime is itself the indicator that a loader exists. | when S5 > 1 | REFUSE |
+| S7 | **Engine presence** | His inference rule, made a slot: *structured reloading without a per-level runtime ⇒ there MUST be an engine.* The slot holds either an engine at a named address or an explicit refutation of the rule for this game. It may not be silently skipped. | when S4 shows structured reload and S5 shows no per-level runtime | REFUSE |
+| S8 | **Engine architecture** | The dispatcher, the main loop, the subsystem table — and, where one exists, the script/bytecode VM with its opcode set. This is where the corpus is sharpest: Accolade's SQ bytecode VM and Brubaker's `$1D5C` interpreter with 36 opcodes were each the finding that unlocked everything after them. | when S7 says an engine exists | REPORT, then REFUSE at the phase gate |
+| S9 | **Modules** | The module inventory: id, load address, who loads it, who frees it, how long it lives. "Loaded" without "freed" is half a slot and counts as empty. | when the game has modules | REFUSE |
+| S10 | **Save model** | What the game persists, of what types, how often, and to what place — track/sector or file. | when the game saves | REFUSE |
+| S11 | **Memory map / free RAM** | Every free-RAM claim carries HOW it was established. Read-derived is a hypothesis; only a run confirms or falsifies it. Four corpus projects made this claim from reading and all four were corrected by running — it is the single most repeated failure in the set. | always | REFUSE for anything that allocates (overlay, injection, cart bank) |
+| S12 | **Coverage** | Bytes accounted for against bytes present, per artifact — computed, never asserted. Neuromancer's documentation says EXHAUSTIVE at roughly 15 % coverage. The words "complete", "exhaustive" and "fully mapped" are claims about this slot and are refused while it is below its threshold. | always | REPORT, and BLOCK the completeness vocabulary |
+| S13 | **Evidence standard** | Per project: which instrument counts for which kind of claim. Fire King and Brubaker both carry a `substrate-verdict.json` that states a verdict no instrument produced. | always | REPORT |
+| S14 | **Refutations** | A retracted claim is not deleted — it stays, naming **the instrument that was wrong**. Ultima VI has six of these as `kind=refutation` findings and they are the most valuable records in that project, because each one stops a rebuild that would otherwise be attempted again. | always | REPORT |
+
+### 4.2 The rule that runs across the slots
+
+The corpus produced one law, and it is the reason S11, S12 and S14 exist at all:
+
+> **A scan proves presence, never absence.**
+
+Ultima VI alone produced four false negatives, each from a grep or a partial decode,
+each costing a rebuild: *"create.prg writes nothing"* (it writes the save), *"only
+`$3E83` writes to disk"*, *"`$F3` is read by nothing"*, *"`$4800-$53FF` is
+unreferenced"*. Accolade carries a 96-entry table that is reportedly never read.
+
+So a NEGATIVE claim is its own claim kind and may not be filled by the instrument that
+fills a positive one. Filling a slot with "there is none here" requires an instrument
+that can see the whole space — a complete decode, an exhaustive cross-reference, a run
+— and the slot records which one was used. A grep is never that instrument.
+
+The same defect exists in our own tooling and is not the projects' fault: a false
+`exomizer_sfx` detection made two Ultima VI `$C000` overlays render as an 80 % `.byte`
+desert until recursive descent replaced it, and an incomplete opcode-length table
+desynchronised a run and INVENTED a `JSR` at `$1BC9` that is in truth the operand of
+`LDA #$20`, plus six phantom routine entries. Spec 833's rule — a tool may not claim
+what it did not do — is the same rule one level down, and S13 is where a project says
+which of our tools it trusts for what.
+
+### 4.3 Universal against medium-dependent
+
+Lykia and Accolade are cartridges; the rest are disk. The split is smaller than
+expected, and it is entirely inside S2, S3 and S4 — identity, boot chain and geometry
+change shape with the medium (BAM + stub + custom GCR against cold-start vector + bank
+LUT + EAPI), while every slot from S5 on is the same question either way. That is worth
+stating because it means the schema is ONE schema with three medium-shaped slots, not
+two parallel schemas.
+
+### 4.4 What the slot list still does not settle
+
+The coverage threshold in S12 is a number and nobody has one. It is per artifact, it is
+certainly not 100 % (padding, unused table space, genuine dead code exist), and picking
+it wrongly either blocks finished work or blesses Neuromancer's 15 %. It is a build
+decision, taken with the first project that runs the gate — not a spec decision.
 
 ## 5. Not in this spec
 
