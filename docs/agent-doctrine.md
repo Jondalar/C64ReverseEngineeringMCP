@@ -256,6 +256,46 @@ The UI consumes rendered views from:
 
 After relevant knowledge changes, rebuild the affected views with `build_*` tools. If unsure, run `build_all_views`.
 
+### 1.3. Memory writes are not gated by ROM-select/cartridge-banking state
+
+**A `STA` to an address currently showing ROM/cart-flash almost always still
+lands in the underlying RAM chip, regardless of `$01` (LORAM/HIRAM/CHAREN) or
+cartridge bank/mode state.** This holds unconditionally for BASIC
+(`$A000-$BFFF`), KERNAL (`$E000-$FFFF`), and a cartridge's own ROML/ROMH
+window (`$8000-$BFFF`) in normal 8K/16K cartridge modes — confirmed against
+the full official memory-map tables (every `$01` state × No
+Cartridge/8K/16K/Ultimax config). **Only reads are muxed** by that state
+(between ROM/flash and RAM); writes are not. Do not add a write guard
+(`$01`-toggle, cartridge-kill/re-enable, or similar) around a store on
+account of ROM-select or cart-banking state — it is never needed for these
+ranges.
+
+Two real exceptions, from the same tables:
+
+- **`$D000-$DFFF` when CHAREN actually selects I/O** (not CHAR-ROM): the
+  write reaches the I/O chip register (VIC/SID/CIA/color RAM) itself, not a
+  RAM shadow — genuine memory-mapped I/O, no RAM fallthrough. Only the
+  CHAR-ROM-selected case at `$D000` (`$01` with CHAREN=0, e.g. `$33`)
+  behaves like the other overlays (write→RAM). `$01` values with CHAREN=1
+  (`$34`-`$37`) put I/O on top instead, and those writes do NOT reach RAM.
+- **Ultimax mode** (`/GAME` low, `/EXROM` high — cartridge autostart-only
+  configs, not EasyFlash's normal 8K/16K operating modes): most of the
+  address space is `BLANK` (no RAM wired up at all), and `$8000-$9FFF`
+  WRITE goes to `ROML` itself (a no-op for plain flash), not RAM, because
+  there is no underlying C64 RAM mapped there in that configuration.
+
+This took two rounds of getting wrong on a real project before landing on
+the statement above: first over-generalizing an internal-overlay
+read-only fact onto writes into a cartridge window; then, after that was
+corrected, wrongly asserting the cartridge-window case WAS a real
+exception, based on a runtime "empirical" result that later analysis
+showed was itself a false positive from an unrelated confound (the
+write-guard "fix" coincided with execution simply reaching further on
+that run, not with the guard doing anything necessary). See
+[issue #21](https://github.com/Jondalar/C64ReverseEngineeringMCP/issues/21)
+for the full corrective history — read the corrective comments, not just
+the original issue body, which is wrong.
+
 ---
 
 ## 2. Mandatory Onboarding Flow
