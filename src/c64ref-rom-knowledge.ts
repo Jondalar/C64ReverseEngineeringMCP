@@ -527,10 +527,27 @@ export function searchC64RefKnowledge(knowledge: C64RefRomKnowledge, query: stri
   if (!trimmed) {
     return [];
   }
-  const exactAddress = trimmed.match(/^\$?([0-9A-F]{4})$/iu);
-  if (exactAddress) {
-    const hit = lookupC64RefByAddress(knowledge, parseInt(exactAddress[1]!, 16));
+  // An address-shaped query IS an address, at any width.
+  //
+  // This used to demand exactly four hex digits, so `$01` fell through to the fuzzy
+  // search below — where `searchableText` substring-matched `$0101`, `$0102` and `$0103`
+  // in BASIC ROM operands and the answer was five unrelated instructions instead of
+  // R6510. An agent asking what `$01` does asks exactly that way; `$D020` worked only
+  // because four digits are specific enough to be unambiguous.
+  //
+  // A `$` or `0x` prefix is a declaration that this is an address: a miss returns
+  // nothing rather than degrading into a text search, because "no entry for $01" is an
+  // answer and a list of coincidental operand matches is not. Bare digits keep the
+  // fallback — `1541` is as likely to be a search term as an address.
+  const prefixed = trimmed.match(/^(?:\$|0x)([0-9A-F]{1,4})$/iu);
+  if (prefixed) {
+    const hit = lookupC64RefByAddress(knowledge, parseInt(prefixed[1]!, 16));
     return hit ? [hit] : [];
+  }
+  const bareAddress = trimmed.match(/^([0-9A-F]{1,4})$/iu);
+  if (bareAddress) {
+    const hit = lookupC64RefByAddress(knowledge, parseInt(bareAddress[1]!, 16));
+    if (hit) return [hit];
   }
   const normalized = normalizeSearchText(trimmed);
   return knowledge.entries

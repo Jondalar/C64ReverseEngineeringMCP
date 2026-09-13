@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { platformKb } from "../platform-kb/read.js";
 import { resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -89,6 +90,34 @@ function describeCoverage(knowledge: C64RefRomKnowledge): { hasMemoryMap: boolea
   };
 }
 
+
+// Spec 817 built ONE table for what c64ref does not cover — EasyFlash registers, the
+// 1541's zero page and VIAs, the DOS ROM symbols, and since issue #21 the $01 banking
+// semantics with their descriptions. `c64ref_lookup` could not see any of it: asking for
+// $DE00 returned c64ref's "Reserved for I/O Expansion" while our own EF_BANK entry sat
+// in the other store, and "current track" returned nothing at all.
+//
+// So the lookup consults both. c64ref stays the producer for everything it covers; the
+// extension table is appended, and it is the only one of the two that carries prose.
+function platformKbLines(address: number): string[] {
+  try {
+    const kb = platformKb();
+    const node = kb.node("c64", address) ?? kb.node("c1541", address);
+    if (!node) return [];
+    const out = [`Platform KB: ${node.symbol ? `${node.symbol} — ` : ""}${node.name} [${node.source}]`];
+    if (node.description) out.push(node.description);
+    return out;
+  } catch { return []; }
+}
+
+function platformKbSearch(query: string, limit: number): string[] {
+  try {
+    const kb = platformKb();
+    const hits = [...kb.search("c64", query, limit), ...kb.search("c1541", query, limit)].slice(0, limit);
+    return hits.map((n) => `$${n.address.toString(16).toUpperCase().padStart(4, "0")} ${n.symbol ? `[${n.symbol}] ` : ""}${n.name} [${n.source}]`);
+  } catch { return []; }
+}
+
 export function registerReferenceTools(server: McpServer, context: ServerToolContext, repoRoot: string): void {
   const c64refKnowledgePath = () => defaultC64RefKnowledgePath(repoRoot);
 
@@ -165,24 +194,30 @@ export function registerReferenceTools(server: McpServer, context: ServerToolCon
         if (address) {
           const parsedAddress = parseHexWord(address);
           const entry = lookupC64RefByAddress(knowledge, parsedAddress);
+          const kbLines = platformKbLines(parsedAddress);
           if (!entry) {
             return { content: [{ type: "text" as const, text: [
-              `No C64Ref entry for ${formatHexWord(parsedAddress)}.`,
-              ...coverage.lines(parsedAddress),
+              ...(kbLines.length ? kbLines : [`No C64Ref entry for ${formatHexWord(parsedAddress)}.`]),
+              ...(kbLines.length ? [] : coverage.lines(parsedAddress)),
             ].join("\n") }] };
           }
-          return { content: [{ type: "text" as const, text: c64refEntryToText(entry) }] };
+          return { content: [{ type: "text" as const, text: [c64refEntryToText(entry), ...kbLines].join("\n") }] };
         }
         const hits = searchC64RefKnowledge(knowledge, query!, limit ?? 5);
+        const asAddress = /^(?:\$|0x)?([0-9A-F]{1,4})$/iu.exec(query!.trim());
+        const kbExtra = asAddress
+          ? platformKbLines(parseInt(asAddress[1]!, 16))
+          : platformKbSearch(query!, limit ?? 5);
         if (hits.length === 0) {
           return { content: [{ type: "text" as const, text: [
-            `No C64Ref hits for query: ${query}`,
-            ...coverage.lines(undefined),
+            ...(kbExtra.length ? kbExtra : [`No C64Ref hits for query: ${query}`]),
+            ...(kbExtra.length ? [] : coverage.lines(undefined)),
           ].join("\n") }] };
         }
-        const text = hits
-          .map((entry) => `${entry.addressHex} ${entry.primaryLabel ? `[${entry.primaryLabel}] ` : ""}${entry.primaryHeading}`)
-          .join("\n");
+        const text = [
+          ...hits.map((entry) => `${entry.addressHex} ${entry.primaryLabel ? `[${entry.primaryLabel}] ` : ""}${entry.primaryHeading}`),
+          ...kbExtra,
+        ].join("\n");
         return { content: [{ type: "text" as const, text }] };
       } catch (error) {
         return context.cliResultToContent({
