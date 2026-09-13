@@ -1,15 +1,16 @@
 // Spec 849 — provisioning the harness rules into a project.
 //
-// `.claude/rules/*.md` with a `paths:` glob is the one steering layer that fires because
-// a file was touched rather than because the model judged its own task correctly. That
-// makes it the only place that can speak DURING the work: Specs 844-848 put pressure at
-// session start (the onboarding handover) and at delivery (the slot gates, the critic),
-// and the middle of a run was silent.
+// Specs 844-848 put pressure at session start (the onboarding handover) and at delivery
+// (the slot gates, the critic). The middle of a run was silent, and these rules speak
+// there — delivered by the MCP tool that IS the moment (see `deliver.ts`), not by the
+// harness. The `paths:` glob was the first design and was measured not to fire for this
+// workflow at all.
 //
-// The rules live in this repo under `assets/project-rules/` — versioned, smoke-tested,
-// and written once — and are copied into each project, because the harness reads
-// `.claude/rules/` relative to the SESSION's working directory, which for RE work is the
-// project and not this repo.
+// What this file does is the COPY: the rules live in the repo under
+// `assets/project-rules/`, versioned and smoke-tested, and each project gets its own
+// copy so a human can read what a session is being told and can override the wording by
+// editing the file. Delivery reads from the repo and works in a project that has no copy
+// at all.
 //
 // Two moments provision: `project_init` creates them, and `agent_onboard` re-syncs them.
 // Init alone would freeze a project's rules at the day it was created, and a rule

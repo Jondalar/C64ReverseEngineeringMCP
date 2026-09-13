@@ -115,10 +115,10 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       // project steering file (injected at the top of agent_onboard). Default
       // only; never clobbers a hand-written steering.md.
       const steeringSeed = ensureDefaultSteering(projectRoot);
-      // Spec 849 — the harness rules. `.claude/rules/*.md` with a `paths:` glob is the
-      // only steering layer that fires DURING the work, decided by the glob rather than
-      // by the model's judgement of its own task. Copied in here and re-synced by
-      // `agent_onboard`; a hand-edited rule is never overwritten.
+      // Spec 849 — the project's copy of the harness rules. Delivery is by the MCP tool
+      // that IS the moment (`project-rules/deliver.ts`); this copy exists so a human can
+      // read what a session is being told and can override the wording by editing it.
+      // Re-synced by `agent_onboard`; a hand-edited rule is never overwritten.
       const projectRules = ensureProjectRules(projectRoot);
       // Convenience: workspace launchers in the project root to start/restart
       // the workspace (HTTP UI :4310 + runtime daemon :4312) pointed at this

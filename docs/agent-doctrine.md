@@ -289,6 +289,45 @@ If knowledge files are missing, initialize the project with `project_init`. If a
 
 ---
 
+## 2.5 What this project owes, and what will tell you (Specs 844-849)
+
+`agent_onboard` returns the **project contract** first, ahead of the model and the
+findings. It states what the human expects delivered — which of the fourteen standard
+questions apply here, which regions must carry human names, which documents must exist,
+and the thresholds. It states deliverables only; it never states facts about the title,
+because at kickoff none are known. Where no contract is set, onboarding returns the
+kickoff questions instead, and every one of them asks for a delivery.
+
+Three things will speak to you unasked. They are not noise, and they are not the same
+kind of thing:
+
+| what | when | force |
+|---|---|---|
+| **a project rule** | appended to a tool's own result, once per session | advisory — it says what this moment owes |
+| **the contract's standing blockers** | appended to every tool that RECORDS something, as a delta, and in full to `project_slots` / `c64re_whats_next` | advisory — it says what is still owed |
+| **a door refusal** | when a tool that DELIVERS a result is called with a required slot empty | binding — the call does not happen |
+
+Rules and blockers report; they never refuse a record. Writing down what you read is not
+a delivery, and a gate that rejected it would punish the one behaviour the contract
+wants. The refusals sit on the doors, and they name the slot and what would fill it.
+
+A rule is delivered once per session and re-armed by `agent_onboard`, because a session
+that is onboarding has either just begun or just lost its context. A blocker line appears
+when something **moved** — cleared or newly owed — so a repeated write that changed
+nothing stays silent. Neither repeats itself to fill space; if one speaks, something is
+different.
+
+`project_critique` carries the proof behind any blocker, and `project_slots` says which
+of the fourteen are filled, which are a hypothesis, and which the contract does not ask
+for at all. A slot filled from reading alone stays a **hypothesis** where the slot says a
+run must confirm it — S11 (free RAM) is the one that has cost the corpus most.
+
+What none of these catch is a wrong reading. A run has finished with every slot filled, a
+document declared and every mechanically detectable defect fixed, while recording copy
+protection that does not exist. Form is checkable; truth is read.
+
+---
+
 ## 3. Agent Modes
 
 Operate explicitly in one of these cognitive modes. Set with `agent_set_role`. The
