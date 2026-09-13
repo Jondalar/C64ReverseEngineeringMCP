@@ -168,7 +168,8 @@
     "e2e:stall-heal": "npm run build:mcp && node scripts/e2e-stall-heal.mjs",
     "smoke:814": "npm run build:mcp && node scripts/smoke-814-scenario-recorder.mjs",
     "smoke:project-rules": "node scripts/smoke-project-rules.mjs",
-    "e2e:849-rules": "node scripts/e2e-849-rules.mjs"
+    "e2e:849-rules": "node scripts/e2e-849-rules.mjs",
+    "e2e:849-standing": "node scripts/e2e-849-standing.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

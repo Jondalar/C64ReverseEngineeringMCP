@@ -40,6 +40,7 @@ import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
 import { registerTraceStoreTools } from "./server-tools/trace-store.js";
 import { phaseForTool, PHASE_TITLES } from "./agent-orchestrator/phase-tools.js";
 import { ruleFooterForTool } from "./project-rules/deliver.js";
+import { standingFooter } from "./contract/standing.js";
 import { tierForTool, fullToolsEnabled } from "./server-tools/tier-tools.js";
 import { phaseGatedHandler } from "./server-tools/phase-gate-handler.js";
 import type { KnowledgeRegistrationInput, KnowledgeRegistrationResult, ServerToolContext } from "./server-tools/types.js";
@@ -115,13 +116,17 @@ function ruleFooterHandler(toolName: string, inner: ToolHandler): ToolHandler {
     try {
       const first = a[0] as { project_dir?: string } | undefined;
       const dir = (() => { try { return projectDir(first?.project_dir); } catch { return undefined; } })();
-      const footer = ruleFooterForTool(dir, toolName);
-      if (!footer || !result || !Array.isArray(result.content)) return result;
+      const parts = [
+        ruleFooterForTool(dir, toolName),
+        // Spec 849 §8 — and what the contract still owes, on the write path, as a delta.
+        await standingFooter(dir, toolName),
+      ].filter((x): x is string => !!x);
+      if (parts.length === 0 || !result || !Array.isArray(result.content)) return result;
       const last = [...result.content].reverse().find(
         (b): b is { type: "text"; text: string } =>
           !!b && typeof b === "object" && (b as { type?: string }).type === "text",
       );
-      if (last) last.text = `${last.text}\n${footer}`;
+      if (last) last.text = `${last.text}\n${parts.join("\n")}`;
     } catch { /* a footer is never a reason for a tool to fail */ }
     return result;
   };
