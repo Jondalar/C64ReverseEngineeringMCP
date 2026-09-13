@@ -55,3 +55,9 @@ dist/runtime/headless/sid/wasm/
 
 # EF-port candidate scan (research scratch, untracked)
 ef-port-candidates/
+
+# Spec 849 baselines — unattended-run projects kept for comparison, never shipped.
+# Real analysis output on real media: megabytes of disassembly, graph and extracted
+# sectors, and the disk images themselves. `baselines/README.md` records what each is.
+baselines/*
+!baselines/README.md
