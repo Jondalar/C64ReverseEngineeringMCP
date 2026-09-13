@@ -1,6 +1,7 @@
 ---
 description: The analyzer output is a proposal set. `probable_code` is not code, and a segment kind is not a finding.
 paths: ["**/*_analysis.json"]
+tools: ["analyze_prg"]
 ---
 
 # The analyzer proposes; it does not know

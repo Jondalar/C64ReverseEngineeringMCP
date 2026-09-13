@@ -39,6 +39,7 @@ import { registerRuntimeSandboxTool } from "./server-tools/runtime-sandbox.js";
 import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
 import { registerTraceStoreTools } from "./server-tools/trace-store.js";
 import { phaseForTool, PHASE_TITLES } from "./agent-orchestrator/phase-tools.js";
+import { ruleFooterForTool } from "./project-rules/deliver.js";
 import { tierForTool, fullToolsEnabled } from "./server-tools/tier-tools.js";
 import { phaseGatedHandler } from "./server-tools/phase-gate-handler.js";
 import type { KnowledgeRegistrationInput, KnowledgeRegistrationResult, ServerToolContext } from "./server-tools/types.js";
@@ -98,6 +99,34 @@ function tryRegisterKnowledgeArtifacts(
   }
 }
 
+type ToolHandler = (...a: unknown[]) => Promise<{ content?: unknown[] }> | { content?: unknown[] };
+
+/**
+ * Spec 849 D5 — append the project rule this tool carries to its own result.
+ *
+ * Appends to the LAST text block rather than adding one, so a caller that reads
+ * `content[0].text` still sees the tool's own answer first. Never throws and never
+ * changes a result it has nothing to add to: a rule is advice, and advice may not cost a
+ * tool call.
+ */
+function ruleFooterHandler(toolName: string, inner: ToolHandler): ToolHandler {
+  return async (...a: unknown[]) => {
+    const result = await inner(...a);
+    try {
+      const first = a[0] as { project_dir?: string } | undefined;
+      const dir = (() => { try { return projectDir(first?.project_dir); } catch { return undefined; } })();
+      const footer = ruleFooterForTool(dir, toolName);
+      if (!footer || !result || !Array.isArray(result.content)) return result;
+      const last = [...result.content].reverse().find(
+        (b): b is { type: "text"; text: string } =>
+          !!b && typeof b === "object" && (b as { type?: string }).type === "text",
+      );
+      if (last) last.text = `${last.text}\n${footer}`;
+    } catch { /* a footer is never a reason for a tool to fail */ }
+    return result;
+  };
+}
+
 // Spec 039: wrap server.tool() so descriptions get an auto-injected
 // `[Phase N]` (or `[Phase agnostic]`) prefix sourced from
 // src/agent-orchestrator/phase-tools.ts. Tools without a registered
@@ -123,6 +152,16 @@ function applyPhaseTagInjector(server: McpServer): void {
         const prefix = tag === "agnostic" ? "[Phase agnostic]" : `[Phase ${tag}: ${PHASE_TITLES[tag]}]`;
         if (!description.startsWith("[Phase")) {
           args[1] = `${prefix} ${description}`;
+        }
+      }
+      // Spec 849 D5 — the rule footer. The moment belongs to the TOOL, not to the
+      // harness: `.claude/rules/` globs fire on a native READ, and an RE session reads
+      // through the MCP tools, so a measured 102-turn run fired not one rule. The tool
+      // that IS the moment appends it to its own result instead, once per session.
+      if (args.length >= 4) {
+        const handler = args[args.length - 1];
+        if (typeof handler === "function") {
+          args[args.length - 1] = ruleFooterHandler(toolName, handler as ToolHandler);
         }
       }
       // Spec 049: phase gate. Wrap the last arg (the handler) only

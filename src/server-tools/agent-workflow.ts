@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { ensureProjectRules, summariseProjectRules } from "../project-rules/provision.js";
+import { resetRuleDelivery } from "../project-rules/deliver.js";
 import { dirname, join, relative, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -410,6 +411,10 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       // session makes first, including an unattended one that never starts a UI.
       let rulesLine: string | undefined;
       try { rulesLine = summariseProjectRules(ensureProjectRules(projectRoot)); } catch { /* best-effort */ }
+      // Spec 849 D5 — onboarding marks a session's start, and a session that onboards has
+      // either just begun or just lost its context. Either way it has been told nothing,
+      // so every rule is re-armed here and speaks once more at its own moment.
+      try { resetRuleDelivery(projectRoot); } catch { /* best-effort */ }
       const steeringPath = join(projectRoot, "knowledge", "steering.md");
       if (existsSync(steeringPath)) {
         const steering = readFileSync(steeringPath, "utf8").trim();

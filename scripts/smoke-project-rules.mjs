@@ -61,6 +61,7 @@ const PENDING = new Set(
 
 // ---- the rules ---------------------------------------------------------------------
 
+const claimedBy = new Map();
 const files = readdirSync(RULES).filter((f) => f.endsWith(".md") && f !== "README.md").sort();
 check(files.length > 0, `${files.length} rule files present`);
 
@@ -74,6 +75,22 @@ for (const file of files) {
 
   const desc = /^description:\s*(.+)$/m.exec(fm[1]);
   check(!!desc && desc[1].trim().length > 20, `description present`);
+
+  // tools: the delivery path that actually fires. Measured: a `paths:` glob fires when a
+  // matching file is READ natively, and an RE session reads through the MCP tools — a
+  // 102-turn run made four native file accesses, all writes, and fired no rule at all.
+  // So every rule must name at least one tool, and every tool it names must exist.
+  const toolsLine = /^tools:\s*\[([^\]]*)\]\s*$/m.exec(fm[1]);
+  if (!toolsLine) { fail(`tools: must be a single-line JSON array of tool names`); }
+  else {
+    const trig = [...toolsLine[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    check(trig.length > 0, `tools: ${trig.join(", ")}`);
+    for (const t of trig) {
+      check(TOOLS.has(t), `trigger \`${t}\` is a registered tool`);
+      if (claimedBy.has(t)) fail(`\`${t}\` also triggers ${claimedBy.get(t)} — a tool carries one rule`);
+      claimedBy.set(t, file);
+    }
+  }
 
   const pathsLine = /^paths:\s*\[([^\]]*)\]\s*$/m.exec(fm[1]);
   if (!pathsLine) { fail(`paths: must be a single-line JSON array of globs`); continue; }

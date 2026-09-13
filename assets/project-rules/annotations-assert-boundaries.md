@@ -1,6 +1,7 @@
 ---
 description: An annotation names a thing; the model says where that thing begins and ends. Names without boundaries do not compose.
 paths: ["**/*_annotations.json"]
+tools: ["propose_annotations"]
 ---
 
 # A name is half a claim

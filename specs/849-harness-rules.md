@@ -60,8 +60,9 @@ does.
 ## 3. Decisions
 
 **D1 — Six rules, drawn from the moments the runs passed through.** One per moment the
-three unattended runs touched a file and acted as if nothing were owed. The glob, not a
-topic, decides what each rule is about:
+three unattended runs touched a file and acted as if nothing were owed. The moment, not a
+topic, decides what each rule is about — the column below says which file the moment shows
+up as, and D4 says which tool actually delivers it:
 
 | rule | fires on | the moment |
 |---|---|---|
@@ -112,22 +113,80 @@ table, every backticked token shaped like a tool is one the server registers, an
 announced refusal names a door the slot table actually gates. Proven to bite by a
 deliberately wrong rule: four failures, one per class.
 
-## 4. Built
+## 4. Measured — and the mechanism was wrong
+
+Run 4 on `_trial-neuromancer-rules`: a fresh copy of the same four G64 sides, the same
+contract byte for byte, the same prompt word for word as run 3. One difference:
+`.claude/rules/` present. 16 minutes, 102 turns.
+
+Launched as a real session with its working directory in the project, not as a subagent —
+a subagent inherits the parent's working directory, and the harness reads `.claude/rules/`
+relative to the session's own. That difference is the reason the run was launched at all.
+
+**Not one rule fired.** No rule text reached the session through the harness in 102 turns,
+despite three writes to `*_annotations.json` and one to `docs/loader.md`, both matching
+globs. An isolating probe says why:
 
 ```
-assets/project-rules/*.md              six rules + a README stating what a rule may say
+Read  thing.asm      → RULE-READ-5521    fired
+Write docs/note.md   → RULE-WRITE-8834   did NOT fire
+```
+
+A rule fires on a native **read**. This workflow does not read natively — it reads through
+`read_artifact`, `graph_find`, `disasm_prg`, and the harness cannot see those touches. The
+run made four native file accesses in 102 turns and every one was a write.
+
+The rules reached the session anyway, by an accident that proves nothing about the
+mechanism: the agent listed `.claude/`, saw six files, and read them itself. Their wording
+was still visible ninety turns later — S13 recorded "analyze_prg segment kinds and tool
+status flags are proposals, not evidence", S14 rejected a 0.95-confidence LUT hit as
+graphics bytes, S2 declined to call the `gcr_error` sectors protection because they are
+not clustered. That is evidence the TEXTS work, on one run, and no evidence at all that
+the delivery works.
+
+**D4 — The moment belongs to the tool.** Each rule names the MCP tools that ARE its
+moment, in a `tools:` key beside `paths:`, and the tool appends the rule to its own
+result. `paths:` stays: it costs nothing and still serves a human who opens a listing by
+hand.
+
+**D5 — Said once per session, re-armed by onboarding.** A rule appended to every call is a
+banner, and a banner is read once and skipped for ever. Delivery is recorded in
+`knowledge/rules-delivered.json` and `agent_onboard` clears it — a session that is
+onboarding has either just begun or just lost its context, and in both cases has been told
+nothing. A project's own `.claude/rules/<id>.md` is delivered in place of the shipped
+text, or the provisioner's promise not to clobber a hand-edit would be hollow.
+
+## 5. Built
+
+```
+assets/project-rules/*.md              six rules; `paths:` + `tools:` + the prose
 src/project-rules/provision.ts         ensureProjectRules — copy, sync, never clobber
-  → project_init                       creates them, reports what it wrote
-  → agent_onboard                      re-syncs them, names them in the handover
-scripts/smoke-project-rules.mjs        every announced door checked against the real one
-scripts/e2e-849-rules.mjs              provisioning, re-sync, and the hand-edit case
+src/project-rules/rules.ts             parse and index by trigger tool
+src/project-rules/deliver.ts           once per session, re-armed by agent_onboard
+src/server.ts                          ruleFooterHandler — one wrap, beside the 039
+                                       phase-tag injector, appends to the last text block
+  → project_init                       creates .claude/rules/, reports what it wrote
+  → agent_onboard                      re-syncs the files, re-arms the delivery
+scripts/smoke-project-rules.mjs        77 passed — every trigger tool registered, every
+                                       announced refusal gated, no tool carrying two rules
+scripts/e2e-849-rules.mjs              47 passed — provisioning, hand-edits, delivery
 ```
 
-```
-npm run smoke:project-rules      57 passed, 0 failed
-npm run e2e:849-rules            18 passed, 0 failed
-```
+Verified against the live stdio server, not only in a test: two `contract_show` calls, the
+first carrying the rule and the second silent.
 
-**Not measured yet.** Whether the rules change what an unattended run does. The method is
-the one Specs 844-848 used: a throwaway copy, the same prompt word for word, hard counts.
-Everything above is machinery that fires; none of it is evidence that it works.
+**Two defects the run surfaced**, both of the kind only a run finds:
+
+1. **Steering against the prompt.** The extract-first doctrine asks for a project-owned
+   extractor script; the prompt forbade own scripts. The agent obeyed the prompt, never
+   cut the engine or the drive code out, and S5, S7, S10 and S11 stayed empty. That
+   collision is the whole difference between run 3's numbers and run 4's — not the rules.
+2. **`disasm_prg` could not find the obvious annotations file.** `propose_annotations`
+   leaves `<stem>_annotations.draft.json` beside the listing, so dropping `.draft` is the
+   natural way to finish it — and `<outdir>/<stem>_annotations.json` was the one name
+   neither the renderer nor the wrapper looked for. The run was told "No semantic
+   annotations found", renamed the file by hand, and then imported 45 names. Both
+   candidate lists now include it.
+
+**Still not measured.** Whether a rule delivered at its moment changes what a run does.
+Run 4 measured the mechanism and found it broken; the replacement has not faced a run.

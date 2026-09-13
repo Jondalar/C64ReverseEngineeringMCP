@@ -1,6 +1,7 @@
 ---
 description: The contract records what must be delivered. It never records facts about the game.
 paths: ["knowledge/contract.json", "**/knowledge/contract.json"]
+tools: ["contract_show", "contract_set"]
 ---
 
 # The contract owes deliveries, not findings

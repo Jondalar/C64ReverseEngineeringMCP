@@ -13,6 +13,8 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureProjectRules, shippedRulesDir, shippedRules, RULES_DIR } from "../dist/project-rules/provision.js";
+import { allRules, ruleForTool } from "../dist/project-rules/rules.js";
+import { ruleFooterForTool, resetRuleDelivery } from "../dist/project-rules/deliver.js";
 
 let pass = 0, failCount = 0;
 const ok = (m) => { pass += 1; console.log(`  PASS  ${m}`); };
@@ -73,6 +75,48 @@ check(fifth.created.includes(shipped[2]), `deleted ${shipped[2]} restored`);
 // 6 — nothing but rules and the ledger lands in the directory
 const stray = readdirSync(rulesDir).filter((f) => !f.endsWith(".md") && f !== ".provisioned.json");
 check(stray.length === 0, `no stray files (${stray.join(", ") || "none"})`);
+
+// ---- delivery: the path that actually fires ---------------------------------------
+
+// Every rule is reachable from a tool, and no tool carries two.
+const byTool = new Map();
+for (const r of allRules()) {
+  check(r.tools.length > 0, `${r.id} names at least one trigger tool`);
+  for (const t of r.tools) {
+    check(!byTool.has(t), `${t} triggers only ${r.id}`);
+    byTool.set(t, r.id);
+  }
+}
+
+// 7 — a tool that carries a rule delivers it once, and then stays quiet
+const rule = ruleForTool("analyze_prg");
+check(!!rule, "analyze_prg carries a rule");
+const firstFooter = ruleFooterForTool(root, "analyze_prg");
+check(!!firstFooter && firstFooter.includes(rule.id), `first analyze_prg call carries ${rule.id}`);
+check(firstFooter.includes("The analyzer proposes"), "the footer carries the rule's prose");
+check(ruleFooterForTool(root, "analyze_prg") === undefined, "second call is silent");
+
+// 8 — a different rule is unaffected by the first one's delivery
+check(!!ruleFooterForTool(root, "propose_annotations"), "another tool still delivers its own rule");
+
+// 9 — a tool that carries no rule never speaks
+check(ruleFooterForTool(root, "project_status") === undefined, "an unmapped tool adds nothing");
+
+// 10 — onboarding re-arms everything: a session that onboards has been told nothing
+resetRuleDelivery(root);
+check(!!ruleFooterForTool(root, "analyze_prg"), "agent_onboard re-arms the rule");
+
+// 11 — a hand-edited rule is what gets delivered, not the shipped wording
+resetRuleDelivery(root);
+const edited = join(rulesDir, "heuristics-are-proposals.md");
+writeFileSync(edited, "---\ndescription: mine.\npaths: [\"**/*\"]\ntools: [\"analyze_prg\"]\n---\nMY OWN WORDING 4417\n");
+const own = ruleFooterForTool(root, "analyze_prg");
+check(!!own && own.includes("MY OWN WORDING 4417"), "the project's own wording wins over the shipped text");
+
+// 12 — a directory that is not a project is left alone entirely
+const notAProject = mkdtempSync(join(tmpdir(), "c64re-849-np-"));
+check(ruleFooterForTool(notAProject, "analyze_prg") === undefined, "no knowledge/ means no footer");
+rmSync(notAProject, { recursive: true, force: true });
 
 rmSync(root, { recursive: true, force: true });
 console.log(`\n${pass} passed, ${failCount} failed`);

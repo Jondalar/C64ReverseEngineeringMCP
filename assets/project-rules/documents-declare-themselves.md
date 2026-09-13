@@ -1,6 +1,7 @@
 ---
 description: A document without frontmatter does not exist for the project — it is not indexed, not linted, and covers nothing.
 paths: ["docs/**/*.md"]
+tools: ["doc_template", "render_docs"]
 ---
 
 # Prose has to declare what it covers

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, parse, resolve } from "node:path";
+import { basename, dirname, join, parse, resolve } from "node:path";
 import {
   AnalysisReport,
   CopyRoutineFact,
@@ -3352,6 +3352,12 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   // Search for annotations next to the PRG, next to the output ASM, and next to the analysis JSON
   const annotationsFile = loadAnnotations(resolvedPrgPath)
     ?? (outputPath ? loadAnnotations(resolve(outputPath)) : undefined)
+    // The output folder, named after the PRG rather than after the listing. That is
+    // where `propose_annotations` leaves `<stem>_annotations.draft.json`, so dropping
+    // `.draft` from the draft's own name is the obvious way to finish it — and it was
+    // the one name nothing looked for. An unattended run wrote exactly that, was told
+    // "No semantic annotations found", and had to rename the file to be heard.
+    ?? (outputPath ? loadAnnotations(join(dirname(resolve(outputPath)), basename(resolvedPrgPath))) : undefined)
     ?? (options.analysisPath ? loadAnnotations(resolve(options.analysisPath)) : undefined);
   // Spec 833 D1 — the index is built whenever a file was FOUND. It used to be
   // built only `if (annotationsFile && analysisContext)`, which is why running

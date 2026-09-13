@@ -456,6 +456,9 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         const annotationCandidates = [
           annotationsPath,
           prgAbs.replace(/\.[^./]+$/, "_annotations.json"),
+          // …and beside the OUTPUT under the PRG's name, which is where
+          // `propose_annotations` leaves its draft. Same addition as the renderer's.
+          join(dirname(outAbs), basename(prgAbs).replace(/\.[^./]+$/, "") + "_annotations.json"),
           ...(analysis_json ? [resolve(pd, analysis_json).replace(/\.[^./]+$/, "_annotations.json")] : []),
           join(dirname(outAbs), "annotations.json"),
           join(dirname(prgAbs), "annotations.json"),

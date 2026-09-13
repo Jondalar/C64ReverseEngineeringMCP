@@ -1,6 +1,7 @@
 ---
 description: A disassembly listing is read work, not understood work — routines need names before anything downstream counts.
 paths: ["**/*_disasm.asm", "**/*_disasm.tas", "**/*_disasm.tass"]
+tools: ["disasm_prg", "read_artifact", "build_annotated_listing_view"]
 ---
 
 # A listing is not an understanding

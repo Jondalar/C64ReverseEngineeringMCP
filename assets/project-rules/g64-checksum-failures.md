@@ -1,6 +1,7 @@
 ---
 description: On a G64, checksum failures that rise with the speed zone are a capture artefact — not copy protection.
 paths: ["**/*.g64"]
+tools: ["analyze_g64_anomalies", "inspect_g64_track", "inspect_g64_syncs", "scan_g64_headers", "extract_g64_sectors"]
 ---
 
 # Read the failure distribution before calling it protection
