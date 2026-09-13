@@ -225,6 +225,19 @@ try {
       (await critique(d)).findings.filter((f) => f.check === "stale-render").length === 0);
   }
 
+  // ------------------------------- the import gets the path that was FOUND
+  {
+    // Spec 833 §5c made the wrapper look in the same five places as the renderer, so both
+    // agree that annotations exist — and then handed the import candidate 1 anyway. With
+    // the file beside the PRG rather than beside the output ASM, the listing rendered
+    // every name while the graph import early-returned "0 routines". This asserts the two
+    // halves resolve the SAME file.
+    const src = readFileSync(new URL("../src/server-tools/analysis-workflow.ts", import.meta.url), "utf8");
+    check("disasm_prg imports the annotations path it actually found",
+      /annotationsPath:\s*foundAnnotationsPath \?\? annotationsPath/.test(src),
+      "the renderer and the importer must not resolve different files");
+  }
+
   // --------------------------------------------------------------- the surface
   {
     check("the document tools are on the DEFAULT surface",

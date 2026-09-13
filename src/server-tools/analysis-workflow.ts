@@ -559,7 +559,18 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
             })).filter((r) => Number.isFinite(r.fileStart) && Number.isFinite(r.fileEnd) && Number.isFinite(r.runtimeAddr));
             const imported = knowledgeService.importAnnotations({
               sourcePrgArtifactId: sourceArtifact?.id,
-              annotationsPath,
+              // The path the renderer actually FOUND, not the first candidate.
+              //
+              // Spec 833 §5c taught the wrapper to look in the same five places as the
+              // renderer, so the two agree about whether annotations exist — and then the
+              // import was still handed `annotationsPath`, candidate 1, derived from the
+              // output ASM. With the file beside the PRG instead, the listing rendered
+              // every name while importAnnotations() got a path that does not exist,
+              // early-returned {changed:false, routines:0}, and printed "the graph holds 0
+              // routines". An unattended run wrote five annotation files, saw its names in
+              // the listing, and reported the graph import as broken with no idea why. It
+              // was: the two halves were resolving different files.
+              annotationsPath: foundAnnotationsPath ?? annotationsPath,
               relocations: graphRelocations.length > 0 ? graphRelocations : undefined,
             });
             // Spec 833 D3 — this line is about the GRAPH and says so. It used to
