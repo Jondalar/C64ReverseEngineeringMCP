@@ -227,3 +227,47 @@ delivery fired and the run's own report says it was followed; separating deliver
 curiosity would need a run with the rules delivered by tools only and no files to find.
 And no layer here catches a wrong reading — run 5 got the protection verdict right, the
 same day's sonnet run got it wrong with the same machinery available.
+
+## 9. Run 7 — the contract on the write path
+
+Same four sides, same contract byte for byte, same prompt word for word. The only change:
+every recording tool carries what the contract still owes, as a delta, and the summary
+tools always answer.
+
+```
+                     run 3    run 4    run 5    run 6    run 7
+  turns                —       102      110      114      179
+  MCP calls            —        74       68       74      237
+  slots              7/10     6/10     9/10     9/10     9/10 + 1 hypothesis
+  named             92/234   43/61   69/134    0/101   81/294
+  boundaries            9        3        2        4       12
+  orphaned            21 %     38 %     62 %     12 %    9.1 %
+  model_assert          —        3        0        0       12
+  project_critique      —        1        0        0        2
+  cost                  —    $5.56    $7.06    $7.06   $15.76
+```
+
+`model_assert` went from zero to twelve. `project_critique` from zero to two — and both
+calls were acted on: the run fixed the refutations that invalidated nothing and the
+overlapping boundaries the critic named. No previous run ever closed a critic finding.
+
+Its own account, unprompted: *"Nach jedem Schreibvorgang kamen Hinweise, was noch
+'geschuldet' ist. Ich habe ihn teilweise erfüllt."* And it did not swallow a rule either
+— *"Eine davon behauptet, ein früherer Lauf habe fälschlich Kopierschutz eingetragen. Das
+habe ich nicht einfach übernommen, sondern selbst anhand von Fehlerverteilung und
+Drive-Code geprüft."*
+
+S11 is a hypothesis rather than an answer, correctly: read-derived, and the run named why
+a run cannot settle it yet (the image BRKs on PAL, and it named the patch address).
+
+**It still stopped with three blockers standing**, having read them repeatedly: 27.6 %
+named against 40 %, S11 unconfirmed, coverage 18.3 % against 60 %. That is the line this
+layer cannot cross. What changed is which side of it the failure sits on — from "was never
+told" to "read it and left anyway". Only the first is a tooling defect.
+
+Cost of the change: 2.2× the tokens and 1.9× the wall clock, for roughly triple the
+analysed surface.
+
+**What enforces the rest is outside the session.** A stop is not a tool call, so nothing
+inside can gate it; the loop that can is the one these measurements were made with —
+run, ask the verdict, resume with the blockers until READY or a budget is spent.
