@@ -16,7 +16,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { projectRuleOverride, ruleForTool } from "./rules.js";
+import { projectRuleOverride, rulesForTool } from "./rules.js";
 
 const LEDGER = "rules-delivered.json";
 
@@ -65,22 +65,23 @@ export function resetRuleDelivery(projectDir: string): void {
  */
 export function ruleFooterForTool(projectDir: string | undefined, toolName: string): string | undefined {
   if (!projectDir) return undefined;
-  const rule = ruleForTool(toolName);
-  if (!rule) return undefined;
+  const rules = rulesForTool(toolName);
+  if (rules.length === 0) return undefined;
   if (!existsSync(join(projectDir, "knowledge"))) return undefined;
 
   const ledger = read(projectDir);
-  if (ledger.delivered[rule.id]) return undefined;
+  const owed = rules.filter((r) => !ledger.delivered[r.id]);
+  if (owed.length === 0) return undefined;
 
-  ledger.delivered[rule.id] = new Date().toISOString();
+  const now = new Date().toISOString();
+  for (const r of owed) ledger.delivered[r.id] = now;
   write(projectDir, ledger);
 
-  const text = projectRuleOverride(projectDir, rule.id)?.body ?? rule.body;
-  return [
-    "",
+  const blocks = owed.map((rule) => [
     "---",
     `**Project rule — ${rule.id}** (said once per session; \`.claude/rules/${rule.id}.md\`)`,
     "",
-    text,
-  ].join("\n");
+    projectRuleOverride(projectDir, rule.id)?.body ?? rule.body,
+  ].join("\n"));
+  return ["", ...blocks].join("\n\n");
 }

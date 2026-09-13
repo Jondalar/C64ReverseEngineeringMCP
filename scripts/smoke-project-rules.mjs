@@ -87,8 +87,12 @@ for (const file of files) {
     check(trig.length > 0, `tools: ${trig.join(", ")}`);
     for (const t of trig) {
       check(TOOLS.has(t), `trigger \`${t}\` is a registered tool`);
-      if (claimedBy.has(t)) fail(`\`${t}\` also triggers ${claimedBy.get(t)} — a tool carries one rule`);
-      claimedBy.set(t, file);
+      // A tool may carry several rules — `disasm_prg` carries both the listing rule and
+      // the boundary one, because importing names IS the moment a boundary is owed. What
+      // is checked is that nothing is delivered twice from the same file.
+      const seenHere = claimedBy.get(t) ?? [];
+      check(!seenHere.includes(file), `\`${t}\` lists ${file} once`);
+      claimedBy.set(t, [...seenHere, file]);
     }
   }
 

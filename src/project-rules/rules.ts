@@ -67,9 +67,17 @@ export function allRules(): Rule[] {
   return (cache = out);
 }
 
-/** The rule this tool carries, if any. One tool never carries two. */
-export function ruleForTool(toolName: string): Rule | undefined {
-  return allRules().find((r) => r.tools.includes(toolName));
+/**
+ * The rules this tool carries, in file order.
+ *
+ * More than one is normal and was measured: run 5 never called `propose_annotations`, it
+ * wrote the annotation files by hand, so the rule that asks for a boundary never arrived
+ * and the run ended with two boundaries. The moment a boundary is owed is the moment the
+ * names are imported, which is `disasm_prg` — the same call that carries the listing
+ * rule.
+ */
+export function rulesForTool(toolName: string): Rule[] {
+  return allRules().filter((r) => r.tools.includes(toolName));
 }
 
 /** A project's own copy, when it has one — a hand-edited rule is the owner's word. */

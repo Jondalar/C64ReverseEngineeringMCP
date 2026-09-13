@@ -13,7 +13,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureProjectRules, shippedRulesDir, shippedRules, RULES_DIR } from "../dist/project-rules/provision.js";
-import { allRules, ruleForTool } from "../dist/project-rules/rules.js";
+import { allRules, rulesForTool } from "../dist/project-rules/rules.js";
 import { ruleFooterForTool, resetRuleDelivery } from "../dist/project-rules/deliver.js";
 
 let pass = 0, failCount = 0;
@@ -82,14 +82,12 @@ check(stray.length === 0, `no stray files (${stray.join(", ") || "none"})`);
 const byTool = new Map();
 for (const r of allRules()) {
   check(r.tools.length > 0, `${r.id} names at least one trigger tool`);
-  for (const t of r.tools) {
-    check(!byTool.has(t), `${t} triggers only ${r.id}`);
-    byTool.set(t, r.id);
-  }
+  for (const t of r.tools) byTool.set(t, [...(byTool.get(t) ?? []), r.id]);
 }
+check(byTool.get("disasm_prg")?.length === 2, "disasm_prg carries both the listing and the boundary rule");
 
 // 7 — a tool that carries a rule delivers it once, and then stays quiet
-const rule = ruleForTool("analyze_prg");
+const rule = rulesForTool("analyze_prg")[0];
 check(!!rule, "analyze_prg carries a rule");
 const firstFooter = ruleFooterForTool(root, "analyze_prg");
 check(!!firstFooter && firstFooter.includes(rule.id), `first analyze_prg call carries ${rule.id}`);
@@ -98,6 +96,15 @@ check(ruleFooterForTool(root, "analyze_prg") === undefined, "second call is sile
 
 // 8 — a different rule is unaffected by the first one's delivery
 check(!!ruleFooterForTool(root, "propose_annotations"), "another tool still delivers its own rule");
+
+// 8b — a tool carrying two rules delivers both at once, then nothing
+// (re-armed first: step 8 already spent the boundary rule through propose_annotations,
+// which is the correct behaviour — a rule is said once per session, not once per tool)
+resetRuleDelivery(root);
+const both = ruleFooterForTool(root, "disasm_prg");
+check(!!both && both.includes("listing-is-not-understanding"), "disasm_prg delivers the listing rule");
+check(!!both && both.includes("annotations-assert-boundaries"), "…and the boundary rule in the same footer");
+check(ruleFooterForTool(root, "disasm_prg") === undefined, "…and is then silent");
 
 // 9 — a tool that carries no rule never speaks
 check(ruleFooterForTool(root, "project_status") === undefined, "an unmapped tool adds nothing");

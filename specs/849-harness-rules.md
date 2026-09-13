@@ -188,5 +188,42 @@ first carrying the rule and the second silent.
    annotations found", renamed the file by hand, and then imported 45 names. Both
    candidate lists now include it.
 
-**Still not measured.** Whether a rule delivered at its moment changes what a run does.
-Run 4 measured the mechanism and found it broken; the replacement has not faced a run.
+## 6. Measured again — the mechanism works, on one run
+
+Run 5 on `_trial-neuromancer-rules2`: same four sides, same contract byte for byte, same
+prompt word for word. 21 minutes, 110 turns.
+
+```
+                          run 3        run 4         run 5
+                          contract     rules as      rules from
+                          only         files         the tools
+  slots filled            7            6 / 10        9 / 10
+  named                   39.3 %       70.5 %        51.5 %  (69/134)
+  annotation files        5            3             3
+  model boundaries        9            3             2
+  declared documents      1            1             1
+  rules delivered         —            0             5 of 6
+  blockers                3            4             2
+```
+
+Five of the six rules arrived through the tool that is their moment, recorded in
+`knowledge/rules-delivered.json`. The run's own account, unprompted: *"Projekt-Regeln:
+einmal pro Session hingen sie an Tool-Ausgaben … ich habe mich daran gehalten, zum
+Beispiel beim Schutz-Urteil nach Zonenverteilung plus Drive-Code"* — which is the G64
+rule's instruction, applied to reach the right verdict.
+
+Only S11 is open, and correctly so: it asks for `method:run`, and this was a static
+session.
+
+**The sixth rule never fired, and the number it aims at did not move.** Its only trigger
+was `propose_annotations`, which run 5 never called — it wrote the annotation files by
+hand. Boundaries ended at two. The moment a boundary is owed is the moment names are
+imported, so `disasm_prg` now carries that rule as well, and a tool may carry more than
+one. That constraint was mine, and it was arbitrary.
+
+**What is still not evidence.** Both runs explored `.claude/` at their start and read the
+rule files themselves, so the texts were in context either way. The ledger proves the
+delivery fired and the run's own report says it was followed; separating delivery from
+curiosity would need a run with the rules delivered by tools only and no files to find.
+And no layer here catches a wrong reading — run 5 got the protection verdict right, the
+same day's sonnet run got it wrong with the same machinery available.
