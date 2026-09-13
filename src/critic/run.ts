@@ -29,18 +29,63 @@ export interface Verdict {
   blockers: string[];
 }
 
-const ORPHAN_RATIO_LIMIT = (): number => {
+/**
+ * The orphan limit, and where it came from.
+ *
+ * Spec 848's precedence, which this check did not honour: a contract the human wrote
+ * outranks an env override, which outranks the default. The limit was declared in the
+ * contract, printed back by `contract_show`, and read by nobody — run 5 sat at 62 %
+ * against a stated 50 % and the verdict said nothing, because the check consulted only
+ * `C64RE_ORPHAN_RATIO`.
+ *
+ * The source decides the severity. A default is a preference and stays `important`; a
+ * number the human put in the contract is a promise, and breaking a promise blocks.
+ */
+function orphanLimit(projectDir: string): { limit: number; fromContract: boolean } {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const stated = loadedContractOrphanRatio(projectDir);
+    if (stated !== undefined) return { limit: stated, fromContract: true };
+  } catch { /* no contract, or unreadable: fall through to the env and the default */ }
   const raw = process.env.C64RE_ORPHAN_RATIO?.trim();
   const n = raw ? Number(raw) : NaN;
-  return Number.isFinite(n) && n > 0 && n <= 1 ? n : 0.5;
-};
+  return { limit: Number.isFinite(n) && n > 0 && n <= 1 ? n : 0.5, fromContract: false };
+}
+
+let contractReader: ((dir: string) => number | undefined) | undefined;
+function loadedContractOrphanRatio(projectDir: string): number | undefined {
+  return contractReader?.(projectDir);
+}
 
 export async function critique(projectDir: string): Promise<CriticReport> {
+  // The contract module is loaded lazily so the critic keeps working in a project that
+  // has none; `loadContract` returns undefined there and the env/default path applies.
+  if (!contractReader) {
+    // Read the FILE, not the loaded contract: `loadContract` merges the defaults in, so
+    // every project would look as if the human had stated a limit. What decides the
+    // severity is whether somebody actually wrote the number down.
+    const { existsSync, readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    contractReader = (dir) => {
+      const path = join(dir, "knowledge", "contract.json");
+      if (!existsSync(path)) return undefined;
+      try {
+        const raw = JSON.parse(readFileSync(path, "utf8")) as { limits?: { orphanRatio?: unknown } };
+        const n = raw.limits?.orphanRatio;
+        return typeof n === "number" && n > 0 && n <= 1 ? n : undefined;
+      } catch { return undefined; }
+    };
+  }
   const findings: CriticFinding[] = [];
   const ran: string[] = [];
-  const add = (check: Parameters<typeof CHECK_BY_ID.get>[0], title: string, proof: string): void => {
+  const add = (
+    check: Parameters<typeof CHECK_BY_ID.get>[0],
+    title: string,
+    proof: string,
+    severity?: CriticFinding["severity"],
+  ): void => {
     const def = CHECK_BY_ID.get(check)!;
-    findings.push({ check: def.id, severity: def.severity, title, proof, settleBy: def.settleBy });
+    findings.push({ check: def.id, severity: severity ?? def.severity, title, proof, settleBy: def.settleBy });
   };
 
   const { KnowledgeRecords } = await import("../knowledge-graph/records.js");
@@ -126,7 +171,10 @@ export async function critique(projectDir: string): Promise<CriticReport> {
     // has nothing to look at is exactly what makes a silent report unreadable — you
     // cannot tell "found nothing" from "never ran".
     ran.push("empty-boundary", "orphan-ratio");
-    if (boundaries.length > 0) {
+    // Not guarded on `boundaries.length > 0` any more. That guard was the way past the
+    // orphan limit: assert nothing, and the check that measures how much sits outside the
+    // model never ran at all.
+    {
       const model = await modelReport(projectDir);
       for (const m of model.membership) {
         if (m.members > 0) continue;
@@ -136,13 +184,34 @@ export async function critique(projectDir: string): Promise<CriticReport> {
           `$${hex(node?.start ?? 0)}-$${hex(node?.end ?? 0)} holds no analysed node`);
       }
 
-      const limit = ORPHAN_RATIO_LIMIT();
-      if (model.memberTotal > 0) {
-        const ratio = model.orphans.length / model.memberTotal;
+      const { limit, fromContract } = orphanLimit(projectDir);
+      // A project with NO boundary at all reports memberTotal 0, and the check used to
+      // fall silent there — so the way past an orphan limit was to assert nothing, which
+      // is the behaviour the limit exists to catch. With no model, every classified node
+      // is outside every boundary by definition.
+      let orphanCount = model.orphans.length;
+      let memberTotal = model.memberTotal;
+      if (model.nodes.length === 0 && store) {
+        try {
+          const { MEMBER_KINDS } = await import("../model/types.js");
+          const ph = MEMBER_KINDS.map(() => "?").join(",");
+          const n = (store.db.prepare(
+            `SELECT COUNT(*) AS n FROM (SELECT id FROM nodes WHERE kind IN (${ph}) GROUP BY id)`,
+          ).get(...MEMBER_KINDS) as { n?: number } | undefined)?.n ?? 0;
+          orphanCount = n;
+          memberTotal = n;
+        } catch { /* leave the report's own numbers alone */ }
+      }
+      if (memberTotal > 0) {
+        const ratio = orphanCount / memberTotal;
         if (ratio > limit) {
           add("orphan-ratio",
-            `${model.orphans.length} of ${model.memberTotal} nodes sit outside every boundary`,
-            `${(ratio * 100).toFixed(1)} % orphaned, limit ${(limit * 100).toFixed(0)} % (C64RE_ORPHAN_RATIO)`);
+            model.nodes.length === 0
+              ? `no boundary is asserted — all ${memberTotal} classified nodes sit outside the model`
+              : `${orphanCount} of ${memberTotal} nodes sit outside every boundary`,
+            `${(ratio * 100).toFixed(1)} % orphaned, limit ${(limit * 100).toFixed(0)} % `
+              + (fromContract ? "(the project contract)" : "(C64RE_ORPHAN_RATIO)"),
+            fromContract ? "blocking" : undefined);
         }
       }
     }

@@ -212,6 +212,44 @@ try {
       r.handover.length === 0 || r.handover.every((q) => q.trim().endsWith("?")),
       r.handover[0] ?? "(none - fewer than two findings)");
   }
+  // ---- Spec 849 §7: the orphan limit obeys the contract, and its source decides the bite
+  //
+  // The limit was declared in the contract, printed back by contract_show, and read by
+  // nobody: a measured run sat at 62 % against a stated 50 % and the verdict said
+  // nothing. A default is a preference and stays `important`; a number the human wrote
+  // into the contract is a promise, and a broken promise blocks.
+  {
+    const dir = newProject(); dirs.push(dir);
+    seedGraph(dir);                       // orphans, no boundaries asserted
+    const { critique } = await import("../dist/critic/run.js");
+
+    const noContract = await critique(dir);
+    const a = noContract.findings.find((f) => f.check === "orphan-ratio");
+    check("849: without a stated limit the orphan check stays advisory",
+      !a || a.severity !== "blocking", a ? `${a.severity}: ${a.proof}` : "(not raised)");
+
+    writeFileSync(join(dir, "knowledge", "contract.json"),
+      JSON.stringify({ goal: "a test contract", limits: { orphanRatio: 0.01 } }, null, 2));
+    const withContract = await critique(dir);
+    const b = withContract.findings.find((f) => f.check === "orphan-ratio");
+    check("849: a limit the human wrote makes the breach a blocker",
+      !!b && b.severity === "blocking", b ? `${b.severity}: ${b.proof}` : "(not raised)");
+    check("849: the proof names the contract as the source",
+      !!b && /the project contract/.test(b.proof), b?.proof ?? "(none)");
+
+    // With no boundary at all the ratio is 1.0 by definition, so the way to fall under a
+    // limit is to assert the model — which is the point of the check.
+    const { assertBoundary } = await import("../dist/model/store.js");
+    await assertBoundary(dir, {
+      name: "game", level: "container", start: 0x2c00, end: 0x5100,
+      evidence: ["the routines in this window are the ones the listing shows"],
+    });
+    writeFileSync(join(dir, "knowledge", "contract.json"),
+      JSON.stringify({ goal: "a test contract", limits: { orphanRatio: 0.5 } }, null, 2));
+    const covered = await critique(dir);
+    check("849: asserting the boundary is what clears the blocker",
+      !covered.findings.some((f) => f.check === "orphan-ratio"), "no orphan-ratio finding");
+  }
 } finally {
   for (const d of dirs) { try { rmSync(d, { recursive: true, force: true }); } catch {} }
 }
