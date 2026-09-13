@@ -32,7 +32,9 @@ export interface Rule {
 
 /** Parse one rule file. The frontmatter is flat and the arrays are single-line JSON. */
 export function parseRule(id: string, text: string): Rule | undefined {
-  const m = /^---\n([\s\S]*?)\n---\n/.exec(text);
+  // \r? throughout: these files check out CRLF on Windows, and an LF-only
+  // pattern matches nothing there - so no rule parses and none ever fires.
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
   if (!m) return undefined;
   const fm = m[1];
   const list = (key: string): string[] => {

@@ -1,1 +1,5 @@
 *.sqlite binary
+
+# Rule files are parsed by exact frontmatter delimiters; keep them LF on every
+# platform so a CRLF checkout cannot stop them parsing.
+assets/project-rules/*.md text eol=lf
