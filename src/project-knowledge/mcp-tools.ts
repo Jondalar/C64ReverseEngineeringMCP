@@ -8,6 +8,7 @@ import { PROJECT_REPAIR_OPERATIONS, repairProject, renderProjectRepair } from ".
 import { safeHandler } from "../server-tools/safe-handler.js";
 import { ensureWikiSkeleton } from "./project-wiki.js";
 import { ensureUiLauncher } from "./ui-launcher.js";
+import { ensureProjectRules, summariseProjectRules } from "../project-rules/provision.js";
 import { ensureDefaultSteering } from "../server-tools/steering-defaults.js";
 import { ProjectKnowledgeService } from "./service.js";
 
@@ -114,6 +115,11 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       // project steering file (injected at the top of agent_onboard). Default
       // only; never clobbers a hand-written steering.md.
       const steeringSeed = ensureDefaultSteering(projectRoot);
+      // Spec 849 — the harness rules. `.claude/rules/*.md` with a `paths:` glob is the
+      // only steering layer that fires DURING the work, decided by the glob rather than
+      // by the model's judgement of its own task. Copied in here and re-synced by
+      // `agent_onboard`; a hand-edited rule is never overwritten.
+      const projectRules = ensureProjectRules(projectRoot);
       // Convenience: workspace launchers in the project root to start/restart
       // the workspace (HTTP UI :4310 + runtime daemon :4312) pointed at this
       // project — `ui.sh` for macOS/Linux, `ui.ps1` + the ui-start/stop/restart
@@ -156,6 +162,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         ``,
         `Wiki scaffolded: ${wikiScaffold.created.length ? wikiScaffold.created.join(", ") : "already present"}`,
         `Steering (extract-first doctrine): ${steeringSeed}`,
+        `Harness rules: ${summariseProjectRules(projectRules) ?? "already current"}`,
         `UI launcher: ${uiCreated.length ? `created ${uiCreated.join(", ")}` : "already present (not overwritten)"}`,
         `  macOS / Linux: ./ui.sh start|restart|stop|status|logs   ·   Windows: double-click ui-start.cmd / ui-stop.cmd / ui-restart.cmd`,
         `Input media sorted: ${mediaSort.sorted.length} file(s)`,

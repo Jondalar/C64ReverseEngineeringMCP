@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { ensureProjectRules, summariseProjectRules } from "../project-rules/provision.js";
 import { dirname, join, relative, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -404,6 +405,11 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       // 752) still gets the extract-first doctrine injected. Never clobbers a
       // hand-written steering (appends the block only when absent).
       try { ensureDefaultSteering(projectRoot); } catch { /* best-effort */ }
+      // Spec 849 — re-sync the harness rules. Provisioning at `project_init` alone would
+      // freeze a project's rules at the day it was created; this is the call every
+      // session makes first, including an unattended one that never starts a UI.
+      let rulesLine: string | undefined;
+      try { rulesLine = summariseProjectRules(ensureProjectRules(projectRoot)); } catch { /* best-effort */ }
       const steeringPath = join(projectRoot, "knowledge", "steering.md");
       if (existsSync(steeringPath)) {
         const steering = readFileSync(steeringPath, "utf8").trim();
@@ -420,6 +426,9 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         lines.push(`No \`knowledge/steering.md\`. Set persistent project rules (the discipline the agent must always apply — e.g. "after a load trace, derive the disk-T/S↔load cartography and register_payload the spans"; "after each action, record a finding + reconcile the related open question") with \`project_steering_set\`.`);
         lines.push(``);
       }
+      // Spec 849 — say that the rules exist. They fire on a file touch, not here; but a
+      // session that does not know they exist reads the first one as a surprise.
+      if (rulesLine) { lines.push(rulesLine); lines.push(``); }
       // Specs 844/845/846 — THE HANDOVER. The one thing that makes the rest of that arc
       // more than passive machinery.
       //
