@@ -69,7 +69,7 @@ for (const file of files) {
   const text = readFileSync(join(RULES, file), "utf8");
   console.log(`\n${file}`);
 
-  const fm = /^---\n([\s\S]*?)\n---\n/.exec(text);
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
   if (!fm) { fail(`${file}: no frontmatter block`); continue; }
   const body = text.slice(fm[0].length);
 
