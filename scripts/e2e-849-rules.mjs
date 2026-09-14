@@ -13,7 +13,7 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync, rmSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ensureProjectRules, shippedRulesDir, shippedRules, RULES_DIR } from "../dist/project-rules/provision.js";
-import { allRules, rulesForTool } from "../dist/project-rules/rules.js";
+import { allRules, rulesForTool, parseRule } from "../dist/project-rules/rules.js";
 import { ruleFooterForTool, resetRuleDelivery } from "../dist/project-rules/deliver.js";
 
 let pass = 0, failCount = 0;
@@ -119,6 +119,22 @@ const edited = join(rulesDir, "heuristics-are-proposals.md");
 writeFileSync(edited, "---\ndescription: mine.\npaths: [\"**/*\"]\ntools: [\"analyze_prg\"]\n---\nMY OWN WORDING 4417\n");
 const own = ruleFooterForTool(root, "analyze_prg");
 check(!!own && own.includes("MY OWN WORDING 4417"), "the project's own wording wins over the shipped text");
+
+// 11b — CRLF (PR #23): a Windows checkout, or a project cloned there, changes nothing.
+// Before: no rule parsed, and every CRLF project copy read as a hand-edit forever.
+{
+  const name = "g64-checksum-failures.md";
+  const lf = readFileSync(join(assets, name), "utf8");
+  const crlf = lf.replace(/\r?\n/g, "\r\n");
+  const a = parseRule("x", lf), b = parseRule("x", crlf);
+  check(!!b, "a CRLF rule file parses");
+  check(!!a && !!b && JSON.stringify(a) === JSON.stringify(b), "…to exactly what the LF file parses to");
+  check(!!b && !b.body.includes("\r"), "…with no \\r carried into the body a footer delivers");
+  writeFileSync(join(rulesDir, name), crlf);
+  const crlfRun = ensureProjectRules(root);
+  check(crlfRun.unchanged.includes(name) && !crlfRun.handEdited.includes(name),
+    "a CRLF project copy counts as current, not as a hand-edit");
+}
 
 // 12 — a directory that is not a project is left alone entirely
 const notAProject = mkdtempSync(join(tmpdir(), "c64re-849-np-"));

@@ -5,7 +5,7 @@
 // rebuilds the deterministic search index, and runs the §12 acceptance
 // queries. It never mutates the real project. If the fixture is absent it
 // PENDS (no fixture on this machine) rather than failing.
-import { mkdtempSync, mkdirSync, cpSync, existsSync, copyFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, cpSync, existsSync, copyFileSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,10 +16,30 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 
 console.log("Spec 740.1 — project search/wiki Wasteland acceptance\n");
 
+// CRLF — needs no fixture, so it runs before the Wasteland check. A doc or listing
+// written on Windows ends its lines in \r\n; the heading and comment matches anchor on
+// `$`, and saw none of them: every doc collapsed into one section, every comment vanished.
+{
+  const { buildProjectSearchIndex: build } = await import(join(ROOT, "dist/project-knowledge/project-search.js"));
+  const p = mkdtempSync(join(tmpdir(), "c64re-740-crlf-"));
+  mkdirSync(join(p, "knowledge"), { recursive: true });
+  mkdirSync(join(p, "docs"), { recursive: true });
+  mkdirSync(join(p, "artifacts"), { recursive: true });
+  writeFileSync(join(p, "docs", "loader.md"),
+    "# Loader\r\n\r\nThe stage-2 loader.\r\n\r\n## Decrunch\r\n\r\nUnpacks to $0801 before the jump.\r\n");
+  writeFileSync(join(p, "artifacts", "main_disasm.asm"),
+    "; the IRQ handler chain starts here\r\nmain:                              ; $0810\r\n");
+  const idx = build(p);
+  const docIds = idx.records.filter((r) => r.sourcePath === join("docs", "loader.md")).map((r) => r.id);
+  ok(docIds.includes(`doc:${join("docs", "loader.md")}#decrunch`), "0-crlf a CRLF doc keeps its headings as sections", docIds.join(", "));
+  ok(idx.records.some((r) => r.kind === "asm_section" && /IRQ handler chain/.test(r.summary)), "0-crlf a CRLF listing keeps its comment lines");
+  rmSync(p, { recursive: true, force: true });
+}
+
 const WASTELAND = "/Users/alex/Development/C64/Cracking/Wasteland_EF";
 if (!existsSync(join(WASTELAND, "knowledge", "findings.json"))) {
-  console.log(`PENDING — Wasteland fixture not present at ${WASTELAND}. 0 pass, 0 fail.`);
-  process.exit(0);
+  console.log(`PENDING — Wasteland fixture not present at ${WASTELAND}. ${pass} pass, ${fail} fail (fixture-free checks only).`);
+  process.exit(fail === 0 ? 0 : 1);
 }
 
 const mod = await import(join(ROOT, "dist/project-knowledge/project-search.js"));

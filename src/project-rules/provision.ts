@@ -48,8 +48,13 @@ interface Ledger {
   shipped: Record<string, string>;
 }
 
+/**
+ * Line endings are normalised before hashing: a project cloned on Windows checks its rule
+ * copies out CRLF, and without this every one of them reads as a hand-edit and is never
+ * updated again.
+ */
 function sha256(text: string): string {
-  return createHash("sha256").update(text, "utf8").digest("hex");
+  return createHash("sha256").update(text.replace(/\r\n/g, "\n"), "utf8").digest("hex");
 }
 
 /**

@@ -43,6 +43,8 @@ export interface AsmAst {
   routines: AsmRoutineBlock[];
   /** Raw lines — mutated by emitToAsmFile */
   lines: string[];
+  /** The file's own line ending, so a patch writes back what it read (a listing edited on Windows is CRLF) */
+  eol?: "\n" | "\r\n";
 }
 
 export interface AsmAdditions {
@@ -93,7 +95,8 @@ export function parseAsmFile(filePath: string): AsmAst {
   }
 
   const raw = readFileSync(filePath, "utf8");
-  const rawLines = raw.split("\n");
+  const eol = raw.includes("\r\n") ? "\r\n" : "\n";
+  const rawLines = raw.split(/\r?\n/);
   // Preserve trailing newline behaviour: if last line is empty it came
   // from the trailing \n — keep it so round-trips stay identical.
   for (const l of rawLines) lines.push(l);
@@ -154,7 +157,7 @@ export function parseAsmFile(filePath: string): AsmAst {
     }
   }
 
-  return { labels, comments, routines, lines };
+  return { labels, comments, routines, lines, eol };
 }
 
 // ---- emitToAsmFile ------------------------------------------------------
@@ -240,6 +243,6 @@ export function emitToAsmFile(filePath: string, additions: AsmAdditions): number
   }
 
   void ast2; // used for type-check only
-  writeFileSync(filePath, lines.join("\n"), "utf8");
+  writeFileSync(filePath, lines.join(ast.eol ?? "\n"), "utf8");
   return written;
 }

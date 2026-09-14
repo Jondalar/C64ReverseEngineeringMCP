@@ -121,7 +121,9 @@ function tokensForRecord(title: string, summary: string, snippet: string, addr?:
 // Markdown → section records. Splits on ## / # headings.
 function indexMarkdown(absPath: string, relPath: string, kind: ProjectSearchKind, curated: boolean): ProjectSearchRecord[] {
   const text = readFileSync(absPath, "utf8");
-  const lines = text.split("\n");
+  // \r?: a doc written on Windows ends its lines in CRLF, and `(.*)$` below cannot match
+  // across the \r — every heading would vanish into one section.
+  const lines = text.split(/\r?\n/);
   const out: ProjectSearchRecord[] = [];
   let heading = basename(relPath);
   let bodyLines: string[] = [];
@@ -191,7 +193,7 @@ function indexActivityLog(absPath: string, relPath: string): ProjectSearchRecord
 // ASM/TASS → section headers / labels-with-comments. NOT the whole file.
 function indexAsm(absPath: string, relPath: string): ProjectSearchRecord[] {
   const text = readFileSync(absPath, "utf8");
-  const lines = text.split("\n");
+  const lines = text.split(/\r?\n/); // a hand-edited listing may be CRLF; the comment match anchors on $
   const out: ProjectSearchRecord[] = [];
   const CAP = 40;
   for (let i = 0; i < lines.length && out.length < CAP; i++) {

@@ -1,5 +1,31 @@
-*.sqlite binary
+# Line endings: LF in the repository and in every checkout, on every platform.
+# The server parses its own text at runtime — rule and skill frontmatter, listings,
+# fixtures — and a Windows checkout with core.autocrlf handed those parsers CRLF
+# (PR #23: no project rule parsed, so none ever fired).
+* text=auto eol=lf
 
-# Rule files are parsed by exact frontmatter delimiters; keep them LF on every
-# platform so a CRLF checkout cannot stop them parsing.
-assets/project-rules/*.md text eol=lf
+# Media and binaries are never touched. Listed rather than left to detection: a small
+# PRG with no NUL byte in it would otherwise be taken for text and its $0D $0A pairs
+# rewritten.
+*.prg binary
+*.bin binary
+*.o binary
+*.d64 binary
+*.d71 binary
+*.d81 binary
+*.g64 binary
+*.p64 binary
+*.crt binary
+*.t64 binary
+*.tap binary
+*.reu binary
+*.sid binary
+*.vsf binary
+*.c64re binary
+*.c64retrace binary
+*.png binary
+*.gif binary
+*.jpg binary
+*.wav binary
+*.sqlite binary
+*.duckdb binary

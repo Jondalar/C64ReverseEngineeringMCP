@@ -204,6 +204,28 @@ const hasD000 = result6.autoWrite.some(s => s.annotation.address === "D000");
 assert(!hasC000, "C000 blocked by ground-truth guard");
 assert(hasD000, "D000 passes (no ground-truth label there)");
 
+// ---- Case 7: CRLF listing — parsed, patched, and its line endings kept --
+
+console.log("\nCase 7: CRLF listing (hand-edited on Windows)");
+
+const asmPath7 = `${tmpDir}/test7_disasm.asm`;
+writeFileSync(asmPath7, [
+  `; edited on Windows`,
+  `start:                             ; $0A00`,
+  `        LDA #$01                   ; $0A00`,
+  `        STA $D020                  ; $0A02`,
+  `        RTS                        ; $0A05`,
+  ``,
+].join("\r\n"), "utf8");
+
+const ast7 = parseAsmFile(asmPath7);
+assert(ast7.labels.get(0x0A00)?.name === "start", "label found in a CRLF listing");
+assert(ast7.lines.every((l) => !l.endsWith("\r")), "no parsed line carries a stray \\r");
+emitToAsmFile(asmPath7, { newLabels: new Map([[0x0A02, "_auto_border"]]), newComments: new Map(), newRoutineDocs: [] });
+const patched7 = readFileSync(asmPath7, "utf8");
+assert(patched7.includes("_auto_border"), "auto-label inserted into the CRLF listing");
+assert(!/[^\r]\n/.test(patched7), "every line still ends CRLF — no LF line mixed in");
+
 // ---- Summary ------------------------------------------------------------
 
 console.log(`\n${"=".repeat(50)}`);

@@ -32,9 +32,11 @@ export interface Rule {
 
 /** Parse one rule file. The frontmatter is flat and the arrays are single-line JSON. */
 export function parseRule(id: string, text: string): Rule | undefined {
-  // \r? throughout: these files check out CRLF on Windows, and an LF-only
-  // pattern matches nothing there - so no rule parses and none ever fires.
-  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text);
+  // Normalised once: these files check out CRLF on Windows, and a project copy can be
+  // edited there. An LF-only delimiter then matched nothing — no rule parsed and none
+  // ever fired (PR #23) — and a \r left in the body would ride into every tool footer.
+  const src = text.replace(/\r\n/g, "\n");
+  const m = /^---\n([\s\S]*?)\n---\n/.exec(src);
   if (!m) return undefined;
   const fm = m[1];
   const list = (key: string): string[] => {
@@ -48,7 +50,7 @@ export function parseRule(id: string, text: string): Rule | undefined {
     description: desc ? desc[1].trim() : "",
     paths: list("paths"),
     tools: list("tools"),
-    body: text.slice(m[0].length).trim(),
+    body: src.slice(m[0].length).trim(),
   };
 }
 

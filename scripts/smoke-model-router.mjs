@@ -22,7 +22,8 @@ console.log("Model router — skill and agent frontmatter\n");
 // A deliberately small YAML reader: these files are flat key/value frontmatter,
 // and a dependency for that would be its own kind of cost.
 function frontmatter(path) {
-  const text = readFileSync(path, "utf8");
+  // Normalised: on a Windows checkout without .gitattributes these files arrive CRLF.
+  const text = readFileSync(path, "utf8").replace(/\r\n/g, "\n");
   if (!text.startsWith("---\n")) return { error: "no frontmatter block", body: text };
   const end = text.indexOf("\n---\n", 3);
   if (end < 0) return { error: "unterminated frontmatter block", body: text };

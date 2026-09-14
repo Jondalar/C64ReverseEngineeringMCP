@@ -101,7 +101,7 @@ function listingAnnotationStatus(asmPath: string): string {
     // the header is the first ~10 lines; a listing can be megabytes
     const line = readFileSync(asmPath, "utf8")
       .slice(0, 4096)
-      .split("\n")
+      .split(/\r?\n/)
       .find((l) => /^\/\/\s+(?:No s|S)emantic annotations/.test(l));
     if (line) return line.replace(/^\/\/\s+/, "");
   } catch {
@@ -168,7 +168,9 @@ async function rebuildVerification(args: {
   // sees it immediately without having to consult the tool stdout.
   try {
     const asm = readFileSync(args.asmPath, "utf8");
-    const lines = asm.split("\n");
+    // Keep the file's own line endings: a CRLF listing must not come back with one LF line in it.
+    const eol = asm.includes("\r\n") ? "\r\n" : "\n";
+    const lines = asm.split(/\r?\n/);
     const header = lines.findIndex((line) => line.startsWith("//****************"));
     if (header >= 0) {
       // insert before the closing banner
@@ -177,9 +179,9 @@ async function rebuildVerification(args: {
       // Drop any prior verification line so re-runs don't accumulate.
       const filtered = lines.filter((line) => !line.startsWith("// rebuild verified") && !line.startsWith("// WARNING: rebuild "));
       filtered.splice(insertAt, 0, summaryLine);
-      writeFileSync(args.asmPath, filtered.join("\n"), "utf8");
+      writeFileSync(args.asmPath, filtered.join(eol), "utf8");
     } else {
-      writeFileSync(args.asmPath, `${summaryLine}\n${asm}`, "utf8");
+      writeFileSync(args.asmPath, `${summaryLine}${eol}${asm}`, "utf8");
     }
   } catch {
     // best-effort header injection; don't fail the disasm flow over it
