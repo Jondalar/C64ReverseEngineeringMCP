@@ -151,7 +151,7 @@ try {
     rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
     const rep = await slotReport(d);
     const na = rep.states.filter((s) => s.status === "n/a" && /contract does not ask/.test(s.detail));
-    check("a contract may demand FEWER slots than the default fourteen", na.length === 11,
+    check("a contract may demand FEWER slots than the default fifteen", na.length === 12,
       `${na.length} slots marked n/a by the contract — 844 is a template, not a law`);
   }
 

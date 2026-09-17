@@ -14,7 +14,7 @@ Three things stop being present when he leaves. Two of them are built:
 
 | | what he was | built |
 |---|---|---|
-| the FRAME | his ten questions | Spec 844 — the fourteen slots |
+| the FRAME | his ten questions | Spec 844 — the fifteen slots |
 | the MEMORY | the one who saw the connections | Spec 845 — the model layer and its re-entry read |
 | the **COUNTER-PRESSURE** | the one who did not believe "create.prg writes nothing" | **this spec** |
 

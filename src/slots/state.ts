@@ -184,7 +184,15 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   // The denominator is every non-internal loadable artifact, INCLUDING the ones nobody
   // has looked at yet — S12 asks how many of the bytes present are accounted for, and an
   // unanalysed file is present.
-  const artifacts = rec.listArtifacts().filter((a) => !a.internal && MEASURABLE_KINDS.has(a.kind));
+  // Two lists, deliberately. COVERAGE may only count what can be measured, but the
+  // MEDIUM questions (S2's derived fill, S10's and S15's applicability) ask whether a
+  // disk exists at all — and a .d64 is not a measurable kind. Deriving both from the
+  // measurable list meant `media` could only ever hold prg/raw: on a disk-only project
+  // S2 never filled from its own registered images and S10 was permanently n/a, i.e.
+  // the save model went unasked on every game that has one. Found by S15's gate case,
+  // which is the first one whose fixture registers a d64 rather than a prg.
+  const visible = rec.listArtifacts().filter((a) => !a.internal);
+  const artifacts = visible.filter((a) => MEASURABLE_KINDS.has(a.kind));
 
   const rangesByOwner = new Map<string, Array<{ start: number; end: number }>>();
   // 848 — named-ness, counted over the nodes where a name means something.
@@ -255,7 +263,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
 
   // ---- derived fills --------------------------------------------------------
   const mediaKinds = new Set(["d64", "g64", "crt", "prg", "raw"]);
-  const media = artifacts.filter((a) => mediaKinds.has(a.kind));
+  const media = visible.filter((a) => mediaKinds.has(a.kind));
   const loaderStages = entities.filter((e) => e.kind === "loader-stage");
   const payloads = entities.filter((e) => e.kind === "payload");
   const refutations = findings.filter((f) => f.kind === "refutation");
@@ -306,6 +314,14 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
         return media.length > 0
           ? { applies: true, why: "a medium exists to save to" }
           : { applies: false, why: "no medium registered (S2)" };
+      case "S15":
+        // Same trigger as S10 and a different reason: S10 asks where the GAME writes,
+        // S15 where WE may. It applies from the moment a medium is registered rather
+        // than from the moment someone patches one, because by then the answer is
+        // needed and finding it means walking every chain on the disk (issue #24).
+        return media.length > 0
+          ? { applies: true, why: "a medium exists that something could write to" }
+          : { applies: false, why: "no medium registered (S2)" };
       default:
         return { applies: true, why: "" };
     }
@@ -328,6 +344,17 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
         return byRun
           ? { slot, status: "filled", detail: `${explicit[0]}, confirmed by running` }
           : { slot, status: "hypothesis", detail: `${explicit[0]}, read-derived — a run has not confirmed it` };
+      }
+      // S15 is S11's twin one level out, and for the same reason: the claim is only
+      // worth as much as the instrument behind it. A free list read off the BAM is a
+      // hypothesis on any medium and a falsehood on a track/sector-addressed one, so
+      // only a walk of the chains settles it.
+      if (slot.id === "S15") {
+        const byChains = findings.some((f) =>
+          (f.tags ?? []).some((t) => /^slot:S15$/i.test(t)) && (f.tags ?? []).some((t) => /^method:chains$/i.test(t)));
+        return byChains
+          ? { slot, status: "filled", detail: `${explicit[0]}, established by walking the chains` }
+          : { slot, status: "hypothesis", detail: `${explicit[0]} — not established by walking the chains; a BAM free list does not describe occupancy (issue #24)` };
       }
       return { slot, status: "filled", detail: explicit.join(", ") };
     }

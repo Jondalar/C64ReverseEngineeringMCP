@@ -94,7 +94,7 @@ paying for.
 
 **D7 — Two doors, one of which calls the other.** Several containers ARE slots: S3's boot
 stages, S5's runtimes, S8's engine. That looked like a reason to merge `slot_record` with
-the boundary-asserting door, and it is not. Of the fourteen slots only three or four are
+the boundary-asserting door, and it is not. Of the fifteen slots only three or four are
 container-shaped; S4 is a description, S11 a measurement, S12 arithmetic, S13 and S14
 procedures. One door for both would push ten non-container slots through a
 container-shaped API, or make the container fields optional — which is one door with a

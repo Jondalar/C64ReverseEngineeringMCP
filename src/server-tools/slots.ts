@@ -37,7 +37,7 @@ const NON_ARTEFACT_SLOTS = new Set<SlotId>(["S1", "S13", "S14"]);
 export function registerSlotTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "project_slots",
-    "Completeness check: which of the 14 required relationships (Spec 844) this project has named and which are still empty. Use before calling a project mapped, and whenever a door refuses on a slot. Not a to-do list (use agent_next_step). Inputs: optional project_dir, verbose. Returns: per-slot status + measured byte coverage.",
+    "Completeness check: which of the 15 required relationships (Spec 844) this project has named and which are still empty. Use before calling a project mapped, and whenever a door refuses on a slot. Not a to-do list (use agent_next_step). Inputs: optional project_dir, verbose. Returns: per-slot status + measured byte coverage.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       verbose: z.boolean().default(false).describe("Also print what each open slot asks and what would fill it"),
@@ -63,7 +63,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
 
   server.tool(
     "slot_record",
-    "Fill one Spec 844 slot: the answer to a required question, with the evidence for it. Use when a door refuses on an empty slot, or when you have just established one of the 14. Inputs: slot id, answer, evidence, optional address range; S11 also requires method. Returns: the finding written + the updated slot line.",
+    "Fill one Spec 844 slot: the answer to a required question, with the evidence for it. Use when a door refuses on an empty slot, or when you have just established one of the 15. Inputs: slot id, answer, evidence, optional address range; S11 and S15 also require method. Returns: the finding written + the updated slot line.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       slot: z.enum(SLOT_IDS).describe("Which slot — see project_slots for the list and what each asks"),
@@ -71,7 +71,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       evidence: z.string().min(10).describe("What you read or ran that establishes it — a listing, an address, a routine, a run"),
       address_start: z.number().int().nonnegative().optional().describe("Start of the address range this answer covers, if it has one"),
       address_end: z.number().int().nonnegative().optional().describe("End of that range (inclusive)"),
-      method: z.enum(["read", "run"]).optional().describe("REQUIRED for S11 (free RAM): was this established by READING (a hypothesis) or by RUNNING (settled)? Four corpus projects got this wrong in the same direction."),
+      method: z.enum(["read", "run", "chains", "bam"]).optional().describe("REQUIRED for S11 (free RAM): READING (a hypothesis) or RUNNING (settled)? Four corpus projects got this wrong in the same direction. REQUIRED for S15 (writable space): \"chains\" (every chain on the medium walked and subtracted — settles it) or \"bam\" (read off the BAM's free list — a hypothesis, and on a track/sector-addressed disk usually an inverted one)."),
       boundary_name: z.string().optional().describe("For S3, S5 and S8 — the container this answer names, e.g. \"stage 2 loader\" or \"resident engine\". Given together with an address range it also asserts the Spec 845 model boundary, so the model fills as a side effect of answering this question (845 D7)."),
       space: z.enum(["ram", "crt", "drv"]).default("ram").describe("Address space, when a boundary is being asserted alongside"),
       owner: z.string().optional().describe("Bind the boundary to ONE artifact owner; omit to span the space"),
@@ -79,6 +79,27 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
     async ({ project_dir, slot, answer, evidence, address_start, address_end, method, boundary_name, space, owner }) => {
       const pd = context.projectDir(project_dir, true);
       const def = SLOT_BY_ID.get(slot)!;
+
+      if (slot === "S15" && !method) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: [
+              "# slot_record refused — S15 needs its method.",
+              "",
+              "Writable space is the other slot where HOW you know is part of the answer.",
+              "Pass method=\"chains\" if you walked every chain on the medium and subtracted",
+              "them, method=\"bam\" if you read the BAM's free list — which is recorded as a",
+              "hypothesis, because the BAM does not have to be true.",
+              "",
+              "Measured on Crazy News side 1 (issue #24): all 30 blocks the BAM called free",
+              "were in use by an asset, and all 78 genuinely spare blocks were marked",
+              "allocated — disjoint in both directions. A patch step asked the BAM for a",
+              "spare block, got T1/S1, and overwrote the chain head of another asset.",
+            ].join("\n"),
+          }],
+        };
+      }
 
       if (slot === "S11" && !method) {
         return {

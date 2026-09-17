@@ -108,7 +108,7 @@ export const KICKOFF_QUESTIONS: ReadonlyArray<{ field: string; ask: string; note
   },
   {
     field: "deliver.slots",
-    ask: "Which of the fourteen standard questions must be answered for THIS game?",
+    ask: "Which of the fifteen standard questions must be answered for THIS game?",
     note: "The default is all of them. Drop the ones that cannot apply — a game with no save owes no S10.",
   },
   {
@@ -133,7 +133,7 @@ export function formatContract(c: ProjectContract, present: boolean): string {
   out.push(present ? `Contract: ${c.goal}` : "No contract set — running on defaults.");
   const d = c.deliver ?? {};
   if (d.slots) out.push(`  slots owed:    ${d.slots.join(", ")}`);
-  else out.push("  slots owed:    (all of the default fourteen)");
+  else out.push("  slots owed:    (all of the default fifteen)");
   if (d.annotate?.length) out.push(`  annotate:      ${d.annotate.join(", ")}`);
   if (d.documents?.length) out.push(`  documents:     ${d.documents.map((x) => x.covers).join(", ")}`);
   if (d.namedRatio !== undefined) out.push(`  named:         >= ${(d.namedRatio * 100).toFixed(0)} %`);

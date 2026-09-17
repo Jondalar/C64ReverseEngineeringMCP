@@ -1,4 +1,4 @@
-// Spec 844 §4 — the fourteen slots, as data.
+// Spec 844 §4 — the fifteen slots, as data.
 //
 // The owner's diagnosis: "die Fragen sind aber in allen Multi-Disk-Projekten dieselben,
 // die Dinge die es zu mappen und in Beziehung zu setzen gilt sind auch immer die selben."
@@ -11,12 +11,19 @@
 // Ultima VI — read by isolated agents: the corpus failed on these four repeatedly and
 // never once wrote the failure down as a slot.
 //
+// S15 came out of issue #24 and is the first one the READING side did not produce. Every
+// slot above it asks what the GAME does; none asked where a TOOL may put bytes. A session
+// answered S4 correctly for Crazy News — link chains, addressed by track/sector, the game
+// never reads the BAM — then stepped outside the list to extend a chain, fell back on the
+// only convention that exists for "where is there room", and overwrote another asset's
+// chain head. The questions were right and the gap was between them.
+//
 // The teeth column is per slot, not global. That distinction is only possible BECAUSE
 // the list exists, which is why §3 left it open until §4 was answered.
 
 export type SlotId =
   | "S1" | "S2" | "S3" | "S4" | "S5" | "S6" | "S7"
-  | "S8" | "S9" | "S10" | "S11" | "S12" | "S13" | "S14";
+  | "S8" | "S9" | "S10" | "S11" | "S12" | "S13" | "S14" | "S15";
 
 export interface SlotDef {
   id: SlotId;
@@ -144,6 +151,14 @@ export const SLOTS: readonly SlotDef[] = [
     required: "always", teeth: "report", doors: [],
     because: "Ultima VI holds six, and they are the most valuable records in that project: each one stops a rebuild that would otherwise be attempted again.",
   },
+  {
+    id: "S15", name: "Writable space",
+    question: "Which blocks on the medium are genuinely spare — and HOW was that established, given the BAM does not answer it?",
+    fills: "a finding tagged `slot:S15` naming the spare blocks and carrying its method: `method:chains` (every chain walked and subtracted from the medium) settles it; `method:bam` is a hypothesis and stays one",
+    required: { when: "S2", note: "applies once a medium is registered — the answer is owed before anything writes to it, not after" },
+    teeth: "report", doors: [],
+    because: "Issue #24, Crazy News side 1: the BAM's free list and actual occupancy are disjoint in BOTH directions — all 30 blocks it calls free are in use by an asset, and all 78 genuinely spare blocks are marked allocated. A patch step asked the BAM for a spare block, got T1/S1, and overwrote the chain head of another asset; the symptom surfaced much later and elsewhere, as executing data on the in-game screen. S4 says how the GAME addresses its payloads and was answered correctly. A custom loader that addresses sectors directly has no reason to keep the BAM truthful, and this one does not.",
+  },
 ] as const;
 
 export const SLOT_BY_ID: ReadonlyMap<SlotId, SlotDef> =
@@ -175,7 +190,7 @@ export const DOOR_SLOTS: ReadonlyMap<string, readonly SlotId[]> = (() => {
 /**
  * Spec 845 D7 — the slots that ARE boundaries, and at what level.
  *
- * Only three of the fourteen. That is the whole argument against merging `slot_record`
+ * Only three of the fifteen. That is the whole argument against merging `slot_record`
  * with `model_assert`: ten of the others are descriptions, measurements, arithmetic or
  * procedures, and pushing them through a container-shaped API would make the container
  * fields optional — one door with a mode, which is two doors wearing one name. So the

@@ -31,9 +31,9 @@ const dirs = [];
 try {
   // ------------------------------------------------------------- schema integrity
   {
-    check("fourteen slots", SLOTS.length === 14, `${SLOTS.length} defined`);
+    check("fifteen slots", SLOTS.length === 15, `${SLOTS.length} defined`);
     const ids = SLOTS.map((s) => s.id);
-    check("slot ids are unique and S1..S14", new Set(ids).size === 14 && ids[0] === "S1" && ids[13] === "S14");
+    check("slot ids are unique and S1..S15", new Set(ids).size === 15 && ids[0] === "S1" && ids[14] === "S15");
 
     // Spec 839's rule: a description may not name a verb that does not dispatch. A slot
     // that gates a door nobody can call is the same defect.
@@ -107,6 +107,40 @@ try {
     r = await slotReport(d);
     check("a run settles S11", statusOf(r, "S11") === "filled", r.states.find((s) => s.slot.id === "S11")?.detail);
     check("the allocating door opens", (await checkSlotGate("runtime_candidate_patch", d)).allowed);
+  }
+
+  // ------------------------------------------ S15: the BAM is a hypothesis, chains settle it
+  {
+    const d = newProject("s15"); dirs.push(d);
+    const rec = new KnowledgeRecords(d);
+    rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
+    writeFileSync(join(d, "knowledge", "artifacts.json"), JSON.stringify({ items: [
+      { id: "m1", kind: "d64", title: "side1.d64", path: "side1.d64", relativePath: "side1.d64", scope: "input", tags: [] },
+    ] }, null, 2));
+
+    let r = await slotReport(d);
+    check("a registered medium makes S15 apply", statusOf(r, "S15") === "empty",
+      r.states.find((s) => s.slot.id === "S15")?.detail);
+
+    rec.saveFinding({ kind: "observation", title: "30 blocks free per the BAM", tags: ["slot:S15", "method:bam"] });
+    r = await slotReport(d);
+    check("a BAM-derived free list is a HYPOTHESIS, not a fill", statusOf(r, "S15") === "hypothesis",
+      r.states.find((s) => s.slot.id === "S15")?.detail);
+
+    rec.saveFinding({ kind: "observation", title: "78 blocks spare after walking every chain", tags: ["slot:S15", "method:chains"] });
+    r = await slotReport(d);
+    check("walking the chains settles S15", statusOf(r, "S15") === "filled",
+      r.states.find((s) => s.slot.id === "S15")?.detail);
+  }
+
+  // ------------------------------------------------- S15 is n/a while no medium is registered
+  {
+    const d = newProject("s15-nomedium"); dirs.push(d);
+    const rec = new KnowledgeRecords(d);
+    rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
+    const r = await slotReport(d);
+    check("no medium ⇒ S15 is n/a, not an open slot", statusOf(r, "S15") === "n/a",
+      r.states.find((s) => s.slot.id === "S15")?.detail);
   }
 
   // --------------------------------------------------------- conditional slots are n/a
@@ -183,7 +217,7 @@ try {
     const rec = new KnowledgeRecords(d);
     rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
     const text = formatSlotReport(await slotReport(d));
-    check("the report lists all 14 slots", (text.match(/^[✓~✗·] S\d/gm) ?? []).length === 14,
+    check("the report lists all 15 slots", (text.match(/^[✓~✗·] S\d/gm) ?? []).length === 15,
       text.split("\n")[0]);
   }
 } finally {

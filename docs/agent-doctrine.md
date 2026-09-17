@@ -292,7 +292,7 @@ If knowledge files are missing, initialize the project with `project_init`. If a
 ## 2.5 What this project owes, and what will tell you (Specs 844-849)
 
 `agent_onboard` returns the **project contract** first, ahead of the model and the
-findings. It states what the human expects delivered — which of the fourteen standard
+findings. It states what the human expects delivered — which of the fifteen standard
 questions apply here, which regions must carry human names, which documents must exist,
 and the thresholds. It states deliverables only; it never states facts about the title,
 because at kickoff none are known. Where no contract is set, onboarding returns the
@@ -318,7 +318,7 @@ nothing stays silent. Neither repeats itself to fill space; if one speaks, somet
 different.
 
 `project_critique` carries the proof behind any blocker, and `project_slots` says which
-of the fourteen are filled, which are a hypothesis, and which the contract does not ask
+of the fifteen are filled, which are a hypothesis, and which the contract does not ask
 for at all. A slot filled from reading alone stays a **hypothesis** where the slot says a
 run must confirm it — S11 (free RAM) is the one that has cost the corpus most.
 

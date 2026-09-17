@@ -1,6 +1,7 @@
 # Spec 844 — The questions are a schema
 
 **Status:** BUILT — D1, D2, D4, D5. `npm run e2e:844-slots` + `npm run e2e:844-teeth`
+**Amended 2026-09-17:** S15 added (§4.1a). Fourteen slots became fifteen.
 **Branch:** `spec-844-completeness`
 **Repo:** C64RE
 **Origin:** the owner, mid-way into Ultima VI with a project session:
@@ -135,6 +136,56 @@ message. REPORT means it appears in a completeness query and in `agent_next_step
 | S13 | **Evidence standard** | Per project: which instrument counts for which kind of claim. Fire King and Brubaker both carry a `substrate-verdict.json` that states a verdict no instrument produced. | always | REPORT |
 | S14 | **Refutations** | A retracted claim is not deleted — it stays, naming **the instrument that was wrong**. Ultima VI has six of these as `kind=refutation` findings and they are the most valuable records in that project, because each one stops a rebuild that would otherwise be attempted again. | always | REPORT |
 
+| S15 | **Writable space** | Which blocks on the medium are genuinely spare, and HOW that was established. Walking every chain and subtracting settles it; a free list read off the BAM is a hypothesis, because the BAM does not have to be true. | when a medium is registered | REPORT — no door in this repo allocates space on a medium, so there is nothing here to refuse |
+
+### 4.1a S15, and why it was not in the first fourteen (2026-09-17)
+
+S15 is the first slot that did not come from the reading side. Issue #24 was filed by
+another owner's session after a two-hour debugging session, and the report is exact:
+
+> *Crazy News* (Plush / V.O. Productions, 1998), side 1, 683 blocks. 605 belong to a
+> decodable asset. The BAM marks 30 free — and all 30 of those are in use by an asset.
+> 78 blocks are genuinely spare — and **none** of them is marked free. The per-track free
+> counts disagree with the per-track bitmaps as well (track 1: count 0, bitmap 20 free).
+
+The failure: a patch step extended a chain by one block, asked the BAM which block was
+spare, and was handed T1/S1 — the chain head of another asset. The write overwrote that
+asset's first block and re-linked its chain into the patched one's data. The symptom
+surfaced much later and somewhere else entirely: the game reached its in-game screen and
+executed data, because a module that should have been resident had loaded corrupt.
+
+**The session's model of the game was right.** Its own report answers S4 in full — link
+chains, addressed by track and sector directly, `$20BB` streams, *"the game never reads
+the BAM"*. It did not misunderstand the medium. It stepped outside the question set.
+
+That is the gap this slot closes, and it is a gap in the SET, not in any one slot. All
+fourteen describe what the GAME does: what it loads, from where, in what order, what it
+persists. None asks where a TOOL may put bytes. At the moment of writing, a session has
+no question of ours to answer, and the only convention that exists for "where is there
+room" is the DOS one — which a custom loader addressing sectors directly has no reason to
+honour, and this one does not.
+
+So S15 is S11 one level out, and carries S11's shape deliberately: the claim is worth
+exactly as much as the instrument behind it, so the method is part of the answer.
+`method:chains` settles it, `method:bam` is recorded as a hypothesis and stays one. The
+corpus law holds here too — a scan of the BAM proves nothing about occupancy, and on this
+disk it proves the opposite of the truth in both directions.
+
+It reports rather than refuses because no door in this repo allocates space on a medium:
+`runtime_media_persist` writes back what the emulated drive wrote, which is the game's own
+allocation, not ours. Gating it would punish the wrong action. The write side that needs
+this answer lives outside C64RE, which is exactly why the answer has to be written down
+where a session will meet it.
+
+**What building it turned up, which is older than it.** `slotReport` derived `media` from
+the artifact list it had already narrowed to `MEASURABLE_KINDS` — `prg`, `raw`, `extract`
+— so a `.d64` could never reach it. On a disk-only project S2 therefore never filled from
+the project's own registered images, and S10 was permanently `n/a`: **the save model went
+unasked on every game that has one.** Nothing caught it because every fixture in the suite
+registered a `prg`; S15's gate case is the first that registers a disk, which is the only
+reason it surfaced. Coverage still counts only what it can measure — the two lists are now
+separate, which is what they always meant.
+
 ### 4.2 The rule that runs across the slots
 
 The corpus produced one law, and it is the reason S11, S12 and S14 exist at all:
@@ -172,7 +223,7 @@ two parallel schemas.
 
 | File | What |
 |------|------|
-| `src/slots/schema.ts` | The fourteen slots as data: question, what fills it, `always` or conditional, REFUSE or REPORT, which doors it gates. `KNOWN_PENDING_DOORS` is the 834-shaped allowlist for a door that lives on another branch — it may shrink, not grow, and each entry carries a reason. |
+| `src/slots/schema.ts` | The fifteen slots as data: question, what fills it, `always` or conditional, REFUSE or REPORT, which doors it gates. `KNOWN_PENDING_DOORS` is the 834-shaped allowlist for a door that lives on another branch — it may shrink, not grow, and each entry carries a reason. |
 | `src/slots/state.ts` | D2. `slotReport(projectDir)` → per slot `filled / hypothesis / empty / n·a` plus the computed coverage. Fills either EXPLICITLY (a record tagged `slot:S3`) or DERIVED (registered media fill S2, ordered `loader-stage` entities fill S3, refutation findings fill S14). |
 | `src/slots/gate.ts` | D1. `checkSlotGate(door, …)`, the S12 vocabulary gate `checkCompletenessClaim`, and `checkPhaseComplete`. `C64RE_SLOT_GATE=0` disables all three. |
 | `src/server-tools/slots.ts` | `project_slots` (the completeness question) and `slot_record` (fill one, with evidence). Both in `DEFAULT_TOOLS` — a refusal that names a hidden tool is a dead end. |
