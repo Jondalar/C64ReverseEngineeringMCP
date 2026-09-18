@@ -28,6 +28,7 @@ import {
 import { LiveTab } from "./workbench/tabs/Live.js";
 import { getClient } from "./workbench/ws-client.js";
 import { MonitorPopout } from "./workbench/components/MonitorPopout.js";
+import { ProjectMismatch } from "./workbench/components/ProjectMismatch.js";
 import type { CartridgeLutChunk } from "./types.js";
 import type {
   ArtifactRecord,
@@ -5741,6 +5742,8 @@ export function App() {
     <InternalVisibilityContext.Provider value={internalVisibilityValue}>
     <LineageVisibilityContext.Provider value={lineageVisibilityValue}>
     <div className={activeTab === "live" ? "app-root live-mode" : "app-root"}>
+      {/* Spec 858 D4 — the runtime may be serving another project; ask before moving it. */}
+      <ProjectMismatch projectDir={snapshot?.project.rootPath} conn={liveConn} />
       <div className={`app-shell${railCollapsed ? " rail-collapsed" : ""}`}>
         {/* Spec 773 — phases as a LEFT vertical rail (collapsible), so the phase axis is
             spatially distinct from the tool row (fixes the "two horizontal button bands"

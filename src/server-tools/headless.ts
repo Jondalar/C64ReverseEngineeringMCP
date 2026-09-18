@@ -483,9 +483,12 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_session_status",
-    "Snapshot a running session's machine state — the C64 CPU, the drive (motor, head, LED, what is mounted and whether it is dirty) and the cartridge (type, bank, activity), plus cycle counts. Use to check where execution is and what the machine has in it. For the 1541's own CPU registers use runtime_monitor `device drive8` then `r`. Not for the agent-API surface report (use runtime_status, advanced). Inputs: session_id. Returns: CPU + drive + cartridge snapshot.",
-    { session_id: z.string().describe("Session to report on — \"shared\" is the live machine the human is watching") },
-    safeHandler("runtime_session_status", async ({ session_id }) => {
+    "Snapshot a running session's machine state — the C64 CPU, the drive (motor, head, LED, what is mounted and whether it is dirty) and the cartridge (type, bank, activity), plus cycle counts — and which project the runtime serves, flagging projectMismatch when it is not this one (Spec 858; it reports, it never moves the runtime). Use to check where execution is and what the machine has in it. For the 1541's own CPU registers use runtime_monitor `device drive8` then `r`. Not for the agent-API surface report (use runtime_status, advanced). Inputs: session_id, optional project_dir. Returns: CPU + project + drive + cartridge snapshot.",
+    {
+      session_id: z.string().describe("Session to report on — \"shared\" is the live machine the human is watching"),
+      project_dir: z.string().optional().describe("This project's root, to check that the runtime serves the same one (Spec 858). When omitted, the MCP's project."),
+    },
+    safeHandler("runtime_session_status", async ({ session_id, project_dir }) => {
       // Spec 744.4c — read the session from the shared Runtime Daemon (the same
       // machine the UI drives), not a private MCP-process session.
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
@@ -503,6 +506,29 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         soft("drive status", () => runtimeDaemon.driveStatus(session_id)),
         soft("cartridge status", () => runtimeDaemon.cartStatus(session_id)),
       ]);
+      // Spec 858 D5 — say which project the runtime serves, and whether it is this one. The
+      // daemon makes the comparison (`dry_run`), on canonical paths. This tool REPORTS and
+      // never moves the daemon: that ends the human's session, and the UI's requester is
+      // where that is decided.
+      let projectLine: string;
+      let here: string | undefined;
+      try { here = context.projectDir(project_dir, true); } catch { here = undefined; }
+      if (!here) {
+        projectLine = "Project: not checked — no project resolved for this call";
+      } else {
+        try {
+          const r = await runtimeDaemon.call<{ same: boolean; current: string | null; requested: string }>(
+            "project/set", { path: here, dry_run: true }, 5000);
+          projectLine = r.same
+            ? `Project: ${r.current} (the runtime serves this project)`
+            : `Project: projectMismatch — the runtime serves ${r.current ?? "no project"}, not this one (${r.requested}). ` +
+              `Its media pickers and relative paths resolve THERE. Moving it ends the human's session; ` +
+              `that is decided in the workbench UI's requester, not by a tool.`;
+        } catch (e) {
+          projectLine = `Project: unknown — the runtime cannot compare (${e instanceof Error ? e.message : String(e)}); ` +
+            `a runtime without Spec 858 has no project/set`;
+        }
+      }
       const render = (v: unknown, none: string) =>
         v == null ? none : typeof v === "string" ? v : JSON.stringify(v);
       return { content: [{ type: "text" as const, text: [
@@ -511,6 +537,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         `C64 CPU: PC=${formatHexWord(cpu.pc)} A=${formatHexByte(cpu.a)} X=${formatHexByte(cpu.x)} Y=${formatHexByte(cpu.y)} SP=${formatHexByte(cpu.sp)} P=${formatHexByte(cpu.flags)}`,
         `         cycles=${c64Cycles}`,
         `Mode: ${mode}`,
+        projectLine,
         `Drive 8: ${render(drive, "unavailable")}`,
         `Cartridge: ${render(cart, "none inserted")}`,
       ].join("\n") }] };

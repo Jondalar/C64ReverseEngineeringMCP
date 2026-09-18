@@ -239,6 +239,8 @@ export function InspectorPanel({
     if (c.getState() === "open") refreshMedia();
     c.onState((st: string) => { if (st === "open") refreshMedia(); });
   }, [refreshMedia]);
+  // Spec 858 — the list is the DAEMON's project; follow it when the daemon is moved.
+  useEffect(() => getClient().onNotification("project/changed", () => refreshMedia()), [refreshMedia]);
 
   const hex = (n: number, w = 2) => "$" + n.toString(16).padStart(w, "0").toUpperCase();
 

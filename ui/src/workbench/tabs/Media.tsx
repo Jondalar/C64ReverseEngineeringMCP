@@ -191,10 +191,15 @@ export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
     return () => { alive = false; };
   }, [sessionId, refreshCart]);
 
-  // Load roots on mount.
+  // Load roots on mount — and again when the runtime moves to another project (Spec 858),
+  // because both lists are the daemon's project, not this tab's.
   useEffect(() => {
-    client.call<FsRoot[]>("media/list_paths").then(setRoots).catch(() => {});
-    client.call<RecentEntry[]>("media/recent").then(setRecent).catch(() => {});
+    const load = () => {
+      client.call<FsRoot[]>("media/list_paths").then(setRoots).catch(() => {});
+      client.call<RecentEntry[]>("media/recent").then(setRecent).catch(() => {});
+    };
+    load();
+    return client.onNotification("project/changed", load);
   }, []);
 
   const browseDir = useCallback(async (path: string) => {
