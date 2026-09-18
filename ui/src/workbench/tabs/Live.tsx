@@ -207,6 +207,16 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   // Spec 767 — who is driving the shared session (green border when the LLM is in).
   const [controlOwner, setControlOwner] = useState<"human" | "llm">("human");
   const [exploreSelection, setExploreSelection] = useState<{x:number;y:number;w:number;h:number} | null>(null);
+  // Spec 860 D1 — the VIC view is its own switch, not a side effect of pausing: a pause to
+  // look at the picture takes no clicks and pins no checkpoint. The switch keeps its state
+  // for the tab (browser storage, a per-viewer convenience).
+  const [vicView, setVicViewState] = useState<boolean>(() => {
+    try { return window.localStorage.getItem("c64re.vicView") === "1"; } catch { return false; }
+  });
+  const setVicView = (on: boolean) => {
+    setVicViewState(on);
+    try { window.localStorage.setItem("c64re.vicView", on ? "1" : "0"); } catch { /* storage unavailable */ }
+  };
   const fpsCounterRef = useRef({ frames: 0, lastT: Date.now() });
   // Spec 837 — the UI already KNEW the stream had stopped (this counter reads
   // zero while the machine says it is running) and said nothing, so a dead
@@ -684,6 +694,8 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
         setRunState={setRunState}
         fps={fps}
         onSnapshotTaken={snapshot}
+        vicView={vicView}
+        onVicView={setVicView}
         statusSlot={statusSlot}
         toolsSlot={
           <>
@@ -754,7 +766,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
               )}
             </>
           )}
-          {runState === "paused" && canvasRef.current && (
+          {runState === "paused" && vicView && canvasRef.current && (
             <ExploreOverlay
               sessionId={sessionId}
               screenEl={canvasRef.current}

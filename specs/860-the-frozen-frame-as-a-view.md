@@ -1,6 +1,6 @@
 # Spec 860 — The frozen frame as a view
 
-**Status:** PROPOSED 2026-09-18.
+**Status:** PROPOSED 2026-09-18 — D1 (the toggle) built ahead, at the owner's request.
 **Repos:** C64RE (the view), TRX64 (the frame map the view draws from).
 **Number:** 860 (registry: `specs/README.md`).
 **Builds on:** 843 (click a pixel, name the thing), 859 (the line as the VIC saw it). Same
@@ -30,8 +30,8 @@ view of the freeze, switched on and off with its own button.
 **D1 — A toggle in the freeze.** A button in the transport bar, next to Run/Step: **VIC
 view**. Enabled only while the machine is paused; off by default; it remembers its last
 state for the tab. Off: the frozen picture as it is, no overlay, no checkpoint pinned, the
-mouse does nothing to the picture. On: the view below. Resume turns the view off and gives
-the mouse back to the machine.
+mouse does nothing to the picture. On: the view below. Resume hides the view and gives the
+mouse back to the machine; the toggle keeps its state for the next freeze.
 
 **D2 — The picture stays free.** The overlay draws only tints, outlines and markers on the
 picture. Every word of text lives outside it: the object details in the right-hand column,
