@@ -169,6 +169,9 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // bytes, put different bytes back as an overlay. A tool is HIDDEN until it is
   // here, and a chain with an invisible end is not a chain.
   "runtime_rip_range", "runtime_inject_range",
+  // Spec 859 — the line under the pixel, cycle by cycle. The human has it in the
+  // Inspect overlay; hidden here it would be a capability only one of the two has.
+  "runtime_vic_line_trace",
   // Spec 725 §3.9 — TraceDB / evidence facade (DuckDB trace is a product
   // feature, not an internal debug escape hatch).
   "runtime_query_events", "runtime_swimlane_slice", "runtime_trace_taint",

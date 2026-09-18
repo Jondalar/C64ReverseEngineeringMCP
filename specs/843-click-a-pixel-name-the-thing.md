@@ -176,6 +176,15 @@ does now is report what it searched, with how many candidates and why the search
 be structurally unable to find anything — so `runtime_generated` reads as "nothing was
 looked at" instead of as a verdict.
 
+**Found at the rebase onto 0.7.3 (2026-09-18): the checkpoint did not round-trip D1's
+record.** Capture wrote `vicProvenance`; restore never read it back, so a restored machine
+started with an empty record and produced a different checkpoint from the same state. The
+Spec 857 gate caught it — it compares a machine restored mid-count with one that ran through
+(`vicProvenance.lines[0].line: 0 vs 25`). Fixed in `restore_vic_provenance`, the inverse of
+the change-list capture. The 857 golden digests hash the checkpoint and were re-recorded for
+the new field — after checking that with the field set back to `null` they are exactly the old
+ones, so no CIA behaviour moved.
+
 ## 6. Gates
 
 - `e2e:843-provenance` (TRX64) — a synthetic raster split: two different `$D018`

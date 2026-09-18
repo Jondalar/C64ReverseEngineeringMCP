@@ -403,6 +403,11 @@ class RuntimeDaemonClient {
   vicInspectAt<T = unknown>(sessionId: string, x: number, y: number, checkpointId?: string) {
     return this.call<T>("vic/inspect/at_capture", { session_id: sessionId, x, y, checkpoint_id: checkpointId });
   }
+  /** Spec 859 — lines `from..=to` of the frame a retained checkpoint shows, cycle by
+   *  cycle, as the VIC and CPU did them (a replay in a clone; the live machine stays). */
+  vicLineTrace<T = unknown>(sessionId: string, checkpointId: string, from: number, to: number) {
+    return this.call<T>("vic/line_trace", { session_id: sessionId, checkpoint_id: checkpointId, from, to });
+  }
 
   /** Spec 839 / Spec 721 — the two halves of the Visual-Origin Join the human has in
    *  the UI and the LLM did not. Both need a RETAINED checkpoint: `at_capture` is the

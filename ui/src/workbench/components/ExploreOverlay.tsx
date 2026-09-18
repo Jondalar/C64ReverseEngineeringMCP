@@ -14,6 +14,12 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { getClient } from "../ws-client.js";
+import { VicLineView } from "./VicLineView.js";
+
+// Spec 859 — where the 384×272 visible window sits in the VIC's 520×312 framebuffer
+// (render.rs CANVAS_X0 / CANVAS_Y0). A visible pixel's raster line is y + 16; the cycle
+// that drew it is found by its framebuffer column, x + 104.
+const FB_ORIGIN = { x: 104, y: 16 };
 
 type Selection = { x: number; y: number; w: number; h: number };
 
@@ -88,6 +94,8 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
   const [status, setStatus] = useState<string>("");
   const [origin, setOrigin] = useState<any>(null); // Spec 721 Visual-Origin Join result
   const [dragging, setDragging] = useState<{ start: { x: number; y: number } } | null>(null);
+  // Spec 859 — the line under the clicked pixel, cycle by cycle.
+  const [lineAt, setLineAt] = useState<{ line: number; fbX: number } | null>(null);
   // last resolved display-area target (point or region) for promote
   const lastTarget = useRef<{ points?: { x: number; y: number }[]; region?: { x: number; y: number; width: number; height: number } } | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -116,6 +124,7 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
       setNode(null);
       setRegionNodes(null);
       setOrigin(null);
+      setLineAt(null);
       setStatus("the machine moved — re-opening the inspect checkpoint");
       setReopenNonce((n) => n + 1);
     };
@@ -208,12 +217,14 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
         lastTarget.current = { points: [{ x: v.x, y: v.y }] };
         const r = await getClient().call<any>("vic/inspect/at", { session_id: sessionId, checkpoint_id: checkpointId, x: v.x, y: v.y });
         setNode(r.node); setRegionNodes(null); setOrigin(null);
+        const line = Math.floor(v.y) + FB_ORIGIN.y;
+        setLineAt(line >= 0 && line < 312 ? { line, fbX: Math.floor(v.x) + FB_ORIGIN.x } : null);
         setStatus(`Resolved ${r.node?.type}${r.node?.cell ? ` cell (${r.node.cell.col},${r.node.cell.row})` : ""}`);
       } else {
         const region = { x: Math.min(dragging.start.x, end.x), y: Math.min(dragging.start.y, end.y), width: w, height: h };
         lastTarget.current = { region };
         const r = await getClient().call<any>("vic/inspect/region", { session_id: sessionId, checkpoint_id: checkpointId, region });
-        setRegionNodes(r.nodes ?? []); setNode(null); setOrigin(null);
+        setRegionNodes(r.nodes ?? []); setNode(null); setOrigin(null); setLineAt(null);
         // Spec 843 D6 — the ranges are the answer; the node list is the sampling.
         setRegionRanges(r.ranges ?? []);
         const rs = (r.ranges ?? []).length;
@@ -403,6 +414,9 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection }: 
             {renderRefs(node)}
             <button onClick={resolveOrigin} disabled={!checkpointId}>Resolve origin →</button>
           </div>
+        )}
+        {lineAt && checkpointId && (
+          <VicLineView sessionId={sessionId} checkpointId={checkpointId} line={lineAt.line} fbX={lineAt.fbX} />
         )}
         {origin && (
           <div className="wb-explore-node">

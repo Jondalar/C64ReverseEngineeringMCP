@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 272,
-  "defaultCount": 162,
+  "total": 287,
+  "defaultCount": 177,
   "advancedCount": 110,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -711,6 +711,54 @@
       "pathMode": "no-path"
     },
     {
+      "name": "contract_set",
+      "namespace": "contract",
+      "sourceFile": "server-tools/contract.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "contract_show",
+      "namespace": "contract",
+      "sourceFile": "server-tools/contract.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "critic_checks",
+      "namespace": "critic",
+      "sourceFile": "server-tools/critic.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "declare_loader_entrypoint",
       "namespace": "declare",
       "sourceFile": "project-knowledge/mcp-tools.ts",
@@ -971,6 +1019,54 @@
       ],
       "keepDecision": "keep-default",
       "pathMode": "project-or-absolute-ok"
+    },
+    {
+      "name": "doc_lint",
+      "namespace": "doc",
+      "sourceFile": "server-tools/docs.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "doc_register",
+      "namespace": "doc",
+      "sourceFile": "server-tools/docs.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "doc_template",
+      "namespace": "doc",
+      "sourceFile": "server-tools/docs.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "export_menu",
@@ -1821,6 +1917,54 @@
       "pathMode": "no-path"
     },
     {
+      "name": "model_assert",
+      "namespace": "model",
+      "sourceFile": "server-tools/model.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "model_read",
+      "namespace": "model",
+      "sourceFile": "server-tools/model.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "model_remove",
+      "namespace": "model",
+      "sourceFile": "server-tools/model.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "pack_byteboozer",
       "namespace": "pack",
       "sourceFile": "server-tools/compression.ts",
@@ -1975,6 +2119,24 @@
       "pathMode": "no-path"
     },
     {
+      "name": "project_critique",
+      "namespace": "project",
+      "sourceFile": "server-tools/critic.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Project lifecycle operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "project_find_related",
       "namespace": "project",
       "sourceFile": "server-tools/project-search-tools.ts",
@@ -2072,6 +2234,24 @@
       "name": "project_search",
       "namespace": "project",
       "sourceFile": "server-tools/project-search-tools.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Project lifecycle operation.",
+      "notFor": "Per-artifact analysis — use the analysis/disasm tools.",
+      "adjacentTools": [
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "project_slots",
+      "namespace": "project",
+      "sourceFile": "server-tools/slots.ts",
       "tier": "default",
       "role": "workflow",
       "swimlane": "entry-project-baseline",
@@ -2206,6 +2386,22 @@
       "adjacentTools": [
         "list_artifacts"
       ],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "read_finding",
+      "namespace": "read",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
       "e2eUseCases": [
         "E2E-A"
       ],
@@ -2995,6 +3191,24 @@
       "notes": "Trace reader: consumes the live-writer schema (trace_run + trace_event(run_id,seq,cycle,channel,trigger_kind,capture_kind,data_json) + trace_mark(run_id,cycle,label)). MUST NOT query legacy meta/instructions tables (Spec 726 §6a)."
     },
     {
+      "name": "runtime_inject_range",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "runtime_input_load_config",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
@@ -3561,6 +3775,24 @@
       "pathMode": "no-path"
     },
     {
+      "name": "runtime_rip_range",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "runtime_run_prg",
       "namespace": "runtime",
       "sourceFile": "server-tools/headless.ts",
@@ -4102,6 +4334,24 @@
       "pathMode": "no-path"
     },
     {
+      "name": "runtime_vic_line_trace",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "runtime-explore",
+      "useWhen": "Part of the Headless runtime facade.",
+      "notFor": "Internal-dev variants — those are advanced.",
+      "adjacentTools": [
+        "runtime_session_start"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
       "name": "runtime_vic_origin",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
@@ -4120,46 +4370,6 @@
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"
-    },
-    {
-      "name": "runtime_rip_range",
-      "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
-      "tier": "default",
-      "role": "runtime-inspect",
-      "swimlane": "freeze-inspect",
-      "useWhen": "Take an identified byte range out of the machine as a .bin — a charset, bitmap, sprite block or screen map, read from the frozen checkpoint that drew the picture.",
-      "notFor": "A whole machine state — use runtime_save_vsf. Writing bytes back — use runtime_inject_range.",
-      "adjacentTools": [
-        "runtime_vic_inspect_region",
-        "runtime_inject_range",
-        "runtime_save_vsf"
-      ],
-      "e2eUseCases": [
-        "E2E-D"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "project-or-absolute-ok"
-    },
-    {
-      "name": "runtime_inject_range",
-      "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
-      "tier": "default",
-      "role": "change-intervention",
-      "swimlane": "change-intervention",
-      "useWhen": "Swap a screen element — logo, charset, sprite — by writing a .bin into a candidate's overlay, without rebuilding anything. A reset drops the layer; the medium is untouched.",
-      "notFor": "A permanent change to a .d64/.crt — there is none, and on a packed game the bytes do not lie in the image the way they appear on screen.",
-      "adjacentTools": [
-        "runtime_rip_range",
-        "runtime_candidate_patch",
-        "runtime_candidate_run"
-      ],
-      "e2eUseCases": [
-        "E2E-D"
-      ],
-      "keepDecision": "keep-default",
-      "pathMode": "project-or-absolute-ok"
     },
     {
       "name": "sandbox_6502_run",
@@ -4453,6 +4663,22 @@
       ],
       "e2eUseCases": [
         "E2E-E"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "slot_record",
+      "namespace": "slot",
+      "sourceFile": "server-tools/slots.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"
@@ -4782,6 +5008,22 @@
       "adjacentTools": [],
       "e2eUseCases": [],
       "keepDecision": "keep-advanced",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "wiki_index",
+      "namespace": "wiki",
+      "sourceFile": "server-tools/docs.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
       "pathMode": "no-path"
     }
   ]

@@ -1353,4 +1353,27 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       return { content: [{ type: "text", text: JSON.stringify({ checkpointId: cp, ...(r as object) }, null, 2) }] };
     }),
   );
+
+  // ── Spec 859 — the raster line as the VIC saw it ──────────────────────────────
+  //
+  // The human's Inspect overlay shows the line under the clicked pixel cycle by cycle;
+  // this is the same record for the LLM. Measured, never modelled: the daemon replays
+  // the frame on screen in a clone with the chip's own recorder armed, and says whether
+  // the replay reproduced the picture (`verified`).
+  server.tool(
+    "runtime_vic_line_trace",
+    "Show one or more raster lines of the frozen frame cycle by cycle, as the emulated VIC-II and CPU actually did them: per cycle the VIC's Phi1 access (g/c/p/s/refresh/idle, address, byte), its Phi2 access (c-access on a bad line, sprite s-access), BA and AEC, whether the CPU read, wrote or stalled, the instruction running, and the VIC counters (VC, RC, VMLI, sprite DMA, border flip-flops). Use it to check raster timing: where a $D011/$D016/$D018 write lands, whether a split or an FLI/FLD/border trick hits its cycle, how many cycles a bad line or sprite DMA stole. Not a model or a planner — only what the machine did; not for the picture itself (use runtime_render_screen). The live machine is not moved. Inputs: session_id, line (0..311), optional to (up to 32 lines), checkpoint_id (what the Inspect overlay froze; one is captured if omitted). Returns: { frame: {which, verified, startClk}, lines: [{line, badLine, cycles[63], instructions}] }.",
+    {
+      session_id: z.string().describe("Session — \"shared\" is the live machine the human is watching"),
+      line: z.number().int().min(0).max(311).describe("First raster line, 0..311 (PAL). The display window is 51..250"),
+      to: z.number().int().min(0).max(311).optional().describe("Last raster line, inclusive — at most 32 lines per call"),
+      checkpoint_id: z.string().optional().describe("The frozen checkpoint to answer for — the one the Inspect overlay opened. Omitted: one is captured from the current picture"),
+    },
+    safeHandler("runtime_vic_line_trace", async ({ session_id, line, to, checkpoint_id }) => {
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const cp = await checkpointFor(session_id, 0, 0, checkpoint_id);
+      const r = await runtimeDaemon.vicLineTrace(session_id, cp, line, to ?? line);
+      return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
+    }),
+  );
 }
