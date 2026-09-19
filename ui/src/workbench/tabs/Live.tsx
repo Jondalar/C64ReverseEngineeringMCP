@@ -207,6 +207,27 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   // Spec 767 — who is driving the shared session (green border when the LLM is in).
   const [controlOwner, setControlOwner] = useState<"human" | "llm">("human");
   const [exploreSelection, setExploreSelection] = useState<{x:number;y:number;w:number;h:number} | null>(null);
+  // Spec 860 D1 — the VIC view is its own switch, not a side effect of pausing: a pause to
+  // look at the picture takes no clicks and pins no checkpoint. The switch keeps its state
+  // for the tab (browser storage, a per-viewer convenience).
+  const [vicView, setVicViewState] = useState<boolean>(() => {
+    try { return window.localStorage.getItem("c64re.vicView") === "1"; } catch { return false; }
+  });
+  // Spec 860 — where the view's inspector and line strip go: the right-hand column and a
+  // dock under the screen. Callback refs into state, so the portals render once they exist.
+  const [vicSideEl, setVicSideEl] = useState<HTMLDivElement | null>(null);
+  const [vicDockEl, setVicDockEl] = useState<HTMLDivElement | null>(null);
+  const vicViewOpen = runState === "paused" && vicView;
+  // The view lies over the picture, so the "Show the current frame" button of an empty
+  // paused screen would sit under it, out of reach. A view of the frame needs the frame:
+  // fetch it when the view opens on an empty screen.
+  useEffect(() => {
+    if (vicViewOpen && !hasFrame) void grabScreenshot.current();
+  }, [vicViewOpen, hasFrame]);
+  const setVicView = (on: boolean) => {
+    setVicViewState(on);
+    try { window.localStorage.setItem("c64re.vicView", on ? "1" : "0"); } catch { /* storage unavailable */ }
+  };
   const fpsCounterRef = useRef({ frames: 0, lastT: Date.now() });
   // Spec 837 — the UI already KNEW the stream had stopped (this counter reads
   // zero while the machine says it is running) and said nothing, so a dead
@@ -684,6 +705,8 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
         setRunState={setRunState}
         fps={fps}
         onSnapshotTaken={snapshot}
+        vicView={vicView}
+        onVicView={setVicView}
         statusSlot={statusSlot}
         toolsSlot={
           <>
@@ -710,7 +733,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       {/* Spec 769.5 — the scrub filmstrip is now mounted, but ONLY on Pause/Freeze
           (see below the grid). The checkpoint ring writes in the background while
           running; the filmstrip surfaces it only when the user freezes. */}
-      <div className="wb-live-grid">
+      <div className={`wb-live-grid${vicViewOpen ? " vic-open" : ""}`}>
         <div className="wb-screen-wrap">
           {runState === "off" ? (
             <div className="wb-screen-off" style={{
@@ -754,12 +777,14 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
               )}
             </>
           )}
-          {runState === "paused" && canvasRef.current && (
+          {vicViewOpen && canvasRef.current && (
             <ExploreOverlay
               sessionId={sessionId}
               screenEl={canvasRef.current}
               selection={exploreSelection}
               onSelection={setExploreSelection}
+              sideSlot={vicSideEl}
+              dockSlot={vicDockEl}
             />
           )}
           {screenFocused && runState === "running" && (
@@ -771,6 +796,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
             </p>
           )}
         </div>
+        {vicViewOpen ? <div className="wb-vic-side" ref={setVicSideEl} /> : (
         <InspectorPanel
           sessionId={sessionId}
           drive={drive}
@@ -791,7 +817,9 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           joyBits={joyBits}
           pressedKeys={pressedKeys}
         />
+        )}
       </div>
+      {vicViewOpen && <div className="wb-vic-dock" ref={setVicDockEl} />}
       {/* Spec 769.5 — scrub filmstrip: ONLY on Pause/Freeze. Click a frame to
           rewind the full machine to that point; Continue / Dump from there. */}
       {runState === "paused" && <Filmstrip sessionId={sessionId} setRunState={setRunState} />}

@@ -453,6 +453,83 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     return runtimeDaemon;
   };
 
+  // ── Spec 843 D9/D10 — rip a screen element out, and put a different one back ──
+  //
+  // The chain the owner asked for: point at something on the frozen screen, find out
+  // what it is, take the bytes, and later swap them. The identification half is the
+  // Inspect overlay; these two are the ends.
+  //
+  // Both speak the same unit — an address range — which is why they compose with the
+  // graph (a finding carries `addressRange`) and with the overlay model (a candidate
+  // patch targets an address). Neither invents machinery: a rip is a read of frozen
+  // RAM, an inject is `runtime_candidate_patch`.
+
+  server.tool(
+    "runtime_rip_range",
+    "Extract a byte range out of the machine as a .bin file — a charset, a bitmap, a sprite block, a screen or colour map. Use it after identifying an element on the frozen screen (the Live tab's Inspect overlay reports the source ranges) to get the bytes out for editing or reuse. Reads a CHECKPOINT when given one, so a frozen screen yields exactly the bytes that drew it; otherwise the live machine. Not for a whole snapshot (use runtime_save_vsf) and not for writing bytes back (use runtime_inject_range). Inputs: session_id, addr, length, out_path, optional checkpoint_id and kind. Returns: { path, bytes, sha256 }.",
+    {
+      session_id: z.string().describe("Session to read from — \"shared\" is the live machine the human is watching"),
+      addr: z.number().int().describe("Start address in CPU space, e.g. 0xE000 for a bitmap under a VIC bank"),
+      length: z.number().int().describe("How many bytes: 8 for one char, 2048 for a charset, 8000 for a bitmap, 64 per sprite"),
+      out_path: z.string().describe("Where to write the .bin, absolute or relative to the project"),
+      checkpoint_id: z.string().optional().describe("Read this retained checkpoint instead of the live machine — what the Inspect overlay froze, so the bytes are the ones that drew the picture"),
+      kind: z.string().optional().describe("What the bytes ARE (charset, bitmap, sprite, screen, colour) — recorded in the result so a later re-import knows how to read them"),
+    },
+    safeHandler("runtime_rip_range", async ({ session_id, addr, length, out_path, checkpoint_id, kind }) => {
+      if (length <= 0 || length > 0x10000) throw new Error(`length must be 1..65536, got ${length}`);
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      // The monitor's own memory read, so the bytes come through the same bank view
+      // the VIC used — not a flat RAM peek that would miss a cart or an I/O window.
+      const lens = checkpoint_id ? `checkpoint ${checkpoint_id}` : "live";
+      const r = checkpoint_id
+        ? await runtimeDaemon.checkpointReadMemory(session_id, checkpoint_id, addr, length)
+        : await runtimeDaemon.readMemoryRange(session_id, addr, length);
+      const bytes = (r as { bytes?: number[]; data?: number[] })?.bytes ?? (r as { data?: number[] })?.data ?? [];
+      if (bytes.length !== length) {
+        throw new Error(`read ${bytes.length} of ${length} bytes from ${lens} — refusing to write a short file`);
+      }
+      const { writeFileSync, mkdirSync } = await import("node:fs");
+      const { dirname, isAbsolute, resolve: resolvePath } = await import("node:path");
+      const abs = isAbsolute(out_path) ? out_path : resolvePath(process.env.C64RE_PROJECT_DIR ?? process.cwd(), out_path);
+      mkdirSync(dirname(abs), { recursive: true });
+      const buf = Buffer.from(bytes);
+      writeFileSync(abs, buf);
+      const { createHash } = await import("node:crypto");
+      const sha = createHash("sha256").update(buf).digest("hex");
+      return { content: [{ type: "text" as const, text: JSON.stringify({
+        path: abs, bytes: buf.length, sha256: sha, addr, length, kind: kind ?? null, source: lens,
+      }, null, 2) }] };
+    }),
+  );
+
+  server.tool(
+    "runtime_inject_range",
+    "Write a .bin file's bytes into the machine as an OVERLAY — swap a logo, a charset, a sprite, without rebuilding anything. The bytes land in a candidate's patch set, so the original medium is untouched and a reset drops the layer rather than the change becoming permanent. Re-injecting the same address REPLACES the previous patch. Use it with runtime_rip_range to close the loop: rip, edit, inject. Not for a permanent change to a .d64/.crt (there is none — on a packed game the bytes do not lie in the image the way they appear on screen). Inputs: session_id, candidate_id, addr, bin_path, optional space and bank. Returns: the candidate.",
+    {
+      session_id: z.string().describe("Session the candidate belongs to"),
+      candidate_id: z.string().describe("Candidate to patch — the overlay layer, from runtime_candidate_create"),
+      addr: z.number().int().describe("CPU-space address the bytes go to — the same range the rip came from, unless you mean to move it"),
+      bin_path: z.string().describe("The .bin to write, absolute or relative to the project"),
+      space: z.enum(["ram", "roml", "romh"]).default("ram").describe("Which space the patch targets: ram, or a cartridge window (roml/romh)"),
+      bank: z.number().int().optional().describe("Cartridge bank, when space is roml or romh"),
+    },
+    safeHandler("runtime_inject_range", async ({ session_id, candidate_id, addr, bin_path, space, bank }) => {
+      const { readFileSync } = await import("node:fs");
+      const { isAbsolute, resolve: resolvePath } = await import("node:path");
+      const abs = isAbsolute(bin_path) ? bin_path : resolvePath(process.env.C64RE_PROJECT_DIR ?? process.cwd(), bin_path);
+      const buf = readFileSync(abs);
+      if (buf.length === 0) throw new Error(`${abs} is empty`);
+      if (buf.length > 0x10000) throw new Error(`${abs} is ${buf.length} bytes — larger than the address space`);
+      const d = await candidateDaemon();
+      const r = await d.call("runtime/candidate_patch", {
+        session_id, id: candidate_id, addr, space: space ?? "ram", bank, source: "", bytes: Array.from(buf),
+      });
+      return { content: [{ type: "text" as const, text: JSON.stringify({
+        injected: { path: abs, bytes: buf.length, addr, space: space ?? "ram", bank: bank ?? null }, candidate: r,
+      }, null, 2) }] };
+    }),
+  );
+
   server.tool(
     "runtime_candidate_create",
     "Create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set. Runs the NO-PATCH scenario once to cache the equivalence baseline. Start an iterate-your-own-code loop on a fixed snapshot. Inputs: session_id, anchor (checkpoint id), scenario {inputs, cycleBudget}. Returns: the candidate {id, ...}.",
@@ -1274,6 +1351,52 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       const cp = await checkpointFor(session_id, x, y, checkpoint_id);
       const r = await runtimeDaemon.vicOrigin(session_id, cp, x, y);
       return { content: [{ type: "text", text: JSON.stringify({ checkpointId: cp, ...(r as object) }, null, 2) }] };
+    }),
+  );
+
+  // ── Spec 860 — the frozen frame as a view ─────────────────────────────────────
+  //
+  // The human's VIC view: the objects on the screen with their bytes, every store that
+  // reached the VIC and where it landed, and the techniques the frame shows — each a rule
+  // over what the chip did (split, FLI, FLD, linecrunch, DMA delay, open borders,
+  // multiplexer, sprite crunch/stretch, mid-line changes). The 312×63 cell grid is left out
+  // unless asked for; the per-line summary carries the same counts.
+  server.tool(
+    "runtime_vic_frame_map",
+    "Map the frozen frame the way the VIC drew it: the objects on the screen (text blocks, multicolour-char logos, bitmap areas, each sprite appearance) with the memory they come from (screen, charset or bitmap, colour, sprite block, bank), every store that reached a VIC register with the line, cycle and pixel where it landed, and the raster techniques the frame uses — split, FLI, FLD, linecrunch, DMA delay, open borders, sprite multiplexer, sprite crunch or stretch, mid-line changes — each named from what the chip actually did, with its lines and evidence. Use it to find what is on the screen and where its bytes are, or to see how a raster effect is built. Not for one line cycle by cycle (use runtime_vic_line_trace) and not for a single pixel (use runtime_vic_inspect_at). The live machine is not moved. Inputs: session_id, optional checkpoint_id (captured if omitted), include_cells. Returns: { frame, objects, writes, techniques, lines[, cells] }.",
+    {
+      session_id: z.string().describe("Session — \"shared\" is the live machine the human is watching"),
+      checkpoint_id: z.string().optional().describe("The frozen checkpoint to map — the one the VIC view opened. Omitted: one is captured from the current picture"),
+      include_cells: z.boolean().optional().describe("Also return the 312×63 cell grid (one bit field per line and cycle). Large; off by default"),
+    },
+    safeHandler("runtime_vic_frame_map", async ({ session_id, checkpoint_id, include_cells }) => {
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const cp = await checkpointFor(session_id, 0, 0, checkpoint_id);
+      const r = await runtimeDaemon.vicFrameMap(session_id, cp, include_cells ?? false);
+      return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
+    }),
+  );
+
+  // ── Spec 859 — the raster line as the VIC saw it ──────────────────────────────
+  //
+  // The human's Inspect overlay shows the line under the clicked pixel cycle by cycle;
+  // this is the same record for the LLM. Measured, never modelled: the daemon replays
+  // the frame on screen in a clone with the chip's own recorder armed, and says whether
+  // the replay reproduced the picture (`verified`).
+  server.tool(
+    "runtime_vic_line_trace",
+    "Show one or more raster lines of the frozen frame cycle by cycle, as the emulated VIC-II and CPU actually did them: per cycle the VIC's Phi1 access (g/c/p/s/refresh/idle, address, byte), its Phi2 access (c-access on a bad line, sprite s-access), BA and AEC, whether the CPU read, wrote or stalled, the instruction running, and the VIC counters (VC, RC, VMLI, sprite DMA, border flip-flops). Use it to check raster timing: where a $D011/$D016/$D018 write lands, whether a split or an FLI/FLD/border trick hits its cycle, how many cycles a bad line or sprite DMA stole. Not a model or a planner — only what the machine did; not for the picture itself (use runtime_render_screen). The live machine is not moved. Inputs: session_id, line (0..311), optional to (up to 32 lines), checkpoint_id (what the Inspect overlay froze; one is captured if omitted). Returns: { frame: {which, verified, startClk}, lines: [{line, badLine, cycles[63], instructions}] }.",
+    {
+      session_id: z.string().describe("Session — \"shared\" is the live machine the human is watching"),
+      line: z.number().int().min(0).max(311).describe("First raster line, 0..311 (PAL). The display window is 51..250"),
+      to: z.number().int().min(0).max(311).optional().describe("Last raster line, inclusive — at most 32 lines per call"),
+      checkpoint_id: z.string().optional().describe("The frozen checkpoint to answer for — the one the Inspect overlay opened. Omitted: one is captured from the current picture"),
+    },
+    safeHandler("runtime_vic_line_trace", async ({ session_id, line, to, checkpoint_id }) => {
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const cp = await checkpointFor(session_id, 0, 0, checkpoint_id);
+      const r = await runtimeDaemon.vicLineTrace(session_id, cp, line, to ?? line);
+      return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
     }),
   );
 }

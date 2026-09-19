@@ -1002,14 +1002,22 @@ const server = createServer((req, res) => {
     req.on("data", (chunk) => { body += chunk; });
     req.on("end", () => {
       try {
-        const payload = JSON.parse(body) as { projectDir?: string; evidence: FrozenInspectEvidence; name?: string; notes?: string };
+        const payload = JSON.parse(body) as {
+          projectDir?: string; evidence: FrozenInspectEvidence; name?: string; notes?: string;
+          ranges?: Array<{ kind: string; addr: number; length: number; bank?: number }>;
+          artifactId?: string;
+        };
         if (!payload.evidence) { send(res, jsonResponse(400, { error: "evidence record required" })); return; }
         const projectDir = payload.projectDir ?? options.projectDir;
         const service = new ProjectKnowledgeService(projectDir);
-        const artifact = persistInspectEvidence(service, projectDir, {
+        // Spec 843 D7 — the ranges are what enters the graph as findings; the
+        // artifact is only the backing file. Answer with BOTH so the UI can stop
+        // claiming "promoted to knowledge" on the strength of a file write.
+        const { artifact, findingIds } = persistInspectEvidence(service, projectDir, {
           evidence: payload.evidence, name: payload.name, notes: payload.notes,
+          ranges: payload.ranges, artifactId: payload.artifactId,
         });
-        send(res, jsonResponse(200, { artifact }));
+        send(res, jsonResponse(200, { artifact, findingIds }));
       } catch (error) {
         send(res, jsonResponse(500, { error: error instanceof Error ? error.message : String(error) }));
       }

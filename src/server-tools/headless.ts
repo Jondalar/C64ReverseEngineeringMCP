@@ -483,10 +483,10 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_session_status",
-    "Snapshot a running session's machine state — the C64 CPU, the drive (motor, head, LED, what is mounted and whether it is dirty) and the cartridge (type, bank, activity), plus cycle counts — and which project the runtime serves, flagging projectMismatch when it is not this one (Spec 858; it reports, it never moves the runtime). Use to check where execution is and what the machine has in it. For the 1541's own CPU registers use runtime_monitor `device drive8` then `r`. Not for the agent-API surface report (use runtime_status, advanced). Inputs: session_id, optional project_dir. Returns: CPU + project + drive + cartridge snapshot.",
+    "Snapshot a running session's machine state — the C64 CPU, the drive (motor, head, LED, what is mounted and whether it is dirty) and the cartridge (type, bank, activity), plus cycle counts — and which project the runtime serves, flagging projectMismatch when it is not this one (it reports, it never moves the runtime — that is the workbench's decision). Use to check where execution is and what the machine has in it. For the 1541's own CPU registers use runtime_monitor `device drive8` then `r`. Not for the agent-API surface report (use runtime_status, advanced). Inputs: session_id, optional project_dir. Returns: CPU + project + drive + cartridge snapshot.",
     {
       session_id: z.string().describe("Session to report on — \"shared\" is the live machine the human is watching"),
-      project_dir: z.string().optional().describe("This project's root, to check that the runtime serves the same one (Spec 858). When omitted, the MCP's project."),
+      project_dir: z.string().optional().describe("This project's root, to check that the runtime serves the same one. When omitted, the MCP's project."),
     },
     safeHandler("runtime_session_status", async ({ session_id, project_dir }) => {
       // Spec 744.4c — read the session from the shared Runtime Daemon (the same

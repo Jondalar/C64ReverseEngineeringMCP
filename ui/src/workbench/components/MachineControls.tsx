@@ -25,9 +25,12 @@ interface Props {
   // (the shots, the recording) belongs to the tab, so the buttons are passed in
   // rather than this component growing a second job.
   toolsSlot?: ReactNode;
+  /** Spec 860 D1 — the VIC view of the freeze: shown only while paused and switched on. */
+  vicView?: boolean;
+  onVicView?: (on: boolean) => void;
 }
 
-export function MachineControls({ sessionId, runState, setRunState, fps, onSnapshotTaken, statusSlot, toolsSlot }: Props): React.JSX.Element {
+export function MachineControls({ sessionId, runState, setRunState, fps, onSnapshotTaken, statusSlot, toolsSlot, vicView, onVicView }: Props): React.JSX.Element {
   const c = getClient();
   const [warp, setWarp] = useState(false);
   // Power = ON/OFF toggle (NOT reset) — Spec 786, a first-class daemon primitive.
@@ -259,6 +262,18 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
         {runState === "running" ? "⏸ Pause" : "▶ Run"}
       </button>
       <button onClick={step} disabled={runState !== "paused"} title="Step one instruction">⤳ Step</button>
+      {onVicView && (
+        <button
+          id="wb-vic-view-toggle"
+          onClick={() => onVicView(!vicView)}
+          disabled={runState !== "paused"}
+          className={vicView && runState === "paused" ? "wb-vicview-on" : ""}
+          aria-pressed={!!vicView}
+          title={runState !== "paused"
+            ? "VIC view — pause the machine to inspect the frozen frame"
+            : vicView ? "Hide the VIC view — the frozen picture as it is" : "Show the VIC view: what is on the screen, where its bytes are, and when the VIC drew it"}
+        >▦ VIC view</button>
+      )}
       <button onClick={snapshot} disabled={!sessionId || dumping} title="Dump machine state to a durable .c64re file under <project>/runtime/dumps">⬇ Dump</button>
       <button
         onClick={toggleTrace}

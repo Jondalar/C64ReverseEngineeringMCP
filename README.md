@@ -185,6 +185,13 @@ expression syntax, and the cartridge type table, whose every row cites the sourc
 read from. VICE is GPL-2.0-or-later; C64RE uses the "or later" permission. Thank you to
 the VICE project.
 
+The Live tab's VIC view — a raster line cycle by cycle, and the grid of line × cycle over the
+frozen picture — takes its layout from [vicspector](https://github.com/elysium64/vicspector) by
+elysium64 (MIT), an interactive VIC-II guide for C64 coders. Thank you. vicspector builds on
+Linus Åkesson's VIC-II timing chart and MISC notes and Christian Bauer's VIC-II article, and the
+raster techniques the view names (FLI, FLD, linecrunch, DMA delay, open borders, sprite crunch)
+are named after them. The data in the view is the emulation's own, not a model.
+
 Further notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 **ROMs and third-party media** are not part of this license. Commodore ROM images,
 commercial disks and cartridges must come from your own legally obtained copies.

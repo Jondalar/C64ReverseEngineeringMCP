@@ -403,6 +403,16 @@ class RuntimeDaemonClient {
   vicInspectAt<T = unknown>(sessionId: string, x: number, y: number, checkpointId?: string) {
     return this.call<T>("vic/inspect/at_capture", { session_id: sessionId, x, y, checkpoint_id: checkpointId });
   }
+  /** Spec 859 — lines `from..=to` of the frame a retained checkpoint shows, cycle by
+   *  cycle, as the VIC and CPU did them (a replay in a clone; the live machine stays). */
+  vicLineTrace<T = unknown>(sessionId: string, checkpointId: string, from: number, to: number) {
+    return this.call<T>("vic/line_trace", { session_id: sessionId, checkpoint_id: checkpointId, from, to });
+  }
+  /** Spec 860 — the frozen frame as a view: objects with their bytes, stores to the VIC,
+   *  techniques, per-line summaries; the 312×63 cell grid only when asked for. */
+  vicFrameMap<T = unknown>(sessionId: string, checkpointId: string, includeCells: boolean) {
+    return this.call<T>("vic/frame_map", { session_id: sessionId, checkpoint_id: checkpointId, include_cells: includeCells });
+  }
 
   /** Spec 839 / Spec 721 — the two halves of the Visual-Origin Join the human has in
    *  the UI and the LLM did not. Both need a RETAINED checkpoint: `at_capture` is the
@@ -412,6 +422,17 @@ class RuntimeDaemonClient {
    *  Coordinates: these two take VISIBLE-frame pixels (0..384 x 0..272, border
    *  included). `vicInspectAt` takes DISPLAY pixels (0..319 x 0..199). Same machine,
    *  two frames of reference — see the tool descriptions. */
+  /** Spec 843 D9 — bytes out of a FROZEN checkpoint, so a rip takes the bytes that
+   *  drew the picture rather than whatever the live machine holds now. */
+  checkpointReadMemory(sessionId: string, checkpointId: string, addr: number, length: number) {
+    return this.call<{ addr: number; length: number; bytes: number[] }>(
+      "checkpoint/read_memory", { session_id: sessionId, checkpoint_id: checkpointId, addr, length });
+  }
+  /** Live machine, same shape. */
+  readMemoryRange(sessionId: string, addr: number, length: number) {
+    return this.call<{ bytes?: number[]; data?: number[] }>(
+      "session/read_memory", { session_id: sessionId, addr, length });
+  }
   vicInspectRegion<T = unknown>(sessionId: string, checkpointId: string, region: { x: number; y: number; width: number; height: number }) {
     return this.call<T>("vic/inspect/region", { session_id: sessionId, checkpoint_id: checkpointId, region });
   }
