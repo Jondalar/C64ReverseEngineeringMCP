@@ -1,0 +1,313 @@
+# Spec 804 — Symbols are joined in C64RE
+
+**Status:** READY
+**Repos:** C64RE (the resolver, residency, the name layers, every surface that shows a
+name) + TRX64 (delivers bytes and address positions, and loses its own label machinery).
+**Number:** 804, moved from `../TRX64/docs/804-symbolized-runtime.md` (2026-09-19). The
+old text is in TRX64's history; its §1 inventory is carried below, re-verified.
+
+---
+
+## 0. The decision (owner, 2026-09-19)
+
+TRX64 is a runtime — bits and bytes — for `trx64cli`, C64RE and the UE2 emulator. C64RE
+owns meaning. So **TRX64 holds no symbols at all.** Names are joined in C64RE.
+
+The old 804 was built on the opposite premise ("TRX64 performs the join and owns the
+`build` layer"). That premise is withdrawn: *"separation of concerns wieder erreicht, der
+capability-Schnitt fühlt sich wieder clean an."*
+
+And one binding rule on top, from the same day:
+
+> **TRX64 defines the monitor command set. C64RE only USES it** and has no command parser
+> of its own — no list of verbs, no per-verb branching, no mnemonic table.
+
+Everything below follows from those two sentences.
+
+## 1. What exists today (verified at TRX64 `326fd6b`, C64RE `8ceb7c07`)
+
+**TRX64 carries a whole label layer.** In `crates/trx64-daemon/src/main.rs` the monitor
+verbs `label`, `unlabel`, `note`, `save_labels`/`sl`, `load_labels`/`ll` (arm at `:6942`)
+write into the C64RE project: `knowledge/labels.user.json`, `knowledge/entities.json`
+(`label` adds a `memory-address` entity) and `knowledge/findings.json` (`note`), via
+`project_knowledge.rs:156-391`. `sym`, `inspect`, `xref` (`:6907-6931`) read
+`*_analysis.json` / `*_annotations.json` through a second bridge
+(`project_knowledge.rs:790-1096`). The WS methods `resolvePc` / `resolvePcs`
+(`main.rs:8732-8748`) read the same files plus `*_disasm.asm`
+(`project_knowledge.rs:468-779`). `user_label_index` (`project_knowledge.rs:397`) feeds
+`d`, `sd` and `df` (`main.rs:4096`, `:4195`, `:4255`) through `disasm_line_ts_labeled`
+(`crates/trx64-static/src/disasm6502.rs:97`).
+
+**That layer is already broken, and not by accident.** C64RE's Spec 822.2 cut-over
+(`src/knowledge-graph/cutover.ts`) moves the legacy JSON stores — `labels.user.json`
+among them — into `knowledge/_legacy-822/` and folds them into the graph. A label typed
+into TRX64's monitor lands in a file the knowledge side no longer reads; on the next C64RE
+open the cut-over moves it away, and it disappears from TRX64's own `d`. Two owners of one
+store is the defect; there is nothing to fix in either writer.
+
+**The defects the old 804 found are all still there:**
+1. `sym` and `d` disagree: `d` reads the user-label store, `sym` only the analysis JSON.
+2. C64 labels leak into 1541 disassembly: `d` loads the index before it looks at
+   `device drive8`. VICE has the same leak (§11); TRX64 ported it.
+3. `load_labels` makes a build's `.sym` indistinguishable from hand-typed work.
+4. `parse_sym_line` (`project_knowledge.rs:419`) throws the VICE memspace prefix away
+   (`ci <= 1` → skip), so `C:` and `8:` cannot be told apart.
+
+**Structured forms that exist:**
+- `monitorDisasm` (`main.rs:8331` → `disasm_one`, `main.rs:8256`) returns
+  `{addr, bytes, mnemonic, operand, text}` — the target of a branch/JSR/JMP is only in the
+  `operand` TEXT.
+- `monitorMemory` returns a bare `[u64]`.
+- `session/read_memory` reads `ranges[{addr,len,lens}]` through a bank lens, C64 only.
+- Trace rows (`crates/trx64-traceindex/src/rows.rs:70-120`): a CPU row carries
+  `pc, opcode, b1, b2` — the executed bytes — and a write row `addr, value, oldValue, pc`.
+- The checkpoint carries RAM plus `cpuPortDirection` / `cpuPortValue`
+  (`trx64-core/src/c64re_snapshot.rs:1448`); the cartridge's bank and EXROM/GAME lines are
+  in `session/cart_status`.
+- `monitor/exec` returns `{output}` or `{error}` (+ `prompt`) — text only. Every address in
+  it sits in a formatted column.
+
+**The build side (C64RE):** `assemble_source` runs KickAssembler and 64tass without a
+symbol flag (`src/assemble-source.ts:90-106`). Measured again 2026-09-19:
+`java -jar KickAss.jar t.asm -o t.prg -vicesymbols` writes `t.vs` (`al C:814
+.print_string`) and `t.sym` (`.label print_string=$814`); `64tass -a -B -o u.prg
+--vice-labels -l u.vs u.tas` writes `al 814 .print_string`. KickAssembler exports a
+`.label screen=$0400` equate; 64tass does not export `screen = $0400`.
+
+**The graph (C64RE)** keys relocated code on its RUNTIME address and keeps the stored one
+as `attrs.stored_address` / `relocated_from` (Spec 842 D4). Nodes carry `space`
+(`ram` | `crt` | `drv`), `bank`, `owner`, `address`, `end_address`, `layer`
+(`generated` | `human`). Generated routine/label names are the disassembler's `W<HEX4>`
+(Spec 819); human names come from annotation files (routines, labels, labelled segments)
+and user labels (`addr` nodes, Spec 822). Every analysed payload's
+`<owner>_analysis.json` carries `codeAnalysis.instructions[].bytes` — the code bytes, by
+address, of the depacked payload.
+
+## 2. The rule: TRX64 owns the command set
+
+C64RE neither parses nor extends the monitor. It never looks at the first token, never
+branches on a verb, never carries a mnemonic table, and never reads an address out of a
+formatted text column. The UI monitor and `runtime_monitor` pass the command string
+through to `monitor/exec`. Two generic operations are all C64RE does to it:
+
+**Input — names in, addresses out.** Over the raw command string, a token is
+- delimited by whitespace, `,`, `(`, `)` or `=`, and outside a `"…"` quoted run;
+- **not the first token** of the line;
+- **not a number in the monitor's own syntax**: `$hex`, `%bin`, `0xhex`, bare hex, decimal,
+  each optionally after `#`. Numeric parse wins: `a 1000 lda abc` keeps `abc` = `$0abc`;
+- **exactly** (case-sensitive) a name the resolver knows for a payload that is resident
+  NOW, in the monitor's current space.
+
+Such a token is replaced by `$XXXX`. An unknown name, or a name that resolves to two
+different resident addresses, is left untouched — TRX64 answers with its own error. Never
+a guessed address. `a 1000 jmp LABEL1` reaches TRX64 as `a 1000 jmp $1100`.
+
+**Output — names added, text untouched.** TRX64 returns, next to its text, the positions
+where IT printed addresses (§3.2). C64RE resolves each span and inserts the name at it —
+one function, the same for every verb. The numeric address always stays visible.
+
+## 3. The TRX64 half
+
+### 3.1 Remove the label machinery
+
+- Monitor verbs `label`, `unlabel`, `note`, `save_labels`/`sl`, `load_labels`/`ll`, `sym`,
+  `inspect`, `xref` — gone; they now answer "unknown command" like any other word.
+- Every write into a C64RE project (`labels.user.json`, `entities.json`, `findings.json`).
+- `user_label_index` and its use in `d` / `sd` / `df`; `disasm_line_ts_labeled`.
+- The READ bridge: WS `resolvePc` / `resolvePcs`, `inspect` / `xref` / `sym`, and every
+  reader of `*_analysis.json` / `*_annotations.json` / `*_disasm.asm`.
+- **Kept:** the project BINDING — `active_project_dir`, `bound_project`,
+  `set_project_override` (Spec 858 needs them). The module shrinks to that.
+- Help text, `MONITOR.md`, the TUI completion list, `docs/wl-trx64-play-api.md`, the
+  daemon tests and the conformance scenarios that exercised the verbs.
+- UE2 was checked (`/Users/alex/Development/u64-emulator`): it depends on `trx64-core`
+  only and calls none of these.
+
+### 3.2 Address spans on every `monitor/exec` reply
+
+```jsonc
+{ "output": "…",                        // or "error": "…"; "prompt" as before
+  "spans": [ { "line": 0, "start": 0, "end": 5, "addr": 49152,
+               "space": "c64", "role": "pc" },
+             { "line": 3, "start": 3, "end": 7, "addr": 49152, "len": 32,
+               "space": "c64", "role": "memory", "lens": "ram" } ],
+  "machine": { "device": "c64", "cpuPortDirection": 47, "cpuPortValue": 55,
+               "exrom": 1, "game": 1, "cartBank": null } }
+```
+
+- `line` indexes the reply text split on `\n`; `start`/`end` are UTF-16 code-unit offsets
+  in that line (what a JS `slice` takes), end exclusive.
+- `space` is `c64` or `drive8` — whatever CPU the address belongs to, not the text around it.
+- `role`: `pc` (an instruction's own address, the CPU's PC, a writer PC, a backtrace
+  frame), `target` (a branch/JSR/JMP destination, a vector's contents), `operand` (any
+  other address an instruction references), `memory` (an address shown as data: a dump
+  row, a written address, a stack slot).
+- `lens` only when not `cpu` (a `m ram …` row). `len` only for a range (a dump row covers
+  `len` bytes from `addr`).
+- **TRX64 knows the positions because it formatted them.** Formatters mark an address when
+  they print it; the reply is stripped of the marks and the positions are computed at the
+  one exit of `monitor/exec`. `run_monitor` for every other caller (observers, the TUI,
+  internal re-entry) returns the plain text, byte-identical to before.
+- **Coverage is a property of the formatter, not the verb.** Every disassembly line (`d`,
+  `sd`, `df`, `chis` from the live ring, `z`/`n`/`ret`/`sf`/`nf` landings), `m`, `r`, `bt`,
+  `whowrote`, `rstep`, `bk`, `flow`/`focus` frames. A verb with no marked formatter
+  answers `spans: []` — never a guess. Text that comes from the trace reader
+  (`chis` over a finished trace, `swimlane`, `taint`) is not marked: those surfaces carry
+  their addresses as structured rows.
+- `machine` is the banking state residency needs: the device, the CPU port (the
+  checkpoint's own field names), EXROM/GAME and the cartridge bank. Not a new store —
+  read from the machine the reply came from.
+
+`monitor/state` answers the same `machine` block without running a command (C64RE needs
+the device BEFORE it substitutes).
+
+### 3.3 Structured forms
+
+- `monitorDisasm` gains `mode`, `target` (branch/JSR/JMP destination) and `operandAddr`
+  (any other address operand). Additive; `text` is unchanged.
+- `session/read_memory` takes `space: "drive8"` on a range (peek the 1541's address
+  space). C64 ranges are unchanged.
+- Trace rows already carry `pc` / `addr` and the executed bytes; nothing to add.
+
+### 3.4 TRX64 acceptance
+
+1. `grep -rn "labels.user\|entities.json\|findings.json\|_analysis.json\|_annotations.json\|resolvePc\|user_label_index\|disasm_line_ts_labeled" crates/`
+   finds nothing but the test that asserts the verbs are gone.
+2. `label`, `unlabel`, `note`, `sl`, `ll`, `sym`, `inspect`, `xref` answer
+   "unknown command"; the help lists none of them; the help-dispatch gate
+   (`every_verb_the_help_advertises_actually_dispatches`) is green.
+3. `monitor/exec` for `d`, `m`, `r`, `bt`, `whowrote`, `rstep`, `chis` returns spans whose
+   `[start,end)` slices of the reply text are exactly the printed address, with the right
+   `addr`, `space` and `role`; `d` under `device drive8` returns `space: "drive8"`.
+4. `run_monitor`'s text is byte-identical to the pre-804 build for the same command (the
+   existing monitor tests pass unchanged, `chis` columns included).
+5. `monitorDisasm` returns `target` for JSR/JMP/branches and `operandAddr` for `LDA $1234`;
+   `session/read_memory` answers `space: "drive8"`.
+6. `scripts/gate.sh` green; `cargo clippy` clean for the touched files; the board check green.
+
+## 4. The C64RE half
+
+### 4.1 Name layers, one resolver
+
+| origin | tag | from | lifetime |
+|---|---|---|---|
+| `user` | `[u]` | the graph's human layer: routine / label / labelled segment nodes from annotation files, user labels | durable |
+| `build` | `[b]` | assembler symbol files registered by `assemble_source` (`.vs` / `.sym`) | regenerated by every build |
+| `derived` | `[?]` | the generated layer: the disassembler's `W<HEX4>` routine and label names | recomputed |
+
+**Precedence user > build > derived** for the one name shown; the JSON carries every
+candidate with its origin. Origin is visible on every name — `[u]`/`[b]`/`[?]` in text,
+`origin` in JSON. **A derived name never counts as "named"** for Spec 848 (it already does
+not: `W<HEX4>` is the default name; nothing here changes 848).
+
+A name belongs to a PAYLOAD (a node with an `owner`, or a build's output) or to an
+ADDRESS (a user label on an `addr` node, a build equate outside the build's output): a
+payload name is shown only while its payload is resident (§4.2); an address name names the
+address whoever is there.
+
+Space is part of the key: the runtime space `c64` reads graph spaces `ram` and `crt`,
+`drive8` reads `drv`. A VICE memspace prefix `C:` is `c64`, `8:` is `drive8`. The
+C64-labels-in-the-drive leak cannot come back, because no C64 node is ever looked at for a
+`drive8` span.
+
+### 4.2 Residency — which payload is in memory at an address, right now
+
+Decided by **bytes**, against the graph:
+
+- The candidates are the payload names whose node covers the address in that space
+  (exact address, or the smallest named range containing it — shown as `name+$off`).
+- A payload's **code bytes** come from its own analysis (`codeAnalysis.instructions[].bytes`),
+  shifted to the runtime address where a node records `relocated_from` (842 D4). Bytes a
+  write in the same analysis targets (self-modified operands) are excluded; data is never
+  compared — C64RE knows which bytes are code.
+- The comparison set is the payload's code bytes nearest the address (up to 24), and there
+  must be at least 4. They are compared with live memory read through the span's lens
+  (`session/read_memory`; `space: "drive8"` for the drive).
+- **All equal → resident. Any mismatch, or fewer than 4 code bytes → not resident.**
+- Cartridge nodes (`crt`, bank N) are candidates only while `machine.cartBank` is N.
+- **No match → no name, never a wrong name.** Two resident candidates with different names
+  in the winning layer → no name; the JSON says `ambiguous`.
+
+A build name's bytes are the build output's: its analysis if one exists, else the output
+PRG's bytes around the address.
+
+**Traces — residency per row, not only at freeze.** A payload change is a run of writes into
+its code range, and the trace records writes. For a row at cycle `t`, the value of a code
+byte `X` is: the value of the last write to `X` before `t`; else the `oldValue` of the next
+write after `t`; else — `X` was never written in the trace — any executed instruction that
+covered `X` (its `opcode/b1/b2`). Between writes nothing changes, so this is exact where
+the trace captured memory writes. Conflicting evidence for one byte → unknown → no name.
+
+### 4.3 Surfaces
+
+- **`runtime_monitor`** — substitution (§2) before `monitor/exec`; decoration (§2) after.
+  Text: the name is inserted right after a point span as ` <name[o]>`; names inside a range
+  span (a dump row) are appended at the line's end as `; +$03 name[o]`. The structured
+  result carries every resolved span.
+- **`runtime_monitor_disasm`** — each line's `addr`, `target`, `operandAddr` resolved; names
+  appended as `; $xxxx=name[o]` without touching TRX64's text.
+- **`runtime_resolve_pc`** — answered from the graph, not the daemon: the name at / around
+  the PC with origin, the owning payload, the covering routine and segment, the residency
+  evidence. `artifact_id` becomes an optional filter.
+- **`runtime_query_events`** — every row's `pc` / `addr` resolved per row (§4.2 traces).
+- **The workbench monitor** (Live tab, freeze) goes through `POST /api/monitor/exec` on the
+  C64RE server — the same substitute → exec → decorate path — and renders names at the
+  spans, visually distinct, numeric addresses untouched.
+- **`assemble_source`** asks KickAssembler for `-vicesymbols` and 64tass for
+  `--vice-labels -l <out>.vs`, and registers the symbol file as a `build-symbols` artifact
+  next to the output — which is what the build layer reads.
+
+### 4.4 C64RE acceptance
+
+1. A fixture project built through the product's own doors (analyze → disasm with an
+   annotation file → assemble with symbols): the resolver names a user routine `[u]`, a
+   build symbol `[b]`, a `W<HEX4>` `[?]`, and nothing at an unnamed address.
+2. Residency: the same address with two payloads in the graph resolves to the one whose
+   code bytes are in memory; with the bytes of neither, to no name; a relocated payload
+   resolves at its runtime address; a drive-space span never gets a C64 name.
+3. Against a sandbox daemon: `a <addr> jmp <label>` sent through C64RE reaches TRX64 as
+   `a <addr> jmp $XXXX` (the exact string, recorded at the wire), and memory holds
+   `4C lo hi`; `a <addr> lda abc` reaches TRX64 unchanged.
+4. Verb-agnostic: `d` and `m` and `bt` replies are decorated by the same exported function,
+   and a static scan finds no verb literal or mnemonic table in the symbols / monitor path.
+5. A trace fixture where a payload is overwritten mid-trace: rows before the overwrite name
+   the first payload, rows after it the second.
+6. `runtime_resolve_pc` makes no daemon `resolvePc` call; nothing in `src/` calls it.
+7. Gates: `npm run build`, the new smokes, the tool-surface check (regenerated),
+   `npm run check:docs-current`, and the touched existing smokes.
+
+## 5. Deliberate changes to existing output
+
+- TRX64 `d` no longer shows `name:` lines or `; → name`: names are C64RE's, and a monitor
+  opened from `trx64cli` shows numbers. That is the decision, not a regression.
+- `label`/`note`/`sl`/`ll`/`sym`/`inspect`/`xref` are unknown words in TRX64.
+- `runtime_resolve_pc`'s answer comes from the graph and says which payload is resident.
+- `monitor/exec` replies grow `spans` and `machine`. Clients that read only `output` see no
+  change.
+
+## 6. Wire compatibility
+
+Removing `resolvePc` / `resolvePcs` breaks one tool of an OLDER C64RE against a newer
+daemon; this C64RE no longer calls them. `spans` / `machine` / `monitor/state` /
+`read_memory space` are additive. The report says whether the wire epoch moves.
+
+## 7. Not in this spec
+
+- **The gate "an executed JSR/JMP target without a name ⇒ the pipeline is not done"** — an
+  idea for a later spec.
+- **Spec 720** (heuristic role names). The `derived` layer can take them; 720 is not built.
+- **Structure over symbols** — types, widths, records, `party[0].hp`.
+- Snippet assembly and linking against a build (old 804 §7).
+- Resolution inside text TRX64 renders from the trace reader (`swimlane`, `taint`, `chis`
+  over a finished trace) — those rows are structured and named there.
+
+## 8. Background — how VICE does it (VICE 3.10 `src/monitor/`)
+
+One flat table per CPU keyed `(memspace, 16-bit addr)`, with no notion of bank, `$01` or
+content. A label file is a replayed monitor script (`al C:xxxx .name`; ACME `name = $x`);
+there is no `.dbg` parser. Multiload is manual — `cl` then `ll` per overlay; otherwise stale
+labels persist and the newest name wins. Labels survive reset, autostart and snapshot load,
+and are not in snapshots. Operand lookup is hard-coded to the computer memspace, so drive
+disassembly shows C64 labels — the leak TRX64 ported. The binary remote protocol exposes no
+labels. Everything that makes a name trustworthy here — the payload it belongs to, whether
+it is in memory, where it came from — has no place in that model.
