@@ -46,6 +46,51 @@ until now nothing said so where a caller would look.
 Swapping a cartridge in a session that is already running is the monitor's
 `swapcrt`, through `runtime_monitor`.
 
+## Which C64 — PAL, NTSC, PAL-N
+
+A C64 model is a row of the runtime's model table: `c64-pal` (the default),
+`c64-ntsc`, `c64-paln` run; the others are listed with the part the runtime lacks
+(the C64C's 6526A CIA, the old KERNALs) and refused by name. The monitor's `model`
+verb lists them all. C64RE keeps no list of its own.
+
+There are three ways to choose one, and they mean different things:
+
+- **Start as a model.** `runtime_session_start model = c64-ntsc` starts the shared
+  machine as that model. If it is already that model, it attaches; if it is another
+  one, the machine is powered on anew as the named one — what was running is gone,
+  and the tool says so.
+- **Switch a running machine.** The Live tab's model selector (beside the power
+  button), or `model c64-ntsc` in `runtime_monitor`. It switches at the next frame
+  and keeps everything — CPU, RAM, CIAs, SID, the drive. The running program keeps
+  the standard it detected at boot too (`$02A6`, its timer values, its raster
+  lines), so a switch shows how *this running program* behaves on the other machine.
+  For a program that should boot as NTSC, power-cycle or reset after the switch.
+  The selector asks before it switches and says exactly that; cancelling sends
+  nothing.
+- **A machine of your own.** `runtime_sandbox_run model = c64-ntsc`, and
+  `runtime_scene_reel model = …`.
+
+**A project remembers its model.** `project_init` writes `machine.model` into
+`knowledge/project.json` — `c64-pal` for a project it creates, or whatever
+`machine_model` names; an existing project keeps its value unless you pass one.
+The workspace launcher, the MCP's automatic runtime start and `runtime_sandbox_run`
+start the machine as that model, so an NTSC release boots as NTSC without anyone
+remembering to switch. When the workspace finds a runtime already running as
+another model, it says so rather than switching it.
+
+**Everything that counts in frames reads the machine.** A frame is 19656 cycles on
+PAL and 17095 on NTSC: `hold_frames`, `runtime_type`'s settle, a scenario's
+`I wait N frames`, a sandbox's `run_frames` — all of them ask the machine how long
+its frame is. `runtime_session_status` shows the model, the frame, the clock and
+the picture size (384×272 PAL, 384×247 NTSC). A recorded scenario carries a
+`# model:` line; it runs on that model by default and is refused, naming both, when
+asked to run on another — its inputs are timed in that machine's frames.
+
+The VIC view and the line strip take their geometry from the frame they show: 63
+cycles × 312 lines on PAL, 65 × 263 on NTSC. The NTSC picture wraps: its bottom
+twelve rows are raster lines 0–11, drawn below line 262, and the view draws them
+there. The palette is the same for every model.
+
 **"Sandbox" means two different things in this repo**, which is worth knowing
 before searching for one. `sandbox_6502_run` and `sandbox_depack` are a CPU sandbox —
 no machine at all: a flat 64K of RAM and the real 6502 core, with no VIC, no CIA, no
@@ -137,9 +182,9 @@ visualization and command layer on top of a backend-driven loop.
 The daemon runs the C64 + 1541 core continuously, independent of any connected
 browser:
 
-- **Pacing** (`session/set_pacing`): `pal` paces to ~1 MHz / 50 fps
-  (`setTimeout` sleeping the slice remainder), `warp` runs flat-out
-  (`setImmediate`), `fixed-ratio` clamps to a chosen multiple of realtime.
+- **Pacing** (`session/set_pacing`): `realtime` paces to the model's clock and
+  frame rate (50.12 fps PAL, 59.83 NTSC; `pal` is still accepted for it), `warp`
+  runs flat-out, `fixed-ratio` clamps to a chosen multiple of realtime.
 - **Run / pause / stopped** state is backend-owned. The controller
   **self-halts on a breakpoint** — the UI never polls a clock.
 - **Breakpoints** live in a stable checknum store on the controller.
