@@ -8,7 +8,7 @@ over commercial disk images, and none of it belongs on GitHub.
 Fixture tests prove the code runs. They cannot tell you whether the machinery changes how
 a session behaves, and six of the defects found during Specs 844–849 were visible only in
 a run — three of them silent failures that looked like a weak model. See
-`specs/849-harness-rules.md` for the method and the full series.
+`specs/_archive/849-harness-rules.md` for the method and the full series.
 
 ## What is here
 
