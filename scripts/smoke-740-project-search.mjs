@@ -37,7 +37,10 @@ console.log("Spec 740.1 — project search/wiki Wasteland acceptance\n");
 }
 
 const WASTELAND = "/Users/alex/Development/C64/Cracking/Wasteland_EF";
-if (!existsSync(join(WASTELAND, "knowledge", "findings.json"))) {
+// A project is its graph since Spec 822.2 — the cut-over moves findings.json into
+// knowledge/_legacy-822/. Probing only for findings.json made this gate PEND on a
+// machine that has the fixture, from the cut-over until 740.3 noticed.
+if (!["graph.sqlite", "findings.json"].some((f) => existsSync(join(WASTELAND, "knowledge", f)))) {
   console.log(`PENDING — Wasteland fixture not present at ${WASTELAND}. ${pass} pass, ${fail} fail (fixture-free checks only).`);
   process.exit(fail === 0 ? 0 : 1);
 }

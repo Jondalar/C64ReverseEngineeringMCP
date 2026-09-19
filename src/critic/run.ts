@@ -228,19 +228,19 @@ export async function critique(projectDir: string): Promise<CriticReport> {
           `\`amends: ${d.names.join(", ")}\` — no such document in this project`);
       }
 
+      // Spec 740.3 D3 — the comparison lives in one function the project search calls too,
+      // so "is this render stale" cannot mean two different things.
       ran.push("stale-render");
+      const { liveRenderCounts, renderDrift, formatRenderDrift } = await import("../docs/render-drift.js");
+      const live = liveRenderCounts(allFindings.length, entityCount, questionCount);
       for (const d of lint.docs) {
         const g = d.frontmatter?.generated;
         if (!g) continue;
-        const live = { findings: allFindings.length, entities: entityCount, questions: questionCount };
-        const drift = Object.entries(g.counts).filter(([k, v]) => {
-          const now = (live as Record<string, number>)[k];
-          return now !== undefined && now !== v;
-        });
+        const drift = renderDrift(g, live);
         if (drift.length > 0) {
           add("stale-render",
             `${d.path} was rendered from a different graph`,
-            drift.map(([k, v]) => `${k}: rendered ${v}, now ${(live as Record<string, number>)[k]}`).join("; ") + ` (rendered ${g.at.slice(0, 10)})`);
+            formatRenderDrift(drift, g.at));
         }
       }
     }

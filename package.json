@@ -90,6 +90,7 @@
     "smoke:741": "npm run build && node scripts/smoke-741-relocated-code-pseudopc.mjs",
     "e2e:741": "npm run build:mcp && node scripts/e2e-741-mcp-relocation-flow.mjs",
     "smoke:740": "npm run build:mcp && node scripts/smoke-740-project-search.mjs",
+    "smoke:740-graph": "npm run build && node scripts/smoke-740-graph.mjs",
     "smoke:858": "npm run build:mcp && node scripts/smoke-858-project-switch.mjs",
     "smoke:859": "npm run build:mcp && node scripts/smoke-859-line-trace.mjs",
     "smoke:860": "npm run build:mcp && node scripts/smoke-860-frame-map.mjs",

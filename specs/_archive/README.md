@@ -12,7 +12,7 @@ was binding doctrine, no longer is (the surviving rules live in `../../DOCTRINE.
 
 ## Recorded
 
-The 0 specs below carry the decision that closed them.
+The 52 specs below carry the decision that closed them.
 
 | # | Verdict | Spec | Decision / what shipped |
 |---|---|---|---|
@@ -67,6 +67,7 @@ The 0 specs below carry the decision that closed them.
 | 859 | **DONE** | [The line as the VIC saw it](859-the-line-as-the-vic-saw-it.md) | vicspector's view with the emulation's real data: a per-cycle recorder compiled in only for a scratch replay from the latest ring anchor, checked against the picture on screen (`verified`). `vic/line_trace`, `runtime_vic_line_trace`. Released in TRX64 0.8.0; `vic_line_trace_gate`, `smoke:859`. |
 | 860 | **DONE** | [The frozen frame as a view](860-the-frozen-frame-as-a-view.md) | A VIC-view toggle in the freeze: a translucent raster-line × cycle grid over the whole frame including the blanking cycles, display objects by union-find over cells sharing mode, screen, charset/bitmap and bank, sprites per appearance, and techniques as deterministic rules over the record. `vic/frame_map`, `runtime_vic_frame_map`. Released in TRX64 0.8.0; `smoke:860`. |
 | 774 | **WON'T-DO** | [Capability Cut → `trx64-static`](774-capability-cut-static-migration.md) | Closed 2026-09-19. Step 1 shipped 2026-07-02 and stays: the daemon's monitor and `trx64cli disasm` share one decoder crate, held to C64RE's TS decoder by a 512-case golden suite. Step 2 was dropped 2026-08-11 (drive and workbench read GCR by opposite rules). Step 3, the analyzers to Rust, is WON'T-DO: the owner decided TRX64 is a runtime — for `trx64cli`, C64RE and UE2 — and none of those needs a static classifier. Static analysis is C64RE's, permanently and in TS. |
+| 740 | **DONE** | [Project Wiki + Knowledge Retrieval](740-semantic-search-vector-index.md) | Closed 2026-09-19. 740.1 (2026-05-31): `project_search` / `project_find_related` / `project_reindex_search` / `project_wiki_lint` over a deterministic, explainable index — no embeddings, no vector DB. 740.2 (`project_wiki_update`) answered by 847 D6 and never built: documents declare themselves and `wiki_index` derives the index. 740.3 built: the graph's human layer is found as itself (routines with their extent, labels incl. user labels, model boundaries at their real range, declared documents with their covers) instead of as generic entities; documents at any depth through 847's scanner; a render ranks as a copy and a drifted one below the live record, its `why` carrying the critic's own stale-render comparison (`src/docs/render-drift.ts`, one function for both); the cache fingerprints what it read and rebuilds on the read path, saying so in one line; one listing per disassembly (`.asm` > `.tas` > `.tass`). Measured before settling D4: full rebuild 0.6–1.1 s on Ultima VI, 1.0–1.5 s on Wasteland_EF; the per-answer check ~80 ms / ~17 ms — no split. Gate `smoke:740-graph` 52/52 (hermetic, in CI); `smoke-740-project-search` 30/30 against Wasteland_EF, which had PENDED since the 822.2 cut-over because it probed for `findings.json`. |
 
 ## Historical
 

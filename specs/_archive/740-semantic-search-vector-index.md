@@ -1,8 +1,9 @@
 # Spec 740 — Project Wiki + Knowledge Retrieval MVP
 
-**Status:** 740.1 DONE (2026-05-31) — search/reindex/find-related + wiki skeleton.
-740.2 ANSWERED by Spec 847 D6 (2026-09) — not built, not needed. **740.3 READY
-(2026-09-19) — the search sees the graph**; that is the open work.
+**Status:** DONE (2026-09-19). 740.1 DONE (2026-05-31) — search/reindex/find-related +
+wiki skeleton. 740.2 ANSWERED by Spec 847 D6 (2026-09) — not built, not needed. **740.3
+BUILT (2026-09-19) — the search sees the graph**: gate `npm run smoke:740-graph` (52/52,
+hermetic, in `gates.yml`); `smoke-740-project-search` 30/30 against Wasteland_EF.
 **Owner:** Knowledge layer / MCP product search  
 **Depends on:** Specs 730, 711, 721  
 
@@ -29,7 +30,7 @@ frontmatter, each becomes a `document` node, and `wiki_index` DERIVES the index 
 declarations. A tool that authors the wiki is not needed, so 740.2 is closed unbuilt.
 Embeddings remain a later `740.B` option (§11), not planned.
 
-## 740.3 — the search sees the graph (READY, 2026-09-19)
+## 740.3 — the search sees the graph (BUILT, 2026-09-19 — `smoke:740-graph` 52/52)
 
 740.1 was built in May against JSON stores. Since then the knowledge moved into the graph
 (822.2) and grew three kinds of node the index has never heard of, and the index does not
@@ -118,6 +119,60 @@ on 2026-09-19:
 - Embeddings (`740.B`) — still not planned.
 - The generated layer of the graph — `graph_find` serves it.
 - Writing documents — 847 D6.
+
+### Built (2026-09-19)
+
+**Premise 1 was half right, and the build corrected it by measuring first.** The human
+layer was not unread: 822.2's entity projection lists every human-layer node, so a named
+routine came back as a generic `entity` — ranked as one, with no extent; a container
+and a document at `$0000` (their ranges live in attrs); a named data table three times
+(label, segment, data block). D1 therefore does two things: routine / label / model /
+document records of their own, AND those ids withheld from the entity projection, with
+what the entity record knew (artifacts, tags, summary) folded in. User labels (no MCP
+door; `saveUserLabel` and the legacy migration) fold into `label`.
+
+What shipped, per decision:
+
+- **D1** `routine` (the derived extent of `listRoutineNodes`, the annotation comment),
+  `label`, `model` (level, range from attrs, owner, evidence), `document` (doc kind,
+  status, every `covers` range, method; a placeholder or superseded document ranks
+  `stale` and says so). Kind bonus: document 70 (= doc_section), model 65, routine 60,
+  label 55 — between entity (45) and finding (75).
+- **D2** the index reads `scanDocs` — every `docs/` directory at any depth. A declared
+  document's sections carry its title; its `covers` become a section's range only when
+  the section names no address itself, and never its address tokens — otherwise one
+  document's thirty sections would crowd an address query. The document record is the
+  one hit that carries the covers.
+- **D3** `src/docs/render-drift.ts` is the one comparison; the critic's `stale-render`
+  and the index both call it, and the smoke asserts the critic's proof text appears
+  verbatim in the search's `why`. Only frontmatter `kind: generated` ranks a file
+  generated — not the scanner's file-name list, which would demote a hand-written
+  `ANTI_PATTERNS.md`.
+- **D4** the cache carries `fingerprint` (`size:mtimeMs` of graph.sqlite, a non-empty
+  `-wal`, every scanned document, CLAUDE.md / notes / activity log, the JSON stores,
+  views and every indexed listing), stamped after the build's own graph reads close.
+  `loadFreshIndex` compares on every `project_search` / `project_find_related` /
+  `project_wiki_lint` and rebuilds with one line naming what moved (`index rebuilt:
+  the graph and 1 document changed since …`). `project_reindex_search` re-stamps after
+  its own activity-log entry, so the next search does not rebuild for it.
+- **D5** per directory and stem: `.asm`, else `.tas`, else `.tass`. The skipped twin is
+  not fingerprinted either.
+- **D6** an address inside a declared range scores (`$C012 inside $C010-$C015`) for
+  model / document / routine records; `project_find_related` groups `routines`,
+  `labels`, `model`, `documents` and follows range overlap from an address seed or a
+  range seed (a container lists what it holds).
+
+**Measured before deciding D4's shape** (APFS clones, never the real projects): a full
+rebuild takes 0.6–1.1 s on Ultima VI (18 323 records) and 1.0–1.5 s on Wasteland_EF
+(15 154). The check before every answer costs ~80 ms on Ultima VI and ~17 ms on
+Wasteland — most of it the whole-tree walk 847's rule requires (any `docs/` at any
+depth, through an 11 000-entry `analysis/`), after the scanner stopped calling `stat`
+per entry (~90 ms → ~35 ms for the walk). The numbers do not argue for splitting the
+rebuild; it stays full.
+
+**Found on the way:** `smoke-740-project-search` had PENDED on this machine since the
+822.2 cut-over — it probed for `knowledge/findings.json`, which the cut-over moves to
+`_legacy-822/`. It now accepts a graph project and runs: 30/30.
 
 ---
 

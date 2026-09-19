@@ -112,24 +112,32 @@ export async function listDocNodes(projectDir: string): Promise<DocNode[]> {
   let store;
   try { store = GraphStore.open(projectDir, { readOnly: true }); } catch { return []; }
   try {
-    const rows = store.db.prepare(
-      "SELECT id, name, attrs FROM nodes WHERE kind = 'document' ORDER BY id",
-    ).all() as Array<{ id: string; name: string | null; attrs: string }>;
-    return rows.map((r) => {
-      let a: Record<string, unknown> = {};
-      try { a = JSON.parse(r.attrs) as Record<string, unknown>; } catch { /* keep empty */ }
-      return {
-        id: r.id,
-        path: typeof a.path === "string" ? a.path : r.id,
-        title: r.name ?? r.id,
-        docKind: typeof a.docKind === "string" ? a.docKind : "reference",
-        status: typeof a.status === "string" ? a.status : "current",
-        covers: Array.isArray(a.covers) ? (a.covers as DocNode["covers"]) : [],
-        ...(typeof a.method === "string" ? { method: a.method } : {}),
-        placeholder: a.placeholder === true,
-      };
-    });
+    return readDocNodes(store.db);
   } finally { store.close(); }
+}
+
+/**
+ * The document nodes of an open graph. Shared with the project search (Spec 740.3 D1), so
+ * the index and `wiki_index` agree about what a document node says.
+ */
+export function readDocNodes(db: { prepare(sql: string): { all(...params: unknown[]): unknown[] } }): DocNode[] {
+  const rows = db.prepare(
+    "SELECT id, name, attrs FROM nodes WHERE kind = 'document' ORDER BY id",
+  ).all() as Array<{ id: string; name: string | null; attrs: string }>;
+  return rows.map((r) => {
+    let a: Record<string, unknown> = {};
+    try { a = JSON.parse(r.attrs) as Record<string, unknown>; } catch { /* keep empty */ }
+    return {
+      id: r.id,
+      path: typeof a.path === "string" ? a.path : r.id,
+      title: r.name ?? r.id,
+      docKind: typeof a.docKind === "string" ? a.docKind : "reference",
+      status: typeof a.status === "string" ? a.status : "current",
+      covers: Array.isArray(a.covers) ? (a.covers as DocNode["covers"]) : [],
+      ...(typeof a.method === "string" ? { method: a.method } : {}),
+      placeholder: a.placeholder === true,
+    };
+  });
 }
 
 /**
