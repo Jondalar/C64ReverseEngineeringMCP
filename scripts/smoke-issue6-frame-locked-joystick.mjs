@@ -13,7 +13,8 @@
 // asserted for the whole window, released after, exact cycle count, run state
 // restored. The shared session is never touched.
 import { SandboxSession } from "../dist/reel/sandbox-session.js";
-import { PAL_CYCLES_PER_FRAME } from "../dist/project-knowledge/scenario-gherkin.js";
+// Spec 863 — a frame is the machine's; this gate reads it from the machine (a PAL sandbox).
+let F = 0;
 
 let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
@@ -50,7 +51,9 @@ const dc00 = async () => {
 
 try {
   await box.call("debug/pause", { source: "gate" });
-  await box.call("session/run", { cycles: PAL_CYCLES_PER_FRAME * 180 }); // boot to READY
+  F = (await box.call("session/state")).cyclesPerFrame;
+  ok(F > 0, "0 the machine reports its frame length", `${F} cycles`);
+  await box.call("session/run", { cycles: F * 180 }); // boot to READY
   const idle = await dc00();
   ok(idle === 0x7f, "2 the port reads idle before the press", `$${idle.toString(16)}`);
 
@@ -63,9 +66,9 @@ try {
   // Instruction granularity: a run stops on the instruction that crosses the cap,
   // so the window can overshoot by a few cycles — never by a frame, and never by an
   // amount that depends on how fast the caller made the next call.
-  const drift = advanced - 4 * PAL_CYCLES_PER_FRAME;
+  const drift = advanced - 4 * F;
   ok(drift >= 0 && drift < 16, "3 the machine advanced exactly the frames asked for",
-     `${advanced} cycles = ${(advanced / PAL_CYCLES_PER_FRAME).toFixed(4)} frames, +${drift} cycles of instruction granularity`);
+     `${advanced} cycles = ${(advanced / F).toFixed(4)} frames, +${drift} cycles of instruction granularity`);
   ok(/held down for 4 frame/.test(text(res)), "4 the result says what was held and for how long",
      text(res).split("\n")[0]);
   ok(/measured in machine time/.test(text(res)), "5 and why that is the point");
@@ -77,20 +80,20 @@ try {
   await box.call("session/joystick_set", { port: 2, down: true, source: "gate" });
   const samples = [];
   for (let i = 0; i < 4; i++) {
-    await box.call("session/run", { cycles: PAL_CYCLES_PER_FRAME });
+    await box.call("session/run", { cycles: F });
     samples.push(await dc00());
   }
   await box.call("session/joystick_clear", { port: 2, source: "gate" });
   ok(samples.every((v) => v === 0x7d), "7 DOWN is asserted on every frame of the window",
      samples.map((v) => `$${v.toString(16)}`).join(" "));
-  await box.call("session/run", { cycles: PAL_CYCLES_PER_FRAME });
+  await box.call("session/run", { cycles: F });
   ok(await dc00() === 0x7f, "8 and released after it");
 
   // ── fire, and a one-frame tap ─────────────────────────────────────────────
   const b2 = (await state()).c64Cycles;
   await joystick({ session_id: SID, fire: true, hold_frames: 1 }, {});
   const tap = (await state()).c64Cycles - b2;
-  ok(tap - PAL_CYCLES_PER_FRAME >= 0 && tap - PAL_CYCLES_PER_FRAME < 16, "9 a one-frame tap advances one frame", `${tap} cycles`);
+  ok(tap - F >= 0 && tap - F < 16, "9 a one-frame tap advances one frame", `${tap} cycles`);
   ok(await dc00() === 0x7f, "10 the tap is released too");
 
   // ── port 1 is reachable ───────────────────────────────────────────────────
@@ -138,7 +141,7 @@ try {
     const t0 = (await state()).c64Cycles;
     const res2 = await type({ session_id: SID, text: "ABC", settle: true }, {});
     const t1 = (await state()).c64Cycles;
-    const need = 3 * (33000 + 33000) + 2 * PAL_CYCLES_PER_FRAME;
+    const need = 3 * (33000 + 33000) + 2 * F;
     const d2 = t1 - t0 - need;
     ok(d2 >= 0 && d2 < 16, "16 settle advances exactly the machine time the queue needs",
        `${t1 - t0} cycles vs ${need} needed`);

@@ -92,18 +92,19 @@ const evidenceSchema = z.object({
 export function registerProjectKnowledgeTools(server: McpServer, options: RegisterProjectKnowledgeToolsOptions): void {
   server.tool(
     "project_init",
-    "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). Inputs: project name, optional description/tags/assembler. Returns: created project + knowledge/phase-plan paths.",
+    "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. Inputs: project name, optional description/tags/assembler/machine_model. Returns: created project + knowledge/phase-plan paths.",
     {
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
       name: z.string().describe("Human-readable project name"),
       description: z.string().optional().describe("Optional project description"),
       tags: z.array(z.string()).optional().describe("Optional project tags"),
       preferred_assembler: z.enum(["kickass", "64tass"]).optional().describe("Preferred assembler dialect for generated source and later workflow defaults."),
+      machine_model: z.string().optional().describe("Which C64 the project's machine is — a model name such as c64-pal, c64-ntsc or c64-paln (runtime_monitor `model` lists them all). Omitted: c64-pal for a new project; an existing project keeps its own. The runtime checks the name when it starts the machine and refuses one it cannot run, naming what it lacks."),
     },
-    safeHandler("project_init", async ({ project_dir, name, description, tags, preferred_assembler }) => {
+    safeHandler("project_init", async ({ project_dir, name, description, tags, preferred_assembler, machine_model }) => {
       const projectRoot = resolveWorkspaceRoot(options, project_dir, true);
       const service = new ProjectKnowledgeService(projectRoot);
-      const project = service.initProject({ name, description, tags, preferredAssembler: preferred_assembler });
+      const project = service.initProject({ name, description, tags, preferredAssembler: preferred_assembler, machineModel: machine_model });
       // BUG-015 — sort any loose media in the project root into the canonical
       // typed input/ folders (.d64/.g64→disk, .crt→crt, .prg→prg, docs→docs)
       // and register each at its canonical path. Idempotent.
@@ -148,6 +149,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Name: ${project.name}`,
         `Root: ${project.rootPath}`,
         `Preferred assembler: ${project.preferredAssembler ?? "(not set)"}`,
+        `Machine: ${project.machine?.model ?? "(not set — the runtime's default, PAL)"} — the workspace and sandbox runs start the C64 as this model`,
         `Workflow summary: ${workflow.state.summary}`,
         `Current phase: ${workflow.state.currentPhaseId ?? "(none)"}`,
         `Next recommended phase: ${workflow.state.nextRecommendedPhaseId ?? "(none)"}`,

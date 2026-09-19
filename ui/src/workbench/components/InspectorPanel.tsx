@@ -64,11 +64,12 @@ interface VicState {
 interface SidState { regs: number[]; streaming: boolean }
 
 // Decode one SID voice (7 regs from offset vb) into a display row.
-const PAL_SID_CLOCK = 985248;
+// Spec 863 — the SID runs at the machine's clock (985 248 Hz PAL, 1 022 730 NTSC), read from
+// `session/state.cpuHz`; without it a register value names no note.
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-function noteName(freqReg: number): string {
-  if (freqReg <= 0) return "—";
-  const hz = (freqReg * PAL_SID_CLOCK) / 16777216;
+function noteName(freqReg: number, clockHz: number | null): string {
+  if (freqReg <= 0 || !clockHz) return "—";
+  const hz = (freqReg * clockHz) / 16777216;
   if (hz < 8) return "—";
   const midi = Math.round(69 + 12 * Math.log2(hz / 440));
   if (midi < 0 || midi > 127) return "—";
@@ -82,10 +83,10 @@ function waveform(control: number): string {
   if (control & 0x80) w.push("∿");  // noise
   return w.length ? w.join("") : "—";
 }
-function decodeVoice(regs: number[], vb: number): { wave: string; gate: boolean; note: string } {
+function decodeVoice(regs: number[], vb: number, clockHz: number | null): { wave: string; gate: boolean; note: string } {
   const ctrl = regs[vb + 4] ?? 0;
   const freq = (regs[vb] ?? 0) | ((regs[vb + 1] ?? 0) << 8);
-  return { wave: waveform(ctrl), gate: (ctrl & 1) !== 0, note: noteName(freq) };
+  return { wave: waveform(ctrl), gate: (ctrl & 1) !== 0, note: noteName(freq, clockHz) };
 }
 
 // Spec 623 §4.3 — control-flow stack (main/irq/nmi/brk).
@@ -198,6 +199,7 @@ export function InspectorPanel({
 
   const [vic, setVic] = useState<VicState | null>(null);
   const [sid, setSid] = useState<SidState | null>(null);
+  const [sidClock, setSidClock] = useState<number | null>(null);
   const [flow, setFlow] = useState<FlowState | null>(null);
   const [vectors, setVectors] = useState<Vectors | null>(null);
   const [media, setMedia] = useState<RecentMedium[]>([]);
@@ -213,6 +215,7 @@ export function InspectorPanel({
           setCpu(s.cpu ?? { pc: 0, a: 0, x: 0, y: 0, sp: 0, flags: 0, cycles: s.c64Cycles ?? 0 });
           setVic(s.vic ?? null);
           setSid(s.sid ?? null);
+          setSidClock(typeof s.cpuHz === "number" && s.cpuHz > 0 ? s.cpuHz : null);
           setFlow(s.flow ?? null);
           setVectors(s.vectors ?? null);
         }
@@ -404,7 +407,7 @@ export function InspectorPanel({
           ].filter(Boolean).join("+") || "—";
           const cutoff = ((r[0x15] ?? 0) & 7) | ((r[0x16] ?? 0) << 3);
           const res = (r[0x17] ?? 0) >> 4;
-          const voices = [0x00, 0x07, 0x0e].map((vb) => decodeVoice(r, vb));
+          const voices = [0x00, 0x07, 0x0e].map((vb) => decodeVoice(r, vb, sidClock));
           return (
             <table className="wb-regs">
               <tbody>

@@ -7,6 +7,15 @@ import React, { useEffect, useRef, useState, type ReactNode } from "react";
 import { getClient, BIN_TYPE_AUDIO_BUFFER } from "../ws-client.js";
 import { WebAudioPlayer } from "../audio-player.js";
 import { api } from "../rest-client.js";
+import { useMachineModel } from "../use-machine-model.js";
+import {
+  findModelRow, modelChoices, switchConfirmation, switchMachineModel, type ModelRow,
+} from "../../../../src/runtime/machine-model.js";
+
+// Spec 863 — real-time pacing is the MODEL's frame rate (50.12 fps PAL, 59.83 NTSC), so the
+// mode is "realtime"; "pal", what it was called while PAL was the only machine, is still
+// accepted by the runtime.
+const REALTIME = "realtime";
 
 interface Props {
   sessionId: string;
@@ -60,7 +69,7 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
       try { await c.call("session/power", { session_id: sessionId, op: "on" }); } catch (e) { console.error("[power] on:", e); }
       // power_on comes up running server-side; also drive debug/run so the pump
       // pacing is armed (idempotent) and the loop can't sit paused.
-      try { await c.call("debug/run", { session_id: sessionId, pacing: { mode: "pal" } }); } catch { /* ignore */ }
+      try { await c.call("debug/run", { session_id: sessionId, pacing: { mode: REALTIME } }); } catch { /* ignore */ }
       setRunState?.("running");
       onSnapshotTaken();
     } else {
@@ -78,7 +87,7 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
     await c.call("session/reset", { session_id: sessionId, mode: "soft" });
     // Reset leaves the loop in whatever state it was; restart it so the machine
     // comes back RUNNING (no reliance on a run-state echo effect — that is gone).
-    try { await c.call("debug/run", { session_id: sessionId, pacing: { mode: "pal" } }); } catch { /* ignore */ }
+    try { await c.call("debug/run", { session_id: sessionId, pacing: { mode: REALTIME } }); } catch { /* ignore */ }
     setRunState?.("running");
     onSnapshotTaken();
   };
@@ -90,7 +99,7 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
     // view (App-level button, MON pop-out).
     const next = runState === "running" ? "paused" : "running";
     try {
-      if (next === "running") await c.call("debug/run", { session_id: sessionId, pacing: { mode: "pal" } });
+      if (next === "running") await c.call("debug/run", { session_id: sessionId, pacing: { mode: REALTIME } });
       else await c.call("debug/pause", { session_id: sessionId });
     } catch { /* ignore */ }
     setRunState?.(next);
@@ -108,8 +117,47 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
     if (!sessionId) return;
     const next = !warp;
     setWarp(next);
-    try { await c.call("session/set_pacing", { session_id: sessionId, mode: next ? "warp" : "pal" }); } catch { /* ignore */ }
+    try { await c.call("session/set_pacing", { session_id: sessionId, mode: next ? "warp" : REALTIME }); } catch { /* ignore */ }
   };
+
+  // Spec 863 C1 — which C64 this is. The rows come from the runtime (`session/models`);
+  // a row it cannot run is listed, disabled, with the block it lacks. Picking another
+  // row asks first — the confirmation says what the switch keeps and what a clean start
+  // would do instead — and only then calls `session/model`. Cancelling sends nothing.
+  const { machine, rows, error: modelError } = useMachineModel(sessionId);
+  const [pendingModel, setPendingModel] = useState<ModelRow | null>(null);
+  const [modelMsg, setModelMsg] = useState<{ text: string; bad: boolean } | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const pickModel = (name: string) => {
+    if (!machine || name === machine.model) return;
+    const row = findModelRow(rows, name);
+    if (row && row.runs !== false) { setModelMsg(null); setPendingModel(row); }
+  };
+  const confirmModel = async () => {
+    const row = pendingModel;
+    if (!row || !sessionId) return;
+    setSwitching(true);
+    try {
+      const r = await switchMachineModel((m, p) => c.call(m, p), sessionId, row.name);
+      const at = r.switchedAt as { rasterLine?: number; rasterCycle?: number; c64Cycles?: number } | undefined;
+      const kept = r.kept as Record<string, boolean> | undefined;
+      const lost = kept ? Object.entries(kept).filter(([, v]) => !v).map(([k]) => k) : [];
+      setModelMsg({
+        text: r.atPowerOn
+          ? `${row.name} — the machine powers on as ${row.name}`
+          : `${r.from} → ${r.model}${at ? ` at line ${at.rasterLine}, cycle ${at.rasterCycle}` : ""}` +
+            (kept ? (lost.length ? ` · NOT kept: ${lost.join(", ")}` : ` · kept ${Object.keys(kept).join(", ")}`) : ""),
+        bad: lost.length > 0,
+      });
+      onSnapshotTaken();
+    } catch (e) {
+      setModelMsg({ text: `switch failed: ${e instanceof Error ? e.message : String(e)}`, bad: true });
+    } finally {
+      setSwitching(false);
+      setPendingModel(null);
+    }
+  };
+  const confirmText = pendingModel ? switchConfirmation(machine?.model, pendingModel, runState !== "off") : null;
   // Spec 769.5 — the top button is "Dump" (a durable .c64re state dump), not a
   // camera screenshot. Dumps the current machine state (= the scrubbed-to anchor
   // when the user clicked a filmstrip frame, since that restores the machine).
@@ -246,6 +294,33 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
         className={runState === "off" ? "wb-power-off" : "wb-power-on"}
         title={runState === "off" ? "Power ON (cold boot)" : "Power OFF (unplug)"}
       >⏻ Power {runState === "off" ? "ON" : "OFF"}</button>
+      <span className="wb-model">
+        <select
+          id="wb-model-select"
+          aria-label="C64 model"
+          value={machine?.model ?? ""}
+          onChange={(e) => pickModel(e.target.value)}
+          disabled={!sessionId || !machine || rows.length === 0 || switching}
+          title={machine
+            ? `${machine.model}: ${machine.cyclesPerLine} × ${machine.linesPerFrame} cycles, ${machine.cpuHz} Hz, ${machine.frameRate.toFixed(2)} fps — pick another model to switch at the next frame`
+            : modelError ?? "which C64 this is"}
+        >
+          {!machine && <option value="">{modelError ? "model ?" : "…"}</option>}
+          {modelChoices(rows).map((m) => (
+            <option key={m.name} value={m.name} disabled={m.disabled} title={m.title}>{m.label}</option>
+          ))}
+        </select>
+        {confirmText && (
+          <div className="wb-model-confirm" role="dialog" aria-modal="false" aria-labelledby="wb-model-confirm-title">
+            <strong id="wb-model-confirm-title">{confirmText.title}</strong>
+            {confirmText.body.map((p, i) => <p key={i}>{p}</p>)}
+            <div className="wb-model-confirm-buttons">
+              <button id="wb-model-confirm" onClick={() => void confirmModel()} disabled={switching}>{confirmText.confirm}</button>
+              <button id="wb-model-cancel" onClick={() => setPendingModel(null)} disabled={switching}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </span>
       <button
         onClick={() => {
           if (!sessionId) return;
@@ -296,6 +371,9 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
       {toolsSlot}
       <span className="wb-controls-spacer" />
       {runState === "running" && <span className="wb-fps">{fps} fps</span>}
+      {modelMsg ? (
+        <span className={modelMsg.bad ? "wb-dump-msg wb-dump-bad" : "wb-dump-msg"} title={modelMsg.text} onClick={() => setModelMsg(null)}>{modelMsg.text}</span>
+      ) : null}
       {dumpMsg ? (
         <span className={dumpMsg.bad ? "wb-dump-msg wb-dump-bad" : "wb-dump-msg"} title={dumpMsg.text} onClick={() => setDumpMsg(null)}>{dumpMsg.text}</span>
       ) : null}

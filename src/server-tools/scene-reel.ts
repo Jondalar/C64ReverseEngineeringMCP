@@ -45,7 +45,7 @@ const EXAMPLE = [
 export function registerSceneReelTool(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "runtime_scene_reel",
-    "Run a written capture scenario on a MACHINE OF YOUR OWN — a private daemon on its own port, born with a budget and ending itself when it runs out, so the shared session the human co-drives is never touched (Spec 836). Assembles an animated release reel (animated GIF: GIF89a, 384x272 including border, hard cuts, uniform delay, <=512000 bytes). Use it when a release, a crack or a trainer needs documentation screenshots in playthrough order — title, menu, in-game — produced the same way twice. The scenario is Gherkin, the same notation and the same .feature files as scenario goals: `Given the disk \"x.g64\"`, then `When I wait 170 frames` / `And I type \"LOAD{QUOTE}*{QUOTE},8,1{RETURN}\"` / `And I hold joystick 2 down for 3 frames` / `And I wait until the drive is idle within 8000 frames` / `And I capture \"title\"`, then `Then the reel has at least 5 screens`. Every step that lasts states its own duration, and the machine is stopped between steps, so the same text replays to the same bytes. Frames come straight from the video chip's 16-colour indices, so nothing is re-quantized. Not for driving the session you are debugging in, and not for one picture of the machine you are already looking at — use runtime_render_screen instead. Inputs: feature (text) or feature_path, out_path. Returns: the reel's path, frame count, byte size, and the cycle each capture landed on.",
+    "Run a written capture scenario on a MACHINE OF YOUR OWN — a private daemon on its own port, born with a budget and ending itself when it runs out, so the shared session the human co-drives is never touched (Spec 836). Assembles an animated release reel (animated GIF: GIF89a, the machine's picture including border — 384x272 PAL, 384x247 NTSC — hard cuts, uniform delay, <=512000 bytes). The machine is the C64 model the scenario was recorded on (its `# model:` line), else the project's; a recorded scenario asked to run on another model is refused, naming both. Use it when a release, a crack or a trainer needs documentation screenshots in playthrough order — title, menu, in-game — produced the same way twice. The scenario is Gherkin, the same notation and the same .feature files as scenario goals: `Given the disk \"x.g64\"`, then `When I wait 170 frames` / `And I type \"LOAD{QUOTE}*{QUOTE},8,1{RETURN}\"` / `And I hold joystick 2 down for 3 frames` / `And I wait until the drive is idle within 8000 frames` / `And I capture \"title\"`, then `Then the reel has at least 5 screens`. Every step that lasts states its own duration, and the machine is stopped between steps, so the same text replays to the same bytes. Frames come straight from the video chip's 16-colour indices, so nothing is re-quantized. Not for driving the session you are debugging in, and not for one picture of the machine you are already looking at — use runtime_render_screen instead. Inputs: feature (text) or feature_path, out_path. Returns: the reel's path, frame count, byte size, and the cycle each capture landed on.",
     {
       project_dir: z
         .string()
@@ -84,11 +84,15 @@ export function registerSceneReelTool(server: McpServer, context: ServerToolCont
         .number()
         .optional()
         .describe("How long the private machine may live before it ends itself (default 600)."),
+      model: z
+        .string()
+        .optional()
+        .describe("Which C64 to run it on — c64-pal, c64-ntsc, c64-paln (runtime_monitor `model` lists them). Omitted: the model the scenario was recorded on (`# model:`), else the project's. A recorded scenario on another model is refused: its frames and cycles are the other machine's."),
     },
     safeHandler("runtime_scene_reel", async (args) => {
       const {
         project_dir, feature, feature_path, scenario: wanted, out_path, media_path,
-        delay_ms, max_bytes, save_feature_to, budget_seconds,
+        delay_ms, max_bytes, save_feature_to, budget_seconds, model,
       } = args;
 
       if (!feature && !feature_path) return text("runtime_scene_reel: give `feature` (the Gherkin text) or `feature_path`.");
@@ -173,11 +177,15 @@ export function registerSceneReelTool(server: McpServer, context: ServerToolCont
 
       const { runScenario, framesOf } = await import("../reel/run-scenario.js");
       const { encodeWithin, parseStructure } = await import("../reel/gif89a.js");
+      const { projectMachineModel } = await import("../project-knowledge/machine-model.js");
+      const { describeMachine } = await import("../runtime/machine-model.js");
 
       let run;
       try {
         run = await runScenario(chosen, {
           budgetMs: (budget_seconds ?? 600) * 1000,
+          model,
+          defaultModel: projectMachineModel(projectDir),
           // `media_path` names the medium the scenario STARTS from, and only
           // that one. It used to override every medium, so a mid-run
           // `I insert the disk "side2.d64"` re-inserted side ONE: the game kept
@@ -231,6 +239,7 @@ export function registerSceneReelTool(server: McpServer, context: ServerToolCont
           `Your own session was not touched, and nothing you do to it — pause, warp, keys — ` +
           `reaches or disturbs this run.`,
       );
+      lines.push(`machine: ${describeMachine(run.machine)}`);
       lines.push(
         `${structure.frames} frames · ${structure.width}x${structure.height} · ` +
           `${encoded.bytes.length} bytes of ${maxBytes} · ${delayCentis} cs per frame · ` +

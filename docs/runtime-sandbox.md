@@ -32,6 +32,10 @@ session. The human's session on `:4312` stays completely untouched.
   tool/logic tests where you want full control of the clock.
 - **Without** `--headless` it behaves like the product: streams frames + audio and
   free-runs. Use it when you want to watch/screenshot a boot as the user would see it.
+- Add **`--model c64-ntsc`** (or `--video ntsc`) for an NTSC C64 — chosen before the
+  machine is switched on, so a release that detects the standard at boot sees NTSC.
+  `session/models` lists every model and what an unrunnable one lacks. A frame is then
+  17095 cycles, not 19656: read `cyclesPerFrame` from `session/state`, never assume it.
 
 ### 2. Drive it over raw WebSocket
 
@@ -50,11 +54,12 @@ const call = (method, params = {}) => new Promise((r) => {
 });
 await new Promise((r) => ws.addEventListener("open", r));
 
-await call("session/create", {});
+await call("session/create", {});                                 // { model: "c64-ntsc" } for an NTSC C64
 await call("media/mount", { path: "/abs/pfad/zum/spiel.crt" });   // cart → power-cycle + boot
 await call("debug/pause", {});                                    // ← BEFORE any joystick input
+const frame = (await call("session/state", {})).result.cyclesPerFrame;  // 19656 PAL, 17095 NTSC
 await call("session/joystick_set", { port: 2, left: true });
-await call("session/run", { cycles: 19705 * 60 });                // ~60 PAL frames
+await call("session/run", { cycles: frame * 60 });                // 60 frames of this machine
 await call("session/joystick_clear", { port: 2 });
 
 const shot = (await call("session/screenshot", {})).result.dataUrl;   // base64 PNG data URL

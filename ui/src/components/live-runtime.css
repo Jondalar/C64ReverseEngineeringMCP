@@ -575,6 +575,24 @@
 .wb-live .wb-controls button.wb-vicview-on { border-color: var(--c64-yellow); color: var(--c64-yellow); }
 .wb-live .wb-controls button.wb-trace-on { border-color: #e0506a; color: #e0506a; }
 .wb-live .wb-controls-spacer { flex: 1; }
+/* Spec 863 — the model selector beside the power button, and the question it asks
+   before it switches. The popover hangs under the selector, over the screen. */
+.wb-live .wb-model { position: relative; display: inline-flex; }
+.wb-live .wb-model select {
+  background: var(--c64-bg-1); color: var(--c64-fg);
+  border: 1px solid var(--c64-border); padding: 3px 6px;
+  font-family: inherit; font-size: 12px; border-radius: 3px; max-width: 16em;
+}
+.wb-live .wb-model select:disabled { opacity: 0.5; }
+.wb-live .wb-model-confirm {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 200;
+  width: min(34em, 90vw); padding: 10px 12px;
+  background: var(--c64-bg-2); color: var(--c64-fg);
+  border: 1px solid var(--c64-yellow); border-radius: 4px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5); font-size: 12px; line-height: 1.45;
+}
+.wb-live .wb-model-confirm p { margin: 6px 0 0; }
+.wb-live .wb-model-confirm-buttons { display: flex; gap: 6px; margin-top: 10px; justify-content: flex-end; }
 .wb-live .wb-fps { color: var(--c64-fg-muted); font-size: 11px; }
 /* Spec 831 D3 — a dump that gives no receipt is indistinguishable from a
    no-op, which is exactly what the button looked like. Click to dismiss. */

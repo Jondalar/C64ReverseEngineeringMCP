@@ -734,6 +734,10 @@ export const ProjectMetadataSchema = z.object({
   tags: z.array(z.string()).default([]),
   /** Stamped by project_init on a project it creates (src/project-knowledge/naming.ts). */
   naming: z.object({ maxLabelLength: z.number().int().positive() }).optional(),
+  /** Spec 863 — which C64 the project's runtime starts as: a row of the runtime's model
+   *  table (`c64-pal`, `c64-ntsc`, …). Stamped by project_init on a project it creates;
+   *  absent on older projects (the runtime's default then). machine-model.ts. */
+  machine: z.object({ model: z.string().min(1) }).optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 });

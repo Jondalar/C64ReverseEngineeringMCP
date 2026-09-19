@@ -67,6 +67,29 @@ function tcpUp(host, port, timeoutMs = 800) {
     s.once("error", () => { clearTimeout(t); done(false); });
   });
 }
+/** The running machine's model (`session/state.model`), or undefined — best effort. */
+async function runningModel(host, port) {
+  try {
+    const { WebSocket } = await import("ws");
+    return await new Promise((resolveModel) => {
+      const ws = new WebSocket(`ws://${host}:${port}`);
+      const done = (v) => { try { ws.close(); } catch {} resolveModel(v); };
+      const t = setTimeout(() => done(undefined), 2000);
+      ws.once("error", () => { clearTimeout(t); done(undefined); });
+      ws.once("open", () => ws.send(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "session/state", params: {} })));
+      ws.on("message", (data, isBinary) => {
+        if (isBinary) return;
+        let m; try { m = JSON.parse(data.toString()); } catch { return; }
+        if (m.id !== 1) return;
+        clearTimeout(t);
+        done(typeof m.result?.model === "string" ? m.result.model : undefined);
+      });
+    });
+  } catch {
+    return undefined;
+  }
+}
+
 function parseEndpoint(url) {
   const m = /^wss?:\/\/([^/:]+):(\d+)/.exec(url || "");
   return m ? { host: m[1], port: Number(m[2]) } : null;
@@ -85,6 +108,19 @@ if (!wsIsLocal) {
   // also spawn a second one here — that is a SECOND runtime authority in a
   // separate process, and it panics on the port conflict.
   console.log(`[workspace] Live runtime WS: reusing daemon already listening on ${wsEndpoint.host}:${wsEndpoint.port}; not starting a second one.`);
+  // Spec 863 — a reused daemon was started by someone else, maybe as another C64 than
+  // this project is. Say so; switching it is the Live tab's decision, not a launcher's.
+  const { projectMachineModel } = await import(pathToFileURL(`${repoRoot}/dist/project-knowledge/machine-model.js`));
+  const want = projectMachineModel(projectDir);
+  if (want) {
+    const running = await runningModel(wsEndpoint.host, wsEndpoint.port);
+    if (running && running !== want) {
+      console.warn(
+        `[workspace] this project is ${want}, but the running machine is ${running} — ` +
+          `switch it in the Live tab (model selector), or stop the runtime and start the workspace again.`,
+      );
+    }
+  }
 } else {
   // Nothing answering — start one so the Live tab works without a manual
   // `npm run runtime:daemon` step first.
@@ -102,6 +138,12 @@ if (!wsIsLocal) {
     shutdown();
   } else {
     console.log(`[workspace] WS backend = ${plan.mode} (starting fresh on :${wsEndpoint.port})`);
+    // Spec 863 — which C64 it starts as, and why.
+    console.log(
+      plan.model
+        ? `[workspace] machine = ${plan.model} (${plan.modelFrom === "project" ? "knowledge/project.json → machine.model" : plan.modelFrom === "args" ? "C64RE_RUNTIME_BIN_ARGS" : "requested"})`
+        : `[workspace] machine = the runtime's default (the project names no machine.model)`,
+    );
     start("ws", plan.cmd, plan.args);
   }
 }

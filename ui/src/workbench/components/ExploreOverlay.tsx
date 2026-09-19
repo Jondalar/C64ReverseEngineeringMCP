@@ -19,14 +19,17 @@
 // point resolves through `vic/inspect/at`, a framed area through `vic/inspect/region`, and
 // Promote writes findings with address ranges.
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { getClient } from "../ws-client.js";
 import { VicLineView } from "./VicLineView.js";
+import { cycleColumn, frameGeometry, type FrameGeometry, type FrameHeader } from "../../../../src/runtime/frame-geometry.js";
 
-// Where the 384×272 visible window sits in the VIC's 520×312 framebuffer (render.rs
-// CANVAS_X0 / CANVAS_Y0). A visible pixel's raster line is y + 16.
-const FB_ORIGIN = { x: 104, y: 16 };
+// Spec 863 C3 — where the visible window sits in the framebuffer, how many cycles a line
+// has, how many lines a frame has and which cycles are blanking all come from the frame
+// header and the frame map's `cycleX` (frame-geometry.ts). On PAL that is the familiar
+// 384×272 window from line 16, 63 cycles, blanking at 1–14 and 63; on NTSC a 384×247
+// window from line 28 that WRAPS — raster lines 0–11 are its bottom rows — and 65 cycles.
 
 type Selection = { x: number; y: number; w: number; h: number };
 
@@ -55,7 +58,7 @@ interface FrameObject {
 interface Technique { rule: string; name: string; lines: [number, number]; detail: string; source: string }
 interface Write { line: number; cycle: number; reg: number; addr: number; value: number; x: number | null; midLine: boolean; shapesPicture: boolean }
 interface FrameMap {
-  frame: { which: "displayed" | "next"; verified: boolean | null };
+  frame: FrameHeader & { which: "displayed" | "next"; verified: boolean | null };
   geometry: { cycleX: (number | null)[] };
   cellBits: Record<string, number>;
   cells: number[][];
@@ -209,6 +212,19 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
     return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); window.removeEventListener("blur", blur); };
   }, []);
 
+  // Spec 863 — the frame's geometry, from its header. A header that does not carry it
+  // (a runtime older than C64 models) is said, not replaced by PAL numbers.
+  const geoResult = useMemo((): { geo: FrameGeometry | null; error: string | null } => {
+    if (!fmap) return { geo: null, error: null };
+    try { return { geo: frameGeometry(fmap.frame, fmap.geometry.cycleX), error: null }; }
+    catch (e) { return { geo: null, error: e instanceof Error ? e.message : String(e) }; }
+  }, [fmap]);
+  const geo = geoResult.geo;
+  // The picture's size in C64 pixels: the frame's window once it is known, the screen
+  // canvas's own size (the stream sets it from the same window) until then.
+  const W = geo?.width ?? screenEl.width;
+  const H = geo?.height ?? screenEl.height;
+
   // The displayed-image rectangle inside the canvas element (object-fit: contain + border).
   const imageRect = () => {
     const rect = screenEl.getBoundingClientRect();
@@ -216,8 +232,8 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
     const bl = parseFloat(cs.borderLeftWidth) || 0, bt = parseFloat(cs.borderTopWidth) || 0;
     const br = parseFloat(cs.borderRightWidth) || 0, bb = parseFloat(cs.borderBottomWidth) || 0;
     const cw = rect.width - bl - br, ch = rect.height - bt - bb;
-    const scale = Math.min(cw / 384, ch / 272) || 1;
-    return { left: rect.left + bl + (cw - 384 * scale) / 2, top: rect.top + bt + (ch - 272 * scale) / 2, scale };
+    const scale = Math.min(cw / W, ch / H) || 1;
+    return { left: rect.left + bl + (cw - W * scale) / 2, top: rect.top + bt + (ch - H * scale) / 2, scale };
   };
   const toVisible = (clientX: number, clientY: number) => {
     const r = imageRect();
@@ -225,31 +241,34 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
   };
 
   const cycleX = fmap?.geometry.cycleX ?? [];
-  // The grid is the whole line, all 63 cycles. 48 of them draw the visible picture, left
-  // border to right border (8 pixels each, where the draw put them). The other 15 — cycles
-  // 1–14 and 63 — are in horizontal blanking and have no pixel, but they are where sprite
+  const CPL = geo?.cyclesPerLine ?? 0;
+  // The grid is the whole line, every cycle of it (63 PAL, 65 NTSC). The cycles that draw
+  // the visible picture, left border to right border, sit where the draw put their 8
+  // pixels. The rest are horizontal blanking and have no pixel, but they are where sprite
   // pointers, refresh, the start of a bad line's BA and many $D011 stores happen. They are
-  // drawn beside the picture, 1–14 to the left and 63 to the right, at half width.
+  // drawn beside the picture, the leading ones to the left and the trailing ones to the
+  // right, at half width — which cycles those are is read from `cycleX`, not assumed.
   const HB_W = 4;
   const nLanes = fmap ? new Set(fmap.techniques.map((t) => t.rule)).size : 0;
   const LANES_W = nLanes > 0 ? nLanes * 3 + 2 : 0;
-  const EXT_L = 14 * HB_W + LANES_W;
-  const EXT_R = HB_W;
+  const BL = (geo?.blankLeft ?? 0) * HB_W;
+  const EXT_L = BL + LANES_W;
+  const EXT_R = (geo?.blankRight ?? 0) * HB_W;
   const colOf = useCallback((c: number): { x: number; w: number } => {
-    const cx = cycleX[c - 1];
-    if (cx != null) return { x: cx, w: 8 };
-    if (c <= 14) return { x: -(15 - c) * HB_W, w: HB_W };
-    return { x: 384 + (c - 63) * HB_W, w: HB_W };
-  }, [cycleX]);
+    if (!geo) return { x: 0, w: 0 };
+    return cycleColumn(geo, cycleX, c, HB_W);
+  }, [cycleX, geo]);
   /** The cycle whose column holds x (visible-frame x; negative is the blanking at the left). */
   const cycleAt = useCallback((x: number): number | null => {
-    if (!fmap) return null;
-    for (let c = 1; c <= 63; c++) {
+    if (!fmap || !geo) return null;
+    for (let c = 1; c <= geo.cyclesPerLine; c++) {
       const col = colOf(c);
       if (x >= col.x && x < col.x + col.w) return c;
     }
     return null;
-  }, [colOf, fmap]);
+  }, [colOf, fmap, geo]);
+  /** The raster line a visible-frame y shows (the window wraps on NTSC). */
+  const lineAtY = useCallback((y: number): number | null => (geo ? geo.lineOfRow(Math.floor(y)) : null), [geo]);
 
   const objectAt = (x: number, y: number): FrameObject | null => {
     if (!fmap || !objectsOn) return null;
@@ -281,9 +300,10 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
     try {
       if (w < 4 && h < 4) {
         const v = dragging.start;
-        const line = Math.floor(v.y) + FB_ORIGIN.y;
+        const line = lineAtY(v.y);
+        if (line == null || !geo) { setStatus(geoResult.error ?? "the frame is still being recorded"); return; }
         const cyc = cycleAt(v.x);
-        if (v.x < 0 || v.x >= 384) {
+        if (v.x < 0 || v.x >= W) {
           // Horizontal blanking: a cycle with no pixel. It has a line and a cycle, not a
           // byte on the screen — select the cell and open the line strip on it.
           setSelCell({ line, cycle: cyc, fbX: null });
@@ -291,7 +311,7 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
           setStatus(`line ${line}, cycle ${cyc ?? "?"} — horizontal blanking, no pixel`);
           return;
         }
-        setSelCell({ line, cycle: cyc, fbX: Math.floor(v.x) + FB_ORIGIN.x });
+        setSelCell({ line, cycle: cyc, fbX: Math.floor(v.x) + geo.fbOrigin.x });
         const obj = objectAt(v.x, v.y);
         setSelObject(obj);
         onSelection(null);
@@ -384,21 +404,21 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
 
   // ── drawing ──
   const img = imageRect();
-  const hoverLine = hover ? Math.floor(hover.y) + FB_ORIGIN.y : null;
+  const hoverLine = hover ? lineAtY(hover.y) : null;
   const hoverCycle = hover ? cycleAt(hover.x) : null;
   const hoverObj = hover ? objectAt(hover.x, hover.y) : null;
 
   useEffect(() => {
     const cv = canvasRef.current;
-    if (!cv || !fmap) return;
+    if (!cv || !fmap || !geo) return;
     const dpr = window.devicePixelRatio || 1;
-    const W = Math.round((EXT_L + 384 + EXT_R) * img.scale * dpr), H = Math.round(272 * img.scale * dpr);
-    if (cv.width !== W) cv.width = W;
-    if (cv.height !== H) cv.height = H;
+    const DW = Math.round((EXT_L + W + EXT_R) * img.scale * dpr), DH = Math.round(H * img.scale * dpr);
+    if (cv.width !== DW) cv.width = DW;
+    if (cv.height !== DH) cv.height = DH;
     const g = cv.getContext("2d");
     if (!g) return;
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, W, H);
+    g.clearRect(0, 0, DW, DH);
     const k = img.scale * dpr;
     // C64 visible-frame coordinates: x = 0 is the first pixel of the left border.
     g.setTransform(k, 0, 0, k, EXT_L * k, 0);
@@ -406,11 +426,12 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
     const b = fmap.cellBits;
     const a = opacity;
 
-    // Cells.
-    for (let vy = 0; vy < 272; vy++) {
-      const row = fmap.cells[vy + FB_ORIGIN.y];
+    // Cells — one canvas row per raster line, in the order the window shows them (on NTSC
+    // the last 12 rows are raster lines 0–11: the window wraps).
+    for (let vy = 0; vy < H; vy++) {
+      const row = fmap.cells[geo.lineOfRow(vy)];
       if (!row) continue;
-      for (let i = 0; i < 63; i++) {
+      for (let i = 0; i < CPL; i++) {
         const col = colOf(i + 1);
         const v = row[i];
         const fill = v & b.sAccess ? CELL_FILL[0] : v & b.cAccess ? CELL_FILL[1] : v & b.stall ? CELL_FILL[2] : v & b.ba ? CELL_FILL[3] : null;
@@ -424,64 +445,69 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
     }
     // The blanking columns get a faint ground, so they read as part of the line.
     g.fillStyle = `rgba(120,120,160,${(0.12 * a).toFixed(3)})`;
-    g.fillRect(-14 * HB_W, 0, 14 * HB_W, 272);
-    g.fillRect(384, 0, EXT_R, 272);
+    g.fillRect(-BL, 0, BL, H);
+    g.fillRect(W, 0, EXT_R, H);
     // Guide lines: every cycle, and at every character row (the frame's own bad lines).
     g.strokeStyle = `rgba(200,200,230,${(0.28 * a).toFixed(3)})`;
     g.lineWidth = px;
     g.beginPath();
-    for (let c = 1; c <= 63; c++) {
+    for (let c = 1; c <= CPL; c++) {
       const col = colOf(c);
-      g.moveTo(col.x, 0); g.lineTo(col.x, 272);
+      g.moveTo(col.x, 0); g.lineTo(col.x, H);
     }
     g.stroke();
     // Character rows: a line across the WHOLE raster line, blanking included, at every row
     // start (the frame's own bad lines; every 8th line where there are none). Stronger than
-    // the cycle lines, so the rows read as running from cycle 1 to cycle 63.
+    // the cycle lines, so the rows read as running from the first cycle to the last.
     const bad = fmap.lines.filter((l) => l.badLine).map((l) => l.line);
-    const rows = bad.length > 0 ? bad : Array.from({ length: 40 }, (_, i) => i * 8);
+    const rows = bad.length > 0 ? bad : Array.from({ length: Math.ceil(geo.linesPerFrame / 8) }, (_, i) => i * 8);
     g.strokeStyle = `rgba(210,210,240,${Math.min(0.9, 0.25 + 0.5 * a).toFixed(3)})`;
     g.beginPath();
     for (const l of rows) {
-      const vy = l - FB_ORIGIN.y;
-      if (vy < 0 || vy > 272) continue;
-      g.moveTo(-14 * HB_W, vy); g.lineTo(384 + EXT_R, vy);
+      const vy = geo.rowOfLine(l);
+      if (vy == null) continue;
+      g.moveTo(-BL, vy); g.lineTo(W + EXT_R, vy);
     }
     g.stroke();
     // Where the picture begins and ends.
     g.strokeStyle = `rgba(220,220,255,${Math.min(1, 0.25 + 0.5 * a).toFixed(3)})`;
     g.lineWidth = 1.5 * px;
     g.beginPath();
-    g.moveTo(0, 0); g.lineTo(0, 272);
-    g.moveTo(384, 0); g.lineTo(384, 272);
+    g.moveTo(0, 0); g.lineTo(0, H);
+    g.moveTo(W, 0); g.lineTo(W, H);
+    // A wrapped window: where the frame's last line meets its first (raster line 0).
+    const wrapRow = geo.wraps ? geo.rowOfLine(0) : null;
+    if (wrapRow != null) { g.moveTo(-BL, wrapRow); g.lineTo(W + EXT_R, wrapRow); }
     g.stroke();
-    // Techniques: bars in the left border, one lane per rule. A mid-line change is not a
-    // range of lines — it happens on the lines that carry a store — so it gets a tick on
-    // each of those lines, not a bar from the first to the last.
+    // Techniques: bars in the left border, one lane per rule — a row per line of the
+    // technique, so a range that runs across a wrapped window's seam lands on both sides.
+    // A mid-line change is not a range of lines — it happens on the lines that carry a
+    // store — so it gets a tick on each of those lines, not a bar from the first to the last.
     const lanes = [...new Set(fmap.techniques.map((t) => t.rule))];
     g.globalAlpha = Math.min(1, 0.4 + a);
     fmap.techniques.forEach((t) => {
       const lane = lanes.indexOf(t.rule);
       g.fillStyle = RULE_COLOR[t.rule] ?? "#ffffff";
       if (t.rule === "mid_line") return;
-      const y0 = t.lines[0] - FB_ORIGIN.y, y1 = t.lines[1] - FB_ORIGIN.y + 1;
-      if (y1 < 0 || y0 > 272) return;
-      g.fillRect(-EXT_L + 1 + lane * 3, Math.max(0, y0), 2, Math.max(1, Math.min(272, y1) - Math.max(0, y0)));
+      for (let l = t.lines[0]; l <= t.lines[1]; l++) {
+        const vy = geo.rowOfLine(l);
+        if (vy != null) g.fillRect(-EXT_L + 1 + lane * 3, vy, 2, 1);
+      }
     });
     const midLane = lanes.indexOf("mid_line");
     if (midLane >= 0) {
       g.fillStyle = RULE_COLOR.mid_line;
       for (const w of fmap.writes) {
         if (!w.midLine) continue;
-        const vy = w.line - FB_ORIGIN.y;
-        if (vy >= 0 && vy < 272) g.fillRect(-EXT_L + 1 + midLane * 3, vy - 1, 2, 3);
+        const vy = geo.rowOfLine(w.line);
+        if (vy != null) g.fillRect(-EXT_L + 1 + midLane * 3, vy - 1, 2, 3);
       }
     }
     g.globalAlpha = 1;
     // Stores that reached the VIC, where they land.
     for (const w of fmap.writes) {
-      const vy = w.line - FB_ORIGIN.y;
-      if (vy < 0 || vy >= 272) continue;
+      const vy = geo.rowOfLine(w.line);
+      if (vy == null) continue;
       g.fillStyle = w.midLine ? "rgba(239,83,80,0.95)" : `rgba(255,255,255,${Math.min(1, 0.3 + a).toFixed(3)})`;
       g.fillRect(colOf(w.cycle).x, vy - 1, 1.5, 3);
     }
@@ -499,7 +525,8 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
     }
     // The selected cell and the cell under the pointer.
     const outline = (line: number, cyc: number | null, color: string) => {
-      const vy = line - FB_ORIGIN.y;
+      const vy = geo.rowOfLine(line);
+      if (vy == null) return;
       g.strokeStyle = color;
       g.lineWidth = 1.5 * px;
       if (cyc != null) {
@@ -508,7 +535,7 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
       }
       g.globalAlpha = 0.35;
       g.fillStyle = color;
-      g.fillRect(-14 * HB_W, vy, 14 * HB_W + 384 + EXT_R, 1 / Math.max(1, img.scale) + 0.2);
+      g.fillRect(-BL, vy, BL + W + EXT_R, 1 / Math.max(1, img.scale) + 0.2);
       g.globalAlpha = 1;
     };
     if (selCell) outline(selCell.line, selCell.cycle, "#ffd54f");
@@ -520,7 +547,7 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
       const fs = Math.max(3, 11 / img.scale);
       g.font = `${fs}px monospace`;
       g.textBaseline = "top";
-      for (let c = 1; c <= 63; c++) {
+      for (let c = 1; c <= CPL; c++) {
         if (c !== 1 && c % 5 !== 0 && c !== hoverCycle) continue;
         const col = colOf(c);
         const label = String(c);
@@ -530,17 +557,17 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
         g.fillStyle = c === hoverCycle ? "#ffd54f" : "#d0d0e8";
         g.fillText(label, col.x + fs * 0.15, fs * 0.08);
       }
-      const lines = new Set<number>([hoverLine ?? -1]);
-      for (let l = 32; l < 288; l += 32) lines.add(l);
-      for (const l of lines) {
-        const vy = l - FB_ORIGIN.y;
-        if (vy < 0 || vy >= 272) continue;
+      // Every 32nd raster line, and the one under the pointer — found row by row, because
+      // on a wrapped window line 0 sits near the bottom.
+      for (let vy = 0; vy < H; vy++) {
+        const l = geo.lineOfRow(vy);
+        if (l !== hoverLine && l % 32 !== 0) continue;
         const label = String(l);
         const w = g.measureText(label).width + fs * 0.3;
         g.fillStyle = "rgba(10,10,24,0.8)";
-        g.fillRect(-14 * HB_W, vy - fs * 0.55, w, fs * 1.1);
+        g.fillRect(-BL, vy - fs * 0.55, w, fs * 1.1);
         g.fillStyle = l === hoverLine ? "#ffd54f" : "#d0d0e8";
-        g.fillText(label, -14 * HB_W + fs * 0.15, vy - fs * 0.5);
+        g.fillText(label, -BL + fs * 0.15, vy - fs * 0.5);
       }
     }
     // A framed area being dragged.
@@ -647,6 +674,8 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
           <span className="wb-muted"> · hold ⌥ to see through</span>
         </div>
       )}
+      {geo && <div className="vs-status wb-muted">{fmap?.frame.model ?? "this machine"} · {geo.cyclesPerLine} cycles × {geo.linesPerFrame} lines · picture {geo.width}×{geo.height}{geo.wraps ? " (the window wraps: its last rows are raster lines 0…)" : ""}</div>}
+      {geoResult.error && <div className="vs-status vs-bad">{geoResult.error}</div>}
       {status && <div className="vs-status wb-muted">{status}</div>}
 
       <section className="vs-sec vs-here">
@@ -755,7 +784,7 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
         ref={canvasRef}
         className="wb-vicgrid"
         style={{
-          position: "fixed", left: img.left - EXT_L * img.scale, top: img.top, width: (EXT_L + 384 + EXT_R) * img.scale, height: 272 * img.scale,
+          position: "fixed", left: img.left - EXT_L * img.scale, top: img.top, width: (EXT_L + W + EXT_R) * img.scale, height: H * img.scale,
           cursor: "crosshair", opacity: seeThrough ? 0 : 1, zIndex: 50,
         }}
         onMouseDown={onMouseDown}

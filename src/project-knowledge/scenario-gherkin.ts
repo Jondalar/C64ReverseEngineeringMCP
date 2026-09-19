@@ -74,7 +74,13 @@ export interface Criterion {
  * defect this notation exists to make unwritable.
  */
 export type Step =
-  | { readonly kind: "wait"; readonly cycles: number; readonly text: string }
+  /**
+   * Spec 863 — a wait keeps the unit it was written in. `I wait 170 frames` is 170 frames
+   * of the machine the scenario runs on — 19 656 cycles each on PAL, 17 095 on NTSC — so it
+   * cannot be turned into cycles until that machine is known; the runner does it
+   * (`waitCycles`). `I wait N cycles` is cycles on any machine.
+   */
+  | { readonly kind: "wait"; readonly count: number; readonly unit: "frames" | "cycles"; readonly text: string }
   | { readonly kind: "type"; readonly keys: string; readonly text: string }
   /**
    * Spec 814 — a key HELD for a stated number of frames.
@@ -102,6 +108,26 @@ export type Step =
       readonly frames: number;
       readonly text: string;
     }
+  /**
+   * A hold whose END is its own line: `I start holding joystick 2 right` … `I release
+   * joystick 2`, and the same for keys.
+   *
+   * `I hold … for N frames` runs the machine for those frames, so nothing can happen
+   * while it is held — and a player presses a key while the stick is held all the time.
+   * These say the two halves separately and do not move the clock; the waits between
+   * them do. The end is still stated — a start without its release is a parse error
+   * (`holdIssues`), because a press with no stated end is the defect this notation
+   * exists to make unwritable.
+   */
+  | { readonly kind: "keyDown"; readonly keys: readonly C64KeyName[]; readonly text: string }
+  | { readonly kind: "keyUp"; readonly keys: readonly C64KeyName[]; readonly text: string }
+  | {
+      readonly kind: "joystickDown";
+      readonly port: 1 | 2;
+      readonly directions: readonly JoyDirection[];
+      readonly text: string;
+    }
+  | { readonly kind: "joystickUp"; readonly port: 1 | 2; readonly text: string }
   | {
       readonly kind: "waitUntil";
       readonly predicate: Predicate;
@@ -109,7 +135,14 @@ export type Step =
       readonly text: string;
     }
   | { readonly kind: "capture"; readonly label: string; readonly text: string }
-  | { readonly kind: "insert"; readonly path: string; readonly text: string };
+  | { readonly kind: "insert"; readonly path: string; readonly text: string }
+  /**
+   * Spec 863 — `the machine switches to c64-ntsc`: the machine changes model at the next
+   * frame boundary, the way the live switch does it — the running program keeps its state.
+   * A recording writes it where the switch happened; every frame counted after it is the
+   * new model's.
+   */
+  | { readonly kind: "model"; readonly model: string; readonly text: string };
 
 export type JoyDirection = "up" | "down" | "left" | "right" | "fire";
 
@@ -125,7 +158,10 @@ export type JoyDirection = "up" | "down" | "left" | "right" | "fire";
  * The assertions below are the teeth. Add a kind to `Step` or `Predicate` and forget
  * these lists, and the BUILD fails — in both directions, before anything ships.
  */
-export const STEP_KINDS = ["wait", "type", "key", "joystick", "waitUntil", "capture", "insert"] as const;
+export const STEP_KINDS = [
+  "wait", "type", "key", "joystick", "keyDown", "keyUp", "joystickDown", "joystickUp",
+  "waitUntil", "capture", "insert", "model",
+] as const;
 export const PREDICATE_KINDS = [
   "driveIdle",
   "screenStill",
@@ -200,6 +236,12 @@ export interface Scenario {
    * reviewable, shareable, and part of what a human accepts.
    */
   readonly mask: readonly string[];
+  /**
+   * Spec 863 — `# model: c64-pal`: the machine the scenario was RECORDED on. The recorder
+   * writes it; a hand-written scenario may leave it out. A recorded scenario is timed in
+   * that machine's frames and cycles, so a run on another model is refused, naming both.
+   */
+  readonly model?: string;
   /** Source file, so a report can point at what to edit. */
   readonly file?: string;
   readonly line?: number;
@@ -292,8 +334,15 @@ export function classifyCriterion(text: string): Criterion {
   return { text, kind: "verbal" };
 }
 
-/** PAL. A frame is the unit a C64 samples input in, so it is the unit steps count in. */
-export const PAL_CYCLES_PER_FRAME = 19656;
+/**
+ * A frame is the unit a C64 samples input in, so it is the unit steps count in — and how
+ * many cycles a frame is depends on the machine (Spec 863: 19 656 PAL, 17 095 NTSC, 20 280
+ * PAL-N). There is no constant for it here: the runner reads `cyclesPerFrame` from the
+ * machine it drives and hands it in.
+ */
+export function waitCycles(step: Extract<Step, { kind: "wait" }>, cyclesPerFrame: number): number {
+  return step.unit === "cycles" ? step.count : step.count * cyclesPerFrame;
+}
 
 const JOY_DIRECTIONS: readonly JoyDirection[] = ["up", "down", "left", "right", "fire"];
 
@@ -321,6 +370,105 @@ export function decodeKeys(text: string): string {
   });
 }
 
+/** `"L_SHIFT+A"` → the matrix names, or the error that names the one that is not a key. */
+function keyNames(line: string, list: string): { keys: C64KeyName[] } | { error: string } {
+  const names = list.split(/\s*[+,]\s*/).map((k) => k.trim().toUpperCase()).filter(Boolean);
+  if (names.length === 0) return { error: `"${line}": no key named` };
+  const bad = names.filter((k) => !isC64KeyName(k));
+  if (bad.length) {
+    return {
+      error:
+        `"${line}": ${bad.join(", ")} is not a C64 key. Names are the matrix's own — ` +
+        `letters and digits as themselves, plus SPACE, RETURN, RUN_STOP, L_SHIFT, ` +
+        `R_SHIFT, CTRL, C_EQ, HOME, DEL, F1/F3/F5/F7, CRSR_RT, CRSR_DN, LARROW, ` +
+        `UP_ARROW, POUND, RESTORE`,
+    };
+  }
+  return { keys: names as C64KeyName[] };
+}
+
+/** `"down and fire"` → the directions, or the error that names the one that is not. */
+function joyDirections(line: string, list: string): { directions: JoyDirection[] } | { error: string } {
+  const dirs = list
+    .toLowerCase()
+    .split(/\s*(?:,|and|\+)\s*/)
+    .map((d) => d.trim())
+    .filter(Boolean);
+  if (dirs.length === 0) return { error: `"${line}": no direction named (${JOY_DIRECTIONS.join(", ")})` };
+  const bad = dirs.filter((d) => !JOY_DIRECTIONS.includes(d as JoyDirection));
+  if (bad.length) {
+    return { error: `"${line}": ${bad.join(", ")} is not a direction (${JOY_DIRECTIONS.join(", ")})` };
+  }
+  return { directions: dirs as JoyDirection[] };
+}
+
+/**
+ * Every `I start holding …` has its `I release …`, and nothing is started twice.
+ *
+ * The start/release pair exists so an input can happen while something is held — it is
+ * not a way to write a press with no end. So a start that is never released is an error
+ * on the start's line, and so is a release of something not held, a second start of
+ * something already held, and a `hold … for N frames` of something a start is holding
+ * (it would let go before the release does). `index` is the step's position in `steps`.
+ */
+export function holdIssues(steps: readonly Step[]): { index: number; message: string }[] {
+  const out: { index: number; message: string }[] = [];
+  const keys = new Map<string, number>();
+  const ports = new Map<number, number>();
+  const heldBy = (i: number): string => `\`${steps[i].text}\``;
+  steps.forEach((s, i) => {
+    switch (s.kind) {
+      case "keyDown":
+        for (const k of s.keys) {
+          const at = keys.get(k);
+          if (at !== undefined) out.push({ index: i, message: `"${s.text}": the key ${k} is already held since ${heldBy(at)} — release it first` });
+          else keys.set(k, i);
+        }
+        break;
+      case "keyUp":
+        for (const k of s.keys) {
+          if (!keys.delete(k)) out.push({ index: i, message: `"${s.text}": the key ${k} is not held — no \`I start holding the key "${k}"\` comes before it` });
+        }
+        break;
+      case "key":
+        for (const k of s.keys) {
+          const at = keys.get(k);
+          if (at !== undefined) out.push({ index: i, message: `"${s.text}": the key ${k} is already held since ${heldBy(at)} — this would let it go before its release` });
+        }
+        break;
+      case "joystickDown": {
+        const at = ports.get(s.port);
+        if (at !== undefined) {
+          out.push({
+            index: i,
+            message:
+              `"${s.text}": joystick ${s.port} is already held since ${heldBy(at)} — release it first ` +
+              `(to move the stick, release it and start holding the new directions)`,
+          });
+        } else ports.set(s.port, i);
+        break;
+      }
+      case "joystickUp":
+        if (!ports.delete(s.port)) out.push({ index: i, message: `"${s.text}": joystick ${s.port} is not held — no \`I start holding joystick ${s.port} …\` comes before it` });
+        break;
+      case "joystick": {
+        const at = ports.get(s.port);
+        if (at !== undefined) out.push({ index: i, message: `"${s.text}": joystick ${s.port} is already held since ${heldBy(at)} — this would let it go before its release` });
+        break;
+      }
+      default:
+        break;
+    }
+  });
+  for (const [k, i] of keys) {
+    out.push({ index: i, message: `"${steps[i].text}": the key ${k} is held and never released — a press states its end: add \`I release the key "${k}"\` where it is let go` });
+  }
+  for (const [p, i] of ports) {
+    out.push({ index: i, message: `"${steps[i].text}": joystick ${p} is held and never released — a press states its end: add \`I release joystick ${p}\` where it is let go` });
+  }
+  return out.sort((a, b) => a.index - b.index);
+}
+
 /**
  * Parse one driven step. Returns `undefined` when the line is not a step at all,
  * so the caller can fall through to the 810 forms; returns a message when it IS a
@@ -333,9 +481,8 @@ export function parseStep(text: string): { step?: Step; error?: string } | undef
   const wait = t.match(/^I wait\s+([\d_]+)\s*(frames?|cycles?)$/i);
   if (wait) {
     const n = Number(wait[1].replace(/_/g, ""));
-    const cycles = /^cycle/i.test(wait[2]) ? n : n * PAL_CYCLES_PER_FRAME;
-    if (!Number.isFinite(cycles) || cycles <= 0) return { error: `"${t}": a wait must be positive` };
-    return { step: { kind: "wait", cycles, text: t } };
+    if (!Number.isFinite(n) || n <= 0) return { error: `"${t}": a wait must be positive` };
+    return { step: { kind: "wait", count: n, unit: /^cycle/i.test(wait[2]) ? "cycles" : "frames", text: t } };
   }
 
   // I type "LOAD{QUOTE}*{QUOTE},8,1{RETURN}"
@@ -345,18 +492,8 @@ export function parseStep(text: string): { step?: Step; error?: string } | undef
   // I hold the key "SPACE" for 3 frames   |   I hold the keys "L_SHIFT+A" for 2 frames
   const key = t.match(/^I hold the keys?\s+"([^"]*)"\s+for\s+(\d+)\s*frames?$/i);
   if (key) {
-    const names = key[1].split(/\s*[+,]\s*/).map((k) => k.trim().toUpperCase()).filter(Boolean);
-    if (names.length === 0) return { error: `"${t}": no key named` };
-    const bad = names.filter((k) => !isC64KeyName(k));
-    if (bad.length) {
-      return {
-        error:
-          `"${t}": ${bad.join(", ")} is not a C64 key. Names are the matrix's own — ` +
-          `letters and digits as themselves, plus SPACE, RETURN, RUN_STOP, L_SHIFT, ` +
-          `R_SHIFT, CTRL, C_EQ, HOME, DEL, F1/F3/F5/F7, CRSR_RT, CRSR_DN, LARROW, ` +
-          `UP_ARROW, POUND, RESTORE`,
-      };
-    }
+    const names = keyNames(t, key[1]);
+    if ("error" in names) return names;
     const frames = Number(key[2]);
     if (frames < 1) {
       return {
@@ -365,7 +502,47 @@ export function parseStep(text: string): { step?: Step; error?: string } | undef
           `keyboard itself does it once per frame, so a shorter press is never seen`,
       };
     }
-    return { step: { kind: "key", keys: names as C64KeyName[], frames, text: t } };
+    return { step: { kind: "key", keys: names.keys, frames, text: t } };
+  }
+
+  // I start holding the key "SPACE"  …  I release the key "SPACE" — a hold whose end is
+  // its own line, so something else can happen while it is held.
+  const keyDown = t.match(/^I start holding the keys?\s+"([^"]*)"$/i);
+  if (keyDown) {
+    const names = keyNames(t, keyDown[1]);
+    if ("error" in names) return names;
+    return { step: { kind: "keyDown", keys: names.keys, text: t } };
+  }
+  const keyUp = t.match(/^I release the keys?\s+"([^"]*)"$/i);
+  if (keyUp) {
+    const names = keyNames(t, keyUp[1]);
+    if ("error" in names) return names;
+    return { step: { kind: "keyUp", keys: names.keys, text: t } };
+  }
+
+  // I start holding joystick 2 right  …  I release joystick 2
+  const joyDown = t.match(/^I start holding joystick\s+([12])\s+(.+)$/i);
+  if (joyDown && !/\bfor\s+\d+\s*frames?$/i.test(joyDown[2])) {
+    const dirs = joyDirections(t, joyDown[2]);
+    if ("error" in dirs) return dirs;
+    return { step: { kind: "joystickDown", port: Number(joyDown[1]) as 1 | 2, directions: dirs.directions, text: t } };
+  }
+  const joyUp = t.match(/^I release joystick\s+([12])$/i);
+  if (joyUp) return { step: { kind: "joystickUp", port: Number(joyUp[1]) as 1 | 2, text: t } };
+
+  if (/^I start holding\b/i.test(t)) {
+    return {
+      error:
+        `"${t}": a start names what is held and nothing else — its end is its own line. ` +
+        `\`I start holding joystick 2 right\` … \`I release joystick 2\`, or ` +
+        `\`I start holding the key "SPACE"\` … \`I release the key "SPACE"\`. ` +
+        `A press with nothing happening during it is \`I hold … for N frames\``,
+    };
+  }
+  if (/^I release\b/i.test(t)) {
+    return {
+      error: `"${t}": a release names what it lets go — \`I release joystick 2\` or \`I release the key "SPACE"\``,
+    };
   }
   if (/^I hold the keys?\b/i.test(t)) {
     return {
@@ -378,15 +555,8 @@ export function parseStep(text: string): { step?: Step; error?: string } | undef
   // I hold joystick 2 down and fire for 3 frames
   const joy = t.match(/^I hold joystick\s+([12])\s+(.+?)\s+for\s+(\d+)\s*frames?$/i);
   if (joy) {
-    const dirs = joy[2]
-      .toLowerCase()
-      .split(/\s*(?:,|and|\+)\s*/)
-      .map((d) => d.trim())
-      .filter(Boolean);
-    const bad = dirs.filter((d) => !JOY_DIRECTIONS.includes(d as JoyDirection));
-    if (bad.length) {
-      return { error: `"${t}": ${bad.join(", ")} is not a direction (${JOY_DIRECTIONS.join(", ")})` };
-    }
+    const dirs = joyDirections(t, joy[2]);
+    if ("error" in dirs) return dirs;
     const frames = Number(joy[3]);
     if (frames < 1) {
       return {
@@ -399,7 +569,7 @@ export function parseStep(text: string): { step?: Step; error?: string } | undef
       step: {
         kind: "joystick",
         port: Number(joy[1]) as 1 | 2,
-        directions: dirs as JoyDirection[],
+        directions: dirs.directions,
         frames,
         text: t,
       },
@@ -501,6 +671,13 @@ export function parseStep(text: string): { step?: Step; error?: string } | undef
   if (ins) return { step: { kind: "insert", path: ins[1], text: t } };
   if (/^I (?:insert|swap)\b/i.test(t)) return { error: `"${t}": an insert needs a quoted medium` };
 
+  // the machine switches to c64-ntsc — a model switch, at the next frame boundary.
+  const sw = t.match(/^the machine switches to\s+([A-Za-z0-9][A-Za-z0-9-]*)$/i);
+  if (sw) return { step: { kind: "model", model: sw[1], text: t } };
+  if (/^the machine switches\b/i.test(t)) {
+    return { error: `"${t}": a switch names the model — e.g. \`the machine switches to c64-ntsc\`` };
+  }
+
   // I capture "title"
   const cap = t.match(/^I capture\s+"([^"]*)"$/i);
   if (cap) return { step: { kind: "capture", label: cap[1].trim() || "shot", text: t } };
@@ -527,14 +704,18 @@ export function parseFeature(source: string, file?: string): ParseResult {
 
   let cur: {
     name: string; targets: string[]; mark?: string; branch?: string; frames?: number;
-    origin?: Origin; steps: Step[]; regions: RegionDef[];
-    criteria: Criterion[]; mask: string[]; line: number;
+    origin?: Origin; steps: Step[]; stepLines: number[]; regions: RegionDef[];
+    criteria: Criterion[]; mask: string[]; model?: string; line: number;
   } | null = null;
   let pendingTargets: string[] = [];
   let pendingMask: string[] = [];
+  let pendingModel: string | undefined;
 
   const flush = (at: number) => {
     if (!cur) return;
+    // A start without its release, or a release of nothing — on the line that did it.
+    const c = cur;
+    for (const h of holdIssues(c.steps)) issues.push({ line: c.stepLines[h.index] ?? c.line, message: h.message });
     const origin: Origin | undefined = cur.origin ?? (cur.mark ? { kind: "mark", name: cur.mark } : undefined);
     if (!origin) {
       issues.push({
@@ -550,7 +731,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
         name: cur.name, targets: cur.targets, origin,
         mark: cur.mark ?? "", branch: cur.branch ?? "",
         frames: cur.frames ?? 1, steps: cur.steps, regions: cur.regions,
-        criteria: cur.criteria, mask: cur.mask, file, line: cur.line,
+        criteria: cur.criteria, mask: cur.mask, ...(cur.model ? { model: cur.model } : {}), file, line: cur.line,
       });
     }
     cur = null;
@@ -581,6 +762,13 @@ export function parseFeature(source: string, file?: string): ParseResult {
         if (cur) cur.mask.push(...list);
         else pendingMask.push(...list);
       }
+      // Spec 863 — `# model: c64-ntsc`: the machine it was recorded on. The word after
+      // the colon is the model; anything after it is a comment.
+      const mm = line.match(/^#\s*model:\s*([A-Za-z0-9][A-Za-z0-9-]*)/i);
+      if (mm) {
+        if (cur) cur.model = mm[1];
+        else pendingModel = mm[1];
+      }
       return;
     }
 
@@ -588,10 +776,12 @@ export function parseFeature(source: string, file?: string): ParseResult {
     if (sc) {
       flush(n);
       cur = {
-        name: sc[1].trim(), targets: [...pendingTargets], steps: [], regions: [], criteria: [], mask: [...pendingMask], line: n,
+        name: sc[1].trim(), targets: [...pendingTargets], steps: [], stepLines: [], regions: [], criteria: [], mask: [...pendingMask],
+        ...(pendingModel ? { model: pendingModel } : {}), line: n,
       };
       pendingTargets = [];
       pendingMask = [];
+      pendingModel = undefined;
       return;
     }
 
@@ -652,7 +842,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
     if (stepLine) {
       const parsed = parseStep(stepLine[1]);
       if (parsed?.error) { issues.push({ line: n, message: parsed.error }); return; }
-      if (parsed?.step) { cur.steps.push(parsed.step); return; }
+      if (parsed?.step) { cur.steps.push(parsed.step); cur.stepLines.push(n); return; }
     }
 
     const then = line.match(/^(?:Then|And)\s+(.+)$/i);
@@ -661,7 +851,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
     if (/^When\b/i.test(line)) {
       issues.push({
         line: n,
-        message: `"${line}" is not a branch run and not a driven step — see the step vocabulary (wait / type / hold joystick / wait until / capture)`,
+        message: `"${line}" is not a branch run and not a driven step — see the step vocabulary (wait / type / hold … for N frames / start holding … and release … / wait until / capture / insert / the machine switches to)`,
       });
       return;
     }

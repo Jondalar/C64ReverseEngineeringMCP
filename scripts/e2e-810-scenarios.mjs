@@ -81,5 +81,33 @@ ok(classifyCriterion("the intro plays").kind === "verbal", "prose needs a human 
   ok(gone.length === 1 && gone[0].now === undefined, "and a target that vanished is a divergence too, not a pass");
 }
 
+// ── 5. A hold whose end is its own line — so something can happen while it is held ──
+{
+  const r = parseFeature([
+    "Scenario: a key while the stick is held",
+    "  Given a bare machine",
+    "  When I start holding joystick 2 right",
+    "  And I wait 2 frames",
+    '  And I hold the key "K" for 2 frames',
+    "  And I wait 4 frames",
+    "  And I release joystick 2",
+    '  And I start holding the keys "L_SHIFT+A"',
+    '  And I release the keys "L_SHIFT+A"',
+    "  Then it works",
+  ].join("\n"));
+  const kinds = r.scenarios[0]?.steps.map((x) => x.kind).join(",");
+  ok(r.issues.length === 0 && kinds === "joystickDown,wait,key,wait,joystickUp,keyDown,keyUp",
+     `start holding … / release … parse as two steps with the input between (got ${kinds} ${JSON.stringify(r.issues)})`);
+}
+{
+  const r = parseFeature("Scenario: s\n  Given a bare machine\n  When I start holding the key \"SPACE\"\n  And I wait 3 frames\n  Then it works\n");
+  ok(r.issues.length === 1 && r.issues[0].line === 3 && /never released/.test(r.issues[0].message),
+     "a start with no release is an issue on its own line — a press still states its end");
+}
+{
+  const r = parseFeature("Scenario: s\n  Given a bare machine\n  When I release joystick 1\n  Then it works\n");
+  ok(r.issues.length === 1 && /not held/.test(r.issues[0].message), "a release of what is not held is an issue");
+}
+
 console.log(`\ne2e-810-scenarios: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

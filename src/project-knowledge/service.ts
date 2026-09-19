@@ -1,4 +1,15 @@
 import { DEFAULT_MAX_LABEL_LENGTH } from "./naming.js";
+import { DEFAULT_PROJECT_MODEL, isModelName } from "./machine-model.js";
+
+/** A model name as the runtime spells its rows. Which rows exist is the runtime's answer,
+ *  given when it starts; this only refuses what cannot be a row name at all. */
+function checkedModelName(name: string): string {
+  const n = name.trim();
+  if (!isModelName(n)) {
+    throw new Error(`"${name}" is not a model name — a row of the runtime's model table, e.g. c64-pal or c64-ntsc`);
+  }
+  return n;
+}
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -454,6 +465,10 @@ export interface InitProjectInput {
   description?: string;
   tags?: string[];
   preferredAssembler?: PreferredAssembler;
+  /** Spec 863 — which C64 the project's runtime starts as (a row of the runtime's model
+   *  table). Given: set, on a new or an existing project. Omitted: a new project gets
+   *  `c64-pal`, an existing one keeps what it had. */
+  machineModel?: string;
 }
 
 // BUG-015 — result of sweeping loose root media into typed input/ folders.
@@ -808,6 +823,13 @@ export class ProjectKnowledgeService {
       // A project created now gets the naming rule; one that already existed keeps what it
       // had — the rule is for new projects only (naming.ts).
       ...(existing ? (existing.naming ? { naming: existing.naming } : {}) : { naming: { maxLabelLength: DEFAULT_MAX_LABEL_LENGTH } }),
+      // Spec 863 — the same rule for the machine: a model given is set; otherwise a project
+      // created now starts as PAL and one that already existed keeps what it had.
+      ...(input.machineModel
+        ? { machine: { model: checkedModelName(input.machineModel) } }
+        : existing
+          ? (existing.machine ? { machine: existing.machine } : {})
+          : { machine: { model: DEFAULT_PROJECT_MODEL } }),
       createdAt,
       updatedAt,
     };
@@ -820,6 +842,7 @@ export class ProjectKnowledgeService {
         projectId: project.id,
         projectName: project.name,
         ...(project.preferredAssembler ? { preferredAssembler: project.preferredAssembler } : {}),
+        ...(project.machine ? { machineModel: project.machine.model } : {}),
       },
     });
     this.initializeWorkflowContract();
