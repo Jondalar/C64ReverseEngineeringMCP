@@ -70,9 +70,6 @@ is a priority decision, not an accident.
   entry inside an operand splits its instruction.
 - **`740` Project wiki + knowledge retrieval** — 740.1 shipped; 740.2 wiki
   authoring (`project_wiki_update`) is open.
-- **`774` Capability cut → `trx64-static`** — step 1 shipped. Media
-  format-parse (2) and classifiers (3) are open. This is the seam that keeps
-  capability out of here.
 - **`800` Runtime invisible to the RE agent** — §A–§D built and gated
   (`check:runtime-invisible`). Open: the guided setup probe.
 - **`716` Distribution** — npm + install docs.

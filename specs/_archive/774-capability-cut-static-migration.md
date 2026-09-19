@@ -1,9 +1,11 @@
 # Spec 774 — Capability Cut: Static Capability Migrates to `trx64-static`
 
-Status: ACTIVE (cross-repo; canonical decision doc lives in the TRX64 repo)
-Anchor: `docs/product-vision-and-workbench-contract.md` §3 (Leitregel) ·
-`../TRX64/docs/capability-cut-decisions.md` (DECIDED 2026-06-29) ·
-`../TRX64/docs/spec-c64re-trx64-split-charter.md`
+Status: CLOSED 2026-09-19 — step 1 built, step 2 dropped, step 3 WON'T-DO. The owner:
+TRX64 is a runtime, for itself (`trx64cli`), C64RE and UE2; static analysis stays C64RE.
+See "Closed" at the end.
+Anchor: `../../docs/product-vision-and-workbench-contract.md` §3 (Leitregel) ·
+`../../../TRX64/docs/capability-cut-decisions.md` (DECIDED 2026-06-29, revised 2026-09-19) ·
+`../../../TRX64/docs/spec-c64re-trx64-split-charter.md`
 
 ## Why this spec exists
 
@@ -48,7 +50,7 @@ underneath it migrates.
 |---|---|---|
 | 1 | `mos6502` raw-decode dedupe → starts `trx64-static`; `trx64cli disasm` (ROM-free) | **DONE 2026-07-02** (TRX64 commit `8ec750a`): shared decoder crate, daemon dedupe, 512-case golden parity vs the TS oracle `disasm6502.ts` |
 | 2 | ~~Media format-parse → `trx64-static`, shared with `vice1541`~~ | **DROPPED 2026-08-11** — see below. There is no duplication to remove. |
-| 3 | Heuristic classifiers → `trx64-static`, neutral `{offset, kind-guess, confidence}` | open (largest; loop candidate) |
+| 3 | ~~Heuristic classifiers → `trx64-static`, neutral `{offset, kind-guess, confidence}`~~ | **WON'T-DO 2026-09-19** — see "Closed". The analyzers stay C64RE's, in TS. |
 
 Rule for every step: C64RE consumes the new TRX64 capability over the façade;
 **the old TS path is retired only after parity.**
@@ -141,3 +143,32 @@ differ.** That was the wrong trigger for the wrong row.
 - No KickAsm emission / byte-verify rebuild in TRX64 (C64RE forever).
 - No second decoder: after each step, exactly one implementation remains per
   capability (TS path retired after parity).
+
+## Closed 2026-09-19 — TRX64 is a runtime
+
+The owner, asked whether "TRX64 classifies without C64RE" is still a goal: **no — TRX64 is
+a runtime, for itself (`trx64cli`), C64RE and the UE2 emulator.** None of its three consumers
+needs a static classifier, so step 3 has no customer on the TRX64 side, and "capability"
+in the Leitregel means the machine's: running, observing, tracing, rewinding it. Static
+analysis — the 9 analyzers, `ram-state`, code discovery, SegmentKind mapping, the renderer —
+is C64RE's, permanently and in TS.
+
+What that settles:
+
+- **Step 1 stays as built**, and is the runtime's own business: the daemon's monitor
+  (`d`, `chis`, `df`) and `trx64cli disasm` share one decoder in `trx64-static`. The 512-case
+  golden suite keeps it agreeing with C64RE's TS decoder, which is a second implementation by
+  design now — two products, two jobs — not a copy awaiting retirement.
+- **Step 3 is WON'T-DO.** Its C64RE-side obligations lapse with it: the neutral
+  classification contract, the knowledge-cache inputs across the seam, registration staying
+  on this side of it. The seam measurements (0.24 ms for a whole `.d64` in TS, 0.096 ms per
+  WS round trip, 740 ms per `trx64cli` start) stay true as numbers.
+- **Q2's static half is gone.** If a `trx64-mcp` is ever built, it fronts the runtime and
+  nothing else; whether it is built is not decided here.
+- **Improving the analyzers is no longer double work.** Before this, every fix to a TS
+  analyzer was a fix to code scheduled to be ported. Static disassembly quality (Spec 720)
+  now has one home.
+
+Left over, and C64RE housekeeping rather than part of this cut: C64RE itself holds two TS
+opcode tables, `pipeline/src/lib/mos6502.ts` and its verbatim copy
+`src/monitor/disasm6502.ts` (still used by `src/knowledge-graph/producers/runtime.ts`).
