@@ -1,7 +1,8 @@
 # Spec 740 — Project Wiki + Knowledge Retrieval MVP
 
-**Status:** 740.1 DONE (2026-05-31) — search/reindex/find-related + wiki skeleton
-shipped on the default surface. 740.2 (deeper wiki authoring) is BACKLOG.  
+**Status:** 740.1 DONE (2026-05-31) — search/reindex/find-related + wiki skeleton.
+740.2 ANSWERED by Spec 847 D6 (2026-09) — not built, not needed. **740.3 READY
+(2026-09-19) — the search sees the graph**; that is the open work.
 **Owner:** Knowledge layer / MCP product search  
 **Depends on:** Specs 730, 711, 721  
 
@@ -18,13 +19,109 @@ Ranking is deterministic + explainable with a `why[]` per hit (§9). Gate:
 `scripts/smoke-740-project-search.mjs` (28/28) against a tmp copy of Wasteland_EF
 covering every §12 query + the MCP-stdio default-surface check.
 
-## 740.2 — deferred (BACKLOG)
+## 740.2 — answered by Spec 847, not built
 
-`project_wiki_update` (conservative wiki-page authoring per §6) is intentionally
-NOT in 740.1 — it mutates curated docs and needs the careful supersede/backlink/
-contradiction handling of §6 to be safe. `project_wiki_lint` ships now (read-only
-gap report) so the coverage need is visible; authoring lands in 740.2. Embeddings
-remain a later `740.B` option (§11), not planned.
+`project_wiki_update` was meant to write the curated wiki pages. In four months nothing
+did — Ultima VI and Neuromancer both still showed `docs/index.md` at 880 bytes with every
+category empty — while the sessions wrote their synthesis anyway, as documents nobody
+indexed. Spec 847 D6 answered the need instead: documents declare themselves in
+frontmatter, each becomes a `document` node, and `wiki_index` DERIVES the index from those
+declarations. A tool that authors the wiki is not needed, so 740.2 is closed unbuilt.
+Embeddings remain a later `740.B` option (§11), not planned.
+
+## 740.3 — the search sees the graph (READY, 2026-09-19)
+
+740.1 was built in May against JSON stores. Since then the knowledge moved into the graph
+(822.2) and grew three kinds of node the index has never heard of, and the index does not
+know when it is out of date. Measured against `src/project-knowledge/project-search.ts`
+on 2026-09-19:
+
+1. **Graph kinds.** The index reads findings, open questions, entities and relations
+   (822 D10). It does not read the human-layer `routine` and `label` nodes that
+   annotation files become (822.2; `listRoutineNodes`), the model's `container` nodes
+   (845), the `document` nodes (847; `listDocNodes`) or the user labels
+   (`listUserLabels`). A routine the session named is not found by its name unless the
+   name also appears in a finding or a Markdown section.
+2. **Document depth.** It reads `docs/*.md` at the top level only. 847's scanner finds
+   `docs/` at any depth, so Ultima VI's nine model documents under `docs/model/` are
+   counted by the critic and invisible to the search.
+3. **Renders rank as curated.** A document `render_docs` wrote carries
+   `generated: {at, counts}` in its frontmatter (847 D4), and the index files it as a
+   curated `doc_section` (+100) beside the live records it copies. 847 made the drift a
+   critic check (`stale-render`); the search still serves the old copy at the same rank.
+4. **The cache never notices it is old.** `loadOrBuildIndex` returns whatever
+   `project-search-index.json` holds; only `project_reindex_search` rebuilds it. A
+   finding saved a minute ago is not found, and the answer does not say the index
+   predates it — only a zero-hit answer mentions reindexing.
+5. **Listings by dialect.** `walkAsm` matches `.asm|.tass`: a project rendered before
+   2026-09-06 indexes every listing twice (both dialects), a current one indexes `.asm`
+   and skips `.tas`. Harmless today only by accident.
+
+### Decisions
+
+- **D1 — index the human layer of the graph.** `routine` and `label` records (name,
+  address range, owner artifact; user labels fold into `label`), `model` records (name,
+  level, range), `document` records (title, doc kind, status, `covers` → address range,
+  `placeholder`). The generated layer is NOT indexed: those are the thousands of
+  mechanical nodes `graph_find` already serves, and this index holds what someone
+  learned, in small records. Kind bonus: `document` beside `doc_section`, `model` above
+  `entity`, `routine`/`label` below `finding`.
+- **D2 — one document set.** The index finds Markdown through 847's scanner
+  (`src/docs/scan.ts`), so the search and the critic read the same files. A document with
+  frontmatter indexes its sections under its declared title and its `covers`.
+- **D3 — a render is a copy.** A file whose frontmatter says `kind: generated` ranks
+  `generated` (−40), never curated. If its recorded counts differ from the graph it is
+  also `stale` (−150), and the hit's `why` says so with both numbers. The comparison is
+  the critic's, moved into one function both call — two implementations of "is this
+  render stale" would drift the way the renders do.
+- **D4 — the cache knows when it is old.** The cache records a fingerprint of what it
+  read: `graph.sqlite` and its `-wal` (size + mtime), each `docs/` directory, each indexed
+  listing (mtime). `project_search` and `project_find_related` compare before answering;
+  on a mismatch they rebuild, write the cache, and say so in one line (`index rebuilt:
+  the graph changed since <builtAt>`). The check sits at the read, where staleness
+  costs something — not a hook in every `save_*`. Rebuild is full; measure it on the
+  largest real project first, and only split it if that number says to.
+- **D5 — one listing per disassembly.** Index `.asm` when present, else `.tas`, else
+  `.tass`.
+- **D6 — related follows.** `project_find_related` groups routines, labels, model and
+  documents, and address overlap uses container ranges and document `covers`: a seed of
+  `$C000` returns the container around it, the routine at it and the document that
+  declares it.
+
+### Acceptance
+
+1. **`smoke:740-graph`**, new, builds its own project in a temp directory through the
+   product's doors — `save_finding`, `disasm_prg` with an annotations file (routines +
+   labels), `model_assert`, `doc_register`, `render_docs` — so it depends on no fixture
+   and runs in CI (`gates.yml`). It asserts:
+   - a routine name, a label, a container name and a document title are each found;
+   - an address query returns the container, the routine and the document;
+   - a document under `docs/model/` is found;
+   - a finding saved after the last search is found by the next one, which says the index
+     was rebuilt;
+   - after another finding, the render ranks below the live record and its `why` names
+     the drift;
+   - a legacy `.asm` + `.tass` pair is indexed once.
+2. `smoke-740-project-search` (the Wasteland 28) stays green.
+3. `PROJECT_SEARCH_INDEX_VERSION` → 2, so every old cache rebuilds on first use.
+
+### Files
+
+`src/project-knowledge/project-search.ts` (D1–D6) · `src/docs/scan.ts` (reused) ·
+`src/critic/run.ts` → the render-drift comparison moves to one shared function ·
+`src/server-tools/project-search-tools.ts` (the rebuild line, the new kinds in the
+`kind` filter) · `scripts/smoke-740-graph.mjs` · `package.json` ·
+`.github/workflows/gates.yml`.
+
+### Not in 740.3
+
+- Embeddings (`740.B`) — still not planned.
+- The generated layer of the graph — `graph_find` serves it.
+- Writing documents — 847 D6.
+
+---
+
+*§1–§13 below are the 740.1 design as written in May 2026.*
 
 ## 1. Purpose
 
