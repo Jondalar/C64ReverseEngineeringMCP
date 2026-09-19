@@ -88,7 +88,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from media_path (or trace_out) to knowledge/phase-plan.json."),
       device_id: z.number().int().min(8).max(11).optional().describe("Drive number the medium is mounted on (8–11). Disk media only; ignored for a cartridge."),
       // Spec 863 — replaces the `pal` boolean, whose description said NTSC is not supported.
-      model: z.string().optional().describe("Which C64 the session is — c64-pal, c64-ntsc or c64-paln (runtime_monitor `model` lists every model and what a missing one lacks). Omitted: the machine stays the model it is. Named and already that model: attach. Named and another: the shared machine is STARTED as that model — a power-on, so what was running is gone. To keep a running program and see it on the other model instead, use runtime_monitor `model <name>` (switches at the next frame); for a test on another model, use runtime_sandbox_run with model. A model this runtime cannot run is refused by name."),
+      model: z.string().optional().describe("Which C64 the session is — c64-pal, c64-ntsc or c64-paln (runtime_monitor `model` lists every model and what a missing one lacks). Omitted: the machine stays the model it is. Named and already that model: attach. Named and another: the shared machine SWITCHES at the next frame boundary — the running program keeps its RAM, CPU, CIA and SID state and the standard it detected at boot; nothing is restarted. For a clean start on the new model, power-cycle afterwards (runtime_monitor `power off`, `power on`)"),
       start_track: z.number().int().min(1).max(40).optional().describe("Park the drive head on this track before the run — for a loader that assumes where it left off. Disk media only."),
       write_protected: z.boolean().optional().describe("Mount the disk read-only. Note the project default is read/write with auto-persist back into the original image, so set this when the run must not change the medium."),
       // Spec 723.2/723.4a: neither useCycleLockstep nor useMicrocodedCpu is a
@@ -157,7 +157,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Seed the auto-spawn base so a daemon we start lives in a real project.
       runtimeDaemon.setProjectDir(mcpProject);
       // Spec 863 — which C64 it was before, so a model change is SAID: `session/create`
-      // with another model starts the shared machine anew as that model (a power-on).
+      // with another model switches the shared machine at the next frame boundary (the
+      // owner: a PAL/NTSC switch only ever at a new frame — never a power cycle).
       let modelBefore: string | undefined;
       if (model) {
         try {
@@ -172,7 +173,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         const id = machineIdentity(r);
         machineLine = `Machine: ${describeMachine(id)}` +
           (modelBefore && modelBefore !== id.model
-            ? `\n  The shared machine was ${modelBefore}; it was STARTED as ${id.model} (a power-on — what was running is gone).`
+            ? `\n  The shared machine was ${modelBefore}; it SWITCHED to ${id.model} at the frame boundary — the running program kept its state and the standard it detected at boot (power-cycle for a clean ${id.model} start).`
             : "");
       } catch (e) {
         machineLine = `Machine: ${e instanceof Error ? e.message : String(e)}`;

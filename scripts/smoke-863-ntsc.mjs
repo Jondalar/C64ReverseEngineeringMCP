@@ -180,8 +180,8 @@ try {
   const st1 = await state();
   check(st1.model === "c64-ntsc" && st1.cyclesPerFrame === NTSC && st1.linesPerFrame === 263,
     "§7.2 runtime_session_start { model: \"c64-ntsc\" } starts an NTSC machine", `${st1.model} ${st1.cyclesPerLine}×${st1.linesPerFrame}`);
-  check(/Machine: c64-ntsc/.test(started) && /was c64-pal; it was STARTED as c64-ntsc/.test(started),
-    "  and says so, including that the PAL machine was started anew", started.split("\n").find((l) => /Machine/.test(l)));
+  check(/Machine: c64-ntsc/.test(started) && /was c64-pal; it SWITCHED to c64-ntsc at the frame boundary/.test(started),
+    "  and says so: switched at the frame boundary, nothing restarted", started.split("\n").find((l) => /SWITCHED/.test(l)));
   const refused = await tool("runtime_session_start", { model: "c64c-pal" });
   check(/6526A/.test(refused) && (await state()).model === "c64-ntsc", "  a model the runtime cannot run is refused by name, nothing changes", refused.slice(0, 100));
   const status = await tool("runtime_session_status", { session_id: S });
@@ -204,7 +204,11 @@ try {
 
   // ── §7.1 — the switch the Live tab makes, on a running program ────────────────────
   console.log("\n§7.1 — the Live-tab switch:");
-  await tool("runtime_session_start", { model: "c64-pal" }); // back to a PAL boot
+  // Back to PAL — a switch keeps the running program, so a PAL BOOT takes the power button
+  // after it (the owner: a model changes only at a frame boundary, never by a power cycle).
+  await tool("runtime_session_start", { model: "c64-pal" });
+  await R.call("session/power", { session_id: S, op: "off" });
+  await R.call("session/power", { session_id: S, op: "on" });
   await R.call("debug/pause", { session_id: S });
   await R.call("session/run", { session_id: S, cycles: 150 * PAL });
   await R.call("session/type", { session_id: S, text: "1 POKE1024,PEEK(162):GOTO1\rRUN\r" });
