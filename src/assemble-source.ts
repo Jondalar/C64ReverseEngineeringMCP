@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, renameSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { resolve, extname, dirname } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type SupportedAssembler = "kickassembler" | "64tass";
@@ -13,12 +13,20 @@ export interface AssembleSourceOptions {
   assembler: AssemblerSelection;
   outputPath?: string;
   compareToPath?: string;
+  /**
+   * Spec 804 — also write the build's symbol file, `<output stem>.vs` (VICE label
+   * format: KickAssembler `-vicesymbols`, 64tass `--vice-labels -l`). It is what the
+   * `build` name layer reads: only the build knows where a name landed.
+   */
+  symbols?: boolean;
 }
 
 export interface AssembleSourceResult {
   assembler: SupportedAssembler;
   sourcePath: string;
   outputPath: string;
+  /** Spec 804 — the symbol file, when asked for and written */
+  symbolsPath?: string;
   stdout: string;
   stderr: string;
   exitCode: number;
@@ -36,14 +44,16 @@ export async function assembleSource(options: AssembleSourceOptions): Promise<As
     options.outputPath ?? defaultOutputPathForSource(sourcePath),
   );
 
+  const symbolsPath = options.symbols ? symbolPathForOutput(outputPath) : undefined;
   const run = assembler === "kickassembler"
-    ? await runKickAssembler(options.projectDir, sourcePath, outputPath)
-    : await run64tass(options.projectDir, sourcePath, outputPath);
+    ? await runKickAssembler(options.projectDir, sourcePath, outputPath, symbolsPath)
+    : await run64tass(options.projectDir, sourcePath, outputPath, symbolsPath);
 
   const result: AssembleSourceResult = {
     assembler,
     sourcePath,
     outputPath,
+    ...(symbolsPath && run.exitCode === 0 && existsSync(symbolsPath) ? { symbolsPath } : {}),
     stdout: run.stdout,
     stderr: run.stderr,
     exitCode: run.exitCode,
@@ -87,20 +97,34 @@ function defaultOutputPathForSource(sourcePath: string): string {
   return `${sourcePath}.prg`;
 }
 
-async function runKickAssembler(projectDir: string, sourcePath: string, outputPath: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const jarPath = resolveKickAssemblerJarPath();
-  return execTool(
-    "/usr/bin/java",
-    ["-jar", jarPath, sourcePath, "-o", outputPath],
-    projectDir,
-  );
+/** `<output stem>.vs` — the build layer finds the output PRG by the same stem. */
+export function symbolPathForOutput(outputPath: string): string {
+  const ext = extname(outputPath);
+  return `${ext ? outputPath.slice(0, -ext.length) : outputPath}.vs`;
 }
 
-async function run64tass(projectDir: string, sourcePath: string, outputPath: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+async function runKickAssembler(projectDir: string, sourcePath: string, outputPath: string, symbolsPath?: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const jarPath = resolveKickAssemblerJarPath();
+  const run = await execTool(
+    "/usr/bin/java",
+    ["-jar", jarPath, sourcePath, "-o", outputPath, ...(symbolsPath ? ["-vicesymbols"] : [])],
+    projectDir,
+  );
+  if (symbolsPath && run.exitCode === 0) {
+    // Measured: KickAssembler writes `<SOURCE stem>.vs` next to the OUTPUT, and has no
+    // flag to name it. Moved to `<output stem>.vs` so the pair is found by one rule.
+    const sourceStem = basename(sourcePath).replace(/\.[^.]+$/u, "");
+    const written = join(dirname(outputPath), `${sourceStem}.vs`);
+    if (written !== symbolsPath && existsSync(written)) renameSync(written, symbolsPath);
+  }
+  return run;
+}
+
+async function run64tass(projectDir: string, sourcePath: string, outputPath: string, symbolsPath?: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const binaryPath = resolve64tassBinaryPath();
   return execTool(
     binaryPath,
-    ["-a", "-B", "-o", outputPath, sourcePath],
+    ["-a", "-B", "-o", outputPath, ...(symbolsPath ? ["--vice-labels", "-l", symbolsPath] : []), sourcePath],
     projectDir,
   );
 }

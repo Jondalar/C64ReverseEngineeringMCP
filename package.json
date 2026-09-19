@@ -93,6 +93,8 @@
     "smoke:858": "npm run build:mcp && node scripts/smoke-858-project-switch.mjs",
     "smoke:859": "npm run build:mcp && node scripts/smoke-859-line-trace.mjs",
     "smoke:860": "npm run build:mcp && node scripts/smoke-860-frame-map.mjs",
+    "smoke:804": "npm run build && node scripts/smoke-804-resolver.mjs",
+    "smoke:804-monitor": "npm run build && node scripts/smoke-804-monitor.mjs",
     "e2e:024": "npm run build:mcp && node scripts/e2e-024-payload-rich.mjs",
     "smoke:026": "npm run build:mcp && node scripts/smoke-026-keymap.mjs",
     "build:fingerprints": "npm run build:mcp && node scripts/build-fingerprint-library.mjs",

@@ -811,6 +811,13 @@
 .wb-mon-in { color: var(--c64-blue-bright); }
 .wb-mon-out { color: var(--c64-fg); }
 .wb-mon-err { color: var(--c64-red); }
+/* Spec 804 — a name C64RE joined at an address the runtime printed. The address stays;
+   the name sits right after it, coloured by where it came from. */
+.wb-mon-name { font-style: italic; }
+.wb-mon-name.user { color: var(--c64-green); }
+.wb-mon-name.build { color: var(--c64-yellow); }
+.wb-mon-name.derived { color: var(--c64-fg-muted); }
+.wb-mon-sent { color: var(--c64-fg-muted); }
 /* Terminal feel: the prompt row is seamless with the output above (no box, no
    separator) so it reads as the live last line, with a blinking caret. */
 .wb-monitor-in {

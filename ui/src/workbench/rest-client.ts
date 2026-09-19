@@ -98,7 +98,28 @@ export interface DumpTarget {
   note?: string;
 }
 
+/** Spec 804 — a resolved name, as C64RE shows it next to a runtime address. */
+export interface MonitorName { name: string; origin: "user" | "build" | "derived"; tag: string; kind: string; address: number; offset: number; payload: string | null }
+/** One address the runtime printed, with the name C64RE resolved for it (if any). */
+export interface MonitorNamedSpan {
+  line: number; start: number; end: number; addr: number; space: string; role: string; lens?: string; len?: number;
+  name?: MonitorName; inside?: MonitorName[]; ambiguous?: Array<{ name: string; origin: string; payload: string | null }>;
+}
+/** Spec 804 — the workbench monitor's reply: the runtime's text + C64RE's names at its spans. */
+export interface MonitorExecResult {
+  sent: string;
+  substitutions: Array<{ token: string; address: number; origin: string; payload: string | null }>;
+  refused: Array<{ token: string; reason: string }>;
+  output?: string;
+  error?: string;
+  prompt?: string;
+  text: string;
+  names: MonitorNamedSpan[];
+}
+
 export const api = {
+  /** Spec 804 — run a monitor command through C64RE (names in, names out). */
+  monitorExec: (sessionId: string, command: string) => postJson<MonitorExecResult>("/api/monitor/exec", { sessionId, command }),
   config: () => getJson<ProjectConfig>("/api/config"),
   dumpTarget: (label: string) => getJson<DumpTarget>(`/api/runtime/dump-target?label=${encodeURIComponent(label)}`),
   runtimeStatus: () => getJson<RuntimeStatus>("/api/runtime-status"),

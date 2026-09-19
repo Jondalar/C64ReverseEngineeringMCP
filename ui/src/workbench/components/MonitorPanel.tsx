@@ -6,6 +6,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { getClient } from "../ws-client.js";
+import { api, type MonitorName, type MonitorNamedSpan } from "../rest-client.js";
 
 interface Props {
   sessionId: string;
@@ -17,7 +18,44 @@ interface Props {
   breakpoint?: { pc: number; num: number; registers: string; seq: number; observer?: string; message?: string; reason?: "jam" | "brk"; opcode?: number; flow?: string[] } | null;
 }
 
-interface MonLine { kind: "in" | "out" | "err"; text: string; }
+interface MonLine { kind: "in" | "out" | "err" | "sent"; text: string; names?: MonitorNamedSpan[] }
+
+/** `name[u]`, `main+$05[u]` — the one text form of a name (Spec 804). */
+function nameText(n: MonitorName): string {
+  return `${n.name}${n.offset > 0 ? `+$${n.offset.toString(16).padStart(2, "0")}` : ""}${n.tag}`;
+}
+
+/**
+ * Spec 804 — render a runtime line with C64RE's names at the positions the runtime
+ * said it printed addresses. Verb-agnostic: it knows spans, not commands. A point span
+ * gets the name right after the address; a range span (a dump row) gets its names at
+ * the end of the line, so the byte grid never moves.
+ */
+function renderNamed(text: string, names: MonitorNamedSpan[] | undefined): React.ReactNode {
+  if (!names || names.length === 0) return text || "\u00a0";
+  const points = names.filter((n) => n.name).sort((a, b) => a.end - b.end);
+  const tails = names.flatMap((n) => n.inside ?? []);
+  const parts: React.ReactNode[] = [];
+  let at = 0;
+  points.forEach((n, i) => {
+    parts.push(text.slice(at, n.end));
+    parts.push(
+      <span key={`n${i}`} className={`wb-mon-name ${n.name!.origin}`} title={`${n.name!.origin}${n.name!.payload ? ` · ${n.name!.payload}` : ""}`}>
+        {` <${nameText(n.name!)}>`}
+      </span>,
+    );
+    at = n.end;
+  });
+  parts.push(text.slice(at));
+  if (tails.length > 0) {
+    parts.push(
+      <span key="tail" className="wb-mon-name">
+        {`  ; ${tails.map((t) => `+$${t.offset.toString(16).padStart(2, "0")} ${t.name}${t.tag}`).join("  ")}`}
+      </span>,
+    );
+  }
+  return parts;
+}
 
 export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: Props): React.JSX.Element {
   const [history, setHistory] = useState<MonLine[]>([
@@ -92,6 +130,33 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: 
       append([{ kind: "err", text: "no session" }]);
       return;
     }
+    // Spec 804 — through C64RE, which substitutes names in the command and names the
+    // addresses in the reply. If the workspace API is not there (a bare runtime UI), the
+    // runtime is asked directly and the monitor works without names.
+    try {
+      const r = await api.monitorExec(sessionId, cmd);
+      if (r.substitutions.length > 0) {
+        append([{ kind: "sent", text: `  → ${r.sent}` }]);
+      }
+      for (const x of r.refused) append([{ kind: "sent", text: `  (${x.token}: ${x.reason})` }]);
+      const raw = r.error ?? r.output ?? "";
+      const kind: MonLine["kind"] = r.error !== undefined ? "err" : "out";
+      if (raw) {
+        append(raw.split(/\r?\n/).map((t, i) => ({ kind, text: t, names: r.names.filter((n) => n.line === i) })));
+      }
+      setPrompt(r.prompt ?? null);
+      return;
+    } catch (e: unknown) {
+      // Fall through to the runtime directly ONLY when the workspace API is absent. Any
+      // other failure is reported: the command may already have run, and running it a
+      // second time (a `z`, a `wr`) would do it twice.
+      const msg = e instanceof Error ? e.message : String(e);
+      const apiAbsent = e instanceof TypeError || /HTTP 404/u.test(msg);
+      if (!apiAbsent) {
+        append([{ kind: "err", text: `monitor: ${msg}` }]);
+        return;
+      }
+    }
     try {
       const r = await getClient().call<{ output?: string; error?: string; prompt?: string }>("monitor/exec", {
         session_id: sessionId, command: cmd,
@@ -136,7 +201,7 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: 
       </div>
       <div ref={outRef} className="wb-monitor-out">
         {history.map((l, i) => (
-          <div key={i} className={`wb-mon-${l.kind}`}>{l.text || " "}</div>
+          <div key={i} className={`wb-mon-${l.kind}`}>{renderNamed(l.text, l.names)}</div>
         ))}
       </div>
       <div className="wb-monitor-in">
