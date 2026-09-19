@@ -1,4 +1,4 @@
-# Capture Scenarios (Spec 812)
+# Capture Scenarios
 
 Drive a C64 from a written schedule and get screenshots or a release GIF out of it.
 Every run is on a private throwaway machine, and the same file always produces the
@@ -49,6 +49,8 @@ runtime_scene_reel
 | `I wait until the drive is idle within 9000 frames` | wait for a condition, with a timeout |
 | `I wait until the screen shows "PRESS FIRE" within 1200 frames` | wait for text on the screen |
 | `I hold the key "SPACE" for 3 frames` | one key, held. For a title that scans the matrix itself |
+| `I start holding joystick 2 right` … `I release joystick 2` | a press in two halves, so other steps happen while it is held |
+| `I start holding the key "SPACE"` … `I release the key "SPACE"` | the same, for a key |
 | `I insert the disk "side2.d64"` | eject, wait, insert. Also `swap in` / `turn to` |
 | `I capture "title"` | take a picture, on a frame boundary |
 | `the machine switches to c64-ntsc` | switch to another C64 model at the next frame boundary; the running program keeps its state, and every frame after it is the new model's |
@@ -193,6 +195,30 @@ prevent.
 
 Directions: `up`, `down`, `left`, `right`, `fire`. Ports 1 and 2.
 
+## Something happening while something is held
+
+A `hold … for N frames` runs the machine for its N frames, so nothing else can happen
+inside it. When something should — a key pressed while the stick is held, a picture
+taken mid-press — write the press in two halves:
+
+```gherkin
+  And I start holding joystick 2 right
+  And I wait 2 frames
+  And I hold the key "K" for 2 frames
+  And I wait 4 frames
+  And I capture "running"
+  And I release joystick 2
+```
+
+Neither half takes any time; the steps between them do. Keys work the same way —
+`I start holding the key "L_SHIFT"` … `I release the key "L_SHIFT"`, or
+`the keys "L_SHIFT+A"` for several at once.
+
+The end is still required, just on its own line. A start with no release is a parse
+error on the start's line, and so is a release of something that is not held, a second
+start of something already held, and a `hold … for N frames` of something a start is
+holding (it would let go before the release does).
+
 ## Swapping a disk
 
 Two-sided games ask for the other side and then wait. The swap is one step:
@@ -285,7 +311,7 @@ runtime_scene_reel
 
 The relative paths above are relative to the project dir, and `project_dir` says
 which one. Omit it and the project is found by walking up from `feature_path` —
-else `media_path`, else `out_path` — to `knowledge/phase-plan.json` (Spec 834 §4).
+else `media_path`, else `out_path` — to `knowledge/phase-plan.json`.
 The first two already exist; `out_path` is the file this call is about to write,
 so it comes last and only stands in when the scenario was passed inline with no
 medium. If nothing on that list is inside a project, the call says so instead of
@@ -351,6 +377,12 @@ of as pictures. See [Recording Scenarios](Recording-Scenarios).
 
 Same file, two runs, byte-identical GIF. Verified over a real G64 boot through a
 fastloader, 100M+ cycles.
+
+Every wait runs to an absolute cycle — the start plus everything written so far — not
+"this many more cycles". A run always stops on an instruction boundary, a few cycles past
+where it was asked to, and counted per step those few cycles would add up over a long
+scenario. A scenario that starts from a snapshot therefore puts every input on exactly
+the cycle the file says, on every run.
 
 That makes a scenario a regression test as much as a recipe: run it after a change
 and compare.

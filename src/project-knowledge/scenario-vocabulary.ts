@@ -30,7 +30,8 @@ export interface VocabularyEntry {
   readonly kind?: Step["kind"] | Predicate["kind"];
   /** What a human types, with `<...>` for the parts they fill in. This is the completion. */
   readonly form: string;
-  /** A COMPLETE line that must parse. The gate runs every one of these. */
+  /** A COMPLETE line that must parse. The gate runs every one of these. A start or a
+   *  release is only whole with its other half, so its sample carries both lines. */
   readonly sample: string;
   /** One line, shown next to the completion. */
   readonly doc: string;
@@ -143,6 +144,34 @@ export const VOCABULARY: readonly VocabularyEntry[] = [
     form: "And I hold joystick <1|2> <directions> for <n> frames",
     sample: "And I hold joystick 2 down and fire for 3 frames",
     doc: "A press that states how long it is HELD. A press with no end is the defect this notation refuses.",
+  },
+  {
+    section: "step",
+    kind: "joystickDown",
+    form: "And I start holding joystick <1|2> <directions>",
+    sample: "And I start holding joystick 2 right\n  And I wait 10 frames\n  And I release joystick 2",
+    doc: "The stick goes down and STAYS down, so other steps can happen while it is held — a key, a wait, a capture. Its end is its own line, `I release joystick <n>`, and a start without one is a parse error.",
+  },
+  {
+    section: "step",
+    kind: "joystickUp",
+    form: "And I release joystick <1|2>",
+    sample: "And I start holding joystick 2 fire\n  And I release joystick 2",
+    doc: "Lets go of a stick held by `I start holding joystick`. Takes no time; the waits around it do.",
+  },
+  {
+    section: "step",
+    kind: "keyDown",
+    form: 'And I start holding the key "<KEY>"',
+    sample: 'And I start holding the key "SPACE"\n  And I wait 10 frames\n  And I release the key "SPACE"',
+    doc: "The key goes down and STAYS down while other steps happen. Its end is its own line, `I release the key`, and a start without one is a parse error.",
+  },
+  {
+    section: "step",
+    kind: "keyUp",
+    form: 'And I release the key "<KEY>"',
+    sample: 'And I start holding the key "L_SHIFT"\n  And I release the key "L_SHIFT"',
+    doc: "Lets go of a key held by `I start holding the key`. Takes no time; the waits around it do.",
   },
   {
     section: "step",

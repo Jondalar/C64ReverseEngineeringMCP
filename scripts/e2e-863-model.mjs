@@ -126,12 +126,14 @@ const rows = [
   const before = sc.steps[at - 1];
   check(before.kind === "wait" && before.count === 10 && before.unit === "frames",
     "  the wait before it is rounded DOWN (10.6 PAL frames → 10): it ends inside the frame the switch closes, so the switch lands on that boundary", before.text);
-  const holds = sc.steps.filter((x) => x.kind === "joystick").map((x) => x.frames);
-  check(holds.join(",") === "21,4", "  a press held across it is split there: 21 PAL frames, then 4 NTSC frames", holds.join(","));
-  check(r.warnings.length === 1 && /held across the switch to c64-ntsc/.test(r.warnings[0]), "  and that split is said out loud", r.warnings[0]);
+  const down = sc.steps.findIndex((x) => x.kind === "joystickDown");
+  const up = sc.steps.findIndex((x) => x.kind === "joystickUp");
+  check(down >= 0 && down < at && at < up && !sc.steps.some((x) => x.kind === "joystick"),
+    "  a press held across it is written in two halves around it — started before, released after, never split", kinds);
+  check(r.warnings.length === 0, "  so the replay does not let go for the switch, and there is nothing to warn about", r.warnings[0]);
   check(!/power-cycled/.test(r.text), "  an input made while the press was held is not read as the clock restarting");
   const afterWaits = sc.steps.slice(at + 1).filter((x) => x.kind === "wait").map((x) => x.count);
-  check(afterWaits.join(",") === "20,30", "  the frames after the switch are NTSC frames (20, then 30 to the end)", afterWaits.join(","));
+  check(afterWaits.join(",") === "4,16,30", "  the frames after the switch are NTSC frames (4 to the release, 16 to the next key, 30 to the end)", afterWaits.join(","));
   let threw = "";
   try { recordScenario(journal, { ...ctx, cyclesPerFrameOf: undefined }); } catch (e) { threw = e.message; }
   check(/switched the machine to c64-ntsc/.test(threw), "a switch to a model whose frame the recorder was not given is an error naming it", threw.slice(0, 80));

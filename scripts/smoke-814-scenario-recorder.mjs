@@ -11,12 +11,14 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseFeature, stripTrailingComment, authorOfComment, decodeKeys }
+import { parseFeature, parseStep, holdIssues, stripTrailingComment, authorOfComment, decodeKeys }
   from "../dist/project-knowledge/scenario-gherkin.js";
 import { STEP_KINDS, PREDICATE_KINDS } from "../dist/project-knowledge/scenario-gherkin.js";
 import { VOCABULARY, completions, keyTokens, missingKinds } from "../dist/project-knowledge/scenario-vocabulary.js";
 import { recordScenario, encodeKeys } from "../dist/reel/record-scenario.js";
 import { runScenario } from "../dist/reel/run-scenario.js";
+import { runSandbox } from "../dist/reel/run-sandbox.js";
+import { SandboxSession } from "../dist/reel/sandbox-session.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, what, detail) => {
@@ -58,7 +60,7 @@ ok(authorOfComment("targets: finding/f-1") === undefined, "4 and any other comme
 // ── §9.1 the vocabulary is the parser's, not a second list ───────────────────
 ok(missingKinds().length === 0,
    "7 the vocabulary covers every step and predicate kind the parser has", missingKinds().join(", "));
-ok(STEP_KINDS.length === 8 && PREDICATE_KINDS.length === 7,
+ok(STEP_KINDS.length === 12 && PREDICATE_KINDS.length === 7,
    "8 and the kind lists are the ones the TYPES are checked against");
 {
   let bad = [];
@@ -184,8 +186,8 @@ ok(decodeKeys("{RETURN}") === "\r" && decodeKeys("{NOPE}") === "{NOPE}",
     { ...PAL, name: "t", armedAtCycle: 0, endCycle: 20 * F, origin: MEDIUM },
   );
   const order = parseFeature(r3.text).scenarios[0].steps.filter((x) => x.kind !== "wait").map((x) => x.kind).join(",");
-  ok(!/power-cycled/.test(r3.text) && order === "joystick,type",
-     "27b an input made while a press is held keeps the press first, and is not a power-cycle", order);
+  ok(!/power-cycled/.test(r3.text) && order === "joystickDown,type,joystickUp",
+     "27b an input made while a press is held lands INSIDE it, and is not a power-cycle", order);
 }
 
 // A key pressed on the matrix is a HELD key with a duration — which is what a title
@@ -369,6 +371,271 @@ ok(decodeKeys(encodeKeys('LOAD"*",8,1\r')) === 'LOAD"*",8,1\r',
   let threw = false;
   try { recordScenario([], { name: "t", armedAtCycle: 0, endCycle: 0, origin: MEDIUM, model: "c64-pal" }); } catch { threw = true; }
   ok(threw, "43 without a frame length the recorder refuses rather than assume one");
+}
+
+// ── a hold, and an input made WHILE something is held ───────────────────────
+//
+// Two things a replay has to get right about a press. A `hold … for N frames` runs the
+// machine for its N frames, so the wait written after it is the recorded gap MINUS the
+// hold — counted from where it began, every later input lands late by the hold's length.
+// And a key pressed while the stick is held cannot be said as two `hold … for` steps at
+// all: the first one runs its whole duration before the second can start. So a press
+// something happens inside is written in two halves, `I start holding …` … `I release …`.
+
+/** Where each input lands in a replay, in frames from the start: waits and holds move
+ *  the clock, everything else happens where the clock is. */
+const schedule = (steps) => {
+  let t = 0;
+  const out = [];
+  for (const x of steps) {
+    if (x.kind === "wait") t += x.count;
+    else if (x.kind === "key" || x.kind === "joystick") { out.push(`${x.kind}Down@${t}`); t += x.frames; out.push(`${x.kind}Up@${t}`); }
+    else if (x.kind === "waitUntil") throw new Error("schedule(): no anchors here");
+    else out.push(`${x.kind}@${t}`);
+  }
+  return out.join(" ");
+};
+const joy = (cycle, port, dirs, source = "human") => ({
+  cycle, kind: "joystick", source, method: dirs ? "session/joystick_set" : "session/joystick_clear",
+  detail: dirs ? { port, ...Object.fromEntries(dirs.map((d) => [d, true])) } : { port },
+});
+const keyEv = (cycle, key, up, source = "human") => ({
+  cycle, kind: "key", source, method: up ? "session/key_up" : "session/key_down", detail: { key },
+});
+const BARE = { kind: "bare", why: "the smoke" };
+{
+  // (a) a hold, then a key after a gap.
+  const r = recordScenario(
+    [joy(10 * F, 2, ["fire"]), joy(13 * F, 2), keyEv(20 * F, "J"), keyEv(22 * F, "J", true)],
+    { ...PAL, name: "a", armedAtCycle: 0, endCycle: 30 * F, origin: BARE, captures: [{ cycle: 30 * F, label: "end" }] },
+  );
+  const sc = parseFeature(r.text).scenarios[0];
+  ok(/I hold joystick 2 fire for 3 frames[^\n]*\n\s+And I wait 7 frames\n\s+And I hold the key "J" for 2 frames/.test(r.text),
+     "44 the wait after a hold is the recorded gap MINUS the hold (10 frames apart, 3 held → wait 7)",
+     r.text.split("\n").filter((l) => /wait|hold/.test(l)).map((l) => l.trim().replace(/\s+#.*/, "")).join(" | "));
+  const got = schedule(sc.steps);
+  ok(got === "joystickDown@10 joystickUp@13 keyDown@20 keyUp@22 capture@30",
+     "45 so the replay puts every input on the frame it was recorded on — not a hold's length late", got);
+}
+{
+  // (b) a key pressed while a joystick direction is held.
+  const r = recordScenario(
+    [joy(30 * F, 2, ["right"]), keyEv(32 * F, "K", false, "llm"), keyEv(34 * F, "K", true, "llm"), joy(38 * F, 2)],
+    { ...PAL, name: "b", armedAtCycle: 0, endCycle: 40 * F, origin: BARE, captures: [{ cycle: 40 * F, label: "end" }] },
+  );
+  const sc = parseFeature(r.text).scenarios[0];
+  const kinds = sc.steps.filter((x) => x.kind !== "wait").map((x) => x.kind).join(",");
+  ok(kinds === "joystickDown,key,joystickUp,capture" &&
+     /I start holding joystick 2 right/.test(r.text) && /I release joystick 2/.test(r.text) && /I hold the key "K" for 2 frames/.test(r.text),
+     "46 a key pressed while the stick is held: the stick is written in two halves, the key inside keeps its duration", kinds);
+  ok(schedule(sc.steps) === "joystickDown@30 keyDown@32 keyUp@34 joystickUp@38 capture@40",
+     "47 and every input replays on its recorded frame", schedule(sc.steps));
+  ok(r.warnings.length === 0 && parseFeature(r.text).issues.length === 0, "48 nothing warned, nothing the parser rejects", r.warnings[0]);
+  // The two halves carry the PRESS's mark — the LLM held the stick, the human let go — so
+  // dropping one party's lines never leaves half a press behind.
+  const mixed = recordScenario(
+    [joy(30 * F, 2, ["right"], "llm"), keyEv(32 * F, "K"), keyEv(34 * F, "K", true), joy(38 * F, 2, undefined, "human")],
+    { ...PAL, name: "m", armedAtCycle: 0, endCycle: 40 * F, origin: BARE },
+  );
+  const noLlm = parseFeature(mixed.text.split("\n").filter((l) => authorOfComment(stripTrailingComment(l).comment) !== "llm").join("\n"));
+  ok(noLlm.issues.length === 0 && noLlm.scenarios[0].steps.some((x) => x.kind === "key") && !noLlm.scenarios[0].steps.some((x) => /^joystick/.test(x.kind)),
+     "48b dropping the LLM's lines drops both halves of its press, and what is left parses", JSON.stringify(noLlm.issues[0] ?? ""));
+}
+{
+  // Two presses that cross each other both need their ends on lines of their own.
+  const r = recordScenario(
+    [keyEv(5 * F, "A"), joy(7 * F, 1, ["up"]), keyEv(9 * F, "A", true), joy(12 * F, 1)],
+    { ...PAL, name: "x", armedAtCycle: 0, endCycle: 14 * F, origin: BARE },
+  );
+  const sc = parseFeature(r.text).scenarios[0];
+  ok(schedule(sc.steps) === "keyDown@5 joystickDown@7 keyUp@9 joystickUp@12",
+     "49 two presses that cross are both written in halves, each end where it was", schedule(sc.steps));
+  // A single tap stays the simple form.
+  const tap = recordScenario([joy(5 * F, 2, ["fire"]), joy(8 * F, 2)], { ...PAL, name: "t", armedAtCycle: 0, endCycle: 9 * F, origin: BARE });
+  ok(/I hold joystick 2 fire for 3 frames/.test(tap.text) && !/start holding/.test(tap.text),
+     "50 a press nothing happens inside stays `hold … for N frames`");
+  // Still down at the stop, with something after it: released where the recording stopped.
+  const held = recordScenario([joy(5 * F, 2, ["left"]), { cycle: 8 * F, kind: "key", source: "human", method: "session/type", detail: { text: "X" } }],
+    { ...PAL, name: "h", armedAtCycle: 0, endCycle: 20 * F, origin: BARE });
+  const hs = parseFeature(held.text).scenarios[0];
+  ok(schedule(hs.steps) === "joystickDown@5 type@8 joystickUp@20" && held.warnings.some((w) => /still held/.test(w)),
+     "51 a press still down at the stop with an input inside it is released where the recording stopped, and said", schedule(hs.steps));
+  // A hold whose rounded length reaches past the next input writes no negative wait.
+  const tight = recordScenario([joy(10 * F, 2, ["fire"]), joy(Math.round(12.6 * F), 2), keyEv(Math.round(12.8 * F), "J"), keyEv(15 * F, "J", true)],
+    { ...PAL, name: "n", armedAtCycle: 0, endCycle: 16 * F, origin: BARE });
+  const ts = parseFeature(tight.text);
+  ok(ts.issues.length === 0 && /fire for 3 frames\s+# by: human\n\s+And I hold the key "J"/.test(tight.text),
+     "52 a gap shorter than the rounded hold is no wait at all — never a negative one", tight.text.split("\n").filter((l) => /hold|wait/.test(l)).map((l) => l.trim().replace(/\s+#.*/, "")).join(" | "));
+}
+
+// Rounding to whole frames is made good by the next wait, never added up: every gap is
+// written from where the REPLAY is.
+{
+  const typed = (cycle, text) => ({ cycle, kind: "key", source: "human", method: "session/type", detail: { text } });
+  const at = [10.4, 20.8, 31.2, 41.6, 52].map((x) => Math.round(x * F));
+  const r = recordScenario(at.map((c, i) => typed(c, String(i))), { ...PAL, name: "r", armedAtCycle: 0, endCycle: 60 * F, origin: BARE });
+  const got = schedule(parseFeature(r.text).scenarios[0].steps);
+  ok(got === "type@10 type@21 type@31 type@42 type@52",
+     "53 inputs off the frame grid each land on their NEAREST frame (10.4, 20.8, 31.2, 41.6, 52 → 10, 21, 31, 42, 52) — no drift", got);
+}
+// A switch waits for the next raster wrap, and a machine on raster line 0 is already at
+// one. A rounded-down wait that would end in a frame's first lines ends half a frame
+// before the switch instead.
+{
+  const N = 17095;
+  const S = 18 * F - 2; // the switch lands 8 frames less 2 cycles after the input before it
+  const r = recordScenario(
+    [{ cycle: 10 * F, kind: "key", source: "human", method: "session/type", detail: { text: "A" } },
+     { cycle: S, kind: "model", source: "human", method: "session/model", detail: { name: "c64-ntsc", from: "c64-pal" } }],
+    { ...PAL, cyclesPerFrameOf: { "c64-ntsc": N }, name: "s", armedAtCycle: 0, endCycle: S + 10 * N, origin: BARE },
+  );
+  const steps = parseFeature(r.text).scenarios[0].steps;
+  const sw = steps.findIndex((x) => x.kind === "model");
+  const waits = steps.slice(steps.findIndex((x) => x.kind === "type") + 1, sw).filter((x) => x.kind === "wait");
+  const before = waits.map((x) => `${x.count} ${x.unit}`).join(" + ");
+  const reached = 10 * F + waits.reduce((t, x) => t + (x.unit === "frames" ? x.count * F : x.count), 0);
+  ok(reached === S - Math.floor(F / 2) && waits.some((x) => x.unit === "cycles"),
+     "54 the wait before a switch that would end on a frame's first raster line ends half a frame before it, in frames and cycles", before);
+  const e = recordScenario(
+    [{ cycle: 10 * F, kind: "key", source: "human", method: "session/type", detail: { text: "A" } },
+     { cycle: 18 * F + 9000, kind: "model", source: "human", method: "session/model", detail: { name: "c64-ntsc", from: "c64-pal" } }],
+    { ...PAL, cyclesPerFrameOf: { "c64-ntsc": N }, name: "s", armedAtCycle: 0, endCycle: 18 * F + 9000 + 10 * N, origin: BARE },
+  );
+  ok(/I wait 8 frames\s*\n\s+And the machine switches to c64-ntsc/.test(e.text) && !/cycles/.test(e.text),
+     "55 and where rounding down lands well inside the frame, it stays plain frames");
+}
+
+// The notation: the two halves, and a start is never a press without an end.
+{
+  const st = (l) => parseStep(l)?.step;
+  const jd = st("I start holding joystick 2 down and fire");
+  ok(jd?.kind === "joystickDown" && jd.port === 2 && jd.directions.join("+") === "down+fire", "56 `I start holding joystick 2 down and fire`", JSON.stringify(jd));
+  ok(st("I release joystick 1")?.kind === "joystickUp" && st("I release joystick 1").port === 1, "57 `I release joystick 1`");
+  const kd = st('I start holding the keys "L_SHIFT+A"');
+  ok(kd?.kind === "keyDown" && kd.keys.join("+") === "L_SHIFT+A" && st('I release the key "SPACE"')?.kind === "keyUp",
+     "58 `I start holding the key(s) …` / `I release the key …`");
+  ok(/its end is its own line/.test(parseStep("I start holding joystick 2 fire for 3 frames")?.error ?? ""),
+     "59 a start with a duration is an error that says which form to use");
+  ok(/ESCAPE is not a C64 key/.test(parseStep('I start holding the key "ESCAPE"')?.error ?? "") &&
+     /sideways is not a direction/.test(parseStep("I start holding joystick 2 sideways")?.error ?? ""),
+     "60 key names and directions are checked the same way as in a hold");
+  ok(/names what it lets go/.test(parseStep("I release everything")?.error ?? ""), "61 a release that names nothing is an error, not prose");
+
+  const issues = (body) => parseFeature(`Scenario: s\n  Given a bare machine\n${body}\n  Then it works\n`).issues;
+  const open = issues("  When I start holding joystick 2 right\n  And I wait 5 frames");
+  ok(open.length === 1 && open[0].line === 3 && /never released/.test(open[0].message),
+     "62 a start that is never released is an error on ITS line — a press with no end stays unwritable", JSON.stringify(open[0]));
+  ok(/is not held/.test(issues('  When I release the key "A"')[0]?.message ?? ""), "63 releasing what is not held is an error");
+  ok(/already held/.test(issues('  When I start holding the key "A"\n  And I start holding the key "A"\n  And I release the key "A"')[0]?.message ?? ""),
+     "64 starting what is already held is an error");
+  ok(/let it go before its release/.test(issues("  When I start holding joystick 2 up\n  And I hold joystick 2 fire for 3 frames\n  And I release joystick 2")[0]?.message ?? ""),
+     "65 a timed hold of what a start is holding is an error — it would let go early");
+  const good = parseFeature('Scenario: s\n  Given a bare machine\n  When I start holding joystick 2 right\n  And I wait 2 frames\n  And I hold the key "K" for 2 frames\n  And I wait 4 frames\n  And I release joystick 2\n  Then it works\n');
+  ok(good.issues.length === 0 && good.scenarios[0].steps.length === 5, "66 the pair with an input between parses clean");
+  const sandboxSteps = ["I start holding joystick 2 right", "I wait 2 frames"].map((l) => parseStep(l).step);
+  ok(holdIssues(sandboxSteps).some((h) => /never released/.test(h.message)),
+     "67 the same check guards a sandbox schedule, which has no file to hang it on");
+}
+
+// ── the acceptance: a recording replays with every input on the cycle it was recorded on ──
+//
+// Recorded on a private machine of this smoke's own — PAL, then switched to NTSC mid-run —
+// with (a) a hold followed by a key after a gap and (b) a key pressed while the stick is
+// held, on each model. It starts from a snapshot taken where the recorder was armed, so
+// the replay starts from the same machine at the same cycle; the replay arms the machine's
+// own journal, and the two journals are compared entry for entry, cycle for cycle.
+{
+  const dir = mkdtempSync(join(tmpdir(), "c64re-814-rec-"));
+  const snap = join(dir, "armed.c64re");
+  const box = await SandboxSession.start({ model: "c64-pal", budgetMs: 300_000 });
+  let jr, rows, fPal, fNtsc;
+  try {
+    await box.call("debug/pause", { source: "llm" });
+    const st0 = await box.call("session/state");
+    fPal = st0.cyclesPerFrame;
+    let now = st0.c64Cycles, frame = fPal;
+    const runTo = async (target) => {
+      while (now < target) {
+        const r = await box.call("session/run", { cycles: Math.min(frame, target - now) });
+        now = r.c64Cycles;
+      }
+    };
+    await runTo(now + 150 * frame); // boot to READY.
+    await box.call("snapshot/dump", { path: snap });
+    const armed = await box.call("session/input_journal", { arm: true });
+    const A = armed.armedAtCycle;
+    // An input at an exact frame from the arm, the way a person's lands on SOME cycle.
+    const at = async (base, k, method, params) => { await runTo(base + k * frame); await box.call(method, { ...params, source: "human" }); };
+    // PAL — (a) fire held 3 frames, then J after a gap; (b) the stick held right, K pressed inside it.
+    await at(A, 10, "session/joystick_set", { port: 2, fire: true });
+    await at(A, 13, "session/joystick_clear", { port: 2 });
+    await at(A, 20, "session/key_down", { key: "J" });
+    await at(A, 22, "session/key_up", { key: "J" });
+    await at(A, 30, "session/joystick_set", { port: 2, right: true });
+    await at(A, 32, "session/key_down", { key: "K" });
+    await at(A, 34, "session/key_up", { key: "K" });
+    await at(A, 38, "session/joystick_clear", { port: 2 });
+    // A switch mid-frame: it happens at the next frame boundary.
+    await runTo(A + 45 * frame + 7_000);
+    const sw = await box.call("session/model", { name: "c64-ntsc", source: "human" });
+    const S = sw.switchedAt?.c64Cycles ?? (await box.call("session/state")).c64Cycles;
+    now = (await box.call("session/state")).c64Cycles;
+    fNtsc = frame = (await box.call("session/state")).cyclesPerFrame;
+    // NTSC — the same two shapes, in NTSC frames from the switch.
+    await at(S, 5, "session/joystick_set", { port: 2, fire: true });
+    await at(S, 8, "session/joystick_clear", { port: 2 });
+    await at(S, 15, "session/key_down", { key: "L" });
+    await at(S, 17, "session/key_up", { key: "L" });
+    await at(S, 20, "session/joystick_set", { port: 2, left: true });
+    await at(S, 22, "session/key_down", { key: "M" });
+    await at(S, 24, "session/key_up", { key: "M" });
+    await at(S, 28, "session/joystick_clear", { port: 2 });
+    await runTo(S + 35 * frame);
+    jr = await box.call("session/input_journal", { arm: false });
+    rows = (await box.call("session/models")).models;
+  } finally {
+    await box.close();
+  }
+  const cyclesPerFrameOf = Object.fromEntries(rows.filter((r) => r.cyclesPerFrame).map((r) => [r.name, r.cyclesPerFrame]));
+  const rec = recordScenario(jr.entries, {
+    name: "hold, gap, key inside a hold — PAL then NTSC", model: jr.model, cyclesPerFrame: fPal, cyclesPerFrameOf,
+    armedAtCycle: jr.armedAtCycle, endCycle: jr.cycle,
+    origin: { kind: "snapshot", path: snap, why: "the machine as it was when the recorder was armed" },
+    captures: [{ cycle: jr.cycle, label: "end" }],
+  });
+  const sc = parseFeature(rec.text).scenarios[0];
+  const kinds = sc.steps.filter((x) => x.kind !== "wait").map((x) => x.kind).join(",");
+  ok(jr.entries.length === 17 && rec.warnings.length === 0 &&
+     kinds === "joystick,key,joystickDown,key,joystickUp,model,joystick,key,joystickDown,key,joystickUp,capture",
+     "68 the recording: a hold, a key after it, a key inside a held stick — on PAL, a switch, the same on NTSC", kinds);
+  let run, why = "";
+  try { run = await runScenario(sc, { journal: true, budgetMs: 300_000 }); }
+  catch (e) { why = String(e?.message ?? e).slice(0, 160); }
+  ok(!!run?.journal, "69 the recorded scenario replays from its snapshot, with the machine's own journal armed", why);
+  if (run?.journal) {
+    const norm = (j, armedAt) => j.map((e) => `${e.method} ${JSON.stringify(e.detail)} +${e.cycle - armedAt}`);
+    const want = norm(jr.entries, jr.armedAtCycle);
+    const got = norm(run.journal.entries, run.journal.armedAtCycle);
+    const first = want.findIndex((w, i) => w !== got[i]);
+    ok(want.length === got.length && first < 0,
+       "70 every input of the replay lands on the cycle it was recorded on — PAL, the switch, and NTSC after it",
+       first < 0 ? `${got.length} entries` : `entry ${first}: recorded ${want[first]} | replayed ${got[first] ?? "(none)"}`);
+    const swAt = jr.entries.findIndex((e) => e.kind === "model");
+    ok(swAt > 0 && run.journal.entries[swAt]?.kind === "model" && run.machine.model === "c64-ntsc",
+       "71 and the switch lands on the same frame boundary, the replay ending on NTSC");
+  }
+  rmSync(dir, { recursive: true, force: true });
+}
+
+// The sandbox runner performs the two halves too.
+{
+  const steps = ["I wait 150 frames", "I start holding joystick 2 right", "I wait 2 frames", 'I hold the key "K" for 2 frames', "I release joystick 2"]
+    .map((l) => parseStep(l).step);
+  let res, why = "";
+  try { res = await runSandbox({ steps, screen: false, budgetMs: 120_000 }); } catch (e) { why = String(e?.message ?? e).slice(0, 120); }
+  ok(res && res.log.some((l) => /I start holding joystick 2 right \(held until its release\)/.test(l)) &&
+     res.log.some((l) => /I release joystick 2$/.test(l)),
+     "72 a sandbox run starts and releases a hold as its own steps", why || res?.log.slice(-3).join(" | "));
 }
 
 console.log(`\n${fail ? "RED" : "GREEN"} spec 814: ${pass} pass, ${fail} fail.`);

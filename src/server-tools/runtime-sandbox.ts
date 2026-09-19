@@ -24,6 +24,9 @@ const STEP_EXAMPLE = [
   'I type "LOAD{QUOTE}*{QUOTE},8,1{RETURN}"',
   'I wait until the drive is idle within 8000 frames',
   'I hold joystick 2 fire for 3 frames',
+  'I start holding joystick 2 right',
+  'I hold the key "SPACE" for 2 frames',
+  'I release joystick 2',
   'I wait until the screen shows "PRESS FIRE" within 2000 frames',
   'I wait until the CPU reaches $0810 within 4000 frames',
 ].join("\n");
@@ -103,7 +106,7 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
       const projectDir = context.projectDir(project_dir ?? media_path ?? frame_path);
       const abs = (p: string): string => (isAbsolute(p) ? p : resolvePath(projectDir, p));
 
-      const { parseStep } = await import("../project-knowledge/scenario-gherkin.js");
+      const { parseStep, holdIssues } = await import("../project-knowledge/scenario-gherkin.js");
       const { runSandbox, parseMemoryRead, hexDump } = await import("../reel/run-sandbox.js");
 
       // ── everything that can be refused BEFORE a daemon starts ────────────────
@@ -128,6 +131,8 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
           );
         } else if (r.step) parsedSteps.push(r.step);
       }
+      // A start without its release is a press with no end — refused like a bad line.
+      if (!stepErrors.length) for (const h of holdIssues(parsedSteps)) stepErrors.push(h.message);
       if (stepErrors.length) {
         return text(`runtime_sandbox_run: the schedule does not parse.\n\n  ${stepErrors.join("\n  ")}`);
       }

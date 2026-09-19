@@ -1,4 +1,4 @@
-# Recording Scenarios (Spec 814)
+# Recording Scenarios
 
 Play the run once, get the `.feature` file.
 
@@ -75,6 +75,43 @@ A key you press on the C64 keyboard is written down as a **held** key, for exact
 long as you held it. That is not the same thing as typing it: a title that scans the
 matrix itself sees a key only if it is DOWN during its scan, and a typed string played
 out at the typing pace can miss it entirely.
+
+## Something happening while something is held
+
+`I hold … for 3 frames` runs the machine for those three frames, so nothing else can
+happen inside it. That is right for a tap, and wrong for a player who holds the stick
+right and presses a key on the way. So a press that something happens inside — another
+input, a model switch, a shot — is written in two halves, where it went down and where
+it was let go, with everything that happened in between:
+
+```gherkin
+  And I start holding joystick 2 right             # by: human
+  And I wait 2 frames
+  And I hold the key "K" for 2 frames              # by: human
+  And I wait 4 frames
+  And I release joystick 2                         # by: human
+```
+
+A press nothing happens inside stays the short form. Both halves carry the mark of
+whoever pressed it, so dropping one party's lines never leaves half a press behind.
+
+## Every input replays on the frame it was recorded on
+
+Waits are whole frames, and each one is written from where the *replay* is at that
+point, not from where the previous input happened — so a wait that rounds down is made
+good by the next one, and no input ends up more than half a frame from its recorded
+cycle, however long the recording. A `hold … for N frames` counts: the wait after it is
+the gap minus the hold. Inputs you made on a frame boundary replay on the same cycle.
+
+A model switch waits for the next frame boundary, so the wait before it ends inside the
+frame the switch closes. Where that would land within a few raster lines of a boundary,
+it ends half a frame before the switch instead, with its last part written in cycles:
+
+```gherkin
+  And I wait 7 frames
+  And I wait 9826 cycles
+  And the machine switches to c64-ntsc              # by: human
+```
 
 ## The cycles come from the daemon, never the browser
 
@@ -205,9 +242,8 @@ runtime_scene_reel
   said out loud.
 - **A mount power-cycles the machine**, so the cycle counter restarts mid-recording.
   That is noted in the file, and the steps stay in the order they happened.
-- **A press held across a model switch** is split at the switch — its frames before it
-  are the old model's, after it the new one's — and the replay lets go for the moment
-  of the switch. Said out loud.
+- **A press held across a model switch** is written in two halves around it, so the
+  replay keeps holding through the switch, as you did.
 - **The journal is capped.** A recorder left armed for a very long time stops adding
   and tells you how many inputs it dropped, rather than growing without bound or
   quietly losing the end.
