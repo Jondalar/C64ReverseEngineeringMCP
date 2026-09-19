@@ -8,6 +8,12 @@ data-table hints only; the rebuilt bytes stay byte-identical.
 `propose_annotations` writes a DRAFT (`<stem>_annotations.draft.json`) you hand-edit and
 rename. It never overwrites a manual file.
 
+**Names are at most 20 characters** in a project created since 2026-09-19: `project_init`
+stamps `naming.maxLabelLength: 20` into `knowledge/project.json`, and `disasm_prg` refuses
+an annotations file with a longer label, routine or segment name before it renders anything
+(Spec 804 §4.5). A project without the stamp is not checked. Twenty is also the width of the
+monitor's label column, so in such a project no name ever wraps there.
+
 ## Field shape
 
 ```jsonc

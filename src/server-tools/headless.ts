@@ -955,13 +955,31 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_monitor",
-    "Remote-control the interactive runtime monitor: run ANY monitor command string against the shared session and get its text output back. Use it for any monitor-style interaction — this is the WHOLE monitor REPL in ONE tool, and most of what the human can do at the machine is HERE rather than in a named tool. MEMORY + CPU: m/d (hex dump / disasm), r (registers, `r a=$42` to set), sd (the real executed path), df (flow disasm), screen, bitmap, io, iec, bank, wr/f/t/c/h (write/fill/move/compare/hunt), a (assemble), device c64|drive8, sidefx. RUN CONTROL: g/x, until, z/step, n/next, ret, run, pause. BREAKPOINTS: bk / del / obs (observers — incl `obs <n> when exec|load|store <lo..hi> do break|log|trace` for non-halting scoped capture; `obs <n> del`). MACHINE: reset [warm|cold], power on|off, warp on|off, turbo (which machine this session claims to be, so a release's turbo path is reachable at all), rawframe. MEDIA + DRIVE: mount <path> (type read from CONTENT — .d64/.g64/.crt/.prg/.c64re), eject [cart|disk] (a disk eject leaves the drive running; a cartridge eject persists flash then COLD-RESETS the machine), drive, cart, drivepower (cold-reset the 1541 CPU only — the way out of a wedged fastloader), recent. STATE: `dump <path>` (= `snapshot <path>` — writes a .c64re state snapshot; our snapshot IS the dump) / `undump <path>` (= `restore`/`loadsnapshot`), savecrt, swapcrt, identify <path>. TRACE + ANALYSIS: trace, tracedb, traceindex, tracering <s> <e> (build a trace from the always-on ring AFTER the fact), map, taint, swimlane, chis. REVERSE-DEBUG: rstep/reverse (undo instructions), whowrote <addr> (last writers, with the caller chain), triage (crash causal chain), revdepth, diff. MARKS + TRANSPORT: mark/marks/unmark/goto, play back|fwd, frame ±N, rewind, cadence, window, ringdump. FILESYSTEM: pwd, cd, ls, load, save (the daemon's own working directory — a relative path in `mount` resolves against it). Run `help` for the full verb list or `<verb> help` for one verb's syntax. The session is the shared live machine (human + LLM co-drive the same one); not for silent scripted batch runs on the live session (use runtime_sandbox_run for a machine of your own). Inputs: session_id, command (e.g. \"m 0400 042f\", \"eject cart\", \"obs t when exec ab01 do trace c64-cpu memory\", \"r\"). Returns: the monitor's text output (or its error string).",
+    "Remote-control the interactive runtime monitor: run ANY monitor command string against the shared session and get its text output back. Use it for any monitor-style interaction — this is the WHOLE monitor REPL in ONE tool, and most of what the human can do at the machine is HERE rather than in a named tool. MEMORY + CPU: m/d (hex dump / disasm), r (registers, `r a=$42` to set), sd (the real executed path), df (flow disasm), screen, bitmap, io, iec, bank, wr/f/t/c/h (write/fill/move/compare/hunt), a (assemble), device c64|drive8, sidefx. RUN CONTROL: g/x, until, z/step, n/next, ret, run, pause. BREAKPOINTS: bk / del / obs (observers — incl `obs <n> when exec|load|store <lo..hi> do break|log|trace` for non-halting scoped capture; `obs <n> del`). MACHINE: reset [warm|cold], power on|off, warp on|off, turbo (which machine this session claims to be, so a release's turbo path is reachable at all), rawframe. MEDIA + DRIVE: mount <path> (type read from CONTENT — .d64/.g64/.crt/.prg/.c64re), eject [cart|disk] (a disk eject leaves the drive running; a cartridge eject persists flash then COLD-RESETS the machine), drive, cart, drivepower (cold-reset the 1541 CPU only — the way out of a wedged fastloader), recent. STATE: `dump <path>` (= `snapshot <path>` — writes a .c64re state snapshot; our snapshot IS the dump) / `undump <path>` (= `restore`/`loadsnapshot`), savecrt, swapcrt, identify <path>. TRACE + ANALYSIS: trace, tracedb, traceindex, tracering <s> <e> (build a trace from the always-on ring AFTER the fact), map, taint, swimlane, chis. REVERSE-DEBUG: rstep/reverse (undo instructions), whowrote <addr> (last writers, with the caller chain), triage (crash causal chain), revdepth, diff. MARKS + TRANSPORT: mark/marks/unmark/goto, play back|fwd, frame ±N, rewind, cadence, window, ringdump. FILESYSTEM: pwd, cd, ls, load, save (the daemon's own working directory — a relative path in `mount` resolves against it). Run `help` for the full verb list or `<verb> help` for one verb's syntax. NAMES: the reply names the addresses it printed from this project's graph and build symbols, in two columns — a LABEL column after a line's own address, and an ANNOTATION column (`; name`) at the line's end for its other addresses and a dump row's names (origin [u] user, [b] build, [?] derived; `name+$05` inside a routine) — but only while that payload's code bytes are actually in memory (no match → no name); the numeric address always stays. A name in your command (`a 1000 jmp main`) becomes its address before it reaches the machine; an unknown or ambiguous name is left as typed. The session is the shared live machine (human + LLM co-drive the same one); not for silent scripted batch runs on the live session (use runtime_sandbox_run for a machine of your own). Inputs: session_id, command (e.g. \"m 0400 042f\", \"eject cart\", \"obs t when exec ab01 do trace c64-cpu memory\", \"r\"). Returns: the monitor's text output (or its error string).",
     { session_id: z.string(), command: z.string() },
     safeHandler("runtime_monitor", async ({ session_id, command }) => {
+      // Spec 804 — the command goes through unchanged except for names → addresses,
+      // and the reply's addresses (the runtime's spans) are named here. No verb is
+      // looked at: the same two generic steps for every command.
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const r = await runtimeDaemon.monitorExec<{ output?: string; error?: string }>(session_id, command);
-      const text = r.error ? `error: ${r.error}` : (r.output ?? "");
-      return { content: [{ type: "text" as const, text }] };
+      const { execMonitorWithNames } = await import("../symbols/monitor-names.js");
+      const r = await execMonitorWithNames({
+        call: (method, params) => runtimeDaemon.call(method, params),
+        sessionId: session_id,
+        command,
+        projectDir: process.env.C64RE_PROJECT_DIR?.trim() || undefined,
+        source: "llm",
+      });
+      const lines: string[] = [];
+      if (r.substitutions.length > 0) {
+        lines.push(`(sent: ${r.sent} — ${r.substitutions.map((s) => `${s.token} = $${s.address.toString(16).padStart(4, "0")} [${s.origin}]`).join(", ")})`);
+      }
+      for (const x of r.refused) lines.push(`(name ${x.token}: ${x.reason})`);
+      lines.push(r.error !== undefined ? `error: ${r.text}` : r.text);
+      return {
+        content: [{ type: "text" as const, text: lines.join("\n") }],
+        structuredContent: { sent: r.sent, substitutions: r.substitutions, names: r.names, spans: r.spans, machine: r.machine },
+      };
     },
 ));
 

@@ -43,7 +43,6 @@ const UI_ONLY_BY_DESIGN = new Map([
   ["session/power", "runtime_monitor `power on|off`"],
   ["session/reset", "runtime_monitor `reset [warm|cold]`"],
   ["session/set_pacing", "runtime_monitor `warp on|off` / `turbo …`"],
-  ["session/read_memory", "runtime_monitor_memory"],
   ["session/key_down", "runtime_type types; a HELD key is a scenario step (src/reel), not a tool call"],
   ["session/key_up", "see session/key_down"],
   ["session/release_keys", "see session/key_down"],

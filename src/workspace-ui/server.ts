@@ -767,6 +767,31 @@ const server = createServer((req, res) => {
     return;
   }
 
+  // Spec 804 — the workbench monitor, with names. The command is substituted (names →
+  // addresses) and the reply's address spans are named, by the same code path as the MCP
+  // `runtime_monitor`. The runtime still defines every verb; nothing here looks at one.
+  if (requestUrl.pathname === "/api/monitor/exec" && req.method === "POST") {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      void (async () => {
+        try {
+          const payload = JSON.parse(body) as { sessionId?: string; command?: string };
+          const { monitorExecWithNames } = await import("./monitor-names-route.js");
+          const r = await monitorExecWithNames(
+            { sessionId: payload.sessionId, command: String(payload.command ?? "") },
+            options.projectDir,
+            `ws://${RUNTIME_WS_HOST}:${RUNTIME_WS_PORT}`,
+          );
+          send(res, jsonResponse(200, r));
+        } catch (e) {
+          send(res, jsonResponse(502, { error: e instanceof Error ? e.message : String(e) }));
+        }
+      })();
+    });
+    return;
+  }
+
   if (requestUrl.pathname === "/api/annotations/save" && req.method === "POST") {
     let body = "";
     req.on("data", (chunk) => { body += chunk; });

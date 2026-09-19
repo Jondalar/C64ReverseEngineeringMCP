@@ -6,6 +6,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { getClient } from "../ws-client.js";
+import { api, type MonitorNameMark } from "../rest-client.js";
 
 interface Props {
   sessionId: string;
@@ -17,7 +18,25 @@ interface Props {
   breakpoint?: { pc: number; num: number; registers: string; seq: number; observer?: string; message?: string; reason?: "jam" | "brk"; opcode?: number; flow?: string[] } | null;
 }
 
-interface MonLine { kind: "in" | "out" | "err"; text: string; }
+interface MonLine { kind: "in" | "out" | "err" | "sent"; text: string; marks?: MonitorNameMark[] }
+
+/**
+ * Spec 804 — colour the names C64RE laid into a reply line. The layout (label column,
+ * annotation column) is done once, server-side, for every verb alike; this only paints
+ * the marked runs by origin. It knows neither commands nor spans.
+ */
+function renderMarked(text: string, marks: MonitorNameMark[] | undefined): React.ReactNode {
+  if (!marks || marks.length === 0) return text || "\u00a0";
+  const parts: React.ReactNode[] = [];
+  let at = 0;
+  [...marks].sort((a, b) => a.start - b.start).forEach((m, i) => {
+    parts.push(text.slice(at, m.start));
+    parts.push(<span key={`n${i}`} className={`wb-mon-name ${m.origin}`} title={m.origin}>{text.slice(m.start, m.end)}</span>);
+    at = m.end;
+  });
+  parts.push(text.slice(at));
+  return parts;
+}
 
 export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: Props): React.JSX.Element {
   const [history, setHistory] = useState<MonLine[]>([
@@ -92,6 +111,32 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: 
       append([{ kind: "err", text: "no session" }]);
       return;
     }
+    // Spec 804 — through C64RE, which substitutes names in the command and names the
+    // addresses in the reply. If the workspace API is not there (a bare runtime UI), the
+    // runtime is asked directly and the monitor works without names.
+    try {
+      const r = await api.monitorExec(sessionId, cmd);
+      if (r.substitutions.length > 0) {
+        append([{ kind: "sent", text: `  → ${r.sent}` }]);
+      }
+      for (const x of r.refused) append([{ kind: "sent", text: `  (${x.token}: ${x.reason})` }]);
+      const kind: MonLine["kind"] = r.error !== undefined ? "err" : "out";
+      if (r.text) {
+        append(r.text.split(/\r?\n/).map((t, i) => ({ kind, text: t, marks: r.marks.filter((m) => m.line === i) })));
+      }
+      setPrompt(r.prompt ?? null);
+      return;
+    } catch (e: unknown) {
+      // Fall through to the runtime directly ONLY when the workspace API is absent. Any
+      // other failure is reported: the command may already have run, and running it a
+      // second time (a `z`, a `wr`) would do it twice.
+      const msg = e instanceof Error ? e.message : String(e);
+      const apiAbsent = e instanceof TypeError || /HTTP 404/u.test(msg);
+      if (!apiAbsent) {
+        append([{ kind: "err", text: `monitor: ${msg}` }]);
+        return;
+      }
+    }
     try {
       const r = await getClient().call<{ output?: string; error?: string; prompt?: string }>("monitor/exec", {
         session_id: sessionId, command: cmd,
@@ -136,7 +181,7 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: 
       </div>
       <div ref={outRef} className="wb-monitor-out">
         {history.map((l, i) => (
-          <div key={i} className={`wb-mon-${l.kind}`}>{l.text || " "}</div>
+          <div key={i} className={`wb-mon-${l.kind}`}>{renderMarked(l.text, l.marks)}</div>
         ))}
       </div>
       <div className="wb-monitor-in">

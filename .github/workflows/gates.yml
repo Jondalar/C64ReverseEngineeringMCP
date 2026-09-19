@@ -221,6 +221,11 @@ jobs:
       - name: Click a pixel, name the thing (Spec 843)
         run: npm run e2e:843-inspect
 
+      # Spec 804 §4.5 — no name over 20 characters in a project created since the rule.
+      # Hermetic: a temp project through project_init, a 9-byte PRG, the bundled pipeline.
+      - name: A name fits its column (Spec 804)
+        run: node scripts/smoke-804-naming.mjs
+
       # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
       # synthetic PRG with the bundled pipeline and seeds a temp project, and
       # the explorer gate reads the built bundle plus the two pure lib files.

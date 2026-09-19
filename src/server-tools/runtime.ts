@@ -56,7 +56,8 @@ async function callApi<T = unknown>(session_id: string, method: string, ...args:
 /**
  * The WIDE facade verb — every AgentQueryApi method the runtime backs, not just
  * the narrow `api/call` allowlist. Used by the handlers whose method is outside
- * it (`resolvePc`, `diffSnapshots`, `formatDiff`).
+ * it (`diffSnapshots`, `formatDiff`). `resolvePc` is gone (Spec 804): names are
+ * C64RE's, and `runtime_resolve_pc` answers from the graph.
  */
 async function callApiFull<T = unknown>(session_id: string, op: string, args: unknown[] = []): Promise<T> {
   const { runtimeDaemon } = await import("../runtime/daemon-client.js");
@@ -208,15 +209,41 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_monitor_disasm",
-    "Disassemble live memory at an address in a session. Use to read code at the current PC or a target. Not for a static PRG (use disasm_prg). Inputs: session_id, address, count. Returns: disassembly lines.",
+    "Disassemble live memory at an address in a session. Use to read code at the current PC or a target. Not for a static PRG (use disasm_prg). Each line's own address, branch/JSR/JMP target and operand address are named from the project (`; $c000=main[u]`, origin [u] user / [b] build / [?] derived) when — and only when — that payload's code bytes are in memory now. Inputs: session_id, address, count. Returns: disassembly lines.",
     {
       session_id: z.string(),
       addr: z.number(),
       count: z.number().default(10),
     },
     safeHandler("runtime_monitor_disasm", async ({ session_id, addr, count }) => {
-      const lines = await callApi<Array<{ text: string }>>(session_id, "monitorDisasm", addr, count);
-      return { content: [{ type: "text", text: lines.map(l => l.text).join("\n") }] };
+      const lines = await callApi<Array<{ text: string; addr: number; target?: number; operandAddr?: number } & Record<string, unknown>>>(session_id, "monitorDisasm", addr, count);
+      // Spec 804 — the runtime's line carries its addresses as numbers; they are named
+      // here from the graph, without touching the runtime's text.
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { SymbolResolver } = await import("../symbols/resolver.js");
+      const { liveByteSource } = await import("../symbols/live-bytes.js");
+      const { nameRows } = await import("../symbols/structured.js");
+      const resolver = SymbolResolver.forProject(process.env.C64RE_PROJECT_DIR?.trim() || undefined);
+      const call = (m: string, p: Record<string, unknown>) => runtimeDaemon.call(m, p);
+      const bytes = liveByteSource(call, session_id);
+      let machine;
+      try {
+        const { machineFromReply } = await import("../symbols/monitor-names.js");
+        machine = machineFromReply(await call("monitor/state", { session_id }));
+      } catch { machine = undefined; }
+      const named = await nameRows(lines, [
+        { key: "addr", role: "pc" }, { key: "target", role: "target" }, { key: "operandAddr", role: "operand" },
+      ], { resolver, spaceOf: () => "c64", bytesFor: () => bytes, machine });
+      const hex = (n: number) => `$${n.toString(16).padStart(4, "0")}`;
+      const text = named.map((l) => {
+        const tags: string[] = [];
+        for (const key of ["addr", "target", "operandAddr"]) {
+          const n = l[`${key}Name`] as { text: string } | undefined;
+          if (n && typeof l[key] === "number") tags.push(`${hex(l[key] as number)}=${n.text}`);
+        }
+        return tags.length > 0 ? `${l.text}   ; ${tags.join("  ")}` : l.text;
+      }).join("\n");
+      return { content: [{ type: "text", text }] };
     }),
   );
 
@@ -334,16 +361,25 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Resolve PC (Spec 235) ----
   server.tool(
     "runtime_resolve_pc",
-    "Resolve a PC/address to its symbol / segment / source context. Use to label an address while debugging. Not for raw bytes (use runtime_monitor_memory). Inputs: session_id, address. Returns: resolved context.",
+    "Resolve a live PC/address to its name from the project's knowledge: the one name shown (origin user/build/derived, `name+$off` inside a routine), the payload it belongs to, every candidate at or around the address, and the RESIDENCY evidence — which payload's code bytes are in memory right now. A name whose payload is not in memory is not given (no match → no name). Use to label an address while debugging. Not for raw bytes (use runtime_monitor_memory). Inputs: session_id, pc, optional space (c64 | drive8), optional artifact_id (only that payload's names). Returns: resolution JSON.",
     {
       session_id: z.string(),
-      artifact_id: z.string(),
       pc: z.number(),
+      space: z.enum(["c64", "drive8"]).optional().describe("Which CPU the address belongs to (default c64)."),
+      artifact_id: z.string().optional().describe("Restrict to one payload (its artifact id or analysis stem)."),
     },
-    safeHandler("runtime_resolve_pc", async ({ session_id, artifact_id, pc }) => {
-      // Spec 806 step 2 — `resolvePc` is outside the narrow api/call allowlist, so
-      // it goes through the wide facade verb. Same method, same return shape.
-      const r = await callApiFull(session_id, "resolvePc", [artifact_id, pc]);
+    safeHandler("runtime_resolve_pc", async ({ session_id, artifact_id, pc, space }) => {
+      // Spec 804 — answered from the graph, not the runtime: TRX64 holds no symbols.
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { SymbolResolver } = await import("../symbols/resolver.js");
+      const { liveByteSource } = await import("../symbols/live-bytes.js");
+      const { machineFromReply } = await import("../symbols/monitor-names.js");
+      const { explainPc } = await import("../symbols/resolve-pc.js");
+      const call = (m: string, p: Record<string, unknown>) => runtimeDaemon.call(m, p);
+      let machine;
+      try { machine = machineFromReply(await call("monitor/state", { session_id })); } catch { machine = undefined; }
+      const resolver = SymbolResolver.forProject(process.env.C64RE_PROJECT_DIR?.trim() || undefined);
+      const r = await explainPc(resolver, { pc: pc & 0xffff, space: space ?? "c64", payload: artifact_id }, { bytes: liveByteSource(call, session_id), machine });
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     }),
   );
@@ -671,7 +707,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // ---- Trace store query (Spec 232) ----
   server.tool(
     "runtime_query_events",
-    "Query captured runtime trace events (cpu/mem/irq/drive/vic/cia) for a session or run. Use to find what happened during a run. Not for live registers (use runtime_monitor_registers). Inputs: session/run id, filters. Returns: matching events.",
+    "Query captured runtime trace events (cpu/mem/irq/drive/vic/cia) for a session or run. Use to find what happened during a run. Not for live registers (use runtime_monitor_registers). Each row's `pc`/`addr` is named per ROW (`pcName`/`addrName`, origin user/build/derived): residency is decided from the trace itself — the writes it recorded and the bytes it executed — so a payload loaded over another mid-trace names its own rows. Inputs: session/run id, filters. Returns: matching events.",
     {
       run_id: z.string(),
       family: z.string(),
@@ -691,7 +727,16 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       if (args.addr_start !== undefined && args.addr_end !== undefined) q.addrRange = [args.addr_start, args.addr_end];
       // Spec 802 — the runtime reads its own store; C64RE has no local reader.
       const rows = await daemonTraceRead<any[]>("query_events", args.duckdb_path, q);
-      return { content: [{ type: "text", text: `${rows.length} rows\n${JSON.stringify(rows.slice(0, 200), null, 2)}` }] };
+      // Spec 804 — names per row, residency from the trace's own writes and executions.
+      const { nameTraceRows } = await import("../symbols/trace-rows.js");
+      const { SymbolResolver } = await import("../symbols/resolver.js");
+      const { traceStoreFn } = await import("./trace-read.js");
+      const shown = rows.slice(0, 200);
+      const named = await nameTraceRows(shown, {
+        resolver: SymbolResolver.forProject(process.env.C64RE_PROJECT_DIR?.trim() || undefined),
+        query: (sql, limit) => traceStoreFn<unknown[][]>("safeQuery", args.duckdb_path, { sql, limit }),
+      });
+      return { content: [{ type: "text", text: `${rows.length} rows\n${JSON.stringify(named, null, 2)}` }] };
     }),
   );
 

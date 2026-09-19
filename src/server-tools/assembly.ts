@@ -6,7 +6,7 @@ import type { ServerToolContext } from "./types.js";
 export function registerAssemblyTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "assemble_source",
-    "Assemble a .asm (KickAssembler) or .tas (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG. Use to verify a disassembly rebuilds correctly. Not for generating the source (use disasm_prg). Inputs: source path, optional original PRG. Returns: assembled binary path + cmp result.",
+    "Assemble a .asm (KickAssembler) or .tas (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG. Use to verify a disassembly rebuilds correctly. Not for generating the source (use disasm_prg). Also writes the build's symbol file (`<output>.vs`, VICE label format) and registers it, so the live monitor names the build's addresses ([b]) while that build's bytes are in memory. Inputs: source path, optional original PRG. Returns: assembled binary path + cmp result + symbol file.",
     {
       source_path: z.string().describe("Path to the .asm or .tas source file"),
       assembler: z.enum(["auto", "kickassembler", "64tass"]).optional().describe("Assembler to use. auto selects KickAssembler for .asm and 64tass for .tas"),
@@ -22,6 +22,7 @@ export function registerAssemblyTools(server: McpServer, context: ServerToolCont
           assembler: assembler ?? "auto",
           outputPath: output_path,
           compareToPath: compare_to,
+          symbols: true,
         });
         const lines = [
           `Assembler: ${result.assembler}`,
@@ -29,6 +30,20 @@ export function registerAssemblyTools(server: McpServer, context: ServerToolCont
           `Output: ${result.outputPath}`,
           `Exit code: ${result.exitCode}`,
         ];
+        if (result.symbolsPath) {
+          // Spec 804 — the build layer: registered so the resolver finds it, never
+          // copied into the graph (a build's names are a fact about ITS bytes).
+          const reg = context.tryRegisterKnowledgeArtifacts(pd, {
+            toolName: "assemble_source",
+            title: `Build symbols: ${result.symbolsPath.replace(/^.*\//u, "")}`,
+            parameters: { source_path, output_path: result.outputPath },
+            outputs: [
+              { path: result.outputPath, kind: "prg", scope: "generated", role: "build-output", producedByTool: "assemble_source" },
+              { path: result.symbolsPath, kind: "other", scope: "generated", role: "build-symbols", format: "vice-labels", producedByTool: "assemble_source" },
+            ],
+          });
+          lines.push(`Symbols: ${result.symbolsPath}${reg.message ? ` (${reg.message})` : ""}`);
+        }
         if (result.compareToPath) {
           lines.push(`Compare target: ${result.compareToPath}`);
           lines.push(`Match: ${result.compareMatches ? "yes" : "no"}`);

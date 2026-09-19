@@ -14,7 +14,7 @@
  * the daemon (one commit across both repos). The client requires an EXACT match and
  * hard-fails otherwise — a stale/ahead daemon is a setup error, not a silent best-effort.
  */
-export const EXPECTED_RUNTIME_PROTOCOL = 1;
+export const EXPECTED_RUNTIME_PROTOCOL = 2;
 
 /** Parse the integer N out of a daemon version string like "trx64-runtime/1". */
 export function parseRuntimeProtocol(version: string | undefined | null): number | null {
