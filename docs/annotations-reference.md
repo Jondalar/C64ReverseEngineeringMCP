@@ -10,8 +10,8 @@ rename. It never overwrites a manual file.
 
 **Names are at most 20 characters** in a project created since 2026-09-19: `project_init`
 stamps `naming.maxLabelLength: 20` into `knowledge/project.json`, and `disasm_prg` refuses
-an annotations file with a longer label, routine or segment name before it renders anything
-(Spec 804 §4.5). A project without the stamp is not checked. Twenty is also the width of the
+an annotations file with a longer label, routine or segment name before it renders anything.
+A project without the stamp is not checked. Twenty is also the width of the
 monitor's label column, so in such a project no name ever wraps there.
 
 ## Field shape
@@ -58,7 +58,7 @@ monitor's label column, so in such a project no name ever wraps there.
 
 Hex may be written `0810` or `$0810` — the loader strips a leading `$`.
 
-## Relocated code: which address did you write? (Spec 842)
+## Relocated code: which address did you write?
 
 A self-relocating loader is **stored** at one address and **runs** at another, so a byte
 in it has two addresses and both are real. When you pass `relocations` to `disasm_prg`,
@@ -100,7 +100,7 @@ and the rest still apply. `disasm_prg` reports it:
 If you expected more annotations to apply, check that `skipped` line — a wrong field key
 is dropped, not applied.
 
-## With and without an `analysis_json` (Spec 833)
+## With and without an `analysis_json`
 
 `disasm_prg` renders either way, and the annotations apply either way — but not all
 of them:
@@ -127,7 +127,7 @@ quotes that line back as `Listing: …`:
 The `Graph:` line beside it is about the knowledge graph, not about the listing — a
 graph import that says "unchanged" is not a statement that the names reached the ASM.
 
-## An entry point inside another instruction (Spec 830)
+## An entry point inside another instruction
 
 The 6502 multi-entry idiom uses `BIT` as a skip, so several entries set a
 different register and fall into one body:
