@@ -8,6 +8,7 @@ import { runCli } from "../run-cli.js";
 import { assembleSource } from "../assemble-source.js";
 import { suggestDepackers } from "../compression-tools.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { annotationNames, maxLabelLength, namesTooLong, tooLongMessage } from "../project-knowledge/naming.js";
 import { runAndFormatClosedLoopSweep } from "./closed-loop-sweep.js";
 import { runPayloadReverseWorkflow, runPrgReverseWorkflow, renderPrgReverseWorkflowResult } from "../lib/prg-workflow.js";
 import { safeHandler } from "./safe-handler.js";
@@ -383,7 +384,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "disasm_prg",
-    "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze_prg / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze_prg) or for menus/multi-file containers (use disasm_menu). A `<stem>_annotations.json` next to the PRG/ASM is auto-applied: names (labels, routines, a segment's `label`) apply with or without `analysis_json`, while segment kinds and pointer/jump/immediate tables need `analysis_json` — the listing's header line says which happened, and the tool output quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, platform, relocations. Returns: .asm/.tas artifact paths.",
+    "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze_prg / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze_prg) or for menus/multi-file containers (use disasm_menu). A `<stem>_annotations.json` next to the PRG/ASM is auto-applied: names (labels, routines, a segment's `label`) apply with or without `analysis_json`, while segment kinds and pointer/jump/immediate tables need `analysis_json` — the listing's header line says which happened, and the tool output quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild. In a project created since 2026-09-19 (project_init stamps it) no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered, and the refusal names every offender. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, platform, relocations. Returns: .asm/.tas artifact paths.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from prg_path to knowledge/phase-plan.json."),
       prg_path: z.string().describe("Path to the .prg file"),
@@ -424,6 +425,32 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           // best effort
         }
       }
+      // The names an annotations file would store are checked BEFORE rendering, so the
+      // listing and the graph never disagree: a project created since 2026-09-19 stores no
+      // name over its limit (src/project-knowledge/naming.ts), and a refusal writes nothing.
+      const annotationsPathPre = outAbs.replace(/\.asm$/i, "_annotations.json");
+      const annotationCandidates = [
+        annotationsPathPre,
+        prgAbs.replace(/\.[^./]+$/, "_annotations.json"),
+        // …and beside the OUTPUT under the PRG's name, which is where
+        // `propose_annotations` leaves its draft. Same addition as the renderer's.
+        join(dirname(outAbs), basename(prgAbs).replace(/\.[^./]+$/, "") + "_annotations.json"),
+        ...(analysis_json ? [resolve(pd, analysis_json).replace(/\.[^./]+$/, "_annotations.json")] : []),
+        join(dirname(outAbs), "annotations.json"),
+        join(dirname(prgAbs), "annotations.json"),
+      ];
+      {
+        const limit = maxLabelLength(pd);
+        const file = limit === undefined ? undefined : annotationCandidates.find((candidate) => existsSync(candidate));
+        if (limit !== undefined && file) {
+          let names: string[] = [];
+          try { names = annotationNames(JSON.parse(readFileSync(file, "utf8"))); } catch { /* the renderer reports a broken file */ }
+          const long = namesTooLong(names, limit);
+          if (long.length > 0) {
+            return { content: [{ type: "text" as const, text: `# disasm_prg refused\n\n${file}\n${tooLongMessage(long, limit)}` }] };
+          }
+        }
+      }
       // Spec 741: hand the relocation map to the pipeline via a temp JSON
       // file referenced by --relocations (kept off the positional args).
       let relocationsFile: string | undefined;
@@ -455,16 +482,6 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         // therefore produced "NEXT STEP: create an annotations file" printed
         // over a listing that had just applied them. Same resolution order as
         // the renderer, so the wrapper and the thing it wraps agree.
-        const annotationCandidates = [
-          annotationsPath,
-          prgAbs.replace(/\.[^./]+$/, "_annotations.json"),
-          // …and beside the OUTPUT under the PRG's name, which is where
-          // `propose_annotations` leaves its draft. Same addition as the renderer's.
-          join(dirname(outAbs), basename(prgAbs).replace(/\.[^./]+$/, "") + "_annotations.json"),
-          ...(analysis_json ? [resolve(pd, analysis_json).replace(/\.[^./]+$/, "_annotations.json")] : []),
-          join(dirname(outAbs), "annotations.json"),
-          join(dirname(prgAbs), "annotations.json"),
-        ];
         const foundAnnotationsPath = annotationCandidates.find((candidate) => existsSync(candidate));
         const hasAnnotations = foundAnnotationsPath !== undefined;
         const tassPath = outAbs.replace(/\.asm$/i, ".tas");

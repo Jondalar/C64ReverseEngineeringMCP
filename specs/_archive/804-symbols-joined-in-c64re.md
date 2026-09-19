@@ -252,9 +252,13 @@ the trace captured memory writes. Conflicting evidence for one byte → unknown 
 ### 4.3 Surfaces
 
 - **`runtime_monitor`** — substitution (§2) before `monitor/exec`; decoration (§2) after.
-  Text: the name is inserted right after a point span as ` <name[o]>`; names inside a range
-  span (a dump row) are appended at the line's end as `; +$03 name[o]`. The structured
-  result carries every resolved span.
+  Text: two FIXED columns (owner, 2026-09-19, paging through `d`: the first cut inserted
+  ` <name[o]>` after the address and the longest label on a page moved every column). A
+  line's own address gets a **label column** of 20 right after it — blank without a label;
+  a longer name continues underneath in the same column, broken after an `_`. Every other
+  name — a branch target, an operand, the names inside a dump row — goes to the
+  **annotation column** from 52 on as `; name[o]`. The structured result carries every
+  resolved span.
 - **`runtime_monitor_disasm`** — each line's `addr`, `target`, `operandAddr` resolved; names
   appended as `; $xxxx=name[o]` without touching TRX64's text.
 - **`runtime_resolve_pc`** — answered from the graph, not the daemon: the name at / around
@@ -263,8 +267,9 @@ the trace captured memory writes. Conflicting evidence for one byte → unknown 
 - **`runtime_query_events`** — every row's `pc` / `addr` resolved per row (§4.2 traces).
 - **The workbench monitor** (Live tab, freeze, the MON pop-out) goes through
   `POST /api/monitor/exec` on the C64RE server — the same substitute → exec → decorate
-  path — and renders each name at its span, coloured by origin, numeric addresses
-  untouched. Only when that route does not exist at all (a bare runtime UI) does it ask the
+  path. The server lays the columns out once, for every reply; the workbench gets the
+  laid-out text plus marks (where each name sits, and its origin) and only colours them —
+  no tags there, the colour is the origin. Numeric addresses untouched. Only when that route does not exist at all (a bare runtime UI) does it ask the
   runtime directly, without names; any other failure is reported, never retried, because
   the command may already have run.
 - **`assemble_source`** asks KickAssembler for `-vicesymbols` and 64tass for
@@ -290,6 +295,23 @@ the trace captured memory writes. Conflicting evidence for one byte → unknown 
 6. `runtime_resolve_pc` makes no daemon `resolvePc` call; nothing in `src/` calls it.
 7. Gates: `npm run build`, the new smokes, the tool-surface check (regenerated),
    `npm run check:docs-current`, and the touched existing smokes.
+
+### 4.5 A name fits its column — new projects only
+
+The owner, looking at the monitor: "bei store eines Labels verweigere in Zukunft alles > 20
+Zeichen … dann kommt es auch gar nicht mehr vor", and on which projects: "nur für neue
+Projekte". Measured first on Ultima VI: 1 793 human names, 56 % ≤ 16, 80 % ≤ 20, the
+longest 36 — 359 over 20, and its annotation files are re-imported on every `disasm_prg`.
+
+- `project_init` stamps `naming.maxLabelLength: 20` into `knowledge/project.json` of a
+  project it **creates**; re-running it keeps what the project had, so an older project
+  never gains the rule (`src/project-knowledge/naming.ts`).
+- Every door that stores a name checks the stamp: `saveUserLabel`, the graph's `nameNode`,
+  and `disasm_prg` — which checks the annotations file's labels, routine names and segment
+  labels **before** it renders, so a refusal writes nothing and the listing and the graph
+  never disagree. The refusal names every offender with its length.
+- The monitor's label column is the same number, so in a project with the rule no name
+  wraps; the wrap stays for older projects and for build symbols, which are not stored.
 
 ## 5. Deliberate changes to existing output
 
@@ -372,6 +394,16 @@ name at its span.
   TRX64 worktree (one allowlist entry retired: C64RE now reaches `session/read_memory`).
   `probe-tool-surface` is red on two checks that were red before this branch and name none
   of the tools it touched.
+
+**After the first look in the workbench (2026-09-19).** The monitor layout became the two
+fixed columns of §4.3 (label 20, annotation from 52; a longer name wraps inside its
+column), laid out once on the server with marks for the workbench to colour; and §4.5's
+naming rule. `smoke-804-resolver` 45/0, `smoke-804-monitor` 25/0, `smoke-804-naming` 11/0
+(new, in CI: a project created now refuses a 22-character name at `saveUserLabel`,
+`nameNode` and `disasm_prg` — before any listing is written — and stores 20; a project
+without the stamp stores 22 as before). `test:project-knowledge`, `e2e:844-slots`,
+`e2e:844-teeth`, `e2e:845-model`, `e2e:846-critic`, `e2e:847-docs`, `e2e:848-contract`
+green.
 
 ## 9. Background — how VICE does it (VICE 3.10 `src/monitor/`)
 

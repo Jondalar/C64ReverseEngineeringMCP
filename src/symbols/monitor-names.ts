@@ -13,6 +13,7 @@
 //           function, the same for every reply.
 
 import { formatName, SymbolResolver } from "./resolver.js";
+import { DEFAULT_MAX_LABEL_LENGTH } from "../project-knowledge/naming.js";
 import { liveByteSource, type RuntimeCall } from "./live-bytes.js";
 import type { MachineState, Resolution, ResolvedName, RuntimeSpace } from "./types.js";
 
@@ -244,7 +245,7 @@ export function wrapLabel(label: string, width: number): string[] {
  * 2026-09-19: "bei store eines Labels verweigere alles > 20 Zeichen"). A longer one —
  * stored before the rule, or a build symbol — continues underneath, in the same column.
  */
-export const LABEL_WIDTH = 20;
+export const LABEL_WIDTH = DEFAULT_MAX_LABEL_LENGTH;
 /** Where the annotation column starts (`; name`); a longer line pushes only its own. */
 export const ANNOTATION_COLUMN = 52;
 

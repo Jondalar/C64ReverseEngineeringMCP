@@ -1,3 +1,4 @@
+import { DEFAULT_MAX_LABEL_LENGTH } from "./naming.js";
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -804,6 +805,9 @@ export class ProjectKnowledgeService {
       status: existing?.status ?? "active",
       preferredAssembler: input.preferredAssembler ?? existing?.preferredAssembler,
       tags: uniqueStrings(input.tags ?? existing?.tags),
+      // A project created now gets the naming rule; one that already existed keeps what it
+      // had — the rule is for new projects only (naming.ts).
+      ...(existing ? (existing.naming ? { naming: existing.naming } : {}) : { naming: { maxLabelLength: DEFAULT_MAX_LABEL_LENGTH } }),
       createdAt,
       updatedAt,
     };

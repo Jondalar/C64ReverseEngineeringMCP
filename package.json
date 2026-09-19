@@ -95,6 +95,7 @@
     "smoke:860": "npm run build:mcp && node scripts/smoke-860-frame-map.mjs",
     "smoke:804": "npm run build && node scripts/smoke-804-resolver.mjs",
     "smoke:804-monitor": "npm run build && node scripts/smoke-804-monitor.mjs",
+    "smoke:804-naming": "npm run build && node scripts/smoke-804-naming.mjs",
     "e2e:024": "npm run build:mcp && node scripts/e2e-024-payload-rich.mjs",
     "smoke:026": "npm run build:mcp && node scripts/smoke-026-keymap.mjs",
     "build:fingerprints": "npm run build:mcp && node scripts/build-fingerprint-library.mjs",

@@ -732,6 +732,8 @@ export const ProjectMetadataSchema = z.object({
   status: ProjectStatusSchema.default("active"),
   preferredAssembler: PreferredAssemblerSchema.optional(),
   tags: z.array(z.string()).default([]),
+  /** Stamped by project_init on a project it creates (src/project-knowledge/naming.ts). */
+  naming: z.object({ maxLabelLength: z.number().int().positive() }).optional(),
   createdAt: TimestampSchema,
   updatedAt: TimestampSchema,
 });

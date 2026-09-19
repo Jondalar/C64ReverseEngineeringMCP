@@ -10,6 +10,7 @@
 // Every door takes a project directory (opens and closes the store around the
 // call) or an open GraphStore (one connection per process for its lifetime).
 
+import { assertNamesFit } from "../../project-knowledge/naming.js";
 import { randomBytes } from "node:crypto";
 import { dirname } from "node:path";
 import { deriveProjectId, deriveSubsystemId, parseId, type ProjectIdParts } from "../ids.js";
@@ -117,6 +118,7 @@ export interface NameNodeInput {
  * answers with this one (D1). Re-analysis never issues a statement against it.
  */
 export function nameNode(target: StoreTarget, input: NameNodeInput): NodeRow {
+  if (typeof target === "string") assertNamesFit(target, [input.name]);
   return withStore(target, (store) => {
     const id = input.id ?? deriveProjectId(input.parts!);
     const now = new Date().toISOString();

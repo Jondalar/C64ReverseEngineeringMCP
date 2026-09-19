@@ -17,6 +17,7 @@
 // migration ledger (`migration_log`) is the alias table, and a door write with
 // an unknown alias records it there, so the next lookup by that alias lands.
 
+import { assertNamesFit } from "../project-knowledge/naming.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseSync } from "../platform-kb/sqlite-quiet.js";
@@ -1012,6 +1013,7 @@ export class KnowledgeRecords {
   }
 
   saveUserLabel(input: { id?: string; label: string; address?: number; addressRange?: AddressRange; note?: string; targetKind?: UserLabelOverride["targetKind"]; targetId?: string }): UserLabelOverride {
+    assertNamesFit(this.projectDir, [input.label]);
     const now = new Date().toISOString();
     const slug = this.slug();
     const rangeIn = input.addressRange ?? (input.address !== undefined ? { start: input.address & 0xffff, end: input.address & 0xffff } : undefined);
