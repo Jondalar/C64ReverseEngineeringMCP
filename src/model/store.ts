@@ -92,29 +92,38 @@ export async function listBoundaries(projectDir: string): Promise<ModelNode[]> {
   let store;
   try { store = GraphStore.open(projectDir, { readOnly: true }); } catch { return []; }
   try {
-    const rows = store.db.prepare(
-      "SELECT id, name, attrs, evidence FROM nodes WHERE kind = 'container' ORDER BY id",
-    ).all() as Array<{ id: string; name: string | null; attrs: string; evidence: string }>;
-    return rows.map((r) => {
-      const a = safeJson<Record<string, unknown>>(r.attrs, {});
-      const num = (v: unknown, d: number) => (typeof v === "number" ? v : d);
-      return {
-        id: r.id,
-        name: r.name ?? r.id,
-        level: (typeof a.level === "string" ? a.level : "container") as ModelLevel,
-        space: typeof a.space === "string" ? a.space : "ram",
-        owner: typeof a.owner === "string" ? a.owner : null,
-        bank: typeof a.bank === "number" ? a.bank : null,
-        start: num(a.start, 0),
-        end: num(a.end, num(a.start, 0)),
-        description: typeof a.description === "string" ? a.description : "",
-        evidence: safeJson<string[]>(r.evidence, []),
-        ...(typeof a.slot === "string" ? { slot: a.slot } : {}),
-      };
-    }).sort((x, y) => x.start - y.start || x.id.localeCompare(y.id));
+    return readBoundaries(store.db);
   } finally {
     store.close();
   }
+}
+
+/**
+ * The model boundaries of an open graph. Shared with the project search (Spec 740.3 D1):
+ * a container's range lives in attrs, not in the node's address, and a reader that
+ * forgot that would place every boundary at $0000.
+ */
+export function readBoundaries(db: { prepare(sql: string): { all(...params: unknown[]): unknown[] } }): ModelNode[] {
+  const rows = db.prepare(
+    "SELECT id, name, attrs, evidence FROM nodes WHERE kind = 'container' ORDER BY id",
+  ).all() as Array<{ id: string; name: string | null; attrs: string; evidence: string }>;
+  return rows.map((r) => {
+    const a = safeJson<Record<string, unknown>>(r.attrs, {});
+    const num = (v: unknown, d: number) => (typeof v === "number" ? v : d);
+    return {
+      id: r.id,
+      name: r.name ?? r.id,
+      level: (typeof a.level === "string" ? a.level : "container") as ModelLevel,
+      space: typeof a.space === "string" ? a.space : "ram",
+      owner: typeof a.owner === "string" ? a.owner : null,
+      bank: typeof a.bank === "number" ? a.bank : null,
+      start: num(a.start, 0),
+      end: num(a.end, num(a.start, 0)),
+      description: typeof a.description === "string" ? a.description : "",
+      evidence: safeJson<string[]>(r.evidence, []),
+      ...(typeof a.slot === "string" ? { slot: a.slot } : {}),
+    };
+  }).sort((x, y) => x.start - y.start || x.id.localeCompare(y.id));
 }
 
 export async function removeBoundary(projectDir: string, id: string): Promise<boolean> {

@@ -10,7 +10,7 @@
 // existing document is therefore undeclared on day one, which a check has to present as a
 // BACKLOG — something to work through — and not as a hundred failures.
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { join, relative, basename } from "node:path";
 import { parseFrontmatter, type Frontmatter } from "./frontmatter.js";
 
@@ -34,39 +34,59 @@ export interface ScannedDoc {
 
 export function scanDocs(projectDir: string): ScannedDoc[] {
   const out: ScannedDoc[] = [];
-  for (const dir of findDocsDirs(projectDir)) {
-    for (const file of walkMarkdown(dir)) {
-      let text = "";
-      try { text = readFileSync(file, "utf8"); } catch { continue; }
-      const parsed = parseFrontmatter(text);
-      const rel = relative(projectDir, file);
-      out.push({
-        path: rel,
-        name: basename(file),
-        bytes: text.length,
-        ...(parsed.frontmatter ? { frontmatter: parsed.frontmatter } : {}),
-        ...(parsed.error ? { error: parsed.error } : {}),
-        declared: !!parsed.frontmatter,
-        generated: GENERATED_NAMES.has(basename(file)) || parsed.frontmatter?.kind === "generated",
-      });
-    }
+  for (const file of listDocFiles(projectDir)) {
+    let text = "";
+    try { text = readFileSync(file, "utf8"); } catch { continue; }
+    const parsed = parseFrontmatter(text);
+    const rel = relative(projectDir, file);
+    out.push({
+      path: rel,
+      name: basename(file),
+      bytes: text.length,
+      ...(parsed.frontmatter ? { frontmatter: parsed.frontmatter } : {}),
+      ...(parsed.error ? { error: parsed.error } : {}),
+      declared: !!parsed.frontmatter,
+      generated: GENERATED_NAMES.has(basename(file)) || parsed.frontmatter?.kind === "generated",
+    });
   }
   return out.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/**
+ * The document set, as absolute paths, without reading a byte of any of them.
+ *
+ * `scanDocs` is built on this, and so is Spec 740.3's cache fingerprint: the search asks
+ * "did any document change since I was built" against exactly the files the critic and
+ * the index read, never against a second walk that could disagree about what a document is.
+ */
+export function listDocFiles(projectDir: string): string[] {
+  const out: string[] = [];
+  for (const dir of findDocsDirs(projectDir)) out.push(...walkMarkdown(dir));
+  return out;
+}
+
+/**
+ * Is this entry a directory? The entry type from `readdir` answers it without a `stat`,
+ * except for a symlink, which is followed as before. Spec 740.3 walks this tree on every
+ * search to see whether a document changed: on Ultima VI (12 700 entries) a `stat` per
+ * entry cost ~90 ms of every answer, the entry type costs next to nothing.
+ */
+function isDirEntry(parent: string, e: Dirent): boolean | undefined {
+  if (!e.isSymbolicLink()) return e.isDirectory();
+  try { return statSync(join(parent, e.name)).isDirectory(); } catch { return undefined; }
 }
 
 /** Every `docs/` directory in the tree, at any depth. */
 export function findDocsDirs(root: string, depth = 0): string[] {
   if (depth > 5 || !existsSync(root)) return [];
   const found: string[] = [];
-  let entries: string[];
-  try { entries = readdirSync(root); } catch { return []; }
+  let entries: Dirent[];
+  try { entries = readdirSync(root, { withFileTypes: true }); } catch { return []; }
   for (const e of entries) {
-    if (SKIP_DIRS.has(e) || e.startsWith(".")) continue;
-    const p = join(root, e);
-    let isDir = false;
-    try { isDir = statSync(p).isDirectory(); } catch { continue; }
-    if (!isDir) continue;
-    if (e === "docs") found.push(p);
+    if (SKIP_DIRS.has(e.name) || e.name.startsWith(".")) continue;
+    if (!isDirEntry(root, e)) continue;
+    const p = join(root, e.name);
+    if (e.name === "docs") found.push(p);
     else found.push(...findDocsDirs(p, depth + 1));
   }
   return found;
@@ -75,15 +95,15 @@ export function findDocsDirs(root: string, depth = 0): string[] {
 function walkMarkdown(dir: string, depth = 0): string[] {
   if (depth > 4) return [];
   const out: string[] = [];
-  let entries: string[];
-  try { entries = readdirSync(dir); } catch { return []; }
+  let entries: Dirent[];
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return []; }
   for (const e of entries) {
-    if (SKIP_DIRS.has(e) || e.startsWith(".")) continue;
-    const p = join(dir, e);
-    let st;
-    try { st = statSync(p); } catch { continue; }
-    if (st.isDirectory()) out.push(...walkMarkdown(p, depth + 1));
-    else if (e.toLowerCase().endsWith(".md")) out.push(p);
+    if (SKIP_DIRS.has(e.name) || e.name.startsWith(".")) continue;
+    const isDir = isDirEntry(dir, e);
+    if (isDir === undefined) continue;
+    const p = join(dir, e.name);
+    if (isDir) out.push(...walkMarkdown(p, depth + 1));
+    else if (e.name.toLowerCase().endsWith(".md")) out.push(p);
   }
   return out;
 }
