@@ -1,6 +1,6 @@
 # Spec 860 — The frozen frame as a view
 
-**Status:** BUILT 2026-09-19 — on `spec-843-inspect` in both repos, not merged. See §6.
+**Status:** BUILT 2026-09-19 — merged the same day, released in TRX64 0.8.0. See §6.
 **Repos:** C64RE (the view), TRX64 (the frame map the view draws from).
 **Number:** 860 (registry: `specs/README.md`).
 **Builds on:** 843 (click a pixel, name the thing), 859 (the line as the VIC saw it). Same

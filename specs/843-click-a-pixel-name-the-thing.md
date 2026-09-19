@@ -1,7 +1,6 @@
 # Spec 843 — Click a pixel, name the thing
 
-**Status:** **BUILT 2026-09-11** — D1–D11
-**Branch:** `spec-843-inspect`
+**Status:** **BUILT 2026-09-11** — D1–D11; merged 2026-09-19 with 859/860, released in TRX64 0.8.0
 **Repos:** C64RE (the overlay, the persistence) + TRX64 (per-line provenance, the byte payload)
 **Origin:** the owner, on the frozen Live screen: *"Ich wollte gerne im Freeze-State
 egal wohin klicken können, sehen woher die Pixel kommen und Annotationen machen."*

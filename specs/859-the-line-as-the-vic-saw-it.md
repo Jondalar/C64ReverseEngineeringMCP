@@ -1,7 +1,8 @@
 # Spec 859 — The line as the VIC saw it
 
-**Status:** BUILT 2026-09-18 — on `spec-843-inspect` in both repos, not merged (the owner's
-call: it belongs to the frozen-screen inspector and ships with it). See §5.
+**Status:** BUILT 2026-09-18 — built on `spec-843-inspect` (the owner's call: it belongs to
+the frozen-screen inspector and ships with it), merged 2026-09-19, released in TRX64 0.8.0.
+See §5.
 **Repos:** TRX64 records (capability), C64RE shows (meaning).
 **Number:** 859 (registry: `specs/README.md`).
 **Origin:** the owner, 2026-09-18, on [vicspector](https://github.com/elysium64/vicspector)
