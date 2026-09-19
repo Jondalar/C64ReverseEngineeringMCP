@@ -83,10 +83,19 @@ is shared.
   shapes the picture (`$D011`, `$D016`, `$D018`, `$D020`–`$D024`, sprite registers) landing
   inside the visible part of its line, where it changes the picture mid-line. The mark sits at
   the pixel the change starts at.
-- The 15 cycles of a line outside the visible window (sprite pointers, refresh, the start of
-  the bad-line BA) have no pixels to sit on: a mark in the left margin says the line had BA or
-  a stall there, and the line strip shows them.
-- Hover a cell: line, cycle and the record's summary in the right column. Click a cell:
+- The grid is the whole line, all 63 cycles — every line can be worked on across its full
+  width (the owner: *"von links Border 1. Pixel bis Ende Border … jede dieser Zeilen kann
+  bearbeitet werden, komplett"*). Cycles 15–62 lie over the picture, from the first pixel of
+  the left border to the last of the right, where the beam draws them. Cycles 1–14 and 63 are
+  horizontal blanking — no pixel, but sprite pointers 3–7, refresh, the start of a bad line's
+  BA and many `$D011` stores happen there — and are drawn beside the picture at half width, 1–14
+  to the left, 63 to the right. A click there selects the cycle and opens the line strip on it.
+- The columns are the beam's time, not the pixels a fetch produces: the c- and g-accesses of a
+  character column come 3–4 cycles before its pixels (the VIC's pipeline), so the bad-line
+  strip starts at the left border while the picture starts 32 pixels later. That is what the
+  chip does, and it is where a store lands.
+- Hover a cell: line, cycle and the record's summary in the right column; the ruler (cycle
+  numbers along the top, line numbers down the left) shows while the pointer is on the grid. Click a cell:
   859's 63-cycle strip for that line in the dock under the screen, the cycle selected.
 
 **D8 — Techniques are named by rules, as a deterministic basis.** The owner: *"bei dieser
@@ -196,3 +205,9 @@ there and fixed: the dock squeezed the screen to 35 px (every child of the Live 
 column shrinks; the grid now fills the rest with a 52 vh floor and the dock scrolls inside
 38 vh), and on an empty paused screen the "Show the current frame" button sat under the
 overlay — the view now fetches the frame when it opens.
+
+**The whole line (2026-09-19, the owner's review).** The first cut covered the 48 cycles over
+the picture and put the 15 blanking cycles into a margin mark; the owner asked for every line
+across its full width. The canvas now extends beside the picture: blanking cycles 1–14 to the
+left and 63 to the right at half width, technique lanes outside them, a stronger line at the
+picture's edges, the ruler on hover at a fixed on-screen size.

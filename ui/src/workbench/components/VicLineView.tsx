@@ -70,9 +70,11 @@ interface Props {
   line: number;
   /** The clicked pixel's framebuffer column, to mark the cycle that drew it. */
   fbX?: number | null;
+  /** Spec 860 — a cycle clicked in the grid (the blanking included): open on it. */
+  cycle?: number | null;
 }
 
-export function VicLineView({ sessionId, checkpointId, line: initialLine, fbX }: Props): React.JSX.Element {
+export function VicLineView({ sessionId, checkpointId, line: initialLine, fbX, cycle: initialCycle }: Props): React.JSX.Element {
   const [line, setLine] = useState(initialLine);
   const [data, setData] = useState<{ frame: FrameHeader; line: Line } | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -105,7 +107,7 @@ export function VicLineView({ sessionId, checkpointId, line: initialLine, fbX }:
     return c ? c.c : null;
   }, [data, fbX, line, initialLine]);
 
-  useEffect(() => { setSel(drawnBy); }, [drawnBy]);
+  useEffect(() => { setSel(drawnBy ?? (line === initialLine ? initialCycle ?? null : null)); }, [drawnBy, initialCycle, line, initialLine]);
 
   const go = (n: number) => {
     const v = Math.max(0, Math.min(311, n));

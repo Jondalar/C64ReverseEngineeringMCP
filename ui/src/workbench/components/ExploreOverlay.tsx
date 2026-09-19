@@ -225,14 +225,31 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
   };
 
   const cycleX = fmap?.geometry.cycleX ?? [];
-  /** The cycle whose draw produced visible column x. */
+  // The grid is the whole line, all 63 cycles. 48 of them draw the visible picture, left
+  // border to right border (8 pixels each, where the draw put them). The other 15 — cycles
+  // 1–14 and 63 — are in horizontal blanking and have no pixel, but they are where sprite
+  // pointers, refresh, the start of a bad line's BA and many $D011 stores happen. They are
+  // drawn beside the picture, 1–14 to the left and 63 to the right, at half width.
+  const HB_W = 4;
+  const nLanes = fmap ? new Set(fmap.techniques.map((t) => t.rule)).size : 0;
+  const LANES_W = nLanes > 0 ? nLanes * 3 + 2 : 0;
+  const EXT_L = 14 * HB_W + LANES_W;
+  const EXT_R = HB_W;
+  const colOf = useCallback((c: number): { x: number; w: number } => {
+    const cx = cycleX[c - 1];
+    if (cx != null) return { x: cx, w: 8 };
+    if (c <= 14) return { x: -(15 - c) * HB_W, w: HB_W };
+    return { x: 384 + (c - 63) * HB_W, w: HB_W };
+  }, [cycleX]);
+  /** The cycle whose column holds x (visible-frame x; negative is the blanking at the left). */
   const cycleAt = useCallback((x: number): number | null => {
-    for (let i = 0; i < cycleX.length; i++) {
-      const cx = cycleX[i];
-      if (cx != null && x >= cx && x < cx + 8) return i + 1;
+    if (!fmap) return null;
+    for (let c = 1; c <= 63; c++) {
+      const col = colOf(c);
+      if (x >= col.x && x < col.x + col.w) return c;
     }
     return null;
-  }, [cycleX]);
+  }, [colOf, fmap]);
 
   const objectAt = (x: number, y: number): FrameObject | null => {
     if (!fmap || !objectsOn) return null;
@@ -266,6 +283,14 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
         const v = dragging.start;
         const line = Math.floor(v.y) + FB_ORIGIN.y;
         const cyc = cycleAt(v.x);
+        if (v.x < 0 || v.x >= 384) {
+          // Horizontal blanking: a cycle with no pixel. It has a line and a cycle, not a
+          // byte on the screen — select the cell and open the line strip on it.
+          setSelCell({ line, cycle: cyc, fbX: null });
+          onSelection(null);
+          setStatus(`line ${line}, cycle ${cyc ?? "?"} — horizontal blanking, no pixel`);
+          return;
+        }
         setSelCell({ line, cycle: cyc, fbX: Math.floor(v.x) + FB_ORIGIN.x });
         const obj = objectAt(v.x, v.y);
         setSelObject(obj);
@@ -367,7 +392,7 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
     const cv = canvasRef.current;
     if (!cv || !fmap) return;
     const dpr = window.devicePixelRatio || 1;
-    const W = Math.round(384 * img.scale * dpr), H = Math.round(272 * img.scale * dpr);
+    const W = Math.round((EXT_L + 384 + EXT_R) * img.scale * dpr), H = Math.round(272 * img.scale * dpr);
     if (cv.width !== W) cv.width = W;
     if (cv.height !== H) cv.height = H;
     const g = cv.getContext("2d");
@@ -375,7 +400,8 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, W, H);
     const k = img.scale * dpr;
-    g.setTransform(k, 0, 0, k, 0, 0);
+    // C64 visible-frame coordinates: x = 0 is the first pixel of the left border.
+    g.setTransform(k, 0, 0, k, EXT_L * k, 0);
     const px = 1 / k; // one device pixel, in C64 pixels
     const b = fmap.cellBits;
     const a = opacity;
@@ -385,30 +411,40 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
       const row = fmap.cells[vy + FB_ORIGIN.y];
       if (!row) continue;
       for (let i = 0; i < 63; i++) {
-        const cx = cycleX[i];
-        if (cx == null) continue;
+        const col = colOf(i + 1);
         const v = row[i];
         const fill = v & b.sAccess ? CELL_FILL[0] : v & b.cAccess ? CELL_FILL[1] : v & b.stall ? CELL_FILL[2] : v & b.ba ? CELL_FILL[3] : null;
         if (!fill) continue;
         g.fillStyle = `rgba(${fill.rgb},${(0.55 * a).toFixed(3)})`;
-        g.fillRect(cx, vy, 8, 1);
+        g.fillRect(col.x, vy, col.w, 1);
       }
     }
+    // The blanking columns get a faint ground, so they read as part of the line.
+    g.fillStyle = `rgba(120,120,160,${(0.12 * a).toFixed(3)})`;
+    g.fillRect(-14 * HB_W, 0, 14 * HB_W, 272);
+    g.fillRect(384, 0, EXT_R, 272);
     // Guide lines: every cycle, and at every character row (the frame's own bad lines).
     g.strokeStyle = `rgba(200,200,230,${(0.28 * a).toFixed(3)})`;
     g.lineWidth = px;
     g.beginPath();
-    for (const cx of cycleX) {
-      if (cx == null) continue;
-      g.moveTo(cx, 0); g.lineTo(cx, 272);
+    for (let c = 1; c <= 63; c++) {
+      const col = colOf(c);
+      g.moveTo(col.x, 0); g.lineTo(col.x, 272);
     }
     const bad = fmap.lines.filter((l) => l.badLine).map((l) => l.line);
     const rows = bad.length > 0 ? bad : Array.from({ length: 40 }, (_, i) => i * 8);
     for (const l of rows) {
       const vy = l - FB_ORIGIN.y;
       if (vy < 0 || vy > 272) continue;
-      g.moveTo(0, vy); g.lineTo(384, vy);
+      g.moveTo(-14 * HB_W, vy); g.lineTo(384 + EXT_R, vy);
     }
+    g.stroke();
+    // Where the picture begins and ends.
+    g.strokeStyle = `rgba(220,220,255,${Math.min(1, 0.25 + 0.5 * a).toFixed(3)})`;
+    g.lineWidth = 1.5 * px;
+    g.beginPath();
+    g.moveTo(0, 0); g.lineTo(0, 272);
+    g.moveTo(384, 0); g.lineTo(384, 272);
     g.stroke();
     // Techniques: bars in the left border, one lane per rule. A mid-line change is not a
     // range of lines — it happens on the lines that carry a store — so it gets a tick on
@@ -421,7 +457,7 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
       if (t.rule === "mid_line") return;
       const y0 = t.lines[0] - FB_ORIGIN.y, y1 = t.lines[1] - FB_ORIGIN.y + 1;
       if (y1 < 0 || y0 > 272) return;
-      g.fillRect(1 + lane * 3, Math.max(0, y0), 2, Math.max(1, Math.min(272, y1) - Math.max(0, y0)));
+      g.fillRect(-EXT_L + 1 + lane * 3, Math.max(0, y0), 2, Math.max(1, Math.min(272, y1) - Math.max(0, y0)));
     });
     const midLane = lanes.indexOf("mid_line");
     if (midLane >= 0) {
@@ -429,17 +465,16 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
       for (const w of fmap.writes) {
         if (!w.midLine) continue;
         const vy = w.line - FB_ORIGIN.y;
-        if (vy >= 0 && vy < 272) g.fillRect(1 + midLane * 3, vy - 1, 2, 3);
+        if (vy >= 0 && vy < 272) g.fillRect(-EXT_L + 1 + midLane * 3, vy - 1, 2, 3);
       }
     }
     g.globalAlpha = 1;
     // Stores that reached the VIC, where they land.
     for (const w of fmap.writes) {
-      if (w.x == null) continue;
       const vy = w.line - FB_ORIGIN.y;
       if (vy < 0 || vy >= 272) continue;
       g.fillStyle = w.midLine ? "rgba(239,83,80,0.95)" : `rgba(255,255,255,${Math.min(1, 0.3 + a).toFixed(3)})`;
-      g.fillRect(w.x, vy - 1, 1.5, 3);
+      g.fillRect(colOf(w.cycle).x, vy - 1, 1.5, 3);
     }
     // Objects.
     if (objectsOn) {
@@ -458,14 +493,47 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
       const vy = line - FB_ORIGIN.y;
       g.strokeStyle = color;
       g.lineWidth = 1.5 * px;
-      if (cyc != null && cycleX[cyc - 1] != null) g.strokeRect(cycleX[cyc - 1]!, vy, 8, 1);
+      if (cyc != null) {
+        const col = colOf(cyc);
+        g.strokeRect(col.x, vy, col.w, 1);
+      }
       g.globalAlpha = 0.35;
       g.fillStyle = color;
-      g.fillRect(0, vy, 384, 1 / Math.max(1, img.scale) + 0.2);
+      g.fillRect(-14 * HB_W, vy, 14 * HB_W + 384 + EXT_R, 1 / Math.max(1, img.scale) + 0.2);
       g.globalAlpha = 1;
     };
     if (selCell) outline(selCell.line, selCell.cycle, "#ffd54f");
     if (hoverLine != null && !dragging) outline(hoverLine, hoverCycle, "#ffffff");
+    // The ruler, while the pointer is on the grid: cycle numbers along the top, line numbers
+    // down the left.
+    if (hover) {
+      // A fixed size on screen (~11 px), whatever the zoom.
+      const fs = Math.max(3, 11 / img.scale);
+      g.font = `${fs}px monospace`;
+      g.textBaseline = "top";
+      for (let c = 1; c <= 63; c++) {
+        if (c !== 1 && c % 5 !== 0 && c !== hoverCycle) continue;
+        const col = colOf(c);
+        const label = String(c);
+        const w = g.measureText(label).width + fs * 0.3;
+        g.fillStyle = "rgba(10,10,24,0.8)";
+        g.fillRect(col.x, 0, w, fs * 1.15);
+        g.fillStyle = c === hoverCycle ? "#ffd54f" : "#d0d0e8";
+        g.fillText(label, col.x + fs * 0.15, fs * 0.08);
+      }
+      const lines = new Set<number>([hoverLine ?? -1]);
+      for (let l = 32; l < 288; l += 32) lines.add(l);
+      for (const l of lines) {
+        const vy = l - FB_ORIGIN.y;
+        if (vy < 0 || vy >= 272) continue;
+        const label = String(l);
+        const w = g.measureText(label).width + fs * 0.3;
+        g.fillStyle = "rgba(10,10,24,0.8)";
+        g.fillRect(-14 * HB_W, vy - fs * 0.55, w, fs * 1.1);
+        g.fillStyle = l === hoverLine ? "#ffd54f" : "#d0d0e8";
+        g.fillText(label, -14 * HB_W + fs * 0.15, vy - fs * 0.5);
+      }
+    }
     // A framed area being dragged.
     if (selection && selection.w > 0 && selection.h > 0) {
       g.strokeStyle = "#ffd54f";
@@ -669,7 +737,7 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
   );
 
   const dock = selCell && checkpointId ? (
-    <VicLineView sessionId={sessionId} checkpointId={checkpointId} line={selCell.line} fbX={selCell.fbX ?? (selCell.cycle != null && cycleX[selCell.cycle - 1] != null ? cycleX[selCell.cycle - 1]! + FB_ORIGIN.x : null)} />
+    <VicLineView sessionId={sessionId} checkpointId={checkpointId} line={selCell.line} fbX={selCell.fbX} cycle={selCell.cycle} />
   ) : null;
 
   return (
@@ -678,7 +746,7 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
         ref={canvasRef}
         className="wb-vicgrid"
         style={{
-          position: "fixed", left: img.left, top: img.top, width: 384 * img.scale, height: 272 * img.scale,
+          position: "fixed", left: img.left - EXT_L * img.scale, top: img.top, width: (EXT_L + 384 + EXT_R) * img.scale, height: 272 * img.scale,
           cursor: "crosshair", opacity: seeThrough ? 0 : 1, zIndex: 50,
         }}
         onMouseDown={onMouseDown}
