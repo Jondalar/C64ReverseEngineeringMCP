@@ -415,7 +415,10 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
         const v = row[i];
         const fill = v & b.sAccess ? CELL_FILL[0] : v & b.cAccess ? CELL_FILL[1] : v & b.stall ? CELL_FILL[2] : v & b.ba ? CELL_FILL[3] : null;
         if (!fill) continue;
-        g.fillStyle = `rgba(${fill.rgb},${(0.55 * a).toFixed(3)})`;
+        // c-accesses fill a bad line from cycle 15 to 54 and nothing else; drawn at full
+        // strength they read as the raster line itself and seem to end mid-picture.
+        const alpha = fill === CELL_FILL[1] ? 0.3 : 0.55;
+        g.fillStyle = `rgba(${fill.rgb},${(alpha * a).toFixed(3)})`;
         g.fillRect(col.x, vy, col.w, 1);
       }
     }
@@ -431,8 +434,14 @@ export function ExploreOverlay({ sessionId, screenEl, selection, onSelection, si
       const col = colOf(c);
       g.moveTo(col.x, 0); g.lineTo(col.x, 272);
     }
+    g.stroke();
+    // Character rows: a line across the WHOLE raster line, blanking included, at every row
+    // start (the frame's own bad lines; every 8th line where there are none). Stronger than
+    // the cycle lines, so the rows read as running from cycle 1 to cycle 63.
     const bad = fmap.lines.filter((l) => l.badLine).map((l) => l.line);
     const rows = bad.length > 0 ? bad : Array.from({ length: 40 }, (_, i) => i * 8);
+    g.strokeStyle = `rgba(210,210,240,${Math.min(0.9, 0.25 + 0.5 * a).toFixed(3)})`;
+    g.beginPath();
     for (const l of rows) {
       const vy = l - FB_ORIGIN.y;
       if (vy < 0 || vy > 272) continue;
