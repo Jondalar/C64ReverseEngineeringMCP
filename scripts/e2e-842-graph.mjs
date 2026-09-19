@@ -73,7 +73,11 @@ const hex = (n) => (n === null || n === undefined ? String(n) : `$${n.toString(1
 {
   const src = await import("node:fs").then((fs) =>
     fs.readFileSync(new URL("../src/server-tools/analysis-workflow.ts", import.meta.url), "utf8"));
-  check(/importAnnotations\(\{[\s\S]{0,400}relocations:/.test(src),
+  // The whole argument object of the call, up to its closing `})` — not a fixed window of
+  // characters: a comment inside the call (833's, on which file is imported) pushed the key
+  // past a 400-character window and failed the gate with the behaviour intact.
+  const call = src.match(/importAnnotations\(\{([\s\S]*?)\n\s*\}\);/);
+  check(!!call && /^\s*relocations:/m.test(call[1]),
     "disasm_prg passes the relocations it rendered with to the graph import");
   const svc = await import("node:fs").then((fs) =>
     fs.readFileSync(new URL("../src/project-knowledge/service.ts", import.meta.url), "utf8"));
