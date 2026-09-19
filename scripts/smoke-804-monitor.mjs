@@ -101,11 +101,11 @@ try {
   console.log("[output — names at the runtime's spans]");
   await mon(`load "${paths.alpha}"`);
   const d = await mon("d 1000 1012");
-  check(/\$1000 <alpha_main\[u\]>/u.test(d), "d: the instruction's own address is named", d.split("\n")[0]);
-  check(/JSR \$1010 <set_border\[u\]>/u.test(d), "d: the JSR target is named, the number stays", d.split("\n")[0]);
-  check(/\$1010 <set_border\[u\]>\s+a9 01/u.test(d), "d: the routine's own line is named");
+  check(/^\$1000  alpha_main\[u\]\s/mu.test(d), "d: the instruction's own address is named, in the label column", d.split("\n")[0]);
+  check(/JSR \$1010\s+; set_border\[u\]/u.test(d), "d: the JSR target is named in the annotation column, the number stays", d.split("\n")[0]);
+  check(/^\$1010  set_border\[u\]\s+a9 01/mu.test(d), "d: the routine's own line is named");
   const m = await mon("m 1000 101f");
-  check(/; \+\$00 alpha_main\[u\]  \+\$10 set_border\[u\]$/u.test(m.split("\n")[0]), "m: a dump row carries its names at the end", m.split("\n")[0]);
+  check(/; \+\$00 alpha_main\[u\], \+\$10 set_border\[u\]$/u.test(m.split("\n")[0]), "m: a dump row carries its names in the annotation column", m.split("\n")[0]);
   const dFull = await monFull("d 1000 1002");
   const mFull = await monFull("m 1000 101f");
   check((dFull.structured?.names ?? []).length > 0 && (mFull.structured?.names ?? []).length > 0,
@@ -161,7 +161,7 @@ try {
   console.log("\n[residency on the live machine]");
   await mon(`load "${paths.beta}"`);
   const d2 = await mon("d 1000 1000");
-  check(/\$1000 <beta_main\[u\]>/u.test(d2) && !/alpha_main/u.test(d2), "beta loaded over alpha: the same address is now beta_main[u]", d2);
+  check(/^\$1000  beta_main\[u\]/mu.test(d2) && !/alpha_main/u.test(d2), "beta loaded over alpha: the same address is now beta_main[u]", d2);
   await mon("f 1000 1015 00");
   const d3 = await mon("d 1000 1000");
   check(!/</u.test(d3), "wiped: no name at all (no match, no name)", d3);

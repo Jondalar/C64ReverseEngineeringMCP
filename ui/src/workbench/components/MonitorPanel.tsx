@@ -6,7 +6,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { getClient } from "../ws-client.js";
-import { api, type MonitorName, type MonitorNamedSpan } from "../rest-client.js";
+import { api, type MonitorNameMark } from "../rest-client.js";
 
 interface Props {
   sessionId: string;
@@ -18,42 +18,23 @@ interface Props {
   breakpoint?: { pc: number; num: number; registers: string; seq: number; observer?: string; message?: string; reason?: "jam" | "brk"; opcode?: number; flow?: string[] } | null;
 }
 
-interface MonLine { kind: "in" | "out" | "err" | "sent"; text: string; names?: MonitorNamedSpan[] }
-
-/** `name[u]`, `main+$05[u]` — the one text form of a name (Spec 804). */
-function nameText(n: MonitorName): string {
-  return `${n.name}${n.offset > 0 ? `+$${n.offset.toString(16).padStart(2, "0")}` : ""}${n.tag}`;
-}
+interface MonLine { kind: "in" | "out" | "err" | "sent"; text: string; marks?: MonitorNameMark[] }
 
 /**
- * Spec 804 — render a runtime line with C64RE's names at the positions the runtime
- * said it printed addresses. Verb-agnostic: it knows spans, not commands. A point span
- * gets the name right after the address; a range span (a dump row) gets its names at
- * the end of the line, so the byte grid never moves.
+ * Spec 804 — colour the names C64RE laid into a reply line. The layout (label column,
+ * annotation column) is done once, server-side, for every verb alike; this only paints
+ * the marked runs by origin. It knows neither commands nor spans.
  */
-function renderNamed(text: string, names: MonitorNamedSpan[] | undefined): React.ReactNode {
-  if (!names || names.length === 0) return text || "\u00a0";
-  const points = names.filter((n) => n.name).sort((a, b) => a.end - b.end);
-  const tails = names.flatMap((n) => n.inside ?? []);
+function renderMarked(text: string, marks: MonitorNameMark[] | undefined): React.ReactNode {
+  if (!marks || marks.length === 0) return text || "\u00a0";
   const parts: React.ReactNode[] = [];
   let at = 0;
-  points.forEach((n, i) => {
-    parts.push(text.slice(at, n.end));
-    parts.push(
-      <span key={`n${i}`} className={`wb-mon-name ${n.name!.origin}`} title={`${n.name!.origin}${n.name!.payload ? ` · ${n.name!.payload}` : ""}`}>
-        {` <${nameText(n.name!)}>`}
-      </span>,
-    );
-    at = n.end;
+  [...marks].sort((a, b) => a.start - b.start).forEach((m, i) => {
+    parts.push(text.slice(at, m.start));
+    parts.push(<span key={`n${i}`} className={`wb-mon-name ${m.origin}`} title={m.origin}>{text.slice(m.start, m.end)}</span>);
+    at = m.end;
   });
   parts.push(text.slice(at));
-  if (tails.length > 0) {
-    parts.push(
-      <span key="tail" className="wb-mon-name">
-        {`  ; ${tails.map((t) => `+$${t.offset.toString(16).padStart(2, "0")} ${t.name}${t.tag}`).join("  ")}`}
-      </span>,
-    );
-  }
   return parts;
 }
 
@@ -139,10 +120,9 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: 
         append([{ kind: "sent", text: `  → ${r.sent}` }]);
       }
       for (const x of r.refused) append([{ kind: "sent", text: `  (${x.token}: ${x.reason})` }]);
-      const raw = r.error ?? r.output ?? "";
       const kind: MonLine["kind"] = r.error !== undefined ? "err" : "out";
-      if (raw) {
-        append(raw.split(/\r?\n/).map((t, i) => ({ kind, text: t, names: r.names.filter((n) => n.line === i) })));
+      if (r.text) {
+        append(r.text.split(/\r?\n/).map((t, i) => ({ kind, text: t, marks: r.marks.filter((m) => m.line === i) })));
       }
       setPrompt(r.prompt ?? null);
       return;
@@ -201,7 +181,7 @@ export function MonitorPanel({ sessionId, maximized, onToggleMax, breakpoint }: 
       </div>
       <div ref={outRef} className="wb-monitor-out">
         {history.map((l, i) => (
-          <div key={i} className={`wb-mon-${l.kind}`}>{renderNamed(l.text, l.names)}</div>
+          <div key={i} className={`wb-mon-${l.kind}`}>{renderMarked(l.text, l.marks)}</div>
         ))}
       </div>
       <div className="wb-monitor-in">

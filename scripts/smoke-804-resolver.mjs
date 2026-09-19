@@ -138,18 +138,21 @@ const dSpans = [
 ];
 const dRes = await R.resolve(dSpans.map((s) => ({ space: s.space, addr: s.addr })), ctx);
 const d = decorateText(dText, dSpans, dRes);
-check(d.text === "$1000 <alpha_main[u]>  20 10 10  JSR $1010 <set_border[u]>\n$1003  ee 00 04  INC $0400", "a disassembly: names after the address, numbers untouched", JSON.stringify(d.text));
+check(d.text === "$1000  alpha_main[u]  20 10 10  JSR $1010  ; set_border[u]\n$1003                 ee 00 04  INC $0400", "a disassembly: a label column after the address, the target in the annotation column, numbers untouched", JSON.stringify(d.text));
+const dPlain = decorateText(dText, dSpans, dRes, { tags: false });
+check(dPlain.text === "$1000  alpha_main  20 10 10  JSR $1010  ; set_border\n$1003              ee 00 04  INC $0400", "without tags (the workbench colours instead)", JSON.stringify(dPlain.text));
+check(dPlain.marks.length === 2 && dPlain.text.split("\n")[0].slice(dPlain.marks[0].start, dPlain.marks[0].end) === "alpha_main" && dPlain.marks.every((k) => k.origin === "user"), "the marks point at the names, with their origin", JSON.stringify(dPlain.marks));
 const btText = "backtrace (live stack scan):\n  $01f8: -> $1010  (JSR return?)";
 const btSpans = [
   { line: 1, start: 2, end: 7, addr: 0x01f8, space: "c64", role: "memory" },
   { line: 1, start: 12, end: 17, addr: 0x1010, space: "c64", role: "pc" },
 ];
 const bt = decorateText(btText, btSpans, await R.resolve(btSpans.map((s) => ({ space: s.space, addr: s.addr })), ctx));
-check(bt.text.endsWith("-> $1010 <set_border[u]>  (JSR return?)"), "a backtrace: the same function, the same rule", JSON.stringify(bt.text));
+check(bt.text.endsWith("-> $1010  (JSR return?)  ; set_border[u]"), "a backtrace: the same function, the same rule", JSON.stringify(bt.text));
 const mText = ">C:1000  20 10 10 ee";
 const mSpans = [{ line: 0, start: 3, end: 7, addr: 0x1000, space: "c64", role: "memory", len: 32 }];
 const m = decorateText(mText, mSpans, await R.resolve(mSpans.map((s) => ({ space: s.space, addr: s.addr, len: s.len })), ctx));
-check(m.text === ">C:1000  20 10 10 ee  ; +$00 alpha_main[u]  +$10 set_border[u]", "a dump row: names at the line's end, the grid unmoved", JSON.stringify(m.text));
+check(m.text === ">C:1000  20 10 10 ee  ; +$00 alpha_main[u], +$10 set_border[u]", "a dump row: names in the annotation column, the grid unmoved", JSON.stringify(m.text));
 
 console.log("\n[static — the monitor path carries no verb list and no mnemonic table]");
 // The monitor path = everything a command and its reply pass through. The name SOURCES

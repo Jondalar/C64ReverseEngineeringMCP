@@ -44,7 +44,8 @@ async function openRuntime(url: string): Promise<{ call: (method: string, params
 export async function monitorExecWithNames(input: { sessionId?: string; command: string }, projectDir: string, runtimeUrl: string): Promise<MonitorWithNames> {
   const rt = await openRuntime(runtimeUrl);
   try {
-    return await execMonitorWithNames({ call: rt.call, sessionId: input.sessionId, command: input.command, projectDir });
+    // The workbench shows the origin as colour (the marks), so the text carries no tags.
+    return await execMonitorWithNames({ call: rt.call, sessionId: input.sessionId, command: input.command, projectDir, tags: false });
   } finally {
     rt.close();
   }

@@ -115,7 +115,11 @@ export interface MonitorExecResult {
   prompt?: string;
   text: string;
   names: MonitorNamedSpan[];
+  /** where each name sits in `text`, with its origin (the colour) */
+  marks: MonitorNameMark[];
 }
+/** Spec 804 — a name's place in the laid-out reply. */
+export interface MonitorNameMark { line: number; start: number; end: number; origin: "user" | "build" | "derived" }
 
 export const api = {
   /** Spec 804 — run a monitor command through C64RE (names in, names out). */

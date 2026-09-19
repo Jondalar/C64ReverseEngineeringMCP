@@ -9,7 +9,8 @@
 //           monitor's current space) becomes `$XXXX`. Anything else is left alone, so an
 //           unknown name reaches the runtime and gets the runtime's own error.
 //   OUTPUT  the runtime returns WHERE it printed each address (spans). Each span is
-//           resolved and the name inserted at it — one function, the same for every reply.
+//           resolved and its name laid out in a label or an annotation column — one
+//           function, the same for every reply.
 
 import { formatName, SymbolResolver } from "./resolver.js";
 import { liveByteSource, type RuntimeCall } from "./live-bytes.js";
@@ -116,46 +117,93 @@ export interface NamedSpan extends MonitorSpan {
   ambiguous?: Resolution["ambiguous"];
 }
 
+/** Where a name sits in the laid-out text, and whose it is — the workbench colours these. */
+export interface NameMark {
+  line: number;
+  start: number;
+  end: number;
+  origin: ResolvedName["origin"];
+}
+
+interface Note { text: string; origin: ResolvedName["origin"] }
+
 /**
- * Insert names at the spans. A point span gets ` <name[o]>` right after the printed
- * address; a range span (a dump row) gets its names appended at the line's end, so a
- * grid of bytes never moves. The numeric address is never replaced.
+ * Lay the names out in columns — one function for every reply, by its spans:
+ *
+ *   $0c0b  block_row             ee ba 08  INC $08ba  ; block_row
+ *   $0c0e                        4c cb 0b  JMP $0bcb  ; draw_string_next_row
+ *
+ * LABEL column: a line whose first printed address is a single address (not a dump row's
+ * range) gets a column right after that address, as wide as the longest label in this
+ * reply — blank on lines without one, absent when no line has one. ANNOTATION column:
+ * every other name on the line (a branch target, an operand, the names inside a dump row)
+ * after the line, aligned across the reply. The runtime's text is never cut or reordered
+ * and the numeric address always stays: the label column is inserted, the annotation
+ * appended. `tags: false` drops the `[u]`/`[b]`/`[?]` tags — for a reader that shows the
+ * origin as colour (the marks) instead.
  */
-export function decorateText(text: string, spans: MonitorSpan[], resolutions: Resolution[]): { text: string; names: NamedSpan[] } {
+export function decorateText(
+  text: string,
+  spans: MonitorSpan[],
+  resolutions: Resolution[],
+  opts: { tags?: boolean } = {},
+): { text: string; names: NamedSpan[]; marks: NameMark[] } {
+  const tags = opts.tags !== false;
   const lines = text.split("\n");
   const names: NamedSpan[] = [];
-  const perLine = new Map<number, Array<{ at: number; insert: string }>>();
-  const tails = new Map<number, string[]>();
+  const show = (n: ResolvedName): string => formatName(tags ? n : { ...n, tag: "" });
+  const firstColumn = lines.map((l) => l.length - l.trimStart().length);
+  const heads = new Map<number, { end: number; label?: Note }>();
+  const notes = new Map<number, Note[]>();
+  const note = (line: number, n: Note): void => { notes.set(line, [...(notes.get(line) ?? []), n]); };
+
   spans.forEach((s, i) => {
+    const range = (s.len ?? 1) > 1;
+    const head = !range && !heads.has(s.line) && s.start === firstColumn[s.line];
+    if (head) heads.set(s.line, { end: s.end });
     const r = resolutions[i];
     if (!r) return;
     const named: NamedSpan = { ...s };
     let hit = false;
-    if (r.name) {
-      named.name = r.name;
-      hit = true;
-      const list = perLine.get(s.line) ?? [];
-      list.push({ at: s.end, insert: ` <${formatName(r.name)}>` });
-      perLine.set(s.line, list);
-    }
     if (r.inside && r.inside.length > 0) {
       named.inside = r.inside;
       hit = true;
-      const tail = tails.get(s.line) ?? [];
-      for (const n of r.inside) tail.push(`+$${n.offset.toString(16).padStart(2, "0")} ${n.name}${n.tag}`);
-      tails.set(s.line, tail);
+      for (const n of r.inside) {
+        note(s.line, { text: `+$${n.offset.toString(16).padStart(2, "0")} ${n.name}${tags ? n.tag : ""}`, origin: n.origin });
+      }
+    }
+    if (r.name) {
+      named.name = r.name;
+      hit = true;
+      if (head) heads.get(s.line)!.label = { text: show(r.name), origin: r.name.origin };
+      else if (!named.inside) note(s.line, { text: show(r.name), origin: r.name.origin });
     }
     if (r.ambiguous) { named.ambiguous = r.ambiguous; hit = true; }
     if (hit) names.push(named);
   });
-  const out = lines.map((line, i) => {
-    let l = line;
-    for (const e of (perLine.get(i) ?? []).sort((a, b) => b.at - a.at)) l = l.slice(0, e.at) + e.insert + l.slice(e.at);
-    const tail = tails.get(i);
-    if (tail && tail.length > 0) l = `${l}  ; ${tail.join("  ")}`;
+
+  const marks: NameMark[] = [];
+  const width = Math.max(0, ...[...heads.values()].map((h) => h.label?.text.length ?? 0));
+  const labelled = lines.map((line, i) => {
+    const h = heads.get(i);
+    if (!h || width === 0) return line;
+    const label = h.label?.text ?? "";
+    if (h.label) marks.push({ line: i, start: h.end + 2, end: h.end + 2 + label.length, origin: h.label.origin });
+    return `${line.slice(0, h.end)}  ${label.padEnd(width)}${line.slice(h.end)}`;
+  });
+  const column = Math.max(0, ...[...notes.keys()].map((i) => labelled[i]?.trimEnd().length ?? 0));
+  const out = labelled.map((line, i) => {
+    const list = notes.get(i);
+    if (!list || list.length === 0) return line;
+    let l = `${line.trimEnd().padEnd(column)}  ; `;
+    list.forEach((n, k) => {
+      if (k > 0) l += ", ";
+      marks.push({ line: i, start: l.length, end: l.length + n.text.length, origin: n.origin });
+      l += n.text;
+    });
     return l;
   });
-  return { text: out.join("\n"), names };
+  return { text: out.join("\n"), names, marks };
 }
 
 // ---------------------------------------------------------------- the whole path
@@ -170,9 +218,11 @@ export interface MonitorWithNames {
   prompt?: string;
   spans: MonitorSpan[];
   machine?: MachineState;
-  /** the reply with the names in it */
+  /** the reply with the names in it, in label and annotation columns */
   text: string;
   names: NamedSpan[];
+  /** where each name sits in `text` */
+  marks: NameMark[];
   resolver: { names: number; graph: boolean; symbolFiles: number };
 }
 
@@ -203,13 +253,14 @@ export async function nameReply(
   reply: { text: string; spans: MonitorSpan[]; machine?: MachineState },
   resolver: SymbolResolver,
   bytes: ReturnType<typeof liveByteSource>,
-): Promise<{ text: string; names: NamedSpan[] }> {
-  if (resolver.size === 0 || reply.spans.length === 0) return { text: reply.text, names: [] };
+  opts: { tags?: boolean } = {},
+): Promise<{ text: string; names: NamedSpan[]; marks: NameMark[] }> {
+  if (resolver.size === 0 || reply.spans.length === 0) return { text: reply.text, names: [], marks: [] };
   const resolutions = await resolver.resolve(
     reply.spans.map((s) => ({ space: s.space, addr: s.addr, lens: s.lens, len: s.len })),
     { bytes, machine: reply.machine },
   );
-  return decorateText(reply.text, reply.spans, resolutions);
+  return decorateText(reply.text, reply.spans, resolutions, opts);
 }
 
 /**
@@ -224,6 +275,8 @@ export async function execMonitorWithNames(opts: {
   projectDir?: string;
   source?: string;
   resolver?: SymbolResolver;
+  /** false: no `[u]`/`[b]`/`[?]` in the text — the reader colours by `marks` instead */
+  tags?: boolean;
 }): Promise<MonitorWithNames> {
   const resolver = opts.resolver ?? SymbolResolver.forProject(opts.projectDir);
   const session = opts.sessionId ? { session_id: opts.sessionId } : {};
@@ -244,11 +297,11 @@ export async function execMonitorWithNames(opts: {
   const raw = reply.error !== undefined ? reply.error : (reply.output ?? "");
   // The command HAS run now. Naming its reply may fail; the reply is returned either way,
   // so no caller is tempted to run the command a second time.
-  let named: { text: string; names: NamedSpan[] };
+  let named: { text: string; names: NamedSpan[]; marks: NameMark[] };
   try {
-    named = await nameReply({ text: raw, spans, machine }, resolver, liveByteSource(opts.call, opts.sessionId));
+    named = await nameReply({ text: raw, spans, machine }, resolver, liveByteSource(opts.call, opts.sessionId), { tags: opts.tags });
   } catch {
-    named = { text: raw, names: [] };
+    named = { text: raw, names: [], marks: [] };
   }
   return {
     sent: sub.command,
@@ -261,6 +314,7 @@ export async function execMonitorWithNames(opts: {
     machine,
     text: named.text,
     names: named.names,
+    marks: named.marks,
     resolver: { names: resolver.size, graph: resolver.layers.sources.graph, symbolFiles: resolver.layers.sources.symbolFiles.length },
   };
 }
