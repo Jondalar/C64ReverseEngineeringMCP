@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import type { TabProps } from "./Live.types.js";
 import { getClient } from "../ws-client.js";
 import { useMachineModel } from "../use-machine-model.js";
+import { scenarioDuration } from "../../../../src/runtime/machine-model.js";
 
 interface ScenarioSummary {
   id: string;
@@ -14,6 +15,9 @@ interface ScenarioSummary {
   savedAt: string;
   filePath: string;
   source: "samples" | "project";
+  /** The machine the scenario was recorded on; `null` when it names none. Absent from a
+   *  runtime that predates it. */
+  model?: string | null;
 }
 
 type ExportFormat = "png" | "mp4" | "wav";
@@ -56,11 +60,15 @@ export function ExportTab({ sessionId }: TabProps): React.JSX.Element {
   const [errorMsg, setErrorMsg] = useState("");
 
   const client = getClient();
-  // Spec 863 — a second of C64 time is the machine's clock (985 248 Hz PAL, 1 022 730 NTSC).
-  // A scenario replays only on the model it was recorded on, so the machine's clock is its
-  // clock too; the scenario list itself does not say which model a scenario is.
-  const { machine } = useMachineModel(sessionId);
-  const seconds = (cycles: number): string => (machine ? `${(cycles / machine.cpuHz).toFixed(1)}s` : `${cycles} cycles`);
+  // Spec 863 — a second of C64 time is a machine's clock (985 248 Hz PAL, 1 022 730 NTSC),
+  // and a scenario's cycles are the cycles of the machine it was RECORDED on, which the
+  // runtime's scenario list names. Only a runtime too old to name it leaves the running
+  // machine's clock as the one on hand — and the tab says so.
+  const { machine, rows } = useMachineModel(sessionId);
+  const duration = (s: ScenarioSummary) => scenarioDuration(s.cycleBudget, s.model, rows, machine);
+  const selected = scenarios.find((s) => s.id === form.scenarioId);
+  const selectedClock = selected ? duration(selected) : undefined;
+  const oldRuntime = scenarios.some((s) => !("model" in s));
 
   // Load scenario list on mount.
   useEffect(() => {
@@ -143,10 +151,22 @@ export function ExportTab({ sessionId }: TabProps): React.JSX.Element {
           {!loadingScenarios && scenarios.length === 0 && <option value="">No scenarios found</option>}
           {scenarios.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.id} ({s.mode}, {seconds(s.cycleBudget)}) [{s.source}]
+              {s.id} ({s.mode}, {duration(s).text}) [{s.source}]
             </option>
           ))}
         </select>
+        {oldRuntime && machine && (
+          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.8 }}>
+            This runtime does not say which model a scenario was recorded on, so these seconds use the
+            running machine's clock ({machine.model}) — wrong for a scenario recorded on another model.
+          </div>
+        )}
+        {!oldRuntime && selected && selected.model === null && machine && (
+          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.8 }}>
+            This scenario names no model: it replays on the running machine ({machine.model}) and is
+            timed by its clock.
+          </div>
+        )}
       </div>
 
       {/* Format selector */}
@@ -217,7 +237,7 @@ export function ExportTab({ sessionId }: TabProps): React.JSX.Element {
             disabled={isRunning}
             value={form.atCycle}
             onChange={(e) => setForm((f) => ({ ...f, atCycle: e.target.value }))}
-            placeholder={machine ? `e.g. ${machine.cpuHz} (one second on ${machine.model})` : "a cycle number"}
+            placeholder={selectedClock?.cpuHz ? `e.g. ${selectedClock.cpuHz} (one second on ${selectedClock.clockOf})` : "a cycle number"}
             style={{ width: 160, padding: "4px 8px" }}
           />
         </div>

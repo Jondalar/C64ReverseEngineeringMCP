@@ -137,6 +137,23 @@ try {
   };
   check((await state()).model === "c64-pal", "the runtime starts as the model it was asked for (c64-pal)");
 
+  // ── the scenario list names the recorded model (the Export tab's seconds) ─────────
+  console.log("\nthe scenario list names the model a scenario was recorded on:");
+  await R.call("runtime/scenario_save", { scenario: { id: "rec-ntsc", diskPath: "", mode: "true-drive", cycleBudget: 60 * NTSC, inputs: [], model: "c64-ntsc" } });
+  await R.call("runtime/scenario_save", { scenario: { id: "plain", diskPath: "", mode: "true-drive", cycleBudget: 50 * PAL, inputs: [] } });
+  const summaries = await R.call("runtime/scenario_list", {});
+  const recS = summaries.find((x) => x.id === "rec-ntsc");
+  const plainS = summaries.find((x) => x.id === "plain");
+  check(recS?.model === "c64-ntsc" && plainS && plainS.model === null,
+    "runtime/scenario_list carries `model` (null when a scenario names none)", JSON.stringify({ rec: recS?.model, plain: plainS?.model }));
+  const running = mm.machineIdentity(await state());
+  const allRows = (await R.call("session/models", { session_id: S })).models;
+  const d = mm.scenarioDuration(recS.cycleBudget, recS.model, allRows, running);
+  check(d.text === "1.0s on c64-ntsc" && running.model === "c64-pal",
+    "  the Export tab's seconds use the recorded machine's clock, not the running PAL one", d.text);
+  await R.call("runtime/scenario_delete", { id: "rec-ntsc" });
+  await R.call("runtime/scenario_delete", { id: "plain" });
+
   // ── §7.2 — through the MCP, as an agent does ──────────────────────────────────────
   console.log("\n§7.2 — runtime_session_start { model }:");
   mcp = spawn(process.execPath, [join(ROOT, "dist/cli.js")], {

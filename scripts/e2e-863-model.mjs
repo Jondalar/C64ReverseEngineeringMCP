@@ -98,6 +98,25 @@ const rows = [
     "the recorder writes the model and counts in the recorded machine's frames");
 }
 
+// ── the Export tab's seconds: the recorded machine's clock ───────────────────────────
+{
+  const running = mm.machineIdentity({ model: "c64-pal", cyclesPerLine: 63, linesPerFrame: 312, cyclesPerFrame: PAL, cpuHz: 985248, frameRate: 50.12 });
+  const rec = mm.scenarioDuration(60 * NTSC, "c64-ntsc", rows, running);
+  check(rec.basis === "recorded" && rec.text === "1.0s on c64-ntsc" && rec.cpuHz === 1022730,
+    "a scenario recorded on NTSC is timed by the NTSC clock while the machine is PAL", rec.text);
+  const alias = mm.scenarioDuration(10 * PAL, "pal", rows, running);
+  check(alias.basis === "recorded" && alias.clockOf === "c64-pal" && alias.text === "0.2s on c64-pal", "  an alias names its row's clock", alias.text);
+  const plain = mm.scenarioDuration(985248, null, rows, running);
+  check(plain.basis === "running" && plain.text === "1.0s on c64-pal", "  a scenario that names no model replays on — and is timed by — the running machine", plain.text);
+  const old = mm.scenarioDuration(985248, undefined, rows, running);
+  check(old.basis === "fallback" && /\?$/.test(old.text), "  a runtime too old to name the model falls back to the running clock, marked", old.text);
+  const unknown = mm.scenarioDuration(5000, "c64-secam", rows, running);
+  check(unknown.basis === "cycles" && unknown.text === "5000 cycles on c64-secam", "  a model the runtime does not describe stays in cycles", unknown.text);
+  const tab = readFileSync(join(ROOT, "ui/src/workbench/tabs/Export.tsx"), "utf8");
+  check(/scenarioDuration\(s\.cycleBudget, s\.model, rows, machine\)/.test(tab) && /does not say which model a scenario was recorded on/.test(tab),
+    "the Export tab times each scenario by its recorded model and says when it cannot");
+}
+
 // ── the VIC view's geometry ──────────────────────────────────────────────────────────
 {
   const palHeader = { cyclesPerLine: 63, linesPerFrame: 312, firstLine: 0, fbOrigin: { x: 104, y: 16 },

@@ -192,3 +192,48 @@ export function scenarioModelRefusal(
     `(the default when nothing else is asked for), or record it again on ${machine}.`
   );
 }
+
+/** How a scenario's length was turned into seconds, and on which machine's clock. */
+export interface ScenarioDuration {
+  /** `"5.0s on c64-ntsc"`, or the bare cycle count when no clock can be named. */
+  readonly text: string;
+  /** The model whose clock the seconds are in, when there are seconds. */
+  readonly clockOf?: string;
+  readonly cpuHz?: number;
+  /**
+   * `recorded` — the clock of the machine the scenario was recorded on.
+   * `running` — the scenario names no model, so it replays on (and is timed by) whichever
+   *   machine runs it: this one.
+   * `fallback` — the runtime predates the recorded model in its scenario list; the running
+   *   machine's clock is the only one on hand, and is wrong for a scenario recorded on
+   *   another model.
+   * `cycles` — no clock could be named.
+   */
+  readonly basis: "recorded" | "running" | "fallback" | "cycles";
+}
+
+/**
+ * A scenario's cycle count in seconds of the machine it was RECORDED on — its cycles are
+ * that machine's cycles. `recorded` is the `model` of the runtime's scenario summary: a
+ * name, `null` (the scenario names no model), or `undefined` (a runtime too old to say).
+ */
+export function scenarioDuration(
+  cycles: number,
+  recorded: string | null | undefined,
+  rows: readonly ModelRow[],
+  running: MachineIdentity | null,
+): ScenarioDuration {
+  const secs = (hz: number): string => `${(cycles / hz).toFixed(1)}s`;
+  if (typeof recorded === "string" && recorded) {
+    const row = findModelRow(rows, recorded);
+    const name = row?.name ?? recorded;
+    const hz = row?.cpuHz ?? (running && sameModel(rows, recorded, running.model) ? running.cpuHz : undefined);
+    return hz
+      ? { text: `${secs(hz)} on ${name}`, clockOf: name, cpuHz: hz, basis: "recorded" }
+      : { text: `${cycles} cycles on ${name}`, basis: "cycles" };
+  }
+  if (!running) return { text: `${cycles} cycles`, basis: "cycles" };
+  return recorded === null
+    ? { text: `${secs(running.cpuHz)} on ${running.model}`, clockOf: running.model, cpuHz: running.cpuHz, basis: "running" }
+    : { text: `${secs(running.cpuHz)} on ${running.model}?`, clockOf: running.model, cpuHz: running.cpuHz, basis: "fallback" };
+}
