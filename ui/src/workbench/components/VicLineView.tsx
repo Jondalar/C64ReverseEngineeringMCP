@@ -9,6 +9,11 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { getClient } from "../ws-client.js";
+import { frameGeometry, type FrameHeader as GeometryHeader } from "../../../../src/runtime/frame-geometry.js";
+
+// Spec 863 C3 — how many cycles a line has (63 PAL, 65 NTSC), how many lines a frame has
+// (312 / 263), where the visible window sits and whether it wraps (NTSC draws raster lines
+// 0–11 below line 262) all come from the frame header, through frame-geometry.ts.
 
 interface Access { k: "f" | "r" | "w" | "dr" | "dw"; a: number; v: number }
 interface Cycle {
@@ -41,12 +46,11 @@ interface Cycle {
 }
 interface Instr { pc: number; bytes: number[]; text: string; start: number; end: number; interrupt: number | null; interruptStart: number | null }
 interface Line { line: number; badLine: boolean; cycles: Cycle[]; instructions: Instr[] }
-interface FrameHeader {
+interface FrameHeader extends GeometryHeader {
   which: "displayed" | "next";
   verified: boolean | null;
   startClk: number;
   replayedCycles: number;
-  fbOrigin: { x: number; y: number };
 }
 
 const hex = (n: number, w = 4) => `$${(n >>> 0).toString(16).padStart(w, "0")}`;
@@ -100,17 +104,28 @@ export function VicLineView({ sessionId, checkpointId, line: initialLine, fbX, c
     return () => { cancelled = true; };
   }, [sessionId, checkpointId, line]);
 
+  // The frame's geometry, from its header. An old runtime's header lacks it — said, not guessed.
+  const { geo, geoError } = useMemo(() => {
+    if (!data) return { geo: null, geoError: null };
+    try { return { geo: frameGeometry(data.frame), geoError: null }; }
+    catch (e) { return { geo: null, geoError: e instanceof Error ? e.message : String(e) }; }
+  }, [data]);
+  // The framebuffer row this line is drawn into — itself, or on a wrapped (NTSC) window,
+  // below the frame's last line.
+  const fbRow = geo ? geo.fbRowOfLine(line) : line;
+
   // The cycle whose draw produced the clicked pixel, on the clicked line only.
   const drawnBy = useMemo(() => {
     if (!data || fbX == null || line !== initialLine) return null;
-    const c = data.line.cycles.find((c) => c.fbLine === line && fbX >= c.fbX && fbX < c.fbX + 8);
+    const c = data.line.cycles.find((c) => c.fbLine === fbRow && fbX >= c.fbX && fbX < c.fbX + 8);
     return c ? c.c : null;
-  }, [data, fbX, line, initialLine]);
+  }, [data, fbX, line, initialLine, fbRow]);
 
   useEffect(() => { setSel(drawnBy ?? (line === initialLine ? initialCycle ?? null : null)); }, [drawnBy, initialCycle, line, initialLine]);
 
+  const lastLine = (geo?.linesPerFrame ?? data?.frame.linesPerFrame ?? 1) - 1;
   const go = (n: number) => {
-    const v = Math.max(0, Math.min(311, n));
+    const v = Math.max(0, Math.min(lastLine, n));
     setLine(v);
     setLineInput(String(v));
   };
@@ -143,9 +158,10 @@ export function VicLineView({ sessionId, checkpointId, line: initialLine, fbX, c
   }, [data]);
 
   const cycles = data?.line.cycles ?? [];
+  const CPL = geo?.cyclesPerLine ?? cycles.length;
   const lo = cycles[0]?.clk ?? 0;
   const hi = cycles[cycles.length - 1]?.clk ?? 0;
-  const col = (clk: number) => Math.max(0, Math.min(62, clk - lo)); // 0-based column
+  const col = (clk: number) => Math.max(0, Math.min(CPL - 1, clk - lo)); // 0-based column
 
   // Sprites that do anything on this line.
   const spritesActive = useMemo(() => {
@@ -189,11 +205,13 @@ export function VicLineView({ sessionId, checkpointId, line: initialLine, fbX, c
             onBlur={() => setLineInput(String(line))}
             aria-label="Raster line"
           />
-          <button onClick={() => go(line + 1)} disabled={line >= 311} aria-label="Next line">▶</button>
+          <button onClick={() => go(line + 1)} disabled={line >= lastLine} aria-label="Next line">▶</button>
         </span>
+        {geo && <span className="wb-muted">{data?.frame.model ? `${data.frame.model} · ` : ""}{geo.cyclesPerLine} cycles · lines 0–{lastLine}</span>}
         {busy && <span className="wb-muted">recording…</span>}
       </div>
       {err && <div className="vl-bad">{err}</div>}
+      {geoError && <div className="vl-bad">{geoError}</div>}
       {summary && (
         <div className="vl-summary wb-muted">
           CPU ran {summary.run} · stalled {summary.stalled}
@@ -205,7 +223,7 @@ export function VicLineView({ sessionId, checkpointId, line: initialLine, fbX, c
         <div className="vl-scroll">
           {/* Hover is cleared when the pointer leaves the GRID, not a cell: the 1px gaps
               between cells would otherwise blank the detail on every move. */}
-          <div className="vl-grid" style={{ gridTemplateColumns: `var(--vl-label) repeat(63, var(--vl-cell))` }}
+          <div className="vl-grid" style={{ gridTemplateColumns: `var(--vl-label) repeat(${CPL}, var(--vl-cell))` }}
             onMouseLeave={() => setHover(null)}>
             {/* cycle ruler */}
             <div className="vl-label">cycle</div>
@@ -216,8 +234,8 @@ export function VicLineView({ sessionId, checkpointId, line: initialLine, fbX, c
             {/* zone: offscreen / border / display, from the chip's flip-flops and the draw column */}
             <div className="vl-label" title="Where the cycle's 8 pixels landed: outside the visible window, in the border, or in the display window">zone</div>
             {cycles.map((c) => {
-              const vx = c.fbX - (data.frame.fbOrigin?.x ?? 104);
-              const off = vx + 8 <= 0 || vx >= 384 || c.fbLine !== line;
+              const vx = geo ? c.fbX - geo.fbOrigin.x : -8;
+              const off = !geo || vx + 8 <= 0 || vx >= geo.width || c.fbLine !== fbRow;
               const z = off ? "off" : c.mainBorder || c.vBorder ? "brd" : "disp";
               return <div key={c.c} {...cell(c, `vl-zone vl-zone-${z}`)} />;
             })}
@@ -257,7 +275,7 @@ export function VicLineView({ sessionId, checkpointId, line: initialLine, fbX, c
 
             {/* instructions as pills over their cycles */}
             <div className="vl-label">code</div>
-            <div className="vl-pills" style={{ gridColumn: "2 / span 63" }}>
+            <div className="vl-pills" style={{ gridColumn: `2 / span ${CPL}` }}>
               {data.line.instructions.flatMap((i, n) => {
                 const out: React.JSX.Element[] = [];
                 if (i.interrupt != null && i.interruptStart != null && i.interruptStart < i.start) {
@@ -319,9 +337,9 @@ export function VicLineView({ sessionId, checkpointId, line: initialLine, fbX, c
             <tr><td>sprites</td><td>{fc ? `DMA ${bits(fc.spriteDma).join(",") || "—"} · display ${bits(fc.spriteDisplay).join(",") || "—"}${bits(fc.spriteDma).map((i) => `  #${i} MC ${fc.mc[i]}/${fc.mcbase[i]}`).join("")}` : ""}</td></tr>
             <tr><td>border</td><td>{fc ? `main ${fc.mainBorder ? "on" : "off"} · vertical ${fc.vBorder ? "on" : "off"}` : ""}</td></tr>
             <tr><td>regs</td><td>{fc ? `$D011 ${hex(fc.d011, 2)} · $D016 ${hex(fc.d016, 2)} · $D018 ${hex(fc.d018, 2)} · bank ${hex(fc.vbank)}` : ""}</td></tr>
-            <tr><td>drew</td><td>{fc ? (fc.fbLine === line
-              ? `pixels x ${fc.fbX - (data.frame.fbOrigin?.x ?? 104)}..${fc.fbX - (data.frame.fbOrigin?.x ?? 104) + 7} of the visible frame (the draw runs a cycle behind)`
-              : `the last pixels of line ${fc.fbLine} (the draw runs a cycle behind)`) : ""}</td></tr>
+            <tr><td>drew</td><td>{fc && geo ? (fc.fbLine === fbRow
+              ? `pixels x ${fc.fbX - geo.fbOrigin.x}..${fc.fbX - geo.fbOrigin.x + 7} of the visible frame (the draw runs a cycle behind)`
+              : `the last pixels of line ${geo.lineOfFbRow(fc.fbLine)} (the draw runs a cycle behind)`) : ""}</td></tr>
           </tbody></table>
         </div>
       )}

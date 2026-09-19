@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import type { TabProps } from "./Live.types.js";
 import { getClient } from "../ws-client.js";
+import { useMachineModel } from "../use-machine-model.js";
 
 interface ScenarioSummary {
   id: string;
@@ -55,6 +56,11 @@ export function ExportTab({ sessionId }: TabProps): React.JSX.Element {
   const [errorMsg, setErrorMsg] = useState("");
 
   const client = getClient();
+  // Spec 863 — a second of C64 time is the machine's clock (985 248 Hz PAL, 1 022 730 NTSC).
+  // A scenario replays only on the model it was recorded on, so the machine's clock is its
+  // clock too; the scenario list itself does not say which model a scenario is.
+  const { machine } = useMachineModel(sessionId);
+  const seconds = (cycles: number): string => (machine ? `${(cycles / machine.cpuHz).toFixed(1)}s` : `${cycles} cycles`);
 
   // Load scenario list on mount.
   useEffect(() => {
@@ -137,7 +143,7 @@ export function ExportTab({ sessionId }: TabProps): React.JSX.Element {
           {!loadingScenarios && scenarios.length === 0 && <option value="">No scenarios found</option>}
           {scenarios.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.id} ({s.mode}, {(s.cycleBudget / 985248).toFixed(1)}s) [{s.source}]
+              {s.id} ({s.mode}, {seconds(s.cycleBudget)}) [{s.source}]
             </option>
           ))}
         </select>
@@ -211,7 +217,7 @@ export function ExportTab({ sessionId }: TabProps): React.JSX.Element {
             disabled={isRunning}
             value={form.atCycle}
             onChange={(e) => setForm((f) => ({ ...f, atCycle: e.target.value }))}
-            placeholder="e.g. 985248"
+            placeholder={machine ? `e.g. ${machine.cpuHz} (one second on ${machine.model})` : "a cycle number"}
             style={{ width: 160, padding: "4px 8px" }}
           />
         </div>

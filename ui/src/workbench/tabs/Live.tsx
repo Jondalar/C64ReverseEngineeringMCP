@@ -27,6 +27,7 @@ import { KeysetPanel } from "../../components/KeysetPanel.js";
 import { RecorderButton } from "../components/RecorderButton.js";
 import { ScenarioOverlay } from "../components/ScenarioOverlay.js";
 import type { RecordResult } from "../../../../src/reel/record-scenario.js";
+import { useMachineModel } from "../use-machine-model.js";
 
 interface DriveStatus {
   device: number;
@@ -186,6 +187,10 @@ type JoystickMode = "off" | "port1" | "port2";
 
 export function LiveTab({ sessionId, setSessionId, runState = "running", setRunState, statusSlot }: TabProps): React.JSX.Element {
   const [hasFrame, setHasFrame] = useState(false);
+  // Spec 863 — the canvas is the MODEL's picture (384×272 PAL, 384×247 NTSC), as the
+  // runtime reports it; the stream's own header resizes it frame by frame as well.
+  const { machine } = useMachineModel(sessionId);
+  const machineCanvas = machine?.canvas;
   const [fps, setFps] = useState(0);
   const [drive, setDrive] = useState<DriveStatus | null>(null);
   const [drive9, setDrive9] = useState<DriveStatus | null>(null);
@@ -315,15 +320,17 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   grabScreenshot.current = async () => {
     if (!sessionId) return;
     try {
-      const r = await getClient().call<{ dataUrl: string }>("session/screenshot", { session_id: sessionId });
+      const r = await getClient().call<{ dataUrl: string; width?: number; height?: number }>("session/screenshot", { session_id: sessionId });
       const cv = canvasRef.current; if (!cv) return;
       const img = new Image();
       img.onload = () => {
         const ctx = cv.getContext("2d"); if (!ctx) return;
-        // Keep the canvas at the live VIC size (384x272) and SCALE the PNG into it
-        // — resizing the canvas to the PNG's native dims broke the layout (the
-        // canvas overflowed the container in paused/scrub mode). 769.5.
-        const W = 384, H = 272;
+        // Keep the canvas at the live VIC size and SCALE the PNG into it — resizing
+        // the canvas to the PNG's native dims broke the layout (the canvas overflowed
+        // the container in paused/scrub mode). 769.5. The live size is the model's
+        // (Spec 863: 384×272 PAL, 384×247 NTSC), not a constant.
+        const W = machineCanvas?.width ?? r.width ?? cv.width;
+        const H = machineCanvas?.height ?? r.height ?? cv.height;
         if (cv.width !== W) cv.width = W;
         if (cv.height !== H) cv.height = H;
         ctx.drawImage(img, 0, 0, W, H);
@@ -749,8 +756,8 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
             <>
               <canvas
                 ref={canvasRef}
-                width={384}
-                height={272}
+                width={machineCanvas?.width}
+                height={machineCanvas?.height}
                 tabIndex={runState === "running" ? 0 : -1}
                 onFocus={() => setScreenFocused(true)}
                 onBlur={() => setScreenFocused(false)}

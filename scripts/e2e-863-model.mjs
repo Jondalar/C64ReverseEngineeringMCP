@@ -10,7 +10,7 @@
 //
 //   node scripts/e2e-863-model.mjs     (needs `npm run build:mcp`)
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -159,6 +159,43 @@ try {
   delete process.env.C64RE_RUNTIME_BIN;
 } finally {
   rmSync(proj, { recursive: true, force: true });
+}
+
+// ── the Live tab, read as source and as the built bundle (no browser) ────────────────
+{
+  const src = (p) => readFileSync(join(ROOT, p), "utf8");
+  // Comments may name the PAL numbers; code may not.
+  const code = (p) => src(p).split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+  const controls = code("ui/src/workbench/components/MachineControls.tsx");
+  check(/id="wb-model-select"/.test(controls) && /modelChoices\(rows\)/.test(controls),
+    "§7.1 the Live tab has a model selector filled from the runtime's rows (no list of its own)");
+  const pick = controls.slice(controls.indexOf("const pickModel"), controls.indexOf("const confirmModel"));
+  check(pick.length > 0 && !/switchMachineModel|session\/model/.test(pick) && /setPendingModel\(row\)/.test(pick),
+    "  picking a row only ASKS — the switch is not sent from the selector");
+  check(/switchMachineModel\(/.test(controls.slice(controls.indexOf("const confirmModel"))) && /id="wb-model-cancel" onClick=\{\(\) => setPendingModel\(null\)\}/.test(controls),
+    "  the confirm button switches; cancel only closes the question");
+  check(!/mode: "pal"|: "pal"\b/.test(controls), "  pacing is asked for as realtime, the model's own frame rate");
+  const overlay = code("ui/src/workbench/components/ExploreOverlay.tsx");
+  const strip = code("ui/src/workbench/components/VicLineView.tsx");
+  const lit = (s) => ["FB_ORIGIN", "384", "272", "311", "312", "<= 63", "< 63", "(63", "62)", "span 63", "104"].filter((x) => s.includes(x));
+  check(lit(overlay).length === 0 && /frameGeometry\(fmap\.frame/.test(overlay),
+    "§7.4 the VIC view takes cycles, lines, origin and blanking from the frame header", lit(overlay).join(",") || "no PAL literal");
+  check(lit(strip).length === 0 && /frameGeometry\(data\.frame\)/.test(strip),
+    "  and so does the line strip", lit(strip).join(",") || "no PAL literal");
+  check(!/width=\{384\}|const W = 384/.test(code("ui/src/workbench/tabs/Live.tsx")), "the Live canvas is the model's size, not 384×272");
+  check(!/985248/.test(code("ui/src/workbench/tabs/Export.tsx")) && !/985248/.test(code("ui/src/workbench/components/InspectorPanel.tsx")),
+    "the Export tab's seconds and the SID note names use the machine's clock");
+
+  const dist = join(ROOT, "ui", "dist", "assets");
+  let bundle = "";
+  try { bundle = readdirSync(dist).filter((f) => /\.js$/.test(f)).map((f) => readFileSync(join(dist, f), "utf8")).join("\n"); } catch { /* not built */ }
+  if (!bundle) {
+    console.log("  SKIP  the built bundle — ui/dist is absent (npm run ui:build); the source checks above still ran");
+  } else {
+    const want = ["wb-model-select", "wb-model-confirm", "session/models", "session/model", "av/hello", "standard it detected at boot"];
+    const missing = want.filter((w) => !bundle.includes(w));
+    check(missing.length === 0, "the built bundle carries the selector, its question and the runtime routes", missing.join(",") || "all present");
+  }
 }
 
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} e2e-863-model: ${pass} pass, ${fail} fail`);
