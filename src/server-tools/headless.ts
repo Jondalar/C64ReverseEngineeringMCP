@@ -976,10 +976,10 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       }
       for (const x of r.refused) lines.push(`(name ${x.token}: ${x.reason})`);
       lines.push(r.error !== undefined ? `error: ${r.text}` : r.text);
-      return {
-        content: [{ type: "text" as const, text: lines.join("\n") }],
-        structuredContent: { sent: r.sent, substitutions: r.substitutions, names: r.names, spans: r.spans, machine: r.machine },
-      };
+      // TEXT ONLY: an MCP client shows the structured half when there is one, and the
+      // monitor's own output — the one thing this tool is for — was dropped on the floor
+      // (the same lesson as model.ts / critic.ts, 2026-09-12). Found on Ultima VI, 2026-09-19.
+      return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     },
 ));
 

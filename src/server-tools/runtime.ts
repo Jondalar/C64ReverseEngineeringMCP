@@ -198,7 +198,8 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
         const rows = regions.map(r => `  ${hx(r.start)}-${hx(r.end)}  ${r.cls.padEnd(9)} r=${r.reads} w=${r.writes}`);
         const text = `memory-access map over ${cycles} cyc — regions by class: ${JSON.stringify(tally)}\n` +
           `${classes.join("/")} regions ≥${min_bytes}B:\n${rows.join("\n") || "  (none)"}`;
-        return { content: [{ type: "text" as const, text }], structuredContent: { tally, regions } };
+        // Text only — a structuredContent summary would hide the map itself (see model.ts).
+        return { content: [{ type: "text" as const, text }] };
       };
       // Spec 744.4c slice 2c — run the liveness window on the SHARED session.
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");

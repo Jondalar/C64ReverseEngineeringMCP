@@ -108,8 +108,8 @@ try {
   check(/; \+\$00 alpha_main\[u\], \+\$10 set_border\[u\]$/u.test(m.split("\n")[0]), "m: a dump row carries its names in the annotation column", m.split("\n")[0]);
   const dFull = await monFull("d 1000 1002");
   const mFull = await monFull("m 1000 101f");
-  check((dFull.structured?.names ?? []).length > 0 && (mFull.structured?.names ?? []).length > 0,
-    "two verbs, one decoration: both replies carry named spans from the same path", `${dFull.structured?.names?.length} / ${mFull.structured?.names?.length}`);
+  check(/; .*\[u\]/u.test(dFull.text) && /; \+\$00 .*\[u\]/u.test(mFull.text) && dFull.structured === undefined && mFull.structured === undefined,
+    "two verbs, one decoration: both replies carry their names in the text, and nothing hides it behind a structured half", `${dFull.text.split("\n")[0]} / ${mFull.text.split("\n")[0]}`);
 
   console.log("\n[input — names in, the exact string the runtime received]");
   const before = sentCommands().length;

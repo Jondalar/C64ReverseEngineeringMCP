@@ -18,6 +18,7 @@
     "build:pipeline": "tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs",
     "check:cart-type-ids": "node scripts/check-cart-type-ids.mjs",
     "check:docs-current": "node scripts/check-docs-current.mjs",
+    "check:text-only-tools": "node scripts/check-text-only-tools.mjs",
     "e2e:810": "node scripts/e2e-810-scenarios.mjs",
     "smoke:813": "npm run build:mcp && node scripts/smoke-813-observers-and-regions.mjs",
     "smoke:812": "npm run build:mcp && node scripts/smoke-812-scene-reel.mjs",
