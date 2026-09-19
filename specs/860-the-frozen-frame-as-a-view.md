@@ -1,6 +1,6 @@
 # Spec 860 — The frozen frame as a view
 
-**Status:** PROPOSED 2026-09-18 — D1 (the toggle) built ahead, at the owner's request.
+**Status:** BUILT 2026-09-19 — on `spec-843-inspect` in both repos, not merged. See §6.
 **Repos:** C64RE (the view), TRX64 (the frame map the view draws from).
 **Number:** 860 (registry: `specs/README.md`).
 **Builds on:** 843 (click a pixel, name the thing), 859 (the line as the VIC saw it). Same
@@ -46,11 +46,19 @@ hiding it; the picture shows through both. The selection — a cell, a frame, a 
 is shared.
 
 **D4 — Objects: frames to click. What is it, where is the data, annotate.**
-- Switched on, every object on the screen gets a frame: each sprite as the chip drew it
-  (a multiplexer's reused sprite is as many frames as it has appearances, because the sprite
-  state comes from the chip line by line), and each run of the display that shares one mode
-  and one source — a text block with its charset, a bitmap area, an ECM or multicolour
-  region. The frame's label says what it is (mode, sprite number, MC, expanded).
+- Switched on, every object on the screen gets a frame. Objects are not only sprites (the
+  owner: *"auch Logos aus Multicolor-Char, Hires-Grafik usw. — meistens eine Kombination aus
+  Screen-RAM, VIC-Mode, Bank"*):
+  - a **display object** is a connected group of non-empty cells that share one key — the
+    VIC mode *including the per-cell multicolour bit*, the screen base, the charset or bitmap
+    base, the bank. "Non-empty" means the graphics bytes the VIC fetched for the cell in this
+    frame are not all zero. A multicolour-char logo inside hires text is its own object,
+    because its cells differ in the multicolour bit; a word joins its neighbour across one
+    empty cell, so a line of text is one object and not one per word;
+  - a **sprite** is framed once per appearance, from the lines the chip actually fetched it
+    for, so a multiplexer's reused sprite is as many frames as it is drawn.
+  The label says what it is (mode, charset or bitmap, screen, bank, cells; sprite number,
+  pointer, MC, expanded), and the object carries the ranges its bytes live in.
 - Mode and source are exact across splits: they come from the 859 frame record, which holds
   `$D011`/`$D016`/`$D018` and the bank for every cycle, i.e. for every 8-pixel column of every
   line. Nothing is inferred from the registers at the moment of the freeze. In multicolour
@@ -80,6 +88,23 @@ is shared.
   a stall there, and the line strip shows them.
 - Hover a cell: line, cycle and the record's summary in the right column. Click a cell:
   859's 63-cycle strip for that line in the dock under the screen, the cycle selected.
+
+**D8 — Techniques are named by rules, as a deterministic basis.** The owner: *"bei dieser
+Definition sollten Linus' Regeln und vicspector als Basis helfen — als determinierte
+Grundlage"*. Each technique is a predicate over the record, named after the demo-coding
+literature (Åkesson's VIC timing chart and MISC notes, Bauer's article, the vicspector trick
+reference), and fires only on the evidence, with its lines and the reason:
+- **raster split** — the mode, `$D018` or the bank differs between two lines (a change on
+  every line is reported as one run);
+- **FLI** — four or more consecutive bad lines;
+- **FLD** — idle lines inside the display window between two display rows;
+- **linecrunch** — a character row shorter than eight lines with the next row straight after;
+- **DMA delay (VSP)** — a bad line whose c-accesses do not start at cycle 15;
+- **side borders open** — the main border never closes on a visible line;
+- **top/bottom border open** — the vertical border is off outside the display window;
+- **sprite multiplexer** — one sprite drawn more than once;
+- **sprite crunch / stretch** — a sprite that is not 21 (42) lines high inside the frame;
+- **mid-line change** — a picture-shaping store inside the visible part of a line.
 
 **D6 — The overlay can be looked through.** It is translucent by default; an opacity slider in
 the view's toolbar sets how much, and a held key hides it while it is down, so the colours
@@ -128,3 +153,46 @@ well (839: what the human can do, the LLM can do).
 - Timing across frames (IRQ jitter from frame to frame). It needs several recorded frames.
 - vicspector's planner. A model, and 859 D1 keeps models out.
 - NTSC.
+
+## 6. As built (2026-09-19)
+
+**TRX64.** The 859 record gains, per display g-access, the cell's VC, screen byte and
+colour-RAM nibble; per line the sprite registers (X, pointer, colour, MC, expansion) at
+cycle 20; and every store that reached the VIC, taken in `VicII::write_reg` — so a write to
+`$D020` with the I/O area banked out is not mistaken for one. `frame_map_json` builds the map
+from one recorded frame:
+- a 312 × 63 cell grid, one bit field per cycle (BA, VIC owns Φ2, CPU halted, c/s/p/g/idle-g
+  access, refresh, CPU read/write, bad line, VIC store), and per line the counts;
+- the stores with line, cycle, the visible x of the cycle's draw, and the mid-line flag;
+- the objects (D4): display objects by union-find over the cells, with their screen,
+  colour and charset/bitmap ranges coalesced; sprites from their s-accesses — a sprite's
+  display bit lags one line behind its last fetch, which first gave 22 lines for a 21-line
+  sprite;
+- the techniques (D8).
+
+`vic/frame_map { checkpoint_id, include_cells }` answers from the same cached frame as
+`vic/line_trace`. Gates in `vic_line_trace_gate` (12): on a split program — the objects on
+both sides of a charset split (the ROM banner at `$1000`, HELLO at `$1800` as five cells with
+its screen range), sprite 0 as two frames of 21 lines, the `$D020` store flagged mid-line in the
+cell it lands in, the split named at line 128 with `$D018 $15→$17`, the multiplexer, and no
+FLI/FLD/linecrunch/DMA-delay/border/height rule firing; FLD named at exactly lines 99–102 when
+line 99's bad line is pushed by YSCROLL; a plain READY screen names no technique.
+
+**C64RE.** `ExploreOverlay` is the view: a translucent canvas over the picture (cells, guide
+lines at every cycle and at the frame's own bad lines, technique lanes in the left border,
+stores as marks, object frames, hover and selection), the inspector in the right-hand column
+through a portal (what is under the pointer, the techniques, the selected object with its
+ranges, the 843 node with its bytes and origin, annotate → findings), and 859's line strip in
+a dock under the screen. The column widens to 340 px while the view is open. The 843 logic
+stays in the same file, and `e2e:843-inspect` still reads it: 40/0. `runtime_vic_frame_map`
+in DEFAULT_TOOLS, without the cell grid unless asked. `npm run smoke:860`: 14 checks on its
+own sandbox daemon with the split program injected through the monitor.
+
+**Seen in the browser** (Safari, the Ultima VI workspace, the split program injected into the
+live machine): the grid over the picture, frames around the three banner lines, READY and
+"hello", both sprite appearances, the split lane and the store marks, the inspector column with
+the techniques and the selected object's ranges, the line strip in the dock. Two defects found
+there and fixed: the dock squeezed the screen to 35 px (every child of the Live tab's flex
+column shrinks; the grid now fills the rest with a 52 vh floor and the dock scrolls inside
+38 vh), and on an empty paused screen the "Show the current frame" button sat under the
+overlay — the view now fetches the frame when it opens.

@@ -1113,3 +1113,55 @@
 .wb-live .wb-vicline .vl-detail-table td { height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wb-live .wb-vicline .vl-detail-table td:first-child { width: 64px; color: var(--c64-fg-muted); }
 .wb-live .wb-vicline .vl-detail-title { height: 16px; white-space: nowrap; overflow: hidden; }
+
+/* Spec 860 — the frozen frame as a view: the right-hand inspector and the dock. */
+/* The screen keeps its height when the dock opens: in the Live tab's flex column every child
+   shrinks by default, and a 400 px line strip squeezed the picture to a sliver. */
+.wb-live-grid.vic-open { grid-template-columns: 1fr 340px; min-height: 52vh; flex: 1 1 0; }
+.wb-live .wb-vic-side {
+  background: var(--c64-bg-2); border-radius: 4px; padding: 8px;
+  overflow-y: auto; min-height: 0; font-size: 11px;
+}
+.wb-live .wb-vic-dock {
+  margin-top: 4px; background: var(--c64-bg-2); border-radius: 4px; padding: 2px 8px 6px;
+  flex: 0 1 auto; max-height: 38vh; overflow-y: auto;
+}
+.wb-live .wb-vic-dock:empty { display: none; }
+.wb-live .wb-vicside { display: flex; flex-direction: column; gap: 8px; }
+.wb-live .wb-vicside .vs-bar { display: flex; align-items: center; gap: 10px; }
+.wb-live .wb-vicside .vs-bar strong { color: var(--c64-yellow); letter-spacing: 0.04em; }
+.wb-live .wb-vicside .vs-toggle { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.wb-live .wb-vicside .vs-opacity { margin-left: auto; display: inline-flex; }
+.wb-live .wb-vicside .vs-opacity input { width: 90px; accent-color: var(--c64-blue-bright); }
+.wb-live .wb-vicside .vs-ok { color: var(--c64-green); }
+.wb-live .wb-vicside .vs-warn { color: var(--c64-yellow); }
+.wb-live .wb-vicside .vs-bad { color: var(--c64-red); }
+.wb-live .wb-vicside .vs-status { font-size: 10px; }
+.wb-live .wb-vicside .vs-sec { border-top: 1px solid var(--c64-border); padding-top: 6px; display: flex; flex-direction: column; gap: 3px; }
+.wb-live .wb-vicside .vs-sec h4 {
+  margin: 0 0 2px; font-size: 11px; color: var(--c64-blue-bright);
+  display: flex; align-items: center; gap: 6px;
+}
+.wb-live .wb-vicside .vs-here { min-height: 88px; }
+.wb-live .wb-vicside .vs-rows div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.wb-live .wb-vicside .vs-rows .wb-muted { display: inline-block; width: 64px; }
+.wb-live .wb-vicside .vs-tech {
+  text-align: left; background: var(--c64-bg-1); border: 1px solid var(--c64-border); color: var(--c64-fg);
+  padding: 3px 6px; cursor: pointer; font: inherit; border-radius: 3px;
+}
+.wb-live .wb-vicside .vs-tech:hover { border-color: var(--c64-blue-bright); }
+.wb-live .wb-vicside .vs-tech-detail { color: var(--c64-fg-muted); font-size: 10px; margin-top: 1px; }
+.wb-live .wb-vicside .vs-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+.wb-live .wb-vicside .vs-swatch.vs-frame { background: transparent; border: 1.5px solid; }
+.wb-live .wb-vicside .vs-legend { flex-direction: row; flex-wrap: wrap; gap: 4px 10px; font-size: 10px; color: var(--c64-fg-muted); }
+.wb-live .wb-vicside .vs-map { font-family: monospace; font-size: 10px; }
+.wb-live .wb-vicside .vs-annotate input {
+  background: var(--c64-bg-1); color: var(--c64-fg); border: 1px solid var(--c64-border); padding: 3px 6px; font: inherit;
+}
+.wb-live .wb-vicside button {
+  background: var(--c64-bg-1); color: var(--c64-fg); border: 1px solid var(--c64-border);
+  padding: 3px 8px; cursor: pointer; font-family: inherit; font-size: 11px; align-self: flex-start;
+}
+.wb-live .wb-vicside .wb-regs { font-size: 10px; }
+.wb-live .wb-vicside .wb-regs td { padding: 1px 6px 1px 0; }
+.wb-live .wb-vic-dock .wb-vicline { border-top: 0; margin-top: 0; }

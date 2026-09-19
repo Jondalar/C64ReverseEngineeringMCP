@@ -1354,6 +1354,29 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     }),
   );
 
+  // ── Spec 860 — the frozen frame as a view ─────────────────────────────────────
+  //
+  // The human's VIC view: the objects on the screen with their bytes, every store that
+  // reached the VIC and where it landed, and the techniques the frame shows — each a rule
+  // over what the chip did (split, FLI, FLD, linecrunch, DMA delay, open borders,
+  // multiplexer, sprite crunch/stretch, mid-line changes). The 312×63 cell grid is left out
+  // unless asked for; the per-line summary carries the same counts.
+  server.tool(
+    "runtime_vic_frame_map",
+    "Map the frozen frame the way the VIC drew it: the objects on the screen (text blocks, multicolour-char logos, bitmap areas, each sprite appearance) with the memory they come from (screen, charset or bitmap, colour, sprite block, bank), every store that reached a VIC register with the line, cycle and pixel where it landed, and the raster techniques the frame uses — split, FLI, FLD, linecrunch, DMA delay, open borders, sprite multiplexer, sprite crunch or stretch, mid-line changes — each named from what the chip actually did, with its lines and evidence. Use it to find what is on the screen and where its bytes are, or to see how a raster effect is built. Not for one line cycle by cycle (use runtime_vic_line_trace) and not for a single pixel (use runtime_vic_inspect_at). The live machine is not moved. Inputs: session_id, optional checkpoint_id (captured if omitted), include_cells. Returns: { frame, objects, writes, techniques, lines[, cells] }.",
+    {
+      session_id: z.string().describe("Session — \"shared\" is the live machine the human is watching"),
+      checkpoint_id: z.string().optional().describe("The frozen checkpoint to map — the one the VIC view opened. Omitted: one is captured from the current picture"),
+      include_cells: z.boolean().optional().describe("Also return the 312×63 cell grid (one bit field per line and cycle). Large; off by default"),
+    },
+    safeHandler("runtime_vic_frame_map", async ({ session_id, checkpoint_id, include_cells }) => {
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const cp = await checkpointFor(session_id, 0, 0, checkpoint_id);
+      const r = await runtimeDaemon.vicFrameMap(session_id, cp, include_cells ?? false);
+      return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
+    }),
+  );
+
   // ── Spec 859 — the raster line as the VIC saw it ──────────────────────────────
   //
   // The human's Inspect overlay shows the line under the clicked pixel cycle by cycle;

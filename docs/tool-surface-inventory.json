@@ -1,9 +1,9 @@
 {
-  "total": 287,
+  "total": 288,
   "specCount": 51,
   "advancedCandidate": 110,
   "byNamespace": {
-    "runtime": 89,
+    "runtime": 90,
     "list": 20,
     "project": 13,
     "save": 10,
@@ -2273,6 +2273,15 @@
       "hasSpec": false,
       "firstSentence": "Run a session until the PC reaches a target address or the cycle budget is exhausted.",
       "desc": "Run a session until the PC reaches a target address or the cycle budget is exhausted. Use to reach a known code point. Not for N-instruction stepping (use runtime_session_run). Inputs: session_id, target PC, budget. Returns: stop reason + PC.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_vic_frame_map",
+      "file": "server-tools/runtime.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Map the frozen frame the way the VIC drew it: the objects on the screen (text blocks, multicolour-char logos, bitmap areas, each sprite appearance) with the memory they come from (screen, charset or bitmap, colour, sprite block, bank), every store that reached a VIC register with the line, cycle and pixel where it landed, and the raster techniques the frame uses — split, FLI, FLD, linecrunch, DMA delay, open borders, sprite multiplexer, sprite crunch or stretch, mid-line changes — each named from what the chip actually did, with its lines and evidence.",
+      "desc": "Map the frozen frame the way the VIC drew it: the objects on the screen (text blocks, multicolour-char logos, bitmap areas, each sprite appearance) with the memory they come from (screen, charset or bitmap, colour, sprite block, bank), every store that reached a VIC register with the line, cycle and pixel where it landed, and the raster techniques the frame uses — split, FLI, FLD, linecrunch, DMA delay, open borders, sprite multiplexer, sprite crunch or stretch, mid-line changes — each named from what the chip actually did, with its lines and evidence. Use it to find what is on the screen and where its bytes are, or to see how a raster effect is built. Not for one line cycle by cycle (use runtime_vic_line_trace) and not for a single pixel (use runtime_vic_inspect_at). The live machine is not moved. Inputs: session_id, optional checkpoint_id (captured if omitted), include_cells. Returns: { frame, objects, writes, techniques, lines[, cells] }.",
       "tier": "default?"
     },
     {

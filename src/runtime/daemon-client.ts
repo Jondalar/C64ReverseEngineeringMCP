@@ -408,6 +408,11 @@ class RuntimeDaemonClient {
   vicLineTrace<T = unknown>(sessionId: string, checkpointId: string, from: number, to: number) {
     return this.call<T>("vic/line_trace", { session_id: sessionId, checkpoint_id: checkpointId, from, to });
   }
+  /** Spec 860 — the frozen frame as a view: objects with their bytes, stores to the VIC,
+   *  techniques, per-line summaries; the 312×63 cell grid only when asked for. */
+  vicFrameMap<T = unknown>(sessionId: string, checkpointId: string, includeCells: boolean) {
+    return this.call<T>("vic/frame_map", { session_id: sessionId, checkpoint_id: checkpointId, include_cells: includeCells });
+  }
 
   /** Spec 839 / Spec 721 — the two halves of the Visual-Origin Join the human has in
    *  the UI and the LLM did not. Both need a RETAINED checkpoint: `at_capture` is the

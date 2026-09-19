@@ -213,6 +213,17 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   const [vicView, setVicViewState] = useState<boolean>(() => {
     try { return window.localStorage.getItem("c64re.vicView") === "1"; } catch { return false; }
   });
+  // Spec 860 — where the view's inspector and line strip go: the right-hand column and a
+  // dock under the screen. Callback refs into state, so the portals render once they exist.
+  const [vicSideEl, setVicSideEl] = useState<HTMLDivElement | null>(null);
+  const [vicDockEl, setVicDockEl] = useState<HTMLDivElement | null>(null);
+  const vicViewOpen = runState === "paused" && vicView;
+  // The view lies over the picture, so the "Show the current frame" button of an empty
+  // paused screen would sit under it, out of reach. A view of the frame needs the frame:
+  // fetch it when the view opens on an empty screen.
+  useEffect(() => {
+    if (vicViewOpen && !hasFrame) void grabScreenshot.current();
+  }, [vicViewOpen, hasFrame]);
   const setVicView = (on: boolean) => {
     setVicViewState(on);
     try { window.localStorage.setItem("c64re.vicView", on ? "1" : "0"); } catch { /* storage unavailable */ }
@@ -722,7 +733,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       {/* Spec 769.5 — the scrub filmstrip is now mounted, but ONLY on Pause/Freeze
           (see below the grid). The checkpoint ring writes in the background while
           running; the filmstrip surfaces it only when the user freezes. */}
-      <div className="wb-live-grid">
+      <div className={`wb-live-grid${vicViewOpen ? " vic-open" : ""}`}>
         <div className="wb-screen-wrap">
           {runState === "off" ? (
             <div className="wb-screen-off" style={{
@@ -766,12 +777,14 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
               )}
             </>
           )}
-          {runState === "paused" && vicView && canvasRef.current && (
+          {vicViewOpen && canvasRef.current && (
             <ExploreOverlay
               sessionId={sessionId}
               screenEl={canvasRef.current}
               selection={exploreSelection}
               onSelection={setExploreSelection}
+              sideSlot={vicSideEl}
+              dockSlot={vicDockEl}
             />
           )}
           {screenFocused && runState === "running" && (
@@ -783,6 +796,7 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
             </p>
           )}
         </div>
+        {vicViewOpen ? <div className="wb-vic-side" ref={setVicSideEl} /> : (
         <InspectorPanel
           sessionId={sessionId}
           drive={drive}
@@ -803,7 +817,9 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
           joyBits={joyBits}
           pressedKeys={pressedKeys}
         />
+        )}
       </div>
+      {vicViewOpen && <div className="wb-vic-dock" ref={setVicDockEl} />}
       {/* Spec 769.5 — scrub filmstrip: ONLY on Pause/Freeze. Click a frame to
           rewind the full machine to that point; Continue / Dump from there. */}
       {runState === "paused" && <Filmstrip sessionId={sessionId} setRunState={setRunState} />}

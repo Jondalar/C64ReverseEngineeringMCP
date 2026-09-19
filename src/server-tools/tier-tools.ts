@@ -172,6 +172,8 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Spec 859 — the line under the pixel, cycle by cycle. The human has it in the
   // Inspect overlay; hidden here it would be a capability only one of the two has.
   "runtime_vic_line_trace",
+  // Spec 860 — the frozen frame as a view: objects, stores, techniques.
+  "runtime_vic_frame_map",
   // Spec 725 §3.9 — TraceDB / evidence facade (DuckDB trace is a product
   // feature, not an internal debug escape hatch).
   "runtime_query_events", "runtime_swimlane_slice", "runtime_trace_taint",
