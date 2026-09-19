@@ -16,7 +16,7 @@ the built code, whatever §B4/§A2 imply.
 **Number:** 784 (shared board `specs/README.md`).
 **Doctrine anchors:** `docs/agent-doctrine.md §0.7` (boot-chain crawl),
 `docs/redesign/keystone-schema.md` (Payload / Representation / LoaderModel /
-ProvenanceEdge / Evidence types), `TRX64/docs/capability-cut-decisions.md`
+ProvenanceEdge / Evidence types), `TRX64/docs/_archive/capability-cut-decisions.md`
 (media capability → TRX64, meaning → C64RE), `project_re_workflow_model`
 (trace-validate recurs).
 

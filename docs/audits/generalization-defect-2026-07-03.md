@@ -12,7 +12,7 @@ Medium -> blocks -> payloads -> meaning
 
 `docs/redesign/keystone-schema.md` states this as the binding contract. TRX64 also
 documents the same responsibility split in
-`/Users/alex/Development/C64/Tools/TRX64/docs/capability-cut-decisions.md`:
+`/Users/alex/Development/C64/Tools/TRX64/docs/_archive/capability-cut-decisions.md`:
 format decode and medium capability move to TRX64/static; C64RE owns payload,
 provenance, knowledge, and build orchestration.
 

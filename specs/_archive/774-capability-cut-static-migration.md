@@ -4,13 +4,13 @@ Status: CLOSED 2026-09-19 — step 1 built, step 2 dropped, step 3 WON'T-DO. The
 TRX64 is a runtime, for itself (`trx64cli`), C64RE and UE2; static analysis stays C64RE.
 See "Closed" at the end.
 Anchor: `../../docs/product-vision-and-workbench-contract.md` §3 (Leitregel) ·
-`../../../TRX64/docs/capability-cut-decisions.md` (DECIDED 2026-06-29, revised 2026-09-19) ·
-`../../../TRX64/docs/spec-c64re-trx64-split-charter.md`
+`../../../TRX64/docs/_archive/capability-cut-decisions.md` (DECIDED 2026-06-29, revised 2026-09-19) ·
+`../../../TRX64/docs/_archive/spec-c64re-trx64-split-charter.md`
 
 ## Why this spec exists
 
 The capability cut was decided 2026-06-29, but only in the TRX64 repo
-(`TRX64/docs/capability-cut-decisions.md`). C64RE had no spec, no board row and
+(`TRX64/docs/_archive/capability-cut-decisions.md`). C64RE had no spec, no board row and
 no cross-link — a fresh session reading only this repo could not know that parts
 of the bundled TRXDis pipeline have a decided migration target. This spec
 registers the decision on the C64RE side and names the C64RE-side obligations.
@@ -163,8 +163,9 @@ What that settles:
   classification contract, the knowledge-cache inputs across the seam, registration staying
   on this side of it. The seam measurements (0.24 ms for a whole `.d64` in TS, 0.096 ms per
   WS round trip, 740 ms per `trx64cli` start) stay true as numbers.
-- **Q2's static half is gone.** If a `trx64-mcp` is ever built, it fronts the runtime and
-  nothing else; whether it is built is not decided here.
+- **Q2 is void.** Its static half went with step 3, and the owner decided the same day
+  that there is no `trx64-mcp` at all: C64RE's MCP is the one server, its `runtime_*` tools
+  the permanent door to the daemon.
 - **Improving the analyzers is no longer double work.** Before this, every fix to a TS
   analyzer was a fix to code scheduled to be ported. Static disassembly quality (Spec 720)
   now has one home.
