@@ -17,6 +17,10 @@ import { fileURLToPath } from "node:url";
 import { resolve as resolvePath, dirname } from "node:path";
 import { resolveDaemonSpawn } from "./resolve-daemon-spawn.js";
 import { EXPECTED_RUNTIME_PROTOCOL, parseRuntimeProtocol, runtimeSetupRecipe } from "./setup-recipe.js";
+import type { MachineIdentity } from "./machine-model.js";
+
+/** Spec 863 — the identity fields a state reply carries (read them with `machineIdentity`). */
+type MachineIdentityFields = MachineIdentity;
 
 /** The product Runtime Daemon always listens here unless overridden. The UI
  *  targets this directly even when the MCP env has no endpoint configured. */
@@ -296,11 +300,19 @@ class RuntimeDaemonClient {
   }
 
   // -- typed wrappers over the V3 protocol (the acceptance-critical surface) --
-  createSession(p: { disk_path?: string; device_id?: number; pal?: boolean; start_track?: number; write_protected?: boolean; trace_out?: string; trace_domains?: string[] }) {
-    return this.call<{ sessionId: string; mode: string; diskPath: string; c64Cycles: number; pc: number; trace: unknown; attached?: boolean }>("session/create", p);
+  /** Spec 863 — `model` (a row of the runtime's model table) STARTS the session as that
+   *  model: the same model attaches, another one is a power-on on that row. It replaces the
+   *  old `pal` flag the runtime ignored. The reply carries the machine's identity fields. */
+  createSession(p: { disk_path?: string; device_id?: number; model?: string; start_track?: number; write_protected?: boolean; trace_out?: string; trace_domains?: string[] }) {
+    return this.call<{ sessionId: string; mode: string; diskPath: string; c64Cycles: number; pc: number; trace: unknown; attached?: boolean } & Partial<MachineIdentityFields>>("session/create", p);
   }
   listSessions() { return this.call<Array<{ sessionId: string; mode: string; diskPath: string; c64Cycles: number }>>("session/list"); }
-  state(sessionId: string) { return this.call<{ c64Cycles: number; mode: string; runState?: string; controlOwner?: string; streamPump?: boolean; cpu: { pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number } }>("session/state", { session_id: sessionId }); }
+  state(sessionId: string) { return this.call<{ c64Cycles: number; mode: string; runState?: string; controlOwner?: string; streamPump?: boolean; cpu: { pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number } } & Partial<MachineIdentityFields>>("session/state", { session_id: sessionId }); }
+  /** Spec 863 — every model the runtime knows, runnable or not (with what it lacks). */
+  models() { return this.call<{ models: Array<Record<string, unknown> & { name: string }>; current: string }>("session/models"); }
+  /** Spec 863 — switch the running machine to another model at the next frame boundary
+   *  (not a power cycle: the running program keeps its state). */
+  switchModel(sessionId: string, name: string) { return this.call<Record<string, unknown>>("session/model", { session_id: sessionId, name, source: "llm" }); }
   /** Spec 839 — the drive and the cartridge as the machine has them right now. The
    *  human reads both off the cockpit; `runtime_session_status` claimed to report them
    *  and did not. Both are read-only status calls with no side effect on the machine. */
@@ -409,7 +421,8 @@ class RuntimeDaemonClient {
     return this.call<T>("vic/line_trace", { session_id: sessionId, checkpoint_id: checkpointId, from, to });
   }
   /** Spec 860 — the frozen frame as a view: objects with their bytes, stores to the VIC,
-   *  techniques, per-line summaries; the 312×63 cell grid only when asked for. */
+   *  techniques, per-line summaries; the lines × cycles cell grid (312×63 PAL, 263×65
+   *  NTSC — Spec 863) only when asked for. */
   vicFrameMap<T = unknown>(sessionId: string, checkpointId: string, includeCells: boolean) {
     return this.call<T>("vic/frame_map", { session_id: sessionId, checkpoint_id: checkpointId, include_cells: includeCells });
   }
@@ -419,7 +432,7 @@ class RuntimeDaemonClient {
    *  one place that captures and pins one, so a caller without an id gets it from
    *  there rather than from a second capture policy living here.
    *
-   *  Coordinates: these two take VISIBLE-frame pixels (0..384 x 0..272, border
+   *  Coordinates: these two take VISIBLE-frame pixels (0..384 x 0..272 PAL, 0..247 NTSC, border
    *  included). `vicInspectAt` takes DISPLAY pixels (0..319 x 0..199). Same machine,
    *  two frames of reference — see the tool descriptions. */
   /** Spec 843 D9 — bytes out of a FROZEN checkpoint, so a rip takes the bytes that

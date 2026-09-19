@@ -243,3 +243,10 @@ jobs:
       # with the bundled analyzer. No fixture, no ROM, no assembler, no daemon.
       - name: The search sees the graph (Spec 740.3)
         run: npm run smoke:740-graph
+
+      # Spec 863 — hermetic: the model selector's rows and confirmation, a scenario's
+      # model and its refusal, the VIC view's geometry on a wrapped NTSC header, and a
+      # project's model reaching the runtime's command line (a stand-in binary). The
+      # half that needs a runtime is smoke:863, a local gate.
+      - name: C64 models as the runtime reports them (Spec 863)
+        run: npm run e2e:863-model

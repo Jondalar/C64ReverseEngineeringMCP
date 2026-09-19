@@ -37,7 +37,7 @@ const MAX_BUDGET_SECONDS = 600;
 export function registerRuntimeSandboxTool(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "runtime_sandbox_run",
-    "Run a medium on a MACHINE OF YOUR OWN — a private daemon on its own port, started as a child of this call, born with a budget and ending itself when the budget runs out. It never reaches the SHARED session the human co-drives: nothing is mounted into that machine, nothing power-cycles it, and nothing you do here is visible in the human's UI. Use it to boot a cartridge, disk, PRG or snapshot of your own and find out what it does — give it the medium, an optional schedule of steps, and say what you want read back. Steps use the capture-scenario notation, one per line: `I wait 170 frames` / `I type \"LOAD{QUOTE}*{QUOTE},8,1{RETURN}\"` / `I wait until the drive is idle within 8000 frames` / `I hold joystick 2 fire for 3 frames` / `I wait until the CPU reaches $0810 within 4000 frames`. Every step that lasts carries its own duration and the machine is stopped between steps, so the same list replays to the same bytes. WHAT IT CANNOT DO, deliberately: it returns NO session id. The machine is gone before you read the answer, so nothing can attach to it, step it, breakpoint it, open the monitor on it, rewind it or read its memory a second time — a sandbox you could come back to would be a second shared machine, and there is only one of those. Ask for everything you want in THIS call. For an interactive debug loop — stepping, breakpoints, the monitor, rewind, a session that stays — use runtime_session_start and the shared machine. Not for a documentation reel out of a .feature file (use runtime_scene_reel), and not for a picture of the session you are already debugging in (use runtime_render_screen). Inputs: media_path, steps, read_memory, frame_path, screen, budget_seconds. Returns: the private port, a line per step, the end cycle + PC + registers, the text screen, and the memory you asked for.",
+    "Run a medium on a MACHINE OF YOUR OWN — a private daemon on its own port, started as a child of this call, born with a budget and ending itself when the budget runs out. It never reaches the SHARED session the human co-drives: nothing is mounted into that machine, nothing power-cycles it, and nothing you do here is visible in the human's UI. Use it to boot a cartridge, disk, PRG or snapshot of your own and find out what it does — give it the medium, an optional schedule of steps, and say what you want read back. Steps use the capture-scenario notation, one per line: `I wait 170 frames` / `I type \"LOAD{QUOTE}*{QUOTE},8,1{RETURN}\"` / `I wait until the drive is idle within 8000 frames` / `I hold joystick 2 fire for 3 frames` / `I wait until the CPU reaches $0810 within 4000 frames`. Every step that lasts carries its own duration and the machine is stopped between steps, so the same list replays to the same bytes. WHAT IT CANNOT DO, deliberately: it returns NO session id. The machine is gone before you read the answer, so nothing can attach to it, step it, breakpoint it, open the monitor on it, rewind it or read its memory a second time — a sandbox you could come back to would be a second shared machine, and there is only one of those. Ask for everything you want in THIS call. For an interactive debug loop — stepping, breakpoints, the monitor, rewind, a session that stays — use runtime_session_start and the shared machine. Not for a documentation reel out of a .feature file (use runtime_scene_reel), and not for a picture of the session you are already debugging in (use runtime_render_screen). The machine is the project's C64 model unless `model` names another — c64-ntsc for an NTSC release; a frame is that machine's frame. Inputs: media_path, steps, model, read_memory, frame_path, screen, budget_seconds. Returns: the private port, which C64 it was, a line per step, the end cycle + PC + registers, the text screen, and the memory you asked for.",
     {
       media_path: z
         .string()
@@ -55,7 +55,13 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
         .number()
         .optional()
         .describe(
-          "How many PAL frames to run when `steps` is omitted (default 300, about six seconds of C64 time). Ignored when `steps` is given — say `I wait N frames` there instead.",
+          "How many frames to run when `steps` is omitted (default 300 — about six seconds on PAL, five on NTSC). Ignored when `steps` is given — say `I wait N frames` there instead.",
+        ),
+      model: z
+        .string()
+        .optional()
+        .describe(
+          "Which C64 this machine is — c64-pal, c64-ntsc, c64-paln (runtime_monitor `model` lists every model and what a missing one lacks). Omitted: the project's model (project_init machine_model), else PAL. It is chosen before the machine is switched on, so a release that detects the standard at boot sees this one. A model this runtime cannot run is refused by name.",
         ),
       read_memory: z
         .array(z.string())
@@ -89,7 +95,7 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
         ),
     },
     safeHandler("runtime_sandbox_run", async (args) => {
-      const { media_path, steps, run_frames, read_memory, screen, frame_path, budget_seconds, project_dir } = args;
+      const { media_path, steps, run_frames, read_memory, screen, frame_path, budget_seconds, project_dir, model } = args;
 
       // The hint order is by what each path IS: `media_path` is an INPUT that must
       // already exist, `frame_path` an OUTPUT whose directory may not exist yet.
@@ -153,11 +159,16 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
       }
 
       const framePath = frame_path ? abs(frame_path) : undefined;
+      // Spec 863 — the machine is the caller's model, else the project's, else the default.
+      const { projectMachineModel } = await import("../project-knowledge/machine-model.js");
+      const { describeMachine } = await import("../runtime/machine-model.js");
+      const chosenModel = model?.trim() || projectMachineModel(projectDir);
 
       let run;
       try {
         run = await runSandbox({
           budgetMs: budget * 1000,
+          model: chosenModel,
           mediaPath: absMedia,
           steps: parsedSteps,
           reads,
@@ -193,6 +204,10 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
       lines.push(
         `It was started and ENDED by this call: there is no session to attach to, the shared ` +
           `machine was never reached, and nothing is still running.`,
+      );
+      lines.push(
+        `machine: ${describeMachine(run.machine)}` +
+          (model ? "" : chosenModel ? " — the project's model" : " — the default; pass `model` for another"),
       );
       lines.push(
         `budget ${budget}s · ran ${(run.elapsedMs / 1000).toFixed(1)}s` +

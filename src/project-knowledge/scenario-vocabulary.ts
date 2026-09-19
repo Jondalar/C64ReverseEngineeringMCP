@@ -60,6 +60,12 @@ export const VOCABULARY: readonly VocabularyEntry[] = [
   },
   {
     section: "header",
+    form: "# model: <c64-pal | c64-ntsc | …>",
+    sample: "# model: c64-pal",
+    doc: "The machine this was recorded on. Its frames and cycles are that machine's, so a run on another model is refused, naming both. The recorder writes it.",
+  },
+  {
+    section: "header",
     form: "# by: human | llm",
     sample: "# by: human",
     doc: "Who made this step. The recorder writes it; the mark is a comment, not a dialect.",
@@ -115,7 +121,7 @@ export const VOCABULARY: readonly VocabularyEntry[] = [
     kind: "wait",
     form: "When I wait <n> frames",
     sample: "When I wait 170 frames",
-    doc: "Exact, and brittle: change the runtime and the same number lands somewhere else. Prefer an anchor.",
+    doc: "Frames of the machine it runs on (a PAL frame is longer than an NTSC one). Exact, and brittle: change the runtime and the same number lands somewhere else. Prefer an anchor.",
   },
   {
     section: "step",

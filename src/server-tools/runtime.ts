@@ -1365,11 +1365,11 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_vic_inspect_region",
-    "Resolve a RECTANGLE of the frozen display to the distinct sources drawing it — the screen/colour/charset/bitmap/sprite refs behind every pixel in the box, deduplicated to a node list. Use it to ask what an on-screen OBJECT is made of (a sprite, a status panel, a tile) instead of probing pixel by pixel. Not for one pixel (use runtime_vic_inspect_at) and not for where the bytes came FROM (use runtime_vic_origin). Coordinates are VISIBLE-frame pixels, 0..384 x 0..272 with the border included — NOT the 0..319 x 0..199 display frame runtime_vic_inspect_at uses. Inputs: session_id, x, y, width, height, optional checkpoint_id. Returns: { nodes }.",
+    "Resolve a RECTANGLE of the frozen display to the distinct sources drawing it — the screen/colour/charset/bitmap/sprite refs behind every pixel in the box, deduplicated to a node list. Use it to ask what an on-screen OBJECT is made of (a sprite, a status panel, a tile) instead of probing pixel by pixel. Not for one pixel (use runtime_vic_inspect_at) and not for where the bytes came FROM (use runtime_vic_origin). Coordinates are VISIBLE-frame pixels with the border included — the machine's canvas, 0..384 x 0..272 on PAL and 0..384 x 0..247 on NTSC (runtime_session_status says which) — NOT the 0..319 x 0..199 display frame runtime_vic_inspect_at uses. Inputs: session_id, x, y, width, height, optional checkpoint_id. Returns: { nodes }.",
     {
       session_id: z.string().describe("Session to inspect — \"shared\" is the live machine the human is watching"),
       x: z.number().describe("Left edge, VISIBLE-frame pixels (0..384, border included)"),
-      y: z.number().describe("Top edge, VISIBLE-frame pixels (0..272, border included)"),
+      y: z.number().describe("Top edge, VISIBLE-frame pixels (0..272 PAL, 0..247 NTSC, border included)"),
       width: z.number().describe("Box width in visible-frame pixels"),
       height: z.number().describe("Box height in visible-frame pixels"),
       checkpoint_id: z.string().optional().describe("Inspect this retained checkpoint. Omitted: capture and pin a fresh one from the live machine (which pauses it), the same way runtime_vic_inspect_at does."),
@@ -1384,11 +1384,11 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_vic_origin",
-    "The Visual-Origin Join: take a pixel of the frozen picture and answer where the bytes behind it CAME FROM — the VIC/RAM node, then an exact byte-hash match against the mounted medium (sprite / charset / bitmap blocks), plus what the project already knows about that asset. Use it to tie something visible on screen back to a file, a sector and a disassembly. Not for what a pixel IS right now (use runtime_vic_inspect_at) and not for a whole object's composition (use runtime_vic_inspect_region). With nothing mounted the match set is empty and the answer says runtime_generated — that is an honest answer, not a failure. Coordinates are VISIBLE-frame pixels, 0..384 x 0..272 with the border included — NOT the display frame runtime_vic_inspect_at uses. Inputs: session_id, x, y, optional checkpoint_id. Returns: { node, classification, result, knowledge, medium }.",
+    "The Visual-Origin Join: take a pixel of the frozen picture and answer where the bytes behind it CAME FROM — the VIC/RAM node, then an exact byte-hash match against the mounted medium (sprite / charset / bitmap blocks), plus what the project already knows about that asset. Use it to tie something visible on screen back to a file, a sector and a disassembly. Not for what a pixel IS right now (use runtime_vic_inspect_at) and not for a whole object's composition (use runtime_vic_inspect_region). With nothing mounted the match set is empty and the answer says runtime_generated — that is an honest answer, not a failure. Coordinates are VISIBLE-frame pixels with the border included — 0..384 x 0..272 on PAL, 0..384 x 0..247 on NTSC — NOT the display frame runtime_vic_inspect_at uses. Inputs: session_id, x, y, optional checkpoint_id. Returns: { node, classification, result, knowledge, medium }.",
     {
       session_id: z.string().describe("Session to inspect — \"shared\" is the live machine the human is watching"),
       x: z.number().describe("Pixel x, VISIBLE-frame (0..384, border included)"),
-      y: z.number().describe("Pixel y, VISIBLE-frame (0..272, border included)"),
+      y: z.number().describe("Pixel y, VISIBLE-frame (0..272 PAL, 0..247 NTSC, border included)"),
       checkpoint_id: z.string().optional().describe("Inspect this retained checkpoint. Omitted: capture and pin a fresh one from the live machine (which pauses it)."),
     },
     safeHandler("runtime_vic_origin", async ({ session_id, x, y, checkpoint_id }) => {
@@ -1404,7 +1404,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // The human's VIC view: the objects on the screen with their bytes, every store that
   // reached the VIC and where it landed, and the techniques the frame shows — each a rule
   // over what the chip did (split, FLI, FLD, linecrunch, DMA delay, open borders,
-  // multiplexer, sprite crunch/stretch, mid-line changes). The 312×63 cell grid is left out
+  // multiplexer, sprite crunch/stretch, mid-line changes). The lines × cycles cell grid (312×63 PAL, 263×65 NTSC) is left out
   // unless asked for; the per-line summary carries the same counts.
   server.tool(
     "runtime_vic_frame_map",
@@ -1412,7 +1412,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     {
       session_id: z.string().describe("Session — \"shared\" is the live machine the human is watching"),
       checkpoint_id: z.string().optional().describe("The frozen checkpoint to map — the one the VIC view opened. Omitted: one is captured from the current picture"),
-      include_cells: z.boolean().optional().describe("Also return the 312×63 cell grid (one bit field per line and cycle). Large; off by default"),
+      include_cells: z.boolean().optional().describe("Also return the cell grid — one bit field per raster line and cycle, indexed by raster line (312×63 on PAL, 263×65 on NTSC). Large; off by default"),
     },
     safeHandler("runtime_vic_frame_map", async ({ session_id, checkpoint_id, include_cells }) => {
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
@@ -1430,10 +1430,10 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
   // the replay reproduced the picture (`verified`).
   server.tool(
     "runtime_vic_line_trace",
-    "Show one or more raster lines of the frozen frame cycle by cycle, as the emulated VIC-II and CPU actually did them: per cycle the VIC's Phi1 access (g/c/p/s/refresh/idle, address, byte), its Phi2 access (c-access on a bad line, sprite s-access), BA and AEC, whether the CPU read, wrote or stalled, the instruction running, and the VIC counters (VC, RC, VMLI, sprite DMA, border flip-flops). Use it to check raster timing: where a $D011/$D016/$D018 write lands, whether a split or an FLI/FLD/border trick hits its cycle, how many cycles a bad line or sprite DMA stole. Not a model or a planner — only what the machine did; not for the picture itself (use runtime_render_screen). The live machine is not moved. Inputs: session_id, line (0..311), optional to (up to 32 lines), checkpoint_id (what the Inspect overlay froze; one is captured if omitted). Returns: { frame: {which, verified, startClk}, lines: [{line, badLine, cycles[63], instructions}] }.",
+    "Show one or more raster lines of the frozen frame cycle by cycle, as the emulated VIC-II and CPU actually did them: per cycle the VIC's Phi1 access (g/c/p/s/refresh/idle, address, byte), its Phi2 access (c-access on a bad line, sprite s-access), BA and AEC, whether the CPU read, wrote or stalled, the instruction running, and the VIC counters (VC, RC, VMLI, sprite DMA, border flip-flops). Use it to check raster timing: where a $D011/$D016/$D018 write lands, whether a split or an FLI/FLD/border trick hits its cycle, how many cycles a bad line or sprite DMA stole. Not a model or a planner — only what the machine did; not for the picture itself (use runtime_render_screen). The live machine is not moved. Inputs: session_id, line (0..311 on PAL, 0..262 on NTSC), optional to (up to 32 lines), checkpoint_id (what the Inspect overlay froze; one is captured if omitted). Returns: { frame: {which, verified, startClk, model, cyclesPerLine, linesPerFrame, fbOrigin, displayWindow}, lines: [{line, badLine, cycles[cyclesPerLine — 63 PAL, 65 NTSC], instructions}] }.",
     {
       session_id: z.string().describe("Session — \"shared\" is the live machine the human is watching"),
-      line: z.number().int().min(0).max(311).describe("First raster line, 0..311 (PAL). The display window is 51..250"),
+      line: z.number().int().min(0).max(311).describe("First raster line — 0..311 on PAL, 0..262 on NTSC (linesPerFrame in the frame header). The 25 text rows are lines 51..250 on both"),
       to: z.number().int().min(0).max(311).optional().describe("Last raster line, inclusive — at most 32 lines per call"),
       checkpoint_id: z.string().optional().describe("The frozen checkpoint to answer for — the one the Inspect overlay opened. Omitted: one is captured from the current picture"),
     },

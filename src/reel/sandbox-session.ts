@@ -57,6 +57,10 @@ export interface SandboxOptions {
   budgetMs?: number;
   /** Where the daemon keeps its project scratch. A temp dir by default, removed on close. */
   projectDir?: string;
+  /** Spec 863 — which C64 the machine is (a row of the runtime's model table, e.g.
+   *  `c64-ntsc`). Omitted: the runtime's default. A name it cannot run is refused by the
+   *  runtime at startup, and that refusal is what `start` throws. */
+  model?: string;
 }
 
 export class SandboxSession {
@@ -76,7 +80,7 @@ export class SandboxSession {
     const s = new SandboxSession(port);
     const projectDir = opts.projectDir ?? (s.ownTmp = mkdtempSync(join(tmpdir(), "c64re-reel-")));
 
-    const plan = resolveDaemonSpawn({ repoRoot: repoRoot(), projectDir, port: String(port) });
+    const plan = resolveDaemonSpawn({ repoRoot: repoRoot(), projectDir, port: String(port), model: opts.model });
     if (plan.mode === "none") {
       throw new Error(runtimeSetupRecipe("no runtime binary available for an isolated capture run"));
     }
@@ -88,8 +92,10 @@ export class SandboxSession {
       env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_DAEMON_PORT: String(port) },
     });
     let stderr = "";
+    let exited = false;
     s.child.stderr?.on("data", (b: Buffer) => { stderr += b.toString(); });
     s.child.once("exit", (code) => {
+      exited = true;
       if (!s.closed) s.endedBecause = `the runtime exited with code ${code}`;
       s.failAllPending(new Error(s.endedBecause ?? "the runtime exited"));
     });
@@ -104,6 +110,15 @@ export class SandboxSession {
     // Wait for it to answer, not merely to hold the port.
     const deadline = Date.now() + 40_000;
     for (;;) {
+      // A runtime that refused to start (Spec 863: a model it cannot run, named) has
+      // already said why — say it now instead of waiting out the deadline.
+      if (exited) {
+        await s.close();
+        throw new Error(
+          `the isolated runtime did not start` +
+            (stderr.trim() ? `: ${stderr.trim().split("\n").slice(-3).join(" ")}` : ` (${s.endedBecause ?? "it exited"})`),
+        );
+      }
       if (Date.now() > deadline) {
         await s.close();
         throw new Error(

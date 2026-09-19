@@ -17,11 +17,16 @@
 //
 // CLI contract (verified 2026-06-25 against trx64-daemon clap):
 //   universal : --project <dir> --port <port>
+//   model     : --model <row>  (Spec 863) — which C64 the daemon starts as. From the
+//               caller when it names one, else from the project (`knowledge/project.json`
+//               → `machine.model`), else not passed and the daemon starts on its default.
+//               A `--model` / `--video` already in C64RE_RUNTIME_BIN_ARGS wins.
 //   external  : extra args via `C64RE_RUNTIME_BIN_ARGS` (space-split) and/or env
 //               passthrough (e.g. `TRX64_STREAM=1` to enable A/V push for the UI).
 
 import { existsSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
+import { projectMachineModel } from "../project-knowledge/machine-model.js";
 
 export type DaemonSpawnMode = "external-bin" | "none";
 
@@ -34,6 +39,28 @@ export interface DaemonSpawn {
   mode: DaemonSpawnMode;
   /** Non-fatal warning to log. */
   warn?: string;
+  /** Spec 863 — the model the daemon is started as, and where that came from; absent
+   *  when none was passed (the daemon's own default). */
+  model?: string;
+  modelFrom?: "caller" | "project" | "args";
+}
+
+/** Spec 863 — `--model <row>` for the argv, unless the extra args already choose one. */
+function modelArgs(
+  explicit: string | undefined,
+  projectDir: string,
+  extra: string[],
+): { args: string[]; model?: string; modelFrom?: DaemonSpawn["modelFrom"] } {
+  const i = extra.findIndex((a) => /^--(model|video)(=|$)/.test(a));
+  if (i >= 0) {
+    const a = extra[i];
+    return { args: [], model: a.includes("=") ? a.slice(a.indexOf("=") + 1) : extra[i + 1], modelFrom: "args" };
+  }
+  const m = explicit?.trim() || undefined;
+  if (m) return { args: ["--model", m], model: m, modelFrom: "caller" };
+  const p = projectMachineModel(projectDir);
+  if (p) return { args: ["--model", p], model: p, modelFrom: "project" };
+  return { args: [] };
 }
 
 /**
@@ -46,6 +73,8 @@ export function resolveDaemonSpawn(opts: {
   projectDir: string;
   port: string;
   devSamples?: boolean;
+  /** Spec 863 — start the daemon as this model; omitted = the project's, else default. */
+  model?: string;
 }): DaemonSpawn {
   const { repoRoot, projectDir, port } = opts;
   const stdArgs = ["--project", projectDir, "--port", port];
@@ -58,7 +87,8 @@ export function resolveDaemonSpawn(opts: {
     const extra = (process.env.C64RE_RUNTIME_BIN_ARGS?.trim() || "")
       .split(/\s+/)
       .filter(Boolean);
-    return { cmd: bin, args: [...stdArgs, ...extra], mode: "external-bin" };
+    const m = modelArgs(opts.model, projectDir, extra);
+    return { cmd: bin, args: [...stdArgs, ...m.args, ...extra], mode: "external-bin", model: m.model, modelFrom: m.modelFrom };
   }
 
   // 2) the sibling release daemon — the default and only runtime. Path overridable via
@@ -89,7 +119,8 @@ export function resolveDaemonSpawn(opts: {
     // presentation is no longer gated behind `--stream`). So no flag here; `--headless`
     // would be the opt-out (byte-exact oracle / silent tool daemons), which the UI never
     // wants. Legacy `--stream` is still accepted by the daemon as a no-op.
-    return { cmd: trx64, args: [...stdArgs, ...extra], mode: "external-bin" };
+    const m = modelArgs(opts.model, projectDir, extra);
+    return { cmd: trx64, args: [...stdArgs, ...m.args, ...extra], mode: "external-bin", model: m.model, modelFrom: m.modelFrom };
   }
 
   // Not built → "none" makes the caller surface the actionable setup recipe. There is

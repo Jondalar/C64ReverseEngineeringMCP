@@ -13,16 +13,19 @@
 // first command from the same place.
 
 import type { Scenario, Step, Predicate } from "../project-knowledge/scenario-gherkin.js";
-import { PAL_CYCLES_PER_FRAME } from "../project-knowledge/scenario-gherkin.js";
+import { waitCycles } from "../project-knowledge/scenario-gherkin.js";
 import {
   joinChunks, bytesEqual, resolveRegions, screenShows, screenCodesToRows, SCREEN_COLS, SCREEN_ROWS,
   type Region, type RegionRange, type StoredRegion,
 } from "../project-knowledge/region.js";
+import {
+  describeMachine, machineIdentity, scenarioModelRefusal, type MachineIdentity, type ModelRow,
+} from "../runtime/machine-model.js";
 import { SandboxSession, type SandboxOptions } from "./sandbox-session.js";
 import type { Frame } from "./gif89a.js";
 
-/** A bounded run is split so a breakpoint or a JAM still stops where it happens. */
-const RUN_CHUNK = PAL_CYCLES_PER_FRAME;
+// A bounded run is split a frame at a time so a breakpoint or a JAM still stops where it
+// happens. How long a frame is comes from the machine (Spec 863), never from here.
 
 export interface Shot {
   readonly label: string;
@@ -42,6 +45,8 @@ export interface RunResult {
   readonly endCycle: number;
   /** The port the private machine held. Reported so nobody watches the wrong one. */
   readonly port: number;
+  /** Spec 863 — which C64 the reel ran on. */
+  readonly machine: MachineIdentity;
   /** Spec 813 §5 — one line per region, saying WHERE its definition came from. A
    *  local definition shadowing a store entity has to be visible, or someone edits
    *  the entity, nothing changes, and an hour goes into finding out why. */
@@ -103,6 +108,9 @@ export interface RunOptions extends SandboxOptions {
    * silently comparing nothing.
    */
   lookupRegion?: (name: string) => StoredRegion | undefined;
+  /** Spec 863 — the model to use when neither the caller (`model`) nor the scenario's
+   *  `# model:` names one: the project's. */
+  defaultModel?: string;
 }
 
 /**
@@ -118,16 +126,25 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
     throw new Error(`scenario "${scenario.name}" captures nothing, so it would produce an empty reel`);
   }
 
-  const box = await SandboxSession.start(opts);
+  // Spec 863 — the machine a scenario runs on: the one the caller names, else the one it
+  // was recorded on, else the caller's default (the project's). A recorded scenario on
+  // another model is refused below, once the machine has said what it is.
+  const box = await SandboxSession.start({ ...opts, model: opts.model ?? scenario.model ?? opts.defaultModel });
   const log: string[] = [];
   const shots: Shot[] = [];
   let canvas: { width: number; height: number; palette: Uint8Array } | undefined;
 
   const state = (): Promise<MachineState> => box.call<MachineState>("session/state");
+  let machine: MachineIdentity;
+  let F = 0;
+  const readMachine = async (): Promise<void> => {
+    machine = machineIdentity(await state());
+    F = machine.cyclesPerFrame;
+  };
   const runCycles = async (total: number): Promise<void> => {
     let done = 0;
     while (done < total) {
-      const step = Math.min(RUN_CHUNK, total - done);
+      const step = Math.min(F, total - done);
       await box.call("session/run", { cycles: step });
       done += step;
     }
@@ -181,7 +198,22 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
     return readRanges(region.ranges);
   };
 
+  // Spec 863 — a recorded scenario on another model is not replayed: its frames and
+  // cycles are the other machine's. Refused naming both, before anything runs.
+  let rows: ModelRow[] | undefined;
+  const refuseOtherModel = async (): Promise<void> => {
+    if (!scenario.model) return;
+    rows ??= (await box.call<{ models?: ModelRow[] }>("session/models")).models ?? [];
+    const why = scenarioModelRefusal(scenario.name, scenario.model, machine!.model, rows);
+    if (why) throw new Error(why);
+  };
+
   try {
+    await box.call("debug/pause", { source: "reel" });
+    await readMachine();
+    await refuseOtherModel();
+    log.push(`machine: ${describeMachine(machine!)}`);
+
     if (scenario.origin.kind === "medium") {
       const path = opts.resolveMedium
         ? opts.resolveMedium(scenario.origin.path, "origin")
@@ -198,6 +230,9 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
     // Take the clock. A mount can leave the machine running, and a running machine
     // is exactly what makes a schedule unrepeatable.
     await box.call("debug/pause", { source: "reel" });
+    // A snapshot origin replaces the machine, model included.
+    await readMachine();
+    await refuseOtherModel();
 
     // Regions resolve ONCE, against the VIC bases the machine reports at the start.
     // Resolving per predicate would let a scenario compare two different boxes and
@@ -207,7 +242,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
     for (const [i, step] of scenario.steps.entries()) {
       switch (step.kind) {
         case "wait":
-          await runCycles(step.cycles);
+          await runCycles(waitCycles(step, F));
           log.push(`${i}: ${step.text}`);
           break;
 
@@ -222,7 +257,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
         // however many of its scans you said.
         case "key": {
           for (const k of step.keys) await box.call("session/key_down", { key: k, source: "reel" });
-          await runCycles(step.frames * PAL_CYCLES_PER_FRAME);
+          await runCycles(step.frames * F);
           for (const k of step.keys) await box.call("session/key_up", { key: k, source: "reel" });
           log.push(`${i}: ${step.text} (held, then released)`);
           break;
@@ -232,7 +267,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
           const set: Record<string, unknown> = { port: step.port, source: "reel" };
           for (const d of step.directions) set[d] = true;
           await box.call("session/joystick_set", set);
-          await runCycles(step.frames * PAL_CYCLES_PER_FRAME);
+          await runCycles(step.frames * F);
           await box.call("session/joystick_clear", { port: step.port });
           log.push(`${i}: ${step.text} (held, then released)`);
           break;
@@ -255,11 +290,12 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
           // `runtime/swap_disk_and_continue` is not used — it is a stub.
           const path = opts.resolveMedium ? opts.resolveMedium(step.path, "insert") : step.path;
           await box.call("media/unmount", { slot: 8 });
-          await runCycles(PAL_CYCLES_PER_FRAME * 30);
+          await runCycles(F * 30);
           await box.call("media/mount", { path });
           // A mount can flip the controller to running; this front owns the clock.
           await box.call("debug/pause", { source: "reel" });
-          await runCycles(PAL_CYCLES_PER_FRAME * 30);
+          await readMachine();
+          await runCycles(F * 30);
           log.push(`${i}: ${step.text} -> ${path}`);
           break;
         }
@@ -301,6 +337,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
       log,
       endCycle: end.c64Cycles,
       port: box.port,
+      machine: machineIdentity(end),
       regions: regionLines,
       waits,
     };
@@ -376,7 +413,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
         if (busy) everBusy = true;
         else if (everBusy) return elapsed;
       }
-      await runCycles(PAL_CYCLES_PER_FRAME);
+      await runCycles(F);
     }
 
     const pc = (await state()).cpu.pc;

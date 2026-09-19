@@ -69,7 +69,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
   // Path to Murder boot trace.
   server.tool(
     "runtime_session_start",
-    "Start or attach to the SHARED headless C64+1541 session — the one machine the human co-drives, never power-cycled for a test (Spec 836). For a machine of your own, use runtime_sandbox_run (or runtime_scene_reel for a scripted run) — a private daemon on its own port, ending on a budget; this tool refuses a media_path when it attaches, rather than swapping the medium under whoever is using it. The product runtime: real KERNAL/BASIC, cycle-accurate 1541, event-catchup. Use to begin a runtime session for loading/running/inspecting a title, from ANY medium: pass media_path=<file> for a .crt cartridge, a .d64/.g64/.d81 disk, a .prg or a .c64re snapshot — the daemon reads the file to decide which, so a cartridge start needs no separate tool and no placeholder disk. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). ONE MACHINE PER PROCESS: a daemon process runs exactly ONE live machine — the human's UI and you co-drive the SAME session (shared-attach). Before starting, list/status existing sessions and attach to one instead; a SECOND in-process session is NOT isolated — it rebinds the process-global VIC/drive and corrupts the first session's rendering (boot text goes black) until a process restart. For a truly isolated machine (e.g. a throwaway build test) use a SEPARATE backend process. Not for a one-shot PRG run without a persistent session (use runtime_run_prg). Inputs: media_path — ANY of .d64/.g64/.crt/.prg/.c64re, identified by CONTENT not by extension, and optional: a session is a machine, and a medium is something you put in it. A .crt is inserted, a disk is mounted, a .c64re REPLACES the machine, and a .prg is loaded — and typed RUN only when it loads at $0801 behind a valid BASIC line (which is also how SYS-stub releases are meant to start; anything else loads and stops). disk_path is the deprecated alias, kept so existing callers keep working. Also optional: device_id, pal, trace_out, trace_domains. Returns: session id + resolved config + trace status when streaming.",
+    "Start or attach to the SHARED headless C64+1541 session — the one machine the human co-drives, never power-cycled for a test (Spec 836). For a machine of your own, use runtime_sandbox_run (or runtime_scene_reel for a scripted run) — a private daemon on its own port, ending on a budget; this tool refuses a media_path when it attaches, rather than swapping the medium under whoever is using it. The product runtime: real KERNAL/BASIC, cycle-accurate 1541, event-catchup. Use to begin a runtime session for loading/running/inspecting a title, from ANY medium: pass media_path=<file> for a .crt cartridge, a .d64/.g64/.d81 disk, a .prg or a .c64re snapshot — the daemon reads the file to decide which, so a cartridge start needs no separate tool and no placeholder disk. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). ONE MACHINE PER PROCESS: a daemon process runs exactly ONE live machine — the human's UI and you co-drive the SAME session (shared-attach). Before starting, list/status existing sessions and attach to one instead; a SECOND in-process session is NOT isolated — it rebinds the process-global VIC/drive and corrupts the first session's rendering (boot text goes black) until a process restart. For a truly isolated machine (e.g. a throwaway build test) use a SEPARATE backend process. Not for a one-shot PRG run without a persistent session (use runtime_run_prg). Inputs: media_path — ANY of .d64/.g64/.crt/.prg/.c64re, identified by CONTENT not by extension, and optional: a session is a machine, and a medium is something you put in it. A .crt is inserted, a disk is mounted, a .c64re REPLACES the machine, and a .prg is loaded — and typed RUN only when it loads at $0801 behind a valid BASIC line (which is also how SYS-stub releases are meant to start; anything else loads and stops). disk_path is the deprecated alias, kept so existing callers keep working. Also optional: device_id, model (which C64: c64-pal, c64-ntsc, …), trace_out, trace_domains. Returns: session id + which C64 it is + resolved config + trace status when streaming.",
     {
       // BUG-041 — a session is a MACHINE; a medium is something you put in it. This
       // used to be a REQUIRED disk_path that a shared attach never acted on (the daemon
@@ -87,7 +87,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // other path-taking tool uses: named, or walked up from the call's own path.
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from media_path (or trace_out) to knowledge/phase-plan.json."),
       device_id: z.number().int().min(8).max(11).optional().describe("Drive number the medium is mounted on (8–11). Disk media only; ignored for a cartridge."),
-      pal: z.boolean().optional().describe("PAL timing (6569). Default true; NTSC is not supported."),
+      // Spec 863 — replaces the `pal` boolean, whose description said NTSC is not supported.
+      model: z.string().optional().describe("Which C64 the session is — c64-pal, c64-ntsc or c64-paln (runtime_monitor `model` lists every model and what a missing one lacks). Omitted: the machine stays the model it is. Named and already that model: attach. Named and another: the shared machine is STARTED as that model — a power-on, so what was running is gone. To keep a running program and see it on the other model instead, use runtime_monitor `model <name>` (switches at the next frame); for a test on another model, use runtime_sandbox_run with model. A model this runtime cannot run is refused by name."),
       start_track: z.number().int().min(1).max(40).optional().describe("Park the drive head on this track before the run — for a loader that assumes where it left off. Disk media only."),
       write_protected: z.boolean().optional().describe("Mount the disk read-only. Note the project default is read/write with auto-persist back into the original image, so set this when the run must not change the medium."),
       // Spec 723.2/723.4a: neither useCycleLockstep nor useMicrocodedCpu is a
@@ -112,7 +113,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
     // read by the removed in-process branch. Left in the schema (accepted + ignored, as
     // in daemon mode today) — pruning the input surface is a separate decision.
     safeHandler("runtime_session_start", async ({
-      media_path, disk_path, project_dir, device_id, pal, start_track, write_protected,
+      media_path, disk_path, project_dir, device_id, model, start_track, write_protected,
       trace_out, trace_domains,
     }) => {
       // BUG-041 — one input. `disk_path` is the deprecated alias.
@@ -155,7 +156,27 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const absTraceOut = trace_out ? resolveTraceOut(trace_out, mcpProject) : undefined;
       // Seed the auto-spawn base so a daemon we start lives in a real project.
       runtimeDaemon.setProjectDir(mcpProject);
-      const r = await runtimeDaemon.createSession({ disk_path: absMedia, device_id, pal, start_track, write_protected, trace_out: absTraceOut, trace_domains });
+      // Spec 863 — which C64 it was before, so a model change is SAID: `session/create`
+      // with another model starts the shared machine anew as that model (a power-on).
+      let modelBefore: string | undefined;
+      if (model) {
+        try {
+          const sessions = await runtimeDaemon.listSessions();
+          if (sessions[0]) modelBefore = (await runtimeDaemon.state(sessions[0].sessionId)).model;
+        } catch { /* no session yet — nothing was running to lose */ }
+      }
+      const r = await runtimeDaemon.createSession({ disk_path: absMedia, device_id, model: model?.trim() || undefined, start_track, write_protected, trace_out: absTraceOut, trace_domains });
+      const { describeMachine, machineIdentity } = await import("../runtime/machine-model.js");
+      let machineLine: string;
+      try {
+        const id = machineIdentity(r);
+        machineLine = `Machine: ${describeMachine(id)}` +
+          (modelBefore && modelBefore !== id.model
+            ? `\n  The shared machine was ${modelBefore}; it was STARTED as ${id.model} (a power-on — what was running is gone).`
+            : "");
+      } catch (e) {
+        machineLine = `Machine: ${e instanceof Error ? e.message : String(e)}`;
+      }
       // BUG-041 — the medium is OPENED after the session exists, by the daemon, which
       // decides what it is from the CONTENT. A shared attach never acted on the
       // create-time path (its own comment: the attach params "do NOT reconstruct the
@@ -190,6 +211,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         ? [
             `Attached to the existing shared session in the Runtime Daemon (one machine per process — the human's UI and you co-drive the SAME machine).`,
             `Session: ${r.sessionId}`,
+            machineLine,
             refusedLine ?? openedLine ?? `Mounted disk: ${r.diskPath || "(none)"}`,
             `Mode: ${r.mode}`,
             `C64 cycles: ${r.c64Cycles}  PC: ${formatHexWord(r.pc)}`,
@@ -201,6 +223,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         : [
             `Integrated session started (Runtime Daemon — shared with the UI).`,
             `Session: ${r.sessionId}`,
+            machineLine,
             openedLine ?? `Media: ${absMedia ?? "(none)"}`,
             `Mode: ${r.mode}`,
             `C64 cycles: ${r.c64Cycles}  PC: ${formatHexWord(r.pc)}`,
@@ -224,7 +247,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         pc: z.string().optional().describe("Hex PC address (for kind=pc)."),
         side: z.enum(["c64", "drive"]).optional().describe("Which CPU's PC to watch (for kind=pc). Default c64."),
         count: z.number().int().min(1).optional().describe("Number of hits to wait for (for kind=pc). Default 1."),
-        line: z.number().int().min(0).max(311).optional().describe("VIC raster line (for kind=raster)."),
+        line: z.number().int().min(0).max(311).optional().describe("VIC raster line (for kind=raster): 0..311 on PAL, 0..262 on NTSC."),
         edge: z.enum(["atn-fall", "atn-rise", "clk-fall", "clk-rise", "data-fall", "data-rise"]).optional().describe("IEC line edge (for kind=iec)."),
         frames_stable: z.number().int().min(1).optional().describe("Frames-stable threshold (for kind=stable_screen). Default 3."),
       }).optional().describe("Named stop condition. If set, runs until satisfied (or budget exhausted) instead of max_instructions."),
@@ -483,7 +506,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_session_status",
-    "Snapshot a running session's machine state — the C64 CPU, the drive (motor, head, LED, what is mounted and whether it is dirty) and the cartridge (type, bank, activity), plus cycle counts — and which project the runtime serves, flagging projectMismatch when it is not this one (it reports, it never moves the runtime — that is the workbench's decision). Use to check where execution is and what the machine has in it. For the 1541's own CPU registers use runtime_monitor `device drive8` then `r`. Not for the agent-API surface report (use runtime_status, advanced). Inputs: session_id, optional project_dir. Returns: CPU + project + drive + cartridge snapshot.",
+    "Snapshot a running session's machine state — which C64 it is (model, frame length, clock, canvas), the C64 CPU, the drive (motor, head, LED, what is mounted and whether it is dirty) and the cartridge (type, bank, activity), plus cycle counts — and which project the runtime serves, flagging projectMismatch when it is not this one (it reports, it never moves the runtime — that is the workbench's decision). Use to check where execution is and what the machine has in it. For the 1541's own CPU registers use runtime_monitor `device drive8` then `r`. Not for the agent-API surface report (use runtime_status, advanced). Inputs: session_id, optional project_dir. Returns: CPU + project + drive + cartridge snapshot.",
     {
       session_id: z.string().describe("Session to report on — \"shared\" is the live machine the human is watching"),
       project_dir: z.string().optional().describe("This project's root, to check that the runtime serves the same one. When omitted, the MCP's project."),
@@ -492,7 +515,25 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Spec 744.4c — read the session from the shared Runtime Daemon (the same
       // machine the UI drives), not a private MCP-process session.
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const { c64Cycles, mode, cpu } = await runtimeDaemon.state(session_id);
+      const st = await runtimeDaemon.state(session_id);
+      const { c64Cycles, mode, cpu } = st;
+      // Spec 863 — which C64 it is, and whether that is the one the project remembers.
+      const { describeMachine, machineIdentity } = await import("../runtime/machine-model.js");
+      const { projectMachineModel } = await import("../project-knowledge/machine-model.js");
+      let machineLine: string;
+      try {
+        const id = machineIdentity(st);
+        machineLine = `Machine: ${describeMachine(id)}`;
+        let wantDir: string | undefined;
+        try { wantDir = context.projectDir(project_dir, true); } catch { wantDir = undefined; }
+        const want = projectMachineModel(wantDir);
+        if (want && want !== id.model) {
+          machineLine += `\n  This project is ${want} (knowledge/project.json). The machine is not moved by a status call — ` +
+            `runtime_monitor \`model ${want}\` switches it at the next frame (the program keeps its state).`;
+        }
+      } catch (e) {
+        machineLine = `Machine: ${e instanceof Error ? e.message : String(e)}`;
+      }
       // Spec 839 — this tool SAID "both CPUs, IEC bus, drive" and returned one CPU.
       // A tool may not claim what it does not do (Spec 833), and the cheap repair was
       // to shrink the sentence; the right one is to fetch what the human already sees
@@ -536,6 +577,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         ``,
         `C64 CPU: PC=${formatHexWord(cpu.pc)} A=${formatHexByte(cpu.a)} X=${formatHexByte(cpu.x)} Y=${formatHexByte(cpu.y)} SP=${formatHexByte(cpu.sp)} P=${formatHexByte(cpu.flags)}`,
         `         cycles=${c64Cycles}`,
+        machineLine,
         `Mode: ${mode}`,
         projectLine,
         `Drive 8: ${render(drive, "unavailable")}`,
@@ -654,17 +696,19 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Issue #6 — the same fix as the frame-locked joystick, for keys: the queue is
       // played out with the machine STOPPED around it, so "typed" is a fact when this
       // returns rather than a race against the caller's next request.
-      const { PAL_CYCLES_PER_FRAME } = await import("../project-knowledge/scenario-gherkin.js");
+      // Spec 863 — a frame is the machine's frame (19 656 cycles PAL, 17 095 NTSC).
+      const { machineIdentity } = await import("../runtime/machine-model.js");
       const extra = extra_frames ?? 2;
-      const need = decoded.length * (hold + gap) + extra * PAL_CYCLES_PER_FRAME;
       const before = await runtimeDaemon.state(session_id) as { runState?: string; c64Cycles?: number };
+      const F = machineIdentity(before).cyclesPerFrame;
+      const need = decoded.length * (hold + gap) + extra * F;
       const wasRunning = before?.runState === "running";
       await runtimeDaemon.pause(session_id);
       const from = (await runtimeDaemon.state(session_id) as { c64Cycles?: number })?.c64Cycles ?? 0;
       await runtimeDaemon.typeText(session_id, decoded, hold, gap);
       let remaining = need;
       while (remaining > 0) {
-        const step = Math.min(PAL_CYCLES_PER_FRAME * 50, remaining);
+        const step = Math.min(F * 50, remaining);
         await runtimeDaemon.run(session_id, step);
         remaining -= step;
       }
@@ -693,7 +737,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       right: z.boolean().optional(),
       fire: z.boolean().optional(),
       port: z.number().int().min(1).max(2).optional().describe("Joystick port (1 or 2). Default 2."),
-      hold_frames: z.number().int().positive().max(3000).optional().describe("Hold the stated state for exactly this many PAL frames, then release — the machine is paused around it, so the press lands in machine time, not wall-clock time. A tap is 2-4 frames; a menu repeat wants ~15-30. Omit to set the state and return immediately."),
+      hold_frames: z.number().int().positive().max(3000).optional().describe("Hold the stated state for exactly this many frames of the machine, then release — a frame is 19656 cycles on PAL, 17095 on NTSC, read from the machine. The machine is paused around it, so the press lands in machine time, not wall-clock time. A tap is 2-4 frames; a menu repeat wants ~15-30. Omit to set the state and return immediately."),
     },
     safeHandler("runtime_joystick", async ({ session_id, up, down, left, right, fire, port, hold_frames }) => {
       // BUG-028 — joystick on the SHARED daemon session.
@@ -717,17 +761,22 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // inside a poll routine's sampling window, and no cycle_budget from the caller
       // side fixes that. Here the machine is stopped for the whole press: it advances
       // exactly hold_frames worth of cycles with the state applied, and not one more.
-      const { PAL_CYCLES_PER_FRAME } = await import("../project-knowledge/scenario-gherkin.js");
-      const before = await runtimeDaemon.state(session_id) as { runState?: string; cycle?: number };
+      // Spec 863 — hold_frames counts the MACHINE's frames: 19 656 cycles on PAL, 17 095
+      // on NTSC. Read from the machine, never assumed.
+      const { machineIdentity } = await import("../runtime/machine-model.js");
+      const before = await runtimeDaemon.state(session_id) as { runState?: string; c64Cycles?: number };
+      const F = machineIdentity(before).cyclesPerFrame;
       const wasRunning = before?.runState === "running";
       await runtimeDaemon.pause(session_id);
-      const from = (await runtimeDaemon.state(session_id) as { cycle?: number })?.cycle ?? 0;
+      // The state reports `c64Cycles`; this read `.cycle`, which it never had, so the
+      // window below always said 0 → 0.
+      const from = (await runtimeDaemon.state(session_id))?.c64Cycles ?? 0;
       try {
         await runtimeDaemon.joystickSet(session_id, p, state);
         // Chunked so one long hold is still a sequence of bounded daemon calls.
-        let left_ = hold_frames * PAL_CYCLES_PER_FRAME;
+        let left_ = hold_frames * F;
         while (left_ > 0) {
-          const step = Math.min(PAL_CYCLES_PER_FRAME * 50, left_);
+          const step = Math.min(F * 50, left_);
           await runtimeDaemon.run(session_id, step);
           left_ -= step;
         }
@@ -736,12 +785,12 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         // failed call, and the human shares this machine.
         await runtimeDaemon.joystickClear(session_id, p);
       }
-      const after = (await runtimeDaemon.state(session_id) as { cycle?: number })?.cycle ?? 0;
+      const after = (await runtimeDaemon.state(session_id))?.c64Cycles ?? 0;
       // Leave the machine as it was found: the human co-drives this session and did
       // not ask for it to stop.
       if (wasRunning) await runtimeDaemon.resume(session_id);
       return { content: [{ type: "text" as const, text: [
-        `Joystick port ${p} — session ${session_id}: held ${pressed} for ${hold_frames} frame(s), then released`,
+        `Joystick port ${p} — session ${session_id}: held ${pressed} for ${hold_frames} frame(s) of ${F} cycles, then released`,
         `cycles ${from} → ${after} (${after - from}), machine paused for the press and ${wasRunning ? "resumed" : "left paused"} after it`,
         `The press was measured in machine time, so it lands the same way every run — the same guarantee runtime_scene_reel gives.`,
         `If the title still misses it, the hold is shorter than its poll interval: raise hold_frames.`,

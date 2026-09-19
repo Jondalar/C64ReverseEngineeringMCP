@@ -74,7 +74,13 @@ export interface Criterion {
  * defect this notation exists to make unwritable.
  */
 export type Step =
-  | { readonly kind: "wait"; readonly cycles: number; readonly text: string }
+  /**
+   * Spec 863 — a wait keeps the unit it was written in. `I wait 170 frames` is 170 frames
+   * of the machine the scenario runs on — 19 656 cycles each on PAL, 17 095 on NTSC — so it
+   * cannot be turned into cycles until that machine is known; the runner does it
+   * (`waitCycles`). `I wait N cycles` is cycles on any machine.
+   */
+  | { readonly kind: "wait"; readonly count: number; readonly unit: "frames" | "cycles"; readonly text: string }
   | { readonly kind: "type"; readonly keys: string; readonly text: string }
   /**
    * Spec 814 — a key HELD for a stated number of frames.
@@ -200,6 +206,12 @@ export interface Scenario {
    * reviewable, shareable, and part of what a human accepts.
    */
   readonly mask: readonly string[];
+  /**
+   * Spec 863 — `# model: c64-pal`: the machine the scenario was RECORDED on. The recorder
+   * writes it; a hand-written scenario may leave it out. A recorded scenario is timed in
+   * that machine's frames and cycles, so a run on another model is refused, naming both.
+   */
+  readonly model?: string;
   /** Source file, so a report can point at what to edit. */
   readonly file?: string;
   readonly line?: number;
@@ -292,8 +304,15 @@ export function classifyCriterion(text: string): Criterion {
   return { text, kind: "verbal" };
 }
 
-/** PAL. A frame is the unit a C64 samples input in, so it is the unit steps count in. */
-export const PAL_CYCLES_PER_FRAME = 19656;
+/**
+ * A frame is the unit a C64 samples input in, so it is the unit steps count in — and how
+ * many cycles a frame is depends on the machine (Spec 863: 19 656 PAL, 17 095 NTSC, 20 280
+ * PAL-N). There is no constant for it here: the runner reads `cyclesPerFrame` from the
+ * machine it drives and hands it in.
+ */
+export function waitCycles(step: Extract<Step, { kind: "wait" }>, cyclesPerFrame: number): number {
+  return step.unit === "cycles" ? step.count : step.count * cyclesPerFrame;
+}
 
 const JOY_DIRECTIONS: readonly JoyDirection[] = ["up", "down", "left", "right", "fire"];
 
@@ -333,9 +352,8 @@ export function parseStep(text: string): { step?: Step; error?: string } | undef
   const wait = t.match(/^I wait\s+([\d_]+)\s*(frames?|cycles?)$/i);
   if (wait) {
     const n = Number(wait[1].replace(/_/g, ""));
-    const cycles = /^cycle/i.test(wait[2]) ? n : n * PAL_CYCLES_PER_FRAME;
-    if (!Number.isFinite(cycles) || cycles <= 0) return { error: `"${t}": a wait must be positive` };
-    return { step: { kind: "wait", cycles, text: t } };
+    if (!Number.isFinite(n) || n <= 0) return { error: `"${t}": a wait must be positive` };
+    return { step: { kind: "wait", count: n, unit: /^cycle/i.test(wait[2]) ? "cycles" : "frames", text: t } };
   }
 
   // I type "LOAD{QUOTE}*{QUOTE},8,1{RETURN}"
@@ -528,10 +546,11 @@ export function parseFeature(source: string, file?: string): ParseResult {
   let cur: {
     name: string; targets: string[]; mark?: string; branch?: string; frames?: number;
     origin?: Origin; steps: Step[]; regions: RegionDef[];
-    criteria: Criterion[]; mask: string[]; line: number;
+    criteria: Criterion[]; mask: string[]; model?: string; line: number;
   } | null = null;
   let pendingTargets: string[] = [];
   let pendingMask: string[] = [];
+  let pendingModel: string | undefined;
 
   const flush = (at: number) => {
     if (!cur) return;
@@ -550,7 +569,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
         name: cur.name, targets: cur.targets, origin,
         mark: cur.mark ?? "", branch: cur.branch ?? "",
         frames: cur.frames ?? 1, steps: cur.steps, regions: cur.regions,
-        criteria: cur.criteria, mask: cur.mask, file, line: cur.line,
+        criteria: cur.criteria, mask: cur.mask, ...(cur.model ? { model: cur.model } : {}), file, line: cur.line,
       });
     }
     cur = null;
@@ -581,6 +600,13 @@ export function parseFeature(source: string, file?: string): ParseResult {
         if (cur) cur.mask.push(...list);
         else pendingMask.push(...list);
       }
+      // Spec 863 — `# model: c64-ntsc`: the machine it was recorded on. The word after
+      // the colon is the model; anything after it is a comment.
+      const mm = line.match(/^#\s*model:\s*([A-Za-z0-9][A-Za-z0-9-]*)/i);
+      if (mm) {
+        if (cur) cur.model = mm[1];
+        else pendingModel = mm[1];
+      }
       return;
     }
 
@@ -588,10 +614,12 @@ export function parseFeature(source: string, file?: string): ParseResult {
     if (sc) {
       flush(n);
       cur = {
-        name: sc[1].trim(), targets: [...pendingTargets], steps: [], regions: [], criteria: [], mask: [...pendingMask], line: n,
+        name: sc[1].trim(), targets: [...pendingTargets], steps: [], regions: [], criteria: [], mask: [...pendingMask],
+        ...(pendingModel ? { model: pendingModel } : {}), line: n,
       };
       pendingTargets = [];
       pendingMask = [];
+      pendingModel = undefined;
       return;
     }
 

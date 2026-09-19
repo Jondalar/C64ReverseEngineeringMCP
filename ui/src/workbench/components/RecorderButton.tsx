@@ -17,6 +17,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { getClient } from "../ws-client.js";
 import { recordScenario, type AnchorObservation, type JournalEntry, type RecordResult } from "../../../../src/reel/record-scenario.js";
 import { screenCodesToRows, normalizeScreenText } from "../../../../src/project-knowledge/region.js";
+import { findModelRow, machineIdentity, type ModelRow } from "../../../../src/runtime/machine-model.js";
 import type { Shot } from "./CaptureOverlay.js";
 
 interface Props {
@@ -161,18 +162,30 @@ export function RecorderButton({ sessionId, runState, shots, onRecorded }: Props
     try {
       const client = getClient();
       const j = await client.call<{
-        armedAtCycle?: number; cycle?: number; dropped?: number; entries?: JournalEntry[];
+        armedAtCycle?: number; cycle?: number; dropped?: number; entries?: JournalEntry[]; model?: string;
       }>("session/input_journal", { session_id: sessionId, arm: false });
+
+      // Spec 863 — the journal says which machine it recorded on; its frame length comes
+      // from the runtime's row for it. The machine may have been switched since.
+      const st0 = await client.call<Record<string, unknown>>("session/state", { session_id: sessionId });
+      const machine = machineIdentity(st0);
+      const recordedOn = j.model ?? machine.model;
+      let cyclesPerFrame = machine.cyclesPerFrame;
+      const extraWarnings: string[] = [];
+      if (recordedOn !== machine.model) {
+        const rows = (await client.call<{ models?: ModelRow[] }>("session/models", { session_id: sessionId })).models ?? [];
+        const row = findModelRow(rows, recordedOn);
+        if (!row?.cyclesPerFrame) throw new Error(`the runtime does not describe ${recordedOn}, the model this was recorded on`);
+        cyclesPerFrame = row.cyclesPerFrame;
+        extraWarnings.push(`recorded on ${recordedOn}; the machine is ${machine.model} now — the file is timed in ${recordedOn} frames`);
+      }
 
       // §4 — the Given comes from the SESSION, not from a guess. A mounted medium
       // makes the file self-contained; anything else is honest about needing a
       // snapshot beside it.
       let origin: Parameters<typeof recordScenario>[1]["origin"];
       try {
-        const st = await client.call<{ media?: { disk?: { path?: string }; cart?: { path?: string } } }>(
-          "session/state",
-          { session_id: sessionId },
-        );
+        const st = st0 as { media?: { disk?: { path?: string }; cart?: { path?: string } } };
         // A cartridge before a disk: when both are in, the cart is what the machine
         // boots from, so it is what a reader has to have.
         const path = st.media?.cart?.path || st.media?.disk?.path;
@@ -187,6 +200,8 @@ export function RecorderButton({ sessionId, runState, shots, onRecorded }: Props
       const endCycle = j.cycle ?? armedCycle;
       const result = recordScenario(j.entries ?? [], {
         name: "recorded run",
+        model: recordedOn,
+        cyclesPerFrame,
         armedAtCycle: armedCycle,
         endCycle,
         origin,
@@ -195,9 +210,11 @@ export function RecorderButton({ sessionId, runState, shots, onRecorded }: Props
           .filter((s) => s.cycle >= armedCycle && s.cycle <= endCycle)
           .map((s) => ({ cycle: s.cycle, label: s.label })),
       });
-      const warnings = j.dropped
-        ? [...result.warnings, `${j.dropped} input(s) past the journal cap were not recorded`]
-        : result.warnings;
+      const warnings = [
+        ...result.warnings,
+        ...extraWarnings,
+        ...(j.dropped ? [`${j.dropped} input(s) past the journal cap were not recorded`] : []),
+      ];
       onRecorded({ ...result, warnings });
     } catch (e) {
       onRecorded({ text: "", warnings: [`the recording could not be turned into a scenario: ${(e as Error).message}`], steps: 0 });

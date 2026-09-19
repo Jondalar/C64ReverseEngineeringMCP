@@ -11,7 +11,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseFeature, stripTrailingComment, authorOfComment, decodeKeys, PAL_CYCLES_PER_FRAME }
+import { parseFeature, stripTrailingComment, authorOfComment, decodeKeys }
   from "../dist/project-knowledge/scenario-gherkin.js";
 import { STEP_KINDS, PREDICATE_KINDS } from "../dist/project-knowledge/scenario-gherkin.js";
 import { VOCABULARY, completions, keyTokens, missingKinds } from "../dist/project-knowledge/scenario-vocabulary.js";
@@ -24,7 +24,10 @@ const ok = (cond, what, detail) => {
   else { fail++; console.log(`  FAIL ${what}${detail ? ` — ${detail}` : ""}`); }
 };
 
-const F = PAL_CYCLES_PER_FRAME;
+// The c64-pal frame, as a fixture: the recorder is handed the recorded machine's frame
+// length (Spec 863) — here the PAL one, 312 × 63. The NTSC case is at the end.
+const F = 19656;
+const PAL = { model: "c64-pal", cyclesPerFrame: F };
 const MEDIUM = { kind: "medium", path: "game.d64", why: "a medium is mounted" };
 
 // ── §9.1b a trailing comment is not part of the line ─────────────────────────
@@ -88,7 +91,7 @@ ok(decodeKeys("{RETURN}") === "\r" && decodeKeys("{NOPE}") === "{NOPE}",
     { cycle: 400 * F, kind: "joystick", source: "llm", method: "session/joystick_set", detail: { port: 2, down: true, fire: true } },
     { cycle: 403 * F, kind: "joystick", source: "llm", method: "session/joystick_clear", detail: {} },
   ];
-  const r = recordScenario(journal, {
+  const r = recordScenario(journal, { ...PAL,
     name: "boot to the menu",
     armedAtCycle: 0,
     endCycle: 500 * F,
@@ -130,7 +133,7 @@ ok(decodeKeys("{RETURN}") === "\r" && decodeKeys("{NOPE}") === "{NOPE}",
      JSON.stringify(after.issues[0] ?? ""));
 
   // The recorder can also do it itself, and says what it left out.
-  const onlyHuman = recordScenario(journal, {
+  const onlyHuman = recordScenario(journal, { ...PAL,
     name: "mine", armedAtCycle: 0, endCycle: 500 * F, origin: MEDIUM, only: "human",
   });
   ok(parseFeature(onlyHuman.text).issues.length === 0 &&
@@ -144,7 +147,7 @@ ok(decodeKeys("{RETURN}") === "\r" && decodeKeys("{NOPE}") === "{NOPE}",
 {
   const r = recordScenario(
     [{ cycle: 100 * F, kind: "key", source: "human", method: "session/type", detail: { text: "A" } }],
-    { name: "t", armedAtCycle: 0, endCycle: 120 * F, origin: MEDIUM,
+    { ...PAL, name: "t", armedAtCycle: 0, endCycle: 120 * F, origin: MEDIUM,
       anchors: [{ cycle: 60 * F, predicate: "the drive is idle" }] },
   );
   const w = parseFeature(r.text).scenarios[0].steps.find((x) => x.kind === "waitUntil");
@@ -158,7 +161,7 @@ ok(decodeKeys("{RETURN}") === "\r" && decodeKeys("{NOPE}") === "{NOPE}",
 {
   const r = recordScenario(
     [{ cycle: 10 * F, kind: "joystick", source: "human", method: "session/joystick_set", detail: { port: 1, right: true } }],
-    { name: "t", armedAtCycle: 0, endCycle: 30 * F, origin: MEDIUM },
+    { ...PAL, name: "t", armedAtCycle: 0, endCycle: 30 * F, origin: MEDIUM },
   );
   ok(r.warnings.some((w) => /still held/.test(w)), "26 a press left held is reported", r.warnings[0]);
   const r2 = recordScenario(
@@ -166,7 +169,7 @@ ok(decodeKeys("{RETURN}") === "\r" && decodeKeys("{NOPE}") === "{NOPE}",
       { cycle: 100 * F, kind: "insert", source: "human", method: "media/mount", detail: { path: "a.d64" } },
       { cycle: 2 * F, kind: "key", source: "human", method: "session/type", detail: { text: "R" } },
     ],
-    { name: "t", armedAtCycle: 0, endCycle: 20 * F, origin: MEDIUM },
+    { ...PAL, name: "t", armedAtCycle: 0, endCycle: 20 * F, origin: MEDIUM },
   );
   ok(parseFeature(r2.text).issues.length === 0 && /power-cycled/.test(r2.text),
      "27 a clock that restarts mid-recording is noted, not emitted as a huge wait");
@@ -183,7 +186,7 @@ ok(decodeKeys("{RETURN}") === "\r" && decodeKeys("{NOPE}") === "{NOPE}",
       { cycle: 20 * F, kind: "key", source: "human", method: "session/key_down", detail: { key: "L" } },
       { cycle: 23 * F, kind: "key", source: "human", method: "session/release_keys", detail: {} },
     ],
-    { name: "t", armedAtCycle: 0, endCycle: 30 * F, origin: MEDIUM },
+    { ...PAL, name: "t", armedAtCycle: 0, endCycle: 30 * F, origin: MEDIUM },
   );
   const st = parseFeature(r.text).scenarios[0].steps.filter((x) => x.kind === "key");
   ok(st.length === 2, "28 a key press is recorded as a step, with the key that was pressed",
@@ -200,7 +203,7 @@ ok(decodeKeys("{RETURN}") === "\r" && decodeKeys("{NOPE}") === "{NOPE}",
     [
       { cycle: 5 * F, kind: "key", source: "human", method: "session/key_down", detail: { key: "J" } },
     ],
-    { name: "t", armedAtCycle: 0, endCycle: 9 * F, origin: MEDIUM },
+    { ...PAL, name: "t", armedAtCycle: 0, endCycle: 9 * F, origin: MEDIUM },
   );
   const st = parseFeature(r.text).scenarios[0].steps.filter((x) => x.kind === "key");
   ok(st.length === 1 && st[0].frames >= 1,
@@ -215,7 +218,7 @@ ok(decodeKeys("{RETURN}") === "\r" && decodeKeys("{NOPE}") === "{NOPE}",
 }
 // And a .crt reads like a cart.
 {
-  const r = recordScenario([], {
+  const r = recordScenario([], { ...PAL,
     name: "t", armedAtCycle: 0, endCycle: F,
     origin: { kind: "medium", path: "brubaker.crt", why: "mounted" },
   });
@@ -225,7 +228,7 @@ ok(decodeKeys("{RETURN}") === "\r" && decodeKeys("{NOPE}") === "{NOPE}",
 // An empty recording still produces a parseable file — with a warning, because a
 // file that silently does nothing is worse than one that says it does nothing.
 {
-  const r = recordScenario([], { name: "t", armedAtCycle: 0, endCycle: 0, origin: MEDIUM });
+  const r = recordScenario([], { ...PAL, name: "t", armedAtCycle: 0, endCycle: 0, origin: MEDIUM });
   ok(parseFeature(r.text).issues.length === 0 && r.warnings.length === 1,
      "30 an empty recording is a parseable file that says it is empty");
 }
@@ -249,7 +252,7 @@ ok(decodeKeys(encodeKeys('LOAD"*",8,1\r')) === 'LOAD"*",8,1\r',
     { cycle: 150 * F, kind: "key", source: "human", method: "session/key_down", detail: { key: "J" } },
     { cycle: 154 * F, kind: "key", source: "human", method: "session/key_up", detail: { key: "J" } },
   ];
-  const r = recordScenario(journal, {
+  const r = recordScenario(journal, { ...PAL,
     name: "type into basic",
     armedAtCycle: 0,
     endCycle: 200 * F,
@@ -331,6 +334,28 @@ ok(decodeKeys(encodeKeys('LOAD"*",8,1\r')) === 'LOAD"*",8,1\r',
     srv.kill("SIGKILL");
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+// ── Spec 863 — a recording is timed in ITS machine's frames, and says which machine ──
+{
+  const N = 17095; // the c64-ntsc frame, 263 × 65
+  const r = recordScenario(
+    [
+      { cycle: 100 * N, kind: "joystick", source: "human", method: "session/joystick_set", detail: { port: 2, fire: true } },
+      { cycle: 103 * N, kind: "joystick", source: "human", method: "session/joystick_clear", detail: { port: 2 } },
+    ],
+    { model: "c64-ntsc", cyclesPerFrame: N, name: "ntsc", armedAtCycle: 0, endCycle: 150 * N, origin: MEDIUM },
+  );
+  const s = parseFeature(r.text).scenarios[0];
+  ok(/# model: c64-ntsc/.test(r.text) && s?.model === "c64-ntsc",
+     "40 the recording names the model it was made on, and the parser reads it back", s?.model);
+  ok(/I wait 100 frames/.test(r.text) && /for 3 frames/.test(r.text),
+     "41 its cycles become frames at the recorded machine's frame length (17095 on NTSC)");
+  const w = s?.steps.find((x) => x.kind === "wait");
+  ok(w && w.unit === "frames" && w.count === 100, "42 a wait keeps its unit — frames of whichever machine runs it", JSON.stringify(w));
+  let threw = false;
+  try { recordScenario([], { name: "t", armedAtCycle: 0, endCycle: 0, origin: MEDIUM, model: "c64-pal" }); } catch { threw = true; }
+  ok(threw, "43 without a frame length the recorder refuses rather than assume one");
 }
 
 console.log(`\n${fail ? "RED" : "GREEN"} spec 814: ${pass} pass, ${fail} fail.`);

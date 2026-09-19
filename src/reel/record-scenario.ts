@@ -23,7 +23,7 @@
  * thing testable without a machine.
  */
 
-import { PAL_CYCLES_PER_FRAME, parseFeature } from "../project-knowledge/scenario-gherkin.js";
+import { parseFeature } from "../project-knowledge/scenario-gherkin.js";
 
 /** One entry as `session/input_journal` reports it. */
 export interface JournalEntry {
@@ -56,6 +56,14 @@ export interface CaptureMark {
 
 export interface RecordContext {
   readonly name: string;
+  /**
+   * Spec 863 — the machine the recording was made on (`session/input_journal` → `model`),
+   * and how long its frame is. The journal's cycles are that machine's cycles, so they
+   * become frames at ITS frame length, and the file says which machine that was: a
+   * replay on another model is refused rather than timed wrong.
+   */
+  readonly model: string;
+  readonly cyclesPerFrame: number;
   readonly armedAtCycle: number;
   /** The machine clock when recording stopped, so a trailing wait can be written. */
   readonly endCycle: number;
@@ -83,9 +91,6 @@ export interface RecordResult {
   readonly steps: number;
 }
 
-/** A gap that was written as an anchor rather than a frame count, for the report. */
-const FRAME = PAL_CYCLES_PER_FRAME;
-
 /**
  * `disk` or `cart`, from the file's own extension.
  *
@@ -103,8 +108,8 @@ export function encodeKeys(text: string): string {
     .replace(/\r\n?|\n/g, "{RETURN}");
 }
 
-function framesBetween(from: number, to: number): number {
-  return Math.round((to - from) / FRAME);
+function framesBetween(from: number, to: number, frame: number): number {
+  return Math.round((to - from) / frame);
 }
 
 /** The `# by:` mark. A comment, not a dialect — the same line parses with or without it. */
@@ -148,6 +153,7 @@ type Emitted = { readonly cycle: number; readonly line: string; readonly source:
 function toEvents(
   entries: readonly JournalEntry[],
   warnings: string[],
+  frame: number,
 ): Emitted[] {
   const out: Emitted[] = [];
   // An open press per port: set → remember, cleared → close it with its length.
@@ -161,7 +167,7 @@ function toEvents(
     const k = openKeys.get(name);
     if (!k) return;
     openKeys.delete(name);
-    const frames = Math.max(1, framesBetween(k.cycle, at));
+    const frames = Math.max(1, framesBetween(k.cycle, at, frame));
     out.push({
       cycle: k.cycle,
       source: k.source,
@@ -173,7 +179,7 @@ function toEvents(
     const p = open.get(port);
     if (!p) return;
     open.delete(port);
-    const frames = Math.max(1, framesBetween(p.cycle, at));
+    const frames = Math.max(1, framesBetween(p.cycle, at, frame));
     out.push({
       cycle: p.cycle,
       source: p.source,
@@ -252,11 +258,11 @@ function toEvents(
   // press whose end nobody saw is a length nobody measured.
   for (const [port, p] of [...open]) {
     warnings.push(`joystick ${port} was still held when the recording stopped — the press was closed at the end`);
-    closePress(port, p.cycle + FRAME);
+    closePress(port, p.cycle + frame);
   }
   for (const [name, k] of [...openKeys]) {
     warnings.push(`the key ${name} was still held when the recording stopped — the press was closed at the end`);
-    closeKey(name, k.cycle + FRAME);
+    closeKey(name, k.cycle + frame);
   }
   return out;
 }
@@ -288,7 +294,10 @@ export function recordScenario(
   //
   // So: split at each restart, sort the shutter presses into the segment they belong
   // to, and keep the segments in the order they occurred.
-  const events = toEvents(kept, warnings);
+  if (!(ctx.cyclesPerFrame > 0)) {
+    throw new Error("the recorder needs the recorded machine's frame length (cyclesPerFrame) to turn cycles into frames");
+  }
+  const events = toEvents(kept, warnings, ctx.cyclesPerFrame);
   const captures: Emitted[] = (ctx.captures ?? []).map((c) => ({
     cycle: c.cycle,
     source: "human" as const,
@@ -318,6 +327,8 @@ export function recordScenario(
 
   const lines: string[] = [];
   lines.push(`Scenario: ${ctx.name}`);
+  // Spec 863 — the machine this was recorded on. Every frame count below is ITS frames.
+  lines.push(`  # model: ${ctx.model}`);
   switch (ctx.origin.kind) {
     case "medium":
       lines.push(`  Given the ${mediumWord(ctx.origin.path)} "${ctx.origin.path}"`);
@@ -350,14 +361,14 @@ export function recordScenario(
       // The timeout is the measured wait with room to spare: replaying on a machine that
       // is a little slower must not fail, and a timeout that is merely the measurement is
       // a scenario that goes red on a good day.
-      const measured = Math.max(1, framesBetween(clock, anchor.cycle));
+      const measured = Math.max(1, framesBetween(clock, anchor.cycle, ctx.cyclesPerFrame));
       const timeout = Math.max(60, measured * 3);
       lines.push(`  And I wait until ${anchor.predicate} within ${timeout} frames`);
       steps++;
       clock = anchor.cycle;
       if (to <= clock) return;
     }
-    const frames = framesBetween(clock, to);
+    const frames = framesBetween(clock, to, ctx.cyclesPerFrame);
     if (frames < 1) {
       clock = to;
       return;

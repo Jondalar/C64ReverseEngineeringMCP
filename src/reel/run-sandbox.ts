@@ -31,15 +31,16 @@
 // to BE the shared one, a refusal rather than a surprise.
 
 import type { Step, Predicate } from "../project-knowledge/scenario-gherkin.js";
-import { PAL_CYCLES_PER_FRAME } from "../project-knowledge/scenario-gherkin.js";
+import { waitCycles } from "../project-knowledge/scenario-gherkin.js";
 import {
   joinChunks, screenShows, screenCodesToRows, SCREEN_COLS, SCREEN_ROWS,
   type RegionLens, type RegionRange,
 } from "../project-knowledge/region.js";
+import { describeMachine, machineIdentity, type MachineIdentity } from "../runtime/machine-model.js";
 import { SandboxSession, type SandboxOptions } from "./sandbox-session.js";
 
-/** A bounded run is split so a JAM still stops where it happens. */
-const RUN_CHUNK = PAL_CYCLES_PER_FRAME;
+// A bounded run is split a frame at a time so a JAM still stops where it happens. How
+// long a frame is comes from the machine (Spec 863): 19 656 cycles PAL, 17 095 NTSC.
 
 /** How far the machine is warmed before anything is put into it, and how often
  *  the warm-up looks. A sandbox daemon hands you a machine at its RESET vector:
@@ -84,6 +85,8 @@ export interface SandboxRunOptions extends SandboxOptions {
 export interface SandboxRunResult {
   /** The port the private machine held — reported so nobody watches the wrong one. */
   readonly port: number;
+  /** Spec 863 — which C64 it was, as the machine reported itself at the end. */
+  readonly machine: MachineIdentity;
   readonly log: readonly string[];
   readonly waits: readonly { text: string; frames: number; budget: number; cycle: number }[];
   readonly endCycle: number;
@@ -166,10 +169,18 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
 
   const state = (): Promise<MachineState> => box.call<MachineState>("session/state");
   const frameIndices = (): Promise<FrameIndices> => box.call<FrameIndices>("session/frame_indices");
+  /** The machine as it says it is, and its frame length — re-read after anything that can
+   *  replace the machine (a `.c64re` opened into it carries its own model). */
+  let machine: MachineIdentity;
+  let F = 0;
+  const readMachine = async (): Promise<void> => {
+    machine = machineIdentity(await state());
+    F = machine.cyclesPerFrame;
+  };
   const runCycles = async (total: number): Promise<void> => {
     let done = 0;
     while (done < total) {
-      const step = Math.min(RUN_CHUNK, total - done);
+      const step = Math.min(F, total - done);
       await box.call("session/run", { cycles: step });
       done += step;
     }
@@ -216,7 +227,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
    */
   const warmBoot = async (): Promise<{ frames: number; ready: boolean }> => {
     for (let f = 0; f < BOOT_FRAMES_MAX; f += BOOT_POLL_FRAMES) {
-      await runCycles(BOOT_POLL_FRAMES * PAL_CYCLES_PER_FRAME);
+      await runCycles(BOOT_POLL_FRAMES * F);
       const { codes } = await screenCodes();
       if (codes && screenShows(codes, "READY.", SCREEN_COLS)) return { frames: f + BOOT_POLL_FRAMES, ready: true };
     }
@@ -231,6 +242,8 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     // is what made one recipe give five different outcomes (BUG-050); from here
     // every advance is a bounded run in cycles.
     await box.call("debug/pause", { source: "sandbox" });
+    await readMachine();
+    log.push(`machine: ${describeMachine(machine!)}`);
 
     const boot = await warmBoot();
     log.push(
@@ -252,6 +265,10 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       log.push(typeof opened?.message === "string" ? opened.message : `opened ${opts.mediaPath}`);
       // A mount can flip the controller back to running; this front owns the clock.
       await box.call("debug/pause", { source: "sandbox" });
+      // A snapshot replaces the machine — model included (Spec 863).
+      const was = machine!.model;
+      await readMachine();
+      if (machine!.model !== was) log.push(`the medium made this machine a ${describeMachine(machine!)}`);
 
       // Ask the machine whether it is still a whole machine. Measured on the real
       // daemon: poking a .prg into a machine that has no disk and no cartridge
@@ -288,7 +305,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       // and says that it did — but only on a machine that scans a keyboard.
       if (opened?.kind === "prg" && opened.autostart && !coreOnly) {
         await box.call("session/type", { text: "RUN\r" });
-        await runCycles(PAL_CYCLES_PER_FRAME * 30);
+        await runCycles(F * 30);
         log.push("typed RUN — the medium autostarts, and a paused machine will not press it for you");
       }
     }
@@ -296,7 +313,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     for (const [i, step] of opts.steps.entries()) {
       switch (step.kind) {
         case "wait":
-          await runCycles(step.cycles);
+          await runCycles(waitCycles(step, F));
           log.push(`${i}: ${step.text}`);
           break;
 
@@ -304,13 +321,13 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
           await box.call("session/type", { text: step.keys });
           // The type buffer drains as the machine runs, so a `type` with nothing
           // after it would return before a single key was pressed.
-          await runCycles(PAL_CYCLES_PER_FRAME * Math.max(4, step.keys.length * 2));
+          await runCycles(F * Math.max(4, step.keys.length * 2));
           log.push(`${i}: ${step.text}`);
           break;
 
         case "key": {
           for (const k of step.keys) await box.call("session/key_down", { key: k, source: "sandbox" });
-          await runCycles(step.frames * PAL_CYCLES_PER_FRAME);
+          await runCycles(step.frames * F);
           for (const k of step.keys) await box.call("session/key_up", { key: k, source: "sandbox" });
           log.push(`${i}: ${step.text} (held, then released)`);
           break;
@@ -320,7 +337,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
           const set: Record<string, unknown> = { port: step.port, source: "sandbox" };
           for (const d of step.directions) set[d] = true;
           await box.call("session/joystick_set", set);
-          await runCycles(step.frames * PAL_CYCLES_PER_FRAME);
+          await runCycles(step.frames * F);
           await box.call("session/joystick_clear", { port: step.port });
           log.push(`${i}: ${step.text} (held, then released)`);
           break;
@@ -337,10 +354,11 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
         case "insert": {
           const path = opts.resolveMedium ? opts.resolveMedium(step.path) : step.path;
           await box.call("media/unmount", { slot: 8 });
-          await runCycles(PAL_CYCLES_PER_FRAME * 30);
+          await runCycles(F * 30);
           await box.call("media/open", { path });
           await box.call("debug/pause", { source: "sandbox" });
-          await runCycles(PAL_CYCLES_PER_FRAME * 30);
+          await readMachine();
+          await runCycles(F * 30);
           log.push(`${i}: ${step.text} -> ${path}`);
           break;
         }
@@ -393,6 +411,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     const end = await state();
     return {
       port: box.port,
+      machine: machineIdentity(end),
       log, waits, reads, frame, screenRows, screenUnreadable,
       endCycle: end.c64Cycles,
       pc: end.cpu.pc,
@@ -468,7 +487,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
             `value, or runtime_scene_reel, which resolves regions.`,
         );
       }
-      await runCycles(PAL_CYCLES_PER_FRAME);
+      await runCycles(F);
     }
 
     const st = await state();
