@@ -128,19 +128,20 @@ export interface NameMark {
 interface Note { text: string; origin: ResolvedName["origin"] }
 
 /**
- * Lay the names out in columns — one function for every reply, by its spans:
+ * Lay the names out in two FIXED columns — one function for every reply, by its spans:
  *
- *   $0c0b  block_row             ee ba 08  INC $08ba  ; block_row
- *   $0c0e                        4c cb 0b  JMP $0bcb  ; draw_string_next_row
+ *   $0c37  wait_frame    a9 01     LDA #$01
+ *   $0c3d                d0 fc     BNE $0c3b                 ; W0C3B
+ *                wait_frames_or_fire
+ *   $0c49                20 37 0c  JSR $0c37                 ; wait_frame
  *
  * LABEL column: a line whose first printed address is a single address (not a dump row's
- * range) gets a column right after that address, as wide as the longest label in this
- * reply — blank on lines without one, absent when no line has one. ANNOTATION column:
- * every other name on the line (a branch target, an operand, the names inside a dump row)
- * after the line, aligned across the reply. The runtime's text is never cut or reordered
- * and the numeric address always stays: the label column is inserted, the annotation
- * appended. `tags: false` drops the `[u]`/`[b]`/`[?]` tags — for a reader that shows the
- * origin as colour (the marks) instead.
+ * range) gets a column of LABEL_WIDTH right after that address — blank where there is no
+ * label; a longer label gets a line of its own above. ANNOTATION column: every other name
+ * on the line (a branch target, an operand, the names inside a dump row) from
+ * ANNOTATION_COLUMN on. Fixed, so paging never moves a column. The runtime's text is never
+ * cut or reordered and the numeric address always stays. `tags: false` drops the
+ * `[u]`/`[b]`/`[?]` tags — for a reader that shows the origin as colour (the marks).
  */
 export function decorateText(
   text: string,
@@ -182,29 +183,42 @@ export function decorateText(
     if (hit) names.push(named);
   });
 
+  // Both columns are FIXED, so paging through a listing never moves them: a label wider
+  // than its column gets a line of its own above the address line.
   const marks: NameMark[] = [];
-  const width = Math.max(0, ...[...heads.values()].map((h) => h.label?.text.length ?? 0));
-  const labelled = lines.map((line, i) => {
+  const out: string[] = [];
+  lines.forEach((line, i) => {
     const h = heads.get(i);
-    if (!h || width === 0) return line;
-    const label = h.label?.text ?? "";
-    if (h.label) marks.push({ line: i, start: h.end + 2, end: h.end + 2 + label.length, origin: h.label.origin });
-    return `${line.slice(0, h.end)}  ${label.padEnd(width)}${line.slice(h.end)}`;
-  });
-  const column = Math.max(0, ...[...notes.keys()].map((i) => labelled[i]?.trimEnd().length ?? 0));
-  const out = labelled.map((line, i) => {
+    let l = line;
+    if (h) {
+      const label = h.label?.text ?? "";
+      const fits = label.length <= LABEL_WIDTH;
+      if (h.label && !fits) {
+        const at = h.end + 2;
+        marks.push({ line: out.length, start: at, end: at + label.length, origin: h.label.origin });
+        out.push(`${" ".repeat(at)}${label}`);
+      }
+      if (h.label && fits) marks.push({ line: out.length, start: h.end + 2, end: h.end + 2 + label.length, origin: h.label.origin });
+      l = `${line.slice(0, h.end)}  ${(fits ? label : "").padEnd(LABEL_WIDTH)}${line.slice(h.end)}`;
+    }
     const list = notes.get(i);
-    if (!list || list.length === 0) return line;
-    let l = `${line.trimEnd().padEnd(column)}  ; `;
-    list.forEach((n, k) => {
-      if (k > 0) l += ", ";
-      marks.push({ line: i, start: l.length, end: l.length + n.text.length, origin: n.origin });
-      l += n.text;
-    });
-    return l;
+    if (list && list.length > 0) {
+      l = `${l.trimEnd().padEnd(ANNOTATION_COLUMN - 2)}  ; `;
+      list.forEach((n, k) => {
+        if (k > 0) l += ", ";
+        marks.push({ line: out.length, start: l.length, end: l.length + n.text.length, origin: n.origin });
+        l += n.text;
+      });
+    }
+    out.push(l);
   });
   return { text: out.join("\n"), names, marks };
 }
+
+/** The label column's width. A longer label goes on a line of its own. */
+export const LABEL_WIDTH = 12;
+/** Where the annotation column starts (`; name`); a longer line pushes only its own. */
+export const ANNOTATION_COLUMN = 44;
 
 // ---------------------------------------------------------------- the whole path
 
