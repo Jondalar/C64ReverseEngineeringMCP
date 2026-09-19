@@ -60,6 +60,10 @@ differently:
 - **`827`–`830`** the reported-defect run: trace storage out of a synced project
   directory, reference coverage for RAM vectors and zero page, BASIC V2 tooling,
   and the disassembler's entry-in-an-operand / segment-overrun pair.
+- **`740`** closed 2026-09-19: 740.2 answered by 847, 740.3 built — the project
+  search finds routines, labels, model boundaries and declared documents as
+  themselves, reads documents at any depth, ranks a stale render below the live
+  record, and rebuilds its own cache when the graph, a document or a listing moved.
 
 **Open C64RE rows.** Everything built through July and August was TRX64, which
 is a priority decision, not an accident.
@@ -68,8 +72,6 @@ is a priority decision, not an accident.
   Semantic disassembly is what this repo is FOR. 830 moved the byte-identity
   floor under it: an instruction may not cross a segment end, and a declared
   entry inside an operand splits its instruction.
-- **`740` Project wiki + knowledge retrieval** — 740.1 shipped; 740.2 wiki
-  authoring (`project_wiki_update`) is open.
 - **`800` Runtime invisible to the RE agent** — §A–§D built and gated
   (`check:runtime-invisible`). Open: the guided setup probe.
 - **`716` Distribution** — npm + install docs.

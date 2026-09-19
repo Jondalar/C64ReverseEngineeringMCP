@@ -2,8 +2,9 @@
 //
 // Two LLM-maintained Markdown files: docs/index.md (the project wiki index,
 // category-organized) and knowledge/activity-log.md (append-only, parseable
-// chronological entries). The MVP only SCAFFOLDS these and appends activity
-// entries; deep content synthesis (project_wiki_update) is Spec 740.2.
+// chronological entries). This only SCAFFOLDS these and appends activity
+// entries. Nothing authors wiki content: Spec 847 D6 answered 740.2 instead —
+// documents declare themselves in frontmatter and `wiki_index` derives the index.
 
 import { existsSync, mkdirSync, writeFileSync, appendFileSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";

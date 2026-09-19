@@ -231,3 +231,10 @@ jobs:
 
       - name: Graph explorer (Spec 825)
         run: npm run smoke:825
+
+      # Spec 740.3 — hermetic: it builds its own project in a temp directory through
+      # the product's doors (project_init, analyze_prg + disasm_prg with an annotations
+      # file, model_assert, doc_register, save_finding, render_docs) over MCP stdio,
+      # with the bundled analyzer. No fixture, no ROM, no assembler, no daemon.
+      - name: The search sees the graph (Spec 740.3)
+        run: npm run smoke:740-graph

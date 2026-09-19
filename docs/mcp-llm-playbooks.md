@@ -36,7 +36,7 @@ inventory.
    - persist: role, workflow profile
    - ask human when: the objective is not stated
 3. _(human)_ Drop .d64/.g64/.crt/.prg + context into the project folder (or give absolute paths).
-4. _(llm)_ For a resumed project, search existing knowledge before re-deriving anything: find where a topic/address/track is already described and pull together the records around a payload. Rebuild the index first if the project changed on disk.
+4. _(llm)_ For a resumed project, search existing knowledge before re-deriving anything: find where a topic/address/track is already described and pull together the records around a payload. The index notices on its own when the graph, a document or a listing changed and says so in the answer; project_reindex_search forces a rebuild.
    - tools: `project_reindex_search`, `project_search`, `project_find_related`
    - persist: located records, related groups
    - ask human when: the search returns nothing for a topic you expected to exist

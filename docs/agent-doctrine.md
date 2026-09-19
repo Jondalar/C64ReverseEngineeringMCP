@@ -141,12 +141,14 @@ Durable knowledge has two surfaces:
    `save_finding`, `save_entity`, `save_open_question`, relations, payload links,
    artifact-version links.
 2. **Wiki synthesis** for human/LLM-readable project understanding:
-   curated `docs/*.md`, `docs/index.md`, and `knowledge/activity-log.md`
-   (Spec 740.1).
+   Markdown in any `docs/` directory (at any depth), `docs/index.md`, and
+   `knowledge/activity-log.md` (Spec 740.1, 847).
 
-Until `project_wiki_update` exists (Spec 740.2), update Markdown deliberately as
-part of the step when the result is durable project knowledge. Do not wait for a
-future tool if the current session has enough evidence.
+No tool writes the wiki for you, and none is coming: Spec 847 answered 740.2 by
+making documents declare themselves. Update Markdown deliberately as part of the
+step when the result is durable project knowledge, give a synthesis document its
+frontmatter (`doc_template`), and declare it with `doc_register` — that makes it a
+graph node that can be cited, linted and found by its covered address range.
 
 Minimum persistence contract after a substantive step:
 
@@ -155,12 +157,16 @@ Minimum persistence contract after a substantive step:
 2. Update the closest wiki page when the finding changes the project model
    (`docs/LOADER.md`, `docs/CODE_CARTOGRAPHY.md`, `docs/GLOSSARY.md`,
    `docs/SWIMLANES.md`, or another focused doc).
-3. Add or update a row in `docs/index.md` when this introduces a new topic,
-   subsystem, payload, or investigation path.
+3. Declare a new synthesis document with `doc_register`; `wiki_index` derives
+   `docs/index.md` from the declarations, so the index is not edited by hand.
 4. Append one short entry to `knowledge/activity-log.md` for durable steps,
    decisions, contradictions, or major evidence captures.
-5. Run `project_reindex_search` after wiki/knowledge updates so future LLM
-   sessions can find the new information.
+
+Nothing needs running afterwards for the search: `project_search` and
+`project_find_related` rebuild their index when the graph, a document or a
+listing changed since it was built, and say so in their first line (Spec 740.3).
+Named routines and labels, model boundaries and declared documents are found as
+themselves.
 
 `project_search` / `project_find_related` are the default way to find existing
 knowledge before re-deriving it. `project_wiki_lint` is the default way to find

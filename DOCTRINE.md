@@ -147,9 +147,11 @@ Inside a real RE project (a `C64RE_PROJECT_DIR` workspace, not this repo):
 2. `agent_onboard` at session start, or after context loss.
 3. Persist with `agent_record_step` and the `save_finding` / `save_entity` /
    `save_open_question` family — never leave knowledge only in chat.
-4. Update the wiki layer by hand while 740.2 is pending: the closest `docs/*.md`,
-   `docs/index.md` for new topics, `knowledge/activity-log.md` for the decision, then
-   `project_reindex_search`.
+4. Write synthesis into a document and declare it: frontmatter, then `doc_register`
+   (Spec 847 — it answered 740.2, so no tool writes the wiki); `wiki_index` derives
+   `docs/index.md`; `knowledge/activity-log.md` takes the decision. Nothing to run
+   afterwards — the search notices a changed graph, document or listing on its own
+   (Spec 740.3).
 5. `project_search` / `project_find_related` before re-deriving what is already known.
 6. `agent_set_role` — analyst, cartographer, implementer, archivist, cracker, unset.
    Only analyst and cracker change phase-gating; the rest bias ranking.
