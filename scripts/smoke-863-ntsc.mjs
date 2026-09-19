@@ -42,6 +42,7 @@ const { ProjectKnowledgeService } = await import("../dist/project-knowledge/serv
 const { projectMachineModel } = await import("../dist/project-knowledge/machine-model.js");
 const { parseFeature } = await import("../dist/project-knowledge/scenario-gherkin.js");
 const { runScenario } = await import("../dist/reel/run-scenario.js");
+const { recordScenario, journalEndModel } = await import("../dist/reel/record-scenario.js");
 
 let pass = 0, fail = 0;
 const check = (cond, msg, detail = "") => {
@@ -287,7 +288,48 @@ try {
   check(l5.cycles.length === 65 && drew.length > 0 && drew.every((r0) => r0 === g.fbRowOfLine(5)),
     "  the line strip: line 5 is 65 cycles and its pixels land in the row the geometry says (268, the bottom)", `fbLine ${[...new Set(drew)].join(",")}`);
   await R.call("vic/inspect/close", { session_id: S, checkpoint_id: open.checkpointId }).catch(() => {});
+
+  // ── a switch while recording ──────────────────────────────────────────────────────
+  console.log("\na switch while recording:");
+  await mm.switchMachineModel((meth, p) => R.call(meth, p), S, "c64-pal");
+  await R.call("debug/pause", { session_id: S });
+  const armed = await R.call("session/input_journal", { session_id: S, arm: true });
+  check(armed.model === "c64-pal", "the journal is armed on c64-pal");
+  await R.call("session/run", { session_id: S, cycles: 40 * PAL + 12_345 });
+  const sw = await mm.switchMachineModel((meth, p) => R.call(meth, p), S, "c64-ntsc");
+  await R.call("session/run", { session_id: S, cycles: 25 * NTSC });
+  const jr = await R.call("session/input_journal", { session_id: S, arm: false });
+  const swEntry = (jr.entries ?? []).find((e) => e.kind === "model");
+  check(swEntry?.cycle === sw.switchedAt?.c64Cycles && swEntry?.detail?.name === "c64-ntsc" && swEntry?.detail?.from === "c64-pal",
+    "the journal records the switch as an event at the cycle it happened on", JSON.stringify(swEntry));
+  const mRows = (await R.call("session/models", { session_id: S })).models;
+  const cyclesPerFrameOf = Object.fromEntries(mRows.filter((r) => r.cyclesPerFrame).map((r) => [r.name, r.cyclesPerFrame]));
+  const now = mm.machineIdentity(await state());
+  check(journalEndModel(jr.model, jr.entries) === now.model,
+    "  the recording ends on the model the machine is on — REC has nothing to warn about", `${journalEndModel(jr.model, jr.entries)} / ${now.model}`);
+  const rec = recordScenario(jr.entries, {
+    name: "switch while recording", model: jr.model, cyclesPerFrame: PAL, cyclesPerFrameOf,
+    armedAtCycle: jr.armedAtCycle, endCycle: jr.cycle, origin: { kind: "bare", why: "the smoke" },
+    captures: [{ cycle: jr.cycle, label: "end" }],
+  });
+  const recSc = parseFeature(rec.text).scenarios[0];
+  const recAt = recSc?.steps.findIndex((x) => x.kind === "model") ?? -1;
+  check(recSc?.model === "c64-pal" && recAt > 0 && recSc.steps[recAt].model === "c64-ntsc" && rec.warnings.length === 0,
+    "the recorder writes `# model: c64-pal` and a step `the machine switches to c64-ntsc`", rec.text.split("\n").filter((l) => /model|switches/.test(l)).join(" | "));
+  const after = recSc.steps.slice(recAt + 1).find((x) => x.kind === "wait");
+  check(after?.count === 25, "  the wait after it is counted in NTSC frames (25 × 17 095)", after?.text);
   R.close();
+
+  // The recording replays: a private machine starts on PAL, switches where the file says,
+  // and counts the frames after it as NTSC frames.
+  const replay = await runScenario(recSc, { budgetMs: 120_000 });
+  const swLog = replay.log.find((l) => /the machine switches to c64-ntsc/.test(l));
+  const swAt = Number(swLog?.match(/at cycle (\d+)/)?.[1]);
+  const since = replay.shots[0].cycle - swAt;
+  check(/c64-pal → c64-ntsc/.test(swLog ?? "") && replay.machine.model === "c64-ntsc" && replay.height === 247,
+    "the replay switches the machine where the recording did, through session/model", swLog);
+  check(since >= 25 * NTSC && since < 26 * NTSC + 200 && since < 25 * PAL,
+    "  and the 25 frames after it are NTSC frames (not 25 PAL frames, 491 400 cycles)", `${since} cycles from the switch to the capture`);
 
   // ── §7.3 — a PAL recording does not replay on NTSC ────────────────────────────────
   console.log("\n§7.3 — a scenario recorded on PAL, asked to run on NTSC:");
@@ -317,6 +359,9 @@ try {
     sb.split("\n").find((l) => /^machine:/.test(l)));
   const sb2 = await tool("runtime_sandbox_run", { project_dir: proj, model: "c64-pal", steps: ["I wait 30 frames"], screen: false, budget_seconds: 120 });
   check(/machine: c64-pal/.test(sb2), "  and `model` picks another", sb2.split("\n").find((l) => /^machine:/.test(l)));
+  const sb3 = await tool("runtime_sandbox_run", { project_dir: proj, model: "c64-pal", steps: ["I wait 30 frames", "the machine switches to c64-ntsc", "I wait 10 frames"], screen: false, budget_seconds: 120 });
+  check(/the machine switches to c64-ntsc — c64-pal → c64-ntsc at cycle \d+/.test(sb3) && /machine: c64-ntsc/.test(sb3),
+    "runtime_sandbox_run runs the switch step through session/model", sb3.split("\n").find((l) => /switches/.test(l)));
 } catch (e) {
   fail++;
   console.log(`  FAIL  ${e instanceof Error ? e.stack ?? e.message : String(e)}`);

@@ -51,6 +51,7 @@ runtime_scene_reel
 | `I hold the key "SPACE" for 3 frames` | one key, held. For a title that scans the matrix itself |
 | `I insert the disk "side2.d64"` | eject, wait, insert. Also `swap in` / `turn to` |
 | `I capture "title"` | take a picture, on a frame boundary |
+| `the machine switches to c64-ntsc` | switch to another C64 model at the next frame boundary; the running program keeps its state, and every frame after it is the new model's |
 
 `Then` — criteria. Two are checked automatically:
 
@@ -323,8 +324,9 @@ are watching a different machine and will see nothing happen.
 
 ## The GIF
 
-Animated GIF format: GIF89a, 384x272 including the border, hard cuts (`disposal 2`),
-one uniform delay, at most 512000 bytes.
+Animated GIF format: GIF89a, 384x272 including the border (384x247 on NTSC), hard cuts
+(`disposal 2`), one uniform delay, at most 512000 bytes. A reel is one picture size, so
+its captures sit on one side of a model switch.
 
 Frames come straight from the VIC's own 4-bit colour indices against the 16-entry
 COLODORE table, so there is no quantization step at all.

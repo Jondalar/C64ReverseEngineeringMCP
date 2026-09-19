@@ -165,6 +165,13 @@ export const VOCABULARY: readonly VocabularyEntry[] = [
     sample: 'And I insert the disk "side2.d64"',
     doc: "A two-sided title asks for the other side mid-run, and a recipe that cannot say so is not the recipe.",
   },
+  {
+    section: "step",
+    kind: "model",
+    form: "And the machine switches to <c64-ntsc | c64-pal | …>",
+    sample: "And the machine switches to c64-ntsc",
+    doc: "The machine changes model at the next frame boundary, as it did while recording — the running program keeps its state. Every frame after it is the new model's.",
+  },
 
   // ── predicates (inside `I wait until … within N frames`) ───────────────────────
   {

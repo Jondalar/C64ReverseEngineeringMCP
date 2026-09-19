@@ -15,7 +15,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { getClient } from "../ws-client.js";
-import { recordScenario, type AnchorObservation, type JournalEntry, type RecordResult } from "../../../../src/reel/record-scenario.js";
+import { journalEndModel, recordScenario, type AnchorObservation, type JournalEntry, type RecordResult } from "../../../../src/reel/record-scenario.js";
 import { screenCodesToRows, normalizeScreenText } from "../../../../src/project-knowledge/region.js";
 import { findModelRow, machineIdentity, type ModelRow } from "../../../../src/runtime/machine-model.js";
 import type { Shot } from "./CaptureOverlay.js";
@@ -165,19 +165,28 @@ export function RecorderButton({ sessionId, runState, shots, onRecorded }: Props
         armedAtCycle?: number; cycle?: number; dropped?: number; entries?: JournalEntry[]; model?: string;
       }>("session/input_journal", { session_id: sessionId, arm: false });
 
-      // Spec 863 — the journal says which machine it recorded on; its frame length comes
-      // from the runtime's row for it. The machine may have been switched since.
+      // Spec 863 — the journal says which machine it was armed on, and records every switch
+      // at the cycle it happened; the frame lengths come from the runtime's rows. A switch
+      // while recording is a step in the file, so the replay switches where you did.
       const st0 = await client.call<Record<string, unknown>>("session/state", { session_id: sessionId });
       const machine = machineIdentity(st0);
       const recordedOn = j.model ?? machine.model;
-      let cyclesPerFrame = machine.cyclesPerFrame;
+      const rows = (await client.call<{ models?: ModelRow[] }>("session/models", { session_id: sessionId })).models ?? [];
+      const cyclesPerFrameOf: Record<string, number> = { [machine.model]: machine.cyclesPerFrame };
+      for (const r of rows) if (r.cyclesPerFrame) cyclesPerFrameOf[r.name] = r.cyclesPerFrame;
+      const row = findModelRow(rows, recordedOn);
+      const cyclesPerFrame = row?.cyclesPerFrame ?? cyclesPerFrameOf[recordedOn];
+      if (!cyclesPerFrame) throw new Error(`the runtime does not describe ${recordedOn}, the model this was recorded on`);
       const extraWarnings: string[] = [];
-      if (recordedOn !== machine.model) {
-        const rows = (await client.call<{ models?: ModelRow[] }>("session/models", { session_id: sessionId })).models ?? [];
-        const row = findModelRow(rows, recordedOn);
-        if (!row?.cyclesPerFrame) throw new Error(`the runtime does not describe ${recordedOn}, the model this was recorded on`);
-        cyclesPerFrame = row.cyclesPerFrame;
-        extraWarnings.push(`recorded on ${recordedOn}; the machine is ${machine.model} now — the file is timed in ${recordedOn} frames`);
+      // The journal's switches explain every model change it saw. A machine on another
+      // model now was changed by something a recording does not replay — a rewind, a
+      // snapshot — and the file cannot say that.
+      const endsOn = journalEndModel(row?.name ?? recordedOn, j.entries ?? []);
+      if (j.model && findModelRow(rows, endsOn)?.name !== findModelRow(rows, machine.model)?.name) {
+        extraWarnings.push(
+          `the recording ends on ${endsOn}, but the machine is ${machine.model} now — something other than a ` +
+            `model switch (a rewind, a snapshot) changed it, and the file does not replay that`,
+        );
       }
 
       // §4 — the Given comes from the SESSION, not from a guess. A mounted medium
@@ -200,8 +209,9 @@ export function RecorderButton({ sessionId, runState, shots, onRecorded }: Props
       const endCycle = j.cycle ?? armedCycle;
       const result = recordScenario(j.entries ?? [], {
         name: "recorded run",
-        model: recordedOn,
+        model: row?.name ?? recordedOn,
         cyclesPerFrame,
+        cyclesPerFrameOf,
         armedAtCycle: armedCycle,
         endCycle,
         origin,

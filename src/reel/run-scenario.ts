@@ -300,6 +300,17 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
           break;
         }
 
+        // Spec 863 — the switch the recording made, the way the live switch makes it: at
+        // the next frame boundary, the running program keeping its state. Every frame the
+        // steps after it count is the new model's.
+        case "model": {
+          const from = machine!.model;
+          const r = await box.call<{ switchedAt?: { c64Cycles?: number } }>("session/model", { name: step.model, source: "reel" });
+          await readMachine();
+          log.push(`${i}: ${step.text} — ${from} → ${machine!.model} at cycle ${r?.switchedAt?.c64Cycles ?? "?"}`);
+          break;
+        }
+
         case "capture": {
           // A capture is a WHOLE frame: `displayed` is the frozen previous frame,
           // so a mid-frame grab returns the picture before the interesting one.
@@ -312,7 +323,10 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
           } else if (canvas.width !== f.width || canvas.height !== f.height) {
             throw new Error(
               `capture "${step.label}" is ${f.width}x${f.height} but the reel is ` +
-                `${canvas.width}x${canvas.height} — the canvas cannot change mid-reel`,
+                `${canvas.width}x${canvas.height} — the canvas cannot change mid-reel` +
+                (scenario.steps.some((x) => x.kind === "model")
+                  ? ` (the machine switched models in between; a reel is one picture size, so capture on one side of the switch)`
+                  : ""),
             );
           }
           shots.push({

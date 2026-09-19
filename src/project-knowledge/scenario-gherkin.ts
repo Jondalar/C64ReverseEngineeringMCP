@@ -115,7 +115,14 @@ export type Step =
       readonly text: string;
     }
   | { readonly kind: "capture"; readonly label: string; readonly text: string }
-  | { readonly kind: "insert"; readonly path: string; readonly text: string };
+  | { readonly kind: "insert"; readonly path: string; readonly text: string }
+  /**
+   * Spec 863 — `the machine switches to c64-ntsc`: the machine changes model at the next
+   * frame boundary, the way the live switch does it — the running program keeps its state.
+   * A recording writes it where the switch happened; every frame counted after it is the
+   * new model's.
+   */
+  | { readonly kind: "model"; readonly model: string; readonly text: string };
 
 export type JoyDirection = "up" | "down" | "left" | "right" | "fire";
 
@@ -131,7 +138,7 @@ export type JoyDirection = "up" | "down" | "left" | "right" | "fire";
  * The assertions below are the teeth. Add a kind to `Step` or `Predicate` and forget
  * these lists, and the BUILD fails — in both directions, before anything ships.
  */
-export const STEP_KINDS = ["wait", "type", "key", "joystick", "waitUntil", "capture", "insert"] as const;
+export const STEP_KINDS = ["wait", "type", "key", "joystick", "waitUntil", "capture", "insert", "model"] as const;
 export const PREDICATE_KINDS = [
   "driveIdle",
   "screenStill",
@@ -519,6 +526,13 @@ export function parseStep(text: string): { step?: Step; error?: string } | undef
   if (ins) return { step: { kind: "insert", path: ins[1], text: t } };
   if (/^I (?:insert|swap)\b/i.test(t)) return { error: `"${t}": an insert needs a quoted medium` };
 
+  // the machine switches to c64-ntsc — a model switch, at the next frame boundary.
+  const sw = t.match(/^the machine switches to\s+([A-Za-z0-9][A-Za-z0-9-]*)$/i);
+  if (sw) return { step: { kind: "model", model: sw[1], text: t } };
+  if (/^the machine switches\b/i.test(t)) {
+    return { error: `"${t}": a switch names the model — e.g. \`the machine switches to c64-ntsc\`` };
+  }
+
   // I capture "title"
   const cap = t.match(/^I capture\s+"([^"]*)"$/i);
   if (cap) return { step: { kind: "capture", label: cap[1].trim() || "shot", text: t } };
@@ -689,7 +703,7 @@ export function parseFeature(source: string, file?: string): ParseResult {
     if (/^When\b/i.test(line)) {
       issues.push({
         line: n,
-        message: `"${line}" is not a branch run and not a driven step — see the step vocabulary (wait / type / hold joystick / wait until / capture)`,
+        message: `"${line}" is not a branch run and not a driven step — see the step vocabulary (wait / type / hold joystick / wait until / capture / insert / the machine switches to)`,
       });
       return;
     }

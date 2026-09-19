@@ -25,10 +25,12 @@
 
 import { parseFeature } from "../project-knowledge/scenario-gherkin.js";
 
-/** One entry as `session/input_journal` reports it. */
+/** One entry as `session/input_journal` reports it. A `model` entry is a switch of the
+ *  machine to another C64 model, at the cycle it happened (a frame boundary): `detail.name`
+ *  is the new model, `detail.from` the old one. */
 export interface JournalEntry {
   readonly cycle: number;
-  readonly kind: "key" | "joystick" | "insert";
+  readonly kind: "key" | "joystick" | "insert" | "model";
   readonly source: "human" | "llm";
   readonly method: string;
   readonly detail: Record<string, unknown>;
@@ -64,6 +66,13 @@ export interface RecordContext {
    */
   readonly model: string;
   readonly cyclesPerFrame: number;
+  /**
+   * The frame length of every model the recording may switch to, by row name (the
+   * runtime's `session/models`). A switch in the journal makes every frame after it the
+   * new model's, so the recorder needs that length; a switch to a model missing here is
+   * an error, not a guess.
+   */
+  readonly cyclesPerFrameOf?: Readonly<Record<string, number>>;
   readonly armedAtCycle: number;
   /** The machine clock when recording stopped, so a trailing wait can be written. */
   readonly endCycle: number;
@@ -141,7 +150,42 @@ function alignComments(lines: readonly string[]): string[] {
   });
 }
 
-type Emitted = { readonly cycle: number; readonly line: string; readonly source: "human" | "llm" };
+type Emitted = {
+  readonly cycle: number;
+  /** The journal entry the event STARTED at. A held press is emitted when it is let go,
+   *  after whatever happened while it was held; ordering by this puts it back where it
+   *  began, so a later event is never mistaken for the clock running backwards. */
+  readonly seq: number;
+  readonly line: string;
+  readonly source: "human" | "llm";
+  /** Set on a model switch: the model every frame after it belongs to, and its frame. */
+  readonly switchTo?: { readonly model: string; readonly cyclesPerFrame: number };
+};
+
+/**
+ * The model a journal ENDS on: the one it was armed on, moved along by every switch it
+ * recorded. A machine on another model when the recording stops was changed by something
+ * the journal does not record (a rewind, a snapshot) — the caller says so.
+ */
+export function journalEndModel(armedOn: string, entries: readonly JournalEntry[]): string {
+  let model = armedOn;
+  for (const e of entries) {
+    if (e.kind === "model" && typeof e.detail.name === "string" && e.detail.name) model = e.detail.name;
+  }
+  return model;
+}
+
+/** The frame length of `model` for the recorder, or an error naming it. */
+function frameOf(model: string, ctx: Pick<RecordContext, "model" | "cyclesPerFrame" | "cyclesPerFrameOf">): number {
+  const f = model === ctx.model ? ctx.cyclesPerFrame : ctx.cyclesPerFrameOf?.[model];
+  if (!(f && f > 0)) {
+    throw new Error(
+      `the recording switched the machine to ${model}, and the recorder was not told how long its frame is — ` +
+        `pass the runtime's models (cyclesPerFrameOf) so the frames after the switch are ${model}'s`,
+    );
+  }
+  return f;
+}
 
 /**
  * Collapse the journal into the events a scenario can say.
@@ -153,15 +197,18 @@ type Emitted = { readonly cycle: number; readonly line: string; readonly source:
 function toEvents(
   entries: readonly JournalEntry[],
   warnings: string[],
-  frame: number,
+  ctx: Pick<RecordContext, "model" | "cyclesPerFrame" | "cyclesPerFrameOf">,
 ): Emitted[] {
+  // The frame durations count in: the model the machine is on at that point of the
+  // journal — the one it was armed on, then whatever each switch made it.
+  let frame = ctx.cyclesPerFrame;
   const out: Emitted[] = [];
   // An open press per port: set → remember, cleared → close it with its length.
-  const open = new Map<number, { cycle: number; dirs: string[]; source: "human" | "llm" }>();
+  const open = new Map<number, { cycle: number; seq: number; dirs: string[]; source: "human" | "llm" }>();
   // The same, for keys. A key is held between its down and its up, and that duration is
   // the whole point: a title that scans the matrix in its own IRQ sees a key only if it
   // is DOWN at the moment of the scan.
-  const openKeys = new Map<string, { cycle: number; source: "human" | "llm" }>();
+  const openKeys = new Map<string, { cycle: number; seq: number; source: "human" | "llm" }>();
 
   const closeKey = (name: string, at: number): void => {
     const k = openKeys.get(name);
@@ -170,6 +217,7 @@ function toEvents(
     const frames = Math.max(1, framesBetween(k.cycle, at, frame));
     out.push({
       cycle: k.cycle,
+      seq: k.seq,
       source: k.source,
       line: `  And I hold the key "${name}" for ${frames} frames`,
     });
@@ -182,12 +230,13 @@ function toEvents(
     const frames = Math.max(1, framesBetween(p.cycle, at, frame));
     out.push({
       cycle: p.cycle,
+      seq: p.seq,
       source: p.source,
       line: `  And I hold joystick ${port} ${p.dirs.join(" and ")} for ${frames} frames`,
     });
   };
 
-  for (const e of entries) {
+  for (const [seq, e] of entries.entries()) {
     if (e.kind === "key") {
       if (e.method === "session/type") {
         const text = String(e.detail.text ?? "");
@@ -198,7 +247,7 @@ function toEvents(
               `and the parser will read it as a token if it names one`,
           );
         }
-        out.push({ cycle: e.cycle, source: e.source, line: `  And I type "${encodeKeys(text)}"` });
+        out.push({ cycle: e.cycle, seq, source: e.source, line: `  And I type "${encodeKeys(text)}"` });
         continue;
       }
       // A key pressed on the matrix is recorded as a HELD key, with the duration it
@@ -211,7 +260,7 @@ function toEvents(
         const name = String(e.detail.key ?? "").toUpperCase();
         if (!name) continue;
         // A repeat while already down is the host keyboard repeating, not a new press.
-        if (!openKeys.has(name)) openKeys.set(name, { cycle: e.cycle, source: e.source });
+        if (!openKeys.has(name)) openKeys.set(name, { cycle: e.cycle, seq, source: e.source });
         continue;
       }
       if (e.method === "session/key_up") {
@@ -238,7 +287,35 @@ function toEvents(
       // A press that CHANGES direction is a new press: close the old one first, or the
       // recording would claim one long hold that never happened.
       closePress(port, e.cycle);
-      open.set(port, { cycle: e.cycle, dirs: dirs.slice(), source: e.source });
+      open.set(port, { cycle: e.cycle, seq, dirs: dirs.slice(), source: e.source });
+      continue;
+    }
+
+    if (e.kind === "model") {
+      const name = String(e.detail.name ?? "");
+      if (!name) continue;
+      const next = frameOf(name, ctx);
+      // A press held across the switch is split there: its frames before the switch are
+      // the old model's, after it the new one's, and a step has one frame length. The
+      // replay lets go for the moment of the switch — said out loud.
+      for (const [port, p] of [...open]) {
+        closePress(port, e.cycle);
+        open.set(port, { cycle: e.cycle, seq, dirs: p.dirs, source: p.source });
+        warnings.push(`joystick ${port} was held across the switch to ${name} — the press is split there, and the replay releases it for the switch`);
+      }
+      for (const [key, k] of [...openKeys]) {
+        closeKey(key, e.cycle);
+        openKeys.set(key, { cycle: e.cycle, seq, source: k.source });
+        warnings.push(`the key ${key} was held across the switch to ${name} — the press is split there, and the replay releases it for the switch`);
+      }
+      out.push({
+        cycle: e.cycle,
+        seq,
+        source: e.source,
+        line: `  And the machine switches to ${name}`,
+        switchTo: { model: name, cyclesPerFrame: next },
+      });
+      frame = next;
       continue;
     }
 
@@ -247,6 +324,7 @@ function toEvents(
       if (!path) continue;
       out.push({
         cycle: e.cycle,
+        seq,
         source: e.source,
         line: `  And I insert the ${mediumWord(path)} "${path}"`,
       });
@@ -297,9 +375,16 @@ export function recordScenario(
   if (!(ctx.cyclesPerFrame > 0)) {
     throw new Error("the recorder needs the recorded machine's frame length (cyclesPerFrame) to turn cycles into frames");
   }
-  const events = toEvents(kept, warnings, ctx.cyclesPerFrame);
+  // In the order the journal STARTED them: a held press is emitted when it is let go,
+  // and in emit order it would follow whatever happened while it was held — a cycle
+  // going backwards, read as a power-cycle.
+  const events = toEvents(kept, warnings, ctx)
+    .map((e, i) => ({ e, i }))
+    .sort((a, b) => a.e.seq - b.e.seq || a.i - b.i)
+    .map(({ e }) => e);
   const captures: Emitted[] = (ctx.captures ?? []).map((c) => ({
     cycle: c.cycle,
+    seq: -1,
     source: "human" as const,
     line: `  And I capture "${c.label}"`,
   }));
@@ -344,6 +429,8 @@ export function recordScenario(
 
   let clock = ctx.armedAtCycle;
   let steps = 0;
+  // Spec 863 — the frame the gaps count in: the recorded model's, then each switch's.
+  let frame = ctx.cyclesPerFrame;
 
   /**
    * Write the gap between `clock` and `to`.
@@ -353,7 +440,7 @@ export function recordScenario(
    * anchor has to have become true INSIDE the gap, or it is describing a different
    * moment.
    */
-  const writeGap = (to: number): void => {
+  const writeGap = (to: number, beforeSwitch = false): void => {
     if (to <= clock) return;
     const anchor = anchors.find((a) => !usedAnchors.has(a) && a.cycle > clock && a.cycle <= to);
     if (anchor) {
@@ -361,14 +448,17 @@ export function recordScenario(
       // The timeout is the measured wait with room to spare: replaying on a machine that
       // is a little slower must not fail, and a timeout that is merely the measurement is
       // a scenario that goes red on a good day.
-      const measured = Math.max(1, framesBetween(clock, anchor.cycle, ctx.cyclesPerFrame));
+      const measured = Math.max(1, framesBetween(clock, anchor.cycle, frame));
       const timeout = Math.max(60, measured * 3);
       lines.push(`  And I wait until ${anchor.predicate} within ${timeout} frames`);
       steps++;
       clock = anchor.cycle;
       if (to <= clock) return;
     }
-    const frames = framesBetween(clock, to, ctx.cyclesPerFrame);
+    // Before a switch the wait is rounded DOWN: it must end inside the frame the switch
+    // closes, because the switch itself waits for the next frame boundary — rounded up,
+    // the replay would switch a frame late.
+    const frames = beforeSwitch ? Math.floor((to - clock) / frame) : framesBetween(clock, to, frame);
     if (frames < 1) {
       clock = to;
       return;
@@ -387,9 +477,10 @@ export function recordScenario(
       clock = ev.cycle;
     }
     previousCycle = ev.cycle;
-    writeGap(ev.cycle);
+    writeGap(ev.cycle, !!ev.switchTo);
     lines.push(pad(ev.line, mark(ev.source)));
     steps++;
+    if (ev.switchTo) frame = ev.switchTo.cyclesPerFrame;
   }
   writeGap(ctx.endCycle);
 

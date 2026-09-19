@@ -47,6 +47,20 @@ Scrubbing, rewinding, stepping and poking memory are **not** recorded. Those are
 things done *to* the machine by an operator, not inputs the machine can receive, and
 a scenario that replayed them would not be replaying a session.
 
+One operator action **is** recorded: switching the machine to another C64 model (the
+Live tab's model selector, or the monitor's `model`). It changes how long every later
+frame is, so a file that left it out would count the rest of the recording in the wrong
+frames. It is written where it happened —
+
+```gherkin
+  And the machine switches to c64-ntsc             # by: human
+```
+
+— and a replay switches there too, at the next frame boundary, the running program
+keeping its state. Every frame counted after it is the new model's. The file still
+starts with `# model:` naming the model the recording began on, and is refused on a
+machine that starts as another one.
+
 Shots you take while recording become `I capture` steps. Shots taken outside the
 recording do not.
 
@@ -156,6 +170,7 @@ The name is a filename, not a path.
 
 ```gherkin
 Scenario: recorded run
+  # model: c64-pal
   Given the disk "game.d64"
   # a medium is mounted, so this file is self-contained — a paste is enough
   When I type "LOAD{QUOTE}*{QUOTE},8,1{RETURN}"     # by: human
@@ -190,6 +205,9 @@ runtime_scene_reel
   said out loud.
 - **A mount power-cycles the machine**, so the cycle counter restarts mid-recording.
   That is noted in the file, and the steps stay in the order they happened.
+- **A press held across a model switch** is split at the switch — its frames before it
+  are the old model's, after it the new one's — and the replay lets go for the moment
+  of the switch. Said out loud.
 - **The journal is capped.** A recorder left armed for a very long time stops adding
   and tells you how many inputs it dropped, rather than growing without bound or
   quietly losing the end.

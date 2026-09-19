@@ -21,8 +21,8 @@ const fg = await import("../dist/runtime/frame-geometry.js");
 const { resolveDaemonSpawn } = await import("../dist/runtime/resolve-daemon-spawn.js");
 const { ProjectKnowledgeService } = await import("../dist/project-knowledge/service.js");
 const { projectMachineModel } = await import("../dist/project-knowledge/machine-model.js");
-const { parseFeature, waitCycles } = await import("../dist/project-knowledge/scenario-gherkin.js");
-const { recordScenario } = await import("../dist/reel/record-scenario.js");
+const { parseFeature, parseStep, waitCycles } = await import("../dist/project-knowledge/scenario-gherkin.js");
+const { recordScenario, journalEndModel } = await import("../dist/reel/record-scenario.js");
 
 let pass = 0, fail = 0;
 const check = (cond, msg, detail = "") => {
@@ -96,6 +96,50 @@ const rows = [
   const back = parseFeature(r.text).scenarios[0];
   check(back?.model === "c64-ntsc" && /I wait 50 frames/.test(r.text) && /I wait 30 frames/.test(r.text),
     "the recorder writes the model and counts in the recorded machine's frames");
+}
+
+// ── a switch while recording is a step, and the frames after it are the new model's ──
+{
+  const st = parseStep("the machine switches to c64-ntsc");
+  check(st?.step?.kind === "model" && st.step.model === "c64-ntsc", "`the machine switches to c64-ntsc` is a step");
+  check(/names the model/.test(parseStep("the machine switches")?.error ?? ""), "  one that names no model is an error, not prose");
+  const frames = { "c64-pal": PAL, "c64-ntsc": NTSC };
+  const S = 40 * PAL + 12_000; // the switch, 10.6 PAL frames after the last input before it
+  const journal = [
+    { cycle: 10 * PAL, kind: "key", source: "human", method: "session/type", detail: { text: "RUN\r" } },
+    { cycle: 20 * PAL, kind: "joystick", source: "human", method: "session/joystick_set", detail: { port: 2, fire: true } },
+    { cycle: 30 * PAL, kind: "key", source: "human", method: "session/type", detail: { text: "A" } },
+    { cycle: S, kind: "model", source: "llm", method: "session/model", detail: { name: "c64-ntsc", from: "c64-pal" } },
+    { cycle: S + 4 * NTSC, kind: "joystick", source: "human", method: "session/joystick_clear", detail: { port: 2 } },
+    { cycle: S + 20 * NTSC, kind: "key", source: "human", method: "session/type", detail: { text: "X" } },
+  ];
+  const ctx = { model: "c64-pal", cyclesPerFrame: PAL, cyclesPerFrameOf: frames, name: "rec", armedAtCycle: 0,
+    endCycle: S + 50 * NTSC, origin: { kind: "bare", why: "-" } };
+  const r = recordScenario(journal, ctx);
+  const back = parseFeature(r.text);
+  const sc = back.scenarios[0];
+  check(back.issues.length === 0 && sc?.model === "c64-pal", "a recording with a switch parses, and starts on the model it was armed on", back.issues[0]?.message);
+  const kinds = sc.steps.map((x) => x.kind).join(",");
+  const at = sc.steps.findIndex((x) => x.kind === "model");
+  check(at > 0 && sc.steps[at].model === "c64-ntsc" && /the machine switches to c64-ntsc\s+# by: llm/.test(r.text),
+    "the switch is written where it happened, and says who made it", kinds);
+  const before = sc.steps[at - 1];
+  check(before.kind === "wait" && before.count === 10 && before.unit === "frames",
+    "  the wait before it is rounded DOWN (10.6 PAL frames → 10): it ends inside the frame the switch closes, so the switch lands on that boundary", before.text);
+  const holds = sc.steps.filter((x) => x.kind === "joystick").map((x) => x.frames);
+  check(holds.join(",") === "21,4", "  a press held across it is split there: 21 PAL frames, then 4 NTSC frames", holds.join(","));
+  check(r.warnings.length === 1 && /held across the switch to c64-ntsc/.test(r.warnings[0]), "  and that split is said out loud", r.warnings[0]);
+  check(!/power-cycled/.test(r.text), "  an input made while the press was held is not read as the clock restarting");
+  const afterWaits = sc.steps.slice(at + 1).filter((x) => x.kind === "wait").map((x) => x.count);
+  check(afterWaits.join(",") === "20,30", "  the frames after the switch are NTSC frames (20, then 30 to the end)", afterWaits.join(","));
+  let threw = "";
+  try { recordScenario(journal, { ...ctx, cyclesPerFrameOf: undefined }); } catch (e) { threw = e.message; }
+  check(/switched the machine to c64-ntsc/.test(threw), "a switch to a model whose frame the recorder was not given is an error naming it", threw.slice(0, 80));
+  check(journalEndModel("c64-pal", journal) === "c64-ntsc" && journalEndModel("c64-pal", journal.slice(0, 2)) === "c64-pal",
+    "the model a journal ends on is the armed one moved along by its switches");
+  const button = readFileSync(join(ROOT, "ui/src/workbench/components/RecorderButton.tsx"), "utf8");
+  check(!/the file is timed in/.test(button) && /cyclesPerFrameOf/.test(button) && /journalEndModel/.test(button),
+    "REC no longer warns about a switch while recording — it hands the recorder every model's frame");
 }
 
 // ── the Export tab's seconds: the recorded machine's clock ───────────────────────────

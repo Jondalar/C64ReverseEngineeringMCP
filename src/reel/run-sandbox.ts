@@ -363,6 +363,16 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
           break;
         }
 
+        // Spec 863 — a model switch at the next frame boundary, as the live switch makes it;
+        // the frames counted after it are the new model's.
+        case "model": {
+          const from = machine!.model;
+          const r = await box.call<{ switchedAt?: { c64Cycles?: number } }>("session/model", { name: step.model, source: "sandbox" });
+          await readMachine();
+          log.push(`${i}: ${step.text} — ${from} → ${machine!.model} at cycle ${r?.switchedAt?.c64Cycles ?? "?"}`);
+          break;
+        }
+
         case "capture":
           // Refused rather than ignored: a caller who asked for a picture and got
           // a report with no picture in it would read that as a broken tool.

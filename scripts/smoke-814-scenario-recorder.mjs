@@ -58,7 +58,7 @@ ok(authorOfComment("targets: finding/f-1") === undefined, "4 and any other comme
 // ── §9.1 the vocabulary is the parser's, not a second list ───────────────────
 ok(missingKinds().length === 0,
    "7 the vocabulary covers every step and predicate kind the parser has", missingKinds().join(", "));
-ok(STEP_KINDS.length === 7 && PREDICATE_KINDS.length === 7,
+ok(STEP_KINDS.length === 8 && PREDICATE_KINDS.length === 7,
    "8 and the kind lists are the ones the TYPES are checked against");
 {
   let bad = [];
@@ -173,6 +173,19 @@ ok(decodeKeys("{RETURN}") === "\r" && decodeKeys("{NOPE}") === "{NOPE}",
   );
   ok(parseFeature(r2.text).issues.length === 0 && /power-cycled/.test(r2.text),
      "27 a clock that restarts mid-recording is noted, not emitted as a huge wait");
+  // A press is written when it is let go — after anything that happened while it was
+  // held. That must not read as the clock running backwards.
+  const r3 = recordScenario(
+    [
+      { cycle: 10 * F, kind: "joystick", source: "human", method: "session/joystick_set", detail: { port: 2, fire: true } },
+      { cycle: 12 * F, kind: "key", source: "human", method: "session/type", detail: { text: "A" } },
+      { cycle: 15 * F, kind: "joystick", source: "human", method: "session/joystick_clear", detail: { port: 2 } },
+    ],
+    { ...PAL, name: "t", armedAtCycle: 0, endCycle: 20 * F, origin: MEDIUM },
+  );
+  const order = parseFeature(r3.text).scenarios[0].steps.filter((x) => x.kind !== "wait").map((x) => x.kind).join(",");
+  ok(!/power-cycled/.test(r3.text) && order === "joystick,type",
+     "27b an input made while a press is held keeps the press first, and is not a power-cycle", order);
 }
 
 // A key pressed on the matrix is a HELD key with a duration — which is what a title
