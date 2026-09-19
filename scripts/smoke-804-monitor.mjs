@@ -101,9 +101,9 @@ try {
   console.log("[output — names at the runtime's spans]");
   await mon(`load "${paths.alpha}"`);
   const d = await mon("d 1000 1012");
-  check(/^ {7}alpha_main\[u\]\n\$1000 /mu.test(d), "d: the instruction's own address is named — a label wider than its column on a line of its own", d.split("\n").slice(0, 2).join(" / "));
+  check(/^\$1000  alpha_main\[u\] {9}20 10 10/mu.test(d), "d: the instruction's own address is named, in the 20-wide label column", d.split("\n").slice(0, 2).join(" / "));
   check(/JSR \$1010\s+; set_border\[u\]/u.test(d), "d: the JSR target is named in the annotation column, the number stays", d.split("\n")[0]);
-  check(/^ {7}set_border\[u\]\n\$1010\s+a9 01/mu.test(d), "d: the routine's own line is named");
+  check(/^\$1010  set_border\[u\]\s+a9 01/mu.test(d), "d: the routine's own line is named");
   const m = await mon("m 1000 101f");
   check(/; \+\$00 alpha_main\[u\], \+\$10 set_border\[u\]$/u.test(m.split("\n")[0]), "m: a dump row carries its names in the annotation column", m.split("\n")[0]);
   const dFull = await monFull("d 1000 1002");

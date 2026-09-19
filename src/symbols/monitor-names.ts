@@ -130,14 +130,15 @@ interface Note { text: string; origin: ResolvedName["origin"] }
 /**
  * Lay the names out in two FIXED columns — one function for every reply, by its spans:
  *
- *   $0c37  wait_frame    a9 01     LDA #$01
- *   $0c3d                d0 fc     BNE $0c3b                 ; W0C3B
- *                wait_frames_or_fire
- *   $0c49                20 37 0c  JSR $0c37                 ; wait_frame
+ *   $0c37  wait_frame            a9 01     LDA #$01
+ *   $0c3d                        d0 fc     BNE $0c3b    ; W0C3B
+ *   $0c49  wait_frames_or_fire   20 37 0c  JSR $0c37    ; wait_frame
+ *   $0c58  draw_string_next_row_ ...                     (a name over the width
+ *          clipped                                        continues underneath)
  *
  * LABEL column: a line whose first printed address is a single address (not a dump row's
  * range) gets a column of LABEL_WIDTH right after that address — blank where there is no
- * label; a longer label gets a line of its own above. ANNOTATION column: every other name
+ * label; a longer label continues underneath, in the same column. ANNOTATION column: every other name
  * on the line (a branch target, an operand, the names inside a dump row) from
  * ANNOTATION_COLUMN on. Fixed, so paging never moves a column. The runtime's text is never
  * cut or reordered and the numeric address always stays. `tags: false` drops the
@@ -190,16 +191,14 @@ export function decorateText(
   lines.forEach((line, i) => {
     const h = heads.get(i);
     let l = line;
+    const rest: string[] = [];
+    let origin: NameMark["origin"] | undefined;
     if (h) {
-      const label = h.label?.text ?? "";
-      const fits = label.length <= LABEL_WIDTH;
-      if (h.label && !fits) {
-        const at = h.end + 2;
-        marks.push({ line: out.length, start: at, end: at + label.length, origin: h.label.origin });
-        out.push(`${" ".repeat(at)}${label}`);
-      }
-      if (h.label && fits) marks.push({ line: out.length, start: h.end + 2, end: h.end + 2 + label.length, origin: h.label.origin });
-      l = `${line.slice(0, h.end)}  ${(fits ? label : "").padEnd(LABEL_WIDTH)}${line.slice(h.end)}`;
+      const [first, ...more] = wrapLabel(h.label?.text ?? "", LABEL_WIDTH);
+      origin = h.label?.origin;
+      if (origin && first) marks.push({ line: out.length, start: h.end + 2, end: h.end + 2 + first.length, origin });
+      l = `${line.slice(0, h.end)}  ${first.padEnd(LABEL_WIDTH)}${line.slice(h.end)}`;
+      rest.push(...more);
     }
     const list = notes.get(i);
     if (list && list.length > 0) {
@@ -211,14 +210,43 @@ export function decorateText(
       });
     }
     out.push(l);
+    // A label wider than its column continues underneath, in the same column.
+    for (const chunk of rest) {
+      const at = h!.end + 2;
+      if (origin) marks.push({ line: out.length, start: at, end: at + chunk.length, origin });
+      out.push(`${" ".repeat(at)}${chunk}`);
+    }
   });
   return { text: out.join("\n"), names, marks };
 }
 
-/** The label column's width. A longer label goes on a line of its own. */
-export const LABEL_WIDTH = 12;
+/**
+ * Cut a label into pieces of at most `width`, preferring to break after an `_` (or before
+ * a `[u]` tag) so the pieces stay readable: `wait_frames_or_fire` → `wait_frames_`, `or_fire`.
+ */
+export function wrapLabel(label: string, width: number): string[] {
+  const out: string[] = [];
+  let rest = label;
+  while (rest.length > width) {
+    const window = rest.slice(0, width + 1);
+    const under = window.lastIndexOf("_", width - 1);
+    const tag = window.lastIndexOf("[");
+    const cut = tag > 0 && tag <= width ? tag : under > 0 ? under + 1 : width;
+    out.push(rest.slice(0, cut));
+    rest = rest.slice(cut);
+  }
+  out.push(rest);
+  return out;
+}
+
+/**
+ * The label column's width = the longest name a label may have when it is stored (owner,
+ * 2026-09-19: "bei store eines Labels verweigere alles > 20 Zeichen"). A longer one —
+ * stored before the rule, or a build symbol — continues underneath, in the same column.
+ */
+export const LABEL_WIDTH = 20;
 /** Where the annotation column starts (`; name`); a longer line pushes only its own. */
-export const ANNOTATION_COLUMN = 44;
+export const ANNOTATION_COLUMN = 52;
 
 // ---------------------------------------------------------------- the whole path
 
