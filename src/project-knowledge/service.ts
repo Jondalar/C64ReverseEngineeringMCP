@@ -984,9 +984,22 @@ export class ProjectKnowledgeService {
     // synthetic input.id. Three matchers in priority order:
     //   1. explicit id match (caller intentionally targets that record)
     //   2. same absolute path (Bug 10 family — different ids for same file)
-    //   3. same content hash (file moved between paths)
+    //   3. same content hash AND the matched row's own file is gone
+    //      (the file MOVED between paths — the row follows it)
     // explicitLineageBump (input.derivedFrom set) bypasses path/hash dedup
     // so genuine derivative-mints don't collapse into their parent.
+    //
+    // Matcher 3 used to fire on the hash alone, and two files that merely hold the
+    // SAME BYTES are not one file. A project with the same title screen on two disks
+    // registered `CRAZY1/…` and then `CRAZY2/…`; the second save found the first by
+    // hash and MOVED that row onto the second path, so CRAZY1's path left
+    // artifacts.json and the next inventory sync reported it as unregistered, claimed
+    // it back, and evicted CRAZY2 — for ever. That is the "leftovers rotate" report:
+    // four runs, each naming a different handful of stragglers, and a
+    // "files registered: N" that never reached zero because N was only ever the rows
+    // that had been stolen since the last run. Nothing capped registration; this did.
+    // It is also the hazard BUG-054 №6 worked around by refusing to register a
+    // byte-identical rebuild-check at all.
     const explicitLineageBump = !!input.derivedFrom;
     const newHashEarly = sha256OfFile(absPath);
     let existing: ArtifactRecord | undefined;
@@ -997,7 +1010,8 @@ export class ProjectKnowledgeService {
       existing = store.items.find((item) => item.path === absPath);
     }
     if (!existing && !explicitLineageBump && newHashEarly) {
-      existing = store.items.find((item) => item.contentHash === newHashEarly);
+      existing = store.items.find((item) =>
+        item.contentHash === newHashEarly && !existsSync(item.path));
     }
     // existing wins over input.id when found via path/hash — that's the
     // whole point of the fix.
