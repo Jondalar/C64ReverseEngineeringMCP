@@ -261,7 +261,6 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
             try {
               const chain = await autoAnalyzeExtractedPayloads(pd, imported.importedPayloadEntityIds, { mode: "quick" });
               lines.push(summarizeAutoChain(chain));
-              for (const r of chain.filter((c) => c.status === "failed")) lines.push(`  failed: ${r.name ?? r.payloadId} — ${r.reason}`);
             } catch (chainErr) {
               lines.push(`Auto-disasm skipped: ${chainErr instanceof Error ? chainErr.message : String(chainErr)}`);
             }
@@ -360,7 +359,6 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
           try {
             const chain = await autoAnalyzeExtractedPayloads(pd, imported.importedPayloadEntityIds, { mode: "quick" });
             lines.push(summarizeAutoChain(chain));
-            for (const r of chain.filter((c) => c.status === "failed")) lines.push(`  failed: ${r.name ?? r.payloadId} — ${r.reason}`);
           } catch (chainErr) {
             lines.push(`Auto-disasm skipped: ${chainErr instanceof Error ? chainErr.message : String(chainErr)}`);
           }
