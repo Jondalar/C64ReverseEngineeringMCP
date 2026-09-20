@@ -23,6 +23,7 @@
     "check:legacy-store-writers": "node scripts/check-no-legacy-store-writers.mjs",
     "e2e:onboarding-gate": "npm run build:mcp && node scripts/e2e-onboarding-gate.mjs",
     "e2e:tooling-defects": "npm run build && node scripts/e2e-tooling-defects.mjs",
+    "e2e:inventory-truth": "npm run build:mcp && node scripts/e2e-inventory-truth.mjs",
     "e2e:810": "node scripts/e2e-810-scenarios.mjs",
     "smoke:813": "npm run build:mcp && node scripts/smoke-813-observers-and-regions.mjs",
     "smoke:812": "npm run build:mcp && node scripts/smoke-812-scene-reel.mjs",
