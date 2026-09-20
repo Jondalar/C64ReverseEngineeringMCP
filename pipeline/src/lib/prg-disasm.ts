@@ -17,6 +17,7 @@ import {
   TableUsageFact,
 } from "../analysis/types";
 import { AnnotationsFile, AnnotationsIndex, buildAnnotationsIndex, loadAnnotations, parseHex } from "./annotations";
+import { parseAddress } from "./address-rule";
 import { buildEffectiveSegments, type AnnotationSegmentOverlay } from "./effective-segments";
 import { convertKickAsmToTass } from "./tass-converter";
 import { findC64IoMetadata, formatC64IoAddress, isC64IoAddress } from "./c64-symbols";
@@ -90,6 +91,10 @@ export interface DisasmListingStats {
   asmPath: string;
   /** The 64tass listing beside it. */
   tassPath: string;
+  /** The analysis JSON the render actually read, absolute — or undefined for none. */
+  analysisPath?: string;
+  /** The annotations file the render actually read, absolute — or undefined for none. */
+  annotationsPath?: string;
 }
 
 interface PrgDisasmOptions {
@@ -102,6 +107,12 @@ interface PrgDisasmOptions {
    * to take. Absent → the input is read as a PRG, exactly as before.
    */
   raw?: RawImageWindow;
+  /**
+   * Render with NO analysis at all: no sidecar is looked for and none may be passed.
+   * A caller holding a window of a bigger file needs this, because the sidecar beside
+   * that file describes the WHOLE file.
+   */
+  noAnalysis?: boolean;
   /**
    * An annotations file named outright, instead of found beside the input, the output
    * or the analysis JSON. `loadAnnotations` has always accepted one; nothing passed it.
@@ -227,11 +238,52 @@ function readRawImage(rawPath: string, window: RawImageWindow): PrgImage {
   };
 }
 
-function maybeLoadAnalysis(prgPath: string, requestedPath?: string): AnalysisReport | undefined {
-  const explicitPath = requestedPath ? resolve(requestedPath) : undefined;
-  if (explicitPath && existsSync(explicitPath)) {
-    return JSON.parse(readFileSync(explicitPath, "utf8")) as AnalysisReport;
+/**
+ * Which analysis JSON this render reads — and, just as much, which it does not.
+ *
+ * Three rules, each of them a defect that was once silent:
+ *
+ *  - An analysis named outright and not found is a REFUSAL. It used to fall through
+ *    to the stem-matched sidecar, so a caller who named
+ *    `x_analysis_ep.json` (and mistyped it, or pointed at a path this process could
+ *    not resolve) got `x_analysis.json` rendered instead, under the name they asked
+ *    for, with nothing said.
+ *  - A RAW WINDOW never inherits a sidecar. `<stem>_analysis.json` beside a 63 KB
+ *    image describes the 63 KB image; applied to a 640-byte window out of the middle
+ *    of it, it rendered 929 instructions and 4082 data lines over 640 bytes and then
+ *    reported the rebuild as diverging at body offset 0. A window is a different
+ *    subject from the file it came out of, and it has to be told so.
+ *  - `noAnalysis` refuses one outright, for the caller who knows the sidecar is there
+ *    and knows it does not apply.
+ */
+function maybeLoadAnalysis(
+  prgPath: string,
+  requestedPath: string | undefined,
+  options: { raw: boolean; noAnalysis: boolean },
+): { report?: AnalysisReport; path?: string } {
+  if (options.noAnalysis) {
+    if (requestedPath) {
+      throw new Error(
+        `an analysis JSON was named (${requestedPath}) and analysis was also refused — name one or the other, not both.`,
+      );
+    }
+    return {};
   }
+
+  if (requestedPath) {
+    const explicitPath = resolve(requestedPath);
+    if (!existsSync(explicitPath)) {
+      throw new Error(
+        `the analysis JSON named for this render does not exist: ${explicitPath}. `
+        + `A named analysis is never swapped for the one beside the bytes — produce it with analyze_prg, `
+        + `fix the path, or render without one.`,
+      );
+    }
+    return { report: JSON.parse(readFileSync(explicitPath, "utf8")) as AnalysisReport, path: explicitPath };
+  }
+
+  // A headerless window is its own subject: nothing is picked up beside the file.
+  if (options.raw) return {};
 
   const parsed = parse(prgPath);
   const candidates = [
@@ -241,11 +293,53 @@ function maybeLoadAnalysis(prgPath: string, requestedPath?: string): AnalysisRep
 
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
-      return JSON.parse(readFileSync(candidate, "utf8")) as AnalysisReport;
+      return { report: JSON.parse(readFileSync(candidate, "utf8")) as AnalysisReport, path: candidate };
     }
   }
 
-  return undefined;
+  return {};
+}
+
+/**
+ * Which annotations file this render reads, by path — the same order `loadAnnotations`
+ * searches, stated once so the answer can name it.
+ *
+ * The wrapper around this renderer used to re-derive the order itself and the two
+ * halves resolved different files: the listing showed a human's names while the graph
+ * import was handed a path that does not exist and quietly imported nothing.
+ */
+function resolveAnnotationsPath(
+  imagePath: string,
+  outputPath: string | undefined,
+  requestedPath: string | undefined,
+  analysisPath?: string,
+): string | undefined {
+  if (requestedPath) {
+    const explicit = resolve(requestedPath);
+    if (!existsSync(explicit)) {
+      throw new Error(
+        `the annotations file named for this render does not exist: ${explicit}. `
+        + `A named annotations file is never swapped for one found beside the bytes.`,
+      );
+    }
+    return explicit;
+  }
+  const stem = (path: string) => resolve(dirname(path), `${parse(path).name}_annotations.json`);
+  const candidates = [
+    stem(imagePath),
+    resolve(dirname(imagePath), "annotations.json"),
+    ...(outputPath
+      ? [
+        stem(outputPath),
+        resolve(dirname(resolve(outputPath)), "annotations.json"),
+        // The output folder, named after the IMAGE rather than after the listing —
+        // where `propose_annotations` leaves its draft.
+        stem(join(dirname(resolve(outputPath)), basename(imagePath))),
+      ]
+      : []),
+    ...(analysisPath ? [stem(analysisPath), resolve(dirname(analysisPath), "annotations.json")] : []),
+  ];
+  return candidates.find((candidate) => existsSync(candidate));
 }
 
 // Global annotation index set during rendering — used by makeLabel for semantic names
@@ -2369,6 +2463,15 @@ const isSeedReason = (reason: string): boolean => SEED_REASON_PREFIXES.some((pre
  * refused. Both go into the listing header, because an `entry_points` address
  * that quietly does nothing is exactly the reported bug (issue #16).
  */
+/** An older analysis JSON still carries the full "seeded owners: …" list. Cut it. */
+function shortenSeededOwners(reason: string): string {
+  const match = /\(seeded owners: ([^)]*)\)/.exec(reason);
+  if (!match || process.env.C64RE_GRAPH_SEED_OWNERS === "full") return reason;
+  const owners = match[1].split(", ").map((o) => o.trim()).filter(Boolean);
+  if (owners.length <= 6) return reason;
+  return reason.replace(match[0], `(${owners.length} owners are seeded, e.g. ${owners.slice(0, 3).join(", ")}; C64RE_GRAPH_SEED_OWNERS=full lists them all)`);
+}
+
 function renderSeedLedger(report: AnalysisReport): string[] {
   const lines: string[] = [];
   const seedReport = report.codeSeedReport;
@@ -2378,7 +2481,10 @@ function renderSeedLedger(report: AnalysisReport): string[] {
   lines.push("Code seeds (Spec 838 D3)");
   if (seedReport) {
     if (seedReport.status !== "ok") {
-      lines.push(`  graph seeds: none — ${seedReport.reason ?? "no reason recorded"}`);
+      // The reason can carry the project's whole owner list — ~500 names, in the
+      // header of every listing. It is summarised where it is written now; this cuts
+      // the long form an older analysis JSON still holds on disk.
+      lines.push(`  graph seeds: none — ${shortenSeededOwners(seedReport.reason ?? "no reason recorded")}`);
     } else if (seedReport.seeds.length === 0) {
       lines.push(`  graph seeds: none in this image (owner "${seedReport.owner}", ${seedReport.path ?? "graph"})`);
     } else {
@@ -2893,9 +2999,9 @@ function normalizeRelocations(relocations: RelocationEntry[], prg: PrgImage): Re
   const sorted = [...relocations]
     .map((r) => ({
       ...r,
-      fileStart: Number(r.fileStart),
-      fileEnd: Number(r.fileEnd),
-      runtimeAddr: Number(r.runtimeAddr) & 0xffff,
+      fileStart: parseAddress(r.fileStart, "relocation fileStart"),
+      fileEnd: parseAddress(r.fileEnd, "relocation fileEnd"),
+      runtimeAddr: parseAddress(r.runtimeAddr, "relocation runtimeAddr"),
     }))
     .sort((a, b) => a.fileStart - b.fileStart);
 
@@ -3480,20 +3586,24 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   activePlatform = options.platform ?? "c64";
   const resolvedPrgPath = resolve(prgPath);
   const prg = options.raw ? readRawImage(resolvedPrgPath, options.raw) : readPrg(resolvedPrgPath);
-  const analysisReport = maybeLoadAnalysis(resolvedPrgPath, options.analysisPath);
+  const { report: analysisReport, path: usedAnalysisPath } = maybeLoadAnalysis(
+    resolvedPrgPath,
+    options.analysisPath,
+    { raw: options.raw !== undefined, noAnalysis: options.noAnalysis === true },
+  );
   const analysisContext = analysisReport ? buildAnalysisContext(analysisReport, prg) : undefined;
 
-  // Load semantic annotations if available
-  // Search for annotations next to the PRG, next to the output ASM, and next to the analysis JSON
-  const annotationsFile = loadAnnotations(resolvedPrgPath, options.annotationsPath ? resolve(options.annotationsPath) : undefined)
-    ?? (outputPath ? loadAnnotations(resolve(outputPath)) : undefined)
-    // The output folder, named after the PRG rather than after the listing. That is
-    // where `propose_annotations` leaves `<stem>_annotations.draft.json`, so dropping
-    // `.draft` from the draft's own name is the obvious way to finish it — and it was
-    // the one name nothing looked for. An unattended run wrote exactly that, was told
-    // "No semantic annotations found", and had to rename the file to be heard.
-    ?? (outputPath ? loadAnnotations(join(dirname(resolve(outputPath)), basename(resolvedPrgPath))) : undefined)
-    ?? (options.analysisPath ? loadAnnotations(resolve(options.analysisPath)) : undefined);
+  // Load semantic annotations if available: beside the input, beside the output ASM
+  // (under either name — `propose_annotations` leaves its draft under the PRG's name
+  // in the output folder), and beside the analysis JSON. Resolved to ONE path first,
+  // so the render can say which file it read and the wrapper does not have to guess.
+  const usedAnnotationsPath = resolveAnnotationsPath(
+    resolvedPrgPath,
+    outputPath,
+    options.annotationsPath,
+    usedAnalysisPath,
+  );
+  const annotationsFile = usedAnnotationsPath ? loadAnnotations(usedAnnotationsPath, usedAnnotationsPath) : undefined;
   // Spec 833 D1 — the index is built whenever a file was FOUND. It used to be
   // built only `if (annotationsFile && analysisContext)`, which is why running
   // without an analysis JSON found the file, indexed nothing, printed
@@ -3556,7 +3666,12 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     "//  TRXDis ASM",
     "//  ",
     "//  Source in KickAssembler format",
-    analysisContext ? "//  Analysis-driven rendering enabled" : "//  Legacy linear rendering",
+    // Which analysis, by name. The listing outlives the call that made it, and
+    // "Analysis-driven rendering enabled" does not say WHICH analysis drove it — the
+    // question a caller who passed one file and got another file's segments has.
+    analysisContext
+      ? `//  Analysis-driven rendering enabled (${usedAnalysisPath ?? "analysis"})`
+      : "//  Legacy linear rendering",
     annotationHeaderLine(annotationsIndex, renderMode),
   ];
   // A headerless block says what it is, where its bytes came from and what seeded it,
@@ -3620,6 +3735,8 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     renderMode,
     asmPath: outputPath,
     tassPath,
+    analysisPath: usedAnalysisPath,
+    annotationsPath: usedAnnotationsPath,
   };
 }
 
