@@ -23,6 +23,7 @@
     "check:legacy-store-writers": "node scripts/check-no-legacy-store-writers.mjs",
     "e2e:onboarding-gate": "npm run build:mcp && node scripts/e2e-onboarding-gate.mjs",
     "e2e:tooling-defects": "npm run build && node scripts/e2e-tooling-defects.mjs",
+    "e2e:subject-identity": "npm run build && node scripts/e2e-subject-identity.mjs",
     "e2e:store-concurrency": "npm run build && node scripts/e2e-store-concurrency.mjs",
     "check:address-rule": "npm run build && node scripts/check-address-rule.mjs",
     "e2e:disasm-family": "npm run build && node scripts/e2e-disasm-family.mjs",
