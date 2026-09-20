@@ -203,7 +203,7 @@ export function registerCostTools(server: McpServer, context: ServerToolContext)
       steps: z.array(z.string()).optional().describe("What to do while recording, in the capture-scenario notation — `I wait 50 frames`, `I type \"RUN{RETURN}\"`, `I wait until the CPU reaches $0810 within 4000 frames`. Replaces `frames` when given."),
       model: z.string().optional().describe("Which C64 to record on — c64-pal, c64-ntsc, c64-paln. Omitted: the project's model. The arithmetic is PAL-shaped (§6); another model is recorded and evaluated, with its own line and frame lengths taken from the machine."),
       out: z.string().optional().describe("Where to write the capture. Omitted, it lands in a temporary directory that is named in the report."),
-      cpu: z.enum(["c64", "drive8"]).optional().describe("Which CPU's rows to evaluate (default c64). On drive8 there is no DMA, so stolen cycles must be zero — a free check that the arithmetic is right."),
+      cpu: z.enum(["c64", "drive8"]).optional().describe("Which CPU's rows to evaluate (default c64). The drive lane is REFUSED and says why: what the runtime records there is a deduplicated sample of the drive's program counter with no opcode, not a stream of retired instructions, so there is nothing to price."),
       address_start: z.string().optional().describe("Evaluate only instructions whose pc is at or after this address."),
       address_end: z.string().optional().describe("Evaluate only instructions whose pc is at or before this address."),
       budget_seconds: z.number().optional().describe("How long the recording machine may live before it ends itself (default 120, max 600)."),

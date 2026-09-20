@@ -48,7 +48,7 @@ if (!existsSync(join(ROOT, "dist/cli.js"))) {
   process.exit(2);
 }
 
-const { exerciser, rasterWriter, rasterIrq } = await import(join(ROOT, "scripts/lib/spec861-programs.mjs"));
+const { exerciser, loopProgram, rasterWriter, rasterIrq, STATIC_LOOP_CYCLES } = await import(join(ROOT, "scripts/lib/spec861-programs.mjs"));
 const { captureRun } = await import(join(ROOT, "dist/cost/capture.js"));
 const { evaluateTrace, rasterAt } = await import(join(ROOT, "dist/cost/trace-cost.js"));
 const { resolveDaemonSpawn } = await import(join(ROOT, "dist/runtime/resolve-daemon-spawn.js"));
@@ -312,6 +312,91 @@ try {
     } finally {
       session.close();
     }
+  }
+  // ─────────────────────────────────────────────────────────── §7.7
+  console.log("\n§7.7 — the loop the static gate priced, measured");
+  {
+    const lp = loopProgram({ displayOn: false });
+    const run = await record("static-loop", lp, {
+      steps: bootSteps(lp, { extra: ['I hold the key "SPACE" for 2 frames', "I wait 3 frames"] }),
+    });
+    const ev = await evaluate(run.storePath, { range: { start: lp.loopAt, end: lp.loopEnd } });
+    const measured = ev.report.measured;
+    check(ev.report.evaluated === 162, `the loop ran once: ${ev.report.evaluated} instances — ldx, 40 × (lda, sta, dex, bpl), rts`, `${ev.report.evaluated}`);
+    check(measured === STATIC_LOOP_CYCLES, `the machine agrees with e2e:861-static to the cycle: ${measured} against ${STATIC_LOOP_CYCLES}`);
+    check(ev.report.stolen === 0 && ev.report.inexact === 0, "…with nothing stolen and nothing left as a span");
+  }
+
+  // ─────────────────────────────────────────────────────────── §7.3
+  console.log("\n§7.3 — a raster interrupt: the seven cycles belong to the entry");
+  {
+    const irq = rasterIrq({ line: 0x64 });
+    const run = await record("raster-irq", irq, { steps: bootSteps(irq, { extra: ["I wait 6 frames"] }) });
+    const ev = await evaluate(run.storePath);
+    const rep = ev.report;
+    check(rep.entries >= 4, `${rep.entries} interrupt entries in six frames — one per frame`, `${rep.entries}`);
+    check(rep.entriesVia.vectorReads === rep.entries && rep.entriesVia.noSuccessor === 0,
+      "every one was recognised from the traced reads of the vector and the three stack writes — §4.2's fallback was never needed, so the vector reads ARE traced",
+      `${rep.entriesVia.vectorReads} by vector, ${rep.entriesVia.noSuccessor} by the fallback`);
+    const entryRows = rep.instances.filter((i) => i.entryCycles > 0);
+    check(entryRows.every((i) => i.pc === irq.handler), `every entry lands on the handler's first instruction ${hex4(irq.handler)}`,
+      [...new Set(entryRows.map((i) => hex4(i.pc)))].join(" "));
+    check(entryRows.every((i) => i.measured === 7 + (i.staticCycles ?? 0) + i.stolen), "the 7 cycles of the dispatch are the entry's, on top of the instruction's own");
+    check(entryRows.every((i) => i.stolen === 0), "…and nothing is left over as stolen: line 100 is not a bad line",
+      entryRows.filter((i) => i.stolen !== 0).map((i) => `${hex4(i.pc)} stolen ${i.stolen} line ${i.line}`).slice(0, 3).join("; "));
+
+    // The instruction BEFORE an entry must not be charged for it.
+    const before = entryRows.map((i) => rep.instances[rep.instances.indexOf(i) - 1]).filter(Boolean);
+    check(before.length > 0 && before.every((i) => i.stolen === 0 && i.measured === i.staticCycles),
+      "no instruction before an entry shows phantom stolen cycles",
+      before.filter((i) => i.stolen !== 0).map((i) => `${hex4(i.pc)} ${i.mnemonic} measured ${i.measured} static ${i.staticCycles}`).slice(0, 3).join("; "));
+
+    // Everything else on that machine is a `jmp *` on a display that is ON, so
+    // the bad lines are still there — and they are the only stolen cycles.
+    const stolenNotOnEntry = rep.instances.filter((i) => i.stolen !== 0);
+    check(stolenNotOnEntry.every((i) => i.line !== null && (i.line - 3) % 8 === 0 && i.line >= 48 && i.line <= 247),
+      "every other stolen cycle is on a bad line (raster & 7 == the scroll, inside the display)",
+      [...new Set(stolenNotOnEntry.map((i) => i.line))].slice(0, 10).join(", "));
+  }
+
+  // ─────────────────────────────────────────────────────────── §7.8
+  //
+  // §7.8 asked for: a drive-code window, stolen == 0 for every instance, because
+  // the drive has no DMA. IT CANNOT BE DERIVED, and this gate is what says so.
+  //
+  // What the runtime records on the drive lane is not an instruction stream: the
+  // drive's 6502 runs with a null sink and its PC is sampled at each C64
+  // instruction boundary and deduplicated, with the opcode written as a zero
+  // ("not observable in sampled mode"). Several drive instructions pass between
+  // two rows, so Δclock is not an instruction's cycles, and with no opcode there
+  // is nothing to price against.
+  //
+  // So the tool REFUSES the lane and names what would change it, and this gate
+  // asserts the refusal. Priced anyway it came back as a stream of BRKs and
+  // minus 1 227 148 stolen cycles — a number that looks like an answer, which is
+  // the one outcome §5 exists to prevent.
+  console.log("\n§7.8 — the drive's own 6502: the one derivation that cannot be made");
+  {
+    const lp = loopProgram({ displayOn: false });
+    const run = await record("drive", lp, {
+      steps: bootSteps(lp),
+      afterSteps: 1,                                   // record the LOAD itself
+      domains: ["c64-cpu", "drive8-cpu", "memory"],
+    });
+    const ev = await evaluate(run.storePath, { cpu: "drive8" });
+    const rep = ev.report;
+    check(rep.rows > 1000, `the drive lane recorded ${rep.rows} rows while the file was read`);
+    check(!!rep.laneProblem, "the evaluation REFUSES the drive lane instead of pricing a PC sample", rep.laneProblem?.why?.slice(0, 80));
+    check(rep.evaluated === 0 && rep.stolen === 0 && rep.measured === 0, "…and gives no totals at all, so nothing reads as an answer");
+    check(/one row per RETIRED drive instruction carrying its opcode/.test(rep.laneProblem?.whatWouldFixIt ?? ""),
+      "…and names the smallest change that would make §7.8 answerable");
+    console.log(`        the change, for the record: ${rep.laneProblem?.whatWouldFixIt}`);
+
+    // The C64 side of the very same capture IS an instruction stream, which is
+    // what makes the refusal a fact about the lane and not about the capture.
+    const c64 = await evaluate(run.storePath, { cpu: "c64" });
+    check(!c64.report.laneProblem && c64.report.evaluated > 1000,
+      `the C64 lane of the same capture evaluates normally: ${c64.report.evaluated} instances`);
   }
 } catch (e) {
   check(false, "the harness", e instanceof Error ? `${e.message}` : String(e));

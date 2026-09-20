@@ -95,16 +95,13 @@ export function exerciser({ displayOn = false } = {}) {
   return buildExerciser(displayOn, { rts: page, scratch: page + 0x100, cross: page + 0x201 });
 }
 
-function buildExerciser(displayOn, L) {
-  const HELPER_RTS = L.rts;
-  const HELPER_IRQ = L.rts + 1;
-  const HELPER_NMI = L.rts + 2;
-  const SCRATCH = L.scratch;
-  const CROSS_BASE = L.cross;
-  const a = new Asm(EXERCISER_ORG);
-  const covered = [];
-
-  // ── setup, while the I/O is still reachable ──────────────────────────────
+/**
+ * The state every measured program starts from: interrupts off, the VIC as the
+ * gate wants it, a key waited for so the capture's window is the body, and then
+ * all RAM — no I/O to read a moving value from, no ROM, and the vectors in cells
+ * the program owns.
+ */
+function setup(a, { displayOn, vectors, scratch }) {
   a.b(0x78);                       // sei
   a.lda(0x7f).sta(0xdc0d).sta(0xdd0d);   // no CIA interrupts
   a.b(0xad, 0x0d, 0xdc);           // lda $dc0d — acknowledge
@@ -113,8 +110,8 @@ function buildExerciser(displayOn, L) {
   a.lda(displayOn ? 0x1b : 0x0b).sta(0xd011);  // the display, on or off
   a.lda(0x00).sta(0xd01a);         // no VIC interrupts
   // Wait for a key before starting, so the capture's window is the BODY and not
-  // the twenty frames of KERNAL idling it takes to type `SYS 49152`. Read off
-  // the matrix directly: the KERNAL is about to be banked out anyway.
+  // the frames of KERNAL idling it takes to type `SYS 8192`. Read off the matrix
+  // directly: the KERNAL is about to be banked out anyway.
   a.lda(0x00).sta(0xdc00);         // every keyboard row driven low
   // First wait for the keyboard to be EMPTY. The RETURN that ended `SYS 8192`
   // is still held down when the program starts — a bare "wait for a key" sees
@@ -129,17 +126,31 @@ function buildExerciser(displayOn, L) {
   a.b(0xf0, (keyWait - (a.pc + 2)) & 0xff);
   a.b(0xba).b(0x86, ZP_SP);        // tsx / stx $F0 — park the stack pointer
   a.lda(0x34).staz(0x01);          // all RAM: no I/O, no ROM, and $FFFA-$FFFF are ours
+  if (vectors) {
+    a.lda(vectors.irq & 0xff).sta(0xfffe);
+    a.lda(vectors.irq >> 8).sta(0xffff);
+    a.lda(vectors.nmi & 0xff).sta(0xfffa);
+    a.lda(vectors.nmi >> 8).sta(0xfffb);
+  }
+  if (scratch !== undefined) {
+    a.lda(scratch & 0xff).staz(ZP_PTR);
+    a.lda(scratch >> 8).staz(ZP_PTR + 1);
+    a.lda(0xff).sta(scratch);      // a value with bit 6 and bit 7 set, for `bit`
+    a.lda(0x01).staz(ZP_SCRATCH);
+  }
+  return a;
+}
 
-  // the vectors, now that they are RAM
-  a.lda(HELPER_IRQ & 0xff).sta(0xfffe);
-  a.lda(HELPER_IRQ >> 8).sta(0xffff);
-  a.lda(HELPER_NMI & 0xff).sta(0xfffa);
-  a.lda(HELPER_NMI >> 8).sta(0xfffb);
-  // the pointers and the scratch cell
-  a.lda(SCRATCH & 0xff).staz(ZP_PTR);
-  a.lda(SCRATCH >> 8).staz(ZP_PTR + 1);
-  a.lda(0xff).sta(SCRATCH);        // a value with bit 6 and bit 7 set, for `bit`
-  a.lda(0x01).staz(ZP_SCRATCH);
+function buildExerciser(displayOn, L) {
+  const HELPER_RTS = L.rts;
+  const HELPER_IRQ = L.rts + 1;
+  const HELPER_NMI = L.rts + 2;
+  const SCRATCH = L.scratch;
+  const CROSS_BASE = L.cross;
+  const a = new Asm(EXERCISER_ORG);
+  const covered = [];
+
+  setup(a, { displayOn, vectors: { irq: HELPER_IRQ, nmi: HELPER_NMI }, scratch: SCRATCH });
 
   const reset = () => a.ldx(0x00).ldy(0x00).lda(0x01);
   reset();
@@ -272,6 +283,29 @@ function buildExerciser(displayOn, L) {
     crossing: [...new Set(crossing)].sort((x, y) => x - y),
     crossBranches,
   };
+}
+
+/**
+ * §7.7 — the loop `e2e:861-static` prices statically, run under §7.1's
+ * conditions so the measurement has nothing in it but the loop.
+ *
+ * The bytes are the gate's, to the byte: `ldx #$27 / lda $1000,x /
+ * sta $0400,x / dex / bpl / rts`. It is page-aligned, so the branch does not
+ * cross one, and the indexed read never leaves $1000-$1027 — which is what makes
+ * 567 the exact answer rather than a span.
+ */
+export const STATIC_LOOP = [0xa2, 0x27, 0xbd, 0x00, 0x10, 0x9d, 0x00, 0x04, 0xca, 0x10, 0xf7, 0x60];
+export const STATIC_LOOP_CYCLES = 567;
+
+export function loopProgram({ displayOn = false } = {}) {
+  const a = new Asm(EXERCISER_ORG);
+  setup(a, { displayOn, vectors: null });
+  const at = (a.pc + 0x100) & 0xff00;                 // the loop, page-aligned
+  a.b(0x20, at & 0xff, at >> 8);                      // jsr loop
+  const end = a.pc;
+  a.jmpTo(end);
+  a.at(at).b(...STATIC_LOOP);
+  return { load: EXERCISER_ORG, bytes: Uint8Array.from(a.bytes), entry: EXERCISER_ORG, loopAt: at, loopEnd: at + STATIC_LOOP.length - 1, end };
 }
 
 /**

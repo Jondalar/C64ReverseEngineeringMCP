@@ -97,6 +97,8 @@ export interface Instance {
   inexactWhy?: string;
   /** 7 per interrupt dispatch that ran before this instruction */
   entryCycles: number;
+  /** how the dispatch was recognised, when there was one */
+  entryVia?: "vector-reads" | "no-successor";
   stolen: number;
   line: number | null;
   cycleInLine: number | null;
@@ -117,8 +119,42 @@ export interface RoutineCost {
 
 export interface LineCost { line: number; cycles: number; stolen: number; instances: number }
 
+/**
+ * Why a lane cannot be evaluated at all, when it cannot.
+ *
+ * THE ONE CASE, and it is the drive (§7.8): `drive_pc` is not an instruction
+ * stream. The drive's 6502 runs with a null sink and its PC is SAMPLED at each
+ * C64 instruction boundary and deduplicated (`Machine::sample_pc_change`), and
+ * the record carries no opcode at all — `write_drive_cpu_step` writes a zero
+ * with the comment "not observable in sampled mode". So Δclock between two rows
+ * is not the cycles an instruction took (several drive instructions can pass
+ * between samples) and there is no opcode to price.
+ *
+ * This is refused rather than answered. Priced anyway, the drive's own ROM comes
+ * back as a stream of BRKs with minus a million stolen cycles, which is worse
+ * than no answer — and §7.8's whole point is that the drive has no DMA, so a
+ * wrong "stolen" there would discredit the arithmetic everywhere else.
+ */
+export interface LaneProblem { lane: string; why: string; whatWouldFixIt: string }
+
+export const DRIVE_LANE_PROBLEM: LaneProblem = {
+  lane: "drive8",
+  why:
+    "the drive lane is a deduplicated PC SAMPLE, not a stream of retired instructions: the runtime "
+    + "samples the drive's program counter at each C64 instruction boundary and records it without an "
+    + "opcode, so there is nothing to price and the difference between two rows is not the cycles an "
+    + "instruction took",
+  whatWouldFixIt:
+    "one row per RETIRED drive instruction carrying its opcode and operand bytes — the record format "
+    + "already has the fields (pc, opcode, b1, b2, a, x, y, sp, p, clk) and the reader already projects "
+    + "them as cpu='drive8'; only the producer is missing, which is the drive core calling the same "
+    + "retire hook the C64 core calls instead of the run loop sampling its PC",
+};
+
 export interface TraceCostReport {
   cpu: string;
+  /** set when the lane cannot be evaluated at all; every total below is then zero */
+  laneProblem?: LaneProblem;
   rows: number;
   evaluated: number;
   anchor: Anchor | null;
@@ -128,6 +164,8 @@ export interface TraceCostReport {
   staticTotal: number;
   stolen: number;
   entries: number;
+  /** §4.2 / §7.3 — which of the two recognitions fired, counted */
+  entriesVia: { vectorReads: number; noSuccessor: number };
   inexact: number;
   /** the instances whose static cost could not be pinned, with the reason */
   inexactSamples: Instance[];
@@ -175,6 +213,23 @@ export function evaluateTrace(
   const anchor = options.anchor ?? null;
   const keep = options.keepInstances ?? 20000;
 
+  // A lane that carries no opcodes is not an instruction stream, and pricing it
+  // would produce a number rather than an answer.
+  if (insns.length > 10 && insns.every((r) => r.opcode === 0 && r.b1 === 0 && r.b2 === 0)) {
+    return {
+      cpu: options.cpu ?? "c64",
+      laneProblem: (options.cpu ?? "c64").startsWith("drive")
+        ? DRIVE_LANE_PROBLEM
+        : { lane: options.cpu ?? "c64", why: "every row in this lane has a zero opcode, so it is not a stream of retired instructions", whatWouldFixIt: DRIVE_LANE_PROBLEM.whatWouldFixIt },
+      rows: insns.length, evaluated: 0, anchor,
+      anchorWhy: "not read: the lane cannot be evaluated",
+      frames: 0, measured: 0, staticTotal: 0, stolen: 0, entries: 0,
+      entriesVia: { vectorReads: 0, noSuccessor: 0 },
+      inexact: 0, inexactSamples: [], stolenSamples: [], perRoutine: [], perLine: [],
+      unattributed: { instances: 0, why: {} }, instances: [], notes,
+    };
+  }
+
   // mem rows grouped by the CPU row they belong to: everything after the
   // previous CPU row's seq and up to this one's.
   const byInsn = new Map<number, MemRow[]>();
@@ -190,6 +245,7 @@ export function evaluateTrace(
 
   const instances: Instance[] = [];
   let measured = 0, staticTotal = 0, stolen = 0, entries = 0, inexact = 0, evaluated = 0;
+  const entriesVia = { vectorReads: 0, noSuccessor: 0 };
 
   for (let i = 1; i < insns.length; i += 1) {
     const row = insns[i]!;
@@ -199,7 +255,17 @@ export function evaluateTrace(
     if (delta <= 0) { notes.push(`row ${row.seq} has a clock that does not advance (${prev.clock} → ${row.clock}) — skipped`); continue; }
 
     const window = byInsn.get(row.seq) ?? [];
-    const entry = interruptEntries(window, row.opcode);
+    let entry = interruptEntries(window, row.opcode);
+    let via: "vector-reads" | "no-successor" | undefined = entry > 0 ? "vector-reads" : undefined;
+    if (entry === 0) {
+      // §4.2's fallback, for a runtime that does not trace the vector reads: the
+      // pc is not a successor of the instruction before it, and the stack
+      // pointer dropped by the three bytes a dispatch pushes. Kept live so the
+      // arithmetic does not depend on one recording choice — §7.3 reports which
+      // of the two actually fires.
+      const succ = successorsOf(prev);
+      if (succ && !succ.has(row.pc) && ((prev.sp - row.sp) & 0xff) >= 3) { entry = 1; via = "no-successor"; }
+    }
     const entryCycles = entry * 7;
 
     const t = opcodeTiming(row.opcode);
@@ -239,6 +305,7 @@ export function evaluateTrace(
       line: raster ? raster.line : null, cycleInLine: raster ? raster.cycle : null,
     };
     if (inexactWhy) instance.inexactWhy = inexactWhy;
+    if (via) instance.entryVia = via;
 
     if (options.range && (row.pc < options.range.start || row.pc > options.range.end)) continue;
 
@@ -247,6 +314,8 @@ export function evaluateTrace(
     staticTotal += staticCycles ?? 0;
     stolen += theft;
     entries += entry;
+    if (via === "vector-reads") entriesVia.vectorReads += entry;
+    else if (via === "no-successor") entriesVia.noSuccessor += entry;
     if (!exact) inexact += 1;
     if (instances.length < keep) instances.push(instance);
   }
@@ -295,7 +364,7 @@ export function evaluateTrace(
     anchor,
     anchorWhy: anchor ? `the capture's frame boundary at clock ${anchor.clock}, line ${anchor.line} cycle ${anchor.cycle}, ${anchor.cyclesPerLine}×${anchor.linesPerFrame}` : "no frame anchor in this store — raster positions are not reported (§4.2 takes the anchor from the capture's advance to a frame boundary)",
     frames,
-    measured, staticTotal, stolen, entries, inexact,
+    measured, staticTotal, stolen, entries, entriesVia, inexact,
     inexactSamples: instances.filter((i) => !i.exact).slice(0, 10),
     stolenSamples: [...instances].filter((i) => i.stolen !== 0).sort((a, b) => Math.abs(b.stolen) - Math.abs(a.stolen)).slice(0, 10),
     perRoutine: [...perRoutine.values()].sort((a, b) => b.measured - a.measured),
@@ -362,10 +431,20 @@ const hex4 = (a: number): string => `$${(a & 0xffff).toString(16).toUpperCase().
 export function formatTraceCost(report: TraceCostReport, title: string): string {
   const lines: string[] = [];
   lines.push(title);
+  if (report.laneProblem) {
+    lines.push(`  ${report.rows} rows on the ${report.laneProblem.lane} lane, and NONE of them can be priced.`);
+    lines.push(`  Why: ${report.laneProblem.why}.`);
+    lines.push(`  What would change that: ${report.laneProblem.whatWouldFixIt}.`);
+    lines.push(`  No number is given here on purpose — a wrong one would look like an answer.`);
+    return lines.join("\n");
+  }
   lines.push(`  cpu ${report.cpu} · ${report.rows} instruction rows · ${report.evaluated} evaluated${report.frames ? ` · about ${report.frames} frame(s)` : ""}`);
   lines.push(`  anchor: ${report.anchorWhy}`);
   lines.push("");
   lines.push(`  measured ${report.measured} cycles · static ${report.staticTotal} · interrupt entries ${report.entries} (${report.entries * 7} cycles) · stolen ${report.stolen}`);
+  if (report.entries > 0) {
+    lines.push(`  entries recognised: ${report.entriesVia.vectorReads} from the traced vector reads, ${report.entriesVia.noSuccessor} from a pc that is no successor with the stack three lower`);
+  }
   lines.push(`  ${report.evaluated - report.inexact} of ${report.evaluated} instances are exact against the cycle table; ${report.inexact} are not`);
   if (report.inexactSamples.length) {
     lines.push("  what could not be pinned:");
