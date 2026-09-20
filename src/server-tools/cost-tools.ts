@@ -302,7 +302,7 @@ async function timingFor(
   }
   const busiest = [...report.perLine].sort((a, b) => b.cycles - a.cycles)[0]!;
   const lineList = report.perLine.map((l) => l.line);
-  const free = anchor.cyclesPerLine - busiest.cycles;
+  const free = Math.max(0, anchor.cyclesPerLine - busiest.cycles);
   const lines = `it runs in raster line${lineList.length === 1 ? "" : "s"} ${summariseLines(lineList)} — ${report.measured} cycles measured over ${report.evaluated} instance(s)`;
   const worstLine = `line ${busiest.line} is its busiest: ${busiest.cycles} of the ${anchor.cyclesPerLine} cycles that line has, ${free} left`;
   const warning =

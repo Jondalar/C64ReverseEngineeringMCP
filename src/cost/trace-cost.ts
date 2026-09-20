@@ -343,14 +343,37 @@ export function evaluateTrace(
     perRoutine.set(r.id, cur);
   }
 
+  // Per raster line, and the two halves are attributed differently on purpose.
+  //
+  // OCCUPANCY is split across the lines the instruction actually ran on: an
+  // instruction that starts on one line and retires on the next spent cycles on
+  // both, and charging all of them to the line it ended on makes a line report
+  // more than the 63 cycles it has.
+  //
+  // STOLEN stays on the line the instruction RETIRED on, because that is where
+  // it was stalled: a bad line stretches the instruction it interrupts, so the
+  // instruction ends on the bad line. §7.2 measures exactly that — every line
+  // with a stolen cycle is a line 859 calls a bad line.
   const lines = new Map<number, LineCost>();
+  const bump = (line: number, cycles: number, stolen: number, count: number): void => {
+    const cur = lines.get(line) ?? { line, cycles: 0, stolen: 0, instances: 0 };
+    cur.cycles += cycles;
+    cur.stolen += stolen;
+    cur.instances += count;
+    lines.set(line, cur);
+  };
   for (const inst of instances) {
-    if (inst.line === null) continue;
-    const cur = lines.get(inst.line) ?? { line: inst.line, cycles: 0, stolen: 0, instances: 0 };
-    cur.cycles += inst.measured;
-    cur.stolen += inst.stolen;
-    cur.instances += 1;
-    lines.set(inst.line, cur);
+    if (inst.line === null || !anchor) continue;
+    bump(inst.line, 0, inst.stolen, 1);
+    let left = inst.measured;
+    let at = inst.clock;
+    while (left > 0) {
+      const here = rasterAt(anchor, at);
+      const onThisLine = Math.min(left, here.cycle);   // `cycle` is 1-based: how many of this line are behind us
+      bump(here.line, onThisLine, 0, 0);
+      left -= onThisLine;
+      at -= onThisLine;
+    }
   }
 
   const frames = anchor && insns.length > 1

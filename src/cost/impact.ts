@@ -391,10 +391,13 @@ export function formatImpact(report: ImpactReport): string {
   const where = report.range ? `${hex4(report.range.start)}-${hex4(report.range.end)}` : "an address the graph does not know";
   lines.push(`change_impact: ${report.ref} → ${where}`);
   if (report.roots.length === 0) {
-    lines.push(`  nothing in the graph resolves "${report.ref}". graph_find is the door that says what does.`);
-    return lines.join("\n");
+    // Not a return: a measurement (§4) and the documents and findings over a
+    // range do not come from the graph, and dropping them because the graph has
+    // no node there would hide the half of the answer that exists.
+    lines.push(`  nothing in the graph resolves "${report.ref}", so the walk below has nothing to walk. graph_find is the door that says what the graph does have.`);
+  } else {
+    lines.push(`  ${report.roots.length} node(s): ${report.roots.map(nameOf).join(", ")}`);
   }
-  lines.push(`  ${report.roots.length} node(s): ${report.roots.map(nameOf).join(", ")}`);
   lines.push("");
 
   for (const depth of [1, 2, 3] as const) {

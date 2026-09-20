@@ -398,6 +398,87 @@ try {
     check(!c64.report.laneProblem && c64.report.evaluated > 1000,
       `the C64 lane of the same capture evaluates normally: ${c64.report.evaluated} instances`);
   }
+  // ─────────────────────────────────────────────── the doors themselves
+  //
+  // Everything above drives the libraries. §8's three tools are what a caller
+  // actually reaches, so they are exercised here too — over MCP stdio, against
+  // the stores the gates above recorded, with the reader endpoint pointed at
+  // this script's own daemon.
+  console.log("\n§8 — the three tools, over MCP, against what was just recorded");
+  {
+    const { spawn: spawnMcp } = await import("node:child_process");
+    const proc = spawnMcp(process.execPath, [join(ROOT, "dist/cli.js")], {
+      cwd: tmpdir(),
+      env: { ...process.env, C64RE_PROJECT_DIR: work, C64RE_FULL_TOOLS: "", C64RE_RUNTIME_ENDPOINT: `ws://127.0.0.1:${readerPort}` },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let buf = "";
+    const pend = new Map();
+    let nid = 1;
+    proc.stdout.on("data", (d) => {
+      buf += d.toString();
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const ln = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!ln) continue;
+        let m; try { m = JSON.parse(ln); } catch { continue; }
+        if (m.id != null && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); }
+      }
+    });
+    proc.stderr.on("data", () => {});
+    const rpcMcp = (method, params) => new Promise((res, rej) => {
+      const id = nid++;
+      const t = setTimeout(() => { pend.delete(id); rej(new Error(`timeout ${method}`)); }, 300000);
+      pend.set(id, (m) => { clearTimeout(t); res(m); });
+      proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    });
+    const callTool = async (name, args) => {
+      const r = await rpcMcp("tools/call", { name, arguments: args });
+      if (r.error) throw new Error(`${name}: ${JSON.stringify(r.error)}`);
+      return (r.result?.content || []).map((c) => c.text).join("\n");
+    };
+    try {
+      await rpcMcp("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "smoke-861", version: "1" } });
+      proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+      await callTool("project_init", { name: "cost861smoke" });
+
+      const irqStore = join(work, "raster-irq.duckdb");
+      const t = await callTool("trace_cost", { trace_path: irqStore, project_dir: work });
+      check(/interrupt entries [1-9]/.test(t), "trace_cost evaluates a store it is handed", t.split("\n").find((l) => l.includes("interrupt entries")));
+      check(/anchor: the capture's frame boundary/.test(t), "…reading the anchor back out of the store's own mark");
+      check(/per raster line/.test(t), "…and reports where the cycles went, line by line");
+
+      const drive = await callTool("trace_cost", { trace_path: join(work, "drive.duckdb"), cpu: "drive8", project_dir: work });
+      check(/NONE of them can be priced/.test(drive), "trace_cost refuses the drive lane through the tool too", drive.split("\n")[1]);
+
+      // The capture half of the same tool: a medium in, a store out, evaluated.
+      const lp = loopProgram({ displayOn: false });
+      const captured = await callTool("trace_cost", {
+        media_path: diskWith("EX", lp),
+        steps: bootSteps(lp, { extra: ['I hold the key "SPACE" for 2 frames', "I wait 3 frames"] }),
+        record_after_steps: BOOT_STEPS,
+        address_start: `$${lp.loopAt.toString(16)}`,
+        address_end: `$${lp.loopEnd.toString(16)}`,
+        out: join(work, "tool-capture.duckdb"),
+        budget_seconds: 540,
+        project_dir: work,
+      });
+      check(/measured 567 cycles · static 567/.test(captured), "trace_cost records its own capture and evaluates it: 567 measured, 567 static",
+        captured.split("\n").find((l) => l.includes("measured")));
+
+      const impact = await callTool("change_impact", {
+        address_start: `$${lp.loopAt.toString(16)}`, address_end: `$${lp.loopEnd.toString(16)}`,
+        trace_path: join(work, "tool-capture.duckdb"), candidate_cycles: 40, project_dir: work,
+      });
+      check(/timing is a direction of impact too/.test(impact), "change_impact reads a measurement and names the raster lines the code ran in",
+        impact.split("\n").find((l) => l.includes("raster line")));
+      check(/WARNING: the replacement adds 40 cycles/.test(impact), "…and flags a candidate that will not fit on the busiest line",
+        impact.split("\n").find((l) => l.includes("WARNING")));
+    } finally {
+      proc.kill();
+    }
+  }
 } catch (e) {
   check(false, "the harness", e instanceof Error ? `${e.message}` : String(e));
 } finally {
