@@ -24,17 +24,17 @@ export const ADDRESS_RULE = "an address is HEX — \"E800\", \"$E800\" and \"0xE
 
 function parseAddr(value: unknown, field = "address"): number {
   if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new Error(`relocation ${field} is not a finite number: ${JSON.stringify(value)}`);
+    if (!Number.isFinite(value)) throw new Error(`${field} is not a finite number: ${JSON.stringify(value)}`);
     return value;
   }
   if (typeof value === "string") {
     const s = value.trim().replace(/^\$/, "").replace(/^0[xX]/, "");
     if (!/^[0-9a-fA-F]+$/.test(s)) {
-      throw new Error(`relocation ${field} ${JSON.stringify(value)} is not an address — ${ADDRESS_RULE}`);
+      throw new Error(`${field} ${JSON.stringify(value)} is not an address — ${ADDRESS_RULE}`);
     }
     return Number.parseInt(s, 16);
   }
-  throw new Error(`relocation ${field} is missing or not a string/number (${JSON.stringify(value)}) — ${ADDRESS_RULE}`);
+  throw new Error(`${field} is missing or not a string/number (${JSON.stringify(value)}) — ${ADDRESS_RULE}`);
 }
 
 function loadRelocationMap(path: string): RelocationEntry[] {
@@ -44,14 +44,14 @@ function loadRelocationMap(path: string): RelocationEntry[] {
     throw new Error(`relocation map must be a JSON array (or { relocations: [...] }): ${path}`);
   }
   return list.map((entry: Record<string, unknown>) => ({
-    fileStart: parseAddr(entry.fileStart, "fileStart"),
-    fileEnd: parseAddr(entry.fileEnd, "fileEnd"),
-    runtimeAddr: parseAddr(entry.runtimeAddr, "runtimeAddr"),
+    fileStart: parseAddr(entry.fileStart, "relocation fileStart"),
+    fileEnd: parseAddr(entry.fileEnd, "relocation fileEnd"),
+    runtimeAddr: parseAddr(entry.runtimeAddr, "relocation runtimeAddr"),
     label: typeof entry.label === "string" ? entry.label : undefined,
     subSegments: Array.isArray(entry.subSegments)
       ? (entry.subSegments as Record<string, unknown>[]).map((s) => ({
-          start: parseAddr(s.start, "subSegments[].start"),
-          end: parseAddr(s.end, "subSegments[].end"),
+          start: parseAddr(s.start, "relocation subSegments[].start"),
+          end: parseAddr(s.end, "relocation subSegments[].end"),
           kind: String(s.kind ?? "code"),
           label: typeof s.label === "string" ? s.label : undefined,
           comment: typeof s.comment === "string" ? s.comment : undefined,
@@ -69,6 +69,7 @@ function usage(): never {
       "  node dist/cli.js export-menu [analysisDir]",
       "  node dist/cli.js disasm-menu [analysisDir] [outputDir]",
       "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [analysisJson] [--platform c64|c1541] [--relocations <json>]",
+      "  node dist/cli.js disasm-raw <file> <outputAsm> --load-address <addr> [--offset <n>] [--length <n>] [entryHex,...] [analysisJson] [--platform c64|c1541] [--annotations <json>]",
       "  node dist/cli.js analyze-prg <prg> [outputJson] [entryHex,...]",
       "  node dist/cli.js basic-list <prg> [--json]",
       "  node dist/cli.js basic-tokenize <textFile> <outputPrg> [--load-address $0801]",
@@ -156,9 +157,13 @@ function main(): void {
       usage();
     }
     const outputPath = resolve(remaining[1] ?? "analysis/main-game/main_disasm.asm");
+    // No default seed. It used to be `[0x0827]`, a guess at a BASIC stub's SYS target,
+    // and it was harmless only because the legacy renderer threw the list away. Now
+    // that a seed resyncs the linear decode, a guessed one would split an instruction
+    // in a PRG that never loads at $0801 — a default may not decide an alignment.
     const entryPoints = remaining[2]
       ? remaining[2].split(",").filter(Boolean).map((value) => Number.parseInt(value, 16))
-      : [0x0827];
+      : [];
     const prgAbs = resolve(prgPath);
     const relocations = relocationsPath ? loadRelocationMap(resolve(relocationsPath)) : undefined;
     disassemblePrgToKickAsm(prgAbs, outputPath, {
@@ -176,6 +181,85 @@ function main(): void {
       format: "asm",
       role: "disasm",
       producedByTool: "pipeline_cli:disasm-prg",
+    });
+    return;
+  }
+
+  // Bytes at an address, with no PRG header in front of them. Same renderer, same
+  // annotation handling, same pair of outputs — only the way the image is read differs,
+  // and that difference is one branch inside `disassemblePrgToKickAsm`.
+  if (command === "disasm-raw") {
+    let platform: "c64" | "c1541" = "c64";
+    let loadAddress: number | undefined;
+    let offset: number | undefined;
+    let length: number | undefined;
+    let annotationsPath: string | undefined;
+    const remaining: string[] = [];
+    const takeValue = (flag: string, inline: string | undefined, next: string | undefined): string => {
+      const value = inline ?? next;
+      if (value === undefined) throw new Error(`${flag} requires a value — ${ADDRESS_RULE}`);
+      return value;
+    };
+    for (let i = 0; i < args.length; i += 1) {
+      const arg = args[i]!;
+      const [flag, inline] = arg.startsWith("--") && arg.includes("=")
+        ? [arg.slice(0, arg.indexOf("=")), arg.slice(arg.indexOf("=") + 1)]
+        : [arg, undefined];
+      if (flag === "--platform") {
+        platform = takeValue(flag, inline, args[i + 1]) as "c64" | "c1541";
+        if (inline === undefined) i += 1;
+      } else if (flag === "--load-address" || flag === "--loadAddress") {
+        loadAddress = parseAddr(takeValue(flag, inline, args[i + 1]), "--load-address");
+        if (inline === undefined) i += 1;
+      } else if (flag === "--offset") {
+        offset = parseAddr(takeValue(flag, inline, args[i + 1]), "--offset");
+        if (inline === undefined) i += 1;
+      } else if (flag === "--length") {
+        length = parseAddr(takeValue(flag, inline, args[i + 1]), "--length");
+        if (inline === undefined) i += 1;
+      } else if (flag === "--annotations") {
+        annotationsPath = takeValue(flag, inline, args[i + 1]);
+        if (inline === undefined) i += 1;
+      } else {
+        remaining.push(arg);
+      }
+    }
+    const rawPath = remaining[0];
+    if (!rawPath || loadAddress === undefined) {
+      usage();
+    }
+    const outputPath = resolve(remaining[1] ?? `${rawPath}_disasm.asm`);
+    const entryPoints = remaining[2]
+      ? remaining[2].split(",").filter(Boolean).map((value, index) => parseAddr(value, `entryPoints[${index}]`))
+      : [];
+    const rawAbs = resolve(rawPath);
+    const stats = disassemblePrgToKickAsm(rawAbs, outputPath, {
+      entryPoints,
+      title: rawPath,
+      analysisPath: remaining[3] ? resolve(remaining[3]) : undefined,
+      platform,
+      raw: { loadAddress, offset, length },
+      annotationsPath: annotationsPath ? resolve(annotationsPath) : undefined,
+    });
+    const last = (stats.loadAddress + stats.byteLength - 1) & 0xffff;
+    const hex = (value: number) => `$${value.toString(16).toUpperCase().padStart(4, "0")}`;
+    process.stdout.write(
+      [
+        `Disassembled ${stats.byteLength} bytes of ${basename(rawAbs)} at ${hex(stats.loadAddress)}-${hex(last)}.`,
+        `Source window: offset ${offset ?? 0}, length ${stats.byteLength} (bytes ${offset ?? 0}..${(offset ?? 0) + stats.byteLength - 1}).`,
+        `Listing: ${stats.instructionCount} instructions, ${stats.dataLineCount} data lines (${stats.renderMode} rendering).`,
+        `Seeded: ${entryPoints.length > 0 ? entryPoints.map(hex).join(", ") : `${hex(stats.loadAddress)} (the first byte — no entry point was given)`}`,
+        `64tass: ${stats.tassPath}`,
+      ].join("\n") + "\n",
+    );
+    registerCliArtifact({
+      kind: "generated-source",
+      scope: "generated",
+      title: `${basename(rawAbs)} @ ${hex(stats.loadAddress)} disassembly (KickAssembler)`,
+      path: outputPath,
+      format: "asm",
+      role: "disasm",
+      producedByTool: "pipeline_cli:disasm-raw",
     });
     return;
   }

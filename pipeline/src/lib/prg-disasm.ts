@@ -56,10 +56,59 @@ export interface RelocationEntry {
   subSegments?: RelocationSubSegment[];
 }
 
+/**
+ * A block of bytes with no PRG load header, and the address it runs at.
+ *
+ * What an RE session usually holds is not a PRG: it is a depacked chunk, a relocated
+ * overlay, a block lifted out of a raw track. The renderer only ever needed a
+ * `{ loadAddress, data }` pair — the 2-byte header was simply where it read the address
+ * from. So the header becomes one way of getting that pair, and this is the other; every
+ * line below this point is shared.
+ */
+export interface RawImageWindow {
+  /** Where the first byte of the window lives when it runs. */
+  loadAddress: number;
+  /** Byte offset into the file where the block starts. Default 0. */
+  offset?: number;
+  /** How many bytes. Default: to the end of the file. */
+  length?: number;
+}
+
+/** What a render emitted, for the caller that has to describe it. */
+export interface DisasmListingStats {
+  /** Where the first byte runs. */
+  loadAddress: number;
+  /** Bytes rendered. */
+  byteLength: number;
+  /** Body lines carrying a mnemonic. */
+  instructionCount: number;
+  /** Body lines carrying data (`.byte`, `.text`, `.word`, `.fill`). */
+  dataLineCount: number;
+  /** Which of the three renderers ran. */
+  renderMode: AnnotationRenderMode;
+  /** The KickAssembler listing. */
+  asmPath: string;
+  /** The 64tass listing beside it. */
+  tassPath: string;
+}
+
 interface PrgDisasmOptions {
   entryPoints?: number[];
   title?: string;
   analysisPath?: string;
+  /**
+   * Render a headerless block instead of a PRG: the input file carries no 2-byte
+   * load address, and this says where its bytes run and which window of the file
+   * to take. Absent → the input is read as a PRG, exactly as before.
+   */
+  raw?: RawImageWindow;
+  /**
+   * An annotations file named outright, instead of found beside the input, the output
+   * or the analysis JSON. `loadAnnotations` has always accepted one; nothing passed it.
+   * A raw block needs it — its bytes often live under a name that no annotations file
+   * was ever going to be named after.
+   */
+  annotationsPath?: string;
   // Spec 048: optional platform tag. Default is "c64". When
   // "c1541", renderer overlays the c1541 ZP / IO / ROM tables on
   // top of the existing C64 lookups so drive disasm gets correct
@@ -143,6 +192,38 @@ function readPrg(prgPath: string): PrgImage {
   return {
     loadAddress: file.readUInt16LE(0),
     data: file.subarray(2),
+  };
+}
+
+/**
+ * The same image, read out of a headerless file.
+ *
+ * Nothing is prepended and nothing on disk is rewritten: the window is a view of the
+ * bytes as they already sit there. A window outside the file is named rather than
+ * silently clamped — a caller who mistyped an offset gets told which end it fell off.
+ */
+function readRawImage(rawPath: string, window: RawImageWindow): PrgImage {
+  const file = readFileSync(rawPath);
+  const offset = window.offset ?? 0;
+  const length = window.length ?? file.length - offset;
+  const name = basename(rawPath);
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new Error(`offset ${offset} is not a byte offset into ${name}.`);
+  }
+  if (offset >= file.length) {
+    throw new Error(`offset ${offset} is past the end of ${name}, which holds ${file.length} bytes.`);
+  }
+  if (!Number.isInteger(length) || length <= 0) {
+    throw new Error(`length ${length} is not a byte count.`);
+  }
+  if (offset + length > file.length) {
+    throw new Error(
+      `offset ${offset} + length ${length} runs ${offset + length - file.length} bytes past the end of ${name}, which holds ${file.length} bytes.`,
+    );
+  }
+  return {
+    loadAddress: window.loadAddress & 0xffff,
+    data: file.subarray(offset, offset + length),
   };
 }
 
@@ -247,14 +328,68 @@ function formatPlainOffset(value: number): string {
   return `${value}`;
 }
 
-function decodeLinear(loadAddress: number, data: Buffer): DecodedInstruction[] {
+/**
+ * The byte at `address`, rendered as data.
+ *
+ * Same shape `decodeInstruction` returns for an opcode it does not know, so the
+ * renderer's `isUnknown` branch emits it as `.byte $XX` and the byte stream stays exact.
+ */
+function dataByte(address: number, value: number): DecodedInstruction {
+  return {
+    address,
+    opcode: value,
+    size: 1,
+    bytes: [value],
+    mnemonic: ".byte",
+    mode: "impl",
+    operand: value,
+    isUnknown: true,
+    isUndocumented: false,
+  };
+}
+
+/**
+ * Linear decode, with the declared entry points as RESYNC points.
+ *
+ * A linear walk has exactly one alignment, the one it starts with, and a block whose
+ * first byte is data drags that alignment wrong over everything after it. The entry
+ * points are the only thing a caller can say about alignment without an analysis, and
+ * until now the legacy renderer took the list and ignored it (`collectLabels` still
+ * names the parameter `_entryPoints`): `disasm_prg --entry-points` changed nothing at
+ * all when no analysis JSON was passed.
+ *
+ * So a seed strictly inside a decoded instruction breaks it: the bytes up to the seed
+ * are emitted as data and the walk resumes AT the seed. Byte-exact either way — the
+ * same bytes come out, differently spelled — and it is the same rule the analysis path
+ * already applies to a declared entry hidden in an operand (`entrySplits`).
+ *
+ * It is not code discovery: nothing is followed, nothing is reachability-tested. For
+ * that, hand in an analysis JSON; that is what `analyze_prg` is for.
+ */
+function decodeLinear(loadAddress: number, data: Buffer, entryPoints: readonly number[] = []): DecodedInstruction[] {
+  const last = loadAddress + data.length - 1;
+  const seeds = new Set(entryPoints.filter((address) => address > loadAddress && address <= last));
   const instructions: DecodedInstruction[] = [];
   let offset = 0;
 
   while (offset < data.length) {
     const instruction = decodeInstruction(data, offset, loadAddress);
-    instructions.push(instruction);
-    offset += instruction.size;
+    let split = -1;
+    for (let probe = offset + 1; probe < offset + instruction.size; probe += 1) {
+      if (seeds.has(loadAddress + probe)) {
+        split = probe;
+        break;
+      }
+    }
+    if (split < 0) {
+      instructions.push(instruction);
+      offset += instruction.size;
+      continue;
+    }
+    for (let probe = offset; probe < split; probe += 1) {
+      instructions.push(dataByte(loadAddress + probe, data[probe]!));
+    }
+    offset = split;
   }
 
   return instructions;
@@ -2703,7 +2838,7 @@ function renderLegacy(
   lines: string[],
   annotations?: AnnotationsIndex,
 ): void {
-  const instructions = decodeLinear(prg.loadAddress, prg.data);
+  const instructions = decodeLinear(prg.loadAddress, prg.data, entryPoints);
   const index = buildInstructionIndex(instructions);
   const labels = collectLabels(instructions, index, entryPoints);
   // before the xrefs, so an annotated address collects the references to it
@@ -3278,7 +3413,7 @@ function renderWithAnalysisAndRelocations(prg: PrgImage, analysis: RenderAnalysi
  * The two prefixes are stable text: `disasm_prg` quotes this line back as the
  * listing's own verdict (D3).
  */
-type AnnotationRenderMode = "analysis" | "legacy" | "relocation";
+export type AnnotationRenderMode = "analysis" | "legacy" | "relocation";
 
 function countAnnotations(index: AnnotationsIndex): { names: number; structural: number } {
   return {
@@ -3340,17 +3475,17 @@ function reportAnnotationApplication(index: AnnotationsIndex, mode: AnnotationRe
   }
 }
 
-export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, options: PrgDisasmOptions = {}): void {
+export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, options: PrgDisasmOptions = {}): DisasmListingStats {
   // Spec 048: set per-render platform override. Default c64.
   activePlatform = options.platform ?? "c64";
   const resolvedPrgPath = resolve(prgPath);
-  const prg = readPrg(resolvedPrgPath);
+  const prg = options.raw ? readRawImage(resolvedPrgPath, options.raw) : readPrg(resolvedPrgPath);
   const analysisReport = maybeLoadAnalysis(resolvedPrgPath, options.analysisPath);
   const analysisContext = analysisReport ? buildAnalysisContext(analysisReport, prg) : undefined;
 
   // Load semantic annotations if available
   // Search for annotations next to the PRG, next to the output ASM, and next to the analysis JSON
-  const annotationsFile = loadAnnotations(resolvedPrgPath)
+  const annotationsFile = loadAnnotations(resolvedPrgPath, options.annotationsPath ? resolve(options.annotationsPath) : undefined)
     ?? (outputPath ? loadAnnotations(resolve(outputPath)) : undefined)
     // The output folder, named after the PRG rather than after the listing. That is
     // where `propose_annotations` leaves `<stem>_annotations.draft.json`, so dropping
@@ -3424,6 +3559,12 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
     analysisContext ? "//  Analysis-driven rendering enabled" : "//  Legacy linear rendering",
     annotationHeaderLine(annotationsIndex, renderMode),
   ];
+  // A headerless block says what it is, where its bytes came from and what seeded it,
+  // in the listing itself — the listing outlives the tool call that made it, and the
+  // one thing a reader cannot recover from a raw block is which bytes it was.
+  if (options.raw) {
+    lines.push(...rawProvenanceHeader(resolvedPrgPath, options.raw, prg, options.entryPoints ?? [], analysisContext !== undefined));
+  }
   if (packerHints.length > 0) {
     lines.push("//  ");
     lines.push("//  WARNING: input looks compressed — disassembly is of the packed payload, not real code");
@@ -3471,4 +3612,69 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   if (tassPath !== outputPath) {
     writeFileSync(tassPath, convertKickAsmToTass(kickAsmOutput), "utf8");
   }
+
+  return {
+    loadAddress: prg.loadAddress,
+    byteLength: prg.data.length,
+    ...countBodyLines(lines),
+    renderMode,
+    asmPath: outputPath,
+    tassPath,
+  };
+}
+
+/**
+ * What the listing says about itself, above the code.
+ *
+ * Addresses are hex; the byte window is given in both notations on purpose, because
+ * offsets are counted and addresses are not, and a reader who has to guess which is
+ * which is a reader who will guess wrong once.
+ */
+function rawProvenanceHeader(
+  sourcePath: string,
+  window: RawImageWindow,
+  prg: PrgImage,
+  entryPoints: readonly number[],
+  hasAnalysis: boolean,
+): string[] {
+  const offset = window.offset ?? 0;
+  const length = prg.data.length;
+  const last = (prg.loadAddress + length - 1) & 0xffff;
+  const inside = entryPoints.filter((address) => address >= prg.loadAddress && address <= prg.loadAddress + length - 1);
+  const seeded = inside.length === 0
+    ? `$${formatHex16(prg.loadAddress)} (the first byte — no entry point was given)`
+    : inside.map((address) => `$${formatHex16(address)}`).join(", ");
+  return [
+    "//  ",
+    "//  Raw block — the bytes carry no PRG load header and none was invented.",
+    `//  Source: ${basename(sourcePath)} bytes ${offset}..${offset + length - 1} `
+      + `(offset ${offset} = $${formatHex16(offset)}, length ${length} = $${formatHex16(length)})`,
+    `//  Runs at: $${formatHex16(prg.loadAddress)}-$${formatHex16(last)}`,
+    `//  Seeded: ${seeded}`,
+    `//  Analysis: ${hasAnalysis ? "supplied — segment-aware rendering" : "none — linear rendering, every byte read as code"}`,
+  ];
+}
+
+/**
+ * Instructions and data lines in a rendered body.
+ *
+ * A body line is six-space indented; one that begins with a `.` is a directive or a
+ * data row, anything else carries a mnemonic. Counted off the emitted lines rather
+ * than off a second walk of the bytes, so the number describes the listing the caller
+ * is actually handed.
+ */
+function countBodyLines(lines: readonly string[]): { instructionCount: number; dataLineCount: number } {
+  let instructionCount = 0;
+  let dataLineCount = 0;
+  for (const line of lines) {
+    const match = /^ {6}(\S+)/.exec(line);
+    if (!match) continue;
+    const token = match[1]!;
+    if (token.startsWith(".")) {
+      if (/^\.(byte|text|word|dword|fill|encoding)\b/i.test(token)) dataLineCount += 1;
+      continue;
+    }
+    instructionCount += 1;
+  }
+  return { instructionCount, dataLineCount };
 }
