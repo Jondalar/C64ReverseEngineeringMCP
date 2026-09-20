@@ -53,18 +53,30 @@ function plural(n: number, one: string, many = `${one}s`): string {
 
 // "$4000-$4001 (2 bytes), $4010-$4010 (1 byte)" — capped, because a scattered
 // depacker can produce hundreds and the point is the SHAPE, not the whole list.
+//
+// The cap used to end in ", … +6 more", which reads like a footnote and is not one:
+// one of six hidden runs was a 2000-byte write, and the only reason the caller noticed
+// was that 11 088 packed bytes cannot expand to the 4825 the visible list added up to.
+// So the tail now names the largest hidden run, states the hidden total in BYTES as
+// well as in runs, and says which argument shows the rest.
 const RUN_LIST_CAP = 12;
 // How many PRGs one `output_path` may fan out to. A gapped write set becomes one
 // file per run; past this many runs the honest answer is no file at all, not a
 // directory full of fragments and not one file with invented bytes in it.
 const OUTPUT_FILE_CAP = 64;
-function formatRunList(runs: Array<{ lo: number; hi: number }>): string {
-  const shown = runs.slice(0, RUN_LIST_CAP).map((r) => {
-    const n = r.hi - r.lo + 1;
-    return `$${formatHexWord(r.lo)}-$${formatHexWord(r.hi)} (${n} ${plural(n, "byte")})`;
-  });
-  const rest = runs.length - shown.length;
-  return shown.join(", ") + (rest > 0 ? `, … +${rest} more` : "");
+function formatRunList(runs: Array<{ lo: number; hi: number }>, from = 0): string {
+  const size = (r: { lo: number; hi: number }) => r.hi - r.lo + 1;
+  const start = Math.min(Math.max(0, from), Math.max(0, runs.length - 1));
+  const window = runs.slice(start, start + RUN_LIST_CAP);
+  const shown = window.map((r) => `$${formatHexWord(r.lo)}-$${formatHexWord(r.hi)} (${size(r)} ${plural(size(r), "byte")})`);
+  const hidden = [...runs.slice(0, start), ...runs.slice(start + window.length)];
+  if (hidden.length === 0) return shown.join(", ");
+  const hiddenBytes = hidden.reduce((n, r) => n + size(r), 0);
+  const biggest = hidden.reduce((a, b) => (size(b) > size(a) ? b : a));
+  const next = start + window.length;
+  return `${shown.join(", ")}\n  NOT SHOWN: ${hidden.length} further ${plural(hidden.length, "run")} totalling ${hiddenBytes} ${plural(hiddenBytes, "byte")}`
+    + ` — the largest is $${formatHexWord(biggest.lo)}-$${formatHexWord(biggest.hi)} (${size(biggest)} ${plural(size(biggest), "byte")}).`
+    + (next < runs.length ? ` Pass write_runs_from=${next} for the next page.` : ` Pass write_runs_from=0 to page from the start.`);
 }
 
 const memBlockSchema = z.object({
@@ -98,6 +110,7 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
       max_steps: z.number().int().positive().optional().describe("Maximum instructions executed (default 10_000_000)."),
       return_writes_start: z.string().optional().describe("Restrict returned writes to start ≤ addr ≤ end (hex)."),
       return_writes_end: z.string().optional().describe("Upper bound (hex, inclusive) of that write filter. Pass it together with return_writes_start; either alone is ignored. It narrows what is REPORTED, never what the run is judged to have written — a memory range still marks a hole wherever the CPU never stored."),
+      write_runs_from: z.number().int().nonnegative().optional().describe("Page the \"Written runs\" list: the index of the first run to print (12 per page). The report always states how many runs and how many bytes are NOT shown and names the largest hidden run, so a truncated list can never be read as the whole story."),
       return_memory_ranges: z.array(z.object({ start: z.string(), end: z.string() })).optional().describe("Memory ranges to snapshot at end of run. Bytes this run never wrote print as \"--\", not as data — a range wider than the routine's output is safe to ask for."),
       include_observed: z.boolean().optional().describe("Also print the RAW sandbox RAM behind each return_memory_ranges window, including the bytes the routine never wrote. Off by default because those bytes are machine residue (power-on pattern, KERNAL RAM-test leftovers, screen RAM) or your own loaded input — never output of this run. Turn it on when you deliberately want to read back what you LOADED, or to see what was sitting in a gap."),
       output_path: z.string().optional().describe("If set, write the written bytes as a PRG (2-byte load header + bytes). One file per contiguous written run: a single run goes to this exact path, and a run set with gaps in it gets one file per run, named <path>-$<lo>.<ext>. A gap is never filled to make one file, because those bytes were never written. Past 64 runs nothing is written at all — narrow with return_writes_start / return_writes_end instead."),
@@ -194,7 +207,8 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
         // disjoint runs contains addresses this routine never touched.
         const runs = result.writtenRuns;
         if (runs.length > 0) {
-          lines.push(`Written runs: ${runs.length} — ${formatRunList(runs)}`);
+          const runBytes = runs.reduce((n, r) => n + (r.hi - r.lo + 1), 0);
+          lines.push(`Written runs: ${runs.length}, ${runBytes} ${plural(runBytes, "byte")} in all — ${formatRunList(runs, args.write_runs_from ?? 0)}`);
         } else {
           lines.push(`Written runs: 0 — this run stored nothing above $01FF.`);
         }
