@@ -307,6 +307,16 @@ export interface DiskSectorOwnership {
   overlaps?: string[];
 }
 
+/** A directory entry that was NOT allowed to claim sectors, and why. */
+export interface IgnoredClaimant {
+  name: string;
+  type: string;
+  track: number;
+  sector: number;
+  chainLength: number;
+  reason: string;
+}
+
 export interface DiskSectorAllocationResult {
   imagePath: string;
   diskName?: string;
@@ -315,11 +325,43 @@ export interface DiskSectorAllocationResult {
   ownership: DiskSectorOwnership[];
   overlapsCount: number;
   unclaimedCount: number;
+  /** Unclaimed sectors that are not empty — the "hidden data" this tool exists to find. */
+  orphanCount: number;
+  /** Entries whose chain was discarded before ownership was assigned. */
+  ignored: IgnoredClaimant[];
+  /** False when the image could not be parsed: every unclaimed sector then reads as padding. */
+  imageRead: boolean;
+}
+
+/**
+ * A directory entry that owns no blocks owns no sectors.
+ *
+ * A CBM directory holds scratched and comment entries: type DEL, block count 0, and a
+ * start (track, sector) that is whatever the last real file left behind — frequently
+ * track 18, the directory itself. Walking such an entry's chain "extracts" the whole
+ * directory, and letting it claim those sectors made every one of them collide with the
+ * BAM/dir ownership already there. On CRAZY side 1 that was seven entries against seven
+ * directory sectors: 49 overlaps reported, not one of them real, and the true overlaps
+ * were buried in the noise.
+ */
+function claimsNoSectors(file: ExtractedDiskFile): string | undefined {
+  if (file.type === "DEL" && file.sizeSectors === 0) {
+    return "a zero-block DEL entry (scratched or a directory comment) — its start T/S is leftover, not a chain";
+  }
+  return undefined;
 }
 
 export function diskSectorAllocation(imagePath: string, manifestPath: string): DiskSectorAllocationResult {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { files?: ExtractedDiskFile[]; diskName?: string; diskId?: string };
   const files = manifest.files ?? [];
+
+  // The image itself, so an unclaimed sector can be told apart from an EMPTY one.
+  // Until now this argument was echoed back and never read, and the tool promised an
+  // `orphan_data` role it could not possibly assign.
+  let parser: DiskImage | undefined;
+  try {
+    parser = createDiskParser(new Uint8Array(readFileSync(imagePath))) ?? undefined;
+  } catch { parser = undefined; }
 
   const ownership: DiskSectorOwnership[] = [];
   const lookup = new Map<string, DiskSectorOwnership>();
@@ -341,8 +383,21 @@ export function diskSectorAllocation(imagePath: string, manifestPath: string): D
     }
   }
 
+  const ignored: IgnoredClaimant[] = [];
   let overlapsCount = 0;
   for (const file of files) {
+    const why = claimsNoSectors(file);
+    if (why) {
+      ignored.push({
+        name: file.name,
+        type: file.type,
+        track: file.track,
+        sector: file.sector,
+        chainLength: file.sectorChain.length,
+        reason: why,
+      });
+      continue;
+    }
     for (const cell of file.sectorChain) {
       const key = `${cell.track}/${cell.sector}`;
       const slot = lookup.get(key);
@@ -361,8 +416,20 @@ export function diskSectorAllocation(imagePath: string, manifestPath: string): D
   }
 
   let unclaimedCount = 0;
+  let orphanCount = 0;
   for (const slot of ownership) {
-    if (slot.role === "unclaimed_padding") unclaimedCount += 1;
+    if (slot.role !== "unclaimed_padding") continue;
+    unclaimedCount += 1;
+    if (!parser) continue;
+    const bytes = parser.getSector(slot.track, slot.sector);
+    if (!bytes) continue;
+    if (bytes.some((b) => b !== 0x00)) {
+      slot.role = "orphan_data";
+      slot.owner = "(orphan)";
+      const nonZero = bytes.reduce((n, b) => n + (b !== 0 ? 1 : 0), 0);
+      slot.detail = `${nonZero} non-zero bytes, no directory entry claims it`;
+      orphanCount += 1;
+    }
   }
 
   return {
@@ -373,7 +440,65 @@ export function diskSectorAllocation(imagePath: string, manifestPath: string): D
     ownership,
     overlapsCount,
     unclaimedCount,
+    orphanCount,
+    ignored,
+    imageRead: parser !== undefined,
   };
+}
+
+/**
+ * The map, as one line per track — the answer this tool is for.
+ *
+ * It used to print three numbers and a JSON block holding the same three, so a caller
+ * who wanted the cartography the description promises had to rebuild it out of
+ * `manifest.spec784.json` by hand. 683 sectors are 35 short lines; there was never a
+ * size reason to withhold them.
+ */
+export const SECTOR_MAP_LEGEND = ". free  # orphan data (unclaimed, NOT empty)  S system (BAM/dir)  K kernal file  C custom file  ! overlap";
+
+const MAP_GLYPH: Record<DiskSectorOwnership["role"], string> = {
+  unclaimed_padding: ".",
+  orphan_data: "#",
+  system: "S",
+  kernal_file: "K",
+  custom_file: "C",
+};
+
+export function formatSectorMap(result: DiskSectorAllocationResult): string[] {
+  const byTrack = new Map<number, DiskSectorOwnership[]>();
+  for (const slot of result.ownership) {
+    const row = byTrack.get(slot.track) ?? [];
+    row.push(slot);
+    byTrack.set(slot.track, row);
+  }
+  const lines: string[] = [];
+  for (const track of [...byTrack.keys()].sort((a, b) => a - b)) {
+    const row = byTrack.get(track)!.sort((a, b) => a.sector - b.sector);
+    const glyphs = row.map((s) => (s.overlaps?.length ? "!" : MAP_GLYPH[s.role])).join("");
+    lines.push(`T${String(track).padStart(2, "0")} ${glyphs}`);
+  }
+  return lines;
+}
+
+/** Per owner, the sectors it holds, collapsed to T/S runs. */
+export function formatSectorOwners(result: DiskSectorAllocationResult): string[] {
+  const byOwner = new Map<string, DiskSectorOwnership[]>();
+  for (const slot of result.ownership) {
+    if (slot.role === "unclaimed_padding") continue;
+    const row = byOwner.get(slot.owner) ?? [];
+    row.push(slot);
+    byOwner.set(slot.owner, row);
+  }
+  const lines: string[] = [];
+  for (const [owner, slots] of [...byOwner.entries()].sort((a, b) => b[1].length - a[1].length)) {
+    const cells = slots
+      .sort((a, b) => (a.track - b.track) || (a.sector - b.sector))
+      .map((s) => `T${s.track}/S${s.sector}`);
+    const head = cells.slice(0, 12).join(" ");
+    const tail = cells.length > 12 ? ` … +${cells.length - 12} more` : "";
+    lines.push(`- ${owner}  ${slots.length} ${slots.length === 1 ? "sector" : "sectors"}: ${head}${tail}`);
+  }
+  return lines;
 }
 
 export interface SuggestedLutSector {

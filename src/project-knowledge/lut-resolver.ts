@@ -49,10 +49,33 @@ export interface ResolvedLutRow {
   problems: string[];
 }
 
+/** Why the walk stopped before `rowCount` / `limit` — the terminator, and where it was read. */
+export interface LutTerminatorHit {
+  /** The row index the walk was ON when it stopped. 0 means the table never started. */
+  atRow: number;
+  /** The address the byte was read from, in the medium's own terms. */
+  address: number;
+  /** What was read there, and compared against the descriptor's `terminator`. */
+  value: number;
+  /** Which column the walk probes for the terminator — always the descriptor's first. */
+  column: LutColumnRole;
+  bank?: number;
+}
+
 export interface ResolveResult {
   rows: ResolvedLutRow[];
   /** Structural complaints about the DESCRIPTOR, not about a row. */
   problems: string[];
+  /**
+   * Set when the terminator ended the walk.
+   *
+   * The loop used to `break` without a word, so a descriptor whose `at` was two bytes
+   * early answered "first 0 row(s), resolved." and "(no rows resolved)" — two sentences
+   * that both read as "the table is empty" when what happened was that row 0's first
+   * byte WAS the terminator. Silence at row 0 is the one case where the caller cannot
+   * tell a correct empty table from a wrong address.
+   */
+  stopped?: LutTerminatorHit;
 }
 
 // ---------- cell reading ----------
@@ -217,6 +240,7 @@ export function resolveLutRows(
 ): ResolveResult {
   const problems = checkDescriptor(d);
   const rows: ResolvedLutRow[] = [];
+  let stopped: LutTerminatorHit | undefined;
 
   const max = d.rowCount ?? 4096; // a terminator-ended table still needs a ceiling
   const want = Math.min(max, opts.limit ?? max);
@@ -242,11 +266,22 @@ export function resolveLutRows(
     row.bank = read(cols.bank);
     const rowBank = row.bank ?? opts.bank;
 
-    // A terminator ends the table before rowCount does.
+    // A terminator ends the table before rowCount does — and SAYS so, with the byte it
+    // read and the address it read it from.
     if (d.terminator !== undefined) {
       const first = d.columns[0];
       const probe = readCell(reader, first, i, strideFor(d, first), opts.bank, []);
-      if (probe === d.terminator) break;
+      if (probe === d.terminator) {
+        const which = first.atLo !== undefined && first.atHi !== undefined ? "atLo" : "at";
+        stopped = {
+          atRow: i,
+          address: cellAddress(first, i, strideFor(d, first), which) ?? 0,
+          value: probe,
+          column: first.role,
+          bank: first.bank ?? rowBank,
+        };
+        break;
+      }
     }
 
     const rawOffset = read(cols.offset);
@@ -306,12 +341,34 @@ export function resolveLutRows(
     rows.push(row);
   }
 
-  return { rows, problems };
+  return { rows, problems, stopped };
+}
+
+/**
+ * The sentence a terminator hit is owed — what was read, from where, and what to suspect.
+ *
+ * At row 0 it is almost never a one-row table: it is an `at` that points at the wrong
+ * byte. So the address is spelled out and the two classic off-by-N are named, because
+ * the one thing the caller cannot see from here is which addressing the number was
+ * written in.
+ */
+export function describeTerminatorHit(d: LutDescriptor, hit: LutTerminatorHit): string {
+  const hx = (n: number, w = 4) => `$${n.toString(16).toUpperCase().padStart(w, "0")}`;
+  const where = `${hx(hit.address)}${hit.bank !== undefined ? ` in bank ${hit.bank}` : ""}`;
+  const head = `Row ${hit.atRow}: the \`${hit.column}\` column read ${hx(hit.value, 2)} at ${where}, which is this descriptor's \`terminator\` — the walk stopped there.`;
+  if (hit.atRow > 0) return head;
+  return [
+    head,
+    `Row 0 hitting the terminator means the table ended before its first row, which is far more often a wrong \`at\` than a table with no rows.`,
+    `\`at\` is an address in the MEDIUM's own terms: a byte offset into the image file counted from $0000 for a .d64/.g64/raw image, or the address inside the bank window for a .crt.`,
+    `Two classic misses: a CBM file's own 2-byte load-address word sits at the head of the file, so an offset taken from the extracted payload is two bytes off against the image; and a disk offset must be counted through the image (T/S → offset), not from the start of the sector.`,
+    `Check ${hx(hit.address)} against the image, or drop \`terminator\` and pass \`row_count\` to see the bytes that are actually there.`,
+  ].join("\n");
 }
 
 /** Render resolved rows as the probe Decision 8 hands back: enough for an author to
  *  hold them against the disassembly they just read. */
-export function formatLutProbe(d: LutDescriptor, rows: ResolvedLutRow[]): string {
+export function formatLutProbe(d: LutDescriptor, rows: ResolvedLutRow[], stopped?: LutTerminatorHit): string {
   const hx = (n: number | undefined, w = 4) => (n === undefined ? "—" : `$${n.toString(16).padStart(w, "0")}`);
   const out: string[] = [];
   for (const r of rows) {
@@ -334,6 +391,9 @@ export function formatLutProbe(d: LutDescriptor, rows: ResolvedLutRow[]): string
     if (r.problems.length) parts.push(`⚠ ${r.problems.join("; ")}`);
     out.push(parts.join("  "));
   }
-  if (!out.length) out.push("(no rows resolved)");
+  if (stopped) out.push(describeTerminatorHit(d, stopped));
+  if (!out.length) {
+    out.push("(no rows resolved — nothing was read at all. Check the column addresses against the medium, and that `medium_path` is the image this table lives on.)");
+  }
   return out.join("\n");
 }

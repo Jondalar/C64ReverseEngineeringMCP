@@ -1,10 +1,11 @@
-import { basename, extname, join, resolve } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runCli } from "../run-cli.js";
 import { extractDiskImage, readDiskDirectory } from "../disk-extractor.js";
 import { writeDiskSpec784Manifest } from "./disk-spec784-manifest.js";
-import { diskSectorAllocation, extractDiskCustomLut, suggestDiskLutSector } from "../disk-custom-lut.js";
+import { diskSectorAllocation, extractDiskCustomLut, formatSectorMap, formatSectorOwners, SECTOR_MAP_LEGEND, suggestDiskLutSector } from "../disk-custom-lut.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { autoAnalyzeExtractedPayloads, summarizeAutoChain, linkExtractedPayloadFiles } from "../lib/extract-auto-chain.js";
 import { safeHandler } from "./safe-handler.js";
@@ -377,6 +378,8 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
       project_dir: z.string().optional(),
       image_path: z.string(),
       manifest_path: z.string().optional().describe("Manifest path (defaults to <output_dir>/manifest.json under the standard analysis/disk/<image-name> location)."),
+      map_path: z.string().optional().describe("Where to write the full per-sector map as JSON. Defaults to sector-allocation.json beside the manifest. The answer always names the file it wrote."),
+      show_owners: z.boolean().optional().describe("Also list every owner with the T/S cells it holds. Off by default — the map above already shows the shape, and a 245-file disk makes a long list."),
     },
     safeHandler("disk_sector_allocation", async (args) => {
       const pd = context.projectDir(args.project_dir ?? args.image_path, false);
@@ -389,19 +392,69 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
       lines.push(`Sector allocation for ${result.imagePath}`);
       lines.push(`Disk: ${result.diskName ?? "(unknown)"} [${result.diskId ?? "??"}]`);
       lines.push(`Total sectors: ${result.totalSectors}`);
-      lines.push(`Unclaimed: ${result.unclaimedCount}`);
+      lines.push(`Unclaimed: ${result.unclaimedCount} (of which ${result.orphanCount} hold data — role orphan_data)`);
       lines.push(`Overlaps: ${result.overlapsCount}`);
+      if (!result.imageRead) {
+        lines.push(`NOTE: the image could not be parsed, so an unclaimed sector could not be told from an empty one — every one of them reads as padding.`);
+      }
+      if (result.ignored.length > 0) {
+        lines.push(``);
+        lines.push(`## Not counted as claimants (${result.ignored.length})`);
+        for (const entry of result.ignored.slice(0, 16)) {
+          lines.push(`- "${entry.name}" ${entry.type}, 0 blocks, starts T${entry.track}/S${entry.sector}, chain walked ${entry.chainLength} sectors — ${entry.reason}`);
+        }
+        if (result.ignored.length > 16) lines.push(`  … and ${result.ignored.length - 16} more of the same shape.`);
+      }
       lines.push(``);
+      lines.push(`## Map — one character per sector, sector 0 leftmost`);
+      lines.push(SECTOR_MAP_LEGEND);
+      lines.push(...formatSectorMap(result));
       const overlaps = result.ownership.filter((slot) => slot.overlaps && slot.overlaps.length > 0);
       if (overlaps.length > 0) {
+        lines.push(``);
         lines.push(`## Overlaps`);
         for (const slot of overlaps.slice(0, 32)) {
           lines.push(`- T${slot.track}/S${slot.sector} owner=${slot.owner} role=${slot.role} overlaps=${slot.overlaps?.join(", ")}`);
         }
-        lines.push(``);
+        if (overlaps.length > 32) lines.push(`  … and ${overlaps.length - 32} more — the written map below has all of them.`);
       }
+      if (args.show_owners) {
+        const owners = formatSectorOwners(result);
+        lines.push(``);
+        lines.push(`## Owners (${owners.length})`);
+        lines.push(...owners);
+      }
+      // The full map, on disk, because a grid answers "what shape is this disk" and a
+      // cartography answers "who owns T17/S6" — and the second is what the next tool
+      // reads. Before this the per-sector ownership existed only inside the process.
+      const mapAbs = args.map_path ? resolve(pd, args.map_path) : join(dirname(manifestAbs), "sector-allocation.json");
+      mkdirSync(dirname(mapAbs), { recursive: true });
+      writeFileSync(mapAbs, `${JSON.stringify({
+        imagePath: result.imagePath,
+        diskName: result.diskName,
+        diskId: result.diskId,
+        totals: {
+          totalSectors: result.totalSectors,
+          unclaimedCount: result.unclaimedCount,
+          orphanCount: result.orphanCount,
+          overlapsCount: result.overlapsCount,
+        },
+        ignored: result.ignored,
+        ownership: result.ownership,
+      }, null, 2)}\n`);
+      lines.push(``);
+      lines.push(`Full per-sector map written to ${mapAbs} (${result.ownership.length} rows, one per sector).`);
       lines.push("```json");
-      lines.push(JSON.stringify({ totals: { totalSectors: result.totalSectors, unclaimedCount: result.unclaimedCount, overlapsCount: result.overlapsCount } }, null, 2));
+      lines.push(JSON.stringify({
+        totals: {
+          totalSectors: result.totalSectors,
+          unclaimedCount: result.unclaimedCount,
+          orphanCount: result.orphanCount,
+          overlapsCount: result.overlapsCount,
+          ignoredClaimants: result.ignored.length,
+        },
+        mapPath: mapAbs,
+      }, null, 2));
       lines.push("```");
       return { content: [{ type: "text" as const, text: lines.join("\n") }] };
     }),

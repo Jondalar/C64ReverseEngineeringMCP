@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -52,6 +52,43 @@ interface SharedEncodingManifestSetSummary {
   totalBytes: number;
   totalEncodingBytes: number;
   chosenCandidates: SharedEncodingManifestCandidate[];
+}
+
+/**
+ * The project root for a door that takes a file path.
+ *
+ * `project_dir` decides when the caller gave one — the shape `link_cart_chunk_to_asm`
+ * already uses. Otherwise the file path may serve as the resolution hint, but ONLY when
+ * it can actually anchor something: an absolute path, or a relative one that exists from
+ * the process cwd.
+ *
+ * A relative path the cwd knows nothing about is NOT a hint. `suggest_depacker` used to
+ * hand `analysis/disk/CRAZY3/02_p1.prg` to the resolver regardless; the resolver joined
+ * it to its own cwd — the MCP repo, for a globally configured server — walked up, found
+ * the repo's marker and refused with "Resolved to the MCP repo itself", while the session
+ * had onboarded into the project that holds that very file. Because a hint was ALWAYS
+ * supplied, the resolver's own fallback (C64RE_PROJECT_DIR, else the sole project this
+ * session onboarded into) never got asked. Passing `undefined` is what lets it answer.
+ */
+function pathDoorProjectDir(
+  context: ServerToolContext,
+  projectDirArg: string | undefined,
+  hintPath: string | undefined,
+): string {
+  if (projectDirArg) return context.projectDir(projectDirArg, true);
+  const usable = hintPath !== undefined
+    && (isAbsolute(hintPath) || existsSync(resolve(process.cwd(), hintPath)));
+  try {
+    return context.projectDir(usable ? hintPath : undefined, true);
+  } catch (error) {
+    const base = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `${base}${hintPath !== undefined && !usable
+        ? ` The path "${hintPath}" is relative and does not exist from the server's working directory, so it was not used as a hint.`
+        : ""}`
+      + ` Pass project_dir="<the project root>" (the directory holding knowledge/), or onboard with agent_onboard first.`,
+    );
+  }
 }
 
 function parseHexWord(value: string): number {
@@ -123,15 +160,16 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     "pack_rle",
     "Compress a binary blob with the built-in custom C64 RLE loader format.",
     {
+      project_dir: z.string().optional().describe("Project root — the directory holding knowledge/. Takes precedence over every other hint. Omit it and the input path is used, but only when it is absolute or exists from the server's working directory; otherwise the project this session onboarded into answers."),
       input_path: z.string().describe("Path to the input file to compress"),
       output_path: z.string().optional().describe("Optional output path for the packed data"),
       include_header: z.boolean().optional().describe("Whether to prepend a 2-byte load address header"),
       write_address: z.string().optional().describe("Optional load address for the header, e.g. 8000"),
       optimal: z.boolean().optional().describe("Use optimal parsing instead of greedy packing (default: true)"),
     },
-    safeHandler("pack_rle", async ({ input_path, output_path, include_header, write_address, optimal }) => {
+    safeHandler("pack_rle", async ({ project_dir, input_path, output_path, include_header, write_address, optimal }) => {
       try {
-        const pd = context.projectDir(input_path, true);
+        const pd = pathDoorProjectDir(context, project_dir, input_path);
         const inputAbs = resolve(pd, input_path);
         const outputAbs = output_path ? resolve(pd, output_path) : `${inputAbs}.rle`;
         const data = await readBinaryFile(inputAbs);
@@ -171,14 +209,15 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     "depack_rle",
     "Decompress the built-in custom C64 RLE loader format.",
     {
+      project_dir: z.string().optional().describe("Project root — the directory holding knowledge/. Takes precedence over every other hint. Omit it and the input path is used, but only when it is absolute or exists from the server's working directory; otherwise the project this session onboarded into answers."),
       input_path: z.string().describe("Path to the packed RLE file"),
       output_path: z.string().optional().describe("Optional output path for the unpacked data"),
       has_header: z.boolean().optional().describe("Treat the first two bytes as a load address header"),
       max_size: z.number().int().positive().optional().describe("Optional hard output-size ceiling"),
     },
-    safeHandler("depack_rle", async ({ input_path, output_path, has_header, max_size }) => {
+    safeHandler("depack_rle", async ({ project_dir, input_path, output_path, has_header, max_size }) => {
       try {
-        const pd = context.projectDir(input_path, true);
+        const pd = pathDoorProjectDir(context, project_dir, input_path);
         const inputAbs = resolve(pd, input_path);
         const outputAbs = output_path ? resolve(pd, output_path) : `${inputAbs}.unpacked.bin`;
         const data = await readBinaryFile(inputAbs);
@@ -214,15 +253,16 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     "pack_exomizer_raw",
     "Compress a file with the built-in TypeScript Exomizer raw implementation.",
     {
+      project_dir: z.string().optional().describe("Project root — the directory holding knowledge/. Takes precedence over every other hint. Omit it and the input path is used, but only when it is absolute or exists from the server's working directory; otherwise the project this session onboarded into answers."),
       input_path: z.string().describe("Path to the input file"),
       output_path: z.string().optional().describe("Optional output path for the packed file"),
       backwards: z.boolean().optional().describe("Use Exomizer backward mode (-b)"),
       reverse_output: z.boolean().optional().describe("Write the outfile in reverse order (-r)"),
       no_encoding_header: z.boolean().optional().describe("Do not write the Exomizer encoding header (-E)"),
     },
-    safeHandler("pack_exomizer_raw", async ({ input_path, output_path, backwards, reverse_output, no_encoding_header }) => {
+    safeHandler("pack_exomizer_raw", async ({ project_dir, input_path, output_path, backwards, reverse_output, no_encoding_header }) => {
       try {
-        const pd = context.projectDir(input_path, true);
+        const pd = pathDoorProjectDir(context, project_dir, input_path);
         const inputAbs = resolve(pd, input_path);
         const outputAbs = output_path ? resolve(pd, output_path) : `${inputAbs}.exo`;
         const result = await packExomizerRaw({
@@ -260,14 +300,15 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     "depack_exomizer_raw",
     "Decompress an Exomizer raw stream via the built-in TypeScript implementation.",
     {
+      project_dir: z.string().optional().describe("Project root — the directory holding knowledge/. Takes precedence over every other hint. Omit it and the input path is used, but only when it is absolute or exists from the server's working directory; otherwise the project this session onboarded into answers."),
       input_path: z.string().describe("Path to the Exomizer-packed file"),
       output_path: z.string().optional().describe("Optional output path for the unpacked file"),
       backwards: z.boolean().optional().describe("Use Exomizer backward mode (-b)"),
       reverse_output: z.boolean().optional().describe("Write the outfile in reverse order (-r)"),
     },
-    safeHandler("depack_exomizer_raw", async ({ input_path, output_path, backwards, reverse_output }) => {
+    safeHandler("depack_exomizer_raw", async ({ project_dir, input_path, output_path, backwards, reverse_output }) => {
       try {
-        const pd = context.projectDir(input_path, true);
+        const pd = pathDoorProjectDir(context, project_dir, input_path);
         const inputAbs = resolve(pd, input_path);
         const outputAbs = output_path ? resolve(pd, output_path) : `${inputAbs}.unpacked.bin`;
         const result = await depackExomizerRaw({
@@ -301,13 +342,14 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     "depack_exomizer_sfx",
     "Decompress an Exomizer self-extracting wrapper via the built-in TypeScript 6502-emulated depacker.",
     {
+      project_dir: z.string().optional().describe("Project root — the directory holding knowledge/. Takes precedence over every other hint. Omit it and the input path is used, but only when it is absolute or exists from the server's working directory; otherwise the project this session onboarded into answers."),
       input_path: z.string().describe("Path to the Exomizer SFX file"),
       output_path: z.string().optional().describe("Optional output path for the unpacked PRG"),
       entry_address: z.string().optional().describe("Optional entry override for desfx, e.g. 080D or 'load'"),
     },
-    safeHandler("depack_exomizer_sfx", async ({ input_path, output_path, entry_address }) => {
+    safeHandler("depack_exomizer_sfx", async ({ project_dir, input_path, output_path, entry_address }) => {
       try {
-        const pd = context.projectDir(input_path, true);
+        const pd = pathDoorProjectDir(context, project_dir, input_path);
         const inputAbs = resolve(pd, input_path);
         const outputAbs = output_path ? resolve(pd, output_path) : `${inputAbs}.desfx.prg`;
         const result = await depackExomizerSfx({
@@ -351,7 +393,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     },
     safeHandler("pack_exomizer_sfx", async ({ target, input_specs, output_path, extra_args }) => {
       try {
-        const pd = context.projectDir(output_path ?? input_specs[0], true);
+        const pd = pathDoorProjectDir(context, undefined, output_path ?? input_specs[0]);
         const outputAbs = output_path
           ? resolve(pd, output_path)
           : `${resolve(pd, input_specs[0].split(",")[0] ?? input_specs[0])}.sfx.prg`;
@@ -409,7 +451,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     },
     safeHandler("pack_exomizer_shared_encoding", async ({ input_paths, output_dir, discover_runs, sample_size, seed, imported_encoding, max_passes, favor_speed, backwards, reverse_output, packed_suffix }) => {
       try {
-        const pd = context.projectDir(output_dir ?? input_paths[0], true);
+        const pd = pathDoorProjectDir(context, undefined, output_dir ?? input_paths[0]);
         const outputAbs = output_dir ? resolve(pd, output_dir) : join(pd, "analysis", "compression", "shared-encoding");
         const result = await packExomizerSharedEncoding({
           projectDir: pd,
@@ -458,18 +500,19 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     "pack_byteboozer",
     "Compress a file with ByteBoozer2 via the local b2 CLI.",
     {
+      project_dir: z.string().optional().describe("Project root — the directory holding knowledge/. Takes precedence over every other hint. Omit it and the input path is used, but only when it is absolute or exists from the server's working directory; otherwise the project this session onboarded into answers."),
       input_path: z.string().describe("Path to the input file"),
       output_path: z.string().optional().describe("Optional output path for the packed file"),
       executable_start: z.string().optional().describe("Optional execution start address passed as -c xxxx"),
       relocate_to: z.string().optional().describe("Optional relocation address passed as -r xxxx"),
       clip_start_address: z.boolean().optional().describe("Clip the start address in the output file (-b)"),
     },
-    safeHandler("pack_byteboozer", async ({ input_path, output_path, executable_start, relocate_to, clip_start_address }) => {
+    safeHandler("pack_byteboozer", async ({ project_dir, input_path, output_path, executable_start, relocate_to, clip_start_address }) => {
       try {
         if (executable_start && relocate_to) {
           throw new Error("Provide either executable_start or relocate_to, not both.");
         }
-        const pd = context.projectDir(input_path, true);
+        const pd = pathDoorProjectDir(context, project_dir, input_path);
         const inputAbs = resolve(pd, input_path);
         const outputAbs = output_path ? resolve(pd, output_path) : `${inputAbs}.b2`;
         const result = await packByteBoozer({
@@ -510,6 +553,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     "pack_byteboozer_native",
     "Compress a file with the native TypeScript ByteBoozer tooling. Supports the reference ByteBoozer2 standard PRG and clipped (-b) formats, plus Lykia's cart-specific modified-BB2 stream format with explicit end_addr.",
     {
+      project_dir: z.string().optional().describe("Project root — the directory holding knowledge/. Takes precedence over every other hint. Omit it and the input path is used, but only when it is absolute or exists from the server's working directory; otherwise the project this session onboarded into answers."),
       input_path: z.string().describe("Path to the input file. If PRG (2-byte load address header), those bytes are used as the decode destination unless dest_address is supplied explicitly."),
       output_path: z.string().optional().describe("Optional output path. Default: <input_path>.b2"),
       preset: z.enum(["standard", "clipped", "lykia"]).default("standard").describe("standard = b2 (4-byte header [load,dest]); clipped = b2 -b (2-byte header [dest]); lykia = Lykia $020C format (4-byte header [dest,end])"),
@@ -517,9 +561,9 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       relocate_to: z.string().optional().describe("Relocation target for the decrunch-in-place start address (hex). Only applies to standard preset."),
       strip_prg_header: z.boolean().optional().describe("Treat the input file as RAW payload (no PRG load-address header). You must supply dest_address in this case."),
     },
-    safeHandler("pack_byteboozer_native", async ({ input_path, output_path, preset, dest_address, relocate_to, strip_prg_header }) => {
+    safeHandler("pack_byteboozer_native", async ({ project_dir, input_path, output_path, preset, dest_address, relocate_to, strip_prg_header }) => {
       try {
-        const pd = context.projectDir(input_path, true);
+        const pd = pathDoorProjectDir(context, project_dir, input_path);
         const inputAbs = resolve(pd, input_path);
         const outputAbs = output_path ? resolve(pd, output_path) : `${inputAbs}.b2`;
 
@@ -620,7 +664,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     safeHandler("compare_exomizer_shared_encoding_sets", async ({ comparison_sets }) => {
       try {
         const hintPath = comparison_sets[0]?.manifest_paths[0];
-        const pd = context.projectDir(hintPath, true);
+        const pd = pathDoorProjectDir(context, undefined, hintPath);
         const summaries = comparison_sets.map((set) => summarizeSharedEncodingManifestSet(context, pd, set.label, set.manifest_paths));
         const best = [...summaries].sort((left, right) => left.totalBytes - right.totalBytes)[0];
         if (!best) {
@@ -670,14 +714,15 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     "depack_byteboozer",
     "Decompress a ByteBoozer2 raw .b2 file or executable wrapper in pure TypeScript.",
     {
+      project_dir: z.string().optional().describe("Project root — the directory holding knowledge/. Takes precedence over every other hint. Omit it and the input path is used, but only when it is absolute or exists from the server's working directory; otherwise the project this session onboarded into answers."),
       input_path: z.string().describe("Path to the ByteBoozer2-packed file"),
       output_path: z.string().optional().describe("Optional output path for the unpacked data"),
       offset: z.string().optional().describe("Optional hex file offset to start from"),
       length: z.string().optional().describe("Optional hex byte length to limit the input slice"),
     },
-    safeHandler("depack_byteboozer", async ({ input_path, output_path, offset, length }) => {
+    safeHandler("depack_byteboozer", async ({ project_dir, input_path, output_path, offset, length }) => {
       try {
-        const pd = context.projectDir(input_path, true);
+        const pd = pathDoorProjectDir(context, project_dir, input_path);
         const inputAbs = resolve(pd, input_path);
         const raw = await readBinaryFile(inputAbs);
         const start = offset ? parseHexWord(offset) : 0;
@@ -716,15 +761,16 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     "depack_byteboozer_lykia",
     "Decompress a Lykia-variant ByteBoozer2 stream (modified 4-byte header: dest_lo, dest_hi, end_lo, end_hi; BB2_BITBUF seeded from supplied dest_hi). Pure TypeScript port of the $020C in-game depacker.",
     {
+      project_dir: z.string().optional().describe("Project root — the directory holding knowledge/. Takes precedence over every other hint. Omit it and the input path is used, but only when it is absolute or exists from the server's working directory; otherwise the project this session onboarded into answers."),
       input_path: z.string().describe("Path to the Lykia BB2 stream file"),
       output_path: z.string().optional().describe("Optional output path for the unpacked data"),
       offset: z.string().optional().describe("Optional hex file offset to start from"),
       length: z.string().optional().describe("Optional hex byte length to limit the input slice"),
       dest_hi: z.string().optional().describe("Optional BITBUF seed (hex byte). Defaults to stream byte 1 (the header dest_hi)."),
     },
-    safeHandler("depack_byteboozer_lykia", async ({ input_path, output_path, offset, length, dest_hi }) => {
+    safeHandler("depack_byteboozer_lykia", async ({ project_dir, input_path, output_path, offset, length, dest_hi }) => {
       try {
-        const pd = context.projectDir(input_path, true);
+        const pd = pathDoorProjectDir(context, project_dir, input_path);
         const inputAbs = resolve(pd, input_path);
         const raw = await readBinaryFile(inputAbs);
         const start = offset ? parseHexWord(offset) : 0;
@@ -766,13 +812,14 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     "suggest_depacker",
     "Probe a file or byte-range and suggest likely depackers (RLE, Exomizer raw, ByteBoozer-like). Use first when bytes look compressed and the format is unknown; then run try_depack with the suggestion. Not for running a known depacker (use try_depack). Inputs: file/range. Returns: ranked depacker guesses.",
     {
+      project_dir: z.string().optional().describe("Project root — the directory holding knowledge/. Takes precedence over every other hint. Omit it and the input path is used, but only when it is absolute or exists from the server's working directory; otherwise the project this session onboarded into answers."),
       input_path: z.string().describe("Path to the input file to probe"),
       offset: z.string().optional().describe("Optional hex offset into the file, e.g. 001A"),
       length: z.string().optional().describe("Optional hex length to limit the probe window"),
     },
-    safeHandler("suggest_depacker", async ({ input_path, offset, length }) => {
+    safeHandler("suggest_depacker", async ({ project_dir, input_path, offset, length }) => {
       try {
-        const pd = context.projectDir(input_path, true);
+        const pd = pathDoorProjectDir(context, project_dir, input_path);
         const inputAbs = resolve(pd, input_path);
         const suggestions = await suggestDepackers({
           projectDir: pd,
@@ -810,6 +857,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     "try_depack",
     "Run one specific depacker against a file or byte-range (built-in RLE, Exomizer raw, host-side ByteBoozer2). Use when you know — or suggest_depacker guessed — the format. Not for guessing (use suggest_depacker). Inputs: file/range, depacker kind. Returns: decompressed bytes / artifact.",
     {
+      project_dir: z.string().optional().describe("Project root — the directory holding knowledge/. Takes precedence over every other hint. Omit it and the input path is used, but only when it is absolute or exists from the server's working directory; otherwise the project this session onboarded into answers."),
       input_path: z.string().describe("Path to the packed input file"),
       format: z.enum(["rle", "exomizer_raw", "exomizer_sfx", "byteboozer2"]).describe("Which depacker to try"),
       output_path: z.string().optional().describe("Optional output path for the unpacked data"),
@@ -821,9 +869,9 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       reverse_output: z.boolean().optional().describe("For Exomizer raw only: use -r"),
       entry_address: z.string().optional().describe("For Exomizer SFX only: optional desfx entry override, e.g. 080D or 'load'"),
     },
-    safeHandler("try_depack", async ({ input_path, format, output_path, offset, length, has_rle_header, max_size, backwards, reverse_output, entry_address }) => {
+    safeHandler("try_depack", async ({ project_dir, input_path, format, output_path, offset, length, has_rle_header, max_size, backwards, reverse_output, entry_address }) => {
       try {
-        const pd = context.projectDir(input_path, true);
+        const pd = pathDoorProjectDir(context, project_dir, input_path);
         const inputAbs = resolve(pd, input_path);
         const raw = await readBinaryFile(inputAbs);
         const start = offset ? parseHexWord(offset) : 0;
@@ -946,7 +994,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     },
     safeHandler("record_file_packer", async ({ manifest_path, file_index, file_name, file_relative_path, scope, packer, format, notes }) => {
       try {
-        const pd = context.projectDir(manifest_path, true);
+        const pd = pathDoorProjectDir(context, undefined, manifest_path);
         const abs = resolve(pd, manifest_path);
         if (!existsSync(abs)) {
           throw new Error(`Manifest not found at ${abs}`);
@@ -1003,7 +1051,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     },
     safeHandler("link_cart_chunk_to_asm", async ({ lut_path, project_dir, bank, slot, offset_in_bank, length, lut, idx, asm_artifact_id, summary }) => {
       try {
-        const pd = context.projectDir(project_dir ?? lut_path, true);
+        const pd = pathDoorProjectDir(context, project_dir, lut_path);
         const slotGate = await (await import("../slots/gate.js")).checkSlotGate("link_cart_chunk_to_asm", pd);
         if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
         const lutAbs = resolve(pd, lut_path);
@@ -1118,7 +1166,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
     },
     safeHandler("record_cart_chunk_packer", async ({ lut_path, bank, slot, offset_in_bank, length, lut, idx, packer, format, notes }) => {
       try {
-        const pd = context.projectDir(lut_path, true);
+        const pd = pathDoorProjectDir(context, undefined, lut_path);
         const lutAbs = resolve(pd, lut_path);
         if (!existsSync(lutAbs)) {
           throw new Error(`runtime_luts file not found at ${lutAbs}`);
