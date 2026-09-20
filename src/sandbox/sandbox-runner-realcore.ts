@@ -180,43 +180,21 @@ export function runSandboxRealCore(options: SandboxRunOptions): SandboxRunResult
     const ram = hexToBytes(j.harvest.hex);
 
     // ── Zero page and the stack ────────────────────────────────────────────────
-    // The core's write-map stops at $0200. Take the pre-run image of the two low
-    // pages — the same set-up, zero instructions — and call the difference this
-    // run's doing. Never a superset of the truth: a store of a byte that was
-    // already there leaves nothing to compare.
-    const lowMemory: LowMemoryReport = { tracked: false, runs: [], changed: 0 };
-    const lowRuns: Array<{ lo: number; hi: number }> = [];
-    try {
-      const baseline = runTrx64Sandbox(cli, [...setup, "--instr-cap", "0", "--cyc-cap", "0", "--harvest", `$0000:0x${LOW_END.toString(16)}`]);
-      const before = hexToBytes(baseline.harvest.hex);
-      if (before.length < LOW_END) {
-        lowMemory.note = `the pre-run image came back ${before.length} bytes short of $${LOW_END.toString(16)}; $0000-$01FF is NOT accounted for in this run`;
-      } else {
-        lowMemory.tracked = true;
-        for (let a = 0; a < LOW_END; a++) {
-          if (before[a] === ram[a]) continue;
-          const last = lowRuns[lowRuns.length - 1];
-          if (last && last.hi === a - 1) last.hi = a;
-          else lowRuns.push({ lo: a, hi: a });
-        }
-        lowMemory.runs = lowRuns.map((r) => ({
-          lo: r.lo,
-          hi: r.hi,
-          bytes: Array.from({ length: r.hi - r.lo + 1 }, (_, i) => ram[r.lo + i] ?? 0),
-        }));
-        lowMemory.changed = lowRuns.reduce((n, r) => n + (r.hi - r.lo + 1), 0);
-      }
-    } catch (e) {
-      lowMemory.note = `the pre-run image could not be taken (${e instanceof Error ? e.message : String(e)}); `
-        + `$0000-$01FF is NOT accounted for in this run`;
+    // The core used to stop its write map at $0200, so a store to zero page or the
+    // stack — where 6502 code keeps its working state — was invisible, and C64RE
+    // inferred those bytes by diffing a second, zero-instruction run against this
+    // one. That could never see a store of a byte's existing value. TRX64 0.8.3
+    // dropped the floor (the observer arms at the entry point instead of filtering
+    // by address), so the runs below $0200 are the runtime's own facts now.
+    const lowMemory: LowMemoryReport = { tracked: true, runs: [], changed: 0 };
+    for (const r of j.writtenRuns.filter((r) => r.lo < LOW_END)) {
+      const hi = Math.min(r.hi, LOW_END - 1);
+      lowMemory.runs.push({ lo: r.lo, hi, bytes: Array.from({ length: hi - r.lo + 1 }, (_, i) => ram[r.lo + i] ?? 0) });
+      lowMemory.changed += hi - r.lo + 1;
     }
 
-    // One ordered, disjoint write-map: the core's runs above $01FF, the change-derived
-    // runs below it. Neither list can reach into the other's half.
-    const allRuns = [
-      ...lowRuns.filter((r) => r.hi < LOW_END),
-      ...j.writtenRuns.filter((r) => r.lo >= LOW_END),
-    ].sort((a, b) => a.lo - b.lo);
+    // One ordered write map, straight from the core.
+    const allRuns = [...j.writtenRuns].sort((a, b) => a.lo - b.lo);
 
     // The run's FULL write set as a per-address mask — one byte per address is
     // cheap (64 KiB) and it is what makes a gap answerable for any window the

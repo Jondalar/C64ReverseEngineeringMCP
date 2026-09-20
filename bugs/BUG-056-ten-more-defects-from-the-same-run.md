@@ -81,8 +81,13 @@ could show as "residue … NOT this run's output" — the opposite of the truth 
 zero page and the stack, where 6502 code keeps its state. The floor is in the
 runtime, which was off-limits for that round, so C64RE accounts for the low page
 itself by diffing a pre-run image. Coverage is a subset of the truth, never a
-superset, and the output says so. The exact fix is a runtime flag that drops the
-floor.
+superset, and the output says so.
+
+**Closed properly the same evening:** TRX64 0.8.3 removed the floor outright —
+the observer arms at the entry point instead of filtering by address, so the
+harness's own set-up writes stay out without excluding a region. C64RE's second
+spawn, the image diff and the subset caveat are gone; the runs below `$0200` are
+the runtime's own facts.
 
 **`suggest_depacker` and `try_depack` had no `project_dir`** and passed the file
 path as the resolution hint, so a relative path resolved to the MCP repo and the

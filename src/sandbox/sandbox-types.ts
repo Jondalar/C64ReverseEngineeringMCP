@@ -180,14 +180,16 @@ export interface SandboxRunResult {
  * difference against the final image is the run's effect there. The limit is stated
  * rather than hidden — a store of a byte that was already at that address leaves
  * nothing to see. That makes low-memory coverage a subset of the truth, never a
- * superset: what it reports, the run really did change.
+ * The runtime reports these itself since TRX64 0.8.3 — before that the floor in
+ * its write map hid them and C64RE inferred them from a second, zero-instruction
+ * run, which could not see a store of a byte's existing value.
  */
 export interface LowMemoryReport {
-  /** False when the pre-run image could not be taken; `note` says why. */
+  /** False only when the runtime could not report the low pages at all; `note` says why. */
   tracked: boolean;
-  /** Contiguous stretches of $0000-$01FF whose bytes differ from the pre-run image. */
+  /** Contiguous stretches of $0000-$01FF this run stored into. */
   runs: WrittenRun[];
-  /** Total changed bytes below $0200. */
+  /** Total bytes written below $0200. */
   changed: number;
   note?: string;
 }

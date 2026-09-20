@@ -217,12 +217,14 @@ async function callRun(args) {
 // window over $011B-$0122 printed as eight holes; the byte the caller needed was
 // reachable only through `include_observed`, which called it "residue / loaded
 // input, NOT this run's output". 6502 code keeps its state in zero page.
+// TRX64 0.8.3 dropped the floor, so these are the runtime's own facts now and the
+// second, image-diffing run that stood in for them is gone.
 {
   const runnerSrc = readFileSync(join(ROOT, "src/sandbox/sandbox-runner-realcore.ts"), "utf8");
-  check(/"--instr-cap", "0"/.test(runnerSrc),
-    "7 the engine takes a pre-run image of the low pages — the same set-up, zero instructions");
-  check(/lowRuns\.filter\(\(r\) => r\.hi < LOW_END\)/.test(runnerSrc),
-    "7b …and merges those runs into the one write-map the caller reads");
+  check(!/"--instr-cap", "0"/.test(runnerSrc),
+    "7 the low pages come from the runtime — no second, zero-instruction run to diff against");
+  check(/const allRuns = \[\.\.\.j\.writtenRuns\]/.test(runnerSrc),
+    "7b …and the one write-map the caller reads IS the core's own");
 
   const toolSrc = readFileSync(join(ROOT, "src/server-tools/sandbox.ts"), "utf8");
   check(!/stored nothing above \$01FF/.test(toolSrc),
@@ -256,10 +258,11 @@ async function callRun(args) {
     });
     check(/\$002D-\$002D \(1 byte\)/.test(r.out), "7h `STY $2D` is in the written runs", r.out.split("\n").find((l) => /Written runs/.test(l)));
     check(/\$011C-\$011C \(1 byte\)/.test(r.out), "7i `INC $011C` is too — the stack page is not machinery here");
-    check(/Zero page \+ stack: 2 bytes changed/.test(r.out),
-      "7j the answer names the low-memory total separately, with its method",
+    check(/Zero page \+ stack: 2 bytes written/.test(r.out),
+      "7j the answer names the low-memory total separately",
       r.out.split("\n").find((l) => /Zero page/.test(l)));
-    check(/pre-run image/.test(r.out), "7k …and states the limit of that method rather than hiding it");
+    check(!/pre-run image/.test(r.out),
+      "7k …and claims no caveat, because the runtime reports the stores themselves");
     check(/Memory \$011B-\$0122 \(8 bytes, 7 never written/.test(r.out),
       "7l a window over the stack page shows the changed byte and holes the other seven",
       r.out.split("\n").find((l) => /Memory \$011B/.test(l)));

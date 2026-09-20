@@ -217,12 +217,11 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
         // "residue". Zero page IS where 6502 code keeps its state.
         const low = result.lowMemory;
         if (!low.tracked) {
-          lines.push(`WARNING: zero page and the stack ($0000-$01FF) are NOT in the numbers above — ${low.note ?? "the pre-run image was unavailable"}.`);
+          lines.push(`WARNING: zero page and the stack ($0000-$01FF) are NOT in the numbers above — ${low.note ?? "the runtime did not report them"}.`);
         } else if (low.changed > 0) {
           const where = low.runs.map((r) => (r.lo === r.hi ? `$${formatHexWord(r.lo)}` : `$${formatHexWord(r.lo)}-$${formatHexWord(r.hi)}`)).slice(0, 16).join(", ");
           const more = low.runs.length > 16 ? `, … +${low.runs.length - 16} more` : "";
-          lines.push(`Zero page + stack: ${low.changed} ${plural(low.changed, "byte")} changed — ${where}${more}. They are counted in the runs above.`);
-          lines.push(`  ($0000-$01FF is judged by comparing the two pages against their pre-run image, so a store of a byte that was already there cannot be seen. What is listed, the run really did change.)`);
+          lines.push(`Zero page + stack: ${low.changed} ${plural(low.changed, "byte")} written — ${where}${more}. They are counted in the runs above.`);
         }
         if (result.writtenSpan) {
           const holes = result.writtenSpan.bytes.filter((b) => b === null).length;
