@@ -4,12 +4,12 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  renameSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { idFileUnder } from "../lib/id-path.js";
+import { withJsonStoreLock, writeJsonStoreAtomic } from "../lib/json-store-lock.js";
 import {
   ArtifactStoreSchema,
   type ArtifactRecord,
@@ -200,11 +200,17 @@ function emptyWorkflowState(): WorkflowState {
   };
 }
 
+// Every knowledge store goes through here, and `knowledge/artifacts.json` has a
+// second writer in another process: the analysis pipeline registers what its CLI
+// subcommands write. Both used to stage through the same `<store>.tmp`, so two
+// overlapping writes destroyed each other's staging file and one of them died on
+// `rename` with ENOENT. The staging name is unique per write now, and the lock in
+// `json-store-lock.ts` — the same protocol the pipeline runs — serialises the rest.
 function writeJsonAtomically(path: string, value: JsonValue): void {
   mkdirSync(dirname(path), { recursive: true });
-  const tempPath = `${path}.tmp`;
-  writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  renameSync(tempPath, path);
+  withJsonStoreLock(path, () => {
+    writeJsonStoreAtomic(path, `${JSON.stringify(value, null, 2)}\n`);
+  });
 }
 
 function readJsonOrDefault<T>(path: string, fallback: T): T {

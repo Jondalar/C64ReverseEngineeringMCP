@@ -13,19 +13,17 @@
 //     inside a c64re project root).
 //   - Skipped when `--no-register` was on the command line.
 //   - Reads the existing `knowledge/artifacts.json`, appends a new entry
-//     unless the relativePath is already present, writes back atomically.
+//     unless the relativePath is already present, writes back atomically —
+//     all three under the cross-process lock in `json-store-lock.ts`, because
+//     the MCP server writes the same file from its own process.
 //   - Uses the same shape that `save_artifact` produces. Any field
 //     missing on the input is filled with sensible CLI-side defaults.
+//   - Never throws. A store that will not take the row is reported on stderr,
+//     loudly, because the file the row was about is already on disk.
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { relative, resolve } from "node:path";
+import { withJsonStoreLock, writeJsonStoreAtomic } from "./json-store-lock";
 
 export interface CliArtifactInput {
   kind: string;
@@ -55,6 +53,20 @@ function findProjectRoot(start: string): string | null {
     if (parent === dir) return null;
     dir = parent;
   }
+}
+
+/**
+ * The same file, reached two ways, has to produce the same row.
+ *
+ * `process.cwd()` hands back a canonical path and an argument does not, so on a
+ * machine where the project sits under a symlinked directory (`/tmp` on macOS
+ * is one) the root was canonical and the artifact path was not. `relative()`
+ * then walked out of the project to get back in, every row read
+ * `../../../tmp/<project>/…`, and the "already registered?" check keyed on that
+ * string never matched anything a differently-spelled call had written.
+ */
+function canonical(path: string): string {
+  try { return realpathSync(path); } catch { return resolve(path); }
 }
 
 function slugify(value: string): string {
@@ -89,11 +101,8 @@ function loadStore(path: string): ArtifactStore {
   }
 }
 
-function writeStoreAtomic(path: string, store: ArtifactStore): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(store, null, 2)}\n`, "utf8");
-  renameSync(tmp, path);
+function writeStore(path: string, store: ArtifactStore): void {
+  writeJsonStoreAtomic(path, `${JSON.stringify(store, null, 2)}\n`);
 }
 
 let registrationDisabled = false;
@@ -112,46 +121,75 @@ export function registerCliArtifact(input: CliArtifactInput): void {
   if (!projectRoot) return; // not inside a c64re project — silent no-op
 
   const artifactsPath = resolve(projectRoot, "knowledge", "artifacts.json");
-  const store = loadStore(artifactsPath);
-  const absolutePath = resolve(input.path);
-  const relativePath = relative(projectRoot, absolutePath);
-  // Skip if already registered (matched by relativePath).
-  for (const item of store.items) {
-    if (item.relativePath === relativePath) return;
-  }
+  const absolutePath = canonical(resolve(input.path));
+  const relativePath = relative(canonical(projectRoot), absolutePath);
 
-  let fileSize: number | undefined;
   try {
-    if (existsSync(absolutePath)) fileSize = statSync(absolutePath).size;
-  } catch {
-    // ignore
-  }
+    // Load, check and write inside ONE lock. Splitting them is what turns two
+    // parallel pipeline children into one lost registration: both read a store
+    // without the other's row, both write their own version back, and the row
+    // that was written first is gone with nothing to show for it.
+    withJsonStoreLock(artifactsPath, () => {
+      const store = loadStore(artifactsPath);
+      // Skip if already registered (matched by relativePath).
+      for (const item of store.items) {
+        if (item.relativePath === relativePath) return;
+      }
 
-  const timestamp = nowIso();
-  const id = makeId("artifact", input.title);
-  store.items.push({
-    id,
-    kind: input.kind,
-    scope: input.scope,
-    title: input.title,
-    path: absolutePath,
-    relativePath,
-    description: input.description,
-    format: input.format,
-    role: input.role,
-    producedByTool: input.producedByTool,
-    sourceArtifactIds: input.sourceArtifactIds ?? [],
-    entityIds: [],
-    evidence: [],
-    status: "active",
-    confidence: 1,
-    fileSize,
-    tags: input.tags ?? [],
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  });
-  store.updatedAt = timestamp;
-  writeStoreAtomic(artifactsPath, store);
+      let fileSize: number | undefined;
+      try {
+        if (existsSync(absolutePath)) fileSize = statSync(absolutePath).size;
+      } catch {
+        // ignore
+      }
+
+      const timestamp = nowIso();
+      const id = makeId("artifact", input.title);
+      store.items.push({
+        id,
+        kind: input.kind,
+        scope: input.scope,
+        title: input.title,
+        path: absolutePath,
+        relativePath,
+        description: input.description,
+        format: input.format,
+        role: input.role,
+        producedByTool: input.producedByTool,
+        sourceArtifactIds: input.sourceArtifactIds ?? [],
+        entityIds: [],
+        evidence: [],
+        status: "active",
+        confidence: 1,
+        fileSize,
+        tags: input.tags ?? [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      store.updatedAt = timestamp;
+      writeStore(artifactsPath, store);
+    });
+  } catch (error) {
+    // The file this call was about IS on disk — the subcommand wrote it before
+    // asking for it to be registered — so the run did not fail and must not
+    // report that it did. What did fail is the bookkeeping, and that is the one
+    // thing nobody notices: the old code let the ENOENT escape as a raw node
+    // stack out of `main`, and on the MCP side the same failure arrived as a
+    // quiet line at the end of a message that began "rebuild verified
+    // byte-identical". Say it plainly instead, on stderr, with the way out.
+    reportRegistrationFailure(relativePath, error);
+  }
+}
+
+/** Not a warning in passing: the artifact exists and the project does not know it. */
+function reportRegistrationFailure(relativePath: string, error: unknown): void {
+  const reason = error instanceof Error ? error.message : String(error);
+  process.stderr.write(
+    `\n[c64re] ARTIFACT NOT REGISTERED — knowledge/artifacts.json could not be written: ${reason}\n`
+    + `[c64re] ${relativePath} is on disk, and nothing in the project knows it is: it will not\n`
+    + `[c64re] appear in list_artifacts, in any view, or to the next session that onboards.\n`
+    + `[c64re] Run project_inventory_sync to register what is on disk.\n`,
+  );
 }
 
 // Parse `--no-register` flag from argv and return a cleaned argv. Should
