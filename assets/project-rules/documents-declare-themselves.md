@@ -1,7 +1,7 @@
 ---
 description: A document without frontmatter does not exist for the project — it is not indexed, not linted, and covers nothing.
 paths: ["docs/**/*.md"]
-tools: ["doc_template", "render_docs"]
+tools: ["doc_template", "doc_register", "render_docs"]
 ---
 
 # Prose has to declare what it covers
@@ -16,6 +16,25 @@ doc_register   → registers the file and its coverage
 doc_lint       → reports files that assert nothing, and coverage that names nothing real
 wiki_index     → builds the index from what is declared
 ```
+
+The block, exactly:
+
+```
+---
+title: <one line>
+kind: synthesis | reference | decision | generated
+covers:
+  - $C820-$CFFF          # a range, or a single $C820
+  - artifact:07_game.prg  # and/or the file it is about
+sources: [what.asm, you.prg]
+method: >
+  How you know.
+status: current | superseded
+---
+```
+
+One `covers` entry per `- ` line and nothing else on it: no parenthetical, no comma
+list, no prose. Quotes around an entry are accepted and stripped.
 
 An undeclared document is not a small omission. The contract can require a document
 covering the loader; a file that describes the loader beautifully and declares nothing

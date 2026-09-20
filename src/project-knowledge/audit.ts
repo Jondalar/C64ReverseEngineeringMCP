@@ -234,7 +234,7 @@ function suggestedActionsFor(findings: ProjectAuditFinding[]): string[] {
     actions.push("Run project_inventory_sync to register project files, import manifests, and rebuild views.");
   }
   if (findings.some((finding) => finding.id === "unimported-analysis-artifacts")) {
-    actions.push("Run bulk_import_analysis_reports or import_analysis_report for each listed analysis artifact.");
+    actions.push("Run project_inventory_sync — it back-fills every listed analysis artifact into the knowledge layer.");
   }
   if (findings.some((finding) => finding.id === "unimported-manifest-artifacts")) {
     actions.push("Run project_inventory_sync to import manifests and rebuild views.");

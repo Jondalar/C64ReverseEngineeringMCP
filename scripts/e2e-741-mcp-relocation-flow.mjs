@@ -77,6 +77,8 @@ try {
   // init the project (analyze_prg requires knowledge/phase-plan.json). project_init
   // (BUG-015) may sort the PRG into input/; resolve its post-init location.
   await call("project_init", { project_dir: projectDir, name: "E2E 741" });
+  // A session onboards before it works in a project; the server refuses otherwise.
+  await call("agent_onboard", { project_dir: projectDir });
   const candidates = [prgPath, join(projectDir, "input", "prg", "copyloop.prg"), join(projectDir, "input", "copyloop.prg")];
   const prg = candidates.find(existsSync) || prgPath;
   const stem = prg.replace(/\.prg$/i, "");

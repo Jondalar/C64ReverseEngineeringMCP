@@ -240,7 +240,7 @@ const doorArgs = {
   max_steps: 100000,
 };
 const text = await callTool("sandbox_6502_run", doorArgs);
-check(/Written runs: 2 — \$4000-\$4007 \(8 bytes\), \$4020-\$4027 \(8 bytes\)/.test(text),
+check(/Written runs: 2, 16 bytes in all — \$4000-\$4007 \(8 bytes\), \$4020-\$4027 \(8 bytes\)/.test(text),
   "the runs are named in the output, before anything else about bytes");
 const memLine = text.split("\n").find((l) => l.startsWith("Memory $4000")) ?? "";
 check(/never written by this run/.test(memLine), "the memory line says how much of the window is not payload");
@@ -349,8 +349,14 @@ const scatterText = await callTool("sandbox_6502_run", {
   max_steps: 100000,
   output_path: "out/scatter.prg",
 });
-check(/Written runs: 65/.test(scatterText), "65 disjoint single-byte runs are all reported");
-check(/, … \+53 more/.test(scatterText), "…the printed list is capped, and says how many it did not print");
+check(/Written runs: 65, 65 bytes in all/.test(scatterText), "65 disjoint single-byte runs are all reported");
+// A footnote-shaped ", … +53 more" was read as a footnote: one run hidden behind it
+// was 2000 bytes, and the caller only noticed because the arithmetic did not add up.
+check(/NOT SHOWN: 53 further runs totalling 53 bytes/.test(scatterText),
+  "…the printed list is capped, and says in runs AND bytes how much it did not print");
+check(/the largest is \$[0-9A-F]{4}-\$[0-9A-F]{4}/.test(scatterText),
+  "…and names the largest hidden run, so the visible list cannot be read as the whole story");
+check(/write_runs_from=12/.test(scatterText), "…and says how to ask for the next page");
 check(/Wrote NO PRG/.test(scatterText), "no file is written rather than 65 fragments or one invented span");
 check(!existsSync(join(scratch, "out", "scatter.prg")), "…and nothing landed at the requested path");
 check(/return_writes_start/.test(scatterText), "…and the refusal says how to ask for the part that is wanted");

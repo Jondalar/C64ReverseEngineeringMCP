@@ -37,6 +37,7 @@ import {
 } from "./artifact-versions.js";
 import { deriveSubstratePosture } from "./types.js";
 import { generatedFrontmatter } from "../docs/register.js";
+import { isPayloadEntity } from "./payload-kinds.js";
 import type {
   AnnotatedListingView,
   AntiPattern,
@@ -4070,7 +4071,8 @@ export class ProjectKnowledgeService {
     // payloadId so the routine-to-payload linkage is automatic.
     const sourceArtifactIds = new Set(artifact.sourceArtifactIds ?? []);
     if (sourceArtifactIds.size > 0) {
-      const payload = this.listEntities({ kind: "payload" })
+      const payload = this.listEntities()
+        .filter(isPayloadEntity)
         .find((p) => p.payloadSourceArtifactId !== undefined && sourceArtifactIds.has(p.payloadSourceArtifactId));
       if (payload) stampImportedKnowledgeWithPayload(imported, payload.id);
     }

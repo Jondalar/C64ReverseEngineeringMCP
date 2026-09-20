@@ -634,16 +634,36 @@ export async function suggestDepackers(options: {
       if (result.byteCount < 64) {
         return undefined;
       }
+      // What this probe ACTUALLY did, and therefore what it may claim.
+      //
+      // It emulated the file's OWN 6502 code from a prologue it scored by pattern
+      // (SEI / LDA #imm / STA $01 and friends) and watched it write memory. Every C64
+      // depacker stub on earth passes that: it reported `exomizer_sfx` at confidence
+      // 0.93 with the reason "decrunch succeeded structurally" for a payload whose real
+      // codec was a $B3-escape RLE. Nothing Exomizer-specific was checked — not the
+      // decrunch table, not the bit stream, not the literal encoding — so the honest
+      // reading of the evidence is "this file is self-extracting", which is a fact
+      // about the WRAPPER and not about the codec.
+      //
+      // A BASIC SYS header used to raise the number to 0.93. It cannot: every packed
+      // executable on a C64 has one, Exomizer or not.
+      const expansion = result.byteCount / Math.max(1, data.length);
+      const plausible = expansion >= 1 && expansion <= 16;
       return {
         format: "exomizer_sfx" as const,
-        confidence: basic ? 0.93 : 0.85,
-        reason: "Exomizer self-extracting wrapper decrunch succeeded structurally.",
+        // Deliberately below the probes that DO verify their codec end to end
+        // (byteboozer 0.9, lykia 0.88, rle 0.85): those consume a declared stream and
+        // terminate; this one only ran some code.
+        confidence: plausible ? 0.5 : 0.2,
+        reason: `The file's own code, emulated from $${result.entryPoint.toString(16).toUpperCase().padStart(4, "0")}, wrote ${result.byteCount} bytes to $${result.outputStart.toString(16).toUpperCase().padStart(4, "0")}-$${result.outputEnd.toString(16).toUpperCase().padStart(4, "0")} (${expansion.toFixed(2)}x). That shows a SELF-EXTRACTING wrapper ran; it does NOT identify the codec — no Exomizer-specific structure was verified.`,
         offset,
         length: data.length,
         unpackedSize: result.data.length,
         notes: [
           "This is an executable self-decrunching wrapper, not a raw Exomizer stream.",
-          basic?.sysTarget !== undefined ? `BASIC SYS target: ${basic.sysTarget}` : "No BASIC SYS wrapper was required for detection.",
+          "Any depacker stub emulates the same way. Before treating this as Exomizer, read the stub in the disassembly and confirm the codec there — an escape-byte RLE and a ByteBoozer stub both reach this result.",
+          ...(plausible ? [] : [`Expansion ${expansion.toFixed(2)}x is outside the plausible range for a packed payload — most likely a loader stage, not a packed stream.`]),
+          basic?.sysTarget !== undefined ? `BASIC SYS target: ${basic.sysTarget} (says nothing about the codec).` : "No BASIC SYS wrapper was required for detection.",
         ],
       };
     });

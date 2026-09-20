@@ -22,7 +22,7 @@ import { registerCompressionTools } from "./server-tools/compression.js";
 import { registerGraphicsRenderTools } from "./server-tools/graphics-render.js";
 import { registerInspectRangeTools } from "./server-tools/inspect-range.js";
 import { registerGraphTools } from "./server-tools/graph-tools.js";
-import { ORIENTATION_TOOLS, gateDisabled, isOnboarded, onboardingMessage } from "./server-tools/onboarding-gate.js";
+import { ORIENTATION_TOOLS, gateDisabled, isOnboarded, onboardingMessage, soleOnboardedProject } from "./server-tools/onboarding-gate.js";
 import { isProjectInitialised, nextStepError } from "./server-tools/error-helpers.js";
 import { registerCostTools } from "./server-tools/cost-tools.js";
 import { registerOptimiseTools } from "./server-tools/optimise-tools.js";
@@ -54,10 +54,15 @@ import type { KnowledgeRegistrationInput, KnowledgeRegistrationResult, ServerToo
 // ---------------------------------------------------------------------------
 
 function projectDir(hintPath?: string, requireWritable = false): string {
+  // No hint and no configured root: fall back to the project THIS SESSION onboarded
+  // into, before falling back to the cwd. Otherwise a globally configured server
+  // resolves an omitted `project_dir` against its own repo and refuses.
+  const hint = hintPath
+    ?? (process.env.C64RE_PROJECT_DIR?.trim() ? undefined : soleOnboardedProject());
   return resolveProjectDir({
     cwd: process.cwd(),
     repoDir: repoDir(),
-    hintPath,
+    hintPath: hint,
     requireWritable,
   });
 }

@@ -296,3 +296,9 @@ jobs:
 
       - name: Frequency ranks, and a page crossing is a count (Spec 862)
         run: npm run e2e:862-rank
+
+      # BUG-054 — thirteen defects one autonomous RE run wrote down as it hit them.
+      # Hermetic: temp projects, synthetic PRGs, no ROMs, no media, no daemon. The
+      # rebuild half needs KickAssembler and skips loudly without it, like e2e:830.
+      - name: Thirteen tooling defects (BUG-054)
+        run: npm run e2e:tooling-defects

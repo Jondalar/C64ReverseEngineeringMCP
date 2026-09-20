@@ -7,6 +7,7 @@
 // medium-agnostic behind `MediumReader`.
 
 import { readFileSync, existsSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import type { MediumReader } from "./lut-resolver.js";
 
 /** A .crt is a 64-byte header followed by CHIP packets, each with its own 16-byte
@@ -72,14 +73,50 @@ export function flatReader(path: string): { reader: MediumReader; note: string }
   };
 }
 
+/**
+ * Where a `medium_path` may be, in the order the other tools look.
+ *
+ * Every path-taking tool in this server resolves relative to the project root;
+ * `readerForMedium` alone resolved against the process cwd, so
+ * `medium_path: "input/disk/CRAZY1.D64"` — the form every other tool takes — reported
+ * "no medium at input/disk/CRAZY1.D64" with the file sitting right there, and only an
+ * absolute path probed. Silent, because the probe is optional: the descriptor was
+ * written, the rows were never checked.
+ */
+export function mediumSearchPaths(path: string, projectRoot?: string): string[] {
+  const out = [isAbsolute(path) ? path : resolve(process.cwd(), path)];
+  if (projectRoot && !isAbsolute(path)) out.push(resolve(projectRoot, path));
+  return [...new Set(out)];
+}
+
+/** The first of `mediumSearchPaths` that exists, or every path that was tried. */
+export function resolveMediumPath(path: string, projectRoot?: string): { abs: string } | { tried: string[] } {
+  const tried = mediumSearchPaths(path, projectRoot);
+  const hit = tried.find((p) => existsSync(p));
+  return hit ? { abs: hit } : { tried };
+}
+
 /** Pick a reader from the file itself, not from its extension — an image named `.bin`
- *  that starts with the CRT magic is a CRT. */
-export function readerForMedium(path: string): { reader: MediumReader; note: string } | undefined {
-  if (!existsSync(path)) return undefined;
-  const head = readFileSync(path).subarray(0, 16).toString("ascii");
+ *  that starts with the CRT magic is a CRT. Project-relative paths resolve against
+ *  `projectRoot`, the same way every other path argument in this server does. */
+export function readerForMedium(
+  path: string,
+  projectRoot?: string,
+): { reader: MediumReader; note: string; path: string } | undefined {
+  const found = resolveMediumPath(path, projectRoot);
+  if (!("abs" in found)) return undefined;
+  const abs = found.abs;
+  const head = readFileSync(abs).subarray(0, 16).toString("ascii");
   if (head === "C64 CARTRIDGE   ") {
-    const { reader, note } = crtReader(path);
-    return { reader, note };
+    const { reader, note } = crtReader(abs);
+    return { reader, note, path: abs };
   }
-  return flatReader(path);
+  return { ...flatReader(abs), path: abs };
+}
+
+/** The refusal a caller gets when nothing was found: what was tried, not just what failed. */
+export function noMediumMessage(path: string, projectRoot?: string): string {
+  const tried = mediumSearchPaths(path, projectRoot);
+  return `no medium at ${path} — tried ${tried.join(" and ")}. `
+    + `Paths are resolved against the project root, like every other path argument; an absolute path also works.`;
 }

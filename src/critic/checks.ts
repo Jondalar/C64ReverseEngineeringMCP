@@ -50,7 +50,7 @@ export const CHECKS: readonly CheckDef[] = [
     id: "refutation-without-casualty",
     severity: "blocking",
     finds: "a refutation that invalidated nothing — no `amends:` tag and no superseded finding",
-    settleBy: "tag the refutation `amends:<what it killed>`, or archive the claim it refutes",
+    settleBy: "give the refutation finding a literal tag `amends:<name>` — save_finding(id=<the refutation>, tags=[\"amends:A_loader_model\"]) — or archive the claim it refutes with save_finding(id=<that claim>, status=\"archived\", archived_by=<the refutation>)",
     because: "Ultima VI's `amended` list records which documents a refutation forced to be rewritten. A refutation with no casualty either was never acted on, or the thing it refutes is still being believed somewhere — both are the state this arc exists to prevent.",
   },
   {

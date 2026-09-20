@@ -419,7 +419,14 @@ export async function verdict(projectDir: string): Promise<Verdict> {
 
   const report = await critique(projectDir);
   for (const f of report.findings.filter((x) => x.severity === "blocking")) {
-    blockers.push(`${f.check}: ${f.title}`);
+    // The verdict carries what settles it.
+    //
+    // Without this the blocker read `refutation-without-casualty: refutation "…"
+    // invalidated nothing`, and a reader could try two entirely reasonable fixes and
+    // watch it stay red, because the requirement is a LITERAL `amends:<name>` tag and
+    // only `critic_checks` said so. A verdict that names the problem and withholds the
+    // remedy is a verdict nobody can act on.
+    blockers.push(`${f.check}: ${f.title}\n      settle by: ${f.settleBy}`);
   }
 
   return { ready: blockers.length === 0, blockers };

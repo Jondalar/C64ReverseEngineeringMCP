@@ -234,6 +234,8 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
   try {
     await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e750", version: "1" } });
     proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+    // A session onboards before it works in a project; the server refuses otherwise.
+    await call("agent_onboard", { project_dir: projectDir });
 
     const col = (role, extra = {}) => ({ role, ...extra });
     const declare = (extra = {}) => call("declare_lut_descriptor", {

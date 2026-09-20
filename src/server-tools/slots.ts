@@ -34,6 +34,18 @@ const SLOT_IDS = SLOTS.map((s) => s.id) as [SlotId, ...SlotId[]];
 /** Slots whose answer is not a claim about bytes, so no extract can back them. */
 const NON_ARTEFACT_SLOTS = new Set<SlotId>(["S1", "S13", "S14"]);
 
+/** First sentence, or first clause, capped — a name for a paragraph-long answer. */
+function headline(answer: string, max = 90): string {
+  const flat = answer.trim().replace(/\s+/g, " ");
+  if (flat.length <= max) return flat;
+  const sentence = /^(.{20,}?[.;!?])(\s|$)/.exec(flat);
+  const candidate = sentence && sentence[1].length <= max ? sentence[1] : flat;
+  if (candidate.length <= max) return candidate.replace(/[.;]$/, "");
+  const cut = candidate.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > max * 0.5 ? cut.slice(0, space) : cut).replace(/[,;.\s]+$/, "")}…`;
+}
+
 export function registerSlotTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "project_slots",
@@ -63,11 +75,12 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
 
   server.tool(
     "slot_record",
-    "Fill one required slot: the answer to a required question, with the evidence for it. Use when a door refuses on an empty slot, or when you have just established one of the 15. Not for seeing which slots are still empty (use project_slots). Inputs: slot id, answer, evidence, optional address range; S11 and S15 also require method. Returns: the finding written + the updated slot line.",
+    "Fill one required slot: the answer to a required question, with the evidence for it. Use when a door refuses on an empty slot, or when you have just established one of the 15. Not for seeing which slots are still empty (use project_slots). Inputs: slot id, answer, evidence, optional short title and address range; S11 and S15 also require method. Returns: the finding written + the updated slot line.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       slot: z.enum(SLOT_IDS).describe("Which slot — see project_slots for the list and what each asks"),
-      answer: z.string().min(10).describe("The answer itself, stated plainly. This becomes the finding's title."),
+      answer: z.string().min(10).describe("The answer itself, stated plainly. As long as it needs to be — it is stored in full as the finding's body."),
+      title: z.string().max(120).optional().describe("A short headline for the finding, ≤120 characters. Omit and one is taken from the answer's first sentence; the full answer is kept either way."),
       evidence: z.string().min(10).describe("What you read or ran that establishes it — a listing, an address, a routine, a run"),
       address_start: z.number().int().nonnegative().optional().describe("Start of the address range this answer covers, if it has one"),
       address_end: z.number().int().nonnegative().optional().describe("End of that range (inclusive)"),
@@ -76,7 +89,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       space: z.enum(["ram", "crt", "drv"]).default("ram").describe("Address space, when a boundary is being asserted alongside"),
       owner: z.string().optional().describe("Bind the boundary to ONE artifact owner; omit to span the space"),
     },
-    async ({ project_dir, slot, answer, evidence, address_start, address_end, method, boundary_name, space, owner }) => {
+    async ({ project_dir, slot, answer, title, evidence, address_start, address_end, method, boundary_name, space, owner }) => {
       const pd = context.projectDir(project_dir, true);
       const def = SLOT_BY_ID.get(slot)!;
 
@@ -123,10 +136,14 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       const { KnowledgeRecords } = await import("../knowledge-graph/records.js");
       const rec = new KnowledgeRecords(pd);
       const tags = [`slot:${slot}`, ...(method ? [`method:${method}`] : [])];
+      // A slot answer that needs a sentence used to BECOME the title, and everything
+      // that lists findings then printed a paragraph where a name belongs. The answer
+      // is kept whole in the body — every reader that parses a slot claim reads title
+      // and summary together — and the title is a headline.
       const finding = rec.saveFinding({
         kind: slot === "S11" ? "memory-map" : "observation",
-        title: answer,
-        summary: `${def.name} (Spec 844 ${slot}). Evidence: ${evidence}`,
+        title: title?.trim() || headline(answer),
+        summary: `${def.name} (Spec 844 ${slot}).\n\n${answer.trim()}\n\nEvidence: ${evidence}`,
         tags,
         // The evidence goes in evidence[], not only into the summary prose. The first
         // real session exposed this as an own goal: slot_record's own findings tripped
@@ -174,6 +191,10 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
           type: "text" as const,
           text: [
             `Recorded ${slot} — ${def.name}: ${finding.id}`,
+            `Title: ${finding.title}`,
+            ...(finding.title !== answer.trim()
+              ? ["  (the full answer is the finding's body — pass `title` to choose your own headline)"]
+              : []),
             boundary,
             line ? `Slot is now: ${line.status} — ${line.detail}` : "",
             "",
