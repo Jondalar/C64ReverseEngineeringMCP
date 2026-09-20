@@ -60,10 +60,14 @@ This is how we work. Two laws, never bent:
   via `artifact_ids`. A trace `runId+cycle` or a heuristic is **not** grounding. An
   unbacked file/payload finding is tagged `ungrounded` and the orchestrator
   (`agent_next_step`) will route you back to ground it before anything else.
-- **L2 — extract ⇒ always disasm + analyse.** Every extraction from disk/CRT
+- **L2 — extract ⇒ always disasm + analyse + verify.** Every extraction from disk/CRT
   automatically disassembles + analyses each extracted PRG/payload (`extract_disk` /
-  `extract_crt` auto-chain `analyze_prg` + `disasm_prg`). There is no raw extract without
-  a disassembly. Disassemble + analyse a payload **before** you trace it.
+  `extract_crt` auto-chain `analyze_prg` + `disasm_prg`) **and assembles each listing
+  back** to check it is byte-identical with the bytes it describes. The extract tool's
+  summary states how many verified; a listing that DIVERGED is not a faithful rendering
+  of its bytes and must be read before anything is cited from it. There is no raw
+  extract without a disassembly, and no disassembly without a verdict on it.
+  Disassemble + analyse a payload **before** you trace it.
 
 **Trace is not grounding.** Trace / statistics / heuristics describe runtime *behaviour* —
 *when* and *where* code runs. They never establish *what* a block IS; that comes only from
@@ -532,7 +536,7 @@ Detection helpers — surface the gap automatically:
 
 Even when the artifact registration is in sync, a second gap appears when bulk CLI runs (`dist/pipeline/cli.cjs analyze-prg`) register the analysis JSON but never invoke `import_analysis_report`. The artifact is tracked, but the entities / findings / relations / open questions inside the report stay un-extracted, and any UI feature that filters by stage→entity (memory-map Payload-Focus, load-sequence stage tags) silently shows a no-op.
 
-Catch-up tool: `bulk_import_analysis_reports`. Walks every analysis-run artifact and runs `importAnalysisArtifact` on those whose entities are not yet back-linked. Same dry-run / live-run / progress-summary shape as `project_inventory_sync`.
+Catch-up door: `project_inventory_sync`. It back-fills every analysis-run artifact whose entities are not yet back-linked, and says how many it imported. (`bulk_import_analysis_reports` does the same thing on the full tool surface; the audit used to recommend it by name to sessions that could not see it.)
 
 Detection: `agent_onboard`, `agent_propose_next`, and `agent_record_step` surface the unimported-analysis count alongside the unregistered-file count. The workspace UI banner shows both gaps as separate warning lines. A run is not finished until both are zero.
 

@@ -4,6 +4,7 @@ import { runCli } from "../run-cli.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { registerToolKnowledge } from "../project-knowledge/integration.js";
 import { ensureIdDirIn, PAYLOAD_OUTPUT_BASE } from "./id-path.js";
+import { rebuildVerification } from "./rebuild-verify.js";
 
 export type WorkflowMode = "quick" | "full";
 
@@ -26,6 +27,15 @@ export interface PrgReverseWorkflowOptions {
    * after the run.
    */
   payloadId?: string;
+  /**
+   * Assemble the listing back and compare it with the bytes it came from (default on).
+   *
+   * The doctrine is "extract ⇒ always disasm + analyse", and the verification half was
+   * missing here: `disasm_prg` emits `rebuild verified byte-identical` on its own, but
+   * the L2 auto-chain goes through this function and produced 245 listings with no
+   * verdict on any of them.
+   */
+  verifyRebuild?: boolean;
 }
 
 export type WorkflowPhaseStatus = "done" | "skipped" | "blocked";
@@ -61,6 +71,11 @@ export interface PrgReverseWorkflowResult {
   tassPath: string;
   ramReportPath?: string;
   pointerReportPath?: string;
+  /** The rebuild verdict line, when the listing was verified. */
+  rebuildVerdict?: string;
+  rebuildVerified?: boolean;
+  /** The assembler could not be run at all — no verdict either way. */
+  rebuildAssemblerMissing?: boolean;
 }
 
 interface RegistrationOutcome {
@@ -116,6 +131,9 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
   const artifactsWritten: string[] = [];
   let viewsBuilt: string[] = [];
   let blocked = false;
+  let rebuildVerdict: string | undefined;
+  let rebuildVerified: boolean | undefined;
+  let rebuildAssemblerMissing: boolean | undefined;
 
   const inputReg = tryRegister(
     projectRoot,
@@ -196,6 +214,28 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
       artifactsWritten.push(asmPath);
       if (existsSync(tassPath)) artifactsWritten.push(tassPath);
       phases.push({ phase: "disasm", status: "done", output: asmPath });
+
+      // The other half of L2: does the listing rebuild to the bytes it describes?
+      if (opts.verifyRebuild !== false) {
+        const verdict = await rebuildVerification({
+          projectDir: projectRoot,
+          asmPath,
+          prgPath: prgAbs,
+          // A raw blob was disassembled with an explicit load address and has no
+          // 2-byte header of its own; the rebuilt PRG does.
+          rawBlob: opts.loadAddress !== undefined,
+        });
+        rebuildVerdict = verdict.line;
+        rebuildVerified = verdict.verified;
+        rebuildAssemblerMissing = verdict.assemblerUnavailable;
+        phases.push({
+          phase: "rebuild-verify",
+          status: verdict.assemblerUnavailable ? "skipped" : "done",
+          reason: verdict.line.replace(/^\/\/\s*/, ""),
+        });
+      } else {
+        phases.push({ phase: "rebuild-verify", status: "skipped", reason: "verify_rebuild=false" });
+      }
     }
   }
 
@@ -284,6 +324,9 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
     tassPath,
     ramReportPath: mode === "full" ? ramReportPath : undefined,
     pointerReportPath: mode === "full" ? pointerReportPath : undefined,
+    rebuildVerdict,
+    rebuildVerified,
+    rebuildAssemblerMissing,
   };
 }
 
@@ -294,6 +337,7 @@ export interface PayloadReverseWorkflowOptions {
   outputDir?: string;
   rebuildViews?: boolean;
   entryPoints?: string[];
+  verifyRebuild?: boolean;
 }
 
 export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOptions): Promise<PrgReverseWorkflowResult> {
@@ -345,6 +389,7 @@ export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOpti
     entryPoints: opts.entryPoints,
     loadAddress: isPrg ? undefined : explicitLoad,
     payloadId: payload.id,
+    verifyRebuild: opts.verifyRebuild,
   });
 
   // Stamp the produced asm artifacts back onto the entity so the UI shows
@@ -416,6 +461,11 @@ export function renderPrgReverseWorkflowResult(result: PrgReverseWorkflowResult)
   if (result.viewsBuilt.length === 0) lines.push(`(none)`);
   else for (const path of result.viewsBuilt) lines.push(`- ${path}`);
   lines.push(``);
+  if (result.rebuildVerdict) {
+    lines.push(`## Rebuild`);
+    lines.push(result.rebuildVerdict.replace(/^\/\/\s*/, ""));
+    lines.push(``);
+  }
   lines.push(`## Next required step`);
   lines.push(result.nextRequiredAction);
   return lines.join("\n");

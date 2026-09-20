@@ -24,9 +24,12 @@ export const EXTRACT_FIRST_STEERING = `${EXTRACT_FIRST_TOKEN}
   backing **extract artifact** via \`artifact_ids\` (the extracted bytes / its
   \`_disasm.asm\` / \`_analysis.json\`). A trace \`runId+cycle\` or a heuristic is NOT
   grounding. An unbacked file/payload finding is tagged \`ungrounded\`.
-- **Extract ⇒ always disasm + analyse (L2).** Extraction is never raw: \`extract_disk\` /
-  \`extract_crt\` auto-run \`analyze_prg\` + \`disasm_prg\` on every extracted PRG/payload.
-  Disassemble + analyse a payload before you trace it.
+- **Extract ⇒ always disasm + analyse + VERIFY (L2).** Extraction is never raw:
+  \`extract_disk\` / \`extract_crt\` auto-run \`analyze_prg\` + \`disasm_prg\` on every
+  extracted PRG/payload, and assemble each listing back to check it is byte-identical
+  with the bytes it describes. The summary says how many verified; a listing that
+  DIVERGED is not a faithful rendering and must be read before anything is cited from
+  it. Disassemble + analyse a payload before you trace it.
 - **Trace ≠ grounding.** Trace/stats/heuristics describe runtime *behaviour* — *when/where*
   something runs. They never say *what* a block IS; that comes from the extract + its
   disassembly. Do not reach for tracing/statistics to ground a file/payload claim.

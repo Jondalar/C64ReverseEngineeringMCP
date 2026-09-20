@@ -90,6 +90,8 @@ export interface AutoChainItemResult {
   name?: string;
   status: "done" | "failed" | "skipped";
   reason?: string;
+  /** The rebuild verdict for this payload's listing: did it assemble back byte-identical? */
+  rebuild?: "verified" | "diverged" | "unverified";
 }
 
 export interface AutoChainOptions {
@@ -101,6 +103,9 @@ export interface AutoChainOptions {
   /** Cap how many payloads are auto-analysed in one pass (the rest are returned
    *  as skipped:"capped" so the caller can queue them). Default: no cap. */
   maxPayloads?: number;
+  /** Assemble each listing back and compare (default on). The doctrine's
+   *  "extract ⇒ always disasm + analyse" half that was never implemented here. */
+  verifyRebuild?: boolean;
 }
 
 /**
@@ -119,6 +124,9 @@ export async function autoAnalyzeExtractedPayloads(
   const artifacts = service.listArtifacts();
   const seenSource = new Set<string>(); // dedup same PRG across disks
   let analysed = 0;
+  // The assembler is one binary for the whole pass. Once it has proved absent there is
+  // nothing to learn from trying it another 244 times, and each attempt costs a spawn.
+  let assemblerMissing = false;
 
   for (const id of payloadEntityIds) {
     const ent = entities.find((e) => e.id === id);
@@ -145,9 +153,18 @@ export async function autoAnalyzeExtractedPayloads(
     }
 
     try {
-      await runPayloadReverseWorkflow({ projectRoot, payloadId: id, mode, rebuildViews: false });
+      const run = await runPayloadReverseWorkflow({
+        projectRoot, payloadId: id, mode, rebuildViews: false,
+        verifyRebuild: opts.verifyRebuild !== false && !assemblerMissing,
+      });
       analysed += 1;
-      results.push({ payloadId: id, name: ent.name, status: "done" });
+      if (run.rebuildAssemblerMissing) assemblerMissing = true;
+      const rebuild: AutoChainItemResult["rebuild"] | undefined =
+        run.rebuildVerified === true ? "verified"
+          : run.rebuildAssemblerMissing ? "unverified"
+            : run.rebuildVerdict !== undefined ? "diverged"
+              : undefined;
+      results.push({ payloadId: id, name: ent.name, status: "done", ...(rebuild ? { rebuild } : {}) });
     } catch (err) {
       results.push({ payloadId: id, name: ent.name, status: "failed", reason: err instanceof Error ? err.message : String(err) });
     }
@@ -161,10 +178,24 @@ export async function autoAnalyzeExtractedPayloads(
   return results;
 }
 
-/** One-line summary for an extract tool's text output. */
+/** One-line summary for an extract tool's text output — including the rebuild verdict,
+ *  which is the half a caller previously had to obtain by driving assemble_source itself. */
 export function summarizeAutoChain(results: AutoChainItemResult[]): string {
   const done = results.filter((r) => r.status === "done").length;
   const failed = results.filter((r) => r.status === "failed").length;
   const skipped = results.filter((r) => r.status === "skipped").length;
-  return `Auto-disasm+analyse (L2): ${done} done, ${failed} failed, ${skipped} skipped of ${results.length}.`;
+  const verified = results.filter((r) => r.rebuild === "verified").length;
+  const diverged = results.filter((r) => r.rebuild === "diverged").length;
+  const unverified = results.filter((r) => r.rebuild === "unverified").length;
+  const head = `Auto-disasm+analyse (L2): ${done} done, ${failed} failed, ${skipped} skipped of ${results.length}.`;
+  if (done === 0) return head;
+  const rebuild = `Rebuild: ${verified} byte-identical, ${diverged} diverged, ${unverified} not verified.`;
+  const worst = diverged > 0
+    ? ` The diverged listings are not a faithful rendering of their bytes — read them before citing one: ${
+      results.filter((r) => r.rebuild === "diverged").slice(0, 5).map((r) => r.name ?? r.payloadId).join(", ")
+    }${diverged > 5 ? `, +${diverged - 5} more` : ""}.`
+    : unverified === done
+      ? " No listing was verified — the assembler could not be run (KickAssembler jar / java absent)."
+      : "";
+  return `${head}\n${rebuild}${worst}`;
 }
