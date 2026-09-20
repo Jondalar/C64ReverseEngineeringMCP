@@ -17,7 +17,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { DEFAULT_PATTERNS, registerProjectFiles } from "./registration.js";
-import { scanRegistrationDelta, matchesGlob, findUnimportedAnalysisArtifacts } from "../lib/registration-delta.js";
+import { scanRegistrationDelta, findUnimportedAnalysisArtifacts } from "../lib/registration-delta.js";
 import { howToDeclare, INVENTORY_PATTERNS_FILE, readInventoryDeclaration } from "../project-knowledge/inventory-patterns.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
@@ -70,6 +70,11 @@ export async function runProjectInventorySync(
   // and a project saying what its own directory holds outranks a shipped default.
   const declared = readInventoryDeclaration(projectRoot);
   if (declared.error) remainingProblems.push(declared.error);
+  // A declaration entry that could not be applied is named, with the entry index and
+  // what is allowed. It used to be dropped by a `typeof` filter without a word, so a
+  // project that wrote `kind: "annotations"` saw a file that looked accepted and
+  // changed nothing — and the only enum it was ever shown came from a different door.
+  for (const p of declared.problems) remainingProblems.push(p);
   const reg = registerProjectFiles(
     service,
     projectRoot,
@@ -168,17 +173,21 @@ export async function runProjectInventorySync(
   // The skipped list used to be hard-capped at ten AND counted from the capped list, so
   // the header said "Skipped (10)" for 616 files — a number that is always 10 is not a
   // number. The sample stays a sample; the count is the truth.
-  const delta = scanRegistrationDelta(projectRoot, 100000);
-  const intentional = delta.unregistered.filter((u) => declared.intentional.some((g) => matchesGlob(u, g)));
-  const unexplained = delta.unregistered.filter((u) => !intentional.includes(u));
+  //
+  // The split between "debt" and "the project said so" is made by the SHARED scan, not
+  // here: that is the whole of defect 3. `agent_record_step` and this facade read the
+  // same two numbers out of the same call, so they can no longer contradict each other
+  // about the same files.
+  const delta = scanRegistrationDelta(projectRoot, 100000, declared);
+  const unexplained = delta.unregistered;
   if (unexplained.length > 0) {
     remainingProblems.push(
       `${unexplained.length} file(s) on disk match no registration pattern (e.g. ${unexplained.slice(0, 3).join(", ")}).`,
       ...howToDeclare(unexplained),
     );
   }
-  if (intentional.length > 0) {
-    remainingProblems.push(`${intentional.length} further file(s) are declared intentional in ${INVENTORY_PATTERNS_FILE} and are not counted.`);
+  if (delta.declaredIntentionalCount > 0) {
+    remainingProblems.push(`${delta.declaredIntentionalCount} further file(s) are declared intentional in ${INVENTORY_PATTERNS_FILE} and are not counted.`);
   }
   skippedTotal += unexplained.length;
   for (const u of unexplained.slice(0, SKIPPED_SAMPLE)) {
