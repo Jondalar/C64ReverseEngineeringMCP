@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 291,
-  "defaultCount": 181,
+  "total": 292,
+  "defaultCount": 182,
   "advancedCount": 110,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -1984,6 +1984,22 @@
       "name": "model_remove",
       "namespace": "model",
       "sourceFile": "server-tools/model.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "General project analysis helper.",
+      "notFor": "Runtime work — use the runtime facade.",
+      "adjacentTools": [],
+      "e2eUseCases": [
+        "E2E-A"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "optimisation_candidates",
+      "namespace": "optimisation",
+      "sourceFile": "server-tools/optimise-tools.ts",
       "tier": "default",
       "role": "static-analysis",
       "swimlane": "disassembly-improve",

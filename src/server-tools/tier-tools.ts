@@ -216,6 +216,13 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // session gets wrong quietly. A tool is hidden until it is in this set, and an
   // instrument nobody can find is one nobody uses.
   "change_impact", "code_cost", "trace_cost",
+  // Spec 862 — the other half of the same question. `code_cost` prices a
+  // rewrite somebody already thought of; this one FINDS them, and refuses to
+  // show one without the same deterministic verdict attached. Default for the
+  // reason the three above are: reading a listing for redundant loads, dead
+  // `clc`s and page crossings is exactly the work a session does badly and
+  // slowly, and a tool nobody can see is a tool nobody uses.
+  "optimisation_candidates",
   // Spec 748 (BUG-032) — persistent project STEERING (the steering-file analogue):
   // always-apply rules injected at the top of agent_onboard every session.
   "project_steering_set",

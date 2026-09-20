@@ -120,6 +120,27 @@ export interface SymOptions {
   decimalAtEntry?: "clear" | "unknown";
   /** a suffix on every entry symbol, so two versions of the same code share them */
   entryTag?: string;
+  /**
+   * What is already known on entry, and therefore holds for BOTH versions.
+   *
+   * A window taken out of the middle of a block does not start on an unknown
+   * machine: the instructions before it may already have put a constant in a
+   * register or decided a flag. Seeding those facts is what lets a redundant
+   * `clc` or a second `lda #$01` be decided rather than left UNKNOWN — and the
+   * fact is carried with the verdict, because the verdict holds only under it.
+   *
+   * `nzFollow` is the one fact that is a RELATION rather than a constant: the
+   * instruction before the window loaded the register, so N and Z already say
+   * what a reload would say.
+   */
+  known?: KnownEntry;
+}
+
+export interface KnownEntry {
+  a?: number; x?: number; y?: number;
+  C?: 0 | 1; Z?: 0 | 1; N?: 0 | 1; V?: 0 | 1; D?: 0 | 1; I?: 0 | 1;
+  /** N and Z at entry already reflect this register's value */
+  nzFollow?: "A" | "X" | "Y";
 }
 
 const IO = (addr: number): boolean => addr >= 0xd000 && addr <= 0xdfff;
@@ -127,12 +148,27 @@ const hex4 = (a: number): string => `$${(a & 0xffff).toString(16).toUpperCase().
 
 export function initialState(options: SymOptions = {}): SymState {
   const d = options.decimalAtEntry === "unknown" ? S("D_in") : K(0);
-  return {
+  const st: SymState = {
     a: S("A_in"), x: S("X_in"), y: S("Y_in"),
     spDelta: 0,
     flags: { C: S("C_in"), Z: S("Z_in"), N: S("N_in"), V: S("V_in"), D: d, I: S("I_in") },
     mem: new Map(), writes: [], io: [], unknown: [], volatileReads: new Map(), order: 0,
   };
+  const known = options.known;
+  if (!known) return st;
+  if (known.a !== undefined) st.a = K(known.a);
+  if (known.x !== undefined) st.x = K(known.x);
+  if (known.y !== undefined) st.y = K(known.y);
+  for (const f of ["C", "Z", "N", "V", "D", "I"] as FlagName[]) {
+    const v = known[f];
+    if (v !== undefined) st.flags[f] = K(v);
+  }
+  if (known.nzFollow) {
+    const reg = known.nzFollow === "A" ? st.a : known.nzFollow === "X" ? st.x : st.y;
+    if (known.N === undefined) st.flags.N = nOf(reg);
+    if (known.Z === undefined) st.flags.Z = zOf(reg);
+  }
+  return st;
 }
 
 // --------------------------------------------------------------------- exec
@@ -217,6 +253,52 @@ export function execute(st: SymState, insn: Insn): boolean {
     return true;
   };
 
+  // The add/subtract and the compare, as pieces, because the undocumented
+  // read-modify-write opcodes below are literally "the RMW, then this".
+  const addSubtract = (m: "adc" | "sbc", v: Expr): void => {
+    const decimalKnownClear = isConst(st.flags.D) && st.flags.D.v === 0;
+    const carryIn = st.flags.C;
+    if (decimalKnownClear && isConst(carryIn)) {
+      // Binary mode with a known carry: the sum is arithmetic, so `clc/adc #$01`
+      // and `inc` reach the same expression. A subtraction of a constant is the
+      // same sum with the operand complemented; of anything else it stays opaque.
+      const value = m === "adc"
+        ? add(st.a, v, K(carryIn.v))
+        : isConst(v)
+          ? add(st.a, K(~v.v & 0xff), K(carryIn.v))
+          : op("sbc", st.a, v, carryIn);
+      st.flags.C = op(`${m}.C`, st.a, v, carryIn);
+      st.flags.V = op(`${m}.V`, st.a, v, carryIn);
+      st.a = value;
+    } else {
+      st.a = op(m, st.a, v, carryIn, st.flags.D);
+      st.flags.C = op(`${m}.C`, st.a, v, carryIn, st.flags.D);
+      st.flags.V = op(`${m}.V`, st.a, v, carryIn, st.flags.D);
+    }
+    setNZ(st.a);
+  };
+  const compareWith = (reg: Expr, v: Expr): void => {
+    st.flags.C = op("cmp.C", reg, v);
+    setNZ(op("cmp.R", reg, v));
+  };
+
+  /**
+   * An undocumented read-modify-write opcode: the RMW, then an ALU op on the
+   * value it just wrote. Written as the two halves it IS, so the fused opcode
+   * and the documented pair it replaces reach the SAME expression — which is
+   * what lets the equivalence check decide the rewrite instead of guessing.
+   * The RMW half never sets N and Z here: the ALU half overwrites them, in the
+   * chip and in the pair alike.
+   */
+  const fuse = (modify: (v: Expr) => Expr, alu: (v: Expr) => void): boolean => {
+    const ea = effectiveAddress(st, insn);
+    if (ea.addr === undefined) { st.unknown.push(ea.why ?? "a read-modify-write on an address that is not constant"); return false; }
+    const after = modify(readMem(st, ea.addr));
+    writeMem(st, ea.addr, after);
+    alu(after);
+    return true;
+  };
+
   if (SIMPLE_FLAG[m]) { const [f, v] = SIMPLE_FLAG[m]!; st.flags[f] = K(v); return true; }
 
   switch (m) {
@@ -255,33 +337,12 @@ export function execute(st: SymState, insn: Insn): boolean {
     }
     case "adc": case "sbc": {
       const v = operandValue(); if (!v) return true;
-      const decimalKnownClear = isConst(st.flags.D) && st.flags.D.v === 0;
-      const carryIn = st.flags.C;
-      if (decimalKnownClear && isConst(carryIn)) {
-        // Binary mode with a known carry: the sum is arithmetic, so `clc/adc #$01`
-        // and `inc` reach the same expression. A subtraction of a constant is the
-        // same sum with the operand complemented; of anything else it stays opaque.
-        const value = m === "adc"
-          ? add(st.a, v, K(carryIn.v))
-          : isConst(v)
-            ? add(st.a, K(~v.v & 0xff), K(carryIn.v))
-            : op("sbc", st.a, v, carryIn);
-        st.flags.C = op(`${m}.C`, st.a, v, carryIn);
-        st.flags.V = op(`${m}.V`, st.a, v, carryIn);
-        st.a = value;
-      } else {
-        st.a = op(m, st.a, v, carryIn, st.flags.D);
-        st.flags.C = op(`${m}.C`, st.a, v, carryIn, st.flags.D);
-        st.flags.V = op(`${m}.V`, st.a, v, carryIn, st.flags.D);
-      }
-      setNZ(st.a);
+      addSubtract(m, v);
       return true;
     }
     case "cmp": case "cpx": case "cpy": {
       const v = operandValue(); if (!v) return true;
-      const reg = m === "cmp" ? st.a : m === "cpx" ? st.x : st.y;
-      st.flags.C = op("cmp.C", reg, v);
-      setNZ(op("cmp.R", reg, v));
+      compareWith(m === "cmp" ? st.a : m === "cpx" ? st.x : st.y, v);
       return true;
     }
     case "inc": rmw((v) => { const r = add(v, K(1)); setNZ(r); return r; }); return true;
@@ -294,6 +355,18 @@ export function execute(st: SymState, insn: Insn): boolean {
     case "lsr": rmw((v) => { st.flags.C = op("bit0", v); const r = isConst(v) ? K(v.v >> 1) : op("lsr", v); setNZ(r); return r; }); return true;
     case "rol": rmw((v) => { const cin = st.flags.C; st.flags.C = op("bit7", v); const r = op("rol", v, cin); setNZ(r); return r; }); return true;
     case "ror": rmw((v) => { const cin = st.flags.C; st.flags.C = op("bit0", v); const r = op("ror", v, cin); setNZ(r); return r; }); return true;
+
+    // The six stable undocumented read-modify-writes, each the documented pair
+    // it fuses. Modelled so a rewrite into one can be DECIDED: `dec $10 / cmp
+    // $10` and `dcp $10` produce the same expression for every cell, register
+    // and flag, and the equivalence check says EQUIVALENT because it is.
+    case "dcp": fuse((v) => add(v, K(0xff)), (v) => compareWith(st.a, v)); return true;
+    case "isc": fuse((v) => add(v, K(1)), (v) => addSubtract("sbc", v)); return true;
+    case "slo": fuse((v) => { st.flags.C = op("bit7", v); return isConst(v) ? K((v.v << 1) & 0xff) : op("asl", v); }, (v) => { st.a = oraE(st.a, v); setNZ(st.a); }); return true;
+    case "sre": fuse((v) => { st.flags.C = op("bit0", v); return isConst(v) ? K(v.v >> 1) : op("lsr", v); }, (v) => { st.a = eorE(st.a, v); setNZ(st.a); }); return true;
+    case "rla": fuse((v) => { const cin = st.flags.C; st.flags.C = op("bit7", v); return op("rol", v, cin); }, (v) => { st.a = andE(st.a, v); setNZ(st.a); }); return true;
+    case "rra": fuse((v) => { const cin = st.flags.C; st.flags.C = op("bit0", v); return op("ror", v, cin); }, (v) => addSubtract("adc", v)); return true;
+
     default:
       st.unknown.push(`${m} is not modelled by the equivalence check`);
       return false;
@@ -304,6 +377,41 @@ export function runStraightLine(insns: readonly Insn[], options: SymOptions = {}
   const st = initialState(options);
   for (const insn of insns) execute(st, insn);
   return st;
+}
+
+/**
+ * Do N and Z already say what a reload of this register would say?
+ *
+ * The question a "this load is redundant" rewrite turns on: dropping a `lda`
+ * changes nothing when the flags it would set are the flags that are already
+ * there. Answered by comparing the expressions, not by pattern-matching the
+ * instruction before it.
+ */
+export function nzFollows(st: SymState): "A" | "X" | "Y" | undefined {
+  for (const [name, reg] of [["A", st.a], ["X", st.x], ["Y", st.y]] as const) {
+    if (key(st.flags.N) === key(nOf(reg)) && key(st.flags.Z) === key(zOf(reg))) return name;
+  }
+  return undefined;
+}
+
+/**
+ * What is constant about a machine state, as facts a later window can be
+ * seeded with. Registers and flags only: a memory cell the prefix wrote is
+ * deliberately NOT carried, because the window is then compared against itself
+ * with the same fresh symbol on both sides — less precise, never wrong.
+ */
+export function factsOf(st: SymState): KnownEntry {
+  const known: KnownEntry = {};
+  if (isConst(st.a)) known.a = st.a.v;
+  if (isConst(st.x)) known.x = st.x.v;
+  if (isConst(st.y)) known.y = st.y.v;
+  for (const f of ["C", "Z", "N", "V", "D", "I"] as FlagName[]) {
+    const e = st.flags[f];
+    if (isConst(e)) known[f] = (e.v ? 1 : 0) as 0 | 1;
+  }
+  const follows = nzFollows(st);
+  if (follows && known.N === undefined && known.Z === undefined) known.nzFollow = follows;
+  return known;
 }
 
 // ----------------------------------------------------------------- compare
