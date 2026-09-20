@@ -80,6 +80,27 @@ export interface SandboxRunOptions extends SandboxOptions {
   wantFrame?: boolean;
   /** Resolve a medium NAMED in an `I insert the ... "x.d64"` step to a path. */
   resolveMedium?: (named: string) => string;
+  /**
+   * Spec 861 §4.5 — record this run into a trace store.
+   *
+   * The capture starts once the machine is warmed and the medium is in: advance
+   * to a frame boundary, mark that boundary (the anchor every raster position
+   * is counted from), record for the whole schedule, and finalize into the
+   * store. No new runtime operation — `trace/start_domains`, `trace/run/mark`
+   * and `trace/run/stop` are the ones the live session already uses.
+   */
+  trace?: {
+    /** absolute path of the `.duckdb` index to write (its `.c64retrace` lands beside it) */
+    output: string;
+    /** default: the cpu and mem channels, which is what §4.1's arithmetic reads */
+    domains?: readonly string[];
+    /**
+     * Start recording only after this many steps have run. The window is the
+     * caller's choice (§4.5): a capture that begins at the medium records the
+     * whole load, and what is being measured is usually what happens after it.
+     */
+    afterSteps?: number;
+  };
 }
 
 export interface SandboxRunResult {
@@ -105,6 +126,13 @@ export interface SandboxRunResult {
   /** Set when the sandbox ended ITSELF — the budget, or the daemon dying. */
   readonly endedBecause: string | null;
   readonly elapsedMs: number;
+  /** Spec 861 §4.5 — the capture, when one was asked for. */
+  readonly trace?: {
+    readonly storePath: string;
+    readonly runId: string;
+    readonly events: number;
+    readonly anchor: { clock: number; line: number; cycle: number; cyclesPerLine: number; linesPerFrame: number };
+  };
 }
 
 interface MachineState {
@@ -322,7 +350,38 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       }
     }
 
+    // Spec 861 §4.5 — the capture. It opens HERE: the machine is warmed and the
+    // medium is in, so the window is the schedule and nothing else. The frame
+    // boundary is taken first and marked, because every raster position in the
+    // evaluation is counted from it — a capture with no anchor can still be
+    // evaluated for cycles, but not for lines.
+    let trace: SandboxRunResult["trace"] | undefined;
+    const startRecordingBefore = Math.max(0, Math.min(opts.trace?.afterSteps ?? 0, opts.steps.length));
+    const startRecording = async (): Promise<void> => {
+      if (!opts.trace) return;
+      const boundary = await box.call<{ c64Cycles?: number; rasterLine?: number; rasterCycle?: number }>("session/advance_to_frame");
+      await readMachine();
+      resync();
+      const started = await box.call<{ run?: { runId?: string }; outputPath?: string }>("trace/start_domains", {
+        domains: [...(opts.trace.domains ?? ["c64-cpu", "memory"])],
+        output: opts.trace.output,
+      });
+      const anchor = {
+        clock: boundary.c64Cycles ?? at,
+        line: boundary.rasterLine ?? 0,
+        cycle: boundary.rasterCycle ?? 0,
+        cyclesPerLine: machine!.cyclesPerLine,
+        linesPerFrame: machine!.linesPerFrame,
+      };
+      const { anchorLabel } = await import("../cost/trace-cost.js");
+      await box.call("trace/run/mark", { label: anchorLabel(anchor) });
+      trace = { storePath: started.outputPath ?? opts.trace.output, runId: started.run?.runId ?? "", events: 0, anchor };
+      log.push(`recording into ${trace.storePath} from the frame boundary at cycle ${anchor.clock} (line ${anchor.line}, cycle ${anchor.cycle})`);
+    };
+    if (startRecordingBefore === 0) await startRecording();
+
     for (const [i, step] of opts.steps.entries()) {
+      if (i === startRecordingBefore && i > 0) await startRecording();
       switch (step.kind) {
         case "wait":
           await runCycles(waitCycles(step, F));
@@ -423,6 +482,16 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       }
     }
 
+    // Spec 861 §4.5 — close the capture and build its index NOW. `wait_index`
+    // is the difference between a store and a store somebody can query: without
+    // it the index builds in the background and the evaluation that follows this
+    // call reads an empty one.
+    if (opts.trace && trace) {
+      const stopped = await box.call<{ run?: { eventCount?: number }; status?: unknown }>("trace/run/stop", { wait_index: true });
+      trace = { ...trace, events: Number(stopped.run?.eventCount ?? 0) };
+      log.push(`capture finalized: ${trace.events} events in ${trace.storePath}`);
+    }
+
     // ── the report ────────────────────────────────────────────────────────────
     let frame: { bytes: Uint8Array; width: number; height: number } | undefined;
     if (opts.wantFrame && coreOnly) {
@@ -461,7 +530,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     return {
       port: box.port,
       machine: machineIdentity(end),
-      log, waits, reads, frame, screenRows, screenUnreadable,
+      log, waits, reads, frame, screenRows, screenUnreadable, trace,
       endCycle: end.c64Cycles,
       pc: end.cpu.pc,
       cpu: {

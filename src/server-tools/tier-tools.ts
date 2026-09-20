@@ -209,6 +209,13 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Spec 823 — the knowledge graph's five doors (817–822 build the graph; these
   // are the only tools over it). Thin by gate: parse → one library call → format.
   "graph_find", "graph_node", "graph_edges", "graph_path", "graph_overview",
+  // Spec 861 — the cost of a change. All three are default for the reason the
+  // graph tools are: they REPLACE work that is otherwise done by hand and badly.
+  // Counting cycles off a listing, guessing who a patch breaks, and eyeballing
+  // whether two versions of a block are the same are exactly the three things a
+  // session gets wrong quietly. A tool is hidden until it is in this set, and an
+  // instrument nobody can find is one nobody uses.
+  "change_impact", "code_cost", "trace_cost",
   // Spec 748 (BUG-032) — persistent project STEERING (the steering-file analogue):
   // always-apply rules injected at the top of agent_onboard every session.
   "project_steering_set",
