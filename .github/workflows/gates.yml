@@ -311,3 +311,22 @@ jobs:
       # rebuild half needs KickAssembler and skips loudly without it, like e2e:830.
       - name: Thirteen tooling defects (BUG-054)
         run: npm run e2e:tooling-defects
+
+      # The address rule has been written down twice and drifted twice. It now lives
+      # in one body of code, and this is what keeps it one: the CommonJS twin is
+      # generated from it, the two COMPILED halves are run over a corpus and must
+      # answer identically, and a third copy — a re-statement in a string, or an
+      # inline parseInt on an address or a count in any door of the disassembly
+      # family — fails the gate by file and line. Pure source and dist; hermetic.
+      - name: One address rule, not three
+        run: npm run check:address-rule
+
+      # Six defects a second autonomous run wrote down against the disassembly
+      # family: the shared address rule, a window inheriting the whole file's
+      # analysis, an analysis named outright losing to the sidecar, disasm_raw's
+      # names never reaching the graph, a project's 500 owner names in every
+      # answer, and an unrenderable packed stream with no remedy in its message.
+      # Hermetic: temp projects, synthetic bytes, a synthetic graph.sqlite. The
+      # rebuild half needs KickAssembler and skips loudly without it, like e2e:830.
+      - name: The disassembly family
+        run: npm run e2e:disasm-family
