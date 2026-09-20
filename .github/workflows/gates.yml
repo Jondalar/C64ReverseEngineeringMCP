@@ -311,3 +311,15 @@ jobs:
       # rebuild half needs KickAssembler and skips loudly without it, like e2e:830.
       - name: Thirteen tooling defects (BUG-054)
         run: npm run e2e:tooling-defects
+
+      # A second autonomous run put five more defects into doors these two gates
+      # already own: a terminator that ended a table at row 0 without saying so, and
+      # `at` / `at_lo` / `at_hi` carrying no description of what an address MEANS on a
+      # disk; and a document demand naming a whole medium, which the contract could
+      # state but never satisfy. Both hermetic — temp projects, synthetic bytes, no
+      # media and no runtime — and neither ran here before.
+      - name: A described table resolves its rows (Spec 750.2)
+        run: npm run e2e:750-lut
+
+      - name: The contract, checked (Spec 848)
+        run: npm run e2e:848-contract
