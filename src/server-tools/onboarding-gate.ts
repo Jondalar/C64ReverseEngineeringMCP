@@ -36,6 +36,23 @@ export function markOnboarded(projectRoot: string): void {
   onboarded.add(resolve(projectRoot));
 }
 
+/**
+ * The project this session onboarded into, when there is exactly one.
+ *
+ * `project_dir` is optional on every tool, and omitting it used to resolve from
+ * `process.cwd()` — which for a globally configured MCP server is the MCP repo, so the
+ * call died with "Resolved to the MCP repo itself" even though the session had just
+ * onboarded into a project. Onboarding is the session SAYING which project it is in;
+ * a tool that then asks again is asking a question already answered.
+ *
+ * Only when there is exactly one. Two onboarded roots is genuine ambiguity and the
+ * resolver keeps its old behaviour, which ends in an error that names the problem —
+ * better than silently picking the wrong project.
+ */
+export function soleOnboardedProject(): string | undefined {
+  return onboarded.size === 1 ? [...onboarded][0] : undefined;
+}
+
 export function isOnboarded(projectRoot: string): boolean {
   return onboarded.has(resolve(projectRoot));
 }

@@ -9,6 +9,7 @@ import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 import { validateManifest, mediumDerivationForKind, chainCoverageWarning } from "./loader-manifest.js";
 import { registerManifestPayloads } from "./manifest-register.js";
+import { findPayloadEntity, listPayloadEntities } from "../project-knowledge/payload-kinds.js";
 
 const PAYLOAD_FORMATS = [
   "raw", "prg",
@@ -201,7 +202,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         const srcPath = service.listArtifacts().find((a) => a.id === sourceArtifactId)?.path;
         if (srcPath && existsSync(srcPath)) fileBytes = statSync(srcPath).size;
       }
-      const coverageWarn = chainCoverageWarning(entity.name, fileBytes, args.medium_spans ?? []);
+      const coverageWarn = chainCoverageWarning(entity.name, fileBytes, args.medium_spans ?? [], { format: args.format, packer: args.packer });
       return textContent([
         `Payload registered.`,
         `ID: ${entity.id}`,
@@ -426,8 +427,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       // Spec 784 (GAP 2): count every payload-bearing entity kind (a DOS file is a
       // `disk-file`, a cart chunk `cart-chunk`, etc.), not only `payload` — else a
       // kernal-directory model's DOS files read as 0.
-      const payloadKinds = new Set(["payload", "disk-file", "cart-chunk", "chip"]);
-      const payloads = service.listEntities().filter((e) => payloadKinds.has(e.kind));
+      const payloads = listPayloadEntities(service);
       const lines = [`${models.length} LoaderModel(s):`];
       for (const m of models) {
         const n = payloads.filter((p) => p.payloadLoaderModelId === m.id).length;
@@ -450,8 +450,9 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
     safeHandler("link_payload_to_lut_row", async (args) => {
       const projectRoot = ctx.projectDir(args.project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
-      const payload = service.listEntities({ kind: "payload" }).find((e) => e.id === args.payload_id);
-      if (!payload) throw new Error(`No payload with id ${args.payload_id}`);
+      const found = findPayloadEntity(service, args.payload_id);
+      if ("refusal" in found) throw new Error(found.refusal);
+      const payload = found.payload;
       const lut = service.getLutDescriptor(args.descriptor_id);
       if (!lut) throw new Error(`No table ${args.descriptor_id}. Describe it first with declare_lut_descriptor, or list them with list_lut_descriptors.`);
       if (lut.rowCount !== undefined && args.row_index >= lut.rowCount) {
@@ -459,7 +460,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       }
       service.saveEntity({
         id: payload.id,
-        kind: "payload",
+        kind: payload.kind,
         name: payload.name,
         payloadClaimedByLutId: lut.id,
         payloadClaimedByRow: args.row_index,
@@ -481,13 +482,14 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       const slotGate = await (await import("../slots/gate.js")).checkSlotGate("link_payload_to_asm", projectRoot);
       if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
       const service = new ProjectKnowledgeService(projectRoot);
-      const payload = service.listEntities({ kind: "payload" }).find((e) => e.id === args.payload_id);
-      if (!payload) throw new Error(`No payload with id ${args.payload_id}`);
+      const found = findPayloadEntity(service, args.payload_id);
+      if ("refusal" in found) throw new Error(found.refusal);
+      const payload = found.payload;
       const next = new Set(payload.payloadAsmArtifactIds ?? []);
       next.add(args.asm_artifact_id);
       service.saveEntity({
         id: payload.id,
-        kind: "payload",
+        kind: payload.kind,
         name: payload.name,
         payloadAsmArtifactIds: [...next],
       });
@@ -507,13 +509,14 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
     safeHandler("link_payload_to_runtime", async (args) => {
       const projectRoot = ctx.projectDir(args.project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
-      const payload = service.listEntities({ kind: "payload" }).find((e) => e.id === args.payload_id);
-      if (!payload) throw new Error(`No payload with id ${args.payload_id}`);
+      const found = findPayloadEntity(service, args.payload_id);
+      if ("refusal" in found) throw new Error(found.refusal);
+      const payload = found.payload;
       const artifactIds = new Set(payload.artifactIds);
       artifactIds.add(args.trace_artifact_id);
       service.saveEntity({
         id: payload.id,
-        kind: "payload",
+        kind: payload.kind,
         name: payload.name,
         artifactIds: [...artifactIds],
         payloadLoadAddress: args.load_address ?? payload.payloadLoadAddress,
@@ -533,7 +536,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
     safeHandler("list_payloads", async (args) => {
       const projectRoot = ctx.projectDir(args.project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
-      const all = service.listEntities({ kind: "payload" });
+      const all = listPayloadEntities(service);
       const filtered = args.format ? all.filter((p) => p.payloadFormat === args.format) : all;
       const slice = filtered.slice(0, args.limit ?? 100);
       const lines: string[] = [];
@@ -572,7 +575,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       const service = new ProjectKnowledgeService(projectRoot);
       const cartView = service.buildCartridgeLayoutView().view;
       const existingTags = new Set<string>();
-      for (const entity of service.listEntities({ kind: "payload" })) {
+      for (const entity of listPayloadEntities(service)) {
         for (const tag of entity.tags ?? []) {
           if (tag.startsWith("cart-chunk:")) existingTags.add(tag);
         }

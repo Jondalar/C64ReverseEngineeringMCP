@@ -10,6 +10,7 @@ import { resolve } from "node:path";
 import { hasProjectMarker } from "../project-root.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { isToolAllowedInPhase, PHASE_TITLES, type PhaseNumber } from "../agent-orchestrator/phase-tools.js";
+import { isPayloadEntity } from "../project-knowledge/payload-kinds.js";
 
 export interface PhaseGateContext {
   projectDir: (hint?: string, requireWritable?: boolean) => string;
@@ -52,8 +53,7 @@ function resolveArtifactFromArgs(service: ProjectKnowledgeService, projectDir: s
   if (typeof a.artifact_id === "string") candidates.push(a.artifact_id);
   // Resolve payload_id → artifact via payload entity
   if (typeof a.payload_id === "string") {
-    const payloadEntities = service.listEntities({ kind: "payload" });
-    const e = payloadEntities.find((entity) => entity.id === a.payload_id);
+    const e = service.listEntities().filter(isPayloadEntity).find((entity) => entity.id === a.payload_id);
     if (e?.payloadSourceArtifactId) candidates.push(e.payloadSourceArtifactId);
     else if (e?.artifactIds[0]) candidates.push(e.artifactIds[0]);
   }
