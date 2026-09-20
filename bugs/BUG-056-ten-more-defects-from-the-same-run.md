@@ -122,6 +122,5 @@ Two gates holding real checks — `e2e:750-lut` and `e2e:848-contract` — were 
   never joins a version group.
 - `basic_tokenize` is the only MCP door with no parent-side registration, so the
   pipeline child cannot stop writing the store until that is built.
-- `src/lib/prg-workflow.ts` carries BUG-055's positional slot shift verbatim on
-  the L2 auto-chain; the pipeline's new fallback covers it, the one-line fix
-  does not exist yet.
+- ~~`src/lib/prg-workflow.ts` carries BUG-055's positional slot shift~~ — fixed
+  the same day: the L2 auto-chain passes the analysis by name (`--analysis`).

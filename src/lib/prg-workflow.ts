@@ -190,8 +190,11 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
 
   if (!blocked) {
     const disasmArgs = [prgAbs, asmPath];
+    // The analysis goes in by NAME. It used to be pushed as the third positional,
+    // which is the entry-point slot whenever `entries` is empty — the shift that
+    // made an explicit analysis lose to the stem-matched sidecar (BUG-055).
     if (entries) disasmArgs.push(entries);
-    if (existsSync(analysisPath)) disasmArgs.push(analysisPath);
+    if (existsSync(analysisPath)) disasmArgs.push("--analysis", analysisPath);
     const disasmRun = await runCli("disasm-prg", disasmArgs, { projectDir: projectRoot });
     if (disasmRun.exitCode !== 0) {
       phases.push({ phase: "disasm", status: "blocked", reason: disasmRun.stderr || "disasm-prg failed", log: disasmRun.stdout });
