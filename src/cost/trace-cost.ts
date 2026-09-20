@@ -62,20 +62,29 @@ export function parseAnchorLabel(label: string, clock: number): Anchor | null {
   return { clock, line, cycle, cyclesPerLine: cpl, linesPerFrame: lpf };
 }
 
-/** Which raster line and cycle a clock lands on, counted from the anchor. */
+/**
+ * Which raster line and cycle a clock lands on, counted from the anchor.
+ *
+ * The cycle is 1..63, which is how a VIC-II raster chart, vicspector and 859's
+ * own record number them; the anchor's own `cycle` comes from the runtime's
+ * raster counter, which is 0-based. Verified against 859 on the same machine and
+ * the same store: the line and the cycle are the ones it records.
+ */
 export function rasterAt(anchor: Anchor, clock: number): { line: number; cycle: number; frame: number } {
   const frameCycles = anchor.cyclesPerLine * anchor.linesPerFrame;
   const fromFrameStart = anchor.line * anchor.cyclesPerLine + anchor.cycle;
   const pos = clock - anchor.clock + fromFrameStart;
   const frame = Math.floor(pos / frameCycles);
   const inFrame = ((pos % frameCycles) + frameCycles) % frameCycles;
-  return { line: Math.floor(inFrame / anchor.cyclesPerLine), cycle: inFrame % anchor.cyclesPerLine, frame };
+  return { line: Math.floor(inFrame / anchor.cyclesPerLine), cycle: (inFrame % anchor.cyclesPerLine) + 1, frame };
 }
 
 // --------------------------------------------------------------- evaluation
 
 export interface Instance {
   seq: number;
+  /** the trace row's clock: the instruction's last cycle */
+  clock: number;
   pc: number;
   opcode: number;
   mnemonic: string;
@@ -224,7 +233,7 @@ export function evaluateTrace(
     const theft = staticCycles === null ? 0 : delta - staticCycles - entryCycles;
     const raster = anchor ? rasterAt(anchor, row.clock) : null;
     const instance: Instance = {
-      seq: row.seq, pc: row.pc, opcode: row.opcode,
+      seq: row.seq, clock: row.clock, pc: row.pc, opcode: row.opcode,
       mnemonic: disasm6502((a) => [row.opcode, row.b1, row.b2][(a - row.pc) & 0xffff] ?? 0, row.pc).mnemonic,
       measured: delta, staticCycles, exact, entryCycles, stolen: theft,
       line: raster ? raster.line : null, cycleInLine: raster ? raster.cycle : null,

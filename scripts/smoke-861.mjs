@@ -53,6 +53,8 @@ const { captureRun } = await import(join(ROOT, "dist/cost/capture.js"));
 const { evaluateTrace, rasterAt } = await import(join(ROOT, "dist/cost/trace-cost.js"));
 const { resolveDaemonSpawn } = await import(join(ROOT, "dist/runtime/resolve-daemon-spawn.js"));
 const { buildD64 } = await import(join(ROOT, "dist/disk/d64-builder.js"));
+const { Session, lineTraceFrame } = await import(join(ROOT, "scripts/lib/spec861-session.mjs"));
+const startSession = () => Session.start(work, { resolveDaemonSpawn, repoRoot: ROOT });
 
 const work = mkdtempSync(join(tmpdir(), "c64re-861-"));
 
@@ -161,30 +163,6 @@ async function evaluate(storePath, { cpu = "c64", range } = {}) {
   };
 }
 
-/** `vic/line_trace` (859) for a window of lines, off a checkpoint of a fresh run. */
-async function lineTrace(port, checkpointId, from, to) {
-  return rpc(port, "vic/line_trace", { checkpoint_id: checkpointId, from, to });
-}
-
-function rpc(port, method, params) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
-    let id = 1;
-    const timer = setTimeout(() => { try { ws.close(); } catch { /* */ } reject(new Error(`${method} timed out`)); }, 60000);
-    ws.once("error", (e) => { clearTimeout(timer); reject(e); });
-    ws.once("open", () => ws.send(JSON.stringify({ jsonrpc: "2.0", id, method, params: { session_id: "integrated-1", ...params } })));
-    ws.on("message", (buf) => {
-      let m;
-      try { m = JSON.parse(buf.toString()); } catch { return; }
-      if (m.id !== id) return;
-      clearTimeout(timer);
-      try { ws.close(); } catch { /* */ }
-      if (m.error) reject(new Error(m.error.message ?? JSON.stringify(m.error)));
-      else resolve(m.result);
-    });
-  });
-}
-
 try {
   await waitForReader();
   console.log(`  reader daemon on port ${readerPort} (${readerPlan.mode}) — the shared machine is not touched\n`);
@@ -218,6 +196,122 @@ try {
       wrong.map(({ op, at, seen }) => `$${op.toString(16)} at ${hex4(at)}: ${seen ? `${seen.measured}/${seen.staticCycles}` : "never ran"}`).join("; "));
     const jam = offEval.report.instances.filter((i) => i.staticCycles === null);
     check(jam.length === 0, "no instance ran an opcode the table has no cycles for");
+  }
+  // ─────────────────────────────────────────────────────────── §7.2
+  console.log("\n§7.2 — the same bytes with the display on: where the VIC's cycles went");
+  {
+    const on = exerciser({ displayOn: true });
+    const disk = diskWith("EX", on);
+    const session = await startSession();
+    try {
+      await session.boot(disk, on.entry);
+      await session.pressSpace();
+
+      const boundary = await session.call("session/advance_to_frame");
+      const anchor = {
+        clock: boundary.c64Cycles, line: boundary.rasterLine ?? 0, cycle: boundary.rasterCycle ?? 0,
+        cyclesPerLine: 63, linesPerFrame: 312,
+      };
+      const out = join(work, "exerciser-on.duckdb");
+      await session.call("trace/start_domains", { domains: ["c64-cpu", "memory"], output: out });
+      const { anchorLabel } = await import(join(ROOT, "dist/cost/trace-cost.js"));
+      await session.call("trace/run/mark", { label: anchorLabel(anchor) });
+      await session.runFrames(3);
+      await session.call("trace/run/stop", { wait_index: true });
+
+      // The checkpoint's picture is the frame that just ended — which is inside
+      // the window that was being recorded a moment ago. Same machine, same frame.
+      const cp = await session.call("checkpoint/capture", { source: "smoke" });
+      const cpId = cp?.ref?.id ?? cp?.id ?? cp?.checkpointId;
+      check(!!cpId, "a checkpoint of the running machine, for 859 to replay", cpId ?? JSON.stringify(cp).slice(0, 120));
+      const head = await session.call("vic/line_trace", { checkpoint_id: cpId, from: 0, to: 0 });
+      const frame = head.frame ?? {};
+      const lines = await lineTraceFrame(session, cpId, frame.linesPerFrame ?? 312);
+      const cpl = frame.cyclesPerLine ?? 63;
+      const startClk = Number(frame.startClk);
+
+      const evalOn = await evaluate(out);
+      const frameCycles = cpl * (frame.linesPerFrame ?? 312);
+      const window = evalOn.report.instances.filter((i) => i.clock >= startClk && i.clock < startClk + frameCycles);
+      check(window.length > 1000, `${window.length} instances inside the very frame 859 replayed (${frame.which}, from clock ${startClk})`);
+
+      // What 859 says the VIC took: every cycle of that frame where the CPU did
+      // not have the bus.
+      // "The CPU did not have this cycle" is exactly: no CPU bus access happened
+      // in it. Read that way rather than off a BA or AEC flag, whose polarity is
+      // a convention — this is the thing itself.
+      let blocked = 0;
+      const badLines = new Set();
+      for (const [line, rec] of lines) {
+        blocked += (rec.cycles ?? []).filter((c) => (c.cpu ?? []).length === 0).length;
+        if (rec.badLine) badLines.add(line);
+      }
+      check(badLines.size > 20, `859 records ${badLines.size} bad lines in that frame — the display really is on`);
+      const stolen = window.reduce((a, i) => a + i.stolen, 0);
+      check(stolen === blocked, `the cycles the arithmetic calls stolen are the cycles 859 says the CPU did not have: ${stolen} against ${blocked}`);
+
+      const stolenLines = new Set(window.filter((i) => i.stolen !== 0).map((i) => i.line));
+      const notBad = [...stolenLines].filter((l) => !badLines.has(l));
+      check(notBad.length === 0, "every line with stolen cycles is a line 859 calls a bad line", notBad.slice(0, 8).join(", "));
+      const perLine = [...stolenLines].map((l) => window.filter((i) => i.line === l).reduce((a, i) => a + i.stolen, 0));
+      check(perLine.every((n) => n >= 38 && n <= 46), `each bad line costs about forty cycles: ${Math.min(...perLine)}..${Math.max(...perLine)}`);
+    } finally {
+      session.close();
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────── §7.4
+  console.log("\n§7.4 — the raster anchor: a store placed on the line it happened on");
+  {
+    const rw = rasterWriter({ line: 0x64 });
+    const disk = diskWith("EX", rw);
+    const session = await startSession();
+    try {
+      await session.boot(disk, rw.entry);
+      const boundary = await session.call("session/advance_to_frame");
+      const anchor = {
+        clock: boundary.c64Cycles, line: boundary.rasterLine ?? 0, cycle: boundary.rasterCycle ?? 0,
+        cyclesPerLine: 63, linesPerFrame: 312,
+      };
+      const out = join(work, "raster.duckdb");
+      await session.call("trace/start_domains", { domains: ["c64-cpu", "memory"], output: out });
+      const { anchorLabel } = await import(join(ROOT, "dist/cost/trace-cost.js"));
+      await session.call("trace/run/mark", { label: anchorLabel(anchor) });
+      await session.runFrames(3);
+      await session.call("trace/run/stop", { wait_index: true });
+      const cp = await session.call("checkpoint/capture", { source: "smoke" });
+      const cpId = cp?.ref?.id ?? cp?.id ?? cp?.checkpointId;
+      const head = await session.call("vic/line_trace", { checkpoint_id: cpId, from: 0, to: 0 });
+      const frame = head.frame ?? {};
+      const startClk = Number(frame.startClk);
+      const cpl = frame.cyclesPerLine ?? 63;
+
+      const ev = await evaluate(out);
+      const frameCycles = cpl * (frame.linesPerFrame ?? 312);
+      const stores = ev.report.instances.filter(
+        (i) => i.opcode === 0x8d && i.clock >= startClk && i.clock < startClk + frameCycles
+          && ev.rows.some((r) => r.seq === i.seq && (r.b1 | (r.b2 << 8)) === 0xd020),
+      );
+      check(stores.length === 1, `exactly one store to $D020 in the frame 859 replayed (${stores.length})`);
+
+      const mine = stores[0];
+      check(!!mine && mine.line === rw.line, `the anchor puts it on raster line ${rw.line}`, mine ? `line ${mine.line} cycle ${mine.cycleInLine}` : "not evaluated");
+
+      const window = await session.call("vic/line_trace", { checkpoint_id: cpId, from: Math.max(0, rw.line - 2), to: rw.line + 2 });
+      let seen = null;
+      for (const line of window.lines ?? []) {
+        for (const c of line.cycles ?? []) {
+          // 859 names a CPU write "w" (f = fetch, dr = dummy read, r = read).
+          if ((c.cpu ?? []).some((a) => a.a === 0xd020 && String(a.k) === "w")) seen = { line: line.line, cycle: c.c, clk: Number(c.clk) };
+        }
+      }
+      check(!!seen, "859 records the same store", seen ? `line ${seen.line} cycle ${seen.cycle}` : "859 saw no write to $D020 on those lines");
+      check(!!seen && !!mine && seen.line === mine.line && seen.cycle === mine.cycleInLine,
+        "…on the same line AND the same cycle of that line — the anchor and 859 agree",
+        seen && mine ? `861: line ${mine.line} cycle ${mine.cycleInLine} · 859: line ${seen.line} cycle ${seen.cycle}` : "");
+    } finally {
+      session.close();
+    }
   }
 } catch (e) {
   check(false, "the harness", e instanceof Error ? `${e.message}` : String(e));
