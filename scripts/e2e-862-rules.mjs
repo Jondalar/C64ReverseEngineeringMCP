@@ -503,6 +503,16 @@ try {
   {
     check(/matched .* proposed .* dropped NOT EQUIVALENT .* not formed .* UNKNOWN/.test(report), "§6 every rule carries its own counters", counterLine(report, "tail-call").trim());
     check(/ranked by what each change saves once/.test(report), "§2 without a trace the report says it has no frequency to go on");
+    check(
+      /impact: \d+ reach it directly, \d+ depend on it, \d+ UNKNOWN, \d+ claim\(s\) would need re-reading/.test(report),
+      "§5 every candidate carries the impact walk's summary",
+      report.split("\n").find((l) => l.includes("impact:"))?.trim() ?? "(no candidate carries one)",
+    );
+    check(
+      /impact: [1-9]\d* reach it directly/.test(report),
+      "…and it is a real walk: the tail call's own routine is reached by the caller the graph knows",
+      report.split("\n").filter((l) => l.includes("impact:")).slice(0, 3).map((l) => l.trim()).join(" | "),
+    );
     check(/nothing here is applied/.test(report), "…and that nothing was applied");
   }
 } catch (e) {
