@@ -66,6 +66,35 @@ export function resolveGraphPath(projectDir?: string): { projectDir: string; pat
   return { projectDir: dir, path: resolve(dir, "knowledge", "graph.sqlite") };
 }
 
+/**
+ * "seeded owners: …", cut to what a caller can act on.
+ *
+ * This string is stored in the analysis JSON as `codeSeedReport.reason`, and from
+ * there it is printed into every analyze_prg answer, every disasm_prg answer and
+ * every listing header. On a project with ~500 owners that is thousands of
+ * characters per artifact, repeated across hundreds of payloads — by a wide margin
+ * the largest single context cost of an autonomous run, and not one of the names was
+ * actionable. What IS actionable: how many there are, and the ones whose names are
+ * closest to the one that was asked for, because the usual cause is a near miss.
+ *
+ * `C64RE_GRAPH_SEED_OWNERS=full` prints the whole list.
+ */
+function describeSeededOwners(owners: string[], wanted: string): string {
+  if (owners.length === 0) return "seeded owners: none";
+  if (process.env.C64RE_GRAPH_SEED_OWNERS === "full" || owners.length <= 6) {
+    return `seeded owners: ${owners.join(", ")}`;
+  }
+  const stem = wanted.replace(/[^a-z0-9]+/giu, "");
+  const score = (candidate: string): number => {
+    const other = candidate.toLowerCase().replace(/[^a-z0-9]+/giu, "");
+    let shared = 0;
+    while (shared < stem.length && shared < other.length && stem[shared] === other[shared]) shared += 1;
+    return shared;
+  };
+  const near = [...owners].sort((a, b) => score(b) - score(a) || a.localeCompare(b)).slice(0, 3);
+  return `${owners.length} owners are seeded, closest by name: ${near.join(", ")} (C64RE_GRAPH_SEED_OWNERS=full lists them all)`;
+}
+
 function addressOfId(id: string): { address: number; kind: string } | undefined {
   const parts = id.split(":");
   const last = parts[parts.length - 1] ?? "";
@@ -91,7 +120,7 @@ export function loadAccessEdges(options: { projectDir?: string; owner: string })
       .all(owner) as Array<{ type: AccessEdgeType; to_id: string; evidence: string }>;
     if (rows.length === 0) {
       const owners = (db.prepare("SELECT DISTINCT owner FROM edges WHERE producer = '820' ORDER BY owner").all() as Array<{ owner: string }>).map((r) => r.owner);
-      return { status: "absent", owner, path, reason: `${path} holds no Spec 820 rows for owner "${owner}" (seeded owners: ${owners.length ? owners.join(", ") : "none"}) — c64re graph seed --owner ${owner}` };
+      return { status: "absent", owner, path, reason: `${path} holds no Spec 820 rows for owner "${owner}" (${describeSeededOwners(owners, owner)}) — c64re graph seed --owner ${owner}` };
     }
     const edges: AccessEdge[] = [];
     for (const row of rows) {
@@ -177,7 +206,7 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
     const mine = db.prepare("SELECT id FROM nodes WHERE owner = ? ORDER BY id LIMIT 1").all(owner) as Array<{ id: string }>;
     if (mine.length === 0) {
       const owners = (db.prepare("SELECT DISTINCT owner FROM nodes WHERE owner IS NOT NULL ORDER BY owner").all() as Array<{ owner: string }>).map((r) => r.owner);
-      return { status: "absent", owner, path, reason: `${path} holds no nodes for owner "${owner}" (seeded owners: ${owners.length ? owners.join(", ") : "none"}) — c64re graph seed --owner ${owner}` };
+      return { status: "absent", owner, path, reason: `${path} holds no nodes for owner "${owner}" (${describeSeededOwners(owners, owner)}) — c64re graph seed --owner ${owner}` };
     }
     const space = ctxSpaceOfId(mine[0]!.id) ?? "ram";
     const inRange = (a: number): boolean => a >= lo && a <= hi;
