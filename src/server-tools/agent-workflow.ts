@@ -259,7 +259,7 @@ function proposeNextActions(service: ProjectKnowledgeService, state: AgentState,
       rank: candidates.length,
       source: "unimported-analysis",
       reason: `${unimportedAnalysis} analysis-run artifact(s) registered but never imported into entities/findings`,
-      suggestion: `Run bulk_import_analysis_reports — closes the loadSequence/Memory-Map "Payload focus" gap so stages back-link to entities.`,
+      suggestion: `Run project_inventory_sync — it back-fills the analysis runs and closes the loadSequence/Memory-Map "Payload focus" gap so stages back-link to entities.`,
     });
   }
 
@@ -596,7 +596,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         lines.push(``);
         lines.push(`⚠ ${unimportedAnalysis} analysis-run artifact(s) are registered but never imported.`);
         lines.push(`  Their entities/findings/relations are missing from the knowledge layer.`);
-        lines.push(`  Run bulk_import_analysis_reports to back-fill — closes the Memory-Map / loadSequence Payload-Focus gap.`);
+        lines.push(`  Run project_inventory_sync to back-fill — closes the Memory-Map / loadSequence Payload-Focus gap.`);
       }
       lines.push(``);
       lines.push(`## History (last ${Math.min(HISTORY_RENDERED, state.history.length)} of ${state.history.length})`);
@@ -731,7 +731,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       if (unimportedAnalysis > 0) {
         out.push(``);
         out.push(`⚠ ${unimportedAnalysis} analysis-run artifact(s) registered but not imported into entities.`);
-        out.push(`  Run bulk_import_analysis_reports to back-fill the knowledge layer.`);
+        out.push(`  Run project_inventory_sync to back-fill the knowledge layer.`);
       }
       // Spec 034 reminder loop: every record_step ends pointing at
       // propose_next so the master agent stays in the orchestration

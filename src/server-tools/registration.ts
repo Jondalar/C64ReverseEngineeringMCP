@@ -35,6 +35,12 @@ export const DEFAULT_PATTERNS: RegistrationPattern[] = [
   { glob: "input/cart/*.crt", kind: "crt", scope: "input", role: "source-cart" },
   { glob: "input/prg/*.prg", kind: "prg", scope: "input", role: "source-prg" },
   { glob: "analysis/**/manifest.json", kind: "manifest", scope: "analysis", role: "disk-manifest", format: "json" },
+  // Spec 784's extraction manifest. It is the artifact the per-project extractor
+  // stands behind (TOOL_OWNED_MANIFEST_NAMES deliberately keeps it out of the
+  // machine-output bucket), and with no pattern for it, it was reported as an
+  // unregistered file on every single sync. `report`, not `manifest`: the disk-manifest
+  // importer does not read this shape — `register_payloads_from_manifest` is its door.
+  { glob: "analysis/**/manifest.spec784.json", kind: "report", scope: "analysis", role: "extraction-manifest", format: "json" },
   { glob: "analysis/g64/**/track-metadata.json", kind: "report", scope: "analysis", role: "g64-extraction", format: "json" },
   { glob: "analysis/**/*_analysis.json", kind: "analysis-run", scope: "analysis", role: "prg-analysis", format: "json" },
   { glob: "analysis/**/*_annotations.json", kind: "report", scope: "analysis", role: "annotations", format: "json" },

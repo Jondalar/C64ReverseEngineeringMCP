@@ -261,6 +261,14 @@ export function countUnregisteredFiles(projectRoot: string): number {
 }
 
 // Glob-style check: does `relPath` match `glob`? Supports * and **.
+//
+// `**/` matches ZERO OR MORE directories, which is what every glob dialect means by it
+// and what every pattern in DEFAULT_PATTERNS assumes. It used to compile to `.*` with
+// the `/` kept, i.e. `^docs/.*/[^/]*\.md$` — so `docs/**/*.md` did not match
+// `docs/index.md`, and a document, a listing or an analysis JSON sitting at the top of
+// its directory was reported as "matching no registration pattern" for ever. Found
+// while giving a project a way to declare its own directories: the declaration did not
+// work either, for the same reason.
 export function matchesGlob(relPath: string, glob: string): boolean {
   const norm = relPath.replace(/\\/g, "/");
   // Translate glob to regex.
@@ -269,6 +277,7 @@ export function matchesGlob(relPath: string, glob: string): boolean {
     const c = glob[i];
     if (c === "*") {
       if (glob[i + 1] === "*") {
+        if (glob[i + 2] === "/") { re += "(?:.*/)?"; i += 2; continue; }
         re += ".*";
         i += 1;
       } else {

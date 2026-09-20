@@ -17,7 +17,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { DEFAULT_PATTERNS, registerProjectFiles } from "./registration.js";
-import { scanRegistrationDelta } from "../lib/registration-delta.js";
+import { scanRegistrationDelta, matchesGlob, findUnimportedAnalysisArtifacts } from "../lib/registration-delta.js";
+import { howToDeclare, INVENTORY_PATTERNS_FILE, readInventoryDeclaration } from "../project-knowledge/inventory-patterns.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
 
@@ -29,12 +30,16 @@ export interface ProjectInventorySyncResult {
   status: "done" | "blocked" | "failed";
   registered: number;
   importedManifests: number;
+  /** Analysis-run artifacts back-filled into the knowledge layer this pass. */
+  importedAnalysisRuns: number;
   rebuiltViews: string[];
   // Spec 730 §7.3 — artifact version-group reconciliation counts.
   versionGroupsCreated: number;
   versionGroupsUpdated: number;
   versionGroupsNeedDecision: number;
   skipped: Array<{ path: string; reason: string }>;
+  /** How many files were skipped IN ALL. `skipped` carries a sample of them. */
+  skippedTotal: number;
   remainingProblems: string[];
   nextStepHint: string;
 }
@@ -56,15 +61,24 @@ export async function runProjectInventorySync(
   const breathe = () => new Promise<void>((resolve) => setImmediate(resolve));
   const skipped: Array<{ path: string; reason: string }> = [];
   const remainingProblems: string[] = [];
+  let skippedTotal = 0;
 
   // 1+2. Register currently-unregistered project files (input media, extracted
   // payloads + raw sectors, analysis sidecars, generated source, AND
   // semantic/hand-curated source — the §7 patterns make BUG-019 files visible).
-  const reg = registerProjectFiles(service, projectRoot, DEFAULT_PATTERNS, {
-    producedByTool: "project_inventory_sync",
-  });
+  // The project's own declared patterns come FIRST: registration is first-match-wins,
+  // and a project saying what its own directory holds outranks a shipped default.
+  const declared = readInventoryDeclaration(projectRoot);
+  if (declared.error) remainingProblems.push(declared.error);
+  const reg = registerProjectFiles(
+    service,
+    projectRoot,
+    [...declared.patterns as unknown as typeof DEFAULT_PATTERNS, ...DEFAULT_PATTERNS],
+    { producedByTool: "project_inventory_sync" },
+  );
   for (const err of reg.errors) {
     skipped.push({ path: err.relativePath, reason: `could not register: ${err.error}` });
+    skippedTotal += 1;
   }
   await breathe();
 
@@ -83,9 +97,29 @@ export async function runProjectInventorySync(
         path: m.relativePath,
         reason: `manifest not imported: ${e instanceof Error ? e.message : String(e)}`,
       });
+      skippedTotal += 1;
     }
     // Yield between manifests — a single import is ~0.5s on a large manifest, so
     // importing several back-to-back would block the event loop (Spec 730.3 fix).
+    await breathe();
+  }
+
+  // 3a. Back-fill analysis-run artifacts whose entities were never imported.
+  //
+  // The audit used to say "Run `bulk_import_analysis_reports` to back-fill the
+  // knowledge layer" — a tool that is ADVANCED tier and therefore not on the default
+  // surface at all, so the session it was addressed to could not call it and
+  // ToolSearch found nothing by that name. The facade exists to be the door for
+  // exactly this; it was simply missing this phase.
+  let importedAnalysisRuns = 0;
+  for (const a of findUnimportedAnalysisArtifacts(service)) {
+    try {
+      service.importAnalysisArtifact(a.id);
+      importedAnalysisRuns += 1;
+    } catch (e) {
+      skipped.push({ path: a.relativePath, reason: `analysis not imported: ${e instanceof Error ? e.message : String(e)}` });
+      skippedTotal += 1;
+    }
     await breathe();
   }
 
@@ -130,14 +164,25 @@ export async function runProjectInventorySync(
 
   // 5. Report what remains. After registration, anything still unregistered is a
   // pattern gap the operator should know about (reported, never silently moved).
-  const delta = scanRegistrationDelta(projectRoot, 25);
-  if (delta.unregisteredCount > 0) {
+  //
+  // The skipped list used to be hard-capped at ten AND counted from the capped list, so
+  // the header said "Skipped (10)" for 616 files — a number that is always 10 is not a
+  // number. The sample stays a sample; the count is the truth.
+  const delta = scanRegistrationDelta(projectRoot, 100000);
+  const intentional = delta.unregistered.filter((u) => declared.intentional.some((g) => matchesGlob(u, g)));
+  const unexplained = delta.unregistered.filter((u) => !intentional.includes(u));
+  if (unexplained.length > 0) {
     remainingProblems.push(
-      `${delta.unregisteredCount} file(s) on disk still match no registration pattern (e.g. ${delta.unregistered.slice(0, 3).join(", ")}).`,
+      `${unexplained.length} file(s) on disk match no registration pattern (e.g. ${unexplained.slice(0, 3).join(", ")}).`,
+      ...howToDeclare(unexplained),
     );
-    for (const u of delta.unregistered.slice(0, 10)) {
-      skipped.push({ path: u, reason: "no inventory pattern covers this file type" });
-    }
+  }
+  if (intentional.length > 0) {
+    remainingProblems.push(`${intentional.length} further file(s) are declared intentional in ${INVENTORY_PATTERNS_FILE} and are not counted.`);
+  }
+  skippedTotal += unexplained.length;
+  for (const u of unexplained.slice(0, SKIPPED_SAMPLE)) {
+    skipped.push({ path: u, reason: "no inventory pattern covers this file type" });
   }
 
   // 6. Next-step hint — product concepts only, never internal helper names.
@@ -156,15 +201,20 @@ export async function runProjectInventorySync(
     status,
     registered: reg.registered,
     importedManifests,
+    importedAnalysisRuns,
     rebuiltViews,
     versionGroupsCreated,
     versionGroupsUpdated,
     versionGroupsNeedDecision,
     skipped,
+    skippedTotal,
     remainingProblems,
     nextStepHint,
   };
 }
+
+/** How many skipped files the report names before it starts counting instead. */
+const SKIPPED_SAMPLE = 15;
 
 function renderResult(projectRoot: string, r: ProjectInventorySyncResult): string {
   const lines: string[] = [];
@@ -172,17 +222,18 @@ function renderResult(projectRoot: string, r: ProjectInventorySyncResult): strin
   lines.push(`Project: ${projectRoot}`);
   lines.push(`Files registered: ${r.registered}`);
   lines.push(`Manifests imported: ${r.importedManifests}`);
+  lines.push(`Analysis runs back-filled into the knowledge layer: ${r.importedAnalysisRuns}`);
   lines.push(`Views rebuilt: ${r.rebuiltViews.length}`);
   for (const v of r.rebuiltViews) lines.push(`  ${v}`);
   lines.push(`Version groups: ${r.versionGroupsCreated} created, ${r.versionGroupsUpdated} updated${r.versionGroupsNeedDecision > 0 ? `, ${r.versionGroupsNeedDecision} need a decision` : ""}.`);
   if (r.versionGroupsNeedDecision > 0) {
-    lines.push(`  ${r.versionGroupsNeedDecision} subject(s) have two equally-ranked sources — pick the current version in the Inspector (an open question was raised for each).`);
+    lines.push(`  ${r.versionGroupsNeedDecision} subject(s) have two equally-ranked sources — choose one with set_current_artifact_version(artifact_id=…) (an open question was raised for each; the workspace Inspector offers the same choice).`);
   }
-  if (r.skipped.length > 0) {
+  if (r.skippedTotal > 0) {
     lines.push(``);
-    lines.push(`Skipped (${r.skipped.length}):`);
-    for (const s of r.skipped.slice(0, 15)) lines.push(`  ${s.path} — ${s.reason}`);
-    if (r.skipped.length > 15) lines.push(`  … and ${r.skipped.length - 15} more`);
+    lines.push(`Skipped (${r.skippedTotal}${r.skipped.length < r.skippedTotal ? `, showing ${r.skipped.length}` : ""}):`);
+    for (const s of r.skipped) lines.push(`  ${s.path} — ${s.reason}`);
+    if (r.skippedTotal > r.skipped.length) lines.push(`  … and ${r.skippedTotal - r.skipped.length} more not listed`);
   }
   if (r.remainingProblems.length > 0) {
     lines.push(``);
