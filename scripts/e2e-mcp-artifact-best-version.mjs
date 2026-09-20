@@ -108,6 +108,9 @@ try {
   mkdirSync(analysisDir, { recursive: true });
   const genRel = "analysis/disk/wasteland/02_2.0_disasm.asm";
   const semRel = "analysis/disk/wasteland/02_2.0_semantic.tass";
+  // The subject is where the sources live plus the stem they share — not the
+  // bare "02_2.0", which on a multi-disk project names several payloads.
+  const SUBJECT = "analysis/disk/wasteland/02_2.0";
   writeFileSync(join(projectDir, genRel), "* = $0801 ; GENERATED kickass disasm\n  rts\n");
   writeFileSync(join(projectDir, semRel), "* = $0801 ; hand-curated SEMANTIC 64tass\n  rts\n");
 
@@ -125,27 +128,33 @@ try {
 
   // A version group exists for the subject and current == the SEMANTIC source.
   const groups1 = readVersionGroups();
-  const grp = groups1.find((g) => g.subjectId === "02_2.0");
-  ok(!!grp, "6 a version group exists for subject 02_2.0", grp ? grp.id : "missing");
+  const grp = groups1.find((g) => g.subjectId === SUBJECT);
+  ok(!!grp, `6 a version group exists for subject ${SUBJECT}`, grp ? grp.id : "missing");
   ok(grp && semArt && grp.currentArtifactId === semArt.id,
     "7 current best version is the SEMANTIC source (auto), not the generated dump (BUG-019)",
     grp ? `current=${grp.currentArtifactId} sem=${semArt?.id}` : "");
   ok(grp && grp.currentSource === "auto", "7b current was chosen automatically (auto)", grp ? grp.currentSource : "");
 
   // get_current_artifact resolves to the semantic source.
-  const cur = await callTool("get_current_artifact", { project_dir: projectDir, subject_id: "02_2.0" });
+  const cur = await callTool("get_current_artifact", { project_dir: projectDir, subject_id: SUBJECT });
   ok(okText(cur) && /02_2\.0_semantic\.tass/.test(textOf(cur)), "8 get_current_artifact returns the semantic source", "");
 
+  // A bare filename still resolves while only one subject carries it — the
+  // subject got longer, the door did not get harder to call.
+  const curByStem = await callTool("get_current_artifact", { project_dir: projectDir, subject_id: "02_2.0" });
+  ok(okText(curByStem) && /02_2\.0_semantic\.tass/.test(textOf(curByStem)),
+    "8b a bare filename still resolves when only one subject carries it", "");
+
   // list_artifact_versions surfaces both versions.
-  const versions = await callTool("list_artifact_versions", { project_dir: projectDir, subject_id: "02_2.0" });
+  const versions = await callTool("list_artifact_versions", { project_dir: projectDir, subject_id: SUBJECT });
   const vText = textOf(versions);
   ok(okText(versions) && /02_2\.0_semantic\.tass/.test(vText) && /02_2\.0_disasm\.asm/.test(vText),
     "9 list_artifact_versions lists both versions", "");
 
   // Manual override: pin the GENERATED source as current, persists.
-  const setRes = await callTool("set_current_artifact_version", { project_dir: projectDir, subject_id: "02_2.0", artifact_id: genArt.id });
+  const setRes = await callTool("set_current_artifact_version", { project_dir: projectDir, subject_id: SUBJECT, artifact_id: genArt.id });
   ok(okText(setRes), "10 set_current_artifact_version pins the generated source (manual)", "");
-  const grpAfterSet = readVersionGroups().find((g) => g.subjectId === "02_2.0");
+  const grpAfterSet = readVersionGroups().find((g) => g.subjectId === SUBJECT);
   ok(grpAfterSet && grpAfterSet.currentArtifactId === genArt.id && grpAfterSet.currentSource === "manual",
     "11 manual current decision persists in the knowledge store",
     grpAfterSet ? `current=${grpAfterSet.currentArtifactId} src=${grpAfterSet.currentSource}` : "");
@@ -153,16 +162,16 @@ try {
   // A SECOND sync must RESPECT the manual decision (not revert to semantic).
   const sync2 = await callTool("project_inventory_sync", { project_dir: projectDir });
   ok(okText(sync2) && /inventory sync — done/i.test(textOf(sync2)), "12 second sync runs clean", "");
-  const grpAfterSync2 = readVersionGroups().find((g) => g.subjectId === "02_2.0");
+  const grpAfterSync2 = readVersionGroups().find((g) => g.subjectId === SUBJECT);
   ok(grpAfterSync2 && grpAfterSync2.currentArtifactId === genArt.id && grpAfterSync2.currentSource === "manual",
     "13 second sync RESPECTS the manual current (does not auto-overwrite)",
     grpAfterSync2 ? `current=${grpAfterSync2.currentArtifactId} src=${grpAfterSync2.currentSource}` : "");
 
   // mark stale: demote the (manual) current; current falls back to the best
   // remaining version (the semantic one).
-  const markRes = await callTool("mark_artifact_version_stale", { project_dir: projectDir, subject_id: "02_2.0", artifact_id: genArt.id });
+  const markRes = await callTool("mark_artifact_version_stale", { project_dir: projectDir, subject_id: SUBJECT, artifact_id: genArt.id });
   ok(okText(markRes), "14 mark_artifact_version_stale demotes a version", "");
-  const grpAfterMark = readVersionGroups().find((g) => g.subjectId === "02_2.0");
+  const grpAfterMark = readVersionGroups().find((g) => g.subjectId === SUBJECT);
   const staleMember = grpAfterMark?.versions.find((v) => v.artifactId === genArt.id);
   ok(staleMember && staleMember.status === "stale", "15 the demoted version is recorded stale", staleMember ? staleMember.status : "");
   ok(grpAfterMark && grpAfterMark.currentArtifactId === semArt.id,
@@ -171,7 +180,7 @@ try {
 
   console.log(`\n--- report ---`);
   console.log(`external project: ${projectDir}`);
-  console.log(`subject 02_2.0: semantic auto-current; manual pin persisted + survived 2nd sync; mark-stale fell back to semantic.`);
+  console.log(`subject ${SUBJECT}: semantic auto-current; manual pin persisted + survived 2nd sync; mark-stale fell back to semantic.`);
   console.log(`tools used: project_init, project_inventory_sync, get_current_artifact, list_artifact_versions, set_current_artifact_version, mark_artifact_version_stale`);
 } catch (e) {
   ok(false, "harness", e.message + (stderr ? " | stderr: " + stderr.slice(-200) : ""));

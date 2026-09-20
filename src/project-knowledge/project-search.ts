@@ -703,7 +703,9 @@ export function buildProjectSearchIndex(projectDir: string): ProjectSearchIndex 
         title: `versions of ${g.subjectId}`,
         summary: `${(g.versions ?? []).length} version(s); current=${g.currentArtifactId} (${g.currentSource})`,
         snippet: clip(`subject ${g.subjectId}: ${(g.versions ?? []).map((v: any) => `${v.role}/${v.format}`).join(", ")}`, 200),
-        tags: ["artifact-version", g.subjectId.toLowerCase()],
+        // Both keys: the subject (the directory plus the stem) and the bare
+        // stem, because a person searching types a filename, not a path.
+        tags: ["artifact-version", g.subjectId.toLowerCase(), subjectStem(g.subjectId).toLowerCase()],
         artifactIds: memberIds, entityIds: [], relationIds: [],
         sourcePath: r, updatedAt: g.updatedAt,
         rankHints: { currentArtifactVersion: true, curated: g.currentSource === "manual" },
