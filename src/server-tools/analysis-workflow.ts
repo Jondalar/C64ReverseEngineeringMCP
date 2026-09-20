@@ -1165,12 +1165,43 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
       const analysisAbs = resolve(pd, analysis_json);
       const draftAbs = output_path ? resolve(pd, output_path) : analysisAbs.replace(/_analysis\.json$/i, "_annotations.draft.json");
       const listingAbs = listing_path ? resolve(pd, listing_path) : undefined;
-      // Pipeline runs in CommonJS; spawn the child to keep the
-      // ESM/CommonJS boundary clean and reuse the existing
-      // registerCliArtifact pipeline.
+      // Pipeline runs in CommonJS; spawn the child to keep the ESM/CommonJS
+      // boundary clean. The child no longer registers the draft — this door does,
+      // below, like every other door that produces a file.
       const args = [analysisAbs, draftAbs];
       if (listingAbs) args.push(listingAbs);
       const result = await runCli("propose-annotations", args, { projectDir: pd });
+      // The draft was the last output on the MCP path that only the pipeline child
+      // named. `disasm_prg` consumes the file this writes, so an unregistered draft
+      // is an annotation nobody can trace back to the run that proposed it.
+      if (result.exitCode === 0 && existsSync(draftAbs)) {
+        const reg = context.tryRegisterKnowledgeArtifacts(pd, {
+          toolName: "propose_annotations",
+          title: `Annotation draft: ${basename(analysisAbs)}`,
+          parameters: {
+            analysis_json: analysisAbs,
+            output_path: draftAbs,
+            listing_path: listingAbs ?? null,
+          },
+          inputs: [
+            { path: analysisAbs, kind: "other", scope: "analysis", role: "analysis-json", format: "json", producedByTool: "propose_annotations" },
+            ...(listingAbs && existsSync(listingAbs)
+              ? [{ path: listingAbs, kind: "generated-source" as const, scope: "analysis" as const, role: "disasm", format: "asm", producedByTool: "propose_annotations" }]
+              : []),
+          ],
+          outputs: [{
+            path: draftAbs,
+            kind: "report",
+            scope: "analysis",
+            role: "annotation-draft",
+            format: "json",
+            producedByTool: "propose_annotations",
+          }],
+        });
+        if (reg.runPath) result.stdout = `${result.stdout ?? ""}\nKnowledge run: ${reg.runPath}`;
+        // A registration that failed leads the answer; it never trails a success.
+        else if (reg.failed && reg.message) result.stdout = `${reg.message}\n\n${result.stdout ?? ""}`;
+      }
       // Optional: walk the draft and persist openQuestions.
       if (persist_questions && result.exitCode === 0 && existsSync(draftAbs)) {
         try {

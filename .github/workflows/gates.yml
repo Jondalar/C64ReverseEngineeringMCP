@@ -367,3 +367,14 @@ jobs:
       # stdio. No ROMs, no media, no assembler, no daemon.
       - name: A subject is one thing (BUG-057)
         run: npm run e2e:subject-identity
+
+      # The last item BUG-057 left open: the knowledge store had two writers in two
+      # processes, and now has one on the MCP path. The gate runs every door that
+      # spawns the pipeline and asserts twice over — everything the door wrote is in
+      # the store, and the child signed no write of its own — plus the shell path
+      # that KEEPS its writer, because a direct CLI run has no parent to register
+      # for it. Hermetic: temp projects, synthetic PRGs, a synthetic CRT, synthetic
+      # cartridge banks, one MCP session over stdio. No ROMs, no media, no
+      # assembler, no daemon.
+      - name: One writer, one store (BUG-058)
+        run: npm run e2e:one-store-writer

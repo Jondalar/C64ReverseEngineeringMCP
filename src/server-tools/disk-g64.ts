@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -656,28 +656,64 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "reconstruct_lut",
-    "Reconstruct boot LUT payload groups from extracted CRT data.",
+    "Reconstruct the payload groups a cartridge's boot LUT describes, from an already-extracted CRT: the bank/destination tables are walked and each logical payload is written out whole. Use after extract_crt on a bank-switched cart whose startup code copies its payloads out of ROM through a table. Not for reading the LUT rows themselves (use declare_lut_descriptor / resolve_lut_rows) and not for a disk (use extract_disk). Inputs: analysis_dir. Returns: the boot_payloads.json describing every group, the reconstructed payload binaries, and the knowledge run they were registered under.",
     {
       analysis_dir: z.string().optional().describe("Analysis directory (default: analysis)"),
     },
     async ({ analysis_dir }) => {
       const pd = context.projectDir(analysis_dir, true);
-      const args = analysis_dir ? [resolve(pd, analysis_dir)] : [];
+      const analysisAbs = analysis_dir ? resolve(pd, analysis_dir) : resolve(pd, "analysis");
+      const args = analysis_dir ? [analysisAbs] : [];
       const result = await runCli("reconstruct-lut", args, { projectDir: pd });
+      if (result.exitCode === 0) {
+        registerManifestAndWhatItNames(context, pd, result, {
+          toolName: "reconstruct_lut",
+          title: `Reconstruct boot LUT payloads: ${basename(analysisAbs)}`,
+          parameters: { analysis_dir: analysisAbs },
+          manifestPath: join(analysisAbs, "boot_payloads.json"),
+          manifestRole: "boot-payload-manifest",
+          // The payloads the LUT describes are the deliverable. `full_lut_payloads/`
+          // is NOT registered on purpose: it holds every group dumped whole,
+          // including the ones this verb then skips, and it exists so the skip can
+          // be re-decided later. That is an intermediate, and a row for it would
+          // claim the project believes in a file it only kept.
+          named: (manifest, base) => readNamedFiles(manifest, "payloads", "output_file", base)
+            .map((path) => ({ path, kind: "raw" as const, scope: "analysis" as const, role: "payload-binary", format: "bin" })),
+        });
+      }
       return context.cliResultToContent(result);
     },
   );
 
   server.tool(
     "export_menu",
-    "Export menu payload binaries from extracted CRT data.",
+    "Export one binary per menu entry from an already-extracted, menu-driven cartridge: each entry's payload group is written whole and chunk by chunk, classified as code or data. Use after reconstruct_lut when the cart boots into a menu and you want the entries as separate files. Not for turning those binaries into assembly (use disasm_menu) and not for a single PRG (use analyze_prg). Inputs: analysis_dir, and a menu_payload_map.json naming the entries. Returns: the export manifest, one directory per menu entry, and the knowledge run they were registered under.",
     {
       analysis_dir: z.string().optional().describe("Analysis directory (default: analysis)"),
     },
     async ({ analysis_dir }) => {
       const pd = context.projectDir(analysis_dir, true);
-      const args = analysis_dir ? [resolve(pd, analysis_dir)] : [];
+      const analysisAbs = analysis_dir ? resolve(pd, analysis_dir) : resolve(pd, "analysis");
+      const args = analysis_dir ? [analysisAbs] : [];
       const result = await runCli("export-menu", args, { projectDir: pd });
+      if (result.exitCode === 0) {
+        const exportsDir = join(analysisAbs, "menu_payload_exports");
+        registerManifestAndWhatItNames(context, pd, result, {
+          toolName: "export_menu",
+          title: `Export menu payloads: ${basename(analysisAbs)}`,
+          parameters: { analysis_dir: analysisAbs },
+          manifestPath: join(exportsDir, "manifest.json"),
+          manifestRole: "menu-export-manifest",
+          // The manifest spells its files relative to the directory ABOVE the
+          // analysis dir (that is what `exportMenuPayloads` writes), so they are
+          // resolved against that, not against the manifest's own folder.
+          named: (manifest, _base) => (Array.isArray(manifest?.menu_items) ? manifest.menu_items : [])
+            .flatMap((item: Record<string, unknown>) => Array.isArray(item?.files) ? item.files : [])
+            .map((file: Record<string, unknown>) => typeof file?.file === "string" ? resolve(dirname(analysisAbs), file.file) : undefined)
+            .filter((path): path is string => typeof path === "string")
+            .map((path) => ({ path, kind: "raw" as const, scope: "analysis" as const, role: "menu-payload", format: "bin" })),
+        });
+      }
       return context.cliResultToContent(result);
     },
   );
@@ -691,11 +727,93 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
     },
     async ({ analysis_dir, output_dir }) => {
       const pd = context.projectDir(analysis_dir ?? output_dir, true);
+      const analysisAbs = analysis_dir ? resolve(pd, analysis_dir) : resolve(pd, "analysis");
+      const outputAbs = output_dir ? resolve(pd, output_dir) : join(analysisAbs, "kickasm_sources");
       const args: string[] = [];
-      if (analysis_dir) args.push(resolve(pd, analysis_dir));
-      if (output_dir) args.push(resolve(pd, output_dir));
+      if (analysis_dir) args.push(analysisAbs);
+      if (output_dir) args.push(outputAbs);
       const result = await runCli("disasm-menu", args, { projectDir: pd });
+      if (result.exitCode === 0) {
+        registerManifestAndWhatItNames(context, pd, result, {
+          toolName: "disasm_menu",
+          title: `Disassemble menu payloads: ${basename(analysisAbs)}`,
+          parameters: { analysis_dir: analysisAbs, output_dir: outputAbs },
+          manifestPath: join(outputAbs, "manifest.json"),
+          manifestRole: "menu-disasm-manifest",
+          // Every listing this verb wrote, plus the include index that ties them
+          // together. These are the door's advertised return, and a listing the
+          // project does not know about cannot be read back with read_artifact,
+          // cannot join a version group and cannot be annotated.
+          named: (manifest, base) => [
+            ...readNamedFiles(manifest, "files", "output_asm", base)
+              .map((path) => ({ path, kind: "generated-source" as const, scope: "generated" as const, role: "kickassembler-source", format: "asm" })),
+            { path: join(outputAbs, "menu_payloads_index.asm"), kind: "generated-source" as const, scope: "generated" as const, role: "kickassembler-include-index", format: "asm" },
+          ],
+        });
+      }
       return context.cliResultToContent(result);
     },
   );
+}
+
+/**
+ * The three cartridge-menu verbs write a manifest and the files it names, and until
+ * now NOTHING registered any of it — not the pipeline child (these verbs never called
+ * `registerCliArtifact`) and not the door. So the files landed in the project and the
+ * project did not know: absent from `list_artifacts`, from every view, and from the
+ * next session's onboarding, until somebody happened to run `project_inventory_sync`.
+ *
+ * They register here, from the parent, through the door every other tool uses. The
+ * manifest is registered first and the files it names after it, so a reader who finds
+ * one of them has the manifest in the same run record.
+ */
+function registerManifestAndWhatItNames(
+  context: ServerToolContext,
+  projectDir: string,
+  result: { stdout: string },
+  spec: {
+    toolName: string;
+    title: string;
+    parameters: Record<string, string>;
+    manifestPath: string;
+    manifestRole: string;
+    named: (manifest: Record<string, unknown>, manifestDir: string) => Array<{ path: string; kind: string; scope: string; role: string; format: string }>;
+  },
+): void {
+  if (!existsSync(spec.manifestPath)) {
+    result.stdout = `${result.stdout ?? ""}\nNothing registered: ${spec.manifestPath} was not written, so this run produced no manifest to register against.`;
+    return;
+  }
+  let manifest: Record<string, unknown> = {};
+  try {
+    manifest = JSON.parse(readFileSync(spec.manifestPath, "utf8")) as Record<string, unknown>;
+  } catch {
+    manifest = {};
+  }
+  const named = spec.named(manifest, dirname(spec.manifestPath)).filter((entry) => existsSync(entry.path));
+  const reg = context.tryRegisterKnowledgeArtifacts(projectDir, {
+    toolName: spec.toolName,
+    title: spec.title,
+    parameters: spec.parameters,
+    outputs: [
+      { path: spec.manifestPath, kind: "manifest", scope: "generated", role: spec.manifestRole, format: "json", producedByTool: spec.toolName },
+      ...named.map((entry) => ({ ...entry, producedByTool: spec.toolName })),
+    ] as never,
+  });
+  if (reg.runPath) {
+    result.stdout = `${result.stdout ?? ""}\nRegistered ${named.length + 1} artifact(s): ${spec.manifestPath} and the ${named.length} file(s) it names.\nKnowledge run: ${reg.runPath}`;
+  } else if (reg.failed && reg.message) {
+    // A registration that failed leads the answer; it never trails a success.
+    result.stdout = `${reg.message}\n\n${result.stdout ?? ""}`;
+  }
+}
+
+/** The `path` fields of one array inside a manifest, resolved against the manifest's own directory. */
+function readNamedFiles(manifest: Record<string, unknown>, arrayKey: string, pathKey: string, base: string): string[] {
+  const rows = manifest[arrayKey];
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row) => (row && typeof row === "object" ? (row as Record<string, unknown>)[pathKey] : undefined))
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .map((value) => resolve(base, value));
 }

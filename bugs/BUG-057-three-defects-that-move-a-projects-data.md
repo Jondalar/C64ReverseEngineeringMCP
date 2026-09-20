@@ -120,9 +120,11 @@ Also green: `e2e:832-ids` 37, `e2e:tooling-defects` 87, `e2e:752` 42,
 
 ## Left open
 
-- `runCli` still lets the pipeline child register what it writes. With
-  `basic_tokenize` covered, every MCP door now registers from the parent, so
-  the MCP path could pass `--no-register` and the store would have one writer
-  on it. Doing that means checking every pipeline verb an MCP door reaches for
-  an output the parent does not yet name, and it is a decision about the CLI's
-  own behaviour outside MCP, so it is not made here.
+Nothing.
+
+- ~~`runCli` still lets the pipeline child register what it writes~~ — BUG-058:
+  the survey was done, `propose_annotations`'s draft turned out to be the one
+  output on the MCP path that only the child named (and three cartridge-menu
+  doors registered nothing at either end), and the MCP spawn path now passes
+  `--no-register`. A direct `dist/pipeline/cli.cjs` run keeps its writer,
+  because it has no parent to register for it.

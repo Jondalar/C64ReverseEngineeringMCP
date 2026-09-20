@@ -540,7 +540,7 @@ Catch-up door: `project_inventory_sync`. It back-fills every analysis-run artifa
 
 Detection: `agent_onboard`, `agent_propose_next`, and `agent_record_step` surface the unimported-analysis count alongside the unregistered-file count. The workspace UI banner shows both gaps as separate warning lines. A run is not finished until both are zero.
 
-Bypass guard: append `--no-register` to the pipeline CLI to suppress auto-registration in the rare cases where filesystem-only output is intentional (test fixtures, throwaway experiments).
+Who registers what: a tool call registers its own outputs itself, from the process the tool runs in, and that is the only writer the store has on that path. A direct `dist/pipeline/cli.cjs` run has no such caller, so the CLI registers what it writes — otherwise a shell loop's output would be invisible to `list_artifacts`, to the views and to the next session that onboards. Append `--no-register` to suppress that when the output is deliberately filesystem-only (test fixtures, throwaway experiments); a tool call already passes it.
 
 ---
 
