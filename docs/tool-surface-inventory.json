@@ -654,8 +654,8 @@
       "file": "server-tools/disk-g64.ts",
       "ns": "export",
       "hasSpec": false,
-      "firstSentence": "Export menu payload binaries from extracted CRT data.",
-      "desc": "Export menu payload binaries from extracted CRT data.",
+      "firstSentence": "Export one binary per menu entry from an already-extracted, menu-driven cartridge: each entry's payload group is written whole and chunk by chunk, classified as code or data.",
+      "desc": "Export one binary per menu entry from an already-extracted, menu-driven cartridge: each entry's payload group is written whole and chunk by chunk, classified as code or data. Use after reconstruct_lut when the cart boots into a menu and you want the entries as separate files. Not for turning those binaries into assembly (use disasm_menu) and not for a single PRG (use analyze_prg). Inputs: analysis_dir, and a menu_payload_map.json naming the entries. Returns: the export manifest, one directory per menu entry, and the knowledge run they were registered under.",
       "tier": "advanced?"
     },
     {
@@ -1365,8 +1365,8 @@
       "file": "server-tools/disk-g64.ts",
       "ns": "reconstruct",
       "hasSpec": false,
-      "firstSentence": "Reconstruct boot LUT payload groups from extracted CRT data.",
-      "desc": "Reconstruct boot LUT payload groups from extracted CRT data.",
+      "firstSentence": "Reconstruct the payload groups a cartridge's boot LUT describes, from an already-extracted CRT: the bank/destination tables are walked and each logical payload is written out whole.",
+      "desc": "Reconstruct the payload groups a cartridge's boot LUT describes, from an already-extracted CRT: the bank/destination tables are walked and each logical payload is written out whole. Use after extract_crt on a bank-switched cart whose startup code copies its payloads out of ROM through a table. Not for reading the LUT rows themselves (use declare_lut_descriptor / resolve_lut_rows) and not for a disk (use extract_disk). Inputs: analysis_dir. Returns: the boot_payloads.json describing every group, the reconstructed payload binaries, and the knowledge run they were registered under.",
       "tier": "advanced?"
     },
     {
