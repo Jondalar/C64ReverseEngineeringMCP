@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { describeWalkRoots, findUnimportedAnalysisArtifacts, listCandidateFiles, matchesGlob, scanRegistrationDelta, statSafe } from "../lib/registration-delta.js";
+import { INVENTORY_KIND_VALUES, INVENTORY_PATTERNS_FILE, INVENTORY_SCOPE_VALUES } from "../project-knowledge/inventory-patterns.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
 
@@ -75,14 +76,11 @@ export const DEFAULT_PATTERNS: RegistrationPattern[] = [
 // verify step, not source assets.
 const DEFAULT_EXCLUDE_GLOBS = ["**/*_disasm_rebuild_check.prg"];
 
-const KIND_VALUES = [
-  "prg", "crt", "d64", "g64", "raw",
-  "analysis-run", "report", "generated-source",
-  "manifest", "extract", "preview", "listing",
-  "trace", "view-model", "checkpoint", "other",
-] as const;
-
-const SCOPE_VALUES = ["input", "generated", "analysis", "knowledge", "view", "session"] as const;
+// One vocabulary, declared in the leaf module both this tool and the project's own
+// `knowledge/inventory-patterns.json` reader share — so a project reading a refusal
+// here and a project writing a declaration there are told the same list.
+const KIND_VALUES = INVENTORY_KIND_VALUES;
+const SCOPE_VALUES = INVENTORY_SCOPE_VALUES;
 
 const patternSchema = z.object({
   glob: z.string().describe("Glob relative to the project root, e.g. 'analysis/disasm/**/*.asm'. * matches within a path component, ** matches across components."),
@@ -340,7 +338,11 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
       lines.push(`Already registered: ${delta.alreadyRegistered}`);
       lines.push(`Unregistered: ${delta.unregisteredCount}`);
       lines.push(`Tool output (machine-written, not debt): ${delta.toolOutputCount}`);
+      lines.push(`Declared intentional by the project (not debt): ${delta.declaredIntentionalCount}`);
       lines.push(``);
+      if (delta.declarationError) lines.push(`⚠ ${delta.declarationError}`);
+      for (const p of delta.declarationProblems) lines.push(`⚠ ${p}`);
+      if (delta.declarationError || delta.declarationProblems.length > 0) lines.push(``);
       if (delta.unregisteredCount > 0) {
         lines.push(`By extension:`);
         const sorted = Object.entries(delta.unregisteredByExt).sort((a, b) => b[1] - a[1]);
@@ -360,6 +362,11 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
         const byDir = Object.entries(delta.toolOutputByDir).sort((a, b) => b[1] - a[1]);
         for (const [prefix, n] of byDir) lines.push(`  ${prefix}/**: ${n}`);
         lines.push(`  (register the run's manifest, not each file)`);
+      }
+      if (delta.declaredIntentionalCount > 0) {
+        lines.push(``);
+        lines.push(`Declared intentional in ${INVENTORY_PATTERNS_FILE} (${delta.declaredIntentionalCount}, showing ${delta.declaredIntentional.length}):`);
+        for (const f of delta.declaredIntentional) lines.push(`  ${f}`);
       }
       return textContent(lines.join("\n"));
     }),

@@ -337,3 +337,10 @@ jobs:
       # rebuild half needs KickAssembler and skips loudly without it, like e2e:830.
       - name: The disassembly family
         run: npm run e2e:disasm-family
+      # BUG-054 follow-up — the three that came back: 220 open questions from one
+      # sync, leftovers that rotated between runs, and a step recorder that
+      # contradicted the sync about the same files. Hermetic: temp projects, files
+      # of a few bytes, and one live MCP session over stdio. No ROMs, no media, no
+      # assembler, no daemon.
+      - name: Inventory sync tells the truth (BUG-054 follow-up)
+        run: npm run e2e:inventory-truth

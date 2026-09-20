@@ -8,6 +8,7 @@ import { z } from "zod";
 import { auditProject, auditProjectCached, type AuditCachedResult, type ProjectAuditResult } from "../project-knowledge/audit.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { countUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
+import { INVENTORY_PATTERNS_FILE } from "../project-knowledge/inventory-patterns.js";
 import type { ServerToolContext } from "./types.js";
 import { ensureDefaultSteering } from "./steering-defaults.js";
 import { markOnboarded } from "./onboarding-gate.js";
@@ -591,6 +592,9 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         lines.push(`  Top extensions: ${sorted.map(([e, n]) => `${e}=${n}`).join(", ")}`);
         lines.push(`  Run project_inventory_sync to register files, import manifests, and rebuild views.`);
       }
+      if (reg.declaredIntentionalCount > 0) {
+        lines.push(`  (${reg.declaredIntentionalCount} further file(s) are declared intentional in ${INVENTORY_PATTERNS_FILE} and are not counted.)`);
+      }
       const unimportedAnalysis = countUnimportedAnalysisArtifacts(service);
       if (unimportedAnalysis > 0) {
         lines.push(``);
@@ -728,6 +732,15 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         out.push(`⚠ ${reg.unregisteredCount} files on disk are NOT registered (top: ${sorted.map(([e, n]) => `${e}=${n}`).join(", ")}).`);
         out.push(`  A run is not finished until artifacts are registered. Run project_inventory_sync before sealing this step.`);
       }
+      // The project's own declaration is read by the SHARED scan now, so this warning
+      // and project_inventory_sync count the same files. It used to warn about exactly
+      // the files the sync had reported as declared intentional: one project, two
+      // answers. Say the second number out loud so the two reports are visibly the same.
+      if (reg.declaredIntentionalCount > 0) {
+        out.push(`  (${reg.declaredIntentionalCount} further file(s) are declared intentional in ${INVENTORY_PATTERNS_FILE} and are not counted.)`);
+      }
+      for (const p of reg.declarationProblems) out.push(`⚠ ${p}`);
+      if (reg.declarationError) out.push(`⚠ ${reg.declarationError}`);
       if (unimportedAnalysis > 0) {
         out.push(``);
         out.push(`⚠ ${unimportedAnalysis} analysis-run artifact(s) registered but not imported into entities.`);

@@ -17,7 +17,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { DEFAULT_PATTERNS, registerProjectFiles } from "./registration.js";
-import { scanRegistrationDelta, matchesGlob, findUnimportedAnalysisArtifacts } from "../lib/registration-delta.js";
+import { scanRegistrationDelta, findUnimportedAnalysisArtifacts } from "../lib/registration-delta.js";
 import { howToDeclare, INVENTORY_PATTERNS_FILE, readInventoryDeclaration } from "../project-knowledge/inventory-patterns.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
@@ -36,7 +36,14 @@ export interface ProjectInventorySyncResult {
   // Spec 730 §7.3 — artifact version-group reconciliation counts.
   versionGroupsCreated: number;
   versionGroupsUpdated: number;
+  /** Ties that survived the rules and still owe a human answer. */
   versionGroupsNeedDecision: number;
+  /** Ties settled by rule — identical bytes, or purely generated output. */
+  versionTiesAutoResolved: number;
+  /** A few of those, spelled out: which subject, which rule, which file won. */
+  versionTiesAutoResolvedSample: string[];
+  /** Open questions the reconciliation filed: one per subject, or one for the class. */
+  versionQuestionsFiled: number;
   skipped: Array<{ path: string; reason: string }>;
   /** How many files were skipped IN ALL. `skipped` carries a sample of them. */
   skippedTotal: number;
@@ -70,6 +77,11 @@ export async function runProjectInventorySync(
   // and a project saying what its own directory holds outranks a shipped default.
   const declared = readInventoryDeclaration(projectRoot);
   if (declared.error) remainingProblems.push(declared.error);
+  // A declaration entry that could not be applied is named, with the entry index and
+  // what is allowed. It used to be dropped by a `typeof` filter without a word, so a
+  // project that wrote `kind: "annotations"` saw a file that looked accepted and
+  // changed nothing — and the only enum it was ever shown came from a different door.
+  for (const p of declared.problems) remainingProblems.push(p);
   const reg = registerProjectFiles(
     service,
     projectRoot,
@@ -131,11 +143,17 @@ export async function runProjectInventorySync(
   let versionGroupsCreated = 0;
   let versionGroupsUpdated = 0;
   let versionGroupsNeedDecision = 0;
+  let versionTiesAutoResolved = 0;
+  let versionTiesAutoResolvedSample: string[] = [];
+  let versionQuestionsFiled = 0;
   try {
     const vg = await service.reconcileArtifactVersionGroups();
     versionGroupsCreated = vg.created;
     versionGroupsUpdated = vg.updated;
     versionGroupsNeedDecision = vg.needsDecision;
+    versionTiesAutoResolved = vg.autoResolved;
+    versionTiesAutoResolvedSample = vg.autoResolvedSample;
+    versionQuestionsFiled = vg.questionsFiled;
   } catch (e) {
     remainingProblems.push(`Version reconciliation issue: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -168,17 +186,21 @@ export async function runProjectInventorySync(
   // The skipped list used to be hard-capped at ten AND counted from the capped list, so
   // the header said "Skipped (10)" for 616 files — a number that is always 10 is not a
   // number. The sample stays a sample; the count is the truth.
-  const delta = scanRegistrationDelta(projectRoot, 100000);
-  const intentional = delta.unregistered.filter((u) => declared.intentional.some((g) => matchesGlob(u, g)));
-  const unexplained = delta.unregistered.filter((u) => !intentional.includes(u));
+  //
+  // The split between "debt" and "the project said so" is made by the SHARED scan, not
+  // here: that is the whole of defect 3. `agent_record_step` and this facade read the
+  // same two numbers out of the same call, so they can no longer contradict each other
+  // about the same files.
+  const delta = scanRegistrationDelta(projectRoot, 100000, declared);
+  const unexplained = delta.unregistered;
   if (unexplained.length > 0) {
     remainingProblems.push(
       `${unexplained.length} file(s) on disk match no registration pattern (e.g. ${unexplained.slice(0, 3).join(", ")}).`,
       ...howToDeclare(unexplained),
     );
   }
-  if (intentional.length > 0) {
-    remainingProblems.push(`${intentional.length} further file(s) are declared intentional in ${INVENTORY_PATTERNS_FILE} and are not counted.`);
+  if (delta.declaredIntentionalCount > 0) {
+    remainingProblems.push(`${delta.declaredIntentionalCount} further file(s) are declared intentional in ${INVENTORY_PATTERNS_FILE} and are not counted.`);
   }
   skippedTotal += unexplained.length;
   for (const u of unexplained.slice(0, SKIPPED_SAMPLE)) {
@@ -206,6 +228,9 @@ export async function runProjectInventorySync(
     versionGroupsCreated,
     versionGroupsUpdated,
     versionGroupsNeedDecision,
+    versionTiesAutoResolved,
+    versionTiesAutoResolvedSample,
+    versionQuestionsFiled,
     skipped,
     skippedTotal,
     remainingProblems,
@@ -226,8 +251,21 @@ function renderResult(projectRoot: string, r: ProjectInventorySyncResult): strin
   lines.push(`Views rebuilt: ${r.rebuiltViews.length}`);
   for (const v of r.rebuiltViews) lines.push(`  ${v}`);
   lines.push(`Version groups: ${r.versionGroupsCreated} created, ${r.versionGroupsUpdated} updated${r.versionGroupsNeedDecision > 0 ? `, ${r.versionGroupsNeedDecision} need a decision` : ""}.`);
+  // Ties the rules settled are reported, never asked. Same bytes at two paths is one
+  // listing; two generated dumps are one deterministic run. Saying WHICH file won is
+  // the whole difference between a rule and a guess.
+  if (r.versionTiesAutoResolved > 0) {
+    lines.push(`  ${r.versionTiesAutoResolved} rank tie(s) settled by rule (identical bytes, or generated output only) — no decision needed:`);
+    for (const s of r.versionTiesAutoResolvedSample) lines.push(`    ${s}`);
+    if (r.versionTiesAutoResolved > r.versionTiesAutoResolvedSample.length) {
+      lines.push(`    … and ${r.versionTiesAutoResolved - r.versionTiesAutoResolvedSample.length} more, same rules. list_artifact_versions(subject_id=…) shows any of them.`);
+    }
+  }
   if (r.versionGroupsNeedDecision > 0) {
-    lines.push(`  ${r.versionGroupsNeedDecision} subject(s) have two equally-ranked sources — choose one with set_current_artifact_version(artifact_id=…) (an open question was raised for each; the workspace Inspector offers the same choice).`);
+    lines.push(`  ${r.versionGroupsNeedDecision} subject(s) have two equally-ranked HAND-AUTHORED sources — settle one with set_current_artifact_version(subject_id=…, artifact_id=…).`);
+    lines.push(r.versionQuestionsFiled === 1 && r.versionGroupsNeedDecision > 1
+      ? `  One open question covers all ${r.versionGroupsNeedDecision} (too many to ask one by one); it names the subjects.`
+      : `  ${r.versionQuestionsFiled} open question(s) were raised — one per subject.`);
   }
   if (r.skippedTotal > 0) {
     lines.push(``);

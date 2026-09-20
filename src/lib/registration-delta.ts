@@ -8,6 +8,11 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { importAnalysisKnowledge } from "../project-knowledge/analysis-import.js";
+import {
+  INVENTORY_PATTERNS_FILE,
+  readInventoryDeclaration,
+  type ProjectInventoryDeclaration,
+} from "../project-knowledge/inventory-patterns.js";
 
 const KNOWN_EXTENSIONS = new Set([
   ".prg", ".crt", ".d64", ".g64", ".bin",
@@ -112,6 +117,16 @@ export interface RegistrationDelta {
   toolOutputCount: number;
   // Count per owning directory prefix, e.g. { "analysis/g64": 4101 }.
   toolOutputByDir: Record<string, number>;
+  // Unregistered files the PROJECT ITSELF declared intentional in
+  // knowledge/inventory-patterns.json. Held apart from `unregistered` for the same
+  // reason tool output is: nobody is going to act on them, so they are not debt.
+  // Sample capped like `unregistered`.
+  declaredIntentional: string[];
+  declaredIntentionalCount: number;
+  // Whatever was wrong with the declaration file, so the door that reports the count
+  // can also report why a declaration did not take effect. Empty when it is clean.
+  declarationProblems: string[];
+  declarationError?: string;
 }
 
 interface ArtifactsJson {
@@ -207,20 +222,71 @@ function walkAllRoots(projectRoot: string, registered: Set<string>): { sink: Wal
   return { sink, totalCandidates, alreadyRegistered };
 }
 
-export function scanRegistrationDelta(projectRoot: string, cap = 50): RegistrationDelta {
+// The ONE scan. `agent_record_step`, `agent_onboard`, `agent_propose_next`, the
+// workspace banner, the project audit, `scan_registration_delta` and
+// `project_inventory_sync` all come through here, which is the only way they can agree.
+//
+// They did not agree. `agent_record_step` warned "840 files on disk are NOT registered"
+// for exactly the files `project_inventory_sync` had just reported as "831 further
+// file(s) declared intentional … and are not counted": the declaration was read inside
+// the sync tool and nowhere else, so the shared scan had never heard of it. It is read
+// HERE now, and the split it produces is the one every door reports.
+//
+// `declaration` may be passed by a caller that has already read the file (the sync
+// reads it to register with, too) — same reader either way.
+export function scanRegistrationDelta(
+  projectRoot: string,
+  cap = 50,
+  declaration?: ProjectInventoryDeclaration,
+): RegistrationDelta {
   const registered = loadRegisteredPaths(projectRoot);
   const { sink, totalCandidates, alreadyRegistered } = walkAllRoots(projectRoot, registered);
+  const declared = declaration ?? readInventoryDeclaration(projectRoot);
+  const { debt, debtByExt, intentional } = splitDeclaredIntentional(sink, declared);
   return {
     totalCandidates,
     alreadyRegistered,
-    unregistered: sink.human.slice(0, cap),
-    unregisteredCount: sink.human.length,
-    unregisteredByExt: sink.humanByExt,
+    unregistered: debt.slice(0, cap),
+    unregisteredCount: debt.length,
+    unregisteredByExt: debtByExt,
     toolOutput: sink.tool.slice(0, cap),
     toolOutputCount: sink.tool.length,
     toolOutputByDir: sink.toolByDir,
+    declaredIntentional: intentional.slice(0, cap),
+    declaredIntentionalCount: intentional.length,
+    declarationProblems: declared.problems,
+    declarationError: declared.error,
   };
 }
+
+// Pull the project's own declared-intentional files out of the human debt list.
+function splitDeclaredIntentional(
+  sink: WalkSink,
+  declared: ProjectInventoryDeclaration,
+): { debt: string[]; debtByExt: Record<string, number>; intentional: string[] } {
+  if (declared.intentional.length === 0) {
+    return { debt: sink.human, debtByExt: sink.humanByExt, intentional: [] };
+  }
+  const debt: string[] = [];
+  const intentional: string[] = [];
+  const debtByExt: Record<string, number> = {};
+  for (const rel of sink.human) {
+    if (declared.intentional.some((g) => matchesGlob(rel, g))) {
+      intentional.push(rel);
+      continue;
+    }
+    debt.push(rel);
+    const dot = rel.lastIndexOf(".");
+    if (dot >= 0) {
+      const ext = rel.slice(dot).toLowerCase();
+      debtByExt[ext] = (debtByExt[ext] ?? 0) + 1;
+    }
+  }
+  return { debt, debtByExt, intentional };
+}
+
+/** Where a project says what its own directories are for. Re-exported for report text. */
+export { INVENTORY_PATTERNS_FILE };
 
 // Describe the resolved walk roots so register_existing_files can report
 // what it actually scanned. Used by the zero-match diagnostic path.
@@ -253,11 +319,13 @@ export function describeWalkRoots(projectRoot: string): WalkRootInfo[] {
 }
 
 // Cheap variant: only return the count, not the file list. Spec 832 D5 — this
-// counts human-left files only; tool output is not debt. Use
-// scanRegistrationDelta().toolOutputCount for the machine side.
+// counts human-left files only; tool output is not debt, and neither is anything
+// the project declared intentional. Use scanRegistrationDelta().toolOutputCount /
+// .declaredIntentionalCount for the other two buckets.
 export function countUnregisteredFiles(projectRoot: string): number {
   const registered = loadRegisteredPaths(projectRoot);
-  return walkAllRoots(projectRoot, registered).sink.human.length;
+  const sink = walkAllRoots(projectRoot, registered).sink;
+  return splitDeclaredIntentional(sink, readInventoryDeclaration(projectRoot)).debt.length;
 }
 
 // Glob-style check: does `relPath` match `glob`? Supports * and **.

@@ -125,11 +125,88 @@ export function orderCandidatesBestFirst(cands: RankedCandidate[]): RankedCandid
   });
 }
 
-// True when the top two candidates tie on rank (genuine ambiguity the sync must
-// NOT silently guess — §7.3). Ties are broken by mtime for the auto-pick but
-// flagged via needsDecision.
+// True when the top two candidates tie on rank. NOT the same thing as a decision a
+// human owes an answer to — see `classifyTopRankTie`.
 export function topRankIsTied(ordered: RankedCandidate[]): boolean {
   return ordered.length >= 2 && ordered[0]!.rank === ordered[1]!.rank && ordered[0]!.rank > STALE_RANK;
+}
+
+// ───────────────────────────────────────────────────────────── what a tie actually is
+//
+// One `project_inventory_sync` raised 220 open questions — "220 subject(s) have two
+// equally-ranked sources" — and a project that held four real open questions ended the
+// call holding 224. The remedy offered was one `set_current_artifact_version` call per
+// question. Nobody makes 220 decisions; the real four were buried.
+//
+// So: a rank tie is only a DECISION when a person's answer could differ from the
+// machine's. Two conditions settle it by rule instead, and the sync says which rule it
+// used and which file it picked:
+//
+//   1. SAME BYTES. Candidates whose content hash agrees are one listing registered
+//      from two paths. There is nothing to choose: take the shortest relative path
+//      (then lexicographic) so the answer is stable across runs and machines.
+//
+//   2. MACHINE OUTPUT. When every tied candidate is generated (a disassembler dump, a
+//      companion file) the tie is between two deterministic renderings of the same
+//      run. Doctrine already holds that machine output is not human debt (Spec 832 D5,
+//      and the rule that split the registration scan); a deterministic dump is not a
+//      decision either. Take the established order — rank, then newest, then id.
+//
+// What is left is the case the model was built for: a hand-authored source competing
+// with another hand-authored source. That one is asked, because guessing it would
+// overwrite somebody's work.
+const HUMAN_AUTHORED_ROLES = new Set<ArtifactVersionRole>(["final", "curated", "semantic", "manual"]);
+
+export type TieResolutionRule = "same-bytes" | "machine-output";
+
+export type TopRankTieVerdict =
+  | { kind: "no-tie" }
+  | { kind: "resolved"; rule: TieResolutionRule; winner: RankedCandidate; tied: RankedCandidate[]; reason: string }
+  | { kind: "decision"; tied: RankedCandidate[] };
+
+function pathOf(c: RankedCandidate): string {
+  return c.artifact.relativePath ?? c.artifact.path ?? c.artifact.title;
+}
+
+/** Shortest path first, then lexicographic — stable across runs, machines and clocks. */
+function shortestPathFirst(cands: RankedCandidate[]): RankedCandidate {
+  return [...cands].sort((a, b) => {
+    const pa = pathOf(a);
+    const pb = pathOf(b);
+    if (pa.length !== pb.length) return pa.length - pb.length;
+    return pa.localeCompare(pb);
+  })[0]!;
+}
+
+export function classifyTopRankTie(ordered: RankedCandidate[]): TopRankTieVerdict {
+  if (!topRankIsTied(ordered)) return { kind: "no-tie" };
+  const top = ordered[0]!.rank;
+  const tied = ordered.filter((c) => c.rank === top);
+
+  const hashes = tied.map((c) => c.artifact.contentHash);
+  if (hashes.every((h) => typeof h === "string" && h.length > 0 && h === hashes[0])) {
+    const winner = shortestPathFirst(tied);
+    return {
+      kind: "resolved",
+      rule: "same-bytes",
+      winner,
+      tied,
+      reason: `${tied.length} sources hold identical bytes; chose ${pathOf(winner)} (shortest path).`,
+    };
+  }
+
+  if (!tied.some((c) => HUMAN_AUTHORED_ROLES.has(c.role))) {
+    const winner = ordered[0]!;
+    return {
+      kind: "resolved",
+      rule: "machine-output",
+      winner,
+      tied,
+      reason: `${tied.length} generated sources tie; chose ${pathOf(winner)} (newest of the tied rank).`,
+    };
+  }
+
+  return { kind: "decision", tied };
 }
 
 export function memberFromCandidate(c: RankedCandidate, current: boolean): ArtifactVersionMember {
