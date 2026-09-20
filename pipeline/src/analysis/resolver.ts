@@ -58,10 +58,22 @@ export function resolveSegments(startAddress: number, endAddress: number, analyz
       length: segmentLength(sliceStart, sliceEnd),
       score: mergeReasons(primary, competing),
       analyzerIds: Array.from(new Set(covering.map((candidate) => candidate.analyzerId))).sort(),
+      // An xref belongs to this slice when it LANDS here — that is the rule for
+      // code, and it is what every reader of a code segment's xrefs expects.
+      //
+      // A POINTER xref is the other way round: the pointer cell is the source and
+      // the thing it names is somewhere else, so "target inside the slice" threw
+      // away every one of them unless a table happened to point at itself. Both
+      // readers of pointer xrefs — Spec 820 D5's REFERENCES_DATA and the relation
+      // import — take the SOURCE as the segment's own address and the target as
+      // the thing referenced, so they saw nothing at all: a detected pointer table
+      // with eight targets produced no edge into any of them. Only `pointer` is
+      // widened; code xrefs keep the rule they had.
       xrefs: covering.flatMap((candidate) =>
         (candidate.xrefs ?? []).filter((xref) => {
-          const target = intersection(sliceStart, sliceEnd, xref.targetAddress, xref.targetAddress);
-          return target !== undefined;
+          if (intersection(sliceStart, sliceEnd, xref.targetAddress, xref.targetAddress) !== undefined) return true;
+          return xref.type === "pointer"
+            && intersection(sliceStart, sliceEnd, xref.sourceAddress, xref.sourceAddress) !== undefined;
         }),
       ),
       preview: primary.preview,

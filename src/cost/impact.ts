@@ -23,10 +23,10 @@ import { readFileSync } from "node:fs";
 import { resolveRef } from "../knowledge-graph/cards.js";
 import { nodeCard } from "../knowledge-graph/cards.js";
 import type { EdgeHit, Graph, ResolvedNode } from "../knowledge-graph/query.js";
-import { listDocNodes } from "../docs/register.js";
 import { KnowledgeRecords } from "../knowledge-graph/records.js";
 import { buildCfg } from "./cfg.js";
-import { formatLocs, liveness, type LocSet } from "./liveness.js";
+import { ALL_LOCS, formatLocs, liveness, type LocSet } from "./liveness.js";
+import type { Loc } from "../knowledge-graph/isa-6502.js";
 
 const CONTROL = ["CALLS", "CALLS_ROM", "JUMPS_TO", "BRANCHES_TO"] as const;
 
@@ -78,7 +78,10 @@ export interface ImpactReport {
 }
 
 const hex4 = (a: number): string => `$${(a & 0xffff).toString(16).toUpperCase().padStart(4, "0")}`;
-const nameOf = (n: ResolvedNode): string => n.name ?? n.id;
+/** A node's printable name: what it is called, else where it is. An ownerless
+ *  `addr` node — a pointer cell, a byte nobody has named — has no name at all,
+ *  and its id is not what a reader needs to see first. */
+const nameOf = (n: ResolvedNode): string => n.name ?? (n.address ? hex4(n.address) : n.id);
 
 function rangeOf(nodes: ResolvedNode[]): ImpactRange | null {
   const real = nodes.filter((n) => !n.dangling);
@@ -105,9 +108,11 @@ export interface ImpactOptions {
 
 export function changeImpact(graph: Graph, projectDir: string, ref: string, options: ImpactOptions = {}): ImpactReport {
   const notes: string[] = [];
-  let roots = options.range
-    ? nodesInRange(graph, options.range)
-    : resolveRef(graph, ref);
+  // Resolved by ID, always: a name lookup matches ONE layer's row (an annotation
+  // names the human row, never the generated twin), and that row carries no
+  // extent — so a routine found by its name would be a range of one byte.
+  let roots = (options.range ? nodesInRange(graph, options.range) : resolveRef(graph, ref))
+    .map((n) => (n.platform || n.dangling ? n : graph.resolve(n.id)));
   roots = roots.filter((n) => !n.platform);
   const range = options.range ?? rangeOf(roots);
 
@@ -204,18 +209,12 @@ export function changeImpact(graph: Graph, projectDir: string, ref: string, opti
 }
 
 function itemFor(e: EdgeHit, depth: 1 | 2 | 3, node: ResolvedNode): ImpactItem {
-  const via =
+  const via = e.type === "REFERENCES_DATA" ? "points into it" : `${e.type.toLowerCase().replace("_", " ")} it`;
+  const evidence =
     e.type === "REFERENCES_DATA"
-      ? `points into it (${e.type.toLowerCase()})`
-      : `${e.type.toLowerCase().replace("_", " ")} it`;
-  return {
-    depth,
-    id: e.from,
-    label: nameOf(node),
-    via,
-    seen: e.origin === "runtime" ? "runtime" : "static",
-    evidence: String(e.evidence.instruction ?? (e.evidence.source_address !== undefined ? hex4(Number(e.evidence.source_address)) : "")),
-  };
+      ? `${e.evidence.source ?? "reference"}${e.evidence.operand ? ` → ${e.evidence.operand}` : ""}`
+      : String(e.evidence.instruction ?? (e.evidence.source_address !== undefined ? hex4(Number(e.evidence.source_address)) : ""));
+  return { depth, id: e.from, label: nameOf(node), via, seen: e.origin === "runtime" ? "runtime" : "static", evidence };
 }
 
 function exitsOf(node: ResolvedNode): Array<{ at: string; kind: string; detail?: string }> {
@@ -309,6 +308,15 @@ function preserveSet(
   if (!range) return null;
   const routine = roots.find((r) => r.kind === "routine") ?? roots[0];
 
+  // The two answers compose, they do not compete.
+  //
+  // §3.3 is conservative where the graph ends, and a routine ends in an `rts`,
+  // so liveness taken on its own says "everything is live" at every point inside
+  // a routine — true, and useless. What the caller actually expects is 826's
+  // computed signature, so THAT is the live-out the walk starts from, and
+  // liveness carries it backwards to the end of the changed range. Without a
+  // signature the conservative answer stands, and says so.
+  const signature = signatureAnswer(graph, routine);
   if (options.prgPath) {
     try {
       const raw = readFileSync(options.prgPath);
@@ -320,11 +328,18 @@ function preserveSet(
       if (off >= 0 && off < bytes.length) {
         const slice = bytes.subarray(off, Math.min(bytes.length, to - load + 1));
         const cfg = buildCfg(slice, from);
-        const live = liveness(cfg);
+        const live = liveness(cfg, signature?.locs);
         const last = [...cfg.insns].reverse().find((i) => i.address <= range.end);
         const at = last ? live.after.get(last.address) : undefined;
         if (at) {
-          return { locs: at, how: `read from the code that follows ${hex4(range.end)} inside ${routine ? nameOf(routine) : hex4(from)} (§3.3, conservative at every exit the graph cannot see)` };
+          return {
+            locs: at,
+            how:
+              `read backwards from ${hex4(range.end)} through ${routine ? nameOf(routine) : hex4(from)} (§3.3), ` +
+              (signature
+                ? `starting from what its caller expects at the return — ${signature.how}`
+                : `and conservative at the return, because no signature says what the caller expects`),
+          };
         }
       }
       notes.push(`the PRG at ${options.prgPath} does not cover ${hex4(range.start)}, so liveness fell back to the signature`);
@@ -333,15 +348,25 @@ function preserveSet(
     }
   }
 
-  if (routine && !routine.dangling && !routine.platform) {
-    const card = nodeCard(graph, routine);
-    const sig = card.signature;
-    if (sig && (sig.out.length || sig.preserves.length)) {
-      const locs = new Set([...sig.out, ...sig.preserves].map((s) => s.toUpperCase())) as unknown as LocSet;
-      return { locs, how: `the routine's computed signature: it hands back ${sig.out.join(" ") || "nothing"} and preserves ${sig.preserves.join(" ") || "nothing"} (826)` };
-    }
-  }
-  return null;
+  return signature;
+}
+
+/** 826's computed interface: what the routine hands back and what it promises to keep. */
+function signatureAnswer(graph: Graph, routine: ResolvedNode | undefined): { locs: LocSet; how: string } | null {
+  if (!routine || routine.dangling || routine.platform) return null;
+  const sig = nodeCard(graph, routine).signature;
+  if (!sig || (!sig.out.length && !sig.preserves.length)) return null;
+  // 826 names memory cells in the same list as registers (`zp:$02`, `mem:$D020`);
+  // only the nine bits of CPU state are locations liveness knows about.
+  const locs = new Set(
+    [...sig.out, ...sig.preserves]
+      .map((s) => s.toUpperCase())
+      .filter((s): s is Loc => (ALL_LOCS as readonly string[]).includes(s)),
+  ) as LocSet;
+  return {
+    locs,
+    how: `the routine's computed signature: it hands back ${sig.out.join(" ") || "nothing"} and preserves ${sig.preserves.join(" ") || "nothing"} (826)`,
+  };
 }
 
 function dedupe(list: UnknownItem[]): void {
@@ -409,5 +434,3 @@ export function formatImpact(report: ImpactReport): string {
   for (const n of report.notes) lines.push(`  note: ${n}`);
   return lines.join("\n");
 }
-
-export { listDocNodes };

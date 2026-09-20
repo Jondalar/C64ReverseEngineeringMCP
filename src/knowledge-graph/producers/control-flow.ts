@@ -69,7 +69,10 @@ function unresolvedExits(
     else if (mn === "pla" || mn === "plp") pushes -= 1;
     else if (mn === "jsr") pushes = 0; // a call balances itself
     else if (mn === "jmp" && i.addressingMode === "ind") {
-      out.push({ at: hex4(i.address), kind: "jmp-indirect", detail: `jmp ${i.operandText}` });
+      // The operand text of an indirect jump comes out of the report WITHOUT its
+      // brackets; the brackets are the whole point of the entry.
+      const operand = /^\(.*\)$/u.test(i.operandText) ? i.operandText : `(${i.operandText})`;
+      out.push({ at: hex4(i.address), kind: "jmp-indirect", detail: `jmp ${operand}` });
     } else if (mn === "rti") {
       out.push({ at: hex4(i.address), kind: "rti" });
     } else if (mn === "rts" && pushes >= 2) {

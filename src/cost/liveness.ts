@@ -34,14 +34,21 @@ export interface Liveness {
 
 const everything = (): Set<Loc> => new Set(ALL_LOCS);
 
-/** Backwards through one instruction: (live − writes) ∪ reads. */
+/**
+ * Backwards through one instruction: (live − writes) ∪ reads.
+ *
+ * A `jsr` is the one instruction that reads everything, because the callee may.
+ * A `rts` is NOT: where it goes is unknown, and that is already what makes the
+ * block's live-out conservative — doing it twice would throw away a live-out the
+ * caller declared, which is exactly what "what must this change preserve"
+ * depends on.
+ */
 function step(live: Set<Loc>, insn: Insn): Set<Loc> {
   if (insn.mnemonic === "jsr") return everything(); // the callee may read anything
   const e = effects(insn.mnemonic, insn.mode);
   const out = new Set(live);
   for (const w of e.writes) out.delete(w);
   for (const r of e.reads) out.add(r);
-  if (insn.mnemonic === "rts" || insn.mnemonic === "rti") return everything();
   return out;
 }
 
