@@ -198,6 +198,69 @@ try {
       v2.blockers.find((b) => /document/.test(b)));
   }
 
+  // ------------------------------- a document about a MEDIUM is a real deliverable
+  //
+  // `covers: artifact:CRAZY1.D64` fell into the role branch, matched no model boundary
+  // and answered "no model boundary is named for it yet (model_assert)" — advice that
+  // cannot be followed, because a whole D64 has no address range to assert. The run that
+  // hit it restated its own deliverable as `$0200-$FFFE` to make the check pass: a false
+  // declaration produced by the checker. So was the literal artifact id.
+  {
+    const d = newProject(); dirs.push(d);
+    mkdirSync(join(d, "docs"), { recursive: true });
+    mkdirSync(join(d, "input", "disk"), { recursive: true });
+    writeFileSync(join(d, "input", "disk", "CRAZY1.D64"), Buffer.alloc(16, 0));
+
+    const rec = new KnowledgeRecords(d);
+    rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x2000, end: 0x2040 } });
+    // The artifact as extract_disk would have registered it.
+    const artifactsPath = join(d, "knowledge", "artifacts.json");
+    const ARTIFACT_ID = "artifact-crazy1-d64-0001";
+    writeFileSync(artifactsPath, JSON.stringify({ items: [{
+      id: ARTIFACT_ID, kind: "d64", scope: "input", title: "CRAZY1.D64",
+      path: join(d, "input", "disk", "CRAZY1.D64"), relativePath: "input/disk/CRAZY1.D64",
+      sourceArtifactIds: [], entityIds: [], evidence: [], status: "active", confidence: 1,
+      tags: [], versions: [], loadContexts: [],
+    }] }, null, 2));
+
+    const askMedium = { goal: "map both sides of the disk set for a cartridge port",
+      deliver: { slots: ["S1"], documents: [{ covers: "artifact:CRAZY1.D64", why: "the medium cartography" }] } };
+    saveContract(d, askMedium);
+    const vNone = await verdict(d);
+    const mediumBlocker = vNone.blockers.find((b) => /CRAZY1\.D64/.test(b)) ?? "";
+    check("a medium-level document demand blocks while nothing declares it", mediumBlocker.length > 0);
+    check("…and it does NOT send the session to model_assert for a whole D64",
+      !/model boundary is named for it yet/.test(mediumBlocker), mediumBlocker);
+    check("…it names doc_register and the covers line that settles it",
+      /doc_register/.test(mediumBlocker) && /artifact:crazy1\.d64/i.test(mediumBlocker), mediumBlocker);
+
+    // The document the run actually wrote: no address range, one artifact line.
+    writeFileSync(join(d, "docs", "CRAZY1_cartography.md"), [
+      "---", "title: CRAZY1 side 1 cartography", "kind: synthesis",
+      "covers:", "  - artifact:CRAZY1.D64",
+      "sources:", "  - input/disk/CRAZY1.D64", "status: current", "---", "", "Body.", "",
+    ].join("\n"));
+    const vDoc = await verdict(d);
+    check("a document declaring the artifact — and no address range — SATISFIES the demand",
+      !vDoc.blockers.some((b) => /CRAZY1\.D64/.test(b)),
+      vDoc.blockers.find((b) => /CRAZY1/.test(b)) ?? "(no blocker)");
+
+    // The other spelling the run tried: the literal artifact id.
+    saveContract(d, { ...askMedium, deliver: { slots: ["S1"], documents: [{ covers: ARTIFACT_ID }] } });
+    const vById = await verdict(d);
+    check("the same document satisfies a demand written as the literal artifact id",
+      !vById.blockers.some((b) => new RegExp(ARTIFACT_ID).test(b)),
+      vById.blockers.find((b) => /artifact/.test(b)) ?? "(no blocker)");
+
+    // A name nothing answers to is still refused — and now says both doors.
+    saveContract(d, { ...askMedium, deliver: { slots: ["S1"], documents: [{ covers: "the sound driver" }] } });
+    const vUnknown = await verdict(d);
+    const unknown = vUnknown.blockers.find((b) => /sound driver/.test(b)) ?? "";
+    check("a demand that matches neither a boundary nor an artifact says so, naming both",
+      /model_assert/.test(unknown) && /list_artifacts/.test(unknown), unknown);
+    check("…and tells the human how to say 'this is a medium'", /artifact:/.test(unknown));
+  }
+
   // ------------------------------------------------------------------- the surface
   {
     check("the contract tools are on the DEFAULT surface",

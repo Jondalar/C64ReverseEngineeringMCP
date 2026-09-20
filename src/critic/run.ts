@@ -371,42 +371,24 @@ export async function verdict(projectDir: string): Promise<Verdict> {
     // Deklarationsproblem" — and it was mine.
     //
     // So a role resolves through the model first: the boundary carrying that name gives
-    // the range, and a document covering that range satisfies the demand.
+    // the range, and a document covering that range satisfies the demand. A MEDIUM or a
+    // file resolves through the artifacts — see contract/documents.ts, which owns the
+    // whole crosswalk from a demand's vocabulary to what satisfies it.
     const { lintDocs } = await import("../docs/scan.js");
     const { modelReport } = await import("../model/rollup.js");
-    const declared = lintDocs(projectDir).docs.filter((x) => x.declared);
+    const { resolveDocumentDemand, demandSatisfiedBy, documentDemandBlocker } = await import("../contract/documents.js");
+    const { KnowledgeRecords: Records } = await import("../knowledge-graph/records.js");
+    const declared = lintDocs(projectDir).docs
+      .filter((x) => x.declared)
+      .map((x) => ({ covers: x.frontmatter?.covers ?? [] }));
     const model = await modelReport(projectDir);
+    let artifacts: Array<{ id: string; title?: string; path?: string; relativePath?: string; addressRange?: { start: number; end: number } }> = [];
+    try { artifacts = new Records(projectDir).listArtifacts(); } catch { artifacts = []; }
 
     for (const want of d.documents) {
-      const isRange = /^\$?[0-9a-fA-F]{1,4}\s*-\s*\$?[0-9a-fA-F]{1,4}$/.test(want.covers.trim());
-      const wanted: Array<{ start: number; end: number }> = [];
-      let via = "";
-
-      if (isRange) {
-        const m = /^\$?([0-9a-fA-F]{1,4})\s*-\s*\$?([0-9a-fA-F]{1,4})$/.exec(want.covers.trim())!;
-        wanted.push({ start: parseInt(m[1], 16), end: parseInt(m[2], 16) });
-      } else {
-        for (const b of model.nodes) {
-          if (b.name.toLowerCase().includes(want.covers.toLowerCase())) {
-            wanted.push({ start: b.start, end: b.end });
-            via = via ? `${via}, "${b.name}"` : `"${b.name}"`;
-          }
-        }
-        if (wanted.length === 0) {
-          blockers.push(`the contract asks for a document covering "${want.covers}"${want.why ? ` (${want.why})` : ""}, and no model boundary is named for it yet (model_assert)`);
-          continue;
-        }
-      }
-
-      // Overlap, not containment: a document about the loader need not cover the boundary
-      // to the byte, and demanding that would fail on a range the session refined.
-      const has = declared.some((x) => (x.frontmatter?.covers ?? []).some((c) => {
-        if (c.kind === "artifact") return want.covers.toLowerCase().includes(c.ref.toLowerCase());
-        return wanted.some((w) => c.start <= w.end && w.start <= c.end);
-      }));
-      if (!has) {
-        blockers.push(`the contract asks for a document covering ${isRange ? want.covers : `"${want.covers}" (${via})`}${want.why ? ` — ${want.why}` : ""}, and none declares that range`);
-      }
+      const demand = resolveDocumentDemand(want.covers, { boundaries: model.nodes, artifacts });
+      if (demandSatisfiedBy(demand, declared)) continue;
+      blockers.push(documentDemandBlocker(demand, want.why));
     }
   }
   void present;
