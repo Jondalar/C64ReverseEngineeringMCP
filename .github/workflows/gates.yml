@@ -281,3 +281,18 @@ jobs:
 
       - name: What a change breaks (Spec 861)
         run: npm run e2e:861-impact
+
+      # Spec 862 — two hermetic gates. e2e:862-rules builds its own project
+      # through project_init / agent_onboard / analyze_prg / disasm_prg /
+      # save_finding and runs a positive and a negative fixture for every rule,
+      # the three kinds of code that must be left alone, and the two things the
+      # tool may never do (apply anything, or use an undocumented opcode
+      # unasked). e2e:862-rank puts synthesised trace rows through 861's own
+      # evaluator, because ranking by frequency needs a measurement and a
+      # runner has no machine. The half that records a real capture is
+      # smoke:862, a local gate.
+      - name: A fixture per rule, and nothing applied (Spec 862)
+        run: npm run e2e:862-rules
+
+      - name: Frequency ranks, and a page crossing is a count (Spec 862)
+        run: npm run e2e:862-rank

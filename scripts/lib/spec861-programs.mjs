@@ -42,7 +42,9 @@ export const ZP_SP = 0xf0;          // the stack pointer, parked
 
 const decode = (op) => decodeInstruction(Buffer.from([op, 0x00, 0x00]), 0, 0);
 
-class Asm {
+// Exported so a later gate's programs can be written in the same shorthand
+// instead of a second copy of it.
+export class Asm {
   constructor(org) { this.org = org; this.bytes = []; }
   get pc() { return this.org + this.bytes.length; }
   b(...v) { for (const x of v) this.bytes.push(x & 0xff); return this; }
@@ -101,7 +103,7 @@ export function exerciser({ displayOn = false } = {}) {
  * all RAM — no I/O to read a moving value from, no ROM, and the vectors in cells
  * the program owns.
  */
-function setup(a, { displayOn, vectors, scratch }) {
+export function setup(a, { displayOn, vectors, scratch }) {
   a.b(0x78);                       // sei
   a.lda(0x7f).sta(0xdc0d).sta(0xdd0d);   // no CIA interrupts
   a.b(0xad, 0x0d, 0xdc);           // lda $dc0d — acknowledge
