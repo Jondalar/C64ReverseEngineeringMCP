@@ -31,6 +31,9 @@ export interface KnowledgeRegistrationResult {
   inputArtifacts?: string[];
   outputArtifacts?: string[];
   message?: string;
+  /** The store refused the write. `message` is the banner that says so; the run's
+   *  files are on disk and nothing in the project knows about them. */
+  failed?: boolean;
 }
 
 export interface ServerToolContext {
