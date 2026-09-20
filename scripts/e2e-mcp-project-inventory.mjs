@@ -104,7 +104,11 @@ try {
   // Exception (Spec 730.1): bulk_create_cart_chunk_payloads is a product RE tool
   // explicitly promoted to default; its name matches /^bulk_/ but it is not a
   // maintenance op.
-  const BULK_EXCEPTIONS_730 = new Set(["bulk_create_cart_chunk_payloads"]);
+  // Exception (2026-09-20): the sandbox_* pair matches a maintenance PREFIX and
+  // nothing else — running a game's own depacker over packed bytes, or one routine
+  // in a flat 64K, is the static path, not store repair.
+  const BULK_EXCEPTIONS_730 = new Set(["bulk_create_cart_chunk_payloads",
+    "sandbox_depack", "sandbox_6502_run"]);
   const maint = tools.filter((n) => /^(backfill_|dedupe_|repair_|bulk_|sandbox_)/.test(n) && !BULK_EXCEPTIONS_730.has(n));
   ok(maint.length === 0, "4c no maintenance/bulk/sandbox in the live default surface", maint.join(",") || "none");
 

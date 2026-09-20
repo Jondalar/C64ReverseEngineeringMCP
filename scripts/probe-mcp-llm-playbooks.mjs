@@ -91,7 +91,11 @@ const SUPPORTING = new Set(["runtime_session_status", "runtime_trace_status", "r
   "project_reindex_search", "project_wiki_lint",
   // BUG-023 — save mounted-disk writes back to the host file (supports any
   // media/runtime playbook; eject does the same via runtime_media_unmount).
-  "runtime_media_persist"]);
+  "runtime_media_persist",
+  // Two read/poll primitives that belong to no flow of their own: one polls the
+  // background job any large analysis may start, the other reads a single finding
+  // in full the way read_artifact reads one artifact.
+  "analysis_job_status", "read_finding"]);
 const trulyUncovered = uncovered.filter((n) => !SUPPORTING.has(n));
 ok(trulyUncovered.length === 0, "9 every default tool is in a playbook or marked supporting", trulyUncovered.slice(0, 10).join(",") || "none");
 

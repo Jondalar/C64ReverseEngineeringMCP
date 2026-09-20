@@ -61,7 +61,6 @@ const LEGACY_SUCCESSOR = {
   runtime_save_vsf: "runtime_checkpoint_capture",
   runtime_load_vsf: "runtime_checkpoint_restore",
   runtime_memory_access_map: "runtime_query_events / trace_store_bus_find",
-  runtime_diff_snapshots: "runtime_swimlane_slice (before/after)",
 };
 
 // Curated rows for the default surface (Spec 725 §3).
@@ -124,6 +123,14 @@ const CURATED = {
   build_annotated_listing_view: { role: "view-docs", swimlane: "disassembly-improve", useWhen: "Render the annotated disassembly listing view.", notFor: "Raw disasm text — use disasm_prg.", adjacent: ["disasm_prg", "build_memory_map"], e2e: ["E2E-C"] },
   render_docs: { role: "view-docs", swimlane: "validation", useWhen: "Render project documentation/report outputs.", notFor: "Building interactive views — use build_all_views.", adjacent: ["build_all_views"], e2e: ["E2E-A"] },
   suggest_depacker: { role: "static-analysis", swimlane: "disassembly-improve", useWhen: "Identify the likely packer/cruncher of a payload.", notFor: "Actually unpacking — use try_depack.", adjacent: ["try_depack"], e2e: ["E2E-C"] },
+  // The sandbox_* pair and the manifest bulk-register are NOT maintenance: the
+  // name-prefix fallback below reads them that way, which hid them from every
+  // playbook. Running a game's own depacker over its packed bytes IS the static
+  // path, and registering a manifest's payloads is media ingress.
+  sandbox_depack: { role: "static-analysis", swimlane: "disassembly-improve", useWhen: "Run the game's OWN 6502 depacker over packed bytes and get the plaintext back — the static path when the packer is custom.", notFor: "A known packer format — use try_depack; discovering structure by running the game — read the loader first.", adjacent: ["try_depack", "suggest_depacker", "sandbox_6502_run"], e2e: ["E2E-C"] },
+  sandbox_6502_run: { role: "static-analysis", swimlane: "disassembly-improve", useWhen: "Run a 6502 routine in an isolated flat-64K sandbox to see what it produces — a decoder, a table builder, a checksum.", notFor: "Anything that needs a real machine (VIC, CIA, the drive) — use a sandbox run of the medium instead.", adjacent: ["sandbox_depack", "runtime_sandbox_run"], e2e: ["E2E-C"] },
+  register_payloads_from_manifest: { role: "media-ingress", swimlane: "entry-project-baseline", useWhen: "Bulk-register every payload a loader-extraction manifest describes — the medium-agnostic path from an extraction to project payloads.", notFor: "One payload by hand — use register_payload; checking the extraction against what the loader really read — use validate_extraction.", adjacent: ["register_payload", "validate_extraction", "project_inventory_sync"], e2e: ["E2E-B"] },
+  runtime_diff_snapshots: { role: "runtime-inspect", swimlane: "change-intervention", useWhen: "See exactly what changed between two snapshot FILES — RAM changed ranges plus CPU/CIA/VIC/SID state.", notFor: "A per-component equivalence verdict — use runtime_component_diff; what changed over TIME in one run — use runtime_swimlane_slice.", adjacent: ["runtime_component_diff", "runtime_checkpoint_capture"], e2e: ["E2E-D"] },
   try_depack: { role: "static-analysis", swimlane: "disassembly-improve", useWhen: "Attempt to unpack a packed payload into a usable image.", notFor: "Identifying the packer only — use suggest_depacker.", adjacent: ["suggest_depacker"], e2e: ["E2E-C"] },
   run_prg_reverse_workflow: { role: "workflow", swimlane: "disassembly-improve", useWhen: "Run the end-to-end per-PRG analyze→disasm→verify workflow.", notFor: "Project-level workflow selection — use start_re_workflow.", adjacent: ["analyze_prg", "disasm_prg"], e2e: ["E2E-C"] },
   runtime_session_start: { role: "runtime-control", swimlane: "runtime-explore", useWhen: "Start the Headless product runtime; pass disk_path/crt_path/prg_path + optional trace_out + trace_domains for durable capture. Disk-boot trace sequence: start(disk_path,trace_out) → session_run to BASIC READY → mark('basic-ready') → type('LOAD\"*\",8,1\\rRUN\\r') → session_run to stable screen → mark('loaded-or-title') → trace_finalize.", notFor: "Scenario fixtures — those are advanced internal-dev paths.", adjacent: ["runtime_session_run", "runtime_mark", "runtime_trace_finalize", "runtime_media_mount"], e2e: ["E2E-B", "E2E-C", "E2E-H"] },

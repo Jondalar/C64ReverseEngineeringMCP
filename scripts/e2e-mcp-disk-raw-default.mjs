@@ -279,7 +279,7 @@ try {
 
   // Extract the entity ID from the response (format: "Entity saved.\nID: <id>").
   const entityText = textOf(entityRes);
-  const entityId = (entityText.match(/\bID:\s*([a-zA-Z0-9_-]+)/i) || [])[1];
+  const entityId = (entityText.match(/^ID:\s*(\S+)\s*$/mi) || [])[1];
   NOTE(`7c entity ID extracted: "${entityId ?? "(none)"}"`);
   if (entityId) {
     const hintRes = await callTool("set_payload_disk_hint", {

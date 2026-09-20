@@ -28,7 +28,7 @@ inventory.
 **Steps:**
 
 1. _(llm)_ Onboard: detect new vs resumed project, load persistent memory. For a brand-new directory, initialize it first (knowledge writes are rejected until then).
-   - tools: `agent_onboard`, `project_init`, `project_status`, `get_project_profile`
+   - tools: `agent_onboard`, `project_init`, `project_status`, `get_project_profile`, `project_steering_set`
    - persist: project state
    - ask human when: it is unclear whether to create a new project here
 2. _(llm)_ Ask the user's objective (crack / EasyFlash port / analysis / bugfix / routine) and set role + workflow.
@@ -165,8 +165,8 @@ inventory.
    ```text
    runtime_session_run({ session_id, max_instructions: 2000000, until: { kind: "stable_screen", frames_stable: 3 } })
    ```
-3. _(llm)_ Mark the boot phase.
-   - tools: `runtime_mark`
+3. _(llm)_ Mark the boot phase. A session already running can start its capture here instead of at session_start.
+   - tools: `runtime_mark`, `runtime_trace_start`
    - persist: mark basic-ready
    ```text
    runtime_mark({ session_id, label: "basic-ready" })
@@ -176,8 +176,8 @@ inventory.
    ```text
    runtime_type({ session_id, text: "LOAD\"*\",8,1\rRUN\r" })
    ```
-5. _(runtime)_ Run to a stable title/loaded screen.
-   - tools: `runtime_session_run`, `runtime_render_screen`
+5. _(runtime)_ Run to a stable title/loaded screen; the monitor answers a point question — registers, a disassembly, a memory window — without a capture.
+   - tools: `runtime_session_run`, `runtime_render_screen`, `runtime_monitor`
    - persist: screen
    ```text
    runtime_session_run({ session_id, max_instructions: 10000000, until: { kind: "stable_screen", frames_stable: 5 } })
@@ -190,7 +190,7 @@ inventory.
    runtime_trace_finalize({ session_id })
    ```
 7. _(tracedb)_ Query the durable trace with convenience readers (not raw SQL).
-   - tools: `trace_store_info`, `trace_store_top_pcs`, `trace_store_bus_find`, `runtime_query_events`, `runtime_swimlane_slice`
+   - tools: `trace_store_info`, `trace_store_top_pcs`, `trace_store_bus_find`, `trace_memory_map`, `runtime_query_events`, `runtime_swimlane_slice`
    - persist: executed-PC set, bus access set
 8. _(llm)_ Save findings + choose disasm candidates.
    - tools: `save_finding`, `disasm_prg`, `agent_record_step`
@@ -230,19 +230,22 @@ inventory.
    ```text
    runtime_media_unmount({ session_id })
    ```
-3. _(runtime)_ Let the drive run so it registers the disk-out (advance the session).
+3. _(llm)_ When the game asks for a side by name and nothing else is wanted, the one-call answer swaps the disk and continues.
+   - tools: `runtime_swap_disk_and_continue`
+   - persist: side swapped
+4. _(runtime)_ Let the drive run so it registers the disk-out (advance the session).
    - tools: `runtime_session_run`
    - persist: drive saw removal
    ```text
    runtime_session_run({ session_id, max_instructions: 2000000 })
    ```
-4. _(llm)_ Insert the requested side: MOUNT the new disk image. The running 1541 senses a disk is now present.
+5. _(llm)_ Insert the requested side: MOUNT the new disk image. The running 1541 senses a disk is now present.
    - tools: `runtime_media_mount`
    - persist: new side mounted
    ```text
    runtime_media_mount({ session_id, path: "<.../wasteland_sN[...].g64>" })
    ```
-5. _(runtime)_ Run so the drive registers the new disk, then send the RETURN the prompt asked for, then run on.
+6. _(runtime)_ Run so the drive registers the new disk, then send the RETURN the prompt asked for, then run on.
    - tools: `runtime_session_run`, `runtime_type`
    - persist: confirm sent
    ```text
@@ -250,7 +253,7 @@ inventory.
    runtime_type({ session_id, text: "\r" });
    runtime_session_run({ session_id, max_instructions: 5000000, until: { kind: "stable_screen", frames_stable: 5 } })
    ```
-6. _(llm)_ Read the screen again to confirm the prompt is gone and the game advanced (new map/scene). If it still shows the prompt, the drive did not register the change — run more cycles between eject and insert, or report a first-divergence trace.
+7. _(llm)_ Read the screen again to confirm the prompt is gone and the game advanced (new map/scene). If it still shows the prompt, the drive did not register the change — run more cycles between eject and insert, or report a first-divergence trace.
    - tools: `runtime_render_screen`, `runtime_mark`
    - persist: advanced past prompt, mark side-swapped
 
@@ -271,8 +274,8 @@ inventory.
 **Steps:**
 
 1. _(llm)_ Heuristic analysis pass.
-   - tools: `analyze_prg`, `inspect_address_range`
-   - persist: analysis report
+   - tools: `analyze_prg`, `inspect_address_range`, `basic_list`, `basic_tokenize`
+   - persist: analysis report, BASIC stub facts
 2. _(llm)_ Disassemble + resolve ROM/symbol references.
    - tools: `disasm_prg`, `disasm_menu`, `c64ref_lookup`
    - persist: disasm artifact
@@ -353,12 +356,12 @@ inventory.
 
 **Steps:**
 
-1. _(llm)_ Capture a checkpoint + render the screen.
-   - tools: `runtime_checkpoint_capture`, `runtime_render_screen`
+1. _(llm)_ Capture a checkpoint + render the screen, and map the frame the way the video chip drew it — objects, sprites, techniques.
+   - tools: `runtime_checkpoint_capture`, `runtime_render_screen`, `runtime_vic_frame_map`
    - persist: checkpoint, screen
 2. _(llm)_ Resolve a pixel/cell to VIC/RAM evidence; read the backing RAM.
-   - tools: `runtime_vic_inspect_at`, `runtime_monitor_memory`
-   - persist: VIC/RAM evidence
+   - tools: `runtime_vic_inspect_at`, `runtime_vic_inspect_region`, `runtime_vic_origin`, `runtime_vic_line_trace`, `runtime_monitor_memory`, `runtime_rip_range`
+   - persist: VIC/RAM evidence, ripped bytes
 3. _(tracedb)_ Query trace writes around the frame/mark to find the producing code.
    - tools: `trace_store_bus_find`, `runtime_query_events`
    - persist: write provenance
@@ -389,8 +392,8 @@ inventory.
    - tools: `runtime_load_prg`, `runtime_media_mount`, `runtime_session_start`, `runtime_session_run`, `runtime_mark`, `runtime_trace_finalize`
    - persist: after trace
 3. _(tracedb)_ Compare before/after evidence.
-   - tools: `runtime_swimlane_slice`, `runtime_trace_taint`, `runtime_follow_path`, `runtime_query_events`
-   - persist: before/after diff
+   - tools: `runtime_swimlane_slice`, `runtime_trace_taint`, `runtime_follow_path`, `runtime_query_events`, `runtime_overlay_run`, `runtime_inject_range`, `runtime_component_diff`, `runtime_diff_snapshots`
+   - persist: before/after diff, component verdict
 4. _(llm)_ Record success/failure + next branch; verify a rebuild where applicable.
    - tools: `assemble_source`, `save_finding`, `agent_record_step`
    - persist: result, next branch
@@ -400,6 +403,173 @@ inventory.
 **Next:** Iterate on the next branch or validate the full title.
 
 **Do not:** Dedicated code-overlay/branch tooling (Spec 711/712) is not yet exposed; do not claim it exists. Do not skip before/after evidence.
+
+## Loader Addressing and Extraction
+
+**id:** `loader-addressing-and-extraction`
+
+**Use when:** Where does each payload live on this disk? / Extract everything this loader loads. / What does this table on track 18 mean?
+
+**Preconditions:** The medium is inventoried.; The loader (stub + drive code) has been read and annotated — the tables are meaningless until the indexing code is.
+
+**Steps:**
+
+1. _(llm)_ Record the routine that reads the addressing table — the code side of the load chain — and let the scanner propose the ones that are not a table at all (a position baked into the loader's own code, a computed address).
+   - tools: `declare_loader_entrypoint`, `suggest_loader_entrypoints`, `list_loader_entrypoints`
+   - persist: loader entry points
+2. _(llm)_ Describe the lookup table the loader indexes and resolve its rows against the medium bytes.
+   - tools: `suggest_lut_descriptor`, `declare_lut_descriptor`, `resolve_lut_rows`, `list_lut_descriptors`
+   - persist: LUT descriptor, resolved rows
+   - ask human when: the table's row shape is ambiguous and two readings fit the bytes
+3. _(llm)_ Bind each payload to the row that claims it, so a guessed span becomes a claimed one, and register the whole extraction.
+   - tools: `link_payload_to_lut_row`, `register_payloads_from_manifest`, `list_loader_models`
+   - persist: payload claims, registered payloads
+4. _(llm)_ Check the extraction against what the REAL loader read — the capture's read-set is the ground truth — and derive who mutates each payload from the disassembly.
+   - tools: `validate_extraction`, `runtime_loader_lens`, `derive_payload_relations`, `agent_record_step`
+   - persist: validation finding, mutator edges
+
+**Stop when:** Every payload is claimed by a table row or an entry point, and the extraction agrees with the loader's read-set.
+
+**Next:** Disassembly-First Static Pass on the extracted payloads.
+
+**Do not:** Do not attribute tracks by blind decode — the loader's own tables say which is which. Do not treat 'not seen in this run' as 'unused'.
+
+## Iterate Your Own Code
+
+**id:** `iterate-your-own-code`
+
+**Use when:** Try my fix and tell me if it changed anything. / Does this patch break the game? / Freeze the life counter and see if it holds.
+
+**Preconditions:** A running session with a checkpoint to anchor on.; A scenario that replays deterministically.
+
+**Steps:**
+
+1. _(llm)_ Create the candidate: a baseline anchor plus a bound scenario. The no-patch run is played once and cached, so every later verdict has something to be a verdict AGAINST.
+   - tools: `runtime_candidate_create`, `runtime_candidate_list`
+   - persist: candidate id, baseline verdict
+2. _(llm)_ Add or replace one patch at a time (re-adding at the same target replaces, which is how a fix is iterated), then run and read the diff against the baseline.
+   - tools: `runtime_candidate_patch`, `runtime_candidate_run`, `runtime_candidate_remove_patch`
+   - persist: patch set, verdict per run
+3. _(llm)_ For a trainer: find the counters that decreased between two anchors, then prove one by freezing it and running the candidate again.
+   - tools: `runtime_find_cheat`, `runtime_candidate_patch`, `runtime_candidate_run`
+   - persist: cheat candidates, confirmation
+4. _(llm)_ Hand the proven patch-set on: the raw seed, or the build-ready delta with one source file per target.
+   - tools: `runtime_candidate_export`, `runtime_candidate_derive_delta`, `runtime_candidate_delete`, `agent_record_step`
+   - persist: delta files, manifest
+
+**Stop when:** The candidate's verdict is what the change intended, and the delta is on disk.
+
+**Next:** Change / Patch / Crack / Port for the real build.
+
+**Do not:** Do not patch the shared session the human co-drives to test an idea. Do not accept a verdict from a run whose baseline was never played.
+
+## Rewind and Scrub
+
+**id:** `rewind-and-scrub`
+
+**Use when:** Go back to just before it crashed. / Keep this point, I want to come back to it. / What branches do I have?
+
+**Preconditions:** A running session whose checkpoint ring has keyframes.
+
+**Steps:**
+
+1. _(llm)_ See what the ring and the recorder hold — keyframes with their frame and cycle, anchors with their medium generation — before jumping anywhere.
+   - tools: `runtime_checkpoint_list`, `runtime_recorder_status`, `runtime_recorder_list`
+   - persist: ring inventory
+2. _(llm)_ Jump back and continue from there; the branch tree shows where each jump forked.
+   - tools: `runtime_rewind`, `runtime_checkpoint_restore`, `runtime_snapshot_tree`
+   - persist: branch point
+3. _(llm)_ Keep what must survive the ring's byte budget: pin the keyframe, dump the recorder anchor to a durable file, or promote the branch to a replayable scenario.
+   - tools: `runtime_checkpoint_pin`, `runtime_checkpoint_unpin`, `runtime_recorder_dump`, `runtime_promote_branch`, `agent_record_step`
+   - persist: pinned keyframes, dumped snapshot, scenario
+
+**Stop when:** The machine is at the wanted point and everything worth keeping is pinned, dumped or promoted.
+
+**Next:** Frozen Visual Inspect, or Iterate Your Own Code from this anchor.
+
+**Do not:** Do not power-cycle the shared session to get back to a known state — that is what the ring is for. Do not rely on an unpinned keyframe surviving a long run.
+
+## A Machine of Your Own
+
+**id:** `machine-of-your-own`
+
+**Use when:** Just run this PRG and show me. / Make me screenshots of the title and the first level. / Run this depacker over these bytes.
+
+**Preconditions:** The shared session must not be disturbed.; The work is bounded — a test run, a depack, a set of screenshots.
+
+**Steps:**
+
+1. _(llm)_ Run the medium on a private daemon that ends itself on its budget, or load and start a .prg in one shot when a session is already yours.
+   - tools: `runtime_sandbox_run`, `runtime_run_prg`
+   - persist: run result, screens
+2. _(llm)_ For documentation screens, play a written scenario and assemble the reel — the same .feature notation the recorder writes.
+   - tools: `runtime_scene_reel`
+   - persist: reel path, capture cycles
+3. _(llm)_ For bytes rather than a machine: run the game's own depacker over the packed payload, or one routine in a flat 64K sandbox.
+   - tools: `sandbox_depack`, `sandbox_6502_run`, `agent_record_step`
+   - persist: plaintext payload, routine output
+
+**Stop when:** The answer is in hand and the private machine has ended.
+
+**Next:** Disassembly-First Static Pass on what came out.
+
+**Do not:** Do not borrow the shared session for a throwaway run. Do not leave a sandbox running without a budget.
+
+## Write It Up
+
+**id:** `write-it-up`
+
+**Use when:** Write up what we found. / Document this loader. / What is documented so far?
+
+**Preconditions:** There is something established enough to write down — findings with evidence, a model, a decoded format.
+
+**Steps:**
+
+1. _(llm)_ Take the frontmatter block for the kind of document being written — a model, a port spec, a budget — before writing a line of it.
+   - tools: `doc_template`
+   - persist: frontmatter
+2. _(llm)_ Declare the finished document so it becomes a node in the graph: citable, lintable, and findable by the address range it covers.
+   - tools: `doc_register`
+   - persist: document node, coverage
+3. _(llm)_ Check what is still undeclared or malformed, and read the derived index back.
+   - tools: `doc_lint`, `wiki_index`, `agent_record_step`
+   - persist: index
+
+**Stop when:** The document is declared, covers what it claims, and the index shows it.
+
+**Next:** What The Project Owes, to see what is still missing.
+
+**Do not:** Do not hand-maintain the index — it is derived. Do not write a document with no frontmatter and register it later.
+
+## What The Project Owes
+
+**id:** `what-the-project-owes`
+
+**Use when:** Are we done? / What is still missing here? / Poke holes in what we have.
+
+**Preconditions:** A project with findings and a model worth judging.
+
+**Steps:**
+
+1. _(human)_ State what the project owes: the goal, the deliverables, and which of the required relationships apply here — a game with no save owes no save-format slot.
+   - tools: `contract_set`, `contract_show`
+   - persist: contract
+   - ask human when: no contract is set — the questions a kickoff should ask are returned instead
+2. _(llm)_ Read the model back in one call — boundaries with their citations, what is open, what was already refuted — and assert or remove a boundary where the picture changed.
+   - tools: `model_read`, `model_assert`, `model_remove`
+   - persist: boundaries
+3. _(llm)_ Check completeness against the required relationships and fill the ones you can answer with evidence.
+   - tools: `project_slots`, `slot_record`
+   - persist: slot answers
+4. _(llm)_ Let the critic argue against the project's own records — claims the graph contradicts, findings without evidence, orphans — and read what a severity actually means before acting on it.
+   - tools: `project_critique`, `critic_checks`, `agent_record_step`
+   - persist: critique findings
+
+**Stop when:** Every slot the contract demands is answered with evidence, and the critic's verdict is read.
+
+**Next:** Write It Up.
+
+**Do not:** Do not call a project done on slot count alone — an answer without evidence is not an answer. Do not silence a critic finding by deleting the record it stands on.
 
 ## Operator / Maintenance
 

@@ -33,7 +33,8 @@
             "agent_onboard",
             "project_init",
             "project_status",
-            "get_project_profile"
+            "get_project_profile",
+            "project_steering_set"
           ],
           "persist": [
             "project state"
@@ -390,9 +391,10 @@
         },
         {
           "actor": "llm",
-          "action": "Mark the boot phase.",
+          "action": "Mark the boot phase. A session already running can start its capture here instead of at session_start.",
           "tools": [
-            "runtime_mark"
+            "runtime_mark",
+            "runtime_trace_start"
           ],
           "persist": [
             "mark basic-ready"
@@ -410,10 +412,11 @@
         },
         {
           "actor": "runtime",
-          "action": "Run to a stable title/loaded screen.",
+          "action": "Run to a stable title/loaded screen; the monitor answers a point question — registers, a disassembly, a memory window — without a capture.",
           "tools": [
             "runtime_session_run",
-            "runtime_render_screen"
+            "runtime_render_screen",
+            "runtime_monitor"
           ],
           "persist": [
             "screen"
@@ -440,6 +443,7 @@
             "trace_store_info",
             "trace_store_top_pcs",
             "trace_store_bus_find",
+            "trace_memory_map",
             "runtime_query_events",
             "runtime_swimlane_slice"
           ],
@@ -520,6 +524,16 @@
           "snippet": "runtime_media_unmount({ session_id })"
         },
         {
+          "actor": "llm",
+          "action": "When the game asks for a side by name and nothing else is wanted, the one-call answer swaps the disk and continues.",
+          "tools": [
+            "runtime_swap_disk_and_continue"
+          ],
+          "persist": [
+            "side swapped"
+          ]
+        },
+        {
           "actor": "runtime",
           "action": "Let the drive run so it registers the disk-out (advance the session).",
           "tools": [
@@ -595,10 +609,13 @@
           "action": "Heuristic analysis pass.",
           "tools": [
             "analyze_prg",
-            "inspect_address_range"
+            "inspect_address_range",
+            "basic_list",
+            "basic_tokenize"
           ],
           "persist": [
-            "analysis report"
+            "analysis report",
+            "BASIC stub facts"
           ]
         },
         {
@@ -794,10 +811,11 @@
       "steps": [
         {
           "actor": "llm",
-          "action": "Capture a checkpoint + render the screen.",
+          "action": "Capture a checkpoint + render the screen, and map the frame the way the video chip drew it — objects, sprites, techniques.",
           "tools": [
             "runtime_checkpoint_capture",
-            "runtime_render_screen"
+            "runtime_render_screen",
+            "runtime_vic_frame_map"
           ],
           "persist": [
             "checkpoint",
@@ -809,10 +827,15 @@
           "action": "Resolve a pixel/cell to VIC/RAM evidence; read the backing RAM.",
           "tools": [
             "runtime_vic_inspect_at",
-            "runtime_monitor_memory"
+            "runtime_vic_inspect_region",
+            "runtime_vic_origin",
+            "runtime_vic_line_trace",
+            "runtime_monitor_memory",
+            "runtime_rip_range"
           ],
           "persist": [
-            "VIC/RAM evidence"
+            "VIC/RAM evidence",
+            "ripped bytes"
           ]
         },
         {
@@ -898,10 +921,15 @@
             "runtime_swimlane_slice",
             "runtime_trace_taint",
             "runtime_follow_path",
-            "runtime_query_events"
+            "runtime_query_events",
+            "runtime_overlay_run",
+            "runtime_inject_range",
+            "runtime_component_diff",
+            "runtime_diff_snapshots"
           ],
           "persist": [
-            "before/after diff"
+            "before/after diff",
+            "component verdict"
           ]
         },
         {
@@ -927,6 +955,415 @@
       "forbiddenShortcuts": [
         "Dedicated code-overlay/branch tooling (Spec 711/712) is not yet exposed; do not claim it exists.",
         "Do not skip before/after evidence."
+      ]
+    },
+    {
+      "id": "loader-addressing-and-extraction",
+      "title": "Loader Addressing and Extraction",
+      "userIntentExamples": [
+        "Where does each payload live on this disk?",
+        "Extract everything this loader loads.",
+        "What does this table on track 18 mean?"
+      ],
+      "preconditions": [
+        "The medium is inventoried.",
+        "The loader (stub + drive code) has been read and annotated — the tables are meaningless until the indexing code is."
+      ],
+      "steps": [
+        {
+          "actor": "llm",
+          "action": "Record the routine that reads the addressing table — the code side of the load chain — and let the scanner propose the ones that are not a table at all (a position baked into the loader's own code, a computed address).",
+          "tools": [
+            "declare_loader_entrypoint",
+            "suggest_loader_entrypoints",
+            "list_loader_entrypoints"
+          ],
+          "persist": [
+            "loader entry points"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "Describe the lookup table the loader indexes and resolve its rows against the medium bytes.",
+          "tools": [
+            "suggest_lut_descriptor",
+            "declare_lut_descriptor",
+            "resolve_lut_rows",
+            "list_lut_descriptors"
+          ],
+          "persist": [
+            "LUT descriptor",
+            "resolved rows"
+          ],
+          "askHumanWhen": "the table's row shape is ambiguous and two readings fit the bytes"
+        },
+        {
+          "actor": "llm",
+          "action": "Bind each payload to the row that claims it, so a guessed span becomes a claimed one, and register the whole extraction.",
+          "tools": [
+            "link_payload_to_lut_row",
+            "register_payloads_from_manifest",
+            "list_loader_models"
+          ],
+          "persist": [
+            "payload claims",
+            "registered payloads"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "Check the extraction against what the REAL loader read — the capture's read-set is the ground truth — and derive who mutates each payload from the disassembly.",
+          "tools": [
+            "validate_extraction",
+            "runtime_loader_lens",
+            "derive_payload_relations",
+            "agent_record_step"
+          ],
+          "persist": [
+            "validation finding",
+            "mutator edges"
+          ]
+        }
+      ],
+      "stopConditions": [
+        "Every payload is claimed by a table row or an entry point, and the extraction agrees with the loader's read-set."
+      ],
+      "nextActions": [
+        "Disassembly-First Static Pass on the extracted payloads."
+      ],
+      "forbiddenShortcuts": [
+        "Do not attribute tracks by blind decode — the loader's own tables say which is which.",
+        "Do not treat 'not seen in this run' as 'unused'."
+      ]
+    },
+    {
+      "id": "iterate-your-own-code",
+      "title": "Iterate Your Own Code",
+      "userIntentExamples": [
+        "Try my fix and tell me if it changed anything.",
+        "Does this patch break the game?",
+        "Freeze the life counter and see if it holds."
+      ],
+      "preconditions": [
+        "A running session with a checkpoint to anchor on.",
+        "A scenario that replays deterministically."
+      ],
+      "steps": [
+        {
+          "actor": "llm",
+          "action": "Create the candidate: a baseline anchor plus a bound scenario. The no-patch run is played once and cached, so every later verdict has something to be a verdict AGAINST.",
+          "tools": [
+            "runtime_candidate_create",
+            "runtime_candidate_list"
+          ],
+          "persist": [
+            "candidate id",
+            "baseline verdict"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "Add or replace one patch at a time (re-adding at the same target replaces, which is how a fix is iterated), then run and read the diff against the baseline.",
+          "tools": [
+            "runtime_candidate_patch",
+            "runtime_candidate_run",
+            "runtime_candidate_remove_patch"
+          ],
+          "persist": [
+            "patch set",
+            "verdict per run"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "For a trainer: find the counters that decreased between two anchors, then prove one by freezing it and running the candidate again.",
+          "tools": [
+            "runtime_find_cheat",
+            "runtime_candidate_patch",
+            "runtime_candidate_run"
+          ],
+          "persist": [
+            "cheat candidates",
+            "confirmation"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "Hand the proven patch-set on: the raw seed, or the build-ready delta with one source file per target.",
+          "tools": [
+            "runtime_candidate_export",
+            "runtime_candidate_derive_delta",
+            "runtime_candidate_delete",
+            "agent_record_step"
+          ],
+          "persist": [
+            "delta files",
+            "manifest"
+          ]
+        }
+      ],
+      "stopConditions": [
+        "The candidate's verdict is what the change intended, and the delta is on disk."
+      ],
+      "nextActions": [
+        "Change / Patch / Crack / Port for the real build."
+      ],
+      "forbiddenShortcuts": [
+        "Do not patch the shared session the human co-drives to test an idea.",
+        "Do not accept a verdict from a run whose baseline was never played."
+      ]
+    },
+    {
+      "id": "rewind-and-scrub",
+      "title": "Rewind and Scrub",
+      "userIntentExamples": [
+        "Go back to just before it crashed.",
+        "Keep this point, I want to come back to it.",
+        "What branches do I have?"
+      ],
+      "preconditions": [
+        "A running session whose checkpoint ring has keyframes."
+      ],
+      "steps": [
+        {
+          "actor": "llm",
+          "action": "See what the ring and the recorder hold — keyframes with their frame and cycle, anchors with their medium generation — before jumping anywhere.",
+          "tools": [
+            "runtime_checkpoint_list",
+            "runtime_recorder_status",
+            "runtime_recorder_list"
+          ],
+          "persist": [
+            "ring inventory"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "Jump back and continue from there; the branch tree shows where each jump forked.",
+          "tools": [
+            "runtime_rewind",
+            "runtime_checkpoint_restore",
+            "runtime_snapshot_tree"
+          ],
+          "persist": [
+            "branch point"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "Keep what must survive the ring's byte budget: pin the keyframe, dump the recorder anchor to a durable file, or promote the branch to a replayable scenario.",
+          "tools": [
+            "runtime_checkpoint_pin",
+            "runtime_checkpoint_unpin",
+            "runtime_recorder_dump",
+            "runtime_promote_branch",
+            "agent_record_step"
+          ],
+          "persist": [
+            "pinned keyframes",
+            "dumped snapshot",
+            "scenario"
+          ]
+        }
+      ],
+      "stopConditions": [
+        "The machine is at the wanted point and everything worth keeping is pinned, dumped or promoted."
+      ],
+      "nextActions": [
+        "Frozen Visual Inspect, or Iterate Your Own Code from this anchor."
+      ],
+      "forbiddenShortcuts": [
+        "Do not power-cycle the shared session to get back to a known state — that is what the ring is for.",
+        "Do not rely on an unpinned keyframe surviving a long run."
+      ]
+    },
+    {
+      "id": "machine-of-your-own",
+      "title": "A Machine of Your Own",
+      "userIntentExamples": [
+        "Just run this PRG and show me.",
+        "Make me screenshots of the title and the first level.",
+        "Run this depacker over these bytes."
+      ],
+      "preconditions": [
+        "The shared session must not be disturbed.",
+        "The work is bounded — a test run, a depack, a set of screenshots."
+      ],
+      "steps": [
+        {
+          "actor": "llm",
+          "action": "Run the medium on a private daemon that ends itself on its budget, or load and start a .prg in one shot when a session is already yours.",
+          "tools": [
+            "runtime_sandbox_run",
+            "runtime_run_prg"
+          ],
+          "persist": [
+            "run result",
+            "screens"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "For documentation screens, play a written scenario and assemble the reel — the same .feature notation the recorder writes.",
+          "tools": [
+            "runtime_scene_reel"
+          ],
+          "persist": [
+            "reel path",
+            "capture cycles"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "For bytes rather than a machine: run the game's own depacker over the packed payload, or one routine in a flat 64K sandbox.",
+          "tools": [
+            "sandbox_depack",
+            "sandbox_6502_run",
+            "agent_record_step"
+          ],
+          "persist": [
+            "plaintext payload",
+            "routine output"
+          ]
+        }
+      ],
+      "stopConditions": [
+        "The answer is in hand and the private machine has ended."
+      ],
+      "nextActions": [
+        "Disassembly-First Static Pass on what came out."
+      ],
+      "forbiddenShortcuts": [
+        "Do not borrow the shared session for a throwaway run.",
+        "Do not leave a sandbox running without a budget."
+      ]
+    },
+    {
+      "id": "write-it-up",
+      "title": "Write It Up",
+      "userIntentExamples": [
+        "Write up what we found.",
+        "Document this loader.",
+        "What is documented so far?"
+      ],
+      "preconditions": [
+        "There is something established enough to write down — findings with evidence, a model, a decoded format."
+      ],
+      "steps": [
+        {
+          "actor": "llm",
+          "action": "Take the frontmatter block for the kind of document being written — a model, a port spec, a budget — before writing a line of it.",
+          "tools": [
+            "doc_template"
+          ],
+          "persist": [
+            "frontmatter"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "Declare the finished document so it becomes a node in the graph: citable, lintable, and findable by the address range it covers.",
+          "tools": [
+            "doc_register"
+          ],
+          "persist": [
+            "document node",
+            "coverage"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "Check what is still undeclared or malformed, and read the derived index back.",
+          "tools": [
+            "doc_lint",
+            "wiki_index",
+            "agent_record_step"
+          ],
+          "persist": [
+            "index"
+          ]
+        }
+      ],
+      "stopConditions": [
+        "The document is declared, covers what it claims, and the index shows it."
+      ],
+      "nextActions": [
+        "What The Project Owes, to see what is still missing."
+      ],
+      "forbiddenShortcuts": [
+        "Do not hand-maintain the index — it is derived.",
+        "Do not write a document with no frontmatter and register it later."
+      ]
+    },
+    {
+      "id": "what-the-project-owes",
+      "title": "What The Project Owes",
+      "userIntentExamples": [
+        "Are we done?",
+        "What is still missing here?",
+        "Poke holes in what we have."
+      ],
+      "preconditions": [
+        "A project with findings and a model worth judging."
+      ],
+      "steps": [
+        {
+          "actor": "human",
+          "action": "State what the project owes: the goal, the deliverables, and which of the required relationships apply here — a game with no save owes no save-format slot.",
+          "tools": [
+            "contract_set",
+            "contract_show"
+          ],
+          "persist": [
+            "contract"
+          ],
+          "askHumanWhen": "no contract is set — the questions a kickoff should ask are returned instead"
+        },
+        {
+          "actor": "llm",
+          "action": "Read the model back in one call — boundaries with their citations, what is open, what was already refuted — and assert or remove a boundary where the picture changed.",
+          "tools": [
+            "model_read",
+            "model_assert",
+            "model_remove"
+          ],
+          "persist": [
+            "boundaries"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "Check completeness against the required relationships and fill the ones you can answer with evidence.",
+          "tools": [
+            "project_slots",
+            "slot_record"
+          ],
+          "persist": [
+            "slot answers"
+          ]
+        },
+        {
+          "actor": "llm",
+          "action": "Let the critic argue against the project's own records — claims the graph contradicts, findings without evidence, orphans — and read what a severity actually means before acting on it.",
+          "tools": [
+            "project_critique",
+            "critic_checks",
+            "agent_record_step"
+          ],
+          "persist": [
+            "critique findings"
+          ]
+        }
+      ],
+      "stopConditions": [
+        "Every slot the contract demands is answered with evidence, and the critic's verdict is read."
+      ],
+      "nextActions": [
+        "Write It Up."
+      ],
+      "forbiddenShortcuts": [
+        "Do not call a project done on slot count alone — an answer without evidence is not an answer.",
+        "Do not silence a critic finding by deleting the record it stands on."
       ]
     },
     {

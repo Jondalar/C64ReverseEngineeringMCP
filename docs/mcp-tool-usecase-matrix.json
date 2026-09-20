@@ -2624,13 +2624,17 @@
       "namespace": "register",
       "sourceFile": "server-tools/payloads.ts",
       "tier": "default",
-      "role": "maintenance",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
-      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
-      "adjacentTools": [],
+      "role": "media-ingress",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Bulk-register every payload a loader-extraction manifest describes — the medium-agnostic path from an extraction to project payloads.",
+      "notFor": "One payload by hand — use register_payload; checking the extraction against what the loader really read — use validate_extraction.",
+      "adjacentTools": [
+        "register_payload",
+        "validate_extraction",
+        "project_inventory_sync"
+      ],
       "e2eUseCases": [
-        "E2E-G"
+        "E2E-B"
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"
@@ -3141,16 +3145,18 @@
       "sourceFile": "server-tools/runtime.ts",
       "tier": "default",
       "role": "runtime-inspect",
-      "swimlane": "internal-dev-only",
-      "useWhen": "Legacy pre-facade variant; retained only for backward-compat tooling.",
-      "notFor": "New work — the Spec 725/726 default facade supersedes it.",
-      "adjacentTools": [],
-      "e2eUseCases": [
-        "E2E-A"
+      "swimlane": "change-intervention",
+      "useWhen": "See exactly what changed between two snapshot FILES — RAM changed ranges plus CPU/CIA/VIC/SID state.",
+      "notFor": "A per-component equivalence verdict — use runtime_component_diff; what changed over TIME in one run — use runtime_swimlane_slice.",
+      "adjacentTools": [
+        "runtime_component_diff",
+        "runtime_checkpoint_capture"
       ],
-      "keepDecision": "merge",
-      "pathMode": "no-path",
-      "useInstead": "runtime_swimlane_slice (before/after)"
+      "e2eUseCases": [
+        "E2E-D"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "runtime_find_cheat",
@@ -4394,13 +4400,16 @@
       "namespace": "sandbox",
       "sourceFile": "server-tools/sandbox.ts",
       "tier": "default",
-      "role": "maintenance",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
-      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
-      "adjacentTools": [],
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Run a 6502 routine in an isolated flat-64K sandbox to see what it produces — a decoder, a table builder, a checksum.",
+      "notFor": "Anything that needs a real machine (VIC, CIA, the drive) — use a sandbox run of the medium instead.",
+      "adjacentTools": [
+        "sandbox_depack",
+        "runtime_sandbox_run"
+      ],
       "e2eUseCases": [
-        "E2E-G"
+        "E2E-C"
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"
@@ -4410,13 +4419,17 @@
       "namespace": "sandbox",
       "sourceFile": "server-tools/sandbox-depack.ts",
       "tier": "default",
-      "role": "maintenance",
-      "swimlane": "operator-maintenance",
-      "useWhen": "Operator/maintenance: repair/backfill/dedupe/register project-store records.",
-      "notFor": "Normal analysis — never use maintenance tools to answer RE questions.",
-      "adjacentTools": [],
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Run the game's OWN 6502 depacker over packed bytes and get the plaintext back — the static path when the packer is custom.",
+      "notFor": "A known packer format — use try_depack; discovering structure by running the game — read the loader first.",
+      "adjacentTools": [
+        "try_depack",
+        "suggest_depacker",
+        "sandbox_6502_run"
+      ],
       "e2eUseCases": [
-        "E2E-G"
+        "E2E-C"
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"
