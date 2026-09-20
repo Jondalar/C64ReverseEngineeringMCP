@@ -281,3 +281,9 @@ jobs:
 
       - name: What a change breaks (Spec 861)
         run: npm run e2e:861-impact
+
+      # BUG-054 — thirteen defects one autonomous RE run wrote down as it hit them.
+      # Hermetic: temp projects, synthetic PRGs, no ROMs, no media, no daemon. The
+      # rebuild half needs KickAssembler and skips loudly without it, like e2e:830.
+      - name: Thirteen tooling defects (BUG-054)
+        run: npm run e2e:tooling-defects
