@@ -64,6 +64,10 @@ jobs:
       - name: Nothing writes a migrated store
         run: npm run check:legacy-store-writers
 
+      # Doctrine rule 8 — a session in a project onboards before it works.
+      - name: Work refuses until the session onboards
+        run: npm run e2e:onboarding-gate
+
       - name: Docs are current
         run: npm run check:docs-current
 

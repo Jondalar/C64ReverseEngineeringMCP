@@ -99,6 +99,8 @@ try {
   // init project.
   const initRes = await callTool("project_init", { project_dir: projectDir, name: "Best Version" });
   ok(okText(initRes) && /initialized/i.test(textOf(initRes)), "3 project_init initializes external project", "");
+  // A session onboards before it works in a project; the server refuses otherwise.
+  await callTool("agent_onboard", { project_dir: projectDir });
 
   // Lay down both a generated disasm source and a hand-made semantic source for
   // the SAME subject ("02_2.0"). Neither registered yet.

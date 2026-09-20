@@ -144,7 +144,13 @@ blocks were being loaded into every context window before this rule existed.
 Inside a real RE project (a `C64RE_PROJECT_DIR` workspace, not this repo):
 
 1. Load `docs/agent-doctrine.md` (or the `c64re_agent_doctrine` prompt) and adopt it.
-2. `agent_onboard` at session start, or after context loss.
+2. `agent_onboard` at session start, or after context loss. **Enforced since
+   2026-09-20:** every tool that does project work refuses until the session has
+   onboarded, and names the call that clears it. Orientation stays open —
+   `project_init`, `project_status`, `get_project_profile`, `c64ref_lookup`,
+   `doc_template`. An autonomous four-hour run skipped onboarding entirely, so
+   three of its six project rules were never delivered and five subagents
+   rediscovered the same document contract by trial and error; nothing complained.
 3. Persist with `agent_record_step` and the `save_finding` / `save_entity` /
    `save_open_question` family — never leave knowledge only in chat.
 4. Write synthesis into a document and declare it: frontmatter, then `doc_register`

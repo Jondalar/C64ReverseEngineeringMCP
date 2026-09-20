@@ -101,6 +101,8 @@ try {
 
   // init the project + select workflow.
   ok(okText(await callTool("project_init", { project_dir: projectDir, name: "E2E Trace Flow" })), "3 project_init (external dir)", "");
+  // A session onboards before it works in a project; the server refuses otherwise.
+  await callTool("agent_onboard", { project_dir: projectDir });
   await callTool("start_re_workflow", { project_dir: projectDir, workflow: "cracker-only" });
 
   // project_init (BUG-015) sorts top-level media into typed input/ folders, so

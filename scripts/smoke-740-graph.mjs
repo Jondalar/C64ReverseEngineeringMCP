@@ -109,6 +109,8 @@ try {
 
   // ── the project, through the doors ────────────────────────────────────────
   await call("project_init", { name: "smoke740graph" });
+  // A session onboards before it works in a project; the server refuses otherwise.
+  await call("agent_onboard", {});
   mkdirSync(join(proj, "artifacts", "prg"), { recursive: true });
   //   C000  20 10 C0   jsr tick_irq        init_engine
   //   C003  4C 03 C0   jmp *

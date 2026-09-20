@@ -10,6 +10,7 @@ import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { countUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
 import type { ServerToolContext } from "./types.js";
 import { ensureDefaultSteering } from "./steering-defaults.js";
+import { markOnboarded } from "./onboarding-gate.js";
 
 const AGENT_STATE_SCHEMA_VERSION = 1;
 
@@ -417,6 +418,9 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       // so every rule is re-armed here and speaks once more at its own moment.
       try { resetRuleDelivery(projectRoot); } catch { /* best-effort */ }
       try { resetStanding(projectRoot); } catch { /* best-effort */ }
+      // Doctrine rule 8 — this is the call every other tool waits for. Marked after the
+      // rules are re-armed, so a session that is cleared to work has them in hand.
+      markOnboarded(projectRoot);
       const steeringPath = join(projectRoot, "knowledge", "steering.md");
       if (existsSync(steeringPath)) {
         const steering = readFileSync(steeringPath, "utf8").trim();

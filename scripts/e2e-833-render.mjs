@@ -329,6 +329,8 @@ if (!existsSync(mcpCli)) {
     await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e-833", version: "1.0.0" } });
     proc.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
     await call("project_init", { project_dir: projectDir, name: "E2E 833" });
+    // A session onboards before it works in a project; the server refuses otherwise.
+    await call("agent_onboard", { project_dir: projectDir });
 
     const projPrg = join(projectDir, "named.prg");
     writeFileSync(projPrg, Buffer.from([LOAD & 0xff, LOAD >> 8, ...CODE, ...DATA]));

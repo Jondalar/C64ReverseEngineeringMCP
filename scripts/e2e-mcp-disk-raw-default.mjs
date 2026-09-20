@@ -160,6 +160,8 @@ try {
   // 3. Initialize the external project.
   const initRes = await callTool("project_init", { project_dir: projectDir, name: "E2E Disk Raw" });
   toolsUsed.push("project_init");
+  // A session onboards before it works in a project; the server refuses otherwise.
+  await callTool("agent_onboard", { project_dir: projectDir });
   ok(okText(initRes) && /initialized/i.test(textOf(initRes)), "3 project_init initializes external project", "");
 
   // 4. Scenario step 1a — list_g64_slots: enumerate every half-track slot.

@@ -22,6 +22,8 @@ import { registerCompressionTools } from "./server-tools/compression.js";
 import { registerGraphicsRenderTools } from "./server-tools/graphics-render.js";
 import { registerInspectRangeTools } from "./server-tools/inspect-range.js";
 import { registerGraphTools } from "./server-tools/graph-tools.js";
+import { ORIENTATION_TOOLS, gateDisabled, isOnboarded, onboardingMessage } from "./server-tools/onboarding-gate.js";
+import { isProjectInitialised, nextStepError } from "./server-tools/error-helpers.js";
 import { registerDiskG64Tools } from "./server-tools/disk-g64.js";
 import { registerHeadlessTools } from "./server-tools/headless.js";
 import { registerRuntimeTools } from "./server-tools/runtime.js";
@@ -103,6 +105,24 @@ function tryRegisterKnowledgeArtifacts(
 type ToolHandler = (...a: unknown[]) => Promise<{ content?: unknown[] }> | { content?: unknown[] };
 
 /**
+ * Doctrine rule 8 — a session inside an RE project onboards before it works.
+ *
+ * The refusal sits outside every other wrapper, so a tool that has not been
+ * cleared never runs at all. Orientation tools and a directory that is not a
+ * project pass straight through; see `onboarding-gate.ts` for what this cost
+ * when nothing checked it.
+ */
+function onboardingGateHandler(toolName: string, inner: ToolHandler): ToolHandler {
+  return async (...a: unknown[]) => {
+    if (ORIENTATION_TOOLS.has(toolName) || gateDisabled()) return inner(...a);
+    const first = a[0] as { project_dir?: string } | undefined;
+    const dir = (() => { try { return projectDir(first?.project_dir); } catch { return undefined; } })();
+    if (!dir || !isProjectInitialised(dir) || isOnboarded(dir)) return inner(...a);
+    return nextStepError(toolName, onboardingMessage(toolName, dir), `agent_onboard(project_dir="${dir}")`);
+  };
+}
+
+/**
  * Spec 849 D5 — append the project rule this tool carries to its own result.
  *
  * Appends to the LAST text block rather than adding one, so a caller that reads
@@ -166,7 +186,7 @@ function applyPhaseTagInjector(server: McpServer): void {
       if (args.length >= 4) {
         const handler = args[args.length - 1];
         if (typeof handler === "function") {
-          args[args.length - 1] = ruleFooterHandler(toolName, handler as ToolHandler);
+          args[args.length - 1] = onboardingGateHandler(toolName, ruleFooterHandler(toolName, handler as ToolHandler));
         }
       }
       // Spec 049: phase gate. Wrap the last arg (the handler) only

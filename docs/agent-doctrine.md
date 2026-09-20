@@ -268,7 +268,7 @@ After relevant knowledge changes, rebuild the affected views with `build_*` tool
 
 At initialization, after context loss, or when entering a new project:
 
-1. Call `agent_onboard` (also returns workflow phases, agent-state, recent artifacts, proposed next actions).
+1. Call `agent_onboard` (also returns workflow phases, agent-state, recent artifacts, proposed next actions). Every other tool in this project refuses until you have.
 2. Call `project_status` for counts and paths if more detail needed.
 3. List existing artifacts via `list_project_artifacts`.
 4. Inspect current knowledge:
