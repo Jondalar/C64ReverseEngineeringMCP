@@ -278,8 +278,8 @@ try {
     const r = diskSectorAllocation(imagePath, manifestPath);
     check(r.overlapsCount === 0,
       `seven zero-block DEL entries produce 0 overlaps, not 49 (got ${r.overlapsCount})`);
-    check(r.ignored.length === 7, `…and all seven are reported as non-claimants (got ${r.ignored.length})`);
-    check(/zero-block DEL/.test(r.ignored[0]?.reason ?? ""), "…each saying why it was not counted");
+    check((r.ignored ?? []).length === 7, `…and all seven are reported as non-claimants (got ${(r.ignored ?? []).length})`);
+    check(/zero-block DEL/.test(r.ignored?.[0]?.reason ?? ""), "…each saying why it was not counted");
     check(r.ownership.length === total, `the map has one row per sector (${r.ownership.length} of ${total})`);
     const at = (t, s) => r.ownership.find((x) => x.track === t && x.sector === s);
     check(at(18, 1)?.role === "system", "T18/S1 is still the DOS directory, unclaimed by any DEL entry");
@@ -305,8 +305,8 @@ try {
     const mp2 = join(dir, "manifest2.json");
     writeFileSync(mp2, JSON.stringify(withBlocks));
     const r2 = diskSectorAllocation(imagePath, mp2);
-    check(r2.overlapsCount === 7 && r2.ignored.length === 6,
-      `a DEL entry that owns blocks still claims and still collides (${r2.overlapsCount} overlaps, ${r2.ignored.length} ignored)`);
+    check(r2.overlapsCount === 7 && (r2.ignored ?? []).length === 6,
+      `a DEL entry that owns blocks still claims and still collides (${r2.overlapsCount} overlaps, ${(r2.ignored ?? []).length} ignored)`);
 
     // …and the DOOR hands it over, rather than keeping it in the process.
     const { registerMediaTools } = await import(join(ROOT, "dist/server-tools/media.js"));
