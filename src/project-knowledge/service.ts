@@ -29,13 +29,18 @@ import { ProjectKnowledgeStorage, defaultProjectSlug } from "./storage.js";
 import { recommendedLifecyclePhase, applyDiscoveryCoverageGate, applyMediaFloor } from "../agent-orchestrator/lifecycle.js";
 import { computeDiscoveryCoverage, discoveryCoverageComplete } from "./medium-coverage.js";
 import {
+  bestCandidate,
   classifyTopRankTie,
   isVersionedSourceArtifact,
   memberFromCandidate,
+  migrateSubjectIdentity,
   orderCandidatesBestFirst,
   rankCandidate,
   subjectIdForArtifact,
+  subjectStemForArtifact,
   topRankIsTied,
+  SUBJECT_IDENTITY_GENERATION,
+  type ArtifactLookup,
   type TieResolutionRule,
 } from "./artifact-versions.js";
 import { deriveSubstratePosture } from "./types.js";
@@ -47,6 +52,7 @@ import type {
   ArtifactKind,
   ArtifactRecord,
   ArtifactVersionGroup,
+  ArtifactVersionGroupStore,
   ArtifactVersionMember,
   ArtifactScope,
   ConstraintRule,
@@ -3513,13 +3519,86 @@ export class ProjectKnowledgeService {
 
   // ---- Spec 730 §7: artifact version groups (the "current best version" model) ----
 
+  /** An artifact resolver for the subject rule, so a declared lineage can be followed. */
+  private artifactLookup(): ArtifactLookup {
+    const byId = new Map(this.storage.loadArtifacts().items.map((a) => [a.id, a] as const));
+    return (id) => byId.get(id);
+  }
+
+  /** The subject an artifact belongs to, with its declared lineage followed. */
+  subjectIdOf(artifact: ArtifactRecord): string {
+    return subjectIdForArtifact(artifact, this.artifactLookup());
+  }
+
+  // The version groups, with a project written under the old subject identity
+  // rewritten first. Every reader and writer of the store goes through here:
+  // a group read under one key and written back under another is how a project
+  // loses its history.
+  private versionGroupsMigrated = false;
+
+  private loadVersionGroups(): ArtifactVersionGroupStore {
+    const store = this.storage.loadArtifactVersionGroups();
+    if (this.versionGroupsMigrated || store.subjectIdentity === SUBJECT_IDENTITY_GENERATION) {
+      this.versionGroupsMigrated = true;
+      return store;
+    }
+    const ts = nowIso();
+    const result = migrateSubjectIdentity(
+      store.items,
+      this.storage.loadArtifacts().items,
+      ts,
+      (subject) => createId("version-group", subject),
+    );
+    const next = this.storage.saveArtifactVersionGroups({
+      ...store,
+      subjectIdentity: SUBJECT_IDENTITY_GENERATION,
+      updatedAt: ts,
+      items: result.groups,
+    });
+    this.versionGroupsMigrated = true;
+    if (result.rekeyed + result.split + result.joined > 0) {
+      this.appendTimelineEvent({
+        kind: "note",
+        title: "Artifact version groups re-keyed to the located subject",
+        summary: `${store.items.length} group(s) in, ${result.groups.length} out: ${result.rekeyed} re-keyed, ${result.split} split off a shared filename, ${result.joined} 64tass listing(s) folded in, ${result.unresolved} member(s) kept whose artifact row is gone.`,
+      });
+    }
+    return next;
+  }
+
   listArtifactVersionGroups(): ArtifactVersionGroup[] {
-    return [...this.storage.loadArtifactVersionGroups().items].sort((a, b) => a.subjectId.localeCompare(b.subjectId));
+    return [...this.loadVersionGroups().items].sort((a, b) => a.subjectId.localeCompare(b.subjectId));
   }
 
   // Targeted read: the version group for ONE subject. Never dumps every group.
   getArtifactVersionGroup(subjectId: string): ArtifactVersionGroup | undefined {
-    return this.storage.loadArtifactVersionGroups().items.find((g) => g.subjectId === subjectId || g.id === subjectId);
+    return this.loadVersionGroups().items.find((g) => g.subjectId === subjectId || g.id === subjectId);
+  }
+
+  // A bare filename stem is not a subject any more, and it may name several.
+  // Resolving one is therefore an answer with a shape: exactly one subject, or
+  // the list of subjects that carry that name — never one of them picked
+  // silently, which is how `get_current_artifact("pl0")` used to hand back
+  // another disk's listing.
+  resolveSubjectRef(input: string): { subjectId: string; candidates: string[] } {
+    if (this.getArtifactVersionGroup(input)) return { subjectId: input, candidates: [input] };
+    const artifact = this.getArtifactById(input);
+    if (artifact) {
+      const subject = this.subjectIdOf(artifact);
+      return { subjectId: subject, candidates: [subject] };
+    }
+    // A bare stem, or a subject nothing is grouped under yet: ask the artifacts.
+    const lookup = this.artifactLookup();
+    const wanted = input.toLowerCase();
+    const candidates = new Set<string>();
+    for (const a of this.listArtifacts()) {
+      if (!isVersionedSourceArtifact(a)) continue;
+      const subject = subjectIdForArtifact(a, lookup);
+      if (subject === input) return { subjectId: input, candidates: [input] };
+      if (subjectStemForArtifact(a).toLowerCase() === wanted) candidates.add(subject);
+    }
+    const list = [...candidates].sort();
+    return { subjectId: list.length === 1 ? list[0]! : input, candidates: list };
   }
 
   // Targeted read: the current best artifact for one subject. Falls back to the
@@ -3531,16 +3610,17 @@ export class ProjectKnowledgeService {
       if (current) return current;
     }
     // Fallback: rank the source artifacts whose subjectId matches.
+    const lookup = this.artifactLookup();
     const ranked = orderCandidatesBestFirst(
       this.listArtifacts()
-        .filter((a) => isVersionedSourceArtifact(a) && subjectIdForArtifact(a) === subjectId)
+        .filter((a) => isVersionedSourceArtifact(a) && subjectIdForArtifact(a, lookup) === subjectId)
         .map(rankCandidate),
     );
-    return ranked[0]?.artifact;
+    return bestCandidate(ranked)?.artifact;
   }
 
   private persistArtifactVersionGroup(group: ArtifactVersionGroup): ArtifactVersionGroup {
-    const store = this.storage.loadArtifactVersionGroups();
+    const store = this.loadVersionGroups();
     const ts = nowIso();
     const next: ArtifactVersionGroup = { ...group, updatedAt: ts };
     this.storage.saveArtifactVersionGroups({
@@ -3554,10 +3634,15 @@ export class ProjectKnowledgeService {
   // Manual override (§7.2 "make current"): pins currentArtifactId and sets
   // currentSource="manual" so a later project_inventory_sync respects it. The
   // pinned member becomes status "current"; clears needsDecision.
-  setCurrentArtifactVersion(subjectId: string, artifactId: string): ArtifactVersionGroup {
-    let group = this.getArtifactVersionGroup(subjectId);
+  setCurrentArtifactVersion(subjectIdInput: string, artifactId: string): ArtifactVersionGroup {
     const artifact = this.getArtifactById(artifactId);
     if (!artifact) throw new Error(`Unknown artifact id: ${artifactId}`);
+    // The artifact is the authority on which subject it belongs to. A caller
+    // holding a bare stem (or a subject id from before the identity change)
+    // pins the file it named, in the group that file is actually in.
+    const ownSubject = this.subjectIdOf(artifact);
+    const subjectId = this.getArtifactVersionGroup(subjectIdInput) === undefined ? ownSubject : subjectIdInput;
+    let group = this.getArtifactVersionGroup(subjectId);
     const ts = nowIso();
     if (!group) {
       // Build a fresh group from the subject's source artifacts on the fly.
@@ -3619,14 +3704,17 @@ export class ProjectKnowledgeService {
   // Build (but do NOT persist) the version group a subject WOULD have from the
   // current artifact set. Used by setCurrent (fresh group) and by sync.
   computeArtifactVersionGroup(subjectId: string): ArtifactVersionGroup | undefined {
+    const lookup = this.artifactLookup();
     const ranked = orderCandidatesBestFirst(
       this.listArtifacts()
-        .filter((a) => isVersionedSourceArtifact(a) && subjectIdForArtifact(a) === subjectId)
+        .filter((a) => isVersionedSourceArtifact(a) && subjectIdForArtifact(a, lookup) === subjectId)
         .map(rankCandidate),
     );
     if (ranked.length === 0) return undefined;
     const ts = nowIso();
-    const currentId = ranked[0]!.artifact.id;
+    // The same rule the reconciliation uses: a tie the rules settle picks the
+    // stated winner, not whatever happened to sort first.
+    const currentId = bestCandidate(ranked)!.artifact.id;
     return {
       id: createId("version-group", subjectId),
       subjectId,
@@ -3664,10 +3752,11 @@ export class ProjectKnowledgeService {
   // the transport stays serviced. Only caller is project_inventory_sync (async).
   async reconcileArtifactVersionGroups(): Promise<ArtifactVersionReconciliation> {
     const breathe = () => new Promise<void>((resolve) => setImmediate(resolve));
+    const lookup = this.artifactLookup();
     const bySubject = new Map<string, ReturnType<typeof rankCandidate>[]>();
     for (const a of this.listArtifacts()) {
       if (!isVersionedSourceArtifact(a)) continue;
-      const subject = subjectIdForArtifact(a);
+      const subject = subjectIdForArtifact(a, lookup);
       const list = bySubject.get(subject) ?? [];
       list.push(rankCandidate(a));
       bySubject.set(subject, list);

@@ -103,12 +103,19 @@ const openVersionQuestions = (svc) =>
   }
   const svc = new ProjectKnowledgeService(proj);
   const r = await runProjectInventorySync(svc, proj);
-  check(r.versionGroupsCreated === 8, "eight subjects, one per payload name", String(r.versionGroupsCreated));
-  check(r.versionTiesAutoResolved === 8, "every one of them ties — and every tie is settled by rule", String(r.versionTiesAutoResolved));
+  // The 220 questions came from two defects stacked on each other. The tie
+  // rules were the first half; the second is that these 24 listings never had
+  // anything to tie ABOUT. They are three disks' worth of payloads that happen
+  // to share eight filenames, and a subject is where a listing lives plus its
+  // stem — so there are 24 subjects here, each holding its own single listing.
+  check(r.versionGroupsCreated === 24, "24 listings under three disks are 24 subjects, not eight", String(r.versionGroupsCreated));
+  check(r.versionTiesAutoResolved === 0, "and there is no tie left to settle by rule", String(r.versionTiesAutoResolved));
   check(r.versionGroupsNeedDecision === 0, "so not one of them becomes a question", String(r.versionGroupsNeedDecision));
   check(openVersionQuestions(svc).length === 0, "and the project's question list stays empty", String(openVersionQuestions(svc).length));
   const groups = readJson(proj, "knowledge/artifact-versions.json");
   check(groups.every((g) => g.needsDecision === undefined), "no group is left flagged for a decision either");
+  check(groups.every((g) => g.versions.length === 1), "no group holds another disk's listing",
+    String(Math.max(...groups.map((g) => g.versions.length))));
 }
 
 // ───────────────────────────────────── 3 — real ties: a few by name, many as a class

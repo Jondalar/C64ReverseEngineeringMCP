@@ -355,3 +355,15 @@ jobs:
 
       - name: The contract, checked (Spec 848)
         run: npm run e2e:848-contract
+
+      # The three defects the round before this one left open, because each of
+      # them moves data an existing project already holds: a subject that was
+      # the basename with the directory thrown away, a `.tas` the version model
+      # had never heard of, and the one door that let the pipeline child write
+      # the knowledge store. The fourth fixture is the part that makes the first
+      # two safe — a project written in the old shape, opened after the change,
+      # with its pins, its stale marks and its group ids asserted intact.
+      # Hermetic: temp projects, files of a few bytes, one MCP session over
+      # stdio. No ROMs, no media, no assembler, no daemon.
+      - name: A subject is one thing (BUG-057)
+        run: npm run e2e:subject-identity

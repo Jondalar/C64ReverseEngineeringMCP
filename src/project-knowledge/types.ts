@@ -2086,7 +2086,13 @@ export const BuildRunStoreSchema = createRecordListSchema(BuildRunSchema);
 // user labels — those records are projected from knowledge/graph.sqlite (records.ts).
 export const FlowStoreSchema = createRecordListSchema(FlowRecordSchema);
 export const TaskStoreSchema = createRecordListSchema(TaskRecordSchema);
-export const ArtifactVersionGroupStoreSchema = createRecordListSchema(ArtifactVersionGroupSchema);
+export const ArtifactVersionGroupStoreSchema = createRecordListSchema(ArtifactVersionGroupSchema).extend({
+  // Which generation of subject identity the rows are keyed by. Absent means
+  // the basename-only one, where two listings with the same filename under
+  // different directories were one subject; "located" means the directory is
+  // part of the key. A store without the marker is rewritten once, on open.
+  subjectIdentity: z.string().optional(),
+});
 
 export type ProjectMetadata = z.infer<typeof ProjectMetadataSchema>;
 export type PreferredAssembler = z.infer<typeof PreferredAssemblerSchema>;

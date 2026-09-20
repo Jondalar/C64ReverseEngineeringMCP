@@ -1096,9 +1096,20 @@ function asmArtifactPriority(artifact: ArtifactRecord): number {
 }
 
 // Spec 730 §7 — subject key for a source artifact. Mirrors the MCP
-// `subjectIdForArtifact`: base stem with the trailing _disasm/_semantic/_notes
-// qualifier stripped so every version of one payload clusters into one subject.
+// `subjectIdForArtifact`: the directory the file lives in plus its stem with
+// the trailing _disasm/_semantic/_notes qualifier stripped, so every version of
+// one payload clusters into one subject and two payloads that happen to share a
+// filename on two disks stay two subjects.
 function subjectIdForArtifactPath(relativePath: string): string {
+  const cut = relativePath.lastIndexOf("/");
+  const dir = cut < 0 ? "" : relativePath.slice(0, cut);
+  const stem = subjectStemForArtifactPath(relativePath);
+  return dir === "" ? stem : `${dir}/${stem}`;
+}
+
+// The bare stem, for matching a NAME against files — an analysis stem, a
+// payload's name — where the directory is not part of what was asked.
+function subjectStemForArtifactPath(relativePath: string): string {
   const file = relativePath.split("/").pop() ?? relativePath;
   const stem = file.replace(/\.[^.]+$/, "");
   return stem.replace(/_(disasm|semantic|notes|curated|final|src|source)$/i, "");
@@ -1188,7 +1199,7 @@ function ArtifactVersionsSection({
   const [error, setError] = useState<string | null>(null);
 
   // Only source files (.asm/.tass/.sym) participate as versions.
-  const sourceCandidates = candidates.filter((a) => /\.(asm|tass|sym)$/i.test(a.relativePath));
+  const sourceCandidates = candidates.filter((a) => /\.(asm|tass|tas|sym)$/i.test(a.relativePath));
   if (sourceCandidates.length === 0) return null;
 
   const byId = new Map(sourceCandidates.map((a) => [a.id, a]));
@@ -4620,7 +4631,7 @@ function DiskFileInspector({
   const asmSources: AsmViewSource[] = fileStem
     ? bestAsmSourcesForArtifacts(
         visibleForPairing
-          .filter((artifact) => /\.(asm|tass|s|a65)$/i.test(artifact.relativePath))
+          .filter((artifact) => /\.(asm|tass|tas|s|a65)$/i.test(artifact.relativePath))
           .filter((artifact) => artifact.relativePath.toLowerCase().includes(fileStem)),
         snapshot.artifactVersionGroups ?? [],
       )
@@ -4629,7 +4640,7 @@ function DiskFileInspector({
   // "Source / Versions" section (kept as ArtifactRecord, not AsmViewSource).
   const sourceArtifactsForFile = fileStem
     ? visibleForPairing
-        .filter((artifact) => /\.(asm|tass|sym)$/i.test(artifact.relativePath))
+        .filter((artifact) => /\.(asm|tass|tas|sym)$/i.test(artifact.relativePath))
         .filter((artifact) => artifact.relativePath.toLowerCase().includes(fileStem))
     : [];
   const payloadBinaryArtifact = fileStem
@@ -4951,7 +4962,7 @@ function CartChunkInspector({
   const linkedAsmArtifacts = [...linkedAsmArtifactIds]
     .map((artifactId) => snapshot.artifacts.find((artifact) => artifact.id === artifactId))
     .filter((artifact): artifact is typeof snapshot.artifacts[number] => Boolean(artifact))
-    .filter((artifact) => /\.(asm|tass|s|a65)$/i.test(artifact.relativePath));
+    .filter((artifact) => /\.(asm|tass|tas|s|a65)$/i.test(artifact.relativePath));
 
   // Heuristic fallback: when the agent never ran link_cart_chunk_to_asm,
   // fall back to matching by chip-file stem. e.g. a chunk that lives in
@@ -4972,7 +4983,7 @@ function CartChunkInspector({
     // infrastructure files so older / internal revisions don't get
     // bundled into the inspector.
     const fallbackAsm = internalVisibility.visibleArtifacts(lineageVisibility.latest(snapshot.artifacts)).filter((artifact) => {
-      if (!/\.(asm|tass|s|a65)$/i.test(artifact.relativePath)) return false;
+      if (!/\.(asm|tass|tas|s|a65)$/i.test(artifact.relativePath)) return false;
       const stem = artifact.relativePath.split("/").pop()!.replace(/\.[^.]+$/, "");
       return chipStems.has(stem);
     });
@@ -5216,8 +5227,8 @@ export function App() {
     if (!owner) return { reason: "node has no owner (no analysis stem) — nothing to open" };
     const stem = owner.toLowerCase();
     // visibleArtifacts = latest per lineage (Bug 24), or every version when the header toggle is on
-    const pool = visibleArtifacts.filter((a) => /\.(asm|tass)$/i.test(a.relativePath));
-    const candidates = pool.filter((a) => subjectIdForArtifactPath(a.relativePath).toLowerCase() === stem);
+    const pool = visibleArtifacts.filter((a) => /\.(asm|tass|tas)$/i.test(a.relativePath));
+    const candidates = pool.filter((a) => subjectStemForArtifactPath(a.relativePath).toLowerCase() === stem);
     if (candidates.length === 0) return { reason: `no ASM for owner "${owner}" — run disasm_prg on ${owner}` };
     const best = bestAsmSourcesForArtifacts(candidates, snapshot.artifactVersionGroups ?? []);
     const generated = candidates.filter((a) => /_disasm\.asm$/i.test(a.relativePath)).map(asmSourceForArtifact);

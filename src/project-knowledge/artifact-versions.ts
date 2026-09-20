@@ -12,6 +12,7 @@
 import type {
   ArtifactRecord,
   ArtifactVersionFormat,
+  ArtifactVersionGroup,
   ArtifactVersionMember,
   ArtifactVersionRole,
 } from "./types.js";
@@ -47,7 +48,7 @@ export function versionRoleForArtifact(artifact: ArtifactRecord): ArtifactVersio
   if (role === "disasm" || role === "disasm-tass" || role === "listing" || /\bgenerated\b/.test(role)) {
     return "generated";
   }
-  if (/_disasm\.(asm|tass)$/.test(path)) return "generated";
+  if (/_disasm\.(asm|tass|tas)$/.test(path)) return "generated";
 
   // Hand-authored semantic source (the BUG-019 file).
   if (role === "semantic-source" || role === "semantic-notes" || /\bsemantic\b/.test(role) || /\bsemantic\b/.test(path)) {
@@ -60,7 +61,7 @@ export function versionRoleForArtifact(artifact: ArtifactRecord): ArtifactVersio
 
   // A registered source file with an unknown role still beats a generated dump
   // (§7.3 rank 3 "manual/unknown" > "generated").
-  if (/\.(asm|tass|sym)$/.test(path)) return "manual";
+  if (/\.(asm|tass|tas|sym)$/.test(path)) return "manual";
 
   return "related";
 }
@@ -76,23 +77,86 @@ export function versionFormatForArtifact(artifact: ArtifactRecord): ArtifactVers
   return "other";
 }
 
-// Subject key for a source artifact: the base stem with the trailing
-// `_disasm` / `_semantic` / `_notes` qualifier stripped, so all versions of one
-// payload cluster into one group. "02_2.0_disasm.asm" and
-// "02_2.0_semantic.tas" both yield "02_2.0".
-export function subjectIdForArtifact(artifact: ArtifactRecord): string {
+// ─────────────────────────────────────────────────────────────── what a subject IS
+//
+// A subject is ONE thing: the listing identity that a handful of files are
+// versions of. It used to be the characters in the filename with the directory
+// thrown away — basename, trailing qualifier stripped, done. On a three-sided
+// disk project the three `pl0_disasm.asm` under `analysis/disk/CRAZY1/`,
+// `CRAZY2/` and `CRAZY3/` were therefore ONE subject holding three tying
+// versions: three unrelated listings of three different payloads, competing
+// for the title of "the current one". That collapse is what filed 220 open
+// questions in a single `project_inventory_sync`, and it is why
+// `get_current_artifact("pl0")` could hand back another disk's code.
+//
+// Identity is the lineage a file belongs to, not the characters in its name:
+//
+//   1. A DECLARED lineage wins. A file registered with `derivedFrom` is a new
+//      version of that file wherever on disk it now sits, so it takes its
+//      ancestor's subject. `save_artifact` is the only door that sets the
+//      field, so this is always somebody saying so — never a guess.
+//   2. Otherwise the subject is the LOCATED stem: the directory the file lives
+//      in, plus the stem with its version qualifier stripped. Two sources in
+//      one directory are versions of one thing; two in different directories
+//      are two things that happen to share a name.
+//
+// So "analysis/disk/wl/02_2.0_disasm.asm" and "analysis/disk/wl/02_2.0_semantic.tas"
+// are one subject, "analysis/disk/wl/02_2.0", and CRAZY2's `pl0` is its own.
+const VERSION_QUALIFIER = /_(disasm|semantic|notes|curated|final|src|source)$/i;
+
+/** Anything that can be asked for its subject: the store's records, and the
+ *  looser shapes the UI and the gates hold. */
+export type SubjectBearing = Pick<ArtifactRecord, "relativePath" | "title"> &
+  Partial<Pick<ArtifactRecord, "id" | "path" | "lineageRoot">>;
+
+/** Resolve an artifact id to its record — how a subject follows a lineage. */
+export type ArtifactLookup = (artifactId: string) => ArtifactRecord | undefined;
+
+/** The BARE filename stem, qualifier stripped. This is the old subject id, and
+ *  it is still the right key for matching a NAME against files — an analysis
+ *  stem, a payload's name — where the directory is not part of what was asked. */
+export function subjectStemForArtifact(artifact: SubjectBearing): string {
   const path = artifact.relativePath ?? artifact.path ?? artifact.title;
   const file = path.split("/").pop() ?? path;
-  const stem = file.replace(/\.[^.]+$/, "");
-  return stem.replace(/_(disasm|semantic|notes|curated|final|src|source)$/i, "");
+  return file.replace(/\.[^.]+$/, "").replace(VERSION_QUALIFIER, "");
+}
+
+/** The directory an artifact lives in, relative to the project root ("" at the root). */
+export function subjectDirForArtifact(artifact: SubjectBearing): string {
+  const path = artifact.relativePath ?? artifact.path ?? artifact.title;
+  const cut = path.lastIndexOf("/");
+  return cut < 0 ? "" : path.slice(0, cut);
+}
+
+export function subjectIdForArtifact(artifact: SubjectBearing, lookup?: ArtifactLookup): string {
+  return subjectIdFollowingLineage(artifact, lookup, 0);
+}
+
+function subjectIdFollowingLineage(artifact: SubjectBearing, lookup: ArtifactLookup | undefined, depth: number): string {
+  const root = artifact.lineageRoot;
+  // A chain longer than this is a cycle somebody wrote by hand; stop walking
+  // rather than recursing on it.
+  if (lookup && root !== undefined && root !== artifact.id && depth < 8) {
+    const ancestor = lookup(root);
+    if (ancestor && ancestor.id !== artifact.id) return subjectIdFollowingLineage(ancestor, lookup, depth + 1);
+  }
+  const dir = subjectDirForArtifact(artifact);
+  const stem = subjectStemForArtifact(artifact);
+  return dir === "" ? stem : `${dir}/${stem}`;
 }
 
 // Source-source artifacts are the only ones the version model competes over
-// (.asm / .tas / .sym / source notes). Media, JSON sidecars, views, traces, raw
-// sectors etc. are not "versions of a listing" and are excluded.
-export function isVersionedSourceArtifact(artifact: ArtifactRecord): boolean {
+// (.asm / .tas / .tass / .sym / source notes). Media, JSON sidecars, views,
+// traces, raw sectors etc. are not "versions of a listing" and are excluded.
+//
+// `.tas` is here because the renderer has written that suffix since 2026-09-06
+// (`.tass` is what projects older than that hold, and every reader accepts
+// both). While the list said `asm|tass|sym`, every modern 64tass listing joined
+// no version group at all — invisible to `list_artifact_versions`, never a
+// candidate for current, and never counted when a subject was checked for ties.
+export function isVersionedSourceArtifact(artifact: Pick<ArtifactRecord, "relativePath" | "path">): boolean {
   const path = (artifact.relativePath ?? artifact.path ?? "").toLowerCase();
-  if (/\.(asm|tass|sym)$/.test(path)) return true;
+  if (/\.(asm|tass|tas|sym)$/.test(path)) return true;
   // Markdown notes participate only as "related" companions when they sit in an
   // analysis source folder next to real source.
   if (path.endsWith(".md") && /\banalysis\//.test(path) && /(_notes|_semantic|_disasm)\b/.test(path)) return true;
@@ -155,9 +219,17 @@ export function topRankIsTied(ordered: RankedCandidate[]): boolean {
 // What is left is the case the model was built for: a hand-authored source competing
 // with another hand-authored source. That one is asked, because guessing it would
 // overwrite somebody's work.
+//
+//   3. THE SAME RENDERING IN TWO DIALECTS. The renderer writes `_disasm.asm`
+//      and converts it to `_disasm.tas` beside it: one run, two files, and the
+//      KickAssembler one is what the conversion was made from. Once `.tas`
+//      joined the model these two started tying on every generated subject in
+//      every project, and "newest wins" would have quietly moved each one's
+//      current listing onto the converted copy. The file the conversion came
+//      from wins, and the answer says so.
 const HUMAN_AUTHORED_ROLES = new Set<ArtifactVersionRole>(["final", "curated", "semantic", "manual"]);
 
-export type TieResolutionRule = "same-bytes" | "machine-output";
+export type TieResolutionRule = "same-bytes" | "same-run-dialects" | "machine-output";
 
 export type TopRankTieVerdict =
   | { kind: "no-tie" }
@@ -196,6 +268,17 @@ export function classifyTopRankTie(ordered: RankedCandidate[]): TopRankTieVerdic
   }
 
   if (!tied.some((c) => HUMAN_AUTHORED_ROLES.has(c.role))) {
+    const kick = tied.filter((c) => c.format === "kickass");
+    if (kick.length === 1 && tied.some((c) => c.format === "64tass")) {
+      const winner = kick[0]!;
+      return {
+        kind: "resolved",
+        rule: "same-run-dialects",
+        winner,
+        tied,
+        reason: `${tied.length} renderings of one run tie; chose ${pathOf(winner)} (the KickAssembler listing the 64tass one was converted from).`,
+      };
+    }
     const winner = ordered[0]!;
     return {
       kind: "resolved",
@@ -209,6 +292,15 @@ export function classifyTopRankTie(ordered: RankedCandidate[]): TopRankTieVerdic
   return { kind: "decision", tied };
 }
 
+/** The best candidate for a subject, with a settled tie honoured. Every
+ *  resolver goes through this, so "which file is current" cannot depend on
+ *  which of them was asked. */
+export function bestCandidate(ordered: RankedCandidate[]): RankedCandidate | undefined {
+  if (ordered.length === 0) return undefined;
+  const verdict = classifyTopRankTie(ordered);
+  return verdict.kind === "resolved" ? verdict.winner : ordered[0];
+}
+
 export function memberFromCandidate(c: RankedCandidate, current: boolean): ArtifactVersionMember {
   return {
     artifactId: c.artifact.id,
@@ -216,5 +308,169 @@ export function memberFromCandidate(c: RankedCandidate, current: boolean): Artif
     format: c.format,
     rank: c.rank,
     status: current ? "current" : "available",
+  };
+}
+
+// ──────────────────────────────────────────── moving a project onto the new identity
+//
+// The version groups are PERSISTED (`knowledge/artifact-versions.json`), keyed
+// by subject id. Changing what a subject id is therefore changes the key of
+// every row a project already holds: left alone, an existing project would open
+// with its groups orphaned — every manual pin, every stale mark and every
+// group id dropped on the floor, and a fresh set built from scratch by the next
+// sync. So the store carries the generation it was written under, and a project
+// written under the old one is rewritten once, on open, before anything reads
+// it.
+//
+// What the rewrite does, per group:
+//
+//   * re-keys it to the located subject of the artifacts it holds;
+//   * SPLITS it when its members now belong to several subjects (the three
+//     disks' `pl0`): the partition holding the group's current keeps the
+//     group's id, its createdAt and its `manual` pin — it is the row that was
+//     really about that file — and the others become their own groups with
+//     their own best member as an auto current;
+//   * keeps every member's status (`stale` / `missing` survive), and keeps a
+//     member whose artifact row is gone rather than dropping it;
+//   * folds in the `.tas` listings that the old `isVersionedSourceArtifact`
+//     could not see, as `available` members of the group they belong to —
+//     never as the current, so learning about a suffix cannot move a project's
+//     current listing by itself.
+//
+// Nothing here consults the filesystem and nothing is deleted. A subject that
+// has no group yet still gets one the ordinary way, from the next
+// `project_inventory_sync`.
+
+/** The subject-identity generation the persisted groups are keyed by. */
+export const SUBJECT_IDENTITY_GENERATION = "located";
+
+export interface SubjectIdentityMigration {
+  groups: ArtifactVersionGroup[];
+  /** groups whose subject id changed */
+  rekeyed: number;
+  /** extra groups created because one old group covered several subjects */
+  split: number;
+  /** artifacts folded into an existing group by the widened suffix list */
+  joined: number;
+  /** members whose artifact row is gone — kept, never dropped */
+  unresolved: number;
+}
+
+function bestMemberId(members: ArtifactVersionMember[]): string | undefined {
+  const usable = members.filter((m) => m.status !== "stale" && m.status !== "missing");
+  const pool = usable.length > 0 ? usable : members;
+  return [...pool].sort((a, b) => b.rank - a.rank || a.artifactId.localeCompare(b.artifactId))[0]?.artifactId;
+}
+
+function withNormalisedStatuses(group: ArtifactVersionGroup): ArtifactVersionGroup {
+  const versions = [...group.versions]
+    .sort((a, b) => b.rank - a.rank || a.artifactId.localeCompare(b.artifactId))
+    .map((v) => ({
+      ...v,
+      status: v.status === "stale" || v.status === "missing"
+        ? v.status
+        : (v.artifactId === group.currentArtifactId ? "current" as const : "available" as const),
+    }));
+  return { ...group, versions };
+}
+
+export function migrateSubjectIdentity(
+  groups: readonly ArtifactVersionGroup[],
+  artifacts: readonly ArtifactRecord[],
+  now: string,
+  newGroupId: (subject: string) => string,
+): SubjectIdentityMigration {
+  const byId = new Map(artifacts.map((a) => [a.id, a] as const));
+  const lookup: ArtifactLookup = (id) => byId.get(id);
+  const subjectOf = (a: ArtifactRecord): string => subjectIdForArtifact(a, lookup);
+
+  const out = new Map<string, ArtifactVersionGroup>();
+  let rekeyed = 0;
+  let split = 0;
+  let joined = 0;
+  let unresolved = 0;
+
+  const merge = (subject: string, group: ArtifactVersionGroup): void => {
+    const existing = out.get(subject);
+    if (!existing) { out.set(subject, group); return; }
+    const seen = new Set(existing.versions.map((v) => v.artifactId));
+    out.set(subject, {
+      ...existing,
+      versions: [...existing.versions, ...group.versions.filter((v) => !seen.has(v.artifactId))],
+      // A manual pin from either row is a decision somebody made; keep it.
+      ...(existing.currentSource === "manual"
+        ? {}
+        : group.currentSource === "manual"
+          ? { currentSource: "manual" as const, currentArtifactId: group.currentArtifactId }
+          : {}),
+      updatedAt: now,
+    });
+  };
+
+  for (const group of [...groups].sort((a, b) => a.subjectId.localeCompare(b.subjectId))) {
+    const partitions = new Map<string, ArtifactVersionMember[]>();
+    const orphans: ArtifactVersionMember[] = [];
+    for (const member of group.versions) {
+      const artifact = byId.get(member.artifactId);
+      if (!artifact) { orphans.push(member); continue; }
+      const subject = subjectOf(artifact);
+      const list = partitions.get(subject);
+      if (list) list.push(member);
+      else partitions.set(subject, [member]);
+    }
+    unresolved += orphans.length;
+
+    const currentArtifact = byId.get(group.currentArtifactId);
+    const largest = [...partitions.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))[0]?.[0];
+    const home = currentArtifact ? subjectOf(currentArtifact) : (largest ?? group.subjectId);
+    if (!partitions.has(home)) partitions.set(home, []);
+    if (home !== group.subjectId) rekeyed += 1;
+    split += Math.max(0, partitions.size - 1);
+
+    for (const [subject, members] of [...partitions.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      if (subject === home) {
+        merge(subject, withNormalisedStatuses({
+          ...group,
+          subjectId: subject,
+          versions: [...members, ...orphans],
+          updatedAt: now,
+        }));
+        continue;
+      }
+      // A partition that was only ever along for the ride under the old key.
+      // It carries no pin and no decision — its own best member is its current.
+      const currentArtifactId = bestMemberId(members) ?? members[0]?.artifactId;
+      if (currentArtifactId === undefined) continue;
+      merge(subject, withNormalisedStatuses({
+        id: newGroupId(subject),
+        subjectId: subject,
+        currentArtifactId,
+        currentSource: "auto",
+        needsDecision: undefined,
+        versions: members,
+        createdAt: group.createdAt,
+        updatedAt: now,
+      }));
+    }
+  }
+
+  // The `.tas` fold-in: a listing the old suffix list could not see joins the
+  // group it belongs to, as an available member.
+  for (const artifact of artifacts) {
+    if (!isVersionedSourceArtifact(artifact)) continue;
+    const group = out.get(subjectOf(artifact));
+    if (!group) continue;
+    if (group.versions.some((v) => v.artifactId === artifact.id)) continue;
+    group.versions = [...group.versions, memberFromCandidate(rankCandidate(artifact), false)];
+    group.updatedAt = now;
+    joined += 1;
+  }
+
+  return {
+    groups: [...out.values()].map(withNormalisedStatuses).sort((a, b) => a.subjectId.localeCompare(b.subjectId)),
+    rekeyed,
+    split,
+    joined,
+    unresolved,
   };
 }

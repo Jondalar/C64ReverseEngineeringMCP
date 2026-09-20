@@ -3,7 +3,7 @@ import { resolve, basename } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
-import { subjectIdForArtifact } from "../project-knowledge/artifact-versions.js";
+import { subjectIdForArtifact, subjectStemForArtifact } from "../project-knowledge/artifact-versions.js";
 import { autoAnalyzeExtractedPayloads, summarizeAutoChain } from "../lib/extract-auto-chain.js";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
@@ -135,16 +135,31 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       // BUG-024 — auto stem-match disassembly artifacts (block_X.prg ↔
       // block_X_disasm.asm/.tas) so list_payloads shows asm coverage, like the
       // extraction pipeline does. Explicit asm_artifact_ids override.
+      //
+      // The match is the SUBJECT, not the basename: the renderer writes the
+      // listing beside the .prg it came from, and a project holding three disks
+      // holds three `pl0_disasm.asm` that are three different payloads' code.
+      // A bare-name match is kept as a fallback for a listing written somewhere
+      // else — but only while it is unambiguous, because picking one of three
+      // is the defect, not the remedy.
       let asmArtifactIds = args.asm_artifact_ids;
       if ((!asmArtifactIds || asmArtifactIds.length === 0) && sourceArtifactId) {
-        const src = service.listArtifacts().find((a) => a.id === sourceArtifactId);
+        const all = service.listArtifacts();
+        const byId = new Map(all.map((a) => [a.id, a] as const));
+        const src = byId.get(sourceArtifactId);
         if (src) {
-          const stem = subjectIdForArtifact(src);
-          const matched = service.listArtifacts().filter((a) =>
+          const isAsm = (a: typeof all[number]) =>
             a.id !== src.id
-            && (a.format === "asm" || a.format === "tass" || /\.(asm|tass)$/i.test(a.path ?? a.relativePath ?? ""))
-            && subjectIdForArtifact(a) === stem,
-          ).map((a) => a.id);
+            && (a.format === "asm" || a.format === "tass" || /\.(asm|tass|tas)$/i.test(a.path ?? a.relativePath ?? ""));
+          const lookup = (id: string) => byId.get(id);
+          const subject = subjectIdForArtifact(src, lookup);
+          let matched = all.filter((a) => isAsm(a) && subjectIdForArtifact(a, lookup) === subject).map((a) => a.id);
+          if (matched.length === 0) {
+            const stem = subjectStemForArtifact(src);
+            const byName = all.filter((a) => isAsm(a) && subjectStemForArtifact(a) === stem);
+            const subjects = new Set(byName.map((a) => subjectIdForArtifact(a, lookup)));
+            if (subjects.size === 1) matched = byName.map((a) => a.id);
+          }
           if (matched.length > 0) asmArtifactIds = matched;
         }
       }
