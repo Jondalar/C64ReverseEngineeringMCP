@@ -10,33 +10,16 @@ import { renderPointerTableMarkdown } from "./analysis/pointer-tables";
 import { renderRamStateMarkdown } from "./analysis/ram-state";
 import { analyzeSampleBuffer } from "./analysis/sample";
 import { consumeRegisterFlags, registerCliArtifact } from "./lib/artifact-register";
+import { ADDRESS_RULE, parseAddress, parseAddressList, parseCount, looksLikeAddressList } from "./lib/address-rule";
 
 // Spec 741: parse a relocation map JSON.
 //
-// ONE RULE, the same one `entry_points` and the annotations loader use: **an address
-// is hex**, with `$` or `0x` optional. A number is taken as-is.
-//
-// It used to fall back to `parseInt(s, 10)` for a bare string, in the same call where
-// `entry_points` read bare strings as hex. `"E800"` became NaN and then `null` in the
-// error message; `"2000"` was silently read as decimal 2000 and pointed the relocation
-// at $07D0. Two readings of one notation, decided by which field the value landed in.
-export const ADDRESS_RULE = "an address is HEX — \"E800\", \"$E800\" and \"0xE800\" are the same address; a bare number is taken as-is (not hex)";
-
-function parseAddr(value: unknown, field = "address"): number {
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new Error(`${field} is not a finite number: ${JSON.stringify(value)}`);
-    return value;
-  }
-  if (typeof value === "string") {
-    const s = value.trim().replace(/^\$/, "").replace(/^0[xX]/, "");
-    if (!/^[0-9a-fA-F]+$/.test(s)) {
-      throw new Error(`${field} ${JSON.stringify(value)} is not an address — ${ADDRESS_RULE}`);
-    }
-    return Number.parseInt(s, 16);
-  }
-  throw new Error(`${field} is missing or not a string/number (${JSON.stringify(value)}) — ${ADDRESS_RULE}`);
-}
-
+// The rule these fields read by is not written here. It lives in ONE body of code
+// (`src/shared/address-rule.ts`, compiled into this half as `./lib/address-rule`), and
+// `npm run check:address-rule` refuses a copy. It used to be written twice, and both
+// times it drifted: a relocation's `"E800"` went through `parseInt(s, 10)` and became
+// NaN while `entry_points` read the same notation as hex, and `"2000"` quietly became
+// $07D0. Re-stating the rule here is what caused that; importing it is the fix.
 function loadRelocationMap(path: string): RelocationEntry[] {
   const raw = JSON.parse(readFileSync(path, "utf8"));
   const list = Array.isArray(raw) ? raw : raw?.relocations;
@@ -44,14 +27,14 @@ function loadRelocationMap(path: string): RelocationEntry[] {
     throw new Error(`relocation map must be a JSON array (or { relocations: [...] }): ${path}`);
   }
   return list.map((entry: Record<string, unknown>) => ({
-    fileStart: parseAddr(entry.fileStart, "relocation fileStart"),
-    fileEnd: parseAddr(entry.fileEnd, "relocation fileEnd"),
-    runtimeAddr: parseAddr(entry.runtimeAddr, "relocation runtimeAddr"),
+    fileStart: parseAddress(entry.fileStart, "relocation fileStart"),
+    fileEnd: parseAddress(entry.fileEnd, "relocation fileEnd"),
+    runtimeAddr: parseAddress(entry.runtimeAddr, "relocation runtimeAddr"),
     label: typeof entry.label === "string" ? entry.label : undefined,
     subSegments: Array.isArray(entry.subSegments)
       ? (entry.subSegments as Record<string, unknown>[]).map((s) => ({
-          start: parseAddr(s.start, "relocation subSegments[].start"),
-          end: parseAddr(s.end, "relocation subSegments[].end"),
+          start: parseAddress(s.start, "relocation subSegments[].start"),
+          end: parseAddress(s.end, "relocation subSegments[].end"),
           kind: String(s.kind ?? "code"),
           label: typeof s.label === "string" ? s.label : undefined,
           comment: typeof s.comment === "string" ? s.comment : undefined,
@@ -68,8 +51,8 @@ function usage(): never {
       "  node dist/cli.js reconstruct-lut [analysisDir]",
       "  node dist/cli.js export-menu [analysisDir]",
       "  node dist/cli.js disasm-menu [analysisDir] [outputDir]",
-      "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [analysisJson] [--platform c64|c1541] [--relocations <json>]",
-      "  node dist/cli.js disasm-raw <file> <outputAsm> --load-address <addr> [--offset <n>] [--length <n>] [entryHex,...] [analysisJson] [--platform c64|c1541] [--annotations <json>]",
+      "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541] [--relocations <json>]",
+      "  node dist/cli.js disasm-raw <file> <outputAsm> --load-address <addr> [--offset <n>] [--length <n>] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541] [--annotations <json>]",
       "  node dist/cli.js analyze-prg <prg> [outputJson] [entryHex,...]",
       "  node dist/cli.js basic-list <prg> [--json]",
       "  node dist/cli.js basic-tokenize <textFile> <outputPrg> [--load-address $0801]",
@@ -136,6 +119,14 @@ function main(): void {
     let platform: "c64" | "c1541" = "c64";
     // Spec 741: optional --relocations <path-to-json> with a relocation map.
     let relocationsPath: string | undefined;
+    // The analysis JSON as a NAMED argument. It used to be positional slot 3, behind
+    // the entry-point list, and a caller with an analysis but no entry points pushed
+    // it into slot 2 — where it was read as a list of addresses, became NaN, and left
+    // the analysis unset. The renderer then picked up the stem-matched sidecar instead
+    // and rendered a different file's segments without a word. A named flag cannot
+    // shift; the positional form still works and is checked below.
+    let analysisPath: string | undefined;
+    let noAnalysis = false;
     const remaining: string[] = [];
     for (let i = 0; i < args.length; i += 1) {
       if (args[i] === "--platform" && args[i + 1]) {
@@ -148,6 +139,13 @@ function main(): void {
         i += 1;
       } else if (args[i].startsWith("--relocations=")) {
         relocationsPath = args[i].slice("--relocations=".length);
+      } else if (args[i] === "--analysis" && args[i + 1]) {
+        analysisPath = args[i + 1];
+        i += 1;
+      } else if (args[i].startsWith("--analysis=")) {
+        analysisPath = args[i].slice("--analysis=".length);
+      } else if (args[i] === "--no-analysis") {
+        noAnalysis = true;
       } else {
         remaining.push(args[i]);
       }
@@ -161,15 +159,34 @@ function main(): void {
     // and it was harmless only because the legacy renderer threw the list away. Now
     // that a seed resyncs the linear decode, a guessed one would split an instruction
     // in a PRG that never loads at $0801 — a default may not decide an alignment.
-    const entryPoints = remaining[2]
-      ? remaining[2].split(",").filter(Boolean).map((value) => Number.parseInt(value, 16))
-      : [];
+    //
+    // A value here that is not a list of addresses is NOT parsed into NaN. When it is
+    // the analysis JSON that slid down a slot, it is read as the analysis and said so;
+    // anything else is refused by the one rule.
+    let positionalEntries = remaining[2] ?? "";
+    let positionalAnalysis = remaining[3];
+    if (positionalEntries && !looksLikeAddressList(positionalEntries)) {
+      if (/\.json$/i.test(positionalEntries) && positionalAnalysis === undefined) {
+        positionalAnalysis = positionalEntries;
+        positionalEntries = "";
+        process.stdout.write(
+          `Note: the entry-points slot held ${basename(positionalAnalysis)}; it was read as the analysis JSON. Pass --analysis <path> to say so outright.\n`,
+        );
+      } else {
+        throw new Error(
+          `entry points ${JSON.stringify(positionalEntries)} is not a comma-separated list of addresses — ${ADDRESS_RULE}`,
+        );
+      }
+    }
+    const entryPoints = parseAddressList(positionalEntries, "entryPoints");
     const prgAbs = resolve(prgPath);
     const relocations = relocationsPath ? loadRelocationMap(resolve(relocationsPath)) : undefined;
+    const chosenAnalysis = analysisPath ?? positionalAnalysis;
     disassemblePrgToKickAsm(prgAbs, outputPath, {
       entryPoints,
       title: prgPath,
-      analysisPath: remaining[3] ? resolve(remaining[3]) : undefined,
+      analysisPath: chosenAnalysis ? resolve(chosenAnalysis) : undefined,
+      noAnalysis,
       platform,
       relocations,
     });
@@ -194,6 +211,8 @@ function main(): void {
     let offset: number | undefined;
     let length: number | undefined;
     let annotationsPath: string | undefined;
+    let analysisFlagPath: string | undefined;
+    let noAnalysis = false;
     const remaining: string[] = [];
     const takeValue = (flag: string, inline: string | undefined, next: string | undefined): string => {
       const value = inline ?? next;
@@ -209,17 +228,22 @@ function main(): void {
         platform = takeValue(flag, inline, args[i + 1]) as "c64" | "c1541";
         if (inline === undefined) i += 1;
       } else if (flag === "--load-address" || flag === "--loadAddress") {
-        loadAddress = parseAddr(takeValue(flag, inline, args[i + 1]), "--load-address");
+        loadAddress = parseAddress(takeValue(flag, inline, args[i + 1]), "--load-address");
         if (inline === undefined) i += 1;
       } else if (flag === "--offset") {
-        offset = parseAddr(takeValue(flag, inline, args[i + 1]), "--offset");
+        offset = parseCount(takeValue(flag, inline, args[i + 1]), "--offset");
         if (inline === undefined) i += 1;
       } else if (flag === "--length") {
-        length = parseAddr(takeValue(flag, inline, args[i + 1]), "--length");
+        length = parseCount(takeValue(flag, inline, args[i + 1]), "--length");
         if (inline === undefined) i += 1;
       } else if (flag === "--annotations") {
         annotationsPath = takeValue(flag, inline, args[i + 1]);
         if (inline === undefined) i += 1;
+      } else if (flag === "--analysis") {
+        analysisFlagPath = takeValue(flag, inline, args[i + 1]);
+        if (inline === undefined) i += 1;
+      } else if (flag === "--no-analysis") {
+        noAnalysis = true;
       } else {
         remaining.push(arg);
       }
@@ -229,14 +253,14 @@ function main(): void {
       usage();
     }
     const outputPath = resolve(remaining[1] ?? `${rawPath}_disasm.asm`);
-    const entryPoints = remaining[2]
-      ? remaining[2].split(",").filter(Boolean).map((value, index) => parseAddr(value, `entryPoints[${index}]`))
-      : [];
+    const entryPoints = parseAddressList(remaining[2] ?? "", "entryPoints");
     const rawAbs = resolve(rawPath);
+    const chosenAnalysis = analysisFlagPath ?? remaining[3];
     const stats = disassemblePrgToKickAsm(rawAbs, outputPath, {
       entryPoints,
       title: rawPath,
-      analysisPath: remaining[3] ? resolve(remaining[3]) : undefined,
+      analysisPath: chosenAnalysis ? resolve(chosenAnalysis) : undefined,
+      noAnalysis,
       platform,
       raw: { loadAddress, offset, length },
       annotationsPath: annotationsPath ? resolve(annotationsPath) : undefined,
@@ -249,6 +273,12 @@ function main(): void {
         `Source window: offset ${offset ?? 0}, length ${stats.byteLength} (bytes ${offset ?? 0}..${(offset ?? 0) + stats.byteLength - 1}).`,
         `Listing: ${stats.instructionCount} instructions, ${stats.dataLineCount} data lines (${stats.renderMode} rendering).`,
         `Seeded: ${entryPoints.length > 0 ? entryPoints.map(hex).join(", ") : `${hex(stats.loadAddress)} (the first byte — no entry point was given)`}`,
+        // Which files the RENDERER actually read. The wrapper used to re-derive both
+        // by guessing the same candidate order, and the two halves resolved different
+        // files often enough that a listing could show a human's names while the graph
+        // import was handed a path that does not exist.
+        `Analysis used: ${stats.analysisPath ?? "none"}`,
+        `Annotations used: ${stats.annotationsPath ?? "none"}`,
         `64tass: ${stats.tassPath}`,
       ].join("\n") + "\n",
     );
@@ -273,18 +303,13 @@ function main(): void {
       const arg = args[index]!;
       if (arg === "--load-address" || arg === "--loadAddress") {
         const value = args[index + 1];
-        if (!value) throw new Error("--load-address requires a value");
-        const cleanedValue = value.startsWith("$") ? value.slice(1) : value;
-        loadAddressOverride = Number.parseInt(cleanedValue, 16);
-        if (Number.isNaN(loadAddressOverride)) throw new Error(`Invalid --load-address: ${value}`);
+        if (!value) throw new Error(`--load-address requires a value — ${ADDRESS_RULE}`);
+        loadAddressOverride = parseAddress(value, "--load-address");
         index += 1;
         continue;
       }
       if (arg.startsWith("--load-address=")) {
-        const value = arg.slice("--load-address=".length);
-        const cleanedValue = value.startsWith("$") ? value.slice(1) : value;
-        loadAddressOverride = Number.parseInt(cleanedValue, 16);
-        if (Number.isNaN(loadAddressOverride)) throw new Error(`Invalid --load-address: ${value}`);
+        loadAddressOverride = parseAddress(arg.slice("--load-address=".length), "--load-address");
         continue;
       }
       positional.push(arg);
@@ -294,9 +319,7 @@ function main(): void {
       usage();
     }
     const outputPath = resolve(positional[1] ?? "analysis/main-game/main_analysis.json");
-    const entryPoints = positional[2]
-      ? positional[2].split(",").filter(Boolean).map((value) => Number.parseInt(value, 16))
-      : [];
+    const entryPoints = parseAddressList(positional[2] ?? "", "entryPoints");
     const prgAbs = resolve(prgPath);
     const report = loadAddressOverride !== undefined
       ? analyzeRawFile(prgAbs, loadAddressOverride, { userEntryPoints: entryPoints })
@@ -417,16 +440,13 @@ function main(): void {
       const arg = args[index]!;
       if (arg === "--load-address" || arg === "--loadAddress") {
         const value = args[index + 1];
-        if (!value) throw new Error("--load-address requires a value");
-        loadAddress = Number.parseInt(value.startsWith("$") ? value.slice(1) : value, 16);
-        if (Number.isNaN(loadAddress)) throw new Error(`Invalid --load-address: ${value}`);
+        if (!value) throw new Error(`--load-address requires a value — ${ADDRESS_RULE}`);
+        loadAddress = parseAddress(value, "--load-address");
         index += 1;
         continue;
       }
       if (arg.startsWith("--load-address=")) {
-        const value = arg.slice("--load-address=".length);
-        loadAddress = Number.parseInt(value.startsWith("$") ? value.slice(1) : value, 16);
-        if (Number.isNaN(loadAddress)) throw new Error(`Invalid --load-address: ${value}`);
+        loadAddress = parseAddress(arg.slice("--load-address=".length), "--load-address");
         continue;
       }
       positional.push(arg);

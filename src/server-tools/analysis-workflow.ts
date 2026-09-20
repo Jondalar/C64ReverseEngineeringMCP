@@ -7,6 +7,7 @@ import { z } from "zod";
 import { runCli } from "../run-cli.js";
 import { assembleSource } from "../assemble-source.js";
 import { rebuildVerification } from "../lib/rebuild-verify.js";
+import { ADDRESS_RULE, parseAddress, parseCount } from "../shared/address-rule.js";
 import { suggestDepackers } from "../compression-tools.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { listPayloadEntities } from "../project-knowledge/payload-kinds.js";
@@ -141,7 +142,10 @@ function describeCodeSeeds(analysisPath: string): string {
       for (const seed of seeds.seeds ?? []) byOrigin.set(seed.origin, (byOrigin.get(seed.origin) ?? 0) + 1);
       lines.push(`Graph code seeds: ${seeds.seeds!.length} for owner "${seeds.owner}" — ${[...byOrigin].sort().map(([o, n]) => `${o}=${n}`).join(", ")}. Addresses only another overlay reaches are disassembled instead of rendered as .byte; the listing names which seed reached each region.`);
     } else if (seeds && seeds.status !== "ok") {
-      lines.push(`Graph code seeds: none — ${seeds.reason ?? seeds.status}`);
+      // The reason can carry the project's entire owner list. Summarised — an old
+      // analysis JSON on disk still holds the long form, so it is cut here too, not
+      // only where it is written.
+      lines.push(`Graph code seeds: none — ${shortenSeedOwners(seeds.reason ?? seeds.status)}`);
     }
     const rejected = report.rejectedEntryPoints ?? [];
     const refused = rejected.filter((r) => r.reason !== "already_code");
@@ -161,55 +165,100 @@ function describeCodeSeeds(analysisPath: string): string {
 }
 
 /**
- * ONE address rule, for every address this tool accepts.
+ * ONE address rule, for every address and every byte count these tools accept — and it
+ * is not written here. It lives in `src/shared/address-rule.ts`, the only body of code
+ * that states it, and the pipeline half compiles the same body as
+ * `pipeline/src/lib/address-rule.ts` because ESM and CommonJS cannot import each other.
+ * `npm run check:address-rule` proves the two agree and refuses a third copy.
  *
- * `entry_points`, `relocations` and the annotations loader all take addresses, and they
- * used to disagree inside a single call: `entry_points` read `"E800"` as hex while the
- * relocation loader ran `parseInt(s, 10)` on it — `"E800"` became NaN and printed as
- * `null`, and `"2000"` became decimal 2000, i.e. $07D0. Same notation, two meanings,
- * decided by which field the value landed in.
+ * It is there rather than here because it has drifted twice. First inside one call:
+ * `entry_points` read `"E800"` as hex while the relocation loader ran `parseInt(s, 10)`
+ * on it, so `"E800"` became NaN and printed as `null` and `"2000"` became $07D0. That
+ * was fixed by writing the rule down — in two files. Then `disasm_raw` was written
+ * against the written rule instead of the function, and the pipeline kept four inline
+ * `parseInt(x, 16)` sites of its own. A rule stated twice disagrees with itself.
  *
- * So: an address is HEX. `$` and `0x` are optional decoration. A number is taken as-is.
- * Anything else is refused by name, and the refusal states the rule.
+ * The names below are the ones this module has always exported; they now forward.
  */
-export const ADDRESS_RULE =
-  "an address is HEX — \"E800\", \"$E800\" and \"0xE800\" all mean $E800; a bare JSON number is taken as-is (not re-read as hex)";
+export { ADDRESS_RULE } from "../shared/address-rule.js";
+export const parseAddressStrict = parseAddress;
+export const parseCountStrict = parseCount;
+
+const hex16 = (value: number) => `$${(value & 0xffff).toString(16).toUpperCase().padStart(4, "0")}`;
 
 /**
- * A byte count, read by the same rule as an address.
+ * Does this analysis JSON describe the window it is about to be rendered over?
  *
- * `offset` and `length` are counted, not addressed, and that is exactly why they need
- * saying: two notations for one field is the defect BUG-054 closed. So the rule does
- * not fork — a string is HEX (`"100"` is 256 bytes), a JSON number is taken as given
- * (`100` is 100 bytes) — and every answer prints the window in both notations so a
- * caller who read the rule the other way sees it immediately. Unlike an address a
- * count is not clamped to 16 bits: a window can sit anywhere in a file of any size.
+ * Returns the refusal text when it does not, undefined when it does (or when the file
+ * says nothing about its own span, which is not something to refuse over).
  */
-export function parseCountStrict(v: unknown, field: string): number {
-  const rule = `${ADDRESS_RULE}. A byte count follows the same rule and is not clamped to 16 bits`;
-  if (typeof v === "number") {
-    if (!Number.isInteger(v) || v < 0) throw new Error(`${field}: ${JSON.stringify(v)} is not a byte count — ${rule}`);
-    return v;
+export function analysisWindowMismatch(
+  analysisAbs: string,
+  windowStart: number,
+  windowEnd: number,
+): string | undefined {
+  let mapping: { startAddress?: number; endAddress?: number } | undefined;
+  try {
+    mapping = (JSON.parse(readFileSync(analysisAbs, "utf8")) as {
+      mapping?: { startAddress?: number; endAddress?: number };
+    }).mapping;
+  } catch {
+    return `analysis_json ${analysisAbs} could not be read as JSON.`;
   }
-  if (typeof v === "string") {
-    const t = v.trim().replace(/^\$/, "").replace(/^0[xX]/, "");
-    if (!/^[0-9a-fA-F]{1,8}$/.test(t)) throw new Error(`${field}: ${JSON.stringify(v)} is not a byte count — ${rule}`);
-    return parseInt(t, 16);
-  }
-  throw new Error(`${field}: ${JSON.stringify(v)} is not a byte count — ${rule}`);
+  const start = mapping?.startAddress;
+  const end = mapping?.endAddress;
+  if (typeof start !== "number" || typeof end !== "number") return undefined;
+  if (start === windowStart && end === windowEnd) return undefined;
+  return `analysis_json ${basename(analysisAbs)} describes ${hex16(start)}-${hex16(end)}; this window runs at `
+    + `${hex16(windowStart)}-${hex16(windowEnd)}. An analysis of the whole file rendered over a window of it `
+    + `produces a listing of the file's segments at the window's addresses and a rebuild that cannot match. `
+    + `Run analyze_prg over these bytes (its load_address is this window's), pass no_analysis to render linearly, `
+    + `or disassemble the whole file instead.`;
 }
 
-export function parseAddressStrict(v: unknown, field: string): number {
-  if (typeof v === "number") {
-    if (!Number.isInteger(v) || v < 0) throw new Error(`${field}: ${JSON.stringify(v)} is not an address — ${ADDRESS_RULE}`);
-    return v & 0xffff;
+/**
+ * What to do when the rebuild did not come back byte-identical.
+ *
+ * The verdict names the assembler's own complaint, which for a packed stream is
+ * `relative address is illegal (jump distance is too far: 65471)` — a branch whose
+ * target wrapped the address space, which is what a LINEAR decode of compressed bytes
+ * produces and nothing else does. The message used to stop there. The remedy is not
+ * guessable from it: declare the range as data, or depack first.
+ */
+export function rebuildRemedy(verdictLine: string, kind: "prg" | "raw"): string {
+  if (!/WARNING: rebuild/i.test(verdictLine)) return "";
+  const door = kind === "raw" ? "annotations_path" : "a <stem>_annotations.json beside the PRG";
+  if (/jump distance is too far|relative address is illegal|branch out of range/i.test(verdictLine)) {
+    return "\nWhat this is: a branch whose target wrapped the address space. A linear decode emits one only when the "
+      + "bytes are not code — a compressed stream, a depacker's payload, a table. These bytes are probably packed.\n"
+      + `Two ways on: declare the range as data — an annotations file with `
+      + `segments: [{"start":"$XXXX","end":"$YYYY","kind":"unknown"}] passed as ${door}, after which the bytes render `
+      + `as .byte and the rebuild is byte-identical — or depack first (suggest_depacker, then try_depack / `
+      + `sandbox_depack) and disassemble the result.`;
   }
-  if (typeof v === "string") {
-    const t = v.trim().replace(/^\$/, "").replace(/^0[xX]/, "");
-    if (!/^[0-9a-fA-F]{1,4}$/.test(t)) throw new Error(`${field}: ${JSON.stringify(v)} is not an address — ${ADDRESS_RULE}`);
-    return parseInt(t, 16) & 0xffff;
+  if (/assembler exited/i.test(verdictLine)) {
+    return "\nWhat this is: the listing did not reassemble. When the bytes are data read as code, declare the range "
+      + `as data — an annotations file with segments: [{"start":"$XXXX","end":"$YYYY","kind":"unknown"}] passed as `
+      + `${door} — and the rebuild comes back byte-identical.`;
   }
-  throw new Error(`${field}: ${JSON.stringify(v)} is not an address — ${ADDRESS_RULE}`);
+  return "";
+}
+
+/**
+ * The seed report's reason, cut down to what a caller can act on.
+ *
+ * A project with 500 seeded owners printed all 500 names into every analyze_prg
+ * answer, every disasm_prg answer and every listing header — by a wide margin the
+ * largest single context cost of an autonomous run, and not one of the names was
+ * actionable. The count is, and so are the few whose names are near the one asked for.
+ * Set `C64RE_GRAPH_SEED_OWNERS=full` to get the whole list back.
+ */
+export function shortenSeedOwners(reason: string): string {
+  const match = /\(seeded owners: ([^)]*)\)/.exec(reason);
+  if (!match || process.env.C64RE_GRAPH_SEED_OWNERS === "full") return reason;
+  const owners = match[1].split(", ").map((o) => o.trim()).filter(Boolean);
+  if (owners.length <= 6 || match[1] === "none") return reason;
+  return reason.replace(match[0], `(${owners.length} owners are seeded, e.g. ${owners.slice(0, 3).join(", ")}; C64RE_GRAPH_SEED_OWNERS=full lists them all)`);
 }
 
 interface NormalizedRelocation {
@@ -233,15 +282,15 @@ export function normalizeRelocationInput(
   prg: { loadAddress: number; lastAddress: number; name: string },
 ): NormalizedRelocation[] {
   const out: NormalizedRelocation[] = relocations.map((r, i) => ({
-    fileStart: parseAddressStrict(r.fileStart, `relocations[${i}].fileStart`),
-    fileEnd: parseAddressStrict(r.fileEnd, `relocations[${i}].fileEnd`),
-    runtimeAddr: parseAddressStrict(r.runtimeAddr, `relocations[${i}].runtimeAddr`),
+    fileStart: parseAddress(r.fileStart, `relocations[${i}].fileStart`),
+    fileEnd: parseAddress(r.fileEnd, `relocations[${i}].fileEnd`),
+    runtimeAddr: parseAddress(r.runtimeAddr, `relocations[${i}].runtimeAddr`),
     ...(typeof r.label === "string" ? { label: r.label } : {}),
     ...(Array.isArray(r.subSegments)
       ? {
         subSegments: (r.subSegments as Array<Record<string, unknown>>).map((sub, j) => ({
-          start: parseAddressStrict(sub.start, `relocations[${i}].subSegments[${j}].start`),
-          end: parseAddressStrict(sub.end, `relocations[${i}].subSegments[${j}].end`),
+          start: parseAddress(sub.start, `relocations[${i}].subSegments[${j}].start`),
+          end: parseAddress(sub.end, `relocations[${i}].subSegments[${j}].end`),
           kind: String(sub.kind ?? "code"),
           ...(typeof sub.label === "string" ? { label: sub.label } : {}),
           ...(typeof sub.comment === "string" ? { comment: sub.comment } : {}),
@@ -352,7 +401,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       let entries: string;
       try {
         entries = (entry_points ?? [])
-          .map((e, i) => parseAddressStrict(e, `entry_points[${i}]`).toString(16).toUpperCase().padStart(4, "0"))
+          .map((e, i) => parseAddress(e, `entry_points[${i}]`).toString(16).toUpperCase().padStart(4, "0"))
           .join(",");
       } catch (e) {
         return { content: [{ type: "text" as const, text: `# disasm_prg refused\n\n${e instanceof Error ? e.message : String(e)}` }] };
@@ -431,7 +480,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "disasm_prg",
-    "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze_prg / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze_prg) or for menus/multi-file containers (use disasm_menu). A `<stem>_annotations.json` next to the PRG/ASM is auto-applied: names (labels, routines, a segment's `label`) apply with or without `analysis_json`, while segment kinds and pointer/jump/immediate tables need `analysis_json` — the listing's header line says which happened, and the tool output quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild. In a project created since 2026-09-19 (project_init stamps it) no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered, and the refusal names every offender. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, platform, relocations. Returns: .asm/.tas artifact paths.",
+    "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze_prg / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze_prg), for menus/multi-file containers (use disasm_menu) or for bytes with no load header (use disasm_raw). An analysis_json named here is the analysis rendered — it is never swapped for the <stem>_analysis.json beside the PRG, and a path that does not exist is refused. A `<stem>_annotations.json` next to the PRG/ASM is auto-applied: names (labels, routines, a segment's `label`) apply with or without `analysis_json`, while segment kinds and pointer/jump/immediate tables need `analysis_json` — the listing's header line says which happened, and the tool output quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild. In a project created since 2026-09-19 (project_init stamps it) no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered, and the refusal names every offender. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, platform, relocations. Returns: .asm/.tas artifact paths.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from prg_path to knowledge/phase-plan.json."),
       prg_path: z.string().describe("Path to the .prg file"),
@@ -519,9 +568,24 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       const args: string[] = [];
       if (resolvedPlatform !== "c64") args.push("--platform", resolvedPlatform);
       if (relocationsFile) args.push("--relocations", relocationsFile);
+      // The analysis JSON travels as a NAMED argument.
+      //
+      // It used to be pushed onto the positional tail behind the entry-point list —
+      // and `entries` is only pushed when there ARE entry points, so a call with an
+      // analysis and no entry points put the path in the entry-point slot. The
+      // renderer read it as a list of addresses, got NaN, ended up with no analysis,
+      // and fell back to the stem-matched `<prg>_analysis.json` beside the PRG. A
+      // caller who named `..._analysis_ep.json` and a different output_asm got the
+      // OTHER file's segments rendered, with nothing said. A named flag cannot shift.
+      if (analysis_json) {
+        const analysisAbs = resolve(pd, analysis_json);
+        if (!existsSync(analysisAbs)) {
+          return { content: [{ type: "text" as const, text: `# disasm_prg refused\n\nanalysis_json ${analysisAbs} does not exist. A named analysis is never swapped for the one beside the PRG — produce it with analyze_prg, fix the path, or leave analysis_json out.` }] };
+        }
+        args.push("--analysis", analysisAbs);
+      }
       args.push(prgAbs, outAbs);
       if (entries) args.push(entries);
-      if (analysis_json) args.push(resolve(pd, analysis_json));
       // Spec 759 P2 — refresh the project cross-artifact address index so the
       // pipeline can resolve out-of-file calls (jsr into another artifact → its
       // api_* label). Build-on-read writes knowledge/.cache; best-effort.
@@ -588,11 +652,15 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
             },
           ],
         });
-        const verificationSummary = (await rebuildVerification({
+        const verdictPrg = await rebuildVerification({
           projectDir: pd,
           asmPath: outAbs,
           prgPath: prgAbs,
-        })).line;
+        });
+        const verificationSummary = (() => {
+          const line = verdictPrg.line;
+          return `${line}${rebuildRemedy(line, "prg")}`;
+        })();
         result.stdout = (result.stdout || "Disassembly complete.") + `\nOutput: ${outAbs}\nKnowledge written to: ${resolve(pd, "knowledge")}\n${verificationSummary}`;
         // Spec 833 D3 — what the LISTING did with the annotations, read back
         // from the listing's own header, stated before and separately from what
@@ -682,7 +750,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "disasm_raw",
-    "Disassemble raw bytes at an address you already know — a depacked chunk, a relocated overlay, a block lifted out of a track, drive code — with no PRG header and none invented. Use when you hold bytes and their runtime address: give a file path (or an artifact id), optionally a byte window, and load_address. Not for a file that already carries a 2-byte load address (use disasm_prg) and not for the running machine's memory (use runtime_monitor_disasm). Same decoder, renderer, annotations and rebuild proof as disasm_prg: it writes .asm + .tas, reassembles them and reports byte-identical or the first divergence, and registers the listing with its provenance — which file, which byte range, which address. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes) — every answer prints the window both ways. Pass entry_points when the block does not start with code: a seed resyncs the linear decode there and the bytes before it render as data. Pass analysis_json for segment-aware rendering; without one the listing says it had none and reads every byte as code. Inputs: path or artifact_id, load_address, optional offset/length/entry_points/analysis_json/annotations_path/cpu/bank. Returns: the .asm/.tas paths, the address span, the instruction count, what was seeded, and the rebuild verdict.",
+    "Disassemble raw bytes at an address you already know — a depacked chunk, a relocated overlay, a block lifted out of a track, drive code — with no PRG header and none invented. Use when you hold bytes and their runtime address: give a file path (or an artifact id), optionally a byte window, and load_address. Not for a file that already carries a 2-byte load address (use disasm_prg) and not for the running machine's memory (use runtime_monitor_disasm). Same decoder, renderer, annotations and rebuild proof as disasm_prg: it writes .asm + .tas, reassembles them and reports byte-identical or the first divergence, and registers the listing with its provenance — which file, which byte range, which address. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes) — every answer prints the window both ways. Pass entry_points when the block does not start with code: a seed resyncs the linear decode there and the bytes before it render as data. Pass analysis_json for segment-aware rendering; it must describe THIS window and is refused when it describes a different span, nothing is picked up beside the bytes (a <stem>_analysis.json beside a 63 KB image describes the 63 KB image, not a window out of it), and no_analysis refuses one outright. Without one the listing says it had none and reads every byte as code. Annotations it applies are imported into the knowledge graph, the same as through disasm_prg, so a block with no PRG header gets human names in the graph too. Inputs: path or artifact_id, load_address, optional offset/length/entry_points/analysis_json/no_analysis/annotations_path/cpu/bank. Returns: the .asm/.tas paths, the address span, the instruction count, what was seeded, and the rebuild verdict.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json."),
       path: z.string().describe("Path to the file holding the bytes (absolute or project-relative). Use this OR artifact_id.").optional(),
@@ -691,8 +759,9 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       offset: z.union([z.string(), z.number()]).optional().describe("Byte offset into the file where the block starts. Default 0. Same rule as an address: a string is hex, a JSON number is taken as given."),
       length: z.union([z.string(), z.number()]).optional().describe("How many bytes. Default: to the end of the file. Same rule as offset."),
       entry_points: z.array(z.union([z.string(), z.number()])).optional().describe("Runtime addresses inside the window where code is known to start. Without one the first byte is the only seed. A seed that falls inside a decoded instruction breaks it: the bytes up to the seed render as data and the decode resumes at the seed — byte-exact either way."),
-      analysis_json: z.string().optional().describe("Path to an analysis JSON for segment-aware rendering. Produce one with analyze_prg; without it the listing is linear and says so."),
-      annotations_path: z.string().optional().describe("Path to an annotations file (same shape disasm_prg consumes: labels/routines/segments). Without it, a <stem>_annotations.json beside the bytes or beside the output is picked up as usual."),
+      analysis_json: z.string().optional().describe("Path to an analysis JSON for segment-aware rendering, produced by analyze_prg over THIS window. Nothing is picked up beside the bytes: a <stem>_analysis.json beside a 63 KB image describes the 63 KB image, not a 640-byte window out of it. Without one the listing is linear and says so."),
+      no_analysis: z.boolean().optional().describe("Refuse an analysis outright for this render. Nothing is read, nothing is inherited, and the answer says the listing is linear. Use when an analysis exists beside the bytes and you know it does not describe this window."),
+      annotations_path: z.string().optional().describe("Path to an annotations file (same shape disasm_prg consumes: labels/routines/segments). Without it, a <stem>_annotations.json beside the bytes or beside the output is picked up as usual. Whatever is applied is imported into the knowledge graph, the same as disasm_prg."),
       output_asm: z.string().optional().describe("Output path for the .asm. Default: analysis/raw-disasm/<stem>[_<window>]_<address>_disasm.asm, and the .tas beside it."),
       cpu: z.enum(["c64", "drive"]).optional().describe("Which 6502 these bytes run on. Default c64. `drive` renders 1541 zero page, VIA registers and drive ROM entry points instead of the C64's."),
       bank: z.number().int().nonnegative().optional().describe("Cartridge bank these bytes belong to, recorded with the listing's provenance."),
@@ -701,7 +770,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     safeHandler("disasm_raw", async (args) => {
       const {
         project_dir, path: rawPath, artifact_id, load_address, offset, length,
-        entry_points, analysis_json, annotations_path, output_asm, cpu, bank, space,
+        entry_points, analysis_json, no_analysis, annotations_path, output_asm, cpu, bank, space,
       } = args;
       const pd = context.projectDir(project_dir ?? rawPath, true);
       const refuse = (text: string) => ({ content: [{ type: "text" as const, text: `# disasm_raw refused\n\n${text}` }] });
@@ -734,10 +803,10 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       let byteLength: number;
       let seeds: number[];
       try {
-        loadAddress = parseAddressStrict(load_address, "load_address");
-        byteOffset = offset === undefined ? 0 : parseCountStrict(offset, "offset");
-        byteLength = length === undefined ? fileSize - byteOffset : parseCountStrict(length, "length");
-        seeds = (entry_points ?? []).map((value, index) => parseAddressStrict(value, `entry_points[${index}]`));
+        loadAddress = parseAddress(load_address, "load_address");
+        byteOffset = offset === undefined ? 0 : parseCount(offset, "offset");
+        byteLength = length === undefined ? fileSize - byteOffset : parseCount(length, "length");
+        seeds = (entry_points ?? []).map((value, index) => parseAddress(value, `entry_points[${index}]`));
       } catch (e) {
         return refuse(e instanceof Error ? e.message : String(e));
       }
@@ -790,10 +859,37 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       if (byteOffset !== 0) cliArgs.push("--offset", asHex(byteOffset));
       cliArgs.push("--length", asHex(byteLength));
       if (cpu === "drive") cliArgs.push("--platform", "c1541");
-      if (annotations_path) cliArgs.push("--annotations", resolve(pd, annotations_path));
+      if (annotations_path) {
+        const annotationsAbs = resolve(pd, annotations_path);
+        if (!existsSync(annotationsAbs)) {
+          return refuse(`annotations_path ${annotationsAbs} does not exist. A named annotations file is never swapped for one found beside the bytes — write it, fix the path, or leave annotations_path out.`);
+        }
+        cliArgs.push("--annotations", annotationsAbs);
+      }
+      // ── the analysis, and the right to refuse one ───────────────────────────
+      //
+      // A window is not the file it came out of. Pointed at 640 bytes of a 63 KB
+      // image, this tool used to pick up `<stem>_analysis.json` beside that image and
+      // render the WHOLE image's segments — 929 instructions and 4082 data lines over
+      // 640 bytes, then a rebuild "diverging at body offset 0x0" that was never going
+      // to do anything else. Nothing is inherited now: an analysis is used only when
+      // it is named, it must describe this window, and `no_analysis` refuses one
+      // outright for the caller who knows the sidecar is there and does not apply.
+      if (no_analysis && analysis_json) {
+        return refuse("analysis_json and no_analysis were both given. Name one: the analysis to use, or none at all.");
+      }
+      if (no_analysis) cliArgs.push("--no-analysis");
+      if (analysis_json) {
+        const analysisAbs = resolve(pd, analysis_json);
+        if (!existsSync(analysisAbs)) {
+          return refuse(`analysis_json ${analysisAbs} does not exist. A named analysis is never swapped for the one beside the bytes — produce it with analyze_prg over this window, or leave analysis_json out.`);
+        }
+        const mismatch = analysisWindowMismatch(analysisAbs, loadAddress, lastAddress);
+        if (mismatch) return refuse(mismatch);
+        cliArgs.push("--analysis", analysisAbs);
+      }
       cliArgs.push(sourceAbs, outAbs);
       cliArgs.push(seeds.map((seed) => hex(seed).slice(1)).join(","));
-      if (analysis_json) cliArgs.push(resolve(pd, analysis_json));
       try {
         const { loadAddressIndex, loadAbiIndex } = await import("../project-knowledge/address-index.js");
         loadAddressIndex(pd);
@@ -900,15 +996,48 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         } catch { /* the link is an enhancement; the listing stands without it */ }
       }
 
+      // ── the names go into the graph, the same as through the PRG door ──────
+      //
+      // They did not, and disasm_raw is the ONLY door for a block with no PRG header:
+      // drive code, a depacked chunk, an overlay. So the listing showed the human's
+      // names while the graph held none of them, and `project_critique` reported the
+      // drive stage as holding routines and tables with not one human name on them.
+      // The workaround an autonomous run reached for was to carve synthetic PRGs and
+      // run disasm_prg on them — exactly the thing this door exists to end.
+      //
+      // The path is the one the RENDERER printed, never a candidate list re-derived
+      // here: two halves guessing the same order is how a listing full of names came
+      // to sit beside an import that was handed a path that does not exist.
+      let graphLine = "";
+      const usedAnnotations = /^Annotations used: (.+)$/m.exec(result.stdout)?.[1];
+      if (usedAnnotations && usedAnnotations !== "none") {
+        try {
+          const imported = service.importAnnotations({
+            sourcePrgArtifactId: sourceArtifactId ?? listingArtifactId,
+            annotationsPath: usedAnnotations,
+          });
+          graphLine = imported.changed
+            ? `\nGraph: imported ${imported.routines} routines, ${imported.labels} labels, ${imported.segments} segments into the knowledge graph (owner ${imported.owner}) — graph contents, not the listing.`
+            : `\nGraph: unchanged since the last import; the graph holds ${imported.routines} routines, ${imported.labels} labels, ${imported.segments} segments — graph contents, not the listing.`;
+          if (sourceArtifactId ?? listingArtifactId) {
+            graphLine += `\n${runAndFormatClosedLoopSweep(service, { artifactId: (sourceArtifactId ?? listingArtifactId)! })}`;
+          }
+        } catch (importError) {
+          graphLine = `\nAnnotations import: FAILED — ${importError instanceof Error ? importError.message : String(importError)}`;
+        }
+      }
+
       const seededText = seeds.length > 0
         ? seeds.map(hex).join(", ")
         : `${hex(loadAddress)} (the first byte — no entry point was given)`;
+      const verdictLine = verdict.line.replace(/^\/\/\s*/, "");
       result.stdout = [
         result.stdout.trimEnd(),
         `Output: ${outAbs}`,
         `Provenance: ${provenance}`,
         `Seeded: ${seededText}`,
-        verdict.line.replace(/^\/\/\s*/, ""),
+        `${verdictLine}${rebuildRemedy(verdictLine, "raw")}`,
+        graphLine.trim(),
         payloadLine.trim(),
         listingArtifactId ? `Artifact: ${listingArtifactId} (re-running with the same arguments updates this row; it does not make a second one).` : "",
         knowledgeRegistration.runPath ? `Knowledge run: ${knowledgeRegistration.runPath}` : (knowledgeRegistration.message ?? ""),

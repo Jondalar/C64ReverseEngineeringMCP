@@ -24,6 +24,8 @@
     "e2e:onboarding-gate": "npm run build:mcp && node scripts/e2e-onboarding-gate.mjs",
     "e2e:tooling-defects": "npm run build && node scripts/e2e-tooling-defects.mjs",
     "e2e:store-concurrency": "npm run build && node scripts/e2e-store-concurrency.mjs",
+    "check:address-rule": "npm run build && node scripts/check-address-rule.mjs",
+    "e2e:disasm-family": "npm run build && node scripts/e2e-disasm-family.mjs",
     "e2e:810": "node scripts/e2e-810-scenarios.mjs",
     "smoke:813": "npm run build:mcp && node scripts/smoke-813-observers-and-regions.mjs",
     "smoke:812": "npm run build:mcp && node scripts/smoke-812-scene-reel.mjs",
