@@ -11,7 +11,13 @@
 //
 //   - No-op when CWD has no `knowledge/phase-plan.json` (we are not
 //     inside a c64re project root).
-//   - Skipped when `--no-register` was on the command line.
+//   - Suppressed when `--no-register` was on the command line, which is how
+//     the MCP server spawns this process and only how: `src/run-cli.ts`
+//     builds every argv through `pipelineArgvFromMcp`, so on the MCP path
+//     the parent door is the store's ONE writer and this process writes
+//     nothing. Without the flag — a shell loop over `dist/pipeline/cli.cjs`,
+//     which has no parent to register for it — the child registers, as it
+//     always did.
 //   - Reads the existing `knowledge/artifacts.json`, appends a new entry
 //     unless the relativePath is already present, writes back atomically —
 //     all three under the cross-process lock in `json-store-lock.ts`, because
@@ -21,7 +27,7 @@
 //   - Never throws. A store that will not take the row is reported on stderr,
 //     loudly, because the file the row was about is already on disk.
 
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { withJsonStoreLock, writeJsonStoreAtomic } from "./json-store-lock";
 
@@ -105,18 +111,56 @@ function writeStore(path: string, store: ArtifactStore): void {
   writeJsonStoreAtomic(path, `${JSON.stringify(store, null, 2)}\n`);
 }
 
-let registrationDisabled = false;
+/**
+ * Who owns the store for this run.
+ *
+ * `cli-default` — nobody else is going to register what this process writes, so it
+ * registers it itself. That is a direct `node dist/pipeline/cli.cjs …`.
+ * `suppressed-by-caller` — the process that spawned this one registers the outputs
+ * and holds the store; this one must not touch it. That is the MCP server, and the
+ * flag is the only way into this state.
+ */
+export type RegistrationMode = "cli-default" | "suppressed-by-caller";
+
+let registrationMode: RegistrationMode = "cli-default";
 
 export function disableRegistrationGlobally(): void {
-  registrationDisabled = true;
+  registrationMode = "suppressed-by-caller";
 }
 
 export function isRegistrationDisabled(): boolean {
-  return registrationDisabled;
+  return registrationMode === "suppressed-by-caller";
+}
+
+export function registrationModeForRun(): RegistrationMode {
+  return registrationMode;
+}
+
+/**
+ * The tripwire on the write path.
+ *
+ * "One writer" is a claim about a PROCESS boundary, and the store cannot be asked
+ * whether it holds: the parent's `saveArtifact` dedups a row by path and overwrites
+ * `producedByTool` with its own name, so a row the child wrote first and the parent
+ * re-saved is indistinguishable from one the parent alone wrote. A gate that only
+ * read the store would pass whether the child wrote or not.
+ *
+ * So the writer signs the write, from inside, at the one line where the store is
+ * actually modified. Off unless a caller names a file to sign into — a gate does,
+ * nothing else has to.
+ */
+function signTheWrite(producedByTool: string, relativePath: string): void {
+  const log = process.env.C64RE_PIPELINE_REGISTRATION_LOG;
+  if (!log) return;
+  try {
+    appendFileSync(log, `${producedByTool}\t${relativePath}\n`, "utf8");
+  } catch {
+    // The signature is evidence for a gate, never a condition of the run.
+  }
 }
 
 export function registerCliArtifact(input: CliArtifactInput): void {
-  if (registrationDisabled) return;
+  if (registrationMode === "suppressed-by-caller") return;
   const projectRoot = findProjectRoot(process.cwd());
   if (!projectRoot) return; // not inside a c64re project — silent no-op
 
@@ -168,6 +212,7 @@ export function registerCliArtifact(input: CliArtifactInput): void {
       });
       store.updatedAt = timestamp;
       writeStore(artifactsPath, store);
+      signTheWrite(input.producedByTool, relativePath);
     });
   } catch (error) {
     // The file this call was about IS on disk — the subcommand wrote it before

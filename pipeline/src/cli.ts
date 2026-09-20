@@ -60,8 +60,12 @@ function usage(): never {
       "  node dist/cli.js pointer-report <analysisJson> [outputMd]",
       "  node dist/cli.js analyze-sample [outputJson]",
       "",
-      "Append --no-register to suppress automatic artifact registration when",
-      "writing into a project that already has knowledge/phase-plan.json.",
+      "Run directly, every verb that writes a file registers it in the project's",
+      "knowledge/artifacts.json — a shell loop has no parent to do it, and an",
+      "unregistered output is invisible to the workspace and to the next session.",
+      "Append --no-register to suppress that. The MCP server always passes it: on",
+      "that path the tool that spawned this process registers the outputs itself,",
+      "and the store has one writer.",
     ].join("\n"),
   );
 }
