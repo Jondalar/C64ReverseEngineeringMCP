@@ -1506,9 +1506,9 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       columns: z.array(z.object({
         role: z.enum(["bank", "offset", "length", "destination", "entry", "codec", "key", "track", "sector"]),
         width: z.union([z.literal(1), z.literal(2)]).optional(),
-        at: z.number().int().nonnegative().optional(),
-        at_lo: z.number().int().nonnegative().optional(),
-        at_hi: z.number().int().nonnegative().optional(),
+        at: z.number().int().nonnegative().optional().describe("Where this column's ROW-0 cell sits, in the MEDIUM's own addressing — row n is at `at + n*stride`. On a .d64/.g64/raw image that is a byte offset into the IMAGE FILE, counted from $0000 (T18/S1 is offset 91392); it is not a C64 memory address and not an offset into an extracted file. On a .crt it is the address inside the bank window the CHIP packet declares, e.g. $8500 in a $8000 window. Off by two on a disk is the classic miss: a CBM file carries its own 2-byte load-address word at its head."),
+        at_lo: z.number().int().nonnegative().optional().describe("Low half of a SPLIT 16-bit cell — one array of low bytes, a second of high bytes, which is what a `columns` table looks like. Addressed exactly like `at`. Pass it with at_hi and width: 2."),
+        at_hi: z.number().int().nonnegative().optional().describe("High half of a split 16-bit cell. Addressed exactly like `at`. Pass it with at_lo and width: 2."),
         stride: z.number().int().positive().optional(),
         bank: z.number().int().nonnegative().optional(),
         deref: z.boolean().optional(),
@@ -1577,10 +1577,15 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
           lines.push(`  (no probe — ${noMediumMessage(a.medium_path, service.getProjectRoot())})`);
         } else {
           const limit = a.probe_rows ?? 3;
-          const { rows, problems } = resolveLutRows(entry, m.reader, { limit });
+          const { rows, problems, stopped } = resolveLutRows(entry, m.reader, { limit });
           lines.push(`  medium: ${m.note}`);
           if (problems.length) lines.push(...problems.map((p) => `  WARN ${p}`));
-          lines.push("", `PROBE — first ${rows.length} row(s), resolved. Hold these against your disassembly:`, formatLutProbe(entry, rows));
+          // "first 0 row(s), resolved." read as a clean empty table. It was a
+          // terminator at row 0 — the walk stopping before it started.
+          const headline = rows.length === 0 && stopped
+            ? `PROBE — NO rows: the table ended at row ${stopped.atRow}, before a single row was read.`
+            : `PROBE — first ${rows.length} row(s), resolved. Hold these against your disassembly:`;
+          lines.push("", headline, formatLutProbe(entry, rows, stopped));
           const bad = rows.filter((r) => r.problems.length).length;
           if (bad) lines.push("", `${bad} of ${rows.length} probed rows had a problem — check the column addresses before trusting the rest.`);
         }
@@ -1766,11 +1771,14 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       const m = readerForMedium(medium_path, service.getProjectRoot());
       if (!m) return textContent(`No medium: ${noMediumMessage(medium_path, service.getProjectRoot())}`);
       const start = from_row ?? 0;
-      const { rows, problems } = resolveLutRows(d, m.reader, { limit: start + (limit ?? 64) });
+      const { rows, problems, stopped } = resolveLutRows(d, m.reader, { limit: start + (limit ?? 64) });
       const window = rows.slice(start);
-      const lines = [`Table "${d.name}" (${d.id}) — ${rows.length} row(s) resolved, showing ${window.length} from ${start}`, `  medium: ${m.note}`];
+      const head = rows.length === 0 && stopped
+        ? `Table "${d.name}" (${d.id}) — NO rows: the table ended at row ${stopped.atRow}, before a single row was read`
+        : `Table "${d.name}" (${d.id}) — ${rows.length} row(s) resolved, showing ${window.length} from ${start}`;
+      const lines = [head, `  medium: ${m.note}`];
       if (problems.length) lines.push(...problems.map((p) => `  WARN ${p}`));
-      lines.push("", formatLutProbe(d, window));
+      lines.push("", formatLutProbe(d, window, stopped));
       const unclaimed = window.filter((r) => r.problems.length).length;
       if (unclaimed) lines.push("", `${unclaimed} row(s) could not be fully read — see the ⚠ marks.`);
       return textContent(lines.join("\n"));

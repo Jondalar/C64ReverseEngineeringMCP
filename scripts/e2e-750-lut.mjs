@@ -631,5 +631,78 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
     /Nothing was written/.test(txt) && /open the witnesses/.test(txt));
 }
 
+
+// ── 15. a terminator at row 0 says so, with the byte and the address ─────────
+//
+// A .d64 descriptor with role track/sector and `terminator: 0` answered
+// "PROBE — first 0 row(s), resolved." and then "(no rows resolved)". Both read as
+// "the table is empty". What actually happened: `at` pointed two bytes early — at
+// the CBM file's own load-address word — so row 0's first byte WAS the terminator
+// and the walk stopped before it started. Silence there is the one case a caller
+// cannot diagnose, and nothing in the schema said what `at` is counted from.
+{
+  // A flat image (a .d64 is addressed this way): offset 0 holds the load-address
+  // word $0801, and the real table starts two bytes later.
+  const image = { 0: { 0x00: 0x00, 0x01: 0x08, 0x02: 0x11, 0x03: 0x00, 0x04: 0x11, 0x05: 0x03, 0x06: 0x00, 0x07: 0x00 } };
+  const d = {
+    ...base, layout: "columns", identity: { scheme: "index" }, terminator: 0,
+    columns: [
+      { role: "track", width: 1, at: 0x00, stride: 2, lengthBias: 0, headerOffset: 0, deref: false },
+      { role: "sector", width: 1, at: 0x01, stride: 2, lengthBias: 0, headerOffset: 0, deref: false },
+    ],
+  };
+  const early = resolveLutRows(d, mkReader(image), { limit: 4 });
+  ok("15a a table that ends at row 0 resolves no rows", early.rows.length === 0);
+  ok("15b …and the result SAYS the terminator stopped it", early.stopped !== undefined);
+  ok("15c …naming the row, the byte and the address it read it from",
+    early.stopped?.atRow === 0 && early.stopped?.value === 0x00
+      && early.stopped?.address === 0x00 && early.stopped?.column === "track",
+    JSON.stringify(early.stopped));
+
+  const text = formatLutProbe(d, early.rows, early.stopped);
+  ok("15d the rendering is no longer the bare '(no rows resolved)'", !/^\(no rows resolved\)$/.test(text.trim()), text.split("\n")[0]);
+  ok("15e it prints the address it read", /\$0000/.test(text) && /terminator/.test(text));
+  ok("15f it says what `at` is counted from for a disk", /byte offset into the image/i.test(text), text);
+  ok("15g it names the CBM load-address word — the two bytes that caused it",
+    /load-address word/.test(text));
+
+  // Two bytes later, the same descriptor resolves the rows that are really there.
+  const fixed = {
+    ...d,
+    columns: [
+      { ...d.columns[0], at: 0x02 },
+      { ...d.columns[1], at: 0x03 },
+    ],
+  };
+  const good = resolveLutRows(fixed, mkReader(image), { limit: 4 });
+  ok("15h with `at` moved past the load address the table resolves",
+    good.rows.length === 2 && good.rows[0].track === 0x11 && good.rows[1].sector === 0x03,
+    JSON.stringify(good.rows.map((r) => [r.track, r.sector])));
+
+  // A terminator reached LATER is ordinary, and reads as ordinary.
+  ok("15i a terminator past row 0 is reported without the diagnosis",
+    good.stopped?.atRow === 2 && !/load-address word/.test(formatLutProbe(fixed, good.rows, good.stopped)),
+    JSON.stringify(good.stopped));
+}
+
+// ── 16. the schema says what an address MEANS on each medium ─────────────────
+{
+  const { registerProjectKnowledgeTools } = await import(dist("project-knowledge/mcp-tools.js"));
+  const schemas = new Map();
+  registerProjectKnowledgeTools(
+    { tool: (name, _d, schema) => schemas.set(name, schema), prompt: () => {} },
+    { repoDir: ROOT },
+  );
+  const shape = schemas.get("declare_lut_descriptor")?.columns?.element?.shape ?? {};
+  const at = shape.at?.description ?? "";
+  ok("16a `at` carries a description at all — it had none", at.length > 0);
+  ok("16b …and says a disk offset is counted into the IMAGE FILE from $0000",
+    /image file/i.test(at) && /\$0000/.test(at), at.slice(0, 90));
+  ok("16c …and that a .crt `at` is the address inside the bank window", /bank window/i.test(at));
+  ok("16d …and warns about the CBM 2-byte load-address word", /load-address word/.test(at));
+  ok("16e at_lo / at_hi say they are the halves of one split cell",
+    /split/i.test(shape.at_lo?.description ?? "") && /split/i.test(shape.at_hi?.description ?? ""));
+}
+
 console.log(`\n${fails.length ? "RED" : "GREEN"}  750 LUT: ${pass} pass, ${fails.length} fail.`);
 process.exit(fails.length ? 1 : 0);
