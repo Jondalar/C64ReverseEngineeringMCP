@@ -114,13 +114,17 @@ Two gates holding real checks — `e2e:750-lut` and `e2e:848-contract` — were 
 
 ## Left open
 
-- `subjectIdForArtifact` is basename-only. The tie rules make it harmless, but
-  `get_current_artifact("pl0")` can still hand back another disk's listing.
-  Changing it means migrating persisted version groups.
-- `isVersionedSourceArtifact` matches `.asm/.tass/.sym` but not `.tas`, the
-  suffix the renderer has written since 2026-09-06, so modern 64tass output
-  never joins a version group.
-- `basic_tokenize` is the only MCP door with no parent-side registration, so the
-  pipeline child cannot stop writing the store until that is built.
+Nothing. The three that were parked here — each of them because the fix moves
+data an existing project already holds — were done the same day in BUG-057,
+with the migration they were waiting for.
+
+- ~~`subjectIdForArtifact` is basename-only~~ — BUG-057: a subject is the
+  lineage a file belongs to (a declared `derivedFrom`, else the directory plus
+  the stem), and a project written under the old key is re-keyed on open.
+- ~~`isVersionedSourceArtifact` matches `.asm/.tass/.sym` but not `.tas`~~ —
+  BUG-057: the suffix joined the model, and the dialect tie is settled by rule
+  so no project's current listing moved on its own.
+- ~~`basic_tokenize` is the only MCP door with no parent-side registration~~ —
+  BUG-057: it registers its own output and names the knowledge run.
 - ~~`src/lib/prg-workflow.ts` carries BUG-055's positional slot shift~~ — fixed
   the same day: the L2 auto-chain passes the analysis by name (`--analysis`).
