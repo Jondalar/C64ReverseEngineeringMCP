@@ -28,12 +28,14 @@ import { ProjectKnowledgeStorage, defaultProjectSlug } from "./storage.js";
 import { recommendedLifecyclePhase, applyDiscoveryCoverageGate, applyMediaFloor } from "../agent-orchestrator/lifecycle.js";
 import { computeDiscoveryCoverage, discoveryCoverageComplete } from "./medium-coverage.js";
 import {
+  classifyTopRankTie,
   isVersionedSourceArtifact,
   memberFromCandidate,
   orderCandidatesBestFirst,
   rankCandidate,
   subjectIdForArtifact,
   topRankIsTied,
+  type TieResolutionRule,
 } from "./artifact-versions.js";
 import { deriveSubstratePosture } from "./types.js";
 import { generatedFrontmatter } from "../docs/register.js";
@@ -564,6 +566,30 @@ export interface SnapshotResult {
   contentHash: string;
   snapshotPath: string;
   bytes: number;
+}
+
+/**
+ * How many genuine version ties a single reconciliation will ask about one by one
+ * before it stops and asks about the class instead. Five is the number of decisions a
+ * person will actually make in a sitting; 220 is a wall, and a project that had four
+ * real open questions ended one sync with 224.
+ */
+export const VERSION_TIE_QUESTION_CAP = 5;
+
+/** The one title the class question carries, so the next run finds and reuses it. */
+export const VERSION_TIE_CLASS_TITLE = "Several subjects have two equally-ranked hand-authored sources — which is current?";
+
+export interface ArtifactVersionReconciliation {
+  created: number;
+  updated: number;
+  /** Ties that survived the rules and still owe a human answer. */
+  needsDecision: number;
+  /** Ties the rules settled without asking (same bytes / machine output). */
+  autoResolved: number;
+  /** A few of them, spelled out: which subject, which rule, which file won. */
+  autoResolvedSample: string[];
+  /** Open questions this pass filed: one per subject, or exactly one for the class. */
+  questionsFiled: number;
 }
 
 export interface SaveEntityInput {
@@ -3537,6 +3563,9 @@ export class ProjectKnowledgeService {
     const hasMember = group.versions.some((v) => v.artifactId === artifactId);
     const versions = (hasMember ? group.versions : [...group.versions, memberFromCandidate(rankCandidate(artifact), false)])
       .map((v) => ({ ...v, status: v.status === "stale" || v.status === "missing" ? v.status : (v.artifactId === artifactId ? "current" as const : "available" as const) }));
+    // This call IS the answer the question asked for — close it. It stayed open before,
+    // so the remedy the tool recommended never removed the item it was recommended for.
+    this.closeVersionDecisionQuestion(subjectId, `answered by set_current_artifact_version(${artifactId})`);
     return this.persistArtifactVersionGroup({
       ...group,
       currentArtifactId: artifactId,
@@ -3587,7 +3616,8 @@ export class ProjectKnowledgeService {
       subjectId,
       currentArtifactId: currentId,
       currentSource: "auto",
-      needsDecision: topRankIsTied(ranked) ? true : undefined,
+      // Same rule as the reconciliation: a tie the rules settle is not a decision.
+      needsDecision: classifyTopRankTie(ranked).kind === "decision" ? true : undefined,
       versions: ranked.map((c) => memberFromCandidate(c, c.artifact.id === currentId)),
       createdAt: ts,
       updatedAt: ts,
@@ -3600,14 +3630,23 @@ export class ProjectKnowledgeService {
   //   - refresh the version member list always (new files become visible);
   //   - re-pick the auto current ONLY when currentSource != "manual";
   //   - never overwrite a manual current;
-  //   - on a genuine rank tie, set needsDecision + open one question (no guess).
+  //   - on a rank tie, apply the rules in `classifyTopRankTie` first; only a tie
+  //     that survives them (a hand-authored source against another) is a decision,
+  //     and gets needsDecision + a question.
   // Returns counts for the sync report. Never deletes files.
+  //
+  // The questions are also CAPPED and CLOSED. One run raised 220 of them, and nothing
+  // in the repo ever closed one — not even `set_current_artifact_version`, which is the
+  // call the question tells you to make. Past VERSION_TIE_QUESTION_CAP genuine ties,
+  // the run files ONE question about the class instead of one per subject, because
+  // "220 subjects tie" is one fact, not 220; and every subject that stops tying has its
+  // question answered in the same pass.
   // Spec 730.3 fix — async + cooperatively scheduled. The per-subject loop does
   // one disk write (persistArtifactVersionGroup) per versioned subject; on a
   // large project that is the single biggest synchronous span (~1.7s) and would
   // block the MCP stdio transport. Yield to the event loop every few subjects so
   // the transport stays serviced. Only caller is project_inventory_sync (async).
-  async reconcileArtifactVersionGroups(): Promise<{ created: number; updated: number; needsDecision: number }> {
+  async reconcileArtifactVersionGroups(): Promise<ArtifactVersionReconciliation> {
     const breathe = () => new Promise<void>((resolve) => setImmediate(resolve));
     const bySubject = new Map<string, ReturnType<typeof rankCandidate>[]>();
     for (const a of this.listArtifacts()) {
@@ -3619,17 +3658,24 @@ export class ProjectKnowledgeService {
     }
     let created = 0;
     let updated = 0;
-    let needsDecisionCount = 0;
     let subjectsProcessed = 0;
+    // Subjects whose tie the rules settled, and subjects that still owe an answer.
+    const autoResolved: Array<{ subject: string; rule: TieResolutionRule; reason: string }> = [];
+    const decisions: Array<{ subject: string; ordered: ReturnType<typeof rankCandidate>[] }> = [];
+    const settled: string[] = [];
     for (const [subject, cands] of bySubject) {
       // Yield every 20 subjects (~150ms chunks) so the loop never blocks long.
       if (++subjectsProcessed % 20 === 0) await breathe();
       const ordered = orderCandidatesBestFirst(cands);
       const existing = this.getArtifactVersionGroup(subject);
-      const tied = topRankIsTied(ordered);
+      const verdict = classifyTopRankTie(ordered);
+      const tied = verdict.kind === "decision";
+      // A tie the rules settled picks a stated winner rather than whatever sorted first.
+      const ruledWinnerId = verdict.kind === "resolved" ? verdict.winner.artifact.id : undefined;
+      if (verdict.kind === "resolved") autoResolved.push({ subject, rule: verdict.rule, reason: verdict.reason });
       const ts = nowIso();
       if (!existing) {
-        const currentId = ordered[0]!.artifact.id;
+        const currentId = ruledWinnerId ?? ordered[0]!.artifact.id;
         this.persistArtifactVersionGroup({
           id: createId("version-group", subject),
           subjectId: subject,
@@ -3641,10 +3687,7 @@ export class ProjectKnowledgeService {
           updatedAt: ts,
         });
         created += 1;
-        if (tied) {
-          needsDecisionCount += 1;
-          this.openVersionDecisionQuestion(subject, ordered);
-        }
+        if (tied) decisions.push({ subject, ordered });
         continue;
       }
       // Preserve existing per-member stale/missing status across the refresh — BUT
@@ -3663,7 +3706,11 @@ export class ProjectKnowledgeService {
       // Auto current = best AVAILABLE candidate, PREFERRING a primary listing over a
       // `related` companion (BUG-033: a `.sym` must never auto-win over the `.asm`/
       // `.tas`). Fall to a related one only when no primary is available.
-      const autoTop = ordered.find((c) => isAvail(c) && c.role !== "related")
+      const ruledWinner = ruledWinnerId !== undefined
+        ? ordered.find((c) => c.artifact.id === ruledWinnerId && isAvail(c) && c.role !== "related")
+        : undefined;
+      const autoTop = ruledWinner
+        ?? ordered.find((c) => isAvail(c) && c.role !== "related")
         ?? ordered.find((c) => isAvail(c));
       const currentId = isManual && this.getArtifactById(existing.currentArtifactId)
         ? existing.currentArtifactId
@@ -3685,12 +3732,85 @@ export class ProjectKnowledgeService {
         versions,
       });
       updated += 1;
-      if (needsDecision) {
-        needsDecisionCount += 1;
-        this.openVersionDecisionQuestion(subject, ordered);
-      }
+      if (needsDecision) decisions.push({ subject, ordered });
+      else if (existing.needsDecision) settled.push(subject);
     }
-    return { created, updated, needsDecision: needsDecisionCount };
+    this.fileVersionDecisionQuestions(decisions, settled);
+    return {
+      created,
+      updated,
+      needsDecision: decisions.length,
+      autoResolved: autoResolved.length,
+      autoResolvedSample: autoResolved.slice(0, 3).map((r) => `${r.subject}: ${r.reason}`),
+      questionsFiled: decisions.length === 0
+        ? 0
+        : (decisions.length <= VERSION_TIE_QUESTION_CAP ? decisions.length : 1),
+    };
+  }
+
+  // File the questions for the ties that survived the rules — and close the ones that
+  // no longer apply. Nothing in the repo closed a version-decision question before, so
+  // every one ever raised stayed open for the life of the project even after the
+  // decision was made.
+  private fileVersionDecisionQuestions(
+    decisions: Array<{ subject: string; ordered: ReturnType<typeof rankCandidate>[] }>,
+    settled: string[],
+  ): void {
+    for (const subject of settled) this.closeVersionDecisionQuestion(subject, "the tie no longer stands");
+    if (decisions.length === 0) {
+      this.closeClassVersionDecisionQuestion();
+      return;
+    }
+    if (decisions.length <= VERSION_TIE_QUESTION_CAP) {
+      this.closeClassVersionDecisionQuestion();
+      for (const d of decisions) this.openVersionDecisionQuestion(d.subject, d.ordered);
+      return;
+    }
+    // Too many to ask one by one. Ask the class once and name the shape, so a project's
+    // real open questions are not buried under a list of identical ones.
+    for (const d of decisions) this.closeVersionDecisionQuestion(d.subject, "folded into the class question");
+    const sample = decisions.slice(0, 5).map((d) => d.subject);
+    const existing = this.listOpenQuestions({ status: "open" })
+      .find((q) => q.kind === "version-decision" && q.title === VERSION_TIE_CLASS_TITLE);
+    this.saveOpenQuestion({
+      id: existing?.id ?? createId("question", "version-decision-class"),
+      kind: "version-decision",
+      title: VERSION_TIE_CLASS_TITLE,
+      description: `${decisions.length} subjects have two or more hand-authored sources at the same rank, so the sync will not guess any of them. This is one question about all of them, not one per subject. Settle a subject with set_current_artifact_version(subject_id=…, artifact_id=…); list the candidates with list_artifact_versions(subject_id=…). Subjects (first ${sample.length} of ${decisions.length}): ${sample.join(", ")}.`,
+      status: "open",
+      priority: "low",
+      source: "static-analysis",
+      artifactIds: [],
+    });
+  }
+
+  private closeVersionDecisionQuestion(subject: string, why: string): void {
+    for (const q of this.listOpenQuestions({ status: "open" })) {
+      if (q.kind !== "version-decision") continue;
+      if (!q.title.includes(`"${subject}"`)) continue;
+      this.saveOpenQuestion({
+        id: q.id,
+        kind: q.kind,
+        title: q.title,
+        description: q.description,
+        status: "answered",
+        answerSummary: `Closed by project_inventory_sync: ${why}.`,
+      });
+    }
+  }
+
+  private closeClassVersionDecisionQuestion(): void {
+    for (const q of this.listOpenQuestions({ status: "open" })) {
+      if (q.kind !== "version-decision" || q.title !== VERSION_TIE_CLASS_TITLE) continue;
+      this.saveOpenQuestion({
+        id: q.id,
+        kind: q.kind,
+        title: q.title,
+        description: q.description,
+        status: "answered",
+        answerSummary: "Closed by project_inventory_sync: no subject ties on rank any more.",
+      });
+    }
   }
 
   private openVersionDecisionQuestion(subject: string, ordered: ReturnType<typeof rankCandidate>[]): void {
@@ -3715,7 +3835,7 @@ export class ProjectKnowledgeService {
       id: existing?.id ?? createId("question", `version-decision-${subject}`),
       kind: "version-decision",
       title: `Which source is the current version for "${subject}"?`,
-      description: `Two or more sources tie on rank for this subject; pick one as current in the Inspector. Candidates: ${tiedNames.join(", ")}.`,
+      description: `Two or more hand-authored sources tie on rank for this subject, so the sync will not guess. Settle it with set_current_artifact_version(subject_id="${subject}", artifact_id=…); list the candidates with list_artifact_versions(subject_id="${subject}"). Candidates: ${tiedNames.join(", ")}.`,
       status: "open",
       priority: "medium",
       source: "static-analysis",

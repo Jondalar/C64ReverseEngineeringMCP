@@ -36,7 +36,14 @@ export interface ProjectInventorySyncResult {
   // Spec 730 §7.3 — artifact version-group reconciliation counts.
   versionGroupsCreated: number;
   versionGroupsUpdated: number;
+  /** Ties that survived the rules and still owe a human answer. */
   versionGroupsNeedDecision: number;
+  /** Ties settled by rule — identical bytes, or purely generated output. */
+  versionTiesAutoResolved: number;
+  /** A few of those, spelled out: which subject, which rule, which file won. */
+  versionTiesAutoResolvedSample: string[];
+  /** Open questions the reconciliation filed: one per subject, or one for the class. */
+  versionQuestionsFiled: number;
   skipped: Array<{ path: string; reason: string }>;
   /** How many files were skipped IN ALL. `skipped` carries a sample of them. */
   skippedTotal: number;
@@ -136,11 +143,17 @@ export async function runProjectInventorySync(
   let versionGroupsCreated = 0;
   let versionGroupsUpdated = 0;
   let versionGroupsNeedDecision = 0;
+  let versionTiesAutoResolved = 0;
+  let versionTiesAutoResolvedSample: string[] = [];
+  let versionQuestionsFiled = 0;
   try {
     const vg = await service.reconcileArtifactVersionGroups();
     versionGroupsCreated = vg.created;
     versionGroupsUpdated = vg.updated;
     versionGroupsNeedDecision = vg.needsDecision;
+    versionTiesAutoResolved = vg.autoResolved;
+    versionTiesAutoResolvedSample = vg.autoResolvedSample;
+    versionQuestionsFiled = vg.questionsFiled;
   } catch (e) {
     remainingProblems.push(`Version reconciliation issue: ${e instanceof Error ? e.message : String(e)}`);
   }
@@ -215,6 +228,9 @@ export async function runProjectInventorySync(
     versionGroupsCreated,
     versionGroupsUpdated,
     versionGroupsNeedDecision,
+    versionTiesAutoResolved,
+    versionTiesAutoResolvedSample,
+    versionQuestionsFiled,
     skipped,
     skippedTotal,
     remainingProblems,
@@ -235,8 +251,21 @@ function renderResult(projectRoot: string, r: ProjectInventorySyncResult): strin
   lines.push(`Views rebuilt: ${r.rebuiltViews.length}`);
   for (const v of r.rebuiltViews) lines.push(`  ${v}`);
   lines.push(`Version groups: ${r.versionGroupsCreated} created, ${r.versionGroupsUpdated} updated${r.versionGroupsNeedDecision > 0 ? `, ${r.versionGroupsNeedDecision} need a decision` : ""}.`);
+  // Ties the rules settled are reported, never asked. Same bytes at two paths is one
+  // listing; two generated dumps are one deterministic run. Saying WHICH file won is
+  // the whole difference between a rule and a guess.
+  if (r.versionTiesAutoResolved > 0) {
+    lines.push(`  ${r.versionTiesAutoResolved} rank tie(s) settled by rule (identical bytes, or generated output only) — no decision needed:`);
+    for (const s of r.versionTiesAutoResolvedSample) lines.push(`    ${s}`);
+    if (r.versionTiesAutoResolved > r.versionTiesAutoResolvedSample.length) {
+      lines.push(`    … and ${r.versionTiesAutoResolved - r.versionTiesAutoResolvedSample.length} more, same rules. list_artifact_versions(subject_id=…) shows any of them.`);
+    }
+  }
   if (r.versionGroupsNeedDecision > 0) {
-    lines.push(`  ${r.versionGroupsNeedDecision} subject(s) have two equally-ranked sources — choose one with set_current_artifact_version(artifact_id=…) (an open question was raised for each; the workspace Inspector offers the same choice).`);
+    lines.push(`  ${r.versionGroupsNeedDecision} subject(s) have two equally-ranked HAND-AUTHORED sources — settle one with set_current_artifact_version(subject_id=…, artifact_id=…).`);
+    lines.push(r.versionQuestionsFiled === 1 && r.versionGroupsNeedDecision > 1
+      ? `  One open question covers all ${r.versionGroupsNeedDecision} (too many to ask one by one); it names the subjects.`
+      : `  ${r.versionQuestionsFiled} open question(s) were raised — one per subject.`);
   }
   if (r.skippedTotal > 0) {
     lines.push(``);
