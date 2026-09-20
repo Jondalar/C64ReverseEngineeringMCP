@@ -59,6 +59,11 @@ jobs:
       - name: Tools answer in text
         run: npm run check:text-only-tools
 
+      # The graph owns the six migrated record types; a writer that still
+      # appends to their old JSON files makes a store the next open sweeps away.
+      - name: Nothing writes a migrated store
+        run: npm run check:legacy-store-writers
+
       - name: Docs are current
         run: npm run check:docs-current
 

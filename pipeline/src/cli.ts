@@ -9,8 +9,7 @@ import { analyzePrgFile, analyzeRawFile, writeAnalysisReport } from "./analysis/
 import { renderPointerTableMarkdown } from "./analysis/pointer-tables";
 import { renderRamStateMarkdown } from "./analysis/ram-state";
 import { analyzeSampleBuffer } from "./analysis/sample";
-import { consumeRegisterFlags, registerCliArtifact, registerCliPayload } from "./lib/artifact-register";
-import { readFileSync as readFileSyncFs } from "node:fs";
+import { consumeRegisterFlags, registerCliArtifact } from "./lib/artifact-register";
 
 // Spec 741: parse a relocation map JSON. Accepts addresses as numbers or
 // strings ("$FC00", "0xFC00", "64512"). Shape is validated downstream by
@@ -217,31 +216,6 @@ function main(): void {
       producedByTool: "pipeline_cli:analyze-prg",
       sourceArtifactIds: [], // resolved later via path; not yet known here
     });
-    // Auto-register a payload entity for the input. Idempotent — re-running
-    // analyze-prg does not duplicate.
-    try {
-      const buf = readFileSyncFs(prgAbs);
-      if (loadAddressOverride !== undefined) {
-        registerCliPayload({
-          name: basename(prgAbs).replace(/\.[^.]+$/, ""),
-          loadAddress: loadAddressOverride,
-          format: "raw",
-          sourceArtifactPath: prgAbs,
-          size: buf.length,
-        });
-      } else if (buf.length >= 2) {
-        const loadAddr = buf[0]! | (buf[1]! << 8);
-        registerCliPayload({
-          name: basename(prgAbs).replace(/\.prg$/i, ""),
-          loadAddress: loadAddr,
-          format: "prg",
-          sourceArtifactPath: prgAbs,
-          size: buf.length - 2,
-        });
-      }
-    } catch {
-      // best effort; payload auto-creation is optional
-    }
     return;
   }
 

@@ -168,71 +168,22 @@ export function consumeRegisterFlags(argv: string[]): string[] {
   return out;
 }
 
-// Register a payload entity for a PRG-style artifact. Skipped when
-// registration is disabled or no project is detected. Idempotent —
-// matched on payloadSourceArtifactId via the source artifact's
-// relativePath. The CLI calls this from analyze-prg so each analysed
-// PRG appears in the Payloads tab without a follow-on import_analysis_report.
-export function registerCliPayload(input: {
-  name: string;
-  loadAddress: number;
-  format: "prg" | "raw" | "unknown";
-  sourceArtifactPath: string; // absolute or project-relative path to the source PRG
-  size?: number;
-}): void {
-  if (registrationDisabled) return;
-  const projectRoot = findProjectRoot(process.cwd());
-  if (!projectRoot) return;
-
-  const artifactsPath = resolve(projectRoot, "knowledge", "artifacts.json");
-  const entitiesPath = resolve(projectRoot, "knowledge", "entities.json");
-  if (!existsSync(artifactsPath)) return;
-
-  // Find the source artifact id by relativePath match.
-  const artifactsData = JSON.parse(readFileSync(artifactsPath, "utf8")) as { items?: Array<{ id: string; relativePath: string }> };
-  const sourceRel = relative(projectRoot, resolve(input.sourceArtifactPath));
-  const sourceArtifact = (artifactsData.items ?? []).find((a) => a.relativePath === sourceRel);
-  if (!sourceArtifact) return;
-
-  // Load existing entities; skip if a payload with this sourceArtifactId already exists.
-  let entitiesData: { schemaVersion: number; updatedAt: string; items: Array<Record<string, unknown>> };
-  if (existsSync(entitiesPath)) {
-    entitiesData = JSON.parse(readFileSync(entitiesPath, "utf8")) as typeof entitiesData;
-    if (!entitiesData.items) entitiesData.items = [];
-  } else {
-    entitiesData = { schemaVersion: 1, updatedAt: nowIso(), items: [] };
-  }
-  for (const item of entitiesData.items) {
-    if (item.kind === "payload" && item.payloadSourceArtifactId === sourceArtifact.id) {
-      return; // already registered
-    }
-  }
-
-  const timestamp = nowIso();
-  const id = makeId("entity", `payload-${input.name}`);
-  const endAddress = input.size !== undefined ? Math.min(0xffff, input.loadAddress + input.size - 1) : input.loadAddress;
-  entitiesData.items.push({
-    id,
-    kind: "payload",
-    name: input.name,
-    summary: `${input.format} payload at $${input.loadAddress.toString(16)}${input.size !== undefined ? ` (${input.size} bytes)` : ""}`,
-    status: "active",
-    confidence: 1,
-    evidence: [],
-    artifactIds: [sourceArtifact.id],
-    relatedEntityIds: [],
-    addressRange: { start: input.loadAddress, end: endAddress },
-    mediumSpans: [],
-    payloadLoadAddress: input.loadAddress,
-    payloadFormat: input.format,
-    payloadSourceArtifactId: sourceArtifact.id,
-    payloadAsmArtifactIds: [],
-    tags: ["pipeline-cli", "payload"],
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  });
-  entitiesData.updatedAt = timestamp;
-  // Reuse the existing atomic writer (typed for ArtifactStore but the
-  // shape is identical: { schemaVersion, updatedAt, items[] }).
-  writeStoreAtomic(entitiesPath, entitiesData as unknown as ArtifactStore);
+// Payload entities are NOT written here.
+//
+// They used to be appended to `knowledge/entities.json` from this process. That
+// file stopped being the store when the knowledge graph took over: every reader
+// and writer of an entity goes to `knowledge/graph.sqlite`, and a project that
+// still has the JSON file gets it folded in once, on open, and moved aside to
+// `knowledge/_legacy-822/`. So this helper re-created a store that the next
+// project open swept away again — in one day's work on one project it left 32
+// archived copies behind, and each round gave the same payload a fresh id
+// because the duplicate check only looked inside the file it had just lost.
+//
+// The graph door does it properly: through MCP, `analyze_prg` imports the
+// analysis artifact right after this process exits, and that importer dedupes a
+// payload on (source artifact, load address). A direct `dist/pipeline/cli.cjs`
+// run registers the analysis JSON and nothing else; `project_inventory_sync`
+// (or `bulk_import_analysis_reports`) is what folds those runs in afterwards.
+export function noteCliPayloadNotRegistered(): string {
+  return "Payload entities are created when the analysis is imported — run project_inventory_sync after a direct CLI run.";
 }
