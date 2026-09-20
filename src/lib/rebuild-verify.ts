@@ -12,7 +12,7 @@
 // always does, so its rebuild is compared from byte 2 — otherwise every raw payload
 // would report a divergence at offset 0, which is a false alarm and worse than silence.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { assembleSource } from "../assemble-source.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
@@ -33,7 +33,26 @@ export async function rebuildVerification(args: {
   sourceArtifactId?: string;
   /** The compared file has no 2-byte PRG header (an extracted raw blob). */
   rawBlob?: boolean;
+  /**
+   * Compare only this window of `prgPath`. A listing of a block lifted out of a
+   * bigger file must be held against the bytes it was rendered from, not against the
+   * whole file — otherwise every window reports a length divergence. Implies rawBlob.
+   */
+  compareRange?: { offset: number; length: number };
+  /** What to call the compared bytes in the verdict. Default: the file's basename. */
+  compareLabel?: string;
+  /** Which tool asked. Recorded on the rebuild-check artifact a divergence leaves. */
+  toolName?: string;
+  /**
+   * Delete the rebuild-check PRG when it VERIFIED. A verified check is a byte-for-byte
+   * copy of bytes that are already on disk, plus a load header the assembler insists
+   * on — and for a headerless block that stray .prg is precisely the artefact the raw
+   * path exists to stop producing. A divergence is kept: then it is evidence.
+   */
+  discardCheckOnSuccess?: boolean;
 }): Promise<RebuildVerdict> {
+  const compared = args.compareLabel ?? basename(args.prgPath);
+  const headerless = args.rawBlob === true || args.compareRange !== undefined;
   const tempPrg = args.asmPath.replace(/\.asm$/i, "_rebuild_check.prg");
   let summaryLine: string;
   let assemblyOk = false;
@@ -46,11 +65,14 @@ export async function rebuildVerification(args: {
       assembler: "kickassembler",
       outputPath: tempPrg,
       // A raw blob is compared here instead, past the load header the assembler adds.
-      ...(args.rawBlob ? {} : { compareToPath: args.prgPath }),
+      ...(headerless ? {} : { compareToPath: args.prgPath }),
     });
-    if (args.rawBlob && result.exitCode === 0 && existsSync(tempPrg)) {
+    if (headerless && result.exitCode === 0 && existsSync(tempPrg)) {
       const built = readFileSync(tempPrg).subarray(2);
-      const original = readFileSync(args.prgPath);
+      const whole = readFileSync(args.prgPath);
+      const original = args.compareRange
+        ? whole.subarray(args.compareRange.offset, args.compareRange.offset + args.compareRange.length)
+        : whole;
       let firstDiff: number | undefined;
       for (let i = 0; i < Math.min(built.length, original.length); i++) {
         if (built[i] !== original[i]) { firstDiff = i; break; }
@@ -61,15 +83,20 @@ export async function rebuildVerification(args: {
       result.firstDiffOffset = firstDiff;
     }
     if (result.exitCode !== 0) {
-      summaryLine = `// WARNING: rebuild assembler exited ${result.exitCode}; this listing is not byte-identical with ${basename(args.prgPath)}`;
+      // Say WHY. A listing the assembler refuses is the commonest way a round trip
+      // fails — an undefined symbol, a branch whose target wrapped out of the block —
+      // and an exit code alone sends the caller back to run the assembler by hand.
+      summaryLine = `// WARNING: rebuild assembler exited ${result.exitCode}; this listing is not byte-identical with ${compared}`;
+      const reason = firstAssemblerError(result.stdout, result.stderr);
+      if (reason) summaryLine += ` — ${reason}`;
     } else if (result.compareMatches === false) {
       assemblyOk = true;
       const offset = result.firstDiffOffset !== undefined ? `0x${result.firstDiffOffset.toString(16).toUpperCase()}` : "?";
-      summaryLine = `// WARNING: rebuild diverges from ${basename(args.prgPath)} at body offset ${offset}; disassembly is not byte-identical`;
+      summaryLine = `// WARNING: rebuild diverges from ${compared} at body offset ${offset}; disassembly is not byte-identical`;
     } else if (result.compareMatches) {
       assemblyOk = true;
       verified = true;
-      summaryLine = `// rebuild verified byte-identical against ${basename(args.prgPath)} (${result.comparedBytes ?? "?"} bytes)`;
+      summaryLine = `// rebuild verified byte-identical against ${compared} (${result.comparedBytes ?? "?"} bytes)`;
     } else {
       summaryLine = `// rebuild verification skipped (no compare result)`;
     }
@@ -100,13 +127,17 @@ export async function rebuildVerification(args: {
         path: tempPrg,
         format: "prg",
         role: "rebuild-check",
-        producedByTool: "disasm_prg",
+        producedByTool: args.toolName ?? "disasm_prg",
         sourceArtifactIds: args.sourceArtifactId ? [args.sourceArtifactId] : undefined,
         tags: ["rebuild-check", "auto"],
       });
     } catch {
       // best effort; don't fail the disasm flow over a registration hiccup
     }
+  }
+
+  if (verified && args.discardCheckOnSuccess && existsSync(tempPrg)) {
+    try { rmSync(tempPrg, { force: true }); } catch { /* best effort */ }
   }
 
   // Bake the verdict into the head of the ASM so a human reading the file
@@ -133,4 +164,15 @@ export async function rebuildVerification(args: {
   }
 
   return { line: summaryLine, verified, assemblerUnavailable };
+}
+
+/** The assembler's first complaint, on one line, or nothing when it did not say. */
+function firstAssemblerError(stdout: string, stderr: string): string | undefined {
+  for (const line of `${stdout}\n${stderr}`.split(/\r?\n/)) {
+    const text = line.trim();
+    if (/^(Error|error:|\*\*\* Error)/.test(text) && text.length > 6) {
+      return text.replace(/\s+/g, " ").slice(0, 200);
+    }
+  }
+  return undefined;
 }

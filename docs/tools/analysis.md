@@ -9,6 +9,7 @@ TRXDis pipeline.
 |---|---|
 | `analyze_prg` | Heuristic analysis of a PRG → JSON with segments, cross-references, RAM facts, pointer tables. |
 | `disasm_prg` | Disassemble a PRG → KickAssembler `.asm` + 64tass `.tas` (both generated automatically). Re-running after annotations re-renders with labels and segment kinds applied. |
+| `disasm_raw` | The same renderer, for bytes with no PRG header — a depacked chunk, a relocated overlay, a block out of a track, drive code. Takes a file (or artifact id), an optional byte window and the address the bytes run at; reassembles to prove the listing, and registers it with the byte range it came from. |
 | `ram_report` | Generate a RAM-state facts report (markdown) from analysis JSON. |
 | `pointer_report` | Generate a pointer-table facts report (markdown) from analysis JSON. |
 | `assemble_source` | Assemble a generated `.asm` or `.tas` file with KickAssembler or 64tass, optionally verifying byte-identical rebuilds. |
@@ -59,10 +60,43 @@ code discovery resumes after its terminator, so the machine code the `SYS`
 jumps into is still found. `disasm_prg` renders a `basic` segment as `.byte`
 data under a segment header instead of decoding 6502 across it.
 
+## Bytes with no PRG header
+
+Most of what a session actually holds is not a PRG. A depacked chunk, a
+relocated overlay, a block lifted out of a raw track, a stretch of drive code:
+bytes, and an address they run at. `disasm_raw` renders those through the same
+decoder, renderer, annotation handling and rebuild proof as `disasm_prg` —
+nothing is prepended to the bytes and nothing on disk is rewritten.
+
+```
+disasm_raw { path: "artifacts/overlay.bin", load_address: "$C000" }
+disasm_raw { path: "artifacts/track18.bin", offset: "$100", length: "$200",
+             load_address: "$0300", cpu: "drive" }
+```
+
+Addresses are hex with `$`/`0x` optional, and a JSON number is taken as given.
+`offset` and `length` are counted, not addressed, and follow the same rule —
+`"100"` is 256 bytes, `100` is 100 — so every answer prints the window both
+ways.
+
+Without an entry point the first byte is the only seed and the block is read
+linearly from there. An `entry_points` address that falls inside a decoded
+instruction breaks it: the bytes up to the seed render as data and the decode
+resumes at the seed, which is how a block whose first bytes are data still
+yields its code. (The same seeding now applies to `disasm_prg` when no analysis
+JSON is passed; before, the list was accepted and ignored.) For real code
+discovery, hand in an `analysis_json` from `analyze_prg`.
+
+The listing carries its own provenance — which file, which byte range, which
+address, what seeded it, whether it had an analysis — and so does the artifact
+row, so a listing found months later can say what bytes it is. Re-running with
+the same arguments updates that row rather than making a second one.
+
 ## Output filenames
 
 - `<name>_analysis.json` — Phase 1 heuristic output
 - `<name>_disasm.asm` / `<name>_disasm.tas` — Disassembly (KickAssembler / 64tass)
+- `analysis/raw-disasm/<name>[_<window>]_<address>_disasm.asm` — `disasm_raw` output
 - `<name>_annotations.json` — Phase 2 LLM annotations
 - `<name>_RAM_STATE_FACTS.md` / `<name>_POINTER_TABLE_FACTS.md` — Reports
 

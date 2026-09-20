@@ -1,5 +1,5 @@
 import { basename, dirname, resolve, join } from "node:path";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -9,6 +9,7 @@ import { assembleSource } from "../assemble-source.js";
 import { rebuildVerification } from "../lib/rebuild-verify.js";
 import { suggestDepackers } from "../compression-tools.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { listPayloadEntities } from "../project-knowledge/payload-kinds.js";
 import { annotationNames, maxLabelLength, namesTooLong, tooLongMessage } from "../project-knowledge/naming.js";
 import { runAndFormatClosedLoopSweep } from "./closed-loop-sweep.js";
 import { runPayloadReverseWorkflow, runPrgReverseWorkflow, renderPrgReverseWorkflowResult } from "../lib/prg-workflow.js";
@@ -173,6 +174,30 @@ function describeCodeSeeds(analysisPath: string): string {
  */
 export const ADDRESS_RULE =
   "an address is HEX — \"E800\", \"$E800\" and \"0xE800\" all mean $E800; a bare JSON number is taken as-is (not re-read as hex)";
+
+/**
+ * A byte count, read by the same rule as an address.
+ *
+ * `offset` and `length` are counted, not addressed, and that is exactly why they need
+ * saying: two notations for one field is the defect BUG-054 closed. So the rule does
+ * not fork — a string is HEX (`"100"` is 256 bytes), a JSON number is taken as given
+ * (`100` is 100 bytes) — and every answer prints the window in both notations so a
+ * caller who read the rule the other way sees it immediately. Unlike an address a
+ * count is not clamped to 16 bits: a window can sit anywhere in a file of any size.
+ */
+export function parseCountStrict(v: unknown, field: string): number {
+  const rule = `${ADDRESS_RULE}. A byte count follows the same rule and is not clamped to 16 bits`;
+  if (typeof v === "number") {
+    if (!Number.isInteger(v) || v < 0) throw new Error(`${field}: ${JSON.stringify(v)} is not a byte count — ${rule}`);
+    return v;
+  }
+  if (typeof v === "string") {
+    const t = v.trim().replace(/^\$/, "").replace(/^0[xX]/, "");
+    if (!/^[0-9a-fA-F]{1,8}$/.test(t)) throw new Error(`${field}: ${JSON.stringify(v)} is not a byte count — ${rule}`);
+    return parseInt(t, 16);
+  }
+  throw new Error(`${field}: ${JSON.stringify(v)} is not a byte count — ${rule}`);
+}
 
 export function parseAddressStrict(v: unknown, field: string): number {
   if (typeof v === "number") {
@@ -651,6 +676,243 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           result.stdout += `\n${knowledgeRegistration.message}`;
         }
       }
+      return context.cliResultToContent(result);
+    }),
+  );
+
+  server.tool(
+    "disasm_raw",
+    "Disassemble raw bytes at an address you already know — a depacked chunk, a relocated overlay, a block lifted out of a track, drive code — with no PRG header and none invented. Use when you hold bytes and their runtime address: give a file path (or an artifact id), optionally a byte window, and load_address. Not for a file that already carries a 2-byte load address (use disasm_prg) and not for the running machine's memory (use runtime_monitor_disasm). Same decoder, renderer, annotations and rebuild proof as disasm_prg: it writes .asm + .tas, reassembles them and reports byte-identical or the first divergence, and registers the listing with its provenance — which file, which byte range, which address. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes) — every answer prints the window both ways. Pass entry_points when the block does not start with code: a seed resyncs the linear decode there and the bytes before it render as data. Pass analysis_json for segment-aware rendering; without one the listing says it had none and reads every byte as code. Inputs: path or artifact_id, load_address, optional offset/length/entry_points/analysis_json/annotations_path/cpu/bank. Returns: the .asm/.tas paths, the address span, the instruction count, what was seeded, and the rebuild verdict.",
+    {
+      project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json."),
+      path: z.string().describe("Path to the file holding the bytes (absolute or project-relative). Use this OR artifact_id.").optional(),
+      artifact_id: z.string().optional().describe("Id of an already-registered artifact holding the bytes. Use this OR path."),
+      load_address: z.union([z.string(), z.number()]).describe("Where the FIRST byte of the window runs. An address is HEX: \"C000\", \"$C000\" and \"0xC000\" are the same; a JSON number is taken as-is."),
+      offset: z.union([z.string(), z.number()]).optional().describe("Byte offset into the file where the block starts. Default 0. Same rule as an address: a string is hex, a JSON number is taken as given."),
+      length: z.union([z.string(), z.number()]).optional().describe("How many bytes. Default: to the end of the file. Same rule as offset."),
+      entry_points: z.array(z.union([z.string(), z.number()])).optional().describe("Runtime addresses inside the window where code is known to start. Without one the first byte is the only seed. A seed that falls inside a decoded instruction breaks it: the bytes up to the seed render as data and the decode resumes at the seed — byte-exact either way."),
+      analysis_json: z.string().optional().describe("Path to an analysis JSON for segment-aware rendering. Produce one with analyze_prg; without it the listing is linear and says so."),
+      annotations_path: z.string().optional().describe("Path to an annotations file (same shape disasm_prg consumes: labels/routines/segments). Without it, a <stem>_annotations.json beside the bytes or beside the output is picked up as usual."),
+      output_asm: z.string().optional().describe("Output path for the .asm. Default: analysis/raw-disasm/<stem>[_<window>]_<address>_disasm.asm, and the .tas beside it."),
+      cpu: z.enum(["c64", "drive"]).optional().describe("Which 6502 these bytes run on. Default c64. `drive` renders 1541 zero page, VIA registers and drive ROM entry points instead of the C64's."),
+      bank: z.number().int().nonnegative().optional().describe("Cartridge bank these bytes belong to, recorded with the listing's provenance."),
+      space: z.string().optional().describe("Which memory space these bytes belong to (e.g. \"ram\", \"cart\", \"drive\"), recorded with the listing's provenance."),
+    },
+    safeHandler("disasm_raw", async (args) => {
+      const {
+        project_dir, path: rawPath, artifact_id, load_address, offset, length,
+        entry_points, analysis_json, annotations_path, output_asm, cpu, bank, space,
+      } = args;
+      const pd = context.projectDir(project_dir ?? rawPath, true);
+      const refuse = (text: string) => ({ content: [{ type: "text" as const, text: `# disasm_raw refused\n\n${text}` }] });
+
+      // ── which bytes ─────────────────────────────────────────────────────────
+      if (rawPath && artifact_id) {
+        return refuse("path and artifact_id both given. Name the bytes once: a file path, or the id of an artifact already registered (list_artifacts / project_inventory_sync).");
+      }
+      const service = new ProjectKnowledgeService(pd);
+      let sourceAbs: string;
+      let sourceArtifactId: string | undefined;
+      if (artifact_id) {
+        const artifact = service.getArtifactById(artifact_id);
+        if (!artifact) return refuse(`No artifact with id ${artifact_id}. List the project's artifacts with list_artifacts, or pass the file with path instead.`);
+        sourceAbs = resolve(pd, artifact.path);
+        sourceArtifactId = artifact.id;
+      } else if (rawPath) {
+        sourceAbs = resolve(pd, rawPath);
+        sourceArtifactId = service.listArtifacts().find((a) => a.path === sourceAbs)?.id;
+      } else {
+        return refuse("Neither path nor artifact_id was given. disasm_raw needs the bytes: a file path (absolute or project-relative), or the id of a registered artifact.");
+      }
+      if (!existsSync(sourceAbs)) return refuse(`${sourceAbs} does not exist.`);
+      const fileSize = statSync(sourceAbs).size;
+      if (fileSize === 0) return refuse(`${basename(sourceAbs)} is empty — there are no bytes to disassemble.`);
+
+      // ── the one address rule, on every number this tool takes ───────────────
+      let loadAddress: number;
+      let byteOffset: number;
+      let byteLength: number;
+      let seeds: number[];
+      try {
+        loadAddress = parseAddressStrict(load_address, "load_address");
+        byteOffset = offset === undefined ? 0 : parseCountStrict(offset, "offset");
+        byteLength = length === undefined ? fileSize - byteOffset : parseCountStrict(length, "length");
+        seeds = (entry_points ?? []).map((value, index) => parseAddressStrict(value, `entry_points[${index}]`));
+      } catch (e) {
+        return refuse(e instanceof Error ? e.message : String(e));
+      }
+      const hex = (value: number) => `$${(value & 0xffff).toString(16).toUpperCase().padStart(4, "0")}`;
+      const both = (value: number) => `${value} ($${value.toString(16).toUpperCase()})`;
+      if (byteOffset >= fileSize) {
+        return refuse(`offset ${both(byteOffset)} is past the end of ${basename(sourceAbs)}, which holds ${both(fileSize)} bytes. ${ADDRESS_RULE}, and offset follows the same rule — "100" is 256, not 100.`);
+      }
+      if (byteLength <= 0 || byteOffset + byteLength > fileSize) {
+        return refuse(`offset ${both(byteOffset)} + length ${both(byteLength)} runs past the end of ${basename(sourceAbs)}, which holds ${both(fileSize)} bytes. ${ADDRESS_RULE}, and offset/length follow the same rule — "100" is 256, not 100.`);
+      }
+      const lastAddress = (loadAddress + byteLength - 1) & 0xffff;
+      const outside = seeds.filter((seed) => seed < loadAddress || seed > loadAddress + byteLength - 1);
+      if (outside.length > 0) {
+        return refuse(`entry_points ${outside.map(hex).join(", ")} lie outside ${hex(loadAddress)}-${hex(lastAddress)}, the span these bytes run at. An entry point is a RUNTIME address inside the window, not a file offset. ${ADDRESS_RULE}.`);
+      }
+
+      // ── where the listing goes ──────────────────────────────────────────────
+      const stem = basename(sourceAbs).replace(/\.[^./]+$/, "");
+      const window = byteOffset === 0 && byteLength === fileSize
+        ? ""
+        : `_${byteOffset.toString(16).toUpperCase().padStart(4, "0")}-${(byteOffset + byteLength - 1).toString(16).toUpperCase().padStart(4, "0")}`;
+      const outAbs = output_asm
+        ? resolve(pd, output_asm)
+        : join(pd, "analysis", "raw-disasm", `${stem}${window}_${hex(loadAddress).slice(1)}_disasm.asm`);
+      mkdirSync(dirname(outAbs), { recursive: true });
+
+      // Same pre-render name check as disasm_prg: a project with a name limit refuses
+      // the annotations file before anything is written, not after.
+      {
+        const limit = maxLabelLength(pd);
+        const candidate = annotations_path
+          ? resolve(pd, annotations_path)
+          : [outAbs.replace(/\.asm$/i, "_annotations.json"), sourceAbs.replace(/\.[^./]+$/, "_annotations.json")].find((c) => existsSync(c));
+        if (limit !== undefined && candidate && existsSync(candidate)) {
+          let names: string[] = [];
+          try { names = annotationNames(JSON.parse(readFileSync(candidate, "utf8"))); } catch { /* the renderer reports a broken file */ }
+          const long = namesTooLong(names, limit);
+          if (long.length > 0) return refuse(`${candidate}\n${tooLongMessage(long, limit)}`);
+        }
+      }
+
+      // ── render, through the same pipeline verb family as disasm_prg ─────────
+      // Every number crosses to the pipeline in the notation the pipeline reads: hex.
+      // The two halves already agree on one address rule; handing `--length 256` to a
+      // reader that takes a bare string as hex would make it $256, and that is the
+      // same defect one rule away from itself.
+      const asHex = (value: number) => `$${value.toString(16).toUpperCase()}`;
+      const cliArgs: string[] = ["--load-address", asHex(loadAddress)];
+      if (byteOffset !== 0) cliArgs.push("--offset", asHex(byteOffset));
+      cliArgs.push("--length", asHex(byteLength));
+      if (cpu === "drive") cliArgs.push("--platform", "c1541");
+      if (annotations_path) cliArgs.push("--annotations", resolve(pd, annotations_path));
+      cliArgs.push(sourceAbs, outAbs);
+      cliArgs.push(seeds.map((seed) => hex(seed).slice(1)).join(","));
+      if (analysis_json) cliArgs.push(resolve(pd, analysis_json));
+      try {
+        const { loadAddressIndex, loadAbiIndex } = await import("../project-knowledge/address-index.js");
+        loadAddressIndex(pd);
+        loadAbiIndex(pd);
+      } catch { /* the index is an enhancement; the render proceeds without it */ }
+      const result = await runCli("disasm-raw", cliArgs, { projectDir: pd });
+      if (result.exitCode !== 0) return context.cliResultToContent(result);
+
+      const tassPath = outAbs.replace(/\.asm$/i, ".tas");
+      const provenance =
+        `Bytes ${byteOffset}..${byteOffset + byteLength - 1} of ${basename(sourceAbs)} `
+        + `(offset ${both(byteOffset)}, length ${both(byteLength)}), running at ${hex(loadAddress)}-${hex(lastAddress)}`
+        + `${cpu === "drive" ? ", on the 1541's 6502" : ""}`
+        + `${bank !== undefined ? `, bank ${bank}` : ""}${space ? `, space ${space}` : ""}`
+        + `. Seeded: ${seeds.length > 0 ? seeds.map(hex).join(", ") : `${hex(loadAddress)} (first byte)`}.`;
+
+      const knowledgeRegistration = context.tryRegisterKnowledgeArtifacts(pd, {
+        toolName: "disasm_raw",
+        title: `Disassemble bytes: ${basename(sourceAbs)} @ ${hex(loadAddress)}`,
+        parameters: {
+          source: sourceAbs,
+          artifact_id: sourceArtifactId ?? null,
+          offset: byteOffset,
+          length: byteLength,
+          load_address: loadAddress,
+          entry_points: seeds.map(hex),
+          cpu: cpu ?? "c64",
+          bank: bank ?? null,
+          space: space ?? null,
+          analysis_json: analysis_json ? resolve(pd, analysis_json) : null,
+          annotations_path: annotations_path ? resolve(pd, annotations_path) : null,
+          output_asm: outAbs,
+        },
+        notes: [provenance],
+        inputs: [{
+          path: sourceAbs,
+          kind: "raw",
+          scope: "input",
+          role: "disasm-target",
+          producedByTool: "disasm_raw",
+        }],
+        outputs: [
+          { path: outAbs, kind: "listing", scope: "analysis", role: "disasm", format: "asm", producedByTool: "disasm_raw" },
+          { path: tassPath, kind: "generated-source", scope: "generated", role: "disasm-tass", format: "tass", producedByTool: "disasm_raw" },
+        ],
+      });
+
+      // The provenance belongs ON the listing's own row, not only in the run log: a
+      // caller who finds the .asm months later must be able to ask what bytes it is.
+      const listingArtifactId = (() => {
+        try {
+          const listing = service.listArtifacts().find((a) => a.path === outAbs);
+          if (!listing) return undefined;
+          service.saveArtifact({
+            id: listing.id,
+            kind: listing.kind,
+            scope: listing.scope,
+            title: listing.title,
+            path: outAbs,
+            description: provenance,
+            format: "asm",
+            role: "disasm",
+            producedByTool: "disasm_raw",
+            platform: cpu === "drive" ? "c1541" : "c64",
+            sourceArtifactIds: listing.sourceArtifactIds,
+            tags: [...new Set([...(listing.tags ?? []), "disasm_raw", "raw-block"])],
+          });
+          return listing.id;
+        } catch {
+          return undefined;
+        }
+      })();
+
+      // ── prove it ────────────────────────────────────────────────────────────
+      const verdict = await rebuildVerification({
+        projectDir: pd,
+        asmPath: outAbs,
+        prgPath: sourceAbs,
+        sourceArtifactId,
+        compareRange: { offset: byteOffset, length: byteLength },
+        compareLabel: `${basename(sourceAbs)} bytes ${byteOffset}..${byteOffset + byteLength - 1}`,
+        toolName: "disasm_raw",
+        discardCheckOnSuccess: true,
+      });
+
+      // ── and tell the payload, when these bytes are one ──────────────────────
+      let payloadLine = "";
+      if (listingArtifactId) {
+        try {
+          const payload = listPayloadEntities(service).find((entity) =>
+            entity.payloadSourceArtifactId === sourceArtifactId
+            || (entity.payloadSourceArtifactId !== undefined && entity.payloadSourceArtifactId === listingArtifactId));
+          if (payload && !(payload.payloadAsmArtifactIds ?? []).includes(listingArtifactId)) {
+            service.saveEntity({
+              id: payload.id,
+              kind: payload.kind,
+              name: payload.name,
+              payloadAsmArtifactIds: [...new Set([...(payload.payloadAsmArtifactIds ?? []), listingArtifactId])],
+            });
+            payloadLine = `\nPayload: linked to ${payload.name} (${payload.id}) — whichever door created it.`;
+          } else if (payload) {
+            payloadLine = `\nPayload: already linked to ${payload.name} (${payload.id}).`;
+          }
+        } catch { /* the link is an enhancement; the listing stands without it */ }
+      }
+
+      const seededText = seeds.length > 0
+        ? seeds.map(hex).join(", ")
+        : `${hex(loadAddress)} (the first byte — no entry point was given)`;
+      result.stdout = [
+        result.stdout.trimEnd(),
+        `Output: ${outAbs}`,
+        `Provenance: ${provenance}`,
+        `Seeded: ${seededText}`,
+        verdict.line.replace(/^\/\/\s*/, ""),
+        payloadLine.trim(),
+        listingArtifactId ? `Artifact: ${listingArtifactId} (re-running with the same arguments updates this row; it does not make a second one).` : "",
+        knowledgeRegistration.runPath ? `Knowledge run: ${knowledgeRegistration.runPath}` : (knowledgeRegistration.message ?? ""),
+      ].filter(Boolean).join("\n");
       return context.cliResultToContent(result);
     }),
   );

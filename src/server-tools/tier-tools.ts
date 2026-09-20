@@ -79,6 +79,11 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "ram_report",
   // Analyse / disassemble
   "analyze_prg", "disasm_prg", "disasm_menu", "inspect_address_range",
+  // Bytes at an address, with no PRG header. Two autonomous runs on one day went
+  // around the tool surface for want of it — one wrote its own disassembler and called
+  // it 180 times, the other bolted fake 2-byte headers onto 308 blocks so the real one
+  // would eat them. Both then held listings the project knew nothing about.
+  "disasm_raw",
   "inspect_disk", "assemble_source", "c64ref_lookup",
   // BASIC V2: read a tokenized program (and its SYS target) before assuming a
   // PRG is 6502, and write one back. A cracked game very often boots through
