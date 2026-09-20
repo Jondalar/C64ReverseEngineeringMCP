@@ -1,6 +1,7 @@
 # Spec 861 — The cost of a change: what it touches, what it costs, what it really costs
 
-**Status:** READY (2026-09-19)
+**Status:** BUILT 2026-09-20 — every deliverable, every gate. §9 records what it cost, and
+the one derivation §5 said to stop on rather than work around.
 **Repo:** C64RE only. **TRX64: no change** — §5 lists everything used and shows each is
 already there.
 **Number:** 861 (registry: `specs/README.md`).
@@ -204,3 +205,122 @@ Every fixture is built through the product's own doors (sandbox runs of small pr
 
 Three MCP tools, API first (doctrine rule 6): `change_impact`, `code_cost` (one range, or two
 to compare), `trace_cost`. A UI view is a later step on top of them.
+
+---
+
+## §9 As built (2026-09-20)
+
+**D1 `change_impact`** — `src/cost/impact.ts`. The walk is upstream by depth over `CALLS`,
+`JUMPS_TO`, `BRANCHES_TO`, plus `REFERENCES_DATA` into the range at depth 1 and the readers
+of what the range writes at depth 2 (`WRITES` out, then `READS` of those cells). Documents
+whose `covers` overlap and findings whose address range overlaps are listed as claims that
+may be false afterwards. An edge with `origin = runtime` is marked "seen in a trace".
+UNKNOWN is its own class: an indirect jump, a computed return, an `rti`, a write that lands
+inside the range, the drive's CPU, and every node the graph could not resolve.
+
+What the change must preserve composes 826 and §3.3 rather than choosing between them: the
+routine's computed signature is what its caller expects at the return, and liveness carries
+it backwards to the end of the changed range. With no signature it stays conservative and
+says so.
+
+**Two gaps had to be closed before the walk could answer**, and both were in what the graph
+records rather than in the walk:
+
+* A `jmp ($xxxx)` produces no edge at all — 819 D3 deliberately emits none, because the
+  operand is a pointer and not a target. So 819 now records `unresolved_exits` on the
+  routine (the indirect jumps, the `rti`s, and an `rts` reached with two more pushes than
+  pulls — the RTS-trick, counted rather than guessed). Without it "no outgoing edge" read as
+  "goes nowhere", which is the reading that turns an UNKNOWN into a low.
+* The pointer xrefs a detected pointer table produces were being dropped. `resolveSegments`
+  kept an xref only when its TARGET fell inside the slice — right for code, backwards for a
+  pointer, whose SOURCE is the cell. Both readers of them (820 D5's `REFERENCES_DATA` and
+  the relation import) take the source as the segment's own address, so a table with eight
+  targets produced no edge into any of them. Only `pointer` is widened; code xrefs keep the
+  rule they had.
+
+**D2 `code_cost`** — `src/cost/{cycles,cfg,liveness,symbolic,code-cost}.ts`. The cycle table
+is one grid of sixteen rows of sixteen in `pipeline/src/lib/mos6502.ts`, and the same grid
+in `src/cost/cycles.ts` because ESM and CommonJS cannot import each other here;
+`npm run check:cycle-table` reads the literal out of both and fails on any difference, which
+is the gate the duplicated opcode table never had. Blocks carry exact bytes and a cycle span
+whose only width is the page crossings and the branches. A resolved loop is costed exactly:
+the back edge is charged taken n−1 times and not-taken once, and where the indexed read uses
+the counter the crossings are counted rather than left open — which is what makes
+`ldx #$27 … dex / bpl` 567 cycles rather than 528–648.
+
+Equivalence executes both versions symbolically and compares A, X, Y, the stack delta, every
+memory cell either writes, the flags that are live, and every access to $D000–$DFFF **in
+order**. A volatile read is its own symbol per address per occurrence, so two versions that
+make the same accesses in a different order come out NOT EQUIVALENT on the order, which is
+the thing that matters. Decimal is taken as clear at entry (a block that sets it is modelled
+as it is) and the verdict says so; that is what lets `clc / adc #$01` and `inc` reach the
+same expression.
+
+**D3 `trace_cost`** — `src/cost/{trace-cost,trace-store-read,capture,routine-spans}.ts`.
+Rows are grouped by `seq`, not by a clock window: the trace is one ordered stream, so a
+retired instruction's own accesses — and any interrupt dispatch that ran before it — are
+exactly the events between the previous CPU row and this one. The capture is a sandbox run
+with `afterSteps`, because the load is almost never what is being measured (recording it
+cost 12 million events against 47 thousand). The anchor is written into the store as a mark
+(`861-anchor line=… cycle=… cpl=… lpf=…`) and read back out of it, so a store carries its
+own frame origin. The raster cycle is reported 1..63, the way a VIC-II chart, vicspector and
+859 number it; the runtime's own raster counter is 0-based, and the difference was measured
+against 859 on one machine with one store visible in both records rather than reasoned
+about. Per-line occupancy is split across the lines an instruction actually ran on; stolen
+cycles stay on the line it retired on, because a bad line stretches the instruction it
+interrupts.
+
+**Gates.** `check:cycle-table`, `e2e:861-static` (33/33) and `e2e:861-impact` (20/20) are
+hermetic and in CI. `smoke:861` (40/40) runs the real runtime, on sandboxes and a reader
+daemon of its own — the shared machine is never addressed.
+
+* §7.1 — 244 opcodes (the twelve JAMs excepted: a JAM never retires), 47 379 instances,
+  137 591 cycles measured against 137 591 from the table, stolen 0. All 32 opcodes that pay
+  for a page crossing were run across one; all 8 branches were taken across one.
+* §7.2 — the same bytes with the display on: 1075 stolen against 1075 cycles the CPU did not
+  have in 859's record of THE SAME FRAME, 25 bad lines at 43 each, and every line with a
+  stolen cycle is a line 859 calls a bad line.
+* §7.3 — six entries in six frames, all six recognised from the traced vector reads: §4.2's
+  fallback is never needed, which settles the question §4.2 left open. The 7 cycles are the
+  entry's and no instruction before one shows phantom stolen cycles.
+* §7.4 — the `sta $D020` lands on line 100, cycle 13, and 859 says line 100, cycle 13.
+* §7.7 — 567 measured for the loop the static gate prices at 567.
+* §8 — the three tools over MCP against the stores the gates recorded, including
+  `trace_cost` recording its own capture.
+
+### §9.1 §7.8 cannot be derived, and §5 says to stop rather than work around it
+
+**The gate asked for:** a drive-code window, stolen == 0 for every instance, because the
+drive has no DMA.
+
+**Why it cannot be answered.** The drive lane is not an instruction stream. The drive's 6502
+runs with a null sink; its program counter is SAMPLED at each C64 instruction boundary and
+deduplicated (`Machine::sample_pc_change`), and the record carries no opcode —
+`write_drive_cpu_step` writes a zero with the comment *"opcode: not observable in sampled
+mode"*. Several drive instructions pass between two rows, so Δclock is not an instruction's
+cycles, and with no opcode there is nothing to price against. §4.1's description of the
+`instructions` table is true of the C64 lane and not of this one.
+
+**What was done instead of a workaround.** `evaluateTrace` refuses a lane whose rows carry
+no opcodes: no totals, no stolen figure, and the reason plus the change printed in its
+place. `trace_cost` refuses it the same way through the tool, and `smoke:861` asserts the
+refusal. Priced anyway — which is what it did first — the 1541's ROM came back as a stream
+of BRKs with **minus 1 227 148 stolen cycles**: a number that looks like an answer, which is
+the outcome §5 exists to prevent.
+
+**The smallest TRX64 change that would make §7.8 answerable:** one row per RETIRED drive
+instruction carrying its opcode and operand bytes. The record format already has every field
+(`pc`, `opcode`, `b1`, `b2`, `a`, `x`, `y`, `sp`, `p`, `clk`) and the reader already projects
+them as `cpu='drive8'`; only the producer is missing — the drive core calling the same retire
+hook the C64 core calls, instead of the run loop sampling its PC. Nothing in this spec would
+change: same table, same arithmetic, same `cpu` parameter. Until then the refusal stands, and
+it is a better answer than a number.
+
+### §9.2 Left out, and why
+
+* **NTSC and turbo** stay out, as §6 says. The arithmetic reads the machine's own
+  `cyclesPerLine` / `linesPerFrame`, so a capture on another model is evaluated on its own
+  geometry; only the gates are PAL.
+* **Equivalence across a loop or a call** stays out (§6). Both answer UNKNOWN with the reason
+  named.
+* **Finding optimisation candidates** is 862, and nothing here proposes one.

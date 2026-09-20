@@ -27,8 +27,8 @@ are never touched by re-analysis and override the generated name in every query.
 | Slice | Producer | Nodes / edges |
 |---|---|---|
 | 817 | `npm run build:platform-kb` | platform ZP / RAM / I/O / ROM nodes, regions |
-| 819 | `c64re graph seed`, and `importAnalysisArtifact` after every JSON import | routines, labels; CALLS · CALLS_ROM · JUMPS_TO · BRANCHES_TO · CONTAINS |
-| 820 | `c64re graph seed` (runs 819 then 820), and the import hook | READS · WRITES · READS_INDIRECT · WRITES_INDIRECT · USES_ZP · USES_HARDWARE · REFERENCES_DATA |
+| 819 | `c64re graph seed`, and `importAnalysisArtifact` after every JSON import | routines, labels; CALLS · CALLS_ROM · JUMPS_TO · BRANCHES_TO · CONTAINS. A routine also carries `attrs.unresolved_exits`: the ways out of it that no edge can carry — `jmp ($xxxx)` (the operand is a pointer, so there is no target to point at), `rti`, and an `rts` reached with two more pushes than pulls. Without them a routine with no outgoing control flow reads as one that goes nowhere |
+| 820 | `c64re graph seed` (runs 819 then 820), and the import hook | READS · WRITES · READS_INDIRECT · WRITES_INDIRECT · USES_ZP · USES_HARDWARE · REFERENCES_DATA (including one per entry of a detected pointer table: the cell is the source, the thing it names is the target) |
 | 821 | `c64re graph import-trace <file.c64retrace>` | the same types with `origin=runtime`, a `run` node, EXECUTES · HANDLES_IRQ · HANDLES_NMI |
 | 822.1 | `c64re graph migrate` (one shot, idempotent, incremental) + the human door (`name`, `link`, `assign-subsystem`) | the human layer: names, annotations (FTS5), claims + evidence from the legacy findings, subsystems |
 | 822.2 | every `save_finding` / `save_entity` / `link_entities` / `save_open_question` / user label (the doors), `analyze_prg` + manifest imports (the generated layer, replaced per artifact), `disasm_prg` with annotations (`annotations-import`: the file is a door) | **the store** for findings, entities, relations, open questions, user labels — the JSON files for them are gone (`knowledge/_legacy-822/` keeps the migrated copies for one release) |

@@ -1,6 +1,8 @@
 # Spec 862 — Finding optimisation candidates
 
-**Status:** READY after 861 (2026-09-19)
+**Status:** READY (2026-09-19; 861 landed 2026-09-20, so the dependency is met — its
+`code_cost`, `change_impact` and `trace_cost` are on the default surface, and the one thing
+it could not derive is the drive lane, which this spec does not use)
 **Repo:** C64RE only. TRX64: no change (it inherits 861's §5).
 **Number:** 862 (registry: `specs/README.md`).
 **Depends on:** Spec 861 — `code_cost` (cycle table, liveness, equivalence), `trace_cost`

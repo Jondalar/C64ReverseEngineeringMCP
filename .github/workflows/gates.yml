@@ -254,3 +254,21 @@ jobs:
       # half that needs a runtime is smoke:863, a local gate.
       - name: C64 models as the runtime reports them (Spec 863)
         run: npm run e2e:863-model
+
+      # Spec 861 — three hermetic gates. The cycle table lives twice because src/
+      # is ESM and pipeline/src/ is CommonJS, so check:cycle-table reads the grid
+      # out of both files and compares it cell by cell; e2e:861-static prices
+      # bytes and decides equivalence with no machine in sight; e2e:861-impact
+      # builds its own project through project_init / analyze_prg / disasm_prg /
+      # doc_register / save_finding and walks it. The half that runs a real C64 —
+      # the table against the machine, the VIC's stolen cycles, the interrupts,
+      # the drive — is smoke:861, a local gate: it needs the runtime, its ROMs
+      # and a few minutes.
+      - name: The cycle table is the same table twice (Spec 861)
+        run: npm run check:cycle-table
+
+      - name: What code costs, and whether two versions are the same (Spec 861)
+        run: npm run e2e:861-static
+
+      - name: What a change breaks (Spec 861)
+        run: npm run e2e:861-impact
