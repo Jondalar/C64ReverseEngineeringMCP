@@ -310,6 +310,80 @@ const DOCUMENTED_OPCODES = new Set<number>([
   0xf0, 0xf1, 0xf5, 0xf6, 0xf8, 0xf9, 0xfd, 0xfe,
 ]);
 
+// ---------------------------------------------------------------------------
+// Spec 861 §3.1 — what an instruction COSTS.
+//
+// The decoder above knows sizes and says nothing about time. This is the other
+// half: per opcode, the cycles it takes on an NMOS 6510 at 1 MHz, whether an
+// indexed READ pays one more when the index crosses a page, and whether it is a
+// branch (one more when taken, one more again when the target is on another
+// page). Stores and read-modify-writes never pay the page penalty — they spend
+// the extra cycle unconditionally, which is why it is already in their base.
+//
+// The table is written as one grid, sixteen rows of sixteen, the way every 6502
+// reference prints it, so it can be read against one. `*` = the indexed-read
+// penalty, `^` = a branch, `-` = a JAM, which has no cycle count because it
+// never retires.
+//
+// THE SAME GRID LIVES IN `src/cost/cycles.ts`. `src/` is ESM and `pipeline/src/`
+// is CommonJS and the two cannot import each other (the reason
+// `src/monitor/disasm6502.ts` carries a copy of OPCODES). `npm run
+// check:cycle-table` reads the literal out of both files and fails if they
+// differ by a character, so the copy cannot drift silently the way the opcode
+// table's did.
+//
+// Against the machine: `npm run smoke:861` runs every one of these opcodes on
+// the runtime with the display off and asserts the measured cycles are these
+// cycles. The table is not asserted from a book; it is proved against the CPU.
+export const CYCLE_GRID = `
+  7  6  -  8  3  3  5  5  3  2  2  2  4  4  6  6
+  2^ 5* -  8  4  4  6  6  2  4* 2  7  4* 4* 7  7
+  6  6  -  8  3  3  5  5  4  2  2  2  4  4  6  6
+  2^ 5* -  8  4  4  6  6  2  4* 2  7  4* 4* 7  7
+  6  6  -  8  3  3  5  5  3  2  2  2  3  4  6  6
+  2^ 5* -  8  4  4  6  6  2  4* 2  7  4* 4* 7  7
+  6  6  -  8  3  3  5  5  4  2  2  2  5  4  6  6
+  2^ 5* -  8  4  4  6  6  2  4* 2  7  4* 4* 7  7
+  2  6  2  6  3  3  3  3  2  2  2  2  4  4  4  4
+  2^ 6  -  6  4  4  4  4  2  5  2  5  5  5  5  5
+  2  6  2  6  3  3  3  3  2  2  2  2  4  4  4  4
+  2^ 5* -  5* 4  4  4  4  2  4* 2  4* 4* 4* 4* 4*
+  2  6  2  8  3  3  5  5  2  2  2  2  4  4  6  6
+  2^ 5* -  8  4  4  6  6  2  4* 2  7  4* 4* 7  7
+  2  6  2  8  3  3  5  5  2  2  2  2  4  4  6  6
+  2^ 5* -  8  4  4  6  6  2  4* 2  7  4* 4* 7  7
+`;
+
+export interface OpcodeTiming {
+  /** cycles with no page crossing and, for a branch, not taken */
+  base: number;
+  /** an indexed READ that crosses a page pays one more */
+  pageCross: boolean;
+  /** +1 when taken, +1 again when the target is on another page */
+  branch: boolean;
+}
+
+function parseCycleGrid(grid: string): (OpcodeTiming | undefined)[] {
+  const cells = grid.trim().split(/\s+/u);
+  if (cells.length !== 256) {
+    throw new Error(`the cycle grid has ${cells.length} cells, not 256`);
+  }
+  return cells.map((cell) => {
+    if (cell === "-") return undefined;
+    const m = /^(\d+)([*^]?)$/u.exec(cell);
+    if (!m) throw new Error(`"${cell}" is not a cycle cell (3, 4*, 2^ or -)`);
+    return { base: Number(m[1]), pageCross: m[2] === "*", branch: m[2] === "^" };
+  });
+}
+
+const TIMINGS = parseCycleGrid(CYCLE_GRID);
+
+/** What one opcode costs. `undefined` for the twelve JAMs: a JAM never retires,
+ *  so it has no cycle count to give. */
+export function opcodeTiming(opcode: number): OpcodeTiming | undefined {
+  return TIMINGS[opcode & 0xff];
+}
+
 export function decodeInstruction(data: Buffer, offset: number, baseAddress: number): DecodedInstruction {
   const opcode = data[offset];
   const definition = OPCODES.get(opcode);

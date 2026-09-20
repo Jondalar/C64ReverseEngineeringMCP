@@ -1,5 +1,5 @@
 {
-  "total": 288,
+  "total": 291,
   "specCount": 51,
   "advancedCandidate": 110,
   "byNamespace": {
@@ -10,7 +10,7 @@
     "build": 9,
     "agent": 8,
     "register": 8,
-    "trace": 7,
+    "trace": 8,
     "pack": 6,
     "backfill": 5,
     "depack": 5,
@@ -47,7 +47,9 @@
     "archive": 1,
     "assemble": 1,
     "c64re": 1,
+    "change": 1,
     "close": 1,
+    "code": 1,
     "compare": 1,
     "confirm": 1,
     "critic": 1,
@@ -404,6 +406,15 @@
       "tier": "default?"
     },
     {
+      "name": "change_impact",
+      "file": "server-tools/cost-tools.ts",
+      "ns": "change",
+      "hasSpec": false,
+      "firstSentence": "What a change to this code can break, from the knowledge graph: who calls, jumps to or branches into it (by depth), who reads what it writes, which pointer or jump table points INTO it, and which documents and findings claim something about it that may be false afterwards.",
+      "desc": "What a change to this code can break, from the knowledge graph: who calls, jumps to or branches into it (by depth), who reads what it writes, which pointer or jump table points INTO it, and which documents and findings claim something about it that may be false afterwards. UNKNOWN is a class of its own and is never folded into \"low\" — an indirect jump, a computed return, a write that lands inside the range (self-modifying code), code on the drive's own CPU and every address the graph could not resolve are listed as what they are. With the PRG the range lives in it also names what the change must PRESERVE (the registers and flags still live after it); with a trace store it names the raster lines the code runs in and what a longer version would cost there. Use it before editing bytes, before accepting a candidate patch, and to find the claims a change makes stale. Not for what the code costs (use code_cost) or what it cost on the machine (use trace_cost). Inputs: ref or address_start/address_end, optional prg_path, trace_path, depth. Returns: the walk, ordered depth 1/2/3, then UNKNOWN, then the claims.",
+      "tier": "default?"
+    },
+    {
       "name": "close_completed_tasks",
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "close",
@@ -411,6 +422,15 @@
       "firstSentence": "Spec 038: walk auto-suggested NEXT-hint tasks and close those whose autoCloseHint (file-exists / artifact-registered / phase-reached) is satisfied.",
       "desc": "Spec 038: walk auto-suggested NEXT-hint tasks and close those whose autoCloseHint (file-exists / artifact-registered / phase-reached) is satisfied. Idempotent. Also runs automatically in agent_onboard.",
       "tier": "advanced?"
+    },
+    {
+      "name": "code_cost",
+      "file": "server-tools/cost-tools.ts",
+      "ns": "code",
+      "hasSpec": false,
+      "firstSentence": "What a piece of 6502 costs, and — given two versions — whether they do the same thing.",
+      "desc": "What a piece of 6502 costs, and — given two versions — whether they do the same thing. Per basic block: bytes exact, cycles as a span, where the span is only the page crossings and the branches. A loop whose counter is a constant is resolved to its iteration count and costed exactly; any other loop is reported per iteration with its bound marked unknown. For two straight-line versions it also decides EQUIVALENT / NOT EQUIVALENT (with the differing effect as a counter-example) / UNKNOWN (with the reason) by executing both symbolically and comparing A, X, Y, the stack, every memory write and the flags that are still live — and every access to $D000-$DFFF must be the same access in the same order, because reading $DC0D changes the machine. Use it to price a routine and to check a replacement before it is applied. Not for who a change breaks (use change_impact) or what it cost with the VIC in the way (use trace_cost). Inputs: bytes+address, or prg_path+address_start/address_end; optionally the same again as candidate_*; live_out. Returns: the cost, and for two the Δ and the verdict.",
+      "tier": "default?"
     },
     {
       "name": "compare_exomizer_shared_encoding_sets",
@@ -2552,6 +2572,15 @@
       "hasSpec": false,
       "firstSentence": "Scan a byte range of a medium for table-SHAPED runs and propose descriptor skeletons — the transcription work, taken off you.",
       "desc": "Scan a byte range of a medium for table-SHAPED runs and propose descriptor skeletons — the transcription work, taken off you. Use when the loader's disassembly points at a table and you would otherwise type a dozen column addresses by hand. It proposes structure only: parallel arrays vs packed records, row count, where the columns sit, and a split 16-bit column when it can see one. It does NOT guess what the columns MEAN, does not write anything, and says which fields you still have to read out of the loader — getting one of those wrong is silently wrong for every row at once. Not for writing the table (use declare_lut_descriptor with what you read) and not for reading rows (use resolve_lut_rows).",
+      "tier": "default?"
+    },
+    {
+      "name": "trace_cost",
+      "file": "server-tools/cost-tools.ts",
+      "ns": "trace",
+      "hasSpec": false,
+      "firstSentence": "What code costs ON THE MACHINE, with the cycles the VIC took and how often it ran.",
+      "desc": "What code costs ON THE MACHINE, with the cycles the VIC took and how often it ran. Either evaluates a trace store you already have, or records one itself: a machine of its own boots the medium, advances to a frame boundary, marks it, records the cpu and memory channels for the frames you name and finalizes the capture. Per instruction instance it reports the measured cycles (the difference between two trace rows IS the cycles that instruction took), the cycle table's answer with the page crossing and the branch resolved from the trace itself, the 7 cycles of any interrupt dispatch that ran before it, and the remainder — the cycles the VIC stole — with the raster line they were stolen on. Per routine: cycles per call measured and static, calls per frame, share of the frame, stolen and where. An address no single routine covers is counted as unattributed, never guessed. Use it to find what a frame is actually spent on and to check a static estimate against the machine. Not for a static price (use code_cost). Inputs: trace_path, or prg_path/media_path + frames; cpu, address_start/address_end. Returns: the totals, the per-routine table, the per-line table and every instance whose cost could not be pinned.",
       "tier": "default?"
     },
     {

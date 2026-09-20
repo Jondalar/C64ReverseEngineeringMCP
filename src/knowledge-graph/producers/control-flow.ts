@@ -38,6 +38,46 @@ interface Instruction {
   provenance: "confirmed_code" | "probable_code";
 }
 interface Xref { sourceAddress: number; targetAddress: number; type: string; mnemonic?: string }
+
+/**
+ * Spec 861 §2 — the exits of one routine that no edge can carry.
+ *
+ *  - `jmp ($xxxx)`: the destination is a pointer in memory. 819 D3 deliberately
+ *    emits no JUMPS_TO for it (the operand is not a target), so the routine
+ *    would otherwise look like it ends there.
+ *  - an RTS the routine RETURNS THROUGH after pushing an address (the RTS-trick):
+ *    counted, not guessed — a `rts` reached with two more pushes than pulls is
+ *    returning to something it computed, not to its caller.
+ *  - `rti`: the resume address came from the stack, wherever the interrupt was.
+ *
+ * Address order, so the attribute is stable for the same report.
+ */
+function unresolvedExits(
+  start: number,
+  end: number,
+  instructions: Map<number, Instruction>,
+  containerOf: (pc: number) => number | undefined,
+): Array<{ at: string; kind: string; detail?: string }> {
+  const out: Array<{ at: string; kind: string; detail?: string }> = [];
+  const mine = [...instructions.values()]
+    .filter((i) => i.address >= start && i.address <= end && containerOf(i.address) === start)
+    .sort((a, b) => a.address - b.address);
+  let pushes = 0;
+  for (const i of mine) {
+    const mn = i.mnemonic.toLowerCase();
+    if (mn === "pha" || mn === "php") pushes += 1;
+    else if (mn === "pla" || mn === "plp") pushes -= 1;
+    else if (mn === "jsr") pushes = 0; // a call balances itself
+    else if (mn === "jmp" && i.addressingMode === "ind") {
+      out.push({ at: hex4(i.address), kind: "jmp-indirect", detail: `jmp ${i.operandText}` });
+    } else if (mn === "rti") {
+      out.push({ at: hex4(i.address), kind: "rti" });
+    } else if (mn === "rts" && pushes >= 2) {
+      out.push({ at: hex4(i.address), kind: "computed-return", detail: `rts with ${pushes} unbalanced pushes before it` });
+    }
+  }
+  return out;
+}
 interface Block { start: number; end: number; successors: number[] }
 interface Report {
   mapping: { startAddress: number; endAddress: number };
@@ -193,6 +233,14 @@ export function seedControlFlow(options: SeedControlFlowOptions): SeedControlFlo
     const attrs: Record<string, unknown> = { provenance: provenanceOf(start) };
     const entrySource = entries.get(start);
     if (entries.has(start)) attrs.entry_source = entrySource ?? "unknown";
+    // Spec 861 §2 — the exits this routine has that NO edge can carry, recorded
+    // where the walk can find them. A `jmp ($xxxx)` produces no JUMPS_TO edge at
+    // all (the target is a pointer, not an operand) and an RTS-trick produces
+    // none either, so without this the impact walk would read "no outgoing
+    // control flow" as "goes nowhere" — the one reading that turns an UNKNOWN
+    // into a low.
+    const unresolved = unresolvedExits(start, extentEnd(start), instructions, containerOf);
+    if (unresolved.length > 0) attrs.unresolved_exits = unresolved;
     addNode({ parts: { slug, ctx, kind: "routine", address: start }, kind: "routine", name: `W${hex4(start)}`, endAddress: extentEnd(start), attrs, origin: "static", confidence: confidenceOf(start) });
   }
   for (const start of labelStarts) {
