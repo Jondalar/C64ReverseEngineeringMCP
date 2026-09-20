@@ -297,6 +297,15 @@ jobs:
       - name: Frequency ranks, and a page crossing is a count (Spec 862)
         run: npm run e2e:862-rank
 
+      # Spec 865 — one hermetic gate over the whole spec. It builds its own project
+      # through project_init / agent_onboard, writes synthetic 6502 into .bin files and
+      # drives disasm_raw over MCP: no ROMs, no media, no daemon. The reassembly half
+      # needs KickAssembler and skips those four checks loudly without a jar, like
+      # e2e:830 — everything else (the rendering, the seeding, the window, the
+      # annotations, the provenance, the registration) is asserted either way.
+      - name: Bytes at an address (Spec 865)
+        run: npm run e2e:865
+
       # BUG-054 — thirteen defects one autonomous RE run wrote down as it hit them.
       # Hermetic: temp projects, synthetic PRGs, no ROMs, no media, no daemon. The
       # rebuild half needs KickAssembler and skips loudly without it, like e2e:830.
