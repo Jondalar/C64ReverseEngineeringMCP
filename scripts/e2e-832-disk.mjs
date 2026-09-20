@@ -8,7 +8,7 @@
 //
 // Exit 0 = pass, 1 = fail.   npm run e2e:832-disk
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -218,6 +218,121 @@ try {
   check(noRole.attempts.filter((a) => !a.matched).length >= 1, "…after the other schemas said no, each on its own terms");
 } finally {
   rmSync(project, { recursive: true, force: true });
+}
+
+
+// ───────────────────────────── disk_sector_allocation gives back the MAP ──────
+//
+// The tool promised "per-track/sector ownership … unclaimed padding, orphan data"
+// and printed three numbers: total, unclaimed, overlaps — plus a JSON block holding
+// the same three. A session that wanted the cartography rebuilt it by hand out of
+// manifest.spec784.json. And the overlap count was noise: seven zero-block DEL
+// directory comments each "claimed" the seven directory sectors, 49 phantom
+// overlaps, with any real one buried among them.
+{
+  const { diskSectorAllocation, formatSectorMap, formatSectorOwners, SECTOR_MAP_LEGEND } =
+    await import(join(ROOT, "dist/disk-custom-lut.js"));
+  const { SECTORS_PER_TRACK } = await import(join(ROOT, "dist/disk/base.js"));
+
+  const dir = mkdtempSync(join(tmpdir(), "c64re-alloc-"));
+  try {
+    // A real-shaped 35-track D64: 683 sectors of 256 bytes.
+    let total = 0;
+    for (let t = 1; t <= 35; t += 1) total += SECTORS_PER_TRACK[t];
+    const image = Buffer.alloc(total * 256, 0x00);
+    const offsetOf = (track, sector) => {
+      let off = 0;
+      for (let t = 1; t < track; t += 1) off += SECTORS_PER_TRACK[t] * 256;
+      return off + sector * 256;
+    };
+    // A real BAM link at T18/S0, so the D64 reader recognises the image at all.
+    image[offsetOf(18, 0)] = 18;
+    image[offsetOf(18, 0) + 1] = 1;
+    // One sector nobody claims, holding data: the orphan this tool exists to find.
+    image[offsetOf(20, 5) + 7] = 0xa9;
+    const imagePath = join(dir, "SIDE1.D64");
+    writeFileSync(imagePath, image);
+
+    const chain = (cells) => cells.map(([track, sector], index) => ({
+      index, track, sector, nextTrack: 0, nextSector: 0, bytesUsed: 254, isLast: index === cells.length - 1,
+    }));
+    // The seven directory sectors, which is exactly what a zero-block DEL entry's
+    // stale start pointer walks into.
+    const dirChain = chain([[18, 1], [18, 3], [18, 5], [18, 7], [18, 9], [18, 11], [18, 13]]);
+    const files = [
+      {
+        index: 0, origin: "kernal", name: "LOADER", type: "PRG", sizeSectors: 3, sizeBytes: 700,
+        track: 17, sector: 0, relativePath: "files/LOADER.prg",
+        sectorChain: chain([[17, 0], [17, 1], [17, 2]]),
+      },
+    ];
+    for (let i = 0; i < 7; i += 1) {
+      files.push({
+        index: 1 + i, origin: "kernal", name: `----${i}`, type: "DEL", sizeSectors: 0, sizeBytes: 0,
+        track: 18, sector: 1, relativePath: `files/del${i}`, sectorChain: dirChain,
+      });
+    }
+    const manifestPath = join(dir, "manifest.json");
+    writeFileSync(manifestPath, JSON.stringify({ diskName: "SIDE1", diskId: "01", files }, null, 2));
+
+    const r = diskSectorAllocation(imagePath, manifestPath);
+    check(r.overlapsCount === 0,
+      `seven zero-block DEL entries produce 0 overlaps, not 49 (got ${r.overlapsCount})`);
+    check(r.ignored.length === 7, `…and all seven are reported as non-claimants (got ${r.ignored.length})`);
+    check(/zero-block DEL/.test(r.ignored[0]?.reason ?? ""), "…each saying why it was not counted");
+    check(r.ownership.length === total, `the map has one row per sector (${r.ownership.length} of ${total})`);
+    const at = (t, s) => r.ownership.find((x) => x.track === t && x.sector === s);
+    check(at(18, 1)?.role === "system", "T18/S1 is still the DOS directory, unclaimed by any DEL entry");
+    check(at(17, 1)?.owner === "kernal:LOADER", "a real file owns its chain");
+    check(at(20, 5)?.role === "orphan_data", "an unclaimed sector that holds bytes is orphan_data, not padding");
+    check(r.orphanCount === 1, `…and it is counted (${r.orphanCount})`);
+    check(at(20, 6)?.role === "unclaimed_padding", "an unclaimed EMPTY sector stays padding");
+    check(r.imageRead === true, "the image argument is actually read — it used to be echoed and ignored");
+
+    const map = formatSectorMap(r);
+    check(map.length === 35, `the printable map is one line per track (${map.length})`);
+    check(map[17].startsWith("T18 SSS"), `T18 reads as system in the map (${map[17].slice(0, 12)})`);
+    check(/^T17 KKK\./.test(map[16]), `the loader's three sectors read as K (${map[16].slice(0, 12)})`);
+    check(map[19].includes("#"), "the orphan sector shows as # in the map");
+    check(/orphan data/.test(SECTOR_MAP_LEGEND), "the legend explains the glyphs");
+    const owners = formatSectorOwners(r);
+    check(owners.some((l) => /kernal:LOADER\s+3 sectors: T17\/S0 T17\/S1 T17\/S2/.test(l)),
+      "the owner list gives the T/S cells, not just a count");
+
+    // A DEL entry with real blocks is NOT waved through — only the zero-block kind.
+    const withBlocks = JSON.parse(JSON.stringify({ diskName: "SIDE1", diskId: "01", files }));
+    withBlocks.files[1].sizeSectors = 7;
+    const mp2 = join(dir, "manifest2.json");
+    writeFileSync(mp2, JSON.stringify(withBlocks));
+    const r2 = diskSectorAllocation(imagePath, mp2);
+    check(r2.overlapsCount === 7 && r2.ignored.length === 6,
+      `a DEL entry that owns blocks still claims and still collides (${r2.overlapsCount} overlaps, ${r2.ignored.length} ignored)`);
+
+    // …and the DOOR hands it over, rather than keeping it in the process.
+    const { registerMediaTools } = await import(join(ROOT, "dist/server-tools/media.js"));
+    const handlers = new Map();
+    registerMediaTools(
+      { tool: (name, _d, _s, handler) => handlers.set(name, handler) },
+      { projectDir: () => dir, toolsDir: () => ROOT, readTextFile: (x) => x,
+        cliResultToContent: (x) => ({ content: [{ type: "text", text: `${x.stdout}${x.stderr}` }] }),
+        tryRegisterKnowledgeArtifacts: () => ({}) },
+    );
+    const answer = (await handlers.get("disk_sector_allocation")({
+      project_dir: dir, image_path: imagePath, manifest_path: manifestPath,
+    })).content.map((c) => c.text).join("\n");
+    check(/^T18 SSS/m.test(answer), "the answer PRINTS the map — it used to print three numbers");
+    check(/Unclaimed: \d+ \(of which 1 hold data/.test(answer), "…and says how much of the unclaimed space is not empty");
+    const written = /written to (\S+) \((\d+) rows/.exec(answer);
+    check(!!written, "…and names the file it wrote the full per-sector map to");
+    check(!!written && existsSync(written[1]) && Number(written[2]) === total,
+      "…which exists and holds one row per sector");
+    const onDisk = written ? JSON.parse(readFileSync(written[1], "utf8")) : {};
+    check(onDisk.ownership?.length === total && onDisk.ignored?.length === 7,
+      "…with the ownership rows and the discarded claimants in it");
+    check(!/Overlaps: 49/.test(answer), "no phantom overlap count survives into the answer");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 console.log(`\n${failCount ? "RED" : "GREEN"}  Spec 832 disk: ${pass} pass, ${failCount} fail.`);
