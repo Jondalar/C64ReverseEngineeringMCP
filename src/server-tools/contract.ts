@@ -28,7 +28,7 @@ import { loadContract, saveContract, formatContract, KICKOFF_QUESTIONS, type Pro
 export function registerContractTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "contract_show",
-    "What this project owes: the human's stated expectations (Spec 848) — which of the 15 slots apply here, what must be annotated, what must be written up, and the thresholds. With no contract set, returns the questions a kickoff should ask. Use at session start and before calling anything done. Inputs: optional project_dir. Returns: the contract or the questions.",
+    "What this project owes: the human's stated expectations — which of the 15 slots apply here, what must be annotated, what must be written up, and the thresholds. With no contract set, returns the questions a kickoff should ask. Use at session start and before calling anything done. Not for writing the expectations down (use contract_set). Inputs: optional project_dir. Returns: the contract or the questions.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
     },
@@ -54,7 +54,7 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "contract_set",
-    "Write the project contract: what the human expects delivered (Spec 848). Use once at kickoff, or when the expectation changes. It may demand FEWER slots than the default fifteen — a game with no save owes no S10. Inputs: goal + deliverables + optional limits. Returns: the stored contract.",
+    "Write the project contract: what the human expects delivered. Use once at kickoff, or when the expectation changes. It may demand FEWER slots than the default fifteen — a game with no save owes no S10. Not for reading back what the project owes (use contract_show). Inputs: goal + deliverables + optional limits. Returns: the stored contract.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       goal: z.string().min(10).describe("What this job is for, in one sentence. The frame, not a checkable."),

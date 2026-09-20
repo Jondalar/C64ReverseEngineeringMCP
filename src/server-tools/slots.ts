@@ -37,7 +37,7 @@ const NON_ARTEFACT_SLOTS = new Set<SlotId>(["S1", "S13", "S14"]);
 export function registerSlotTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "project_slots",
-    "Completeness check: which of the 15 required relationships (Spec 844) this project has named and which are still empty. Use before calling a project mapped, and whenever a door refuses on a slot. Not a to-do list (use agent_next_step). Inputs: optional project_dir, verbose. Returns: per-slot status + measured byte coverage.",
+    "Completeness check: which of the 15 required relationships this project has named and which are still empty. Use before calling a project mapped, and whenever a door refuses on a slot. Not a to-do list (use agent_next_step). Inputs: optional project_dir, verbose. Returns: per-slot status + measured byte coverage.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       verbose: z.boolean().default(false).describe("Also print what each open slot asks and what would fill it"),
@@ -63,7 +63,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
 
   server.tool(
     "slot_record",
-    "Fill one Spec 844 slot: the answer to a required question, with the evidence for it. Use when a door refuses on an empty slot, or when you have just established one of the 15. Inputs: slot id, answer, evidence, optional address range; S11 and S15 also require method. Returns: the finding written + the updated slot line.",
+    "Fill one required slot: the answer to a required question, with the evidence for it. Use when a door refuses on an empty slot, or when you have just established one of the 15. Not for seeing which slots are still empty (use project_slots). Inputs: slot id, answer, evidence, optional address range; S11 and S15 also require method. Returns: the finding written + the updated slot line.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       slot: z.enum(SLOT_IDS).describe("Which slot — see project_slots for the list and what each asks"),

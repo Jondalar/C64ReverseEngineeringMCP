@@ -24,7 +24,7 @@ the next session reads instead of re-deriving.
 ## What it is
 
 One SQLite file per project, `<project>/knowledge/graph.sqlite`, plus one shared
-store describing the machine itself (Spec 817). Nodes are the things an RE
+store describing the machine itself. Nodes are the things an RE
 project talks about — routines, labels, addresses, zero-page locations, I/O
 registers, ROM entries, payloads, subsystems — and edges are what they do to
 each other: calls, jumps, reads, writes, contains, belongs-to.
@@ -44,7 +44,7 @@ Because the id is derived, re-running the analysis lands on exactly the same
 rows. Nothing accumulates duplicates, and two producers looking at the same
 routine cannot disagree about which row it is.
 
-**Banking is part of identity** (Spec 818). On a C64 the address `$8000` is not
+**Banking is part of identity.** On a C64 the address `$8000` is not
 a place — it is a place *and* a configuration. The id names where the bytes
 live: `ram/<artifact>`, `crt/<bank>`, `drv/<artifact>`. A cartridge with sixty
 banks has sixty different `$8000`s and the graph never confuses them.
@@ -67,7 +67,7 @@ A disassembly answers "what is at this address". These are the other questions:
 - **Who calls this?** Not "who mentions this number" — who actually calls it,
   by an edge a producer wrote from a decoded instruction.
 - **What does this routine do to the registers?** The 6502 declares no
-  interface, so the graph computes one (Spec 826): which registers a routine
+  interface, so the graph computes one: which registers a routine
   reads before writing (`in`), which it leaves meaningful (`out`), which it
   destroys (`clobbers`), which it saves and restores (`preserves`), and what it
   does to the stack. Where the answer cannot be computed it says `partial` and
@@ -84,7 +84,7 @@ A disassembly answers "what is at this address". These are the other questions:
 
 ## How you use it
 
-Five tools on the MCP surface (Spec 823): `graph_overview` for the shape of a
+Five tools on the MCP surface: `graph_overview` for the shape of a
 project, `graph_find` to search, `graph_node` for one thing and everything known
 about it, `graph_edges` for what reaches it or what it reaches, and `graph_path`
 for how two things are connected.
@@ -101,7 +101,7 @@ in, and `name` / `link` / `assign-subsystem` are the human layer's door.
 You rarely write to it directly. The doors are the ordinary tools: analysing a
 payload fills the generated layer, an annotations file is imported when the
 listing is rendered, and `save_finding` / `save_entity` / `link_entities` write
-the human layer (Spec 822). Naming a routine in an annotations file IS entering
+the human layer. Naming a routine in an annotations file IS entering
 it into the graph; there is no second step to forget.
 
 ## Seeing it
@@ -135,7 +135,7 @@ have all been tried in this repo and they lost:
   session does not read them.
 - **JSON stores per concept** — findings here, entities there — had no identity,
   no cross-references and no way to ask a question that spanned two of them.
-  They were folded into the graph (Spec 822.2) and the files retired.
+  They were folded into the graph and the files retired.
 - **Scanning for structure** finds tables that are not there and misses the ones
   that are, because on this machine the shape of a byte does not tell you what
   it is.

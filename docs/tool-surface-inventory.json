@@ -1,6 +1,6 @@
 {
   "total": 288,
-  "specCount": 51,
+  "specCount": 41,
   "advancedCandidate": 110,
   "byNamespace": {
     "runtime": 90,
@@ -434,18 +434,18 @@
       "name": "contract_set",
       "file": "server-tools/contract.ts",
       "ns": "contract",
-      "hasSpec": true,
-      "firstSentence": "Write the project contract: what the human expects delivered (Spec 848).",
-      "desc": "Write the project contract: what the human expects delivered (Spec 848). Use once at kickoff, or when the expectation changes. It may demand FEWER slots than the default fifteen — a game with no save owes no S10. Inputs: goal + deliverables + optional limits. Returns: the stored contract.",
+      "hasSpec": false,
+      "firstSentence": "Write the project contract: what the human expects delivered.",
+      "desc": "Write the project contract: what the human expects delivered. Use once at kickoff, or when the expectation changes. It may demand FEWER slots than the default fifteen — a game with no save owes no S10. Not for reading back what the project owes (use contract_show). Inputs: goal + deliverables + optional limits. Returns: the stored contract.",
       "tier": "default?"
     },
     {
       "name": "contract_show",
       "file": "server-tools/contract.ts",
       "ns": "contract",
-      "hasSpec": true,
-      "firstSentence": "What this project owes: the human's stated expectations (Spec 848) — which of the 15 slots apply here, what must be annotated, what must be written up, and the thresholds.",
-      "desc": "What this project owes: the human's stated expectations (Spec 848) — which of the 15 slots apply here, what must be annotated, what must be written up, and the thresholds. With no contract set, returns the questions a kickoff should ask. Use at session start and before calling anything done. Inputs: optional project_dir. Returns: the contract or the questions.",
+      "hasSpec": false,
+      "firstSentence": "What this project owes: the human's stated expectations — which of the 15 slots apply here, what must be annotated, what must be written up, and the thresholds.",
+      "desc": "What this project owes: the human's stated expectations — which of the 15 slots apply here, what must be annotated, what must be written up, and the thresholds. With no contract set, returns the questions a kickoff should ask. Use at session start and before calling anything done. Not for writing the expectations down (use contract_set). Inputs: optional project_dir. Returns: the contract or the questions.",
       "tier": "default?"
     },
     {
@@ -454,7 +454,7 @@
       "ns": "critic",
       "hasSpec": false,
       "firstSentence": "List the critic's checks and what each one's severity MEANS.",
-      "desc": "List the critic's checks and what each one's severity MEANS. Use when a critic finding looks mis-ranked — severity is a property of the check, declared once, and this is that table. Inputs: none. Returns: the checks with their severity and rationale.",
+      "desc": "List the critic's checks and what each one's severity MEANS. Use when a critic finding looks mis-ranked — severity is a property of the check, declared once, and this is that table. Not for running the checks (use project_critique). Inputs: none. Returns: the checks with their severity and rationale.",
       "tier": "default?"
     },
     {
@@ -598,7 +598,7 @@
       "ns": "doc",
       "hasSpec": false,
       "firstSentence": "Which documents declare themselves and which do not: undeclared files, malformed frontmatter, and `amends:` citations naming a document that is not in the project.",
-      "desc": "Which documents declare themselves and which do not: undeclared files, malformed frontmatter, and `amends:` citations naming a document that is not in the project. Use after a writing session, or to see the backlog. Read-only. Inputs: optional project_dir. Returns: the lists, largest undeclared first.",
+      "desc": "Which documents declare themselves and which do not: undeclared files, malformed frontmatter, and `amends:` citations naming a document that is not in the project. Use after a writing session, or to see the backlog. Read-only. Not for declaring a document (use doc_register). Inputs: optional project_dir. Returns: the lists, largest undeclared first.",
       "tier": "default?"
     },
     {
@@ -607,7 +607,7 @@
       "ns": "doc",
       "hasSpec": false,
       "firstSentence": "Declare one Markdown document: read its frontmatter and make it a node in the graph, so it can be cited, linted and found.",
-      "desc": "Declare one Markdown document: read its frontmatter and make it a node in the graph, so it can be cited, linted and found. Use after writing a synthesis document (a model, a port spec, a budget). Refuses without frontmatter and hands back the template. Inputs: path. Returns: the node + what it covers.",
+      "desc": "Declare one Markdown document: read its frontmatter and make it a node in the graph, so it can be cited, linted and found. Use after writing a synthesis document (a model, a port spec, a budget). Refuses without frontmatter and hands back the template. Not for the frontmatter block itself (use doc_template). Inputs: path. Returns: the node + what it covers.",
       "tier": "default?"
     },
     {
@@ -616,7 +616,7 @@
       "ns": "doc",
       "hasSpec": false,
       "firstSentence": "The frontmatter block to put at the top of a document, for a given kind.",
-      "desc": "The frontmatter block to put at the top of a document, for a given kind. Use before writing a synthesis document, or when doc_register refuses. Inputs: kind, title. Returns: the block, ready to paste.",
+      "desc": "The frontmatter block to put at the top of a document, for a given kind. Use before writing a synthesis document, or when doc_register refuses. Not for declaring the finished file (use doc_register). Inputs: kind, title. Returns: the block, ready to paste.",
       "tier": "default?"
     },
     {
@@ -1066,16 +1066,16 @@
       "ns": "model",
       "hasSpec": false,
       "firstSentence": "State one boundary of the project's model: a named address range at a level (system/container/component) with the evidence for it.",
-      "desc": "State one boundary of the project's model: a named address range at a level (system/container/component) with the evidence for it. Use when you have established what a region IS. Membership underneath is computed, never passed. Inputs: name, level, range, description, evidence. Returns: the boundary + what now falls inside it.",
+      "desc": "State one boundary of the project's model: a named address range at a level (system/container/component) with the evidence for it. Use when you have established what a region IS. Membership underneath is computed, never passed. Not for a claim about behaviour (use save_finding). Inputs: name, level, range, description, evidence. Returns: the boundary + what now falls inside it.",
       "tier": "default?"
     },
     {
       "name": "model_read",
       "file": "server-tools/model.ts",
       "ns": "model",
-      "hasSpec": true,
-      "firstSentence": "The re-entry read (Spec 845 D6): the whole project model in one call — boundaries with citations, the edges between them, what is still open, and what was ALREADY REFUTED so it is not re-derived.",
-      "desc": "The re-entry read (Spec 845 D6): the whole project model in one call — boundaries with citations, the edges between them, what is still open, and what was ALREADY REFUTED so it is not re-derived. Use at the start of a session, after a compact, or whenever the thread is lost. Inputs: optional project_dir. Returns: the model as text.",
+      "hasSpec": false,
+      "firstSentence": "The re-entry read: the whole project model in one call — boundaries with citations, the edges between them, what is still open, and what was ALREADY REFUTED so it is not re-derived.",
+      "desc": "The re-entry read: the whole project model in one call — boundaries with citations, the edges between them, what is still open, and what was ALREADY REFUTED so it is not re-derived. Use at the start of a session, after a compact, or whenever the thread is lost. Not for which of the 15 required relationships are still empty (use project_slots). Inputs: optional project_dir. Returns: the model as text.",
       "tier": "default?"
     },
     {
@@ -1084,7 +1084,7 @@
       "ns": "model",
       "hasSpec": false,
       "firstSentence": "Remove one asserted boundary.",
-      "desc": "Remove one asserted boundary. Use when a boundary turns out to be wrong — the members underneath are untouched, they simply become orphans again. Inputs: boundary id (from model_read). Returns: what changed.",
+      "desc": "Remove one asserted boundary. Use when a boundary turns out to be wrong — the members underneath are untouched, they simply become orphans again. Not for a boundary that is merely imprecise — assert it again instead (use model_assert). Inputs: boundary id (from model_read). Returns: what changed.",
       "tier": "default?"
     },
     {
@@ -1174,7 +1174,7 @@
       "ns": "project",
       "hasSpec": false,
       "firstSentence": "Adversarial pass over the project's own records: negative claims the graph contradicts, refutations that invalidated nothing, findings without evidence, overlapping or empty boundaries, orphans, unreachable routines.",
-      "desc": "Adversarial pass over the project's own records: negative claims the graph contradicts, refutations that invalidated nothing, findings without evidence, overlapping or empty boundaries, orphans, unreachable routines. Each finding carries the proof. Use before calling analysis done, and after a long unattended run. Inputs: optional project_dir, severity filter. Returns: findings + the ready verdict.",
+      "desc": "Adversarial pass over the project's own records: negative claims the graph contradicts, refutations that invalidated nothing, findings without evidence, overlapping or empty boundaries, orphans, unreachable routines. Each finding carries the proof. Use before calling analysis done, and after a long unattended run. Not for what a check MEANS and why it ranks that way (use critic_checks). Inputs: optional project_dir, severity filter. Returns: findings + the ready verdict.",
       "tier": "default?"
     },
     {
@@ -1235,9 +1235,9 @@
       "name": "project_slots",
       "file": "server-tools/slots.ts",
       "ns": "project",
-      "hasSpec": true,
-      "firstSentence": "Completeness check: which of the 15 required relationships (Spec 844) this project has named and which are still empty.",
-      "desc": "Completeness check: which of the 15 required relationships (Spec 844) this project has named and which are still empty. Use before calling a project mapped, and whenever a door refuses on a slot. Not a to-do list (use agent_next_step). Inputs: optional project_dir, verbose. Returns: per-slot status + measured byte coverage.",
+      "hasSpec": false,
+      "firstSentence": "Completeness check: which of the 15 required relationships this project has named and which are still empty.",
+      "desc": "Completeness check: which of the 15 required relationships this project has named and which are still empty. Use before calling a project mapped, and whenever a door refuses on a slot. Not a to-do list (use agent_next_step). Inputs: optional project_dir, verbose. Returns: per-slot status + measured byte coverage.",
       "tier": "default?"
     },
     {
@@ -1579,7 +1579,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set.",
-      "desc": "Create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set. Runs the NO-PATCH scenario once to cache the equivalence baseline. Start an iterate-your-own-code loop on a fixed snapshot. Inputs: session_id, anchor (checkpoint id), scenario {inputs, cycleBudget}. Returns: the candidate {id, ...}.",
+      "desc": "Create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set. Runs the NO-PATCH scenario once to cache the equivalence baseline. Use when you want to iterate your own code against a fixed baseline. Not for a single patched run (use runtime_overlay_run). Start an iterate-your-own-code loop on a fixed snapshot. Inputs: session_id, anchor (checkpoint id), scenario {inputs, cycleBudget}. Returns: the candidate {id, ...}.",
       "tier": "default?"
     },
     {
@@ -1588,7 +1588,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Delete a candidate from the session store.",
-      "desc": "Delete a candidate from the session store. Inputs: session_id, id. Returns: {id, deleted}.",
+      "desc": "Delete a candidate from the session store. Use when a candidate is finished with. Not for dropping one patch and keeping the candidate (use runtime_candidate_remove_patch). Inputs: session_id, id. Returns: {id, deleted}.",
       "tier": "default?"
     },
     {
@@ -1597,7 +1597,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Derive the FINAL CODE DELTA from a candidate: turn its exported source-patch-set into a build-ready delta on disk — one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md.",
-      "desc": "Derive the FINAL CODE DELTA from a candidate: turn its exported source-patch-set into a build-ready delta on disk — one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md. The code that goes into the real build (the meaning-bridge payoff). Inputs: session_id, id, out_dir? (default <project>/delta-<id>). Returns: outDir + written files + manifest.",
+      "desc": "Derive the FINAL CODE DELTA from a candidate: turn its exported source-patch-set into a build-ready delta on disk — one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md. The code that goes into the real build (the meaning-bridge payoff). Use once the candidate is proven. Not for the raw patch-set (use runtime_candidate_export). Inputs: session_id, id, out_dir? (default <project>/delta-<id>). Returns: outDir + written files + manifest.",
       "tier": "default?"
     },
     {
@@ -1606,7 +1606,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Export a candidate's accumulated source-patch-set = the delta seed (the code that goes into the real build; the final-delta shaping is a later step).",
-      "desc": "Export a candidate's accumulated source-patch-set = the delta seed (the code that goes into the real build; the final-delta shaping is a later step). Inputs: session_id, id. Returns: {id, patches:[{space,bank,addr,source}]}.",
+      "desc": "Export a candidate's accumulated source-patch-set = the delta seed (the code that goes into the real build; the final-delta shaping is a later step). Use to hand the patch-set on as it stands. Not for build-ready files (use runtime_candidate_derive_delta). Inputs: session_id, id. Returns: {id, patches:[{space,bank,addr,source}]}.",
       "tier": "default?"
     },
     {
@@ -1615,7 +1615,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "List candidates (id omitted) or show one candidate's patches + last verdict.",
-      "desc": "List candidates (id omitted) or show one candidate's patches + last verdict. Inputs: session_id, id?. Returns: candidate(s).",
+      "desc": "List candidates (id omitted) or show one candidate's patches + last verdict. Use to see what exists and how the last run judged it. Not for running one (use runtime_candidate_run). Inputs: session_id, id?. Returns: candidate(s).",
       "tier": "default?"
     },
     {
@@ -1624,7 +1624,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step).",
-      "desc": "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step). Give `source_path` (an .asm/.tas file, assembled here → bytes) OR pre-assembled `bytes`. `space` ram|roml|romh + `bank` + `addr` (CPU window addr) target RAM or a cart bank (795). Re-adding at the same target REPLACES (iterate a fix). Inputs: session_id, id, addr, space?, bank?, source_path?|bytes?. Returns: the candidate.",
+      "desc": "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step). Give `source_path` (an .asm/.tas file, assembled here → bytes) OR pre-assembled `bytes`. `space` ram|roml|romh + `bank` + `addr` (CPU window addr) target RAM or a cart bank (795). Re-adding at the same target REPLACES (iterate a fix). Use to add or replace one patch on a candidate. Not for writing bytes into the live machine (use runtime_inject_range). Inputs: session_id, id, addr, space?, bank?, source_path?|bytes?. Returns: the candidate.",
       "tier": "default?"
     },
     {
@@ -1633,7 +1633,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Remove the overlay patch at (space, bank, addr) from a candidate.",
-      "desc": "Remove the overlay patch at (space, bank, addr) from a candidate. Inputs: session_id, id, addr, space?, bank?. Returns: the candidate + removed:bool.",
+      "desc": "Remove the overlay patch at (space, bank, addr) from a candidate. Use to drop one patch and keep the candidate. Not for the whole candidate (use runtime_candidate_delete). Inputs: session_id, id, addr, space?, bank?. Returns: the candidate + removed:bool.",
       "tier": "default?"
     },
     {
@@ -1642,7 +1642,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Run a candidate: restore its baseline anchor, apply ALL its patches, play the bound scenario (deterministic), and AUTO-DIFF (794) vs the no-patch baseline → the verdict 'what did my code change / is it equivalent'.",
-      "desc": "Run a candidate: restore its baseline anchor, apply ALL its patches, play the bound scenario (deterministic), and AUTO-DIFF (794) vs the no-patch baseline → the verdict 'what did my code change / is it equivalent'. Ephemeral (anchor untouched). Inputs: session_id, id. Returns: {registers, verdict, ranCycles, diff}.",
+      "desc": "Run a candidate: restore its baseline anchor, apply ALL its patches, play the bound scenario (deterministic), and AUTO-DIFF (794) vs the no-patch baseline → the verdict 'what did my code change / is it equivalent'. Ephemeral (anchor untouched). Use after every patch. Not for a run on the shared session the human co-drives (use runtime_session_run). Inputs: session_id, id. Returns: {registers, verdict, ranCycles, diff}.",
       "tier": "default?"
     },
     {
@@ -1714,7 +1714,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first.",
-      "desc": "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. The FINDER half of the cheat loop; verify a candidate by freezing an address (runtime_candidate_patch at that addr with its original value) + runtime_candidate_run to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
+      "desc": "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. Use after capturing two anchors around a loss. Not for a general diff of two checkpoints (use runtime_diff_snapshots). The FINDER half of the cheat loop; verify a candidate by freezing an address (runtime_candidate_patch at that addr with its original value) + runtime_candidate_run to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
       "tier": "default?"
     },
     {
@@ -2117,9 +2117,9 @@
       "name": "runtime_scene_reel",
       "file": "server-tools/scene-reel.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Run a written capture scenario on a MACHINE OF YOUR OWN — a private daemon on its own port, born with a budget and ending itself when it runs out, so the shared session the human co-drives is never touched (Spec 836).",
-      "desc": "Run a written capture scenario on a MACHINE OF YOUR OWN — a private daemon on its own port, born with a budget and ending itself when it runs out, so the shared session the human co-drives is never touched (Spec 836). Assembles an animated release reel (animated GIF: GIF89a, the machine's picture including border — 384x272 PAL, 384x247 NTSC — hard cuts, uniform delay, <=512000 bytes). The machine is the C64 model the scenario was recorded on (its `# model:` line), else the project's; a recorded scenario asked to run on another model is refused, naming both. Use it when a release, a crack or a trainer needs documentation screenshots in playthrough order — title, menu, in-game — produced the same way twice. The scenario is Gherkin, the same notation and the same .feature files as scenario goals: `Given the disk \"x.g64\"`, then `When I wait 170 frames` / `And I type \"LOAD{QUOTE}*{QUOTE},8,1{RETURN}\"` / `And I hold joystick 2 down for 3 frames` / `And I wait until the drive is idle within 8000 frames` / `And I capture \"title\"`, then `Then the reel has at least 5 screens`. Every step that lasts states its own duration, and the machine is stopped between steps, so the same text replays to the same bytes. Frames come straight from the video chip's 16-colour indices, so nothing is re-quantized. Not for driving the session you are debugging in, and not for one picture of the machine you are already looking at — use runtime_render_screen instead. Inputs: feature (text) or feature_path, out_path. Returns: the reel's path, frame count, byte size, and the cycle each capture landed on.",
+      "hasSpec": false,
+      "firstSentence": "Run a written capture scenario on a MACHINE OF YOUR OWN — a private daemon on its own port, born with a budget and ending itself when it runs out, so the shared session the human co-drives is never touched.",
+      "desc": "Run a written capture scenario on a MACHINE OF YOUR OWN — a private daemon on its own port, born with a budget and ending itself when it runs out, so the shared session the human co-drives is never touched. Assembles an animated release reel (animated GIF: GIF89a, the machine's picture including border — 384x272 PAL, 384x247 NTSC — hard cuts, uniform delay, <=512000 bytes). The machine is the C64 model the scenario was recorded on (its `# model:` line), else the project's; a recorded scenario asked to run on another model is refused, naming both. Use it when a release, a crack or a trainer needs documentation screenshots in playthrough order — title, menu, in-game — produced the same way twice. The scenario is Gherkin, the same notation and the same .feature files as scenario goals: `Given the disk \"x.g64\"`, then `When I wait 170 frames` / `And I type \"LOAD{QUOTE}*{QUOTE},8,1{RETURN}\"` / `And I hold joystick 2 down for 3 frames` / `And I wait until the drive is idle within 8000 frames` / `And I capture \"title\"`, then `Then the reel has at least 5 screens`. Every step that lasts states its own duration, and the machine is stopped between steps, so the same text replays to the same bytes. Frames come straight from the video chip's 16-colour indices, so nothing is re-quantized. Not for driving the session you are debugging in, and not for one picture of the machine you are already looking at — use runtime_render_screen instead. Inputs: feature (text) or feature_path, out_path. Returns: the reel's path, frame count, byte size, and the cycle each capture landed on.",
       "tier": "default?"
     },
     {
@@ -2153,9 +2153,9 @@
       "name": "runtime_session_start",
       "file": "server-tools/headless.ts",
       "ns": "runtime",
-      "hasSpec": true,
-      "firstSentence": "Start or attach to the SHARED headless C64+1541 session — the one machine the human co-drives, never power-cycled for a test (Spec 836).",
-      "desc": "Start or attach to the SHARED headless C64+1541 session — the one machine the human co-drives, never power-cycled for a test (Spec 836). For a machine of your own, use runtime_sandbox_run (or runtime_scene_reel for a scripted run) — a private daemon on its own port, ending on a budget; this tool refuses a media_path when it attaches, rather than swapping the medium under whoever is using it. The product runtime: real KERNAL/BASIC, cycle-accurate 1541, event-catchup. Use to begin a runtime session for loading/running/inspecting a title, from ANY medium: pass media_path=<file> for a .crt cartridge, a .d64/.g64/.d81 disk, a .prg or a .c64re snapshot — the daemon reads the file to decide which, so a cartridge start needs no separate tool and no placeholder disk. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). ONE MACHINE PER PROCESS: a daemon process runs exactly ONE live machine — the human's UI and you co-drive the SAME session (shared-attach). Before starting, list/status existing sessions and attach to one instead; a SECOND in-process session is NOT isolated — it rebinds the process-global VIC/drive and corrupts the first session's rendering (boot text goes black) until a process restart. For a truly isolated machine (e.g. a throwaway build test) use a SEPARATE backend process. Not for a one-shot PRG run without a persistent session (use runtime_run_prg). Inputs: media_path — ANY of .d64/.g64/.crt/.prg/.c64re, identified by CONTENT not by extension, and optional: a session is a machine, and a medium is something you put in it. A .crt is inserted, a disk is mounted, a .c64re REPLACES the machine, and a .prg is loaded — and typed RUN only when it loads at $0801 behind a valid BASIC line (which is also how SYS-stub releases are meant to start; anything else loads and stops). disk_path is the deprecated alias, kept so existing callers keep working. Also optional: device_id, model (which C64: c64-pal, c64-ntsc, …), trace_out, trace_domains. Returns: session id + which C64 it is + resolved config + trace status when streaming.",
+      "hasSpec": false,
+      "firstSentence": "Start or attach to the SHARED headless C64+1541 session — the one machine the human co-drives, never power-cycled for a test.",
+      "desc": "Start or attach to the SHARED headless C64+1541 session — the one machine the human co-drives, never power-cycled for a test. For a machine of your own, use runtime_sandbox_run (or runtime_scene_reel for a scripted run) — a private daemon on its own port, ending on a budget; this tool refuses a media_path when it attaches, rather than swapping the medium under whoever is using it. The product runtime: real KERNAL/BASIC, cycle-accurate 1541, event-catchup. Use to begin a runtime session for loading/running/inspecting a title, from ANY medium: pass media_path=<file> for a .crt cartridge, a .d64/.g64/.d81 disk, a .prg or a .c64re snapshot — the daemon reads the file to decide which, so a cartridge start needs no separate tool and no placeholder disk. Pass trace_out=<path> (+ optional trace_domains=['c64-cpu','memory',...]) to stream a persistent trace.duckdb across the session; then drive with runtime_session_run / runtime_until, stamp phases with runtime_mark, read the live screen with runtime_render_screen, finalize the trace with runtime_trace_finalize, query offline with trace_store_* / runtime_query_events, and runtime_session_close when done (else the session keeps running and pegs a core). ONE MACHINE PER PROCESS: a daemon process runs exactly ONE live machine — the human's UI and you co-drive the SAME session (shared-attach). Before starting, list/status existing sessions and attach to one instead; a SECOND in-process session is NOT isolated — it rebinds the process-global VIC/drive and corrupts the first session's rendering (boot text goes black) until a process restart. For a truly isolated machine (e.g. a throwaway build test) use a SEPARATE backend process. Not for a one-shot PRG run without a persistent session (use runtime_run_prg). Inputs: media_path — ANY of .d64/.g64/.crt/.prg/.c64re, identified by CONTENT not by extension, and optional: a session is a machine, and a medium is something you put in it. A .crt is inserted, a disk is mounted, a .c64re REPLACES the machine, and a .prg is loaded — and typed RUN only when it loads at $0801 behind a valid BASIC line (which is also how SYS-stub releases are meant to start; anything else loads and stops). disk_path is the deprecated alias, kept so existing callers keep working. Also optional: device_id, model (which C64: c64-pal, c64-ntsc, …), trace_out, trace_domains. Returns: session id + which C64 it is + resolved config + trace status when streaming.",
       "tier": "default?"
     },
     {
@@ -2234,9 +2234,9 @@
       "name": "runtime_trace_start",
       "file": "server-tools/headless.ts",
       "ns": "runtime",
-      "hasSpec": true,
+      "hasSpec": false,
       "firstSentence": "Start a streaming trace on a RUNNING session (no need to pre-declare trace_out at session_start).",
-      "desc": "Start a streaming trace on a RUNNING session (no need to pre-declare trace_out at session_start). Use to begin capturing the live shared session's execution into a .c64retrace binary timeline (the authority) + a queryable trace.duckdb index. Pick domains (default c64-cpu+memory; add drive8-cpu/iec/vic for the full picture). Then drive with runtime_session_run, stamp phases with runtime_mark, finalize with runtime_trace_finalize, and read the swimlane/offline-stepping with runtime_swimlane_slice / query with trace_store_*. Not for a one-shot scenario (use runtime_session_start trace_out=). DISCIPLINE: a broad trace CONFIRMS a hypothesis you formed by READING the code — it is not a way to find structure. You MUST pass `hypothesis` (a concrete $address + what you read that points there) or the call is refused. Inputs: session_id, hypothesis, optional domains, optional output path. Returns: runId + store path + domains. Spec 827: with no `output` the capture goes to the per-user trace directory (%LOCALAPPDATA%/Application Support/XDG, override C64RE_TRACE_DIR), NOT into the project — a trace is gigabytes of continuously rewritten binary and a synced project directory is the worst place for it; `<project>/runtime/traces.json` records where each capture went.",
+      "desc": "Start a streaming trace on a RUNNING session (no need to pre-declare trace_out at session_start). Use to begin capturing the live shared session's execution into a .c64retrace binary timeline (the authority) + a queryable trace.duckdb index. Pick domains (default c64-cpu+memory; add drive8-cpu/iec/vic for the full picture). Then drive with runtime_session_run, stamp phases with runtime_mark, finalize with runtime_trace_finalize, and read the swimlane/offline-stepping with runtime_swimlane_slice / query with trace_store_*. Not for a one-shot scenario (use runtime_session_start trace_out=). DISCIPLINE: a broad trace CONFIRMS a hypothesis you formed by READING the code — it is not a way to find structure. You MUST pass `hypothesis` (a concrete $address + what you read that points there) or the call is refused. Inputs: session_id, hypothesis, optional domains, optional output path. Returns: runId + store path + domains. With no `output` the capture goes to the per-user trace directory (%LOCALAPPDATA%/Application Support/XDG, override C64RE_TRACE_DIR), NOT into the project — a trace is gigabytes of continuously rewritten binary and a synced project directory is the worst place for it; `<project>/runtime/traces.json` records where each capture went.",
       "tier": "default?"
     },
     {
@@ -2486,9 +2486,9 @@
       "name": "slot_record",
       "file": "server-tools/slots.ts",
       "ns": "slot",
-      "hasSpec": true,
-      "firstSentence": "Fill one Spec 844 slot: the answer to a required question, with the evidence for it.",
-      "desc": "Fill one Spec 844 slot: the answer to a required question, with the evidence for it. Use when a door refuses on an empty slot, or when you have just established one of the 15. Inputs: slot id, answer, evidence, optional address range; S11 and S15 also require method. Returns: the finding written + the updated slot line.",
+      "hasSpec": false,
+      "firstSentence": "Fill one required slot: the answer to a required question, with the evidence for it.",
+      "desc": "Fill one required slot: the answer to a required question, with the evidence for it. Use when a door refuses on an empty slot, or when you have just established one of the 15. Not for seeing which slots are still empty (use project_slots). Inputs: slot id, answer, evidence, optional address range; S11 and S15 also require method. Returns: the finding written + the updated slot line.",
       "tier": "default?"
     },
     {
@@ -2639,9 +2639,9 @@
       "name": "validate_extraction",
       "file": "server-tools/payloads.ts",
       "ns": "validate",
-      "hasSpec": true,
+      "hasSpec": false,
       "firstSentence": "Use to validate a per-project extractor's manifest against the loader-lens READ-SET — the ground truth the REAL loader produced, one lane per medium.",
-      "desc": "Use to validate a per-project extractor's manifest against the loader-lens READ-SET — the ground truth the REAL loader produced, one lane per medium. DISK (BLOCK_READ, `drive-mechanism` domain): which physical track/sector the drive actually latched GCR bytes off, in read order; drive-side truth, immune to the write-time buffering that made the old landing-map source lie. Flags spans claiming a sector the loader never read (the wrong-interpretation bug class) and read blocks the manifest missed. CART (CART_READ, `cart-read` domain, Spec 785): which bank served which window and over which offsets while the CPU read out of it; chip-side truth. WHAT THE READ-SET PROVES: used-in-THIS-run, never unused — a run that did not reach level 90 says nothing about level 90's bank. So a slot span this run did not touch is reported 'not seen in this run' and NEVER fails the verdict. The cart branch fails only on what a run can actually contradict: the run demonstrably read a payload and read PAST a span it never read. Sparse observations (fewer served reads than the bounding range spans) are marked as the weak matches they are. Cart reads no span claims are reported too — code executing out of a bank lands there, so they are leads, not defects. Records a validation finding (confirmation on pass, refutation on fail) with an evidence link to the capture, and warns if the manifest's imageIdentity names a different image than the capture ran. Run after register_payloads_from_manifest. Inputs: capture_path (.c64retrace armed with drive-mechanism and/or cart-read), manifest_path.",
+      "desc": "Use to validate a per-project extractor's manifest against the loader-lens READ-SET — the ground truth the REAL loader produced, one lane per medium. DISK (BLOCK_READ, `drive-mechanism` domain): which physical track/sector the drive actually latched GCR bytes off, in read order; drive-side truth, immune to the write-time buffering that made the old landing-map source lie. Flags spans claiming a sector the loader never read (the wrong-interpretation bug class) and read blocks the manifest missed. CART (CART_READ, `cart-read` domain): which bank served which window and over which offsets while the CPU read out of it; chip-side truth. WHAT THE READ-SET PROVES: used-in-THIS-run, never unused — a run that did not reach level 90 says nothing about level 90's bank. So a slot span this run did not touch is reported 'not seen in this run' and NEVER fails the verdict. The cart branch fails only on what a run can actually contradict: the run demonstrably read a payload and read PAST a span it never read. Sparse observations (fewer served reads than the bounding range spans) are marked as the weak matches they are. Cart reads no span claims are reported too — code executing out of a bank lands there, so they are leads, not defects. Records a validation finding (confirmation on pass, refutation on fail) with an evidence link to the capture, and warns if the manifest's imageIdentity names a different image than the capture ran. Run after register_payloads_from_manifest. Not for registering the payloads themselves (use register_payloads_from_manifest). Inputs: capture_path (.c64retrace armed with drive-mechanism and/or cart-read), manifest_path.",
       "tier": "default?"
     },
     {
@@ -2657,9 +2657,9 @@
       "name": "wiki_index",
       "file": "server-tools/docs.ts",
       "ns": "wiki",
-      "hasSpec": true,
-      "firstSentence": "The project's document index, DERIVED from the declarations (Spec 847 D6) — never hand-maintained, so it cannot go empty.",
-      "desc": "The project's document index, DERIVED from the declarations (Spec 847 D6) — never hand-maintained, so it cannot go empty. Use to see what is documented and what covers which address range. Inputs: optional write. Returns: the index; with write=true also saves docs/index.md.",
+      "hasSpec": false,
+      "firstSentence": "The project's document index, DERIVED from the declarations — never hand-maintained, so it cannot go empty.",
+      "desc": "The project's document index, DERIVED from the declarations — never hand-maintained, so it cannot go empty. Use to see what is documented and what covers which address range. Not for the health of those declarations (use doc_lint). Inputs: optional write. Returns: the index; with write=true also saves docs/index.md.",
       "tier": "default?"
     }
   ]

@@ -569,7 +569,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_create",
-    "Create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set. Runs the NO-PATCH scenario once to cache the equivalence baseline. Start an iterate-your-own-code loop on a fixed snapshot. Inputs: session_id, anchor (checkpoint id), scenario {inputs, cycleBudget}. Returns: the candidate {id, ...}.",
+    "Create a live candidate: a baseline checkpoint anchor + a bound scenario (deterministic replay) + an empty overlay patch-set. Runs the NO-PATCH scenario once to cache the equivalence baseline. Use when you want to iterate your own code against a fixed baseline. Not for a single patched run (use runtime_overlay_run). Start an iterate-your-own-code loop on a fixed snapshot. Inputs: session_id, anchor (checkpoint id), scenario {inputs, cycleBudget}. Returns: the candidate {id, ...}.",
     { session_id: z.string(), anchor: z.string(), scenario: z.object({ inputs: z.array(z.any()).optional(), cycleBudget: z.number().optional() }).optional() },
     safeHandler("runtime_candidate_create", async ({ session_id, anchor, scenario }) => {
       const d = await candidateDaemon();
@@ -580,7 +580,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_patch",
-    "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step). Give `source_path` (an .asm/.tas file, assembled here → bytes) OR pre-assembled `bytes`. `space` ram|roml|romh + `bank` + `addr` (CPU window addr) target RAM or a cart bank (795). Re-adding at the same target REPLACES (iterate a fix). Inputs: session_id, id, addr, space?, bank?, source_path?|bytes?. Returns: the candidate.",
+    "Add/replace an overlay patch on a candidate (assemble ⊕ overlay in one step). Give `source_path` (an .asm/.tas file, assembled here → bytes) OR pre-assembled `bytes`. `space` ram|roml|romh + `bank` + `addr` (CPU window addr) target RAM or a cart bank (795). Re-adding at the same target REPLACES (iterate a fix). Use to add or replace one patch on a candidate. Not for writing bytes into the live machine (use runtime_inject_range). Inputs: session_id, id, addr, space?, bank?, source_path?|bytes?. Returns: the candidate.",
     { session_id: z.string(), id: z.string(), addr: z.number(), space: z.enum(["ram", "roml", "romh"]).optional(), bank: z.number().optional(), source_path: z.string().optional(), bytes: z.array(z.number()).optional() },
     safeHandler("runtime_candidate_patch", async ({ session_id, id, addr, space, bank, source_path, bytes }) => {
       // S11 gate: a patch ALLOCATES. Four corpus projects claimed free RAM from reading
@@ -609,7 +609,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_run",
-    "Run a candidate: restore its baseline anchor, apply ALL its patches, play the bound scenario (deterministic), and AUTO-DIFF (794) vs the no-patch baseline → the verdict 'what did my code change / is it equivalent'. Ephemeral (anchor untouched). Inputs: session_id, id. Returns: {registers, verdict, ranCycles, diff}.",
+    "Run a candidate: restore its baseline anchor, apply ALL its patches, play the bound scenario (deterministic), and AUTO-DIFF (794) vs the no-patch baseline → the verdict 'what did my code change / is it equivalent'. Ephemeral (anchor untouched). Use after every patch. Not for a run on the shared session the human co-drives (use runtime_session_run). Inputs: session_id, id. Returns: {registers, verdict, ranCycles, diff}.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_candidate_run", async ({ session_id, id }) => {
       const d = await candidateDaemon();
@@ -620,7 +620,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_remove_patch",
-    "Remove the overlay patch at (space, bank, addr) from a candidate. Inputs: session_id, id, addr, space?, bank?. Returns: the candidate + removed:bool.",
+    "Remove the overlay patch at (space, bank, addr) from a candidate. Use to drop one patch and keep the candidate. Not for the whole candidate (use runtime_candidate_delete). Inputs: session_id, id, addr, space?, bank?. Returns: the candidate + removed:bool.",
     { session_id: z.string(), id: z.string(), addr: z.number(), space: z.enum(["ram", "roml", "romh"]).optional(), bank: z.number().optional() },
     safeHandler("runtime_candidate_remove_patch", async ({ session_id, id, addr, space, bank }) => {
       const d = await candidateDaemon();
@@ -631,7 +631,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_list",
-    "List candidates (id omitted) or show one candidate's patches + last verdict. Inputs: session_id, id?. Returns: candidate(s).",
+    "List candidates (id omitted) or show one candidate's patches + last verdict. Use to see what exists and how the last run judged it. Not for running one (use runtime_candidate_run). Inputs: session_id, id?. Returns: candidate(s).",
     { session_id: z.string(), id: z.string().optional() },
     safeHandler("runtime_candidate_list", async ({ session_id, id }) => {
       const d = await candidateDaemon();
@@ -642,7 +642,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_delete",
-    "Delete a candidate from the session store. Inputs: session_id, id. Returns: {id, deleted}.",
+    "Delete a candidate from the session store. Use when a candidate is finished with. Not for dropping one patch and keeping the candidate (use runtime_candidate_remove_patch). Inputs: session_id, id. Returns: {id, deleted}.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_candidate_delete", async ({ session_id, id }) => {
       const d = await candidateDaemon();
@@ -653,7 +653,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_export",
-    "Export a candidate's accumulated source-patch-set = the delta seed (the code that goes into the real build; the final-delta shaping is a later step). Inputs: session_id, id. Returns: {id, patches:[{space,bank,addr,source}]}.",
+    "Export a candidate's accumulated source-patch-set = the delta seed (the code that goes into the real build; the final-delta shaping is a later step). Use to hand the patch-set on as it stands. Not for build-ready files (use runtime_candidate_derive_delta). Inputs: session_id, id. Returns: {id, patches:[{space,bank,addr,source}]}.",
     { session_id: z.string(), id: z.string() },
     safeHandler("runtime_candidate_export", async ({ session_id, id }) => {
       const d = await candidateDaemon();
@@ -664,7 +664,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_candidate_derive_delta",
-    "Derive the FINAL CODE DELTA from a candidate: turn its exported source-patch-set into a build-ready delta on disk — one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md. The code that goes into the real build (the meaning-bridge payoff). Inputs: session_id, id, out_dir? (default <project>/delta-<id>). Returns: outDir + written files + manifest.",
+    "Derive the FINAL CODE DELTA from a candidate: turn its exported source-patch-set into a build-ready delta on disk — one .asm per target (each carries its own org) + delta-manifest.json + DELTA.md. The code that goes into the real build (the meaning-bridge payoff). Use once the candidate is proven. Not for the raw patch-set (use runtime_candidate_export). Inputs: session_id, id, out_dir? (default <project>/delta-<id>). Returns: outDir + written files + manifest.",
     { session_id: z.string(), id: z.string(), out_dir: z.string().optional() },
     safeHandler("runtime_candidate_derive_delta", async ({ session_id, id, out_dir }) => {
       const d = await candidateDaemon();
@@ -686,7 +686,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_find_cheat",
-    "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. The FINDER half of the cheat loop; verify a candidate by freezing an address (runtime_candidate_patch at that addr with its original value) + runtime_candidate_run to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
+    "Cheat-candidate finder: diff two checkpoint anchors' full RAM to find addresses that DECREASED (candidate life/health/ammo counters), ranked smallest-delta first. Use after capturing two anchors around a loss. Not for a general diff of two checkpoints (use runtime_diff_snapshots). The FINDER half of the cheat loop; verify a candidate by freezing an address (runtime_candidate_patch at that addr with its original value) + runtime_candidate_run to confirm it holds across the scenario. Inputs: session_id, before (anchor before the loss), after (anchor after), max?. Returns: ranked candidates {addr, before, after, delta}.",
     { session_id: z.string(), before: z.string(), after: z.string(), max: z.number().optional() },
     safeHandler("runtime_find_cheat", async ({ session_id, before, after, max }) => {
       const d = await candidateDaemon();

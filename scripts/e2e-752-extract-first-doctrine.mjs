@@ -131,7 +131,12 @@ ssvc.initProject({ name: "752 nextstep" });
 ssvc.saveFinding({ kind: "classification", title: "ungrounded routine", addressRange: { start: 0x1000, end: 0x1010 }, tags: ["routine"] });
 ssvc.buildAllViews();
 const ns = computeNextStep(sp);
-ok(ns.primary.stepId === "static-analyze", "S8 ungrounded finding → primary step routes to grounding (static-analyze)", `step=${ns.primary.stepId}`);
+// The rung VETOES the runtime branch; it does not decide the primary step. It used to
+// return static-analyze and park the recommender there forever, because running the
+// analyser again repairs nothing about a finding that cites no extract (agent-step.ts 7b).
+const vetoed = (ns.blockedBy ?? []).some((b) => b.id === "ungrounded-findings");
+ok(vetoed, "S8 ungrounded finding → the runtime branch is vetoed, naming the finding", `blockedBy=${(ns.blockedBy ?? []).map((b) => b.id).join(",")}`);
+ok(!/^runtime-/.test(ns.primary.stepId), "S8 no runtime step is primary while something is ungrounded", `step=${ns.primary.stepId}`);
 ok(/ungrounded/i.test(ns.primary.why) && /L1/.test(ns.primary.why), "S8 the why names L1 / ungrounded", ns.primary.why.slice(0, 60));
 
 // Control: no ungrounded findings → the rung does not fire.
@@ -188,9 +193,24 @@ ok(!(fTass.tags ?? []).includes("ungrounded"), "REVIEW 64tass-source role counts
 // Steering idempotency keys on the hidden token even if the heading is edited.
 const tk = mkdtempSync(join(tmpdir(), "c64re-752j-"));
 mkdirSync(join(tk, "knowledge"), { recursive: true });
-const { EXTRACT_FIRST_TOKEN } = await import(`${ROOT}/dist/server-tools/steering-defaults.js`);
-writeFileSync(join(tk, "knowledge", "steering.md"), `# Steering\n${EXTRACT_FIRST_TOKEN}\n## (heading hand-edited away)\n`);
+const steeringMod = await import(`${ROOT}/dist/server-tools/steering-defaults.js`);
+const steeringTokens = Object.entries(steeringMod)
+  .filter(([k, v]) => k.endsWith("_TOKEN") && typeof v === "string")
+  .map(([, v]) => v);
+// Every default block present, one heading hand-edited away: the tokens carry it, so
+// nothing is appended a second time.
+writeFileSync(join(tk, "knowledge", "steering.md"), `# Steering\n${steeringTokens.join("\n")}\n## (heading hand-edited away)\n`);
 ok(ensureDefaultSteering(tk) === "present", "REVIEW steering idempotency survives a heading edit (hidden token)");
+// One block present, the rest missing: the missing ones are appended and the present
+// one is NOT duplicated.
+const tk2 = mkdtempSync(join(tmpdir(), "c64re-752k-"));
+mkdirSync(join(tk2, "knowledge"), { recursive: true });
+const oneToken = steeringMod.EXTRACT_FIRST_TOKEN;
+writeFileSync(join(tk2, "knowledge", "steering.md"), `# Steering\n${oneToken}\n## (heading hand-edited away)\n`);
+const added = ensureDefaultSteering(tk2);
+const body = readFileSync(join(tk2, "knowledge", "steering.md"), "utf8");
+ok(added === "appended", "REVIEW a steering file missing blocks gets them appended", added);
+ok(body.split(oneToken).length - 1 === 1, "REVIEW the block already there is not appended twice", `${body.split(oneToken).length - 1}x`);
 
 console.log(`\nproject: ${dir}\nauto-chain: ${proj}\nenforce: ${ep}\nnextstep: ${sp}\nreal-disk: ${dp}`);
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} Spec 752: ${pass} pass, ${fail} fail.`);

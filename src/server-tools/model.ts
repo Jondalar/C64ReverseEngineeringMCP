@@ -33,7 +33,7 @@ import { reentryPackage, formatReentry } from "../model/reentry.js";
 export function registerModelTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "model_assert",
-    "State one boundary of the project's model: a named address range at a level (system/container/component) with the evidence for it. Use when you have established what a region IS. Membership underneath is computed, never passed. Inputs: name, level, range, description, evidence. Returns: the boundary + what now falls inside it.",
+    "State one boundary of the project's model: a named address range at a level (system/container/component) with the evidence for it. Use when you have established what a region IS. Membership underneath is computed, never passed. Not for a claim about behaviour (use save_finding). Inputs: name, level, range, description, evidence. Returns: the boundary + what now falls inside it.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       name: z.string().min(2).describe("What this region is called, e.g. \"resident engine\" or \"stage 2 loader\""),
@@ -81,7 +81,7 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
 
   server.tool(
     "model_read",
-    "The re-entry read (Spec 845 D6): the whole project model in one call — boundaries with citations, the edges between them, what is still open, and what was ALREADY REFUTED so it is not re-derived. Use at the start of a session, after a compact, or whenever the thread is lost. Inputs: optional project_dir. Returns: the model as text.",
+    "The re-entry read: the whole project model in one call — boundaries with citations, the edges between them, what is still open, and what was ALREADY REFUTED so it is not re-derived. Use at the start of a session, after a compact, or whenever the thread is lost. Not for which of the 15 required relationships are still empty (use project_slots). Inputs: optional project_dir. Returns: the model as text.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       model_only: z.boolean().default(false).describe("Only the boundaries and their edges, without the open/refuted sections"),
@@ -101,7 +101,7 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
 
   server.tool(
     "model_remove",
-    "Remove one asserted boundary. Use when a boundary turns out to be wrong — the members underneath are untouched, they simply become orphans again. Inputs: boundary id (from model_read). Returns: what changed.",
+    "Remove one asserted boundary. Use when a boundary turns out to be wrong — the members underneath are untouched, they simply become orphans again. Not for a boundary that is merely imprecise — assert it again instead (use model_assert). Inputs: boundary id (from model_read). Returns: what changed.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       id: z.string().min(3).describe("The boundary id, as model_read prints it"),

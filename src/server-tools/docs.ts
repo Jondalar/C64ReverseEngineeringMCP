@@ -33,7 +33,7 @@ import { DOC_KINDS, template } from "../docs/frontmatter.js";
 export function registerDocTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "doc_register",
-    "Declare one Markdown document: read its frontmatter and make it a node in the graph, so it can be cited, linted and found. Use after writing a synthesis document (a model, a port spec, a budget). Refuses without frontmatter and hands back the template. Inputs: path. Returns: the node + what it covers.",
+    "Declare one Markdown document: read its frontmatter and make it a node in the graph, so it can be cited, linted and found. Use after writing a synthesis document (a model, a port spec, a budget). Refuses without frontmatter and hands back the template. Not for the frontmatter block itself (use doc_template). Inputs: path. Returns: the node + what it covers.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       path: z.string().describe("Project-relative path to the .md, e.g. docs/model/A_overlay_model.md"),
@@ -56,7 +56,7 @@ export function registerDocTools(server: McpServer, context: ServerToolContext):
 
   server.tool(
     "doc_lint",
-    "Which documents declare themselves and which do not: undeclared files, malformed frontmatter, and `amends:` citations naming a document that is not in the project. Use after a writing session, or to see the backlog. Read-only. Inputs: optional project_dir. Returns: the lists, largest undeclared first.",
+    "Which documents declare themselves and which do not: undeclared files, malformed frontmatter, and `amends:` citations naming a document that is not in the project. Use after a writing session, or to see the backlog. Read-only. Not for declaring a document (use doc_register). Inputs: optional project_dir. Returns: the lists, largest undeclared first.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
     },
@@ -71,7 +71,7 @@ export function registerDocTools(server: McpServer, context: ServerToolContext):
 
   server.tool(
     "doc_template",
-    "The frontmatter block to put at the top of a document, for a given kind. Use before writing a synthesis document, or when doc_register refuses. Inputs: kind, title. Returns: the block, ready to paste.",
+    "The frontmatter block to put at the top of a document, for a given kind. Use before writing a synthesis document, or when doc_register refuses. Not for declaring the finished file (use doc_register). Inputs: kind, title. Returns: the block, ready to paste.",
     {
       kind: z.enum(DOC_KINDS).default("synthesis").describe("synthesis = an argued narrative; reference = a lookup; decision = a choice and why; generated = written by a tool"),
       title: z.string().describe("The document's title"),
@@ -83,7 +83,7 @@ export function registerDocTools(server: McpServer, context: ServerToolContext):
 
   server.tool(
     "wiki_index",
-    "The project's document index, DERIVED from the declarations (Spec 847 D6) — never hand-maintained, so it cannot go empty. Use to see what is documented and what covers which address range. Inputs: optional write. Returns: the index; with write=true also saves docs/index.md.",
+    "The project's document index, DERIVED from the declarations — never hand-maintained, so it cannot go empty. Use to see what is documented and what covers which address range. Not for the health of those declarations (use doc_lint). Inputs: optional write. Returns: the index; with write=true also saves docs/index.md.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       write: z.boolean().default(false).describe("Also write docs/index.md"),

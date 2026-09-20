@@ -30,7 +30,7 @@ import { CHECKS } from "../critic/checks.js";
 export function registerCriticTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "project_critique",
-    "Adversarial pass over the project's own records: negative claims the graph contradicts, refutations that invalidated nothing, findings without evidence, overlapping or empty boundaries, orphans, unreachable routines. Each finding carries the proof. Use before calling analysis done, and after a long unattended run. Inputs: optional project_dir, severity filter. Returns: findings + the ready verdict.",
+    "Adversarial pass over the project's own records: negative claims the graph contradicts, refutations that invalidated nothing, findings without evidence, overlapping or empty boundaries, orphans, unreachable routines. Each finding carries the proof. Use before calling analysis done, and after a long unattended run. Not for what a check MEANS and why it ranks that way (use critic_checks). Inputs: optional project_dir, severity filter. Returns: findings + the ready verdict.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       min_severity: z.enum(["blocking", "important", "nice-to-have"]).default("nice-to-have")
@@ -75,7 +75,7 @@ export function registerCriticTools(server: McpServer, context: ServerToolContex
 
   server.tool(
     "critic_checks",
-    "List the critic's checks and what each one's severity MEANS. Use when a critic finding looks mis-ranked — severity is a property of the check, declared once, and this is that table. Inputs: none. Returns: the checks with their severity and rationale.",
+    "List the critic's checks and what each one's severity MEANS. Use when a critic finding looks mis-ranked — severity is a property of the check, declared once, and this is that table. Not for running the checks (use project_critique). Inputs: none. Returns: the checks with their severity and rationale.",
     {},
     async () => {
       const lines = CHECKS.map((c) =>

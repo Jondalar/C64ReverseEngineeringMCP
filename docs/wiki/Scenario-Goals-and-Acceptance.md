@@ -1,4 +1,4 @@
-# Scenario Goals and Acceptance (Spec 810)
+# Scenario Goals and Acceptance
 
 State what a run has to achieve, in the same `.feature` files as
 [Capture Scenarios](Capture-Scenarios). Partly built — see [Status](#status) before
@@ -92,9 +92,9 @@ Open:
 3. byte-exact evaluation against the accepted baseline, with the criterion's mask.
 4. the `# targets:` indexer and its lint. Targets are parsed and never resolved; an
    unresolvable name has to be a lint error.
-5. an MCP tool. There is none for 810 yet.
+5. an MCP tool. There is none yet.
 
-Not open: the runner engine and the branch object. Spec 796's candidate is the branch
+Not open: the runner engine and the branch object. The live candidate is the branch
 — baseline anchor + accumulating patch-set + bound replay, with the no-patch run
 cached and a diff after every run.
 

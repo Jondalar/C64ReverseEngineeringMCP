@@ -6,8 +6,9 @@
 // gets renamed, a tool gains a required argument, a spec is closed — and the page
 // keeps saying what used to be true, in a place that reads as authoritative.
 //
-// So every example is run through the LIVE parser, every tool name is looked up in
-// the LIVE inventory, and every page has to name the spec it documents.
+// So every example is run through the LIVE parser and every tool name is looked up
+// in the LIVE inventory. A page must NOT cite a spec number: the wiki is written for
+// users, and a spec number is this repo's own bookkeeping, meaningless to a reader.
 //
 //   node scripts/check-wiki.mjs
 //   node scripts/check-wiki.mjs --publish   # copy into a wiki clone (path in $C64RE_WIKI)
@@ -28,7 +29,7 @@ const ok = (c, m, d = "") => {
   console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`);
 };
 
-console.log("wiki pages — examples, tool names, spec references\n");
+console.log("wiki pages — examples, tool names, no spec bookkeeping\n");
 
 const pages = readdirSync(WIKI).filter((f) => f.endsWith(".md"));
 ok(pages.length > 0, "0 there are pages to check", pages.join(", "));
@@ -37,31 +38,6 @@ ok(pages.length > 0, "0 there are pages to check", pages.join(", "));
 const { parseFeature, parseStep } = await import(`${ROOT}/dist/project-knowledge/scenario-gherkin.js`);
 const inventory = JSON.parse(readFileSync(join(ROOT, "docs/tool-surface-inventory.json"), "utf8"));
 const toolNames = new Set(inventory.tools.map((t) => t.name));
-
-const specNumbers = new Set();
-for (const dir of ["specs", "specs/_archive"]) {
-  const abs = join(ROOT, dir);
-  if (!existsSync(abs)) continue;
-  for (const f of readdirSync(abs)) {
-    const m = /^(\d+)-/.exec(f);
-    if (m) specNumbers.add(m[1]);
-  }
-}
-// Numbers are shared with the sibling repo; its specs count as existing too.
-const sibling = join(ROOT, "..", "TRX64", "docs");
-if (existsSync(sibling)) {
-  for (const f of readdirSync(sibling)) {
-    const m = /^(\d+)-/.exec(f);
-    if (m) specNumbers.add(m[1]);
-  }
-  const arch = join(sibling, "_archive");
-  if (existsSync(arch)) {
-    for (const f of readdirSync(arch)) {
-      const m = /^(\d+)-/.exec(f);
-      if (m) specNumbers.add(m[1]);
-    }
-  }
-}
 
 // Same rule as check-runtime-invisible: the backend is never named to a reader.
 const FORBIDDEN = [/\bTRX64\b/i, /\bLeitregel\b/i];
@@ -72,14 +48,9 @@ for (const page of pages) {
   const text = readFileSync(join(WIKI, page), "utf8");
   const name = basename(page, ".md");
 
-  // 1. every page except the index names the spec it documents.
-  if (name !== "Home") {
-    const specs = [...text.matchAll(/\(Spec (\d+)\)/g)].map((m) => m[1]);
-    ok(specs.length > 0, `${name}: names the spec it documents`, specs.join(", ") || "none");
-    for (const s of specs) {
-      ok(specNumbers.has(s), `${name}: spec ${s} exists`, specNumbers.has(s) ? "" : "no such spec file");
-    }
-  }
+  // 1. no page cites a spec number — the wiki describes behaviour, not bookkeeping.
+  const specs = [...text.matchAll(/\bSpec\s+\d+/g)].map((m) => m[0]);
+  ok(specs.length === 0, `${name}: cites no spec number`, specs.join(", ") || "clean");
 
   // 2. the backend stays unnamed.
   const leaks = FORBIDDEN.flatMap((re) => text.match(new RegExp(re.source, "gi")) ?? []);
