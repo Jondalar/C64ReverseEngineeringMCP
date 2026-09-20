@@ -7,7 +7,23 @@
 import { buildCfg, rangeCost, type Cfg } from "./cfg.js";
 import { formatSpan, isExact, type Span } from "./cycles.js";
 import { formatLocs, liveness, type LocSet, type Liveness } from "./liveness.js";
-import { compareStates, runStraightLine, type Comparison, type SymOptions } from "./symbolic.js";
+import { compareStates, runStraightLine, type Comparison, type KnownEntry, type SymOptions } from "./symbolic.js";
+
+const hex2 = (v: number): string => `$${(v & 0xff).toString(16).toUpperCase().padStart(2, "0")}`;
+
+/** The entry facts, in one line, for the assumption list. */
+export function formatKnownEntry(known: KnownEntry | undefined): string | null {
+  if (!known) return null;
+  const parts: string[] = [];
+  if (known.a !== undefined) parts.push(`A = ${hex2(known.a)}`);
+  if (known.x !== undefined) parts.push(`X = ${hex2(known.x)}`);
+  if (known.y !== undefined) parts.push(`Y = ${hex2(known.y)}`);
+  for (const f of ["C", "Z", "N", "V", "D", "I"] as const) {
+    if (known[f] !== undefined) parts.push(`${f} = ${known[f]}`);
+  }
+  if (known.nzFollow) parts.push(`N and Z already follow ${known.nzFollow}`);
+  return parts.length ? parts.join(", ") : null;
+}
 
 export interface CodeInput {
   /** where the bytes run */
@@ -120,6 +136,8 @@ export function compareCost(original: CodeInput, candidate: CodeInput, options: 
       ? "decimal mode at entry is unknown, so every add and subtract stays opaque"
       : "decimal mode is clear at entry (the C64 runs with D clear; a block that sets D is modelled as it is)",
   ];
+  const known = formatKnownEntry(options.known);
+  if (known) assumptions.push(`what is already true on entry, and the verdict holds only under it: ${known}`);
 
   let equivalence: Comparison;
   if (!a.cfg.straightLine || !b.cfg.straightLine) {

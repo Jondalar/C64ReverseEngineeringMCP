@@ -213,12 +213,17 @@ export function buildCfg(bytes: Uint8Array, start: number): Cfg {
   }
 
   const loops = findLoops(blocks, insns);
+  // An EMPTY range is straight-line and costs nothing. It is not a degenerate
+  // case to be tolerated: "these bytes go away" is a candidate like any other
+  // (a `jmp` to the next instruction, a redundant `clc`), and the comparison
+  // that decides it needs a side with no instructions in it.
   const straightLine =
     truncatedAt === null &&
-    blocks.length === 1 &&
-    blocks[0]!.unknownExits.every((e) => e.kind === "falls-off-the-end") &&
-    blocks[0]!.calls.length === 0 &&
-    insns.every((i) => !BRANCHES.has(i.mnemonic) && i.mnemonic !== "jmp" && !TERMINAL.has(i.mnemonic));
+    blocks.length <= 1 &&
+    (blocks.length === 0 ||
+      (blocks[0]!.unknownExits.every((e) => e.kind === "falls-off-the-end") &&
+        blocks[0]!.calls.length === 0 &&
+        insns.every((i) => !BRANCHES.has(i.mnemonic) && i.mnemonic !== "jmp" && !TERMINAL.has(i.mnemonic))));
 
   return { start, end, insns, blocks, loops, truncatedAt, straightLine };
 }
@@ -401,7 +406,13 @@ export interface RangeCost {
  */
 export function rangeCost(cfg: Cfg): RangeCost {
   const bytes = cfg.blocks.reduce((a, b) => a + b.bytes, 0);
-  if (cfg.blocks.length === 0) return { bytes, cycles: null, why: "nothing decoded" };
+  if (cfg.blocks.length === 0) {
+    // No bytes at all is not "nothing decoded": it is zero bytes and zero
+    // cycles, exactly, and it is the other side of every candidate that
+    // removes an instruction.
+    if (cfg.insns.length === 0 && cfg.truncatedAt === null) return { bytes: 0, cycles: span(0), why: null };
+    return { bytes, cycles: null, why: "nothing decoded" };
+  }
 
   const extra = new Map<number, Span>();
   const removed = new Set<string>();
