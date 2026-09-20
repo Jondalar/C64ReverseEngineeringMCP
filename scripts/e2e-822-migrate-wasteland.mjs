@@ -19,21 +19,49 @@
 // Exit 0 = pass, 1 = fail.   npm run e2e:822
 
 import { execFileSync, spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
-const WASTELAND = process.env.C64RE_WASTELAND_EF ?? "/Users/alex/Development/C64/Cracking/Wasteland_EF";
+const WASTELAND_REPO = process.env.C64RE_WASTELAND_EF ?? "/Users/alex/Development/C64/Cracking/Wasteland_EF";
+// The fixture is a COMMIT, not a working directory. Wasteland_EF is a project the
+// owner keeps working in, and this gate asserts absolute counts measured on it —
+// 16 annotation files, 456 routines, 2191 labels. Read from the working tree those
+// counts decay into a report about yesterday's editing: by 2026-09-20 two
+// annotation files were gone and fourteen assertions were red, with nothing wrong
+// in the code. So the tree is exported from a pinned ref and the copy is made from
+// that. a9142d16 (2026-09-06) is the commit the numbers below were measured on.
+const WASTELAND_REF = process.env.C64RE_WASTELAND_EF_REF ?? "a9142d16";
 
 console.log("Spec 822 — human knowledge integration + migration, Wasteland_EF acceptance\n");
 // 822.2 cut a project over on open: the six stores then live in knowledge/_legacy-822/.
 // The gate tests the migration, so it rebuilds the PRE-cut-over layout in its temp copy
 // from whichever place still has the files.
 const LEGACY_DIR = "_legacy-822";
+if (!existsSync(join(WASTELAND_REPO, ".git"))) {
+  console.log(`PENDING — Wasteland_EF fixture repository not present at ${WASTELAND_REPO} (set C64RE_WASTELAND_EF). 0 pass, 0 fail. NOT green, NOT run.`);
+  process.exit(0);
+}
+let refOk = true;
+try {
+  execFileSync("git", ["-C", WASTELAND_REPO, "rev-parse", "--verify", `${WASTELAND_REF}^{commit}`], { stdio: ["ignore", "ignore", "ignore"] });
+} catch { refOk = false; }
+if (!refOk) {
+  console.log(`PENDING — ${WASTELAND_REPO} has no commit ${WASTELAND_REF} (set C64RE_WASTELAND_EF_REF). 0 pass, 0 fail. NOT green, NOT run.`);
+  process.exit(0);
+}
+// Export the pinned tree; nothing is read from the working directory after this.
+const WASTELAND = mkdtempSync(join(tmpdir(), "c64re-822-fixture-"));
+{
+  const tar = join(WASTELAND, "..", `c64re-822-${Date.now()}.tar`);
+  execFileSync("git", ["-C", WASTELAND_REPO, "archive", "--format=tar", "-o", tar, WASTELAND_REF]);
+  execFileSync("tar", ["-xf", tar, "-C", WASTELAND]);
+  rmSync(tar, { force: true });
+}
 const legacySource = (f) => (existsSync(join(WASTELAND, "knowledge", f)) ? join(WASTELAND, "knowledge", f) : join(WASTELAND, "knowledge", LEGACY_DIR, f));
 if (!existsSync(legacySource("entities.json"))) {
-  console.log(`PENDING — Wasteland_EF fixture not present at ${WASTELAND} (set C64RE_WASTELAND_EF). 0 pass, 0 fail. NOT green, NOT run.`);
+  console.log(`PENDING — commit ${WASTELAND_REF} of ${WASTELAND_REPO} carries no knowledge/entities.json. 0 pass, 0 fail. NOT green, NOT run.`);
   process.exit(0);
 }
 
