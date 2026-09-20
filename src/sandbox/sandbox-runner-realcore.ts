@@ -26,11 +26,18 @@
 // sandbox-types.ts for the reasoning.
 //
 // Documented divergences from the shadow (inherent to the real-core write-map):
-//   * `writes` is the real core's DISTINCT-address write set (>$01ff), not the
-//     shadow's temporal event list — so `Writes returned: N` counts distinct
-//     written addresses. Writes to $0000-$01ff (ZP / stack / CPU-port machinery)
-//     are excluded from the map.
+//   * `writes` is the real core's DISTINCT-address write set, not the shadow's
+//     temporal event list — so `Writes returned: N` counts distinct written
+//     addresses.
 //   * The unimplemented-opcode line never emits (the real core is a full ISA).
+//
+// Zero page and the stack: the core's write-map starts at $0200, so $0000-$01FF has
+// to be accounted for here. A second set-up of the SAME run with an instruction cap
+// of zero gives the pre-run image of those two pages; the difference against the
+// final image is what the run changed there. It costs one extra process start (~0.5 s)
+// and it is the only way to get the answer without a second implementation of the
+// machine's power-on state on this side. See `LowMemoryReport` for what that buys and
+// what it cannot see.
 //
 // Read-only ROM overlay loads (`mapping: rom | ef_roml | ef_romh`) are NOT
 // reproduced here — an arbitrary-address read-only overlay with writes falling
@@ -45,6 +52,7 @@ import { join } from "node:path";
 import type {
   CpuWrite,
   LoadMapping,
+  LowMemoryReport,
   MemoryWindow,
   SandboxCpuState,
   SandboxLoad,
@@ -61,6 +69,9 @@ interface ResolvedLoad {
   address: number;
   bytes: Uint8Array;
 }
+
+/** Where the core's own write-map begins; everything under it is zero page + the stack. */
+const LOW_END = 0x0200;
 
 function toU8(input: number[] | Uint8Array | ArrayLike<number>): Uint8Array {
   return input instanceof Uint8Array ? input : Uint8Array.from(Array.from(input));
@@ -106,7 +117,10 @@ export function runSandboxRealCore(options: SandboxRunOptions): SandboxRunResult
 
   const tmp = mkdtempSync(join(tmpdir(), "c64re-sandbox-"));
   try {
-    const args: string[] = [
+    // Everything that DESCRIBES the run — loads, seeds, registers, hooks. The caps
+    // and the harvest are appended per invocation, because the pre-run image is the
+    // same set-up run for zero instructions.
+    const setup: string[] = [
       "sandbox",
       "--entry", hx4(options.initialPc),
       // TS-faithful entry: PC=entry, reg-seed, staged RTS sentinel — not the
@@ -115,13 +129,6 @@ export function runSandboxRealCore(options: SandboxRunOptions): SandboxRunResult
       // All-RAM: reproduce the flat-64K TS shadow ($A000-$FFFF + $D000-$DFFF = RAM,
       // no ROM / no IO). The tool doc: "load code/data into a flat 64K RAM".
       "--io", "$34",
-      // The shadow caps on instruction count only; make the cycle cap non-binding
-      // (generous multiple, bounded) so the instruction cap is what stops a runaway.
-      "--instr-cap", String(maxSteps),
-      "--cyc-cap", String(Math.min(maxSteps * 16, 8_000_000_000)),
-      // One deterministic full-RAM harvest; snapshots + the PRG span are sliced
-      // from it locally (final RAM == last write under all-RAM).
-      "--harvest", "$0000:0x10000",
       "--json",
     ];
 
@@ -129,55 +136,105 @@ export function runSandboxRealCore(options: SandboxRunOptions): SandboxRunResult
     resolved.forEach((r, i) => {
       const file = join(tmp, `load${i}.bin`);
       writeFileSync(file, r.bytes);
-      args.push("--load", `${file}@${hx4(r.address)}`);
+      setup.push("--load", `${file}@${hx4(r.address)}`);
     });
 
     // Zero-page seeds (src/dst pointers etc.).
     for (const [k, v] of Object.entries(options.initialZp ?? {})) {
-      args.push("--zp", `${hx2(Number(k))}=${hx2(v)}`);
+      setup.push("--zp", `${hx2(Number(k))}=${hx2(v)}`);
     }
 
     // Entry registers — only when the caller set them (else the real core's
     // direct-entry defaults A/X/Y=0, SP=$FD, P=$22 match the TS Cpu6502 defaults).
-    if (options.initialA !== undefined) args.push("--reg-a", hx2(options.initialA));
-    if (options.initialX !== undefined) args.push("--reg-x", hx2(options.initialX));
-    if (options.initialY !== undefined) args.push("--reg-y", hx2(options.initialY));
-    if (options.initialSp !== undefined) args.push("--reg-sp", hx2(options.initialSp));
-    if (options.initialFlags !== undefined) args.push("--reg-p", hx2(options.initialFlags));
+    if (options.initialA !== undefined) setup.push("--reg-a", hx2(options.initialA));
+    if (options.initialX !== undefined) setup.push("--reg-x", hx2(options.initialX));
+    if (options.initialY !== undefined) setup.push("--reg-y", hx2(options.initialY));
+    if (options.initialSp !== undefined) setup.push("--reg-sp", hx2(options.initialSp));
+    if (options.initialFlags !== undefined) setup.push("--reg-p", hx2(options.initialFlags));
 
     // stop_pc → an extra sentinel breakpoint (maps to the "stop_pc" vocab).
-    if (options.stopPc !== undefined) args.push("--sentinel", hx4(options.stopPc));
+    if (options.stopPc !== undefined) setup.push("--sentinel", hx4(options.stopPc));
 
     // Stream hooks + fed bytes (get_byte replacement).
-    for (const pc of options.streamHookPcs ?? []) args.push("--stream-hook", hx4(pc));
+    for (const pc of options.streamHookPcs ?? []) setup.push("--stream-hook", hx4(pc));
     if (options.inputStream && options.inputStream.length > 0) {
       const streamFile = join(tmp, "stream.bin");
       writeFileSync(streamFile, toU8(options.inputStream));
-      args.push("--stream", streamFile);
+      setup.push("--stream", streamFile);
     }
+
+    const args: string[] = [
+      ...setup,
+      // The shadow caps on instruction count only; make the cycle cap non-binding
+      // (generous multiple, bounded) so the instruction cap is what stops a runaway.
+      "--instr-cap", String(maxSteps),
+      "--cyc-cap", String(Math.min(maxSteps * 16, 8_000_000_000)),
+      // One deterministic full-RAM harvest; snapshots + the PRG span are sliced
+      // from it locally (final RAM == last write under all-RAM).
+      "--harvest", "$0000:0x10000",
+    ];
 
     const j = runTrx64Sandbox(cli, args);
 
     // Full 64K RAM as written (raw slice, banking ignored).
     const ram = hexToBytes(j.harvest.hex);
 
+    // ── Zero page and the stack ────────────────────────────────────────────────
+    // The core's write-map stops at $0200. Take the pre-run image of the two low
+    // pages — the same set-up, zero instructions — and call the difference this
+    // run's doing. Never a superset of the truth: a store of a byte that was
+    // already there leaves nothing to compare.
+    const lowMemory: LowMemoryReport = { tracked: false, runs: [], changed: 0 };
+    const lowRuns: Array<{ lo: number; hi: number }> = [];
+    try {
+      const baseline = runTrx64Sandbox(cli, [...setup, "--instr-cap", "0", "--cyc-cap", "0", "--harvest", `$0000:0x${LOW_END.toString(16)}`]);
+      const before = hexToBytes(baseline.harvest.hex);
+      if (before.length < LOW_END) {
+        lowMemory.note = `the pre-run image came back ${before.length} bytes short of $${LOW_END.toString(16)}; $0000-$01FF is NOT accounted for in this run`;
+      } else {
+        lowMemory.tracked = true;
+        for (let a = 0; a < LOW_END; a++) {
+          if (before[a] === ram[a]) continue;
+          const last = lowRuns[lowRuns.length - 1];
+          if (last && last.hi === a - 1) last.hi = a;
+          else lowRuns.push({ lo: a, hi: a });
+        }
+        lowMemory.runs = lowRuns.map((r) => ({
+          lo: r.lo,
+          hi: r.hi,
+          bytes: Array.from({ length: r.hi - r.lo + 1 }, (_, i) => ram[r.lo + i] ?? 0),
+        }));
+        lowMemory.changed = lowRuns.reduce((n, r) => n + (r.hi - r.lo + 1), 0);
+      }
+    } catch (e) {
+      lowMemory.note = `the pre-run image could not be taken (${e instanceof Error ? e.message : String(e)}); `
+        + `$0000-$01FF is NOT accounted for in this run`;
+    }
+
+    // One ordered, disjoint write-map: the core's runs above $01FF, the change-derived
+    // runs below it. Neither list can reach into the other's half.
+    const allRuns = [
+      ...lowRuns.filter((r) => r.hi < LOW_END),
+      ...j.writtenRuns.filter((r) => r.lo >= LOW_END),
+    ].sort((a, b) => a.lo - b.lo);
+
     // The run's FULL write set as a per-address mask — one byte per address is
     // cheap (64 KiB) and it is what makes a gap answerable for any window the
     // caller asks about. Deliberately NOT narrowed by returnWritesRange:
     // "did the CPU store here" is a fact about the run, not about the filter.
     const wrote = new Uint8Array(0x10000);
-    for (const { lo, hi } of j.writtenRuns) {
+    for (const { lo, hi } of allRuns) {
       for (let a = lo; a <= hi; a++) wrote[a] = 1;
     }
 
-    // Reconstruct the shadow's write-derived fields from the real core's
-    // write-map (contiguous runs of distinct written addresses >$01ff), clipped
-    // to returnWritesRange when the caller set one.
+    // Reconstruct the shadow's write-derived fields from that map (contiguous runs
+    // of distinct written addresses), clipped to returnWritesRange when the caller
+    // set one.
     const range = options.returnWritesRange;
     const writes: CpuWrite[] = [];
     const writtenMap: Record<number, number> = {};
     const writtenRuns: WrittenRun[] = [];
-    for (const { lo, hi } of j.writtenRuns) {
+    for (const { lo, hi } of allRuns) {
       const a0 = range ? Math.max(lo, range.start) : lo;
       const a1 = range ? Math.min(hi, range.end) : hi;
       if (a1 < a0) continue; // the clip removed this run entirely
@@ -242,6 +299,7 @@ export function runSandboxRealCore(options: SandboxRunOptions): SandboxRunResult
       writtenSpan,
       memorySnapshots,
       streamPos: j.streamPos,
+      lowMemory,
       // Never set: the real core implements the full ISA (no unimplemented op).
       unimplementedOpcode: undefined,
     };

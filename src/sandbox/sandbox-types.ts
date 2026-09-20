@@ -156,6 +156,38 @@ export interface SandboxRunResult {
   // caller's writes filter.
   memorySnapshots: MemoryWindow[];
   streamPos: number;
+  // How $0000-$01FF was accounted for. See LowMemoryReport.
+  lowMemory: LowMemoryReport;
   // Never set by the real core (full ISA); retained for contract completeness.
   unimplementedOpcode?: { pc: number; opcode: number };
+}
+
+/**
+ * Zero page and the stack, and how we know what happened there.
+ *
+ * The core's write-map starts at $0200 — $0000-$01FF is "machinery, not the routine's
+ * output" from its point of view, which is right for a depack harvest and wrong for
+ * everything else. 6502 code keeps its state in zero page: a depacker's source and
+ * destination pointers, its end pointer, its run length. A run that demonstrably
+ * executed `STY $2D` and `INC $011C` was reported as having "stored nothing above
+ * $01FF" — literally true and useless — and a window over $011B-$0122 printed eight
+ * holes. The byte the caller needed was reachable only through `include_observed`,
+ * which called it "residue / loaded input, NOT this run's output" — the exact opposite
+ * of what it was.
+ *
+ * So the low pages are accounted for on this side, by CHANGE: the same run is set up a
+ * second time with an instruction cap of zero and its $0000-$01FF harvested, and the
+ * difference against the final image is the run's effect there. The limit is stated
+ * rather than hidden — a store of a byte that was already at that address leaves
+ * nothing to see. That makes low-memory coverage a subset of the truth, never a
+ * superset: what it reports, the run really did change.
+ */
+export interface LowMemoryReport {
+  /** False when the pre-run image could not be taken; `note` says why. */
+  tracked: boolean;
+  /** Contiguous stretches of $0000-$01FF whose bytes differ from the pre-run image. */
+  runs: WrittenRun[];
+  /** Total changed bytes below $0200. */
+  changed: number;
+  note?: string;
 }

@@ -105,6 +105,29 @@ routine's output is neither 200 fragments nor one span full of bytes it never
 stored, and `return_writes_start` / `return_writes_end` is how to ask for the
 part that is wanted.
 
+## Zero page and the stack are output too
+
+The real core's write-map begins at $0200: below that is "the CPU port and the
+stack page — machinery, not the routine's output". That is right for a depack
+harvest and wrong for everything else, because 6502 code keeps its state in zero
+page — a depacker's source and destination pointers, its end pointer, its run
+length. A run that demonstrably executed `STY $2D` and `INC $011C` was answered
+with *"this run stored nothing above $01FF"* and a window over `$011B-$0122`
+printed as eight holes; the byte the caller was after could only be read through
+`include_observed`, which called it *"residue / loaded input, NOT this run's
+output"* — the exact opposite of what it was.
+
+So `$0000-$01FF` is accounted for on the C64RE side: the same run is set up a
+second time with an instruction cap of zero, its two low pages are harvested, and
+the difference against the final image is what the run changed there. Those runs
+join the ordinary write-map, and the answer names the low-memory total separately
+along with how it was arrived at.
+
+The method's limit is stated rather than hidden: a store of a byte that was
+already at that address leaves nothing to compare, so low-memory coverage is a
+subset of the truth and never a superset. What it reports, the run really did
+change. It costs one extra `trx64cli` start per `sandbox_6502_run`.
+
 `sandbox_depack` returns one contiguous run as `unpacked` (it always did), and
 now also reports `writtenRuns` — every run the depacker wrote — plus
 `returnedRun`, so a multi-block depack says what it did not hand back instead of

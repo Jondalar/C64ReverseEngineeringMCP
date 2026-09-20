@@ -3,6 +3,7 @@ export type {
   SandboxCpuState,
   CpuWrite,
   WrittenRun,
+  LowMemoryReport,
   MemoryWindow,
   StopReason,
   LoadMapping,

@@ -92,7 +92,7 @@ const memBlockSchema = z.object({
 export function registerSandboxTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "sandbox_6502_run",
-    "Run a 6502 routine in an isolated sandbox: load code/data into a flat 64K RAM, optionally hook PCs to feed bytes from an input stream (e.g. replace a serial-recv subroutine), execute until a stop PC / sentinel RTS / max steps / unimplemented opcode, and return the writes plus final CPU state. Use this for porting depackers, crypto, and custom I/O routines without standing up a full C64 emulator. Sentinel RTS exits when the stack returns to $FFFE (pre-staged at $01FE=$FD, $01FF=$FF). The CPU supports common undocumented opcodes (RLA, SLO, RRA, ISC, LAX, SAX, DCP, ALR, ARR, AXS, ANC, undoc NOPs, JAM). Only the bytes the routine actually STORED are payload: the output names the written runs, and a memory range you ask for prints \"--\" wherever this run never wrote (the machine's own residue and your own loaded bytes both count as never-written). A harvest taken before this rule existed cannot tell the two apart, so re-run anything you kept from one. Not for depacking specifically (use sandbox_depack) or a full-machine boot (use runtime_session_run).",
+    "Run a 6502 routine in an isolated sandbox: load code/data into a flat 64K RAM, optionally hook PCs to feed bytes from an input stream (e.g. replace a serial-recv subroutine), execute until a stop PC / sentinel RTS / max steps / unimplemented opcode, and return the writes plus final CPU state. Use this for porting depackers, crypto, and custom I/O routines without standing up a full C64 emulator. Sentinel RTS exits when the stack returns to $FFFE (pre-staged at $01FE=$FD, $01FF=$FF). The CPU supports common undocumented opcodes (RLA, SLO, RRA, ISC, LAX, SAX, DCP, ALR, ARR, AXS, ANC, undoc NOPs, JAM). Only the bytes the routine actually STORED are payload: the output names the written runs, and a memory range you ask for prints \"--\" wherever this run never wrote (the machine's own residue and your own loaded bytes both count as never-written). Zero page and the stack count as output, not as machinery — $0000-$01FF is reported too, judged by change against the run's own pre-run image. Not for depacking specifically (use sandbox_depack) or a full-machine boot (use runtime_session_run).",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from the first path in loads[] to knowledge/phase-plan.json."),
       loads: z.array(memBlockSchema).min(1).describe("Memory loads applied in order. Each entry must specify exactly one of prg_path / raw_path / hex_bytes."),
@@ -112,7 +112,7 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
       return_writes_end: z.string().optional().describe("Upper bound (hex, inclusive) of that write filter. Pass it together with return_writes_start; either alone is ignored. It narrows what is REPORTED, never what the run is judged to have written — a memory range still marks a hole wherever the CPU never stored."),
       write_runs_from: z.number().int().nonnegative().optional().describe("Page the \"Written runs\" list: the index of the first run to print (12 per page). The report always states how many runs and how many bytes are NOT shown and names the largest hidden run, so a truncated list can never be read as the whole story."),
       return_memory_ranges: z.array(z.object({ start: z.string(), end: z.string() })).optional().describe("Memory ranges to snapshot at end of run. Bytes this run never wrote print as \"--\", not as data — a range wider than the routine's output is safe to ask for."),
-      include_observed: z.boolean().optional().describe("Also print the RAW sandbox RAM behind each return_memory_ranges window, including the bytes the routine never wrote. Off by default because those bytes are machine residue (power-on pattern, KERNAL RAM-test leftovers, screen RAM) or your own loaded input — never output of this run. Turn it on when you deliberately want to read back what you LOADED, or to see what was sitting in a gap."),
+      include_observed: z.boolean().optional().describe("Also print the RAW sandbox RAM behind each return_memory_ranges window, un-holed. Off by default because a byte in it that the run never wrote is machine residue (power-on pattern, KERNAL RAM-test leftovers, screen RAM) or your own loaded input. It is NOT a residue-only view: the run's own stores are in there too. Turn it on to read back what you LOADED, or to see what was sitting in a gap."),
       output_path: z.string().optional().describe("If set, write the written bytes as a PRG (2-byte load header + bytes). One file per contiguous written run: a single run goes to this exact path, and a run set with gaps in it gets one file per run, named <path>-$<lo>.<ext>. A gap is never filled to make one file, because those bytes were never written. Past 64 runs nothing is written at all — narrow with return_writes_start / return_writes_end instead."),
     },
     safeHandler("sandbox_6502_run", async (args) => {
@@ -210,7 +210,19 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
           const runBytes = runs.reduce((n, r) => n + (r.hi - r.lo + 1), 0);
           lines.push(`Written runs: ${runs.length}, ${runBytes} ${plural(runBytes, "byte")} in all — ${formatRunList(runs, args.write_runs_from ?? 0)}`);
         } else {
-          lines.push(`Written runs: 0 — this run stored nothing above $01FF.`);
+          lines.push(`Written runs: 0 — this run left no byte of the machine different from how it found it, in main memory or in zero page and the stack.`);
+        }
+        // Issue: the low pages used to be silently outside the answer, and the
+        // description of `include_observed` called what the routine stored there
+        // "residue". Zero page IS where 6502 code keeps its state.
+        const low = result.lowMemory;
+        if (!low.tracked) {
+          lines.push(`WARNING: zero page and the stack ($0000-$01FF) are NOT in the numbers above — ${low.note ?? "the pre-run image was unavailable"}.`);
+        } else if (low.changed > 0) {
+          const where = low.runs.map((r) => (r.lo === r.hi ? `$${formatHexWord(r.lo)}` : `$${formatHexWord(r.lo)}-$${formatHexWord(r.hi)}`)).slice(0, 16).join(", ");
+          const more = low.runs.length > 16 ? `, … +${low.runs.length - 16} more` : "";
+          lines.push(`Zero page + stack: ${low.changed} ${plural(low.changed, "byte")} changed — ${where}${more}. They are counted in the runs above.`);
+          lines.push(`  ($0000-$01FF is judged by comparing the two pages against their pre-run image, so a store of a byte that was already there cannot be seen. What is listed, the run really did change.)`);
         }
         if (result.writtenSpan) {
           const holes = result.writtenSpan.bytes.filter((b) => b === null).length;
@@ -228,7 +240,7 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
           lines.push(`Memory $${formatHexWord(snap.start)}-$${formatHexWord(snap.end)} (${snap.bytes.length} bytes${gapNote}): ${preview}${ell}`);
           if (args.include_observed) {
             const raw = snap.observed.slice(0, 32).map(formatHexByte).join(" ");
-            lines.push(`  observed RAM (residue / loaded input, NOT this run's output): ${raw}${ell}`);
+            lines.push(`  observed RAM (the raw window at stop — machine residue, your loaded input AND this run's own stores, together): ${raw}${ell}`);
           }
         }
 
