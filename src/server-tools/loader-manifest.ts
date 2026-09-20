@@ -171,21 +171,49 @@ export function sectorSpanCoverage(spans: ReadonlyArray<{ kind: string; length: 
   return { bytes, sectors };
 }
 
+// A payload whose STORED bytes are compressed tells you nothing by its blob length.
+//
+// The formats below expand on extraction, so the blob on disk is the DEPACKED output
+// and comparing it against the sector span coverage compares two different things. One
+// run produced 232 of these warnings — every packed payload on the disk — each saying
+// a complete 26-sector chain "looks incomplete" because 26 sectors of packed bytes
+// unpack to more than 26 sectors. 232 unactionable warnings hide the one real defect
+// the check exists to find.
+const PACKED_FORMATS = new Set<string>([
+  "exomizer-raw", "exomizer-sfx",
+  "byteboozer", "byteboozer-lykia",
+  "rle",
+  "bwc-bitstream", "bwc-raw",
+  "pucrunch",
+]);
+
+/** Is this payload stored compressed — or not known to be stored raw? */
+export function payloadIsPacked(p: { format?: string; packer?: string | null }): boolean {
+  const packer = (p.packer ?? "").trim().toLowerCase();
+  if (packer && packer !== "none" && packer !== "plain" && packer !== "raw") return true;
+  if (!p.format) return false;            // nothing declared: treated as stored raw
+  if (p.format === "unknown") return true; // declared unknown: we may NOT assume raw
+  return PACKED_FORMATS.has(p.format);
+}
+
 // Soft chain guard (Spec 784 GAP 4): a payload whose extracted blob has MORE bytes than
 // its declared sector spans cover has an INCOMPLETE chain — the start-only case is the
 // Pawn 168/1329 bug, and the disk view / validate_extraction then see fewer sectors than
 // the payload occupies. Returns a warning string, or undefined when nothing to flag (no
-// sector spans, unknown blob size, or full coverage). NEVER blocks registration.
+// sector spans, unknown blob size, full coverage, or a payload stored compressed, where
+// blob length and span length are not the same quantity). NEVER blocks registration.
 export function chainCoverageWarning(
   name: string,
   fileBytes: number | undefined,
   spans: ReadonlyArray<{ kind: string; length: number }>,
+  payload: { format?: string; packer?: string | null } = {},
 ): string | undefined {
   if (fileBytes === undefined || fileBytes <= 0) return undefined;
+  if (payloadIsPacked(payload)) return undefined;
   const { bytes: coverage, sectors } = sectorSpanCoverage(spans);
   if (sectors === 0) return undefined; // cart/slot-only or no disk spans — not a chain
   if (fileBytes > coverage) {
-    return `${name}: extracted blob is ${fileBytes} bytes but its ${sectors} declared sector span(s) cover only ${coverage} — the block chain looks incomplete (start-only?). Declare the FULL sector chain so the disk view + validate_extraction see every sector.`;
+    return `${name}: extracted blob is ${fileBytes} bytes but its ${sectors} declared sector span(s) cover only ${coverage} — the block chain looks incomplete (start-only?). Declare the FULL sector chain so the disk view + validate_extraction see every sector. If instead the blob is LARGER because it was depacked, declare the payload's stored codec (\`format\` or \`packer\`) and this check steps aside.`;
   }
   return undefined;
 }

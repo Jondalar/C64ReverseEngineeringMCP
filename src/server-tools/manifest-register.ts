@@ -70,7 +70,7 @@ export function registerManifestPayloads(opts: {
       }
     }
     // Spec 784 GAP 4 — soft chain-completeness check (blob bytes vs sector coverage).
-    const coverageWarn = chainCoverageWarning(p.name, fileBytes, p.spans);
+    const coverageWarn = chainCoverageWarning(p.name, fileBytes, p.spans, { format: p.format, packer: p.packer });
     if (coverageWarn) warnings.push(coverageWarn);
 
     const addrStart = p.addressStart ?? p.loadAddress ?? undefined;
