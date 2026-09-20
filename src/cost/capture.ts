@@ -24,6 +24,8 @@ export interface CaptureOptions {
   model?: string;
   budgetSeconds?: number;
   domains?: readonly string[];
+  /** record only from after this many steps — the load is rarely what is measured */
+  afterSteps?: number;
 }
 
 export interface CaptureResult {
@@ -52,7 +54,11 @@ export async function captureRun(options: CaptureOptions): Promise<CaptureResult
     screen: false,
     budgetMs: Math.min(Math.max(options.budgetSeconds ?? 120, 1), 600) * 1000,
     ...(options.model ? { model: options.model } : {}),
-    trace: { output: options.output, ...(options.domains ? { domains: options.domains } : {}) },
+    trace: {
+      output: options.output,
+      ...(options.domains ? { domains: options.domains } : {}),
+      ...(options.afterSteps ? { afterSteps: options.afterSteps } : {}),
+    },
   });
 
   if (!run.trace) {

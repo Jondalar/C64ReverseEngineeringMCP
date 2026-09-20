@@ -198,6 +198,8 @@ export function registerCostTools(server: McpServer, context: ServerToolContext)
       prg_path: z.string().optional().describe("A PRG to record: it is booted on a machine of this call's own, which is then ended. Absolute, or relative to the project."),
       media_path: z.string().optional().describe("Any medium to record instead — .crt / .d64 / .g64 / .d81 / .c64re, identified by content."),
       frames: z.number().int().min(1).max(300).optional().describe("How many frames to record once the machine is warm (default 2). The window is yours; the capture records all of it and the query filters (doctrine rule 4)."),
+      record_after_steps: z.number().int().min(0).optional().describe("Start recording only after this many steps — the load is rarely what you are measuring. Default 0 (from the moment the medium is in)."),
+      domains: z.array(z.string()).optional().describe("Which channels to record. Default the C64's cpu and memory, which is what the arithmetic reads; add drive8-cpu to evaluate the drive's own 6502."),
       steps: z.array(z.string()).optional().describe("What to do while recording, in the capture-scenario notation — `I wait 50 frames`, `I type \"RUN{RETURN}\"`, `I wait until the CPU reaches $0810 within 4000 frames`. Replaces `frames` when given."),
       model: z.string().optional().describe("Which C64 to record on — c64-pal, c64-ntsc, c64-paln. Omitted: the project's model. The arithmetic is PAL-shaped (§6); another model is recorded and evaluated, with its own line and frame lengths taken from the machine."),
       out: z.string().optional().describe("Where to write the capture. Omitted, it lands in a temporary directory that is named in the report."),
@@ -207,7 +209,7 @@ export function registerCostTools(server: McpServer, context: ServerToolContext)
       budget_seconds: z.number().optional().describe("How long the recording machine may live before it ends itself (default 120, max 600)."),
     },
     safeHandler("trace_cost", async (args) => {
-      const { project_dir, trace_path, prg_path, media_path, frames, steps, model, out, cpu, address_start, address_end, budget_seconds } = args;
+      const { project_dir, trace_path, prg_path, media_path, frames, steps, model, out, cpu, address_start, address_end, budget_seconds, record_after_steps, domains } = args;
       const projectDir = context.projectDir(project_dir ?? trace_path ?? prg_path ?? media_path, false);
       const abs = (p: string): string => (isAbsolute(p) ? p : resolvePath(projectDir, p));
 
@@ -231,6 +233,8 @@ export function registerCostTools(server: McpServer, context: ServerToolContext)
           projectDir, mediaPath: medium, output: target,
           ...(steps ? { steps } : {}), ...(frames ? { frames } : {}),
           ...(model ? { model } : {}), ...(budget_seconds ? { budgetSeconds: budget_seconds } : {}),
+          ...(record_after_steps ? { afterSteps: record_after_steps } : {}),
+          ...(domains ? { domains } : {}),
         });
         storePath = run.storePath;
         header.push(`trace_cost: recorded ${medium}`);

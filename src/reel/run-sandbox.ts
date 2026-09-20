@@ -94,6 +94,12 @@ export interface SandboxRunOptions extends SandboxOptions {
     output: string;
     /** default: the cpu and mem channels, which is what §4.1's arithmetic reads */
     domains?: readonly string[];
+    /**
+     * Start recording only after this many steps have run. The window is the
+     * caller's choice (§4.5): a capture that begins at the medium records the
+     * whole load, and what is being measured is usually what happens after it.
+     */
+    afterSteps?: number;
   };
 }
 
@@ -350,7 +356,9 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     // evaluation is counted from it — a capture with no anchor can still be
     // evaluated for cycles, but not for lines.
     let trace: SandboxRunResult["trace"] | undefined;
-    if (opts.trace) {
+    const startRecordingBefore = Math.max(0, Math.min(opts.trace?.afterSteps ?? 0, opts.steps.length));
+    const startRecording = async (): Promise<void> => {
+      if (!opts.trace) return;
       const boundary = await box.call<{ c64Cycles?: number; rasterLine?: number; rasterCycle?: number }>("session/advance_to_frame");
       await readMachine();
       resync();
@@ -369,9 +377,11 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       await box.call("trace/run/mark", { label: anchorLabel(anchor) });
       trace = { storePath: started.outputPath ?? opts.trace.output, runId: started.run?.runId ?? "", events: 0, anchor };
       log.push(`recording into ${trace.storePath} from the frame boundary at cycle ${anchor.clock} (line ${anchor.line}, cycle ${anchor.cycle})`);
-    }
+    };
+    if (startRecordingBefore === 0) await startRecording();
 
     for (const [i, step] of opts.steps.entries()) {
+      if (i === startRecordingBefore && i > 0) await startRecording();
       switch (step.kind) {
         case "wait":
           await runCycles(waitCycles(step, F));
