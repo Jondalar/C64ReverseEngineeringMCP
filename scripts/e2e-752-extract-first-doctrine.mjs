@@ -48,7 +48,7 @@ ok(/Trace is not grounding/i.test(doctrine), "S1 agent-doctrine.md states trace-
 // ===========================================================================
 console.log("\nS3/S4/S5 — L2 extract auto-chain (analyse+disasm payloads, soft-fail)\n");
 const { ProjectKnowledgeService } = await import(`${ROOT}/dist/project-knowledge/service.js`);
-const { autoAnalyzeExtractedPayloads } = await import(`${ROOT}/dist/lib/extract-auto-chain.js`);
+const { autoAnalyzeExtractedPayloads, summarizeAutoChain } = await import(`${ROOT}/dist/lib/extract-auto-chain.js`);
 
 const proj = mkdtempSync(join(tmpdir(), "c64re-752c-"));
 const svc = new ProjectKnowledgeService(proj);
@@ -75,6 +75,28 @@ const goodRes = chain?.find((r) => r.payloadId === goodPayload.id);
 const brokenRes = chain?.find((r) => r.payloadId === brokenPayload.id);
 ok(goodRes?.status === "done", "S4 good payload → done", `status=${goodRes?.status}`);
 ok(brokenRes?.status === "failed", "S4 broken payload → failed (soft-fail, isolated)", `status=${brokenRes?.status}`);
+
+// A payload the analyser REFUSES. `pack1 (nameint1`, `pack15` and `pobj xtro` on one
+// real disk load high enough that load address + length runs past $FFFF; analyze-prg
+// refuses them, the workflow comes back with a blocked phase, and nothing throws. The
+// chain read only the exception, so all three were counted among "34 done" with an
+// empty output directory and no listing — found weeks later by auditing every
+// directory entry against the listings. A file that produced nothing is not done.
+const overflowPrgPath = join(proj, "input", "prg", "overflow.prg");
+// load $F000 + 8000 bytes of body ends at $0F3F, past the top of the address space.
+writeFileSync(overflowPrgPath, Buffer.concat([Buffer.from([0x00, 0xf0]), Buffer.alloc(8000, 0xea)]));
+const overflowArt = svc.saveArtifact({ kind: "prg", scope: "input", title: "overflow.prg", path: overflowPrgPath, role: "prg", platform: "c64" });
+const overflowPayload = svc.saveEntity({ kind: "payload", name: "overflow_payload", payloadSourceArtifactId: overflowArt.id, payloadFormat: "prg", payloadLoadAddress: 0xf000 });
+const ochain = await autoAnalyzeExtractedPayloads(proj, [overflowPayload.id], { mode: "quick" });
+const ores = ochain.find((r) => r.payloadId === overflowPayload.id);
+ok(ores?.status === "failed", "S4 a payload the analyser refuses is failed, not done", `status=${ores?.status}`);
+ok(/analyze/.test(ores?.reason ?? ""), "S4 and the reason names the phase that produced nothing", (ores?.reason ?? "").slice(0, 90));
+ok(/16-bit address space|overflow/i.test(ores?.reason ?? ""), "S4 and carries the analyser's own words", (ores?.reason ?? "").slice(0, 120));
+const osummary = summarizeAutoChain(ochain);
+ok(/0 done, 1 failed/.test(osummary), "S4 the summary counts it as failed", osummary.split("\n")[0]);
+ok(/overflow_payload/.test(osummary), "S4 and names the file by name, not just a count");
+// It produced nothing, so nothing must have been written for it.
+ok(!existsSync(join(proj, "analysis", "payloads", "overflow_payload_disasm.asm")), "S4 no listing was written for it");
 
 // S3 stamp: the good payload now carries an asm artifact id.
 const svc2 = new ProjectKnowledgeService(proj);

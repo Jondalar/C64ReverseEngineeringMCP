@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { basename, extname, relative, resolve } from "node:path";
 import { idDirUnder } from "../lib/id-path.js";
+import { withJsonStoreLock } from "../lib/json-store-lock.js";
 import { importAnalysisKnowledge, stampImportedKnowledgeWithPayload, type ImportedAnalysisKnowledge } from "./analysis-import.js";
 import { seedControlFlowForArtifact } from "../knowledge-graph/producers/artifact.js";
 import { KnowledgeRecords } from "../knowledge-graph/records.js";
@@ -976,7 +977,22 @@ export class ProjectKnowledgeService {
     };
   }
 
+  /**
+   * The pipeline runs as its own process and registers into the same
+   * `knowledge/artifacts.json`. Writing under a lock is not enough on its own:
+   * a registration READS the store, decides what to dedup against and writes
+   * the whole file back, so two writers that only serialise the write still
+   * lose a row each time they overlap. The whole read-modify-write goes inside
+   * one lock — the same lock the pipeline takes, by the same protocol.
+   */
   saveArtifact(input: SaveArtifactInput): ArtifactRecord {
+    return withJsonStoreLock(
+      this.storage.paths.knowledgeArtifacts,
+      () => this.saveArtifactUnderLock(input),
+    );
+  }
+
+  private saveArtifactUnderLock(input: SaveArtifactInput): ArtifactRecord {
     const store = this.storage.loadArtifacts();
     const timestamp = nowIso();
     const absPath = resolve(this.storage.paths.root, input.path);

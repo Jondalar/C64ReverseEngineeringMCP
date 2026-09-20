@@ -44,6 +44,7 @@ import { registerSandboxDepackTool } from "./server-tools/sandbox-depack.js";
 import { registerTraceStoreTools } from "./server-tools/trace-store.js";
 import { phaseForTool, PHASE_TITLES } from "./agent-orchestrator/phase-tools.js";
 import { ruleFooterForTool } from "./project-rules/deliver.js";
+import { registrationFailureMessage } from "./lib/registration-failure.js";
 import { standingFooter } from "./contract/standing.js";
 import { tierForTool, fullToolsEnabled } from "./server-tools/tier-tools.js";
 import { phaseGatedHandler } from "./server-tools/phase-gate-handler.js";
@@ -103,9 +104,10 @@ function tryRegisterKnowledgeArtifacts(
     const registration = registerToolKnowledge(projectRoot, input);
     return registration;
   } catch (error) {
-    return {
-      message: `Knowledge registration skipped: ${error instanceof Error ? error.message : String(error)}`,
-    };
+    // Not "skipped" — skipping is a decision. This is the run's bookkeeping
+    // failing while its files are already on disk, and it used to arrive as one
+    // quiet line at the end of a message that opened with a success.
+    return { failed: true, message: registrationFailureMessage(error) };
   }
 }
 

@@ -127,7 +127,11 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
         if (knowledgeRegistration.runPath) {
           result.stdout = (result.stdout || "CRT extraction complete.") + `\nKnowledge run: ${knowledgeRegistration.runPath}`;
         } else if (knowledgeRegistration.message) {
-          result.stdout = (result.stdout || "CRT extraction complete.") + `\n${knowledgeRegistration.message}`;
+          // A failed registration goes FIRST. Appended to the tail of a success it
+          // reads as a footnote, and the one time it mattered it was read as one.
+          result.stdout = knowledgeRegistration.failed
+            ? `${knowledgeRegistration.message}\n\n${result.stdout || "CRT extraction complete."}`
+            : (result.stdout || "CRT extraction complete.") + `\n${knowledgeRegistration.message}`;
         }
       }
       return context.cliResultToContent(result);
@@ -257,7 +261,6 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
             try {
               const chain = await autoAnalyzeExtractedPayloads(pd, imported.importedPayloadEntityIds, { mode: "quick" });
               lines.push(summarizeAutoChain(chain));
-              for (const r of chain.filter((c) => c.status === "failed")) lines.push(`  failed: ${r.name ?? r.payloadId} — ${r.reason}`);
             } catch (chainErr) {
               lines.push(`Auto-disasm skipped: ${chainErr instanceof Error ? chainErr.message : String(chainErr)}`);
             }
@@ -267,6 +270,8 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
         }
         if (knowledgeRegistration.runPath) {
           lines.push("", `Knowledge run: ${knowledgeRegistration.runPath}`);
+        } else if (knowledgeRegistration.failed && knowledgeRegistration.message) {
+          lines.unshift(knowledgeRegistration.message, "");
         } else if (knowledgeRegistration.message) {
           lines.push("", knowledgeRegistration.message);
         }
@@ -339,6 +344,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
         outputs: [{ path: result.manifestPath, kind: "manifest", scope: "generated", role: "disk-manifest", format: "json", producedByTool: "extract_disk_custom_lut" } as never],
       });
       if (reg.runPath) lines.push(`Knowledge run: ${reg.runPath}`);
+      else if (reg.failed && reg.message) lines.unshift(reg.message, "");
       // Spec 752 — custom-LUT extraction previously never imported the manifest,
       // so its payloads never became entities and L2 silently no-op'd on the
       // exact custom-loader scenario it is most needed for. Import now, then
@@ -353,7 +359,6 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
           try {
             const chain = await autoAnalyzeExtractedPayloads(pd, imported.importedPayloadEntityIds, { mode: "quick" });
             lines.push(summarizeAutoChain(chain));
-            for (const r of chain.filter((c) => c.status === "failed")) lines.push(`  failed: ${r.name ?? r.payloadId} — ${r.reason}`);
           } catch (chainErr) {
             lines.push(`Auto-disasm skipped: ${chainErr instanceof Error ? chainErr.message : String(chainErr)}`);
           }
