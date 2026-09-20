@@ -311,3 +311,11 @@ jobs:
       # rebuild half needs KickAssembler and skips loudly without it, like e2e:830.
       - name: Thirteen tooling defects (BUG-054)
         run: npm run e2e:tooling-defects
+
+      # The knowledge store under two writers at once. It spawns eight real pipeline
+      # children, proves from their own timestamps that they overlapped, and asserts
+      # that all eight registrations are in the file — a serial run cannot see this
+      # defect at all. Hermetic: temp projects, synthetic PRGs, one small fixture D64,
+      # no ROMs, no assembler, no daemon.
+      - name: Two writers, one knowledge store
+        run: npm run e2e:store-concurrency
