@@ -267,17 +267,17 @@ inventory.
 
 **id:** `disassembly-first-static-pass`
 
-**Use when:** Just disassemble this PRG. / Give me the code for ./loader.prg first.
+**Use when:** Just disassemble this PRG. / Give me the code for ./loader.prg first. / Disassemble this depacked block — it runs at $C000.
 
-**Preconditions:** A PRG payload path is known.; The payload is simple enough to read before running, or the user asked for code first.
+**Preconditions:** A PRG payload path is known, OR a block of bytes and the address it runs at.; The payload is simple enough to read before running, or the user asked for code first.
 
 **Steps:**
 
 1. _(llm)_ Heuristic analysis pass.
    - tools: `analyze_prg`, `inspect_address_range`, `basic_list`, `basic_tokenize`
    - persist: analysis report, BASIC stub facts
-2. _(llm)_ Disassemble + resolve ROM/symbol references.
-   - tools: `disasm_prg`, `disasm_menu`, `c64ref_lookup`
+2. _(llm)_ Disassemble + resolve ROM/symbol references. A file with a 2-byte load address is disasm_prg's; bytes at an address you already know — a depacked chunk, a relocated overlay, a block out of a track, drive code — are disasm_raw's, which invents no PRG header and registers the listing with the byte range it came from.
+   - tools: `disasm_prg`, `disasm_raw`, `disasm_menu`, `c64ref_lookup`
    - persist: disasm artifact
 3. _(llm)_ Draft annotations; re-run disasm_prg with them (the file is a door into the knowledge graph); record what you concluded.
    - tools: `propose_annotations`, `disasm_prg`, `save_finding`, `agent_record_step`
@@ -287,7 +287,7 @@ inventory.
 
 **Next:** Validate with a targeted trace (Disassembly + Trace Validation).
 
-**Do not:** Do not claim labels/branches are correct without later runtime evidence for non-trivial code.
+**Do not:** Do not claim labels/branches are correct without later runtime evidence for non-trivial code. Do not bolt a 2-byte load header onto a raw block to make disasm_prg accept it, and do not write your own disassembler: headerless bytes are disasm_raw's, which keeps the listing in the project with the byte range it came from.
 
 ## Disassembly + Trace Validation
 
