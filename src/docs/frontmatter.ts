@@ -66,39 +66,48 @@ export function parseFrontmatter(text: string): ParseResult {
   let raw: Record<string, unknown>;
   try { raw = parseBlock(block); } catch (e) { return { absent: false, body, error: (e as Error).message }; }
 
+  // EVERY problem, not the first one.
+  //
+  // This used to `return` on the first thing it did not like, and a document with four
+  // things wrong cost four calls to find out. One measured run: 21 of 46 `doc_register`
+  // calls refused, and five separate subagents each rediscovered the same four-step
+  // ladder — kind, then status, then a `covers` entry with a parenthetical, then a
+  // quoted one. A refusal that reports one problem teaches the shape of the next
+  // refusal, not the shape of the contract.
+  const problems: string[] = [];
+
   const title = str(raw.title);
-  if (!title) return { absent: false, body, error: "`title` is required" };
+  if (!title) problems.push("`title` is required — one line, the document's own name");
   const kindRaw = str(raw.kind) ?? "";
   if (!(DOC_KINDS as readonly string[]).includes(kindRaw)) {
-    return { absent: false, body, error: `\`kind\` must be one of ${DOC_KINDS.join(" | ")} (got "${kindRaw}")` };
+    problems.push(`\`kind\` must be one of ${DOC_KINDS.join(" | ")}${kindRaw ? ` (got "${kindRaw}")` : " (missing)"}`);
   }
   const statusRaw = str(raw.status) ?? "current";
   if (!(DOC_STATUS as readonly string[]).includes(statusRaw)) {
-    return { absent: false, body, error: `\`status\` must be ${DOC_STATUS.join(" | ")} (got "${statusRaw}")` };
+    problems.push(`\`status\` must be ${DOC_STATUS.join(" | ")} (got "${statusRaw}")`);
   }
 
   const covers: Coverage[] = [];
   for (const entry of list(raw.covers)) {
     const c = parseCoverage(entry);
-    if (!c) {
-      // The template ships with UNPARSEABLE placeholders on purpose. If `$XXXX-$YYYY`
-      // parsed, a pasted-but-unedited template would silently declare a wrong address
-      // range — a false declaration, which is the thing this whole arc exists to stop.
-      // So it is refused, and the refusal names the placeholder rather than reading like
-      // a syntax error.
-      const placeholder = /^\$X+\s*-\s*\$?Y+$/i.test(entry.trim()) || /^artifact:something/i.test(entry.trim());
-      return {
-        absent: false, body,
-        error: placeholder
-          ? `\`covers\` still holds the template placeholder "${entry}" — replace it with the range or artifact this document actually explains`
-          : `\`covers\` entry "${entry}" is neither $XXXX-$YYYY nor artifact:<name>`,
-      };
-    }
-    covers.push(c);
+    if (c) { covers.push(c); continue; }
+    // The template ships with UNPARSEABLE placeholders on purpose. If `$XXXX-$YYYY`
+    // parsed, a pasted-but-unedited template would silently declare a wrong address
+    // range — a false declaration, which is the thing this whole arc exists to stop.
+    // So it is refused, and the refusal names the placeholder rather than reading like
+    // a syntax error.
+    const placeholder = /^\$X+\s*-\s*\$?Y+$/i.test(entry.trim()) || /^artifact:something/i.test(entry.trim());
+    problems.push(placeholder
+      ? `\`covers\` still holds the template placeholder "${entry}" — replace it with the range or artifact this document actually explains`
+      : `\`covers\` entry "${entry}" is neither an address range nor an artifact. `
+        + `Write \`$C820-$CFFF\` (or a single \`$C820\`) for a range, or \`artifact:07_game.prg\` for a file. `
+        + `Nothing else may ride along on the line — no parenthetical, no comma list, no prose; one entry per \`- \` item`);
   }
 
+  if (problems.length > 0) return { absent: false, body, error: formatProblems(problems) };
+
   const fm: Frontmatter = {
-    title,
+    title: title!,
     kind: kindRaw as DocKind,
     covers,
     sources: list(raw.sources),
@@ -118,6 +127,13 @@ export function parseFrontmatter(text: string): ParseResult {
     };
   }
   return { absent: false, body, frontmatter: fm };
+}
+
+/** One problem reads as a sentence; several read as a list, numbered so a fix can be checked off. */
+function formatProblems(problems: string[]): string {
+  if (problems.length === 1) return problems[0]!;
+  return [`${problems.length} problems in the frontmatter — all of them, so one edit settles it:`,
+    ...problems.map((p, i) => `  ${i + 1}. ${p}`)].join("\n");
 }
 
 export function parseCoverage(entry: string): Coverage | undefined {
@@ -217,7 +233,7 @@ function parseBlock(block: string): Record<string, unknown> {
         const t = stripComment(lines[i]).trim();
         i++;
         if (t === "") continue;
-        if (t.startsWith("- ")) { items.push(t.slice(2).trim()); continue; }
+        if (t.startsWith("- ")) { items.push(unquote(t.slice(2).trim())); continue; }
         const c = t.indexOf(":");
         if (c < 0) throw new Error(`line ${i}: "${t}" is neither a \`- item\` nor \`key: value\``);
         map[t.slice(0, c).trim()] = t.slice(c + 1).trim();
@@ -226,7 +242,7 @@ function parseBlock(block: string): Record<string, unknown> {
       continue;
     }
     if (rest.startsWith("[") && rest.endsWith("]")) { // inline list
-      out[key] = rest.slice(1, -1).split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+      out[key] = rest.slice(1, -1).split(",").map((s) => unquote(s.trim())).filter((s) => s.length > 0);
       continue;
     }
     out[key] = unquote(rest);

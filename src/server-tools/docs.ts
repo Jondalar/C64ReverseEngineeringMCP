@@ -73,6 +73,12 @@ export function registerDocTools(server: McpServer, context: ServerToolContext):
     "doc_template",
     "The frontmatter block to put at the top of a document, for a given kind. Use before writing a synthesis document, or when doc_register refuses. Not for declaring the finished file (use doc_register). Inputs: kind, title. Returns: the block, ready to paste.",
     {
+      // Not because the template depends on the project — it does not. Without it this
+      // tool resolves no directory, and the standing project rule that states this very
+      // contract is therefore undeliverable: it was absent from the delivery ledger
+      // after four `doc_template` calls in one run, while five subagents rediscovered
+      // the contract by trial and error. A rule has to be able to reach its moment.
+      project_dir: z.string().optional().describe("Project directory (default: the project this session onboarded into)"),
       kind: z.enum(DOC_KINDS).default("synthesis").describe("synthesis = an argued narrative; reference = a lookup; decision = a choice and why; generated = written by a tool"),
       title: z.string().describe("The document's title"),
     },

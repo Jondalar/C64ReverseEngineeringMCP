@@ -51,7 +51,11 @@ export async function registerDoc(projectDir: string, relPath: string): Promise<
     );
   }
   if (parsed.error || !parsed.frontmatter) {
-    throw new DocRegisterError(`${relPath}: ${parsed.error ?? "the frontmatter did not parse"}`);
+    throw new DocRegisterError([
+      `${relPath}: ${parsed.error ?? "the frontmatter did not parse"}`,
+      "",
+      "`doc_template(kind=…, title=…)` prints a block that parses.",
+    ].join("\n"));
   }
   const fm = parsed.frontmatter;
 
