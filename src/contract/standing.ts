@@ -76,7 +76,9 @@ export function resetStanding(projectDir: string): void {
 
 /** Shorten a blocker to its first clause — the footer is a pointer, not the report. */
 function short(b: string): string {
-  const cut = b.split(" — ")[0];
+  // A blocker now carries its own "settle by:" on a second line (critic/run.ts); the
+  // one-line form keeps the headline.
+  const cut = b.split("\n")[0].split(" — ")[0];
   return cut.length > 150 ? cut.slice(0, 147) + "…" : cut;
 }
 
@@ -118,7 +120,7 @@ export async function standingFooter(
       "",
       "---",
       `**Contract — ${blockers.length} deliverable${blockers.length === 1 ? "" : "s"} still owed:**`,
-      ...blockers.map((b) => `- ${b}`),
+      ...blockers.flatMap((b) => b.split("\n").map((l, i) => (i === 0 ? `- ${l}` : `  ${l.trim()}`))),
       "",
       "These are the human's stated expectations, not defaults. `project_critique` carries the proof.",
     ].join("\n");

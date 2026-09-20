@@ -47,7 +47,8 @@ export function registerCriticTools(server: McpServer, context: ServerToolContex
             type: "text" as const,
             text: v.ready
               ? "READY — every required slot is filled, no blocking critic finding stands, coverage is at threshold."
-              : `NOT READY — ${v.blockers.length} blocker(s):\n${v.blockers.map((b) => `  - ${b}`).join("\n")}`,
+              : `NOT READY — ${v.blockers.length} blocker(s):\n${v.blockers.map((b) => `  - ${b}`).join("\n")}`
+                + "\n\nEach line says what settles it. `critic_checks` explains why a check ranks the way it does.",
           }],
         };
       }
