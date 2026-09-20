@@ -11,18 +11,30 @@ import { renderRamStateMarkdown } from "./analysis/ram-state";
 import { analyzeSampleBuffer } from "./analysis/sample";
 import { consumeRegisterFlags, registerCliArtifact } from "./lib/artifact-register";
 
-// Spec 741: parse a relocation map JSON. Accepts addresses as numbers or
-// strings ("$FC00", "0xFC00", "64512"). Shape is validated downstream by
-// the renderer (normalizeRelocations).
-function parseAddr(value: unknown): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") {
-    const s = value.trim();
-    if (/^\$[0-9a-fA-F]+$/.test(s)) return Number.parseInt(s.slice(1), 16);
-    if (/^0x[0-9a-fA-F]+$/.test(s)) return Number.parseInt(s.slice(2), 16);
-    return Number.parseInt(s, 10);
+// Spec 741: parse a relocation map JSON.
+//
+// ONE RULE, the same one `entry_points` and the annotations loader use: **an address
+// is hex**, with `$` or `0x` optional. A number is taken as-is.
+//
+// It used to fall back to `parseInt(s, 10)` for a bare string, in the same call where
+// `entry_points` read bare strings as hex. `"E800"` became NaN and then `null` in the
+// error message; `"2000"` was silently read as decimal 2000 and pointed the relocation
+// at $07D0. Two readings of one notation, decided by which field the value landed in.
+export const ADDRESS_RULE = "an address is HEX — \"E800\", \"$E800\" and \"0xE800\" are the same address; a bare number is taken as-is (not hex)";
+
+function parseAddr(value: unknown, field = "address"): number {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error(`relocation ${field} is not a finite number: ${JSON.stringify(value)}`);
+    return value;
   }
-  throw new Error(`relocation address is not a number or hex string: ${JSON.stringify(value)}`);
+  if (typeof value === "string") {
+    const s = value.trim().replace(/^\$/, "").replace(/^0[xX]/, "");
+    if (!/^[0-9a-fA-F]+$/.test(s)) {
+      throw new Error(`relocation ${field} ${JSON.stringify(value)} is not an address — ${ADDRESS_RULE}`);
+    }
+    return Number.parseInt(s, 16);
+  }
+  throw new Error(`relocation ${field} is missing or not a string/number (${JSON.stringify(value)}) — ${ADDRESS_RULE}`);
 }
 
 function loadRelocationMap(path: string): RelocationEntry[] {
@@ -32,14 +44,14 @@ function loadRelocationMap(path: string): RelocationEntry[] {
     throw new Error(`relocation map must be a JSON array (or { relocations: [...] }): ${path}`);
   }
   return list.map((entry: Record<string, unknown>) => ({
-    fileStart: parseAddr(entry.fileStart),
-    fileEnd: parseAddr(entry.fileEnd),
-    runtimeAddr: parseAddr(entry.runtimeAddr),
+    fileStart: parseAddr(entry.fileStart, "fileStart"),
+    fileEnd: parseAddr(entry.fileEnd, "fileEnd"),
+    runtimeAddr: parseAddr(entry.runtimeAddr, "runtimeAddr"),
     label: typeof entry.label === "string" ? entry.label : undefined,
     subSegments: Array.isArray(entry.subSegments)
       ? (entry.subSegments as Record<string, unknown>[]).map((s) => ({
-          start: parseAddr(s.start),
-          end: parseAddr(s.end),
+          start: parseAddr(s.start, "subSegments[].start"),
+          end: parseAddr(s.end, "subSegments[].end"),
           kind: String(s.kind ?? "code"),
           label: typeof s.label === "string" ? s.label : undefined,
           comment: typeof s.comment === "string" ? s.comment : undefined,

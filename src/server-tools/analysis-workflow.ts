@@ -6,6 +6,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runCli } from "../run-cli.js";
 import { assembleSource } from "../assemble-source.js";
+import { rebuildVerification } from "../lib/rebuild-verify.js";
 import { suggestDepackers } from "../compression-tools.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { annotationNames, maxLabelLength, namesTooLong, tooLongMessage } from "../project-knowledge/naming.js";
@@ -73,9 +74,15 @@ function summarizePackerHints(hints: PackerHintRecord[]): string[] {
   const lines = ["", "Packer detection:"];
   for (const hint of hints) {
     lines.push(`- ${hint.format} (conf=${hint.confidence.toFixed(2)}) at $${hint.offset.toString(16).toUpperCase()}+$${hint.length.toString(16).toUpperCase()}${hint.unpackedSize !== undefined ? `, unpacked ≈ ${hint.unpackedSize} bytes` : ""}`);
+    if (hint.reason) lines.push(`    ${hint.reason}`);
   }
   const top = hints[0]!;
-  if (top.format.startsWith("exomizer")) {
+  // A hint under 0.6 is a candidate, not a verdict. The SFX probe only proves that the
+  // file's own code decompresses SOMETHING; naming a packer on the strength of that is
+  // how a $B3-escape RLE got reported as Exomizer at 0.93.
+  if (top.confidence < 0.6) {
+    lines.push(`NEXT: no packer is established — the strongest hint is ${top.format} at ${top.confidence.toFixed(2)}, and its reason above says what was and was not shown. Read the depacker stub in the disassembly and identify the codec there before depacking.`);
+  } else if (top.format.startsWith("exomizer")) {
     lines.push(`NEXT: this PRG is likely Exomizer-packed. Run depack_exomizer_${top.format === "exomizer_sfx" ? "sfx" : "raw"} on it before treating the analysis output as semantic ground truth.`);
   } else if (top.format === "rle") {
     lines.push("NEXT: this PRG looks RLE-encoded. Run depack_rle, then re-analyze the unpacked output.");
@@ -109,86 +116,6 @@ function listingAnnotationStatus(asmPath: string): string {
     // fall through — an unreadable listing is reported as unknown, never as applied
   }
   return "annotation status unknown — the listing header could not be read";
-}
-
-async function rebuildVerification(args: {
-  projectDir: string;
-  asmPath: string;
-  prgPath: string;
-  sourceArtifactId?: string;
-}): Promise<string> {
-  const tempPrg = args.asmPath.replace(/\.asm$/i, "_rebuild_check.prg");
-  let summaryLine: string;
-  let assemblyOk = false;
-  try {
-    const result = await assembleSource({
-      projectDir: args.projectDir,
-      sourcePath: args.asmPath,
-      assembler: "kickassembler",
-      outputPath: tempPrg,
-      compareToPath: args.prgPath,
-    });
-    if (result.exitCode !== 0) {
-      summaryLine = `// WARNING: rebuild assembler exited ${result.exitCode}; this listing is not byte-identical with ${basename(args.prgPath)}`;
-    } else if (result.compareMatches === false) {
-      assemblyOk = true;
-      const offset = result.firstDiffOffset !== undefined ? `0x${result.firstDiffOffset.toString(16).toUpperCase()}` : "?";
-      summaryLine = `// WARNING: rebuild diverges from ${basename(args.prgPath)} at body offset ${offset}; disassembly is not byte-identical`;
-    } else if (result.compareMatches) {
-      assemblyOk = true;
-      summaryLine = `// rebuild verified byte-identical against ${basename(args.prgPath)} (${result.comparedBytes ?? "?"} bytes)`;
-    } else {
-      summaryLine = `// rebuild verification skipped (no compare result)`;
-    }
-  } catch (error) {
-    summaryLine = `// WARNING: rebuild verification failed to run: ${error instanceof Error ? error.message : String(error)}`;
-  }
-
-  // Bug 14: classify the rebuild-check PRG as a verification report rather
-  // than letting blanket *.prg globs file it as a regular source PRG.
-  if (assemblyOk && existsSync(tempPrg)) {
-    try {
-      const service = new ProjectKnowledgeService(args.projectDir);
-      service.saveArtifact({
-        kind: "report",
-        scope: "analysis",
-        title: `Rebuild check: ${basename(tempPrg)}`,
-        path: tempPrg,
-        format: "prg",
-        role: "rebuild-check",
-        producedByTool: "disasm_prg",
-        sourceArtifactIds: args.sourceArtifactId ? [args.sourceArtifactId] : undefined,
-        tags: ["rebuild-check", "auto"],
-      });
-    } catch {
-      // best effort; don't fail the disasm flow over a registration hiccup
-    }
-  }
-
-  // Bake the verdict into the head of the ASM so a human reading the file
-  // sees it immediately without having to consult the tool stdout.
-  try {
-    const asm = readFileSync(args.asmPath, "utf8");
-    // Keep the file's own line endings: a CRLF listing must not come back with one LF line in it.
-    const eol = asm.includes("\r\n") ? "\r\n" : "\n";
-    const lines = asm.split(/\r?\n/);
-    const header = lines.findIndex((line) => line.startsWith("//****************"));
-    if (header >= 0) {
-      // insert before the closing banner
-      const closing = lines.findIndex((line, index) => index > header && line.startsWith("//****************"));
-      const insertAt = closing >= 0 ? closing : Math.min(lines.length, header + 1);
-      // Drop any prior verification line so re-runs don't accumulate.
-      const filtered = lines.filter((line) => !line.startsWith("// rebuild verified") && !line.startsWith("// WARNING: rebuild "));
-      filtered.splice(insertAt, 0, summaryLine);
-      writeFileSync(args.asmPath, filtered.join(eol), "utf8");
-    } else {
-      writeFileSync(args.asmPath, `${summaryLine}${eol}${asm}`, "utf8");
-    }
-  } catch {
-    // best-effort header injection; don't fail the disasm flow over it
-  }
-
-  return summaryLine;
 }
 
 /**
@@ -233,14 +160,101 @@ function describeCodeSeeds(analysisPath: string): string {
 }
 
 /**
- * Spec 842 — a relocation address as the MCP schema accepts it: "$CA00", "CA00", or a
- * number. NaN for anything else, which the caller filters — a malformed relocation
- * must not silently become address 0 in the graph.
+ * ONE address rule, for every address this tool accepts.
+ *
+ * `entry_points`, `relocations` and the annotations loader all take addresses, and they
+ * used to disagree inside a single call: `entry_points` read `"E800"` as hex while the
+ * relocation loader ran `parseInt(s, 10)` on it — `"E800"` became NaN and printed as
+ * `null`, and `"2000"` became decimal 2000, i.e. $07D0. Same notation, two meanings,
+ * decided by which field the value landed in.
+ *
+ * So: an address is HEX. `$` and `0x` are optional decoration. A number is taken as-is.
+ * Anything else is refused by name, and the refusal states the rule.
  */
-function parseAddressLike(v: unknown): number {
-  if (typeof v === "number") return v & 0xffff;
-  if (typeof v === "string") return parseInt(v.replace(/^\$/, ""), 16) & 0xffff;
-  return Number.NaN;
+export const ADDRESS_RULE =
+  "an address is HEX — \"E800\", \"$E800\" and \"0xE800\" all mean $E800; a bare JSON number is taken as-is (not re-read as hex)";
+
+export function parseAddressStrict(v: unknown, field: string): number {
+  if (typeof v === "number") {
+    if (!Number.isInteger(v) || v < 0) throw new Error(`${field}: ${JSON.stringify(v)} is not an address — ${ADDRESS_RULE}`);
+    return v & 0xffff;
+  }
+  if (typeof v === "string") {
+    const t = v.trim().replace(/^\$/, "").replace(/^0[xX]/, "");
+    if (!/^[0-9a-fA-F]{1,4}$/.test(t)) throw new Error(`${field}: ${JSON.stringify(v)} is not an address — ${ADDRESS_RULE}`);
+    return parseInt(t, 16) & 0xffff;
+  }
+  throw new Error(`${field}: ${JSON.stringify(v)} is not an address — ${ADDRESS_RULE}`);
+}
+
+interface NormalizedRelocation {
+  fileStart: number;
+  fileEnd: number;
+  runtimeAddr: number;
+  label?: string;
+  subSegments?: Array<{ start: number; end: number; kind: string; label?: string; comment?: string }>;
+}
+
+/**
+ * Read the relocation list with the one rule, then hold it against the PRG.
+ *
+ * A relocation outside the file used to throw out of `prg-disasm` and arrive as a node
+ * stack trace in the tool result — four times in one run, once for a zero-page entry
+ * ($0002-$0024) that was simply a typo for a region inside the file. An entry that
+ * cannot be rendered is a validation case, not a crash.
+ */
+export function normalizeRelocationInput(
+  relocations: ReadonlyArray<Record<string, unknown>>,
+  prg: { loadAddress: number; lastAddress: number; name: string },
+): NormalizedRelocation[] {
+  const out: NormalizedRelocation[] = relocations.map((r, i) => ({
+    fileStart: parseAddressStrict(r.fileStart, `relocations[${i}].fileStart`),
+    fileEnd: parseAddressStrict(r.fileEnd, `relocations[${i}].fileEnd`),
+    runtimeAddr: parseAddressStrict(r.runtimeAddr, `relocations[${i}].runtimeAddr`),
+    ...(typeof r.label === "string" ? { label: r.label } : {}),
+    ...(Array.isArray(r.subSegments)
+      ? {
+        subSegments: (r.subSegments as Array<Record<string, unknown>>).map((sub, j) => ({
+          start: parseAddressStrict(sub.start, `relocations[${i}].subSegments[${j}].start`),
+          end: parseAddressStrict(sub.end, `relocations[${i}].subSegments[${j}].end`),
+          kind: String(sub.kind ?? "code"),
+          ...(typeof sub.label === "string" ? { label: sub.label } : {}),
+          ...(typeof sub.comment === "string" ? { comment: sub.comment } : {}),
+        })),
+      }
+      : {}),
+  }));
+
+  const hex = (n: number) => `$${(n & 0xffff).toString(16).toUpperCase().padStart(4, "0")}`;
+  const span = `${hex(prg.loadAddress)}-${hex(prg.lastAddress)}`;
+  const sorted = [...out].sort((a, b) => a.fileStart - b.fileStart);
+  let cursor = -1;
+  for (const r of sorted) {
+    const i = out.indexOf(r);
+    if (r.fileEnd < r.fileStart) {
+      throw new Error(`relocations[${i}]: fileEnd ${hex(r.fileEnd)} is before fileStart ${hex(r.fileStart)}.`);
+    }
+    if (r.fileStart < prg.loadAddress || r.fileEnd > prg.lastAddress) {
+      throw new Error(
+        `relocations[${i}]: ${hex(r.fileStart)}-${hex(r.fileEnd)} is outside ${prg.name}, which holds ${span}. `
+        + `fileStart/fileEnd are STORED addresses inside this PRG; runtimeAddr is where those bytes execute. `
+        + `(${ADDRESS_RULE}.)`,
+      );
+    }
+    if (r.fileStart <= cursor) {
+      throw new Error(`relocations[${i}]: ${hex(r.fileStart)} overlaps the region ending ${hex(cursor)}. Relocated regions may not overlap.`);
+    }
+    cursor = r.fileEnd;
+  }
+  return sorted;
+}
+
+/** The stored span a PRG covers, read from its 2-byte load address and its size. */
+export function prgSpan(prgAbs: string): { loadAddress: number; lastAddress: number; name: string } {
+  const head = readFileSync(prgAbs);
+  if (head.length < 3) throw new Error(`${basename(prgAbs)} is too short to be a PRG (${head.length} bytes).`);
+  const loadAddress = head[0]! | (head[1]! << 8);
+  return { loadAddress, lastAddress: loadAddress + (head.length - 2) - 1, name: basename(prgAbs) };
 }
 
 export function registerAnalysisWorkflowTools(server: McpServer, context: ServerToolContext): void {
@@ -309,7 +323,15 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
   ): Promise<{ content: { type: "text"; text: string }[] }> {
     const { pd, prgAbs, outAbs, prg_path, entry_points } = a;
     {
-      const entries = entry_points?.join(",") ?? "";
+      // One rule for every address in this call (see ADDRESS_RULE).
+      let entries: string;
+      try {
+        entries = (entry_points ?? [])
+          .map((e, i) => parseAddressStrict(e, `entry_points[${i}]`).toString(16).toUpperCase().padStart(4, "0"))
+          .join(",");
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `# disasm_prg refused\n\n${e instanceof Error ? e.message : String(e)}` }] };
+      }
       const args = [prgAbs, outAbs];
       if (entries) args.push(entries);
       const result = await runCli("analyze-prg", args, { projectDir: pd });
@@ -393,9 +415,9 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       analysis_json: z.string().optional().describe("Path to a prior analysis JSON for segment-aware disassembly"),
       platform: z.enum(["c64", "c1541"]).optional().describe("target platform for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side disassembly."),
       relocations: z.array(z.object({
-        fileStart: z.union([z.string(), z.number()]).describe("Stored/file address of the region's first byte (inclusive). Hex string ($FC00/0xFC00) or number."),
-        fileEnd: z.union([z.string(), z.number()]).describe("Stored/file address of the region's last byte (inclusive)."),
-        runtimeAddr: z.union([z.string(), z.number()]).describe("Logical execution PC that fileStart runs at."),
+        fileStart: z.union([z.string(), z.number()]).describe("Stored/file address of the region's first byte (inclusive). An address is HEX: \"FC00\", \"$FC00\" and \"0xFC00\" are the same; a JSON number is taken as-is. Must lie inside the PRG."),
+        fileEnd: z.union([z.string(), z.number()]).describe("Stored/file address of the region's last byte (inclusive). Same hex rule as fileStart. Must lie inside the PRG."),
+        runtimeAddr: z.union([z.string(), z.number()]).describe("Logical execution PC that fileStart runs at. Same hex rule; unlike fileStart/fileEnd it may be anywhere in the 64K space."),
         label: z.string().optional().describe("Optional label/comment for the relocated region."),
         subSegments: z.array(z.object({
           start: z.union([z.string(), z.number()]),
@@ -404,7 +426,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
           label: z.string().optional(),
           comment: z.string().optional(),
         })).optional().describe("Runtime-addressed code/data kind hints inside the region (applied in a later slice; carried through for now)."),
-      })).optional().describe("relocated regions, rendered as KickAssembler .pseudopc / 64tass .logical blocks at their runtime PC while the stored bytes stay byte-exact. Omit for normal disassembly."),
+      })).optional().describe("relocated regions, rendered as KickAssembler .pseudopc / 64tass .logical blocks at their runtime PC while the stored bytes stay byte-exact. Every address here obeys the same rule as entry_points: hex, with $ or 0x optional. A region outside the PRG, a reversed range or two overlapping regions are refused by name before anything is rendered. Omit for normal disassembly."),
     },
     safeHandler("disasm_prg", async ({ project_dir, prg_path, output_asm, entry_points, analysis_json, platform, relocations }) => {
       const pd = context.projectDir(project_dir ?? prg_path, true);
@@ -454,9 +476,20 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       // Spec 741: hand the relocation map to the pipeline via a temp JSON
       // file referenced by --relocations (kept off the positional args).
       let relocationsFile: string | undefined;
+      let normalizedRelocations: ReturnType<typeof normalizeRelocationInput> = [];
       if (relocations && relocations.length > 0) {
+        // Parsed and held against the PRG HERE, so a bad entry is a refusal that names
+        // the field and the rule — not a node stack trace out of the renderer.
+        try {
+          normalizedRelocations = normalizeRelocationInput(
+            relocations as ReadonlyArray<Record<string, unknown>>,
+            prgSpan(prgAbs),
+          );
+        } catch (e) {
+          return { content: [{ type: "text" as const, text: `# disasm_prg refused\n\n${e instanceof Error ? e.message : String(e)}` }] };
+        }
         relocationsFile = join(tmpdir(), `c64re-reloc-${randomUUID()}.json`);
-        writeFileSync(relocationsFile, `${JSON.stringify(relocations, null, 2)}\n`, "utf8");
+        writeFileSync(relocationsFile, `${JSON.stringify(normalizedRelocations, null, 2)}\n`, "utf8");
       }
       const args: string[] = [];
       if (resolvedPlatform !== "c64") args.push("--platform", resolvedPlatform);
@@ -530,11 +563,11 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
             },
           ],
         });
-        const verificationSummary = await rebuildVerification({
+        const verificationSummary = (await rebuildVerification({
           projectDir: pd,
           asmPath: outAbs,
           prgPath: prgAbs,
-        });
+        })).line;
         result.stdout = (result.stdout || "Disassembly complete.") + `\nOutput: ${outAbs}\nKnowledge written to: ${resolve(pd, "knowledge")}\n${verificationSummary}`;
         // Spec 833 D3 — what the LISTING did with the annotations, read back
         // from the listing's own header, stated before and separately from what
@@ -574,11 +607,10 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
             // address it RUNS at, with the address it is stored at beside it. The
             // graph is what a trace hit, a checkpoint and `whowrote` are joined
             // against, and all three speak runtime.
-            const graphRelocations = (relocations ?? []).map((r) => ({
-              fileStart: parseAddressLike(r.fileStart),
-              fileEnd: parseAddressLike(r.fileEnd),
-              runtimeAddr: parseAddressLike(r.runtimeAddr),
-            })).filter((r) => Number.isFinite(r.fileStart) && Number.isFinite(r.fileEnd) && Number.isFinite(r.runtimeAddr));
+            // The SAME list the renderer got — parsed once, by the one rule, above.
+            const graphRelocations = normalizedRelocations.map((r) => ({
+              fileStart: r.fileStart, fileEnd: r.fileEnd, runtimeAddr: r.runtimeAddr,
+            }));
             const imported = knowledgeService.importAnnotations({
               sourcePrgArtifactId: sourceArtifact?.id,
               // The path the renderer actually FOUND, not the first candidate.
