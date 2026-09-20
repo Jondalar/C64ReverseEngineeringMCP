@@ -52,6 +52,8 @@ try {
   mcps.push(a);
   await a.init();
   await a.tool("project_init", { project_dir: fresh, name: "naming fixture" });
+  // A session onboards before it works in a project; the server refuses otherwise.
+  await a.tool("agent_onboard", { project_dir: fresh });
   check(projectJson(fresh).naming?.maxLabelLength === 20, "project_init stamps the limit into a project it creates", JSON.stringify(projectJson(fresh).naming));
   await a.tool("project_init", { project_dir: fresh, name: "naming fixture" });
   check(projectJson(fresh).naming?.maxLabelLength === 20, "re-running project_init keeps it");
@@ -81,6 +83,8 @@ try {
   mcps.push(b);
   await b.init();
   await b.tool("project_init", { project_dir: legacy, name: "legacy fixture" });
+  // A session onboards before it works in a project; the server refuses otherwise.
+  await b.tool("agent_onboard", { project_dir: legacy });
   const pj = projectJson(legacy);
   delete pj.naming; // as every project created before 2026-09-19 is
   writeFileSync(join(legacy, "knowledge", "project.json"), JSON.stringify(pj, null, 2));
