@@ -1,6 +1,6 @@
 # Spec 804 — Symbols are joined in C64RE
 
-**Status:** BUILT 2026-09-19 — both halves, on `spec-804-symbols-in-c64re` in C64RE and TRX64 (unmerged)
+**Status:** BUILT 2026-09-19 — both halves, on `spec-804-symbols-in-c64re` in C64RE and TRX64, merged into `master`/`main` 2026-09-19
 **Repos:** C64RE (the resolver, residency, the name layers, every surface that shows a
 name) + TRX64 (delivers bytes and address positions, and loses its own label machinery).
 **Number:** 804, moved from `../TRX64/docs/804-symbolized-runtime.md` (2026-09-19). The
@@ -352,7 +352,7 @@ branch — both are release decisions.
 
 ## 8. What was built (2026-09-19)
 
-Both halves, on `spec-804-symbols-in-c64re` in both repos (unmerged).
+Both halves, on `spec-804-symbols-in-c64re` in both repos; merged into `master`/`main` 2026-09-19.
 
 **TRX64.** `project_knowledge.rs` is the Spec 858 binding and nothing else (1264 → 74
 lines); the eight knowledge verbs, `resolvePc`/`resolvePcs`, `user_label_index`,
