@@ -889,6 +889,20 @@
       "steps": [
         {
           "actor": "llm",
+          "action": "Before touching anything, ask what the change reaches and what it costs: who calls it, who reads what it writes, which tables point into it, which claims go stale — and, for a rewrite, whether the new version is equivalent and how many cycles it saves. Where a trace of the routine exists, its measured cost says how often this runs and how much of the frame it owns.",
+          "tools": [
+            "change_impact",
+            "code_cost",
+            "trace_cost"
+          ],
+          "persist": [
+            "impact",
+            "cost verdict"
+          ],
+          "askHumanWhen": "the impact names UNKNOWN reachability in the chain — an indirect jump, self-modified code or the drive CPU"
+        },
+        {
+          "actor": "llm",
           "action": "Record the intended change, assumptions and risk.",
           "tools": [
             "save_finding",

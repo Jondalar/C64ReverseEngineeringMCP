@@ -81,6 +81,8 @@ try {
   check(tools.has("code_cost"), "code_cost is on the default surface — a tool not in DEFAULT_TOOLS is hidden");
   check(tools.has("change_impact") && tools.has("trace_cost"), "so are change_impact and trace_cost (§8)");
   await call("project_init", { name: "cost861static" });
+  // A session onboards before it works in a project; the server refuses otherwise.
+  await call("agent_onboard", {});
 
   // ---- §3.1/§3.2: the cost itself ----------------------------------------
   {
