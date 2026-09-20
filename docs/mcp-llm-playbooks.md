@@ -379,15 +379,15 @@ inventory.
 
 **id:** `change-patch-crack-port`
 
-**Use when:** Crack the protection. / Patch this routine. / Port to EasyFlash.
+**Use when:** Crack the protection. / Patch this routine. / Port to EasyFlash. / Make this routine faster.
 
 **Preconditions:** The relevant code/data is understood with evidence.; A baseline trace/checkpoint exists for before/after comparison.
 
 **Steps:**
 
-1. _(llm)_ Before touching anything, ask what the change reaches and what it costs: who calls it, who reads what it writes, which tables point into it, which claims go stale — and, for a rewrite, whether the new version is equivalent and how many cycles it saves. Where a trace of the routine exists, its measured cost says how often this runs and how much of the frame it owns.
-   - tools: `change_impact`, `code_cost`, `trace_cost`
-   - persist: impact, cost verdict
+1. _(llm)_ Before touching anything, ask what the change reaches and what it costs: who calls it, who reads what it writes, which tables point into it, which claims go stale — and, for a rewrite, whether the new version is equivalent and how many cycles it saves. Where a trace of the routine exists, its measured cost says how often this runs and how much of the frame it owns. Where the goal is speed rather than a specific edit, ask first what is even worth changing: the candidate scan proposes rewrites and drops every one whose verdict is not EQUIVALENT, refuses code whose purpose IS its timing, and ranks what is left by cycles saved per frame.
+   - tools: `change_impact`, `code_cost`, `trace_cost`, `optimisation_candidates`
+   - persist: impact, cost verdict, ranked candidates
    - ask human when: the impact names UNKNOWN reachability in the chain — an indirect jump, self-modified code or the drive CPU
 2. _(llm)_ Record the intended change, assumptions and risk.
    - tools: `save_finding`, `save_open_question`, `agent_record_step`

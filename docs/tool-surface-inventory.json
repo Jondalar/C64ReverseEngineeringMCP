@@ -1,5 +1,5 @@
 {
-  "total": 291,
+  "total": 292,
   "specCount": 41,
   "advancedCandidate": 110,
   "byNamespace": {
@@ -58,6 +58,7 @@
     "diff": 1,
     "disk": 1,
     "export": 1,
+    "optimisation": 1,
     "pointer": 1,
     "ram": 1,
     "reconstruct": 1,
@@ -1105,6 +1106,15 @@
       "hasSpec": false,
       "firstSentence": "Remove one asserted boundary.",
       "desc": "Remove one asserted boundary. Use when a boundary turns out to be wrong — the members underneath are untouched, they simply become orphans again. Not for a boundary that is merely imprecise — assert it again instead (use model_assert). Inputs: boundary id (from model_read). Returns: what changed.",
+      "tier": "default?"
+    },
+    {
+      "name": "optimisation_candidates",
+      "file": "server-tools/optimise-tools.ts",
+      "ns": "optimisation",
+      "hasSpec": false,
+      "firstSentence": "Where this code could be faster, with a deterministic verdict on every suggestion.",
+      "desc": "Where this code could be faster, with a deterministic verdict on every suggestion. Each rule — a `jsr`+`rts` that could be a `jmp`, a load nothing needs, a `clc` where the carry is already what it would set, a `jmp` to a `jmp`, a table read that pays for crossing a page, a variable that belongs in zero page, a loop that could count down — is a heuristic that may be wrong about whether it applies, so nothing is shown without the answer beside it: both versions executed symbolically and compared over the registers, the flags that are still live there, every memory cell either writes and every access to $D000-$DFFF in order. A suggestion that comes back NOT EQUIVALENT has proposed nothing and is dropped and counted, so a rule that is often wrong is visible as such. Code whose purpose IS its timing is refused outright and listed with the reason — delay loops, raster waits, drive and fastloader handshakes, self-modified bytes, an indirect jump. With a trace the list is ranked by cycles saved per frame; without one by what each change saves once, and the report says which. Undocumented opcodes are a class of their own and are off until you ask for them. Nothing is applied: turning a candidate into a patch is runtime_candidate_patch, on purpose. Use it to find what is worth speeding up in a routine, a payload or a whole program. Not for pricing code you have already chosen (use code_cost) and not for what a change would break (use change_impact). Inputs: prg_path or payload, optional ref / address_start / address_end, trace_path, classes. Returns: where it looked, what it left alone, the ranked candidates with their verdicts and assumptions, and a counter per rule.",
       "tier": "default?"
     },
     {

@@ -25,6 +25,7 @@ import { registerGraphTools } from "./server-tools/graph-tools.js";
 import { ORIENTATION_TOOLS, gateDisabled, isOnboarded, onboardingMessage } from "./server-tools/onboarding-gate.js";
 import { isProjectInitialised, nextStepError } from "./server-tools/error-helpers.js";
 import { registerCostTools } from "./server-tools/cost-tools.js";
+import { registerOptimiseTools } from "./server-tools/optimise-tools.js";
 import { registerDiskG64Tools } from "./server-tools/disk-g64.js";
 import { registerHeadlessTools } from "./server-tools/headless.js";
 import { registerRuntimeTools } from "./server-tools/runtime.js";
@@ -244,6 +245,7 @@ function createServer(): McpServer {
   registerInspectRangeTools(server, toolContext);
   registerGraphTools(server, toolContext);
   registerCostTools(server, toolContext);
+  registerOptimiseTools(server, toolContext);
   registerDiskG64Tools(server, toolContext);
   registerHeadlessTools(server, toolContext);
   registerRuntimeTools(server, toolContext);
@@ -311,6 +313,7 @@ export function collectToolInventory(): { name: string; description: string; fil
   group("server-tools/inspect-range.ts", () => registerInspectRangeTools(server, toolContext));
   group("server-tools/graph-tools.ts", () => registerGraphTools(server, toolContext));
   group("server-tools/cost-tools.ts", () => registerCostTools(server, toolContext));
+  group("server-tools/optimise-tools.ts", () => registerOptimiseTools(server, toolContext));
   group("server-tools/disk-g64.ts", () => registerDiskG64Tools(server, toolContext));
   group("server-tools/headless.ts", () => registerHeadlessTools(server, toolContext));
   group("server-tools/runtime.ts", () => registerRuntimeTools(server, toolContext));
