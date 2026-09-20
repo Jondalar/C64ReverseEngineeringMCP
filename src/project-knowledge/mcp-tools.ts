@@ -1496,7 +1496,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       name: z.string(),
       medium_ref: z.string().optional(),
       artifact_id: z.string().optional(),
-      medium_path: z.string().optional(),
+      medium_path: z.string().optional().describe("Path to the medium the table lives on (.crt / .d64 / raw image), relative to the project root or absolute. Omit to skip the probe."),
       layout: z.enum(["packed", "columns"]),
       identity_scheme: z.enum(["index", "key-bytes", "nested"]),
       identity_key_width: z.number().int().positive().optional(),
@@ -1527,7 +1527,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     safeHandler("declare_lut_descriptor", async (a) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, a.project_dir));
       const { checkDescriptor, resolveLutRows, formatLutProbe } = await import("./lut-resolver.js");
-      const { readerForMedium } = await import("./lut-medium.js");
+      const { readerForMedium, noMediumMessage } = await import("./lut-medium.js");
 
       const draft = {
         name: a.name,
@@ -1572,9 +1572,9 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       // Decision 8, soft half: resolve the first rows and hand them back. Three are
       // enough to see an inverted polarity or a missed deref.
       if (a.medium_path) {
-        const m = readerForMedium(a.medium_path);
+        const m = readerForMedium(a.medium_path, service.getProjectRoot());
         if (!m) {
-          lines.push(`  (no probe — no medium at ${a.medium_path})`);
+          lines.push(`  (no probe — ${noMediumMessage(a.medium_path, service.getProjectRoot())})`);
         } else {
           const limit = a.probe_rows ?? 3;
           const { rows, problems } = resolveLutRows(entry, m.reader, { limit });
@@ -1597,13 +1597,14 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     {
       project_dir: z.string().optional(),
       analysis_path: z.string().optional(),
-      medium_path: z.string().optional(),
+      medium_path: z.string().optional().describe("Path to the medium the table lives on (.crt / .d64 / raw image), relative to the project root or absolute. Omit to skip the probe."),
       bank: z.number().int().nonnegative().optional(),
       from_address: z.number().int().nonnegative().optional(),
       to_address: z.number().int().nonnegative().optional(),
       min_columns: z.number().int().min(2).max(16).optional(),
     },
-    safeHandler("suggest_lut_descriptor", async ({ analysis_path, medium_path, bank, from_address, to_address, min_columns }) => {
+    safeHandler("suggest_lut_descriptor", async ({ project_dir, analysis_path, medium_path, bank, from_address, to_address, min_columns }) => {
+      const suggestRoot = (() => { try { return resolveWorkspaceRoot(options, project_dir); } catch { return undefined; } })();
       // ANCHORED path — preferred, and the only one that grounds a find. The loader
       // compiles its table access to `LDA $8500,X`, and the analyser resolved the base.
       if (analysis_path) {
@@ -1632,10 +1633,10 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       if (!medium_path || from_address === undefined || to_address === undefined) {
         return textContent("Pass `analysis_path` (preferred — anchors on the code that reads the table), or `medium_path` + `from_address` + `to_address` for the weaker byte-shape scan.");
       }
-      const { readerForMedium } = await import("./lut-medium.js");
+      const { readerForMedium, noMediumMessage } = await import("./lut-medium.js");
       const { detectTables, formatProposals } = await import("./lut-detect.js");
-      const m = readerForMedium(medium_path);
-      if (!m) return textContent(`No medium at ${medium_path}.`);
+      const m = readerForMedium(medium_path, suggestRoot);
+      if (!m) return textContent(`No medium: ${noMediumMessage(medium_path, suggestRoot)}`);
       if (to_address <= from_address) return textContent("to_address must be past from_address.");
       const len = Math.min(to_address - from_address, 0x4000);
       const bytes = new Uint8Array(len);
@@ -1752,7 +1753,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     {
       project_dir: z.string().optional(),
       descriptor_id: z.string(),
-      medium_path: z.string(),
+      medium_path: z.string().describe("Path to the medium the table lives on (.crt / .d64 / raw image), relative to the project root or absolute."),
       from_row: z.number().int().nonnegative().optional(),
       limit: z.number().int().min(1).max(512).optional(),
     },
@@ -1761,9 +1762,9 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       const d = service.getLutDescriptor(descriptor_id);
       if (!d) return textContent(`No table ${descriptor_id}. Use list_lut_descriptors.`);
       const { resolveLutRows, formatLutProbe } = await import("./lut-resolver.js");
-      const { readerForMedium } = await import("./lut-medium.js");
-      const m = readerForMedium(medium_path);
-      if (!m) return textContent(`No medium at ${medium_path}.`);
+      const { readerForMedium, noMediumMessage } = await import("./lut-medium.js");
+      const m = readerForMedium(medium_path, service.getProjectRoot());
+      if (!m) return textContent(`No medium: ${noMediumMessage(medium_path, service.getProjectRoot())}`);
       const start = from_row ?? 0;
       const { rows, problems } = resolveLutRows(d, m.reader, { limit: start + (limit ?? 64) });
       const window = rows.slice(start);
