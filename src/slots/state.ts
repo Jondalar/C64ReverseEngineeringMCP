@@ -95,12 +95,16 @@ export interface NamedReport {
 export interface CoverageReport {
   /** Bytes inside at least one known address range. */
   covered: number;
-  /** Bytes in the artifacts that could be measured. */
+  /** Bytes in the artifacts that could be measured, each distinct payload counted ONCE. */
   total: number;
   ratio: number;
   /** Artifacts with neither an addressRange nor a fileSize — named, never silently dropped. */
   unmeasured: string[];
   threshold: number;
+  /** How many distinct loadable artifacts the denominator is made of. */
+  artifacts: number;
+  /** How many were left out as another copy of content already counted. */
+  duplicates: number;
 }
 
 const SLOT_TAG = /^slot:(S\d{1,2})$/i;
@@ -235,15 +239,38 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     } finally { store.close(); }
   } catch { /* no graph yet — every artifact is simply uncovered */ }
 
+  // The denominator must be reachable, and it was not.
+  //
+  // A real project registered three .d64s, 252 extracts, 271 cartridge chunks and 504
+  // generated listings, and the measurable set still held the same bytes five and six
+  // times over: the extract of a file, the depacked copy of that extract, and the
+  // cart chunk carrying the same content each counted in full, while the numerator is
+  // a per-owner address union in a 64 KB space. 13 514 / 1 184 478 = 1.1 %, and no
+  // amount of work could move it — the number was structurally unreachable, which is
+  // worse than no number.
+  //
+  // So each distinct piece of CONTENT is counted once. Identity, in order: the content
+  // hash the store already records; else the lineage root, which is how Spec 025 says
+  // a derived copy points at its origin; else the path. Same rule the UI applies when
+  // it shows one artifact per lineage.
+  const identityOf = (a: typeof artifacts[number]): string =>
+    a.contentHash ? `hash:${a.contentHash}` : a.lineageRoot ? `lineage:${a.lineageRoot}` : `path:${a.relativePath ?? a.path ?? a.title}`;
+  const seen = new Set<string>();
   let total = 0;
   let covered = 0;
+  let counted = 0;
+  let duplicates = 0;
   const unmeasured: string[] = [];
   for (const a of artifacts) {
+    const id = identityOf(a);
+    if (seen.has(id)) { duplicates += 1; continue; }
+    seen.add(id);
     const size = a.addressRange
       ? a.addressRange.end - a.addressRange.start + 1
       : (a.fileSize && a.fileSize > 2 ? a.fileSize - 2 : 0); // minus the load address
     if (size <= 0) { unmeasured.push(a.title); continue; }
     total += size;
+    counted += 1;
     const own = stemOf(a.relativePath ?? a.path ?? a.title);
     const ranges = rangesByOwner.get(own);
     if (!ranges) continue;
@@ -259,6 +286,8 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     ratio: total === 0 ? 0 : covered / total,
     unmeasured,
     threshold,
+    artifacts: counted,
+    duplicates,
   };
 
   // ---- derived fills --------------------------------------------------------
@@ -295,7 +324,19 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     if (s.required === "always") return { applies: true, why: "" };
     switch (s.id) {
       case "S6":
-        if (runtimeCount === undefined) return { applies: false, why: "S5 has not stated a runtime count yet" };
+        // Two different states, and printing one message for both made the report
+        // contradict itself: "✓ S5 Runtime count" three lines above "S5 has not stated
+        // a runtime count yet". S5 WAS answered — "One resident image per phase, five
+        // in all" — and the answer simply carries no parseable number, which is a
+        // different problem with a different fix.
+        if (runtimeCount === undefined) {
+          return {
+            applies: false,
+            why: runtimeClaim
+              ? `S5 is answered but its wording states no number this can read ("${runtimeClaim.title.slice(0, 60)}${runtimeClaim.title.length > 60 ? "…" : ""}") — re-record S5 with a count in it, e.g. "five runtimes", and S6 becomes required or n/a accordingly`
+              : "S5 has not stated a runtime count yet",
+          };
+        }
         return runtimeCount > 1
           ? { applies: true, why: `S5 states ${runtimeCount} runtimes` }
           : { applies: false, why: `S5 states ${runtimeCount} runtime` };
@@ -405,13 +446,22 @@ export function formatSlotReport(r: SlotReport): string {
     `${mark(s.status)} ${s.slot.id.padEnd(3)} ${s.slot.name.padEnd(20)} ${s.detail}`);
   const req = r.states.filter((s) => s.status !== "n/a").length;
   const done = r.states.filter((s) => s.status === "filled").length;
+  const na = r.states.length - req;
+  // The header states its own arithmetic. "1/12 filled, 11 open" on one run and
+  // "10/14 filled, 4 open" on the next, over the same list of 15, read as a
+  // contradiction: the denominator MOVES as conditional slots become applicable, and
+  // nothing said so.
+  const header = `Slots: ${done}/${req} filled, ${r.missing.length} open`
+    + (na > 0 ? `, ${na} not applicable (· below) — ${r.states.length} defined in all` : ` — ${r.states.length} defined in all`);
   return [
-    `Slots: ${done}/${req} filled` + (r.missing.length ? `, ${r.missing.length} open` : ""),
+    header,
     "",
     ...lines,
     "",
     r.coverage.total > 0
       ? `Coverage: ${r.coverage.covered} / ${r.coverage.total} bytes = ${(r.coverage.ratio * 100).toFixed(1)} % (threshold ${(r.coverage.threshold * 100).toFixed(0)} %)`
+        + `\n  denominator: ${r.coverage.artifacts} distinct loadable artifact(s)`
+        + (r.coverage.duplicates > 0 ? `, ${r.coverage.duplicates} further cop${r.coverage.duplicates === 1 ? "y" : "ies"} of content already counted left out` : "")
       : "Coverage: nothing measurable registered yet",
     ...(r.coverage.unmeasured.length ? [`  unmeasured (no addressRange, no fileSize): ${r.coverage.unmeasured.join(", ")}`] : []),
   ].join("\n");
