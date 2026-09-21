@@ -379,8 +379,31 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       const call = (m: string, p: Record<string, unknown>) => runtimeDaemon.call(m, p);
       let machine;
       try { machine = machineFromReply(await call("monitor/state", { session_id })); } catch { machine = undefined; }
-      const resolver = SymbolResolver.forProject(process.env.C64RE_PROJECT_DIR?.trim() || undefined);
-      const r = await explainPc(resolver, { pc: pc & 0xffff, space: space ?? "c64", payload: artifact_id }, { bytes: liveByteSource(call, session_id), machine });
+      const projectDir = process.env.C64RE_PROJECT_DIR?.trim() || undefined;
+      const resolver = SymbolResolver.forProject(projectDir);
+      const bytes = liveByteSource(call, session_id);
+      const r: Record<string, unknown> = { ...await explainPc(resolver, { pc: pc & 0xffff, space: space ?? "c64", payload: artifact_id }, { bytes, machine }) };
+      // Spec 867 D2/D3 — the layer above the name: which payloads' WINDOW covers
+      // this address, and which of them the bytes in memory say is there. A name
+      // needs a payload to be resident; this says who the candidates were.
+      if (projectDir) {
+        try {
+          const { Graph } = await import("../knowledge-graph/query.js");
+          const { windowResidency, mediaFromEntities } = await import("../symbols/window-residency.js");
+          const { ProjectKnowledgeService } = await import("../project-knowledge/service.js");
+          const graph = Graph.open(projectDir);
+          try {
+            const entities = new ProjectKnowledgeService(projectDir).listEntities().filter((e) => e.kind === "payload" || e.payloadLoadAddress !== undefined);
+            r.window = await windowResidency({
+              projectDir, store: graph.store, address: pc & 0xffff,
+              space: (space ?? "c64") === "drive8" ? "drv" : "ram",
+              bytes, media: mediaFromEntities(entities),
+            });
+          } finally { graph.close(); }
+        } catch (error) {
+          r.window = { note: `the window context could not be read: ${error instanceof Error ? error.message : String(error)}` };
+        }
+      }
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     }),
   );

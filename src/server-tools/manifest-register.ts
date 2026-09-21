@@ -2,6 +2,7 @@ import { resolve, basename } from "node:path";
 import { existsSync, statSync } from "node:fs";
 import type { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { mediumDerivationForKind, chainCoverageWarning, type LoaderManifest } from "./loader-manifest.js";
+import { derivePayloadWindow } from "../project-knowledge/payload-window.js";
 
 // Spec 784 B2 — the medium-agnostic manifest→payload registration core.
 // Extracted from the register_payloads_from_manifest tool handler so it is testable
@@ -88,6 +89,12 @@ export function registerManifestPayloads(opts: {
         ? { kind: "sector" as const, track: span.track, sector: span.sector, offsetInSector: span.offsetInSector ?? 0, length: span.length, mediumRef: resolveImage(span.image ?? manifest.sourceImage), derivedBy: spanDerivedBy }
         : { kind: "slot" as const, bank: span.bank, slot: span.slot, offsetInBank: span.offsetInBank, length: span.length, mediumRef: resolveImage(span.image ?? manifest.sourceImage), derivedBy: spanDerivedBy }),
       payloadLoadAddress: p.loadAddress ?? undefined,
+      // Spec 867 D1 — the window: what the manifest states, else the load address
+      // plus what the spans say the payload is worth in bytes.
+      payloadWindow: derivePayloadWindow(
+        { payloadLoadAddress: p.loadAddress ?? undefined, payloadFormat: p.format, addressRange },
+        p.spans.reduce((n, span) => n + (span.length ?? 0), 0),
+      ),
       payloadFormat: p.format,
       payloadPacker: p.packer ?? undefined,
       payloadSourceArtifactId: sourceArtifactId,

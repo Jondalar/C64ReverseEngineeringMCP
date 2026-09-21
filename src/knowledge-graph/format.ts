@@ -3,7 +3,7 @@
 // ```json block is byte-identical to what `c64re graph … --json` prints, and
 // the gate asserts it. Compact hits, stable ids, never a listing excerpt.
 
-import type { ArgsDomain, NodeCard, OverviewSection, PathResult, SignatureCard, Subgraph, Walk, WalkEdge } from "./cards.js";
+import type { ArgsDomain, ClaimantsCard, NodeCard, OverviewSection, PathResult, SignatureCard, Subgraph, Walk, WalkEdge } from "./cards.js";
 import type { ResolvedNode } from "./query.js";
 
 const hex = (a: number) => `$${a.toString(16).toUpperCase().padStart(4, "0")}`;
@@ -23,13 +23,14 @@ function hitLine(n: ResolvedNode): string {
   return `[${n.kind}] ${hex(n.address)}${bank} ${n.name ?? ""} | id=${n.id}${why ? ` | ${why}` : ""}`;
 }
 
-export function formatFind(query: string, nodes: ResolvedNode[], limit: number): Formatted {
+export function formatFind(query: string, nodes: ResolvedNode[], limit: number, claimants?: ClaimantsCard | null): Formatted {
   const hits = nodes.slice(0, limit).map((n) => ({
     id: n.id, kind: n.kind, address: hex(n.address), bank: n.bank, name: n.name, origin: n.layers.includes("human") ? "human" : n.platform ? "platform" : "generated",
     orphaned: n.orphaned, dangling: n.dangling, owner: n.owner,
   }));
-  const json = { query, hits, truncated: nodes.length > limit, next: hits.slice(0, 1).map((h) => ({ tool: "graph_node", args: { ref: h.id } })) };
-  const text = hits.length === 0 ? `no node matches "${query}"` : nodes.slice(0, limit).map(hitLine).join("\n") + (nodes.length > limit ? `\n… ${nodes.length - limit} more (raise limit)` : "");
+  const json = { query, hits, truncated: nodes.length > limit, ...(claimants ? { claimants } : {}), next: hits.slice(0, 1).map((h) => ({ tool: "graph_node", args: { ref: h.id } })) };
+  const found = hits.length === 0 ? `no node matches "${query}"` : nodes.slice(0, limit).map(hitLine).join("\n") + (nodes.length > limit ? `\n… ${nodes.length - limit} more (raise limit)` : "");
+  const text = [found, ...claimantLines(claimants ?? null)].join("\n");
   return { text, json };
 }
 
@@ -135,7 +136,22 @@ export function formatNode(card: NodeCard): Formatted {
     if (a) lines.push(`  args: ${a}`);
   }
   lines.push(`  runtime: ${card.runtime.observed ? `observed in ${card.runtime.runs.length} run(s) ${card.runtime.runs.join(",")} (${card.runtime.edges} edges)` : "not observed in any trace run"}`);
+  lines.push(...claimantLines(card.claimants));
   return { text: lines.join("\n"), json: card };
+}
+
+/**
+ * Spec 867 D2 — the claimants of an address, printed the way an ambiguous question
+ * is answered: the list, never a pick. A window that another window loads inside is
+ * named too, with the one that claims the address instead.
+ */
+export function claimantLines(card: ClaimantsCard | null): string[] {
+  if (!card) return [];
+  const out: string[] = [`  window claimants at ${card.address}: ${card.claimants.length === 0 ? "none" : ""}`.trimEnd()];
+  for (const c of card.claimants) out.push(`    ${c.owner} — ${c.name} ${c.window} (${c.source === "payload" ? "recorded" : "from the analysed image"})`);
+  for (const s of card.superseded) out.push(`    (${s.owner} ${s.window} covers it too, but ${s.by} loads inside that window and claims the address)`);
+  out.push(`  ${card.note}`);
+  return out;
 }
 
 export function formatPath(result: PathResult): Formatted {

@@ -30,6 +30,14 @@ export interface ProposedEntryPoint {
   tableAddress?: number;
   /** Instruction addresses that produced this reading, so it can be checked. */
   witnesses: number[];
+  /**
+   * Spec 867 D3 — EVERY position this target is called with, not only the best
+   * one. The grouping below already knows them (it counts the distinct pairs to
+   * decide the candidate is a loader at all); a caller asking "which payload does
+   * this call put in the window" needs the pair with its call site, and reading it
+   * back out of the evidence prose would be a second implementation of this scan.
+   */
+  positions?: Array<{ track: number; sector: number; site: number }>;
   evidence: string[];
   confidence: number;
 }
@@ -124,6 +132,9 @@ export function detectSectorLoads(
     const best = group.sort((a, b) => b.confidence - a.confidence)[0];
     kept.push({
       ...best,
+      positions: group
+        .filter((g) => g.track !== undefined && g.sector !== undefined)
+        .map((g) => ({ track: g.track!, sector: g.sector!, site: g.witnesses[g.witnesses.length - 1] ?? g.address })),
       witnesses: group.flatMap((g) => g.witnesses).slice(0, 12),
       evidence: [
         `${hx(target)} is called from ${group.length} site(s) with ${pairs.size} DISTINCT position(s): ${[...pairs].slice(0, 8).join(", ")}${pairs.size > 8 ? " …" : ""}`,

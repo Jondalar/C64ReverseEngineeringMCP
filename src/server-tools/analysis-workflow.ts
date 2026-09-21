@@ -131,12 +131,22 @@ function describeCodeSeeds(analysisPath: string): string {
   try {
     if (!existsSync(analysisPath)) return "";
     const report = JSON.parse(readFileSync(analysisPath, "utf8")) as {
-      codeSeedReport?: { status: string; owner: string; reason?: string; seeds?: Array<{ origin: string }> };
+      codeSeedReport?: {
+        status: string; owner: string; reason?: string; seeds?: Array<{ origin: string }>;
+        window?: { start: number; end: number; space: string; bank: number | null; source: string; name: string };
+        outOfScope?: Array<{ address: number; detail: string }>;
+      };
       rejectedEntryPoints?: Array<{ address: number; reason: string }>;
       strandedByDecodeConflict?: unknown[];
     };
     const lines: string[] = [];
     const seeds = report.codeSeedReport;
+    // Spec 867 D1 — the window the seeds were scoped to, said before the seeds.
+    const hx = (a: number) => `$${a.toString(16).toUpperCase().padStart(4, "0")}`;
+    if (seeds?.window) {
+      const w = seeds.window;
+      lines.push(`Payload window: ${hx(w.start)}-${hx(w.end)} in ${w.space}${w.bank !== null && w.bank !== undefined ? ` bank ${w.bank}` : ""} — ${w.source === "payload" ? "recorded on the payload record" : "the extent this image was analysed at"}. Graph seeds are scoped to it; a window that loads inside it is that payload's business, not this one's.`);
+    }
     if (seeds?.status === "ok" && (seeds.seeds?.length ?? 0) > 0) {
       const byOrigin = new Map<string, number>();
       for (const seed of seeds.seeds ?? []) byOrigin.set(seed.origin, (byOrigin.get(seed.origin) ?? 0) + 1);
@@ -146,6 +156,10 @@ function describeCodeSeeds(analysisPath: string): string {
       // analysis JSON on disk still holds the long form, so it is cut here too, not
       // only where it is written.
       lines.push(`Graph code seeds: none — ${shortenSeedOwners(seeds.reason ?? seeds.status)}`);
+    }
+    const outOfScope = seeds?.outOfScope ?? [];
+    if (outOfScope.length > 0) {
+      lines.push(`Out of scope for this window: ${outOfScope.length} cross-owner address${outOfScope.length === 1 ? "" : "es"} — outside the window, or inside a window that loads inside it. Not refusals: they were never this payload's (codeSeedReport.outOfScope).`);
     }
     const rejected = report.rejectedEntryPoints ?? [];
     const refused = rejected.filter((r) => r.reason !== "already_code");

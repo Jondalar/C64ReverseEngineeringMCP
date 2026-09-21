@@ -311,6 +311,17 @@ export class KnowledgeRecords {
       record.addressRange = { start: base.address, end: base.end_address ?? base.address, ...(base.bank !== null && base.space === "crt" ? { bank: base.bank } : {}) };
     }
     const load = num(payload.load_address); if (load !== undefined) record.payloadLoadAddress = load;
+    // Spec 867 D1 — the window, as a door wrote it. Absent on every record older
+    // than 867, and derived from the load address and the extent on read.
+    const win = payload.window && typeof payload.window === "object" ? payload.window as Record<string, unknown> : undefined;
+    const winStart = num(win?.start), winEnd = num(win?.end);
+    if (winStart !== undefined && winEnd !== undefined) {
+      record.payloadWindow = {
+        start: winStart, end: winEnd,
+        ...(typeof win?.space === "string" ? { space: win.space as NonNullable<EntityRecord["payloadWindow"]>["space"] } : {}),
+        ...(num(win?.bank) !== undefined ? { bank: num(win?.bank)! } : {}),
+      };
+    }
     const fmt = str(payload.format); if (fmt) record.payloadFormat = fmt as EntityRecord["payloadFormat"];
     const packer = str(payload.packer); if (packer) record.payloadPacker = packer;
     const src = str(payload.source_artifact_id); if (src) record.payloadSourceArtifactId = src;
@@ -484,6 +495,7 @@ export class KnowledgeRecords {
     set("mediumRole", input.mediumRole ?? existing?.mediumRole);
     set("payloadId", input.payloadId ?? existing?.payloadId);
     set("payloadLoadAddress", input.payloadLoadAddress ?? existing?.payloadLoadAddress);
+    set("payloadWindow", input.payloadWindow ?? existing?.payloadWindow);
     set("payloadFormat", input.payloadFormat ?? existing?.payloadFormat);
     set("payloadPacker", input.payloadPacker ?? existing?.payloadPacker);
     set("payloadSourceArtifactId", input.payloadSourceArtifactId ?? existing?.payloadSourceArtifactId);
@@ -500,7 +512,7 @@ export class KnowledgeRecords {
   private entityAttrs(record: EntityRecord, now: string): Record<string, unknown> {
     const payload: Record<string, unknown> = {};
     const p = (k: string, v: unknown) => { if (v !== undefined && !(Array.isArray(v) && v.length === 0)) payload[k] = v; };
-    p("load_address", record.payloadLoadAddress); p("format", record.payloadFormat); p("packer", record.payloadPacker); p("source_artifact_id", record.payloadSourceArtifactId);
+    p("load_address", record.payloadLoadAddress); p("window", record.payloadWindow); p("format", record.payloadFormat); p("packer", record.payloadPacker); p("source_artifact_id", record.payloadSourceArtifactId);
     p("depacked_artifact_id", record.payloadDepackedArtifactId); p("asm_artifact_ids", record.payloadAsmArtifactIds); p("content_hash", record.payloadContentHash);
     p("loader_model_id", record.payloadLoaderModelId); p("claimed_by_lut_id", record.payloadClaimedByLutId); p("claimed_by_row", record.payloadClaimedByRow); p("disk_hint", record.payloadDiskHint);
     const attrs: Record<string, unknown> = { door: true, legacy_kind: record.kind, tags: record.tags, score: record.confidence, status: record.status, created_at: record.createdAt, updated_at: now };

@@ -3,6 +3,7 @@
 // card, a neighbourhood walk, the shortest paths, the project overview.
 
 import { isPlatformId } from "./ids.js";
+import { claimantsAt, loadWindows, type Claimants, type PayloadWindow, type WindowSpace } from "./windows.js";
 import { observedDomain } from "./query-runtime.js";
 import { CONTROL_FLOW_TYPES } from "./schema.js";
 import type { EdgeHit, Graph, ResolvedNode } from "./query.js";
@@ -84,6 +85,55 @@ export function resolveRef(graph: Graph, ref: string, bank?: number): ResolvedNo
   return nodes;
 }
 
+/**
+ * Spec 867 D2 — who claims an address, when the question names no payload. On a
+ * machine built out of overlays that question has no single answer, and the honest
+ * one is the list of what it could mean: the payloads whose window covers the
+ * address, each with its owner. Same move `get_current_artifact` made when a bare
+ * filename stopped being an identity.
+ */
+export interface ClaimantsCard {
+  address: string;
+  claimants: Array<{ owner: string; name: string; window: string; source: string }>;
+  /** windows that cover the address but that a window loading INSIDE them claims instead */
+  superseded: Array<{ owner: string; window: string; by: string }>;
+  note: string;
+}
+
+/** The claimant list for an address, or null where the project records no window at all. */
+export function claimantsCard(graph: Graph, address: number, space?: WindowSpace, bank?: number | null): ClaimantsCard | null {
+  const windows = loadWindows(graph.store);
+  if (windows.length === 0) return null;
+  const found: Claimants = claimantsAt(windows, { address, space, bank });
+  if (found.claimants.length === 0 && found.superseded.length === 0) return null;
+  const win = (w: PayloadWindow) => `${hex(w.start)}-${hex(w.end)}${w.bank !== null ? ` bank ${w.bank}` : ""}`;
+  const note = found.claimants.length === 0
+    ? "no payload window covers this address"
+    : found.claimants.length === 1
+      ? `one payload's window covers ${hex(address)} — but which of its versions is in memory is residency's question, not identity's`
+      : `${found.claimants.length} payloads' windows cover ${hex(address)}. This question names no payload, so it has no single answer: name one, or ask residency which is in memory.`;
+  return {
+    address: hex(address),
+    claimants: found.claimants.map((w) => ({ owner: w.owner, name: w.name, window: win(w), source: w.source })),
+    superseded: found.superseded.map((s) => ({ owner: s.window.owner, window: win(s.window), by: `${s.by.name} ${win(s.by)}` })),
+    note,
+  };
+}
+
+/**
+ * The 16-bit address a ref NAMES, when it names one: `$7400`, `7400`,
+ * `bank:07:$8000`. Spec 867 D2 uses it to answer "who claims this address" for a
+ * query that names an address and no payload.
+ */
+export function addressOfRef(ref: string, bank?: number): { address: number; bank?: number } | undefined {
+  const text = ref.trim();
+  const banked = text.match(/^bank:([0-9a-f]{1,4}):\$?([0-9a-f]{1,4})$/iu);
+  if (banked) return { address: parseInt(banked[2]!, 16), bank: parseInt(banked[1]!, 16) };
+  const bare = text.match(/^\$?([0-9a-f]{1,4})$/iu);
+  if (bare) return { address: parseInt(bare[1]!, 16), ...(bank !== undefined ? { bank } : {}) };
+  return undefined;
+}
+
 export interface NodeCard {
   id: string;
   kind: string;
@@ -109,6 +159,8 @@ export interface NodeCard {
   signature: SignatureCard | null;
   /** 826 D6 — null unless a PASSES or runtime CALLS row lands on the node */
   argsDomain: ArgsDomain | null;
+  /** 867 D2 — the payloads whose window covers this address; null where none does */
+  claimants: ClaimantsCard | null;
   next: Array<{ tool: string; args: Record<string, unknown> }>;
 }
 
@@ -242,6 +294,7 @@ export function nodeCard(graph: Graph, node: ResolvedNode): NodeCard {
     runtime: { observed: runtime.length > 0, edges: runtime.length, runs },
     signature: signatureOf(graph, node),
     argsDomain: argsDomainOf(graph, node),
+    claimants: node.platform ? null : claimantsCard(graph, node.address, node.space as WindowSpace, node.bank),
     next,
   };
 }

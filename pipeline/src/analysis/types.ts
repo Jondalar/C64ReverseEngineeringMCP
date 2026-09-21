@@ -535,6 +535,18 @@ export interface CodeSeedReport {
   /** why nothing was read (`absent`/`disabled`); undefined on `ok`. */
   reason?: string;
   seeds: Array<{ address: number; origin: CodeSeedOrigin; detail: string }>;
+  /**
+   * Spec 867 D1 — the window this payload occupies while it is loaded, and where
+   * that window came from: `payload` = a payload record said so, `image` = the
+   * extent the image was analysed at (its load address plus its byte length).
+   */
+  window?: { start: number; end: number; space: string; bank: number | null; source: "payload" | "image" | "analysed-range"; name: string };
+  /**
+   * Spec 867 D1 — cross-owner addresses the window put outside this payload's
+   * business: outside the window, or inside a window that loads inside it. NOT
+   * refusals — nothing was asked for and nothing was taken away.
+   */
+  outOfScope?: Array<{ address: number; detail: string }>;
 }
 
 export interface AnalysisOptions {

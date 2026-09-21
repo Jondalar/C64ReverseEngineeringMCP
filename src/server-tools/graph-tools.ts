@@ -7,7 +7,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { edgesWalk, nodeCard, overview, resolveRef, shortestPath, type EdgeKind, type Focus } from "../knowledge-graph/cards.js";
+import { addressOfRef, claimantsCard, edgesWalk, nodeCard, overview, resolveRef, shortestPath, type EdgeKind, type Focus } from "../knowledge-graph/cards.js";
 import { formatEdges, formatFind, formatNode, formatOverview, formatPath, stableJson, type Formatted } from "../knowledge-graph/format.js";
 import { Graph } from "../knowledge-graph/query.js";
 import { safeHandler } from "./safe-handler.js";
@@ -50,7 +50,11 @@ export function registerGraphTools(server: McpServer, context: ServerToolContext
         if (origin === "human") nodes = nodes.filter((n) => n.layers.includes("human"));
         else if (origin === "generated") nodes = nodes.filter((n) => !n.layers.includes("human") && !n.platform);
         else if (origin === "platform") nodes = nodes.filter((n) => n.platform);
-        return reply(formatFind(query, nodes, limit ?? 10));
+        // Spec 867 D2 — a query that names an address and no payload cannot have
+        // one answer on an overlaid machine. The claimants come with the hits.
+        const at = addressOfRef(query, bank);
+        const claimants = at ? claimantsCard(graph, at.address, undefined, at.bank ?? null) : null;
+        return reply(formatFind(query, nodes, limit ?? 10, claimants));
       }),
     ),
   );
