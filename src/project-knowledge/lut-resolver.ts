@@ -30,6 +30,10 @@ export interface ResolvedLutRow {
   /** The identity as it will be stored on a claim: (descriptorId, index). */
   key?: number[];
   bank?: number;
+  /** Which disk/side the row's payload is on. Its own field, not `bank`: `bank` is
+   *  handed back to the reader as the bank a deref reads through, so a side number
+   *  living there addresses a cartridge bank that does not exist. */
+  side?: number;
   /** Where the payload STARTS — `headerOffset` already subtracted. */
   offset?: number;
   /** The raw cell, before `headerOffset`. Kept because matching a manifest span may
@@ -222,6 +226,36 @@ export function checkDescriptor(d: LutDescriptor): string[] {
       problems.push(`column ${col.role}: \`deref\` only means something for \`destination\``);
     }
   }
+  // Where the column addresses are counted from has to be resolvable, or `at` means
+  // nothing. The default framing is `medium` and says exactly what it always did.
+  if (d.frame === "payload") {
+    if (!d.payload) {
+      problems.push(
+        "frame=payload but no `payload` block — say WHICH payload the table is in "
+        + "(payload.path / payload.artifactId / payload.entityId) and where it runs "
+        + "(payload.loadAddress). Without it an `at` is an address in no space at all.",
+      );
+    } else {
+      if (d.payload.loadAddress === undefined) {
+        problems.push(
+          "frame=payload needs `payload.loadAddress` — the column addresses are RUNTIME "
+          + "addresses, and without where the payload's first byte runs there is nothing to "
+          + "map them through.",
+        );
+      }
+      if (!d.payload.path && !d.payload.artifactId && !d.payload.entityId) {
+        problems.push(
+          "frame=payload needs the payload NAMED: `payload.path`, `payload.artifactId` or "
+          + "`payload.entityId`. A framing that cannot find its own bytes resolves nothing.",
+        );
+      }
+    }
+  } else if (d.payload) {
+    problems.push(
+      "a `payload` block was given but frame is `medium`, so the column addresses would "
+      + "still be read as medium offsets and the payload ignored. Set frame=\"payload\", or drop it.",
+    );
+  }
   const roles = d.columns.map((c) => c.role);
   const dupes = roles.filter((r, i) => roles.indexOf(r) !== i);
   if (dupes.length) problems.push(`duplicate column roles: ${[...new Set(dupes)].join(", ")}`);
@@ -247,6 +281,7 @@ export function resolveLutRows(
 
   const cols = {
     bank: byRole(d, "bank"),
+    side: byRole(d, "side"),
     offset: byRole(d, "offset"),
     length: byRole(d, "length"),
     destination: byRole(d, "destination"),
@@ -264,6 +299,9 @@ export function resolveLutRows(
       c === undefined ? undefined : readCell(reader, c, i, strideFor(d, c), opts.bank, rowProblems);
 
     row.bank = read(cols.bank);
+    // A side is DATA about the row, never a bank override: it says which disk the
+    // payload is on, and feeding it to the reader would select a bank by disk number.
+    row.side = read(cols.side);
     const rowBank = row.bank ?? opts.bank;
 
     // A terminator ends the table before rowCount does — and SAYS so, with the byte it
@@ -357,6 +395,16 @@ export function describeTerminatorHit(d: LutDescriptor, hit: LutTerminatorHit): 
   const where = `${hx(hit.address)}${hit.bank !== undefined ? ` in bank ${hit.bank}` : ""}`;
   const head = `Row ${hit.atRow}: the \`${hit.column}\` column read ${hx(hit.value, 2)} at ${where}, which is this descriptor's \`terminator\` — the walk stopped there.`;
   if (hit.atRow > 0) return head;
+  // A payload-framed table's `at` is a RUNTIME address, so the medium advice below —
+  // image offsets, the CBM load word — would send the caller looking in the wrong space.
+  if (d.frame === "payload") {
+    return [
+      head,
+      `Row 0 hitting the terminator means the table ended before its first row, which is far more often a wrong \`at\` than a table with no rows.`,
+      `This descriptor is PAYLOAD-framed: \`at\` is a RUNTIME address inside ${d.payload?.path ?? "the payload"}, which runs from ${hx(d.payload?.loadAddress ?? 0)}. It is not a file offset, and the payload's own header bytes are already taken out of the mapping — do not subtract them again.`,
+      `Check ${hx(hit.address)} against the listing you read the table out of, or drop \`terminator\` and pass \`row_count\` to see the bytes that are actually there.`,
+    ].join("\n");
+  }
   return [
     head,
     `Row 0 hitting the terminator means the table ended before its first row, which is far more often a wrong \`at\` than a table with no rows.`,
@@ -374,6 +422,7 @@ export function formatLutProbe(d: LutDescriptor, rows: ResolvedLutRow[], stopped
   for (const r of rows) {
     const parts = [`${String(r.index).padStart(3)}`];
     if (r.bank !== undefined) parts.push(`bank ${r.bank}`);
+    if (r.side !== undefined) parts.push(`side ${r.side}`);
     if (r.track !== undefined) parts.push(`T${r.track}/S${r.sector ?? "?"}`);
     if (r.offset !== undefined) {
       parts.push(r.offsetRaw !== r.offset ? `${hx(r.offset)} (cell ${hx(r.offsetRaw)})` : hx(r.offset));

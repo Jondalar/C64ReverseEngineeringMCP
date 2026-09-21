@@ -1489,14 +1489,20 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "declare_lut_descriptor",
-    "Describe a lookup table you found on a medium (cartridge index, disk directory, custom LUT) so its rows can be resolved. Use after reading the loader's disassembly, to record HOW the table is laid out — identity (index|key-bytes|nested), layout (packed=contiguous records | columns=parallel arrays), and one column per role with its address. Rows are NOT stored: they are derived from this plus the bytes, so a corrected descriptor corrects every row. Writes are structurally checked and answered with a PROBE of the first resolved rows — hold them against your disassembly, because a wrong codec polarity or a missed pointer-deref is silently wrong for every row and still looks plausible. Not for registering a payload (use register_payload) or the routine that reads the table (use declare_loader_entrypoint, then point its lut_descriptor_id here).",
+    "Describe a lookup table so its rows can be resolved — a cartridge index, a disk directory, a custom LUT, or an index table inside a payload the loader has already loaded. Use after reading the loader's disassembly, to record HOW the table is laid out — identity (index|key-bytes|nested), layout (packed=contiguous records | columns=parallel arrays), and one column per role with its address. SAY WHERE THE ADDRESSES ARE COUNTED FROM: by default they are the medium's own (a byte offset into a .d64/raw image, the address inside a .crt bank window); pass payload_path + payload_load_address instead and they are RUNTIME addresses inside that loaded payload, which is the only framing that can be true for a .g64, because a .g64 has no usable byte offsets to count. A payload's own 2-byte load word is taken out of the mapping once, here — never folded into every column address by hand. A disk side is the `side` column role, not `bank`: bank is handed to the reader as the bank a deref reads through. Rows are NOT stored: they are derived from this plus the bytes, so a corrected descriptor corrects every row. Writes are structurally checked and answered with a PROBE of the first resolved rows — hold them against your disassembly, because a wrong codec polarity or a missed pointer-deref is silently wrong for every row and still looks plausible. Not for registering a payload (use register_payload) or the routine that reads the table (use declare_loader_entrypoint, then point its lut_descriptor_id here).",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
       name: z.string(),
       medium_ref: z.string().optional(),
       artifact_id: z.string().optional(),
-      medium_path: z.string().optional().describe("Path to the medium the table lives on (.crt / .d64 / raw image), relative to the project root or absolute. Omit to skip the probe."),
+      medium_path: z.string().optional().describe("Path to the medium the table lives ON (.crt / .d64 / raw image), relative to the project root or absolute. Use this OR the payload_* arguments, never both — they are two different address spaces. Omit both to skip the probe."),
+      payload_path: z.string().optional().describe("The table is inside a LOADED PAYLOAD, not on the medium: this is the extracted file holding that payload's bytes (project-relative or absolute). Pass it with payload_load_address and every `at` is read as a runtime address instead of a medium offset. This is what a .g64 needs — a G64 holds raw flux-level tracks and has no byte offset a column address could be counted from, so pointing medium_path at an extracted .prg and subtracting the load word by hand is the workaround this replaces."),
+      payload_load_address: z.number().int().nonnegative().optional().describe("Where the payload's FIRST byte runs once loaded (e.g. 2048 for $0800). With it, the column addresses are RUNTIME addresses — the ones the loader's disassembly quotes — and this is what maps one onto a byte of payload_path. Required whenever the table is payload-framed."),
+      payload_header_bytes: z.number().int().nonnegative().optional().describe("Bytes at the head of payload_path that are NOT payload — a CBM file's own load-address word is two. Omit it and the door decides the same way the disassembly doors do: if the first two bytes ARE payload_load_address they are a load word and the body starts at offset 2, and the answer says which reading it took. Taken out of the mapping once, here; do not also subtract it from the column addresses."),
+      payload_artifact_id: z.string().optional().describe("The payload ARTIFACT the table lives in, when it is registered. Its path is used when payload_path is omitted."),
+      payload_entity_id: z.string().optional().describe("The payload ENTITY (register_payload) the table lives in — the claim side of the same fact."),
+      payload_origin: z.string().optional().describe("Where that payload came from, in the medium's own words, for a medium that has no byte offset to give: \"T18/S4 of side 1 (a .g64)\". Prose — the point is that the provenance is on the record at all."),
       layout: z.enum(["packed", "columns"]),
       identity_scheme: z.enum(["index", "key-bytes", "nested"]),
       identity_key_width: z.number().int().positive().optional(),
@@ -1504,7 +1510,8 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       terminator: z.number().int().min(0).max(255).optional(),
       record_stride: z.number().int().positive().optional(),
       columns: z.array(z.object({
-        role: z.enum(["bank", "offset", "length", "destination", "entry", "codec", "key", "track", "sector"]),
+        role: z.enum(["bank", "side", "offset", "length", "destination", "entry", "codec", "key", "track", "sector"])
+          .describe("What this column IS. `bank` is a cartridge bank and is handed back to the reader as the bank a deref reads through; `side` is which disk/side of a multi-disk set the row's payload is on and is data only. They are not interchangeable — a side number used as a bank addresses a cartridge bank that does not exist."),
         width: z.union([z.literal(1), z.literal(2)]).optional(),
         at: z.number().int().nonnegative().optional().describe("Where this column's ROW-0 cell sits, in the MEDIUM's own addressing — row n is at `at + n*stride`. On a .d64/.g64/raw image that is a byte offset into the IMAGE FILE, counted from $0000 (T18/S1 is offset 91392); it is not a C64 memory address and not an offset into an extracted file. On a .crt it is the address inside the bank window the CHIP packet declares, e.g. $8500 in a $8000 window. Off by two on a disk is the classic miss: a CBM file carries its own 2-byte load-address word at its head."),
         at_lo: z.number().int().nonnegative().optional().describe("Low half of a SPLIT 16-bit cell — one array of low bytes, a second of high bytes, which is what a `columns` table looks like. Addressed exactly like `at`. Pass it with at_hi and width: 2."),
@@ -1527,12 +1534,54 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     safeHandler("declare_lut_descriptor", async (a) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, a.project_dir));
       const { checkDescriptor, resolveLutRows, formatLutProbe } = await import("./lut-resolver.js");
-      const { readerForMedium, noMediumMessage } = await import("./lut-medium.js");
+      const { readerForMedium, noMediumMessage, payloadReader, inferPayloadHeaderBytes, resolveMediumPath } =
+        await import("./lut-medium.js");
+
+      // ── where are the addresses counted from? ──────────────────────────────
+      const payloadFramed = a.payload_path !== undefined || a.payload_load_address !== undefined
+        || a.payload_artifact_id !== undefined || a.payload_entity_id !== undefined
+        || a.payload_header_bytes !== undefined || a.payload_origin !== undefined;
+      if (payloadFramed && a.medium_path !== undefined) {
+        return textContent(
+          "Descriptor REFUSED — medium_path and payload_path name two different address spaces.\n\n"
+          + "`medium_path` says the column addresses are the MEDIUM's own (a byte offset into the image, "
+          + "or the address inside a .crt bank window). The payload_* arguments say they are RUNTIME "
+          + "addresses inside a payload the loader has already loaded. A table is in one of those places, "
+          + "not both, and silently preferring one is how a descriptor comes to assert an addressing it "
+          + "does not use.\n\nDrop whichever is not true of this table. Nothing was written.",
+        );
+      }
+      // The payload's own bytes: named directly, or taken from the artifact it is registered as.
+      const payloadPath = a.payload_path
+        ?? (a.payload_artifact_id ? service.getArtifactById(a.payload_artifact_id)?.path : undefined);
+      let headerNote = "";
+      let headerBytes = a.payload_header_bytes;
+      if (payloadFramed && headerBytes === undefined && payloadPath && a.payload_load_address !== undefined) {
+        const found = resolveMediumPath(payloadPath, service.getProjectRoot());
+        if ("abs" in found) {
+          const inferred = inferPayloadHeaderBytes(found.abs, a.payload_load_address);
+          headerBytes = inferred.bytes;
+          headerNote = inferred.why;
+        }
+      }
 
       const draft = {
         name: a.name,
         mediumRef: a.medium_ref,
         artifactId: a.artifact_id,
+        frame: payloadFramed ? ("payload" as const) : ("medium" as const),
+        ...(payloadFramed
+          ? {
+            payload: {
+              path: payloadPath,
+              artifactId: a.payload_artifact_id,
+              entityId: a.payload_entity_id,
+              loadAddress: a.payload_load_address,
+              headerBytes: headerBytes ?? 0,
+              origin: a.payload_origin,
+            },
+          }
+          : {}),
         layout: a.layout,
         identity: { scheme: a.identity_scheme, keyWidth: a.identity_key_width },
         rowCount: a.row_count,
@@ -1571,7 +1620,32 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
       // Decision 8, soft half: resolve the first rows and hand them back. Three are
       // enough to see an inverted polarity or a missed deref.
-      if (a.medium_path) {
+      if (payloadFramed) {
+        if (!payloadPath || entry.payload?.loadAddress === undefined) {
+          lines.push(`  (no probe — a payload-framed table needs payload_path and payload_load_address to read its bytes)`);
+        } else {
+          const m = payloadReader(payloadPath, {
+            loadAddress: entry.payload.loadAddress,
+            headerBytes: entry.payload.headerBytes ?? 0,
+          }, service.getProjectRoot());
+          if (!m) {
+            lines.push(`  (no probe — ${noMediumMessage(payloadPath, service.getProjectRoot())})`);
+          } else {
+            const limit = a.probe_rows ?? 3;
+            const { rows, problems, stopped } = resolveLutRows(entry, m.reader, { limit });
+            lines.push(`  framing: payload — ${m.note}`);
+            if (headerNote) lines.push(`  header:  read from the bytes — ${headerNote}`);
+            if (entry.payload.origin) lines.push(`  origin:  ${entry.payload.origin}`);
+            if (problems.length) lines.push(...problems.map((p) => `  WARN ${p}`));
+            const headline = rows.length === 0 && stopped
+              ? `PROBE — NO rows: the table ended at row ${stopped.atRow}, before a single row was read.`
+              : `PROBE — first ${rows.length} row(s), resolved. Hold these against your disassembly:`;
+            lines.push("", headline, formatLutProbe(entry, rows, stopped));
+            const bad = rows.filter((r) => r.problems.length).length;
+            if (bad) lines.push("", `${bad} of ${rows.length} probed rows had a problem — check the column addresses before trusting the rest.`);
+          }
+        }
+      } else if (a.medium_path) {
         const m = readerForMedium(a.medium_path, service.getProjectRoot());
         if (!m) {
           lines.push(`  (no probe — ${noMediumMessage(a.medium_path, service.getProjectRoot())})`);
@@ -1754,11 +1828,11 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "resolve_lut_rows",
-    "Resolve a described table's rows against the medium bytes — the whole table or a window of it. Use to read what a table actually claims: per row the bank, the payload start, the length, the destination (following a pointer when the descriptor says to) and packed/raw. Rows are derived on every call, never stored, so this is always current with the descriptor. Not for describing the table (use declare_lut_descriptor).",
+    "Resolve a described table's rows against the bytes — the whole table or a window of it. Use to read what a table actually claims: per row the bank or disk side, the payload start, the length, the destination (following a pointer when the descriptor says to) and packed/raw. A payload-framed table finds its own bytes from the descriptor, so medium_path is only for a table that lives on a medium. Rows are derived on every call, never stored, so this is always current with the descriptor. Not for describing the table (use declare_lut_descriptor).",
     {
       project_dir: z.string().optional(),
       descriptor_id: z.string(),
-      medium_path: z.string().describe("Path to the medium the table lives on (.crt / .d64 / raw image), relative to the project root or absolute."),
+      medium_path: z.string().optional().describe("Path to the medium the table lives on (.crt / .d64 / raw image), relative to the project root or absolute. Leave it out for a payload-framed table — that descriptor already names the payload its addresses are counted in, and re-pointing it at an image would read a different address space."),
       from_row: z.number().int().nonnegative().optional(),
       limit: z.number().int().min(1).max(512).optional(),
     },
@@ -1767,16 +1841,38 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       const d = service.getLutDescriptor(descriptor_id);
       if (!d) return textContent(`No table ${descriptor_id}. Use list_lut_descriptors.`);
       const { resolveLutRows, formatLutProbe } = await import("./lut-resolver.js");
-      const { readerForMedium, noMediumMessage } = await import("./lut-medium.js");
-      const m = readerForMedium(medium_path, service.getProjectRoot());
-      if (!m) return textContent(`No medium: ${noMediumMessage(medium_path, service.getProjectRoot())}`);
+      const { readerForMedium, noMediumMessage, payloadReader } = await import("./lut-medium.js");
+      // The framing lives on the descriptor, so resolving later needs no second telling
+      // of it — which is the whole point of recording it rather than hand-offsetting.
+      let m;
+      if (d.frame === "payload") {
+        if (medium_path) {
+          return textContent(
+            `Table "${d.name}" is PAYLOAD-framed: its column addresses are runtime addresses inside `
+            + `${d.payload?.path ?? "its payload"}, not offsets into a medium. Resolving it against `
+            + `${medium_path} would read a different address space. Leave medium_path out.`,
+          );
+        }
+        if (!d.payload?.path || d.payload.loadAddress === undefined) {
+          return textContent(`Table "${d.name}" is payload-framed but names no payload path/load address — re-declare it with payload_path and payload_load_address.`);
+        }
+        m = payloadReader(d.payload.path, { loadAddress: d.payload.loadAddress, headerBytes: d.payload.headerBytes ?? 0 }, service.getProjectRoot());
+        if (!m) return textContent(`No payload: ${noMediumMessage(d.payload.path, service.getProjectRoot())}`);
+      } else {
+        if (!medium_path) {
+          return textContent(`Table "${d.name}" lives on a medium, so it needs medium_path — the image its column addresses are offsets into.`);
+        }
+        m = readerForMedium(medium_path, service.getProjectRoot());
+        if (!m) return textContent(`No medium: ${noMediumMessage(medium_path, service.getProjectRoot())}`);
+      }
       const start = from_row ?? 0;
       const { rows, problems, stopped } = resolveLutRows(d, m.reader, { limit: start + (limit ?? 64) });
       const window = rows.slice(start);
       const head = rows.length === 0 && stopped
         ? `Table "${d.name}" (${d.id}) — NO rows: the table ended at row ${stopped.atRow}, before a single row was read`
         : `Table "${d.name}" (${d.id}) — ${rows.length} row(s) resolved, showing ${window.length} from ${start}`;
-      const lines = [head, `  medium: ${m.note}`];
+      const lines = [head, `  ${d.frame === "payload" ? "framing: payload —" : "medium:"} ${m.note}`];
+      if (d.frame === "payload" && d.payload?.origin) lines.push(`  origin:  ${d.payload.origin}`);
       if (problems.length) lines.push(...problems.map((p) => `  WARN ${p}`));
       lines.push("", formatLutProbe(d, window, stopped));
       const unclaimed = window.filter((r) => r.problems.length).length;

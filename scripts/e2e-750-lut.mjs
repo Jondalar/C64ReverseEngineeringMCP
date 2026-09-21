@@ -704,5 +704,235 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
     /split/i.test(shape.at_lo?.description ?? "") && /split/i.test(shape.at_hi?.description ?? ""));
 }
 
+// ── 17. the table is in a LOADED PAYLOAD, not on the medium ──────────────────
+//
+// `at` was defined as an address in the MEDIUM's own terms, and the only readers were
+// medium readers. A game whose index tables live inside a payload the loader has
+// already pulled into RAM has no such address — and a .g64 has no usable byte offsets
+// at all, so there is nothing to count from even in principle.
+//
+// An autonomous run got its probes to come back correct anyway: it pointed
+// `medium_path` at the EXTRACTED .prg and hand-offset every column by 2 for the CBM
+// load-address word. The numbers were right and the record was a lie — the descriptor
+// says "these are offsets into this medium" about a file that is not a medium, with an
+// off-by-two folded into every address by hand. Nothing in the framing could say "the
+// table is in RAM, and here is the payload it came from".
+try {
+  const { payloadReader } = await import(dist("project-knowledge/lut-medium.js"));
+  const { writeFileSync, mkdtempSync, mkdirSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  if (typeof payloadReader !== "function") throw new Error("lut-medium exports no payloadReader");
+
+  // A payload that RUNS at $0800: two header bytes, then the table at $0A00.
+  const payload = Buffer.alloc(0x400, 0xff);
+  const at = (addr) => addr - 0x0800 + 2;          // runtime → offset in the .prg
+  [0x01, 0x02, 0x03].forEach((v, i) => { payload[at(0x0A00) + i] = v; });   // side
+  [0x11, 0x12, 0x13].forEach((v, i) => { payload[at(0x0A10) + i] = v; });   // track
+  [0x01, 0x05, 0x09].forEach((v, i) => { payload[at(0x0A20) + i] = v; });   // sector
+  payload[0] = 0x00; payload[1] = 0x08;            // the CBM load-address word
+
+  const dir = mkdtempSync(join(tmpdir(), "c64re-750-payload-"));
+  mkdirSync(join(dir, "payloads"), { recursive: true });
+  const prg = join(dir, "payloads", "index.prg");
+  writeFileSync(prg, payload);
+
+  const framed = {
+    ...base, layout: "columns", identity: { scheme: "index" }, rowCount: 3,
+    frame: "payload",
+    payload: { path: "payloads/index.prg", loadAddress: 0x0800, headerBytes: 2, origin: "T18/S4 of side 1 (a .g64 — no byte offsets)" },
+    columns: [
+      { role: "side", width: 1, at: 0x0A00, stride: 1, lengthBias: 0, headerOffset: 0, deref: false },
+      { role: "track", width: 1, at: 0x0A10, stride: 1, lengthBias: 0, headerOffset: 0, deref: false },
+      { role: "sector", width: 1, at: 0x0A20, stride: 1, lengthBias: 0, headerOffset: 0, deref: false },
+    ],
+  };
+
+  ok("17a a payload-framed descriptor is structurally sound", checkDescriptor(framed).length === 0,
+    checkDescriptor(framed).join("; "));
+
+  const reader = payloadReader(prg, { loadAddress: 0x0800, headerBytes: 2 });
+  ok("17b there IS a payload reader — the table is in RAM, not on a medium", typeof reader?.reader?.readByte === "function");
+  const { rows } = resolveLutRows(framed, reader.reader, { limit: 4 });
+  ok("17c the columns resolve at their RUNTIME addresses, with no hand-applied offset",
+    rows.length === 3 && rows[0].track === 0x11 && rows[2].sector === 0x09,
+    JSON.stringify(rows.map((r) => [r.side, r.track, r.sector])));
+  ok("17d the reader says what it is and where the address space came from",
+    /payload/i.test(reader.note) && /\$0800/.test(reader.note) && /header/i.test(reader.note), reader.note);
+
+  // The record must CARRY the framing, or the next session reads medium offsets.
+  ok("17e the descriptor says the table is payload-framed", framed.frame === "payload");
+  ok("17f …and names the payload it came from, including a medium with no offsets",
+    /g64/i.test(framed.payload.origin ?? ""), framed.payload.origin);
+
+  // And the structural check must refuse a framing it cannot map.
+  const noLoad = { ...framed, payload: { path: "payloads/index.prg" } };
+  const c = checkDescriptor(noLoad);
+  ok("17g payload framing with no load address is REFUSED — `at` would be unmappable",
+    c.some((p) => /loadAddress/i.test(p)), c.join("; ") || "(accepted)");
+  const noPayload = { ...framed, payload: undefined };
+  ok("17h …and so is frame=payload with no payload at all",
+    checkDescriptor(noPayload).some((p) => /payload/i.test(p)),
+    checkDescriptor(noPayload).join("; ") || "(accepted)");
+
+  // A medium-framed descriptor is untouched: this is additive, not a re-definition.
+  const mediumFramed = { ...framed, frame: "medium", payload: undefined };
+  ok("17i a medium-framed descriptor still checks clean", checkDescriptor(mediumFramed).length === 0,
+    checkDescriptor(mediumFramed).join("; "));
+
+  try { rmSync(dir, { recursive: true, force: true }); } catch { /* temp */ }
+} catch (e) {
+  ok("17 the table is in a loaded payload, not on the medium", false, e.message);
+}
+
+// ── 18. a disk SIDE is not a cartridge bank ─────────────────────────────────
+//
+// The run had a multi-side disk set and no column role for the side, so it used `bank`.
+// That is not a cosmetic mislabel: `bank` is fed back into the reader as the bank a
+// deref reads through, so a side number in it addresses a cartridge bank that does not
+// exist. The two are different facts about different media and need different roles.
+{
+  const image = { 0: {} };
+  const put = (b, vals) => vals.forEach((v, i) => { image[0][b + i] = v; });
+  put(0x00, [1, 2]);            // side
+  put(0x10, [0x11, 0x23]);      // track
+  put(0x20, [0x01, 0x0a]);      // sector
+
+  const d = {
+    ...base, layout: "columns", identity: { scheme: "index" }, rowCount: 2,
+    columns: [
+      { role: "side", width: 1, at: 0x00, stride: 1, lengthBias: 0, headerOffset: 0, deref: false },
+      { role: "track", width: 1, at: 0x10, stride: 1, lengthBias: 0, headerOffset: 0, deref: false },
+      { role: "sector", width: 1, at: 0x20, stride: 1, lengthBias: 0, headerOffset: 0, deref: false },
+    ],
+  };
+  const { LutColumnRoleSchema } = await import(dist("project-knowledge/types.js"));
+  ok("18a `side` is a column role in the schema, not a tolerated string",
+    (LutColumnRoleSchema?.options ?? []).includes("side"),
+    (LutColumnRoleSchema?.options ?? []).join(","));
+  ok("18a2 …and a descriptor using it checks clean", checkDescriptor(d).length === 0, checkDescriptor(d).join("; "));
+  const { rows } = resolveLutRows(d, mkReader(image), { limit: 4 });
+  ok("18b it resolves onto its own field", rows[0].side === 1 && rows[1].side === 2,
+    JSON.stringify(rows.map((r) => r.side)));
+  ok("18c …and NOT onto bank — a side must not become the bank a deref reads through",
+    rows[0].bank === undefined, `bank=${rows[0].bank}`);
+  const probe = formatLutProbe(d, rows);
+  ok("18d the probe prints it as a side", /side 1/.test(probe) && !/bank 1/.test(probe), probe.split("\n")[0]);
+  ok("18e …beside the disk pair it belongs with", /T17\/S1|T17\/S1/.test(probe.replace(/0x/g, "")) || /T\d+\/S\d+/.test(probe),
+    probe.split("\n")[0]);
+}
+
+// ── 19. both halves, over the MCP surface ────────────────────────────────────
+{
+  const { spawn } = await import("node:child_process");
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+
+  const projectDir = mkdtempSync(join(tmpdir(), "c64re-750f-"));
+  const { ProjectKnowledgeService } = await import(dist("project-knowledge/service.js"));
+  new ProjectKnowledgeService(projectDir).initProject({ name: "750 framing" });
+
+  // The payload as an extract would leave it: a .prg with its 2-byte load word.
+  const payload = Buffer.alloc(0x400, 0xff);
+  payload[0] = 0x00; payload[1] = 0x08;
+  const at = (addr) => addr - 0x0800 + 2;
+  [0x01, 0x01, 0x02].forEach((v, i) => { payload[at(0x0A00) + i] = v; });
+  [0x11, 0x12, 0x13].forEach((v, i) => { payload[at(0x0A10) + i] = v; });
+  [0x01, 0x05, 0x09].forEach((v, i) => { payload[at(0x0A20) + i] = v; });
+  mkdirSync(join(projectDir, "payloads"), { recursive: true });
+  writeFileSync(join(projectDir, "payloads", "index.prg"), payload);
+
+  const proc = spawn(process.execPath, [join(ROOT, "dist/cli.js")], {
+    cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_FULL_TOOLS: "1", C64RE_SLOT_GATE: "0" },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let buf = ""; const pending = new Map(); let id = 1;
+  proc.stdout.on("data", (dd) => {
+    buf += dd.toString(); let nl;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+      if (!line) continue;
+      let m; try { m = JSON.parse(line); } catch { continue; }
+      if (m.id != null && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
+    }
+  });
+  const rpc = (method, params, t = 60000) => new Promise((res, rej) => {
+    const i = id++; const timer = setTimeout(() => { pending.delete(i); rej(new Error("timeout " + method)); }, t);
+    pending.set(i, (m) => { clearTimeout(timer); res(m); });
+    proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: i, method, params }) + "\n");
+  });
+  const call = async (name, args) => {
+    const r = await rpc("tools/call", { name, arguments: args });
+    if (r.error) return `# transport error ${JSON.stringify(r.error)}`;
+    return (r.result?.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
+  };
+  const body = (t) => t.split(/\n---\n\*\*Project rule/)[0];
+
+  try {
+    await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "e2e750f", version: "1" } });
+    proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+    await call("agent_onboard", { project_dir: projectDir });
+
+    const tools = (await rpc("tools/list", {})).result.tools;
+    const decl = tools.find((t) => t.name === "declare_lut_descriptor");
+    const props = decl?.inputSchema?.properties ?? {};
+    ok("19a the door takes a payload framing at all",
+      Object.prototype.hasOwnProperty.call(props, "payload_path")
+      && Object.prototype.hasOwnProperty.call(props, "payload_load_address"),
+      Object.keys(props).filter((k) => /payload|frame/.test(k)).join(",") || "none");
+    ok("19b …and says the addresses are then RUNTIME addresses",
+      /runtime/i.test(props.payload_load_address?.description ?? ""),
+      (props.payload_load_address?.description ?? "(none)").slice(0, 110));
+    const payloadProps = JSON.stringify(
+      Object.fromEntries(Object.entries(props).filter(([k]) => /^(payload_|frame$)/.test(k))));
+    ok("19c …and that a G64 has no usable byte offsets, which is why this exists",
+      /g64/i.test(payloadProps), payloadProps.slice(0, 110) || "no payload_* property at all");
+    const roles = props.columns?.items?.properties?.role?.enum ?? [];
+    ok("19d `side` is an offered column role", roles.includes("side"), roles.join(","));
+
+    const declared = body(await call("declare_lut_descriptor", {
+      name: "area-index", layout: "columns", identity_scheme: "index", row_count: 3,
+      payload_path: "payloads/index.prg", payload_load_address: 2048,
+      payload_origin: "T18/S4 of side 1 — a .g64, which has no byte offsets to give",
+      columns: [
+        { role: "side", at: 0x0A00, stride: 1 },
+        { role: "track", at: 0x0A10, stride: 1 },
+        { role: "sector", at: 0x0A20, stride: 1 },
+      ],
+    }));
+    ok("19e it is written and probed against the payload's own bytes",
+      /Table described/.test(declared) && /PROBE/.test(declared), body(declared).split("\n")[0]);
+    ok("19f the probe read the RIGHT bytes with no hand-applied header offset",
+      /T17\/S1/.test(declared) && /T19\/S9/.test(declared),
+      declared.split("\n").find((l) => /T1[789]/.test(l))?.trim());
+    ok("19g …and prints the side rather than a bank", /side 1/.test(declared) && !/bank 1/.test(declared),
+      declared.split("\n").find((l) => /side/.test(l))?.trim());
+    ok("19h the answer says the framing it used", /payload/i.test(declared) && /\$0800/.test(declared),
+      declared.split("\n").find((l) => /payload/i.test(l))?.trim());
+
+    // The framing PERSISTS: resolving later needs no medium_path and no hand offset.
+    const idMatch = declared.match(/ID: (\S+)/);
+    const resolved = body(await call("resolve_lut_rows", { descriptor_id: idMatch?.[1] }));
+    ok("19i resolve_lut_rows finds the payload from the descriptor, with no medium_path",
+      /3 row\(s\) resolved/.test(resolved), resolved.split("\n")[0]);
+    ok("19j …and reads the same rows", /T19\/S9/.test(resolved),
+      resolved.split("\n").find((l) => /T1[789]/.test(l))?.trim());
+
+    // Naming both framings at once is refused rather than silently preferring one.
+    const both = body(await call("declare_lut_descriptor", {
+      name: "clash", layout: "columns", identity_scheme: "index", row_count: 1,
+      medium_path: "payloads/index.prg", payload_path: "payloads/index.prg", payload_load_address: 2048,
+      columns: [{ role: "track", at: 0x0A10, stride: 1 }],
+    }));
+    ok("19k medium_path and payload_path together are REFUSED",
+      /REFUSED|refused/.test(both) && /medium_path/.test(both) && /payload_path/.test(both),
+      both.split("\n")[0]);
+  } catch (e) {
+    ok("19 payload framing over MCP", false, e.message);
+  } finally {
+    try { proc.stdin.end(); proc.kill(); } catch { /* gone */ }
+    try { rmSync(projectDir, { recursive: true, force: true }); } catch { /* temp */ }
+  }
+}
+
 console.log(`\n${fails.length ? "RED" : "GREEN"}  750 LUT: ${pass} pass, ${fails.length} fail.`);
 process.exit(fails.length ? 1 : 0);
