@@ -51,9 +51,9 @@ function usage(): never {
       "  node dist/cli.js reconstruct-lut [analysisDir]",
       "  node dist/cli.js export-menu [analysisDir]",
       "  node dist/cli.js disasm-menu [analysisDir] [outputDir]",
-      "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541] [--relocations <json>]",
-      "  node dist/cli.js disasm-raw <file> <outputAsm> --load-address <addr> [--offset <n>] [--length <n>] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541] [--annotations <json>]",
-      "  node dist/cli.js analyze-prg <prg> [outputJson] [entryHex,...]",
+      "  node dist/cli.js disasm-prg <prg> [outputAsm] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541] [--relocations <json>] [--annotations <json>]",
+      "  node dist/cli.js disasm-raw <file> <outputAsm> --load-address <addr> [--offset <n>] [--length <n>] [entryHex,...] [--analysis <json> | --no-analysis] [--platform c64|c1541] [--annotations <json>] [--relocations <json>]",
+      "  node dist/cli.js analyze-prg <prg> [outputJson] [entryHex,...] [--load-address <addr> [--offset <n>] [--length <n>]]",
       "  node dist/cli.js basic-list <prg> [--json]",
       "  node dist/cli.js basic-tokenize <textFile> <outputPrg> [--load-address $0801]",
       "  node dist/cli.js ram-report <analysisJson> [outputMd]",
@@ -130,6 +130,10 @@ function main(): void {
     // and rendered a different file's segments without a word. A named flag cannot
     // shift; the positional form still works and is checked below.
     let analysisPath: string | undefined;
+    // An annotations file named outright. The renderer has always accepted one; this
+    // verb had no way to pass it, so a caller whose annotations lived under a name no
+    // `<stem>_annotations.json` was going to match had to move the file.
+    let annotationsPath: string | undefined;
     let noAnalysis = false;
     const remaining: string[] = [];
     for (let i = 0; i < args.length; i += 1) {
@@ -148,6 +152,11 @@ function main(): void {
         i += 1;
       } else if (args[i].startsWith("--analysis=")) {
         analysisPath = args[i].slice("--analysis=".length);
+      } else if (args[i] === "--annotations" && args[i + 1]) {
+        annotationsPath = args[i + 1];
+        i += 1;
+      } else if (args[i].startsWith("--annotations=")) {
+        annotationsPath = args[i].slice("--annotations=".length);
       } else if (args[i] === "--no-analysis") {
         noAnalysis = true;
       } else {
@@ -196,14 +205,22 @@ function main(): void {
     const prgAbs = resolve(prgPath);
     const relocations = relocationsPath ? loadRelocationMap(resolve(relocationsPath)) : undefined;
     const chosenAnalysis = analysisPath ?? positionalAnalysis;
-    disassemblePrgToKickAsm(prgAbs, outputPath, {
+    const prgStats = disassemblePrgToKickAsm(prgAbs, outputPath, {
       entryPoints,
       title: prgPath,
       analysisPath: chosenAnalysis ? resolve(chosenAnalysis) : undefined,
+      annotationsPath: annotationsPath ? resolve(annotationsPath) : undefined,
       noAnalysis,
       platform,
       relocations,
     });
+    // Which files the RENDERER actually read. The wrapper around this verb used to
+    // re-derive both by guessing the same candidate order, and the two halves resolved
+    // different files often enough that a listing full of a human's names could sit
+    // beside a graph import that had been handed a path which does not exist.
+    process.stdout.write(
+      `Analysis used: ${prgStats.analysisPath ?? "none"}\nAnnotations used: ${prgStats.annotationsPath ?? "none"}\n`,
+    );
     registerCliArtifact({
       kind: "generated-source",
       scope: "generated",
@@ -226,6 +243,7 @@ function main(): void {
     let length: number | undefined;
     let annotationsPath: string | undefined;
     let analysisFlagPath: string | undefined;
+    let relocationsPath: string | undefined;
     let noAnalysis = false;
     const remaining: string[] = [];
     const takeValue = (flag: string, inline: string | undefined, next: string | undefined): string => {
@@ -256,6 +274,9 @@ function main(): void {
       } else if (flag === "--analysis") {
         analysisFlagPath = takeValue(flag, inline, args[i + 1]);
         if (inline === undefined) i += 1;
+      } else if (flag === "--relocations") {
+        relocationsPath = takeValue(flag, inline, args[i + 1]);
+        if (inline === undefined) i += 1;
       } else if (flag === "--no-analysis") {
         noAnalysis = true;
       } else {
@@ -278,6 +299,10 @@ function main(): void {
       platform,
       raw: { loadAddress, offset, length },
       annotationsPath: annotationsPath ? resolve(annotationsPath) : undefined,
+      // Spec 741's relocated rendering is not a property of the PRG header: bytes
+      // stored at one address and executed at another arrive just as often with no
+      // header at all. Same loader, same renderer, same map.
+      relocations: relocationsPath ? loadRelocationMap(resolve(relocationsPath)) : undefined,
     });
     const last = (stats.loadAddress + stats.byteLength - 1) & 0xffff;
     const hex = (value: number) => `$${value.toString(16).toUpperCase().padStart(4, "0")}`;
@@ -310,20 +335,34 @@ function main(): void {
 
   if (command === "analyze-prg") {
     // Pull --load-address $XXXX (or 0xXXXX) out of args before consuming
-    // positional slots so callers can pass it anywhere.
+    // positional slots so callers can pass it anywhere. --offset/--length narrow
+    // the bytes to the same window the renderer takes, so an analysis and the
+    // listing that consumes it describe one span instead of two.
     let loadAddressOverride: number | undefined;
+    let offset: number | undefined;
+    let length: number | undefined;
     const positional: string[] = [];
     for (let index = 0; index < args.length; index += 1) {
       const arg = args[index]!;
-      if (arg === "--load-address" || arg === "--loadAddress") {
-        const value = args[index + 1];
-        if (!value) throw new Error(`--load-address requires a value — ${ADDRESS_RULE}`);
-        loadAddressOverride = parseAddress(value, "--load-address");
-        index += 1;
+      const [flag, inline] = arg.startsWith("--") && arg.includes("=")
+        ? [arg.slice(0, arg.indexOf("=")), arg.slice(arg.indexOf("=") + 1)]
+        : [arg, undefined];
+      const take = (): string => {
+        const value = inline ?? args[index + 1];
+        if (value === undefined) throw new Error(`${flag} requires a value — ${ADDRESS_RULE}`);
+        if (inline === undefined) index += 1;
+        return value;
+      };
+      if (flag === "--load-address" || flag === "--loadAddress") {
+        loadAddressOverride = parseAddress(take(), "--load-address");
         continue;
       }
-      if (arg.startsWith("--load-address=")) {
-        loadAddressOverride = parseAddress(arg.slice("--load-address=".length), "--load-address");
+      if (flag === "--offset") {
+        offset = parseCount(take(), "--offset");
+        continue;
+      }
+      if (flag === "--length") {
+        length = parseCount(take(), "--length");
         continue;
       }
       positional.push(arg);
@@ -332,11 +371,22 @@ function main(): void {
     if (!prgPath) {
       usage();
     }
+    if ((offset !== undefined || length !== undefined) && loadAddressOverride === undefined) {
+      throw new Error(
+        "--offset/--length narrow a window of a file, and a window's first byte is not a load header: "
+        + "pass --load-address to say where the window runs.",
+      );
+    }
     const outputPath = resolve(positional[1] ?? "analysis/main-game/main_analysis.json");
     const entryPoints = parseAddressList(positional[2] ?? "", "entryPoints");
     const prgAbs = resolve(prgPath);
     const report = loadAddressOverride !== undefined
-      ? analyzeRawFile(prgAbs, loadAddressOverride, { userEntryPoints: entryPoints })
+      ? analyzeRawFile(prgAbs, loadAddressOverride, {
+        userEntryPoints: entryPoints,
+        ...(offset !== undefined || length !== undefined
+          ? { window: { ...(offset !== undefined ? { offset } : {}), ...(length !== undefined ? { length } : {}) } }
+          : {}),
+      })
       : analyzePrgFile(prgAbs, { userEntryPoints: entryPoints });
     writeAnalysisReport(report, outputPath);
     registerCliArtifact({
