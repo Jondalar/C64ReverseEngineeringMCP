@@ -356,6 +356,15 @@ jobs:
       - name: The contract, checked (Spec 848)
         run: npm run e2e:848-contract
 
+      # The slot list itself, and the two measures a third autonomous run found
+      # pointing the wrong way: S12's coverage rewarded a blanket `unknown`
+      # placeholder over a named routine, and S6 was gated on a regex finding a
+      # digit immediately before the word "runtime" in S5's prose. Hermetic:
+      # temp projects and a synthetic graph.sqlite, no media and no runtime. It
+      # was never in this workflow, which is how both got in.
+      - name: The slot list, and what its measures reward (Spec 844 / BUG-059)
+        run: npm run e2e:844-slots
+
       # The three defects the round before this one left open, because each of
       # them moves data an existing project already holds: a subject that was
       # the basename with the directory thrown away, a `.tas` the version model
