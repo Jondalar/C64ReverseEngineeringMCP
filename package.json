@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "license": "GPL-3.0-or-later",
   "type": "module",
-  "description": "MCP server for C64 reverse engineering \u2014 analysis pipeline, disassembly, and semantic classification",
+  "description": "MCP server for C64 reverse engineering — analysis pipeline, disassembly, and semantic classification",
   "scripts": {
     "e2e:844-teeth": "node scripts/e2e-844-teeth.mjs",
     "e2e:844-slots": "node scripts/e2e-844-slots.mjs",
@@ -202,7 +202,8 @@
     "smoke:814": "npm run build:mcp && node scripts/smoke-814-scenario-recorder.mjs",
     "smoke:project-rules": "node scripts/smoke-project-rules.mjs",
     "e2e:849-rules": "node scripts/e2e-849-rules.mjs",
-    "e2e:849-standing": "node scripts/e2e-849-standing.mjs"
+    "e2e:849-standing": "node scripts/e2e-849-standing.mjs",
+    "e2e:bug060-code-tail": "npm run build && node scripts/e2e-bug060-code-tail.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",
