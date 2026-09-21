@@ -30,7 +30,14 @@ export interface ResolvedNode {
   confidence?: string;
   /** which layers exist for this id */
   layers: Layer[];
-  /** a human row with no generated twin (818 D5) */
+  /**
+   * 818 D5 — a human row the generated layer does not back up.
+   *
+   * Read per ADDRESS, not per id: the flag is false as soon as the generated
+   * layer has ANY node of its own standing at this node's address, in this
+   * space, under this owner and bank, whatever kind it wears. See
+   * `Graph.coveredByGenerated`.
+   */
   orphaned: boolean;
   /** lives in the platform store */
   platform: boolean;
@@ -101,6 +108,8 @@ function mergeRows(rows: NodeRow[]): ResolvedNode | undefined {
     origin: base.origin,
     confidence: human ? human.confidence : base.confidence,
     layers: rows.map((r) => r.layer).sort() as Layer[],
+    // The id-level half of the answer. `Graph.merge` finishes it against the
+    // address; `mergeRows` stays pure so the rows alone decide everything else.
     orphaned: Boolean(human && !generated),
     platform: false,
     dangling: false,
@@ -116,6 +125,7 @@ export class Graph {
   private readonly nodesByKind;
   private readonly aliasTarget;
   private readonly aliasesOf;
+  private readonly generatedAtAddress;
 
   constructor(readonly store: GraphStore, readonly platform: PlatformKb | undefined) {
     const db = store.db;
@@ -129,6 +139,40 @@ export class Graph {
     // data block another owner has at that address; the walks follow it.
     this.aliasTarget = db.prepare("SELECT to_id FROM edges WHERE from_id = ? AND type = 'RESOLVES_TO' ORDER BY layer LIMIT 1");
     this.aliasesOf = db.prepare("SELECT from_id FROM edges WHERE to_id = ? AND type = 'RESOLVES_TO' ORDER BY from_id");
+    // `orphaned`, per address — see coveredByGenerated(). `addr` is excluded on
+    // purpose: an addr node means "somebody referenced this", which is the
+    // question, not the answer.
+    this.generatedAtAddress = db.prepare(
+      "SELECT 1 AS n FROM nodes WHERE layer = 'generated' AND address = ? AND space = ? AND owner IS ? AND bank IS ? AND kind <> 'addr' LIMIT 1",
+    );
+  }
+
+  /**
+   * D5's flag, decided by the ADDRESS rather than by the id string.
+   *
+   * It used to be `human && !generated` on the id alone. But a human
+   * `label:09b8` whose generated twin at the same address is a `segment:09b8`
+   * is a DIFFERENT id, so the row came back `orphaned` while $09B8 was covered
+   * twice over — by the 822 segment AND by 819's routine. A peer session read
+   * the flag the way its name reads and concluded the graph had lost their
+   * prose layer; it cost them hours, and nothing was wrong with the graph.
+   *
+   * So the flag now means what a reader takes it to mean: nothing the generated
+   * layer produced stands here. Deliberately EXACT address, not containment —
+   * a human row inside a generated routine's extent is 826.0 T3's split, and
+   * keeping that visible is the whole point of `graph boundaries`. Same space,
+   * same owner, same bank: another artifact's node at the same address is
+   * another artifact, not coverage.
+   */
+  private coveredByGenerated(n: ResolvedNode): boolean {
+    return this.generatedAtAddress.get(n.address, n.space, n.owner, n.bank) !== undefined;
+  }
+
+  /** mergeRows + the address half of `orphaned`. Every Graph verb answers through here. */
+  private merge(rows: NodeRow[]): ResolvedNode | undefined {
+    const node = mergeRows(rows);
+    if (!node || !node.orphaned) return node;
+    return this.coveredByGenerated(node) ? { ...node, orphaned: false } : node;
   }
 
   static open(projectDir: string, options: { platformDb?: string; writable?: boolean } = {}): Graph {
@@ -177,7 +221,7 @@ export class Graph {
       return dangling(id);
     }
     const rows = this.nodesById.all(id) as unknown as NodeRow[];
-    return mergeRows(rows) ?? dangling(id);
+    return this.merge(rows) ?? dangling(id);
   }
 
   /** Every node at an address, across contexts and both files. The ambiguity is visible. */
@@ -186,7 +230,7 @@ export class Graph {
     const rows = this.nodesAtAddr.all(a.address) as unknown as NodeRow[];
     const byId = new Map<string, NodeRow[]>();
     for (const r of rows) byId.set(r.id, [...(byId.get(r.id) ?? []), r]);
-    let out = [...byId.values()].map((rs) => mergeRows(rs)!);
+    let out = [...byId.values()].map((rs) => this.merge(rs)!);
     if (a.space) out = out.filter((n) => n.space === a.space);
     if (a.owner) out = out.filter((n) => n.owner === a.owner);
     if (a.bank !== undefined) out = out.filter((n) => n.bank === a.bank);
@@ -285,7 +329,7 @@ export class Graph {
     const byId = new Map<string, NodeRow[]>();
     for (const r of rows) byId.set(r.id, [...(byId.get(r.id) ?? []), r]);
     const lower = text.toLowerCase();
-    const out: ResolvedNode[] = [...byId.values()].map((rs) => ({ ...mergeRows(rs)!, matched: "name" as const }));
+    const out: ResolvedNode[] = [...byId.values()].map((rs) => ({ ...this.merge(rs)!, matched: "name" as const }));
     // exact name first, then the substring hits in id order (stable)
     out.sort((x, y) => Number((y.name ?? "").toLowerCase() === lower) - Number((x.name ?? "").toLowerCase() === lower));
     for (const platform of ["c64", "c1541"] as const) {
@@ -400,7 +444,7 @@ export class Graph {
     const rows = this.nodesByKind.all(kind, owner ?? null, owner ?? null) as unknown as NodeRow[];
     const byId = new Map<string, NodeRow[]>();
     for (const r of rows) byId.set(r.id, [...(byId.get(r.id) ?? []), r]);
-    return [...byId.values()].map((rs) => mergeRows(rs)!);
+    return [...byId.values()].map((rs) => this.merge(rs)!);
   }
 }
 
