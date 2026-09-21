@@ -1023,8 +1023,8 @@
       "file": "server-tools/payloads.ts",
       "ns": "list",
       "hasSpec": false,
-      "firstSentence": "List every payload entity in the project (extracted/loadable byte-blobs).",
-      "desc": "List every payload entity in the project (extracted/loadable byte-blobs). Use to see payloads and their disassembly coverage. Not for files/artifacts on disk (use list_artifacts). Inputs: none. Returns: name, load address, format, source artifact, ASM count per payload.",
+      "firstSentence": "List every payload entity in the project (extracted/loadable byte-blobs), each with the WINDOW it occupies while it is loaded.",
+      "desc": "List every payload entity in the project (extracted/loadable byte-blobs), each with the WINDOW it occupies while it is loaded. Use to see payloads and their disassembly coverage, and — with `address` — to ask who claims one address: on a machine built out of overlays several payloads share a window, so the answer is the claimants, plus which of them the load call in the code says is there. Not for files/artifacts on disk (use list_artifacts) and not for the nodes at an address (use graph_find). Inputs: optional address, format, limit. Returns: name, load address, window, format, source artifact, ASM count per payload.",
       "tier": "default?"
     },
     {
