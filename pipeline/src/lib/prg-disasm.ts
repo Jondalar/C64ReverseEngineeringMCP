@@ -2233,11 +2233,17 @@ function segmentHeader(segment: Segment, context?: RenderAnalysisContext): strin
   }
 
   // Add routine annotation if this address has one
+  // A routine's `comment` is optional (see RoutineAnnotation). The header is the
+  // NAME; the prose is what there may be none of. This used to read
+  // `routineAnnotation.comment.split("\n")` unguarded and died with
+  // `Cannot read properties of undefined (reading 'split')` on a file the loader
+  // had just reported as "applied 81, skipped 0".
   const routineAnnotation = context?.annotations?.routinesByAddress.get(segment.start);
   if (routineAnnotation && !annotation?.comment) {
     lines.push(`/* ═══════════════════════════════════════════════════════════════`);
     lines.push(` * ${routineAnnotation.name.toUpperCase()}`);
-    for (const commentLine of routineAnnotation.comment.split("\n")) {
+    for (const commentLine of (routineAnnotation.comment ?? "").split("\n")) {
+      if (commentLine.length === 0 && (routineAnnotation.comment ?? "") === "") continue;
       lines.push(` * ${commentLine}`);
     }
     lines.push(` * ═══════════════════════════════════════════════════════════════ */`);
