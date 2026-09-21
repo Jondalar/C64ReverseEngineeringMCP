@@ -905,6 +905,21 @@ export const EntityRecordSchema = z.object({
   // Payload-only fields (ignored for other entity kinds): describe the
   // byte-blob's identity, format, and where it lands at runtime.
   payloadLoadAddress: z.number().int().min(0).max(0xffff).optional(),
+  // Spec 867 D1 — THE WINDOW this payload occupies while it is loaded: the
+  // stretch of the machine it owns, its space, and its bank where one applies.
+  // Not new knowledge — the load address plus the byte length is the window, and
+  // the loader's own call sites name it too — but recorded so it can be ASKED.
+  // On a machine built out of overlays it is the fact that decides whose code an
+  // address is: five modules that load at $7400 share ONE window, and an engine
+  // resident at $4300-$73FC is a window of its own inside a 50 KB file's span.
+  // Derived from the load address and the byte length when it was never recorded
+  // (`derivePayloadWindow`), so an older project answers the same question.
+  payloadWindow: z.object({
+    start: z.number().int().min(0).max(0xffff),
+    end: z.number().int().min(0).max(0xffff),
+    space: z.enum(["ram", "drv", "crt"]).optional(),
+    bank: z.number().int().nonnegative().optional(),
+  }).optional(),
   payloadFormat: PayloadFormatSchema.optional(),
   payloadPacker: z.string().optional(),
   payloadSourceArtifactId: IdSchema.optional(),

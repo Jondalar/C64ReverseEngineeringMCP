@@ -614,6 +614,8 @@ export interface SaveEntityInput {
   mediumRole?: EntityRecord["mediumRole"];
   payloadId?: string;
   payloadLoadAddress?: number;
+  /** Spec 867 D1 — the window this payload occupies while it is loaded. */
+  payloadWindow?: EntityRecord["payloadWindow"];
   payloadFormat?: EntityRecord["payloadFormat"];
   payloadPacker?: string;
   payloadSourceArtifactId?: string;

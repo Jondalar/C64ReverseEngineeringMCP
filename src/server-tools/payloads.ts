@@ -10,6 +10,7 @@ import { safeHandler } from "./safe-handler.js";
 import { validateManifest, mediumDerivationForKind, chainCoverageWarning } from "./loader-manifest.js";
 import { registerManifestPayloads } from "./manifest-register.js";
 import { findPayloadEntity, listPayloadEntities } from "../project-knowledge/payload-kinds.js";
+import { derivePayloadWindow, formatWindow } from "../project-knowledge/payload-window.js";
 
 const PAYLOAD_FORMATS = [
   "raw", "prg",
@@ -186,12 +187,26 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         return hit?.id;
       };
 
+      // Spec 867 D1 — the window this payload occupies while it is loaded. The
+      // caller may state it outright (address_start/address_end); otherwise it is
+      // the load address plus the byte length of the bytes being registered.
+      let sourceBytes: number | undefined;
+      if (sourceArtifactId) {
+        const srcPath0 = service.listArtifacts().find((a) => a.id === sourceArtifactId)?.path;
+        if (srcPath0 && existsSync(srcPath0)) sourceBytes = statSync(srcPath0).size;
+      }
+      const payloadWindow = derivePayloadWindow(
+        { payloadLoadAddress: args.load_address, payloadFormat: args.format, addressRange },
+        sourceBytes,
+      );
+
       const entity = service.saveEntity({
         id: args.id,
         kind: "payload",
         name: args.name,
         summary: args.summary,
         addressRange,
+        payloadWindow,
         mediumSpans: args.medium_spans?.map((span) => span.kind === "sector"
           ? { kind: "sector", track: span.track, sector: span.sector, offsetInSector: span.offsetInSector ?? 0, length: span.length, mediumRef: resolveImage(span.image), derivedBy: span.derivedBy ?? "registered" }
           : { kind: "slot", bank: span.bank, slot: span.slot, offsetInBank: span.offsetInBank, length: span.length, mediumRef: resolveImage(span.image), derivedBy: span.derivedBy ?? "registered" }),
@@ -212,17 +227,14 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       // Spec 784 GAP 4 — soft chain-completeness guard: if the extracted source blob has
       // MORE bytes than the declared sector spans cover, the chain is incomplete
       // (start-only = the Pawn 168/1329 bug). Warn; never block the registration.
-      let fileBytes: number | undefined;
-      if (sourceArtifactId) {
-        const srcPath = service.listArtifacts().find((a) => a.id === sourceArtifactId)?.path;
-        if (srcPath && existsSync(srcPath)) fileBytes = statSync(srcPath).size;
-      }
+      const fileBytes = sourceBytes;
       const coverageWarn = chainCoverageWarning(entity.name, fileBytes, args.medium_spans ?? [], { format: args.format, packer: args.packer });
       return textContent([
         `Payload registered.`,
         `ID: ${entity.id}`,
         `Name: ${entity.name}`,
         `Load: ${entity.payloadLoadAddress !== undefined ? `$${entity.payloadLoadAddress.toString(16)}` : "(none)"}`,
+        `Window: ${formatWindow(entity.payloadWindow)}`,
         `Format: ${entity.payloadFormat ?? "unknown"}`,
         `Source artifact: ${entity.payloadSourceArtifactId ?? "(none)"}`,
         `Depacked artifact: ${entity.payloadDepackedArtifactId ?? "(none)"}`,
@@ -568,7 +580,16 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
         const claim = p.payloadClaimedByLutId
           ? ` claim=${p.payloadClaimedByLutId}#${p.payloadClaimedByRow ?? "?"}`
           : "";
-        lines.push(`  ${p.id} | ${p.name} | load=${load} fmt=${fmt} asm=${asm} src=${source}${claim}`);
+        // Spec 867 D1 — the window it occupies while it is loaded. Recorded on a
+        // payload registered since 867, derived from the load address and the
+        // extent otherwise, so an older project answers the same question.
+        const win = derivePayloadWindow(p);
+        const window = win ? ` win=${formatWindow(win)}${p.payloadWindow ? "" : "*"}` : "";
+        lines.push(`  ${p.id} | ${p.name} | load=${load}${window} fmt=${fmt} asm=${asm} src=${source}${claim}`);
+      }
+      if (slice.some((p) => p.payloadWindow === undefined && derivePayloadWindow(p) !== undefined)) {
+        lines.push(``);
+        lines.push(`* the window was derived from the load address and the extent — this payload was registered before the window was recorded, and nothing was rewritten.`);
       }
       if (slice.length < filtered.length) {
         lines.push(``);
@@ -643,6 +664,10 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
                 length: s.length,
               })),
               payloadLoadAddress: chunk.destAddress,
+              // Spec 867 D1 — a chunk's window is where it lands plus its length.
+              payloadWindow: chunk.destAddress !== undefined && chunk.length > 1
+                ? { start: chunk.destAddress, end: Math.min(0xffff, chunk.destAddress + chunk.length - 1) }
+                : undefined,
               payloadFormat: chunk.format ? (chunk.format as any) : "unknown",
               payloadPacker: chunk.packer,
               payloadSourceArtifactId: chipArtifactId,

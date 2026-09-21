@@ -61,10 +61,14 @@ export function claimantsAt(
   windows: readonly PayloadWindow[],
   q: { address: number; space?: WindowSpace; bank?: number | null },
 ): Claimants {
+  // A question that names no space asks every space — `graph_find`'s own rule:
+  // every context that has one. A bank narrows only when a bank was given.
   const space = q.space;
-  const bank = q.bank ?? null;
+  const bank = q.bank;
   const covering = windows.filter(
-    (w) => covers(w, q.address) && (space === undefined || w.space === space) && (space === undefined || w.bank === bank),
+    (w) => covers(w, q.address)
+      && (space === undefined || w.space === space)
+      && (bank === undefined || bank === null || w.bank === bank),
   );
   const claimants: PayloadWindow[] = [];
   const superseded: Supersession[] = [];
