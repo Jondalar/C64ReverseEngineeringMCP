@@ -89,12 +89,13 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       evidence: z.string().min(10).optional().describe("REQUIRED: what you read or ran that establishes it — a listing, an address, a routine, a run. Write this BEFORE `answer` when the answer runs long."),
       address_start: z.number().int().nonnegative().optional().describe("Start of the address range this answer covers, if it has one"),
       address_end: z.number().int().nonnegative().optional().describe("End of that range (inclusive)"),
+      count: z.number().int().nonnegative().optional().describe("For S5 (runtime count): HOW MANY resident runtimes, as a number. S6/S7 applicability is decided from this. Give it rather than leaving the number in the prose — \"Two permanently resident images and twelve swappable windows\" is a fine answer and no parser should have to pick the right number out of it."),
       method: z.enum(["read", "run", "chains", "bam"]).optional().describe("REQUIRED for S11 (free RAM): READING (a hypothesis) or RUNNING (settled)? Four corpus projects got this wrong in the same direction. REQUIRED for S15 (writable space): \"chains\" (every chain on the medium walked and subtracted — settles it) or \"bam\" (read off the BAM's free list — a hypothesis, and on a track/sector-addressed disk usually an inverted one)."),
       boundary_name: z.string().optional().describe("For S3, S5 and S8 — the container this answer names, e.g. \"stage 2 loader\" or \"resident engine\". Given together with an address range it also asserts the Spec 845 model boundary, so the model fills as a side effect of answering this question (845 D7)."),
       space: z.enum(["ram", "crt", "drv"]).default("ram").describe("Address space, when a boundary is being asserted alongside"),
       owner: z.string().optional().describe("Bind the boundary to ONE artifact owner; omit to span the space"),
     },
-    async ({ project_dir, slot, answer, title, evidence, address_start, address_end, method, boundary_name, space, owner }) => {
+    async ({ project_dir, slot, answer, title, evidence, address_start, address_end, method, count, boundary_name, space, owner }) => {
       const pd = context.projectDir(project_dir, true);
       const def = SLOT_BY_ID.get(slot)!;
 
@@ -155,7 +156,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
 
       const { KnowledgeRecords } = await import("../knowledge-graph/records.js");
       const rec = new KnowledgeRecords(pd);
-      const tags = [`slot:${slot}`, ...(method ? [`method:${method}`] : [])];
+      const tags = [`slot:${slot}`, ...(method ? [`method:${method}`] : []), ...(count !== undefined ? [`count:${count}`] : [])];
       // A slot answer that needs a sentence used to BECOME the title, and everything
       // that lists findings then printed a paragraph where a name belongs. The answer
       // is kept whole in the body — every reader that parses a slot claim reads title

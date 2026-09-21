@@ -166,6 +166,73 @@ try {
       r2.states.find((s) => s.slot.id === "S6")?.detail);
   }
 
+  // ------------------------- BUG-059 defect 9: S6 was gated on a digit in S5's title
+  //
+  // An autonomous run answered S5 "Two permanently resident images and twelve
+  // swappable windows" and got back "its wording states no number this can read
+  // … re-record S5 with a count in it". It re-recorded as "4 resident runtimes
+  // and 14 swappable windows" and that did not clear it either, so S6..S9 stayed
+  // permanently n/a. Both are perfectly clear sentences; the parser demanded the
+  // digit immediately before the word "runtime".
+  {
+    const cases = [
+      ["Two permanently resident images and twelve swappable windows", 2, "applies"],
+      ["4 resident runtimes and 14 swappable windows", 4, "applies"],
+      ["Two resident images", 2, "applies"],
+      ["a single resident image at $0801", undefined, "unreadable"],
+      ["one runtime image, resident at $0801", 1, "n/a"],
+    ];
+    let caseN = 0;
+    for (const [title, expected, expect] of cases) {
+      caseN += 1;
+      const d = newProject(`s5case${caseN}`); dirs.push(d);
+      const rec = new KnowledgeRecords(d);
+      rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
+      rec.saveFinding({ kind: "observation", title, tags: ["slot:S5"] });
+      const rr = await slotReport(d);
+      const s6 = rr.states.find((x) => x.slot.id === "S6");
+      const s5 = rr.states.find((x) => x.slot.id === "S5");
+      if (expect === "applies") {
+        check(`S6 applies from "${title}"`, s6?.status === "empty", s6?.detail);
+        check(`…and S5's line says the count it read (${expected})`,
+          (s5?.detail ?? "").includes(`count ${expected} (read from the wording)`), s5?.detail);
+      } else if (expect === "n/a") {
+        check(`S6 stays n/a for one runtime ("${title}")`, s6?.status === "n/a", s6?.detail);
+      } else {
+        check(`an unreadable wording still says so ("${title}")`,
+          s6?.status === "n/a" && /slot_record\(slot="S5", count=N/.test(s6?.detail ?? ""), s6?.detail);
+        check("…and S5's own line admits it read no count",
+          /no count could be read/.test(s5?.detail ?? ""), s5?.detail);
+      }
+    }
+
+    // The count as a FIELD beats prose, and beats an earlier prose-only claim —
+    // which is what "re-recording did not clear it either" was about.
+    const d = newProject("s5-field"); dirs.push(d);
+    const rec = new KnowledgeRecords(d);
+    rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
+    rec.saveFinding({ kind: "observation", title: "a single resident image at $0801", tags: ["slot:S5"] });
+    let rf = await slotReport(d);
+    check("a prose-only S5 that states no number leaves S6 undecided", statusOf(rf, "S6") === "n/a");
+    rec.saveFinding({ kind: "observation", title: "four resident images and fourteen windows", tags: ["slot:S5", "count:4"] });
+    rf = await slotReport(d);
+    check("recording the count as a field settles S6", statusOf(rf, "S6") === "empty",
+      rf.states.find((x) => x.slot.id === "S6")?.detail);
+    check("…and S5's line says the count came from a field",
+      (rf.states.find((x) => x.slot.id === "S5")?.detail ?? "").includes("count 4 (recorded as a field)"),
+      rf.states.find((x) => x.slot.id === "S5")?.detail);
+
+    // A sentence with two different counts on the same noun is refused, not guessed.
+    const d3 = newProject("s5-ambig"); dirs.push(d3);
+    const rec3 = new KnowledgeRecords(d3);
+    rec3.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
+    rec3.saveFinding({ kind: "observation", title: "One resident image per phase, five images in all", tags: ["slot:S5"] });
+    const r3 = await slotReport(d3);
+    check("two different counts in one sentence are not guessed at",
+      /no count could be read/.test(r3.states.find((x) => x.slot.id === "S5")?.detail ?? ""),
+      r3.states.find((x) => x.slot.id === "S5")?.detail);
+  }
+
   // ------------------------------------------------------ S12: the vocabulary is gated
   {
     const d = newProject("cov"); dirs.push(d);

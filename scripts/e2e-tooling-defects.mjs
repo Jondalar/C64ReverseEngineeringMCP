@@ -214,7 +214,8 @@ console.log("Thirteen tooling defects from one autonomous run\n");
   const slots = readFileSync(join(ROOT, "src/slots/state.ts"), "utf8");
   check(/identityOf/.test(slots) && /contentHash/.test(slots) && /lineageRoot/.test(slots),
     "the denominator counts each distinct piece of content once");
-  check(/S5 is answered but its wording states no number/.test(slots),
+  check(/S5 is answered but no count can be read from its wording/.test(slots)
+    && /S5 has not stated a runtime count yet/.test(slots),
     "S6 distinguishes \"S5 unanswered\" from \"S5 answered without a number\"");
   const text = formatSlotReport({
     states: [

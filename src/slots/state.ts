@@ -296,8 +296,16 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   const loaderStages = entities.filter((e) => e.kind === "loader-stage");
   const payloads = entities.filter((e) => e.kind === "payload");
   const refutations = findings.filter((f) => f.kind === "refutation");
-  const runtimeClaim = findings.find((f) => (f.tags ?? []).some((t) => /^slot:S5$/i.test(t)));
-  const runtimeCount = runtimeClaim ? parseRuntimeCount(runtimeClaim.title + " " + (runtimeClaim.summary ?? "")) : undefined;
+  // Every S5 claim, newest first (listFindings orders by updated_at DESC), and a
+  // claim that carries the count as a FIELD wins over one that only says it in
+  // prose — re-recording S5 with a number must settle it, which was the second
+  // half of the reported defect.
+  const runtimeClaims = findings.filter((f) => (f.tags ?? []).some((t) => /^slot:S5$/i.test(t)));
+  const runtimeClaim = runtimeClaims.find((f) => taggedRuntimeCount(f.tags) !== undefined) ?? runtimeClaims[0];
+  const runtimeCount = runtimeClaim
+    ? taggedRuntimeCount(runtimeClaim.tags)
+      ?? parseRuntimeCount(`${runtimeClaim.title} ${runtimeClaim.summary ?? ""}`)
+    : undefined;
 
   const derived = new Map<SlotId, string>();
   if (media.length > 0) derived.set("S2", `${media.length} media artifact(s) registered`);
@@ -333,7 +341,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
           return {
             applies: false,
             why: runtimeClaim
-              ? `S5 is answered but its wording states no number this can read ("${runtimeClaim.title.slice(0, 60)}${runtimeClaim.title.length > 60 ? "…" : ""}") — re-record S5 with a count in it, e.g. "five runtimes", and S6 becomes required or n/a accordingly`
+              ? `S5 is answered but no count can be read from its wording ("${runtimeClaim.title.slice(0, 60)}${runtimeClaim.title.length > 60 ? "…" : ""}") — record the number as a FIELD rather than a sentence: slot_record(slot="S5", count=N, …). S6 then becomes required or n/a by arithmetic instead of by regex`
               : "S5 has not stated a runtime count yet",
           };
         }
@@ -397,6 +405,17 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
           ? { slot, status: "filled", detail: `${explicit[0]}, established by walking the chains` }
           : { slot, status: "hypothesis", detail: `${explicit[0]} — not established by walking the chains; a BAM free list does not describe occupancy (issue #24)` };
       }
+      // S5 says what the list actually READ out of it. The count decides whether
+      // four other slots apply, and it used to be invisible: a claim that parsed
+      // as nothing looked identical to one that parsed as five.
+      if (slot.id === "S5") {
+        const how = runtimeCount === undefined
+          ? "no count could be read — pass count=N to slot_record so S6 is decided by arithmetic"
+          : taggedRuntimeCount(runtimeClaim?.tags) !== undefined
+            ? `count ${runtimeCount} (recorded as a field)`
+            : `count ${runtimeCount} (read from the wording)`;
+        return { slot, status: "filled", detail: `${explicit.join(", ")} — ${how}` };
+      }
       return { slot, status: "filled", detail: explicit.join(", ") };
     }
 
@@ -430,14 +449,56 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   };
 }
 
-/** "3 runtimes", "one runtime", "n=2". Deliberately forgiving — the claim is prose. */
-function parseRuntimeCount(text: string): number | undefined {
-  const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
-  const w = /\b(one|two|three|four|five|six|seven|eight|nine)\b\s+runtime/i.exec(text);
-  if (w) return words[w[1].toLowerCase()];
-  const n = /\b(\d+)\s*runtime/i.exec(text);
-  if (n) return Number(n[1]);
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+  seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+};
+
+/**
+ * The count S5 states, taken from the RECORD when it is there.
+ *
+ * `slot_record(slot: "S5", count: N)` writes `count:N`. That is the answer to
+ * "parse the answer properly or stop gating on prose": the number stops being a
+ * thing a regex has to find in a sentence.
+ */
+function taggedRuntimeCount(tags: readonly string[] | undefined): number | undefined {
+  for (const t of tags ?? []) {
+    const m = /^count:(\d+)$/i.exec(t);
+    if (m) return Number(m[1]);
+  }
   return undefined;
+}
+
+/**
+ * The count a sentence states, when no field carries one.
+ *
+ * The first cut demanded the number IMMEDIATELY before the word "runtime", so
+ * both of these were unreadable and S6 through S9 stayed permanently n/a:
+ *
+ *   "Two permanently resident images and twelve swappable windows"
+ *   "4 resident runtimes and 14 swappable windows"
+ *
+ * — the first says nothing about "runtimes" at all and the second puts a word
+ * between the number and the noun. A resident IMAGE is what S5 asks about; it
+ * says so in its own question. So the noun set is the question's and up to three
+ * words may sit in between.
+ *
+ * It refuses rather than guesses when the sentence carries two different counts
+ * on the same noun ("one resident image per phase, five in all"), because a
+ * wrong number here silently decides whether four other slots apply.
+ */
+function parseRuntimeCount(text: string): number | undefined {
+  const noun = "(?:runtime(?:\\s+image)?s?|resident\\s+images?|resident\\s+programs?|images?|residents?)";
+  const num = "(\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)";
+  const re = new RegExp(`\\b${num}\\b((?:\\s+[A-Za-z-]+){0,3}?)\\s+${noun}\\b`, "gi");
+  const seen: number[] = [];
+  for (const m of text.matchAll(re)) {
+    const raw = m[1]!.toLowerCase();
+    const n = /^\d+$/.test(raw) ? Number(raw) : NUMBER_WORDS[raw];
+    if (n !== undefined && !seen.includes(n)) seen.push(n);
+  }
+  if (seen.length === 1) return seen[0];
+  return undefined;   // none found, or the sentence states two different ones
 }
 
 export function formatSlotReport(r: SlotReport): string {
