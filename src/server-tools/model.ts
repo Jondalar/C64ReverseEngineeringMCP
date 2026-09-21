@@ -29,6 +29,7 @@ import { MODEL_LEVELS } from "../model/types.js";
 import { assertBoundary, listBoundaries, removeBoundary, ModelBoundaryError } from "../model/store.js";
 import { modelReport, formatModel, membersInRangeBySpace } from "../model/rollup.js";
 import { reentryPackage, formatReentry } from "../model/reentry.js";
+import { missingRequiredText } from "./truncated-call.js";
 
 export function registerModelTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
@@ -41,13 +42,28 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
       address_start: z.number().int().min(0).max(0xffff).describe("First address of the range"),
       address_end: z.number().int().min(0).max(0xffff).describe("Last address, inclusive"),
       description: z.string().min(10).describe("What it IS and what it owns, in your words"),
-      evidence: z.array(z.string().min(3)).min(1).describe("REQUIRED: what you read that establishes this boundary — a file header, a listing line, a routine. A boundary without a citation is the claim the next session inherits and cannot check."),
+      // REQUIRED, checked in the handler — see src/server-tools/truncated-call.ts.
+      evidence: z.array(z.string().min(3)).min(1).optional().describe("REQUIRED: what you read that establishes this boundary — a file header, a listing line, a routine. A boundary without a citation is the claim the next session inherits and cannot check. Write this BEFORE `description` when the description runs long."),
       space: z.enum(["ram", "crt", "drv"]).default("ram").describe("Address space this boundary lives in"),
       owner: z.string().optional().describe("Bind the boundary to ONE artifact owner (e.g. \"07_game\"). Omit to span everything in the space at that range."),
       bank: z.number().int().min(0).optional().describe("Cartridge bank, for space=crt"),
     },
     async (args) => {
       const pd = context.projectDir(args.project_dir, true);
+      if (args.evidence === undefined || args.evidence.length === 0) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: missingRequiredText({
+              tool: "model_assert",
+              missing: "evidence",
+              what: "what you read that establishes this boundary — a file header, a listing line, a routine. "
+                + "A boundary without a citation is the claim the next session inherits and cannot check (Spec 845 D3).",
+              prose: [{ name: "description", value: args.description }],
+            }),
+          }],
+        };
+      }
       try {
         const node = await assertBoundary(pd, {
           name: args.name, level: args.level,

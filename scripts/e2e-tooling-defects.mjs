@@ -23,6 +23,7 @@
 //   2  the entry-point slot took an analysis JSON and advised a flag the caller cannot pass
 //   4  project_inventory_sync returned 146 728 characters nobody could read
 //   3  a boundary in space drv contained nothing, because platform=c1541 was never recorded
+//   5  a required parameter lost after a long answer came back as a schema dump
 //
 // Hermetic: temp projects, synthetic PRGs, no ROMs, no media, no runtime daemon, no
 // network. The rebuild half of check 6 needs KickAssembler and says so loudly when the
@@ -502,6 +503,40 @@ try {
     "S6 never says S5 is unanswered while S5 shows ✓",
     slots.split("\n").filter((l) => /S5|S6/.test(l)).join(" | "));
   check(/defined in all/.test(slots.split("\n")[0]), "and the header states its arithmetic", slots.split("\n")[0]);
+
+  // BUG-059 defect 5 — a long answer, and the parameter that did not arrive.
+  //
+  // The reported failure was `Invalid arguments ... path: ["evidence"] ... Required`
+  // with `evidence` written out in the call, twice, and a retry of the identical
+  // content working. Nothing in this server drops it: the first check sends a
+  // quarter-megabyte answer WITH its evidence over the same stdio transport and it
+  // is stored whole. So the refusal has to name the real cause instead of dumping
+  // the schema's word for "this key was not in the JSON".
+  const huge = "The resident engine occupies $0800-$3FFF and is never swapped. ".repeat(4200);
+  const bigRec = await call("slot_record", {
+    slot: "S8", answer: huge, title: "engine window", evidence: "read from the loader listing at $0810-$08C0",
+  });
+  check(/Recorded S8/.test(bigRec), `a ${Math.round(huge.length / 1024)} KiB answer is accepted whole over the transport`, bigRec.split("\n")[0]);
+  const missing = await call("slot_record", { slot: "S3", answer: huge });
+  check(/slot_record refused — evidence did not arrive/.test(missing),
+    "a missing evidence is refused by the door, not by the schema", missing.split("\n")[0]);
+  check(!/Invalid arguments|ZodError|"path"/.test(missing), "…with no schema dump in it");
+  check(missing.includes("`answer` came through at " + huge.length + " characters"),
+    "…and the refusal names what DID arrive and how long it was",
+    missing.split("\n").find((l) => /came through at/.test(l))?.slice(0, 110));
+  check(/written BEFORE `answer`/.test(missing) && /most likely to be lost/.test(missing),
+    "…and gives the two remedies that are within the caller's reach");
+  const shortMissing = await call("slot_record", { slot: "S3", answer: "Three stages: boot, depack, engine." });
+  check(/slot_record refused — evidence did not arrive/.test(shortMissing) && !/came through at/.test(shortMissing),
+    "a SHORT answer with no evidence is simply a missing field — no truncation story invented",
+    shortMissing.split("\n").filter(Boolean)[2]);
+  const boundaryNoCite = await call("model_assert", {
+    name: "engine", level: "container", address_start: 0x0800, address_end: 0x3fff,
+    description: huge,
+  });
+  check(/model_assert refused — evidence did not arrive/.test(boundaryNoCite) && /came through at/.test(boundaryNoCite),
+    "model_assert answers the same way — it is the other door with a required evidence",
+    boundaryNoCite.split("\n")[0]);
 
   // 11/12 (live) — inventory sync
   mkdirSync(join(proj, "analysis", "reloc"), { recursive: true });

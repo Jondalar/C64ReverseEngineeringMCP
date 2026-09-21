@@ -28,6 +28,7 @@ import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
 import { SLOTS, SLOT_BY_ID, CONTAINER_SLOTS, type SlotId } from "../slots/schema.js";
 import { slotReport, formatSlotReport } from "../slots/state.js";
+import { missingRequiredText } from "./truncated-call.js";
 
 const SLOT_IDS = SLOTS.map((s) => s.id) as [SlotId, ...SlotId[]];
 
@@ -81,7 +82,11 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       slot: z.enum(SLOT_IDS).describe("Which slot — see project_slots for the list and what each asks"),
       answer: z.string().min(10).describe("The answer itself, stated plainly. As long as it needs to be — it is stored in full as the finding's body."),
       title: z.string().max(120).optional().describe("A short headline for the finding, ≤120 characters. Omit and one is taken from the answer's first sentence; the full answer is kept either way."),
-      evidence: z.string().min(10).describe("What you read or ran that establishes it — a listing, an address, a routine, a run"),
+      // REQUIRED, and checked in the handler rather than by the schema — see
+      // src/server-tools/truncated-call.ts. A schema-level `Required` is the
+      // wrong answer when the cause is a tool call that was cut short after a
+      // multi-paragraph `answer`, which is how this one actually fails.
+      evidence: z.string().min(10).optional().describe("REQUIRED: what you read or ran that establishes it — a listing, an address, a routine, a run. Write this BEFORE `answer` when the answer runs long."),
       address_start: z.number().int().nonnegative().optional().describe("Start of the address range this answer covers, if it has one"),
       address_end: z.number().int().nonnegative().optional().describe("End of that range (inclusive)"),
       method: z.enum(["read", "run", "chains", "bam"]).optional().describe("REQUIRED for S11 (free RAM): READING (a hypothesis) or RUNNING (settled)? Four corpus projects got this wrong in the same direction. REQUIRED for S15 (writable space): \"chains\" (every chain on the medium walked and subtracted — settles it) or \"bam\" (read off the BAM's free list — a hypothesis, and on a track/sector-addressed disk usually an inverted one)."),
@@ -92,6 +97,21 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
     async ({ project_dir, slot, answer, title, evidence, address_start, address_end, method, boundary_name, space, owner }) => {
       const pd = context.projectDir(project_dir, true);
       const def = SLOT_BY_ID.get(slot)!;
+
+      if (evidence === undefined || evidence.trim().length < 10) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: missingRequiredText({
+              tool: "slot_record",
+              missing: "evidence",
+              what: "what you read or ran that establishes the answer — a listing, an address, a routine, a run. "
+                + "A slot claim with no citation is the record the next session inherits and cannot check.",
+              prose: [{ name: "answer", value: answer }, { name: "title", value: title }],
+            }),
+          }],
+        };
+      }
 
       if (slot === "S15" && !method) {
         return {
