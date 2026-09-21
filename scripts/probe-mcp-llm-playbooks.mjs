@@ -96,6 +96,10 @@ const SUPPORTING = new Set(["runtime_session_status", "runtime_trace_status", "r
   // background job any large analysis may start, the other reads a single finding
   // in full the way read_artifact reads one artifact.
   "analysis_job_status", "read_finding",
+  // BUG-060 — the inverse of registration. A correction, not a flow: it is reached
+  // from the inventory sync's own answer when a bulk of machine output was registered
+  // by mistake, so it supports that step rather than driving a swimlane.
+  "unregister_files",
   // The three old disassembly/analysis names. They are aliases of `disasm` and
   // `analyze` for one release — the same body, one line in the answer naming the
   // successor — and they are deliberately NOT in a playbook: a playbook is what a

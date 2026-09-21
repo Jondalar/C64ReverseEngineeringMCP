@@ -421,5 +421,122 @@ const openVersionQuestions = (svc) =>
   }
 }
 
+// ───────── 10 — BUG-060 defect 1: a tool's bulk is not knowledge, and there is a way back
+//
+// `project_inventory_sync` reported "2747 tool-produced file(s) are on disk and
+// registered by nothing" in the same answer as an inventory-patterns.json skeleton.
+// The caller did the obvious thing: it wrote a `patterns` entry for the bulk and
+// registered 2732 per-sector .bin dumps. Coverage fell from 22.2 % to 7.6 % without a
+// single byte becoming less understood, and moving the glob to `intentional` afterwards
+// only stopped NEW registrations — the rows stayed, the next sync said
+// "Files registered: 0", and there was no door that takes a row back out.
+{
+  head(10, "a bulk a tool wrote costs something to register, and can be taken back out");
+  const { slotReport } = await import(join(ROOT, "dist/slots/state.js"));
+  let unregisterProjectFiles;
+  try {
+    ({ unregisterProjectFiles } = await import(join(ROOT, "dist/server-tools/registration.js")));
+  } catch (e) { check(false, "the registration module loads", e.message); }
+
+  const proj = tmpProject("c64re-toolbulk-");
+  const svc = new ProjectKnowledgeService(proj);
+  svc.initProject({ name: "Tool bulk" });
+
+  // One real payload — the material coverage is actually about.
+  const payload = Buffer.alloc(4098);
+  payload[0] = 0x00; payload[1] = 0x20;
+  for (let i = 2; i < payload.length; i += 1) payload[i] = 0xea;
+  write(proj, "analysis/payloads/01_loader.prg", payload);
+  // …and 120 per-sector dumps a tool wrote into a directory it owns. Distinct bytes:
+  // identical files collapse to one row and the cost would not show.
+  const SECTORS = 120;
+  for (let i = 0; i < SECTORS; i += 1) {
+    const b = Buffer.alloc(254, i & 0xff);
+    b.writeUInt16LE(i, 0);
+    write(proj, `analysis/g64/side1/track-${18 + Math.floor(i / 40)}/s${i % 40}.bin`, b);
+  }
+  writeFileSync(join(proj, INVENTORY_PATTERNS_FILE), JSON.stringify({
+    patterns: [{ glob: "analysis/payloads/*.prg", kind: "prg", scope: "analysis", role: "payload" }],
+    intentional: [],
+  }, null, 2));
+
+  const r = await runProjectInventorySync(svc, proj);
+  const text = r.remainingProblems.join("\n");
+  check(r.unregisteredToolOutput === SECTORS, `all ${SECTORS} dumps are seen as tool output`, String(r.unregisteredToolOutput));
+  check(/analysis\/g64/.test(text), "the bulk is named by the directory that holds it",
+    text.split("\n").find((l) => /analysis\/g64/.test(l)) ?? "");
+  check(/machine output/i.test(text), "…and the report says what they ARE — machine output, not debt",
+    text.split("\n").find((l) => /machine output/i.test(l)) ?? "");
+  check(/coverage/i.test(text) && new RegExp(String(SECTORS * 254)).test(text),
+    "…and what registering them would cost, in bytes and in coverage",
+    text.split("\n").find((l) => /coverage/i.test(l)) ?? "");
+  check(/"intentional":\s*\[\s*"analysis\/g64/.test(text),
+    "the remedy offered for a tool's bulk is `intentional`, which only silences",
+    text.split("\n").find((l) => /intentional/.test(l)) ?? "");
+  check(!/"glob"\s*:\s*"analysis\/g64/.test(text),
+    "…and NOT a `patterns` entry, which would register every one of them",
+    text.split("\n").find((l) => /"glob"\s*:\s*"analysis\/g64/.test(l)) ?? "");
+  check(/unregister_files/.test(text), "…and the way back is named where the mistake is made",
+    text.split("\n").find((l) => /unregister_files/.test(l)) ?? "");
+
+  // The cost, measured rather than asserted.
+  const before = await slotReport(proj);
+  writeFileSync(join(proj, INVENTORY_PATTERNS_FILE), JSON.stringify({
+    patterns: [
+      { glob: "analysis/payloads/*.prg", kind: "prg", scope: "analysis", role: "payload" },
+      { glob: "analysis/g64/**/*.bin", kind: "raw", scope: "analysis", role: "raw-block" },
+    ],
+    intentional: [],
+  }, null, 2));
+  const r2 = await runProjectInventorySync(svc, proj);
+  check(r2.registered === SECTORS, "taking the bad advice registers the whole bulk", String(r2.registered));
+  const after = await slotReport(proj);
+  check(after.coverage.total > before.coverage.total,
+    "…and the coverage denominator grows by bytes nobody understood any better",
+    `${before.coverage.total} → ${after.coverage.total}`);
+
+  // The way back.
+  let undo;
+  try {
+    undo = unregisterProjectFiles(svc, proj, { glob: "analysis/g64/**/*.bin" });
+  } catch (e) { check(false, "unregister_files exists and runs", e.message); }
+  check(undo?.removed === SECTORS, "the door back removes exactly the rows that glob registered",
+    `removed=${undo?.removed} kept=${undo?.kept?.length}`);
+  const back = await slotReport(proj);
+  check(back.coverage.total === before.coverage.total,
+    "…and the coverage denominator is what it was before the mistake",
+    `${before.coverage.total} → ${after.coverage.total} → ${back.coverage.total}`);
+  const stillThere = readJson(proj, "knowledge/artifacts.json").filter((a) => /analysis\/g64\//.test(a.relativePath ?? ""));
+  check(stillThere.length === 0, "no row for that glob is left in the store", String(stillThere.length));
+  check(existsSync(join(proj, "analysis/g64/side1/track-18/s0.bin")),
+    "and it un-REGISTERS — the files on disk are untouched");
+
+  // It refuses to take out a row somebody has written something about.
+  writeFileSync(join(proj, INVENTORY_PATTERNS_FILE), JSON.stringify({
+    patterns: [
+      { glob: "analysis/payloads/*.prg", kind: "prg", scope: "analysis", role: "payload" },
+      { glob: "analysis/g64/**/*.bin", kind: "raw", scope: "analysis", role: "raw-block" },
+    ],
+    intentional: [],
+  }, null, 2));
+  await runProjectInventorySync(svc, proj);
+  const studied = readJson(proj, "knowledge/artifacts.json").find((a) => /analysis\/g64\//.test(a.relativePath ?? ""));
+  svc.saveFinding({
+    kind: "observation", title: "this sector holds the LUT", status: "confirmed",
+    artifactIds: [studied.id], addressRange: { start: 0x0400, end: 0x04fd },
+  });
+  try {
+    const undo2 = unregisterProjectFiles(svc, proj, { glob: "analysis/g64/**/*.bin" });
+    check(undo2.removed === SECTORS - 1, "a second pass removes the rest", String(undo2.removed));
+    check(undo2.kept.some((k) => k.artifactId === studied.id && /finding/i.test(k.reason)),
+      "…but refuses the one somebody wrote a finding about, and says why",
+      JSON.stringify(undo2.kept.slice(0, 2)));
+    check(readJson(proj, "knowledge/artifacts.json").some((a) => a.id === studied.id),
+      "…which is still in the store");
+  } catch (e) {
+    check(false, "the door back refuses a row that carries a finding", e.message);
+  }
+}
+
 console.log(`\n${failCount === 0 ? "GREEN" : "RED"} e2e-inventory-truth: ${pass} passed, ${failCount} failed.`);
 process.exit(failCount === 0 ? 0 : 1);

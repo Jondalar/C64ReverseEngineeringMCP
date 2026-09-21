@@ -188,6 +188,7 @@
     "e2e:medium-span-import": "node scripts/e2e-medium-span-import.mjs",
     "e2e:medium-coverage": "node scripts/e2e-medium-coverage.mjs",
     "e2e:chain-coverage": "npm run build:mcp && node scripts/e2e-chain-coverage.mjs",
+    "e2e:manifest-register": "npm run build:mcp && node scripts/e2e-manifest-register.mjs",
     "e2e:785-identity": "npm run build:mcp && node scripts/e2e-785-cartridge-identity.mjs",
     "e2e:785-cart-readset": "npm run build:mcp && node scripts/e2e-785-cart-readset.mjs",
     "e2e:bug033": "npm run build:mcp && node scripts/e2e-bug033-version-reconcile.mjs",

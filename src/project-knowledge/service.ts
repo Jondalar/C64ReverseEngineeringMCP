@@ -3572,6 +3572,60 @@ export class ProjectKnowledgeService {
     return [...this.loadVersionGroups().items].sort((a, b) => a.subjectId.localeCompare(b.subjectId));
   }
 
+  /**
+   * BUG-060 defect 1 — take artifact rows back out of the store.
+   *
+   * Registration had no inverse. A caller that registered 2732 per-sector dumps on a
+   * recommendation could move the glob to `intentional` afterwards and stop NEW
+   * registrations, but the 2732 rows stayed, the next sync said "Files registered: 0",
+   * and the project's coverage denominator was permanently two thirds wrong. A door
+   * that can only be walked through one way is not a door.
+   *
+   * This removes ROWS, never files: the bytes on disk are untouched, which is the
+   * whole point — they are a tool's output and the tool will read them again. It also
+   * drops each removed row from its version group (and the group when it empties), so
+   * the next reconciliation does not carry a member whose artifact is gone.
+   *
+   * It does NOT decide what may be removed. The caller does that (see
+   * `unregisterProjectFiles`), because "is anything written about this row" is a
+   * knowledge question and this method is the storage half.
+   */
+  removeArtifacts(artifactIds: string[]): number {
+    const wanted = new Set(artifactIds);
+    if (wanted.size === 0) return 0;
+    return withJsonStoreLock(this.storage.paths.knowledgeArtifacts, () => {
+      const store = this.storage.loadArtifacts();
+      const keep = store.items.filter((item) => !wanted.has(item.id));
+      const removed = store.items.length - keep.length;
+      if (removed === 0) return 0;
+      const timestamp = nowIso();
+      this.storage.saveArtifacts({ ...store, updatedAt: timestamp, items: keep });
+      const groups = this.storage.loadArtifactVersionGroups();
+      const nextGroups = groups.items
+        .map((group) => {
+          const versions = group.versions.filter((v) => !wanted.has(v.artifactId));
+          // A group whose CURRENT row went with the removal falls back to whatever is
+          // left; an empty group is dropped below. `currentArtifactId` is required, so
+          // it can never be left pointing at a row that is gone.
+          const currentArtifactId = wanted.has(group.currentArtifactId)
+            ? (versions[0]?.artifactId ?? group.currentArtifactId)
+            : group.currentArtifactId;
+          return { ...group, versions, currentArtifactId };
+        })
+        .filter((group) => group.versions.length > 0);
+      if (nextGroups.length !== groups.items.length
+        || nextGroups.some((g, i) => g.versions.length !== groups.items[i]?.versions.length)) {
+        this.storage.saveArtifactVersionGroups({ ...groups, updatedAt: timestamp, items: nextGroups });
+      }
+      this.appendTimelineEvent({
+        kind: "note",
+        title: `Artifact rows unregistered: ${removed}`,
+        summary: `${removed} artifact row(s) removed from the store. The files on disk were not touched.`,
+      });
+      return removed;
+    });
+  }
+
   // Targeted read: the version group for ONE subject. Never dumps every group.
   getArtifactVersionGroup(subjectId: string): ArtifactVersionGroup | undefined {
     return this.loadVersionGroups().items.find((g) => g.subjectId === subjectId || g.id === subjectId);

@@ -1,5 +1,5 @@
 {
-  "total": 295,
+  "total": 296,
   "specCount": 41,
   "advancedCandidate": 110,
   "byNamespace": {
@@ -67,6 +67,7 @@
     "slot": 1,
     "snapshot": 1,
     "try": 1,
+    "unregister": 1,
     "update": 1,
     "validate": 1,
     "verify": 1,
@@ -2690,6 +2691,15 @@
       "hasSpec": false,
       "firstSentence": "Run one specific depacker against a file or byte-range (built-in RLE, Exomizer raw, host-side ByteBoozer2).",
       "desc": "Run one specific depacker against a file or byte-range (built-in RLE, Exomizer raw, host-side ByteBoozer2). Use when you know — or suggest_depacker guessed — the format. Not for guessing (use suggest_depacker). Inputs: file/range, depacker kind. Returns: decompressed bytes / artifact.",
+      "tier": "default?"
+    },
+    {
+      "name": "unregister_files",
+      "file": "server-tools/registration.ts",
+      "ns": "unregister",
+      "hasSpec": false,
+      "firstSentence": "Take artifact rows back out of the project knowledge store — the inverse of registering files.",
+      "desc": "Take artifact rows back out of the project knowledge store — the inverse of registering files. Use after a bulk of machine output (per-sector dumps, depack scratch, raw track binaries) was registered by mistake: those rows add their bytes to the project's coverage denominator without adding anything to what is understood, and moving the glob to `intentional` only stops NEW registrations — the rows already written stay. Matches the same glob dialect as registration (relative to the project root; * within a path component, ** across them). It NEVER deletes a file from disk, and it refuses any row somebody has written about — one a finding, entity, relation, flow or open question cites, one that sits in a lineage, or one whose subject holds more than one version — naming each refusal and why. dry_run=true previews. Not for removing a file (delete it on disk and re-sync) and not for hiding infrastructure from the UI (that is the internal flag).",
       "tier": "default?"
     },
     {
