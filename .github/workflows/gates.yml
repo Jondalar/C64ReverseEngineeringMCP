@@ -68,6 +68,17 @@ jobs:
       - name: Work refuses until the session onboards
         run: npm run e2e:onboarding-gate
 
+      # Read first, then cite: the runtime doors refuse a hypothesis that is not
+      # read-derived. The gate for it ran nowhere, and went stale when the doors
+      # became async — every "allowed" case silently read undefined.
+      - name: Runtime discipline is enforced
+        run: npm run e2e:discipline-gate
+
+      # Both measures a session can be pushed to game live here, and this gate
+      # was in package.json and in no workflow.
+      - name: The slot measures say what they count
+        run: npm run smoke:project-rules
+
       - name: Docs are current
         run: npm run check:docs-current
 

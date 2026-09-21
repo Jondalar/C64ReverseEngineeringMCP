@@ -49,7 +49,12 @@ const walk = (dir) => {
 };
 walk(join(ROOT, "src"));
 check(TOOLS.size > 50, `harvested ${TOOLS.size} registered tools`);
-check(SLOT_IDS.size === 14, `slot table has ${SLOT_IDS.size} slots`);
+// The count is read from the schema's own SlotId union rather than written down
+// here: S15 was added by issue #24 and this assertion still said 14 for weeks,
+// red in a gate nothing ran. A number in two places drifts; a number in one does not.
+const DECLARED_SLOTS = new Set([...schema.matchAll(/\|\s*"(S\d+)"|SlotId\s*=\s*"(S\d+)"/g)].flatMap((m) => [m[1], m[2]]).filter(Boolean));
+check(SLOT_IDS.size === DECLARED_SLOTS.size,
+  `slot table has ${SLOT_IDS.size} slots, matching the ${DECLARED_SLOTS.size} the SlotId union declares`);
 
 // Doors the slot table names that no tool registers. Spec 844 keeps an allowlist for
 // doors built on an unmerged branch; a rule may not announce one of those either.
