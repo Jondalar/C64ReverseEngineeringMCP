@@ -2545,7 +2545,7 @@
       "ns": "slot",
       "hasSpec": false,
       "firstSentence": "Fill one required slot: the answer to a required question, with the evidence for it.",
-      "desc": "Fill one required slot: the answer to a required question, with the evidence for it. Use when a door refuses on an empty slot, or when you have just established one of the 15. Not for seeing which slots are still empty (use project_slots). Inputs: slot id, answer, evidence, optional short title and address range; S11 and S15 also require method. Returns: the finding written + the updated slot line.",
+      "desc": "Fill one required slot: the answer to a required question, with the evidence for it. Use when a door refuses on an empty slot, or when you have just established one of the 15. Not for seeing which slots are still empty (use project_slots). `answer` and `evidence` are uncapped and stored whole, however long they run; only `title` is capped, at 120 characters, because it is the headline every finding list prints where a name belongs — over that this door refuses by name and hands back the headline it would have taken from your answer, so leaving `title` out is always safe. Inputs: slot id, answer, evidence, optional title (≤120 characters) and address range; S11 and S15 also require method. Returns: the finding written + the updated slot line.",
       "tier": "default?"
     },
     {
