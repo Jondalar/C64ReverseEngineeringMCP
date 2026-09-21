@@ -27,7 +27,7 @@ import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
 import { MODEL_LEVELS } from "../model/types.js";
 import { assertBoundary, listBoundaries, removeBoundary, ModelBoundaryError } from "../model/store.js";
-import { modelReport, formatModel, membersInRangeBySpace } from "../model/rollup.js";
+import { modelReport, formatModel, membersInRangeBySpace, describeContains } from "../model/rollup.js";
 import { reentryPackage, formatReentry } from "../model/reentry.js";
 import { missingRequiredText } from "./truncated-call.js";
 
@@ -73,9 +73,9 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
         });
         const report = await modelReport(pd);
         const mine = report.membership.find((m) => m.containerId === node.id);
-        const kinds = mine && mine.members > 0
-          ? Object.entries(mine.byKind).map(([k, v]) => `${v} ${k}`).join(", ")
-          : "nothing yet — no analysed nodes fall in this range";
+        // Membership counts nesting (845 D2): a system boundary whose content is the
+        // containers inside it was reported empty, and then flagged as a guess.
+        const kinds = describeContains(report, node.id);
         // An empty boundary used to stop at that sentence, and it is the wrong
         // sentence whenever the bytes exist under a different address space.
         // `$0300-$07FF` is the C64's and the 1541's at once, which is the case

@@ -11,7 +11,8 @@ import { join } from "node:path";
 
 const { GraphStore } = await import("../dist/knowledge-graph/store.js");
 const { assertBoundary, listBoundaries, removeBoundary, ModelBoundaryError } = await import("../dist/model/store.js");
-const { modelReport, formatModel } = await import("../dist/model/rollup.js");
+const { modelReport, formatModel, describeContains } = await import("../dist/model/rollup.js");
+const { critique } = await import("../dist/critic/run.js");
 const { reentryPackage, formatReentry } = await import("../dist/model/reentry.js");
 const { KnowledgeRecords } = await import("../dist/knowledge-graph/records.js");
 const { CONTAINER_SLOTS } = await import("../dist/slots/schema.js");
@@ -100,10 +101,12 @@ try {
     // Boundaries are identified by NAME, not by start address: two may begin on the
     // same byte (a component at the head of its container), which is the collision the
     // first cut of the id scheme walked straight into.
-    const membersOf = (rep, name) => {
+    const memOf = (rep, name) => {
       const node = rep.nodes.find((n) => n.name === name);
-      return rep.membership.find((m) => m.containerId === node?.id)?.members;
+      return rep.membership.find((m) => m.containerId === node?.id);
     };
+    const membersOf = (rep, name) => memOf(rep, name)?.members;
+    const directOf = (rep, name) => memOf(rep, name)?.direct;
     check("D2: membership is computed, not passed",
       membersOf(r, "stage 2 loader") === 4 && membersOf(r, "resident engine") === 5,
       r.membership.map((m) => `${m.members}`).join(" / "));
@@ -134,8 +137,11 @@ try {
     });
     const r2 = await modelReport(d);
     check("a component inside a container claims its own members",
-      membersOf(r2, "dispatcher") === 1 && membersOf(r2, "resident engine") === 4,
-      `dispatcher=${membersOf(r2, "dispatcher")} engine=${membersOf(r2, "resident engine")}`);
+      directOf(r2, "dispatcher") === 1 && directOf(r2, "resident engine") === 4,
+      `dispatcher=${directOf(r2, "dispatcher")} engine=${directOf(r2, "resident engine")} (direct, innermost wins)`);
+    check("…and the container still CONTAINS what the component claims",
+      membersOf(r2, "resident engine") === 5,
+      `engine members=${membersOf(r2, "resident engine")} direct=${directOf(r2, "resident engine")}`);
     check("the container and the component can start on the same byte",
       r2.nodes.length === 3 && r2.nodes.filter((n) => n.start === 0x2000).length === 2,
       `${r2.nodes.length} boundaries, ${r2.nodes.filter((n) => n.start === 0x2000).length} starting at $2000`);
@@ -144,6 +150,75 @@ try {
 
     const text = formatModel(r2);
     check("the model renders with citations", /cite: engine.prg header/.test(text), text.split("\n")[0]);
+  }
+
+  // ------------------------------------------- D2: nesting counts toward membership
+  //
+  // `model_assert` answered "contains: nothing yet — no analysed nodes fall in this
+  // range" for a system-level boundary whose whole content is the containers nested
+  // inside it, and `project_critique` then called it "a guess wearing a name". The
+  // nodes were exactly where the asserter said they were; membership was reading the
+  // innermost-wins tally, which is the DIRECT count and not what "contains" means.
+  {
+    const d = newProject(); dirs.push(d); seedGraph(d);
+    await assertBoundary(d, {
+      name: "stage 2 loader", level: "container", start: 0x0801, end: 0x0fff,
+      description: "the resident loader", evidence: ["loader.prg header load=$0801"], owner: "loader",
+    });
+    await assertBoundary(d, {
+      name: "resident engine", level: "container", start: 0x2000, end: 0x3fff,
+      description: "the play engine", evidence: ["engine.prg header load=$2000"], owner: "engine",
+    });
+    // The system boundary over both. Nothing falls in it that a container does not
+    // already claim — which is what a system boundary IS.
+    const sys = await assertBoundary(d, {
+      name: "the whole image", level: "system", start: 0x0801, end: 0x3fff,
+      description: "loader plus engine, the thing that gets loaded", evidence: ["the .d64 has two files"],
+    });
+
+    const r = await modelReport(d);
+    const m = (name) => r.membership.find((x) => x.containerId === r.nodes.find((n) => n.name === name)?.id);
+    const whole = m("the whole image");
+    check("a boundary whose content is nested containers is NOT empty",
+      whole?.members === 9, `members=${whole?.members} (expected 9: 4 loader + 5 engine)`);
+    check("…and its byKind is the union underneath it",
+      whole?.byKind?.routine === 9, JSON.stringify(whole?.byKind));
+    check("…while the innermost-wins count stays separately available",
+      whole?.direct === 0, `direct=${whole?.direct}`);
+    check("…and it names the boundaries nested inside it",
+      (whole?.nested ?? []).length === 2, (whole?.nested ?? []).join(", "));
+    check("the containers keep their own direct members",
+      m("resident engine")?.direct === 5 && m("stage 2 loader")?.direct === 4,
+      `engine=${m("resident engine")?.direct} loader=${m("stage 2 loader")?.direct}`);
+    check("nothing is placed twice: the orphan count is unchanged",
+      r.memberTotal === 10 && r.orphans.length === 1, `${r.memberTotal - r.orphans.length}/${r.memberTotal}`);
+
+    const said = describeContains(r, sys.id);
+    check("the sentence model_assert prints says where the nodes are",
+      /9 routine/.test(said) && /nested/.test(said) && !/nothing yet/.test(said), said);
+    const text = formatModel(r);
+    check("and the model does not render the system boundary as empty",
+      !/the whole image.*\[empty\]/.test(text),
+      text.split("\n").find((l) => l.includes("the whole image")));
+
+    const c = await critique(d);
+    check("project_critique no longer calls it a guess wearing a name",
+      !c.findings.some((f) => f.check === "empty-boundary" && /whole image/.test(f.title)),
+      c.findings.filter((f) => f.check === "empty-boundary").map((f) => f.title).join(" | ") || "(none)");
+
+    // …and a boundary that really is over nothing is still caught.
+    await assertBoundary(d, {
+      name: "nowhere", level: "container", start: 0xe000, end: 0xe100,
+      description: "asserted over empty air", evidence: ["a guess"],
+    });
+    const c2 = await critique(d);
+    check("a boundary over nothing is still flagged",
+      c2.findings.some((f) => f.check === "empty-boundary" && /nowhere/.test(f.title)),
+      c2.findings.filter((f) => f.check === "empty-boundary").map((f) => f.title).join(" | ") || "(none)");
+    const r2 = await modelReport(d);
+    check("and describeContains still says so for it",
+      /nothing yet/.test(describeContains(r2, r2.nodes.find((n) => n.name === "nowhere").id)),
+      describeContains(r2, r2.nodes.find((n) => n.name === "nowhere").id));
   }
 
   // ------------------------------------------------------------------- D6: re-entry
