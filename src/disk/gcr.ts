@@ -233,6 +233,37 @@ export function findAllSyncMarks(data: Uint8Array): SyncMark[] {
  */
 export type GCRDataStatus = "ok" | "checksum_error" | "gcr_error" | "no_data_block";
 
+/**
+ * What a status means, in the words of the CONDITION that produced it.
+ *
+ * One sentence per verdict, shared by every door that reports one, because the
+ * defect this replaces was two doors using two words for one block and neither
+ * saying what it had tested. A reader who sees `gcr_error` must not have to know
+ * that the 325-byte read overshoots the block to understand why the last group
+ * fails on a perfectly good sector.
+ */
+export function describeDataStatus(status: GCRDataStatus | GCRReadSearchFailure): string {
+  switch (status) {
+    case "ok":
+      return "block id $07 present, every 5-bit GCR group decoded, checksum matches";
+    case "checksum_error":
+      return "block id $07 present and fully GCR-decodable; its checksum does not match the data bytes "
+        + "(normal on a custom-CRC or deliberately corrupted original) — the bytes are the disk's and are handed out";
+    case "gcr_error":
+      return "block id $07 present but at least one 5-bit GCR group does not decode, so those bytes are NOT the disk's "
+        + "(the 325-byte read overshoots the block, so the last group routinely lands in the tail gap) — "
+        + "the checksum was not tested, and the bytes are handed out flagged";
+    case "no_data_block":
+      return "no data block here at all (block id is not $07) — nothing was read, so no bytes are produced";
+    case "sync_not_found":
+      return "the header was found but no data sync follows it within the firmware's search window";
+    case "header_not_found":
+      return "no header on this track claims that sector id";
+    default:
+      return status;
+  }
+}
+
 export interface DecodedSector {
   track: number;
   sector: number;
@@ -309,8 +340,24 @@ export interface GCRHeaderCandidate {
   header: GCRHeaderInspection;
 }
 
+/**
+ * Why a firmware-style read did not produce a sector, before there is any data
+ * block to judge. Once there IS one, the verdict is a `GCRDataStatus` — the
+ * SAME four words the ring walk uses.
+ *
+ * The two readers used to have two vocabularies for one block. Side 1 T18/S0
+ * came back `gcr_error` from `extract_g64_sectors` and `checksum_error` from
+ * `read_g64_sector_candidate`, and the distinction is not cosmetic:
+ * `checksum_error` says the data bytes decoded and their checksum disagrees,
+ * `gcr_error` says at least one 5-bit group did not decode at all, so the bytes
+ * under it are not the disk's bytes. `readSectorLikeVice` collapsed both into
+ * `checksum_error` because it only ever looked at `block.valid`, which is false
+ * for either. It reads `gcrValid` now, the way `decodeGCRTrackDetailed` always did.
+ */
+export type GCRReadSearchFailure = "sync_not_found" | "header_not_found";
+
 export interface GCRReadSectorResult {
-  status: "ok" | "sync_not_found" | "header_not_found" | "no_block" | "checksum_error";
+  status: GCRDataStatus | GCRReadSearchFailure;
   headerSync?: SyncMark;
   dataSync?: SyncMark;
   header?: GCRHeaderInspection;
@@ -384,7 +431,16 @@ export function readSectorLikeVice(trackData: Uint8Array, sector: number): GCRRe
   const dataBytes = readAlignedBytesFromBit(trackData, dataSync.bitIndex, 325);
   const dataBlock = decodeGCRDataBlock(dataBytes, 0);
   const result: GCRReadSectorResult = {
-    status: dataBlock.blockId !== 0x07 ? "no_block" : dataBlock.valid ? "ok" : "checksum_error",
+    // One vocabulary with the ring walk, and each word earned by the condition it
+    // names: no block id $07 at all, a clean block, a block whose GCR decoded but
+    // whose checksum disagrees, or a block with an undecodable 5-bit group.
+    status: dataBlock.blockId !== 0x07
+      ? "no_data_block"
+      : dataBlock.valid
+        ? "ok"
+        : dataBlock.gcrValid
+          ? "checksum_error"
+          : "gcr_error",
     headerSync: headerCandidate.sync,
     dataSync,
     header: headerCandidate.header,

@@ -699,8 +699,8 @@
       "file": "server-tools/disk-g64.ts",
       "ns": "extract",
       "hasSpec": false,
-      "firstSentence": "Use to decode a G64 track via GCR and write one .bin file per sector to disk — the right tool when you need the raw sector payloads as files for further analysis or comparison.",
-      "desc": "Use to decode a G64 track via GCR and write one .bin file per sector to disk — the right tool when you need the raw sector payloads as files for further analysis or comparison. Not for in-place inspection without writing files (use inspect_g64_track) or for exporting the raw bitstream (use extract_g64_raw_track). Inputs: absolute or project-relative .g64 path, track number; output defaults to analysis/g64/<image>/track-N/ inside the project. Writes sector .bin files + track-metadata.json; no artifact is auto-registered.",
+      "firstSentence": "Use to decode one track, a list of tracks, or a whole G64 side via GCR and write one .bin file per sector to disk — the right tool when you need the raw sector payloads as files for further analysis or comparison.",
+      "desc": "Use to decode one track, a list of tracks, or a whole G64 side via GCR and write one .bin file per sector to disk — the right tool when you need the raw sector payloads as files for further analysis or comparison. Not for in-place inspection without writing files (use inspect_g64_track) or for exporting the raw bitstream (use extract_g64_raw_track). Give exactly one of track / tracks / all_tracks: a whole side in one call is the same work as one call per track, without the round-trips. Output defaults to analysis/g64/<image>/track-N/ inside the project, one directory per track. Writes sector .bin files + track-metadata.json per track; no artifact is auto-registered.",
       "tier": "default?"
     },
     {
