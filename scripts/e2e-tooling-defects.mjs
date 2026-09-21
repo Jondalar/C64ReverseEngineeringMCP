@@ -240,7 +240,14 @@ console.log("Thirteen tooling defects from one autonomous run\n");
 {
   head(9, "a slot answer that needs a sentence still gets a readable title");
   const src = readFileSync(join(ROOT, "src/server-tools/slots.ts"), "utf8");
-  check(/title: z\.string\(\)\.max\(120\)\.optional\(\)/.test(src), "slot_record takes an explicit title");
+  check(/title: z\.string\(\)\.optional\(\)/.test(src), "slot_record takes an explicit title");
+  // The cap is a NUMBER checked in the handler, not a `.max()` in the schema: a schema
+  // cap fires inside the SDK, after a multi-paragraph `answer` has been composed, and
+  // answers "String must contain at most 120 character(s)" — no overage, no remedy, and
+  // no word about the answer being kept whole. See e2e:060-slot-title.
+  check(!/title: z\.string\(\)\.max\(/.test(src), "and the cap is NOT a schema max — that refuses with a validation dump");
+  check(/const TITLE_MAX = 120/.test(src) && /capExceededText/.test(src),
+    "…it is checked here, and refused in the tool's own voice");
   check(/title: title\?\.trim\(\) \|\| headline\(answer\)/.test(src), "and derives one when it is omitted");
   check(/summary: `\$\{def\.name\} \(Spec 844 \$\{slot\}\)\.\\n\\n\$\{answer\.trim\(\)\}/.test(src),
     "while the whole answer is kept in the body");

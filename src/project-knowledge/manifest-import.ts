@@ -108,6 +108,22 @@ export interface ImportedManifestKnowledge {
     // `derivedBy`). The service creates the matching LoaderModel record on import so the
     // DOS files show under list_loader_models with kernal-directory provenance.
     payloadLoaderModelId?: string;
+    /** Other names this row answers to — the CBM directory name, when the row is
+     *  named after the file it was extracted into (BUG-060 defect 2). */
+    aliases?: string[];
+    /**
+     * BUG-060 defect 2 — the ABSOLUTE path of the blob this row was extracted into.
+     *
+     * A disk file is named by the CBM directory (`p`) and extracted into a file named
+     * by its directory slot (`03_p.prg`). Every analysis door files that file's rows
+     * under the file stem, so the payload has to stand under the same stem or the two
+     * are separate subjects and the payload reads as nothing-known while its listing is
+     * fully annotated. The importer registers this blob and points the row at it BEFORE
+     * the row is keyed — after the fact is too late, the node id is already derived.
+     *
+     * Transport only: the service strips it before the row reaches the record layer.
+     */
+    blobPath?: string;
   }>;
   findings: Array<{
     id: string;
@@ -140,6 +156,14 @@ export interface ImportedManifestKnowledge {
 }
 
 type ImportedEntity = ImportedManifestKnowledge["entities"][number];
+
+/** `03_p.prg` → `03_p`: the stem the analysis producers key a file's graph rows on. */
+function stemOfPath(relPath: string): string | undefined {
+  const base = relPath.replace(/\\/g, "/").split("/").pop() ?? relPath;
+  const dot = base.lastIndexOf(".");
+  const stem = (dot > 0 ? base.slice(0, dot) : base).trim();
+  return stem.length > 0 ? stem : undefined;
+}
 
 function stableId(prefix: string, artifactId: string, suffix: string): string {
   return `${prefix}-${artifactId}-${suffix}`.replace(/[^a-zA-Z0-9_-]+/g, "-").toLowerCase();
@@ -280,7 +304,24 @@ const diskManifestReader: ManifestReader = {
       // disk manifest import failed (unimportedManifestArtifacts). Treat empty /
       // whitespace-only as "no name" and fall back; keep the raw name in summary.
       const fileName = (typeof file.name === "string" && file.name.trim().length > 0) ? file.name : undefined;
-      const fallbackName = fileName ?? file.relativePath ?? `disk_file_${index + 1}`;
+      // BUG-060 defect 2 — a disk file is named after the FILE it was extracted into.
+      //
+      // The CBM directory says `p`; the extractor writes `03_p.prg`; every analysis
+      // producer files that file's graph rows under the file stem (`ownerFromAnalysisPath`
+      // → `03_p`), and so does the S12 coverage measure (`stemOf(relativePath)`). The row
+      // used to take the CBM name, and a payload's owner stem is derived from its name —
+      // so the payload stood under `p` while its own disassembly stood under `03_p`. Two
+      // subjects for one file: the payload node read as nothing-known although the listing
+      // was fully annotated and rebuilt byte-identically. All seven side-1 DOS files on
+      // Neuromancer.
+      //
+      // The file wins because it is what the rest of the system already counts. The CBM
+      // name is not lost: it becomes an alias (so search and `payloadId` lookups by the
+      // directory name still land) and it is stated in the summary. Where there is no
+      // extracted file the CBM name is still all there is, and nothing changes.
+      const extractedStem = relPath ? stemOfPath(relPath) : undefined;
+      const fallbackName = extractedStem ?? fileName ?? file.relativePath ?? `disk_file_${index + 1}`;
+      const aliases = fileName && fileName !== fallbackName ? [fileName] : undefined;
       // Spec 832 D2 — the manifest's own claim is re-checked here, because the
       // manifests already written to disk carry the record headers this defect is
       // about ($01FF…$CAFF for Ultima VI's t001…t202). An address that cannot be
@@ -329,7 +370,9 @@ const diskManifestReader: ManifestReader = {
         id: stableId("entity", artifact.id, `disk-file-${index}-${file.relativePath ?? fileName ?? "file"}`),
         kind: "disk-file" as const,
         name: fallbackName,
+        aliases,
         summary: [
+          fileName && fileName !== fallbackName ? `CBM directory name "${fileName}"` : undefined,
           file.type ? `Type ${file.type}` : undefined,
           file.sizeBytes !== undefined ? `${file.sizeBytes} bytes` : undefined,
           file.track !== undefined && file.sector !== undefined ? `at ${file.track}/${file.sector}` : undefined,
@@ -354,6 +397,10 @@ const diskManifestReader: ManifestReader = {
         // stock directory entry, custom-lut for an on-disk LUT entry). The service
         // creates the matching LoaderModel record so it appears in list_loader_models.
         payloadLoaderModelId: derivedBy,
+        // BUG-060 defect 2: the file this row's bytes were written into. The service
+        // registers it and re-points payloadSourceArtifactId at it before the row is
+        // keyed, so the payload and its disassembly stand under one owner stem.
+        blobPath: absPath,
         tags: ["manifest-import", "disk-file", "payload", file.type ?? "unknown"],
       };
       return { index, entity };

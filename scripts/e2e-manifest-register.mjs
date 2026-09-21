@@ -18,6 +18,10 @@ console.log(`manifest-register B2 — full spans + derivedBy, disk+cart one path
 
 try {
   const service = new ProjectKnowledgeService(root);
+  // The graph needs knowledge/project.json to know the project's slug; without it the
+  // first saveEntity throws and the gate dies on its second check. It had bit-rotted
+  // here unobserved because nothing in package.json runs it.
+  service.initProject({ name: "Manifest Register" });
 
   // Disk manifest — Pawn-like, ONE payload with a FULL 3-sector chain (not start-only).
   const disk = validateManifest({

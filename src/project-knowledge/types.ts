@@ -590,7 +590,12 @@ export const LoaderModelSchema = z.object({
  *  it is are the finding. A table may carry any subset — a data-only asset has no
  *  meaningful entry point, and an index-addressed table has no key column. */
 export const LutColumnRoleSchema = z.enum([
-  "bank",        // which bank / side the payload lives in
+  "bank",        // which cartridge bank the payload lives in
+  "side",        // disk: WHICH DISK/SIDE the row's payload is on — bank's disk twin,
+                 //       and not the same column. `bank` is handed back to the reader
+                 //       as the bank a deref reads through; a side number there
+                 //       addresses a cartridge bank that does not exist. A run with a
+                 //       multi-side set had no `side` role and used `bank` for it.
   "offset",      // where in that bank's window it starts
   "length",      // how many bytes are stored
   "destination", // where it goes in RAM — but see `deref`
@@ -649,11 +654,52 @@ export const LutIdentitySchema = z.object({
   notes: z.string().optional(),
 });
 
+/**
+ * Where a table's column addresses are counted FROM.
+ *
+ * `medium` was the only answer the model had, and for a table that sits on the image
+ * it is the right one. It cannot describe a table that lives inside a payload the
+ * loader has already pulled into RAM — and on a .g64 there is no usable byte offset to
+ * count at all, so for a custom-GCR disk it is not merely awkward, it cannot be true.
+ *
+ * A run that hit this got correct probes anyway: it pointed `medium_path` at the
+ * EXTRACTED .prg and hand-offset every column by two for the CBM load-address word.
+ * The numbers were right and the record was a lie — a descriptor asserting "offsets
+ * into this medium" about a file that is not a medium, with an off-by-two folded into
+ * every address by hand and nothing saying so.
+ */
+export const LutPayloadFrameSchema = z.object({
+  /** The extracted file holding the payload's bytes — project-relative or absolute. */
+  path: z.string().optional(),
+  /** The payload ARTIFACT this table lives in. */
+  artifactId: IdSchema.optional(),
+  /** The payload ENTITY (register_payload) this table lives in. */
+  entityId: IdSchema.optional(),
+  /** Where the payload's first byte RUNS once loaded. The column addresses are then
+   *  runtime addresses — the ones the loader's disassembly quotes — and this is what
+   *  turns one into an offset into `path`. */
+  loadAddress: z.number().int().nonnegative().optional(),
+  /** Bytes at the head of `path` that are NOT payload; a CBM file's own 2-byte
+   *  load-address word is the usual two. Taken out of the mapping here, once, so
+   *  nobody folds it into every column address by hand. */
+  headerBytes: z.number().int().nonnegative().default(0),
+  /** Where the payload came FROM, in the medium's own words, for a medium that has no
+   *  byte offset to give: "T18/S4 of side 1 (a .g64)". Prose, deliberately — the
+   *  point is that the provenance is recorded, not that it is machine-addressable. */
+  origin: z.string().optional(),
+});
+
 /** Spec 750 §1.1 — a table found on a medium, described well enough to resolve its
  *  rows. Rows are NOT stored (Decision 7): they are derived from this plus the bytes,
  *  so correcting a descriptor corrects every row at once. */
 export const LutDescriptorSchema = z.object({
   id: IdSchema,
+  /** `medium` — column addresses are in the MEDIUM's own terms (the original, and the
+   *  default, so every descriptor written before this field means exactly what it did).
+   *  `payload` — the table is inside a LOADED payload and the addresses are runtime
+   *  addresses; `payload` says which one and where it came from. */
+  frame: z.enum(["medium", "payload"]).default("medium"),
+  payload: LutPayloadFrameSchema.optional(),
   /** The medium image this table was read off (Spec 721 `mediumRef`). */
   mediumRef: z.string().optional(),
   /** The artifact the table lives IN (the cart/disk manifest, or a payload for a

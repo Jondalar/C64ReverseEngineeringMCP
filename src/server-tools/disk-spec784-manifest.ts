@@ -30,22 +30,40 @@ export function buildDiskSpec784Manifest(
 
   for (let i = 0; i < extracted.files.length; i++) {
     const file = extracted.files[i];
-    // Full traversed chain → one span per sector (exact data bytes, never start-only —
-    // the Pawn 168/1329 bug). Fall back to the directory start T/S if the chain is empty.
-    const spans =
-      file.sectorChain && file.sectorChain.length > 0
-        ? file.sectorChain.map((c) => ({ kind: "sector" as const, track: c.track, sector: c.sector, length: c.bytesUsed }))
-        : file.track !== undefined && file.sector !== undefined
-          ? [{ kind: "sector" as const, track: file.track, sector: file.sector, length: 254 }]
-          : [];
-    if (spans.length === 0) continue; // nothing registerable for this entry
-
     const name = (typeof file.name === "string" && file.name.trim().length > 0)
       ? file.name
       : (file.relativePath || `dos_file_${i + 1}`);
 
+    // Full traversed chain → one span per sector (exact data bytes, never start-only —
+    // the Pawn 168/1329 bug). Fall back to the directory start T/S if the chain is empty.
+    const walked = file.sectorChain ?? [];
+    // `chainStatus` is the walker's verdict (src/disk/base.ts). Anything but "complete"
+    // means these spans are a PREFIX, and the row has to say so — otherwise a payload
+    // whose chain looped back after one sector reads exactly like a one-sector file.
+    let chainNote = file.chainStatus !== undefined && file.chainStatus !== "complete"
+      ? file.chainNote ?? `block chain did not terminate cleanly (${file.chainStatus}) — the declared spans are not a measured extent`
+      : undefined;
+
+    let spans: Array<{ kind: "sector"; track: number; sector: number; length: number }>;
+    if (walked.length > 0) {
+      spans = walked.map((c) => ({ kind: "sector" as const, track: c.track, sector: c.sector, length: c.bytesUsed }));
+    } else if (file.track !== undefined && file.sector !== undefined) {
+      // No chain was walked at all. One span at the directory's START sector is a
+      // placeholder so the payload still registers — it is NOT an extent, and its
+      // length is the sector's capacity, not something read off the medium.
+      const length = file.sizeBytes > 0 ? Math.min(254, file.sizeBytes) : 254;
+      spans = [{ kind: "sector" as const, track: file.track, sector: file.sector, length }];
+      chainNote = chainNote
+        ?? file.chainNote
+        ?? `no block chain was walked for this entry — the single span is the directory's START sector ${file.track}/${file.sector} only, not a measured extent`;
+    } else {
+      spans = [];
+    }
+    if (spans.length === 0) continue; // nothing registerable for this entry
+
     payloads.push({
       name,
+      ...(chainNote ? { chainNote } : {}),
       derivedBy: file.origin === "custom" ? CUSTOM_LUT_MODEL : KERNAL_DIRECTORY_MODEL,
       loadAddress: file.loadAddress ?? null,
       // Spec 832 D2 — the extractor's own verdict, not the directory's type byte:

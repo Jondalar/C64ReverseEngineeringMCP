@@ -117,6 +117,16 @@ export interface RegistrationDelta {
   toolOutputCount: number;
   // Count per owning directory prefix, e.g. { "analysis/g64": 4101 }.
   toolOutputByDir: Record<string, number>;
+  // BUG-060 defect 1 — what registering that bulk would COST, in bytes.
+  //
+  // The count alone reads as debt, and one caller acted on it: it declared a
+  // `patterns` glob for 2732 per-sector .bin dumps, registered every one, and watched
+  // the project's coverage fall from 22.2 % to 7.6 % because those bytes joined the
+  // denominator and nothing joined the numerator. A number that can be acted on wrongly
+  // has to carry what the action costs, so the bytes are measured here — at the one
+  // scan every door reads — rather than guessed at by the reporter.
+  toolOutputBytes: number;
+  toolOutputBytesByDir: Record<string, number>;
   // Unregistered files the PROJECT ITSELF declared intentional in
   // knowledge/inventory-patterns.json. Held apart from `unregistered` for the same
   // reason tool output is: nobody is going to act on them, so they are not debt.
@@ -160,10 +170,12 @@ interface WalkSink {
   humanByExt: Record<string, number>;
   tool: string[];
   toolByDir: Record<string, number>;
+  toolBytesByDir: Record<string, number>;
+  toolBytes: number;
 }
 
 function newSink(projectRoot: string, registered: Set<string>): WalkSink {
-  return { projectRoot, registered, human: [], humanByExt: {}, tool: [], toolByDir: {} };
+  return { projectRoot, registered, human: [], humanByExt: {}, tool: [], toolByDir: {}, toolBytesByDir: {}, toolBytes: 0 };
 }
 
 function walk(dir: string, sink: WalkSink): { total: number; alreadyRegistered: number } {
@@ -200,6 +212,12 @@ function walk(dir: string, sink: WalkSink): { total: number; alreadyRegistered: 
     if (owner) {
       sink.tool.push(rel);
       sink.toolByDir[owner.prefix] = (sink.toolByDir[owner.prefix] ?? 0) + 1;
+      // One stat per unregistered tool file. It is the only way to say what
+      // registering the bulk would cost, and the alternative — saying nothing —
+      // is what let a caller register 2732 of them.
+      const size = statSafe(full)?.size ?? 0;
+      sink.toolBytes += size;
+      sink.toolBytesByDir[owner.prefix] = (sink.toolBytesByDir[owner.prefix] ?? 0) + size;
       continue;
     }
     sink.human.push(rel);
@@ -252,6 +270,8 @@ export function scanRegistrationDelta(
     toolOutput: sink.tool.slice(0, cap),
     toolOutputCount: sink.tool.length,
     toolOutputByDir: sink.toolByDir,
+    toolOutputBytes: sink.toolBytes,
+    toolOutputBytesByDir: sink.toolBytesByDir,
     declaredIntentional: intentional.slice(0, cap),
     declaredIntentionalCount: intentional.length,
     declarationProblems: declared.problems,

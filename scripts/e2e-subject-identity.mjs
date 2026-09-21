@@ -331,5 +331,83 @@ try {
   }
 } catch (e) { check(false, "harness", e.message); }
 
+// ──────────────── 5 — BUG-060 defect 2: the payload and its listing are one subject
+//
+// `extract_disk` files a stock-DOS payload under the CBM directory name (`p`), while
+// every analysis door files the extracted `03_p.prg`'s rows under the file stem
+// (`03_p`). Two owners, so the payload node had nothing under it: a Neuromancer run
+// read 0 % classified on seven side-1 DOS files that were fully annotated and rebuilt
+// byte-identically, and the coverage measure — which keys on the file stem — saw the
+// bytes twice under two names. One subject, not two.
+try {
+  head(5, "a stock-DOS payload and the listing of its extracted file are one subject");
+  const { buildD64 } = await import(join(ROOT, "dist/disk/d64-builder.js"));
+  const { extractDiskImage } = await import(join(ROOT, "dist/disk-extractor.js"));
+  const { linkExtractedPayloadFiles } = await import(join(ROOT, "dist/lib/extract-auto-chain.js"));
+  const { ownerFromAnalysisPath } = await import(join(ROOT, "dist/knowledge-graph/producers/control-flow.js"));
+  const { parseId } = await import(join(ROOT, "dist/knowledge-graph/ids.js"));
+
+  const proj = tmpProject("c64re-subj-dosfile-");
+  mkdirSync(join(proj, "input"), { recursive: true });
+  // Three DOS files with distinct bytes, so nothing is joined by a hash collision.
+  const body = (fill, n) => {
+    const b = new Uint8Array(n);
+    b[0] = 0x00; b[1] = 0x20;
+    for (let i = 2; i < n; i += 1) b[i] = fill;
+    return b;
+  };
+  const image = buildD64({
+    diskName: "NEURO", diskId: "01", files: [
+      { name: "BOOT", payload: body(0x01, 300) },
+      { name: "X", payload: body(0x02, 500) },
+      { name: "P", payload: body(0x03, 700) },
+    ],
+  });
+  const imagePath = join(proj, "input", "neuro.d64");
+  writeFileSync(imagePath, image);
+
+  const outDir = join(proj, "analysis", "disk", "neuro");
+  const extracted = extractDiskImage(imagePath, outDir);
+  const svc = new ProjectKnowledgeService(proj);
+  svc.initProject({ name: "Neuro side 1" });
+  const manifestArtifact = svc.saveArtifact({
+    kind: "manifest", scope: "generated", title: "manifest.json",
+    path: extracted.manifestPath, role: "disk-manifest", format: "json",
+  });
+  svc.importManifestArtifact(manifestArtifact.id);
+  linkExtractedPayloadFiles(proj, manifestArtifact.id);
+
+  const pFile = extracted.files.find((f) => f.name === "p");
+  check(!!pFile && pFile.relativePath === "03_p.prg",
+    "extract_disk writes the CBM file `p` as 03_p.prg", pFile?.relativePath ?? "none");
+  // What the analysis / disasm producers call it: the file stem.
+  const listingOwner = ownerFromAnalysisPath(join(outDir, "03_p_analysis.json"));
+  check(listingOwner === "03_p", "the analysis producers file its rows under 03_p", listingOwner);
+
+  const payloadEntity = svc.listEntities().find((e) => e.name === "p" || (e.aliases ?? []).includes("p"));
+  check(!!payloadEntity, "the disk file is a payload entity", svc.listEntities().map((e) => e.name).join(","));
+  let payloadOwner = "(unparseable)";
+  try {
+    const parsed = parseId(payloadEntity?.id ?? "");
+    payloadOwner = parsed.form === "project" ? (parsed.ctx.owner ?? "(none)") : `(${parsed.form})`;
+  } catch (e) { payloadOwner = `(${e.message})`; }
+  check(payloadOwner === listingOwner,
+    "…and the payload node stands under that same owner — one subject, not two",
+    `payload=${payloadOwner} listing=${listingOwner} id=${payloadEntity?.id}`);
+
+  // The CBM name is what the directory says and must not be lost to the file stem.
+  const names = [payloadEntity?.name, ...(payloadEntity?.aliases ?? [])].filter(Boolean);
+  check(names.includes("p"), "the CBM directory name survives on the entity", names.join(","));
+
+  // The other two agree too — this is not one lucky file.
+  for (const [cbm, rel] of [["boot", "01_boot.prg"], ["x", "02_x.prg"]]) {
+    const ent = svc.listEntities().find((e) => e.name === cbm || (e.aliases ?? []).includes(cbm));
+    let own = "(none)";
+    try { const p = parseId(ent?.id ?? ""); own = p.form === "project" ? (p.ctx.owner ?? "(none)") : `(${p.form})`; } catch { /* reported below */ }
+    check(own === ownerFromAnalysisPath(rel.replace(/\.prg$/, "_analysis.json")),
+      `${cbm} likewise stands under its extracted file's stem`, `${own} vs ${rel}`);
+  }
+} catch (e) { check(false, "harness (5)", e.message); }
+
 console.log(`\n${failCount === 0 ? "GREEN" : "RED"} subject identity: ${pass} pass, ${failCount} fail.`);
 process.exit(failCount === 0 ? 0 : 1);

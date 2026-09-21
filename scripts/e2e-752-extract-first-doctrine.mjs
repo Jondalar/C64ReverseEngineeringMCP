@@ -186,8 +186,21 @@ const man = extractDiskImage(`${ROOT}/samples/fixtures/load-fidelity/lf-002-5blo
 const manArt = dsvc.saveArtifact({ kind: "manifest", scope: "generated", title: "manifest", path: man.manifestPath, role: "disk-manifest", format: "json" });
 const dimp = dsvc.importManifestArtifact(manArt.id);
 ok(dimp.importedPayloadEntityIds.length > 0, "REVIEW disk import yields payload entity ids", `n=${dimp.importedPayloadEntityIds.length}`);
+// BUG-060 defect 2 moved this work EARLIER: the manifest import now registers each
+// extracted blob and points the row at it before the row is keyed, because the owner
+// stem is derived on the first save and cannot be re-keyed afterwards. So the fact to
+// assert is the OUTCOME — every payload entity stands on its own per-file PRG artifact,
+// not on the manifest — and the catch-up door is left with nothing to do.
 const nLinked = linkExtractedPayloadFiles(dp, manArt.id);
-ok(nLinked > 0, "REVIEW extracted files relinked to per-file PRG artifacts", `linked=${nLinked}`);
+const linkedToBlob = dsvc.listEntities()
+  .filter((e) => dimp.importedPayloadEntityIds.includes(e.id))
+  .filter((e) => {
+    const src = e.payloadSourceArtifactId ? dsvc.getArtifactById(e.payloadSourceArtifactId) : undefined;
+    return !!src && src.id !== manArt.id && /\.(prg|bin)$/i.test(src.relativePath ?? "");
+  });
+ok(linkedToBlob.length > 0, "REVIEW extracted files are linked to per-file PRG artifacts",
+  `${linkedToBlob.length} of ${dimp.importedPayloadEntityIds.length}`);
+ok(nLinked === 0, "REVIEW the catch-up relink door has nothing left to do — the import already did it", `linked=${nLinked}`);
 const dchain = await autoAnalyzeExtractedPayloads(dp, dimp.importedPayloadEntityIds, { mode: "quick" });
 ok(dchain.some((c) => c.status === "done"), "REVIEW real disk-file payload auto-disassembled (L2 works end-to-end)", dchain.map((c) => `${c.name}:${c.status}`).join(","));
 const dEnt = dsvc.listEntities().find((e) => dimp.importedPayloadEntityIds.includes(e.id));

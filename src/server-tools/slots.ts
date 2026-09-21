@@ -28,9 +28,15 @@ import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
 import { SLOTS, SLOT_BY_ID, CONTAINER_SLOTS, type SlotId } from "../slots/schema.js";
 import { slotReport, formatSlotReport } from "../slots/state.js";
-import { missingRequiredText } from "./truncated-call.js";
+import { capExceededText, missingRequiredText } from "./truncated-call.js";
 
 const SLOT_IDS = SLOTS.map((s) => s.id) as [SlotId, ...SlotId[]];
+
+/** How long a finding's headline may be. A number, not a schema `max()` — see the
+ *  cap refusal in src/server-tools/truncated-call.ts for why that distinction is the
+ *  whole point: a schema cap fires before the handler and answers with a validation
+ *  dump, after the caller has already composed a multi-paragraph answer. */
+const TITLE_MAX = 120;
 
 /** Slots whose answer is not a claim about bytes, so no extract can back them. */
 const NON_ARTEFACT_SLOTS = new Set<SlotId>(["S1", "S13", "S14"]);
@@ -76,12 +82,16 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
 
   server.tool(
     "slot_record",
-    "Fill one required slot: the answer to a required question, with the evidence for it. Use when a door refuses on an empty slot, or when you have just established one of the 15. Not for seeing which slots are still empty (use project_slots). Inputs: slot id, answer, evidence, optional short title and address range; S11 and S15 also require method. Returns: the finding written + the updated slot line.",
+    "Fill one required slot: the answer to a required question, with the evidence for it. Use when a door refuses on an empty slot, or when you have just established one of the 15. Not for seeing which slots are still empty (use project_slots). `answer` and `evidence` are uncapped and stored whole, however long they run; only `title` is capped, at 120 characters, because it is the headline every finding list prints where a name belongs — over that this door refuses by name and hands back the headline it would have taken from your answer, so leaving `title` out is always safe. Inputs: slot id, answer, evidence, optional title (≤120 characters) and address range; S11 and S15 also require method. Returns: the finding written + the updated slot line.",
     {
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
       slot: z.enum(SLOT_IDS).describe("Which slot — see project_slots for the list and what each asks"),
       answer: z.string().min(10).describe("The answer itself, stated plainly. As long as it needs to be — it is stored in full as the finding's body."),
-      title: z.string().max(120).optional().describe("A short headline for the finding, ≤120 characters. Omit and one is taken from the answer's first sentence; the full answer is kept either way."),
+      // CAPPED, and checked in the handler rather than by the schema — same reason as
+      // `evidence` below. A `max(120)` here fires inside the SDK, after a
+      // multi-paragraph `answer` has already been composed, and answers with
+      // "String must contain at most 120 character(s)" and nothing else.
+      title: z.string().optional().describe("A short headline for the finding, ≤120 characters — this door checks it itself and, over the cap, refuses with the headline it would have taken from your answer, rather than with a schema error. Omit it and that headline is used; the full answer is kept in the finding's body either way, so omitting it loses nothing."),
       // REQUIRED, and checked in the handler rather than by the schema — see
       // src/server-tools/truncated-call.ts. A schema-level `Required` is the
       // wrong answer when the cause is a tool call that was cut short after a
@@ -109,6 +119,24 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
               what: "what you read or ran that establishes the answer — a listing, an address, a routine, a run. "
                 + "A slot claim with no citation is the record the next session inherits and cannot check.",
               prose: [{ name: "answer", value: answer }, { name: "title", value: title }],
+            }),
+          }],
+        };
+      }
+
+      if (title !== undefined && title.trim().length > TITLE_MAX) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: capExceededText({
+              tool: "slot_record",
+              field: "title",
+              limit: TITLE_MAX,
+              value: title.trim(),
+              role: "A title is a HEADLINE: it is what project_slots, list_findings and every other "
+                + "reader prints where a name belongs, which is why it alone is capped.",
+              suggestion: headline(title, TITLE_MAX),
+              uncapped: { name: "answer", where: "it is stored whole as the finding's body" },
             }),
           }],
         };

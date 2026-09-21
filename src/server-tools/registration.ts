@@ -4,7 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { describeWalkRoots, findUnimportedAnalysisArtifacts, listCandidateFiles, matchesGlob, scanRegistrationDelta, statSafe } from "../lib/registration-delta.js";
-import { INVENTORY_KIND_VALUES, INVENTORY_PATTERNS_FILE, INVENTORY_SCOPE_VALUES } from "../project-knowledge/inventory-patterns.js";
+import { howToSilenceToolOutput, INVENTORY_KIND_VALUES, INVENTORY_PATTERNS_FILE, INVENTORY_SCOPE_VALUES } from "../project-knowledge/inventory-patterns.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
 
@@ -196,6 +196,94 @@ export function registerProjectFiles(
   };
 }
 
+// ───────────────────────────────────────── the way back (BUG-060 defect 1)
+
+export interface UnregisterFilesResult {
+  /** Rows matched by the glob. */
+  matched: number;
+  /** Rows actually taken out of the store. */
+  removed: number;
+  removedPaths: string[];
+  /** Rows the glob matched that were refused, each with the reason it was kept. */
+  kept: Array<{ artifactId: string; relativePath: string; reason: string }>;
+  dryRun: boolean;
+}
+
+/**
+ * Un-register the artifact rows a glob matches. The inverse of `registerProjectFiles`.
+ *
+ * Registration had no inverse, and that is half of what made the tool-output
+ * recommendation dangerous: a caller that registered 2732 per-sector dumps could move
+ * the glob to `intentional` afterwards and stop NEW registrations, but the rows stayed
+ * and the coverage denominator stayed wrong for ever. The next sync answered "Files
+ * registered: 0" — correctly, and uselessly.
+ *
+ * What it refuses, and why: a row somebody has WRITTEN something about is not a
+ * registration mistake, it is work. So a row is kept when a finding / entity / relation
+ * / flow / open question references it, when it names entities of its own, when it sits
+ * in a lineage (derived from something, something derived from it, or it carries a
+ * version history), or when its version group holds more than one member. Everything
+ * else is just a path the store knows about, and the store can forget it.
+ *
+ * It never deletes a FILE. The bulk it exists for is a tool's output, and the tool will
+ * read those bytes again.
+ */
+export function unregisterProjectFiles(
+  service: ProjectKnowledgeService,
+  projectRoot: string,
+  opts: { glob: string; dryRun?: boolean },
+): UnregisterFilesResult {
+  void projectRoot;
+  const artifacts = service.listArtifacts();
+  const matched = artifacts.filter((a) => matchesGlob(a.relativePath ?? "", opts.glob));
+
+  // Everything the knowledge layer points at, in one pass.
+  const referenced = new Map<string, string>();
+  const note = (id: string | undefined, why: string) => {
+    if (id && !referenced.has(id)) referenced.set(id, why);
+  };
+  for (const f of service.listFindings()) for (const id of f.artifactIds ?? []) note(id, `a finding cites it ("${f.title}")`);
+  for (const e of service.listEntities()) {
+    for (const id of e.artifactIds ?? []) note(id, `an entity is linked to it ("${e.name}")`);
+    note(e.payloadSourceArtifactId, `it holds a payload's bytes ("${e.name}")`);
+    note(e.payloadDepackedArtifactId, `it holds a payload's depacked bytes ("${e.name}")`);
+    for (const id of e.payloadAsmArtifactIds ?? []) note(id, `it is a payload's disassembly ("${e.name}")`);
+  }
+  for (const r of service.listRelations()) for (const id of r.artifactIds ?? []) note(id, `a relation cites it ("${r.title}")`);
+  for (const fl of service.listFlows()) for (const id of fl.artifactIds ?? []) note(id, `a flow cites it ("${fl.title}")`);
+  for (const q of service.listOpenQuestions()) for (const id of q.artifactIds ?? []) note(id, `an open question cites it ("${q.title}")`);
+  // Lineage in both directions.
+  for (const a of artifacts) {
+    note(a.derivedFrom, "another artifact is derived from it");
+    for (const id of a.sourceArtifactIds ?? []) note(id, "another artifact names it as a source");
+  }
+  const multiVersionSubjects = new Set<string>();
+  for (const group of service.listArtifactVersionGroups()) {
+    if (group.versions.length > 1) for (const v of group.versions) multiVersionSubjects.add(v.artifactId);
+  }
+
+  const kept: UnregisterFilesResult["kept"] = [];
+  const removable: string[] = [];
+  for (const a of matched) {
+    const reason = referenced.get(a.id)
+      ?? (a.derivedFrom ? "it is derived from another artifact" : undefined)
+      ?? ((a.versions ?? []).length > 0 ? "it carries a version history" : undefined)
+      ?? ((a.entityIds ?? []).length > 0 ? "it names entities of its own" : undefined)
+      ?? (multiVersionSubjects.has(a.id) ? "its subject holds more than one version" : undefined);
+    if (reason) kept.push({ artifactId: a.id, relativePath: a.relativePath ?? "", reason });
+    else removable.push(a.id);
+  }
+
+  const removed = opts.dryRun ? removable.length : service.removeArtifacts(removable);
+  return {
+    matched: matched.length,
+    removed,
+    removedPaths: matched.filter((a) => removable.includes(a.id)).map((a) => a.relativePath ?? ""),
+    kept,
+    dryRun: opts.dryRun === true,
+  };
+}
+
 export function registerRegistrationTools(server: McpServer, ctx: ServerToolContext): void {
   server.tool(
     "register_existing_files",
@@ -338,6 +426,39 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
   );
 
   server.tool(
+    "unregister_files",
+    "Take artifact rows back out of the project knowledge store — the inverse of registering files. Use after a bulk of machine output (per-sector dumps, depack scratch, raw track binaries) was registered by mistake: those rows add their bytes to the project's coverage denominator without adding anything to what is understood, and moving the glob to `intentional` only stops NEW registrations — the rows already written stay. Matches the same glob dialect as registration (relative to the project root; * within a path component, ** across them). It NEVER deletes a file from disk, and it refuses any row somebody has written about — one a finding, entity, relation, flow or open question cites, one that sits in a lineage, or one whose subject holds more than one version — naming each refusal and why. dry_run=true previews. Not for removing a file (delete it on disk and re-sync) and not for hiding infrastructure from the UI (that is the internal flag).",
+    {
+      project_dir: z.string().optional(),
+      glob: z.string().describe("Glob for the rows to take out, relative to the project root, e.g. 'analysis/g64/**/*.bin'."),
+      dry_run: z.boolean().optional().describe("If true, report what would be taken out without writing. Default false."),
+    },
+    safeHandler("unregister_files", async ({ project_dir, glob, dry_run }: { project_dir?: string; glob: string; dry_run?: boolean }) => {
+      const projectRoot = ctx.projectDir(project_dir);
+      const service = new ProjectKnowledgeService(projectRoot);
+      const r = unregisterProjectFiles(service, projectRoot, { glob, dryRun: dry_run });
+      const lines: string[] = [];
+      lines.push(`unregister_files${r.dryRun ? " (dry run)" : ""} — ${glob}`);
+      lines.push(`Project: ${projectRoot}`);
+      lines.push(`Rows matched: ${r.matched}`);
+      lines.push(`Rows ${r.dryRun ? "that would be taken out" : "taken out"}: ${r.removed}`);
+      lines.push(`Files on disk touched: 0 — this unregisters, it does not delete.`);
+      if (r.kept.length > 0) {
+        lines.push(``);
+        lines.push(`Kept (${r.kept.length}) — something is written about these:`);
+        for (const k of r.kept.slice(0, 20)) lines.push(`  ${k.relativePath} — ${k.reason}`);
+        if (r.kept.length > 20) lines.push(`  … and ${r.kept.length - 20} more, same shape.`);
+      }
+      if (r.removed > 0 && !r.dryRun) {
+        lines.push(``);
+        lines.push(`Declare the glob \`intentional\` in ${INVENTORY_PATTERNS_FILE} so the next sync does not register them again:`);
+        lines.push(`  { "patterns": [], "intentional": [${JSON.stringify(glob)}] }`);
+      }
+      return textContent(lines.join("\n"));
+    }),
+  );
+
+  server.tool(
     "scan_registration_delta",
     "Read-only: scan the project filesystem for files that match c64re's known artifact extensions but are not registered in knowledge/artifacts.json. Surfaces the gap that opens up when bulk operations bypass the MCP layer. Use this before agent_record_step or before sealing a checkpoint.",
     {
@@ -377,8 +498,10 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
         lines.push(``);
         lines.push(`Tool output by directory:`);
         const byDir = Object.entries(delta.toolOutputByDir).sort((a, b) => b[1] - a[1]);
-        for (const [prefix, n] of byDir) lines.push(`  ${prefix}/**: ${n}`);
+        for (const [prefix, n] of byDir) lines.push(`  ${prefix}/**: ${n}  (${delta.toolOutputBytesByDir[prefix] ?? 0} bytes)`);
         lines.push(`  (register the run's manifest, not each file)`);
+        // BUG-060 defect 1 — one answer about a tool's bulk, wherever it is reported.
+        lines.push(...howToSilenceToolOutput(delta.toolOutputByDir, delta.toolOutputBytesByDir, delta.toolOutputBytes));
       }
       if (delta.declaredIntentionalCount > 0) {
         lines.push(``);

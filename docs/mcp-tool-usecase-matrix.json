@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 295,
-  "defaultCount": 185,
+  "total": 296,
+  "defaultCount": 186,
   "advancedCount": 110,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -5117,6 +5117,26 @@
       ],
       "e2eUseCases": [
         "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "unregister_files",
+      "namespace": "unregister",
+      "sourceFile": "server-tools/registration.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "Take artifact rows back out of the store after a bulk of machine output was registered by mistake — those rows add their bytes to the coverage denominator and nothing to what is understood, and declaring the glob `intentional` afterwards only stops NEW registrations.",
+      "notFor": "Deleting a file — this never touches disk; hiding infrastructure from the UI — that is the internal flag; removing a row somebody has written about — it refuses those and says why.",
+      "adjacentTools": [
+        "project_inventory_sync",
+        "register_existing_files",
+        "scan_registration_delta"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"

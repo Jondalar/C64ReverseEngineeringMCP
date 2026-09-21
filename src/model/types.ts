@@ -47,10 +47,26 @@ export interface ModelEdge {
   evidence: Array<{ from: string; to: string }>;
 }
 
+/**
+ * What a boundary contains.
+ *
+ * `members` counts NESTING. A system-level boundary whose whole content is the
+ * containers inside it used to report zero, because the tally was innermost-wins
+ * — and `model_assert` then said "nothing yet — no analysed nodes fall in this
+ * range" about a range that was full, with `project_critique` following up with
+ * "an empty container is a guess wearing a name". Containment is what "contains"
+ * means; innermost-wins is a different question and lives in `direct`.
+ */
 export interface ModelMembership {
   containerId: string;
+  /** every member node inside this boundary's range, including those a nested boundary claims */
   members: number;
   byKind: Record<string, number>;
+  /** the members no nested boundary claims — the innermost-wins tally (D4 rolls edges up by this) */
+  direct: number;
+  directByKind: Record<string, number>;
+  /** the boundaries strictly inside this one */
+  nested: string[];
 }
 
 /** D5 — a fine node inside no container. Visible, and countable. */

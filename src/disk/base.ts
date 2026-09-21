@@ -43,6 +43,30 @@ export interface DiskFileSectorLink {
   isLast: boolean;
 }
 
+/**
+ * How a file's block chain ENDED — the difference between "these are the sectors the
+ * file occupies" and "these are the sectors we could reach before the walk gave up".
+ *
+ * Only `complete` licenses a caller to present the walked links as the file's extent.
+ * Everything else is a PREFIX, and a manifest row built from a prefix without saying so
+ * is the Pawn 168/1329 bug: a payload declared as one sector that occupies 254.
+ */
+export type SectorChainStatus =
+  | "complete"              // link track 0 with a byte-count byte a real last sector carries
+  | "empty"                 // nothing of the chain could be read — no extent measured
+  | "cyclic"                // the links closed a loop back into the chain
+  | "unreadable"            // a link pointed at a sector the image cannot deliver
+  | "malformed-terminator"; // link track 0, but byte 1 is $00 — never a CBM last sector
+
+export interface SectorChainWalk {
+  /** The links actually walked, in chain order. A PREFIX unless `status` is "complete". */
+  links: DiskFileSectorLink[];
+  status: SectorChainStatus;
+  /** What went wrong, for every status but "complete". Present so the caller can put it
+   *  on the record instead of publishing a truncated chain in silence. */
+  note?: string;
+}
+
 export const SECTORS_PER_TRACK: Record<number, number> = {
   1: 21, 2: 21, 3: 21, 4: 21, 5: 21, 6: 21, 7: 21, 8: 21, 9: 21,
   10: 21, 11: 21, 12: 21, 13: 21, 14: 21, 15: 21, 16: 21, 17: 21,
@@ -289,25 +313,56 @@ export function extractFileFromChain(
   return result;
 }
 
-export function traceFileSectorChain(
+/**
+ * Walk a file's block chain link by link and report HOW it ended.
+ *
+ * Byte 0/1 of every 256-byte sector are the link to the next one. The last sector of a
+ * file links to track 0, and its byte 1 is the offset of the last used byte inside the
+ * sector — data starts at offset 2, so that byte is at least 2 and the sector holds
+ * `byte1 - 1` data bytes. A link of 00/00 therefore is NOT a terminator, it is an
+ * unwritten or mis-decoded sector; the two junk directory entries on Neuromancer side 2
+ * end exactly like that, and the old walker reported them as clean 254-byte one-sector
+ * files.
+ *
+ * The walk stops on a revisited sector or an unreadable one rather than looping forever
+ * — but it stops LOUDLY: the returned status/note is what a manifest row has to carry so
+ * a reachable prefix is never published as a measured extent.
+ */
+export function walkFileSectorChain(
   getSector: (t: number, s: number) => Uint8Array | null,
   entry: DiskFileEntry,
-): DiskFileSectorLink[] {
-  const chain: DiskFileSectorLink[] = [];
+): SectorChainWalk {
+  const links: DiskFileSectorLink[] = [];
   let track = entry.track;
   let sector = entry.sector;
   const visited = new Set<string>();
 
+  const extent = (): string => {
+    const declared = Number.isFinite(entry.size) ? `, directory declares ${entry.size} block(s)` : "";
+    return `${links.length} sector(s) walked${declared}`;
+  };
+  const prefixWarning = "the declared spans are the reachable PREFIX, not the file's full extent";
+
   while (track !== 0) {
-    const key = `${track}:${sector}`;
+    const key = `${track}/${sector}`;
     if (visited.has(key)) {
-      break;
+      return {
+        links,
+        status: "cyclic",
+        note: `block chain does not terminate: the link returns to ${key}, a sector already in this chain (cycle) — ${extent()}; ${prefixWarning}`,
+      };
     }
     visited.add(key);
 
     const sectorData = getSector(track, sector);
     if (!sectorData) {
-      break;
+      return {
+        links,
+        status: links.length === 0 ? "empty" : "unreadable",
+        note: links.length === 0
+          ? `block chain could not be walked: its first sector ${key} could not be read from the image — no extent was measured`
+          : `block chain does not terminate: sector ${key} could not be read from the image — ${extent()}; ${prefixWarning}`,
+      };
     }
 
     const nextTrack = sectorData[0];
@@ -317,8 +372,8 @@ export function traceFileSectorChain(
       ? (nextSector > 0 ? nextSector - 1 : 254)
       : 254;
 
-    chain.push({
-      index: chain.length,
+    links.push({
+      index: links.length,
       track,
       sector,
       nextTrack,
@@ -327,9 +382,33 @@ export function traceFileSectorChain(
       isLast,
     });
 
+    if (isLast) {
+      if (nextSector === 0) {
+        return {
+          links,
+          status: "malformed-terminator",
+          note: `block chain does not end cleanly: sector ${key} links to track 0 but its byte-count byte is $00, which no CBM last sector carries (it holds the offset of the last used byte, >= 2) — the final span's 254 bytes are the sector's full capacity, assumed, not read from a valid terminator (${extent()})`,
+        };
+      }
+      return { links, status: "complete" };
+    }
+
     track = nextTrack;
     sector = nextSector;
   }
 
-  return chain;
+  return {
+    links,
+    status: "empty",
+    note: `directory entry has no block chain to walk: it starts at track 0`,
+  };
+}
+
+/** The walked links only. Prefer `walkFileSectorChain` where the termination verdict
+ *  matters — a bare link list cannot tell a complete chain from a truncated one. */
+export function traceFileSectorChain(
+  getSector: (t: number, s: number) => Uint8Array | null,
+  entry: DiskFileEntry,
+): DiskFileSectorLink[] {
+  return walkFileSectorChain(getSector, entry).links;
 }

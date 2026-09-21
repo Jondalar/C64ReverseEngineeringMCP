@@ -125,8 +125,15 @@ try {
   check(/end|address/i.test(imported.skippedRows[0]?.reason ?? ""), `…with the reason: ${imported.skippedRows[0]?.reason}`);
 
   const entities = service.listEntities();
-  const loader = entities.find((e) => e.name === "loader");
-  const record = entities.find((e) => e.name === "t202");
+  // BUG-060 defect 2: a disk file is named after the FILE it was extracted into, so the
+  // payload and the disassembly of that file stand under one owner stem. The CBM
+  // directory name stays reachable as an alias, which is how these two are found here.
+  const byCbmName = (cbm) => entities.find((e) => e.name === cbm || (e.aliases ?? []).includes(cbm));
+  const loader = byCbmName("loader");
+  const record = byCbmName("t202");
+  check(loader?.name === "01_loader", `the row is named after its extracted file: ${loader?.name}`);
+  check((loader?.aliases ?? []).includes("loader"), `…and the CBM directory name is kept as an alias: ${(loader?.aliases ?? []).join(",")}`);
+  check((loader?.summary ?? "").includes('CBM directory name "loader"'), `…and stated in the summary: ${loader?.summary}`);
   check(loader?.payloadLoadAddress === 0x0801, "the real PRG keeps $0801 through the import");
   check(loader?.payloadFormat === "prg", "…and stays format prg");
   check(record !== undefined, "the record file is still imported — it is a file, it just has no load address");

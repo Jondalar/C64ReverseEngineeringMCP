@@ -39,6 +39,11 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // unimported, or views are stale. Wraps the internal maintenance helpers so
   // the LLM never has to call them directly.
   "project_inventory_sync",
+  // BUG-060 defect 1 — the inverse of registering. The sync tells a caller what
+  // registering a tool's bulk costs and names this door as the way back; a tool that
+  // is not in this set is HIDDEN, so naming it from the default surface while it lives
+  // on the advanced one would be the dead end this file warns about two blocks down.
+  "unregister_files",
   // Spec 730.4 — the step orchestrator. agent_next_step returns the single
   // MCP-chosen next product step (+ branches) from real project state;
   // agent_run_step runs the inventory/media-sync step in-process and points at

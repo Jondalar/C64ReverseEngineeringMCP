@@ -70,3 +70,60 @@ export function missingRequiredText(opts: {
   lines.push("", "Nothing was written.");
   return lines.join("\n");
 }
+
+/**
+ * The refusal a caller gets when a CAPPED field arrives over its cap.
+ *
+ * Held to the same standard as `missingRequiredText` above, for the same reason. A
+ * `.max(n)` in the tool's schema cannot reach that standard: it fires in the SDK
+ * before the handler runs, so the answer is the validation dump
+ *
+ *     Invalid arguments ... title: String must contain at most 120 character(s)
+ *
+ * and it arrives AFTER the whole call has been composed — which, on a door whose
+ * other argument is a multi-paragraph answer, is the expensive moment to find out.
+ * The dump names neither the overage, nor that the long field beside it is kept
+ * whole, nor that omitting the capped one produces a usable value by itself. All
+ * three are things the caller would act on, and all three are known here.
+ *
+ * So the cap comes out of the schema and is checked in the handler, exactly as the
+ * required fields above are. The schema loses one `maxLength`; the description says
+ * the number in words, and the refusal gains a remedy.
+ */
+export function capExceededText(opts: {
+  tool: string;
+  field: string;
+  limit: number;
+  value: string;
+  /** What the field is FOR — why this one is the capped one. */
+  role: string;
+  /** What the door would use for `field` if it were left out. */
+  suggestion: string;
+  /** The uncapped field beside it, and where its full text goes. */
+  uncapped?: { name: string; where: string };
+}): string {
+  const over = opts.value.length - opts.limit;
+  const lines: string[] = [
+    `# ${opts.tool} refused — \`${opts.field}\` is ${opts.value.length} characters and the cap is ${opts.limit}.`,
+    "",
+    opts.role,
+  ];
+  if (opts.uncapped) {
+    lines.push(
+      "",
+      `\`${opts.uncapped.name}\` is NOT capped — ${opts.uncapped.where}, however long it runs. `
+      + `Nothing about this cap asks you to shorten what you established.`,
+    );
+  }
+  lines.push(
+    "",
+    "Three ways past it, and none of them needs the call composed again:",
+    `  • leave \`${opts.field}\` out — the door writes one by itself;`,
+    `  • or send this one, which is what leaving it out of THIS call would have produced:`,
+    `      "${opts.suggestion}"`,
+    `  • or write your own at ${opts.limit} characters or fewer — you are ${over} over.`,
+    "",
+    "Nothing was written.",
+  );
+  return lines.join("\n");
+}

@@ -13,19 +13,45 @@ import type { ModelEdge, ModelMembership, ModelNode, ModelReport, Orphan } from 
 import { MEMBER_KINDS } from "./types.js";
 import { listBoundaries } from "./store.js";
 
-/** Innermost wins: a component inside a container claims its members. */
+/** Does this boundary's range hold that address, under its space/owner rule? */
+function holds(b: ModelNode, space: string, owner: string | null, address: number): boolean {
+  if (b.space !== space) return false;
+  // A boundary that names an owner binds only that owner's nodes; one that does not
+  // spans the space. That is how "the loader" (one file) and "low RAM" (whatever is
+  // there) can both be expressed without a second mechanism.
+  if (b.owner !== null && b.owner !== owner) return false;
+  return address >= b.start && address <= b.end;
+}
+
+/** Every boundary that contains the address — the membership a reader means by "contains". */
+function containing(boundaries: ModelNode[], space: string, owner: string | null, address: number): ModelNode[] {
+  return boundaries.filter((b) => holds(b, space, owner, address));
+}
+
+/** Innermost wins: a component inside a container claims its members. Used for `direct` and for D4. */
 function pick(boundaries: ModelNode[], space: string, owner: string | null, address: number): ModelNode | undefined {
   let best: ModelNode | undefined;
   for (const b of boundaries) {
-    if (b.space !== space) continue;
-    // A boundary that names an owner binds only that owner's nodes; one that does not
-    // spans the space. That is how "the loader" (one file) and "low RAM" (whatever is
-    // there) can both be expressed without a second mechanism.
-    if (b.owner !== null && b.owner !== owner) continue;
-    if (address < b.start || address > b.end) continue;
+    if (!holds(b, space, owner, address)) continue;
     if (!best || (b.end - b.start) < (best.end - best.start)) best = b;
   }
   return best;
+}
+
+/**
+ * The boundaries strictly inside `outer`.
+ *
+ * STRICTLY: two boundaries over the identical range are not nested, they are the
+ * overlap the critic already reports, and treating them as nested would make each
+ * one the other's child.
+ */
+function nestedIn(outer: ModelNode, boundaries: ModelNode[]): ModelNode[] {
+  return boundaries.filter((b) =>
+    b.id !== outer.id
+    && b.space === outer.space
+    && (outer.owner === null || outer.owner === b.owner)
+    && b.start >= outer.start && b.end <= outer.end
+    && (b.end - b.start) < (outer.end - outer.start));
 }
 
 export async function modelReport(projectDir: string): Promise<ModelReport> {
@@ -42,18 +68,31 @@ export async function modelReport(projectDir: string): Promise<ModelReport> {
       `SELECT id, kind, name, space, owner, address FROM nodes WHERE kind IN (${placeholders}) GROUP BY id`,
     ).all(...MEMBER_KINDS) as Array<{ id: string; kind: string; name: string | null; space: string; owner: string | null; address: number }>;
 
-    const owning = new Map<string, string>(); // fine node id -> container id
+    const owning = new Map<string, string>(); // fine node id -> INNERMOST container id (D4 rolls edges up by this)
     const membership = new Map<string, ModelMembership>();
-    for (const b of boundaries) membership.set(b.id, { containerId: b.id, members: 0, byKind: {} });
+    for (const b of boundaries) {
+      membership.set(b.id, {
+        containerId: b.id, members: 0, byKind: {}, direct: 0, directByKind: {},
+        nested: nestedIn(b, boundaries).map((x) => x.id),
+      });
+    }
     const orphans: Orphan[] = [];
 
     for (const n of fine) {
-      const b = pick(boundaries, n.space, n.owner, n.address);
-      if (!b) { orphans.push({ id: n.id, kind: n.kind, name: n.name, address: n.address }); continue; }
-      owning.set(n.id, b.id);
-      const m = membership.get(b.id)!;
-      m.members++;
-      m.byKind[n.kind] = (m.byKind[n.kind] ?? 0) + 1;
+      // Membership counts every boundary the node falls inside, not only the innermost:
+      // a system boundary whose content is the containers nested in it contains them.
+      const inside = containing(boundaries, n.space, n.owner, n.address);
+      if (inside.length === 0) { orphans.push({ id: n.id, kind: n.kind, name: n.name, address: n.address }); continue; }
+      for (const b of inside) {
+        const m = membership.get(b.id)!;
+        m.members++;
+        m.byKind[n.kind] = (m.byKind[n.kind] ?? 0) + 1;
+      }
+      const innermost = pick(boundaries, n.space, n.owner, n.address)!;
+      owning.set(n.id, innermost.id);
+      const d = membership.get(innermost.id)!;
+      d.direct++;
+      d.directByKind[n.kind] = (d.directByKind[n.kind] ?? 0) + 1;
     }
 
     // D4 — roll the fine edges up. Only edges whose BOTH ends are placed can cross a
@@ -102,6 +141,7 @@ export function formatModel(r: ModelReport): string {
     const m = mem.get(n.id);
     const kinds = m && m.members > 0
       ? Object.entries(m.byKind).map(([k, v]) => `${v} ${k}`).join(", ")
+        + (m.direct < m.members ? `; ${m.direct} directly, the rest in ${m.nested.length} nested` : "")
       : "empty";
     lines.push(`${n.level.padEnd(10)} ${n.name}  $${hex(n.start)}-$${hex(n.end)}  [${kinds}]`);
     if (n.description) lines.push(`           ${n.description}`);
@@ -123,6 +163,27 @@ export function formatModel(r: ModelReport): string {
 }
 
 function hex(n: number): string { return (n & 0xffff).toString(16).padStart(4, "0"); }
+
+/**
+ * The one sentence `model_assert` answers a fresh boundary with — here rather
+ * than in the tool, because it is the sentence that was wrong: a boundary whose
+ * content is the containers nested inside it was told "nothing yet — no analysed
+ * nodes fall in this range", which sent the asserter looking for a bug in the
+ * analysis. It says WHERE the nodes are, so nesting reads as nesting.
+ */
+export function describeContains(report: ModelReport, containerId: string): string {
+  const m = report.membership.find((x) => x.containerId === containerId);
+  if (!m || m.members === 0) return "nothing yet — no analysed nodes fall in this range";
+  const kinds = Object.entries(m.byKind).sort().map(([k, v]) => `${v} ${k}`).join(", ");
+  if (m.direct === m.members) return kinds;
+  const names = m.nested
+    .map((id) => report.nodes.find((n) => n.id === id)?.name ?? id)
+    .slice(0, 4);
+  const via = `${m.nested.length} nested boundar${m.nested.length === 1 ? "y" : "ies"} (${names.join(", ")}${m.nested.length > names.length ? ", …" : ""})`;
+  return m.direct === 0
+    ? `${kinds} — all of them in ${via}`
+    : `${kinds} — ${m.direct} directly, the rest in ${via}`;
+}
 
 /**
  * What else lies in a range, per address space — the answer a boundary that
