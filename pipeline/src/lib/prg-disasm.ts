@@ -16,7 +16,7 @@ import {
   SplitPointerTableFact,
   TableUsageFact,
 } from "../analysis/types";
-import { AnnotationsFile, AnnotationsIndex, buildAnnotationsIndex, loadAnnotations, parseHex } from "./annotations";
+import { AnnotationsFile, AnnotationsIndex, assertNoDuplicateSegmentStarts, buildAnnotationsIndex, loadAnnotations, parseHex } from "./annotations";
 import { parseAddress } from "./address-rule";
 import { buildEffectiveSegments, type AnnotationSegmentOverlay } from "./effective-segments";
 import { convertKickAsmToTass } from "./tass-converter";
@@ -3697,6 +3697,14 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   const resolvedAnnotationsFile = annotationsFile
     ? resolveAnnotationSpaces(annotationsFile, options.relocations, prg)
     : undefined;
+  // BUG-060 defect 2 — and again AFTER the spaces are resolved. `loadAnnotations`
+  // refuses two entries that share a start as written; a relocation can map two
+  // entries written at different addresses onto one file address, which is the
+  // same contradiction arriving by a different road, and the graph is keyed on
+  // the resolved address.
+  if (resolvedAnnotationsFile && usedAnnotationsPath) {
+    assertNoDuplicateSegmentStarts(resolvedAnnotationsFile, usedAnnotationsPath);
+  }
   const annotationsIndex = resolvedAnnotationsFile ? buildAnnotationsIndex(resolvedAnnotationsFile) : undefined;
   if (annotationsIndex && analysisContext) {
     analysisContext.annotations = annotationsIndex;

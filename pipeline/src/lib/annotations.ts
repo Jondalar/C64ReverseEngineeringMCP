@@ -401,11 +401,83 @@ function normalizeAnnotationsFile(raw: unknown): AnnotationsFile {
   };
 }
 
+/**
+ * The annotations file contradicts itself and nothing was rendered.
+ *
+ * Its own class so the CLI can tell it apart from a crash: a refusal is an
+ * answer and is printed as one, where the caller is looking, without a Node
+ * stack trace in front of it.
+ */
+export class AnnotationsFileRefusal extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AnnotationsFileRefusal";
+  }
+}
+
+/** One segment entry as the file wrote it, for a message a human can go and fix. */
+function describeSegment(seg: SegmentAnnotation): string {
+  const range = `$${String(seg.start ?? "").replace(/^\$/, "").toUpperCase()}-$${String(seg.end ?? "").replace(/^\$/, "").toUpperCase()}`;
+  return `${range}  ${seg.kind ?? "unknown"}${seg.label ? `  "${seg.label}"` : ""}`;
+}
+
+/**
+ * BUG-060 defect 2 — two `segments` entries may not share a start address.
+ *
+ * A segment START is the id everything downstream is keyed on: the renderer's
+ * `segmentsByStart`, and the knowledge graph's `segment:<hex4>`. Two entries on
+ * one start are therefore not a harmless repeat but a contradiction, and until
+ * now nothing looked at it. `segmentsByStart` silently kept the LAST entry while
+ * `segmentAnnotations` kept BOTH, so the listing was overlaid with two claims
+ * about one range — and the graph importer got as far as writing rows before its
+ * ledger threw `migration_log: …/segment:43a8 logged twice` and rolled the whole
+ * import back. The listing still rebuilt byte-identical, so the only sign that
+ * the graph had got nothing was that one line, under a green verdict.
+ *
+ * So the file is refused HERE, before a byte is rendered, with the offending
+ * pair named — the same shape the name-length rule already refuses in.
+ *
+ * OVERLAP is not this. Two ranges that overlap at distinct starts are legal and
+ * useful (Spec 055 reshapes across analysis boundaries); only the shared start
+ * is ambiguous, and only it is refused.
+ */
+export function assertNoDuplicateSegmentStarts(file: AnnotationsFile, path: string): void {
+  const byStart = new Map<number, SegmentAnnotation[]>();
+  for (const seg of file.segments ?? []) {
+    const start = parseHex(seg.start);
+    if (Number.isNaN(start)) continue; // a mistyped range is a tolerant skip, reported by the indexer
+    const bucket = byStart.get(start);
+    if (bucket) bucket.push(seg); else byStart.set(start, [seg]);
+  }
+  const clashes = [...byStart.entries()].filter(([, entries]) => entries.length > 1).sort((a, b) => a[0] - b[0]);
+  if (clashes.length === 0) return;
+
+  const lines = [`${path}`, ""];
+  for (const [start, entries] of clashes) {
+    lines.push(`${entries.length} segments declare the same start $${start.toString(16).toUpperCase().padStart(4, "0")}:`);
+    for (const seg of entries) lines.push(`  - ${describeSegment(seg)}`);
+  }
+  lines.push("");
+  lines.push(
+    "A segment start is the id the listing and the knowledge graph are both keyed on, so two entries on one "
+    + "start are a contradiction, not a repeat: the listing would be overlaid with both and the graph import "
+    + "would be rolled back whole. Give each range its own start, or merge them into one entry. Ranges that "
+    + "OVERLAP at different starts are fine and are not what this refuses.",
+  );
+  throw new AnnotationsFileRefusal(lines.join("\n"));
+}
+
 export function loadAnnotations(prgPath: string, explicitPath?: string): AnnotationsFile | undefined {
+  const read = (p: string): AnnotationsFile => {
+    const file = normalizeAnnotationsFile(JSON.parse(readFileSync(p, "utf8")));
+    assertNoDuplicateSegmentStarts(file, p);
+    return file;
+  };
+
   if (explicitPath) {
     const p = resolve(explicitPath);
     if (existsSync(p)) {
-      return normalizeAnnotationsFile(JSON.parse(readFileSync(p, "utf8")));
+      return read(p);
     }
   }
 
@@ -417,7 +489,7 @@ export function loadAnnotations(prgPath: string, explicitPath?: string): Annotat
 
   for (const candidate of candidates) {
     if (existsSync(candidate)) {
-      return normalizeAnnotationsFile(JSON.parse(readFileSync(candidate, "utf8")));
+      return read(candidate);
     }
   }
 

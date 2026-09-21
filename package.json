@@ -203,7 +203,8 @@
     "smoke:project-rules": "node scripts/smoke-project-rules.mjs",
     "e2e:849-rules": "node scripts/e2e-849-rules.mjs",
     "e2e:849-standing": "node scripts/e2e-849-standing.mjs",
-    "e2e:bug060-code-tail": "npm run build && node scripts/e2e-bug060-code-tail.mjs"
+    "e2e:bug060-code-tail": "npm run build && node scripts/e2e-bug060-code-tail.mjs",
+    "e2e:bug060-dup-segment": "npm run build && node scripts/e2e-bug060-duplicate-segment.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

@@ -941,6 +941,66 @@ function annotationMeta(db: DatabaseSync, stem: string): { hash: string } | unde
 }
 
 /**
+ * BUG-060 defect 2 — no two `segments` entries may land on one address.
+ *
+ * The graph keys a segment row on its START (`segment:<hex4>`), so two entries
+ * that resolve to the same address mint one id twice: the ledger threw
+ * `migration_log: annotations:<stem>/segment:43a8 logged twice` after rows had
+ * already been written, and the whole import was rolled back. The renderer had
+ * meanwhile produced a listing that rebuilt byte-identical, so the only sign
+ * that the graph held nothing was that one line under a green verdict.
+ *
+ * The contradiction lives in the FILE, so it is named before anything is
+ * written, with both entries as the file wrote them. Ranges that merely OVERLAP
+ * at different starts are legal (Spec 055 reshapes across boundaries) and are
+ * not what this refuses.
+ *
+ * This is the ESM mirror of `assertNoDuplicateSegmentStarts` in
+ * `pipeline/src/lib/annotations.ts` — `src/` is ESM and `pipeline/src/` is
+ * CommonJS and the two cannot import each other, the same reason
+ * `src/cost/cycles.ts` and `src/knowledge-graph/windows.ts` carry their twins.
+ * The rule and the message are the same on both sides; the address this one
+ * checks is the RESOLVED one, because that is the id the graph uses.
+ */
+function assertNoDuplicateSegmentStarts(
+  segments: unknown[] | undefined,
+  sourcePath: string,
+  relocations: GraphRelocation[] | undefined,
+): void {
+  const byAddress = new Map<number, Array<Record<string, unknown>>>();
+  for (const raw of (segments ?? []) as Array<Record<string, unknown>>) {
+    const start = parseHex(raw?.start);
+    const end = parseHex(raw?.end);
+    if (start === undefined || end === undefined || end < start) continue; // dropped below, and counted there
+    const address = resolveAnnotationAddresses(start, end, typeof raw.space === "string" ? raw.space : undefined, relocations).address;
+    const bucket = byAddress.get(address);
+    if (bucket) bucket.push(raw); else byAddress.set(address, [raw]);
+  }
+  const clashes = [...byAddress.entries()].filter(([, entries]) => entries.length > 1).sort((a, b) => a[0] - b[0]);
+  if (clashes.length === 0) return;
+
+  const describe = (raw: Record<string, unknown>): string => {
+    const at = (v: unknown) => `$${String(v ?? "").replace(/^\$/, "").toUpperCase()}`;
+    const kind = typeof raw.kind === "string" ? raw.kind : "unknown";
+    const label = typeof raw.label === "string" && raw.label.trim() ? `  "${raw.label.trim()}"` : "";
+    return `${at(raw.start)}-${at(raw.end)}  ${kind}${label}`;
+  };
+  const lines = [sourcePath, ""];
+  for (const [address, entries] of clashes) {
+    lines.push(`${entries.length} segments declare the same start $${hex4U(address)}:`);
+    for (const raw of entries) lines.push(`  - ${describe(raw)}`);
+  }
+  lines.push("");
+  lines.push(
+    "A segment start is the id the listing and the knowledge graph are both keyed on, so two entries on one "
+    + "start are a contradiction, not a repeat: the listing would be overlaid with both and the graph import "
+    + "would be rolled back whole. Give each range its own start, or merge them into one entry. Ranges that "
+    + "OVERLAP at different starts are fine and are not what this refuses.",
+  );
+  throw new Error(lines.join("\n"));
+}
+
+/**
  * One annotation file into the human layer. Idempotent by the ledger while the
  * file is unchanged; when its hash differs from the last import, the rows the
  * FILE produced (producer '822', source_path = this file) are replaced — a row
@@ -979,6 +1039,11 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
     ctx.summary.files.push(fs);
     return fs;
   }
+  // BUG-060 defect 2 — before a single row is drafted. Two `segments` entries that
+  // land on one address produce `segment:<hex4>` twice, and the ledger threw
+  // `migration_log: …/segment:43a8 logged twice` half-way through the import, which
+  // rolled the whole thing back. The contradiction is in the FILE; it is named here.
+  assertNoDuplicateSegmentStarts(parsed.segments, rel, relocations);
   const fs: AnnotationFileResult = { stem, owner, path: rel, routines: 0, labels: 0, segments: 0, dropped: 0, changed, ...noBoundary };
   const fileNodeDrafts = new Map<string, NodeDraft>();
   const fileAnnotations = new Map<string, AnnotationRow>();

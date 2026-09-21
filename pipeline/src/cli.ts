@@ -10,6 +10,7 @@ import { renderPointerTableMarkdown } from "./analysis/pointer-tables";
 import { renderRamStateMarkdown } from "./analysis/ram-state";
 import { analyzeSampleBuffer } from "./analysis/sample";
 import { consumeRegisterFlags, registerCliArtifact } from "./lib/artifact-register";
+import { AnnotationsFileRefusal } from "./lib/annotations";
 import { ADDRESS_RULE, parseAddress, parseAddressList, parseCount, looksLikeAddressList } from "./lib/address-rule";
 
 // Spec 741: parse a relocation map JSON.
@@ -638,4 +639,17 @@ function main(): void {
   usage();
 }
 
-main();
+// A refusal is an ANSWER, not a crash: the file said two contradictory things
+// and nothing was rendered. It is printed as one line of prose and its detail,
+// with no Node stack in front of it — the caller reads this text in the tool's
+// output, and a stack trace there is noise between them and the fix. Every
+// other error keeps the default behaviour, stack and all.
+try {
+  main();
+} catch (error) {
+  if (error instanceof AnnotationsFileRefusal) {
+    process.stderr.write(`REFUSED — the annotations file contradicts itself. Nothing was rendered and nothing was imported.\n\n${error.message}\n`);
+    process.exit(1);
+  }
+  throw error;
+}

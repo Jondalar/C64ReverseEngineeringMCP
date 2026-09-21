@@ -426,3 +426,13 @@ jobs:
       # byte-identity half needs KickAssembler and skips loudly without it.
       - name: A code segment that ends mid-instruction (BUG-060)
         run: npm run e2e:bug060-code-tail
+
+      # …and from the same run: two annotation segments on one start address.
+      # The graph keys a segment row on its start, so the second minted the same
+      # id and the ledger threw half-way through — after a listing had already
+      # been written that rebuilt byte-identical, which is why one buried line
+      # was the only sign the graph had got nothing. Hermetic: a temp project,
+      # synthetic bytes, one MCP session over stdio. No ROMs, no media, no
+      # assembler, no daemon.
+      - name: Two annotation segments on one start (BUG-060)
+        run: npm run e2e:bug060-dup-segment
