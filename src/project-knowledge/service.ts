@@ -4359,6 +4359,49 @@ export class ProjectKnowledgeService {
     };
   }
 
+  /**
+   * BUG-060 defect 2 — give every manifest row that has a blob on disk its blob.
+   *
+   * A stock-DOS row is named after the file it was extracted into (`03_p`, not the
+   * CBM `p`), and the file it names has to be the artifact it stands on, not the
+   * manifest. `linkExtractedPayloadFiles` (Spec 752 L2) did that AFTER the import by
+   * matching bytes back to rows by content hash — which two byte-identical files on
+   * one disk can get wrong. Here the row simply carries the path it was written from,
+   * so no matching is needed and the row is a real, analysable payload from the first
+   * save. The Spec 752 door stays as the catch-up path for rows imported before this.
+   *
+   * Stripping `blobPath` is deliberate: it is transport between the manifest reader
+   * and this method, never a persisted field.
+   */
+  private linkManifestBlobs<T extends { artifactIds: string[]; payloadSourceArtifactId?: string; blobPath?: string }>(
+    entities: T[],
+  ): Array<Omit<T, "blobPath">> {
+    return entities.map((entity) => {
+      const { blobPath, ...row } = entity;
+      if (!blobPath || !existsSync(blobPath)) return row as Omit<T, "blobPath">;
+      try {
+        const blob = this.saveArtifact({
+          kind: /\.prg$/i.test(blobPath) ? "prg" : "extract",
+          scope: "analysis",
+          title: basename(blobPath),
+          path: blobPath,
+          role: "source-prg",
+          platform: "c64",
+          internal: false,
+        });
+        return {
+          ...row,
+          payloadSourceArtifactId: blob.id,
+          artifactIds: uniqueStrings([blob.id, ...row.artifactIds]),
+        } as Omit<T, "blobPath">;
+      } catch {
+        // The blob could not be registered — the row still imports, pointing at the
+        // manifest as it always did. Soft, like every other step of this import.
+        return row as Omit<T, "blobPath">;
+      }
+    });
+  }
+
   importManifestArtifact(artifactId: string): ManifestImportResult {
     const artifact = this.getArtifactById(artifactId);
     if (!artifact) {
@@ -4376,7 +4419,8 @@ export class ProjectKnowledgeService {
     }
     // Spec 822.2 — generated / imported layer through the graph importer (D2 purge by artifact).
     const now = nowIso();
-    this.records.importGenerated(importDraftsToRecords({ entities: imported.entities, findings: imported.findings, relations: imported.relations, openQuestions: [] }, now), { artifactId });
+    const entities = this.linkManifestBlobs(imported.entities);
+    this.records.importGenerated(importDraftsToRecords({ entities, findings: imported.findings, relations: imported.relations, openQuestions: [] }, now), { artifactId });
     // Spec 784 (GAP 2): create the LoaderModel record(s) the imported payloads reference
     // via payloadLoaderModelId, so a disk extraction's DOS files show under
     // list_loader_models with kernal-directory provenance (idempotent by id).
