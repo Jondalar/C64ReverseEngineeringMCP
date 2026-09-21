@@ -11,6 +11,7 @@ import { validateManifest, mediumDerivationForKind, chainCoverageWarning } from 
 import { registerManifestPayloads } from "./manifest-register.js";
 import { findPayloadEntity, listPayloadEntities } from "../project-knowledge/payload-kinds.js";
 import { derivePayloadWindow, formatWindow } from "../project-knowledge/payload-window.js";
+import { ownerOfEntityId } from "../symbols/window-residency.js";
 
 const PAYLOAD_FORMATS = [
   "raw", "prg",
@@ -554,19 +555,44 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
 
   server.tool(
     "list_payloads",
-    "List every payload entity in the project (extracted/loadable byte-blobs). Use to see payloads and their disassembly coverage. Not for files/artifacts on disk (use list_artifacts). Inputs: none. Returns: name, load address, format, source artifact, ASM count per payload.",
+    "List every payload entity in the project (extracted/loadable byte-blobs), each with the WINDOW it occupies while it is loaded. Use to see payloads and their disassembly coverage, and — with `address` — to ask who claims one address: on a machine built out of overlays several payloads share a window, so the answer is the claimants, plus which of them the load call in the code says is there. Not for files/artifacts on disk (use list_artifacts) and not for the nodes at an address (use graph_find). Inputs: optional address, format, limit. Returns: name, load address, window, format, source artifact, ASM count per payload.",
     {
       project_dir: z.string().optional(),
       format: z.enum(PAYLOAD_FORMATS).optional().describe("Filter by format."),
+      address: z.string().optional().describe("A hex address ($7400 / 7400). Answers who claims it: the payloads whose WINDOW covers that address, and — where the project can say — which of them is in the window, decided by the load call that puts it there. On a machine built out of overlays this question has no single answer, and the list is the answer."),
       limit: z.number().int().positive().max(500).optional(),
     },
     safeHandler("list_payloads", async (args) => {
       const projectRoot = ctx.projectDir(args.project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
       const all = listPayloadEntities(service);
-      const filtered = args.format ? all.filter((p) => p.payloadFormat === args.format) : all;
+      // Spec 867 D2/D3 — an address names its claimants, and the reading decides
+      // between them where it can. No capture here: this door does not touch the
+      // machine, so the bytes are never consulted and never pretended to be.
+      let context: string[] = [];
+      let claimOwners: Set<string> | undefined;
+      if (args.address !== undefined) {
+        const address = parseInt(args.address.replace(/^\$/u, ""), 16);
+        if (!Number.isInteger(address) || address < 0 || address > 0xffff) throw new Error(`address "${args.address}" is not a 16-bit hex address`);
+        const { Graph } = await import("../knowledge-graph/query.js");
+        const { windowResidency, mediaFromEntities, formatWindowResidency } = await import("../symbols/window-residency.js");
+        const graph = Graph.open(projectRoot);
+        try {
+          const r = await windowResidency({
+            projectDir: projectRoot, store: graph.store, address,
+            media: mediaFromEntities(service.listEntities().filter((e) => e.kind === "payload" || e.payloadLoadAddress !== undefined)),
+          });
+          context = formatWindowResidency(r);
+          claimOwners = new Set(r.claimants);
+        } finally { graph.close(); }
+      }
+      const byAddress = claimOwners
+        ? all.filter((p) => { const o = ownerOfEntityId(p.id); return o !== undefined && claimOwners!.has(o); })
+        : all;
+      const filtered = args.format ? byAddress.filter((p) => p.payloadFormat === args.format) : byAddress;
       const slice = filtered.slice(0, args.limit ?? 100);
       const lines: string[] = [];
+      if (context.length) { lines.push(...context); lines.push(``); }
       lines.push(`Payloads: ${filtered.length}${filtered.length !== all.length ? ` (of ${all.length})` : ""}`);
       lines.push(``);
       for (const p of slice) {
