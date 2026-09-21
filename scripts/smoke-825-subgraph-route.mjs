@@ -67,7 +67,12 @@ try {
   check(await waitTcp(PORT), `workspace HTTP up on :${PORT}`);
 
   const empty = await get(`/api/graph/subgraph?${pd}`);
-  check(empty.status === 404 && Array.isArray(empty.body?.next) && empty.body.next.includes("analyze_prg"), "no graph yet → 404 with next[] naming the product step");
+  // Spec 866 collapsed the four doors into `disasm` / `analyze`, and the old names are
+  // aliases that deliberately appear in no playbook — so what a next-step hint OFFERS
+  // is the surviving name. This line asserted `analyze_prg` and went red the day 866
+  // merged; the route was right and the check was stale.
+  check(empty.status === 404 && Array.isArray(empty.body?.next) && empty.body.next.includes("analyze"),
+    "no graph yet → 404 with next[] naming the product step", JSON.stringify(empty.body?.next));
 
   // two owners, so `owner:` is a partition and not a rename of `all`
   analyzeAndSeed("fixture", 0x1000, [[0x00, [0x20, 0x20, 0x10, 0xad, 0x11, 0xd0, 0x8d, 0x11, 0xd0, 0x20, 0xd2, 0xff, 0x60]], [0x20, [0x60]]]);
