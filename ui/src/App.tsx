@@ -3284,7 +3284,7 @@ function ScrubPanel({
                 <strong style={{ fontSize: "12px" }}>Save as segment</strong>
                 <p style={{ fontSize: "11px", color: "#9aa4b2", margin: 0 }}>
                   Persists the current window into <code>{selectedArtifact?.relativePath.replace(/\.[^.]+$/, "")}_annotations.json</code> as a kind=
-                  <code>{kind === "bitmap" ? (multicolor ? "multicolor_bitmap" : "hires_bitmap") : kind}</code> segment. Picked up by the next <code>disasm_prg</code> run.
+                  <code>{kind === "bitmap" ? (multicolor ? "multicolor_bitmap" : "hires_bitmap") : kind}</code> segment. Picked up by the next <code>disasm</code> run.
                 </p>
                 <label style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px" }}>
                   Label (optional):
@@ -5229,7 +5229,7 @@ export function App() {
     // visibleArtifacts = latest per lineage (Bug 24), or every version when the header toggle is on
     const pool = visibleArtifacts.filter((a) => /\.(asm|tass|tas)$/i.test(a.relativePath));
     const candidates = pool.filter((a) => subjectStemForArtifactPath(a.relativePath).toLowerCase() === stem);
-    if (candidates.length === 0) return { reason: `no ASM for owner "${owner}" — run disasm_prg on ${owner}` };
+    if (candidates.length === 0) return { reason: `no ASM for owner "${owner}" — run disasm on ${owner}` };
     const best = bestAsmSourcesForArtifacts(candidates, snapshot.artifactVersionGroups ?? []);
     const generated = candidates.filter((a) => /_disasm\.asm$/i.test(a.relativePath)).map(asmSourceForArtifact);
     const seen = new Set<string>();

@@ -417,9 +417,12 @@ if (!existsSync(mcpCli)) {
 //     over a listing that had just applied them.
 {
   const wrapper = readFileSync(join(ROOT, "src/server-tools/analysis-workflow.ts"), "utf8");
-  check(/annotationCandidates/.test(wrapper), "the wrapper resolves annotations through a candidate list, not one guess");
-  check(/prgAbs\.replace\(/.test(wrapper), "…including beside the PRG, which is where the renderer looks first");
-  check(/analysis_json \? \[resolve\(pd, analysis_json\)/.test(wrapper), "…and beside the analysis JSON");
+  // Spec 866 merged the two disassembly doors into one body, so the candidate list is
+  // a named function over the BYTES rather than a local over `prgAbs`: same list, same
+  // order, one copy instead of two.
+  check(/annotationCandidatesFor/.test(wrapper), "the wrapper resolves annotations through a candidate list, not one guess");
+  check(/sourceAbs\.replace\(/.test(wrapper), "…including beside the bytes, which is where the renderer looks first");
+  check(/analysisAbs \? \[analysisAbs\.replace\(/.test(wrapper), "…and beside the analysis JSON");
   check(!/const hasAnnotations = existsSync\(annotationsPath\)/.test(wrapper), "…and no longer decides from the ASM's neighbour alone");
 }
 

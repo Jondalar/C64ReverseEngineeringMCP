@@ -1,6 +1,6 @@
 # Annotations file reference (`<stem>_annotations.json`)
 
-The semantic annotation layer for a PRG. `disasm_prg` auto-applies a
+The semantic annotation layer for a listing. `disasm` auto-applies a
 `<stem>_annotations.json` sitting next to the PRG / output ASM / analysis JSON.
 Annotations are **non-destructive** — labels, comments, segment reclassifications and
 data-table hints only; the rebuilt bytes stay byte-identical.
@@ -9,7 +9,7 @@ data-table hints only; the rebuilt bytes stay byte-identical.
 rename. It never overwrites a manual file.
 
 **Names are at most 20 characters** in a project created since 2026-09-19: `project_init`
-stamps `naming.maxLabelLength: 20` into `knowledge/project.json`, and `disasm_prg` refuses
+stamps `naming.maxLabelLength: 20` into `knowledge/project.json`, and `disasm` refuses
 an annotations file with a longer label, routine or segment name before it renders anything.
 A project without the stamp is not checked. Twenty is also the width of the
 monitor's label column, so in such a project no name ever wraps there.
@@ -63,7 +63,7 @@ Hex may be written `0810` or `$0810` — the loader strips a leading `$`.
 ## Relocated code: which address did you write?
 
 A self-relocating loader is **stored** at one address and **runs** at another, so a byte
-in it has two addresses and both are real. When you pass `relocations` to `disasm_prg`,
+in it has two addresses and both are real. When you pass `relocations` to `disasm`,
 a `segments` entry may say which one it means:
 
 ```jsonc
@@ -90,7 +90,7 @@ boundary.
 
 Loading never crashes. A missing section is treated as empty. An individual entry with an
 unparseable / missing required field (a mistyped key is the usual cause) is **skipped**,
-and the rest still apply. `disasm_prg` reports it:
+and the rest still apply. `disasm` reports it:
 
 ```
 [annotations] applied 42, skipped 3:
@@ -104,7 +104,7 @@ is dropped, not applied.
 
 ## With and without an `analysis_json`
 
-`disasm_prg` renders either way, and the annotations apply either way — but not all
+`disasm` renders either way, and the annotations apply either way — but not all
 of them:
 
 | | names (`labels`, `routines`, a `segments` entry's `label`) | `segments` kind, `pointerTables`, `jumpTables`, `immediates` |
@@ -116,7 +116,7 @@ An annotated address **outside** the rendered file is named only on the analysis
 where the analyser records the reference; the legacy listing does not reference it and
 does not claim it.
 
-The listing's header line says which of these happened, and the `disasm_prg` output
+The listing's header line says which of these happened, and the `disasm` output
 quotes that line back as `Listing: …`:
 
 ```

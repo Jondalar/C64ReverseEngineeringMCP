@@ -60,7 +60,25 @@ export function loadPrg(prgPath: string): LoadedPrg {
   return { buffer, mapping };
 }
 
-export function loadRaw(rawPath: string, loadAddress: number): LoadedPrg {
+/**
+ * Bytes at an address, optionally a window of the file they sit in.
+ *
+ * The window is the same one the renderer takes (`readRawImage` in
+ * `lib/prg-disasm.ts`): a view of the bytes as they already lie there, nothing
+ * prepended and nothing rewritten. It exists here so the nine analysers can run over
+ * exactly the span a listing will be rendered over — an analysis of the whole file
+ * held against a 640-byte window out of it is the mismatch `analysisWindowMismatch`
+ * refuses, and before this the only way to avoid it was to carve the window into a
+ * file of its own.
+ *
+ * `fileOffset` stays 0 on purpose: it indexes the BUFFER (see `addressToOffset` in
+ * `analysis/utils.ts`), and the buffer is already the window.
+ */
+export function loadRaw(
+  rawPath: string,
+  loadAddress: number,
+  window?: { offset?: number; length?: number },
+): LoadedPrg {
   const file = readFileSync(rawPath);
   if (file.length === 0) {
     throw new Error(`Raw blob empty: ${rawPath}`);
@@ -68,7 +86,23 @@ export function loadRaw(rawPath: string, loadAddress: number): LoadedPrg {
   if (loadAddress < 0 || loadAddress > 0xffff) {
     throw new Error(`Invalid load address $${loadAddress.toString(16)} for raw blob ${rawPath}`);
   }
-  const buffer = Buffer.from(file);
+  const offset = window?.offset ?? 0;
+  const length = window?.length ?? file.length - offset;
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new Error(`offset ${offset} is not a byte offset into ${rawPath}.`);
+  }
+  if (offset >= file.length) {
+    throw new Error(`offset ${offset} is past the end of ${rawPath}, which holds ${file.length} bytes.`);
+  }
+  if (!Number.isInteger(length) || length <= 0) {
+    throw new Error(`length ${length} is not a byte count.`);
+  }
+  if (offset + length > file.length) {
+    throw new Error(
+      `offset ${offset} + length ${length} runs ${offset + length - file.length} bytes past the end of ${rawPath}, which holds ${file.length} bytes.`,
+    );
+  }
+  const buffer = Buffer.from(file.subarray(offset, offset + length));
   const mapping: MemoryMapping = {
     format: "prg",
     loadAddress,

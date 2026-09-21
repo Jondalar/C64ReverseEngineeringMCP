@@ -2129,7 +2129,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "list_open_questions",
-    "List saved open questions / ambiguities, with optional filters. Use to see what's still unresolved. Not for confirmed findings (use list_findings). By default hides heuristic analyze_prg validation prompts (set include_heuristic=true to see them). Inputs: optional filters. Returns: question records + a count of hidden heuristic questions.",
+    "List saved open questions / ambiguities, with optional filters. Use to see what's still unresolved. Not for confirmed findings (use list_findings). By default hides heuristic analyze validation prompts (set include_heuristic=true to see them). Inputs: optional filters. Returns: question records + a count of hidden heuristic questions.",
     {
       project_dir: z.string().optional(),
       status: z.string().optional(),

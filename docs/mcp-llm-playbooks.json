@@ -457,7 +457,7 @@
           "action": "Save findings + choose disasm candidates.",
           "tools": [
             "save_finding",
-            "disasm_prg",
+            "disasm",
             "agent_record_step"
           ],
           "persist": [
@@ -607,9 +607,9 @@
       "steps": [
         {
           "actor": "llm",
-          "action": "Heuristic analysis pass.",
+          "action": "Heuristic analysis pass. analyze reads bytes by the load address, not the file name — pass load_address for a depacked chunk, an overlay or drive code, leave it out for a file that carries a 2-byte header — so the nine analysers run on either.",
           "tools": [
-            "analyze_prg",
+            "analyze",
             "inspect_address_range",
             "basic_list",
             "basic_tokenize"
@@ -621,10 +621,9 @@
         },
         {
           "actor": "llm",
-          "action": "Disassemble + resolve ROM/symbol references. A file with a 2-byte load address is disasm_prg's; bytes at an address you already know — a depacked chunk, a relocated overlay, a block out of a track, drive code — are disasm_raw's, which invents no PRG header and registers the listing with the byte range it came from.",
+          "action": "Disassemble + resolve ROM/symbol references. One door: pass load_address and the bytes are raw and start there (a depacked chunk, a relocated overlay, a block out of a track, drive code — no PRG header is invented and the listing is registered with the byte range it came from); leave it out and the file must carry a 2-byte header, whose first two bytes are read as the address. Every answer opens with the reading it took.",
           "tools": [
-            "disasm_prg",
-            "disasm_raw",
+            "disasm",
             "disasm_menu",
             "c64ref_lookup"
           ],
@@ -634,10 +633,10 @@
         },
         {
           "actor": "llm",
-          "action": "Draft annotations; re-run disasm_prg with them (the file is a door into the knowledge graph); record what you concluded.",
+          "action": "Draft annotations; re-run disasm with them (the file is a door into the knowledge graph); record what you concluded.",
           "tools": [
             "propose_annotations",
-            "disasm_prg",
+            "disasm",
             "save_finding",
             "agent_record_step"
           ],
@@ -655,7 +654,7 @@
       ],
       "forbiddenShortcuts": [
         "Do not claim labels/branches are correct without later runtime evidence for non-trivial code.",
-        "Do not bolt a 2-byte load header onto a raw block to make disasm_prg accept it, and do not write your own disassembler: headerless bytes are disasm_raw's, which keeps the listing in the project with the byte range it came from."
+        "Do not bolt a 2-byte load header onto a raw block, and do not write your own disassembler or analyser: pass load_address to disasm/analyze and the bytes are read as they lie, with the listing kept in the project under the byte range it came from. A fake header is how a run over four G64 sides ended up with .prg copies of 1541 drive code."
       ]
     },
     {

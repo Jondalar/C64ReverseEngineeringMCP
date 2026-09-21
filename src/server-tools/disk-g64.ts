@@ -809,7 +809,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "export_menu",
-    "Export one binary per menu entry from an already-extracted, menu-driven cartridge: each entry's payload group is written whole and chunk by chunk, classified as code or data. Use after reconstruct_lut when the cart boots into a menu and you want the entries as separate files. Not for turning those binaries into assembly (use disasm_menu) and not for a single PRG (use analyze_prg). Inputs: analysis_dir, and a menu_payload_map.json naming the entries. Returns: the export manifest, one directory per menu entry, and the knowledge run they were registered under.",
+    "Export one binary per menu entry from an already-extracted, menu-driven cartridge: each entry's payload group is written whole and chunk by chunk, classified as code or data. Use after reconstruct_lut when the cart boots into a menu and you want the entries as separate files. Not for turning those binaries into assembly (use disasm_menu) and not for a single PRG (use analyze). Inputs: analysis_dir, and a menu_payload_map.json naming the entries. Returns: the export manifest, one directory per menu entry, and the knowledge run they were registered under.",
     {
       analysis_dir: z.string().optional().describe("Analysis directory (default: analysis)"),
     },
@@ -842,7 +842,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
 
   server.tool(
     "disasm_menu",
-    "Disassemble every payload in an extracted menu/multi-file container to KickAssembler sources at once. Use after extracting a menu disk/cart to get assembly for all entries. Not for a single PRG (use disasm_prg). Inputs: manifest / project dir. Returns: generated .asm paths.",
+    "Disassemble every payload in an extracted menu/multi-file container to KickAssembler sources at once. Use after extracting a menu disk/cart to get assembly for all entries. Not for a single PRG (use disasm). Inputs: manifest / project dir. Returns: generated .asm paths.",
     {
       analysis_dir: z.string().optional().describe("Analysis directory (default: analysis)"),
       output_dir: z.string().optional().describe("Output directory for ASM sources"),

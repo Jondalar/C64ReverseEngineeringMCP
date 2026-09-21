@@ -223,14 +223,35 @@ try {
       asm.split("\n").find((l) => /Analysis:/.test(l))?.trim());
     check(!/artifacts\/prg\/two_analysis\.json/.test(asm),
       "…and not the stem-matched one beside the PRG");
+    // Spec 866 §5 changed what happens when the named path is ABSENT. It used to be a
+    // refusal, because the only alternative was a stem guess beside the PRG. There is
+    // now a better answer: the project store knows which analysis is registered FOR
+    // THESE BYTES — which is the half of the defect that had `extract_disk` writing its
+    // analysis into a hashed payload directory while the render insisted on the path
+    // beside the PRG, and a session re-running the analyser for every extracted file.
+    // The swap BUG-055 killed is still killed: it is stated in the answer, by name.
     const missing = await call("disasm_prg", {
       prg_path: "artifacts/prg/two.prg",
       analysis_json: "analysis/depack/nope_analysis.json",
       output_asm: "analysis/depack/two_missing.asm",
     });
-    check(/disasm_prg refused/.test(missing) && /does not exist/.test(missing),
-      "an analysis named but absent is a refusal — never a silent swap for the sidecar",
-      missing.split("\n").filter(Boolean)[2]);
+    check(/^Analysis: .*does not exist, so the project store was asked/m.test(missing),
+      "an analysis named but absent is looked up in the store, not silently swapped for a stem guess",
+      missing.split("\n").find((l) => l.startsWith("Analysis:"))?.slice(0, 140));
+    check(/nope_analysis\.json/.test(missing),
+      "…and the answer names the path that was asked for");
+    check(/^Analysis: (two_analysis\.json|two_analysis_ep\.json) —/m.test(missing),
+      "…and names the file it actually used",
+      missing.split("\n").find((l) => l.startsWith("Analysis:"))?.slice(0, 80));
+    // Nothing registered and nothing beside the bytes: then it IS still a refusal.
+    writeFileSync(join(proj, "artifacts", "blocks", "orphan.bin"), Buffer.from(KNOWN_CODE));
+    const orphan = await call("disasm_raw", {
+      path: "artifacts/blocks/orphan.bin", load_address: "C000",
+      analysis_json: "analysis/depack/nope_analysis.json",
+    });
+    check(/disasm_raw refused/.test(orphan) && /does not exist/.test(orphan) && /nothing is registered/.test(orphan),
+      "a named analysis that exists nowhere, with nothing in the store either, is still a refusal",
+      orphan.split("\n").filter(Boolean)[2]?.slice(0, 140));
   }
 
   // ── 4 disasm_raw imports what it applied ──────────────────────────────────

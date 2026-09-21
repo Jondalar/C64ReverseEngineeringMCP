@@ -2,7 +2,7 @@
 //   - View graphics candidates + confirm/reject them (reclassify heuristic output).
 //   - Free-form "scrub": pick a PRG/CRT, scroll the offset, render any slice as
 //     sprite / charset / hires-bitmap / multicolor-bitmap, then SAVE the window
-//     as a graphics segment annotation (picked up by the next disasm_prg).
+//     as a graphics segment annotation (picked up by the next disasm).
 // Reuses the shared C64GraphicsView decoder (../components) + the existing HTTP
 // API (no second project logic, project path from the 724A resolver).
 import React, { useEffect, useState, useCallback } from "react";
@@ -86,7 +86,7 @@ export function AssetsTab(): React.JSX.Element {
         projectDir, prgPath: selectedPath, start: hexW(start), end: hexW(end),
         kind: segKind, label: label.trim() || undefined, comment: comment.trim() || undefined,
       });
-      setSaveStatus(`Saved → ${r.annotationsPath} (${r.totalSegments} segments). Picked up by the next disasm_prg.`);
+      setSaveStatus(`Saved → ${r.annotationsPath} (${r.totalSegments} segments). Picked up by the next disasm.`);
     } catch (e) { setSaveStatus(`Save failed: ${(e as Error).message}`); }
   }, [selected, selectedPath, offsetText, windowText, kind, multicolor, loadAddr, label, comment, projectDir]);
 

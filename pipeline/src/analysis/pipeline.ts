@@ -696,8 +696,12 @@ export function analyzePrgFile(prgPath: string, options: AnalysisOptions = {}): 
   return analyzeMappedBuffer(prgPath, loaded.buffer, loaded.mapping, options);
 }
 
-export function analyzeRawFile(rawPath: string, loadAddress: number, options: AnalysisOptions = {}): AnalysisReport {
-  const loaded = loadRaw(resolve(rawPath), loadAddress);
+export function analyzeRawFile(
+  rawPath: string,
+  loadAddress: number,
+  options: AnalysisOptions & { window?: { offset?: number; length?: number } } = {},
+): AnalysisReport {
+  const loaded = loadRaw(resolve(rawPath), loadAddress, options.window);
   return analyzeMappedBuffer(rawPath, loaded.buffer, loaded.mapping, options);
 }
 

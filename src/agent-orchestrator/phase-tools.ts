@@ -40,7 +40,7 @@ export const PHASE_TOOLS: Record<PhaseNumber, string[]> = {
     // loaded .prg and its drivecode tables must be disassembled + annotated to
     // understand the load chain — so analyze/disasm are first-class here, not
     // deferred to phase 3. (Doctrine: docs/agent-doctrine.md §0.7.)
-    "analyze_prg", "disasm_prg",
+    "analyze", "disasm", "analyze_prg", "disasm_prg",
     "analyze_g64_anomalies",
     "declare_loader_entrypoint", "list_loader_entrypoints",
     "record_loader_event", "list_loader_events",
@@ -66,7 +66,7 @@ export const PHASE_TOOLS: Record<PhaseNumber, string[]> = {
     "runtime_render_screen", "runtime_checkpoint_capture",
   ],
   3: [
-    "analyze_prg", "disasm_prg", "ram_report", "pointer_report",
+    "analyze", "disasm", "analyze_prg", "disasm_prg", "disasm_raw", "ram_report", "pointer_report",
     "import_analysis_report", "inspect_address_range",
     "c64ref_lookup", "c64ref_build_rom_knowledge",
     "run_prg_reverse_workflow", "run_payload_reverse_workflow",
@@ -83,7 +83,7 @@ export const PHASE_TOOLS: Record<PhaseNumber, string[]> = {
   5: [
     "save_finding", "save_entity", "save_relation",
     "link_entities", "link_cart_chunk_to_asm",
-    "disasm_prg", "assemble_source",
+    "disasm", "disasm_prg", "assemble_source",
     "snapshot_artifact_before_overwrite",
     "rename_artifact_version", "list_findings", "list_entities",
   ],
@@ -97,7 +97,7 @@ export const PHASE_TOOLS: Record<PhaseNumber, string[]> = {
     "render_docs",
   ],
   7: [
-    "save_finding", "disasm_prg", "assemble_source",
+    "save_finding", "disasm", "disasm_prg", "assemble_source",
     "render_docs", "save_patch_recipe", "apply_patch_recipe",
     "list_patch_recipes", "save_build_pipeline",
     "build_all_views", "build_project_dashboard",
@@ -184,7 +184,7 @@ export function buildWorkerPrompt(args: { phase: PhaseNumber; artifactId: string
       lines.push("- Every non-trivial segment in the listing has either a 1-line classification or an open-question id.");
       break;
     case 5:
-      lines.push("- Annotations file written; `disasm_prg` re-run with annotations; rebuild verified byte-identical.");
+      lines.push("- Annotations file written; `disasm` re-run with annotations; rebuild verified byte-identical.");
       lines.push("- ≥1 `save_finding` references the artifact.");
       break;
     case 6:

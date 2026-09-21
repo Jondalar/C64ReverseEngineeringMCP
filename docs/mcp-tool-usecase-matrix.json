@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 293,
-  "defaultCount": 183,
+  "total": 295,
+  "defaultCount": 185,
   "advancedCount": 110,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -200,6 +200,25 @@
       "pathMode": "no-path"
     },
     {
+      "name": "analyze",
+      "namespace": "analyze",
+      "sourceFile": "server-tools/analysis-workflow.ts",
+      "tier": "default",
+      "role": "static-analysis",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Run the 9-analyzer heuristic pass over bytes — headed or not — to find code/data/assets; pass load_address and they are raw and start there, leave it out and the file's first two bytes are read as one.",
+      "notFor": "Producing assembly text — use disasm.",
+      "adjacentTools": [
+        "disasm",
+        "inspect_address_range"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
+    },
+    {
       "name": "analyze_g64_anomalies",
       "namespace": "analyze",
       "sourceFile": "server-tools/disk-g64.ts",
@@ -225,11 +244,11 @@
       "tier": "default",
       "role": "static-analysis",
       "swimlane": "disassembly-improve",
-      "useWhen": "Run the 9-analyzer heuristic pass over a PRG to find code/data/assets.",
-      "notFor": "Producing assembly text — use disasm_prg.",
+      "useWhen": "The old name for analyze, kept for one release; it renders identically and says so in its answer.",
+      "notFor": "New work — use analyze, which takes headerless bytes too.",
       "adjacentTools": [
-        "disasm_prg",
-        "inspect_address_range"
+        "analyze",
+        "disasm"
       ],
       "e2eUseCases": [
         "E2E-C"
@@ -997,6 +1016,26 @@
       "useInstead": "runtime_session_start"
     },
     {
+      "name": "disasm",
+      "namespace": "disasm",
+      "sourceFile": "server-tools/analysis-workflow.ts",
+      "tier": "default",
+      "role": "disassembly",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Disassemble bytes to ASM with a rebuild proof; the load address decides how they are read, never the file name. Pass 2 consumes annotations and an analysis, which it finds by asking the project store when none is named.",
+      "notFor": "Heuristic-only scan — use analyze.",
+      "adjacentTools": [
+        "analyze",
+        "propose_annotations",
+        "runtime_resolve_pc"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
+    },
+    {
       "name": "disasm_menu",
       "namespace": "disasm",
       "sourceFile": "server-tools/disk-g64.ts",
@@ -1021,10 +1060,10 @@
       "tier": "default",
       "role": "disassembly",
       "swimlane": "disassembly-improve",
-      "useWhen": "Disassemble a PRG to ASM; pass 2 consumes executed-PC evidence + annotations.",
-      "notFor": "Heuristic-only scan — use analyze_prg.",
+      "useWhen": "The old name for disasm on a file that carries a 2-byte load header, kept for one release; it renders identically and says so in its answer.",
+      "notFor": "New work — use disasm, which takes either reading.",
       "adjacentTools": [
-        "analyze_prg",
+        "disasm",
         "propose_annotations",
         "runtime_resolve_pc"
       ],
@@ -1039,16 +1078,19 @@
       "namespace": "disasm",
       "sourceFile": "server-tools/analysis-workflow.ts",
       "tier": "default",
-      "role": "static-analysis",
+      "role": "disassembly",
       "swimlane": "disassembly-improve",
-      "useWhen": "General project analysis helper.",
-      "notFor": "Runtime work — use the runtime facade.",
-      "adjacentTools": [],
+      "useWhen": "The old name for disasm on bytes with no load header, kept for one release; it renders identically and says so in its answer.",
+      "notFor": "New work — use disasm with a load_address.",
+      "adjacentTools": [
+        "disasm",
+        "analyze"
+      ],
       "e2eUseCases": [
-        "E2E-A"
+        "E2E-C"
       ],
       "keepDecision": "keep-default",
-      "pathMode": "no-path"
+      "pathMode": "project-or-absolute-ok"
     },
     {
       "name": "disk_sector_allocation",

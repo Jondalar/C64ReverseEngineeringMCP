@@ -374,8 +374,13 @@ try {
     const raw = tools.find((t) => t.name === "disasm_raw");
     check(!!raw, "disasm_raw is on the default surface");
     check(/\bUse [a-z]/i.test(raw?.description ?? ""), "its description carries a Use-trigger");
-    check(/use disasm_prg/i.test(raw?.description ?? "") && /use runtime_monitor_disasm/i.test(raw?.description ?? ""),
-      "…and points at both alternatives: the PRG door and the live machine");
+    // Spec 866 folded the two readings into one door, so the PRG alternative is no
+    // longer a second tool: it is the SAME tool without a load address. The live
+    // machine is still its own door and is still named.
+    check(/use disasm without load_address/i.test(raw?.description ?? "") && /use runtime_monitor_disasm/i.test(raw?.description ?? ""),
+      "…and points at both alternatives: the same door without a load address, and the live machine");
+    check(/one release/i.test(raw?.description ?? ""),
+      "…and says it is an old name with one release left");
     check(!/\bSpec\s+\d/i.test(raw?.description ?? ""), "…and cites no spec number");
   }
 } catch (e) {

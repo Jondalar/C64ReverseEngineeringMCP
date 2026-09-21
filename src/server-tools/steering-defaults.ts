@@ -25,7 +25,7 @@ export const EXTRACT_FIRST_STEERING = `${EXTRACT_FIRST_TOKEN}
   \`_disasm.asm\` / \`_analysis.json\`). A trace \`runId+cycle\` or a heuristic is NOT
   grounding. An unbacked file/payload finding is tagged \`ungrounded\`.
 - **Extract ⇒ always disasm + analyse + VERIFY (L2).** Extraction is never raw:
-  \`extract_disk\` / \`extract_crt\` auto-run \`analyze_prg\` + \`disasm_prg\` on every
+  \`extract_disk\` / \`extract_crt\` auto-run \`analyze\` + \`disasm\` on every
   extracted PRG/payload, and assemble each listing back to check it is byte-identical
   with the bytes it describes. The summary says how many verified; a listing that
   DIVERGED is not a faithful rendering and must be read before anything is cited from

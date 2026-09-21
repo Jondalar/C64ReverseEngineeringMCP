@@ -1,5 +1,5 @@
 {
-  "total": 293,
+  "total": 295,
   "specCount": 41,
   "advancedCandidate": 110,
   "byNamespace": {
@@ -19,8 +19,9 @@
     "inspect": 5,
     "link": 5,
     "record": 5,
+    "disasm": 4,
     "suggest": 4,
-    "disasm": 3,
+    "analyze": 3,
     "doc": 3,
     "get": 3,
     "mark": 3,
@@ -29,7 +30,6 @@
     "run": 3,
     "scan": 3,
     "set": 3,
-    "analyze": 2,
     "auto": 2,
     "basic": 2,
     "bulk": 2,
@@ -150,8 +150,17 @@
       "file": "server-tools/analysis-workflow.ts",
       "ns": "analysis",
       "hasSpec": false,
-      "firstSentence": "Use to poll a background job started by analyze_prg (PRG too large to finish synchronously) or by runtime_loader_lens (capture too large to fold synchronously) — both hand back a job_id instead of stalling the call.",
-      "desc": "Use to poll a background job started by analyze_prg (PRG too large to finish synchronously) or by runtime_loader_lens (capture too large to fold synchronously) — both hand back a job_id instead of stalling the call. Not for launching the work itself (use analyze_prg / runtime_loader_lens). Returns the full original tool result once done. Inputs: job_id. Returns: running (elapsed) | done (result) | failed (error).",
+      "firstSentence": "Use to poll a background job started by analyze (image too large to finish synchronously) or by runtime_loader_lens (capture too large to fold synchronously) — both hand back a job_id instead of stalling the call.",
+      "desc": "Use to poll a background job started by analyze (image too large to finish synchronously) or by runtime_loader_lens (capture too large to fold synchronously) — both hand back a job_id instead of stalling the call. Not for launching the work itself (use analyze / runtime_loader_lens). Returns the full original tool result once done. Inputs: job_id. Returns: running (elapsed) | done (result) | failed (error).",
+      "tier": "default?"
+    },
+    {
+      "name": "analyze",
+      "file": "server-tools/analysis-workflow.ts",
+      "ns": "analyze",
+      "hasSpec": false,
+      "firstSentence": "Run the heuristic analysis pipeline over bytes and produce structured JSON — segments, cross-references, RAM facts, pointer tables, relocation proposals.",
+      "desc": "Run the heuristic analysis pipeline over bytes and produce structured JSON — segments, cross-references, RAM facts, pointer tables, relocation proposals. Use first on anything you are about to disassemble, headed or not: a PRG, a depacked chunk, a relocated overlay, a block of 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. A header and a load_address that disagree are refused, naming both, and every answer opens with the reading it took. Not for producing assembly (use disasm next; it finds this analysis by asking the project store, whatever directory it sits in) and not for disk / cart images (extract first). Pass offset/length to analyse a window, so the analysis and the listing that consumes it describe one span instead of two; they require load_address, because a window's first byte is not a header. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). Inputs: path or artifact_id, optional load_address/headed/offset/length/entry_points/output_json. Returns: the reading it took, the analysis JSON path and a summary of what was seeded and what was refused.",
       "tier": "default?"
     },
     {
@@ -169,7 +178,7 @@
       "ns": "analyze",
       "hasSpec": false,
       "firstSentence": "Run the heuristic analysis pipeline on a PRG and produce structured JSON — segments, cross-references, RAM facts, pointer tables.",
-      "desc": "Run the heuristic analysis pipeline on a PRG and produce structured JSON — segments, cross-references, RAM facts, pointer tables. Use first on any new PRG to map its structure. Not for producing assembly (run disasm_prg next, passing this JSON) or for disk/cart images (extract first). Inputs: prg_path, optional project_dir. Returns: analysis JSON path + summary.",
+      "desc": "Run the heuristic analysis pipeline on a PRG and produce structured JSON — segments, cross-references, RAM facts, pointer tables. Use first on any new PRG to map its structure. Now the same door as `analyze`, which takes headerless bytes too: this name keeps working for one release and says so in its answer. Not for producing assembly (run disasm next, passing this JSON) or for disk/cart images (extract first). Inputs: prg_path, optional project_dir. Returns: analysis JSON path + summary.",
       "tier": "default?"
     },
     {
@@ -196,7 +205,7 @@
       "ns": "assemble",
       "hasSpec": false,
       "firstSentence": "Assemble a .asm (KickAssembler) or .tas (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG.",
-      "desc": "Assemble a .asm (KickAssembler) or .tas (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG. Use to verify a disassembly rebuilds correctly. Not for generating the source (use disasm_prg). Also writes the build's symbol file (`<output>.vs`, VICE label format) and registers it, so the live monitor names the build's addresses ([b]) while that build's bytes are in memory. Inputs: source path, optional original PRG. Returns: assembled binary path + cmp result + symbol file.",
+      "desc": "Assemble a .asm (KickAssembler) or .tas (64tass) file to a binary, optionally byte-comparing the rebuild against the original PRG. Use to verify a disassembly rebuilds correctly. Not for generating the source (use disasm). Also writes the build's symbol file (`<output>.vs`, VICE label format) and registers it, so the live monitor names the build's addresses ([b]) while that build's bytes are in memory. Inputs: source path, optional original PRG. Returns: assembled binary path + cmp result + symbol file.",
       "tier": "default?"
     },
     {
@@ -268,7 +277,7 @@
       "ns": "basic",
       "hasSpec": false,
       "firstSentence": "List a tokenized BASIC V2 program from a PRG and extract its SYS / USR / LOAD facts — the listing, plus the address the BASIC boot jumps into and the address of the token byte that jumps there.",
-      "desc": "List a tokenized BASIC V2 program from a PRG and extract its SYS / USR / LOAD facts — the listing, plus the address the BASIC boot jumps into and the address of the token byte that jumps there. Use on any PRG that loads at $0801 BEFORE disassembling it: a stock BASIC boot is token bytes, not 6502, and its SYS target is the real entry point into the machine code. Not for machine-code PRGs — on one it answers NOT BASIC and names the byte offset where the line chain broke, instead of half-rendering it (use analyze_prg / disasm_prg for those) — and not for writing BASIC (use basic_tokenize). Inputs: prg_path, optional project_dir, optional json. Returns: the listing, the program's address range and end, and each SYS/USR/LOAD with its line number, its resolved target (or the unresolved expression) and the address of its token byte.",
+      "desc": "List a tokenized BASIC V2 program from a PRG and extract its SYS / USR / LOAD facts — the listing, plus the address the BASIC boot jumps into and the address of the token byte that jumps there. Use on any PRG that loads at $0801 BEFORE disassembling it: a stock BASIC boot is token bytes, not 6502, and its SYS target is the real entry point into the machine code. Not for machine-code PRGs — on one it answers NOT BASIC and names the byte offset where the line chain broke, instead of half-rendering it (use analyze / disasm for those) — and not for writing BASIC (use basic_tokenize). Inputs: prg_path, optional project_dir, optional json. Returns: the listing, the program's address range and end, and each SYS/USR/LOAD with its line number, its resolved target (or the unresolved expression) and the address of its token byte.",
       "tier": "default?"
     },
     {
@@ -587,12 +596,21 @@
       "tier": "advanced?"
     },
     {
+      "name": "disasm",
+      "file": "server-tools/analysis-workflow.ts",
+      "ns": "disasm",
+      "hasSpec": false,
+      "firstSentence": "Disassemble bytes to KickAssembler .asm + 64tass .tas, segment-aware when an analysis describes them, with a rebuild proof.",
+      "desc": "Disassemble bytes to KickAssembler .asm + 64tass .tas, segment-aware when an analysis describes them, with a rebuild proof. Use for any listing of any bytes: a PRG, a payload carved off a disk, a depacked chunk, a relocated overlay, a block lifted out of a raw track, 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there with nothing at the front treated as a header; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. A header and a load_address that disagree are refused, naming both. Every answer opens with the reading it took and where the address came from, so a wrong reading is caught before the listing is believed. Not for the structural scan (use analyze), for menus / multi-file containers (use disasm_menu) or for the running machine's memory (use runtime_monitor_disasm). The analysis it renders with: analysis_json names one and a named analysis that exists is used unchanged and never swapped; if it does not exist, or none is named, the project store is asked which analysis is registered for THESE bytes, and the answer names what it used and why — only with nothing in the store does it fall back to the file beside the bytes, and no_analysis refuses one outright. Pass offset/length to narrow a window (they require load_address, because a window's first byte is not a header); a whole-file analysis over a window is refused rather than rendered. A `<stem>_annotations.json` beside the bytes, the output or the analysis is auto-applied, or name one with annotations_path: names (labels, routines, a segment's `label`) apply with or without an analysis, while segment kinds and pointer/jump/immediate tables need one — the listing's header line says which happened and the answer quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a mistyped entry (e.g. `addr` for `address`) is skipped and reported as `[annotations] applied N, skipped M`; it never crashes the rebuild. In a project created since 2026-09-19 no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered and the refusal names every offender. Whatever is applied is imported into the knowledge graph. For relocated code (stored at one address, executed at another) pass `relocations`: each region renders as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the proposals from analyze / propose_annotations (draft.relocations[]) and copy them straight in. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). Full annotation reference: docs/annotations-reference.md. Inputs: path or artifact_id, optional load_address/offset/length/entry_points/analysis_json/no_analysis/annotations_path/platform/bank/space/relocations/output_asm. Returns: the reading it took, the .asm/.tas paths, the analysis it used and why, the provenance, what was seeded, and the rebuild verdict.",
+      "tier": "default?"
+    },
+    {
       "name": "disasm_menu",
       "file": "server-tools/disk-g64.ts",
       "ns": "disasm",
       "hasSpec": false,
       "firstSentence": "Disassemble every payload in an extracted menu/multi-file container to KickAssembler sources at once.",
-      "desc": "Disassemble every payload in an extracted menu/multi-file container to KickAssembler sources at once. Use after extracting a menu disk/cart to get assembly for all entries. Not for a single PRG (use disasm_prg). Inputs: manifest / project dir. Returns: generated .asm paths.",
+      "desc": "Disassemble every payload in an extracted menu/multi-file container to KickAssembler sources at once. Use after extracting a menu disk/cart to get assembly for all entries. Not for a single PRG (use disasm). Inputs: manifest / project dir. Returns: generated .asm paths.",
       "tier": "default?"
     },
     {
@@ -601,7 +619,7 @@
       "ns": "disasm",
       "hasSpec": false,
       "firstSentence": "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON.",
-      "desc": "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze_prg / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze_prg), for menus/multi-file containers (use disasm_menu) or for bytes with no load header (use disasm_raw). An analysis_json named here is the analysis rendered — it is never swapped for the <stem>_analysis.json beside the PRG, and a path that does not exist is refused. A `<stem>_annotations.json` next to the PRG/ASM is auto-applied: names (labels, routines, a segment's `label`) apply with or without `analysis_json`, while segment kinds and pointer/jump/immediate tables need `analysis_json` — the listing's header line says which happened, and the tool output quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild. In a project created since 2026-09-19 (project_init stamps it) no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered, and the refusal names every offender. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, platform, relocations. Returns: .asm/.tas artifact paths.",
+      "desc": "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON. Use after analyze to get readable assembly, and again to render the final annotated version once you have an annotations file. Now the same door as `disasm`, which reads headerless bytes too: this name keeps working for one release and says so in its answer. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze), for menus/multi-file containers (use disasm_menu) or for bytes with no load header (use disasm, passing load_address). An analysis_json named here that EXISTS is the analysis rendered and is never swapped; when it does not exist the project store is asked which analysis is registered for these bytes, and the answer names what it used and why. A `<stem>_annotations.json` next to the PRG/ASM is auto-applied: names (labels, routines, a segment's `label`) apply with or without `analysis_json`, while segment kinds and pointer/jump/immediate tables need `analysis_json` — the listing's header line says which happened, and the tool output quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild. In a project created since 2026-09-19 (project_init stamps it) no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered, and the refusal names every offender. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, platform, relocations. Returns: .asm/.tas artifact paths.",
       "tier": "default?"
     },
     {
@@ -610,7 +628,7 @@
       "ns": "disasm",
       "hasSpec": false,
       "firstSentence": "Disassemble raw bytes at an address you already know — a depacked chunk, a relocated overlay, a block lifted out of a track, drive code — with no PRG header and none invented.",
-      "desc": "Disassemble raw bytes at an address you already know — a depacked chunk, a relocated overlay, a block lifted out of a track, drive code — with no PRG header and none invented. Use when you hold bytes and their runtime address: give a file path (or an artifact id), optionally a byte window, and load_address. Not for a file that already carries a 2-byte load address (use disasm_prg) and not for the running machine's memory (use runtime_monitor_disasm). Same decoder, renderer, annotations and rebuild proof as disasm_prg: it writes .asm + .tas, reassembles them and reports byte-identical or the first divergence, and registers the listing with its provenance — which file, which byte range, which address. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes) — every answer prints the window both ways. Pass entry_points when the block does not start with code: a seed resyncs the linear decode there and the bytes before it render as data. Pass analysis_json for segment-aware rendering; it must describe THIS window and is refused when it describes a different span, nothing is picked up beside the bytes (a <stem>_analysis.json beside a 63 KB image describes the 63 KB image, not a window out of it), and no_analysis refuses one outright. Without one the listing says it had none and reads every byte as code. Annotations it applies are imported into the knowledge graph, the same as through disasm_prg, so a block with no PRG header gets human names in the graph too. Inputs: path or artifact_id, load_address, optional offset/length/entry_points/analysis_json/no_analysis/annotations_path/cpu/bank. Returns: the .asm/.tas paths, the address span, the instruction count, what was seeded, and the rebuild verdict.",
+      "desc": "Disassemble raw bytes at an address you already know — a depacked chunk, a relocated overlay, a block lifted out of a track, drive code — with no PRG header and none invented. Use when you hold bytes and their runtime address: give a file path (or an artifact id), optionally a byte window, and load_address. Now the same door as `disasm`, which also reads a file that carries a header: this name keeps working for one release and says so in its answer. Not for a file that already carries a 2-byte load address (use disasm without load_address) and not for the running machine's memory (use runtime_monitor_disasm). Same decoder, renderer, annotations and rebuild proof as the PRG reading: it writes .asm + .tas, reassembles them and reports byte-identical or the first divergence, and registers the listing with its provenance — which file, which byte range, which address. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes) — every answer prints the window both ways. Pass entry_points when the block does not start with code: a seed resyncs the linear decode there and the bytes before it render as data. Pass analysis_json for segment-aware rendering; it must describe THIS window and is refused when it describes a different span, and no_analysis refuses one outright. When none is named, the project store is asked which analysis is registered for these bytes and the answer names what it found. Annotations it applies are imported into the knowledge graph, so a block with no PRG header gets human names in the graph too. Inputs: path or artifact_id, load_address, optional offset/length/entry_points/analysis_json/no_analysis/annotations_path/cpu/bank. Returns: the .asm/.tas paths, the address span, the instruction count, what was seeded, and the rebuild verdict.",
       "tier": "default?"
     },
     {
@@ -655,7 +673,7 @@
       "ns": "export",
       "hasSpec": false,
       "firstSentence": "Export one binary per menu entry from an already-extracted, menu-driven cartridge: each entry's payload group is written whole and chunk by chunk, classified as code or data.",
-      "desc": "Export one binary per menu entry from an already-extracted, menu-driven cartridge: each entry's payload group is written whole and chunk by chunk, classified as code or data. Use after reconstruct_lut when the cart boots into a menu and you want the entries as separate files. Not for turning those binaries into assembly (use disasm_menu) and not for a single PRG (use analyze_prg). Inputs: analysis_dir, and a menu_payload_map.json naming the entries. Returns: the export manifest, one directory per menu entry, and the knowledge run they were registered under.",
+      "desc": "Export one binary per menu entry from an already-extracted, menu-driven cartridge: each entry's payload group is written whole and chunk by chunk, classified as code or data. Use after reconstruct_lut when the cart boots into a menu and you want the entries as separate files. Not for turning those binaries into assembly (use disasm_menu) and not for a single PRG (use analyze). Inputs: analysis_dir, and a menu_payload_map.json naming the entries. Returns: the export manifest, one directory per menu entry, and the knowledge run they were registered under.",
       "tier": "advanced?"
     },
     {
@@ -1006,7 +1024,7 @@
       "ns": "list",
       "hasSpec": false,
       "firstSentence": "List saved open questions / ambiguities, with optional filters.",
-      "desc": "List saved open questions / ambiguities, with optional filters. Use to see what's still unresolved. Not for confirmed findings (use list_findings). By default hides heuristic analyze_prg validation prompts (set include_heuristic=true to see them). Inputs: optional filters. Returns: question records + a count of hidden heuristic questions.",
+      "desc": "List saved open questions / ambiguities, with optional filters. Use to see what's still unresolved. Not for confirmed findings (use list_findings). By default hides heuristic analyze validation prompts (set include_heuristic=true to see them). Inputs: optional filters. Returns: question records + a count of hidden heuristic questions.",
       "tier": "default?"
     },
     {
@@ -1312,7 +1330,7 @@
       "ns": "propose",
       "hasSpec": false,
       "firstSentence": "Generate a DRAFT annotations file (labels, segment reclassifications, routine names, and relocations) from an analysis JSON + optional disasm.",
-      "desc": "Generate a DRAFT annotations file (labels, segment reclassifications, routine names, and relocations) from an analysis JSON + optional disasm. Use to bootstrap semantic annotation before hand-editing. The draft's relocations[] entries are in disasm_prg.relocations shape ({fileStart,fileEnd,runtimeAddr} hex) — copy accepted ones straight into disasm_prg(relocations=[...]) to render relocated loader code as .pseudopc/.logical. When hand-editing the draft, the field shape is: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}] (hex with or without `$`) — a mistyped key (`addr`/`name`) is tolerantly skipped, not applied; disasm_prg reports the skip count. Full reference: docs/annotations-reference.md. Not for saving confirmed knowledge (use save_finding / save_entity); it never overwrites a manual annotations file. Inputs: analysis JSON, optional disasm, persist_questions. Returns: draft annotations path.",
+      "desc": "Generate a DRAFT annotations file (labels, segment reclassifications, routine names, and relocations) from an analysis JSON + optional disasm. Use to bootstrap semantic annotation before hand-editing. The draft's relocations[] entries are in disasm.relocations shape ({fileStart,fileEnd,runtimeAddr} hex) — copy accepted ones straight into disasm(relocations=[...]) to render relocated loader code as .pseudopc/.logical. When hand-editing the draft, the field shape is: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}] (hex with or without `$`) — a mistyped key (`addr`/`name`) is tolerantly skipped, not applied; disasm reports the skip count. Full reference: docs/annotations-reference.md. Not for saving confirmed knowledge (use save_finding / save_entity); it never overwrites a manual annotations file. Inputs: analysis JSON, optional disasm, persist_questions. Returns: draft annotations path.",
       "tier": "default?"
     },
     {
@@ -1330,7 +1348,7 @@
       "ns": "ram",
       "hasSpec": false,
       "firstSentence": "Generate a markdown RAM-state facts report from an analysis JSON (zero-page + RAM usage).",
-      "desc": "Generate a markdown RAM-state facts report from an analysis JSON (zero-page + RAM usage). Use after analyze_prg to summarise how the program uses memory. Not for pointer tables (use pointer_report) or raw bytes (use read_artifact). Inputs: analysis JSON path. Returns: markdown report path.",
+      "desc": "Generate a markdown RAM-state facts report from an analysis JSON (zero-page + RAM usage). Use after analyze to summarise how the program uses memory. Not for pointer tables (use pointer_report) or raw bytes (use read_artifact). Inputs: analysis JSON path. Returns: markdown report path.",
       "tier": "default?"
     },
     {
@@ -1546,7 +1564,7 @@
       "ns": "run",
       "hasSpec": false,
       "firstSentence": "Run the full first-pass PRG reverse-engineering chain end-to-end: register, analyze, disassemble, RAM + pointer reports, import knowledge, rebuild views.",
-      "desc": "Run the full first-pass PRG reverse-engineering chain end-to-end: register, analyze, disassemble, RAM + pointer reports, import knowledge, rebuild views. Use to bootstrap a fresh PRG in one call. Not for a single step (call analyze_prg / disasm_prg directly). Inputs: prg_path. Returns: done/incomplete/blocked + the next required semantic action.",
+      "desc": "Run the full first-pass PRG reverse-engineering chain end-to-end: register, analyze, disassemble, RAM + pointer reports, import knowledge, rebuild views. Use to bootstrap a fresh PRG in one call. Not for a single step (call analyze / disasm directly). Inputs: prg_path. Returns: done/incomplete/blocked + the next required semantic action.",
       "tier": "default?"
     },
     {
@@ -1816,7 +1834,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Inject a PRG into a session's RAM as if KERNAL LOAD placed it.",
-      "desc": "Inject a PRG into a session's RAM as if KERNAL LOAD placed it. Use to load a program without a disk. Not for disk LOAD (mount + runtime_type a LOAD line) or static analysis (use analyze_prg). Inputs: session_id, prg_path, optional load_address. Returns: load range.",
+      "desc": "Inject a PRG into a session's RAM as if KERNAL LOAD placed it. Use to load a program without a disk. Not for disk LOAD (mount + runtime_type a LOAD line) or static analysis (use analyze). Inputs: session_id, prg_path, optional load_address. Returns: load range.",
       "tier": "default?"
     },
     {
@@ -1924,7 +1942,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Disassemble live memory at an address in a session.",
-      "desc": "Disassemble live memory at an address in a session. Use to read code at the current PC or a target. Not for a static PRG (use disasm_prg). Each line's own address, branch/JSR/JMP target and operand address are named from the project (`; $c000=main[u]`, origin [u] user / [b] build / [?] derived) when — and only when — that payload's code bytes are in memory now. Inputs: session_id, address, count. Returns: disassembly lines.",
+      "desc": "Disassemble live memory at an address in a session. Use to read code at the current PC or a target. Not for a static PRG (use disasm). Each line's own address, branch/JSR/JMP target and operand address are named from the project (`; $c000=main[u]`, origin [u] user / [b] build / [?] derived) when — and only when — that payload's code bytes are in memory now. Inputs: session_id, address, count. Returns: disassembly lines.",
       "tier": "default?"
     },
     {
@@ -2374,7 +2392,7 @@
       "ns": "sandbox",
       "hasSpec": false,
       "firstSentence": "Run a game's OWN 6502 depacker/decryptor over packed bytes and get the plaintext back — the sandbox CPU executes the resident routine against ANY packed blob, no MCP code change per variant.",
-      "desc": "Run a game's OWN 6502 depacker/decryptor over packed bytes and get the plaintext back — the sandbox CPU executes the resident routine against ANY packed blob, no MCP code change per variant. Use when a payload is self-decrypting (XOR / RLE / custom crypto) so disasm_prg sees real code: point it at the resident loader, the depack entry_pc, and the zeropage source-pointer convention (default $52/$53). It runs to sentinel RTS / stop_pc / max_steps; the contiguous run of writes at dest_address (or the largest contiguous run) is returned as the unpacked bytes. Only bytes the depacker actually STORED are ever written out — a multi-block depacker leaves DISJOINT runs, and the output names every run it wrote so you can see what this call did not return and re-run for the rest. A harvest taken before that rule existed may have carried sandbox residue in the holes between runs with nothing marking it, so re-run anything you kept from one. Not for a standard packer (use try_depack / suggest_depacker); not for running arbitrary code (use sandbox_6502_run).",
+      "desc": "Run a game's OWN 6502 depacker/decryptor over packed bytes and get the plaintext back — the sandbox CPU executes the resident routine against ANY packed blob, no MCP code change per variant. Use when a payload is self-decrypting (XOR / RLE / custom crypto) so disasm sees real code: point it at the resident loader, the depack entry_pc, and the zeropage source-pointer convention (default $52/$53). It runs to sentinel RTS / stop_pc / max_steps; the contiguous run of writes at dest_address (or the largest contiguous run) is returned as the unpacked bytes. Only bytes the depacker actually STORED are ever written out — a multi-block depacker leaves DISJOINT runs, and the output names every run it wrote so you can see what this call did not return and re-run for the rest. A harvest taken before that rule existed may have carried sandbox residue in the holes between runs with nothing marking it, so re-run anything you kept from one. Not for a standard packer (use try_depack / suggest_depacker); not for running arbitrary code (use sandbox_6502_run).",
       "tier": "default?"
     },
     {

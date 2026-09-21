@@ -106,7 +106,7 @@ const PLAYBOOKS = [
       { actor: "llm", action: "Mark loaded, finalize the trace.", tools: ["runtime_mark", "runtime_trace_finalize"], persist: ["mark loaded-or-title", "trace.duckdb"],
         snippet: 'runtime_mark({ session_id, label: "loaded-or-title" });\nruntime_trace_finalize({ session_id })' },
       { actor: "tracedb", action: "Query the durable trace with convenience readers (not raw SQL).", tools: ["trace_store_info", "trace_store_top_pcs", "trace_store_bus_find", "trace_memory_map", "runtime_query_events", "runtime_swimlane_slice"], persist: ["executed-PC set", "bus access set"] },
-      { actor: "llm", action: "Save findings + choose disasm candidates.", tools: ["save_finding", "disasm_prg", "agent_record_step"], persist: ["findings", "entry points"] },
+      { actor: "llm", action: "Save findings + choose disasm candidates.", tools: ["save_finding", "disasm", "agent_record_step"], persist: ["findings", "entry points"] },
       { actor: "llm", action: "Close the session when done — stops the run loop (else it pegs a core ~100%) and frees the session.", tools: ["runtime_session_close"], persist: ["session released"],
         snippet: 'runtime_session_close({ session_id })' },
     ],
@@ -143,15 +143,15 @@ const PLAYBOOKS = [
     userIntentExamples: ["Just disassemble this PRG.", "Give me the code for ./loader.prg first.", "Disassemble this depacked block — it runs at $C000."],
     preconditions: ["A PRG payload path is known, OR a block of bytes and the address it runs at.", "The payload is simple enough to read before running, or the user asked for code first."],
     steps: [
-      { actor: "llm", action: "Heuristic analysis pass.", tools: ["analyze_prg", "inspect_address_range", "basic_list", "basic_tokenize"], persist: ["analysis report", "BASIC stub facts"] },
-      { actor: "llm", action: "Disassemble + resolve ROM/symbol references. A file with a 2-byte load address is disasm_prg's; bytes at an address you already know — a depacked chunk, a relocated overlay, a block out of a track, drive code — are disasm_raw's, which invents no PRG header and registers the listing with the byte range it came from.", tools: ["disasm_prg", "disasm_raw", "disasm_menu", "c64ref_lookup"], persist: ["disasm artifact"] },
-      { actor: "llm", action: "Draft annotations; re-run disasm_prg with them (the file is a door into the knowledge graph); record what you concluded.", tools: ["propose_annotations", "disasm_prg", "save_finding", "agent_record_step"], persist: ["annotations", "findings"] },
+      { actor: "llm", action: "Heuristic analysis pass. analyze reads bytes by the load address, not the file name — pass load_address for a depacked chunk, an overlay or drive code, leave it out for a file that carries a 2-byte header — so the nine analysers run on either.", tools: ["analyze", "inspect_address_range", "basic_list", "basic_tokenize"], persist: ["analysis report", "BASIC stub facts"] },
+      { actor: "llm", action: "Disassemble + resolve ROM/symbol references. One door: pass load_address and the bytes are raw and start there (a depacked chunk, a relocated overlay, a block out of a track, drive code — no PRG header is invented and the listing is registered with the byte range it came from); leave it out and the file must carry a 2-byte header, whose first two bytes are read as the address. Every answer opens with the reading it took.", tools: ["disasm", "disasm_menu", "c64ref_lookup"], persist: ["disasm artifact"] },
+      { actor: "llm", action: "Draft annotations; re-run disasm with them (the file is a door into the knowledge graph); record what you concluded.", tools: ["propose_annotations", "disasm", "save_finding", "agent_record_step"], persist: ["annotations", "findings"] },
     ],
     stopConditions: ["A readable disassembly + draft annotations exist."],
     nextActions: ["Validate with a targeted trace (Disassembly + Trace Validation)."],
     forbiddenShortcuts: [
       "Do not claim labels/branches are correct without later runtime evidence for non-trivial code.",
-      "Do not bolt a 2-byte load header onto a raw block to make disasm_prg accept it, and do not write your own disassembler: headerless bytes are disasm_raw's, which keeps the listing in the project with the byte range it came from.",
+      "Do not bolt a 2-byte load header onto a raw block, and do not write your own disassembler or analyser: pass load_address to disasm/analyze and the bytes are read as they lie, with the listing kept in the project under the byte range it came from. A fake header is how a run over four G64 sides ended up with .prg copies of 1541 drive code.",
     ],
   },
   {

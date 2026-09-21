@@ -233,8 +233,12 @@ try {
     // every name while the graph import early-returned "0 routines". This asserts the two
     // halves resolve the SAME file.
     const src = readFileSync(new URL("../src/server-tools/analysis-workflow.ts", import.meta.url), "utf8");
-    check("disasm_prg imports the annotations path it actually found",
-      /annotationsPath:\s*foundAnnotationsPath \?\? annotationsPath/.test(src),
+    // Spec 866 took the last guess out of it: the wrapper no longer re-derives a
+    // candidate order at all. Both readings print `Annotations used: <path>` from the
+    // renderer itself, and that line is what the importer is handed.
+    check("disasm imports the annotations path the renderer printed",
+      /const usedAnnotations = \/\^Annotations used: /.test(src)
+      && /annotationsPath: usedAnnotations/.test(src),
       "the renderer and the importer must not resolve different files");
   }
 

@@ -84,15 +84,16 @@ for (const r of allRules()) {
   check(r.tools.length > 0, `${r.id} names at least one trigger tool`);
   for (const t of r.tools) byTool.set(t, [...(byTool.get(t) ?? []), r.id]);
 }
-check(byTool.get("disasm_prg")?.length === 2, "disasm_prg carries both the listing and the boundary rule");
+// Spec 866: the two disassembly doors became one, so the rules ride on `disasm`.
+check(byTool.get("disasm")?.length === 2, "disasm carries both the listing and the boundary rule");
 
 // 7 — a tool that carries a rule delivers it once, and then stays quiet
-const rule = rulesForTool("analyze_prg")[0];
-check(!!rule, "analyze_prg carries a rule");
-const firstFooter = ruleFooterForTool(root, "analyze_prg");
-check(!!firstFooter && firstFooter.includes(rule.id), `first analyze_prg call carries ${rule.id}`);
+const rule = rulesForTool("analyze")[0];
+check(!!rule, "analyze carries a rule");
+const firstFooter = ruleFooterForTool(root, "analyze");
+check(!!firstFooter && firstFooter.includes(rule.id), `first analyze call carries ${rule.id}`);
 check(firstFooter.includes("The analyzer proposes"), "the footer carries the rule's prose");
-check(ruleFooterForTool(root, "analyze_prg") === undefined, "second call is silent");
+check(ruleFooterForTool(root, "analyze") === undefined, "second call is silent");
 
 // 8 — a different rule is unaffected by the first one's delivery
 check(!!ruleFooterForTool(root, "propose_annotations"), "another tool still delivers its own rule");
@@ -101,23 +102,23 @@ check(!!ruleFooterForTool(root, "propose_annotations"), "another tool still deli
 // (re-armed first: step 8 already spent the boundary rule through propose_annotations,
 // which is the correct behaviour — a rule is said once per session, not once per tool)
 resetRuleDelivery(root);
-const both = ruleFooterForTool(root, "disasm_prg");
-check(!!both && both.includes("listing-is-not-understanding"), "disasm_prg delivers the listing rule");
+const both = ruleFooterForTool(root, "disasm");
+check(!!both && both.includes("listing-is-not-understanding"), "disasm delivers the listing rule");
 check(!!both && both.includes("annotations-assert-boundaries"), "…and the boundary rule in the same footer");
-check(ruleFooterForTool(root, "disasm_prg") === undefined, "…and is then silent");
+check(ruleFooterForTool(root, "disasm") === undefined, "…and is then silent");
 
 // 9 — a tool that carries no rule never speaks
 check(ruleFooterForTool(root, "project_status") === undefined, "an unmapped tool adds nothing");
 
 // 10 — onboarding re-arms everything: a session that onboards has been told nothing
 resetRuleDelivery(root);
-check(!!ruleFooterForTool(root, "analyze_prg"), "agent_onboard re-arms the rule");
+check(!!ruleFooterForTool(root, "analyze"), "agent_onboard re-arms the rule");
 
 // 11 — a hand-edited rule is what gets delivered, not the shipped wording
 resetRuleDelivery(root);
 const edited = join(rulesDir, "heuristics-are-proposals.md");
-writeFileSync(edited, "---\ndescription: mine.\npaths: [\"**/*\"]\ntools: [\"analyze_prg\"]\n---\nMY OWN WORDING 4417\n");
-const own = ruleFooterForTool(root, "analyze_prg");
+writeFileSync(edited, "---\ndescription: mine.\npaths: [\"**/*\"]\ntools: [\"analyze\"]\n---\nMY OWN WORDING 4417\n");
+const own = ruleFooterForTool(root, "analyze");
 check(!!own && own.includes("MY OWN WORDING 4417"), "the project's own wording wins over the shipped text");
 
 // 11b — CRLF (PR #23): a Windows checkout, or a project cloned there, changes nothing.
