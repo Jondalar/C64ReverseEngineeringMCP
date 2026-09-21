@@ -133,7 +133,7 @@ export function buildGraphicsView(
   const artifacts = service.listArtifacts();
   const artifactsById = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
   // Bug 23 (Bug 10 family): the same *_analysis.json file gets registered
-  // multiple times in artifacts.json (once auto by analyze_prg, once by
+  // multiple times in artifacts.json (once auto by analyze, once by
   // project_repair / register_existing_files). Iterating each registration
   // produces duplicate segments in the Graphics tab (126 vs ~58 on Murder).
   // Dedupe by absolute path — the file is the truth, not the artifact id.

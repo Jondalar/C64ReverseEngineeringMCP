@@ -37,7 +37,7 @@ const TRACE_WRITERS = new Set([
 // the project/path resolver (absolute OR project-relative), never repo cwd.
 const PATH_TOOLS = new Set([
   "inspect_disk", "extract_disk", "extract_crt", "disk_sector_allocation",
-  "analyze_prg", "disasm_prg", "disasm_menu", "assemble_source",
+  "disasm", "analyze", "analyze_prg", "disasm_prg", "disasm_raw", "disasm_menu", "assemble_source",
   "runtime_session_start", "runtime_media_mount", "runtime_media_swap", "runtime_load_prg",
   "runtime_media_browse", "runtime_sandbox_run",
   "trace_store_info", "trace_store_query", "trace_store_top_pcs", "trace_store_bus_find",
@@ -102,8 +102,11 @@ const CURATED = {
   // BAM does not describe occupancy, so a tool description that offers it as the free-list
   // is an invitation to overwrite a live chain.
   disk_sector_allocation: { role: "format-forensics", swimlane: "entry-project-baseline", useWhen: "Map per-track/sector ownership of an extracted disk from its MANIFEST — who owns each sector, what is unclaimed, where owners overlap. The BAM is not read.", notFor: "File extraction — use extract_disk. Deciding where it is safe to WRITE: the BAM's free list does not describe occupancy on a track/sector-addressed disk (issue #24) — walk the chains and answer S15.", adjacent: ["inspect_disk"], e2e: ["E2E-A"] },
-  analyze_prg: { role: "static-analysis", swimlane: "disassembly-improve", useWhen: "Run the 9-analyzer heuristic pass over a PRG to find code/data/assets.", notFor: "Producing assembly text — use disasm_prg.", adjacent: ["disasm_prg", "inspect_address_range"], e2e: ["E2E-C"] },
-  disasm_prg: { role: "disassembly", swimlane: "disassembly-improve", useWhen: "Disassemble a PRG to ASM; pass 2 consumes executed-PC evidence + annotations.", notFor: "Heuristic-only scan — use analyze_prg.", adjacent: ["analyze_prg", "propose_annotations", "runtime_resolve_pc"], e2e: ["E2E-C"] },
+  analyze: { role: "static-analysis", swimlane: "disassembly-improve", useWhen: "Run the 9-analyzer heuristic pass over bytes — headed or not — to find code/data/assets; pass load_address and they are raw and start there, leave it out and the file's first two bytes are read as one.", notFor: "Producing assembly text — use disasm.", adjacent: ["disasm", "inspect_address_range"], e2e: ["E2E-C"] },
+  disasm: { role: "disassembly", swimlane: "disassembly-improve", useWhen: "Disassemble bytes to ASM with a rebuild proof; the load address decides how they are read, never the file name. Pass 2 consumes annotations and an analysis, which it finds by asking the project store when none is named.", notFor: "Heuristic-only scan — use analyze.", adjacent: ["analyze", "propose_annotations", "runtime_resolve_pc"], e2e: ["E2E-C"] },
+  analyze_prg: { role: "static-analysis", swimlane: "disassembly-improve", useWhen: "The old name for analyze, kept for one release; it renders identically and says so in its answer.", notFor: "New work — use analyze, which takes headerless bytes too.", adjacent: ["analyze", "disasm"], e2e: ["E2E-C"] },
+  disasm_prg: { role: "disassembly", swimlane: "disassembly-improve", useWhen: "The old name for disasm on a file that carries a 2-byte load header, kept for one release; it renders identically and says so in its answer.", notFor: "New work — use disasm, which takes either reading.", adjacent: ["disasm", "propose_annotations", "runtime_resolve_pc"], e2e: ["E2E-C"] },
+  disasm_raw: { role: "disassembly", swimlane: "disassembly-improve", useWhen: "The old name for disasm on bytes with no load header, kept for one release; it renders identically and says so in its answer.", notFor: "New work — use disasm with a load_address.", adjacent: ["disasm", "analyze"], e2e: ["E2E-C"] },
   disasm_menu: { role: "disassembly", swimlane: "disassembly-improve", useWhen: "Disassemble a specific menu/region with chosen entry points.", notFor: "Whole-PRG disasm — use disasm_prg.", adjacent: ["disasm_prg"], e2e: ["E2E-C"] },
   inspect_address_range: { role: "static-analysis", swimlane: "disassembly-improve", useWhen: "Inspect a byte/address range of a payload statically.", notFor: "Live memory — use runtime_monitor_memory.", adjacent: ["analyze_prg", "runtime_monitor_memory"], e2e: ["E2E-C"] },
   // Spec 823 — the knowledge graph's five doors (thin over src/knowledge-graph).

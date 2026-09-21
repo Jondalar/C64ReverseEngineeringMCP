@@ -50,8 +50,8 @@ disk?
 Deterministic Phase-1 analysis plus a non-semantic first-pass disasm
 per relevant artifact. No LLM annotations yet.
 
-- **Allowed tools**: `analyze_prg`, `analyze_raw` (via
-  `--load-address`), `disasm_prg` (no annotations), `ram_report`,
+- **Allowed tools**: `analyze` (pass `load_address` for bytes that
+  carry no 2-byte header), `disasm` (no annotations), `ram_report`,
   `pointer_report`, `import_analysis_report`, `inspect_address_range`,
   `c64ref_lookup`.
 - **Done when**: every relevant artifact has a `*_analysis.json` and
@@ -80,7 +80,7 @@ listing.
 - **Allowed tools**: `save_finding`, `save_entity`, `save_relation`
   (within an artifact only), `link_entities`, annotation files
   (write under `analysis/.../{stem}_annotations.json`),
-  `disasm_prg` (with annotations), `assemble_source --compare_to`.
+  `disasm` (with annotations), `assemble_source --compare_to`.
 - **Done when**: the disasm rebuilds byte-identical with annotations;
   ≥1 finding references the artifact; the segment list reads
   semantically (named labels, no `WXXXX` everywhere).
@@ -104,7 +104,7 @@ Refine the V1 listings under meta-context. Lock in rebuild
 verification. Render docs. Mark the artifact "ship-ready" or
 "frozen at phase X for cracker reasons".
 
-- **Allowed tools**: `save_finding` (refined), `disasm_prg` final
+- **Allowed tools**: `save_finding` (refined), `disasm` final
   pass with full annotations, `assemble_source --compare_to`,
   `render_docs`, `save_patch_recipe` (cracker), `apply_patch_recipe`,
   `save_build_pipeline`, `agent_advance_phase` (terminal).

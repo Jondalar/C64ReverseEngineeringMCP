@@ -1,12 +1,12 @@
 ---
 description: The analyzer output is a proposal set. `probable_code` is not code, and a segment kind is not a finding.
 paths: ["**/*_analysis.json"]
-tools: ["analyze_prg"]
+tools: ["analyze"]
 ---
 
 # The analyzer proposes; it does not know
 
-`analyze_prg` runs nine heuristics over bytes. Every segment kind in this file is a
+`analyze` runs nine heuristics over bytes. Every segment kind in this file is a
 guess with a confidence, produced without reading a single instruction in context.
 `probable_code` in particular means "these bytes disassemble without hitting an illegal
 opcode", which is true of a great deal of data.

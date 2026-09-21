@@ -504,7 +504,7 @@ const server = createServer((req, res) => {
       try {
         graph = Graph.open(projectDir);
       } catch (error) {
-        send(res, jsonResponse(404, { error: error instanceof Error ? error.message : String(error), projectDir, next: ["analyze_prg", "project_inventory_sync", "c64re graph seed"] }));
+        send(res, jsonResponse(404, { error: error instanceof Error ? error.message : String(error), projectDir, next: ["analyze", "project_inventory_sync", "c64re graph seed"] }));
         return;
       }
       const bank = num("bank");

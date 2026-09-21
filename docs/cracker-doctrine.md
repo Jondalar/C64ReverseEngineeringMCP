@@ -30,7 +30,7 @@ Every behaviour-affecting change must produce:
 - A `patch-recipe` (Spec 027) with byte assertions.
 - A byte-identity rebuild check on the affected listing artifact
   (the `// rebuild verified byte-identical` marker emitted by
-  `disasm_prg`).
+  `disasm`).
 - Constraint verification (Spec 029) when overlay / flash / KERNAL
   state is touched.
 - A scenario diff vs original (Spec 030) when behaviour changes.

@@ -43,8 +43,8 @@ Do not skip phases. Do not parallelize across phases.
 Default tier:
 
 ```text
-analyze_prg
-disasm_prg
+analyze
+disasm
 ram_report
 read_artifact
 list_artifacts
@@ -68,7 +68,7 @@ For a PRG file at `<path>.prg`:
 ### Step 1.1: Analyze the PRG
 
 ```text
-analyze_prg(prg_path="<path>.prg", output_json="<path>_analysis.json", entry_points=["0827"])
+analyze(path="<path>.prg", output_json="<path>_analysis.json", entry_points=["0827"])
 ```
 
 Typical entry is `0827` (`SYS 2087`). Wait for completion.
@@ -76,7 +76,7 @@ Typical entry is `0827` (`SYS 2087`). Wait for completion.
 ### Step 1.2: Disassemble
 
 ```text
-disasm_prg(prg_path="<path>.prg", output_asm="<path>_disasm.asm", entry_points=["0827"], analysis_json="<path>_analysis.json")
+disasm(path="<path>.prg", output_asm="<path>_disasm.asm", entry_points=["0827"], analysis_json="<path>_analysis.json")
 ```
 
 This produces:
@@ -208,7 +208,7 @@ You should now have:
 ### Step 3.1: Re-render with annotations
 
 ```text
-disasm_prg(prg_path="<path>.prg", output_asm="<path>_final.asm", entry_points=["0827"], analysis_json="<path>_analysis.json")
+disasm(path="<path>.prg", output_asm="<path>_final.asm", entry_points=["0827"], analysis_json="<path>_analysis.json")
 ```
 
 This should produce:

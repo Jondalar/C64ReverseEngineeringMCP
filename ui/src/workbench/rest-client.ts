@@ -144,7 +144,7 @@ export const api = {
     return new Uint8Array(await res.arrayBuffer());
   },
   // Reclassify (authoring): persist a graphics segment into <prg>_annotations.json
-  // (picked up by the next disasm_prg). Same endpoint the v1 Scrub panel used.
+  // (picked up by the next disasm). Same endpoint the v1 Scrub panel used.
   annotateSegment: (payload: { projectDir: string; prgPath: string; start: string; end: string; kind: string; label?: string; comment?: string }) =>
     postJson<{ annotationsPath: string; totalSegments: number }>("/api/scrub/annotate-segment", payload),
   // Confirm / reject a heuristic segment.

@@ -69,7 +69,7 @@ no arguments lists what has been declared.
 node <repo>/dist/cli.js graph annotations-import <stem>_annotations.json --project <project>
 ```
 
-`disasm_prg` does this by itself whenever the file changes, so usually there is
+`disasm` does this by itself whenever the file changes, so usually there is
 nothing to do. Run it by hand after editing an annotations file outside the
 tool. Names, comments and segment labels land in the **human layer**, which
 re-analysis never touches.
@@ -86,7 +86,7 @@ node <repo>/dist/cli.js graph boundaries --project <project>
 that discovery did not: a human routine starting inside a generated one means
 two routines were merged into one; a human routine outside every generated one
 means discovery never saw it. Both are free quality reports on the analysis, and
-`boundaries --entries` prints the second kind in the form `analyze_prg` takes.
+`boundaries --entries` prints the second kind in the form `analyze` takes.
 
 **Careful with that list.** `entry_points` does not add seeds to the heuristic
 scan, it constrains it: an incomplete list silently drops code the speculative
@@ -131,5 +131,5 @@ concluding it does not know is the most common mistake with this surface.
 
 The migration does not delete, rename or move anything in `analysis/`. It does
 not touch the `.c64retrace` or DuckDB captures (Spec 827 decides where *new* ones
-go). And it does not re-run `analyze_prg` — the graph is built from the analysis
+go). And it does not re-run `analyze` — the graph is built from the analysis
 output that already exists.

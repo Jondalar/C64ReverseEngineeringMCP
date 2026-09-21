@@ -62,7 +62,7 @@ the default product workflow, not advanced debug.
 `read_artifact` · `pointer_report` · `ram_report`
 
 **Analyse / disassemble (core RE):**
-`analyze_prg` · `disasm_prg` · `disasm_menu` · `inspect_address_range` ·
+`analyze` · `disasm` · `disasm_menu` · `inspect_address_range` ·
 `inspect_disk` · `assemble_source` · `c64ref_lookup`
 
 **Get bytes off media (extraction):**

@@ -30,7 +30,7 @@ Payloads have:
 - `link_payload_to_runtime` — record the runtime trace evidence.
 - `list_payloads` — list all payloads with format / load address / linked artifacts.
 
-When the existing extraction tools (`extract_crt`, `extract_disk`, `analyze_prg`) populate payload metadata into manifest-imported entities — disk files become payloads automatically. Cart chunks are surfaced via the cartridge view; once they get explicit entity records they appear in the Payloads tab too.
+When the existing extraction tools (`extract_crt`, `extract_disk`, `analyze`) populate payload metadata into manifest-imported entities — disk files become payloads automatically. Cart chunks are surfaced via the cartridge view; once they get explicit entity records they appear in the Payloads tab too.
 
 ---
 
@@ -62,7 +62,7 @@ This is how we work. Two laws, never bent:
   (`agent_next_step`) will route you back to ground it before anything else.
 - **L2 — extract ⇒ always disasm + analyse + verify.** Every extraction from disk/CRT
   automatically disassembles + analyses each extracted PRG/payload (`extract_disk` /
-  `extract_crt` auto-chain `analyze_prg` + `disasm_prg`) **and assembles each listing
+  `extract_crt` auto-chain `analyze` + `disasm`) **and assembles each listing
   back** to check it is byte-identical with the bytes it describes. The extract tool's
   summary states how many verified; a listing that DIVERGED is not a faithful rendering
   of its bytes and must be read before anything is cited from it. There is no raw

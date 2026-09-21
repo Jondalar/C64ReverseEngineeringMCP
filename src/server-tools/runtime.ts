@@ -210,7 +210,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_monitor_disasm",
-    "Disassemble live memory at an address in a session. Use to read code at the current PC or a target. Not for a static PRG (use disasm_prg). Each line's own address, branch/JSR/JMP target and operand address are named from the project (`; $c000=main[u]`, origin [u] user / [b] build / [?] derived) when — and only when — that payload's code bytes are in memory now. Inputs: session_id, address, count. Returns: disassembly lines.",
+    "Disassemble live memory at an address in a session. Use to read code at the current PC or a target. Not for a static PRG (use disasm). Each line's own address, branch/JSR/JMP target and operand address are named from the project (`; $c000=main[u]`, origin [u] user / [b] build / [?] derived) when — and only when — that payload's code bytes are in memory now. Inputs: session_id, address, count. Returns: disassembly lines.",
     {
       session_id: z.string(),
       addr: z.number(),

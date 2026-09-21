@@ -11,7 +11,7 @@ delivery. Between them lies the work itself, and nothing spoke there.
 appended to that tool's own result once per session. The `paths:` glob was the first
 design and it does not work for this: measured on a 102-turn unattended run, a glob fires
 when a matching file is read with the native Read tool, and an RE session reads through
-`read_artifact` / `graph_find` / `disasm_prg` — four native file accesses in the whole
+`read_artifact` / `graph_find` / `disasm` — four native file accesses in the whole
 run, all writes, zero rules fired. The globs stay in the frontmatter because they cost
 nothing and still serve a human who opens a listing by hand.
 

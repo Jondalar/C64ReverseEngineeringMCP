@@ -31,7 +31,7 @@ are never touched by re-analysis and override the generated name in every query.
 | 820 | `c64re graph seed` (runs 819 then 820), and the import hook | READS · WRITES · READS_INDIRECT · WRITES_INDIRECT · USES_ZP · USES_HARDWARE · REFERENCES_DATA (including one per entry of a detected pointer table: the cell is the source, the thing it names is the target) |
 | 821 | `c64re graph import-trace <file.c64retrace>` | the same types with `origin=runtime`, a `run` node, EXECUTES · HANDLES_IRQ · HANDLES_NMI |
 | 822.1 | `c64re graph migrate` (one shot, idempotent, incremental) + the human door (`name`, `link`, `assign-subsystem`) | the human layer: names, annotations (FTS5), claims + evidence from the legacy findings, subsystems |
-| 822.2 | every `save_finding` / `save_entity` / `link_entities` / `save_open_question` / user label (the doors), `analyze_prg` + manifest imports (the generated layer, replaced per artifact), `disasm_prg` with annotations (`annotations-import`: the file is a door) | **the store** for findings, entities, relations, open questions, user labels — the JSON files for them are gone (`knowledge/_legacy-822/` keeps the migrated copies for one release) |
+| 822.2 | every `save_finding` / `save_entity` / `link_entities` / `save_open_question` / user label (the doors), `analyze` + manifest imports (the generated layer, replaced per artifact), `disasm` with annotations (`annotations-import`: the file is a door) | **the store** for findings, entities, relations, open questions, user labels — the JSON files for them are gone (`knowledge/_legacy-822/` keeps the migrated copies for one release) |
 | 826.0 | `c64re graph resolve` — runs after every seed and inside `annotations-import` / `migrate` | RESOLVES_TO from an ownerless `addr` node to the ONE routine / data block / label another artifact has at that address (routine > data_block > label; several of the top kind → ambiguous, listed in meta). Walks follow it and name the hop in `evidence.via` |
 | 826.0 | `annotations-import` / `migrate` (the T3/T4 rule, per file) | a human label without a generated twin → CONTAINS from the containing routine; a non-code segment or an outside label → a `data_block` node; a human routine inside a generated one → STARTS_INSIDE; outside every routine → `boundary: unseen-by-discovery` |
 | 826 | `c64re graph seed` (runs 819 → 820 → resolve → 826), and the import hook | per routine a SIGNATURE self-edge (`in` / `out` / `clobbers` / `preserves` / `stack`, `partial` with the site); PASSES beside every CALLS with the arguments sliced from the call site; JUMPS_TO for `pha pha rts` dispatch; the KERNAL's ABI from `platform_abi` in the platform store |
@@ -55,11 +55,11 @@ c64re graph uses-hardware VMCSB                # routines touching a register, R
 c64re graph indirect '$FB'                     # every access through the pointer at $FB — the unknowns, as unknowns
 c64re graph stats | dump                        # counts / the canonical dump (Spec 818 D6)
 c64re graph migrate [--dry-run]                # 822: fold knowledge/*.json (or _legacy-822/) into the graph — idempotent, incremental
-c64re graph annotations-import <file> [--force] # 822.2: import <stem>_annotations.json into the human layer (disasm_prg does this on change)
+c64re graph annotations-import <file> [--force] # 822.2: import <stem>_annotations.json into the human layer (disasm does this on change)
 c64re graph export [--out <dir>]               # 822.2: the graph written back into the legacy record shapes (knowledge/export/*.json), for humans and git diff
 c64re graph resolve                            # 826.0: the RESOLVES_TO pass by hand (seed runs it)
 c64re graph machine t18s12-15_0300 c1541       # 826.0 T7: this owner is DRIVE code — 1541 ROM / ZP / VIA ids, drv space; no args lists the declarations
-c64re graph boundaries [--entries]             # 826.0: where a human drew a routine boundary 819 did not — splits, unseen, data outside code; --entries = analyze_prg entry points
+c64re graph boundaries [--entries]             # 826.0: where a human drew a routine boundary 819 did not — splits, unseen, data outside code; --entries = analyze entry points
 c64re graph signature '$FC00'                  # 826: in / out / clobbers / preserves / stack of a routine, partial and where
 c64re graph args '$FC00'                       # 826: what every caller passes — A ∈ {$01 ×2, $02 ×1, $03 ×1}, X ← $27E1, Y ← op:$2805; observed values beside the static ones
 ```

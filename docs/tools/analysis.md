@@ -7,9 +7,9 @@ TRXDis pipeline.
 
 | Tool | Description |
 |---|---|
-| `analyze_prg` | Heuristic analysis of a PRG → JSON with segments, cross-references, RAM facts, pointer tables. |
-| `disasm_prg` | Disassemble a PRG → KickAssembler `.asm` + 64tass `.tas` (both generated automatically). Re-running after annotations re-renders with labels and segment kinds applied. |
-| `disasm_raw` | The same renderer, for bytes with no PRG header — a depacked chunk, a relocated overlay, a block out of a track, drive code. Takes a file (or artifact id), an optional byte window and the address the bytes run at; reassembles to prove the listing, and registers it with the byte range it came from. |
+| `analyze` | Heuristic analysis of bytes → JSON with segments, cross-references, RAM facts, pointer tables. Headed or headerless: the load address decides (below). |
+| `disasm` | Disassemble bytes → KickAssembler `.asm` + 64tass `.tas` (both generated automatically), with a rebuild proof. Re-running after annotations re-renders with labels and segment kinds applied. |
+| `disasm_prg` · `disasm_raw` · `analyze_prg` | The old names. Aliases of the two above for one release — the same body, and each says so once in its answer, naming its successor. |
 | `ram_report` | Generate a RAM-state facts report (markdown) from analysis JSON. |
 | `pointer_report` | Generate a pointer-table facts report (markdown) from analysis JSON. |
 | `assemble_source` | Assemble a generated `.asm` or `.tas` file with KickAssembler or 64tass, optionally verifying byte-identical rebuilds. |
@@ -20,7 +20,7 @@ TRXDis pipeline.
 
 A cracked game very often boots through BASIC, and a PRG that loads at `$0801`
 is token bytes, not 6502. Run `basic_list` on such a file **before** reaching
-for `disasm_prg`.
+for `disasm`.
 
 ```
 basic_list { prg_path: "loader.prg" }
@@ -55,23 +55,42 @@ codes list by name (`{CLR}`, `{RVS ON}`, `{CYAN}`) and tokenize back to their
 byte. An unknown token renders as `{$XX}` and round-trips rather than being
 guessed at — BASIC extensions (Simons', Turbo, BASIC 7.0) are out of scope.
 
-In `analyze_prg` the walked region becomes one segment of kind `basic`, and
+In `analyze` the walked region becomes one segment of kind `basic`, and
 code discovery resumes after its terminator, so the machine code the `SYS`
-jumps into is still found. `disasm_prg` renders a `basic` segment as `.byte`
+jumps into is still found. `disasm` renders a `basic` segment as `.byte`
 data under a segment header instead of decoding 6502 across it.
 
-## Bytes with no PRG header
+## The load address decides, never the file name
 
 Most of what a session actually holds is not a PRG. A depacked chunk, a
 relocated overlay, a block lifted out of a raw track, a stretch of drive code:
-bytes, and an address they run at. `disasm_raw` renders those through the same
-decoder, renderer, annotation handling and rebuild proof as `disasm_prg` —
-nothing is prepended to the bytes and nothing on disk is rewritten.
+bytes, and an address they run at. There is one door for both, and one rule
+decides which reading it takes:
+
+- **`load_address` given** → the bytes are raw and start there. Nothing at the
+  front is treated as a header, nothing is prepended, nothing on disk is
+  rewritten.
+- **`load_address` omitted** → the file must carry a 2-byte load header, and
+  its first two bytes are read as the address.
+- **a header and a `load_address` that disagree** → refused, naming both. A
+  guess is never silently preferred to what the caller said.
+
+The extension is a hint in a message and never the decider: in a real corpus a
+payload carved out of a disk has no extension at all, a `.bin` is often a PRG
+and a `.prg` is often a raw block. So every answer opens with the reading it
+took and where the address came from:
 
 ```
-disasm_raw { path: "artifacts/overlay.bin", load_address: "$C000" }
-disasm_raw { path: "artifacts/track18.bin", offset: "$100", length: "$200",
-             load_address: "$0300", cpu: "drive" }
+Reading: no load_address given and s.bin read as headed — the first two bytes
+are $0A5F, so the body runs $0A5F-$1FFF; if that is wrong, pass load_address.
+```
+
+```
+disasm { path: "artifacts/loader.prg" }
+disasm { path: "artifacts/overlay.bin", load_address: "$C000" }
+disasm { path: "artifacts/track18.bin", offset: "$100", length: "$200",
+         load_address: "$0300", platform: "c1541" }
+analyze { path: "artifacts/drivecode.bin", load_address: "$0300" }
 ```
 
 Addresses are hex with `$`/`0x` optional, and a JSON number is taken as given.
@@ -83,20 +102,39 @@ Without an entry point the first byte is the only seed and the block is read
 linearly from there. An `entry_points` address that falls inside a decoded
 instruction breaks it: the bytes up to the seed render as data and the decode
 resumes at the seed, which is how a block whose first bytes are data still
-yields its code. (The same seeding now applies to `disasm_prg` when no analysis
-JSON is passed; before, the list was accepted and ignored.) For real code
-discovery, hand in an `analysis_json` from `analyze_prg`.
+yields its code. For real code discovery, hand in an `analysis_json` from
+`analyze` — which runs on headerless bytes too, so 1541 drive code gets
+segments without a fake load header being carved in front of it.
 
 The listing carries its own provenance — which file, which byte range, which
 address, what seeded it, whether it had an analysis — and so does the artifact
 row, so a listing found months later can say what bytes it is. Re-running with
 the same arguments updates that row rather than making a second one.
 
+## Which analysis a render uses
+
+Three rules, and the answer always names the file it used and why:
+
+1. `analysis_json` names a path and it **exists** → that is the analysis
+   rendered, unchanged, never swapped for anything else.
+2. It does not exist, or none is named → the **project store** is asked which
+   analysis is registered for *these bytes*. That is a link, not a path guess,
+   so an analysis written into a hashed payload directory by `extract_disk` is
+   found from the bytes it is about.
+3. Only with nothing in the store does the render fall back to the file sitting
+   beside the bytes.
+
+`no_analysis` refuses all three outright. On a raw reading an analysis that
+describes a different span is refused with both spans named: an analysis of a
+63 KB image rendered over a 640-byte window of it produces the image's segments
+at the window's addresses and a rebuild that cannot match.
+
 ## Output filenames
 
 - `<name>_analysis.json` — Phase 1 heuristic output
 - `<name>_disasm.asm` / `<name>_disasm.tas` — Disassembly (KickAssembler / 64tass)
-- `analysis/raw-disasm/<name>[_<window>]_<address>_disasm.asm` — `disasm_raw` output
+- `analysis/raw-disasm/<name>[_<window>]_<address>_disasm.asm` — a raw reading's listing
+- `analysis/raw-analysis/<name>[_<window>]_<address>_analysis.json` — a raw reading's analysis
 - `<name>_annotations.json` — Phase 2 LLM annotations
 - `<name>_RAM_STATE_FACTS.md` / `<name>_POINTER_TABLE_FACTS.md` — Reports
 
@@ -136,7 +174,7 @@ verification rebuild stays byte-identical.
 
 ## Output formats
 
-Every `disasm_prg` call produces two assembler dialects:
+Every `disasm` call produces two assembler dialects:
 
 | File | Format | Assembler |
 |---|---|---|

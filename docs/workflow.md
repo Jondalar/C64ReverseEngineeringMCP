@@ -221,8 +221,8 @@ Purpose:
 - run the reproducible tooling layer without semantic interpretation
 
 Examples:
-- `analyze_prg`
-- `disasm_prg`
+- `analyze`
+- `disasm`
 - `ram_report`
 - `pointer_report`
 - `extract_crt`

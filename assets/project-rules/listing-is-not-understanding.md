@@ -1,7 +1,7 @@
 ---
 description: A disassembly listing is read work, not understood work — routines need names before anything downstream counts.
 paths: ["**/*_disasm.asm", "**/*_disasm.tas", "**/*_disasm.tass"]
-tools: ["disasm_prg", "read_artifact", "build_annotated_listing_view"]
+tools: ["disasm", "read_artifact", "build_annotated_listing_view"]
 ---
 
 # A listing is not an understanding
@@ -15,7 +15,7 @@ The path from listing to kept knowledge:
 1. `propose_annotations` writes a draft `<name>_annotations.json`
 2. edit it — the draft's names are guesses, and a guess you did not check is worse
    than an absent name
-3. **`disasm_prg` again** — that is what imports the file into the graph's human layer.
+3. **`disasm` again** — that is what imports the file into the graph's human layer.
    Writing the annotations file changes nothing by itself.
 
 Step 3 is the one that gets skipped, and the skip is silent: the rendered listing shows

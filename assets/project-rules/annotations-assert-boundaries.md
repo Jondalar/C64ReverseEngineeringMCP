@@ -1,7 +1,7 @@
 ---
 description: An annotation names a thing; the model says where that thing begins and ends. Names without boundaries do not compose.
 paths: ["**/*_annotations.json"]
-tools: ["propose_annotations", "disasm_prg"]
+tools: ["propose_annotations", "disasm"]
 ---
 
 # A name is half a claim
@@ -10,7 +10,7 @@ An annotation gives a routine a name. It does not say where the routine ends, an
 does not say which subsystem it belongs to. Both live in the model:
 
 - `model_assert` — the boundary: a subsystem, its address window, its role
-- `disasm_prg` — imports this file into the graph's human layer
+- `disasm` — imports this file into the graph's human layer
 
 Measured on Ultima VI, a project with nine hundred annotated routines: 1853 routines,
 799 carrying an extent, 978 carrying a name, **zero carrying both**. The two layers were

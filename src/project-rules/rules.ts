@@ -5,7 +5,7 @@
 //
 //   paths:  the harness glob. MEASURED: it fires when a matching file is READ with the
 //           native Read tool, and not when one is written. An RE session reads through
-//           `read_artifact`, `graph_find`, `disasm_prg` — the harness never sees those
+//           `read_artifact`, `graph_find`, `disasm` — the harness never sees those
 //           touches. Run 4 made four native file accesses in 102 turns and all four were
 //           writes, so not one rule fired. It stays in the frontmatter because it costs
 //           nothing and does work for a human who opens a listing by hand.
@@ -77,7 +77,7 @@ export function allRules(): Rule[] {
  * More than one is normal and was measured: run 5 never called `propose_annotations`, it
  * wrote the annotation files by hand, so the rule that asks for a boundary never arrived
  * and the run ended with two boundaries. The moment a boundary is owed is the moment the
- * names are imported, which is `disasm_prg` — the same call that carries the listing
+ * names are imported, which is `disasm` — the same call that carries the listing
  * rule.
  */
 export function rulesForTool(toolName: string): Rule[] {

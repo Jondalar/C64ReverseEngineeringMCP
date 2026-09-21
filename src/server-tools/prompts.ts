@@ -193,14 +193,14 @@ Use EXACTLY these file paths — do not invent your own naming scheme.
 ### Step 1.1: Analyze PRG
 Run this tool call:
 \`\`\`
-analyze_prg(prg_path="${prg_path}", output_json="${base}_analysis.json", entry_points=[${entries !== "(auto-detect from PRG header)" ? `"${entries.split(",").join('", "')}"` : ""}])
+analyze(path="${prg_path}", output_json="${base}_analysis.json", entry_points=[${entries !== "(auto-detect from PRG header)" ? `"${entries.split(",").join('", "')}"` : ""}])
 \`\`\`
 WAIT for it to complete. Verify the output file exists.
 
 ### Step 1.2: Disassemble PRG
 Run this tool call (requires step 1.1 output):
 \`\`\`
-disasm_prg(prg_path="${prg_path}", output_asm="${base}_disasm.asm", analysis_json="${base}_analysis.json"${entries !== "(auto-detect from PRG header)" ? `, entry_points=["${entries.split(",").join('", "')}"]` : ""})
+disasm(path="${prg_path}", output_asm="${base}_disasm.asm", analysis_json="${base}_analysis.json"${entries !== "(auto-detect from PRG header)" ? `, entry_points=["${entries.split(",").join('", "')}"]` : ""})
 \`\`\`
 WAIT for it to complete. Verify the output file exists.
 
@@ -265,9 +265,9 @@ PHASE 2 CHECKPOINT: You should now have:
 ## PHASE 3: Final Render + Verification
 
 ### Step 3.1: Re-render with annotations
-Run disasm_prg AGAIN — the renderer loads the annotations automatically:
+Run disasm AGAIN — the renderer loads the annotations automatically:
 \`\`\`
-disasm_prg(prg_path="${prg_path}", output_asm="${base}_final.asm", analysis_json="${base}_analysis.json"${entries !== "(auto-detect from PRG header)" ? `, entry_points=["${entries.split(",").join('", "')}"]` : ""})
+disasm(path="${prg_path}", output_asm="${base}_final.asm", analysis_json="${base}_analysis.json"${entries !== "(auto-detect from PRG header)" ? `, entry_points=["${entries.split(",").join('", "')}"]` : ""})
 \`\`\`
 
 ### Step 3.2: Verify byte-identical rebuild
@@ -372,7 +372,7 @@ Filesystem extraction is only the "easy path", not the default truth.
 1. Run \`inspect_disk\` on the image
 2. If the directory looks sane, run \`extract_disk\`
 3. Identify the likely boot PRG / main payload from the extracted files
-4. Continue with \`analyze_prg\` and \`disasm_prg\` on the chosen PRG
+4. Continue with \`analyze\` and \`disasm\` on the chosen PRG
 
 ### If the goal is "original behavior / protection / loader analysis"
 1. Prefer \`.g64\` over \`.d64\` if both exist
