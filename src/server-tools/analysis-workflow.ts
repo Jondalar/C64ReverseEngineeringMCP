@@ -320,6 +320,45 @@ export function normalizeRelocationInput(
   return sorted;
 }
 
+// ── D3 — the bulk door ──────────────────────────────────────────────────────
+//
+// A run over one game extracted 217 payloads and then had to put each one through
+// `analyze` and `disasm` on its own: 400+ round trips through two doors that each
+// take exactly ONE path. `disasm_menu` is not the missing door — it wants an
+// extract_disk manifest, not a list of payloads. The run worked around the
+// arithmetic by spawning eight subagents, which is a scheduling answer to a door
+// problem.
+//
+// `paths` is the door. One call, the SAME body per path (no second code path to
+// drift), a named result per path, and an answer that stays one line per path
+// however many there are — 217 full listings is not a readable answer, it is a
+// different way of losing the report.
+
+/** What one path's trip through a door did — filled by the door, read by the batch. */
+interface DoorOutcome {
+  ok?: boolean;
+  outputPath?: string;
+  /** The rebuild verdict / analysis headline, for the one line this path gets. */
+  verdict?: string;
+  /** Why it did not work, in the door's own words. */
+  reason?: string;
+}
+
+/** The first thing a failed child process actually complained about, on one line. */
+function firstComplaint(result: { stdout?: string; stderr?: string }): string {
+  for (const line of `${result.stderr ?? ""}\n${result.stdout ?? ""}`.split(/\r?\n/)) {
+    const text = line.trim();
+    if (text && !/^\s*at\s/.test(text)) return text.slice(0, 160);
+  }
+  return "";
+}
+
+/** One line's worth of a long refusal: the first sentence that carries the cause. */
+function reasonHeadline(reason: string | undefined, max = 150): string {
+  const flat = (reason ?? "it failed, and said nothing about why").replace(/\s+/g, " ").trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
+}
+
 /** The stored span a PRG covers, read from its 2-byte load address and its size. */
 export function prgSpan(prgAbs: string): { loadAddress: number; lastAddress: number; name: string } {
   const head = readFileSync(prgAbs);
@@ -406,9 +445,13 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     output_asm?: string; platform?: "c64" | "c1541"; cpu?: "c64" | "drive";
     bank?: number; space?: string;
     relocations?: Array<Record<string, unknown>>;
-  }): Promise<{ content: { type: "text"; text: string }[] }> {
+    paths?: string[];
+  }, outcome?: DoorOutcome): Promise<{ content: { type: "text"; text: string }[] }> {
     const pd = context.projectDir(a.project_dir ?? a.path ?? a.prg_path, true);
-    const refuse = (text: string) => ({ content: [{ type: "text" as const, text: `# ${invokedAs} refused\n\n${text}` }] });
+    const refuse = (text: string) => {
+      if (outcome) { outcome.ok = false; outcome.reason = text; }
+      return { content: [{ type: "text" as const, text: `# ${invokedAs} refused\n\n${text}` }] };
+    };
     const service = new ProjectKnowledgeService(pd);
 
     const located = locateBytes(pd, service, a);
@@ -557,6 +600,10 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     if (result.exitCode !== 0) {
       const failed = context.cliResultToContent(result) as { content: { type: "text"; text: string }[] };
       failed.content[0]!.text = `${reading.line}\n\n${failed.content[0]!.text}`;
+      if (outcome) {
+        outcome.ok = false;
+        outcome.reason = `the renderer exited ${result.exitCode}${firstComplaint(result) ? ` — ${firstComplaint(result)}` : ""}`;
+      }
       return failed;
     }
 
@@ -772,6 +819,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       knowledgeRegistration.runPath ? `Knowledge run: ${knowledgeRegistration.runPath}` : (knowledgeRegistration.message ?? ""),
       aliasNotice(invokedAs),
     ].filter((line) => line !== "" && line !== undefined).join("\n");
+    if (outcome) { outcome.ok = true; outcome.outputPath = outAbs; outcome.verdict = verdictLine; }
     return context.cliResultToContent(result) as { content: { type: "text"; text: string }[] };
   }
 
@@ -781,9 +829,13 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     load_address?: string | number; headed?: boolean;
     offset?: string | number; length?: string | number;
     entry_points?: Array<string | number>; output_json?: string;
-  }): Promise<{ content: { type: "text"; text: string }[] }> {
+    paths?: string[];
+  }, outcome?: DoorOutcome): Promise<{ content: { type: "text"; text: string }[] }> {
     const pd = context.projectDir(a.project_dir ?? a.path ?? a.prg_path, true);
-    const refuse = (text: string) => ({ content: [{ type: "text" as const, text: `# ${invokedAs} refused\n\n${text}` }] });
+    const refuse = (text: string) => {
+      if (outcome) { outcome.ok = false; outcome.reason = text; }
+      return { content: [{ type: "text" as const, text: `# ${invokedAs} refused\n\n${text}` }] };
+    };
     const service = new ProjectKnowledgeService(pd);
 
     const located = locateBytes(pd, service, a);
@@ -814,6 +866,13 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       ? resolve(pd, a.output_json)
       : defaultAnalysisPath(pd, sourceAbs, reading);
     mkdirSync(dirname(outAbs), { recursive: true });
+
+    // Inside a batch the whole batch is ALREADY one job (see runBatch): a second
+    // layer of job mode would hand back a job_id per path and turn one call back
+    // into N polls, which is the round-trip arithmetic this door exists to end.
+    if (outcome) {
+      return runAnalyzeBody({ invokedAs, pd, sourceAbs, outAbs, reading, entries, entryPoints: a.entry_points ?? [] }, outcome);
+    }
 
     const job = startAnalysisJob(invokedAs, outAbs, () =>
       runAnalyzeBody({ invokedAs, pd, sourceAbs, outAbs, reading, entries, entryPoints: a.entry_points ?? [] }));
@@ -853,7 +912,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
   async function runAnalyzeBody(a: {
     invokedAs: string; pd: string; sourceAbs: string; outAbs: string;
     reading: ByteReading; entries: string; entryPoints: Array<string | number>;
-  }): Promise<{ content: { type: "text"; text: string }[] }> {
+  }, outcome?: DoorOutcome): Promise<{ content: { type: "text"; text: string }[] }> {
     const { invokedAs, pd, sourceAbs, outAbs, reading, entries } = a;
     const asHex = (value: number) => `$${value.toString(16).toUpperCase()}`;
     const args: string[] = [sourceAbs, outAbs];
@@ -867,6 +926,10 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     if (result.exitCode !== 0) {
       const failed = context.cliResultToContent(result) as { content: { type: "text"; text: string }[] };
       failed.content[0]!.text = `${reading.line}\n\n${failed.content[0]!.text}`;
+      if (outcome) {
+        outcome.ok = false;
+        outcome.reason = `the analyser exited ${result.exitCode}${firstComplaint(result) ? ` — ${firstComplaint(result)}` : ""}`;
+      }
       return failed;
     }
     const packerHints = await detectPackerHints({ projectDir: pd, prgPath: sourceAbs });
@@ -934,14 +997,140 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     if (packerSummary.length > 0) result.stdout += `\n${packerSummary.join("\n")}`;
     const notice = aliasNotice(invokedAs);
     if (notice) result.stdout += `\n${notice}`;
+    if (outcome) {
+      outcome.ok = true;
+      outcome.outputPath = outAbs;
+      outcome.verdict = `${reading.kind === "raw" ? "raw" : "headed"} · ${describeCodeSeeds(outAbs).replace(/\s+/g, " ").trim().slice(0, 90) || "analysed"}`;
+    }
     return context.cliResultToContent(result) as { content: { type: "text"; text: string }[] };
+  }
+
+  // ── D3 — the bulk door ────────────────────────────────────────────────────
+
+  /** How many paths one call may carry. Past this the answer stops being a report. */
+  const BATCH_LIMIT = 512;
+
+  /**
+   * Run one door over many paths, in order, and answer with ONE report.
+   *
+   * Three rules, and they are the whole point:
+   *   • the same body — each path goes through exactly the call a single-path
+   *     caller would make, so nothing can be true in a batch and false alone;
+   *   • per-path failure — a bad path is named with its reason and the rest keep
+   *     going; one unreadable file may not sink 216 good ones;
+   *   • one line per path — the per-path answers are NOT concatenated. At 217
+   *     payloads that is megabytes of listing, and a report nobody can read is
+   *     the same defect as no report.
+   */
+  async function runBatch(opts: {
+    invokedAs: string;
+    verb: string;
+    paths: string[];
+    projectDir: string;
+    outputParam: "output_asm" | "output_json";
+    outputValue: string | undefined;
+    single: string | undefined;
+    artifactId: string | undefined;
+    each: (path: string, outcome: DoorOutcome) => Promise<unknown>;
+  }): Promise<{ content: { type: "text"; text: string }[] }> {
+    const { invokedAs, verb } = opts;
+    const refuse = (text: string) => ({ content: [{ type: "text" as const, text: `# ${invokedAs} refused\n\n${text}` }] });
+
+    if (opts.single !== undefined) {
+      return refuse(
+        `paths and path were both given. Name the bytes once: \`path\` for a single file, or \`paths\` for a batch — `
+        + `not both, because a batch that silently ignored one of them would be wrong in a way nothing prints.`,
+      );
+    }
+    if (opts.artifactId !== undefined) {
+      return refuse(
+        `paths and artifact_id were both given. \`paths\` is a list of FILE paths; an artifact id names exactly one `
+        + `registered artifact. Use one or the other.`,
+      );
+    }
+    if (opts.paths.length === 0) {
+      return refuse(`paths is empty. Pass at least one path, or use \`path\` for a single file. Nothing was ${verb}.`);
+    }
+    if (opts.outputValue !== undefined) {
+      return refuse(
+        `paths and ${opts.outputParam} were both given. One output name cannot hold ${opts.paths.length} results — `
+        + `they would overwrite each other and only the last would survive. Leave ${opts.outputParam} out: in a batch `
+        + `every path gets its own default output, which is the same place a single-path call would put it.`,
+      );
+    }
+    if (opts.paths.length > BATCH_LIMIT) {
+      return refuse(
+        `${opts.paths.length} paths is past the ${BATCH_LIMIT}-path limit for one call. Split the list; the door is `
+        + `sequential either way, so two calls of ${BATCH_LIMIT} cost what one call of ${opts.paths.length} would.`,
+      );
+    }
+
+    const seen = new Set<string>();
+    const unique = opts.paths.filter((p) => {
+      const key = resolve(opts.projectDir, p);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const collapsed = opts.paths.length - unique.length;
+
+    const rel = (abs: string | undefined) => {
+      if (!abs) return "";
+      const root = `${opts.projectDir}/`;
+      return abs.startsWith(root) ? abs.slice(root.length) : abs;
+    };
+
+    const ok: string[] = [];
+    const bad: Array<{ path: string; reason: string }> = [];
+    for (const p of unique) {
+      const outcome: DoorOutcome = {};
+      try {
+        await opts.each(p, outcome);
+      } catch (e) {
+        outcome.ok = false;
+        outcome.reason = e instanceof Error ? e.message : String(e);
+      }
+      if (outcome.ok) {
+        const verdict = (outcome.verdict ?? "").replace(/\s+/g, " ").trim();
+        ok.push(`  OK      ${p} → ${rel(outcome.outputPath)}${verdict ? `  ${verdict.slice(0, 110)}` : ""}`);
+      } else {
+        bad.push({ path: p, reason: outcome.reason ?? "" });
+      }
+    }
+
+    const SHOWN_IN_FULL = 10;
+    const lines: string[] = [
+      `# ${invokedAs} — ${unique.length} paths: ${ok.length} ${verb}, ${bad.length} failed`,
+      ...(collapsed > 0 ? ["", `(${collapsed} duplicate path(s) collapsed — each file is done once.)`] : []),
+      "",
+      ...ok,
+      ...bad.map((b) => `  FAILED  ${b.path} — ${reasonHeadline(b.reason)}`),
+    ];
+    if (bad.length > 0) {
+      lines.push("", `FAILED in full — ${Math.min(bad.length, SHOWN_IN_FULL)} of ${bad.length}:`);
+      for (const b of bad.slice(0, SHOWN_IN_FULL)) {
+        lines.push("", `  ${b.path}`);
+        for (const l of (b.reason || "(no reason given)").split("\n").slice(0, 6)) lines.push(`    ${l}`);
+      }
+      if (bad.length > SHOWN_IN_FULL) {
+        lines.push("", `  …and ${bad.length - SHOWN_IN_FULL} more, each named on its own FAILED line above.`);
+      }
+    }
+    lines.push(
+      "",
+      `${ok.length} ${verb}, ${bad.length} failed, of ${unique.length} paths. Every path went through the same door a `
+      + `single-path call goes through — written, registered and checked the same way. Only the per-path headline is `
+      + `printed here, because ${unique.length} full answers is not a report: re-run one path on its own (\`path\`) for its full answer.`,
+    );
+    return { content: [{ type: "text" as const, text: lines.join("\n") }] };
   }
 
   // ── the shared input shapes ───────────────────────────────────────────────
   const BYTES_INPUT = {
     project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from path to knowledge/phase-plan.json."),
-    path: z.string().optional().describe("Path to the file holding the bytes (absolute or project-relative). Use this OR artifact_id. The extension is never consulted: a .bin may be a PRG and a .prg may be a raw block."),
-    artifact_id: z.string().optional().describe("Id of an already-registered artifact holding the bytes. Use this OR path."),
+    path: z.string().optional().describe("Path to the file holding the bytes (absolute or project-relative). Use this OR artifact_id OR paths. The extension is never consulted: a .bin may be a PRG and a .prg may be a raw block."),
+    paths: z.array(z.string()).optional().describe("MANY files in ONE call, instead of one round trip each — an extract that produced 217 payloads is one call, not 217. Each path goes through exactly the body a single-path call goes through and gets its own default output; the other arguments here apply to all of them, so a batch is for files that are read the same way. A path that fails is NAMED with its reason and the rest keep going — one bad file never sinks the batch. The answer is one line per path, not the full per-path listing; re-run a single path with `path` when you want its whole answer. Use this OR path OR artifact_id, and leave the output-name argument out — one name cannot hold N results."),
+    artifact_id: z.string().optional().describe("Id of an already-registered artifact holding the bytes. Use this OR path OR paths."),
     load_address: z.union([z.string(), z.number()]).optional().describe("Where the FIRST byte runs. GIVEN: the bytes are raw and start there, and nothing at the front is treated as a header. OMITTED: the file must carry a 2-byte load header and its first two bytes are read as this address. An address is HEX: \"C000\", \"$C000\" and \"0xC000\" are the same; a JSON number is taken as-is."),
     headed: z.boolean().optional().describe("Say outright whether these bytes carry a 2-byte load header. Normally unnecessary — load_address decides. Pass true with a load_address to have a disagreeing header refused by name; pass false to read a file the project store recorded as a PRG from offset 0 as raw."),
     offset: z.union([z.string(), z.number()]).optional().describe("Byte offset into the file where the block starts. Requires load_address: a window's first byte is not a load header. Default 0. Same rule as an address: a string is hex, a JSON number is taken as given."),
@@ -951,7 +1140,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "disasm",
-    "Disassemble bytes to KickAssembler .asm + 64tass .tas, segment-aware when an analysis describes them, with a rebuild proof. Use for any listing of any bytes: a PRG, a payload carved off a disk, a depacked chunk, a relocated overlay, a block lifted out of a raw track, 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there with nothing at the front treated as a header; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. A header and a load_address that disagree are refused, naming both. Every answer opens with the reading it took and where the address came from, so a wrong reading is caught before the listing is believed. Not for the structural scan (use analyze), for menus / multi-file containers (use disasm_menu) or for the running machine's memory (use runtime_monitor_disasm). The analysis it renders with: analysis_json names one and a named analysis that exists is used unchanged and never swapped; if it does not exist, or none is named, the project store is asked which analysis is registered for THESE bytes, and the answer names what it used and why — only with nothing in the store does it fall back to the file beside the bytes, and no_analysis refuses one outright. Pass offset/length to narrow a window (they require load_address, because a window's first byte is not a header); a whole-file analysis over a window is refused rather than rendered. A `<stem>_annotations.json` beside the bytes, the output or the analysis is auto-applied, or name one with annotations_path: names (labels, routines, a segment's `label`) apply with or without an analysis, while segment kinds and pointer/jump/immediate tables need one — the listing's header line says which happened and the answer quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a mistyped entry (e.g. `addr` for `address`) is skipped and reported as `[annotations] applied N, skipped M`; it never crashes the rebuild. In a project created since 2026-09-19 no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered and the refusal names every offender. Whatever is applied is imported into the knowledge graph. For relocated code (stored at one address, executed at another) pass `relocations`: each region renders as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the proposals from analyze / propose_annotations (draft.relocations[]) and copy them straight in. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). Full annotation reference: docs/annotations-reference.md. Inputs: path or artifact_id, optional load_address/offset/length/entry_points/analysis_json/no_analysis/annotations_path/platform/bank/space/relocations/output_asm. Returns: the reading it took, the .asm/.tas paths, the analysis it used and why, the provenance, what was seeded, and the rebuild verdict.",
+    "Disassemble bytes to KickAssembler .asm + 64tass .tas, segment-aware when an analysis describes them, with a rebuild proof. Use for any listing of any bytes: a PRG, a payload carved off a disk, a depacked chunk, a relocated overlay, a block lifted out of a raw track, 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there with nothing at the front treated as a header; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. A header and a load_address that disagree are refused, naming both. Every answer opens with the reading it took and where the address came from, so a wrong reading is caught before the listing is believed. Not for the structural scan (use analyze), for menus / multi-file containers (use disasm_menu) or for the running machine's memory (use runtime_monitor_disasm). The analysis it renders with: analysis_json names one and a named analysis that exists is used unchanged and never swapped; if it does not exist, or none is named, the project store is asked which analysis is registered for THESE bytes, and the answer names what it used and why — only with nothing in the store does it fall back to the file beside the bytes, and no_analysis refuses one outright. Pass offset/length to narrow a window (they require load_address, because a window's first byte is not a header); a whole-file analysis over a window is refused rather than rendered. A `<stem>_annotations.json` beside the bytes, the output or the analysis is auto-applied, or name one with annotations_path: names (labels, routines, a segment's `label`) apply with or without an analysis, while segment kinds and pointer/jump/immediate tables need one — the listing's header line says which happened and the answer quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a mistyped entry (e.g. `addr` for `address`) is skipped and reported as `[annotations] applied N, skipped M`; it never crashes the rebuild. In a project created since 2026-09-19 no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered and the refusal names every offender. Whatever is applied is imported into the knowledge graph. For relocated code (stored at one address, executed at another) pass `relocations`: each region renders as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the proposals from analyze / propose_annotations (draft.relocations[]) and copy them straight in. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). Full annotation reference: docs/annotations-reference.md. MANY FILES AT ONCE: pass `paths` instead of `path` and one call renders every one of them, each through the same body a single-path call goes through — an extract that produced 217 payloads is one call, not 217. A path that fails is named with its reason and the rest still render; the answer is one line per path, not 217 listings, and you leave output_asm out because one name cannot hold N listings. Inputs: path or paths or artifact_id, optional load_address/offset/length/entry_points/analysis_json/no_analysis/annotations_path/platform/bank/space/relocations/output_asm. Returns: the reading it took, the .asm/.tas paths, the analysis it used and why, the provenance, what was seeded, and the rebuild verdict — or, for `paths`, one line per path and the failures named.",
     {
       ...BYTES_INPUT,
       analysis_json: z.string().optional().describe("Path to an analysis JSON for segment-aware rendering. Named and present, it is the analysis rendered and is never swapped. Named and absent, or omitted, the project store is asked which analysis is registered for these bytes; only then the file beside them."),
@@ -975,17 +1164,61 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         })).optional().describe("Runtime-addressed code/data kind hints inside the region."),
       })).optional().describe("Relocated regions, rendered as .pseudopc / .logical blocks at their runtime PC while the stored bytes stay byte-exact. A region outside the span, a reversed range or two overlapping regions are refused by name before anything is rendered."),
     },
-    safeHandler("disasm", async (args) => runDisasm("disasm", args as Parameters<typeof runDisasm>[1])),
+    safeHandler("disasm", async (args) => {
+      const a = args as Parameters<typeof runDisasm>[1] & { paths?: string[] };
+      if (a.paths === undefined) return runDisasm("disasm", a);
+      const pd = context.projectDir(a.project_dir ?? a.paths[0], true);
+      const batch = () => runBatch({
+        invokedAs: "disasm", verb: "rendered", paths: a.paths!, projectDir: pd,
+        outputParam: "output_asm", outputValue: a.output_asm,
+        single: a.path ?? a.prg_path, artifactId: a.artifact_id,
+        each: (path, outcome) => runDisasm("disasm", { ...a, paths: undefined, path, project_dir: pd }, outcome),
+      });
+      // A 217-path batch takes as long as 217 calls; the MCP host drops the
+      // connection at its stall limit. One job for the WHOLE batch (not one per
+      // path — that would be N polls again) keeps the connection and hands back
+      // a job_id the way a single large analyse already does.
+      const job = startAnalysisJob("disasm", pd, batch);
+      if (await waitForJob(job, ANALYZE_JOB_GRACE_MS)) {
+        if (job.state === "failed") throw new Error(job.error ?? "disasm batch failed");
+        return job.result as { content: { type: "text"; text: string }[] };
+      }
+      return { content: [{ type: "text" as const, text: [
+        `disasm is still working through ${a.paths.length} paths — switched to background job mode.`,
+        `job_id: ${job.id}`,
+        `Poll with analysis_job_status { job_id } every ~30s. Do NOT re-run disasm for these paths.`,
+      ].join("\n") }] };
+    }),
   );
 
   server.tool(
     "analyze",
-    "Run the heuristic analysis pipeline over bytes and produce structured JSON — segments, cross-references, RAM facts, pointer tables, relocation proposals. Use first on anything you are about to disassemble, headed or not: a PRG, a depacked chunk, a relocated overlay, a block of 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. A header and a load_address that disagree are refused, naming both, and every answer opens with the reading it took. Not for producing assembly (use disasm next; it finds this analysis by asking the project store, whatever directory it sits in) and not for disk / cart images (extract first). Pass offset/length to analyse a window, so the analysis and the listing that consumes it describe one span instead of two; they require load_address, because a window's first byte is not a header. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). Inputs: path or artifact_id, optional load_address/headed/offset/length/entry_points/output_json. Returns: the reading it took, the analysis JSON path and a summary of what was seeded and what was refused.",
+    "Run the heuristic analysis pipeline over bytes and produce structured JSON — segments, cross-references, RAM facts, pointer tables, relocation proposals. Use first on anything you are about to disassemble, headed or not: a PRG, a depacked chunk, a relocated overlay, a block of 1541 drive code. THE LOAD ADDRESS DECIDES HOW THE BYTES ARE READ, NEVER THE FILE NAME — pass load_address and the bytes are raw and start there; leave it out and the file must carry a 2-byte load header, whose first two bytes are read as the address. A header and a load_address that disagree are refused, naming both, and every answer opens with the reading it took. Not for producing assembly (use disasm next; it finds this analysis by asking the project store, whatever directory it sits in) and not for disk / cart images (extract first). Pass offset/length to analyse a window, so the analysis and the listing that consumes it describe one span instead of two; they require load_address, because a window's first byte is not a header. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes). MANY FILES AT ONCE: pass `paths` instead of `path` and one call analyses every one of them, each through the same body a single-path call goes through — an extract that produced 217 payloads is one call, not 217. A path that fails is named with its reason and the rest are still analysed; the answer is one line per path, and you leave output_json out because one name cannot hold N analyses. Inputs: path or paths or artifact_id, optional load_address/headed/offset/length/entry_points/output_json. Returns: the reading it took, the analysis JSON path and a summary of what was seeded and what was refused — or, for `paths`, one line per path and the failures named.",
     {
       ...BYTES_INPUT,
       output_json: z.string().optional().describe("Output path for the analysis JSON. Default for a headed file: <stem>_analysis.json next to it; for raw bytes: analysis/raw-analysis/<stem>[_<window>]_<address>_analysis.json."),
     },
-    safeHandler("analyze", async (args) => runAnalyze("analyze", args as Parameters<typeof runAnalyze>[1])),
+    safeHandler("analyze", async (args) => {
+      const a = args as Parameters<typeof runAnalyze>[1] & { paths?: string[] };
+      if (a.paths === undefined) return runAnalyze("analyze", a);
+      const pd = context.projectDir(a.project_dir ?? a.paths[0], true);
+      const batch = () => runBatch({
+        invokedAs: "analyze", verb: "analysed", paths: a.paths!, projectDir: pd,
+        outputParam: "output_json", outputValue: a.output_json,
+        single: a.path ?? a.prg_path, artifactId: a.artifact_id,
+        each: (path, outcome) => runAnalyze("analyze", { ...a, paths: undefined, path, project_dir: pd }, outcome),
+      });
+      const job = startAnalysisJob("analyze", pd, batch);
+      if (await waitForJob(job, ANALYZE_JOB_GRACE_MS)) {
+        if (job.state === "failed") throw new Error(job.error ?? "analyze batch failed");
+        return job.result as { content: { type: "text"; text: string }[] };
+      }
+      return { content: [{ type: "text" as const, text: [
+        `analyze is still working through ${a.paths.length} paths — switched to background job mode.`,
+        `job_id: ${job.id}`,
+        `Poll with analysis_job_status { job_id } every ~30s. Do NOT re-run analyze for these paths.`,
+      ].join("\n") }] };
+    }),
   );
 
   // ── the old names ─────────────────────────────────────────────────────────
@@ -1008,9 +1241,9 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "analysis_job_status",
-    "Use to poll a background job started by analyze (image too large to finish synchronously) or by runtime_loader_lens (capture too large to fold synchronously) — both hand back a job_id instead of stalling the call. Not for launching the work itself (use analyze / runtime_loader_lens). Returns the full original tool result once done. Inputs: job_id. Returns: running (elapsed) | done (result) | failed (error).",
+    "Use to poll a background job started by analyze or disasm (an image too large, or a `paths` batch too long, to finish synchronously) or by runtime_loader_lens (capture too large to fold synchronously) — each hands back a job_id instead of stalling the call. Not for launching the work itself (use analyze / disasm / runtime_loader_lens). Returns the full original tool result once done — for a batch, the whole per-path report. Inputs: job_id. Returns: running (elapsed) | done (result) | failed (error).",
     {
-      job_id: z.string().describe("Job id returned by analyze."),
+      job_id: z.string().describe("Job id returned by analyze, by a disasm/analyze `paths` batch, or by runtime_loader_lens."),
     },
     safeHandler("analysis_job_status", async ({ job_id }) => {
       const job = getAnalysisJob(job_id);
