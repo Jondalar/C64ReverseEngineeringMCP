@@ -87,3 +87,25 @@ every row when guessed, and the wrong numbers still look plausible:
 
 Hold the probe against the disassembly you just read before trusting the rest of the
 table. Three rows are enough to see a flipped polarity.
+
+**Say where the addresses are counted from.** By default a column's `at` is an address
+in the medium's own terms — a byte offset into a `.d64` / raw image counted from `$0000`,
+or the address inside the bank window a `.crt`'s CHIP packet declares.
+
+A table that lives inside a payload the loader has already pulled into RAM has no such
+address, and a `.g64` holds flux-level tracks with no usable byte offset at all. For
+those, pass `payload_path` and `payload_load_address` instead of `medium_path`: every
+`at` is then read as the **runtime address** the loader's disassembly quotes, and the
+payload's own 2-byte load word is taken out of the mapping once — not folded into every
+column address by hand. `payload_header_bytes` is inferred from the bytes when omitted
+(if the first two bytes *are* the load address they are a load word), and the answer
+says which reading it took. `payload_origin` records where the payload came from in the
+medium's own words — "T18/S4 of side 1" — for a medium that has no offset to give.
+
+Naming both framings at once is refused rather than quietly preferred, and a
+payload-framed table resolves later with no `medium_path` at all: the framing is on the
+record.
+
+**A disk side is the `side` column role, not `bank`.** `bank` is handed back to the
+reader as the bank a deref reads through, so a side number living there addresses a
+cartridge bank that does not exist. `side` is data about the row and nothing else.

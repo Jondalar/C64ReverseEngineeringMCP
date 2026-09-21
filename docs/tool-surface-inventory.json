@@ -501,8 +501,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "declare",
       "hasSpec": false,
-      "firstSentence": "Describe a lookup table you found on a medium (cartridge index, disk directory, custom LUT) so its rows can be resolved.",
-      "desc": "Describe a lookup table you found on a medium (cartridge index, disk directory, custom LUT) so its rows can be resolved. Use after reading the loader's disassembly, to record HOW the table is laid out — identity (index|key-bytes|nested), layout (packed=contiguous records | columns=parallel arrays), and one column per role with its address. Rows are NOT stored: they are derived from this plus the bytes, so a corrected descriptor corrects every row. Writes are structurally checked and answered with a PROBE of the first resolved rows — hold them against your disassembly, because a wrong codec polarity or a missed pointer-deref is silently wrong for every row and still looks plausible. Not for registering a payload (use register_payload) or the routine that reads the table (use declare_loader_entrypoint, then point its lut_descriptor_id here).",
+      "firstSentence": "Describe a lookup table so its rows can be resolved — a cartridge index, a disk directory, a custom LUT, or an index table inside a payload the loader has already loaded.",
+      "desc": "Describe a lookup table so its rows can be resolved — a cartridge index, a disk directory, a custom LUT, or an index table inside a payload the loader has already loaded. Use after reading the loader's disassembly, to record HOW the table is laid out — identity (index|key-bytes|nested), layout (packed=contiguous records | columns=parallel arrays), and one column per role with its address. SAY WHERE THE ADDRESSES ARE COUNTED FROM: by default they are the medium's own (a byte offset into a .d64/raw image, the address inside a .crt bank window); pass payload_path + payload_load_address instead and they are RUNTIME addresses inside that loaded payload, which is the only framing that can be true for a .g64, because a .g64 has no usable byte offsets to count. A payload's own 2-byte load word is taken out of the mapping once, here — never folded into every column address by hand. A disk side is the `side` column role, not `bank`: bank is handed to the reader as the bank a deref reads through. Rows are NOT stored: they are derived from this plus the bytes, so a corrected descriptor corrects every row. Writes are structurally checked and answered with a PROBE of the first resolved rows — hold them against your disassembly, because a wrong codec polarity or a missed pointer-deref is silently wrong for every row and still looks plausible. Not for registering a payload (use register_payload) or the routine that reads the table (use declare_loader_entrypoint, then point its lut_descriptor_id here).",
       "tier": "default?"
     },
     {
@@ -1536,8 +1536,8 @@
       "file": "project-knowledge/mcp-tools.ts",
       "ns": "resolve",
       "hasSpec": false,
-      "firstSentence": "Resolve a described table's rows against the medium bytes — the whole table or a window of it.",
-      "desc": "Resolve a described table's rows against the medium bytes — the whole table or a window of it. Use to read what a table actually claims: per row the bank, the payload start, the length, the destination (following a pointer when the descriptor says to) and packed/raw. Rows are derived on every call, never stored, so this is always current with the descriptor. Not for describing the table (use declare_lut_descriptor).",
+      "firstSentence": "Resolve a described table's rows against the bytes — the whole table or a window of it.",
+      "desc": "Resolve a described table's rows against the bytes — the whole table or a window of it. Use to read what a table actually claims: per row the bank or disk side, the payload start, the length, the destination (following a pointer when the descriptor says to) and packed/raw. A payload-framed table finds its own bytes from the descriptor, so medium_path is only for a table that lives on a medium. Rows are derived on every call, never stored, so this is always current with the descriptor. Not for describing the table (use declare_lut_descriptor).",
       "tier": "default?"
     },
     {

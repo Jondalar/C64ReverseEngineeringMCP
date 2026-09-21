@@ -7,7 +7,7 @@
 // medium-agnostic behind `MediumReader`.
 
 import { readFileSync, existsSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { basename, isAbsolute, resolve } from "node:path";
 import type { MediumReader } from "./lut-resolver.js";
 
 /** A .crt is a 64-byte header followed by CHIP packets, each with its own 16-byte
@@ -112,6 +112,64 @@ export function readerForMedium(
     return { reader, note, path: abs };
   }
   return { ...flatReader(abs), path: abs };
+}
+
+// ── the table that is NOT on the medium ─────────────────────────────────────
+//
+// Every reader above answers in a MEDIUM's terms. A game whose index tables live
+// inside a payload the loader has already pulled into RAM has no such address, and a
+// .g64 has no usable byte offset to count from in the first place. The workaround was
+// to point `medium_path` at the extracted .prg and hand-offset every column by two for
+// the CBM load-address word: right numbers, false record, and the two bytes folded in
+// by hand where nothing could see them. This is the reader that makes the true framing
+// expressible — the addresses stay the RUNTIME ones the disassembly quotes.
+
+const hex4 = (n: number) => `$${(n & 0xffff).toString(16).toUpperCase().padStart(4, "0")}`;
+
+/**
+ * How many bytes at the head of an extracted payload are not payload.
+ *
+ * The same rule the disassembly doors use, and for the same reason: THE LOAD ADDRESS
+ * DECIDES, never the file name. When the first two bytes ARE the declared load
+ * address, the file carries a CBM load word and the body starts at offset 2.
+ */
+export function inferPayloadHeaderBytes(abs: string, loadAddress: number): { bytes: number; why: string } {
+  const buf = readFileSync(abs);
+  if (buf.length >= 2 && (buf[0]! | (buf[1]! << 8)) === loadAddress) {
+    return {
+      bytes: 2,
+      why: `its first two bytes are ${hex4(loadAddress)}, the load address you declared, so they are a CBM load word and the body starts at offset 2`,
+    };
+  }
+  return { bytes: 0, why: `its first two bytes are not ${hex4(loadAddress)}, so nothing at the front is treated as a header` };
+}
+
+/** Read a LOADED payload by runtime address. `headerBytes` is taken out of the mapping
+ *  once, here, so no column address has to carry it. */
+export function payloadReader(
+  path: string,
+  frame: { loadAddress: number; headerBytes?: number },
+  projectRoot?: string,
+): { reader: MediumReader; note: string; path: string } | undefined {
+  const found = resolveMediumPath(path, projectRoot);
+  if (!("abs" in found)) return undefined;
+  const abs = found.abs;
+  const buf = readFileSync(abs);
+  const header = frame.headerBytes ?? 0;
+  const bodyLength = Math.max(0, buf.length - header);
+  const last = frame.loadAddress + bodyLength - 1;
+  return {
+    reader: {
+      readByte(_bank, address) {
+        const index = address - frame.loadAddress + header;
+        return index >= header && index < buf.length ? buf[index] : undefined;
+      },
+    },
+    note: `${basename(abs)} as a LOADED PAYLOAD — ${bodyLength} bytes running ${hex4(frame.loadAddress)}-${hex4(last)}`
+      + `${header > 0 ? `, ${header} header byte(s) skipped` : ", no header bytes"}`
+      + `; column addresses are RUNTIME addresses, not offsets into the file`,
+    path: abs,
+  };
 }
 
 /** The refusal a caller gets when nothing was found: what was tried, not just what failed. */
