@@ -77,13 +77,19 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // own data.
   "read_finding",
   "ram_report",
-  // Analyse / disassemble
-  "analyze_prg", "disasm_prg", "disasm_menu", "inspect_address_range",
-  // Bytes at an address, with no PRG header. Two autonomous runs on one day went
-  // around the tool surface for want of it — one wrote its own disassembler and called
-  // it 180 times, the other bolted fake 2-byte headers onto 308 blocks so the real one
-  // would eat them. Both then held listings the project knew nothing about.
-  "disasm_raw",
+  // Analyse / disassemble. TWO doors: `disasm` renders bytes and `analyze` classifies
+  // them, and in both the LOAD ADDRESS decides how the bytes are read, never the file
+  // name — given, they are raw and start there; omitted, the file must carry a header.
+  // There used to be four, answering the same two questions: `disasm_prg` and
+  // `disasm_raw` ran the same decoder and differed only in whether two bytes at the
+  // front are an address, while `analyze_prg` took a PRG and nothing else, so
+  // headerless bytes could not be classified at all. A run over four G64 sides built
+  // FAKE load headers for drive code to get past that.
+  "disasm", "analyze",
+  // The old names, aliases of the two for one release. Each renders identically — it
+  // IS the same body — and says so once in its own answer, naming its successor.
+  "analyze_prg", "disasm_prg", "disasm_raw",
+  "disasm_menu", "inspect_address_range",
   "inspect_disk", "assemble_source", "c64ref_lookup",
   // BASIC V2: read a tokenized program (and its SYS target) before assuming a
   // PRG is 6502, and write one back. A cracked game very often boots through
