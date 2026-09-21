@@ -43,6 +43,7 @@ knowledge store and renders the JSON views the workspace UI consumes. See
 | `save_artifact` | Register an artifact (path + role + scope) so views can reference it. |
 | `list_project_artifacts` | Filter / search registered artifacts. |
 | `project_inventory_sync` | Register unregistered project files, import disk/CRT/PRG manifests, and rebuild stale views in one idempotent call. Use this as the default product action for inventory/sync work. |
+| `unregister_files` | Take artifact rows back out of the store after a bulk of machine output (per-sector dumps, depack scratch) was registered by mistake — those rows weigh on the coverage denominator and declaring the glob intentional afterwards only stops new registrations. Never deletes a file; refuses any row a finding, link or version history is attached to. |
 | `import_analysis_report` | Pull entities, findings, relations, flows, and open questions out of a TRXDis analysis JSON. |
 
 ## View builders

@@ -3572,6 +3572,60 @@ export class ProjectKnowledgeService {
     return [...this.loadVersionGroups().items].sort((a, b) => a.subjectId.localeCompare(b.subjectId));
   }
 
+  /**
+   * BUG-060 defect 1 — take artifact rows back out of the store.
+   *
+   * Registration had no inverse. A caller that registered 2732 per-sector dumps on a
+   * recommendation could move the glob to `intentional` afterwards and stop NEW
+   * registrations, but the 2732 rows stayed, the next sync said "Files registered: 0",
+   * and the project's coverage denominator was permanently two thirds wrong. A door
+   * that can only be walked through one way is not a door.
+   *
+   * This removes ROWS, never files: the bytes on disk are untouched, which is the
+   * whole point — they are a tool's output and the tool will read them again. It also
+   * drops each removed row from its version group (and the group when it empties), so
+   * the next reconciliation does not carry a member whose artifact is gone.
+   *
+   * It does NOT decide what may be removed. The caller does that (see
+   * `unregisterProjectFiles`), because "is anything written about this row" is a
+   * knowledge question and this method is the storage half.
+   */
+  removeArtifacts(artifactIds: string[]): number {
+    const wanted = new Set(artifactIds);
+    if (wanted.size === 0) return 0;
+    return withJsonStoreLock(this.storage.paths.knowledgeArtifacts, () => {
+      const store = this.storage.loadArtifacts();
+      const keep = store.items.filter((item) => !wanted.has(item.id));
+      const removed = store.items.length - keep.length;
+      if (removed === 0) return 0;
+      const timestamp = nowIso();
+      this.storage.saveArtifacts({ ...store, updatedAt: timestamp, items: keep });
+      const groups = this.storage.loadArtifactVersionGroups();
+      const nextGroups = groups.items
+        .map((group) => {
+          const versions = group.versions.filter((v) => !wanted.has(v.artifactId));
+          // A group whose CURRENT row went with the removal falls back to whatever is
+          // left; an empty group is dropped below. `currentArtifactId` is required, so
+          // it can never be left pointing at a row that is gone.
+          const currentArtifactId = wanted.has(group.currentArtifactId)
+            ? (versions[0]?.artifactId ?? group.currentArtifactId)
+            : group.currentArtifactId;
+          return { ...group, versions, currentArtifactId };
+        })
+        .filter((group) => group.versions.length > 0);
+      if (nextGroups.length !== groups.items.length
+        || nextGroups.some((g, i) => g.versions.length !== groups.items[i]?.versions.length)) {
+        this.storage.saveArtifactVersionGroups({ ...groups, updatedAt: timestamp, items: nextGroups });
+      }
+      this.appendTimelineEvent({
+        kind: "note",
+        title: `Artifact rows unregistered: ${removed}`,
+        summary: `${removed} artifact row(s) removed from the store. The files on disk were not touched.`,
+      });
+      return removed;
+    });
+  }
+
   // Targeted read: the version group for ONE subject. Never dumps every group.
   getArtifactVersionGroup(subjectId: string): ArtifactVersionGroup | undefined {
     return this.loadVersionGroups().items.find((g) => g.subjectId === subjectId || g.id === subjectId);
@@ -4359,6 +4413,49 @@ export class ProjectKnowledgeService {
     };
   }
 
+  /**
+   * BUG-060 defect 2 — give every manifest row that has a blob on disk its blob.
+   *
+   * A stock-DOS row is named after the file it was extracted into (`03_p`, not the
+   * CBM `p`), and the file it names has to be the artifact it stands on, not the
+   * manifest. `linkExtractedPayloadFiles` (Spec 752 L2) did that AFTER the import by
+   * matching bytes back to rows by content hash — which two byte-identical files on
+   * one disk can get wrong. Here the row simply carries the path it was written from,
+   * so no matching is needed and the row is a real, analysable payload from the first
+   * save. The Spec 752 door stays as the catch-up path for rows imported before this.
+   *
+   * Stripping `blobPath` is deliberate: it is transport between the manifest reader
+   * and this method, never a persisted field.
+   */
+  private linkManifestBlobs<T extends { artifactIds: string[]; payloadSourceArtifactId?: string; blobPath?: string }>(
+    entities: T[],
+  ): Array<Omit<T, "blobPath">> {
+    return entities.map((entity) => {
+      const { blobPath, ...row } = entity;
+      if (!blobPath || !existsSync(blobPath)) return row as Omit<T, "blobPath">;
+      try {
+        const blob = this.saveArtifact({
+          kind: /\.prg$/i.test(blobPath) ? "prg" : "extract",
+          scope: "analysis",
+          title: basename(blobPath),
+          path: blobPath,
+          role: "source-prg",
+          platform: "c64",
+          internal: false,
+        });
+        return {
+          ...row,
+          payloadSourceArtifactId: blob.id,
+          artifactIds: uniqueStrings([blob.id, ...row.artifactIds]),
+        } as Omit<T, "blobPath">;
+      } catch {
+        // The blob could not be registered — the row still imports, pointing at the
+        // manifest as it always did. Soft, like every other step of this import.
+        return row as Omit<T, "blobPath">;
+      }
+    });
+  }
+
   importManifestArtifact(artifactId: string): ManifestImportResult {
     const artifact = this.getArtifactById(artifactId);
     if (!artifact) {
@@ -4376,7 +4473,8 @@ export class ProjectKnowledgeService {
     }
     // Spec 822.2 — generated / imported layer through the graph importer (D2 purge by artifact).
     const now = nowIso();
-    this.records.importGenerated(importDraftsToRecords({ entities: imported.entities, findings: imported.findings, relations: imported.relations, openQuestions: [] }, now), { artifactId });
+    const entities = this.linkManifestBlobs(imported.entities);
+    this.records.importGenerated(importDraftsToRecords({ entities, findings: imported.findings, relations: imported.relations, openQuestions: [] }, now), { artifactId });
     // Spec 784 (GAP 2): create the LoaderModel record(s) the imported payloads reference
     // via payloadLoaderModelId, so a disk extraction's DOS files show under
     // list_loader_models with kernal-directory provenance (idempotent by id).

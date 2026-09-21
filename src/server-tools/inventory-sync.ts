@@ -18,7 +18,7 @@ import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { DEFAULT_PATTERNS, registerProjectFiles } from "./registration.js";
 import { scanRegistrationDelta, findUnimportedAnalysisArtifacts } from "../lib/registration-delta.js";
-import { diagnoseEmptyPattern, howToDeclare, INVENTORY_PATTERNS_FILE, readInventoryDeclaration } from "../project-knowledge/inventory-patterns.js";
+import { diagnoseEmptyPattern, howToDeclare, howToSilenceToolOutput, INVENTORY_PATTERNS_FILE, readInventoryDeclaration } from "../project-knowledge/inventory-patterns.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
 import { writeFileSync, mkdirSync } from "node:fs";
@@ -53,6 +53,8 @@ export interface ProjectInventorySyncResult {
   /** Tool-produced files on disk that no pattern registered — reported, not silent. */
   unregisteredToolOutput: number;
   unregisteredToolOutputByDir: Record<string, number>;
+  /** What registering that bulk would add to the coverage denominator (BUG-060 defect 1). */
+  unregisteredToolOutputBytes: number;
   nextStepHint: string;
 }
 
@@ -228,11 +230,18 @@ export async function runProjectInventorySync(
   // HUMAN debt list was reported, so a project whose own outputs matched no
   // pattern saw a clean sync and 207 unregistered files. The count and the
   // directories are the report; the full list is in the report file.
+  //
+  // BUG-060 defect 1: the count used to be ALL this said, and "registered by nothing"
+  // reads as debt. One caller registered 2732 per-sector dumps on the strength of it
+  // and cost the project two thirds of its coverage. The line now says what they are,
+  // what registering them costs, and which key settles it — `howToSilenceToolOutput`
+  // is the one place that answers for a tool's bulk.
   if (delta.toolOutputCount > 0) {
     const dirs = Object.entries(delta.toolOutputByDir).sort((a, b) => b[1] - a[1]);
     remainingProblems.push(
       `${delta.toolOutputCount} tool-produced file(s) are on disk and registered by nothing`
       + ` — ${dirs.slice(0, 4).map(([dir, n]) => `${n} in ${dir || "."}/`).join(", ")}${dirs.length > 4 ? `, …` : ""}.`,
+      ...howToSilenceToolOutput(delta.toolOutputByDir, delta.toolOutputBytesByDir, delta.toolOutputBytes),
     );
   }
 
@@ -255,6 +264,7 @@ export async function runProjectInventorySync(
     importedAnalysisRuns,
     unregisteredToolOutput: delta.toolOutputCount,
     unregisteredToolOutputByDir: delta.toolOutputByDir,
+    unregisteredToolOutputBytes: delta.toolOutputBytes,
     rebuiltViews,
     versionGroupsCreated,
     versionGroupsUpdated,
@@ -310,7 +320,7 @@ function renderFullReport(projectRoot: string, r: ProjectInventorySyncResult): s
     `- views rebuilt: ${r.rebuiltViews.length}`,
     `- version groups: ${r.versionGroupsCreated} created, ${r.versionGroupsUpdated} updated, ${r.versionGroupsNeedDecision} needing a decision`,
     `- skipped: ${r.skippedTotal}`,
-    `- tool-produced files nothing registered: ${r.unregisteredToolOutput}`,
+    `- tool-produced files nothing registered: ${r.unregisteredToolOutput} (${r.unregisteredToolOutputBytes} bytes — what registering them would add to the coverage denominator)`,
     "",
     "## Views rebuilt",
     "",
@@ -321,10 +331,17 @@ function renderFullReport(projectRoot: string, r: ProjectInventorySyncResult): s
     for (const sk of r.skipped) lines.push(`- ${sk.path} — ${sk.reason}`);
   }
   if (r.unregisteredToolOutput > 0) {
-    lines.push("", `## Tool-produced files nothing registered (${r.unregisteredToolOutput}), by directory`, "");
+    lines.push("", `## Tool-produced files nothing registered (${r.unregisteredToolOutput}, ${r.unregisteredToolOutputBytes} bytes), by directory`, "");
     for (const [dir, n] of Object.entries(r.unregisteredToolOutputByDir).sort((a, b) => b[1] - a[1])) {
       lines.push(`- ${n}  ${dir || "."}/`);
     }
+    lines.push(
+      "",
+      "Machine output — the run's manifest is the artifact that stands for them. Registering",
+      "them adds those bytes to the COVERAGE denominator and nothing to what is understood;",
+      "declare them `intentional` (the declaration is under Remaining problems below), and",
+      "unregister_files(glob=…) takes a bulk back out if one was registered by mistake.",
+    );
   }
   if (r.remainingProblems.length > 0) {
     lines.push("", "## Remaining problems", "");
@@ -368,7 +385,11 @@ function renderResult(projectRoot: string, r: ProjectInventorySyncResult, report
   }
   if (r.unregisteredToolOutput > 0) {
     lines.push(``);
-    lines.push(`Tool-produced files nothing registered: ${r.unregisteredToolOutput}`);
+    // The warning rides in the always-shown section, never behind the problem-line
+    // cap: it is the one a caller acted on wrongly. The paste-able declaration is a
+    // remaining problem like the others, and the report file always holds it.
+    lines.push(`Tool-produced files nothing registered: ${r.unregisteredToolOutput} (${r.unregisteredToolOutputBytes} bytes)`);
+    lines.push(`  Machine output — the run's manifest is the artifact that stands for them. Registering them adds those bytes to the COVERAGE denominator and nothing to what is understood; declare them \`intentional\` instead (see Remaining problems), and unregister_files(glob=…) takes a bulk back out if one was registered by mistake.`);
   }
   if (r.remainingProblems.length > 0) {
     lines.push(``);

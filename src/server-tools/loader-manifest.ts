@@ -203,12 +203,51 @@ export function payloadIsPacked(p: { format?: string; packer?: string | null }):
   return PACKED_FORMATS.has(p.format);
 }
 
+/**
+ * The two bytes a `.prg` carries in front of its data: the load address.
+ *
+ * An extractor that carves a payload off the medium and writes it as a PRG writes those
+ * two bytes ITSELF — they are a header the file format requires, not bytes the sector
+ * chain held. The blob on disk is then exactly two bytes longer than the chain, and the
+ * chain is complete.
+ */
+export const PRG_LOAD_HEADER_BYTES = 2;
+
+/**
+ * How much of the blob is a header the extractor wrote rather than medium bytes.
+ *
+ * The rule is deliberately narrow: only for a payload the manifest declares `prg`, and
+ * only for a shortfall of EXACTLY the header. Anything else is still the defect this
+ * guard exists to find — a missing block costs 1..254 bytes at the tail and hundreds or
+ * thousands in the start-only case, so a two-byte gap under a PRG header is the header.
+ * We do not read the blob's first two bytes back against the medium to prove it: that
+ * would need the image, and a wrong guess here costs a warning, not a fact.
+ */
+function extractorWrittenHeaderBytes(
+  fileBytes: number,
+  coverage: number,
+  format: string | undefined,
+): number {
+  if (format !== "prg") return 0;
+  return fileBytes - coverage === PRG_LOAD_HEADER_BYTES ? PRG_LOAD_HEADER_BYTES : 0;
+}
+
 // Soft chain guard (Spec 784 GAP 4): a payload whose extracted blob has MORE bytes than
 // its declared sector spans cover has an INCOMPLETE chain — the start-only case is the
 // Pawn 168/1329 bug, and the disk view / validate_extraction then see fewer sectors than
 // the payload occupies. Returns a warning string, or undefined when nothing to flag (no
-// sector spans, unknown blob size, full coverage, or a payload stored compressed, where
-// blob length and span length are not the same quantity). NEVER blocks registration.
+// sector spans, unknown blob size, full coverage, a payload stored compressed — where
+// blob length and span length are not the same quantity — or a `prg` blob that is over
+// by exactly the load header the extractor wrote). NEVER blocks registration.
+//
+// BUG-060 defect 3: the header case used to warn. A Neuromancer run was told its
+// complete 49-span chain "looks incomplete (start-only?)" because the extracted `.prg`
+// was two bytes longer than the data on the medium, and it silenced the warning by
+// declaring the first sector's span from offset 0 with length+2 — a span that says the
+// payload starts in the sector's T/S link bytes, which is false for every loader that
+// does not happen to be this one. A guard that can only be satisfied by a lie is worse
+// than no guard: the header is accounted for here, and the warning says so, so nobody
+// pads a span to cover it again.
 export function chainCoverageWarning(
   name: string,
   fileBytes: number | undefined,
@@ -219,8 +258,10 @@ export function chainCoverageWarning(
   if (payloadIsPacked(payload)) return undefined;
   const { bytes: coverage, sectors } = sectorSpanCoverage(spans);
   if (sectors === 0) return undefined; // cart/slot-only or no disk spans — not a chain
-  if (fileBytes > coverage) {
-    return `${name}: extracted blob is ${fileBytes} bytes but its ${sectors} declared sector span(s) cover only ${coverage} — the block chain looks incomplete (start-only?). Declare the FULL sector chain so the disk view + validate_extraction see every sector. If instead the blob is LARGER because it was depacked, declare the payload's stored codec (\`format\` or \`packer\`) and this check steps aside.`;
+  const header = extractorWrittenHeaderBytes(fileBytes, coverage, payload.format);
+  const mediumBytes = fileBytes - header;
+  if (mediumBytes > coverage) {
+    return `${name}: extracted blob is ${fileBytes} bytes but its ${sectors} declared sector span(s) cover only ${coverage} — the block chain looks incomplete (start-only?). Declare the FULL sector chain so the disk view + validate_extraction see every sector. A \`prg\` blob's ${PRG_LOAD_HEADER_BYTES}-byte load header is already allowed for, so do NOT pad a span to cover it — a span must say where the bytes really are. If instead the blob is LARGER because it was depacked, declare the payload's stored codec (\`format\` or \`packer\`) and this check steps aside.`;
   }
   return undefined;
 }

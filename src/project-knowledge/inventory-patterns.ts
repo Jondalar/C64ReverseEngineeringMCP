@@ -367,6 +367,51 @@ export function howToDeclare(examples: string[]): string[] {
   return lines;
 }
 
+// ─────────────────────────────────────────── a bulk a TOOL wrote (BUG-060 defect 1)
+
+/** Bytes, in something a reader can weigh against a disk side. */
+function humanBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} bytes`;
+  if (bytes < 1024 * 1024) return `${bytes} bytes (${(bytes / 1024).toFixed(1)} KB)`;
+  return `${bytes} bytes (${(bytes / (1024 * 1024)).toFixed(1)} MB)`;
+}
+
+/**
+ * What to say about files a tool wrote into a directory it owns.
+ *
+ * The count on its own reads as debt, and a caller acted on it exactly that way: told
+ * "2747 tool-produced file(s) are on disk and registered by nothing", and handed an
+ * `inventory-patterns.json` skeleton in the same answer, it declared a `patterns` glob
+ * for 2732 per-sector `.bin` dumps. All 2732 registered. Coverage fell from 22.2 % to
+ * 7.6 % — their bytes joined the denominator, nothing joined the numerator, and not one
+ * byte had become less understood. The advice was not wrong about the files; it was
+ * silent about the price, and silence about a price is a recommendation.
+ *
+ * So this is the ONE place that answers for such a bulk, and it answers three things:
+ * what the files are (machine output, standing behind the run's manifest), what
+ * registering them costs (the bytes, and what those bytes do to coverage), and which
+ * key settles it — `intentional`, which SILENCES, never `patterns`, which REGISTERS.
+ * A `patterns` skeleton is deliberately not offered here: the caller who wants one can
+ * still write it, but nothing in this tool will hand it over for a bulk like this.
+ */
+export function howToSilenceToolOutput(
+  byDir: Record<string, number>,
+  bytesByDir: Record<string, number>,
+  totalBytes: number,
+): string[] {
+  const dirs = Object.entries(byDir).sort((a, b) => b[1] - a[1]);
+  const globs = dirs.map(([dir]) => `${dir}/**`);
+  return [
+    `  These are machine output: a tool wrote them into a directory it owns, and the run's manifest is the artifact that stands for the bulk — not each file.`,
+    `  Registering them is not free: ${humanBytes(totalBytes)} would join the COVERAGE denominator as bytes nothing has classified, so the project's coverage percentage falls while nothing became better understood.`
+      + (dirs.length > 1 ? ` (${dirs.map(([dir]) => `${humanBytes(bytesByDir[dir] ?? 0)} in ${dir}/`).join(", ")}.)` : ""),
+    `  To stop them being reported, declare them INTENTIONAL in ${INVENTORY_PATTERNS_FILE} — this silences them, it does NOT register them:`,
+    `    { "patterns": [], "intentional": [${globs.map((g) => JSON.stringify(g)).join(", ")}] }`,
+    `  Do NOT put those globs under \`patterns\`: \`patterns\` REGISTERS every file it matches, which is the cost above.`,
+    `  Already registered a bulk like this? unregister_files(glob="${globs[0] ?? "analysis/<tool-dir>/**"}") takes the rows back out (it refuses any row that carries a finding, a link or a version history, and never touches the files on disk).`,
+  ];
+}
+
 // ──────────────────────────────────────────────── a pattern that matched nothing
 
 /** The literal part of a glob, up to the first wildcard. `analysis/overlays/*.prg` → `analysis/overlays`. */
