@@ -112,7 +112,11 @@ export function loadAccessEdges(options: { projectDir?: string; owner: string })
   const { path } = resolveGraphPath(options.projectDir);
   if (!existsSync(path)) return { status: "absent", owner, path, reason: `no ${path} — nothing has been seeded (c64re graph seed)` };
   const { DatabaseSync } = quietSqlite();
-  const db = new DatabaseSync(path, { readOnly: true });
+  // A reader needs a busy timeout of its own. In WAL mode the LAST connection to close
+  // checkpoints and unlinks the `-wal` under an EXCLUSIVE lock, and a reader that opens
+  // inside that window with nothing to wait with dies of `database is locked` — measured
+  // at 4 lost reads in 1920 against 0 with a timeout, under four concurrent writers.
+  const db = new DatabaseSync(path, { readOnly: true, timeout: 5000 });
   try {
     const rows = db
       .prepare(
@@ -220,7 +224,7 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
   const { path } = resolveGraphPath(options.projectDir);
   if (!existsSync(path)) return { status: "absent", owner, path, reason: `no ${path} — nothing has been seeded (c64re graph seed)` };
   const { DatabaseSync } = quietSqlite();
-  const db = new DatabaseSync(path, { readOnly: true });
+  const db = new DatabaseSync(path, { readOnly: true, timeout: 5000 }); // busy timeout: see loadAccessEdges
   try {
     // The space this owner lives in comes from the owner's own rows, so drive
     // code at $0700 is never seeded from a C64-RAM $0700 and vice versa.

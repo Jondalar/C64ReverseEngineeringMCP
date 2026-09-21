@@ -491,12 +491,20 @@ const readStore = (dir) => {
     const untimed = res.slice(8, 12);
     check(errsOf(timed) === 0, `four readers WITH a busy timeout through the whole race: no ERR_SQLITE_ERROR (${readsOf(timed)} reads)`,
       timed.map((r) => r.out.trim()).join(" | "));
-    // Loud, and not counted as a pass: the residual is one argument in a file this
-    // branch does not own.
+    // The untimed shape is kept as the CONTROL, not as a residual: it is what the
+    // pipeline's reader used to be, and it is why the argument below is asserted. The
+    // race does not fire on every run, so its error count is reported and never asserted
+    // — a green here would otherwise mean "the race did not happen", not "it is fixed".
     const lost = errsOf(untimed);
-    console.log(`  ${lost === 0 ? "note " : "RESID"}  a reader with NO busy timeout (pipeline/src/analysis/graph-reader.ts:~94) lost ${lost} of ${readsOf(untimed)} reads`
-      + `\n         fix, in that file's owner's hands: new DatabaseSync(path, { readOnly: true, timeout: 5000 })`
+    console.log(`  note   the same reader with NO busy timeout lost ${lost} of ${readsOf(untimed)} reads`
       + `\n         side by side here: ${errsOf(timed)} errors with a timeout, ${lost} without.`);
+    // The one shape outside GraphStore. pipeline/ cannot import it, so the argument is
+    // asserted from the source instead of inherited.
+    const readerSrcFile = readFileSync(new URL("../pipeline/src/analysis/graph-reader.ts", import.meta.url), "utf8");
+    const opens = [...readerSrcFile.matchAll(/new DatabaseSync\([^)]*\)/gu)].map((m) => m[0]);
+    check(opens.length > 0 && opens.every((o) => /timeout:\s*\d+/u.test(o)),
+      "the pipeline's own graph reader opens with a busy timeout too — the one connection GraphStore does not make",
+      opens.join(" | ") || "(no DatabaseSync open found)");
     rmSync(dir, { recursive: true, force: true });
   }
 }
