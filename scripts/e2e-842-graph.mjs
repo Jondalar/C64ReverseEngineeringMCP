@@ -77,8 +77,12 @@ const hex = (n) => (n === null || n === undefined ? String(n) : `$${n.toString(1
   // characters: a comment inside the call (833's, on which file is imported) pushed the key
   // past a 400-character window and failed the gate with the behaviour intact.
   const call = src.match(/importAnnotations\(\{([\s\S]*?)\n\s*\}\);/);
-  check(!!call && /^\s*relocations:/m.test(call[1]),
-    "disasm_prg passes the relocations it rendered with to the graph import");
+  // Not anchored to the start of a line any more: Spec 866 merged the two disassembly
+  // doors, and the merged body spreads the key in conditionally so a render with no
+  // relocations does not hand the importer an `undefined`. What matters is that the
+  // NORMALISED list — the one the renderer was given — reaches the import.
+  check(!!call && /\brelocations: graphRelocations\b/.test(call[1]),
+    "disasm passes the relocations it rendered with to the graph import");
   const svc = await import("node:fs").then((fs) =>
     fs.readFileSync(new URL("../src/project-knowledge/service.ts", import.meta.url), "utf8"));
   check(/importAnnotationFile\([\s\S]{0,200}relocations: args\.relocations/.test(svc),

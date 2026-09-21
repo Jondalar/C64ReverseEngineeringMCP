@@ -315,6 +315,15 @@ jobs:
       - name: The window a payload owns (Spec 867)
         run: npm run e2e:867-window
 
+      # Spec 866 — two doors, not four: the load address decides how bytes are read,
+      # never the file name. Hermetic: it builds its own project through project_init /
+      # agent_onboard, writes synthetic 6502 and 1541 code into .bin and .prg files and
+      # drives disasm / analyze and the three old names over MCP. No ROMs, no media, no
+      # daemon. The two reassembly checks need KickAssembler and skip loudly without a
+      # jar, like e2e:830 and e2e:865; everything else is asserted either way.
+      - name: Two doors, not four (Spec 866)
+        run: npm run e2e:866
+
       # BUG-054 — thirteen defects one autonomous RE run wrote down as it hit them.
       # Hermetic: temp projects, synthetic PRGs, no ROMs, no media, no daemon. The
       # rebuild half needs KickAssembler and skips loudly without it, like e2e:830.

@@ -95,7 +95,14 @@ const SUPPORTING = new Set(["runtime_session_status", "runtime_trace_status", "r
   // Two read/poll primitives that belong to no flow of their own: one polls the
   // background job any large analysis may start, the other reads a single finding
   // in full the way read_artifact reads one artifact.
-  "analysis_job_status", "read_finding"]);
+  "analysis_job_status", "read_finding",
+  // The three old disassembly/analysis names. They are aliases of `disasm` and
+  // `analyze` for one release — the same body, one line in the answer naming the
+  // successor — and they are deliberately NOT in a playbook: a playbook is what a
+  // session is steered by, and steering it at a name that is going away is how a
+  // retired door stays alive. They stay on the surface only so the calls written into
+  // project notes months ago keep working.
+  "analyze_prg", "disasm_prg", "disasm_raw"]);
 const trulyUncovered = uncovered.filter((n) => !SUPPORTING.has(n));
 ok(trulyUncovered.length === 0, "9 every default tool is in a playbook or marked supporting", trulyUncovered.slice(0, 10).join(",") || "none");
 

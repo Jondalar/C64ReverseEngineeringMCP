@@ -129,6 +129,10 @@ console.log("\n── 3 no third copy");
 const RULE_TEXT = "an address is HEX";
 const SOURCES = [
   "src/server-tools/analysis-workflow.ts",
+  // The door in front of the disassembler and the analyser: it reads a load address,
+  // an offset and a length off every call, which is precisely where a fourth copy of
+  // the rule would be born.
+  "src/server-tools/byte-doors.ts",
   "src/lib/prg-workflow.ts",
   "pipeline/src/cli.ts",
   "pipeline/src/lib/prg-disasm.ts",
