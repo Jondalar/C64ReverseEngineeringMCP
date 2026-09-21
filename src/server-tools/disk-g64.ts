@@ -4,6 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { createDiskParser, G64Parser } from "../disk/index.js";
 import type { G64LutReference } from "../disk/g64-parser.js";
+import { describeDataStatus } from "../disk/gcr.js";
 import { runCli } from "../run-cli.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { deviceSafeName } from "../lib/id-path.js";
@@ -417,6 +418,12 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
         if (result.data) {
           lines.push(`Data block: id=$${result.data.blockId.toString(16).toUpperCase().padStart(2, "0")} data=${result.data.valid ? "ok" : result.data.gcrValid ? "tolerant" : "bad"} bytes=${result.data.dataLength}`);
         }
+        // The status is one of the FOUR words the ring walk uses, and the door
+        // says which condition produced it. Two doors reporting one block under
+        // two vocabularies — `gcr_error` here, `checksum_error` there — is the
+        // defect; the difference matters, because `checksum_error` means the
+        // bytes decoded and `gcr_error` means some of them did not.
+        lines.push(`Condition tested: ${describeDataStatus(result.status)}`);
         if (result.payload) {
           lines.push(`Preview: ${[...result.payload.slice(0, 16)].map((byte) => byte.toString(16).toUpperCase().padStart(2, "0")).join(" ")}`);
         }
@@ -431,175 +438,290 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
     },
   );
 
+  // One track's worth of extraction: decode, decide which pair owns each
+  // filename, write the .bin files and the metadata. Pulled out of the tool
+  // handler so the same body serves one track and a whole side — the door used
+  // to take exactly one track per call, and four G64 sides cost 140 MCP
+  // round-trips and a large share of one run's budget. `extract_disk` already
+  // decodes every sector internally; there was no reason this could not.
+  function extractOneG64Track(
+    parser: G64Parser,
+    pd: string,
+    imageAbs: string,
+    track: number,
+    sectors: number[] | undefined,
+    outDir: string,
+  ): {
+    outDir: string;
+    metadataPath: string;
+    decoded: number;
+    filesWritten: number;
+    statusCounts: Record<string, number>;
+    nonOkCount: number;
+    duplicateCount: number;
+    rejectedHeaders: number;
+    readersAgree: boolean;
+    ringWalkSectors: number;
+    viceHeaders: number;
+    detail: string[];
+  } {
+    const extraction = parser.extractTrackSectorsDetailed(track, sectors);
+    const decoded = extraction.sectors;
+    mkdirSync(outDir, { recursive: true });
+
+    // Spec 832 D4b: a sector with no data block yields no bytes, so it gets
+    // no .bin — a file of invented filler is worse than no file at all. The
+    // metadata still lists it, with `dataStatus` saying why it is empty.
+    //
+    // Spec 833 D4: the filename no longer carries a verdict it cannot
+    // express. It used to be `t<tt>s<ss>.invalid.bin` whenever the DATA
+    // CHECKSUM failed — which on a custom-CRC disk is every real sector
+    // (The Pawn's 683, Impossible Mission II's 631), so a caller who
+    // skipped `.invalid` skipped exactly the bytes it came for. And since
+    // 832 every file that gets written holds real bytes off the disk, so
+    // the suffix marked nothing worth avoiding. `dataStatus` in
+    // track-metadata.json is the truth; the tool's own output counts the
+    // non-`ok` ones so nobody has to open the JSON to find out.
+    //
+    // Widening the name makes one case collide that two names used to keep
+    // apart: a protected track can carry two pairs claiming the same
+    // (track, sector) — say one clean and one with a failed data checksum —
+    // and both now want `t<tt>s<ss>.bin`. The rule, deterministic and
+    // decided before anything is written, never last-write-wins:
+    //   1. a pair with no bytes never competes (it writes no file at all),
+    //   2. otherwise the best `dataStatus` owns the name — ok beats
+    //      checksum_error beats gcr_error. This is the rule the disk-layout
+    //      view-builder already applies to a twice-listed sector
+    //      ("data-present wins", view-builders.ts),
+    //   3. ties go to the pair the ring walk met first — `sectors` arrives
+    //      in ring-walk order within a sector id, because the sort in
+    //      extractTrackSectorsDetailed is stable.
+    // The losing pair is never written and never overwrites: it stays in
+    // `files[]` with `path: null` and `duplicateOf` naming the file that
+    // won, and the tool output says so, so the second copy is visible in
+    // the artifact and still reachable with read_g64_sector_candidate.
+    const sectorFileName = (sector: { track: number; sector: number }): string =>
+      `t${String(sector.track).padStart(2, "0")}s${String(sector.sector).padStart(2, "0")}.bin`;
+    const dataStatusRank = (status: string): number =>
+      status === "ok" ? 0 : status === "checksum_error" ? 1 : status === "gcr_error" ? 2 : 3;
+
+    const ownerByFileName = new Map<string, number>();
+    decoded.forEach((sector, index) => {
+      if (sector.data.length === 0) return;
+      const fileName = sectorFileName(sector);
+      const holder = ownerByFileName.get(fileName);
+      if (holder === undefined
+        || dataStatusRank(sector.dataStatus) < dataStatusRank(decoded[holder]!.dataStatus)) {
+        ownerByFileName.set(fileName, index);
+      }
+    });
+
+    const written: Array<string | null> = decoded.map(() => null);
+    for (const [fileName, index] of ownerByFileName) {
+      const outputPath = join(outDir, fileName);
+      writeFileSync(outputPath, decoded[index]!.data);
+      written[index] = outputPath;
+    }
+    const duplicateOf: Array<string | null> = decoded.map((sector, index) =>
+      sector.data.length === 0 || written[index] !== null ? null : sectorFileName(sector));
+
+    // Spec 833 D4 — the count the filename used to (badly) carry, stated
+    // where it can be stated properly: per status, over every decoded
+    // sector, written or not.
+    const statusCounts: Record<string, number> = { ok: 0, checksum_error: 0, gcr_error: 0, no_data_block: 0 };
+    for (const sector of decoded) {
+      statusCounts[sector.dataStatus] = (statusCounts[sector.dataStatus] ?? 0) + 1;
+    }
+    const nonOkCount = decoded.length - (statusCounts.ok ?? 0);
+    const duplicateCount = duplicateOf.filter((name) => name !== null).length;
+
+    const metadataPath = join(outDir, "track-metadata.json");
+    writeFileSync(metadataPath, `${JSON.stringify({
+      sourceImage: imageAbs,
+      track,
+      requestedSectors: sectors ?? null,
+      decodedCount: decoded.length,
+      filesWritten: written.filter((path) => path !== null).length,
+      dataStatusCounts: statusCounts,
+      nonOkCount,
+      duplicateSectorIdCount: duplicateCount,
+      // Every word in `dataStatus` spelled out, so the artifact carries the
+      // condition and not only the label. One vocabulary with
+      // read_g64_sector_candidate, which used to call a gcr_error a
+      // checksum_error and so claimed the data bytes had been tested.
+      dataStatusMeanings: Object.fromEntries(
+        (["ok", "checksum_error", "gcr_error", "no_data_block"] as const).map((s) => [s, describeDataStatus(s)]),
+      ),
+      // Spec 832 D4c — two readers walk a track and they can disagree. Record
+      // both counts here so the disagreement lives in the artifact.
+      readers: {
+        gcrRingWalk: {
+          sectorsDecoded: extraction.decodedSectorCount,
+          headersRejected: extraction.rejectedHeaders.length,
+        },
+        viceStyleScanner: {
+          headersFound: extraction.viceHeaderCount,
+        },
+        agree: extraction.decodedSectorCount === extraction.viceHeaderCount,
+      },
+      rejectedHeaders: extraction.rejectedHeaders,
+      files: decoded.map((sector, index) => ({
+        track: sector.track,
+        sector: sector.sector,
+        headerValid: sector.headerValid,
+        dataValid: sector.dataValid,
+        dataStatus: sector.dataStatus,
+        bytes: sector.data.length,
+        path: written[index],
+        // Spec 833 D4: null unless a second pair on this track claims the
+        // same id and lost the name — then it says which file holds the
+        // copy that won, so `path: null` is never ambiguous between "no
+        // bytes" (see dataStatus) and "another copy owns the filename".
+        duplicateOf: duplicateOf[index],
+      })),
+    }, null, 2)}\n`, "utf8");
+
+    // Register the extraction manifest as a knowledge artifact (role=g64-extraction)
+    // so the deterministic-extraction phase credits the G64 path — without this the
+    // phase state depended on WHICH extraction tool you happened to use. NOT tagged
+    // `disk-manifest`: that role feeds the disk-layout view-builder (which expects a
+    // CBM directory + a standard BAM) and would choke on a custom-GCR image; and it
+    // must NOT satisfy structural-enrichment (which legitimately needs analysis-json).
+    // Soft-fail: the extraction succeeded even if registration hiccups.
+    try {
+      new ProjectKnowledgeService(pd).saveArtifact({
+        kind: "report",
+        scope: "analysis",
+        role: "g64-extraction",
+        format: "json",
+        title: `G64 extraction manifest — ${basename(imageAbs)} track ${track}`,
+        path: relative(pd, metadataPath).replace(/\\/g, "/"),
+        producedByTool: "extract_g64_sectors",
+        description: `Decoded ${decoded.length} sectors from track ${track}.`,
+        tags: ["g64", "extraction"],
+      });
+    } catch {
+      // best-effort: extraction output is already on disk
+    }
+
+    const detail: string[] = [];
+    decoded.forEach((sector, index) => {
+      const duplicate = duplicateOf[index];
+      detail.push(`- ${sector.track}/${sector.sector}  ${sector.data.length} bytes  header=${sector.headerValid ? "ok" : "bad"}  data=${sector.dataStatus}${duplicate ? `  (duplicate id, not written; ${duplicate} holds the copy that won)` : ""}`);
+    });
+    for (const candidate of extraction.rejectedHeaders) {
+      detail.push(`! refused header @bit ${candidate.headerStartBit}  claims ${candidate.claimsTrack}/${candidate.claimsSector}  id=$${candidate.headerId.toString(16).toUpperCase().padStart(2, "0")}  reason=${candidate.reason}`);
+    }
+
+    return {
+      outDir,
+      metadataPath,
+      decoded: decoded.length,
+      filesWritten: written.filter((path) => path !== null).length,
+      statusCounts,
+      nonOkCount,
+      duplicateCount,
+      rejectedHeaders: extraction.rejectedHeaders.length,
+      readersAgree: extraction.decodedSectorCount === extraction.viceHeaderCount,
+      ringWalkSectors: extraction.decodedSectorCount,
+      viceHeaders: extraction.viceHeaderCount,
+      detail,
+    };
+  }
+
   server.tool(
     "extract_g64_sectors",
-    "Use to decode a G64 track via GCR and write one .bin file per sector to disk — the right tool when you need the raw sector payloads as files for further analysis or comparison. Not for in-place inspection without writing files (use inspect_g64_track) or for exporting the raw bitstream (use extract_g64_raw_track). Inputs: absolute or project-relative .g64 path, track number; output defaults to analysis/g64/<image>/track-N/ inside the project. Writes sector .bin files + track-metadata.json; no artifact is auto-registered.",
+    "Use to decode one track, a list of tracks, or a whole G64 side via GCR and write one .bin file per sector to disk — the right tool when you need the raw sector payloads as files for further analysis or comparison. Not for in-place inspection without writing files (use inspect_g64_track) or for exporting the raw bitstream (use extract_g64_raw_track). Give exactly one of track / tracks / all_tracks: a whole side in one call is the same work as one call per track, without the round-trips. Output defaults to analysis/g64/<image>/track-N/ inside the project, one directory per track. Writes sector .bin files + track-metadata.json per track; no artifact is auto-registered.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from image_path to knowledge/phase-plan.json."),
       image_path: z.string().describe("Path to the .g64 image"),
-      track: z.number().positive().describe("Track number, supports 0.5 steps such as 18 or 18.5"),
-      sectors: z.array(z.number().int().nonnegative()).optional().describe("Optional explicit sector IDs to extract; defaults to all decoded sectors on the track"),
-      output_dir: z.string().optional().describe("Output directory for extracted sector files"),
+      track: z.number().positive().optional().describe("ONE track number, supports 0.5 steps such as 18 or 18.5. Give this, or tracks, or all_tracks."),
+      tracks: z.array(z.number().positive()).optional().describe("Several track numbers in one call, e.g. [1,2,3,17,18]. 0.5 steps allowed. Each track gets its own output directory and track-metadata.json."),
+      all_tracks: z.boolean().optional().describe("Every half-track slot in the image that holds data — the whole side in one call. Use for a full side sweep instead of one call per track."),
+      sectors: z.array(z.number().int().nonnegative()).optional().describe("Optional explicit sector IDs to extract; defaults to all decoded sectors. With several tracks it is applied to each of them (e.g. [0] takes sector 0 of every track)."),
+      output_dir: z.string().optional().describe("Output directory. With one track it IS the directory; with several it is the parent, and each track gets a track-N subdirectory under it."),
     },
-    async ({ project_dir, image_path, track, sectors, output_dir }) => {
+    async ({ project_dir, image_path, track, tracks, all_tracks, sectors, output_dir }) => {
       try {
         const pd = context.projectDir(project_dir ?? image_path, true);
         const imageAbs = resolve(pd, image_path);
         const parser = loadG64Parser(context, image_path, pd);
-        const extraction = parser.extractTrackSectorsDetailed(track, sectors);
-        const decoded = extraction.sectors;
-        const outDir = output_dir ? resolve(pd, output_dir) : g64SectorDefaultOutputDir(context, imageAbs, track, pd);
-        mkdirSync(outDir, { recursive: true });
 
-        // Spec 832 D4b: a sector with no data block yields no bytes, so it gets
-        // no .bin — a file of invented filler is worse than no file at all. The
-        // metadata still lists it, with `dataStatus` saying why it is empty.
-        //
-        // Spec 833 D4: the filename no longer carries a verdict it cannot
-        // express. It used to be `t<tt>s<ss>.invalid.bin` whenever the DATA
-        // CHECKSUM failed — which on a custom-CRC disk is every real sector
-        // (The Pawn's 683, Impossible Mission II's 631), so a caller who
-        // skipped `.invalid` skipped exactly the bytes it came for. And since
-        // 832 every file that gets written holds real bytes off the disk, so
-        // the suffix marked nothing worth avoiding. `dataStatus` in
-        // track-metadata.json is the truth; the tool's own output counts the
-        // non-`ok` ones so nobody has to open the JSON to find out.
-        //
-        // Widening the name makes one case collide that two names used to keep
-        // apart: a protected track can carry two pairs claiming the same
-        // (track, sector) — say one clean and one with a failed data checksum —
-        // and both now want `t<tt>s<ss>.bin`. The rule, deterministic and
-        // decided before anything is written, never last-write-wins:
-        //   1. a pair with no bytes never competes (it writes no file at all),
-        //   2. otherwise the best `dataStatus` owns the name — ok beats
-        //      checksum_error beats gcr_error. This is the rule the disk-layout
-        //      view-builder already applies to a twice-listed sector
-        //      ("data-present wins", view-builders.ts),
-        //   3. ties go to the pair the ring walk met first — `sectors` arrives
-        //      in ring-walk order within a sector id, because the sort in
-        //      extractTrackSectorsDetailed is stable.
-        // The losing pair is never written and never overwrites: it stays in
-        // `files[]` with `path: null` and `duplicateOf` naming the file that
-        // won, and the tool output says so, so the second copy is visible in
-        // the artifact and still reachable with read_g64_sector_candidate.
-        const sectorFileName = (sector: { track: number; sector: number }): string =>
-          `t${String(sector.track).padStart(2, "0")}s${String(sector.sector).padStart(2, "0")}.bin`;
-        const dataStatusRank = (status: string): number =>
-          status === "ok" ? 0 : status === "checksum_error" ? 1 : status === "gcr_error" ? 2 : 3;
+        // Exactly one way of naming the tracks, and the refusal says so rather
+        // than silently preferring one — this door grew a list and a whole-side
+        // mode, and two of them at once is a question, not a default.
+        const given = [track !== undefined, (tracks?.length ?? 0) > 0, all_tracks === true].filter(Boolean).length;
+        if (given !== 1) {
+          return { content: [{ type: "text" as const, text:
+            `# extract_g64_sectors refused\n\nName the tracks exactly once: \`track\` for a single track, \`tracks\` for a list, or \`all_tracks: true\` for every track in the image that holds data. `
+            + (given === 0 ? "None of the three was given." : "More than one was given.") }] };
+        }
 
-        const ownerByFileName = new Map<string, number>();
-        decoded.forEach((sector, index) => {
-          if (sector.data.length === 0) return;
-          const fileName = sectorFileName(sector);
-          const holder = ownerByFileName.get(fileName);
-          if (holder === undefined
-            || dataStatusRank(sector.dataStatus) < dataStatusRank(decoded[holder]!.dataStatus)) {
-            ownerByFileName.set(fileName, index);
+        const wantedTracks: number[] = all_tracks
+          ? parser.listSlots(false).filter((slot) => slot.hasData).map((slot) => slot.track)
+          : tracks && tracks.length > 0
+            ? [...new Set(tracks)].sort((a, b) => a - b)
+            : [track!];
+        const single = wantedTracks.length === 1 && !all_tracks && (tracks?.length ?? 0) === 0;
+
+        if (wantedTracks.length === 0) {
+          return { content: [{ type: "text" as const, text: `No track in ${imageAbs} holds raw data.` }] };
+        }
+
+        const baseDir = output_dir ? resolve(pd, output_dir) : undefined;
+        const results: Array<{ track: number; r: ReturnType<typeof extractOneG64Track> } | { track: number; error: string }> = [];
+        for (const t of wantedTracks) {
+          const outDir = baseDir
+            ? (single ? baseDir : join(baseDir, `track-${String(t).replace(".", "_")}`))
+            : g64SectorDefaultOutputDir(context, imageAbs, t, pd);
+          try {
+            results.push({ track: t, r: extractOneG64Track(parser, pd, imageAbs, t, sectors, outDir) });
+          } catch (e) {
+            results.push({ track: t, error: e instanceof Error ? e.message : String(e) });
           }
-        });
-
-        const written: Array<string | null> = decoded.map(() => null);
-        for (const [fileName, index] of ownerByFileName) {
-          const outputPath = join(outDir, fileName);
-          writeFileSync(outputPath, decoded[index]!.data);
-          written[index] = outputPath;
-        }
-        const duplicateOf: Array<string | null> = decoded.map((sector, index) =>
-          sector.data.length === 0 || written[index] !== null ? null : sectorFileName(sector));
-
-        // Spec 833 D4 — the count the filename used to (badly) carry, stated
-        // where it can be stated properly: per status, over every decoded
-        // sector, written or not.
-        const statusCounts: Record<string, number> = { ok: 0, checksum_error: 0, gcr_error: 0, no_data_block: 0 };
-        for (const sector of decoded) {
-          statusCounts[sector.dataStatus] = (statusCounts[sector.dataStatus] ?? 0) + 1;
-        }
-        const nonOkCount = decoded.length - (statusCounts.ok ?? 0);
-        const duplicateCount = duplicateOf.filter((name) => name !== null).length;
-
-        const metadataPath = join(outDir, "track-metadata.json");
-        writeFileSync(metadataPath, `${JSON.stringify({
-          sourceImage: imageAbs,
-          track,
-          requestedSectors: sectors ?? null,
-          decodedCount: decoded.length,
-          filesWritten: written.filter((path) => path !== null).length,
-          dataStatusCounts: statusCounts,
-          nonOkCount,
-          duplicateSectorIdCount: duplicateCount,
-          // Spec 832 D4c — two readers walk a track and they can disagree. Record
-          // both counts here so the disagreement lives in the artifact.
-          readers: {
-            gcrRingWalk: {
-              sectorsDecoded: extraction.decodedSectorCount,
-              headersRejected: extraction.rejectedHeaders.length,
-            },
-            viceStyleScanner: {
-              headersFound: extraction.viceHeaderCount,
-            },
-            agree: extraction.decodedSectorCount === extraction.viceHeaderCount,
-          },
-          rejectedHeaders: extraction.rejectedHeaders,
-          files: decoded.map((sector, index) => ({
-            track: sector.track,
-            sector: sector.sector,
-            headerValid: sector.headerValid,
-            dataValid: sector.dataValid,
-            dataStatus: sector.dataStatus,
-            bytes: sector.data.length,
-            path: written[index],
-            // Spec 833 D4: null unless a second pair on this track claims the
-            // same id and lost the name — then it says which file holds the
-            // copy that won, so `path: null` is never ambiguous between "no
-            // bytes" (see dataStatus) and "another copy owns the filename".
-            duplicateOf: duplicateOf[index],
-          })),
-        }, null, 2)}\n`, "utf8");
-
-        // Register the extraction manifest as a knowledge artifact (role=g64-extraction)
-        // so the deterministic-extraction phase credits the G64 path — without this the
-        // phase state depended on WHICH extraction tool you happened to use. NOT tagged
-        // `disk-manifest`: that role feeds the disk-layout view-builder (which expects a
-        // CBM directory + a standard BAM) and would choke on a custom-GCR image; and it
-        // must NOT satisfy structural-enrichment (which legitimately needs analysis-json).
-        // Soft-fail: the extraction succeeded even if registration hiccups.
-        try {
-          new ProjectKnowledgeService(pd).saveArtifact({
-            kind: "report",
-            scope: "analysis",
-            role: "g64-extraction",
-            format: "json",
-            title: `G64 extraction manifest — ${basename(imageAbs)} track ${track}`,
-            path: relative(pd, metadataPath).replace(/\\/g, "/"),
-            producedByTool: "extract_g64_sectors",
-            description: `Decoded ${decoded.length} sectors from track ${track}.`,
-            tags: ["g64", "extraction"],
-          });
-        } catch {
-          // best-effort: extraction output is already on disk
         }
 
-        const lines = [
+        const done = results.filter((x): x is { track: number; r: ReturnType<typeof extractOneG64Track> } => "r" in x);
+        const failed = results.filter((x): x is { track: number; error: string } => "error" in x);
+        const sum = (pick: (r: ReturnType<typeof extractOneG64Track>) => number) =>
+          done.reduce((n, x) => n + pick(x.r), 0);
+        const statusTotal = (key: string) => done.reduce((n, x) => n + (x.r.statusCounts[key] ?? 0), 0);
+
+        const lines: string[] = [
           `Image: ${imageAbs}`,
-          `Track: ${track}`,
-          `Output: ${outDir}`,
+          single ? `Track: ${wantedTracks[0]}` : `Tracks: ${wantedTracks.length} (${wantedTracks.join(", ")})`,
+          `Output: ${single ? done[0]?.r.outDir ?? "(none)" : baseDir ?? g64SectorDefaultOutputDir(context, imageAbs, wantedTracks[0]!, pd).replace(/track-[^/]*$/, "")}`,
           `Knowledge written to: ${join(pd, "knowledge")}`,
-          `Decoded sectors: ${decoded.length}`,
-          `Sector files written: ${written.filter((path) => path !== null).length}`,
+          `Decoded sectors: ${sum((r) => r.decoded)}`,
+          `Sector files written: ${sum((r) => r.filesWritten)}`,
           // Spec 833 D4 — the filename says nothing about data health any more,
           // so the count says it here instead of in a suffix that lied.
-          `Sectors with non-ok data status: ${nonOkCount} of ${decoded.length} (checksum_error ${statusCounts.checksum_error ?? 0}, gcr_error ${statusCounts.gcr_error ?? 0}, no_data_block ${statusCounts.no_data_block ?? 0})`,
-          `Readers: GCR ring walk ${extraction.decodedSectorCount} sectors / firmware-style scan ${extraction.viceHeaderCount} headers${extraction.decodedSectorCount === extraction.viceHeaderCount ? "" : "  (READERS DISAGREE)"}`,
-          `Header candidates refused (not extracted): ${extraction.rejectedHeaders.length}`,
-          `Duplicate sector ids (one file per id, best data status wins): ${duplicateCount}`,
-          `Metadata: ${metadataPath}`,
+          `Sectors with non-ok data status: ${sum((r) => r.nonOkCount)} of ${sum((r) => r.decoded)} (checksum_error ${statusTotal("checksum_error")}, gcr_error ${statusTotal("gcr_error")}, no_data_block ${statusTotal("no_data_block")})`,
+          `Readers: GCR ring walk ${sum((r) => r.ringWalkSectors)} sectors / firmware-style scan ${sum((r) => r.viceHeaders)} headers${done.every((x) => x.r.readersAgree) ? "" : `  (READERS DISAGREE on track(s) ${done.filter((x) => !x.r.readersAgree).map((x) => x.track).join(", ")})`}`,
+          `Header candidates refused (not extracted): ${sum((r) => r.rejectedHeaders)}`,
+          `Duplicate sector ids (one file per id, best data status wins): ${sum((r) => r.duplicateCount)}`,
         ];
-        decoded.forEach((sector, index) => {
-          const duplicate = duplicateOf[index];
-          lines.push(`- ${sector.track}/${sector.sector}  ${sector.data.length} bytes  header=${sector.headerValid ? "ok" : "bad"}  data=${sector.dataStatus}${duplicate ? `  (duplicate id, not written; ${duplicate} holds the copy that won)` : ""}`);
-        });
-        for (const candidate of extraction.rejectedHeaders) {
-          lines.push(`! refused header @bit ${candidate.headerStartBit}  claims ${candidate.claimsTrack}/${candidate.claimsSector}  id=$${candidate.headerId.toString(16).toUpperCase().padStart(2, "0")}  reason=${candidate.reason}`);
+        // What each verdict means, once, rather than left to the reader — and
+        // the same sentences read_g64_sector_candidate prints for one sector.
+        for (const s of ["checksum_error", "gcr_error", "no_data_block"] as const) {
+          if (statusTotal(s) > 0) lines.push(`  ${s}: ${describeDataStatus(s)}`);
+        }
+        if (failed.length > 0) {
+          lines.push(`Tracks that could not be extracted: ${failed.length}`);
+          for (const f of failed) lines.push(`  ! track ${f.track}: ${f.error}`);
+        }
+
+        if (single) {
+          lines.push(`Metadata: ${done[0]?.r.metadataPath}`);
+          lines.push(...(done[0]?.r.detail ?? []));
+        } else {
+          // One line per track. The per-sector detail of a whole side is
+          // hundreds of lines nobody reads in a tool result; it is in each
+          // track's own metadata, which is named here.
+          lines.push("", "Per track (full per-sector detail is in each track-metadata.json):");
+          for (const x of done) {
+            lines.push(`- track ${x.track}: ${x.r.decoded} sectors, ${x.r.filesWritten} files, ${x.r.nonOkCount} non-ok${x.r.duplicateCount ? `, ${x.r.duplicateCount} duplicate id(s)` : ""}${x.r.readersAgree ? "" : "  (READERS DISAGREE)"}  ${x.r.metadataPath}`);
+          }
         }
         return { content: [{ type: "text" as const, text: lines.join("\n") }] };
       } catch (error) {

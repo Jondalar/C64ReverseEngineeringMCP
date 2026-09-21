@@ -93,8 +93,12 @@ export interface NamedReport {
 }
 
 export interface CoverageReport {
-  /** Bytes inside at least one known address range. */
+  /** Bytes inside at least one range that CLAIMS something about them. */
   covered: number;
+  /** Bytes in ranges classified `unknown` — declared, honestly, and not coverage. */
+  declaredUnknown: number;
+  /** Bytes in ranges carrying only a machine name and no classification. */
+  machineOnly: number;
   /** Bytes in the artifacts that could be measured, each distinct payload counted ONCE. */
   total: number;
   ratio: number;
@@ -128,6 +132,40 @@ function coverageThreshold(contractRatio?: number): number {
   const raw = process.env.C64RE_COVERAGE_THRESHOLD?.trim();
   const n = raw ? Number(raw) : NaN;
   return Number.isFinite(n) && n > 0 && n <= 1 ? n : 0.6;
+}
+
+/**
+ * Does this node's extent ACCOUNT for its bytes?
+ *
+ * S12 asks how many bytes are accounted for. It used to count every range the
+ * graph held, and an autonomous run found what that rewards: it emitted
+ * `unknown` segments named `unnamed_XXXX` over ranges it had ALREADY named as
+ * routines — the loader among them — because a placeholder with an extent moved
+ * the number and a named routine did not. It reverted all 47 by hand and left
+ * coverage at 89.0 %. A metric that scores a blanket above a name is the defect,
+ * not the run.
+ *
+ * So a range counts when something is claimed about those bytes:
+ *
+ *   `segment_kind: "unknown"`  — never. That is the word for "I have not
+ *                                established this", and declaring it is honest
+ *                                work that is worth nothing as coverage. It is
+ *                                counted and reported separately.
+ *   any other classification   — counts. Somebody or something said what these
+ *                                bytes ARE: code, a charset, a pointer table.
+ *                                A wrong one is a checkable claim (the rebuild
+ *                                renders it, the critic reads it); a blanket
+ *                                `unknown` is not a claim at all.
+ *   no classification          — counts only with a HUMAN name on it. A machine
+ *                                name over an extent (`unknown_3E00_41D8`,
+ *                                `W0801`) is a range the analyser walked, not an
+ *                                account of what is in it. Naming it is the work,
+ *                                and now it is the work that moves the number.
+ */
+function claimsItsBytes(kind: string | null, segmentKind: string | null, name: string | null): "counts" | "unknown" | "machine" {
+  if ((segmentKind ?? "") === "unknown") return "unknown";
+  if (segmentKind) return "counts";
+  return isMachineName(name) ? "machine" : "counts";
 }
 
 /** Union of [start,end] ranges, in bytes. Overlaps counted once. */
@@ -199,6 +237,11 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   const artifacts = visible.filter((a) => MEASURABLE_KINDS.has(a.kind));
 
   const rangesByOwner = new Map<string, Array<{ start: number; end: number }>>();
+  // The same union, for the two buckets a range can fall into instead. They are
+  // reported, never counted: a reader who sees 41 % must be able to see where the
+  // other 59 % is and what would move it.
+  const unknownByOwner = new Map<string, Array<{ start: number; end: number }>>();
+  const machineByOwner = new Map<string, Array<{ start: number; end: number }>>();
   // 848 — named-ness, counted over the nodes where a name means something.
   let machineNamed = 0, memberNodes = 0;
   try {
@@ -220,17 +263,20 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
                 MAX(owner)       AS owner,
                 MAX(kind)        AS kind,
                 MIN(address)     AS address,
-                MAX(end_address) AS end_address
+                MAX(end_address) AS end_address,
+                MAX(json_extract(attrs, '$.segment_kind')) AS segment_kind
          FROM nodes
-         WHERE kind IN ('routine','segment','payload','data_block','entry')
+         WHERE kind IN ('routine','segment','payload','data_block','entry','lookup_table','pointer_table')
          GROUP BY id
          HAVING owner IS NOT NULL`,
-      ).all() as Array<{ human_name: string | null; any_name: string | null; owner: string; kind: string; address: number; end_address: number | null }>;
+      ).all() as Array<{ human_name: string | null; any_name: string | null; owner: string; kind: string; address: number; end_address: number | null; segment_kind: string | null }>;
       for (const r of rows) {
         if (r.end_address !== null) {
-          const list = rangesByOwner.get(r.owner) ?? [];
+          const verdict = claimsItsBytes(r.kind, r.segment_kind, r.human_name ?? r.any_name);
+          const into = verdict === "counts" ? rangesByOwner : verdict === "unknown" ? unknownByOwner : machineByOwner;
+          const list = into.get(r.owner) ?? [];
           list.push({ start: r.address, end: r.end_address });
-          rangesByOwner.set(r.owner, list);
+          into.set(r.owner, list);
         }
         if (!NAMED_KINDS.has(r.kind)) continue;
         memberNodes++;
@@ -258,6 +304,8 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   const seen = new Set<string>();
   let total = 0;
   let covered = 0;
+  let declaredUnknown = 0;
+  let machineOnly = 0;
   let counted = 0;
   let duplicates = 0;
   const unmeasured: string[] = [];
@@ -272,17 +320,19 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     total += size;
     counted += 1;
     const own = stemOf(a.relativePath ?? a.path ?? a.title);
-    const ranges = rangesByOwner.get(own);
-    if (!ranges) continue;
     // Clipped to the file: ranges live in load-address space and a union can otherwise
     // exceed the artifact it describes. The cap is a cap, not a measurement, and it is
     // better than a ratio above 1.
-    covered += Math.min(unionSize(ranges), size);
+    const clip = (list: Array<{ start: number; end: number }> | undefined) =>
+      list ? Math.min(unionSize(list), size) : 0;
+    covered += clip(rangesByOwner.get(own));
+    declaredUnknown += clip(unknownByOwner.get(own));
+    machineOnly += clip(machineByOwner.get(own));
   }
 
   const threshold = coverageThreshold(contractPresent ? contract.deliver?.coverageRatio : undefined);
   const coverage: CoverageReport = {
-    covered, total,
+    covered, declaredUnknown, machineOnly, total,
     ratio: total === 0 ? 0 : covered / total,
     unmeasured,
     threshold,
@@ -296,8 +346,16 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   const loaderStages = entities.filter((e) => e.kind === "loader-stage");
   const payloads = entities.filter((e) => e.kind === "payload");
   const refutations = findings.filter((f) => f.kind === "refutation");
-  const runtimeClaim = findings.find((f) => (f.tags ?? []).some((t) => /^slot:S5$/i.test(t)));
-  const runtimeCount = runtimeClaim ? parseRuntimeCount(runtimeClaim.title + " " + (runtimeClaim.summary ?? "")) : undefined;
+  // Every S5 claim, newest first (listFindings orders by updated_at DESC), and a
+  // claim that carries the count as a FIELD wins over one that only says it in
+  // prose — re-recording S5 with a number must settle it, which was the second
+  // half of the reported defect.
+  const runtimeClaims = findings.filter((f) => (f.tags ?? []).some((t) => /^slot:S5$/i.test(t)));
+  const runtimeClaim = runtimeClaims.find((f) => taggedRuntimeCount(f.tags) !== undefined) ?? runtimeClaims[0];
+  const runtimeCount = runtimeClaim
+    ? taggedRuntimeCount(runtimeClaim.tags)
+      ?? parseRuntimeCount(`${runtimeClaim.title} ${runtimeClaim.summary ?? ""}`)
+    : undefined;
 
   const derived = new Map<SlotId, string>();
   if (media.length > 0) derived.set("S2", `${media.length} media artifact(s) registered`);
@@ -333,7 +391,7 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
           return {
             applies: false,
             why: runtimeClaim
-              ? `S5 is answered but its wording states no number this can read ("${runtimeClaim.title.slice(0, 60)}${runtimeClaim.title.length > 60 ? "…" : ""}") — re-record S5 with a count in it, e.g. "five runtimes", and S6 becomes required or n/a accordingly`
+              ? `S5 is answered but no count can be read from its wording ("${runtimeClaim.title.slice(0, 60)}${runtimeClaim.title.length > 60 ? "…" : ""}") — record the number as a FIELD rather than a sentence: slot_record(slot="S5", count=N, …). S6 then becomes required or n/a by arithmetic instead of by regex`
               : "S5 has not stated a runtime count yet",
           };
         }
@@ -397,6 +455,17 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
           ? { slot, status: "filled", detail: `${explicit[0]}, established by walking the chains` }
           : { slot, status: "hypothesis", detail: `${explicit[0]} — not established by walking the chains; a BAM free list does not describe occupancy (issue #24)` };
       }
+      // S5 says what the list actually READ out of it. The count decides whether
+      // four other slots apply, and it used to be invisible: a claim that parsed
+      // as nothing looked identical to one that parsed as five.
+      if (slot.id === "S5") {
+        const how = runtimeCount === undefined
+          ? "no count could be read — pass count=N to slot_record so S6 is decided by arithmetic"
+          : taggedRuntimeCount(runtimeClaim?.tags) !== undefined
+            ? `count ${runtimeCount} (recorded as a field)`
+            : `count ${runtimeCount} (read from the wording)`;
+        return { slot, status: "filled", detail: `${explicit.join(", ")} — ${how}` };
+      }
       return { slot, status: "filled", detail: explicit.join(", ") };
     }
 
@@ -430,14 +499,56 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   };
 }
 
-/** "3 runtimes", "one runtime", "n=2". Deliberately forgiving — the claim is prose. */
-function parseRuntimeCount(text: string): number | undefined {
-  const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9 };
-  const w = /\b(one|two|three|four|five|six|seven|eight|nine)\b\s+runtime/i.exec(text);
-  if (w) return words[w[1].toLowerCase()];
-  const n = /\b(\d+)\s*runtime/i.exec(text);
-  if (n) return Number(n[1]);
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+  seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+};
+
+/**
+ * The count S5 states, taken from the RECORD when it is there.
+ *
+ * `slot_record(slot: "S5", count: N)` writes `count:N`. That is the answer to
+ * "parse the answer properly or stop gating on prose": the number stops being a
+ * thing a regex has to find in a sentence.
+ */
+function taggedRuntimeCount(tags: readonly string[] | undefined): number | undefined {
+  for (const t of tags ?? []) {
+    const m = /^count:(\d+)$/i.exec(t);
+    if (m) return Number(m[1]);
+  }
   return undefined;
+}
+
+/**
+ * The count a sentence states, when no field carries one.
+ *
+ * The first cut demanded the number IMMEDIATELY before the word "runtime", so
+ * both of these were unreadable and S6 through S9 stayed permanently n/a:
+ *
+ *   "Two permanently resident images and twelve swappable windows"
+ *   "4 resident runtimes and 14 swappable windows"
+ *
+ * — the first says nothing about "runtimes" at all and the second puts a word
+ * between the number and the noun. A resident IMAGE is what S5 asks about; it
+ * says so in its own question. So the noun set is the question's and up to three
+ * words may sit in between.
+ *
+ * It refuses rather than guesses when the sentence carries two different counts
+ * on the same noun ("one resident image per phase, five in all"), because a
+ * wrong number here silently decides whether four other slots apply.
+ */
+function parseRuntimeCount(text: string): number | undefined {
+  const noun = "(?:runtime(?:\\s+image)?s?|resident\\s+images?|resident\\s+programs?|images?|residents?)";
+  const num = "(\\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)";
+  const re = new RegExp(`\\b${num}\\b((?:\\s+[A-Za-z-]+){0,3}?)\\s+${noun}\\b`, "gi");
+  const seen: number[] = [];
+  for (const m of text.matchAll(re)) {
+    const raw = m[1]!.toLowerCase();
+    const n = /^\d+$/.test(raw) ? Number(raw) : NUMBER_WORDS[raw];
+    if (n !== undefined && !seen.includes(n)) seen.push(n);
+  }
+  if (seen.length === 1) return seen[0];
+  return undefined;   // none found, or the sentence states two different ones
 }
 
 export function formatSlotReport(r: SlotReport): string {
@@ -460,6 +571,9 @@ export function formatSlotReport(r: SlotReport): string {
     "",
     r.coverage.total > 0
       ? `Coverage: ${r.coverage.covered} / ${r.coverage.total} bytes = ${(r.coverage.ratio * 100).toFixed(1)} % (threshold ${(r.coverage.threshold * 100).toFixed(0)} %)`
+        + `\n  counted: bytes in a range that says what they ARE — a classification, or a human name`
+        + (r.coverage.declaredUnknown > 0 ? `\n  not counted: ${r.coverage.declaredUnknown} byte(s) in ranges declared \`unknown\` — honest, and worth nothing here; classify them or name them` : "")
+        + (r.coverage.machineOnly > 0 ? `\n  not counted: ${r.coverage.machineOnly} byte(s) in ranges carrying only a machine name (unknown_3E00, W0801) and no classification — naming them is what moves this number` : "")
         + `\n  denominator: ${r.coverage.artifacts} distinct loadable artifact(s)`
         + (r.coverage.duplicates > 0 ? `, ${r.coverage.duplicates} further cop${r.coverage.duplicates === 1 ? "y" : "ies"} of content already counted left out` : "")
       : "Coverage: nothing measurable registered yet",

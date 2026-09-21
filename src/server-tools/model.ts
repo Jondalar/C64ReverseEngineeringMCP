@@ -27,8 +27,9 @@ import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
 import { MODEL_LEVELS } from "../model/types.js";
 import { assertBoundary, listBoundaries, removeBoundary, ModelBoundaryError } from "../model/store.js";
-import { modelReport, formatModel } from "../model/rollup.js";
+import { modelReport, formatModel, membersInRangeBySpace } from "../model/rollup.js";
 import { reentryPackage, formatReentry } from "../model/reentry.js";
+import { missingRequiredText } from "./truncated-call.js";
 
 export function registerModelTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
@@ -41,13 +42,28 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
       address_start: z.number().int().min(0).max(0xffff).describe("First address of the range"),
       address_end: z.number().int().min(0).max(0xffff).describe("Last address, inclusive"),
       description: z.string().min(10).describe("What it IS and what it owns, in your words"),
-      evidence: z.array(z.string().min(3)).min(1).describe("REQUIRED: what you read that establishes this boundary — a file header, a listing line, a routine. A boundary without a citation is the claim the next session inherits and cannot check."),
+      // REQUIRED, checked in the handler — see src/server-tools/truncated-call.ts.
+      evidence: z.array(z.string().min(3)).min(1).optional().describe("REQUIRED: what you read that establishes this boundary — a file header, a listing line, a routine. A boundary without a citation is the claim the next session inherits and cannot check. Write this BEFORE `description` when the description runs long."),
       space: z.enum(["ram", "crt", "drv"]).default("ram").describe("Address space this boundary lives in"),
       owner: z.string().optional().describe("Bind the boundary to ONE artifact owner (e.g. \"07_game\"). Omit to span everything in the space at that range."),
       bank: z.number().int().min(0).optional().describe("Cartridge bank, for space=crt"),
     },
     async (args) => {
       const pd = context.projectDir(args.project_dir, true);
+      if (args.evidence === undefined || args.evidence.length === 0) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: missingRequiredText({
+              tool: "model_assert",
+              missing: "evidence",
+              what: "what you read that establishes this boundary — a file header, a listing line, a routine. "
+                + "A boundary without a citation is the claim the next session inherits and cannot check (Spec 845 D3).",
+              prose: [{ name: "description", value: args.description }],
+            }),
+          }],
+        };
+      }
       try {
         const node = await assertBoundary(pd, {
           name: args.name, level: args.level,
@@ -60,12 +76,40 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
         const kinds = mine && mine.members > 0
           ? Object.entries(mine.byKind).map(([k, v]) => `${v} ${k}`).join(", ")
           : "nothing yet — no analysed nodes fall in this range";
+        // An empty boundary used to stop at that sentence, and it is the wrong
+        // sentence whenever the bytes exist under a different address space.
+        // `$0300-$07FF` is the C64's and the 1541's at once, which is the case
+        // `space` exists for — and a drive-side listing only lands in `drv` if
+        // something recorded that its owner runs on the 1541.
+        const elsewhere: string[] = [];
+        if (!mine || mine.members === 0) {
+          const inRange = (await membersInRangeBySpace(pd, node.start, node.end))
+            .filter((r) => r.space !== node.space || (node.owner !== null && r.owner !== node.owner));
+          if (inRange.length > 0) {
+            const total = inRange.reduce((n, r) => n + r.count, 0);
+            elsewhere.push(
+              `  but $${hex(node.start)}-$${hex(node.end)} holds ${total} node(s) this boundary does not claim: `
+              + inRange.slice(0, 4).map((r) => `${r.count} in ${r.space}${r.owner ? `/${r.owner}` : ""}`).join(", ")
+              + (inRange.length > 4 ? `, …` : ""),
+            );
+            if (inRange.some((r) => r.space !== node.space)) {
+              elsewhere.push(
+                `  This boundary is in space "${node.space}". A node's space comes from the machine its owner runs on:`,
+                `  drive code lands in "drv" once that is recorded — pass platform="c1541" to disasm_prg (it records it`,
+                `  for the owner), or declare it once with \`c64re graph machine <owner> c1541\` and re-import.`,
+              );
+            } else {
+              elsewhere.push(`  This boundary is bound to owner "${node.owner}"; omit owner to span the whole space at that range.`);
+            }
+          }
+        }
         return {
           content: [{
             type: "text" as const,
             text: [
-              `${node.level} "${node.name}" $${hex(node.start)}-$${hex(node.end)}`,
+              `${node.level} "${node.name}" $${hex(node.start)}-$${hex(node.end)} [${node.space}${node.owner ? `/${node.owner}` : ""}]`,
               `  contains: ${kinds}`,
+              ...elsewhere,
               `  model now: ${report.nodes.length} boundaries, ${report.memberTotal - report.orphans.length}/${report.memberTotal} nodes placed, ${report.orphans.length} orphaned`,
             ].join("\n"),
           }],

@@ -480,14 +480,14 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 
   server.tool(
     "disasm_prg",
-    "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze_prg / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze_prg), for menus/multi-file containers (use disasm_menu) or for bytes with no load header (use disasm_raw). An analysis_json named here is the analysis rendered — it is never swapped for the <stem>_analysis.json beside the PRG, and a path that does not exist is refused. A `<stem>_annotations.json` next to the PRG/ASM is auto-applied: names (labels, routines, a segment's `label`) apply with or without `analysis_json`, while segment kinds and pointer/jump/immediate tables need `analysis_json` — the listing's header line says which happened, and the tool output quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild. In a project created since 2026-09-19 (project_init stamps it) no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered, and the refusal names every offender. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, platform, relocations. Returns: .asm/.tas artifact paths.",
+    "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON. Use after analyze_prg to get readable assembly, and again to render the final annotated version once you have an annotations file. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze_prg / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze_prg), for menus/multi-file containers (use disasm_menu) or for bytes with no load header (use disasm_raw). An analysis_json named here is the analysis rendered — it is never swapped for the <stem>_analysis.json beside the PRG, and a path that does not exist is refused. A `<stem>_annotations.json` next to the PRG/ASM is auto-applied: names (labels, routines, a segment's `label`) apply with or without `analysis_json`, while segment kinds and pointer/jump/immediate tables need `analysis_json` — the listing's header line says which happened, and the tool output quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild. In a project created since 2026-09-19 (project_init stamps it) no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered, and the refusal names every offender. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, platform, relocations. Returns: .asm/.tas artifact paths.",
     {
       project_dir: z.string().optional().describe("Project root directory. When omitted, resolved by walking up from prg_path to knowledge/phase-plan.json."),
       prg_path: z.string().describe("Path to the .prg file"),
       output_asm: z.string().optional().describe("Output path for the .asm file"),
       entry_points: z.array(z.string()).optional().describe("Hex entry point addresses"),
       analysis_json: z.string().optional().describe("Path to a prior analysis JSON for segment-aware disassembly"),
-      platform: z.enum(["c64", "c1541"]).optional().describe("target platform for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side disassembly."),
+      platform: z.enum(["c64", "c1541"]).optional().describe("target platform for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side disassembly. Naming it RECORDS the machine for this file: its graph nodes are then indexed in the drive's address space, so a boundary asserted with space=\"drv\" over a range the C64 and the 1541 share (e.g. $0300-$07FF) actually contains them."),
       relocations: z.array(z.object({
         fileStart: z.union([z.string(), z.number()]).describe("Stored/file address of the region's first byte (inclusive). An address is HEX: \"FC00\", \"$FC00\" and \"0xFC00\" are the same; a JSON number is taken as-is. Must lie inside the PRG."),
         fileEnd: z.union([z.string(), z.number()]).describe("Stored/file address of the region's last byte (inclusive). Same hex rule as fileStart. Must lie inside the PRG."),
@@ -508,6 +508,26 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       const outAbs = output_asm
         ? resolve(pd, output_asm)
         : prgAbs.replace(/\.prg$/i, "_disasm.asm");
+      // `entry_points` is the only way an analysis path can still reach the
+      // pipeline's entry-point slot, and it is the one shape this door never
+      // checked. The renderer's recovery branch then read the JSON as the
+      // analysis and printed a note naming a CLI flag the MCP caller cannot
+      // pass — advice nobody can act on, over a call that mostly worked.
+      // Refused here instead, by name, because the fix is a different parameter.
+      for (const [i, raw] of (entry_points ?? []).entries()) {
+        const value = String(raw).trim();
+        if (value === "") continue;
+        try {
+          parseAddress(value, `entry_points[${i}]`);
+        } catch {
+          const isJson = /\.json$/i.test(value);
+          return { content: [{ type: "text" as const, text:
+            `# disasm_prg refused\n\nentry_points[${i}] = ${JSON.stringify(value)} is not an address — ${ADDRESS_RULE}.`
+            + (isJson
+              ? `\n\nThat is an analysis JSON. It belongs in analysis_json, which is the parameter that renders a listing segment-aware; entry_points only ever holds addresses.`
+              : ``) }] };
+        }
+      }
       const entries = entry_points?.join(",") ?? "";
       // Spec 048: resolve platform — explicit arg wins, else read
       // from the artifact tag if registered, else default c64.
@@ -520,6 +540,23 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         } catch {
           // best effort
         }
+      }
+      // An explicitly named platform is RECORDED, not just used for this render.
+      //
+      // `platform: "c1541"` chose the drive's ZP/IO/ROM tables and then evaporated:
+      // nothing wrote it down, so the graph seeded the owner under the default space
+      // and a boundary asserted with space="drv" over $0300-$07FF — the range the C64
+      // and the 1541 share, which is exactly the case `space` exists for — contained
+      // nothing. The three readers that decide a node's space (`contextForOwner`) look
+      // at the artifact record's `platform` and at the declared machine; this door knew
+      // the answer and told neither. It reads the artifact record back a few lines up,
+      // so it was already half of a loop that was never closed.
+      if (platform) {
+        try {
+          const { declareMachine } = await import("../knowledge-graph/producers/machine.js");
+          const { normStem } = await import("../knowledge-graph/migrate/classify.js");
+          declareMachine(pd, normStem(basename(prgAbs)), resolvedPlatform);
+        } catch { /* the render stands without the declaration; the graph line below reports the space */ }
       }
       // The names an annotations file would store are checked BEFORE rendering, so the
       // listing and the graph never disagree: a project created since 2026-09-19 stores no
@@ -652,6 +689,19 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
             },
           ],
         });
+        // …and on the PRG's own row, which is the other half of the same loop:
+        // this door RESOLVES the platform from the artifact record when the caller
+        // names none, and nothing ever wrote it there. A second call therefore had
+        // to be told again, and the graph's own `contextForArtifact` never saw it.
+        if (platform) {
+          try {
+            const service = new ProjectKnowledgeService(pd);
+            const row = service.listArtifacts().find((a) => a.path === prgAbs);
+            if (row && row.platform !== resolvedPlatform) {
+              service.saveArtifact({ ...row, path: prgAbs, platform: resolvedPlatform });
+            }
+          } catch { /* the listing stands without the stamp */ }
+        }
         const verdictPrg = await rebuildVerification({
           projectDir: pd,
           asmPath: outAbs,
@@ -1152,7 +1202,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "propose_annotations",
-    "Generate a DRAFT annotations file (labels, segment reclassifications, routine names, and relocations) from an analysis JSON + optional disasm. Use to bootstrap semantic annotation before hand-editing. The draft's relocations[] entries are in disasm_prg.relocations shape ({fileStart,fileEnd,runtimeAddr} hex) — copy accepted ones straight into disasm_prg(relocations=[...]) to render relocated loader code as .pseudopc/.logical. When hand-editing the draft, the field shape is: labels[{address,label,comment?}], routines[{address,name,comment}], segments[{start,end,kind,label?,comment?}] (hex with or without `$`) — a mistyped key (`addr`/`name`) is tolerantly skipped, not applied; disasm_prg reports the skip count. Full reference: docs/annotations-reference.md. Not for saving confirmed knowledge (use save_finding / save_entity); it never overwrites a manual annotations file. Inputs: analysis JSON, optional disasm, persist_questions. Returns: draft annotations path.",
+    "Generate a DRAFT annotations file (labels, segment reclassifications, routine names, and relocations) from an analysis JSON + optional disasm. Use to bootstrap semantic annotation before hand-editing. The draft's relocations[] entries are in disasm_prg.relocations shape ({fileStart,fileEnd,runtimeAddr} hex) — copy accepted ones straight into disasm_prg(relocations=[...]) to render relocated loader code as .pseudopc/.logical. When hand-editing the draft, the field shape is: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}] (hex with or without `$`) — a mistyped key (`addr`/`name`) is tolerantly skipped, not applied; disasm_prg reports the skip count. Full reference: docs/annotations-reference.md. Not for saving confirmed knowledge (use save_finding / save_entity); it never overwrites a manual annotations file. Inputs: analysis JSON, optional disasm, persist_questions. Returns: draft annotations path.",
     {
       project_dir: z.string().optional(),
       analysis_json: z.string().describe("Path to the *_analysis.json file (relative to project_dir)."),

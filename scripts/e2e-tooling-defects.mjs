@@ -19,6 +19,12 @@
 //   12 the audit recommended a tool that is not on the surface
 //   13 the SFX probe claimed 0.93 for "some code ran and wrote memory"
 //
+// BUG-059 adds two of its own here (the rest sit in the gates that own their door):
+//   2  the entry-point slot took an analysis JSON and advised a flag the caller cannot pass
+//   4  project_inventory_sync returned 146 728 characters nobody could read
+//   3  a boundary in space drv contained nothing, because platform=c1541 was never recorded
+//   5  a required parameter lost after a long answer came back as a schema dump
+//
 // Hermetic: temp projects, synthetic PRGs, no ROMs, no media, no runtime daemon, no
 // network. The rebuild half of check 6 needs KickAssembler and says so loudly when the
 // jar is absent, the way e2e:830 does.
@@ -208,7 +214,8 @@ console.log("Thirteen tooling defects from one autonomous run\n");
   const slots = readFileSync(join(ROOT, "src/slots/state.ts"), "utf8");
   check(/identityOf/.test(slots) && /contentHash/.test(slots) && /lineageRoot/.test(slots),
     "the denominator counts each distinct piece of content once");
-  check(/S5 is answered but its wording states no number/.test(slots),
+  check(/S5 is answered but no count can be read from its wording/.test(slots)
+    && /S5 has not stated a runtime count yet/.test(slots),
     "S6 distinguishes \"S5 unanswered\" from \"S5 answered without a number\"");
   const text = formatSlotReport({
     states: [
@@ -297,6 +304,25 @@ console.log("Thirteen tooling defects from one autonomous run\n");
     "and analyze_prg no longer says \"likely Exomizer-packed\" on the strength of it");
 }
 
+// BUG-059 defect 2 — the CLI's own recovery note, and who it speaks to.
+{
+  head("2b", "the note about a shifted analysis names both doors");
+  const { execFileSync } = await import("node:child_process");
+  const d = mkdtempSync(join(tmpdir(), "c64re-note-"));
+  const prg = join(d, "n.prg");
+  writeFileSync(prg, Buffer.from([0x00, 0xc0, 0xa9, 0x01, 0x60]));
+  const analysis = join(d, "n_analysis.json");
+  execFileSync(process.execPath, [join(ROOT, "dist/pipeline/cli.cjs"), "analyze-prg", prg, analysis, "c000", "--no-register"], { stdio: "pipe" });
+  // the analysis in the ENTRY-POINT slot: the only shape that reaches the note
+  const out = execFileSync(process.execPath,
+    [join(ROOT, "dist/pipeline/cli.cjs"), "disasm-prg", prg, join(d, "n.asm"), analysis, "--no-register"],
+    { stdio: "pipe" }).toString();
+  check(/the entry-points slot held n_analysis\.json/.test(out), "the note still fires when the analysis slides into the entry-point slot");
+  check(/analysis_json \(MCP tool disasm_prg\)/.test(out),
+    "and it names the MCP parameter for the reader who has no flags", out.split("\n").find((l) => /^Note:/.test(l)));
+  check(/--analysis <path> \(this CLI\)/.test(out), "…and the CLI flag, labelled as the CLI's");
+}
+
 // ───────────────────────────────────────────────────────── live, through the server
 
 head("L", "live: the doors, over MCP");
@@ -355,6 +381,61 @@ try {
   check(/disasm_prg refused/.test(badReloc) && /outside tiny\.prg/.test(badReloc),
     "a relocation outside the PRG comes back as a refusal", badReloc.split("\n").slice(0, 3).join(" "));
   check(!/at Object\.|node:internal/.test(badReloc), "with no node stack trace in it");
+
+  // BUG-059 defect 2 — the entry-point slot is for addresses.
+  //
+  // The run saw "Note: the entry-points slot held X_analysis.json … Pass --analysis
+  // <path>" about thirty-five times and could not act on it: the MCP surface has no
+  // flags. No caller in the tree passes the analysis positionally (both doors use
+  // --analysis by name), so the only way in is an analysis path inside entry_points
+  // — which is refused here, naming the parameter that does take it.
+  const epJson = await call("disasm_prg", {
+    prg_path: prgRel,
+    entry_points: ["artifacts/prg/tiny_analysis.json"],
+  });
+  check(/disasm_prg refused/.test(epJson) && /entry_points\[0\]/.test(epJson),
+    "an analysis path in entry_points is refused by name", epJson.split("\n").filter(Boolean)[2]);
+  check(/analysis_json/.test(epJson) && !/--analysis/.test(epJson),
+    "…and the remedy it names is the MCP parameter, not a CLI flag");
+  const epBad = await call("disasm_prg", { prg_path: prgRel, entry_points: ["main"] });
+  check(/disasm_prg refused/.test(epBad) && /is not an address/.test(epBad),
+    "any non-address entry point is refused the same way", epBad.split("\n").filter(Boolean)[2]);
+  const epGood = await call("disasm_prg", { prg_path: prgRel, entry_points: ["$C000", "c000", "0xC000"] });
+  check(!/refused/.test(epGood), "…and all three spellings of one address still pass");
+
+  // BUG-059 defect 3 — a boundary in space "drv" over the range the C64 and the
+  // 1541 share. `platform: "c1541"` picked the drive's symbol tables and was then
+  // thrown away, so the annotations were seeded under the default space and the
+  // boundary contained nothing. $0300-$07FF is exactly the case `space` exists for.
+  const drvRel = "artifacts/prg/drivecode.prg";
+  writeFileSync(join(proj, drvRel), Buffer.from([0x00, 0x03, 0xa9, 0x00, 0x85, 0x00, 0x60]));
+  writeFileSync(join(proj, "artifacts/prg/drivecode_annotations.json"), JSON.stringify({
+    version: 1, binary: "drivecode.prg", segments: [], labels: [],
+    routines: [{ address: "0300", name: "drv_job_entry", comment: "the job loop's entry" }],
+  }, null, 2));
+  const drvOut = await call("disasm_prg", { prg_path: drvRel, platform: "c1541" });
+  check(/imported 1 routines/.test(drvOut), "the drive listing's names reach the graph", drvOut.split("\n").find((l) => /^Graph:/.test(l)));
+  const drvBoundary = await call("model_assert", {
+    name: "drive stage 2", level: "container",
+    address_start: 0x0300, address_end: 0x07ff,
+    description: "the drivecode resident in the 1541's RAM",
+    evidence: ["drivecode.prg header load=$0300"],
+    space: "drv",
+  });
+  check(/contains: 1 routine/.test(drvBoundary),
+    "a boundary in space drv contains the drive-side routines", drvBoundary.split("\n")[1]);
+  check(!/nothing yet/.test(drvBoundary), "…not \"nothing yet — no analysed nodes fall in this range\"");
+  // and the other direction: the same range in RAM must say where the nodes DID land
+  const ramBoundary = await call("model_assert", {
+    name: "host low ram", level: "container",
+    address_start: 0x0300, address_end: 0x07ff,
+    description: "the C64 side of the same address window",
+    evidence: ["the host's own listing"],
+    space: "ram",
+  });
+  check(/holds 1 node\(s\) this boundary does not claim/.test(ramBoundary) && /in drv\/drivecode/.test(ramBoundary),
+    "an empty boundary names the space the bytes are actually indexed under",
+    ramBoundary.split("\n").filter((l) => /holds/.test(l))[0]);
 
   // 1 (live) — a payload registered as a disk-file is linkable
   const reg = await call("register_payload", {
@@ -423,6 +504,40 @@ try {
     "S6 never says S5 is unanswered while S5 shows ✓",
     slots.split("\n").filter((l) => /S5|S6/.test(l)).join(" | "));
   check(/defined in all/.test(slots.split("\n")[0]), "and the header states its arithmetic", slots.split("\n")[0]);
+
+  // BUG-059 defect 5 — a long answer, and the parameter that did not arrive.
+  //
+  // The reported failure was `Invalid arguments ... path: ["evidence"] ... Required`
+  // with `evidence` written out in the call, twice, and a retry of the identical
+  // content working. Nothing in this server drops it: the first check sends a
+  // quarter-megabyte answer WITH its evidence over the same stdio transport and it
+  // is stored whole. So the refusal has to name the real cause instead of dumping
+  // the schema's word for "this key was not in the JSON".
+  const huge = "The resident engine occupies $0800-$3FFF and is never swapped. ".repeat(4200);
+  const bigRec = await call("slot_record", {
+    slot: "S8", answer: huge, title: "engine window", evidence: "read from the loader listing at $0810-$08C0",
+  });
+  check(/Recorded S8/.test(bigRec), `a ${Math.round(huge.length / 1024)} KiB answer is accepted whole over the transport`, bigRec.split("\n")[0]);
+  const missing = await call("slot_record", { slot: "S3", answer: huge });
+  check(/slot_record refused — evidence did not arrive/.test(missing),
+    "a missing evidence is refused by the door, not by the schema", missing.split("\n")[0]);
+  check(!/Invalid arguments|ZodError|"path"/.test(missing), "…with no schema dump in it");
+  check(missing.includes("`answer` came through at " + huge.length + " characters"),
+    "…and the refusal names what DID arrive and how long it was",
+    missing.split("\n").find((l) => /came through at/.test(l))?.slice(0, 110));
+  check(/written BEFORE `answer`/.test(missing) && /most likely to be lost/.test(missing),
+    "…and gives the two remedies that are within the caller's reach");
+  const shortMissing = await call("slot_record", { slot: "S3", answer: "Three stages: boot, depack, engine." });
+  check(/slot_record refused — evidence did not arrive/.test(shortMissing) && !/came through at/.test(shortMissing),
+    "a SHORT answer with no evidence is simply a missing field — no truncation story invented",
+    shortMissing.split("\n").filter(Boolean)[2]);
+  const boundaryNoCite = await call("model_assert", {
+    name: "engine", level: "container", address_start: 0x0800, address_end: 0x3fff,
+    description: huge,
+  });
+  check(/model_assert refused — evidence did not arrive/.test(boundaryNoCite) && /came through at/.test(boundaryNoCite),
+    "model_assert answers the same way — it is the other door with a required evidence",
+    boundaryNoCite.split("\n")[0]);
 
   // 11/12 (live) — inventory sync
   mkdirSync(join(proj, "analysis", "reloc"), { recursive: true });

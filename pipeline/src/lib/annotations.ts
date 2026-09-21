@@ -60,8 +60,20 @@ export interface RoutineAbi {
 
 export interface RoutineAnnotation {
   address: string;      // hex start address of routine
-  name: string;         // descriptive routine name
-  comment: string;      // what the routine does (block comment)
+  name: string;         // descriptive routine name — the one required field beside `address`
+  /**
+   * What the routine does, rendered as the block comment above it.
+   *
+   * OPTIONAL, and the type said `string` while the loader never checked it. A
+   * `routines[]` entry carrying only an address and a name was accepted —
+   * `[annotations] applied 81, skipped 0` — and then killed the renderer on
+   * `comment.split("\n")`. A name without prose is a legitimate annotation: it
+   * names the routine and renames its label, which is most of what a routine
+   * entry is for. So the field is optional here and the renderer prints the
+   * name header alone when it is absent. The graph importer already treated it
+   * this way (`comment: … ? … : null`); this is the half that disagreed.
+   */
+  comment?: string;
   abi?: RoutineAbi;     // calling convention used by pre-JSR immediate rewrite
 }
 
@@ -258,6 +270,20 @@ export function buildAnnotationsIndex(annotations: AnnotationsFile): Annotations
         section: "routine",
         reason: `unparseable address=${rt.address} (name=${rt.name ?? "?"})`,
         hint: mistypedKeyHint(rt, "address", ["addr", "offset", "pc"]),
+      });
+      continue;
+    }
+    // `name` is the one field a routine entry cannot do without: it is what the
+    // header prints and what renames the label. The renderer used to reach for
+    // `.name.toUpperCase()` on whatever the loader had stored, so an entry that
+    // only carried an address crashed it in the same place a missing `comment`
+    // did. Required here means reported here — by section, address and the key
+    // that was probably meant.
+    if (typeof rt.name !== "string" || rt.name.trim() === "") {
+      noteSkip({
+        section: "routine",
+        reason: `routine at ${rt.address} has no name`,
+        hint: mistypedKeyHint(rt, "name", ["label", "title", "ident", "symbol", "routine"]),
       });
       continue;
     }

@@ -28,6 +28,7 @@ import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
 import { SLOTS, SLOT_BY_ID, CONTAINER_SLOTS, type SlotId } from "../slots/schema.js";
 import { slotReport, formatSlotReport } from "../slots/state.js";
+import { missingRequiredText } from "./truncated-call.js";
 
 const SLOT_IDS = SLOTS.map((s) => s.id) as [SlotId, ...SlotId[]];
 
@@ -81,17 +82,37 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       slot: z.enum(SLOT_IDS).describe("Which slot — see project_slots for the list and what each asks"),
       answer: z.string().min(10).describe("The answer itself, stated plainly. As long as it needs to be — it is stored in full as the finding's body."),
       title: z.string().max(120).optional().describe("A short headline for the finding, ≤120 characters. Omit and one is taken from the answer's first sentence; the full answer is kept either way."),
-      evidence: z.string().min(10).describe("What you read or ran that establishes it — a listing, an address, a routine, a run"),
+      // REQUIRED, and checked in the handler rather than by the schema — see
+      // src/server-tools/truncated-call.ts. A schema-level `Required` is the
+      // wrong answer when the cause is a tool call that was cut short after a
+      // multi-paragraph `answer`, which is how this one actually fails.
+      evidence: z.string().min(10).optional().describe("REQUIRED: what you read or ran that establishes it — a listing, an address, a routine, a run. Write this BEFORE `answer` when the answer runs long."),
       address_start: z.number().int().nonnegative().optional().describe("Start of the address range this answer covers, if it has one"),
       address_end: z.number().int().nonnegative().optional().describe("End of that range (inclusive)"),
+      count: z.number().int().nonnegative().optional().describe("For S5 (runtime count): HOW MANY resident runtimes, as a number. S6/S7 applicability is decided from this. Give it rather than leaving the number in the prose — \"Two permanently resident images and twelve swappable windows\" is a fine answer and no parser should have to pick the right number out of it."),
       method: z.enum(["read", "run", "chains", "bam"]).optional().describe("REQUIRED for S11 (free RAM): READING (a hypothesis) or RUNNING (settled)? Four corpus projects got this wrong in the same direction. REQUIRED for S15 (writable space): \"chains\" (every chain on the medium walked and subtracted — settles it) or \"bam\" (read off the BAM's free list — a hypothesis, and on a track/sector-addressed disk usually an inverted one)."),
       boundary_name: z.string().optional().describe("For S3, S5 and S8 — the container this answer names, e.g. \"stage 2 loader\" or \"resident engine\". Given together with an address range it also asserts the Spec 845 model boundary, so the model fills as a side effect of answering this question (845 D7)."),
       space: z.enum(["ram", "crt", "drv"]).default("ram").describe("Address space, when a boundary is being asserted alongside"),
       owner: z.string().optional().describe("Bind the boundary to ONE artifact owner; omit to span the space"),
     },
-    async ({ project_dir, slot, answer, title, evidence, address_start, address_end, method, boundary_name, space, owner }) => {
+    async ({ project_dir, slot, answer, title, evidence, address_start, address_end, method, count, boundary_name, space, owner }) => {
       const pd = context.projectDir(project_dir, true);
       const def = SLOT_BY_ID.get(slot)!;
+
+      if (evidence === undefined || evidence.trim().length < 10) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: missingRequiredText({
+              tool: "slot_record",
+              missing: "evidence",
+              what: "what you read or ran that establishes the answer — a listing, an address, a routine, a run. "
+                + "A slot claim with no citation is the record the next session inherits and cannot check.",
+              prose: [{ name: "answer", value: answer }, { name: "title", value: title }],
+            }),
+          }],
+        };
+      }
 
       if (slot === "S15" && !method) {
         return {
@@ -135,7 +156,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
 
       const { KnowledgeRecords } = await import("../knowledge-graph/records.js");
       const rec = new KnowledgeRecords(pd);
-      const tags = [`slot:${slot}`, ...(method ? [`method:${method}`] : [])];
+      const tags = [`slot:${slot}`, ...(method ? [`method:${method}`] : []), ...(count !== undefined ? [`count:${count}`] : [])];
       // A slot answer that needs a sentence used to BECOME the title, and everything
       // that lists findings then printed a paragraph where a name belongs. The answer
       // is kept whole in the body — every reader that parses a slot claim reads title

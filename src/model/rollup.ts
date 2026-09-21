@@ -123,3 +123,39 @@ export function formatModel(r: ModelReport): string {
 }
 
 function hex(n: number): string { return (n & 0xffff).toString(16).padStart(4, "0"); }
+
+/**
+ * What else lies in a range, per address space — the answer a boundary that
+ * claims nothing owes its asserter.
+ *
+ * `model_assert(space: "drv")` came back "nothing yet — no analysed nodes fall
+ * in this range" over $0300-$07FF, a range the project's drive code fills. The
+ * boundary was right; the NODES were in the wrong space, because nothing on the
+ * disassembly path had ever recorded that the owner runs on the 1541. Both
+ * halves looked correct in isolation and the report was a dead end, so the door
+ * now says which space the bytes are actually indexed under.
+ */
+export async function membersInRangeBySpace(
+  projectDir: string,
+  start: number,
+  end: number,
+): Promise<Array<{ space: string; owner: string | null; count: number }>> {
+  const { GraphStore } = await import("../knowledge-graph/store.js");
+  let store;
+  try { store = GraphStore.open(projectDir, { readOnly: true }); } catch { return []; }
+  try {
+    const placeholders = MEMBER_KINDS.map(() => "?").join(",");
+    const rows = store.db.prepare(
+      `SELECT space, owner, COUNT(*) AS n FROM (
+         SELECT id, MAX(space) AS space, MAX(owner) AS owner, MIN(address) AS address
+         FROM nodes WHERE kind IN (${placeholders}) GROUP BY id
+       ) WHERE address >= ? AND address <= ?
+       GROUP BY space, owner ORDER BY n DESC`,
+    ).all(...MEMBER_KINDS, start, end) as Array<{ space: string; owner: string | null; n: number }>;
+    return rows.map((r) => ({ space: r.space, owner: r.owner, count: Number(r.n) }));
+  } catch {
+    return [];
+  } finally {
+    store.close();
+  }
+}

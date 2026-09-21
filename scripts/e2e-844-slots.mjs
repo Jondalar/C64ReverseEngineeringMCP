@@ -166,6 +166,73 @@ try {
       r2.states.find((s) => s.slot.id === "S6")?.detail);
   }
 
+  // ------------------------- BUG-059 defect 9: S6 was gated on a digit in S5's title
+  //
+  // An autonomous run answered S5 "Two permanently resident images and twelve
+  // swappable windows" and got back "its wording states no number this can read
+  // … re-record S5 with a count in it". It re-recorded as "4 resident runtimes
+  // and 14 swappable windows" and that did not clear it either, so S6..S9 stayed
+  // permanently n/a. Both are perfectly clear sentences; the parser demanded the
+  // digit immediately before the word "runtime".
+  {
+    const cases = [
+      ["Two permanently resident images and twelve swappable windows", 2, "applies"],
+      ["4 resident runtimes and 14 swappable windows", 4, "applies"],
+      ["Two resident images", 2, "applies"],
+      ["a single resident image at $0801", undefined, "unreadable"],
+      ["one runtime image, resident at $0801", 1, "n/a"],
+    ];
+    let caseN = 0;
+    for (const [title, expected, expect] of cases) {
+      caseN += 1;
+      const d = newProject(`s5case${caseN}`); dirs.push(d);
+      const rec = new KnowledgeRecords(d);
+      rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
+      rec.saveFinding({ kind: "observation", title, tags: ["slot:S5"] });
+      const rr = await slotReport(d);
+      const s6 = rr.states.find((x) => x.slot.id === "S6");
+      const s5 = rr.states.find((x) => x.slot.id === "S5");
+      if (expect === "applies") {
+        check(`S6 applies from "${title}"`, s6?.status === "empty", s6?.detail);
+        check(`…and S5's line says the count it read (${expected})`,
+          (s5?.detail ?? "").includes(`count ${expected} (read from the wording)`), s5?.detail);
+      } else if (expect === "n/a") {
+        check(`S6 stays n/a for one runtime ("${title}")`, s6?.status === "n/a", s6?.detail);
+      } else {
+        check(`an unreadable wording still says so ("${title}")`,
+          s6?.status === "n/a" && /slot_record\(slot="S5", count=N/.test(s6?.detail ?? ""), s6?.detail);
+        check("…and S5's own line admits it read no count",
+          /no count could be read/.test(s5?.detail ?? ""), s5?.detail);
+      }
+    }
+
+    // The count as a FIELD beats prose, and beats an earlier prose-only claim —
+    // which is what "re-recording did not clear it either" was about.
+    const d = newProject("s5-field"); dirs.push(d);
+    const rec = new KnowledgeRecords(d);
+    rec.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
+    rec.saveFinding({ kind: "observation", title: "a single resident image at $0801", tags: ["slot:S5"] });
+    let rf = await slotReport(d);
+    check("a prose-only S5 that states no number leaves S6 undecided", statusOf(rf, "S6") === "n/a");
+    rec.saveFinding({ kind: "observation", title: "four resident images and fourteen windows", tags: ["slot:S5", "count:4"] });
+    rf = await slotReport(d);
+    check("recording the count as a field settles S6", statusOf(rf, "S6") === "empty",
+      rf.states.find((x) => x.slot.id === "S6")?.detail);
+    check("…and S5's line says the count came from a field",
+      (rf.states.find((x) => x.slot.id === "S5")?.detail ?? "").includes("count 4 (recorded as a field)"),
+      rf.states.find((x) => x.slot.id === "S5")?.detail);
+
+    // A sentence with two different counts on the same noun is refused, not guessed.
+    const d3 = newProject("s5-ambig"); dirs.push(d3);
+    const rec3 = new KnowledgeRecords(d3);
+    rec3.saveFinding({ kind: "observation", title: "seed", addressRange: { start: 0x0801, end: 0x08ff } });
+    rec3.saveFinding({ kind: "observation", title: "One resident image per phase, five images in all", tags: ["slot:S5"] });
+    const r3 = await slotReport(d3);
+    check("two different counts in one sentence are not guessed at",
+      /no count could be read/.test(r3.states.find((x) => x.slot.id === "S5")?.detail ?? ""),
+      r3.states.find((x) => x.slot.id === "S5")?.detail);
+  }
+
   // ------------------------------------------------------ S12: the vocabulary is gated
   {
     const d = newProject("cov"); dirs.push(d);
@@ -187,6 +254,83 @@ try {
 
     const fine = await checkCompletenessClaim("stage 2 decompresses into $C000", d, "save_finding");
     check("ordinary prose passes", fine === undefined);
+  }
+
+  // ------------- BUG-059 defect 8: the metric must not reward a blanket placeholder
+  //
+  // An autonomous run found that emitting `unknown` segments named `unnamed_XXXX`
+  // over ranges it had ALREADY named as routines — the loader among them — moved
+  // the coverage number, because a placeholder with an extent counted and a named
+  // routine's own extent did not. It reverted all 47 by hand. A metric that scores
+  // a blanket above a name is the defect.
+  {
+    const { GraphStore } = await import("../dist/knowledge-graph/store.js");
+    const slug = "covgame";
+    const mk = () => {
+      const dir = mkdtempSync(join(tmpdir(), "c64re-cov8-"));
+      mkdirSync(join(dir, "knowledge"), { recursive: true });
+      writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: slug, slug }, null, 2));
+      writeFileSync(join(dir, "knowledge", "artifacts.json"), JSON.stringify({ items: [
+        { id: "a1", kind: "prg", title: "main.prg", path: "main.prg", relativePath: "main.prg", scope: "input", fileSize: 4098, tags: [] },
+      ] }, null, 2));
+      return dir;
+    };
+    const seed = (dir, nodes) => {
+      const store = GraphStore.open(dir);
+      store.replaceGenerated("test", null, nodes, []);
+      store.close();
+    };
+    const node = (kind, addr, end, name, segmentKind) => ({
+      id: `${slug}:ram/main:${kind}:${addr.toString(16).padStart(4, "0")}`,
+      kind, name, endAddress: end, origin: "static", confidence: "certain",
+      ...(segmentKind ? { attrs: { segment_kind: segmentKind } } : {}),
+    });
+
+    // 1. a blanket: one `unknown` segment over the whole file, with a placeholder name
+    const dBlanket = mk(); dirs.push(dBlanket);
+    seed(dBlanket, [node("segment", 0x0801, 0x1800, "unnamed_0801", "unknown")]);
+    const rb = await slotReport(dBlanket);
+    check("a blanket `unknown` range moves coverage not at all", rb.coverage.covered === 0,
+      `${rb.coverage.covered}/${rb.coverage.total}`);
+    check("…and the bytes are reported as declared-unknown, not hidden", rb.coverage.declaredUnknown > 0,
+      `declaredUnknown=${rb.coverage.declaredUnknown}`);
+    check("…and the report says where they went",
+      /declared `unknown`/.test(formatSlotReport(rb)),
+      formatSlotReport(rb).split("\n").find((l) => /not counted/.test(l)));
+
+    // 2. a machine name over an extent, with nothing said about it
+    const dMachine = mk(); dirs.push(dMachine);
+    seed(dMachine, [node("routine", 0x0801, 0x1800, "W0801")]);
+    const rm = await slotReport(dMachine);
+    check("a machine-named extent with no classification moves it not at all", rm.coverage.covered === 0,
+      `${rm.coverage.covered}/${rm.coverage.total}`);
+    check("…and is reported as such", rm.coverage.machineOnly > 0, `machineOnly=${rm.coverage.machineOnly}`);
+
+    // 3. the honest work: the same range, named
+    const dNamed = mk(); dirs.push(dNamed);
+    seed(dNamed, [node("routine", 0x0801, 0x1800, "irq_dispatch")]);
+    const rn = await slotReport(dNamed);
+    check("naming the routine IS what moves the number", rn.coverage.covered === 0x1800 - 0x0801 + 1,
+      `${rn.coverage.covered}/${rn.coverage.total}`);
+
+    // 4. …and so is classifying it, which is what the analyser does
+    const dClassified = mk(); dirs.push(dClassified);
+    seed(dClassified, [node("segment", 0x0801, 0x1800, "seg_0801", "code")]);
+    const rc = await slotReport(dClassified);
+    check("a classified range counts even under a machine name — `code` is a claim", rc.coverage.covered > 0,
+      `${rc.coverage.covered}/${rc.coverage.total}`);
+
+    // 5. the reported manoeuvre, end to end: painting `unknown` over a named routine
+    //    must LOWER nothing and RAISE nothing.
+    const dBoth = mk(); dirs.push(dBoth);
+    seed(dBoth, [
+      node("routine", 0x0801, 0x0900, "irq_dispatch"),
+      node("segment", 0x0901, 0x1800, "unnamed_0901", "unknown"),
+    ]);
+    const rboth = await slotReport(dBoth);
+    check("painting a blanket beside real names adds nothing to coverage",
+      rboth.coverage.covered === 0x0900 - 0x0801 + 1,
+      `${rboth.coverage.covered} covered, ${rboth.coverage.declaredUnknown} declared unknown`);
   }
 
   // -------------------------------------------------------------- the escape hatch

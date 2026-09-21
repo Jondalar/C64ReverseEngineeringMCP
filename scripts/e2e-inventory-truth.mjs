@@ -14,7 +14,7 @@
 //     `project_inventory_sync` reported as 831 declared intentional. One project, two
 //     answers — the declaration was read by the sync tool and by nothing else.
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -341,6 +341,77 @@ const openVersionQuestions = (svc) =>
       (step2.split("\n").find((l) => /not a known artifact kind/.test(l)) ?? "").slice(0, 90));
     const sync2 = await call("project_inventory_sync", { project_dir: proj });
     check(/is not a known artifact kind/.test(sync2), "and in the sync's own remaining problems");
+
+    // ─────────── BUG-059 defect 4: a readable answer, and a glob that matched nothing
+    //
+    // One `project_inventory_sync` came back at 146 728 characters over 5 833
+    // lines and blew the client's tool-result limit. And a well-formed declared
+    // pattern that matched nothing was accepted in silence — a project declared
+    // `analysis/overlays/*.prg`, saw no complaint, and 207 outputs stayed
+    // unregistered with nothing anywhere saying why.
+    //
+    // 400 files under a directory no shipped pattern covers, at a depth the
+    // project's own declaration does not reach.
+    for (let i = 0; i < 400; i += 1) {
+      write(proj, `analysis/overlays/set${i % 8}/ov${i}.prg`, Buffer.from([0x00, 0x20, 0xea]));
+    }
+    // …and 60 in a directory a TOOL owns. Those are not human debt, so they were
+    // held out of the debt list — and then reported nowhere at all, which is how
+    // a run's own outputs stay unregistered with the sync saying nothing.
+    for (let i = 0; i < 60; i += 1) {
+      write(proj, `analysis/depack/out${i}.bin`, Buffer.from([0xea, 0xea]));
+    }
+    writeFileSync(join(proj, INVENTORY_PATTERNS_FILE), JSON.stringify({
+      patterns: [{ glob: "analysis/overlays/*.prg", kind: "prg", scope: "analysis", role: "overlay" }],
+      intentional: [],
+    }, null, 2));
+    const bigSync = await call("project_inventory_sync", { project_dir: proj });
+    check(bigSync.length <= 8000, "the answer fits in something a client will show",
+      `${bigSync.length} chars, ${bigSync.split("\n").length} lines`);
+    check(/Full detail: knowledge\/inventory-sync-report\.md/.test(bigSync),
+      "…and names where the rest of it is", bigSync.split("\n").find((l) => /Full detail/.test(l)));
+    check(existsSync(join(proj, "knowledge", "inventory-sync-report.md")), "…which exists on disk");
+    const reportAbs = join(proj, "knowledge", "inventory-sync-report.md");
+    const report = existsSync(reportAbs) ? readFileSync(reportAbs, "utf8") : "";
+    check(/# Inventory sync/.test(report) && report.length > bigSync.length,
+      "…and holds more than the answer did", `${report.length} vs ${bigSync.length} chars`);
+    check(/matched no file/.test(bigSync),
+      "a declared pattern that matched nothing is NAMED", bigSync.split("\n").find((l) => /matched no file/.test(l)));
+    check(/analysis\/overlays\/ holds 400 file\(s\)/.test(bigSync),
+      "…with what is actually in that directory", bigSync.split("\n").find((l) => /holds 400/.test(l)));
+    check(/`\*` stops at a path separator/.test(bigSync) && /analysis\/overlays\/\*\*\/\*\.prg/.test(bigSync),
+      "…and the reason it missed, with a pattern that would not",
+      bigSync.split("\n").find((l) => /stops at a path separator/.test(l)));
+    check(/tool-produced file\(s\) are on disk and registered by nothing/.test(bigSync),
+      "outputs nothing registered are reported, not silently dropped",
+      bigSync.split("\n").find((l) => /registered by nothing/.test(l)));
+    // The 146 728-character answer, reproduced by the path that could actually
+    // run away: every problem line was printed, unbounded, at full length. 400
+    // malformed declaration entries each produce a named problem carrying the
+    // whole allowed vocabulary.
+    writeFileSync(join(proj, INVENTORY_PATTERNS_FILE), JSON.stringify({
+      patterns: Array.from({ length: 400 }, (_, i) => ({ glob: `analysis/x${i}/*.prg`, kind: "annotations", scope: "analysis" })),
+      intentional: [],
+    }, null, 2));
+    const floodSync = await call("project_inventory_sync", { project_dir: proj });
+    check(floodSync.length <= 8000, "400 malformed declaration entries still come back readable",
+      `${floodSync.length} chars, ${floodSync.split("\n").length} lines`);
+    check(/more, in the report file named below/.test(floodSync) && /Full detail:/.test(floodSync),
+      "…saying how many were elided and where they are",
+      floodSync.split("\n").find((l) => /more, in the report file/.test(l)));
+    const floodReport = existsSync(reportAbs) ? readFileSync(reportAbs, "utf8") : "";
+    check((floodReport.match(/is not a known artifact kind/g) ?? []).length === 400,
+      "…and the report file holds every one of them",
+      `${(floodReport.match(/is not a known artifact kind/g) ?? []).length} of 400`);
+
+    writeFileSync(join(proj, INVENTORY_PATTERNS_FILE), JSON.stringify({
+      patterns: [{ glob: "analysis/overlays/**/*.prg", kind: "prg", scope: "analysis", role: "overlay" }],
+      intentional: [],
+    }, null, 2));
+    const fixedSync = await call("project_inventory_sync", { project_dir: proj });
+    const registered = Number(/Files registered: (\d+)/.exec(fixedSync)?.[1] ?? "0");
+    check(registered >= 400, "and the corrected pattern registers all 400", `${registered}`);
+    check(!/matched no file/.test(fixedSync), "…with no empty-pattern complaint left");
   } catch (e) {
     failCount += 1;
     console.log(`  FAIL  live phase threw: ${e.message}${stderr ? " | stderr: " + stderr.slice(-300) : ""}`);

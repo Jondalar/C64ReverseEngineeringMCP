@@ -37,8 +37,10 @@ monitor's label column, so in such a project no name ever wraps there.
 
   // Documented routines (also promoted to a label, name→identifier).
   "routines": [
-    { "address": "0C00", "name": "Turn advance", "comment": "advances the turn counter" }
-    // address: hex. name: descriptive prose (sanitised to a valid label). comment: block comment.
+    { "address": "0C00", "name": "Turn advance", "comment": "advances the turn counter" },
+    { "address": "0C40", "name": "Turn reset" }
+    // address: hex. name: descriptive prose (sanitised to a valid label), REQUIRED.
+    // comment: optional block comment — a routine with only a name is a valid entry.
   ],
 
   // OPTIONAL sections (omit entirely if unused):
@@ -53,7 +55,7 @@ monitor's label column, so in such a project no name ever wraps there.
 | Section     | Required fields                          | NOT `addr`, NOT `name`(for a label) |
 |-------------|------------------------------------------|-------------------------------------|
 | `labels`    | `address`, `label`                       | use `address` (not `addr`), `label` (not `name`) |
-| `routines`  | `address`, `name`, `comment`             | use `address` (not `addr`); a routine's descriptive field IS `name` |
+| `routines`  | `address`, `name`                        | use `address` (not `addr`); a routine's descriptive field IS `name`; `comment` is optional |
 | `segments`  | `start`, `end`, `kind`                   | use `start`/`end` (not `from`/`to`) |
 
 Hex may be written `0810` or `$0810` — the loader strips a leading `$`.

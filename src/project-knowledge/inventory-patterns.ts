@@ -366,3 +366,80 @@ export function howToDeclare(examples: string[]): string[] {
   }
   return lines;
 }
+
+// ──────────────────────────────────────────────── a pattern that matched nothing
+
+/** The literal part of a glob, up to the first wildcard. `analysis/overlays/*.prg` → `analysis/overlays`. */
+function globDirPrefix(glob: string): string {
+  const cut = glob.search(/[*?[]/);
+  const literal = cut < 0 ? glob : glob.slice(0, cut);
+  const slash = literal.lastIndexOf("/");
+  return slash < 0 ? "" : literal.slice(0, slash);
+}
+
+/** The extension a glob asks for, when it ends in one. */
+function globExt(glob: string): string {
+  const m = /\.([A-Za-z0-9]+)$/.exec(glob);
+  return (m?.[1] ?? "").toLowerCase();
+}
+
+/**
+ * Why a well-formed declared pattern matched nothing.
+ *
+ * The previous round taught this file to explain a MALFORMED entry — a bad
+ * `kind`, a missing `glob`, an unknown key. A well-formed entry that simply
+ * matches nothing was accepted in silence: a project declared
+ * `analysis/overlays/*.prg`, saw no complaint, and 207 outputs stayed
+ * unregistered with nothing anywhere saying why. Advice nobody can act on and
+ * silence are the same failure; this is the sentence that was missing.
+ *
+ * `candidates` are the project-relative paths the registration walk saw, so the
+ * diagnosis is made of what is actually on disk rather than of guesses.
+ */
+export function diagnoseEmptyPattern(projectRoot: string, glob: string, candidates: readonly string[]): string[] {
+  const dir = globDirPrefix(glob);
+  const ext = globExt(glob);
+  const out: string[] = [`${INVENTORY_PATTERNS_FILE}: "${glob}" matched no file.`];
+
+  const dirExists = dir === "" || existsSync(join(projectRoot, dir));
+  if (!dirExists) {
+    // Name the nearest directory that DOES exist, so "I mistyped the path" is
+    // one glance rather than a hunt.
+    const parts = dir.split("/");
+    let nearest = "";
+    for (let i = parts.length - 1; i > 0; i -= 1) {
+      const candidate = parts.slice(0, i).join("/");
+      if (existsSync(join(projectRoot, candidate))) { nearest = candidate; break; }
+    }
+    out.push(`  ${dir}/ does not exist${nearest ? ` — the deepest part of that path that does is ${nearest}/` : " in this project"}.`);
+    return out;
+  }
+
+  const under = candidates.filter((c) => dir === "" || c === dir || c.startsWith(`${dir}/`));
+  if (under.length === 0) {
+    out.push(`  ${dir}/ exists but the walk found no registerable file under it (empty, or nothing with a known extension).`);
+    return out;
+  }
+  const byExt = new Map<string, number>();
+  for (const c of under) {
+    const e = (/\.([A-Za-z0-9]+)$/.exec(c)?.[1] ?? "").toLowerCase();
+    byExt.set(e, (byExt.get(e) ?? 0) + 1);
+  }
+  const have = [...byExt.entries()].sort((a, b) => b[1] - a[1]);
+  out.push(`  ${dir}/ holds ${under.length} file(s): ${have.map(([e, n]) => `${n} .${e || "(no extension)"}`).join(", ")}.`);
+  if (ext && !byExt.has(ext)) {
+    out.push(`  The pattern asks for .${ext}, which is not among them.`);
+  }
+  // Is it only the depth? `dir/*.ext` does not cross a directory boundary.
+  if (!glob.includes("**")) {
+    const deeper = under.filter((c) => c.slice(dir.length + 1).includes("/"));
+    if (deeper.length > 0) {
+      out.push(`  ${deeper.length} of them sit in SUBdirectories; \`*\` stops at a path separator. Try "${dir}/**/*.${ext || "prg"}".`);
+    }
+  }
+  const sample = under.slice(0, 3);
+  const suggestion = suggestPatternFor(sample);
+  out.push(`  A pattern that would cover what is there: ${JSON.stringify(suggestion)}`);
+  out.push(`  (e.g. ${sample.join(", ")})`);
+  return out;
+}

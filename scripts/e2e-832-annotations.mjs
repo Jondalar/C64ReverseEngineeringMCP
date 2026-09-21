@@ -76,6 +76,7 @@ const NAMES = {
   data_head: { address: 0x0830, referenced: true },
   table_mid: { address: 0x0832, referenced: false },
   far_routine: { address: 0xc160, referenced: true },
+  tbl_head: { address: 0x0827, referenced: false },
 };
 
 const dir = mkdtempSync(join(tmpdir(), "c64re-832-"));
@@ -88,7 +89,17 @@ writeFileSync(join(dir, "named_annotations.json"), JSON.stringify({
     { address: "0818", name: "entry_a", comment: "first fall-through entry" },
     { address: "081b", name: "entry_b", comment: "second entry, inside the BIT operand" },
     { address: "081e", name: "helper", comment: "called normally" },
-    { address: "0820", name: "lonely_routine", comment: "named by a human, referenced by nothing" },
+    // BUG-059 defect 1 — a routine entry with NO `comment`. The type said the field
+    // was required, the loader never checked it, and `segmentHeader` died on
+    // `comment.split("\n")` after reporting "applied 81, skipped 0". A name without
+    // prose is a legitimate annotation, so it must render, not crash.
+    { address: "0820", name: "lonely_routine" },
+    // …and one with no `name`, which is the field a routine cannot do without:
+    // it is skipped, by section and address, not stored for the renderer to trip over.
+    { address: "081d", comment: "a routine entry that forgot the one required field" },
+    // the same commentless shape at a SEGMENT START, where the block header is
+    // rendered — that is the exact line the crash came out of.
+    { address: "0827", name: "tbl_head" },
   ],
   labels: [
     { address: "0821", label: "lonely_label" },
@@ -108,8 +119,31 @@ const analysisPath = join(dir, "named_analysis.json");
 execFileSync(process.execPath, [cli, "analyze-prg", prgPath, analysisPath, "0801", "--no-register"], { stdio: "pipe" });
 
 const asmPath = join(dir, "named.asm");
-execFileSync(process.execPath, [cli, "disasm-prg", prgPath, asmPath, "", analysisPath, "--no-register"], { stdio: "pipe" });
+// BUG-059 defect 1 — this call is the regression: against the old code it throws
+// `TypeError: Cannot read properties of undefined (reading 'split')` out of
+// segmentHeader and nothing is written at all.
+let renderOut = "";
+let rendered = true;
+try {
+  renderOut = execFileSync(process.execPath, [cli, "disasm-prg", prgPath, asmPath, "", analysisPath, "--no-register"], { stdio: "pipe" }).toString();
+} catch (e) {
+  rendered = false;
+  renderOut = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+}
+check(rendered, `a routines[] entry with no comment renders instead of crashing${rendered ? "" : `:\n${renderOut.split("\n").filter((l) => /Error|TypeError/.test(l)).slice(0, 3).join("\n")}`}`);
+if (!rendered) {
+  console.log(`\nRED  Spec 832 annotations: ${pass} pass, ${failCount} fail.`);
+  process.exit(1);
+}
+check(/\[annotations\] applied \d+, skipped 1/.test(renderOut),
+  "the entry that has no `name` is the ONE skip reported — a required field missing is named, not swallowed");
+check(/routine: routine at 081d has no name/.test(renderOut),
+  "…and the skip line says which section and which address");
 const asm = readFileSync(asmPath, "utf8");
+check(/^ \* TBL_HEAD$/m.test(asm),
+  "a commentless routine at a segment start still gets its name header — the name IS the annotation");
+check(!/^ \* undefined$/m.test(asm) && !/^ \* $/m.test(asm),
+  "…and no empty or `undefined` comment line is printed under it");
 const lines = asm.split("\n");
 const codeOf = (line) => line.split("//")[0];
 const hasLine = (re) => lines.some((l) => re.test(codeOf(l)));

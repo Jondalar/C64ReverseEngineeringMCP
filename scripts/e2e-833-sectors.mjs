@@ -167,9 +167,49 @@ ok(
 
 // ------------------------------------------------------- through the tool ---
 
+// ---- a SECOND track, one sector per verdict (BUG-059 defects 6 and 7) -------
+//
+// 6: `extract_g64_sectors` and `read_g64_sector_candidate` reported one block
+//    under two vocabularies — gcr_error from the ring walk, checksum_error from
+//    the firmware-style read — and the difference is the whole point:
+//    checksum_error means the bytes decoded, gcr_error means some of them did not.
+// 7: this track exists at all so a single call can take more than one track.
+const TRACK2 = 33;
+const T2_OK = 0, T2_CRC = 1, T2_GCR = 2, T2_EMPTY = 3;
+const chunks2 = [];
+{
+  const push2 = (bytes) => chunks2.push(bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes));
+  const pushPair2 = (sector, payload, opt = {}) => {
+    push2(fill(SYNC, 0xff));
+    push2(encodeGCRBytes(buildSectorHeaderRaw(TRACK2, sector, ID1, ID2)));
+    push2(gap(HDR_GAP));
+    push2(fill(SYNC, 0xff));
+    const raw = buildSectorDataRaw(payload);
+    if (opt.breakChecksum) raw[257] = (raw[257] ^ 0x5a) & 0xff;
+    if (opt.noDataBlock) raw[0] = 0x09;
+    const enc = encodeGCRBytes(raw);
+    // An undecodable 5-bit group, well inside the data field: $00 is not a
+    // legal GCR nybble, so the group it lands in cannot be decoded and the
+    // bytes under it are not the disk's bytes. The block id (group 0) is left
+    // alone, so this is a gcr_error and not a no_data_block.
+    if (opt.breakGcr) { enc[100] = 0x00; enc[101] = 0x00; }
+    push2(enc);
+    push2(gap(TAIL_GAP));
+  };
+  pushPair2(T2_OK, payloadFor(T2_OK));
+  pushPair2(T2_CRC, payloadFor(T2_CRC), { breakChecksum: true });
+  pushPair2(T2_GCR, payloadFor(T2_GCR), { breakGcr: true });
+  pushPair2(T2_EMPTY, payloadFor(T2_EMPTY), { noDataBlock: true });
+}
+const track2Bytes = new Uint8Array(chunks2.reduce((total, c) => total + c.length, 0));
+{
+  let at = 0;
+  for (const c of chunks2) { track2Bytes.set(c, at); at += c.length; }
+}
+
 const projectDir = mkdtempSync(join(tmpdir(), "c64re-833-sectors-"));
 const imagePath = join(projectDir, "synthetic-833.g64");
-writeFileSync(imagePath, buildG64(TRACK, trackBytes));
+writeFileSync(imagePath, buildG64([[TRACK, trackBytes], [TRACK2, track2Bytes]]));
 
 {
   const parser = new G64Parser(new Uint8Array(readFileSync(imagePath)));
@@ -305,34 +345,108 @@ ok(
   "…and marks the losing pair in the per-sector listing",
 );
 
-console.log(`\n${fail === 0 ? "OK" : "FAILED"} — ${pass} passed, ${fail} failed`);
-process.exit(fail === 0 ? 0 : 1);
 
 // ------------------------------------------------------------- G64 writer ---
 
 // Minimal single-track G64 container (mirrors src/disk/g64-builder.ts's layout)
 // so the fixture stays under this script's control. Same writer as
 // e2e-832-gcr.mjs.
-function buildG64(track, bytes) {
+// ══════════════════════════════════════════ BUG-059 defect 6 — one vocabulary
+
+console.log("\nBUG-059 defect 6 — two doors, one word per condition\n");
+
+const readCandidate = handlers.get("read_g64_sector_candidate");
+ok(typeof readCandidate === "function", "read_g64_sector_candidate is registered");
+
+const walk2 = decodeGCRTrackDetailed(track2Bytes);
+const ringStatus = new Map(walk2.sectors.map((sc) => [sc.sector, sc.dataStatus]));
+ok(
+  ringStatus.get(T2_OK) === "ok" && ringStatus.get(T2_CRC) === "checksum_error"
+  && ringStatus.get(T2_GCR) === "gcr_error" && ringStatus.get(T2_EMPTY) === "no_data_block",
+  "the fixture track carries one sector per verdict",
+  [...ringStatus.entries()].map(([sc, st]) => `${sc}=${st}`).join(" "),
+);
+
+for (const sector of [T2_OK, T2_CRC, T2_GCR, T2_EMPTY]) {
+  const r = await readCandidate({ image_path: imagePath, track: TRACK2, sector });
+  const body = r?.content?.[0]?.text ?? "";
+  const status = (/^Status: (\S+)$/m.exec(body) ?? [])[1];
+  ok(status === ringStatus.get(sector),
+    `sector ${sector}: both doors call it ${ringStatus.get(sector)}`,
+    `read_g64_sector_candidate said ${status}`);
+  ok(/^Condition tested: /m.test(body), `…and the door says which condition it tested`,
+    (/^Condition tested: (.*)$/m.exec(body) ?? [])[1]?.slice(0, 70));
+}
+{
+  // the one that used to lie: a GCR failure reported as a checksum failure says
+  // the data bytes were tested, and they were not.
+  const r = await readCandidate({ image_path: imagePath, track: TRACK2, sector: T2_GCR });
+  const body = r?.content?.[0]?.text ?? "";
+  ok(!/Status: checksum_error/.test(body),
+    "an undecodable GCR group is NOT reported as a checksum error — that would claim the bytes were tested");
+  ok(/does not decode/.test(body), "…the condition line says a 5-bit group did not decode");
+}
+
+// ═══════════════════════════════════ BUG-059 defect 7 — more than one track
+
+console.log("\nBUG-059 defect 7 — a list of tracks, or a whole side, in one call\n");
+
+{
+  const bulkDir = join(projectDir, "bulk");
+  const res = await extract({ project_dir: projectDir, image_path: imagePath, tracks: [TRACK, TRACK2], output_dir: bulkDir });
+  const bulk = res?.content?.[0]?.text ?? "";
+  ok(!/# extract_g64_sectors refused|Tool Error/i.test(bulk), "a list of tracks is accepted in one call", bulk.split("\n")[0]);
+  ok(existsSync(join(bulkDir, `track-${TRACK}`, "track-metadata.json"))
+    && existsSync(join(bulkDir, `track-${TRACK2}`, "track-metadata.json")),
+    "each track gets its own directory and its own metadata");
+  ok(readdirSync(join(bulkDir, `track-${TRACK2}`)).filter((n) => n.endsWith(".bin")).length === 3,
+    "…and its own sector files (3 of the 4 pairs on track 33 carry bytes)");
+  ok(/Decoded sectors: 20/.test(bulk), "the totals are summed over every track asked for",
+    bulk.split("\n").find((l) => l.startsWith("Decoded sectors")));
+  ok(/- track 32: /.test(bulk) && /- track 33: /.test(bulk), "one summary line per track");
+  // A whole side must not answer with the per-sector detail of every track.
+  ok(!/^- 32\/0 /m.test(bulk), "the per-sector listing is NOT repeated for every track — it is in each metadata file");
+  ok(bulk.split("\n").length < 40, "so a multi-track answer stays readable", `${bulk.split("\n").length} lines`);
+
+  const all = await extract({ project_dir: projectDir, image_path: imagePath, all_tracks: true, output_dir: join(projectDir, "side") });
+  const allText = all?.content?.[0]?.text ?? "";
+  ok(/Tracks: 2 \(32, 33\)/.test(allText), "all_tracks sweeps every track in the image that holds data",
+    allText.split("\n").find((l) => l.startsWith("Tracks:")));
+
+  const none = await extract({ project_dir: projectDir, image_path: imagePath });
+  ok(/refused/.test(none?.content?.[0]?.text ?? "") && /all_tracks/.test(none?.content?.[0]?.text ?? ""),
+    "naming no track at all is refused, and the refusal names the three ways");
+  const both = await extract({ project_dir: projectDir, image_path: imagePath, track: TRACK, all_tracks: true });
+  ok(/refused/.test(both?.content?.[0]?.text ?? ""), "naming the tracks twice is refused rather than one silently winning");
+
+  // the single-track call still behaves exactly as before
+  ok(/^- 32\/0 /m.test(text) && /Metadata: /.test(text), "and the single-track call still prints its per-sector detail");
+}
+
+console.log(`\n${fail === 0 ? "OK" : "FAILED"} — ${pass} passed, ${fail} failed`);
+process.exit(fail === 0 ? 0 : 1);
+function buildG64(entries) {
   const TRACK_COUNT = 84, MAX_TRACK_SIZE = 7928;
   const headerSize = 0x0c + TRACK_COUNT * 4 * 2;
-  const out = new Uint8Array(headerSize + 2 + MAX_TRACK_SIZE);
+  const out = new Uint8Array(headerSize + entries.length * (2 + MAX_TRACK_SIZE));
   out.set([0x47, 0x43, 0x52, 0x2d, 0x31, 0x35, 0x34, 0x31], 0); // "GCR-1541"
   out[0x08] = 0;
   out[0x09] = TRACK_COUNT;
   out[0x0a] = MAX_TRACK_SIZE & 0xff;
   out[0x0b] = (MAX_TRACK_SIZE >> 8) & 0xff;
-  const slotIndex = Math.round((track - 1) * 2);
-  const writePos = headerSize;
-  const offsetTablePos = 0x0c + slotIndex * 4;
-  out[offsetTablePos + 0] = writePos & 0xff;
-  out[offsetTablePos + 1] = (writePos >> 8) & 0xff;
-  out[offsetTablePos + 2] = (writePos >> 16) & 0xff;
-  out[offsetTablePos + 3] = (writePos >> 24) & 0xff;
-  out[0x0c + TRACK_COUNT * 4 + slotIndex * 4] = 0; // speed zone 0 (tracks 31-35)
-  out[writePos + 0] = bytes.length & 0xff;
-  out[writePos + 1] = (bytes.length >> 8) & 0xff;
-  out.set(bytes, writePos + 2);
-  out.fill(0x55, writePos + 2 + bytes.length, writePos + 2 + MAX_TRACK_SIZE);
+  entries.forEach(([track, bytes], slot) => {
+    const slotIndex = Math.round((track - 1) * 2);
+    const writePos = headerSize + slot * (2 + MAX_TRACK_SIZE);
+    const offsetTablePos = 0x0c + slotIndex * 4;
+    out[offsetTablePos + 0] = writePos & 0xff;
+    out[offsetTablePos + 1] = (writePos >> 8) & 0xff;
+    out[offsetTablePos + 2] = (writePos >> 16) & 0xff;
+    out[offsetTablePos + 3] = (writePos >> 24) & 0xff;
+    out[0x0c + TRACK_COUNT * 4 + slotIndex * 4] = 0; // speed zone 0 (tracks 31-35)
+    out[writePos + 0] = bytes.length & 0xff;
+    out[writePos + 1] = (bytes.length >> 8) & 0xff;
+    out.set(bytes, writePos + 2);
+    out.fill(0x55, writePos + 2 + bytes.length, writePos + 2 + MAX_TRACK_SIZE);
+  });
   return out;
 }

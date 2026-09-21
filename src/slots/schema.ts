@@ -133,9 +133,9 @@ export const SLOTS: readonly SlotDef[] = [
   {
     id: "S12", name: "Coverage",
     question: "How many bytes are accounted for against how many are present?",
-    fills: "nothing — it is COMPUTED from the address ranges the project holds, never asserted",
+    fills: "nothing — it is COMPUTED, never asserted: bytes inside a range that says what they ARE (a classification, or a human name), against the bytes the project's loadable files hold. A range declared `unknown`, and a range carrying only a machine name, are counted and reported separately and are worth nothing here",
     required: "always", teeth: "report", doors: [],
-    because: "Neuromancer's documentation says EXHAUSTIVE at roughly 15 %. The words complete / exhaustive / fully mapped are claims about THIS slot, and are refused while it is below threshold.",
+    because: "Neuromancer's documentation says EXHAUSTIVE at roughly 15 %. The words complete / exhaustive / fully mapped are claims about THIS slot, and are refused while it is below threshold. It counts what is CLAIMED rather than what has an extent, because the first version rewarded the opposite: a run raised the number by painting `unknown` segments named `unnamed_XXXX` over ranges it had already named as routines, and reverted all 47.",
   },
   {
     id: "S13", name: "Evidence standard",
