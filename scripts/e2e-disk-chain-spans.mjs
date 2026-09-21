@@ -14,7 +14,8 @@
 //
 // Everything here is built in-process from a synthetic 35-track D64 (src/disk/d64-builder)
 // whose link bytes are then patched, so the gate owns its fixtures. The real Neuromancer
-// G64 sides are checked READ-ONLY when present and SKIPped when not.
+// G64 sides named by C64RE_REAL_DISK_DIR are checked READ-ONLY when present and
+// SKIPped when not; the gate proves itself on its own synthetic D64 either way.
 //
 // Run after `npm run build:mcp`.
 
@@ -191,7 +192,11 @@ try {
   }
 
   // ── 6. The real Neuromancer sides, read-only. ───────────────────────────────
-  const NEURO = "/Users/alex/Development/C64/Cracking/Neuromancer_Test2/input/disk";
+  // The real sides are an OPTIONAL confirmation, named by the caller — the gate
+  // proves itself on its own synthetic D64 above. No path to anybody's corpus lives
+  // in this repo; point C64RE_REAL_DISK_DIR at a directory holding the two sides to
+  // run section 6, and it skips loudly without one (the convention e2e:750-real uses).
+  const NEURO = process.env.C64RE_REAL_DISK_DIR ?? "";
   const side1 = join(NEURO, "neuromancer_s1[interplay_1988](alt2).g64");
   const side2 = join(NEURO, "neuromancer_s2[interplay_1988](alt2).g64");
   if (existsSync(side1)) {
@@ -222,7 +227,7 @@ try {
     ok(mismatched === 0, "Neuromancer side 1: every payload's spans are its full walked chain", `${mismatched} mismatched of ${m.payloads.length}`);
     ok(startOnly === 0, "Neuromancer side 1: no multi-block file is declared as a single sector", `${startOnly}`);
   } else {
-    skip("Neuromancer side 1 (media absent)");
+    skip("Neuromancer side 1 — set C64RE_REAL_DISK_DIR to the directory holding the sides to run this");
   }
   if (existsSync(side2)) {
     const d = join(dir, "neuro2");
@@ -238,7 +243,7 @@ try {
       "Neuromancer side 2: a truncated row is flagged, not presented as a clean payload",
       bad.map((p) => `${p.name}=${p.chainNote}`).join(" | "));
   } else {
-    skip("Neuromancer side 2 (media absent)");
+    skip("Neuromancer side 2 — set C64RE_REAL_DISK_DIR to the directory holding the sides to run this");
   }
 } finally {
   rmSync(dir, { recursive: true, force: true });
