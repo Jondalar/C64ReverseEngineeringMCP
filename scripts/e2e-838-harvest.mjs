@@ -253,7 +253,11 @@ check(!/observed RAM/.test(text), "the raw window is NOT printed unless asked fo
 const observedText = await callTool("sandbox_6502_run", { ...doorArgs, include_observed: true });
 const obsLine = observedText.split("\n").find((l) => l.includes("observed RAM")) ?? "";
 check(obsLine.includes("DE"), "include_observed does show the residue — by name, on its own line, labelled");
-check(/NOT this run's output/.test(obsLine), "…labelled as what it is");
+// It used to say "residue / loaded input, NOT this run's output", which is false:
+// the raw window holds the run's own stores too, and for zero page that is most of
+// what is in it. The label names all three now.
+check(/machine residue/.test(obsLine) && /loaded input/.test(obsLine) && /this run's own stores/.test(obsLine),
+  "…labelled as what it is: residue, loaded input and the run's own stores together");
 
 // ── E. what the tool WRITES TO DISK ─────────────────────────────────────────
 console.log("\nE. no invented byte reaches a file");
