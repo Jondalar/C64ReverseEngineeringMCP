@@ -239,9 +239,15 @@ function byReading(
     const ins = doc.codeAnalysis?.instructions ?? [];
     if (ins.length === 0) continue;
     for (const p of detectSectorLoads(ins)) {
-      if (p.track === undefined || p.sector === undefined) continue;
-      if (input.loadCall !== undefined && p.address !== input.loadCall && !p.witnesses.includes(input.loadCall)) continue;
-      calls.push({ track: p.track, sector: p.sector, address: p.address, evidence: p.evidence.join("; ") });
+      // Every position the target is called with, each with its own call site —
+      // the grouped candidate keeps only the best one on `track`/`sector`.
+      const positions = p.positions ?? (p.track !== undefined && p.sector !== undefined
+        ? [{ track: p.track, sector: p.sector, site: p.witnesses[p.witnesses.length - 1] ?? p.address }]
+        : []);
+      for (const pos of positions) {
+        if (input.loadCall !== undefined && pos.site !== input.loadCall && p.address !== input.loadCall) continue;
+        calls.push({ track: pos.track, sector: pos.sector, address: pos.site, evidence: `${p.evidence[0] ?? ""} (load routine ${hex4(p.address)})` });
+      }
     }
   }
 

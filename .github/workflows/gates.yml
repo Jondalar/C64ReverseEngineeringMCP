@@ -306,6 +306,15 @@ jobs:
       - name: Bytes at an address (Spec 865)
         run: npm run e2e:865
 
+      # Spec 867 — the window a payload occupies, and who is resident in it. Hermetic:
+      # it builds six overlays sharing one window, a payload spanning half the machine,
+      # an engine loading inside it and a loader, writes its own graph through the real
+      # schema, and runs the bundled analyzer. The capture the byte-match needs is
+      # handed in as a `ByteSource`, which is the interface the runtime implements — the
+      # same question against a real machine is `smoke:867`, a local gate.
+      - name: The window a payload owns (Spec 867)
+        run: npm run e2e:867-window
+
       # BUG-054 — thirteen defects one autonomous RE run wrote down as it hit them.
       # Hermetic: temp projects, synthetic PRGs, no ROMs, no media, no daemon. The
       # rebuild half needs KickAssembler and skips loudly without it, like e2e:830.
