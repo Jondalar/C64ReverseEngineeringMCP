@@ -182,6 +182,8 @@
     "e2e:bug028": "npm run build:mcp && node scripts/e2e-bug028-input-drive.mjs",
     "e2e:746-trace-leak": "npm run build:mcp && node scripts/e2e-746-trace-leak.mjs",
     "e2e:bug031": "npm run build:mcp && node scripts/e2e-bug031-disk-payload-spans.mjs",
+    "e2e:disk-chain-spans": "npm run build:mcp && node scripts/e2e-disk-chain-spans.mjs",
+    "e2e:disk-spec784": "npm run build:mcp && node scripts/e2e-disk-spec784.mjs",
     "e2e:750-cart": "npm run build:mcp && node scripts/e2e-750-cart-payload-slots.mjs",
     "e2e:firehose-dedupe": "tsx scripts/e2e-firehose-dedupe.mjs",
     "test:mcp-workflow": "node scripts/mcp-workflow-test.mjs",

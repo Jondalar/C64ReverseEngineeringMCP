@@ -89,6 +89,13 @@ export const manifestPayloadSchema = z.object({
   // The FULL traversed block chain, ordered. NOT just the start span — that is the
   // Pawn 168/1329 bug this contract exists to prevent.
   spans: z.array(manifestSpanSchema).min(1),
+  // Set when `spans` could NOT be walked to a clean end (a cyclic link, a sector the
+  // image cannot deliver, a last sector whose byte count is not a terminator, or no
+  // walk at all). Then the spans are the reachable prefix / the start sector, not the
+  // payload's measured extent, and this says which and where. Absent = the chain ended
+  // cleanly and the spans ARE the extent. Optional: manifests written before this
+  // existed, and extractors that do not walk chains, stay valid.
+  chainNote: z.string().optional(),
   // Path to the extracted blob on disk (relative to the project) — B2 registers it
   // as the payload's source artifact.
   bytesPath: z.string().optional(),

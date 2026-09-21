@@ -244,9 +244,18 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
             const loadAddress = file.loadAddress === undefined
               ? ""
               : ` load=$${file.loadAddress.toString(16).toUpperCase().padStart(4, "0")}`;
-            return `${String(file.index + 1).padStart(2, "0")}. ${file.relativePath} (${file.type}) - ${file.sizeBytes} bytes${loadAddress}`;
+            const chain = file.chainStatus && file.chainStatus !== "complete" ? `  [chain: ${file.chainStatus}]` : "";
+            return `${String(file.index + 1).padStart(2, "0")}. ${file.relativePath} (${file.type}) - ${file.sizeBytes} bytes${loadAddress}${chain}`;
           }),
         ];
+        // A file whose block chain did not terminate cleanly has FEWER sectors and FEWER
+        // bytes than it occupies — both the blob and the manifest spans stop at the same
+        // broken link, so nothing downstream can tell. Say it here, once, per file.
+        const brokenChains = manifest.files.filter((f) => f.chainStatus !== undefined && f.chainStatus !== "complete");
+        if (brokenChains.length > 0) {
+          lines.push("", `${brokenChains.length} of ${manifest.files.length} file(s) have an INCOMPLETE block chain — their extracted bytes and their manifest spans are a reachable prefix, not the file:`);
+          for (const f of brokenChains) lines.push(`  ${f.name || f.relativePath}: ${f.chainNote ?? f.chainStatus}`);
+        }
         if (knowledgeRegistration.outputArtifacts?.[0]) {
           try {
             const knowledgeService = new ProjectKnowledgeService(pd);

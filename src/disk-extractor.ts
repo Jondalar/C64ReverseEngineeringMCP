@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { createDiskParser, traceFileSectorChain, type DiskFileEntry, G64Parser } from "./disk/index.js";
+import { createDiskParser, walkFileSectorChain, type DiskFileEntry, type SectorChainStatus, G64Parser } from "./disk/index.js";
 
 export type DiskFileOrigin = "kernal" | "custom";
 
@@ -39,6 +39,12 @@ export interface ExtractedDiskFile {
   loadAddressNote?: string;
   relativePath: string;
   sectorChain: ExtractedDiskFileSector[];
+  /** How the block chain ENDED. Anything but "complete" means `sectorChain` is the
+   *  reachable prefix, not the file's extent — see `chainNote`. Optional so manifests
+   *  written before this existed still parse. */
+  chainStatus?: SectorChainStatus;
+  /** Why the chain did not terminate cleanly; absent when it did. */
+  chainNote?: string;
   md5?: string;
   first16?: string;
   last16?: string;
@@ -107,26 +113,31 @@ export function readDiskDirectory(imagePath: string): ExtractedDiskManifest {
     diskId: directory.id,
     outputDir: "",
     manifestPath: "",
-    files: directory.files.map((entry, index): ExtractedDiskFile => ({
-      index,
-      origin: "kernal",
-      name: entry.name,
-      type: entry.type,
-      sizeSectors: entry.size,
-      sizeBytes: 0,
-      track: entry.track,
-      sector: entry.sector,
-      // readDiskDirectory never reads a file's bytes, so it never learns a load
-      // address — it does not guess one from the directory entry either.
-      loadAddress: entry.loadAddress,
-      format: entry.type === "PRG" && entry.loadAddress !== undefined ? "prg" : "raw",
-      loadAddressNote: entry.loadAddressNote,
-      relativePath: "",
-      sectorChain: traceFileSectorChain((t, s) => parser.getSector(t, s), entry),
-      origin_detail: {
-        directoryEntry: { track: entry.track, sector: entry.sector },
-      },
-    })),
+    files: directory.files.map((entry, index): ExtractedDiskFile => {
+      const walk = walkFileSectorChain((t, s) => parser.getSector(t, s), entry);
+      return {
+        index,
+        origin: "kernal",
+        name: entry.name,
+        type: entry.type,
+        sizeSectors: entry.size,
+        sizeBytes: 0,
+        track: entry.track,
+        sector: entry.sector,
+        // readDiskDirectory never reads a file's bytes, so it never learns a load
+        // address — it does not guess one from the directory entry either.
+        loadAddress: entry.loadAddress,
+        format: entry.type === "PRG" && entry.loadAddress !== undefined ? "prg" : "raw",
+        loadAddressNote: entry.loadAddressNote,
+        relativePath: "",
+        sectorChain: walk.links,
+        chainStatus: walk.status,
+        chainNote: walk.note,
+        origin_detail: {
+          directoryEntry: { track: entry.track, sector: entry.sector },
+        },
+      };
+    }),
   };
 }
 
@@ -150,6 +161,12 @@ export function extractDiskImage(imagePath: string, outputDir: string): Extracte
     const relativePath = `${String(index + 1).padStart(2, "0")}_${sanitizeName(entry.name)}${extensionForType(entry.type)}`;
     writeFileSync(join(outputDir, relativePath), bytes);
 
+    // The chain is walked WITH its termination verdict: `extractFile` above stops on the
+    // same cycle / unreadable sector this walk does, so a truncated blob and a truncated
+    // span list agree with each other and nothing downstream can tell either is short.
+    // Only this verdict can.
+    const walk = walkFileSectorChain((t, s) => parser.getSector(t, s), entry);
+
     files.push({
       index,
       origin: "kernal",
@@ -165,7 +182,9 @@ export function extractDiskImage(imagePath: string, outputDir: string): Extracte
       format: entry.type === "PRG" && entry.loadAddress !== undefined ? "prg" : "raw",
       loadAddressNote: entry.loadAddressNote,
       relativePath,
-      sectorChain: traceFileSectorChain((t, s) => parser.getSector(t, s), entry),
+      sectorChain: walk.links,
+      chainStatus: walk.status,
+      chainNote: walk.note,
       md5: md5Hex(bytes),
       first16: hexSlice(bytes, 0, 16),
       last16: hexSlice(bytes, Math.max(0, bytes.length - 16), bytes.length),
