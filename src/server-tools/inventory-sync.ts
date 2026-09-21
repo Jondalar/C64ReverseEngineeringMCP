@@ -18,9 +18,11 @@ import { z } from "zod";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { DEFAULT_PATTERNS, registerProjectFiles } from "./registration.js";
 import { scanRegistrationDelta, findUnimportedAnalysisArtifacts } from "../lib/registration-delta.js";
-import { howToDeclare, INVENTORY_PATTERNS_FILE, readInventoryDeclaration } from "../project-knowledge/inventory-patterns.js";
+import { diagnoseEmptyPattern, howToDeclare, INVENTORY_PATTERNS_FILE, readInventoryDeclaration } from "../project-knowledge/inventory-patterns.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
+import { writeFileSync, mkdirSync } from "node:fs";
+import { join, relative } from "node:path";
 
 function textContent(text: string) {
   return { content: [{ type: "text" as const, text }] };
@@ -48,6 +50,9 @@ export interface ProjectInventorySyncResult {
   /** How many files were skipped IN ALL. `skipped` carries a sample of them. */
   skippedTotal: number;
   remainingProblems: string[];
+  /** Tool-produced files on disk that no pattern registered — reported, not silent. */
+  unregisteredToolOutput: number;
+  unregisteredToolOutputByDir: Record<string, number>;
   nextStepHint: string;
 }
 
@@ -77,6 +82,7 @@ export async function runProjectInventorySync(
   // and a project saying what its own directory holds outranks a shipped default.
   const declared = readInventoryDeclaration(projectRoot);
   if (declared.error) remainingProblems.push(declared.error);
+  const emptyPatternNotes: string[] = [];
   // A declaration entry that could not be applied is named, with the entry index and
   // what is allowed. It used to be dropped by a `typeof` filter without a word, so a
   // project that wrote `kind: "annotations"` saw a file that looked accepted and
@@ -89,9 +95,18 @@ export async function runProjectInventorySync(
     { producedByTool: "project_inventory_sync" },
   );
   for (const err of reg.errors) {
-    skipped.push({ path: err.relativePath, reason: `could not register: ${err.error}` });
     skippedTotal += 1;
+    if (skipped.length < SKIPPED_SAMPLE) skipped.push({ path: err.relativePath, reason: `could not register: ${err.error}` });
   }
+  // A declared pattern that matched nothing is named, with what IS in that
+  // directory and a pattern that would cover it. Shipped defaults are not
+  // reported: most of them match nothing in most projects, and that is normal.
+  for (const pattern of declared.patterns) {
+    if ((reg.matchesByGlob[pattern.glob] ?? 0) === 0) {
+      emptyPatternNotes.push(...diagnoseEmptyPattern(projectRoot, pattern.glob, reg.candidates));
+    }
+  }
+  remainingProblems.push(...emptyPatternNotes);
   await breathe();
 
   // 3. Import disk/CRT/PRG manifests when present. importManifestArtifact uses
@@ -105,11 +120,13 @@ export async function runProjectInventorySync(
       service.importManifestArtifact(m.id);
       importedManifests += 1;
     } catch (e) {
-      skipped.push({
-        path: m.relativePath,
-        reason: `manifest not imported: ${e instanceof Error ? e.message : String(e)}`,
-      });
       skippedTotal += 1;
+      if (skipped.length < SKIPPED_SAMPLE) {
+        skipped.push({
+          path: m.relativePath,
+          reason: `manifest not imported: ${e instanceof Error ? e.message : String(e)}`,
+        });
+      }
     }
     // Yield between manifests — a single import is ~0.5s on a large manifest, so
     // importing several back-to-back would block the event loop (Spec 730.3 fix).
@@ -129,8 +146,8 @@ export async function runProjectInventorySync(
       service.importAnalysisArtifact(a.id);
       importedAnalysisRuns += 1;
     } catch (e) {
-      skipped.push({ path: a.relativePath, reason: `analysis not imported: ${e instanceof Error ? e.message : String(e)}` });
       skippedTotal += 1;
+      if (skipped.length < SKIPPED_SAMPLE) skipped.push({ path: a.relativePath, reason: `analysis not imported: ${e instanceof Error ? e.message : String(e)}` });
     }
     await breathe();
   }
@@ -203,8 +220,20 @@ export async function runProjectInventorySync(
     remainingProblems.push(`${delta.declaredIntentionalCount} further file(s) are declared intentional in ${INVENTORY_PATTERNS_FILE} and are not counted.`);
   }
   skippedTotal += unexplained.length;
-  for (const u of unexplained.slice(0, SKIPPED_SAMPLE)) {
+  for (const u of unexplained) {
+    if (skipped.length >= SKIPPED_SAMPLE) break;
     skipped.push({ path: u, reason: "no inventory pattern covers this file type" });
+  }
+  // Tool-produced files nothing registered used to be invisible here: only the
+  // HUMAN debt list was reported, so a project whose own outputs matched no
+  // pattern saw a clean sync and 207 unregistered files. The count and the
+  // directories are the report; the full list is in the report file.
+  if (delta.toolOutputCount > 0) {
+    const dirs = Object.entries(delta.toolOutputByDir).sort((a, b) => b[1] - a[1]);
+    remainingProblems.push(
+      `${delta.toolOutputCount} tool-produced file(s) are on disk and registered by nothing`
+      + ` — ${dirs.slice(0, 4).map(([dir, n]) => `${n} in ${dir || "."}/`).join(", ")}${dirs.length > 4 ? `, …` : ""}.`,
+    );
   }
 
   // 6. Next-step hint — product concepts only, never internal helper names.
@@ -224,6 +253,8 @@ export async function runProjectInventorySync(
     registered: reg.registered,
     importedManifests,
     importedAnalysisRuns,
+    unregisteredToolOutput: delta.toolOutputCount,
+    unregisteredToolOutputByDir: delta.toolOutputByDir,
     rebuiltViews,
     versionGroupsCreated,
     versionGroupsUpdated,
@@ -241,7 +272,69 @@ export async function runProjectInventorySync(
 /** How many skipped files the report names before it starts counting instead. */
 const SKIPPED_SAMPLE = 15;
 
-function renderResult(projectRoot: string, r: ProjectInventorySyncResult): string {
+/**
+ * What a tool result may cost the reader.
+ *
+ * One `project_inventory_sync` came back at 146 728 characters over 5 833 lines
+ * and blew the client's tool-result limit, so the ONE fact the caller needed —
+ * what is still not registered and why — was in a wall nobody could read. A
+ * result that cannot be read is worse than a short one that names where the
+ * detail is. Everything elided here is written to the report file, in full, and
+ * the answer names it.
+ */
+const MAX_RESULT_CHARS = 8000;
+const MAX_PROBLEM_LINES = 24;
+const MAX_LINE_CHARS = 400;
+const REPORT_FILE = "knowledge/inventory-sync-report.md";
+
+function clip(line: string): string {
+  return line.length <= MAX_LINE_CHARS ? line : `${line.slice(0, MAX_LINE_CHARS - 1)}…`;
+}
+
+/** Everything, unclipped. Written to disk, never returned as the tool result. */
+function renderFullReport(projectRoot: string, r: ProjectInventorySyncResult): string {
+  const lines: string[] = [
+    `# Inventory sync — ${r.status}`,
+    "",
+    `Project: ${projectRoot}`,
+    `Generated: ${new Date().toISOString()}`,
+    "",
+    "This is the full detail behind the `project_inventory_sync` answer. The tool",
+    "result carries the counts and a sample; everything else is here.",
+    "",
+    `## Counts`,
+    "",
+    `- files registered: ${r.registered}`,
+    `- manifests imported: ${r.importedManifests}`,
+    `- analysis runs back-filled: ${r.importedAnalysisRuns}`,
+    `- views rebuilt: ${r.rebuiltViews.length}`,
+    `- version groups: ${r.versionGroupsCreated} created, ${r.versionGroupsUpdated} updated, ${r.versionGroupsNeedDecision} needing a decision`,
+    `- skipped: ${r.skippedTotal}`,
+    `- tool-produced files nothing registered: ${r.unregisteredToolOutput}`,
+    "",
+    "## Views rebuilt",
+    "",
+    ...r.rebuiltViews.map((v) => `- ${v}`),
+  ];
+  if (r.skipped.length > 0) {
+    lines.push("", `## Skipped (sample of ${r.skippedTotal})`, "");
+    for (const sk of r.skipped) lines.push(`- ${sk.path} — ${sk.reason}`);
+  }
+  if (r.unregisteredToolOutput > 0) {
+    lines.push("", `## Tool-produced files nothing registered (${r.unregisteredToolOutput}), by directory`, "");
+    for (const [dir, n] of Object.entries(r.unregisteredToolOutputByDir).sort((a, b) => b[1] - a[1])) {
+      lines.push(`- ${n}  ${dir || "."}/`);
+    }
+  }
+  if (r.remainingProblems.length > 0) {
+    lines.push("", "## Remaining problems", "");
+    for (const problem of r.remainingProblems) lines.push(problem.startsWith("  ") ? problem : `- ${problem}`);
+  }
+  lines.push("", `Next: ${r.nextStepHint}`, "");
+  return lines.join("\n");
+}
+
+function renderResult(projectRoot: string, r: ProjectInventorySyncResult, reportPath?: string): string {
   const lines: string[] = [];
   lines.push(`Project inventory sync — ${r.status}.`);
   lines.push(`Project: ${projectRoot}`);
@@ -270,17 +363,34 @@ function renderResult(projectRoot: string, r: ProjectInventorySyncResult): strin
   if (r.skippedTotal > 0) {
     lines.push(``);
     lines.push(`Skipped (${r.skippedTotal}${r.skipped.length < r.skippedTotal ? `, showing ${r.skipped.length}` : ""}):`);
-    for (const s of r.skipped) lines.push(`  ${s.path} — ${s.reason}`);
-    if (r.skippedTotal > r.skipped.length) lines.push(`  … and ${r.skippedTotal - r.skipped.length} more not listed`);
+    for (const s of r.skipped) lines.push(clip(`  ${s.path} — ${s.reason}`));
+    if (r.skippedTotal > r.skipped.length) lines.push(`  … and ${r.skippedTotal - r.skipped.length} more — the full list is in the report file named below`);
+  }
+  if (r.unregisteredToolOutput > 0) {
+    lines.push(``);
+    lines.push(`Tool-produced files nothing registered: ${r.unregisteredToolOutput}`);
   }
   if (r.remainingProblems.length > 0) {
     lines.push(``);
     lines.push(`Remaining problems:`);
-    for (const p of r.remainingProblems) lines.push(`  ${p}`);
+    for (const p of r.remainingProblems.slice(0, MAX_PROBLEM_LINES)) lines.push(clip(`  ${p}`));
+    if (r.remainingProblems.length > MAX_PROBLEM_LINES) {
+      lines.push(`  … and ${r.remainingProblems.length - MAX_PROBLEM_LINES} more, in the report file named below`);
+    }
+  }
+  if (reportPath) {
+    lines.push(``);
+    lines.push(`Full detail: ${reportPath}`);
   }
   lines.push(``);
   lines.push(`Next: ${r.nextStepHint}`);
-  return lines.join("\n");
+  const text = lines.join("\n");
+  // The last resort. Nothing above should be able to run away, but a tool result
+  // that cannot be read is the failure this is guarding against, so it is capped
+  // rather than trusted.
+  if (text.length <= MAX_RESULT_CHARS) return text;
+  const head = text.slice(0, MAX_RESULT_CHARS - 200);
+  return `${head.slice(0, head.lastIndexOf("\n"))}\n\n… cut at ${MAX_RESULT_CHARS} characters${reportPath ? ` — the whole answer is in ${reportPath}` : ""}.\nNext: ${r.nextStepHint}`;
 }
 
 export function registerInventorySyncTool(server: McpServer, ctx: ServerToolContext): void {
@@ -294,7 +404,17 @@ export function registerInventorySyncTool(server: McpServer, ctx: ServerToolCont
       const projectRoot = ctx.projectDir(project_dir);
       const service = new ProjectKnowledgeService(projectRoot);
       const result = await runProjectInventorySync(service, projectRoot);
-      return textContent(renderResult(projectRoot, result));
+      // The full detail goes to a file, always, so the short answer can name it
+      // rather than carrying it. Best-effort: a project whose knowledge/ cannot
+      // be written still gets its answer.
+      let reportPath: string | undefined;
+      try {
+        const abs = join(projectRoot, REPORT_FILE);
+        mkdirSync(join(projectRoot, "knowledge"), { recursive: true });
+        writeFileSync(abs, renderFullReport(projectRoot, result), "utf8");
+        reportPath = relative(projectRoot, abs).replace(/\\/g, "/");
+      } catch { /* the answer stands without it */ }
+      return textContent(renderResult(projectRoot, result, reportPath));
     }),
   );
 }

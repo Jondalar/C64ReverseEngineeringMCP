@@ -104,6 +104,18 @@ export interface RegisterFilesResult {
   excludedByGlob: number;
   unmatched: string[];
   errors: Array<{ relativePath: string; error: string }>;
+  /**
+   * How many candidate files each pattern matched, by glob.
+   *
+   * The previous round taught the declaration file to explain a MALFORMED entry.
+   * A well-formed one that matches nothing was still silent: a project declared
+   * `analysis/overlays/*.prg`, the door accepted it without a word, and 207
+   * outputs stayed unregistered with no way to find out why. A zero here is what
+   * the sync turns into that sentence.
+   */
+  matchesByGlob: Record<string, number>;
+  /** Every candidate file the walk saw — the material a diagnosis is made from. */
+  candidates: string[];
 }
 
 // Core registration pass shared by register_existing_files (the internal tool)
@@ -130,12 +142,15 @@ export function registerProjectFiles(
   const planned: Array<{ pattern: RegistrationPattern; relativePath: string }> = [];
   let skippedAlreadyRegistered = 0;
   const unmatched: string[] = [];
+  const matchesByGlob: Record<string, number> = {};
+  for (const pat of patterns) matchesByGlob[pat.glob] = matchesByGlob[pat.glob] ?? 0;
 
   for (const rel of candidates) {
     let matchedAny = false;
     for (const pat of patterns) {
       if (matchesGlob(rel, pat.glob)) {
         matchedAny = true;
+        matchesByGlob[pat.glob] = (matchesByGlob[pat.glob] ?? 0) + 1;
         if (existing.has(rel)) {
           skippedAlreadyRegistered += 1;
           break;
@@ -176,6 +191,8 @@ export function registerProjectFiles(
     excludedByGlob,
     unmatched,
     errors,
+    matchesByGlob,
+    candidates,
   };
 }
 
