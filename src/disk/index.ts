@@ -1,7 +1,10 @@
 export type {
   DiskDirectory,
   DiskFileEntry,
+  DiskFileSectorLink,
   DiskImage,
+  SectorChainStatus,
+  SectorChainWalk,
 } from "./base.js";
 
 export {
@@ -9,6 +12,7 @@ export {
   TRACK_SPEED_ZONE,
   extractFileFromChain,
   traceFileSectorChain,
+  walkFileSectorChain,
   extractFilename,
   getFileType,
   parseDirectory,

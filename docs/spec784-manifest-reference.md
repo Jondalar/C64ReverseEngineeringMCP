@@ -62,6 +62,10 @@ first), then the extractor emits this JSON. Two tools consume it:
       "addressStart": 2049,             // optional, resident address range start
       "addressEnd": 2560,               // optional, resident address range end
       "bytesPath": "analysis/disk/pawn/01_boot.prg", // optional, extracted blob path RELATIVE TO PROJECT ROOT
+      // optional — set ONLY when the chain could not be walked to a clean end, and then
+      // `spans` is the reachable prefix / the start block, NOT a measured extent.
+      // Absent = the chain ended cleanly and `spans` IS the extent.
+      "chainNote": null,
 
       // REQUIRED, >=1. The FULL ordered block chain — NEVER start-only (the Pawn
       // 168/1329 bug this contract exists to prevent). One entry per block read.
@@ -105,6 +109,24 @@ A span is a discriminated union on `kind`:
 3. Every `payload.derivedBy` resolves to a `loaderModels[].id`.
 4. No duplicate `loaderModels[].id`.
 5. Every payload has >= 1 span (the full chain — start-only is the bug this prevents).
+
+## When the chain cannot be walked to the end
+
+A link that loops back, a block the image cannot deliver, a last block whose byte count
+is not a terminator: the walk stops, and the blob an extractor writes stops at the same
+place. Blob length and span coverage then agree with each other and the
+`chainCoverageWarning` guard sees nothing — the row reads as a complete small payload.
+Two of Neuromancer side 2's directory entries do exactly this (their first block links to
+149/72 and 210/3, which the image does not hold), and `extract_disk` used to declare them
+as clean 254-byte one-block files.
+
+So: an extractor that could not finish a walk still emits the blocks it reached, and sets
+**`chainNote`** to what stopped it and where. `chainNote` present means "these spans are a
+prefix, not the extent"; absent means the chain ended cleanly. `extract_disk` fills it
+from its own walk (`walkFileSectorChain` in `src/disk/base.ts`), reports the affected
+files in its output, and records the same verdict per file in `manifest.json` as
+`chainStatus` (`complete` | `empty` | `cyclic` | `unreadable` | `malformed-terminator`)
+plus `chainNote`.
 
 ## Workflow
 
