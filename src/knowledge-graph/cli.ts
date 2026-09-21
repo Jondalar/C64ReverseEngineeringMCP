@@ -2,14 +2,11 @@
 // Human output is a table; `--json` is ONE document on stdout and nothing else.
 // MCP tools over the same library are Spec 823.
 
-import { existsSync, readdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { ownerFromAnalysisPath, seedControlFlow } from "./producers/control-flow.js";
-import { contextForOwner, declareMachine, declaredMachines } from "./producers/machine.js";
-import { seedMemoryAccess } from "./producers/memory-access.js";
+import { resolve } from "node:path";
+import { declareMachine, declaredMachines } from "./producers/machine.js";
+import { formatSeedProject, seedProject } from "./producers/seed-project.js";
 import { resolveAddresses } from "./producers/resolve.js";
 import { boundaries, boundaryEntries, formatBoundaries } from "./query-boundaries.js";
-import { seedSignatures } from "./producers/signatures.js";
 import { argsDomain, formatArgs, formatSignature, signatureOf } from "./query-signatures.js";
 import { importRuntimeTrace, removeRuntimeRun } from "./producers/runtime.js";
 import { irqHandlers, pointerTargets, runs as listRuns, runtimeObservations, unconfirmed, unexplained } from "./query-runtime.js";
@@ -97,63 +94,6 @@ function parseArgs(argv: string[]): Args {
   return { verb, positional: rest, project: resolve(project), json, owner, ...extra };
 }
 
-/**
- * Spec 830 D4 — `artifacts/generated/` is never walked.
- *
- * Registration mirrors every payload's analysis to
- * `artifacts/generated/payloads/<entity-id>/<stem>_analysis.json`. That is a
- * COPY, and it can be an old one. The owner comes from the file STEM, so the
- * mirror seeds every owner a second time; `"…/analysis/…"` sorts before
- * `"…/artifacts/…"`, the replacement unit is (producer, run_owner), and the
- * STALE copy therefore lands last and wins. Measured on Neuromancer: owner
- * `02_a` seeded once with routines=14 labels=25 and once with routines=8
- * labels=11, and the second one is what the graph kept — so routines had no
- * extents, `graph boundaries` invented splits, and every byte-coverage number
- * was wrong. Nothing in the output said two files had claimed one owner.
- */
-const GENERATED_MIRROR = join("artifacts", "generated");
-
-function findAnalysisJsons(dir: string, out: string[] = [], depth = 0): string[] {
-  if (depth > 6 || !existsSync(dir)) return out;
-  for (const entry of readdirSync(dir)) {
-    if (entry === "node_modules" || entry.startsWith(".")) continue;
-    const p = join(dir, entry);
-    const st = statSync(p);
-    if (st.isDirectory()) {
-      if (p.includes(GENERATED_MIRROR)) continue;
-      findAnalysisJsons(p, out, depth + 1);
-    }
-    else if (entry.endsWith("_analysis.json")) out.push(p);
-  }
-  return out.sort();
-}
-
-/**
- * Spec 830 D5 — two files claiming one owner is an error, not a race.
- *
- * D4 removes the known source of duplicates; the CLASS is "some other copy of
- * a `_analysis.json` is lying around", and last-write-wins is silent. A graph
- * that is quietly wrong is worse than a seed that stops and says why.
- */
-export function assertOneFilePerOwner(projectDir: string, files: string[], ownerOf: (path: string) => string): void {
-  const byOwner = new Map<string, string[]>();
-  for (const file of files) {
-    const owner = ownerOf(file);
-    byOwner.set(owner, [...(byOwner.get(owner) ?? []), file]);
-  }
-  const clashes = [...byOwner.entries()].filter(([, paths]) => paths.length > 1).sort();
-  if (clashes.length === 0) return;
-
-  const rel = (p: string) => (p.startsWith(projectDir) ? p.slice(projectDir.length).replace(/^\/+/, "") : p);
-  const detail = clashes
-    .map(([owner, paths]) => `two analysis files claim owner "${owner}":\n${paths.map((p) => `  ${rel(p)}`).join("\n")}`)
-    .join("\n");
-  throw new Error(
-    `${detail}\nThe last one seeded would silently win and the graph would hold it. ` +
-    `Seed one owner at a time (--owner <owner>) or move the copy out of the project.`,
-  );
-}
-
 function nodeLine(n: ResolvedNode): string {
   const flags = [n.platform ? "platform" : "", n.orphaned ? "orphaned" : "", n.dangling ? "DANGLING" : "", n.layers.includes("human") ? "human" : ""].filter(Boolean).join(",");
   const extent = n.endAddress !== null && n.endAddress !== n.address ? `-$${n.endAddress.toString(16).toUpperCase().padStart(4, "0")}` : "";
@@ -179,26 +119,10 @@ export async function runGraphCli(argv: string[]): Promise<void> {
   if (args.verb === "help" || args.verb === "--help") { process.stdout.write(`${USAGE}\n`); return; }
 
   if (args.verb === "seed") {
-    const files = args.owner
-      ? findAnalysisJsons(args.project).filter((p) => p.toLowerCase().endsWith(`${args.owner}_analysis.json`))
-      : findAnalysisJsons(args.project);
-    if (files.length === 0) throw new Error(`no _analysis.json under ${args.project}${args.owner ? ` for owner ${args.owner}` : ""}`);
-    // Spec 830 D5 — before anything is written, not after half of it is
-    assertOneFilePerOwner(args.project, files, ownerFromAnalysisPath);
-    const results = files.map((analysisPath) => {
-      // 826.0 T7 — the owner's machine: declared, or the C64 with a hint when the path smells of the drive
-      const owner = ownerFromAnalysisPath(analysisPath);
-      const machine = contextForOwner(args.project, owner, undefined, analysisPath);
-      const cf = seedControlFlow({ projectDir: args.project, analysisPath, owner, ctx: machine.ctx });
-      const ma = seedMemoryAccess({ projectDir: args.project, analysisPath, owner, ctx: machine.ctx });
-      return { owner: cf.owner, machine, controlFlow: cf, memoryAccess: ma };
-    });
-    // 826.0 T2 — one project-wide pass after every owner is in
-    const resolved = resolveAddresses(args.project);
-    // 826 — signatures, after the aliases exist (a cross-owner callee's summary needs RESOLVES_TO)
-    const sigs = seedSignatures(args.owner ? { projectDir: args.project, analysisPath: files[0]! } : { projectDir: args.project });
-    const hints = results.filter((r) => r.machine.hint).map((r) => `HINT ${r.machine.hint}`);
-    out(`${results.map((r) => `${r.owner.padEnd(40)} ${r.machine.machine} (${r.machine.source}) | 819: routines=${r.controlFlow.routines} labels=${r.controlFlow.labels} edges=${JSON.stringify(r.controlFlow.edges)} ${r.controlFlow.ms.toFixed(0)}ms | 820: edges=${JSON.stringify(r.memoryAccess.edges)} indirect-resolved=${r.memoryAccess.indirectResolved} ${r.memoryAccess.ms.toFixed(0)}ms`).join("\n")}\n826.0 resolve: addr nodes=${resolved.addrNodes} RESOLVES_TO=${resolved.resolved} ambiguous=${resolved.ambiguous} ${resolved.ms.toFixed(0)}ms\n826 signatures: routines=${sigs.routines} signed=${sigs.signed} partial=${sigs.partial} unknown-stack=${sigs.unknownStack} passes=${sigs.passes} dispatches=${sigs.dispatches} ${sigs.ms.toFixed(0)}ms${hints.length ? `\n${hints.join("\n")}` : ""}`, { results, resolve: resolved, signatures: sigs });
+    // The pass itself is producers/seed-project.ts — the cut-over runs the same
+    // one. The verb is no budget: asked for by hand, it seeds everything.
+    const r = seedProject({ projectDir: args.project, owner: args.owner });
+    out(formatSeedProject(r), { results: r.seeded, resolve: r.resolve, signatures: r.signatures, skipped: r.skipped, deferred: r.deferred, failed: r.failed });
     return;
   }
   if (args.verb === "machine") {
