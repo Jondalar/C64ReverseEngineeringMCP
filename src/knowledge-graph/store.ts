@@ -50,6 +50,48 @@ export function graphPath(projectDir: string): string {
   return join(projectDir, "knowledge", "graph.sqlite");
 }
 
+/** How long any connection waits for a lock before it gives up. */
+const BUSY_TIMEOUT_MS = 5000;
+
+/** A synchronous sleep — the store's API is synchronous all the way down. */
+function pause(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * WAL, without the open that dies of asking for it.
+ *
+ * `PRAGMA journal_mode = WAL` needs an EXCLUSIVE lock, and SQLite does NOT run
+ * the busy handler for a journal_mode change — so the connection's timeout buys
+ * exactly nothing here. Every writer ran the pragma on every open, whether or
+ * not the file was already WAL, and with four subagents writing at once one open
+ * came back
+ *
+ *   ERR_SQLITE_ERROR: database is locked   at new GraphStore (store.ts)
+ *
+ * from this one line. A single retry cured it, which is the whole shape of the
+ * bug: it is not contention over the data, it is contention over a switch that
+ * only ever needs throwing once.
+ *
+ * So: ask what the mode IS first and do nothing when it is already `wal` (the
+ * case on every open after the first), and when the switch really is needed,
+ * retry it a bounded number of times. If it still cannot be had, the open
+ * proceeds: another connection has the file, which means another connection is
+ * about to set WAL, and a store in rollback-journal mode is slower, not wrong.
+ * Failing an open over it is the one outcome that is definitely wrong.
+ */
+function ensureWal(db: DatabaseSync): void {
+  const mode = () => String((db.prepare("PRAGMA journal_mode").get() as { journal_mode?: string } | undefined)?.journal_mode ?? "").toLowerCase();
+  if (mode() === "wal") return;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      db.exec("PRAGMA journal_mode = WAL;");
+      if (mode() === "wal") return;
+    } catch { /* SQLITE_BUSY: somebody else has the file open right now */ }
+    pause(20 * (attempt + 1));
+  }
+}
+
 export function readProjectSlug(projectDir: string): string {
   const path = join(projectDir, "knowledge", "project.json");
   if (!existsSync(path)) throw new Error(`no knowledge/project.json in ${projectDir} — is this a C64RE project? (project_init)`);
@@ -65,13 +107,15 @@ export class GraphStore {
   private constructor(readonly path: string, readonly readOnly: boolean) {
     // Spec 822 D9: a second process opening during another's BEGIN IMMEDIATE
     // must wait, not fail — `timeout` applies before the first PRAGMA runs.
-    this.db = new DatabaseSync(path, { readOnly, timeout: 5000 });
+    this.db = new DatabaseSync(path, { readOnly, timeout: BUSY_TIMEOUT_MS });
     if (!readOnly) {
-      // Spec 822 D9 write discipline, adopted at the first writer: WAL so a
-      // reader never blocks a writer, a busy timeout so two producers queue
-      // instead of failing.
-      this.db.exec("PRAGMA journal_mode = WAL;");
-      this.db.exec("PRAGMA busy_timeout = 5000;");
+      // Spec 822 D9 write discipline, adopted at the first writer: a busy timeout
+      // so two producers queue instead of failing, then WAL so a reader never
+      // blocks a writer. The timeout goes FIRST — everything after it, the DDL
+      // included, is then covered by the busy handler. `journal_mode` is the one
+      // statement the handler does not cover; see ensureWal().
+      this.db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`);
+      ensureWal(this.db);
       this.db.exec(GRAPH_DDL);
       const version = this.getMeta("schema_version");
       if (version === undefined) this.setMeta("schema_version", String(GRAPH_SCHEMA_VERSION));
@@ -189,7 +233,11 @@ export class GraphStore {
     const insEdge = this.db.prepare(
       "INSERT INTO edges (from_id, type, to_id, layer, evidence_key, origin, confidence, producer, owner, evidence) VALUES (?,?,?,?,?,?,?,?,?,?)",
     );
-    this.db.exec("BEGIN");
+    // IMMEDIATE, not deferred: the write lock is taken at BEGIN, where the busy
+    // handler applies, instead of half-way through where an upgrade can fail
+    // outright. The comment at the top of this file has claimed IMMEDIATE since
+    // 822 D9; the statement did not say it.
+    this.db.exec("BEGIN IMMEDIATE");
     try {
       const dn = delNodes.run(producer, owner).changes;
       const de = delEdges.run(producer, owner).changes;

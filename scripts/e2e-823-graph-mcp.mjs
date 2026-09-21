@@ -101,6 +101,11 @@ try {
   notify("notifications/initialized", {});
   const init = await callTool("project_init", { project_dir: projectDir, name: "s823" });
   check(!/Tool Error/i.test(textOf(init)), "project_init through the MCP door");
+  // A session onboards before it works in a project; the server refuses otherwise.
+  // This gate predates the onboarding gate and went red the day that arrived, in
+  // no workflow and so unobserved — which is why it is now in gates.yml.
+  const onboard = await callTool("agent_onboard", {});
+  check(!/refused/i.test(textOf(onboard)), "agent_onboard through the MCP door");
   const slug = JSON.parse(readFileSync(join(projectDir, "knowledge", "project.json"), "utf8")).slug;
   check(slug === "s823", `project slug is ${slug}`);
   seedFixture();

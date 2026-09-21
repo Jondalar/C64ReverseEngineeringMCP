@@ -114,6 +114,60 @@ const orphan = graph.resolve(idA);
 check(orphan.layers.join(",") === "human" && orphan.orphaned === true && orphan.name === "print_string", "human row survives, flagged orphaned");
 graph.close();
 
+// ------------------------------------------------- 2b. D5's flag is about the ADDRESS
+//
+// `orphaned` was `human && !generated` on the ID alone. A human `label:09b8`
+// whose generated twin at the same address is a `segment:09b8` is a DIFFERENT
+// id, so the row came back `orphaned` although $09B8 was covered twice over.
+// A peer session read that as "the graph has lost our prose layer" and spent
+// hours on it. The shape below is theirs, reproduced: one address, a generated
+// segment and a generated routine on it, and the human label the annotation
+// file put there.
+{
+  const ctxC = { space: "ram", owner: "block2_engine" };
+  const P = (kind, addr) => deriveProjectId({ slug, ctx: ctxC, kind, address: addr });
+  const s = GraphStore.open(project);
+  s.replaceGenerated("818-cover", "block2_engine", [
+    // the 822 import's segment and 819's routine, both at $09B8
+    { parts: { slug, ctx: ctxC, kind: "segment", address: 0x09b8 }, kind: "segment", name: "seg_09b8", endAddress: 0x0a00, origin: "static", confidence: "certain" },
+    { parts: { slug, ctx: ctxC, kind: "routine", address: 0x09b8 }, kind: "routine", name: "W09B8", endAddress: 0x0a00, origin: "static", confidence: "certain" },
+    // a routine that SPANS $0A80 without standing on it (826.0 T3's split case)
+    { parts: { slug, ctx: ctxC, kind: "routine", address: 0x0a40 }, kind: "routine", name: "W0A40", endAddress: 0x0aff, origin: "static", confidence: "certain" },
+    // an ownerless addr node: somebody referenced $0B00, nobody analysed it
+    { parts: { slug, ctx: { space: "ram" }, kind: "addr", address: 0x0b00 }, kind: "addr", origin: "static", confidence: "inferred" },
+  ], []);
+  // the annotation file's rows
+  s.upsertHuman({ id: P("label", 0x09b8), kind: "label", name: "area_record_subptr", origin: "user", confidence: "user_asserted" }, "822");
+  s.upsertHuman({ id: P("label", 0x0a80), kind: "label", name: "inside_a_routine", origin: "user", confidence: "user_asserted" }, "822");
+  s.upsertHuman({ id: P("label", 0x0b00), kind: "label", name: "only_an_addr_here", origin: "user", confidence: "user_asserted" }, "822");
+  s.upsertHuman({ id: P("label", 0x0c00), kind: "label", name: "nothing_here_at_all", origin: "user", confidence: "user_asserted" }, "822");
+  // the same address under ANOTHER owner is another artifact, not coverage
+  s.upsertHuman({ id: deriveProjectId({ slug, ctx: ctxB, kind: "label", address: 0x09b8 }), kind: "label", name: "other_overlay", origin: "user", confidence: "user_asserted" }, "822");
+  s.close();
+
+  const g = Graph.open(project);
+  const covered = g.resolve(P("label", 0x09b8));
+  check(covered.layers.join(",") === "human" && covered.orphaned === false,
+    `a human label at an address a generated segment/routine stands on is NOT orphaned (${covered.id})`);
+  check(g.nodesAt("$09b8").find((n) => n.id === covered.id)?.orphaned === false,
+    "…and nodesAt($09B8) says the same about it");
+  check(g.find("area_record_subptr").find((n) => n.id === covered.id)?.orphaned === false,
+    "…and so does find() by name");
+
+  const split = g.resolve(P("label", 0x0a80));
+  check(split.orphaned === true,
+    "a human row INSIDE a generated routine's extent stays orphaned — 826.0 T3's split is a fact, not coverage");
+  const addrOnly = g.resolve(P("label", 0x0b00));
+  check(addrOnly.orphaned === true,
+    "an ownerless `addr` node is a reference, not coverage — the human row there stays orphaned");
+  const nowhere = g.resolve(P("label", 0x0c00));
+  check(nowhere.orphaned === true, "a human row at an address the generated layer never produced is orphaned");
+  const otherOwner = g.resolve(deriveProjectId({ slug, ctx: ctxB, kind: "label", address: 0x09b8 }));
+  check(otherOwner.orphaned === true,
+    "a generated node at the same address under ANOTHER owner does not cover it");
+  g.close();
+}
+
 // ---------------------------------------------------------------- 3. CLI, stderr, timing
 
 const t0 = process.hrtime.bigint();

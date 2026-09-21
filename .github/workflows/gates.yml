@@ -10,7 +10,10 @@ name: gates
 #
 # What is NOT here, and stays a local gate: anything needing resources/roms,
 # a KickAssembler/64tass binary, real disk images, or the TRX64 daemon —
-# smoke:741, check:platform-kb, the graph e2e set (e2e:818-e2e:823), measure:*.
+# smoke:741, check:platform-kb, most of the graph e2e set (e2e:818-e2e:822,
+# of which e2e:822 needs the Wasteland_EF fixture repository), measure:*.
+# e2e:823 IS here: it is hermetic, it was in no workflow, and it went red the
+# day the onboarding gate arrived and stayed red unobserved.
 # e2e:830 is here and DOES use KickAssembler when it is present: it skips that
 # one check loudly on a runner that has no jar, and still asserts the clamped
 # byte output either way.
@@ -249,6 +252,15 @@ jobs:
       # Hermetic: a temp project through project_init, a 9-byte PRG, the bundled pipeline.
       - name: A name fits its column (Spec 804)
         run: node scripts/smoke-804-naming.mjs
+
+      # Spec 823 — the five graph_* tools through the real server over stdio, on a
+      # temp project outside the repo: a synthetic PRG through the bundled analyzer,
+      # `c64re graph seed`, and the D7 comparison that the CLI's `--json` and the
+      # tool's JSON block are one document. Hermetic — the committed platform-kb is
+      # the only asset it reads. It was in no workflow and went red the day the
+      # onboarding gate arrived, unobserved for weeks; that is what this entry is for.
+      - name: The graph MCP surface (Spec 823)
+        run: npm run e2e:823
 
       # Spec 825 — both halves are hermetic: the route gate analyses a 64-byte
       # synthetic PRG with the bundled pipeline and seeds a temp project, and

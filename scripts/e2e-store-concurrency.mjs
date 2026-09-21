@@ -30,7 +30,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -275,6 +275,230 @@ const readStore = (dir) => {
     proc.kill();
   }
   rmSync(proj, { recursive: true, force: true });
+}
+
+// ───────────────────────────────────────── 5. the GRAPH under the same treatment
+//
+// The JSON stores got a cross-process lock; knowledge/graph.sqlite did not, and it
+// showed: with four subagents writing at once, one open came back
+//
+//   ERR_SQLITE_ERROR: database is locked
+//     at new GraphStore (dist/knowledge-graph/store.js:42)
+//
+// and a single retry cured it. Line 42 is `PRAGMA journal_mode = WAL`, and that is
+// the whole story: switching the journal mode takes an EXCLUSIVE lock and SQLite
+// does not run the busy handler for it, so the connection's 5 s timeout buys
+// nothing. Every open of every writer tried the switch, whether or not the file
+// was already WAL.
+//
+// 5a is deterministic — somebody else holds the file and the mode is not WAL yet,
+// which is exactly the race four subagents create between them. 5b is the real
+// one: eight writer processes, proved from their own timestamps to have been alive
+// together.
+
+{
+  const { GraphStore } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href);
+
+  const makeGraphProject = (label) => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), `c64re-graph-${label}-`)));
+    mkdirSync(join(dir, "knowledge"), { recursive: true });
+    writeFileSync(join(dir, "knowledge", "project.json"), JSON.stringify({ name: "graphconc", slug: "gc" }));
+    return dir;
+  };
+  const node = (owner, addr) => ({
+    id: `gc:ram/${owner}:routine:${addr.toString(16).padStart(4, "0")}`,
+    kind: "routine", name: `r_${addr.toString(16)}`, origin: "static", confidence: "certain",
+  });
+
+  head("5a", "a writer opens a graph somebody else is holding, in a mode that is not WAL yet");
+  {
+    const dir = makeGraphProject("hold");
+    { const s = GraphStore.open(dir); s.replaceGenerated("seed", "seed", [node("seed", 0x1000)], []); s.close(); }
+    // Put it back into rollback-journal mode: the state every graph is in before the
+    // first writer has managed the switch.
+    const raw = `
+      const { createRequire } = await import("node:module");
+      const db = createRequire(import.meta.url)("node:sqlite");
+      const h = new db.DatabaseSync(process.argv[1]);
+      h.exec("PRAGMA journal_mode = DELETE;");
+      h.close();
+    `;
+    await new Promise((res) => spawn(process.execPath, ["--input-type=module", "-e", raw, "--", join(dir, "knowledge", "graph.sqlite")], { stdio: "ignore" }).on("exit", res));
+
+    // A holds a WRITE transaction for 1200 ms — one producer mid-`replaceGenerated`.
+    // The journal_mode switch wants EXCLUSIVE, cannot have it, and SQLite does not
+    // run the busy handler for a journal_mode change, so the other open dies on the
+    // spot however long its timeout is.
+    const holder = `
+      const { createRequire } = await import("node:module");
+      const db = createRequire(import.meta.url)("node:sqlite");
+      const h = new db.DatabaseSync(process.argv[1], { timeout: 5000 });
+      h.exec("BEGIN IMMEDIATE");
+      h.exec("INSERT OR REPLACE INTO meta (key, value) VALUES ('holder','1')");
+      console.log("HOLDING");
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1200);
+      h.exec("COMMIT");
+      h.close();
+    `;
+    const holderProc = spawn(process.execPath, ["--input-type=module", "-e", holder, "--", join(dir, "knowledge", "graph.sqlite")], { stdio: ["ignore", "pipe", "ignore"] });
+    const holderExit = new Promise((res) => holderProc.on("exit", res));
+    await new Promise((res) => holderProc.stdout.on("data", (d) => { if (/HOLDING/.test(d.toString())) res(); }));
+
+    const writerSrc = `
+      const { GraphStore } = await import(${JSON.stringify(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href)});
+      const s = GraphStore.open(process.argv[1]);
+      s.replaceGenerated("held", "held", [{ id: "gc:ram/held:routine:2000", kind: "routine", name: "r", origin: "static", confidence: "certain" }], []);
+      s.close();
+      console.log("WROTE");
+    `;
+    const w = await new Promise((res) => {
+      const p = spawn(process.execPath, ["--input-type=module", "-e", writerSrc, "--", dir], { stdio: ["ignore", "pipe", "pipe"] });
+      let out = "", err = "";
+      p.stdout.on("data", (d) => { out += d; });
+      p.stderr.on("data", (d) => { err += d; });
+      p.on("exit", (code) => res({ code, out, err }));
+    });
+    await holderExit;
+    check(w.code === 0, "the writer did not die of `database is locked` on the journal-mode switch",
+      w.code === 0 ? "exit 0" : (w.err.split("\n").find((l) => /Error|ERR_/.test(l)) ?? `exit ${w.code}`));
+    check(/WROTE/.test(w.out), "…and its rows actually landed", w.out.trim() || "nothing written");
+    const s = GraphStore.open(dir, { readOnly: true });
+    const n = Number(s.db.prepare("SELECT COUNT(*) AS n FROM nodes WHERE owner = 'held'").get().n);
+    s.close();
+    check(n === 1, "the row is in the graph", `${n}`);
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  head("5b", "eight writers CREATE and fill one graph at the same moment, six times over");
+  {
+    const N = 8;
+    const TRIALS = 6;
+    const src = `
+      const { GraphStore } = await import(${JSON.stringify(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href)});
+      const [dir, tag, rounds] = process.argv.slice(1);
+      for (let i = 0; i < Number(rounds); i += 1) {
+        const s = GraphStore.open(dir);
+        s.replaceGenerated("race-" + tag, tag + "-" + i, [{
+          id: "gc:ram/" + tag + ":routine:" + (0x2000 + i).toString(16).padStart(4, "0"),
+          kind: "routine", name: tag + "_" + i, origin: "static", confidence: "certain",
+        }], []);
+        s.upsertHuman({ id: "gc:ram/" + tag + ":routine:" + (0x2000 + i).toString(16).padStart(4, "0"), kind: "routine", name: "h" + i, origin: "user", confidence: "user_asserted" });
+        s.close();
+      }
+    `;
+    const ROUNDS = 12;
+    const runOne = (dir, tag) => new Promise((res) => {
+      const startedAt = Date.now();
+      const p = spawn(process.execPath, ["--input-type=module", "-e", src, "--", dir, tag, String(ROUNDS)], { stdio: ["ignore", "ignore", "pipe"] });
+      let err = "";
+      p.stderr.on("data", (d) => { err += d; });
+      p.on("exit", (code) => res({ tag, code, err, startedAt, endedAt: Date.now() }));
+    });
+
+    // A fresh project per trial, so the graph does not exist when the eight start:
+    // the create race is where the journal-mode switch collides, and a graph that
+    // is already WAL has nothing left to race over.
+    let overlapped = 0, died = [], locked = [], rowsOk = 0, humanOk = 0, modes = new Set();
+    for (let t = 0; t < TRIALS; t += 1) {
+      const dir = makeGraphProject(`race${t}`);
+      // Every child is spawned before any is awaited; the timestamps turn the overlap
+      // from an assumption into an assertion, the way section 1 does.
+      const runs = await Promise.all(Array.from({ length: N }, (_, i) => runOne(dir, `w${i}`)));
+      const firstStart = Math.min(...runs.map((r) => r.startedAt));
+      const lastStart = Math.max(...runs.map((r) => r.startedAt));
+      const firstEnd = Math.min(...runs.map((r) => r.endedAt));
+      if (lastStart < firstEnd) overlapped += 1;
+      died.push(...runs.filter((r) => r.code !== 0).map((r) => (r.err.match(/(?:Error|ERR_SQLITE_ERROR)[^\n]*/) ?? [`exit ${r.code}`])[0]));
+      locked.push(...runs.map((r) => (r.err.match(/database is locked[^\n]*/) ?? [""])[0]).filter(Boolean));
+      try {
+        const s = GraphStore.open(dir, { readOnly: true });
+        if (Number(s.db.prepare("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'generated'").get().n) === N * ROUNDS) rowsOk += 1;
+        if (Number(s.db.prepare("SELECT COUNT(*) AS n FROM nodes WHERE layer = 'human'").get().n) === N * ROUNDS) humanOk += 1;
+        modes.add(String(s.db.prepare("PRAGMA journal_mode").get().journal_mode ?? "").toLowerCase());
+        s.close();
+      } catch (e) { died.push(`readback: ${e.message}`); }
+      rmSync(dir, { recursive: true, force: true });
+    }
+    check(overlapped === TRIALS, `in all ${TRIALS} trials the ${N} writers were alive at the same instant — these are concurrency tests`, `${overlapped}/${TRIALS}`);
+    check(died.length === 0, `no writer died on the graph in ${TRIALS} × ${N} runs`, died.slice(0, 3).join(" | ") || `${TRIALS * N} exited 0`);
+    check(locked.length === 0, "and nothing anywhere said `database is locked`", locked.slice(0, 3).join(" | ") || "clean");
+    check(rowsOk === TRIALS, `every generated row of all ${N} writers is in the graph, every trial`, `${rowsOk}/${TRIALS} × ${N * ROUNDS}`);
+    check(humanOk === TRIALS, "and every human row too — no lost update", `${humanOk}/${TRIALS}`);
+    check(modes.size === 1 && modes.has("wal"), "every graph ended up in WAL, which is what makes readers never block", [...modes].join(","));
+  }
+
+  head("5c", "readers through the same race, and the one shape that still loses it");
+  {
+    // What the WRITERS can fix is now fixed; what is left is the reader's own busy
+    // timeout. In WAL mode a reader is not blocked by a writer, but the last
+    // connection to close checkpoints and unlinks the -wal under an EXCLUSIVE lock,
+    // and a reader that opens in that window and has no timeout simply loses. The
+    // two shapes below are run side by side so the difference is measured, not
+    // argued: everything under src/ opens through GraphStore, which passes one.
+    const graphSrc = readFileSync(join(ROOT, "src/knowledge-graph/store.ts"), "utf8");
+    check(/new DatabaseSync\(path, \{ readOnly, timeout: BUSY_TIMEOUT_MS \}\)/.test(graphSrc),
+      "GraphStore gives EVERY connection a busy timeout, read-only ones included");
+    check(/PRAGMA busy_timeout[\s\S]{0,200}ensureWal/.test(graphSrc),
+      "…and sets it before it touches the journal mode, which the busy handler does not cover");
+
+    const dir = makeGraphProject("reader");
+    { const s = GraphStore.open(dir); s.replaceGenerated("seed", "seed", [node("seed", 0x1000)], []); s.close(); }
+    const graphFile = join(dir, "knowledge", "graph.sqlite");
+    // `timeout: null` = exactly pipeline/src/analysis/graph-reader.ts: existsSync,
+    // then `new DatabaseSync(path, { readOnly: true })`. That file belongs to another
+    // agent and is not touched here; this measures what it costs.
+    const readerSrc = (timeout) => `
+      const { existsSync } = await import("node:fs");
+      const { createRequire } = await import("node:module");
+      const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite");
+      const [path, rounds] = process.argv.slice(1);
+      let errs = 0, reads = 0, last = "";
+      for (let i = 0; i < Number(rounds); i += 1) {
+        if (!existsSync(path)) continue;
+        reads += 1;
+        try {
+          const db = new DatabaseSync(path, ${timeout === null ? "{ readOnly: true }" : `{ readOnly: true, timeout: ${timeout} }`});
+          db.prepare("SELECT COUNT(*) AS n FROM edges WHERE producer = '820'").get();
+          db.close();
+        } catch (e) { errs += 1; last = String(e && e.message); }
+      }
+      console.log("READ errors=" + errs + "/" + reads + " last=" + last);
+    `;
+    const writerSrc = `
+      const { GraphStore } = await import(${JSON.stringify(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href)});
+      const [dir, tag, rounds] = process.argv.slice(1);
+      for (let i = 0; i < Number(rounds); i += 1) {
+        const s = GraphStore.open(dir);
+        s.replaceGenerated("rd-" + tag, tag + "-" + i, [{ id: "gc:ram/" + tag + ":routine:" + (0x3000 + i).toString(16), kind: "routine", name: tag, origin: "static", confidence: "certain" }], []);
+        s.close();
+      }
+    `;
+    const spawnOne = (src, args) => new Promise((res) => {
+      const p = spawn(process.execPath, ["--input-type=module", "-e", src, "--", ...args], { stdio: ["ignore", "pipe", "pipe"] });
+      let out = "", err = "";
+      p.stdout.on("data", (d) => { out += d; });
+      p.stderr.on("data", (d) => { err += d; });
+      p.on("exit", (code) => res({ code, out, err }));
+    });
+    const errsOf = (rows) => rows.reduce((a, r) => a + Number((r.out.match(/errors=(\d+)/) ?? [0, 0])[1]), 0);
+    const readsOf = (rows) => rows.reduce((a, r) => a + Number((r.out.match(/errors=\d+\/(\d+)/) ?? [0, 0])[1]), 0);
+    const res = await Promise.all([
+      ...Array.from({ length: 4 }, (_, i) => spawnOne(writerSrc, [dir, `w${i}`, "12"])),
+      ...Array.from({ length: 4 }, () => spawnOne(readerSrc(5000), [graphFile, "60"])),
+      ...Array.from({ length: 4 }, () => spawnOne(readerSrc(null), [graphFile, "60"])),
+    ]);
+    const timed = res.slice(4, 8);
+    const untimed = res.slice(8, 12);
+    check(errsOf(timed) === 0, `four readers WITH a busy timeout through the whole race: no ERR_SQLITE_ERROR (${readsOf(timed)} reads)`,
+      timed.map((r) => r.out.trim()).join(" | "));
+    // Loud, and not counted as a pass: the residual is one argument in a file this
+    // branch does not own.
+    const lost = errsOf(untimed);
+    console.log(`  ${lost === 0 ? "note " : "RESID"}  a reader with NO busy timeout (pipeline/src/analysis/graph-reader.ts:~94) lost ${lost} of ${readsOf(untimed)} reads`
+      + `\n         fix, in that file's owner's hands: new DatabaseSync(path, { readOnly: true, timeout: 5000 })`
+      + `\n         side by side here: ${errsOf(timed)} errors with a timeout, ${lost} without.`);
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 console.log(`\n${failCount === 0 ? "GREEN" : "RED"} store concurrency: ${pass} pass, ${failCount} fail.`);
