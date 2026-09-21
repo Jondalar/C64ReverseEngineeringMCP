@@ -22,6 +22,7 @@
 // BUG-059 adds two of its own here (the rest sit in the gates that own their door):
 //   2  the entry-point slot took an analysis JSON and advised a flag the caller cannot pass
 //   4  project_inventory_sync returned 146 728 characters nobody could read
+//   3  a boundary in space drv contained nothing, because platform=c1541 was never recorded
 //
 // Hermetic: temp projects, synthetic PRGs, no ROMs, no media, no runtime daemon, no
 // network. The rebuild half of check 6 needs KickAssembler and says so loudly when the
@@ -399,6 +400,40 @@ try {
     "any non-address entry point is refused the same way", epBad.split("\n").filter(Boolean)[2]);
   const epGood = await call("disasm_prg", { prg_path: prgRel, entry_points: ["$C000", "c000", "0xC000"] });
   check(!/refused/.test(epGood), "…and all three spellings of one address still pass");
+
+  // BUG-059 defect 3 — a boundary in space "drv" over the range the C64 and the
+  // 1541 share. `platform: "c1541"` picked the drive's symbol tables and was then
+  // thrown away, so the annotations were seeded under the default space and the
+  // boundary contained nothing. $0300-$07FF is exactly the case `space` exists for.
+  const drvRel = "artifacts/prg/drivecode.prg";
+  writeFileSync(join(proj, drvRel), Buffer.from([0x00, 0x03, 0xa9, 0x00, 0x85, 0x00, 0x60]));
+  writeFileSync(join(proj, "artifacts/prg/drivecode_annotations.json"), JSON.stringify({
+    version: 1, binary: "drivecode.prg", segments: [], labels: [],
+    routines: [{ address: "0300", name: "drv_job_entry", comment: "the job loop's entry" }],
+  }, null, 2));
+  const drvOut = await call("disasm_prg", { prg_path: drvRel, platform: "c1541" });
+  check(/imported 1 routines/.test(drvOut), "the drive listing's names reach the graph", drvOut.split("\n").find((l) => /^Graph:/.test(l)));
+  const drvBoundary = await call("model_assert", {
+    name: "drive stage 2", level: "container",
+    address_start: 0x0300, address_end: 0x07ff,
+    description: "the drivecode resident in the 1541's RAM",
+    evidence: ["drivecode.prg header load=$0300"],
+    space: "drv",
+  });
+  check(/contains: 1 routine/.test(drvBoundary),
+    "a boundary in space drv contains the drive-side routines", drvBoundary.split("\n")[1]);
+  check(!/nothing yet/.test(drvBoundary), "…not \"nothing yet — no analysed nodes fall in this range\"");
+  // and the other direction: the same range in RAM must say where the nodes DID land
+  const ramBoundary = await call("model_assert", {
+    name: "host low ram", level: "container",
+    address_start: 0x0300, address_end: 0x07ff,
+    description: "the C64 side of the same address window",
+    evidence: ["the host's own listing"],
+    space: "ram",
+  });
+  check(/holds 1 node\(s\) this boundary does not claim/.test(ramBoundary) && /in drv\/drivecode/.test(ramBoundary),
+    "an empty boundary names the space the bytes are actually indexed under",
+    ramBoundary.split("\n").filter((l) => /holds/.test(l))[0]);
 
   // 1 (live) — a payload registered as a disk-file is linkable
   const reg = await call("register_payload", {

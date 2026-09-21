@@ -487,7 +487,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       output_asm: z.string().optional().describe("Output path for the .asm file"),
       entry_points: z.array(z.string()).optional().describe("Hex entry point addresses"),
       analysis_json: z.string().optional().describe("Path to a prior analysis JSON for segment-aware disassembly"),
-      platform: z.enum(["c64", "c1541"]).optional().describe("target platform for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side disassembly."),
+      platform: z.enum(["c64", "c1541"]).optional().describe("target platform for ZP / IO / ROM symbol tables. Default c64. Use c1541 for drive-side disassembly. Naming it RECORDS the machine for this file: its graph nodes are then indexed in the drive's address space, so a boundary asserted with space=\"drv\" over a range the C64 and the 1541 share (e.g. $0300-$07FF) actually contains them."),
       relocations: z.array(z.object({
         fileStart: z.union([z.string(), z.number()]).describe("Stored/file address of the region's first byte (inclusive). An address is HEX: \"FC00\", \"$FC00\" and \"0xFC00\" are the same; a JSON number is taken as-is. Must lie inside the PRG."),
         fileEnd: z.union([z.string(), z.number()]).describe("Stored/file address of the region's last byte (inclusive). Same hex rule as fileStart. Must lie inside the PRG."),
@@ -540,6 +540,23 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         } catch {
           // best effort
         }
+      }
+      // An explicitly named platform is RECORDED, not just used for this render.
+      //
+      // `platform: "c1541"` chose the drive's ZP/IO/ROM tables and then evaporated:
+      // nothing wrote it down, so the graph seeded the owner under the default space
+      // and a boundary asserted with space="drv" over $0300-$07FF — the range the C64
+      // and the 1541 share, which is exactly the case `space` exists for — contained
+      // nothing. The three readers that decide a node's space (`contextForOwner`) look
+      // at the artifact record's `platform` and at the declared machine; this door knew
+      // the answer and told neither. It reads the artifact record back a few lines up,
+      // so it was already half of a loop that was never closed.
+      if (platform) {
+        try {
+          const { declareMachine } = await import("../knowledge-graph/producers/machine.js");
+          const { normStem } = await import("../knowledge-graph/migrate/classify.js");
+          declareMachine(pd, normStem(basename(prgAbs)), resolvedPlatform);
+        } catch { /* the render stands without the declaration; the graph line below reports the space */ }
       }
       // The names an annotations file would store are checked BEFORE rendering, so the
       // listing and the graph never disagree: a project created since 2026-09-19 stores no
@@ -672,6 +689,19 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
             },
           ],
         });
+        // …and on the PRG's own row, which is the other half of the same loop:
+        // this door RESOLVES the platform from the artifact record when the caller
+        // names none, and nothing ever wrote it there. A second call therefore had
+        // to be told again, and the graph's own `contextForArtifact` never saw it.
+        if (platform) {
+          try {
+            const service = new ProjectKnowledgeService(pd);
+            const row = service.listArtifacts().find((a) => a.path === prgAbs);
+            if (row && row.platform !== resolvedPlatform) {
+              service.saveArtifact({ ...row, path: prgAbs, platform: resolvedPlatform });
+            }
+          } catch { /* the listing stands without the stamp */ }
+        }
         const verdictPrg = await rebuildVerification({
           projectDir: pd,
           asmPath: outAbs,
