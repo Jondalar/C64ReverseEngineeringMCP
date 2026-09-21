@@ -14,7 +14,7 @@ import { importAnnotationFile, migrateProject } from "./migrate/migrate.js";
 import { exportGraphRecords } from "./export.js";
 import { assignSubsystem, linkNodes, nameNode } from "./migrate/human.js";
 import { annotations as nodeAnnotations, searchAnnotations, subsystem as subsystemView, subsystems as listSubsystems } from "./query-human.js";
-import { edgesWalk, nodeCard, overview, resolveRef, shortestPath, subgraph, type EdgeKind, type Focus, type OriginFilter } from "./cards.js";
+import { addressOfRef, claimantsCard, edgesWalk, nodeCard, overview, resolveRef, shortestPath, subgraph, type EdgeKind, type Focus, type OriginFilter } from "./cards.js";
 import { formatEdges, formatFind, formatNode, formatOverview, formatPath, formatSubgraph } from "./format.js";
 import { Graph, type EdgeHit, type ResolvedNode } from "./query.js";
 import { GraphStore } from "./store.js";
@@ -246,7 +246,13 @@ export async function runGraphCli(argv: string[]): Promise<void> {
       }
       case "find": {
         if (!a) throw new Error("find needs an address, id or name");
-        const f = formatFind(a, resolveRef(graph, a), args.limit ?? 10);
+        // Spec 867 D2 — an address on an overlaid machine names its claimants, and
+        // 823 D7 says this `--json` and graph_find's JSON block are ONE document.
+        // graph_find gained the claimants; this side did not, and nothing noticed
+        // because the gate that compares them was running nowhere.
+        const at = addressOfRef(a, args.bank);
+        const claimants = at ? claimantsCard(graph, at.address, undefined, at.bank ?? null) : null;
+        const f = formatFind(a, resolveRef(graph, a, args.bank), args.limit ?? 10, claimants);
         out(f.text, f.json);
         return;
       }
