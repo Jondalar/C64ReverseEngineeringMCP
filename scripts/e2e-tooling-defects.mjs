@@ -19,6 +19,10 @@
 //   12 the audit recommended a tool that is not on the surface
 //   13 the SFX probe claimed 0.93 for "some code ran and wrote memory"
 //
+// BUG-059 adds two of its own here (the rest sit in the gates that own their door):
+//   2  the entry-point slot took an analysis JSON and advised a flag the caller cannot pass
+//   4  project_inventory_sync returned 146 728 characters nobody could read
+//
 // Hermetic: temp projects, synthetic PRGs, no ROMs, no media, no runtime daemon, no
 // network. The rebuild half of check 6 needs KickAssembler and says so loudly when the
 // jar is absent, the way e2e:830 does.
@@ -297,6 +301,25 @@ console.log("Thirteen tooling defects from one autonomous run\n");
     "and analyze_prg no longer says \"likely Exomizer-packed\" on the strength of it");
 }
 
+// BUG-059 defect 2 — the CLI's own recovery note, and who it speaks to.
+{
+  head("2b", "the note about a shifted analysis names both doors");
+  const { execFileSync } = await import("node:child_process");
+  const d = mkdtempSync(join(tmpdir(), "c64re-note-"));
+  const prg = join(d, "n.prg");
+  writeFileSync(prg, Buffer.from([0x00, 0xc0, 0xa9, 0x01, 0x60]));
+  const analysis = join(d, "n_analysis.json");
+  execFileSync(process.execPath, [join(ROOT, "dist/pipeline/cli.cjs"), "analyze-prg", prg, analysis, "c000", "--no-register"], { stdio: "pipe" });
+  // the analysis in the ENTRY-POINT slot: the only shape that reaches the note
+  const out = execFileSync(process.execPath,
+    [join(ROOT, "dist/pipeline/cli.cjs"), "disasm-prg", prg, join(d, "n.asm"), analysis, "--no-register"],
+    { stdio: "pipe" }).toString();
+  check(/the entry-points slot held n_analysis\.json/.test(out), "the note still fires when the analysis slides into the entry-point slot");
+  check(/analysis_json \(MCP tool disasm_prg\)/.test(out),
+    "and it names the MCP parameter for the reader who has no flags", out.split("\n").find((l) => /^Note:/.test(l)));
+  check(/--analysis <path> \(this CLI\)/.test(out), "…and the CLI flag, labelled as the CLI's");
+}
+
 // ───────────────────────────────────────────────────────── live, through the server
 
 head("L", "live: the doors, over MCP");
@@ -355,6 +378,27 @@ try {
   check(/disasm_prg refused/.test(badReloc) && /outside tiny\.prg/.test(badReloc),
     "a relocation outside the PRG comes back as a refusal", badReloc.split("\n").slice(0, 3).join(" "));
   check(!/at Object\.|node:internal/.test(badReloc), "with no node stack trace in it");
+
+  // BUG-059 defect 2 — the entry-point slot is for addresses.
+  //
+  // The run saw "Note: the entry-points slot held X_analysis.json … Pass --analysis
+  // <path>" about thirty-five times and could not act on it: the MCP surface has no
+  // flags. No caller in the tree passes the analysis positionally (both doors use
+  // --analysis by name), so the only way in is an analysis path inside entry_points
+  // — which is refused here, naming the parameter that does take it.
+  const epJson = await call("disasm_prg", {
+    prg_path: prgRel,
+    entry_points: ["artifacts/prg/tiny_analysis.json"],
+  });
+  check(/disasm_prg refused/.test(epJson) && /entry_points\[0\]/.test(epJson),
+    "an analysis path in entry_points is refused by name", epJson.split("\n").filter(Boolean)[2]);
+  check(/analysis_json/.test(epJson) && !/--analysis/.test(epJson),
+    "…and the remedy it names is the MCP parameter, not a CLI flag");
+  const epBad = await call("disasm_prg", { prg_path: prgRel, entry_points: ["main"] });
+  check(/disasm_prg refused/.test(epBad) && /is not an address/.test(epBad),
+    "any non-address entry point is refused the same way", epBad.split("\n").filter(Boolean)[2]);
+  const epGood = await call("disasm_prg", { prg_path: prgRel, entry_points: ["$C000", "c000", "0xC000"] });
+  check(!/refused/.test(epGood), "…and all three spellings of one address still pass");
 
   // 1 (live) — a payload registered as a disk-file is linkable
   const reg = await call("register_payload", {

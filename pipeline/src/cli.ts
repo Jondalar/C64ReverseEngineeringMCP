@@ -173,8 +173,18 @@ function main(): void {
       if (/\.json$/i.test(positionalEntries) && positionalAnalysis === undefined) {
         positionalAnalysis = positionalEntries;
         positionalEntries = "";
+        // The note names the door the reader came through.
+        //
+        // It used to say "Pass --analysis <path>" and nothing else. Almost every
+        // reader of this line is an LLM on the MCP surface, which has no flags at
+        // all: it passes `analysis_json` and `entry_points`, and the only way it
+        // can reach this branch is by putting an analysis path in `entry_points`.
+        // So it was told to fix its call with a flag it cannot type. Both names
+        // now, each labelled with where it belongs.
         process.stdout.write(
-          `Note: the entry-points slot held ${basename(positionalAnalysis)}; it was read as the analysis JSON. Pass --analysis <path> to say so outright.\n`,
+          `Note: the entry-points slot held ${basename(positionalAnalysis)}; it was read as the analysis JSON. `
+          + `Entry points are addresses — name the analysis as analysis_json (MCP tool disasm_prg) `
+          + `or --analysis <path> (this CLI).\n`,
         );
       } else {
         throw new Error(

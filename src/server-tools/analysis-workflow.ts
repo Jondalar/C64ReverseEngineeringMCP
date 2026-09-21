@@ -508,6 +508,26 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       const outAbs = output_asm
         ? resolve(pd, output_asm)
         : prgAbs.replace(/\.prg$/i, "_disasm.asm");
+      // `entry_points` is the only way an analysis path can still reach the
+      // pipeline's entry-point slot, and it is the one shape this door never
+      // checked. The renderer's recovery branch then read the JSON as the
+      // analysis and printed a note naming a CLI flag the MCP caller cannot
+      // pass — advice nobody can act on, over a call that mostly worked.
+      // Refused here instead, by name, because the fix is a different parameter.
+      for (const [i, raw] of (entry_points ?? []).entries()) {
+        const value = String(raw).trim();
+        if (value === "") continue;
+        try {
+          parseAddress(value, `entry_points[${i}]`);
+        } catch {
+          const isJson = /\.json$/i.test(value);
+          return { content: [{ type: "text" as const, text:
+            `# disasm_prg refused\n\nentry_points[${i}] = ${JSON.stringify(value)} is not an address — ${ADDRESS_RULE}.`
+            + (isJson
+              ? `\n\nThat is an analysis JSON. It belongs in analysis_json, which is the parameter that renders a listing segment-aware; entry_points only ever holds addresses.`
+              : ``) }] };
+        }
+      }
       const entries = entry_points?.join(",") ?? "";
       // Spec 048: resolve platform — explicit arg wins, else read
       // from the artifact tag if registered, else default c64.

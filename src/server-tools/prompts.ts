@@ -663,8 +663,11 @@ For every code segment or major subroutine, provide a descriptive name and a 1-3
 ## Verification
 After writing the JSON, the user will run:
 \`\`\`
-node dist/cli.js disasm-prg <prg> <output.asm> <entries> <analysis.json>
+node dist/cli.js disasm-prg <prg> <output.asm> --analysis <analysis.json>
 \`\`\`
+(The analysis goes in by NAME. The positional tail still works, but with no
+entry points it shifts the JSON into the entry-point slot — which is the one
+way this call goes wrong.)
 The renderer will read the annotations automatically (by filename convention \`<name>_annotations.json\`). The resulting ASM must still compile byte-identically with KickAssembler.`,
         },
       }],
