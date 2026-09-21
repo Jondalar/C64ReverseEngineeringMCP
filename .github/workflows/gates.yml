@@ -416,3 +416,23 @@ jobs:
       # assembler, no daemon.
       - name: One writer, one store (BUG-058)
         run: npm run e2e:one-store-writer
+
+      # A fourth autonomous run classified a whole payload body as `code` and the
+      # rebuild came out a byte short: bytes carved out of a bigger file stop
+      # where the carve stopped, not where an instruction does, and the renderer
+      # took the decoder's "I have no operand bytes" fact down the instruction
+      # path and emitted `.byte` with no value — which assembles to nothing.
+      # Hermetic: synthetic bytes, the bundled analyzer and renderer. The
+      # byte-identity half needs KickAssembler and skips loudly without it.
+      - name: A code segment that ends mid-instruction (BUG-060)
+        run: npm run e2e:bug060-code-tail
+
+      # …and from the same run: two annotation segments on one start address.
+      # The graph keys a segment row on its start, so the second minted the same
+      # id and the ledger threw half-way through — after a listing had already
+      # been written that rebuilt byte-identical, which is why one buried line
+      # was the only sign the graph had got nothing. Hermetic: a temp project,
+      # synthetic bytes, one MCP session over stdio. No ROMs, no media, no
+      # assembler, no daemon.
+      - name: Two annotation segments on one start (BUG-060)
+        run: npm run e2e:bug060-dup-segment

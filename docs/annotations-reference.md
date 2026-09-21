@@ -102,6 +102,28 @@ and the rest still apply. `disasm` reports it:
 If you expected more annotations to apply, check that `skipped` line — a wrong field key
 is dropped, not applied.
 
+### One thing is refused instead of skipped
+
+Two `segments` entries may not declare the same `start`. A segment start is the id both
+the listing and the knowledge graph are keyed on, so two entries on one start are a
+contradiction rather than a repeat: the listing would be overlaid with both, and the
+graph import is rolled back whole. The file is refused before anything is rendered and
+before anything is imported, with the offending pair named:
+
+```
+REFUSED — the annotations file contradicts itself. Nothing was rendered and nothing was imported.
+
+core_4300_annotations.json
+
+2 segments declare the same start $43A8:
+  - $43A8-$43AF  data  "tbl_lo"
+  - $43A8-$43BF  pointer_table  "tbl_all"
+```
+
+Give each range its own start, or merge the two into one entry. Ranges that merely
+**overlap** at different starts are fine — reshaping a range across an analysis boundary
+is what they are for — and are not refused.
+
 ## With and without an `analysis_json`
 
 `disasm` renders either way, and the annotations apply either way — but not all
@@ -162,3 +184,23 @@ self-modifying patch, not an entry, and keeps rendering as `<owner>+<offset>`.
 An address you name that lives in **another payload** is emitted as an equate
 (`.label window_clear = $C0A9`) rather than a label, because it is not in this
 file. Nothing else is needed for a cross-payload name to assemble.
+
+## A `code` range whose bytes end mid-instruction
+
+Bytes carved out of a bigger file stop where the carve stopped, not where an
+instruction does, so the last opcode in a block often wants operand bytes the
+block does not hold. Classify the whole body as `code` anyway: the renderer
+ends the code at the last instruction that FITS and emits what is left as data,
+and says where and why.
+
+```
+      rts
+// CODE ENDS at $430D, the last instruction that fits: $430E (1 byte) opens an
+// instruction whose operand bytes are past the end of these bytes, and renders as data.
+      .byte $AD
+```
+
+The boundary is read off the bytes — you never have to guess a data-tail length,
+and you never have to drop the `code` classification to get a byte-identical
+rebuild. The same line appears, naming the segment end instead, when an
+instruction would cross the end of a `code` range you declared.

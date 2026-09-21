@@ -16,7 +16,7 @@ import {
   SplitPointerTableFact,
   TableUsageFact,
 } from "../analysis/types";
-import { AnnotationsFile, AnnotationsIndex, buildAnnotationsIndex, loadAnnotations, parseHex } from "./annotations";
+import { AnnotationsFile, AnnotationsIndex, assertNoDuplicateSegmentStarts, buildAnnotationsIndex, loadAnnotations, parseHex } from "./annotations";
 import { parseAddress } from "./address-rule";
 import { buildEffectiveSegments, type AnnotationSegmentOverlay } from "./effective-segments";
 import { convertKickAsmToTass } from "./tass-converter";
@@ -2769,9 +2769,15 @@ function renderCodeSegment(
   context: RenderAnalysisContext,
   lines: string[],
 ): void {
+  // The last address this segment may write. A segment end past the last byte
+  // of the image is not a licence to read bytes that are not there.
+  const bound = Math.min(segment.end, prg.loadAddress + prg.data.length - 1);
   let address = segment.start;
   let prevInstruction: InstructionFact | undefined;
-  while (address <= segment.end) {
+  // The last instruction that FITTED — the boundary the note below names. It is
+  // derived from the decode, never from a length the caller had to guess.
+  let lastComplete: number | undefined;
+  while (address <= bound) {
     const instruction = context.instructions.get(address) ?? decodeInstructionFactAtAddress(prg, address);
     if (!instruction) {
       emitByteRange(prg.data, prg.loadAddress, address, address, lines);
@@ -2794,9 +2800,28 @@ function renderCodeSegment(
     // declared label at $6E9C, so D1 resumes there, where `ff ff a4` decodes
     // three bytes in a segment ending at $6E9D — that one 830 introduced, by
     // resuming a decode without carrying the segment bound into it.
-    const overrun = instruction.address + instruction.size - 1 > segment.end;
-    if (overrun) {
-      emitByteRange(prg.data, prg.loadAddress, instruction.address, segment.end, lines);
+    const overrun = instruction.address + instruction.size - 1 > bound;
+    // BUG-060 defect 1 — …and the same thing happens at the end of the IMAGE.
+    // `decodeInstruction` refuses to invent the operand bytes it does not have
+    // and degrades such an opcode to a 1-byte `.byte` fact (`isKnownOpcode`
+    // false). That fact used to go down the INSTRUCTION path below, where
+    // `operandTextFromFact` has nothing to say for mode `impl` and
+    // `renderMnemonicAsm` emitted the mnemonic alone:
+    //
+    //       .byte                             // probable code
+    //
+    // `.byte` with no value assembles to NOTHING. The byte vanished, the
+    // rebuild came out short, and the listing said only
+    // `rebuild diverges … at body offset 0x…` — leaving a caller who had
+    // classified the whole body as `code` (correctly) to guess a data-tail
+    // length or to drop the classification, which is what cost the coverage.
+    //
+    // The 6502 table here is complete (all 256 opcodes, undocumented included),
+    // so a fact the decoder could not form can only be this: the bytes ran out.
+    const truncated = !instruction.isKnownOpcode;
+    if (overrun || truncated) {
+      lines.push(codeEndsNote(segment, instruction.address, bound, lastComplete, truncated));
+      emitByteRange(prg.data, prg.loadAddress, instruction.address, bound, lines);
       break;
     }
 
@@ -2855,8 +2880,39 @@ function renderCodeSegment(
     }
 
     prevInstruction = instruction;
+    lastComplete = instruction.address;
     address += instruction.size;
   }
+}
+
+/**
+ * The one line that says where the code stopped, and why.
+ *
+ * A listing that quietly turns into `.byte` at its tail reads like a bug in the
+ * classification. It is not: it is the boundary between the instructions that
+ * are whole and the bytes that cannot be one, and the boundary is DERIVED — the
+ * last instruction that fitted, and the first address whose instruction does
+ * not. Both are named, so a caller can see at a glance whether the tail is the
+ * carve stopping short or a segment end in the wrong place, without guessing a
+ * data-tail length and without dropping the `code` classification to get a
+ * green rebuild.
+ */
+function codeEndsNote(
+  segment: Segment,
+  from: number,
+  bound: number,
+  lastComplete: number | undefined,
+  truncated: boolean,
+): string {
+  const count = bound - from + 1;
+  const bytes = `$${formatHex16(from)}${count > 1 ? `-$${formatHex16(bound)}` : ""} (${count} byte${count === 1 ? "" : "s"})`;
+  const why = truncated
+    ? "opens an instruction whose operand bytes are past the end of these bytes"
+    : `opens an instruction that would cross the segment end $${formatHex16(segment.end)}`;
+  const ended = lastComplete !== undefined
+    ? `// CODE ENDS at $${formatHex16(lastComplete)}, the last instruction that fits`
+    : "// NO COMPLETE INSTRUCTION in this segment";
+  return `${ended}: ${bytes} ${why}, and renders as data.`;
 }
 
 // Render a single analysis-driven segment (header + label + body). Extracted
@@ -3641,6 +3697,14 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   const resolvedAnnotationsFile = annotationsFile
     ? resolveAnnotationSpaces(annotationsFile, options.relocations, prg)
     : undefined;
+  // BUG-060 defect 2 — and again AFTER the spaces are resolved. `loadAnnotations`
+  // refuses two entries that share a start as written; a relocation can map two
+  // entries written at different addresses onto one file address, which is the
+  // same contradiction arriving by a different road, and the graph is keyed on
+  // the resolved address.
+  if (resolvedAnnotationsFile && usedAnnotationsPath) {
+    assertNoDuplicateSegmentStarts(resolvedAnnotationsFile, usedAnnotationsPath);
+  }
   const annotationsIndex = resolvedAnnotationsFile ? buildAnnotationsIndex(resolvedAnnotationsFile) : undefined;
   if (annotationsIndex && analysisContext) {
     analysisContext.annotations = annotationsIndex;
