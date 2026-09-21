@@ -93,8 +93,12 @@ export interface NamedReport {
 }
 
 export interface CoverageReport {
-  /** Bytes inside at least one known address range. */
+  /** Bytes inside at least one range that CLAIMS something about them. */
   covered: number;
+  /** Bytes in ranges classified `unknown` — declared, honestly, and not coverage. */
+  declaredUnknown: number;
+  /** Bytes in ranges carrying only a machine name and no classification. */
+  machineOnly: number;
   /** Bytes in the artifacts that could be measured, each distinct payload counted ONCE. */
   total: number;
   ratio: number;
@@ -128,6 +132,40 @@ function coverageThreshold(contractRatio?: number): number {
   const raw = process.env.C64RE_COVERAGE_THRESHOLD?.trim();
   const n = raw ? Number(raw) : NaN;
   return Number.isFinite(n) && n > 0 && n <= 1 ? n : 0.6;
+}
+
+/**
+ * Does this node's extent ACCOUNT for its bytes?
+ *
+ * S12 asks how many bytes are accounted for. It used to count every range the
+ * graph held, and an autonomous run found what that rewards: it emitted
+ * `unknown` segments named `unnamed_XXXX` over ranges it had ALREADY named as
+ * routines — the loader among them — because a placeholder with an extent moved
+ * the number and a named routine did not. It reverted all 47 by hand and left
+ * coverage at 89.0 %. A metric that scores a blanket above a name is the defect,
+ * not the run.
+ *
+ * So a range counts when something is claimed about those bytes:
+ *
+ *   `segment_kind: "unknown"`  — never. That is the word for "I have not
+ *                                established this", and declaring it is honest
+ *                                work that is worth nothing as coverage. It is
+ *                                counted and reported separately.
+ *   any other classification   — counts. Somebody or something said what these
+ *                                bytes ARE: code, a charset, a pointer table.
+ *                                A wrong one is a checkable claim (the rebuild
+ *                                renders it, the critic reads it); a blanket
+ *                                `unknown` is not a claim at all.
+ *   no classification          — counts only with a HUMAN name on it. A machine
+ *                                name over an extent (`unknown_3E00_41D8`,
+ *                                `W0801`) is a range the analyser walked, not an
+ *                                account of what is in it. Naming it is the work,
+ *                                and now it is the work that moves the number.
+ */
+function claimsItsBytes(kind: string | null, segmentKind: string | null, name: string | null): "counts" | "unknown" | "machine" {
+  if ((segmentKind ?? "") === "unknown") return "unknown";
+  if (segmentKind) return "counts";
+  return isMachineName(name) ? "machine" : "counts";
 }
 
 /** Union of [start,end] ranges, in bytes. Overlaps counted once. */
@@ -199,6 +237,11 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   const artifacts = visible.filter((a) => MEASURABLE_KINDS.has(a.kind));
 
   const rangesByOwner = new Map<string, Array<{ start: number; end: number }>>();
+  // The same union, for the two buckets a range can fall into instead. They are
+  // reported, never counted: a reader who sees 41 % must be able to see where the
+  // other 59 % is and what would move it.
+  const unknownByOwner = new Map<string, Array<{ start: number; end: number }>>();
+  const machineByOwner = new Map<string, Array<{ start: number; end: number }>>();
   // 848 — named-ness, counted over the nodes where a name means something.
   let machineNamed = 0, memberNodes = 0;
   try {
@@ -220,17 +263,20 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
                 MAX(owner)       AS owner,
                 MAX(kind)        AS kind,
                 MIN(address)     AS address,
-                MAX(end_address) AS end_address
+                MAX(end_address) AS end_address,
+                MAX(json_extract(attrs, '$.segment_kind')) AS segment_kind
          FROM nodes
-         WHERE kind IN ('routine','segment','payload','data_block','entry')
+         WHERE kind IN ('routine','segment','payload','data_block','entry','lookup_table','pointer_table')
          GROUP BY id
          HAVING owner IS NOT NULL`,
-      ).all() as Array<{ human_name: string | null; any_name: string | null; owner: string; kind: string; address: number; end_address: number | null }>;
+      ).all() as Array<{ human_name: string | null; any_name: string | null; owner: string; kind: string; address: number; end_address: number | null; segment_kind: string | null }>;
       for (const r of rows) {
         if (r.end_address !== null) {
-          const list = rangesByOwner.get(r.owner) ?? [];
+          const verdict = claimsItsBytes(r.kind, r.segment_kind, r.human_name ?? r.any_name);
+          const into = verdict === "counts" ? rangesByOwner : verdict === "unknown" ? unknownByOwner : machineByOwner;
+          const list = into.get(r.owner) ?? [];
           list.push({ start: r.address, end: r.end_address });
-          rangesByOwner.set(r.owner, list);
+          into.set(r.owner, list);
         }
         if (!NAMED_KINDS.has(r.kind)) continue;
         memberNodes++;
@@ -258,6 +304,8 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   const seen = new Set<string>();
   let total = 0;
   let covered = 0;
+  let declaredUnknown = 0;
+  let machineOnly = 0;
   let counted = 0;
   let duplicates = 0;
   const unmeasured: string[] = [];
@@ -272,17 +320,19 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
     total += size;
     counted += 1;
     const own = stemOf(a.relativePath ?? a.path ?? a.title);
-    const ranges = rangesByOwner.get(own);
-    if (!ranges) continue;
     // Clipped to the file: ranges live in load-address space and a union can otherwise
     // exceed the artifact it describes. The cap is a cap, not a measurement, and it is
     // better than a ratio above 1.
-    covered += Math.min(unionSize(ranges), size);
+    const clip = (list: Array<{ start: number; end: number }> | undefined) =>
+      list ? Math.min(unionSize(list), size) : 0;
+    covered += clip(rangesByOwner.get(own));
+    declaredUnknown += clip(unknownByOwner.get(own));
+    machineOnly += clip(machineByOwner.get(own));
   }
 
   const threshold = coverageThreshold(contractPresent ? contract.deliver?.coverageRatio : undefined);
   const coverage: CoverageReport = {
-    covered, total,
+    covered, declaredUnknown, machineOnly, total,
     ratio: total === 0 ? 0 : covered / total,
     unmeasured,
     threshold,
@@ -521,6 +571,9 @@ export function formatSlotReport(r: SlotReport): string {
     "",
     r.coverage.total > 0
       ? `Coverage: ${r.coverage.covered} / ${r.coverage.total} bytes = ${(r.coverage.ratio * 100).toFixed(1)} % (threshold ${(r.coverage.threshold * 100).toFixed(0)} %)`
+        + `\n  counted: bytes in a range that says what they ARE — a classification, or a human name`
+        + (r.coverage.declaredUnknown > 0 ? `\n  not counted: ${r.coverage.declaredUnknown} byte(s) in ranges declared \`unknown\` — honest, and worth nothing here; classify them or name them` : "")
+        + (r.coverage.machineOnly > 0 ? `\n  not counted: ${r.coverage.machineOnly} byte(s) in ranges carrying only a machine name (unknown_3E00, W0801) and no classification — naming them is what moves this number` : "")
         + `\n  denominator: ${r.coverage.artifacts} distinct loadable artifact(s)`
         + (r.coverage.duplicates > 0 ? `, ${r.coverage.duplicates} further cop${r.coverage.duplicates === 1 ? "y" : "ies"} of content already counted left out` : "")
       : "Coverage: nothing measurable registered yet",

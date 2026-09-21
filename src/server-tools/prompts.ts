@@ -654,7 +654,7 @@ For every significant address (routine entry points, data tables, state variable
 For every code segment or major subroutine, provide a descriptive name and a 1-3 line explanation of what it does. Use newlines (\\n) in the comment field for multi-line descriptions.
 
 ## Rules
-- Every \`unknown\` segment MUST get a classification — no unknowns should remain
+- Classify every \`unknown\` segment you can ESTABLISH. \`unknown\` is the right answer for bytes you have not established — it is honest, it is kept, and it counts for nothing in the coverage number, so a blanket classification buys you nothing
 - Labels must be valid KickAssembler identifiers (letters, digits, underscores)
 - The \`start\` and \`end\` fields are hex addresses WITHOUT the $ prefix
 - Segment annotations can split a single heuristic segment into multiple sub-segments
