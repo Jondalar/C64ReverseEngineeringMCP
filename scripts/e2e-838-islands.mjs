@@ -149,7 +149,15 @@ check((seedAt(0xc010)?.detail ?? "").includes("overlay_a"), "…and the cross-ow
 console.log("\nD3b — the one subtraction, and it is the graph's own answer, not a guess\n");
 check(kindAt(on, 0xc050) !== "code", `${hex(0xc050)} stays data: Spec 826 resolves it to overlay_b's routine, so it is not this image's code`);
 check(seedAt(0xc050) === undefined, "…it is not in the seed list");
-check(rejection(on, 0xc050)?.reason === "owned_by_other", "…and the refusal is recorded, with the reason (not dropped in silence)");
+// Spec 867 D1 changed what this is CALLED, deliberately, and 838's own words say
+// why the old name was wrong: nobody asked for $C050, so refusing it reported a
+// loss that never happened. overlay_b's routine node gives it a window of its own
+// ($C050-$C05F) INSIDE this image's, and an address inside another payload's window
+// is not this payload's business — out of scope, named, counted, never a refusal.
+const outOfScope867 = (on.codeSeedReport?.outOfScope ?? []).find((o) => o.address === 0xc050);
+check(outOfScope867 !== undefined, "…and it is recorded as OUT OF SCOPE for this window, not as a refusal (Spec 867 D1 — nothing was asked for, so nothing was refused)");
+check(/overlay_b/.test(outOfScope867?.detail ?? ""), "…naming the window that does claim it");
+check(rejection(on, 0xc050) === undefined, "…and it is no longer in rejectedEntryPoints at all");
 
 console.log("\nData stays data\n");
 for (const a of [0xc060, 0xc070, 0xc07f]) {

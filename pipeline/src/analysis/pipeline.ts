@@ -535,7 +535,20 @@ function collectGraphSeeds(
   return {
     entries,
     rejected,
-    report: { status: "ok", owner, path: lookup.path, seeds: lookup.seeds.map((seed) => ({ address: seed.address, origin: seed.origin, detail: seed.detail })) },
+    report: {
+      status: "ok",
+      owner,
+      path: lookup.path,
+      seeds: lookup.seeds.map((seed) => ({ address: seed.address, origin: seed.origin, detail: seed.detail })),
+      // Spec 867 D1 — the window, and what it put out of scope. Out of scope is
+      // not a rejection, so it travels in the seed report, never in
+      // `rejectedEntryPoints`.
+      window: {
+        start: lookup.window.start, end: lookup.window.end, space: lookup.window.space,
+        bank: lookup.window.bank, source: lookup.window.source, name: lookup.window.name,
+      },
+      outOfScope: lookup.outOfScope,
+    },
   };
 }
 

@@ -12,6 +12,7 @@
 
 import { existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { covers, describeWindow, hex4, innerWindows, loadWindows, windowFor, type PayloadWindow } from "./payload-windows";
 
 export type AccessEdgeType = "READS" | "WRITES" | "READS_INDIRECT" | "WRITES_INDIRECT";
 
@@ -177,8 +178,28 @@ export interface CodeSeed {
   detail: string;
 }
 
+/**
+ * Spec 867 D1 — a cross-owner address the payload's WINDOW puts outside its
+ * business. It is not a refusal: nobody asked for it, and nothing was taken
+ * away. It is counted and named so the reader can see what the window did.
+ */
+export interface CodeSeedOutOfScope {
+  address: number;
+  detail: string;
+}
+
 export type CodeSeedLookup =
-  | { status: "ok"; path: string; owner: string; space: string; seeds: CodeSeed[]; skipped: Array<{ address: number; detail: string }> }
+  | {
+      status: "ok";
+      path: string;
+      owner: string;
+      space: string;
+      /** Spec 867 D1 — the window this image occupies, and where that window came from. */
+      window: PayloadWindow;
+      seeds: CodeSeed[];
+      skipped: Array<{ address: number; detail: string }>;
+      outOfScope: CodeSeedOutOfScope[];
+    }
   | { status: "absent"; owner: string; path?: string; reason: string };
 
 /** The ctx space (`ram` | `drv` | `crt`) an id names — `wl:ram/eng:routine:1234` → `ram`. */
@@ -210,6 +231,26 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
     }
     const space = ctxSpaceOfId(mine[0]!.id) ?? "ram";
     const inRange = (a: number): boolean => a >= lo && a <= hi;
+
+    // Spec 867 D1 — the load-time context. My own window is the payload record's,
+    // when the project has one; without it, the range being analysed, which IS the
+    // load address plus the byte length of the bytes in front of me. The extent the
+    // GRAPH holds for an owner is never used for the image's own window: it is a
+    // lower bound (it knows the routines it found, not the file's length) and a
+    // window that is too small would silently drop an address that is in the image.
+    // For every OTHER owner that lower bound is exactly right, because it is used
+    // only to say "something else loads in here".
+    //
+    // Windows that load INSIDE mine are holes in it: what lives there is that
+    // payload's business, not this one's. That is what stops a 50 KB file from
+    // inheriting every routine of the engine that loads into the middle of it.
+    const windows = loadWindows(db);
+    const recorded = windowFor(windows, owner);
+    const window: PayloadWindow = recorded && recorded.source === "payload" && recorded.space === space
+      ? recorded
+      : { owner, name: owner, space: space as PayloadWindow["space"], bank: null, start: lo, end: hi, source: "analysed-range" };
+    const holes = innerWindows(windows, window).filter((w) => w.owner !== owner);
+    const outOfScope: CodeSeedOutOfScope[] = [];
 
     const seeds = new Map<number, CodeSeed>();
     const add = (address: number, origin: CodeSeedOrigin, detail: string): void => {
@@ -258,19 +299,42 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
     }
     const skipped: Array<{ address: number; detail: string }> = [];
     for (const [address, byOwner] of [...callers.entries()].sort((l, r) => l[0] - r[0])) {
-      // The one subtraction: 826.0 already decided this address belongs to a
-      // different overlay. Say so instead of promoting somebody else's code.
       const addrId = `${mine[0]!.id.split(":")[0]}:${space}:addr:${address.toString(16).padStart(4, "0")}`;
       const target = resolvesTo.get(addrId);
       const targetOwner = target ? ownerOfId(target) : undefined;
       const sites = [...byOwner.values()].reduce((sum, v) => sum + v.count, 0);
       const from = [...byOwner.entries()].map(([key, v]) => `${v.type} from "${key.split("|")[1]}"`).sort().join(", ");
-      if (targetOwner !== undefined && targetOwner !== owner) {
-        skipped.push({ address, detail: `${from}, but Spec 826 RESOLVES_TO ${target} — that address is owner "${targetOwner}"'s code, not this image's` });
+
+      // Spec 867 D1 — the window decides first, and overlap stops meaning
+      // relevance. An address outside my window is somebody else's; an address
+      // inside a window that loads inside mine belongs to that payload. Neither is
+      // a refusal — nothing was asked for and nothing is taken away.
+      if (!covers(window, address)) {
+        outOfScope.push({ address, detail: `${from}, but ${hex4(address)} is outside this payload's window ${hex4(window.start)}-${hex4(window.end)}` });
+        continue;
+      }
+      const hole = holes.find((h) => covers(h, address));
+      if (hole) {
+        outOfScope.push({ address, detail: `${from}, but ${hex4(address)} is inside ${describeWindow(hole)}, which loads inside this payload's window — that stretch is its business, not this image's` });
+        continue;
+      }
+
+      // The address IS in my own window. Whoever wrote the node down, the code
+      // there is this payload's while this payload is loaded — a graph claim by
+      // another occupant of the SAME window is a second overlay of it, not a
+      // reason to refuse my own entry point (Spec 867 §2). The subtraction
+      // survives only where no window is recorded for the other owner: there the
+      // graph's owner claim is still the best answer anyone has.
+      const theirs = targetOwner !== undefined && targetOwner !== owner ? windowFor(windows, targetOwner) : undefined;
+      if (targetOwner !== undefined && targetOwner !== owner && (!theirs || theirs.space !== window.space)) {
+        skipped.push({ address, detail: `${from}, but Spec 826 RESOLVES_TO ${target} — that address is owner "${targetOwner}"'s code, and this project records no window for "${targetOwner}", so the graph's owner claim still decides (Spec 838's subtraction, which a window replaces where there is one)` });
         continue;
       }
       const jumpOnly = [...byOwner.values()].every((v) => v.type === "JUMPS_TO");
-      add(address, jumpOnly ? "cross_owner_jump" : "cross_owner_call", `${from} (${sites} site${sites === 1 ? "" : "s"})`);
+      const shared = theirs
+        ? `; the graph records owner "${targetOwner}"'s code at this address too — ${describeWindow(theirs)} shares this window, and inside this payload's own window the code is this payload's`
+        : "";
+      add(address, jumpOnly ? "cross_owner_jump" : "cross_owner_call", `${from} (${sites} site${sites === 1 ? "" : "s"})${shared}`);
     }
 
     // S3 — a Spec 826 alias that already points at something of mine.
@@ -284,7 +348,16 @@ export function loadCodeSeeds(options: { projectDir?: string; owner: string; lo:
       add(a.address, "resolved_alias", `Spec 826 RESOLVES_TO ${target}`);
     }
 
-    return { status: "ok", path, owner, space, seeds: [...seeds.values()].sort((l, r) => l.address - r.address), skipped };
+    return {
+      status: "ok",
+      path,
+      owner,
+      space,
+      window,
+      seeds: [...seeds.values()].sort((l, r) => l.address - r.address),
+      skipped,
+      outOfScope: outOfScope.sort((l, r) => l.address - r.address),
+    };
   } finally {
     db.close();
   }

@@ -2480,6 +2480,17 @@ function renderSeedLedger(report: AnalysisReport): string[] {
 
   lines.push("Code seeds (Spec 838 D3)");
   if (seedReport) {
+    // Spec 867 D1 — the window this payload owns is what scopes the seeds, so it
+    // is printed before them: a reader who disagrees with a seed is really
+    // disagreeing with the window.
+    const window = seedReport.window;
+    if (window) {
+      lines.push(
+        `  window: ${formatAddress(window.start)}-${formatAddress(window.end)} in ${window.space}` +
+          `${window.bank !== null && window.bank !== undefined ? ` bank ${window.bank}` : ""} — ` +
+          `${window.source === "payload" ? "recorded on the payload" : "the extent this image was analysed at"}`,
+      );
+    }
     if (seedReport.status !== "ok") {
       // The reason can carry the project's whole owner list — ~500 names, in the
       // header of every listing. It is summarised where it is written now; this cuts
@@ -2499,6 +2510,14 @@ function renderSeedLedger(report: AnalysisReport): string[] {
         lines.push(`    ${formatAddress(seed.address)}  ${seed.origin}  ${seed.detail}`);
       }
       if (seedReport.seeds.length > 24) lines.push(`    ... ${seedReport.seeds.length - 24} more (full list in the analysis JSON: codeSeedReport.seeds)`);
+    }
+    // Spec 867 D1 — what the window kept out. Not a refusal: these addresses were
+    // never this payload's, so nothing was taken away from it.
+    const outOfScope = seedReport.outOfScope ?? [];
+    if (outOfScope.length > 0) {
+      lines.push(`  out of scope for this window: ${outOfScope.length} cross-owner address${outOfScope.length === 1 ? "" : "es"} — they belong to whatever else lives there, and were never this payload's:`);
+      for (const item of outOfScope.slice(0, 12)) lines.push(`    ${formatAddress(item.address)}  ${item.detail}`);
+      if (outOfScope.length > 12) lines.push(`    ... ${outOfScope.length - 12} more (full list in the analysis JSON: codeSeedReport.outOfScope)`);
     }
   }
 
