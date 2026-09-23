@@ -5,7 +5,7 @@
 - **Reporter:** llm (Spec 873 build agent, found while writing the checkpoint gate)
 - **Area:** runtime
 - **Severity:** high
-- **Status:** fixed (branch `bug-062-motor-at-reset`, not merged) <!-- open | investigating | fixed | wontfix | duplicate -->
+- **Status:** fixed (TRX64 main `bed0131`) <!-- open | investigating | fixed | wontfix | duplicate -->
 
 ## Environment
 
@@ -55,7 +55,10 @@ Workaround in the 873 gate: list drive 8 once before the checkpoint
 
 ## Notes / follow-up
 
-- Remove the workaround in the 873 gate when fixed.
+- Consequence seen at merge: every loader on a disk inserted after boot runs in another
+  rotation phase. Gate frames of Impossible Mission II and Polar Bear moved (animation
+  phase); Polar Bear's drive-9 and Maniac Mansion's folder-at-9 expectations flipped
+  (`seven_game_gate`, reasons in the file).
 - Open, not this bug: whether a 1541-II starts its motor when a disk is inserted (owner's
   recollection). The 1541-II ROM and schematic decide; not checked yet.
 - The other VIA2 hooks (`set_ca2`, `set_cb2`, `store_pra`, `store_pcr`, the reads) keep
@@ -67,7 +70,7 @@ Workaround in the 873 gate: list drive 8 once before the checkpoint
 
 - **Root cause:** `Via2dBackend::store_prb` / `undump_prb` returned early without a disk
   (TS-port guard); VICE's drive is live either way.
-- **Fix commit:** TRX64 `e9b3691` on `bug-062-motor-at-reset`.
+- **Fix commit:** TRX64 `e9b3691`, merged `bed0131`. The 873 gate's workaround is gone (`c2a9c8e`).
 - **Gate proving the fix:** `drive_int_snapshot_gate::a_drive_that_never_spun_restores_cycle_for_cycle`
   (red before: apart after frame 47). Workspace 1398 passed, 1 failed: `trx64-ffi` smoke
   `audio_persistent_engine_continuity`, flaky (passes 2 of 3 reruns alone), not a drive test.
