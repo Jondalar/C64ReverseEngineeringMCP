@@ -348,7 +348,7 @@ The slope across two workloads is 3.91 s of extra 1 MHz work for 0.07 s at 64 MH
 56. The thing that broke that claim was the owner's own observation: he can see UPic on the
 screen, and a 1.9x CPU cannot paint it.
 
-## Resolution
+## First resolution (v0.8.6) — WRONG, superseded below
 
 - **Root cause:** `VicII::u64_speed()` treated the firmware's PREFERRED speed as a state of
   the machine, so a C64 came out of reset already running at it. `u64_d031()` fell back to
@@ -373,3 +373,45 @@ screen, and a 1.9x CPU cannot paint it.
   as it did, and only the moment the speed arrives has moved. 350 lib tests and 88 across
   the six U64/turbo gates.
 - **Superseded:** Spec 851's model of the preferred speed, noted in its archived spec.
+
+---
+
+## The first fix was wrong — and the real mechanism
+
+v0.8.6 modelled "the firmware applies the turbo after the boot". It does not. Measured in
+the emulator with the real firmware 3.15 and an IO log with emulator time: the firmware
+strobes `C64_SPEED_UPDATE` **445 cycles after reset release** (`C64::reset()` →
+`effectuate_settings()` → `setCpuSpeed`). So `u64_speed_applied` was cleared by the reset
+and set again half a millisecond later; the KERNAL still booted under turbo. The reporter
+saw no change on v0.8.6 and stayed on v0.8.5. The assumption was never measured — that was
+the error.
+
+Measured on the device, reset-anchored (program written by DMA after `machine:reset`,
+started via the keyboard buffer, no second reset):
+
+    64 MHz   fast from TI 2.05 / 2.07 / 2.05 s
+    16 MHz   fast from TI 2.05 / 2.07 / 2.05 s
+    started at TI 0.98 s  -> fast from 2.07 s
+    started at TI 3.02 s  -> fast from the first portion
+
+and a change without a reset: effective within one portion (-0.03 / 0.03 / 0.05 s).
+
+**So the FPGA holds the C64 at 1 MHz for ~2.06 s after a reset**, independent of speed; the
+firmware's early strobe has no effect inside it; when it ends, the last strobed speed
+applies. The KERNAL's detector runs ~1.5 s after reset — inside the hold — which is why the
+device always detects PAL.
+
+## Resolution
+
+- **Fix:** `vic.u64_reset_hold` — armed by every reset on the U64 profile with 2.06 s worth
+  of PHI2 from the model's clock, counted down once per VIC cycle; while it runs the C64 is
+  a 1 MHz 6510. `u64_speed_applied` is gone.
+- **The constant has a source this time:** measured on the device, reset-anchored, stable
+  over three runs at two speeds. The detector only needs the hold to outlast ~1.5 s.
+- **Unmeasured, modelled conservatively:** whether a program's own `$D031` write inside the
+  hold is honoured. Modelled as not.
+- **Gate:** `u64_boot_speed_gate.rs`, 5 tests, driven in the firmware's order (reset, then
+  the strobe 445 cycles later). Red without the hold at 16 MHz, both for "strobe inside the
+  hold" and for `$02A6`.
+- **Regression:** `cia_alarm_check_gate`'s `booted@64` re-recorded, and it alone — the only
+  workload that resets; every other digest bit-identical. 350 lib, 92 across seven gates.
