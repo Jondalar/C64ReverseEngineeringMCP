@@ -72,8 +72,10 @@ function keyEventToC64Keys(e: KeyboardEvent): C64KeyName[] | null {
     case "Tab":        return ["RUN_STOP"];
     case "Backquote":  return ["CTRL"];
     case "Home":       return ["HOME"];
+    // Host Control is the Commodore key, as in VICE and the TRX64 cockpit; the C64's
+    // CTRL sits on ^ (Backquote), below ESC, where it sits on the C64 keyboard.
     case "ControlLeft":
-    case "ControlRight": return ["CTRL"];
+    case "ControlRight": return ["C_EQ"];
     case "ShiftLeft":  return ["L_SHIFT"];
     case "ShiftRight": return ["R_SHIFT"];
     case "ArrowDown":  return ["CRSR_DN"];
