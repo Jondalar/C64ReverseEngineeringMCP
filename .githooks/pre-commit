@@ -1,0 +1,20 @@
+#!/bin/sh
+# Keeps docs/tool-surface-inventory.json in step with the tool definitions.
+# CI checks it (gen:tool-surface --check); this regenerates it and stages it,
+# so a src/ change never leaves the committed inventory stale.
+# Enabled by `npm install` (prepare) or: git config core.hooksPath .githooks
+
+git diff --cached --name-only --diff-filter=ACMRD | grep -q '^src/' || exit 0
+
+INV=docs/tool-surface-inventory.json
+if ! npm run --silent build:mcp >/dev/null 2>&1; then
+  echo "pre-commit: build:mcp failed — cannot regenerate $INV" >&2
+  echo "            run: npm run build:mcp" >&2
+  exit 1
+fi
+node scripts/gen-tool-surface-inventory.mjs >/dev/null || exit 1
+
+if ! git diff --quiet -- "$INV"; then
+  git add -- "$INV"
+  echo "pre-commit: $INV regenerated and staged"
+fi
