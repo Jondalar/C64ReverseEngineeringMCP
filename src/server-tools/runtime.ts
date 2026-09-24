@@ -1091,18 +1091,20 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_swap_disk_and_continue",
-    "Answer a game's \"Insert side N. (RETURN)\" prompt in ONE call, the hardware way: eject the old disk → run so the 1541 senses the removal → insert the new disk → run so it senses the insertion → press RETURN → run on so the prompt advances. Use this for a multi-disk title that WAITS for a side-swap. Not for a title that isn't waiting (use runtime_media_swap for the atomic path, which gives the drive no cycles to sense the change). Read the screen first (runtime_render_screen) to know which side is asked for. Inputs: session_id, path (new image), optional confirm_input (default RETURN), settle_cycles, post_cycles. Returns: { mounted, screenBefore, screenAfter, promptCleared, advanced }.",
+    "Answer a game's \"Insert side N. (RETURN)\" prompt in ONE call, the hardware way: eject the old disk → run so the 1541 senses the removal → insert the new disk → run so it senses the insertion → press RETURN → run on so the prompt advances. Use this for a multi-disk title that WAITS for a side-swap. Not for a title that isn't waiting (use runtime_media_swap for the atomic path, which gives the drive no cycles to sense the change). Read the screen first (runtime_render_screen) to know which side is asked for. Inputs: session_id, path (new image), optional confirm_input (default RETURN), confirm_hold_cycles (default 400000), settle_cycles, post_cycles, unit (8-11, default 8). Returns: { ok, mounted, screenBefore, screenAfter, promptLine:{row,before,after}|null, promptCleared (the lowest non-blank row before the swap reads differently after), advanced (the 40x25 text screen changed), stopped:{step,reason,pc}|null (a breakpoint, observer or JAM stopped a step), c64Cycles, detail:{ eject, insert, ejectCycle, insertCycle, confirmCycle, settleCycles:{afterEject,afterInsert}, postCycles, confirmInput, confirmHoldCycles, diskPersisted? } }. Screens are the text-matrix decode: a bitmap screen reads as noise, so judge a bitmap title by rendering it.",
     {
       session_id: z.string(),
       path: z.string().describe("Absolute path to the new disk image (the side to insert)"),
       confirm_input: z.string().optional().describe("Key(s) to answer the prompt; default RETURN (\\r). Empty = no key."),
       settle_cycles: z.number().int().optional().describe("Cycles to run after eject AND after insert so the drive senses the change (default 1.5M)"),
       post_cycles: z.number().int().optional().describe("Cycles to run after the confirm key (default 4M)"),
+      confirm_hold_cycles: z.number().int().optional().describe("Cycles each confirm key is held, and released before the next (default 400000 — games that poll the keyboard every few frames, e.g. Ultima VI every 8 IRQ ticks, miss a short press)"),
+      unit: z.number().int().min(8).max(11).optional().describe("Drive unit to swap (default 8)"),
     },
-    safeHandler("runtime_swap_disk_and_continue", async ({ session_id, path, confirm_input, settle_cycles, post_cycles }) => {
+    safeHandler("runtime_swap_disk_and_continue", async ({ session_id, path, confirm_input, settle_cycles, post_cycles, confirm_hold_cycles, unit }) => {
       const abs = resolveCallerMediaPath(path);
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const result = await runtimeDaemon.swapDiskAndContinue(session_id, abs, { confirm_input, settle_cycles, post_cycles });
+      const result = await runtimeDaemon.swapDiskAndContinue(session_id, abs, { confirm_input, settle_cycles, post_cycles, confirm_hold_cycles, unit });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }),
   );
