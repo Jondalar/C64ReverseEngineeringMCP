@@ -5,7 +5,7 @@
 - **Reporter:** llm (found while diagnosing a missed Ultima VI disk swap for the U6 session)
 - **Area:** runtime
 - **Severity:** medium
-- **Status:** open <!-- open | investigating | fixed | wontfix | duplicate -->
+- **Status:** fixed (TRX64 main `7bce4b0`) <!-- open | investigating | fixed | wontfix | duplicate -->
 
 ## Environment
 
@@ -76,7 +76,18 @@ every few frames (Ultima VI: every 8 IRQ ticks) — a `confirm_input` press need
 
 ## Resolution (fill on fix)
 
-- **Root cause:**
-- **Fix commit:**
-- **Gate proving the fix:**
-- **Regression risk:**
+- **Root cause:** the verb only called `drive8.mount()`. Underneath, the 1541 never sensed an
+  eject at all: the detach half of VICE's write-protect sensor (`detach_clk`,
+  `DRIVE_DETACH_DELAY`, drive-writeprotect.c:40-53) was never ported,
+  `DRIVE_ATTACH_DETACH_DELAY` was 6·600000 instead of VICE's 3·400000 (drive.h:197), and
+  `read_prb` answered `$FF` with no disk (a TS-port guard).
+- **Fix commit:** TRX64 `4c81abc` (drive senses eject), `48474c6` (the verb: screen → eject as
+  `media/unmount` → settle → insert as `media/mount` → settle → `confirm_input` held
+  `confirm_hold_cycles`, default 400 000 → post → screen; honest `promptCleared`/`advanced`),
+  merged `7bce4b0`. C64RE `cb69261e` (tool schema: `confirm_hold_cycles`, `unit`, reply).
+- **Gate proving the fix:** daemon tests with a two-disk BASIC program that polls the keyboard
+  every 8 jiffies: 400 000 hold → prompt clears, disk B loads; 33 000 → it does not; the
+  DOS's disk-change flag `$1C` is set after eject + 1.5 M cycles (fails without the drive fix).
+  Pre-push gate green (549 unit, 439 daemon, 7-game 7/7).
+- **Regression risk:** every eject and direct disk swap now goes through the sensor's detach
+  timing, as in VICE.
