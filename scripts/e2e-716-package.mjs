@@ -136,45 +136,79 @@ const proj = join(work, "project");
 mkdirSync(proj, { recursive: true });
 
 const entry = join(pkgDir, manifest.bin?.[binName] ?? "dist/cli.js");
-const proc = spawn(process.execPath, [entry], {
-  cwd: tmpdir(),
-  env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_SLOT_GATE: "0" },
-  stdio: ["pipe", "pipe", "pipe"],
-});
 
-let buf = "";
-const pend = new Map();
-let nid = 1;
-proc.stdout.on("data", (d) => {
-  buf += d.toString();
-  let nl;
-  while ((nl = buf.indexOf("\n")) >= 0) {
-    const ln = buf.slice(0, nl).trim();
-    buf = buf.slice(nl + 1);
-    if (!ln) continue;
-    let m;
-    try { m = JSON.parse(ln); } catch { continue; }
-    if (m.id != null && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); }
-  }
-});
-let stderr = "";
-proc.stderr.on("data", (d) => { stderr += d.toString(); });
+/**
+ * One MCP session over stdio, against whatever command is handed in.
+ *
+ * It takes a command rather than a path because HOW the server is started is part of what
+ * this gate is for. A harness writes `"command": "npx"` into its config; npm installs a
+ * `.cmd`/`.ps1` shim on Windows and a symlink elsewhere; and Node will not spawn a batch
+ * file without a shell. Checking that the shim EXISTS, which is all this did before, says
+ * nothing about whether it runs.
+ */
+function session(cmd, args, { useShell = false, cwd = tmpdir() } = {}) {
+  const proc = spawn(cmd, args, {
+    cwd,
+    env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_SLOT_GATE: "0" },
+    stdio: ["pipe", "pipe", "pipe"],
+    shell: useShell,
+  });
 
-const rpc = (method, params) => new Promise((res, rej) => {
-  const id = nid++;
-  const t = setTimeout(() => { pend.delete(id); rej(new Error(`timeout ${method}`)); }, 300000);
-  pend.set(id, (m) => { clearTimeout(t); res(m); });
-  proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
-});
-const call = async (name, args) => {
-  const r = await rpc("tools/call", { name, arguments: args });
-  if (r.error) return `ERROR ${JSON.stringify(r.error)}`;
-  const text = (r.result?.content || []).map((c) => c.text).join("\n");
-  // A tool that failed answers with a rendered "# Tool Error" and a 200 status. The first
-  // version of this gate read that as success, which is the same mistake the tool text is
-  // there to prevent.
-  return /^#\s*Tool Error/m.test(text) ? `ERROR ${text.split("\n").find((l) => /^Error:/.test(l)) ?? text.slice(0, 160)}` : text;
+  let buf = "";
+  const pend = new Map();
+  let nid = 1;
+  proc.stdout.on("data", (d) => {
+    buf += d.toString();
+    let nl;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const ln = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!ln) continue;
+      let m;
+      try { m = JSON.parse(ln); } catch { continue; }
+      if (m.id != null && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); }
+    }
+  });
+  let stderr = "";
+  proc.stderr.on("data", (d) => { stderr += d.toString(); });
+
+  const rpc = (method, params) => new Promise((res, rej) => {
+    const id = nid++;
+    const t = setTimeout(() => { pend.delete(id); rej(new Error(`timeout ${method}`)); }, 300000);
+    pend.set(id, (m) => { clearTimeout(t); res(m); });
+    proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+  });
+
+  const call = async (name, args2) => {
+    const r = await rpc("tools/call", { name, arguments: args2 });
+    if (r.error) return `ERROR ${JSON.stringify(r.error)}`;
+    const text = (r.result?.content || []).map((c) => c.text).join("\n");
+    // A tool that failed answers with a rendered "# Tool Error" and a 200 status. The
+    // first version of this gate read that as success, which is the same mistake the tool
+    // text is there to prevent.
+    return /^#\s*Tool Error/m.test(text) ? `ERROR ${text.split("\n").find((l) => /^Error:/.test(l)) ?? text.slice(0, 160)}` : text;
+  };
+
+  const initialize = () => rpc("initialize", {
+    protocolVersion: "2024-11-05",
+    capabilities: {},
+    clientInfo: { name: "spec-716-gate", version: "1.0.0" },
+  });
+
+  return { proc, rpc, call, initialize, stderrText: () => stderr };
+}
+
+// Windows needs a shell to run npm's `.cmd` shims at all, which is exactly what a harness
+// ends up doing, so the gate does it the same way — and quotes the command, because a path
+// handed to a shell is a string and temp directories are not guaranteed to be space-free.
+const win = process.platform === "win32";
+const shimCmd = (name) => {
+  const p = join(binDir, win ? `${name}.cmd` : name);
+  return win ? { cmd: `"${p}"`, args: [], useShell: true } : { cmd: p, args: [], useShell: false };
 };
+
+const { proc, rpc, call, initialize } = session(process.execPath, [entry]);
+const stderrOf = () => "";
 
 try {
   const init = await rpc("initialize", {
@@ -218,9 +252,60 @@ try {
     analysed.split("\n").find((l) => l.trim())?.slice(0, 70));
 } catch (e) {
   check(false, "the installed server answers", String(e.message).slice(0, 200));
-  if (stderr) console.log(`        stderr: ${stderr.split("\n").slice(0, 3).join(" | ").slice(0, 300)}`);
 } finally {
   proc.kill();
+}
+
+// ── 4. started the way a harness starts it ───────────────────────────────────
+//
+// Everything above ran `node <entry>`. No harness does that: a harness runs the name, and
+// the name is a shim npm wrote. On Windows that shim is a `.cmd`, which Node refuses to
+// spawn without a shell, and a config saying `"command": "npx"` goes through a second one.
+// This section is the whole reason the Windows job exists, and until now it was the one
+// thing the job did not do.
+console.log("\n4. Started the way a harness starts it");
+
+const shim = shimCmd(binName);
+{
+  const s2 = session(shim.cmd, shim.args, { useShell: shim.useShell });
+  try {
+    const init = await s2.initialize();
+    check(!init.error && Boolean(init.result?.serverInfo),
+      `the executable runs through npm's own shim (${win ? `${binName}.cmd` : binName})`,
+      init.result?.serverInfo?.name);
+    const ref = await s2.call("c64ref_lookup", { address: "FFD2" });
+    check(!ref.startsWith("ERROR"), "and answers a tool call started that way", ref.split("\n")[0]?.slice(0, 50));
+  } catch (e) {
+    check(false, "the executable runs through npm's own shim", String(e.message).slice(0, 160));
+    const err = s2.stderrText();
+    if (err) console.log(`        stderr: ${err.split("\n").slice(0, 3).join(" | ").slice(0, 300)}`);
+  } finally {
+    s2.proc.kill();
+  }
+}
+
+// `npx <name>` from the directory that installed it. This is the documented shape one step
+// short of the registry — `npx -y @c64re/mcp` adds only the fetch, and that cannot be
+// proved before the package is published (716.6).
+{
+  const npxPath = join(binDir, win ? "npx.cmd" : "npx");
+  const haveLocalNpx = existsSync(npxPath);
+  const npx = haveLocalNpx ? npxPath : (win ? "npx.cmd" : "npx");
+  // cwd is the directory that installed it, not a temp directory: that is how `npx`
+  // finds a locally installed bin at all. Everything else in this gate deliberately runs
+  // from elsewhere, to prove the server does not lean on the cwd — this one cannot.
+  const s3 = session(win ? `"${npx}"` : npx, [binName], { useShell: win, cwd: home });
+  try {
+    const init = await s3.initialize();
+    check(!init.error && Boolean(init.result?.serverInfo),
+      "and through `npx`, which is what an MCP host config names", init.result?.serverInfo?.name);
+  } catch (e) {
+    check(false, "and through `npx`, which is what an MCP host config names", String(e.message).slice(0, 160));
+    const err = s3.stderrText();
+    if (err) console.log(`        stderr: ${err.split("\n").slice(0, 3).join(" | ").slice(0, 300)}`);
+  } finally {
+    s3.proc.kill();
+  }
 }
 
 console.log(`\n${fail ? "RED " : "GREEN"}  spec 716 package: ${pass} pass, ${fail} fail.`);

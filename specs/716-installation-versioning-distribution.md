@@ -259,14 +259,18 @@ Consequences, all now in scope:
 
 Stated rather than implied, so nobody reads a green board as more than it is:
 
-- **Windows PowerShell — a job exists, and it has not run yet.** `gates.yml` gained a
-  second job on `windows-latest` that runs the package gate on a Windows shell: pack,
-  install into an empty directory, start the executable, speak MCP. That is where the
-  platform difference actually lives — npm writes `.cmd`/`.ps1` shims rather than a
-  symlink, paths carry a drive letter, and the pipeline child is spawned by a different
-  loader. Writing it already found three POSIX assumptions in the gate itself (`mkdir -p`
-  twice, and a `.bin` check that expected an extensionless file). The route is supported
-  when that job is green, and not before.
+- **Windows PowerShell — proved 2026-09-25**, run 36183644245: both jobs green. Getting
+  there took three runs and found three POSIX assumptions, all of them in the gate rather
+  than in the package: `execFileSync` does not consult PATHEXT, so `npm` was ENOENT; naming
+  `npm.cmd` then hit Node's refusal to spawn a batch file without a shell, answered by
+  running npm through `npm_execpath` with this Node instead of reaching for `shell: true`
+  and buying a quoting problem; and an absolute Windows path handed to `import()` parses as
+  the scheme `d:`.
+
+  The gate then grew the part that was missing on every platform: it checked that npm had
+  written the executable's shim and never ran it. It now completes an MCP session three
+  ways — `node <entry>`, the shim npm wrote, and `npx <name>` — because a harness names the
+  command, and on Windows that name is a `.cmd` reached through a shell.
 - **WSL2 cannot be proved on a runner, and is not.** GitHub's Windows runners do not offer
   WSL2 — nested virtualisation — and the third-party actions that exist install WSL1,
   which is not what `INSTALL.md` describes. Proving it with something adjacent would be
