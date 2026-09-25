@@ -1,319 +1,225 @@
-# Spec 716 — C64RE distribution: npm package + install docs
+# Spec 716 — C64RE distribution: npm package + the runtime beside it
 
-**Status:** SCOPED 2026-08-11 (was DRAFT 2026-05-24). **Repo:** C64RE.
-**Counterpart:** [801](../specs/_archive/801-artifact-distribution.md) did the same job for
-TRX64 and is closed. This is the C64RE half it deferred.
+**Status:** READY 2026-09-25 (was SCOPED 2026-08-11, DRAFT 2026-05-24).
+**Repo:** C64RE. One TRX64 change is named in §6.3 and is optional.
+**Counterpart:** [801](_archive/801-artifact-distribution.md) did this for TRX64 and is
+closed. This is the C64RE half it deferred.
+**Related:** [880](880-the-sandbox.md) consumes this spec's package — the image installs
+C64RE from the registry, so the packaging gate below is a **prerequisite** of the sandbox,
+not an alternative to it. What 880 would retire is §4, not §3.
 
-## 0. What changed since the draft
+## 0. What changed, and what died
 
-The draft was written when nothing shipped anywhere. Since then TRX64 solved the same
-problem end to end, and its answers are the template — do not re-derive them:
+Two corrections to the 2026-08-11 scoping, both from measuring rather than remembering.
 
-- **Versioning**: one version for the whole workspace, and the artifact tag equals what
-  the binary reports (`--version`). A mismatch fails the build. §2.2 below still holds;
-  TRX64 proved it is workable.
-- **Publishing**: tag-driven, from CI, per platform, with checksums beside each artifact.
-- **The package manager is the install doc.** `brew install trx64` replaced a page of
-  per-OS instructions. Whatever §3 and §4 below say about a matrix of environments, the
-  cheapest version of it is a package that carries its own prerequisites.
-- **What people actually hit** is worth more than a complete matrix: a missing
-  prerequisite must fail with a message that says what to do (see the ROM-missing
-  messages TRX64 grew on 2026-08-11), and a fresh clone must not silently lack something
-  a gitignored directory used to provide.
+**The reSID clauses are dead.** The draft required Emscripten documentation, a committed
+`resid.wasm`, and GPL provenance for `third_party/resid/`. None of it exists: Spec 806
+deleted the TypeScript emulator and its vendored reSID on **2026-08-12**, one day after
+this spec was scoped. There is no `third_party/`, no `build:resid-wasm` script, and no WASM
+in the tree. Those paragraphs are removed rather than rewritten — a spec that describes a
+world that no longer exists is the thing doctrine rule 9 exists to prevent.
+
+**TRX64's answers still stand** and are not re-derived here: one version for the whole
+workspace, the artifact tag equals what the binary reports, tag-driven release from CI with
+checksums beside each artifact, and *the package manager is the install doc*.
 
 ## 1. Problem
 
-C64RE runs **only from a source checkout**: clone, `npm install`, run through `tsx`. That
-is fine for its author and wrong for everyone else.
+C64RE runs **only from a source checkout**: clone, `npm install`, run through `tsx`. Fine
+for its author, wrong for everyone else. 801 §C.4 deferred npm with an explicit condition —
+*revisit when someone needs to run C64RE without a checkout* — and that condition is met:
+an external contributor hit a bug caused by exactly this shape (Spec 802), TRX64 is
+installable in one line while the workbench that consumes it is not, and an MCP host config
+has to point at a path that differs per machine.
 
-801 §C.4 deferred npm with an explicit condition — *revisit when someone needs to run
-C64RE without a checkout*. That condition is now met:
+## 2. Where the package actually stands
 
-- an external contributor hit a bug caused by exactly this shape (a gitignored
-  `node_modules/` meant a fresh clone silently had no trace reader — Spec 802);
-- TRX64 is installable in one line while the workbench that consumes it is not;
-- an MCP host config has to point at a checkout path, which differs per machine.
+Measured 2026-09-25, not estimated.
 
-## 2. Decision Summary
+`npm pack --dry-run` today produces **1373 files, 23.2 MB unpacked, 9.4 MB tarball** — and
+**no `dist/`**. `dist` is gitignored, so npm takes the git view and the tarball would carry
+the TypeScript sources and no built server. Nothing in it starts. What it *would* carry:
+261 specs, 269 scripts, 68 bug records, 153 sample fixtures, the git hooks and the CI
+workflow. The commercial corpus stays out (`samples/commercial/` is gitignored), so there
+is no leak — but none of the rest belongs in an install.
 
-### 2.1 Documentation
+The manifest has `name`, `version 0.1.0`, `license GPL-3.0-or-later`, `type: module`. It
+has **no** `bin`, `main`, `files`, `engines`, `prepack` or `prepublishOnly`.
 
-Create `INSTALL.md` at repository root. Use uppercase to match `README.md`,
-`PLAN.md`, and `LICENSE`.
+What already works, and is worth knowing before anyone "fixes" it:
 
-`README.md` remains product-facing and retains only:
+- `src/run-cli.ts` resolves the pipeline child relative to **its own module**
+  (`dist/pipeline/cli.cjs`), not against the cwd. That survives `node_modules` unchanged as
+  soon as `dist` ships.
+- `resources/platform-kb.sqlite` (1.5 MB) is tracked, so the knowledge base ships.
+- `tsx` is a devDependency. The built server does not need it.
+- `@c64re/mcp`, `c64re` and `c64-reverse-engineering-mcp` are all free on the registry.
 
-- a short quick-start;
-- a link to `INSTALL.md` for full setup, MCP-host configuration, container use,
-  and troubleshooting.
+## 3. Package shape — the gate
 
-### 2.2 Versioning
+Registry publication is permitted only after these pass **from a packed tarball**, never
+from the checkout.
 
-Semantic versioning, `0.x` while the APIs, checkpoint formats and monitor surface are
-still moving. Minor versions may break; patch versions do not intentionally change MCP
-tool schemas, `.c64re` compatibility, or command-line invocation. One authoritative
-version surface: `package.json`, with the release tag `v<version>`. TRX64 additionally
-fails its build when the tag and the binary disagree — worth copying.
+### 3.1 Manifest
 
-### 2.3 npm — now the point of this spec
+- `files` allowlist — `dist/`, `resources/`, `LICENSE`, `README.md`. Everything else is out
+  by default, because an allowlist that has to be argued beats an ignore list that has to be
+  remembered.
+- `bin` → `c64re-mcp`, so an MCP host config is a command and not a machine-specific path.
+- `main` → the built entry.
+- `engines.node` → the LTS baseline, verified by a build and a smoke, not assumed.
+- `prepack` → `npm run build`, so the tarball cannot be built from a stale tree.
+- License metadata stays `GPL-3.0-or-later`; root `LICENSE` ships.
 
-Publish a scoped package so C64RE can be installed without a checkout:
+### 3.2 Execution proof
 
-- `@c64re/mcp`, if the namespace is free;
-- an executable `c64re-mcp` via `package.json` `bin`, so an MCP host config is one
-  command rather than a machine-specific path;
-- source-checkout installation stays supported for contributors and UI work.
+From `npm pack` installed into an empty temporary directory:
 
-**First step, before any publishing:** make the package installable at all. It currently
-depends on a checkout — the pipeline is built by `tsc` into `dist/`, `tsx` is a runtime
-dependency, and the analysis pipeline is a sibling directory. Determine what a published
-tarball must actually contain and whether the entry point runs from `node_modules`
-without a repo around it. That is the gate; publishing is a decision after it.
+1. the `bin` starts, completes an MCP initialization, and answers one harmless tool call;
+2. a tool that reads `resources/platform-kb.sqlite` answers, proving the resource shipped;
+3. a tool that spawns the pipeline child answers, proving `dist/pipeline/` shipped and
+   resolves;
+4. the tarball contains no sample, no trace, no session output and no `.git*` hook.
 
-**Non-goals.** Bundling ROMs (Commodore's property — see the ROM handling TRX64 settled).
-A GUI installer. Publishing the Rust crates (801 settled that: no crates.io).
+### 3.3 Name
 
-## 3. User-Facing Install Matrix
+`@c64re/mcp`. Scoped, free, and it leaves room for `@c64re/*` siblings later without
+renaming the first one. §9 carries this as the one open decision.
 
-`INSTALL.md` must give copy/pasteable instructions for each supported route.
-Instructions must be validated on the relevant shell or in CI before the
-section is labelled supported.
+## 4. The runtime beside it
 
-| Platform | Required install path | MCP launch example | Validation |
-|---|---|---|---|
-| macOS | Node LTS + Git; `npm ci`; `npm run build:mcp` | Claude Code and Codex examples with absolute POSIX paths | fresh checkout smoke on macOS runner or recorded local proof |
-| Windows PowerShell | Node LTS + Git; PowerShell-native paths/quoting; `npm ci`; `npm run build:mcp` | JSON/config example using `node.exe`/resolved command and Windows paths | Windows runner smoke; no WSL assumptions |
-| Windows + WSL2 | Linux Node installation inside WSL; repository inside WSL filesystem recommended | command and project paths entirely inside WSL | Ubuntu-in-WSL-equivalent instructions and Linux CI smoke |
-| Linux | Node LTS + Git; distro-neutral baseline, note native package requirements only where proven | POSIX MCP host examples | Ubuntu CI/container smoke |
-| Container | OCI/Docker recipe for stdio MCP server and optionally the V3 backend; project directory mounted as volume | host invokes container with stdio preserved and `C64RE_PROJECT_DIR` mounted | container build plus MCP initialization/tool smoke |
+An installed C64RE has no machine. TRX64 is a separate daemon, and the recipe a user meets
+today — `setup-recipe.ts`, whose **first** option is `cd ../TRX64 && cargo build --release`
+— is a developer's answer handed to someone who typed `npx`.
 
-The document must distinguish:
+**Decision: fetch on first use, never at install time.** Not a `postinstall`. `npx -y
+@c64re/mcp` must start immediately, and a postinstall that pulls 27 MB from GitHub turns a
+cold start into a download. The fetch is one explicit, visible act, once.
 
-1. **Use the MCP server**: minimal install and stdio MCP configuration.
-2. **Use the V3 runtime UI**: additional backend/UI commands and ports.
-3. **Develop or rebuild bundled assets**: maintainers only, including
-   Emscripten for `npm run build:resid-wasm`.
+Four pieces:
 
-## 4. `INSTALL.md` Required Content
+### 4.1 Resolution
 
-### 4.1 Prerequisites
+`resolve-daemon-spawn.ts` knows three places today: `C64RE_RUNTIME_BIN`,
+`C64RE_TRX64_BIN`, and the sibling checkout `../TRX64/target/release/`. Two more, between
+the env vars and the checkout:
 
-Document and enforce:
+- `trx64-daemon` on `PATH` — covers `brew install trx64` and anyone who placed it themselves;
+- `~/.cache/c64re/trx64/<version>/trx64-daemon` — the copy this spec manages.
 
-- supported Node.js LTS major version(s);
-- npm version expectations if relevant to lockfile reproducibility;
-- Git requirement for source-checkout installation;
-- no Emscripten requirement for normal install because
-  `src/runtime/headless/sid/wasm/resid.mjs` and `resid.wasm` are committed;
-- Emscripten is required only when rebuilding reSID WASM.
+This is needed whatever else is decided, including under 880.
 
-Implementation requirement: add `engines.node` to `package.json` once the
-supported baseline is verified. Add `.nvmrc` or equivalent only if the project
-chooses an exact contributor baseline rather than an LTS range.
+### 4.2 The fetch
 
-### 4.2 Source Checkout Installation
+A door and a CLI verb over the same code: map `process.platform` + `process.arch` to the
+release asset, download `trx64-<v>-<target>.{tar.gz,zip}` and its `.sha256`, verify, unpack
+into the cache directory, mark executable, report the path. Everything needed is already
+published: v0.9.2, five targets, a checksum beside every archive, 23–33 MB each.
 
-Provide one canonical source path:
+### 4.3 The pin — the part that will bite if it is done casually
 
-```text
-git clone -> npm ci -> npm run build:mcp -> MCP host configuration -> smoke
-```
+`EXPECTED_RUNTIME_PROTOCOL = 2`, and the client requires an **exact** match: a daemon that
+is ahead is a setup error, not a best-effort. So the fetch may never resolve "latest". It
+needs a pinned version constant beside the protocol constant, bumped in the same lockstep
+commit across both repos — **and a gate that fails when the two disagree.** Two
+hand-maintained numbers that can silently contradict each other is a defect that only
+surfaces on someone else's machine.
 
-Use `npm ci` in reproducible install instructions. `npm install` may be shown
-only as a contributor workflow for deliberately changing dependencies.
-
-Document:
-
-- `C64RE_PROJECT_DIR` and how to create/select a project directory;
-- optional tool override variables (assembler, packer, runtime binary) separately
-  from the minimum MCP path;
-- where generated output (`dist/`) appears;
-- how to update an existing checkout without losing project data.
-
-### 4.3 MCP Host Configuration
-
-Provide tested, platform-specific examples for at least:
-
-- Claude Code `.mcp.json`;
-- Codex MCP configuration.
-
-Examples must:
-
-- run the built server where possible, not require the TypeScript development
-  loader as the only supported production path;
-- use correct path quoting for PowerShell and WSL;
-- show `C64RE_PROJECT_DIR`;
-- explain that stdio must remain reserved for MCP protocol traffic.
-
-### 4.4 Runtime UI
-
-Document the runtime UI as an optional second step:
-
-- backend command;
-- V3 UI development/production command;
-- ports and browser URL;
-- relation between MCP server and runtime backend, if they are separate
-  processes in the current implementation.
-
-Do not present development commands as a packaged production UI until a
-packaged deployment path exists.
-
-### 4.5 Container Operation
-
-Provide a documented container route with an actual committed recipe:
-
-- `Dockerfile` or equivalent OCI build input;
-- Node LTS base pinned to a supported major;
-- deterministic dependency install with `npm ci`;
-- build of the MCP distribution;
-- project/workspace mounted into the container rather than baked into the
-  image;
-- `C64RE_PROJECT_DIR` mapped to that volume;
-- stdio invocation for MCP clients;
-- optional port mapping only for the V3 backend/UI path.
-
-Container scope in this spec is operational packaging, not an emulator
-sandbox. Samples, private project data, and writable `.c64re`/trace output must
-remain in mounted storage.
-
-### 4.6 Troubleshooting
-
-Include only reproducible issues and resolutions:
-
-- Node not found or wrong Node major;
-- spaces and quoting in Windows paths;
-- MCP host cannot resolve `npx`/`node`;
-- missing `C64RE_PROJECT_DIR`;
-- the runtime binary is missing and the setup recipe is the answer (Spec 806: there
-  is no fallback, so this is a first-class install failure, not an edge case);
-- reSID WASM rebuild is not required for normal install;
-- writable mounted project directory in containers.
-
-## 5. npm Publication Readiness Gate
-
-Registry publication is permitted only after all gates below pass from a
-packed tarball, not from the repository checkout.
-
-### 5.1 Package Shape
-
-- Define final package name and verify npm namespace availability.
-- Add `bin` for a stable MCP command.
-- Add `engines.node`.
-- Add `files` allowlist, or prove the tarball intentionally contains every
-  included asset and no local traces/samples/session output.
-- Ensure `LICENSE`, required provenance/notices, runtime WASM assets, compiled
-  server output, and any runtime-required resources are included.
-- Decide whether UI assets are included in the MCP package or delivered as a
-  later separate package/build artifact.
-
-### 5.2 Package Execution Proof
-
-From `npm pack` output installed into an empty temporary directory:
-
-- run the MCP executable and complete an MCP initialization plus one harmless
-  tool call;
-- run a runtime smoke requiring the committed reSID WASM asset;
-- validate macOS, Windows PowerShell, and Linux/WSL-compatible invocation
-  forms;
-- validate container execution from the packed artifact if registry
-  installation is documented for containers.
-
-### 5.3 Licensing and Provenance
-
-- Confirm the published package license metadata remains
-  `GPL-3.0-or-later`.
-- Include root `LICENSE`.
-- Include notices/provenance required for any vendored or compiled GPL component that
-  is actually SHIPPED. Recheck the list before publishing: the emulator left in Spec
-  806, so `third_party/resid/` is vendored here but referenced by nothing.
-- Do not publish binary runtime assets without their corresponding documented
-  source/provenance path.
-
-### 5.4 Publish Decision
-
-After the gate:
-
-- **GO:** publish a pre-1.0 package and document `npx` installation as the
-  preferred MCP-user path.
-- **NO-GO:** keep source checkout and container as supported paths, record the
-  specific blocking gate, and do not advertise npm installation.
-
-## 6. Implementation Slices
-
-### 716.1 - Truth and platform prerequisites
-
-- Determine supported Node LTS baseline by build/smoke evidence.
-- Identify minimum runtime assets and environment variables.
-- Record which external tools are optional oracle/development dependencies.
-
-**Exit:** no undocumented required prerequisite for MCP startup.
-
-### 716.2 - Root install guide
-
-- Add `INSTALL.md`.
-- Reduce `README.md` setup content to quick-start plus the install-guide link.
-- Cover macOS, Windows PowerShell, Windows + WSL2, Linux, and container
-  sections.
-
-**Exit:** commands are copy/pasteable and distinguish MCP, UI, and maintainer
-asset rebuild paths.
-
-### 716.3 - Reproducible source/container verification
-
-- Add the chosen container recipe.
-- Add minimal install/mcp-start smoke suitable for CI.
-- Validate at least Linux/container automatically; record macOS/Windows
-  validation route.
-
-**Exit:** source checkout and container routes are supported, not aspirational.
-
-### 716.4 - Versioning contract
-
-- Add the pre-1.0 semver policy to `INSTALL.md` or a linked release section.
-- Set/enforce supported Node version metadata.
-- Define tag/release-note convention.
-
-**Exit:** the existing `0.1.0` has an explicit meaning and future releases are
-not ad hoc.
-
-### 716.5 - npm packaging spike and decision
-
-- Configure a candidate package/executable without publishing.
-- Run `npm pack` install-from-tarball proofs.
-- Audit package contents and GPL/provenance.
-- Record GO/NO-GO; publish only on explicit user approval after GO.
-
-**Exit:** registry publication is either proven and separately approved, or
-explicitly deferred for a concrete reason.
-
-## 7. Acceptance Gates
-
-The spec is complete when:
-
-1. `INSTALL.md` exists at repository root and `README.md` links to it.
-2. Installation instructions exist for macOS, Windows PowerShell, Windows
-   WSL2, Linux, and container operation.
-3. Normal-user instructions do not incorrectly require Emscripten.
-4. Container instructions are backed by a committed, tested recipe.
-5. Versioning policy is documented and Node compatibility is declared.
-6. Source-checkout install has an automated clean-install/MCP-start smoke.
-7. npm publication has a documented GO/NO-GO based on `npm pack` proofs and
-   GPL/provenance inspection.
-8. No package is published without explicit user approval.
-
-## 8. Non-Goals
-
-- Runtime correctness changes.
-- Cartridge, SID, 1541, rewind, monitor, disassembly, or UI feature work.
-- Packaging a polished standalone desktop application.
-- Treating npm publication as mandatory; a proven source/container
-  distribution remains an acceptable outcome.
-
-## 9. Recommended Scheduling
-
-Spec 716 does not block the runtime roadmap. It can run later on a
-docs/infrastructure-only branch, after the new product-proof baseline work in
-Spec 715 or in parallel with feature work when desired. It must not modify
-runtime code. The npm publication decision should happen only after currently
-active runtime changes intended for the first public install baseline have
-landed.
+### 4.4 The recipe
+
+`setup-recipe.ts` reorders: the one command first, the prebuilt-binary and endpoint options
+second, `cargo build` third where it belongs.
+
+### 4.5 Two gaps that code does not close
+
+- **`macos-x86_64` is missing** from TRX64's release matrix (macos-arm64, linux-x86_64,
+  linux-arm64, windows-x86_64, windows-arm64). An Intel Mac gets "no asset for your
+  platform". Either one more matrix row in TRX64's `release-binaries.yml`, or that platform
+  falls back to building from source and the recipe says so.
+- **ROMs are the user's own and always will be.** The daemon looks in
+  `C64RE_ROOT/resources/roms`, then beside its executable, then at a hard-coded sibling
+  path. `C64RE_ROOT` is the clean route and already exists. But the ROMs are Commodore's
+  property, they are gitignored here, and they are never in a package. The install is
+  therefore three-part — C64RE, the daemon, the ROMs — and the third part has no technical
+  answer and must not be given one.
+
+## 5. `INSTALL.md`
+
+**Scope depends on §9.** Written in full only if the bare npm route is a supported path;
+otherwise this section reduces to a quick-start plus the image.
+
+Create `INSTALL.md` at repository root; `README.md` keeps a short quick-start and a link.
+It must distinguish three audiences — use the MCP server, use the runtime UI, develop and
+rebuild — and cover macOS, Windows PowerShell, Windows + WSL2, Linux and container, each
+validated on the relevant shell or in CI before it is labelled supported.
+
+Required content: the Node LTS baseline and npm expectations; `C64RE_PROJECT_DIR` and how to
+make one; optional tool overrides kept separate from the minimum path; where `dist/` appears;
+how to update without losing project data; tested Claude Code and Codex MCP configurations
+that run the built server and reserve stdio for protocol traffic; the runtime UI as an
+optional second step with its ports; a committed container recipe with the project mounted
+rather than baked; and a troubleshooting list of reproducible failures only — wrong Node
+major, Windows quoting, unresolvable `npx`/`node`, missing `C64RE_PROJECT_DIR`, and the
+missing runtime, which since Spec 806 is a first-class install failure with no fallback.
+
+## 6. Slices
+
+**716.1 — Truth.** Establish the Node LTS baseline from a build and a smoke. List the
+minimum runtime assets and environment variables. *Exit:* no undocumented prerequisite for
+MCP startup.
+
+**716.2 — The package gate.** §3 in full: manifest, `prepack`, pack-and-install proof in a
+clean directory. *Exit:* a tarball that starts and answers, with an audited file list.
+**This slice depends on no open decision and is the whole of the risk.**
+
+**716.3 — The runtime beside it.** §4.1–4.4, with the protocol/version agreement gate.
+*Exit:* a machine with neither a checkout nor Homebrew reaches a running daemon in one
+command, and a mismatched pin fails loudly at build time rather than quietly at the user.
+
+**716.4 — Versioning contract.** Pre-1.0 semver written down: minor may break, patch does
+not intentionally change MCP tool schemas, `.c64re` compatibility or invocation. Tag
+`v<version>`; the package's version is the one authority. *Exit:* `0.1.0` means something.
+
+**716.5 — `INSTALL.md`.** §5, scoped by §9.
+
+**716.6 — Publish.** GO only after 716.2 and 716.3 are green, and only on explicit
+approval.
+
+## 7. Acceptance
+
+1. `npm pack` produces a tarball whose contents are an audited allowlist — no samples, no
+   traces, no session output, no hooks.
+2. That tarball, installed into an empty directory, starts the MCP server, answers an
+   initialization and one tool call, reads its shipped knowledge base, and spawns its
+   pipeline child.
+3. A machine with no checkout and no Homebrew gets a running daemon in one command, with
+   the checksum verified.
+4. A protocol/version mismatch between C64RE and the pinned TRX64 release fails a gate.
+5. `setup-recipe.ts` leads with that command, and `cargo build` is the third option.
+6. Versioning policy is written down and `engines.node` is declared from evidence.
+7. Publication happened only after an explicit approval, or is recorded as deferred with the
+   gate that blocked it.
+
+## 8. Non-goals
+
+Bundling ROMs. A GUI installer. Publishing Rust crates (801 settled that). Runtime
+correctness or feature work of any kind. Treating publication as mandatory — a proven
+container distribution remains an acceptable outcome, and 880 may make it the preferred one.
+
+## 9. The one open decision
+
+**Is the bare npm route a supported, documented path — or only the thing the image installs?**
+
+The package must exist either way; 880's image installs C64RE from the registry, so 716.2
+and 716.3 are unconditional. What the answer decides is §5:
+
+- **Supported** — `INSTALL.md` is written in full, five platform routes each validated
+  before it may be called supported, and `macos-x86_64` probably has to be added to TRX64's
+  matrix because Intel Macs are then a first-class audience. This is the expensive half of
+  this spec.
+- **Image only** — 716 ends after 716.4. `INSTALL.md` shrinks to a quick-start, one
+  container section and the three-part install of §4.5. The platform matrix is never
+  written, because the container is the platform.
+
+It is a product decision, not a technical one, and it does not block a line of 716.2 or
+716.3.
