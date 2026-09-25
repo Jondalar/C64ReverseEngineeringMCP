@@ -107,6 +107,17 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "extract_disk", "extract_crt", "disk_sector_allocation",
   // Record knowledge
   "save_finding", "save_entity", "save_open_question", "propose_annotations",
+  // The door that WRITES the annotations file from structured input. Until it existed
+  // nothing did, and one run's five subagents wrote five generators of their own
+  // (genA.py, B_gen.py, …) that agreed on neither a file name nor an address spelling.
+  // A tool not in this set is HIDDEN, and a writer nobody can see is a writer nobody
+  // uses — which is how the five got written.
+  "write_annotations",
+  // …and the door that folds several readings into one. It refuses a contradiction by
+  // naming both sides and writes the resolution into the project as a finding, because
+  // the merge script it replaces kept its judgements — `segpref = {"82E6": "E"}` — in a
+  // scratchpad that died with the session.
+  "merge_annotations",
   // Spec 822.2: import_annotations_as_findings retired — the annotations file is
   // a door into the graph (D6): disasm_prg imports it, `c64re graph annotations-import`
   // for a file disasm_prg never saw.

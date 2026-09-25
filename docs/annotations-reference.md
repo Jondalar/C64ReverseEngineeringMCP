@@ -8,6 +8,38 @@ data-table hints only; the rebuilt bytes stay byte-identical.
 `propose_annotations` writes a DRAFT (`<stem>_annotations.draft.json`) you hand-edit and
 rename. It never overwrites a manual file.
 
+`write_annotations` writes the real file from structured input — segments, labels and
+routines as arguments, not as JSON you assemble yourself. Every address may be written
+`43A8`, `$43a8` or `0x43A8` and comes back as bare uppercase hex, so nothing downstream
+has to normalise. It refuses **before the file exists**, naming every offending entry by
+its own index: a mistyped or missing required field, two segments on one start, one
+address carrying two names, one name at two addresses, a name past the project's length
+limit, or an output path that does not end in `_annotations.json`. One offender means
+nothing is written at all — the tolerant skip described below is for a file a human wrote
+by hand, not for one a tool is writing.
+
+`merge_annotations` folds several readings of one payload into one file. Fragments that
+say the same thing collapse into one and you are asked nothing. Fragments that
+contradict each other — one segment start with two ends or kinds, one address with two
+names, one name at two addresses — are **refused, naming the key, every claimant and
+what each of them claimed**:
+
+```
+REFUSED — the fragments contradict each other. Nothing was written and nothing was recorded.
+
+segment:82E6
+  D  $82E6-$82F5  data  "score_tbl"
+  E  $82E6-$8305  pointer_table  "score_ptrs"
+```
+
+You answer with `resolutions: [{ key, winner | value, why }]` — `winner` is a fragment
+name, `value` is an entry neither side proposed (stating only what it changes), and `why`
+is required. **Each resolution is written into the project as a finding** carrying who
+claimed what, which one won and why, so who was right at `$82E6` is still answerable
+after the session that decided it is gone. A resolution for a key nothing disputes, a
+winner that claimed nothing there, and a resolution with no reason are all refused.
+`dry_run` reports the merge without writing the file or recording anything.
+
 **Names are at most 20 characters** in a project created since 2026-09-19: `project_init`
 stamps `naming.maxLabelLength: 20` into `knowledge/project.json`, and `disasm` refuses
 an annotations file with a longer label, routine or segment name before it renders anything.
