@@ -1,9 +1,24 @@
 {
   "name": "c64-reverse-engineering-mcp",
   "version": "0.1.0",
+  "description": "MCP server for C64 reverse engineering \u2014 analysis pipeline, disassembly, and semantic classification",
   "license": "GPL-3.0-or-later",
   "type": "module",
-  "description": "MCP server for C64 reverse engineering — analysis pipeline, disassembly, and semantic classification",
+  "main": "dist/cli.js",
+  "bin": {
+    "c64re-mcp": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "files": [
+    "dist/",
+    "resources/platform-kb.sqlite",
+    "resources/fingerprints/bundled/",
+    "LICENSE",
+    "README.md",
+    "INSTALL.md"
+  ],
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
     "e2e:844-teeth": "node scripts/e2e-844-teeth.mjs",
@@ -218,20 +233,13 @@
     "e2e:bug060-code-tail": "npm run build && node scripts/e2e-bug060-code-tail.mjs",
     "e2e:bug060-dup-segment": "npm run build && node scripts/e2e-bug060-duplicate-segment.mjs",
     "e2e:877-write": "npm run build && node scripts/e2e-877-annotations-write.mjs",
-    "e2e:877-merge": "npm run build && node scripts/e2e-877-annotations-merge.mjs"
+    "e2e:877-merge": "npm run build && node scripts/e2e-877-annotations-merge.mjs",
+    "prepack": "npm run build",
+    "e2e:716-package": "node scripts/e2e-716-package.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "@types/ws": "^8.18.1",
-    "graphology": "0.26.0",
-    "graphology-communities-louvain": "2.0.2",
-    "graphology-layout": "0.6.1",
-    "graphology-layout-forceatlas2": "0.10.1",
-    "pngjs": "^7.0.0",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
-    "sigma": "3.0.3",
     "ws": "^8.20.0",
     "zod": "^3.24.2"
   },
@@ -239,8 +247,16 @@
     "@types/node": "^22.13.10",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.1",
+    "graphology": "0.26.0",
+    "graphology-communities-louvain": "2.0.2",
+    "graphology-layout": "0.6.1",
+    "graphology-layout-forceatlas2": "0.10.1",
     "graphology-types": "0.24.8",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "sigma": "3.0.3",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "vite": "^8.0.8"
