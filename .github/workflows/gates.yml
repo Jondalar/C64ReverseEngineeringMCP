@@ -634,38 +634,35 @@ jobs:
           node -v
           npm -v
 
-      # A — the documented route: the project on the distribution's own filesystem.
-      - name: The package installs and runs on the Linux filesystem
+      # Both filesystems in ONE step, because a runner environment variable does not
+      # cross into the distribution: the first attempt carried the timing between steps
+      # through $GITHUB_ENV and died on `unbound variable` AFTER the gate had gone green.
+      # Nothing here reads the runner's environment; the numbers go to the log.
+      - name: The package installs and runs, on both filesystems
         shell: wsl-bash {0}
         run: |
           set -eu
+
+          # A — the documented route: the project on the distribution's own filesystem.
           SRC="$(pwd)"
           rsync -a --exclude node_modules --exclude dist "$SRC/" "$HOME/c64re/"
           cd "$HOME/c64re"
           npm ci --no-audit --no-fund --loglevel error
           START=$(date +%s)
           npm run e2e:716-package
-          echo "linux_fs_seconds=$(( $(date +%s) - START ))" >> "$GITHUB_ENV"
+          LINUX_FS=$(( $(date +%s) - START ))
 
-      # B — the route the document warns about, measured rather than asserted.
-      - name: ...and from /mnt, with the cost of the boundary measured
-        shell: wsl-bash {0}
-        run: |
-          set -eu
+          # B — the route INSTALL.md warns about. It gates on the package WORKING; the
+          # warning is about COST, so the cost is measured and printed rather than
+          # asserted. If these numbers ever stop supporting the advice, the advice changes.
+          cd "$SRC"
           npm ci --no-audit --no-fund --loglevel error
           START=$(date +%s)
           npm run e2e:716-package
-          MNT=$(( $(date +%s) - START ))
-          echo "on the distribution's filesystem: ${linux_fs_seconds}s"
-          echo "under /mnt (the Windows filesystem): ${MNT}s"
-          {
-            echo "### WSL2 — where the project lives"
-            echo ""
-            echo "| location | gate wall time |"
-            echo "|---|---|"
-            echo "| the distribution's own filesystem | ${linux_fs_seconds}s |"
-            echo "| under \`/mnt\` (Windows filesystem) | ${MNT}s |"
-            echo ""
-            echo "INSTALL.md advises the first. This step gates on the package WORKING in"
-            echo "both; the numbers are what the advice rests on."
-          } >> "$GITHUB_STEP_SUMMARY"
+          MNT_FS=$(( $(date +%s) - START ))
+
+          echo ""
+          echo "=== where the project lives, and what the gate costs there ==="
+          echo "  the distribution's own filesystem : ${LINUX_FS}s"
+          echo "  under /mnt (Windows filesystem)   : ${MNT_FS}s"
+          echo "INSTALL.md advises the first. Both work; the numbers are what the advice rests on."
