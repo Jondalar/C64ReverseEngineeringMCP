@@ -113,7 +113,7 @@ export function registerOptimiseTools(server: McpServer, context: ServerToolCont
         units = [{ label: "the whole image", start: load, end: imageEnd }];
         header.push(
           "  no routine in the graph falls inside this image, so the whole of it was decoded as one run of instructions — " +
-          "run analyze_prg and disasm_prg and the scan gets routine boundaries, and with them the data segments it must not decode",
+          "run analyze and disasm and the scan gets routine boundaries, and with them the data segments it must not decode",
         );
       }
 

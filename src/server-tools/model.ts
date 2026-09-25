@@ -95,7 +95,7 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
             if (inRange.some((r) => r.space !== node.space)) {
               elsewhere.push(
                 `  This boundary is in space "${node.space}". A node's space comes from the machine its owner runs on:`,
-                `  drive code lands in "drv" once that is recorded — pass platform="c1541" to disasm_prg (it records it`,
+                `  drive code lands in "drv" once that is recorded — pass platform="c1541" to disasm (it records it`,
                 `  for the owner), or declare it once with \`c64re graph machine <owner> c1541\` and re-import.`,
               );
             } else {

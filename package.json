@@ -23,6 +23,7 @@
     "check:docs-current": "node scripts/check-docs-current.mjs",
     "check:doc-capability-claims": "npm run build:mcp && node scripts/gen-tool-surface-inventory.mjs >/dev/null && node scripts/check-doc-capability-claims.mjs",
     "check:text-only-tools": "node scripts/check-text-only-tools.mjs",
+    "check:tool-names": "node scripts/check-retired-tool-names.mjs",
     "check:legacy-store-writers": "node scripts/check-no-legacy-store-writers.mjs",
     "e2e:onboarding-gate": "npm run build:mcp && node scripts/e2e-onboarding-gate.mjs",
     "e2e:discipline-gate": "npm run build:mcp && node scripts/e2e-discipline-gate.mjs",

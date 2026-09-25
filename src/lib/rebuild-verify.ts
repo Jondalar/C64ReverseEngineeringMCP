@@ -127,7 +127,7 @@ export async function rebuildVerification(args: {
         path: tempPrg,
         format: "prg",
         role: "rebuild-check",
-        producedByTool: args.toolName ?? "disasm_prg",
+        producedByTool: args.toolName ?? "disasm",
         sourceArtifactIds: args.sourceArtifactId ? [args.sourceArtifactId] : undefined,
         tags: ["rebuild-check", "auto"],
       });

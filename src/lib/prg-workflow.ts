@@ -157,7 +157,7 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
   } else {
     const reg = tryRegister(
       projectRoot,
-      "analyze_prg",
+      "analyze",
       `Analyze PRG: ${basename(prgAbs)}`,
       { prg_path: opts.prgPath, output_json: analysisPath, entry_points: opts.entryPoints ?? [] },
       [{ path: prgAbs, kind: "prg", scope: "input", role: "analysis-target" }],
@@ -202,7 +202,7 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
     } else {
       tryRegister(
         projectRoot,
-        "disasm_prg",
+        "disasm",
         `Disassemble PRG: ${basename(prgAbs)}`,
         { prg_path: opts.prgPath, output_asm: asmPath, analysis_json: analysisPath },
         [
@@ -308,8 +308,8 @@ export async function runPrgReverseWorkflow(opts: PrgReverseWorkflowOptions): Pr
   const nextRequiredAction = overall === "blocked"
     ? "Resolve the blocked phase before continuing."
     : existsSync(annotationsPath)
-      ? "Re-run disasm_prg to render the annotated listing."
-      : `Read ${asmPath} and write ${annotationsPath} with segment reclassifications, semantic labels, and routine documentation. Then re-run disasm_prg.`;
+      ? "Re-run disasm to render the annotated listing."
+      : `Read ${asmPath} and write ${annotationsPath} with segment reclassifications, semantic labels, and routine documentation. Then re-run disasm.`;
 
   return {
     projectRoot,

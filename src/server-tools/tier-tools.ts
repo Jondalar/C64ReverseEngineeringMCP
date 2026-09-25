@@ -93,6 +93,7 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   "disasm", "analyze",
   // The old names, aliases of the two for one release. Each renders identically — it
   // IS the same body — and says so once in its own answer, naming its successor.
+  // retired-name-ok: an alias missing from DEFAULT_TOOLS is not callable at all
   "analyze_prg", "disasm_prg", "disasm_raw",
   "disasm_menu", "inspect_address_range",
   "inspect_disk", "assemble_source", "c64ref_lookup",

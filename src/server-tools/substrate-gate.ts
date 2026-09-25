@@ -51,7 +51,7 @@ function characterizeFirstRefusal(tool: string): string {
     "",
     "Characterize it first (this records the verdict automatically):",
     "  • inspect_disk / extract_disk — parses the DOS directory at 18/0 → standard-gcr vs custom-gcr",
-    "  • read the drivecode (disasm_prg) — does it call 1541-ROM routines (standard GCR) or a custom GCR codec?",
+    "  • read the drivecode (disasm) — does it call 1541-ROM routines (standard GCR) or a custom GCR codec?",
     "",
     "If the medium is DOS-readable, the payload is a STATIC depack (sandbox_depack) — runtime is not how you extract it.",
   ].join("\n");

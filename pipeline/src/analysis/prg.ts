@@ -37,7 +37,7 @@ function validatePrgInput(file: Buffer, prgPath: string): void {
   const firstBody = file[2];
   if (firstBody !== undefined && [0x7b, 0x5b, 0x22].includes(firstBody)) {
     process.stderr.write(
-      `[c64re analyze_prg] WARNING: ${prgPath} body starts with 0x${firstBody.toString(16)} ('${String.fromCharCode(firstBody)}') — looks like JSON/text. Continuing anyway, but the analysis will likely be garbage.\n`,
+      `[c64re analyze] WARNING: ${prgPath} body starts with 0x${firstBody.toString(16)} ('${String.fromCharCode(firstBody)}') — looks like JSON/text. Continuing anyway, but the analysis will likely be garbage.\n`,
     );
   }
 }

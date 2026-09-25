@@ -294,9 +294,9 @@
       "role": "disassembly",
       "swimlane": "validation",
       "useWhen": "Assemble ASM (KickAss/64tass) to verify a byte-identical rebuild.",
-      "notFor": "Disassembly — use disasm_prg.",
+      "notFor": "Disassembly — use disasm.",
       "adjacentTools": [
-        "disasm_prg"
+        "disasm"
       ],
       "e2eUseCases": [
         "E2E-C"
@@ -420,10 +420,10 @@
       "role": "static-analysis",
       "swimlane": "disassembly-improve",
       "useWhen": "Read a BASIC V2 PRG: walk its line records, detokenise, name the PETSCII control codes, and report the SYS targets that hand control to machine code.",
-      "notFor": "A machine-code payload — use analyze_prg then disasm_prg.",
+      "notFor": "A machine-code payload — use analyze then disasm.",
       "adjacentTools": [
-        "disasm_prg",
-        "analyze_prg",
+        "disasm",
+        "analyze",
         "basic_tokenize"
       ],
       "e2eUseCases": [
@@ -478,9 +478,9 @@
       "role": "view-docs",
       "swimlane": "disassembly-improve",
       "useWhen": "Render the annotated disassembly listing view.",
-      "notFor": "Raw disasm text — use disasm_prg.",
+      "notFor": "Raw disasm text — use disasm.",
       "adjacentTools": [
-        "disasm_prg",
+        "disasm",
         "build_memory_map"
       ],
       "e2eUseCases": [
@@ -675,7 +675,7 @@
       "notFor": "Resolving a runtime PC to source — use runtime_resolve_pc.",
       "adjacentTools": [
         "runtime_resolve_pc",
-        "disasm_prg"
+        "disasm"
       ],
       "e2eUseCases": [
         "E2E-C"
@@ -1043,9 +1043,9 @@
       "role": "disassembly",
       "swimlane": "disassembly-improve",
       "useWhen": "Disassemble a specific menu/region with chosen entry points.",
-      "notFor": "Whole-PRG disasm — use disasm_prg.",
+      "notFor": "Whole-PRG disasm — use disasm.",
       "adjacentTools": [
-        "disasm_prg"
+        "disasm"
       ],
       "e2eUseCases": [
         "E2E-C"
@@ -1454,7 +1454,7 @@
       "useWhen": "Inspect a byte/address range of a payload statically.",
       "notFor": "Live memory — use runtime_monitor_memory.",
       "adjacentTools": [
-        "analyze_prg",
+        "analyze",
         "runtime_monitor_memory"
       ],
       "e2eUseCases": [
@@ -1894,10 +1894,10 @@
       "role": "knowledge-read",
       "swimlane": "entry-project-baseline",
       "useWhen": "List executable payloads discovered in media.",
-      "notFor": "Disassembling one payload — use disasm_prg.",
+      "notFor": "Disassembling one payload — use disasm.",
       "adjacentTools": [
         "list_artifacts",
-        "disasm_prg"
+        "disasm"
       ],
       "e2eUseCases": [
         "E2E-A"
@@ -2456,9 +2456,9 @@
       "role": "disassembly",
       "swimlane": "disassembly-improve",
       "useWhen": "Write a draft annotation set (labels/segments/routine docs) for review.",
-      "notFor": "Applying + rebuilding — use disasm_prg with annotations.",
+      "notFor": "Applying + rebuilding — use disasm with annotations.",
       "adjacentTools": [
-        "disasm_prg",
+        "disasm",
         "save_finding"
       ],
       "e2eUseCases": [
@@ -2737,7 +2737,7 @@
       "adjacentTools": [
         "link_payload_to_asm",
         "list_payloads",
-        "disasm_prg"
+        "disasm"
       ],
       "e2eUseCases": [
         "E2E-D"
@@ -2885,8 +2885,8 @@
       "useWhen": "Run the end-to-end per-PRG analyze→disasm→verify workflow.",
       "notFor": "Project-level workflow selection — use start_re_workflow.",
       "adjacentTools": [
-        "analyze_prg",
-        "disasm_prg"
+        "analyze",
+        "disasm"
       ],
       "e2eUseCases": [
         "E2E-C"
@@ -3633,7 +3633,7 @@
       "role": "runtime-monitor",
       "swimlane": "freeze-inspect",
       "useWhen": "Disassemble around the live PC at a paused state.",
-      "notFor": "Static PRG disasm — use disasm_prg.",
+      "notFor": "Static PRG disasm — use disasm.",
       "adjacentTools": [
         "runtime_monitor_registers",
         "runtime_resolve_pc"
@@ -3879,7 +3879,7 @@
       "useWhen": "Resolve a runtime PC to a payload/source location for annotation evidence.",
       "notFor": "Symbol/ROM lookup — use c64ref_lookup.",
       "adjacentTools": [
-        "disasm_prg",
+        "disasm",
         "c64ref_lookup"
       ],
       "e2eUseCases": [
@@ -4876,7 +4876,7 @@
       "role": "workflow",
       "swimlane": "entry-project-baseline",
       "useWhen": "Select the workflow/profile (crack, port, analysis, bugfix) for the project objective.",
-      "notFor": "Per-PRG static disassembly — use run_prg_reverse_workflow / disasm_prg.",
+      "notFor": "Per-PRG static disassembly — use run_prg_reverse_workflow / disasm.",
       "adjacentTools": [
         "agent_set_role",
         "agent_onboard"
