@@ -42,10 +42,38 @@ export const SUMMARY_TOOLS: ReadonlySet<string> = new Set([
 
 const LEDGER = "contract-standing.json";
 
+/**
+ * Spec 877 — a waiver: the human overruling an owed promise, on the record.
+ *
+ * It lives here rather than in `contract.json` because it is not part of what was asked
+ * for. The contract keeps saying 90 %; the waiver says this project ships at less, who
+ * decided that, and why. Keeping the two apart is what stops a waiver from quietly
+ * rewriting the promise it releases.
+ */
+export interface Waiver {
+  /** The promise id, as `contractPromises` computes it. */
+  promise: string;
+  reason: string;
+  /** Whoever signed it. Never defaulted — see `contract_set`. */
+  by: string;
+  at: string;
+  /** The channel the server actually saw. It cannot observe more than this. */
+  via: string;
+  /** The contract's stated value at the time. The waiver lapses when the human changes it. */
+  askedValue: string;
+  /** What was measured when it was waived — so the record shows what was accepted. */
+  wasAt?: string;
+}
+
 interface Standing {
   /** the blocker texts that were standing when we last spoke */
   blockers: string[];
   at: string;
+  /** 877 — the promise ids the contract states and the ones still owed, last computed. */
+  promises?: string[];
+  owed?: string[];
+  /** 877 D2 — who waived what, and why. Appended, never silently replaced. */
+  waivers?: Waiver[];
 }
 
 function path(projectDir: string): string {
@@ -55,23 +83,78 @@ function path(projectDir: string): string {
 function read(projectDir: string): Standing | undefined {
   try {
     const raw = JSON.parse(readFileSync(path(projectDir), "utf8")) as Partial<Standing>;
-    if (Array.isArray(raw.blockers)) return { blockers: raw.blockers.map(String), at: String(raw.at ?? "") };
+    if (Array.isArray(raw.blockers)) {
+      return {
+        blockers: raw.blockers.map(String),
+        at: String(raw.at ?? ""),
+        ...(Array.isArray(raw.promises) ? { promises: raw.promises.map(String) } : {}),
+        ...(Array.isArray(raw.owed) ? { owed: raw.owed.map(String) } : {}),
+        ...(Array.isArray(raw.waivers) ? { waivers: raw.waivers as Waiver[] } : {}),
+      };
+    }
   } catch { /* never spoken here before */ }
   return undefined;
 }
 
-function write(projectDir: string, s: Standing): void {
+/**
+ * Merge into the ledger.
+ *
+ * A merge and not a write: the footer refreshes `blockers` on every recorded write, and
+ * before 877 that same call rewrote the whole file. A waiver stored in it would have been
+ * erased by the next `save_finding`.
+ */
+function write(projectDir: string, patch: Partial<Standing>): void {
   try {
     mkdirSync(join(projectDir, "knowledge"), { recursive: true });
-    writeFileSync(path(projectDir), JSON.stringify(s, null, 2) + "\n");
+    const prev = read(projectDir) ?? { blockers: [], at: "" };
+    writeFileSync(path(projectDir), JSON.stringify({ ...prev, ...patch }, null, 2) + "\n");
   } catch { /* a ledger that cannot be written only costs a repeated line */ }
 }
 
 /** Forget what was said — `agent_onboard` calls this, like the rule delivery. */
 export function resetStanding(projectDir: string): void {
   if (!existsSync(join(projectDir, "knowledge"))) return;
-  try { writeFileSync(path(projectDir), JSON.stringify({ blockers: [], at: "" }, null, 2) + "\n"); }
-  catch { /* best-effort */ }
+  // The WAIVERS survive: they are decisions the human made about this project, not
+  // something this session said once. Only the "what did I last tell you" state resets.
+  try {
+    const prev = read(projectDir);
+    writeFileSync(path(projectDir), JSON.stringify({
+      blockers: [], at: "",
+      ...(prev?.waivers?.length ? { waivers: prev.waivers } : {}),
+    }, null, 2) + "\n");
+  } catch { /* best-effort */ }
+}
+
+/** Every waiver ever recorded here, newest last. */
+export function listWaivers(projectDir: string): Waiver[] {
+  return read(projectDir)?.waivers ?? [];
+}
+
+/**
+ * The waivers that still hold, against the promises as they stand NOW.
+ *
+ * A waiver lapses when the human changes what the contract asks for. That is the one half
+ * of "a run may not waive its own promise" that IS enforceable from inside: waive at 90 %,
+ * then quietly raise the bar to 95 %, and the door refuses again rather than inheriting a
+ * release nobody granted.
+ */
+export function activeWaivers(
+  projectDir: string,
+  promises: ReadonlyArray<{ id: string; askedValue: string }>,
+): Waiver[] {
+  const byId = new Map(promises.map((p) => [p.id, p.askedValue]));
+  const seen = new Map<string, Waiver>();
+  for (const w of listWaivers(projectDir)) {
+    if (!byId.has(w.promise)) continue;                 // not owed any more, or gone from the contract
+    if (byId.get(w.promise) !== w.askedValue) continue; // the human moved the number: lapsed
+    seen.set(w.promise, w);                             // the newest one for a promise wins
+  }
+  return [...seen.values()];
+}
+
+/** What the teeth last computed, so the ledger tells the same story the door told. */
+export function recordPromiseStanding(projectDir: string, promises: string[], owed: string[]): void {
+  write(projectDir, { promises, owed, at: new Date().toISOString() });
 }
 
 /** Shorten a blocker to its first clause — the footer is a pointer, not the report. */

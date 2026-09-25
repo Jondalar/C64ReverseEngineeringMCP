@@ -698,6 +698,14 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
     },
     async ({ project_dir, step, next_action, note, role, focus, constraints }) => {
       const projectRoot = ctx.projectDir(project_dir);
+      // Spec 877 D1 — a step that says a phase is CLOSED is a delivery claim. A step that
+      // says what was done is not, and is recorded as always: this door is how a session
+      // persists what it learned, and a gate that eats those records would destroy the
+      // very thing the contract is asking for.
+      const teeth = await (await import("../contract/teeth.js")).checkContractTeeth(
+        "agent_record_step", projectRoot, { step, nextAction: next_action },
+      );
+      if (!teeth.allowed) return textContent(teeth.refusal!);
       const service = new ProjectKnowledgeService(projectRoot);
       const project = service.getProjectStatus().project;
       const prev = loadAgentState(projectRoot);

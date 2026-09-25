@@ -301,7 +301,13 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       platform: z.enum(["c64", "c1541", "c128", "vic20", "plus4", "other"]).optional().describe("Spec 020 platform marker. Default c64 when absent."),
     },
     safeHandler("save_artifact", async ({ project_dir, id, kind, scope, title, path, description, mime_type, format, role, produced_by_tool, source_artifact_ids, entity_ids, confidence, status, tags, evidence, derived_from, version_label, enable_snapshot, platform }) => {
-      const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
+      const root = resolveWorkspaceRoot(options, project_dir);
+      // Spec 877 D1 — registering the thing this project SHIPS is a publication. Only a
+      // release role; every other registration (payloads, listings, rebuild checks, the
+      // analysis JSONs) is work, and the internal `saveArtifact` callers are untouched.
+      const teeth = await (await import("../contract/teeth.js")).checkContractTeeth("save_artifact", root, { role });
+      if (!teeth.allowed) return { content: [{ type: "text" as const, text: teeth.refusal! }] };
+      const service = new ProjectKnowledgeService(root);
       const artifact = service.saveArtifact({
         id,
         kind,
@@ -1283,6 +1289,9 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       const service = new ProjectKnowledgeService(root);
       const slotGate = await (await import("../slots/gate.js")).checkSlotGate("render_docs", root);
       if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
+      // Spec 877 D1 — rendering the prose is publishing it.
+      const teeth = await (await import("../contract/teeth.js")).checkContractTeeth("render_docs", root);
+      if (!teeth.allowed) return { content: [{ type: "text" as const, text: teeth.refusal! }] };
       const result = service.renderDocs(scope ?? "all");
       return textContent(`Rendered ${result.written.length} doc(s):\n${result.written.join("\n")}`);
     },
