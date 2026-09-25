@@ -18,7 +18,7 @@
 // tree. Expect it to take a minute: it installs real dependencies, including a native one.
 
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -85,7 +85,7 @@ console.log(`        ${packed.entryCount} files, ${(packed.unpackedSize / 1024 /
 console.log("\n2. Installing into an empty directory");
 
 const home = join(work, "install");
-execFileSync("mkdir", ["-p", home]);
+mkdirSync(home, { recursive: true });
 writeFileSync(join(home, "package.json"), JSON.stringify({ name: "c64re-716-probe", version: "1.0.0", private: true }, null, 2));
 
 let installed = false;
@@ -104,8 +104,13 @@ const manifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
 const pkgDir = join(home, "node_modules", manifest.name);
 const binName = Object.keys(manifest.bin ?? {})[0];
 check(Boolean(binName), "the manifest declares an executable", binName ?? "no `bin` field");
-const binLink = binName ? join(home, "node_modules", ".bin", binName) : null;
-check(Boolean(binLink && existsSync(binLink)), "and npm linked it into .bin", binName);
+// npm writes a symlink on POSIX and a pair of shims (.cmd, .ps1) on Windows, so the
+// question is "did npm link it", not "is there a file with exactly this name".
+const binDir = join(home, "node_modules", ".bin");
+const linked = binName && existsSync(binDir)
+  ? readdirSync(binDir).filter((f) => f === binName || f.startsWith(`${binName}.`))
+  : [];
+check(linked.length > 0, "and npm linked it into .bin", linked.join(", ") || binName);
 check(existsSync(join(pkgDir, "resources", "platform-kb.sqlite")),
   "the knowledge base is on disk in the installed package");
 
@@ -113,7 +118,7 @@ check(existsSync(join(pkgDir, "resources", "platform-kb.sqlite")),
 console.log("\n3. The installed server");
 
 const proj = join(work, "project");
-execFileSync("mkdir", ["-p", proj]);
+mkdirSync(proj, { recursive: true });
 
 const entry = join(pkgDir, manifest.bin?.[binName] ?? "dist/cli.js");
 const proc = spawn(process.execPath, [entry], {

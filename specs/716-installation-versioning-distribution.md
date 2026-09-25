@@ -259,11 +259,21 @@ Consequences, all now in scope:
 
 Stated rather than implied, so nobody reads a green board as more than it is:
 
-- **Windows PowerShell and WSL2 have not been run.** Those sections of `INSTALL.md` are
-  written from the shape of the problem, not from a session on those shells. Until someone
-  runs them they are documentation, not validation, and §5's own rule says a route may not
-  be called supported before it is exercised.
-- **The Intel-Mac cross build has not been through a release run.** It is one matrix entry
-  and a static proof step; the first `v*` tag after this is where it is actually measured.
+- **Windows PowerShell — a job exists, and it has not run yet.** `gates.yml` gained a
+  second job on `windows-latest` that runs the package gate on a Windows shell: pack,
+  install into an empty directory, start the executable, speak MCP. That is where the
+  platform difference actually lives — npm writes `.cmd`/`.ps1` shims rather than a
+  symlink, paths carry a drive letter, and the pipeline child is spawned by a different
+  loader. Writing it already found three POSIX assumptions in the gate itself (`mkdir -p`
+  twice, and a `.bin` check that expected an extensionless file). The route is supported
+  when that job is green, and not before.
+- **WSL2 cannot be proved on a runner, and is not.** GitHub's Windows runners do not offer
+  WSL2 — nested virtualisation — and the third-party actions that exist install WSL1,
+  which is not what `INSTALL.md` describes. Proving it with something adjacent would be
+  worse than leaving it marked, so it stays marked.
+- **The Intel-Mac cross build has not been built once.** It needs no tag and publishes
+  nothing: TRX64's release workflow takes `workflow_dispatch` and ends at
+  `upload-artifact`, so one dispatch builds all six targets and attaches them to the run.
+  Until that has happened it is one matrix entry nobody has compiled.
 - **`npx -y @c64re/mcp` cannot be true until 716.6.** Everything in `INSTALL.md` that names
   the registry describes the package this spec built and has not published.

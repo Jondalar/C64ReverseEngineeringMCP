@@ -39,8 +39,18 @@ DOCS_STEPS='check:docs-current|check:doc-capability-claims|check:wiki|check:tool
 
 # (name, command) in workflow order. A step with no `run:` — the checkout and the
 # node setup — has nothing to execute and is not a step of ours.
+# Only the `gates` job. The workflow also carries a `windows` job (Spec 716.5), whose
+# steps are the same two gates run again on a Windows shell — running them a second time
+# here would prove nothing this machine has not already proved, and its `npm ci` would
+# reinstall the tree underneath the run.
 STEPS=$(
   awk '
+    /^  [a-z][a-z0-9_-]*:[[:space:]]*$/ {
+      job = $1
+      sub(/:$/, "", job)
+      next
+    }
+    job != "gates" { next }
     /^[[:space:]]*-[[:space:]]+name:[[:space:]]*/ {
       sub(/^[[:space:]]*-[[:space:]]+name:[[:space:]]*/, "")
       name = $0

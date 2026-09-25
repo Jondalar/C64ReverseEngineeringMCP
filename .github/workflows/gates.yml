@@ -535,3 +535,47 @@ jobs:
 
       - name: The annotations merger (877 D6)
         run: npm run e2e:877-merge
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Spec 716.5 — Windows, on a Windows shell, because the alternative is prose.
+  #
+  # INSTALL.md claims C64RE installs and runs on Windows with PowerShell. §5 of the spec
+  # says a route may not be called supported before it is exercised, and until this job
+  # existed that claim was written from the shape of the problem rather than from a run.
+  #
+  # It is the PACKAGE gate and nothing else: pack, install into an empty directory, start
+  # the executable, speak MCP, read the shipped knowledge base, spawn the pipeline child.
+  # That is where every path, quoting and shim difference actually lives — npm writes
+  # .cmd/.ps1 shims instead of a symlink, paths carry a drive letter and backslashes, and
+  # a child process is spawned by a different loader. The runtime gate rides along because
+  # it is pure JavaScript and cheap.
+  #
+  # NOT here, deliberately: the rest of the 82. Running them twice buys a slower signal
+  # for the same answer — they are platform-independent logic over temp directories, and
+  # the one thing that is genuinely platform-shaped is the thing this job runs.
+  #
+  # No WSL2. GitHub's Windows runners do not offer it (nested virtualisation), and the
+  # third-party actions that exist install WSL1, which is not what INSTALL.md describes.
+  # That section stays marked unproved rather than proved by something adjacent.
+  windows:
+    name: The package installs and runs on Windows (716.5)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # `npm pack` runs prepack, which is the full build, so there is no separate build
+      # step here: a tarball cut from a stale tree is exactly what that hook prevents.
+      - name: The package starts from a tarball (716.2)
+        run: npm run e2e:716-package
+
+      - name: The runtime pin, mapping and resolution (716.3)
+        run: npm run e2e:716-runtime
