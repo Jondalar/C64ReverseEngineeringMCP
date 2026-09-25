@@ -1,5 +1,5 @@
 {
-  "total": 297,
+  "total": 298,
   "specCount": 41,
   "advancedCandidate": 110,
   "byNamespace": {
@@ -58,6 +58,7 @@
     "diff": 1,
     "disk": 1,
     "export": 1,
+    "merge": 1,
     "optimisation": 1,
     "pointer": 1,
     "ram": 1,
@@ -1109,6 +1110,15 @@
       "firstSentence": "Spec 053 (Bug 20/21): mark a sprite/charset/bitmap segment in *_analysis.json as a false-positive analyzer classification.",
       "desc": "Spec 053 (Bug 20/21): mark a sprite/charset/bitmap segment in *_analysis.json as a false-positive analyzer classification. Writes rejected:true + rejectedReason into the segment AND creates a refutation finding.",
       "tier": "advanced?"
+    },
+    {
+      "name": "merge_annotations",
+      "file": "server-tools/annotation-doors.ts",
+      "ns": "merge",
+      "hasSpec": false,
+      "firstSentence": "Merge several readings of one payload into one annotations file, refusing every contradiction by naming both sides and recording each resolution as a finding.",
+      "desc": "Merge several readings of one payload into one annotations file, refusing every contradiction by naming both sides and recording each resolution as a finding. Use whenever more than one session, subagent or pass produced annotations for the same bytes — it is the door that replaces a hand-written merge script, and the reason it exists is that such a script keeps its judgements in a scratchpad that dies with the session, so the project never learns the merge was contested. Two fragments saying the same thing collapse into one and you are asked nothing. Two that disagree — one segment start with two ends or kinds, one address with two names, one name at two addresses — are REFUSED, naming the key, every claimant and what each of them claimed. You answer with resolutions: [{ key, winner | value, why }], where `winner` is a fragment name, `value` is an entry neither side proposed, and `why` is required. Each answer is written into the project as a finding carrying who claimed what, which one won and why — that is the point of the door, not the merged file. It refuses a resolution for a key nothing disputes, a winner that claimed nothing there, and a resolution with no reason. Not for writing one reading (use write_annotations), not for a first guess to review (use propose_annotations), and not for rendering the listing afterwards (use disasm). Inputs: fragments, prg_path or output_path, optional resolutions/binary/dry_run/overwrite. Returns: the refusal with both sides named, or the path written, the resolutions recorded, and the findings they became.",
+      "tier": "default?"
     },
     {
       "name": "model_assert",

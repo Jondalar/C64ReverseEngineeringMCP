@@ -113,6 +113,11 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // A tool not in this set is HIDDEN, and a writer nobody can see is a writer nobody
   // uses — which is how the five got written.
   "write_annotations",
+  // …and the door that folds several readings into one. It refuses a contradiction by
+  // naming both sides and writes the resolution into the project as a finding, because
+  // the merge script it replaces kept its judgements — `segpref = {"82E6": "E"}` — in a
+  // scratchpad that died with the session.
+  "merge_annotations",
   // Spec 822.2: import_annotations_as_findings retired — the annotations file is
   // a door into the graph (D6): disasm_prg imports it, `c64re graph annotations-import`
   // for a file disasm_prg never saw.

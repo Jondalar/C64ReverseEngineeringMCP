@@ -18,6 +18,8 @@ import {
   buildAnnotationsDocument, documentSummary, nameLengthRefusal, overwriteRefusal,
   renderProblems, resolveAnnotationsPath, serialiseDocument,
 } from "./annotation-file.js";
+import { planMerge, resolutionFinding, type FragmentInput, type ResolutionInput } from "./annotation-merge.js";
+import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
@@ -148,6 +150,131 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
         outputs: [{
           path: dest.path, kind: "report", scope: "analysis", role: "annotations",
           format: "json", producedByTool: "write_annotations",
+        }],
+      });
+      if (reg.failed && reg.message) lines.unshift(reg.message, "");
+      else if (reg.runPath) lines.push(`Knowledge run: ${reg.runPath}`);
+      lines.push(
+        ``,
+        args.prg_path
+          ? `Next: disasm(path="${args.prg_path}") applies it and imports it into the graph.`
+          : `Next: disasm on the bytes this sits beside applies it and imports it into the graph.`,
+      );
+      return text(lines.join("\n"));
+    }),
+  );
+
+  const fragmentSchema = z.object({
+    name: z.string().optional().describe("Who this reading is from — the name a resolution picks a winner by, and the name the recorded judgement quotes. Defaults to the file stem when `path` is given."),
+    path: z.string().optional().describe("Read this fragment from an annotations JSON on disk instead of from the arguments"),
+    segments: z.array(segmentSchema).optional(),
+    labels: z.array(labelSchema).optional(),
+    routines: z.array(routineSchema).optional(),
+    pointerTables: z.array(pointerTableSchema).optional(),
+    jumpTables: z.array(jumpTableSchema).optional(),
+    immediates: z.array(immediateSchema).optional(),
+  }).passthrough();
+
+  const resolutionSchema = z.object({
+    key: z.string().describe("The contested key, exactly as the refusal printed it: `segment:82E6`, `label:8210`, `routine:64BF` or `name:main_loop`"),
+    winner: z.string().optional().describe("The fragment whose claim wins, by name. For a `name:` key it is the fragment whose ADDRESS keeps the name."),
+    value: z.record(z.unknown()).optional().describe("An entry neither fragment proposed, stating only what it changes — e.g. { label: \"exit_door_probe\" }. Not both this and `winner`."),
+    why: z.string().optional().describe("What you read that decides it. REQUIRED — the reason is the record; without it the judgement dies with the session."),
+  }).passthrough();
+
+  server.tool(
+    "merge_annotations",
+    "Merge several readings of one payload into one annotations file, refusing every contradiction by naming both sides and recording each resolution as a finding. "
+    + "Use whenever more than one session, subagent or pass produced annotations for the same bytes — it is the door that replaces a hand-written merge script, "
+    + "and the reason it exists is that such a script keeps its judgements in a scratchpad that dies with the session, so the project never learns the merge was contested. "
+    + "Two fragments saying the same thing collapse into one and you are asked nothing. Two that disagree — one segment start with two ends or kinds, one address with two names, "
+    + "one name at two addresses — are REFUSED, naming the key, every claimant and what each of them claimed. "
+    + "You answer with resolutions: [{ key, winner | value, why }], where `winner` is a fragment name, `value` is an entry neither side proposed, and `why` is required. "
+    + "Each answer is written into the project as a finding carrying who claimed what, which one won and why — that is the point of the door, not the merged file. "
+    + "It refuses a resolution for a key nothing disputes, a winner that claimed nothing there, and a resolution with no reason. "
+    + "Not for writing one reading (use write_annotations), not for a first guess to review (use propose_annotations), and not for rendering the listing afterwards (use disasm). "
+    + "Inputs: fragments, prg_path or output_path, optional resolutions/binary/dry_run/overwrite. "
+    + "Returns: the refusal with both sides named, or the path written, the resolutions recorded, and the findings they became.",
+    {
+      project_dir: z.string().optional(),
+      fragments: z.array(fragmentSchema).describe("The readings to merge — each a name plus sections, or a name plus a path"),
+      prg_path: z.string().optional().describe("The bytes these annotate; the merged file lands beside them as <stem>_annotations.json"),
+      output_path: z.string().optional().describe("An explicit destination. Must end in `_annotations.json`."),
+      binary: z.string().optional(),
+      resolutions: z.array(resolutionSchema).optional().describe("One per contested key, as the refusal listed them"),
+      dry_run: z.boolean().optional().describe("Report the merge and every contradiction without writing the file or recording anything"),
+      overwrite: z.boolean().optional().describe("Replace an existing annotations file (default false)"),
+    },
+    safeHandler("merge_annotations", async (args: {
+      project_dir?: string; fragments: FragmentInput[]; prg_path?: string; output_path?: string;
+      binary?: string; resolutions?: ResolutionInput[]; dry_run?: boolean; overwrite?: boolean;
+    }) => {
+      const pd = context.projectDir(args.project_dir, true);
+      const dest = resolveAnnotationsPath(pd, { outputPath: args.output_path, prgPath: args.prg_path });
+      if ("refusal" in dest) return text(dest.refusal);
+      const binary = args.binary
+        ?? (args.prg_path ? basename(args.prg_path) : `${basename(dest.path).replace(/_annotations\.json$/u, "")}.prg`);
+
+      const outcome = planMerge(pd, args.fragments ?? [], args.resolutions ?? [], binary);
+      if ("refusal" in outcome) return text(outcome.refusal);
+      const { doc, contests, settled, notes } = outcome.plan;
+
+      const tooLong = nameLengthRefusal(pd, doc);
+      if (tooLong) {
+        return text([`REFUSED — the merge was not written. Nothing was recorded.`, ``, tooLong].join("\n"));
+      }
+
+      const outRel = relative(pd, dest.path);
+      const head = [
+        `${args.fragments.length} fragments → ${documentSummary(doc)}.`,
+        `${contests.length} contradiction${contests.length === 1 ? "" : "s"}, ${settled.length} resolved.`,
+      ];
+      for (const n of notes) head.push(`Note: ${n}`);
+
+      if (args.dry_run === true) {
+        const lines = [`Dry run — nothing was written and nothing was recorded.`, ``, ...head, ``, `Would write: ${outRel}`];
+        for (const s of settled) {
+          lines.push(``, `${s.contest.key} → ${s.resolution.winner ? `${s.resolution.winner}'s reading` : "a value neither side proposed"}: ${s.winning.described}`);
+          lines.push(`  why: ${s.resolution.why}`);
+        }
+        return text(lines.join("\n"));
+      }
+
+      if (existsSync(dest.path) && args.overwrite !== true) return text(overwriteRefusal(dest.path));
+
+      // The findings go in FIRST. The merged file is reproducible from the fragments;
+      // the judgement is not, and it is the thing the measured run lost.
+      const service = new ProjectKnowledgeService(pd);
+      const recorded: string[] = [];
+      for (const s of settled) {
+        const r = resolutionFinding(s, outRel);
+        const finding = service.saveFinding({
+          id: r.id,
+          kind: "classification",
+          title: r.title,
+          summary: r.summary,
+          confidence: 0.9,
+          tags: r.tags,
+          addressRange: { start: r.addressStart, end: r.addressEnd },
+        });
+        recorded.push(`${finding.id}  ${r.title}`);
+      }
+
+      mkdirSync(dirname(dest.path), { recursive: true });
+      writeFileSync(dest.path, serialiseDocument(doc));
+
+      const lines = [`Merged ${args.fragments.length} fragments into ${outRel} — ${documentSummary(doc)}.`, ...head.slice(1)];
+      if (recorded.length > 0) {
+        lines.push(``, `Recorded ${recorded.length} resolution${recorded.length === 1 ? "" : "s"} as findings — who claimed what, which one won, and why:`);
+        for (const r of recorded) lines.push(`  ${r}`);
+      }
+      const reg = context.tryRegisterKnowledgeArtifacts(pd, {
+        toolName: "merge_annotations",
+        title: `Annotations (merged): ${basename(dest.path)}`,
+        parameters: { output_path: dest.path, binary, fragments: args.fragments.map((f, i) => f.name ?? f.path ?? `fragments[${i}]`) },
+        outputs: [{
+          path: dest.path, kind: "report", scope: "analysis", role: "annotations",
+          format: "json", producedByTool: "merge_annotations",
         }],
       });
       if (reg.failed && reg.message) lines.unshift(reg.message, "");
