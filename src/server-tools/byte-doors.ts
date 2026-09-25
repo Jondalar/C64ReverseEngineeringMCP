@@ -358,8 +358,22 @@ export function resolveAnalysis(request: AnalysisRequest): AnalysisChoice {
 // ── §3 the old names ────────────────────────────────────────────────────────
 
 /**
- * One line, once, in the alias's own answer. Not a deprecation banner: it names the
- * door to use and why the two became one, and then gets out of the way.
+ * One line, once per PROCESS, in the alias's own answer. Not a deprecation banner:
+ * it names the door to use, says why the two became one, and then gets out of the way.
+ *
+ * Once per process, not once per answer (Spec 877 D4). A session needs to be told
+ * where a retired name went the first time it reaches for it; repeated on every
+ * listing the sentence becomes furniture, and furniture is not read. The answer says
+ * as much — "the last answer that will say so" — so nobody waits for a reminder that
+ * is not coming.
+ *
+ * The wording is load-bearing, and the failure it exists to prevent is measured: four
+ * days after 866 shipped, a run reached for `analyze_prg`/`disasm_prg`, found that
+ * those names want a PRG header, and duly wrote `struct.pack('<H', addr) + data` in
+ * front of every block it extracted — the fake load headers Spec 865 exists to
+ * abolish. The old note helped that along: it said "analyze took a PRG and nothing
+ * else", naming the SUCCESSOR where it meant the alias. So each note now names the
+ * OLD door as the one that wanted a header, and says outright not to invent one.
  */
 export const ALIAS_SUCCESSOR: Readonly<Record<string, string>> = {
   disasm_prg: "disasm",
@@ -367,17 +381,33 @@ export const ALIAS_SUCCESSOR: Readonly<Record<string, string>> = {
   analyze_prg: "analyze",
 };
 
-export function aliasNotice(invokedAs: string): string {
+/** Never invent a header to get bytes through a door — the door takes the address. */
+const NO_FAKE_HEADER =
+  "And never invent a 2-byte load header to get headerless bytes through a door: pass load_address instead. "
+  + "A fabricated header is two bytes that are not in the original, and everything downstream believes them.";
+
+const announced = new Set<string>();
+
+/** The text an alias would print, whether or not it has printed it already. */
+function aliasNoticeText(invokedAs: string): string {
   const successor = ALIAS_SUCCESSOR[invokedAs];
   if (!successor) return "";
+  const head = `Note: ${invokedAs} is now \`${successor}\`, and this name keeps working for one release — `
+    + `this is the last answer that will say so.`;
   if (successor === "disasm") {
-    return `Note: ${invokedAs} is now \`disasm\`, and this name keeps working for one release. `
-      + `disasm_prg and disasm_raw ran the same decoder, renderer, annotations and rebuild proof and differed only in `
-      + `whether two bytes at the front are a load address — so that is the only question left: pass load_address and `
-      + `the bytes are raw and start there, leave it out and the file's first two bytes are read as one.`;
+    return `${head} disasm_prg and disasm_raw ran the same decoder, renderer, annotations and rebuild proof and `
+      + `differed only in whether two bytes at the front are a load address — so that is the only question left: `
+      + `pass load_address and the bytes are raw and start there, leave it out and the file's first two bytes are `
+      + `read as one. ${NO_FAKE_HEADER}`;
   }
-  return `Note: analyze_prg is now \`analyze\`, and this name keeps working for one release. `
-    + `analyze took a PRG and nothing else, so headerless bytes — a depacked chunk, a relocated overlay, a block of `
-    + `drive code — could not be classified at all; the same load-address rule now decides, so the nine analysers run `
-    + `on either.`;
+  return `${head} analyze_prg took a PRG and nothing else, so headerless bytes — a depacked chunk, a relocated `
+    + `overlay, a block of drive code — could not be classified at all; \`analyze\` decides by the same `
+    + `load-address rule, so the nine analysers run on either. ${NO_FAKE_HEADER}`;
+}
+
+/** The notice, the FIRST time this process answers under that name; "" after. */
+export function aliasNotice(invokedAs: string): string {
+  if (!ALIAS_SUCCESSOR[invokedAs] || announced.has(invokedAs)) return "";
+  announced.add(invokedAs);
+  return aliasNoticeText(invokedAs);
 }

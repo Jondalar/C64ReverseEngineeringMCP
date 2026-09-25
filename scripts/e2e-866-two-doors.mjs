@@ -353,6 +353,10 @@ try {
 
   // ── §8.6 the old names work and say so ────────────────────────────────────
   head(6, "the old names render identically and each names its successor, once");
+  // ORDER MATTERS HERE (Spec 877 D4): the note is once per PROCESS, so the three
+  // calls below must be the FIRST this script makes under each retired name. A new
+  // section that reaches for disasm_prg / disasm_raw / analyze_prg earlier spends the
+  // announcement and this block fails for a reason that has nothing to do with it.
   {
     const viaOld = await call("disasm_prg", { prg_path: "artifacts/prg/twin.prg", output_asm: "analysis/alias/twin_prg.asm" });
     const oldBody = body(readFileSync(outputOf(viaOld), "utf8"));
@@ -365,6 +369,20 @@ try {
       "…and says so once, naming its successor",
       viaOld.split("\n").find((l) => l.startsWith("Note: "))?.slice(0, 120));
     check((viaOld.match(/is now `disasm`/g) ?? []).length === 1, "…exactly once, not on every line");
+
+    // Spec 877 D4 — ONCE PER PROCESS, not once per answer. A session is told where a
+    // retired name went the first time it uses it; after that the note is noise on
+    // every listing, and noise is how the sentence stops being read.
+    check(/last answer that will say so/.test(viaOld),
+      "…and the answer says it is the only one that will say it");
+    const twiceOld = await call("disasm_prg", {
+      prg_path: "artifacts/prg/twin.prg", output_asm: "analysis/alias/twin_prg_again.asm",
+    });
+    check(!/is now `disasm`/.test(twiceOld),
+      "…once per PROCESS: the second disasm_prg answer does not repeat it",
+      twiceOld.split("\n").find((l) => l.startsWith("Note: ")) ?? "no Note line — correct");
+    check(body(readFileSync(outputOf(twiceOld), "utf8")).length === oldBody.length,
+      "…and the second answer still renders the same listing — the note went, nothing else did");
 
     const viaRawOld = await call("disasm_raw", {
       path: "artifacts/blocks/twin.bin", load_address: "C000", no_analysis: true,
@@ -382,6 +400,19 @@ try {
       viaAnalyzeOld.split("\n").find((l) => l.startsWith("Note: "))?.slice(0, 120));
     check(/^Reading: no load_address given/m.test(viaAnalyzeOld),
       "…and still states its reading, like every other answer");
+    // The measured consequence of NOT saying this: a run four days after 866 shipped
+    // reached for analyze_prg / disasm_prg, those want a header, so it wrote
+    // `struct.pack('<H', addr) + data` in front of every block it extracted — the
+    // fake load headers 865 exists to abolish. The note names the OLD door as the one
+    // that wanted a header, and says outright not to invent one.
+    check(/analyze_prg took a PRG and nothing else/.test(viaAnalyzeOld),
+      "…and names the OLD door as the one that took a PRG — not its successor",
+      viaAnalyzeOld.split("\n").find((l) => l.startsWith("Note: "))?.slice(0, 200));
+    for (const [name, answer] of [["analyze_prg", viaAnalyzeOld], ["disasm_prg", viaOld], ["disasm_raw", viaRawOld]]) {
+      check(/never (?:invent|write|pack) a 2-byte (?:load )?header/i.test(answer),
+        `${name}'s note says not to invent a load header to get bytes through`,
+        answer.split("\n").find((l) => /2-byte/.test(l))?.slice(-130));
+    }
     check(!/is now `disasm`/.test(await call("disasm", { path: "artifacts/prg/twin.prg", output_asm: "analysis/alias/twin_new.asm" })),
       "the new name carries no such note — a successor has nothing to point at");
   }
