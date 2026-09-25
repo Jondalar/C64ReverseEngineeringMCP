@@ -25,11 +25,20 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-// npm is `npm.cmd` on Windows, and execFileSync does not consult PATHEXT — it looks for a
-// file called exactly "npm" and reports ENOENT. Naming the right file is better than
-// passing shell:true, which would hand the whole argument list to a command interpreter
-// for no benefit.
-const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
+// Running npm from a script is three problems on Windows and none on POSIX. `npm` is a
+// `.cmd` shim, `execFileSync` does not consult PATHEXT so it reports ENOENT, and naming
+// `npm.cmd` then hits EINVAL, because Node refuses to spawn a batch file without a shell
+// (the BatBadBut fix). Reaching for `shell: true` at that point trades the problem for
+// quoting: every path here comes from `mkdtemp`, and a temp path with a space would break
+// silently.
+//
+// So npm is run the way it is already running: `npm_execpath` is set inside any npm
+// script, and it points at npm-cli.js. Spawning that with this Node is one code path on
+// every platform, with no shell and no shim. The fallback exists for a direct
+// `node scripts/e2e-716-package.mjs`, where nothing set the variable.
+const NPM_CLI = process.env.npm_execpath;
+const npmArgv = (args) => (NPM_CLI ? [NPM_CLI, ...args] : args);
+const NPM = NPM_CLI ? process.execPath : (process.platform === "win32" ? "npm.cmd" : "npm");
 let pass = 0;
 let fail = 0;
 const check = (ok, what, detail) => {
@@ -48,7 +57,7 @@ console.log("1. The tarball");
 
 let packed;
 try {
-  const out = execFileSync(NPM, ["pack", "--json", "--pack-destination", work], {
+  const out = execFileSync(NPM, npmArgv(["pack", "--json", "--pack-destination", work]), {
     cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], maxBuffer: 64 * 1024 * 1024,
   });
   // `--json` does not silence the lifecycle scripts it runs, and `prepack` is a full
@@ -96,7 +105,7 @@ writeFileSync(join(home, "package.json"), JSON.stringify({ name: "c64re-716-prob
 
 let installed = false;
 try {
-  execFileSync(NPM, ["install", join(work, packed.filename), "--no-audit", "--no-fund", "--loglevel", "error"], {
+  execFileSync(NPM, npmArgv(["install", join(work, packed.filename), "--no-audit", "--no-fund", "--loglevel", "error"]), {
     cwd: home, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], timeout: 10 * 60 * 1000,
   });
   installed = true;
