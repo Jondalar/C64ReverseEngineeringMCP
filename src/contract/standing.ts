@@ -157,6 +157,30 @@ export function recordPromiseStanding(projectDir: string, promises: string[], ow
   write(projectDir, { promises, owed, at: new Date().toISOString() });
 }
 
+/**
+ * Append a waiver. Appended, never replaced — a superseded waiver is still a decision
+ * somebody made, and `activeWaivers` picks the newest one for a promise.
+ */
+export function recordWaiver(projectDir: string, w: Waiver): void {
+  write(projectDir, { waivers: [...listWaivers(projectDir), w] });
+}
+
+/** The waivers, for a human to read — `contract_show` prints this under the contract. */
+export function formatWaivers(projectDir: string): string {
+  const all = listWaivers(projectDir);
+  if (all.length === 0) return "";
+  const out = ["Waived — the human overruled, and it is on the record:"];
+  for (const w of all) {
+    out.push(`  ${w.promise} — by ${w.by}, ${w.at.slice(0, 10)} (via ${w.via})`);
+    out.push(`     asked: ${w.askedValue}${w.wasAt ? `, shipped at ${w.wasAt}` : ""}`);
+    out.push(`     why:   ${w.reason}`);
+  }
+  out.push("");
+  out.push("A waiver opens the doors; it does not change the measurement, and it lapses by");
+  out.push("itself when the contract's number changes.");
+  return out.join("\n");
+}
+
 /** Shorten a blocker to its first clause — the footer is a pointer, not the report. */
 function short(b: string): string {
   // A blocker now carries its own "settle by:" on a second line (critic/run.ts); the

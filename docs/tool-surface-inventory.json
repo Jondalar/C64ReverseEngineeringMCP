@@ -467,7 +467,7 @@
       "ns": "contract",
       "hasSpec": false,
       "firstSentence": "Write the project contract: what the human expects delivered.",
-      "desc": "Write the project contract: what the human expects delivered. Use once at kickoff, or when the expectation changes. It may demand FEWER slots than the default fifteen — a game with no save owes no S10. Not for reading back what the project owes (use contract_show). Inputs: goal + deliverables + optional limits. Returns: the stored contract.",
+      "desc": "Write the project contract: what the human expects delivered. Use once at kickoff, or when the expectation changes. It may demand FEWER slots than the default fifteen — a game with no save owes no S10. Also the human's override: `waive` releases an owed promise so the publishing doors open again, and records who waived what and why. Not for reading back what the project owes (use contract_show). Inputs: goal + deliverables + optional limits, or waive + waive_reason + waived_by. Returns: the stored contract, or the recorded waiver.",
       "tier": "default?"
     },
     {

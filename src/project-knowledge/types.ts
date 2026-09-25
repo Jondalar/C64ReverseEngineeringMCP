@@ -30,6 +30,9 @@ export const TimelineEventKindSchema = z.enum([
   "note",
   "artifact.phase-advanced",
   "artifact.frozen",
+  // Spec 877 D2: the human overruled an owed promise. A decision, so it belongs here
+  // and not only in knowledge/contract-standing.json.
+  "contract.waived",
 ]);
 
 export const ConfidenceSchema = z.number().min(0).max(1);

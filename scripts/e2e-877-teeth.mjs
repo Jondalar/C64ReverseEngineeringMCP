@@ -24,6 +24,8 @@ const { saveContract } = await import("../dist/contract/contract.js");
 const { checkContractTeeth, PUBLISHING_DOORS, RELEASE_ROLES, isReleaseRole, closesAPhase } =
   await import("../dist/contract/teeth.js");
 const { contractPromises } = await import("../dist/contract/promises.js");
+const { waivePromises } = await import("../dist/contract/waive.js");
+const { listWaivers, activeWaivers, formatWaivers } = await import("../dist/contract/standing.js");
 const { verdict } = await import("../dist/critic/run.js");
 const { GraphStore } = await import("../dist/knowledge-graph/store.js");
 const { KnowledgeRecords } = await import("../dist/knowledge-graph/records.js");
@@ -239,6 +241,142 @@ try {
     delete process.env.C64RE_SLOT_GATE;
     check("C64RE_SLOT_GATE=0 opens this gate too", off.allowed,
       "one switch for the door gates, not a second one nobody knows about");
+  }
+
+  // ==================================================================================
+  // D2 — the human overrules, and it is recorded.
+  // ==================================================================================
+
+  // --------------------------------------------------- a waiver has to be attributable
+  {
+    const d = newProject("waive-shape"); dirs.push(d);
+    seedGraph(d, 1);
+    saveContract(d, { goal: "ship the cartridge even if the naming is short", deliver: { slots: ["S1"], namedRatio: 0.9 } });
+
+    const noBy = await waivePromises(d, { promises: ["namedRatio"], reason: "demo deadline is tonight", by: "" });
+    check("a waiver with nobody behind it is refused", !noBy.ok, noBy.message.split("\n")[0]);
+    check("…and it says why a name is needed", /who/i.test(noBy.message), noBy.message.split("\n")[0]);
+
+    const noReason = await waivePromises(d, { promises: ["namedRatio"], reason: "", by: "Alex" });
+    check("a waiver with no reason is refused", !noReason.ok, noReason.message.split("\n")[0]);
+
+    const unknown = await waivePromises(d, { promises: ["namedRatioo"], reason: "typo above", by: "Alex" });
+    check("a waiver for a promise nobody owes is refused", !unknown.ok, unknown.message.split("\n")[0]);
+    check("…naming the ids that ARE owed", /namedRatio/.test(unknown.message), unknown.message);
+
+    check("nothing was written while all of that was refused", listWaivers(d).length === 0);
+  }
+
+  // -------------------------------------------- the waiver releases the door, on the record
+  {
+    const d = newProject("waive"); dirs.push(d);
+    seedGraph(d, 1);
+    saveContract(d, { goal: "ship the cartridge even if the naming is short", deliver: { slots: ["S1"], namedRatio: 0.9 } });
+
+    const shut = await checkContractTeeth("render_docs", d);
+    check("before the waiver the door is shut", !shut.allowed);
+
+    const w = await waivePromises(d, {
+      promises: ["namedRatio"],
+      reason: "the demo ships tonight; the naming continues next week",
+      by: "Alex (owner)",
+    });
+    check("the waiver is accepted", w.ok, w.message.split("\n")[0]);
+    check("the answer names who, what and why",
+      /Alex \(owner\)/.test(w.message) && /namedRatio/.test(w.message) && /ships tonight/.test(w.message),
+      w.message.split("\n")[0]);
+
+    const open = await checkContractTeeth("render_docs", d);
+    check("after the waiver the door opens", open.allowed, (open.refusal ?? "").split("\n")[0]);
+
+    // the standing file
+    const standing = JSON.parse(readFileSync(join(d, "knowledge", "contract-standing.json"), "utf8"));
+    check("the standing file records the waiver", Array.isArray(standing.waivers) && standing.waivers.length === 1);
+    const rec = standing.waivers?.[0] ?? {};
+    check("…with who waived it", rec.by === "Alex (owner)", JSON.stringify(rec.by));
+    check("…what was waived", rec.promise === "namedRatio", JSON.stringify(rec.promise));
+    check("…why", /ships tonight/.test(rec.reason ?? ""), JSON.stringify(rec.reason));
+    check("…when", typeof rec.at === "string" && rec.at.length > 10, JSON.stringify(rec.at));
+    check("…and the CHANNEL the server actually saw, rather than a provenance it cannot check",
+      rec.via === "contract_set", JSON.stringify(rec.via));
+    check("…and what was accepted, measured", /33\.3 %/.test(rec.wasAt ?? ""), JSON.stringify(rec.wasAt));
+
+    // the timeline
+    const tl = readFileSync(join(d, "session", "timeline.jsonl"), "utf8")
+      .split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    const ev = tl.find((e) => e.kind === "contract.waived");
+    check("the waiver is an event in the project's timeline", !!ev, tl.map((e) => e.kind).join(", "));
+    check("…and the event carries who and why",
+      /Alex \(owner\)/.test(JSON.stringify(ev ?? {})) && /ships tonight/.test(JSON.stringify(ev ?? {})));
+
+    // nothing is laundered
+    const v = await verdict(d);
+    check("the VERDICT still measures the shortfall — a waiver releases the door, not the number",
+      v.blockers.some((b) => /named 33\.3 %.*below the 90 %/.test(b)),
+      v.blockers.find((b) => /named/.test(b)) ?? "(gone)");
+    check("contract_show has something to print", /Alex \(owner\)/.test(formatWaivers(d)), formatWaivers(d));
+
+    // the survivor rule: onboarding forgets what it SAID, never what the human DECIDED
+    const { resetStanding } = await import("../dist/contract/standing.js");
+    resetStanding(d);
+    check("agent_onboard's reset does not wipe the waiver", listWaivers(d).length === 1);
+    check("and the door is still open after it", (await checkContractTeeth("render_docs", d)).allowed);
+  }
+
+  // ------------------------------------- a waived promise still shows in the next refusal
+  //
+  // A waiver must not be able to make itself invisible. With a second promise still owed
+  // the door refuses again, and the refusal names what was already let through.
+  {
+    const d = newProject("waive-visible"); dirs.push(d);
+    seedGraph(d, 1);
+    saveContract(d, {
+      goal: "ship it short on naming, but the loader write-up is not negotiable",
+      deliver: { slots: ["S1"], namedRatio: 0.9, documents: [{ covers: "$2000-$2040", why: "the loader" }] },
+    });
+    const w = await waivePromises(d, { promises: ["namedRatio"], reason: "naming continues next week", by: "Alex" });
+    check("the naming promise is waived", w.ok, w.message.split("\n")[0]);
+
+    const g = await checkContractTeeth("render_docs", d);
+    check("the door still refuses on the promise that was NOT waived", !g.allowed,
+      (g.refusal ?? "").split("\n")[0] ?? "(open)");
+    check("and the refusal names the waiver that was granted",
+      /Already waived here: namedRatio \(by Alex/.test(g.refusal ?? ""),
+      (g.refusal ?? "").split("\n").slice(-1)[0]);
+    check("…while the waived promise is no longer listed as owed",
+      !/asks:.*HUMAN name/.test(g.refusal ?? ""),
+      (g.refusal ?? "").split("\n").filter((l) => /asks:/.test(l)).join(" | "));
+  }
+
+  // ------------------------------------------------ the waiver lapses when the bar moves
+  //
+  // The one half of "a run may not waive its own promise" that IS enforceable from inside:
+  // waive at 90 %, then quietly change what the contract asks for, and the release is not
+  // inherited. See src/contract/waive.ts for the half that is not.
+  {
+    const d = newProject("lapse"); dirs.push(d);
+    seedGraph(d, 1);
+    saveContract(d, { goal: "ship it short, and then raise the bar quietly", deliver: { slots: ["S1"], namedRatio: 0.9 } });
+    await waivePromises(d, { promises: ["namedRatio"], reason: "shipping short this once", by: "Alex" });
+    check("the door is open under the waiver", (await checkContractTeeth("render_docs", d)).allowed);
+
+    saveContract(d, { goal: "ship it short, and then raise the bar quietly", deliver: { slots: ["S1"], namedRatio: 0.95 } });
+    const after = await checkContractTeeth("render_docs", d);
+    check("changing what the contract asks LAPSES the waiver", !after.allowed,
+      (after.refusal ?? "").split("\n")[0] ?? "(still open)");
+    check("the waiver itself is kept, not deleted", listWaivers(d).length === 1);
+    check("it is simply not active any more",
+      activeWaivers(d, await contractPromises(d)).length === 0);
+  }
+
+  // ------------------------------------------- the door the human actually types into
+  {
+    const src = readFileSync("src/server-tools/contract.ts", "utf8");
+    check("contract_set takes `waive`", /waive:\s*z\./.test(src));
+    check("…with a reason", /waive_reason:\s*z\./.test(src));
+    check("…and a name behind it", /waived_by:\s*z\./.test(src));
+    check("contract_show prints the waivers", /formatWaivers/.test(src),
+      "a waiver nobody can see from outside is not a record");
   }
 } finally {
   for (const d of dirs) { try { rmSync(d, { recursive: true, force: true }); } catch {} }
