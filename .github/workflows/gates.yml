@@ -85,6 +85,15 @@ jobs:
       - name: Docs are current
         run: npm run check:docs-current
 
+      # 877 D3 — and no agent-facing document may DENY what a tool of ours does. One
+      # stale paragraph in docs/runtime-sandbox.md sent a run off to build its own
+      # daemon and its own WebSocket driver beside the tool that does it. The gate
+      # greps those documents for a denial next to a tool name and fails when the
+      # named tool exists; it generates the surface it checks against, so it is
+      # hermetic.
+      - name: No document denies a capability we have (877 D3)
+        run: npm run check:doc-capability-claims
+
       # The generated tool surface must match the live one. This went stale on
       # master when Spec 833 D3 reworded disasm_prg's description: the check
       # lives inside check:mcp-product-surface, which is NOT in this workflow
@@ -406,6 +415,31 @@ jobs:
       - name: The slot list, and what its measures reward (Spec 844 / BUG-059)
         run: npm run e2e:844-slots
 
+      # The other half of 844: the gates that make a slot's measure REFUSE. It was
+      # written with 844-slots, shipped with it, and was left out of this file — so
+      # for a month the measures were watched and the teeth on them were not.
+      - name: The slot gates bite (Spec 844)
+        run: npm run e2e:844-teeth
+
+      # 846 and 847 complete the same family as 848 above: the critic's verdict and
+      # the rule that a document declares what it covers. All three are one arc, all
+      # three are hermetic, and only 848 was here.
+      - name: The critic's verdict (Spec 846)
+        run: npm run e2e:846-critic
+
+      - name: Documents declare themselves (Spec 847)
+        run: npm run e2e:847-docs
+
+      # 849's two halves: the shipped rules with a positive and a negative fixture
+      # each, and the standing file the contract's shortfall is computed into. Both
+      # hermetic — temp projects, no media, no runtime — and neither ran anywhere.
+      # 877 D4's ledger is 849 D5's shape, so this gate is what keeps that shape.
+      - name: A rule is said once, at its own moment (Spec 849)
+        run: npm run e2e:849-rules
+
+      - name: The contract's standing, recorded (Spec 849)
+        run: npm run e2e:849-standing
+
       # The three defects the round before this one left open, because each of
       # them moves data an existing project already holds: a subject that was
       # the basename with the directory thrown away, a `.tas` the version model
@@ -460,3 +494,23 @@ jobs:
       # without it.
       - name: Equates for the names outside the image (877 D5)
         run: npm run e2e:877-equates
+
+      # …and the rest of 877, which shipped with D5 and was wired nowhere. Four rotten
+      # gates were found in this repo in a month; a gate nothing runs is the defect
+      # this project keeps paying for, so the whole arc goes in together.
+      #
+      # D1/D2 — an owed promise refuses the doors that PUBLISH, and the human's waiver
+      # releases the door without laundering the number. Hermetic: temp projects, a
+      # synthetic graph.sqlite, no media and no runtime.
+      - name: A promise with teeth, and the human's override (877 D1/D2)
+        run: npm run e2e:877-teeth
+
+      # D6 — one door writes an annotation file, one door merges fragments and refuses
+      # a contradiction by naming both sides. Hermetic: temp projects, synthetic PRGs,
+      # one MCP session over stdio. The byte-identical rebuild half needs KickAssembler
+      # and skips loudly without it, like e2e:830 and e2e:865.
+      - name: The annotations writer (877 D6)
+        run: npm run e2e:877-write
+
+      - name: The annotations merger (877 D6)
+        run: npm run e2e:877-merge
