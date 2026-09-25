@@ -1,7 +1,7 @@
 # Spec 716 — C64RE distribution: npm package + the runtime beside it
 
 **Status:** READY 2026-09-25 (was SCOPED 2026-08-11, DRAFT 2026-05-24).
-**Repo:** C64RE. One TRX64 change is named in §6.3 and is optional.
+**Repo:** C64RE, plus one TRX64 change that is now in scope (§4.5, §6.3).
 **Counterpart:** [801](_archive/801-artifact-distribution.md) did this for TRX64 and is
 closed. This is the C64RE half it deferred.
 **Related:** [880](880-the-sandbox.md) consumes this spec's package — the image installs
@@ -134,8 +134,14 @@ second, `cargo build` third where it belongs.
 
 - **`macos-x86_64` is missing** from TRX64's release matrix (macos-arm64, linux-x86_64,
   linux-arm64, windows-x86_64, windows-arm64). An Intel Mac gets "no asset for your
-  platform". Either one more matrix row in TRX64's `release-binaries.yml`, or that platform
-  falls back to building from source and the recipe says so.
+  platform". **Decided 2026-09-25: add it.** With one caveat worth knowing before someone
+  calls it a one-line change — `macos-latest` is arm64, so the entry is either `macos-13`,
+  the last Intel runner and one GitHub is retiring, or a cross-build from `macos-latest`
+  with `--target x86_64-apple-darwin`. The second is right and matches that workflow's own
+  stated principle of keeping the floor independent of runner labels GitHub may drop. It
+  costs slightly more than a matrix row: the `Package` step copies from a hard-coded
+  `target/release/`, and a cross-build writes to `target/<triple>/release/`, so the path
+  has to come from the matrix.
 - **ROMs are the user's own and always will be.** The daemon looks in
   `C64RE_ROOT/resources/roms`, then beside its executable, then at a hard-coded sibling
   path. `C64RE_ROOT` is the clean route and already exists. But the ROMs are Commodore's
@@ -145,8 +151,7 @@ second, `cargo build` third where it belongs.
 
 ## 5. `INSTALL.md`
 
-**Scope depends on §9.** Written in full only if the bare npm route is a supported path;
-otherwise this section reduces to a quick-start plus the image.
+Full scope — the npm route is a supported path (§9).
 
 Create `INSTALL.md` at repository root; `README.md` keeps a short quick-start and a link.
 It must distinguish three audiences — use the MCP server, use the runtime UI, develop and
@@ -180,7 +185,12 @@ command, and a mismatched pin fails loudly at build time rather than quietly at 
 not intentionally change MCP tool schemas, `.c64re` compatibility or invocation. Tag
 `v<version>`; the package's version is the one authority. *Exit:* `0.1.0` means something.
 
-**716.5 — `INSTALL.md`.** §5, scoped by §9.
+**716.5 — `INSTALL.md`.** §5 in full: five platform routes, each validated on its shell or
+in CI before it may be called supported.
+
+**716.3b — `macos-x86_64` in TRX64.** The cross-build entry of §4.5, and the `Package` step
+taught to take its binary directory from the matrix. Carried across rather than deferred —
+"→ TRX64" is this owner's own work, not a handoff.
 
 **716.6 — Publish.** GO only after 716.2 and 716.3 are green, and only on explicit
 approval.
@@ -206,20 +216,17 @@ Bundling ROMs. A GUI installer. Publishing Rust crates (801 settled that). Runti
 correctness or feature work of any kind. Treating publication as mandatory — a proven
 container distribution remains an acceptable outcome, and 880 may make it the preferred one.
 
-## 9. The one open decision
+## 9. The decision, taken
 
-**Is the bare npm route a supported, documented path — or only the thing the image installs?**
+**2026-09-25 — the bare npm route is a supported, documented path.** Someone who already
+has a harness on their own machine installs the package and is a first-class user; the
+image (880) is a second route, not the only one.
 
-The package must exist either way; 880's image installs C64RE from the registry, so 716.2
-and 716.3 are unconditional. What the answer decides is §5:
+Consequences, all now in scope:
 
-- **Supported** — `INSTALL.md` is written in full, five platform routes each validated
-  before it may be called supported, and `macos-x86_64` probably has to be added to TRX64's
-  matrix because Intel Macs are then a first-class audience. This is the expensive half of
-  this spec.
-- **Image only** — 716 ends after 716.4. `INSTALL.md` shrinks to a quick-start, one
-  container section and the three-part install of §4.5. The platform matrix is never
-  written, because the container is the platform.
-
-It is a product decision, not a technical one, and it does not block a line of 716.2 or
-716.3.
+- §5 is written in full — macOS, Windows PowerShell, Windows + WSL2, Linux and container,
+  each validated before it may be called supported.
+- Intel Macs are a first-class audience, so `macos-x86_64` joins TRX64's release matrix
+  (§4.5, slice 716.3b).
+- Publication still needs its own explicit approval (716.6). Deciding that npm is supported
+  is not deciding to publish today.
