@@ -24,7 +24,6 @@ export interface ListingEquate {
 export interface ListingEquateResult {
   equates: ListingEquate[];
   notes: string[];
-  considered: number;
 }
 
 export interface ListingEquateRequest {
@@ -69,10 +68,10 @@ function bridge(): { bridge: Bridge } | { reason: string } {
  */
 export function listingEquates(req: ListingEquateRequest): ListingEquateResult & { reason?: string } {
   const b = bridge();
-  if ("reason" in b) return { equates: [], notes: [], considered: 0, reason: b.reason };
+  if ("reason" in b) return { equates: [], notes: [], reason: b.reason };
   try {
     return b.bridge.equatesForListing(req);
   } catch (error) {
-    return { equates: [], notes: [], considered: 0, reason: `reading the name layers failed: ${(error as Error).message}` };
+    return { equates: [], notes: [], reason: `reading the name layers failed: ${(error as Error).message}` };
   }
 }

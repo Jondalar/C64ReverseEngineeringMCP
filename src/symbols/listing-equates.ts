@@ -50,8 +50,6 @@ export interface ListingEquateResult {
    * in the listing — silence here is how a session concludes the graph knows nothing.
    */
   notes: string[];
-  /** names read out of the graph, whether or not they were emitted */
-  considered: number;
 }
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/u;
@@ -79,7 +77,7 @@ const hex4 = (n: number): string => `$${(n & 0xffff).toString(16).toUpperCase().
  */
 export function equatesForListing(req: ListingEquateRequest): ListingEquateResult {
   const resolver = SymbolResolver.forProject(req.projectDir);
-  const out: ListingEquateResult = { equates: [], notes: [], considered: 0 };
+  const out: ListingEquateResult = { equates: [], notes: [] };
   if (resolver.size === 0) return out;
 
   const limit = maxLabelLength(req.projectDir);
@@ -91,7 +89,6 @@ export function equatesForListing(req: ListingEquateRequest): ListingEquateResul
   for (const address of [...new Set(req.addresses.map((a) => a & 0xffff))].sort((l, r) => l - r)) {
     const resolution = resolver.staticNameAt(req.space, address);
     if (resolution.ambiguous && resolution.ambiguous.length > 0) {
-      out.considered += 1;
       out.notes.push(
         `${hex4(address)} has ${resolution.ambiguous.length} names in the graph `
         + `(${resolution.ambiguous.map((a) => a.name).join(", ")}) — no equate, none of them is THE name`,
@@ -100,7 +97,6 @@ export function equatesForListing(req: ListingEquateRequest): ListingEquateResul
     }
     const name = resolution.name;
     if (!name) continue;
-    out.considered += 1;
 
     if (!IDENTIFIER.test(name.name)) {
       out.notes.push(`${hex4(address)} is "${name.name}" in the graph — not an assembler identifier, no equate`);
