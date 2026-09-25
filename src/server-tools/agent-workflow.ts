@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { ensureProjectRules, summariseProjectRules } from "../project-rules/provision.js";
 import { resetRuleDelivery } from "../project-rules/deliver.js";
+import { resetAliasNotices } from "./byte-doors.js";
 import { resetStanding } from "../contract/standing.js";
 import { dirname, join, relative, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -419,6 +420,10 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       // so every rule is re-armed here and speaks once more at its own moment.
       try { resetRuleDelivery(projectRoot); } catch { /* best-effort */ }
       try { resetStanding(projectRoot); } catch { /* best-effort */ }
+      // Spec 877 D4 — and the same for the retired names. A server that had already
+      // answered one `analyze_prg` told the next session nothing, because "once" was
+      // held in a process-scoped Set; the ledger is a file now and this re-arms it.
+      try { resetAliasNotices(projectRoot); } catch { /* best-effort */ }
       // Doctrine rule 8 — this is the call every other tool waits for. Marked after the
       // rules are re-armed, so a session that is cleared to work has them in hand.
       markOnboarded(projectRoot);

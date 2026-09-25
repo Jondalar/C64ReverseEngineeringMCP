@@ -817,7 +817,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       payloadLine.trim(),
       listingArtifactId ? `Artifact: ${listingArtifactId} (re-running with the same arguments updates this row; it does not make a second one).` : "",
       knowledgeRegistration.runPath ? `Knowledge run: ${knowledgeRegistration.runPath}` : (knowledgeRegistration.message ?? ""),
-      aliasNotice(invokedAs),
+      aliasNotice(invokedAs, pd),
     ].filter((line) => line !== "" && line !== undefined).join("\n");
     if (outcome) { outcome.ok = true; outcome.outputPath = outAbs; outcome.verdict = verdictLine; }
     return context.cliResultToContent(result) as { content: { type: "text"; text: string }[] };
@@ -995,7 +995,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     } catch { /* best effort */ }
     const packerSummary = summarizePackerHints(packerHints);
     if (packerSummary.length > 0) result.stdout += `\n${packerSummary.join("\n")}`;
-    const notice = aliasNotice(invokedAs);
+    const notice = aliasNotice(invokedAs, pd);
     if (notice) result.stdout += `\n${notice}`;
     if (outcome) {
       outcome.ok = true;
@@ -1227,14 +1227,17 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
   // written months ago. Each keeps working for ONE release and renders identically
   // because it IS the same body.
   //
-  // Each also names its successor ONCE PER PROCESS, in the first answer that name
-  // produces — `aliasNotice` in byte-doors.ts holds that flag, and the answer says
-  // it is the last one that will say so. Not once per answer: repeated on every
-  // listing the sentence becomes furniture. And not nowhere, which is what it was
-  // worth before the note carried a reason — a run four days after 866 shipped
-  // reached for these names, found they want a PRG header, and wrote
-  // `struct.pack('<H', addr) + data` in front of every block it extracted.
-  // e2e:866 §8.6 asserts both halves: the first answer says it, the second does not.
+  // Each also names its successor ONCE PER SESSION, in the first answer that name
+  // produces — `aliasNotice` in byte-doors.ts keeps that ledger in the project and
+  // `agent_onboard` re-arms it, and the answer says it is the last one that will say
+  // so. Not once per answer: repeated on every listing the sentence becomes furniture.
+  // Not once per PROCESS either, which is what it was until the ledger became a file:
+  // this server outlives a session, so the second session on a globally configured one
+  // was told nothing. And not nowhere, which is what it was worth before the note
+  // carried a reason — a run four days after 866 shipped reached for these names,
+  // found they want a PRG header, and wrote `struct.pack('<H', addr) + data` in front
+  // of every block it extracted. e2e:866 §8.6 asserts all three halves: the first
+  // answer says it, the second does not, and the next session is told again.
 
   server.tool(
     "analyze_prg",

@@ -28,7 +28,7 @@
 // PRG, so a correct call was refused and a session re-ran the analyser for every
 // extracted file.
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { ADDRESS_RULE, parseAddress, parseCount } from "../shared/address-rule.js";
 import type { ProjectKnowledgeService } from "../project-knowledge/service.js";
@@ -358,14 +358,22 @@ export function resolveAnalysis(request: AnalysisRequest): AnalysisChoice {
 // ── §3 the old names ────────────────────────────────────────────────────────
 
 /**
- * One line, once per PROCESS, in the alias's own answer. Not a deprecation banner:
+ * One line, once per SESSION, in the alias's own answer. Not a deprecation banner:
  * it names the door to use, says why the two became one, and then gets out of the way.
  *
- * Once per process, not once per answer (Spec 877 D4). A session needs to be told
- * where a retired name went the first time it reaches for it; repeated on every
- * listing the sentence becomes furniture, and furniture is not read. The answer says
- * as much — "the last answer that will say so" — so nobody waits for a reminder that
- * is not coming.
+ * Once, not once per answer (Spec 877 D4). A session needs to be told where a retired
+ * name went the first time it reaches for it; repeated on every listing the sentence
+ * becomes furniture, and furniture is not read. The answer says as much — "the last
+ * answer that will say so" — so nobody waits for a reminder that is not coming.
+ *
+ * "Once" is bounded by the SESSION, not by the process, and the ledger is therefore a
+ * file, for the reason 849 D5 states about its own: the server outlives a session and
+ * serves several projects at once. Held in a `Set` it was once per process, so a
+ * globally configured server that had already answered one `analyze_prg` handed the
+ * NEXT session nothing — and the next session is exactly the one that has not been
+ * told. `agent_onboard` marks a session's start (the call every session makes first,
+ * and the one it makes again after a compaction) and re-arms every name through
+ * `resetAliasNotices`, the same way it re-arms the project rules.
  *
  * The wording is load-bearing, and the failure it exists to prevent is measured: four
  * days after 866 shipped, a run reached for `analyze_prg`/`disasm_prg`, found that
@@ -386,7 +394,45 @@ const NO_FAKE_HEADER =
   "And never invent a 2-byte load header to get headerless bytes through a door: pass load_address instead. "
   + "A fabricated header is two bytes that are not in the original, and everything downstream believes them.";
 
-const announced = new Set<string>();
+const ALIAS_LEDGER = "alias-notices.json";
+
+/** Only for a call with no project behind it — there is no file to keep a ledger in. */
+const announcedWithoutAProject = new Set<string>();
+
+function aliasLedgerPath(projectDir: string): string {
+  return join(projectDir, "knowledge", ALIAS_LEDGER);
+}
+
+/** A project keeps a ledger only once it has a `knowledge/` directory to keep it in. */
+function aliasLedgerUsable(projectDir: string | undefined): projectDir is string {
+  return !!projectDir && existsSync(join(projectDir, "knowledge"));
+}
+
+function readAnnounced(projectDir: string): Set<string> {
+  try {
+    const raw = JSON.parse(readFileSync(aliasLedgerPath(projectDir), "utf8")) as { announced?: unknown };
+    if (Array.isArray(raw?.announced)) return new Set(raw.announced.map((n) => String(n)));
+  } catch { /* absent: nothing has been said yet */ }
+  return new Set();
+}
+
+function writeAnnounced(projectDir: string, names: Set<string>): void {
+  // A ledger that cannot be written only costs a repeated line; it may never cost the
+  // listing the caller asked for.
+  try {
+    writeFileSync(aliasLedgerPath(projectDir), JSON.stringify({ announced: [...names] }, null, 2) + "\n");
+  } catch { /* said again next time */ }
+}
+
+/**
+ * Re-arm every retired name. Called by `agent_onboard`: a session that is onboarding is
+ * either new or has just lost its context, and in both cases it has been told nothing.
+ */
+export function resetAliasNotices(projectDir: string): void {
+  announcedWithoutAProject.clear();
+  if (!aliasLedgerUsable(projectDir)) return;
+  writeAnnounced(projectDir, new Set());
+}
 
 /** The text an alias would print, whether or not it has printed it already. */
 function aliasNoticeText(invokedAs: string): string {
@@ -405,9 +451,17 @@ function aliasNoticeText(invokedAs: string): string {
     + `load-address rule, so the nine analysers run on either. ${NO_FAKE_HEADER}`;
 }
 
-/** The notice, the FIRST time this process answers under that name; "" after. */
-export function aliasNotice(invokedAs: string): string {
-  if (!ALIAS_SUCCESSOR[invokedAs] || announced.has(invokedAs)) return "";
-  announced.add(invokedAs);
+/** The notice, the FIRST time this SESSION answers under that name; "" after. */
+export function aliasNotice(invokedAs: string, projectDir?: string): string {
+  if (!ALIAS_SUCCESSOR[invokedAs]) return "";
+  if (aliasLedgerUsable(projectDir)) {
+    const announced = readAnnounced(projectDir);
+    if (announced.has(invokedAs)) return "";
+    announced.add(invokedAs);
+    writeAnnounced(projectDir, announced);
+    return aliasNoticeText(invokedAs);
+  }
+  if (announcedWithoutAProject.has(invokedAs)) return "";
+  announcedWithoutAProject.add(invokedAs);
   return aliasNoticeText(invokedAs);
 }
