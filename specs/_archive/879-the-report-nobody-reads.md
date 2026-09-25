@@ -91,3 +91,19 @@ daemon's to grow. 43/0.
 4. …on master carrying `scripts/e2e-839-media.mjs` → tier ALL.
 5. `scripts/gate.sh` green over all 80 steps on master.
 6. The hook blocks a push when a step is red, and names the step and the re-run command.
+
+## §6 What the first live push taught
+
+The gate went green, the hook printed *"push allowed"*, and `git push` then died with
+exit 141 — SIGPIPE — without the commit reaching the remote. Twice.
+
+Git hands a pre-push hook its ref lines on **stdin**, and every child the hook starts
+inherits that pipe. The gate's eighty node steps inherited it, one of them drank from it,
+and the pipe broke under git. The hook was reporting on a push it had just killed.
+
+So the refs are read once, at the top, and everything downstream — `scripts/gate.sh`, and
+inside it every step — is started with `</dev/null`. TRX64's hook never hit this because
+`cargo` does not read stdin; eighty npm scripts are a different animal.
+
+The general shape is worth keeping: **a hook's stdin belongs to git, and is only ours to
+read once.**

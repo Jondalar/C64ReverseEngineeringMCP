@@ -82,7 +82,9 @@ printf '%s\n' "$STEPS" | sed '/^$/d' > /tmp/.c64re-gate-steps.$$
 while IFS="$(printf '\t')" read -r NAME CMD; do
   N=$((N + 1))
   printf '\n[%s/%s] %s\n' "$N" "$TOTAL" "$NAME" >&2
-  if ! sh -c "$CMD" >&2; then
+  # </dev/null: a step must never inherit the caller's stdin. When this runs from
+  # pre-push that stdin is git's ref pipe, and a step that reads it kills the push.
+  if ! sh -c "$CMD" >&2 </dev/null; then
     ELAPSED=$(( $(date +%s) - START ))
     printf '\n=== gate RED at step %s/%s after %ss ===\n' "$N" "$TOTAL" "$ELAPSED" >&2
     printf '    %s\n' "$NAME" >&2

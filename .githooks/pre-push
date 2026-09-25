@@ -49,6 +49,13 @@ HOOK_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO_ROOT=$(CDPATH= cd -- "$HOOK_DIR/.." && pwd)
 ZERO=0000000000000000000000000000000000000000
 
+# STDIN IS GIT'S, AND ONLY OURS TO READ ONCE. The ref lines arrive on this hook's
+# stdin, and every child we start inherits that pipe. The first run of this hook let
+# the gate's 80 node steps inherit it; one of them drank from it, the pipe broke, and
+# `git push` died of SIGPIPE (141) AFTER the gate had gone green and said "push
+# allowed". So the refs are read here, once, and everything downstream is started
+# with </dev/null.
+
 # ── which files does this push actually carry? ───────────────────────────────
 #
 # Empty on stdin, or any range we cannot resolve, means we do not know — and not
@@ -122,13 +129,13 @@ fi
 if [ "$TIER" = "DOCS" ]; then
   COUNT=$(printf '%s\n' "$CHANGED" | wc -l | tr -d ' ')
   printf '\n=== pre-push gate: %s document(s), no code — docs tier ===\n' "$COUNT" >&2
-  if "$REPO_ROOT/scripts/gate.sh" docs; then
+  if "$REPO_ROOT/scripts/gate.sh" docs </dev/null; then
     printf '=== gate GREEN — push allowed ===\n\n' >&2
     exit 0
   fi
 else
   printf '\n=== pre-push gate: code reaching master — full workflow ===\n' >&2
-  if "$REPO_ROOT/scripts/gate.sh"; then
+  if "$REPO_ROOT/scripts/gate.sh" </dev/null; then
     printf '=== gate GREEN — push allowed ===\n\n' >&2
     exit 0
   fi
