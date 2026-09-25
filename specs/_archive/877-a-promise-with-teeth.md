@@ -111,8 +111,11 @@ recipe for what the tool genuinely cannot do (an interactive session that surviv
 call). A gate greps the agent-facing docs for "cannot" / "do NOT use" next to a tool name
 and fails when the named tool exists.
 
-**D4 — A retired name says its successor in the ANSWER.** Once per process, as the comment
-already claims. And the comment is corrected in the same change, whichever way it ends up.
+**D4 — A retired name says its successor in the ANSWER.** Once per SESSION, re-armed by
+`agent_onboard` — the comment said "once per process", and a server that outlives a session
+and serves several projects would then tell the second session nothing. The ledger is a
+file, the same shape the project rules already use for the same reason. And the comment is
+corrected in the same change, whichever way it ends up.
 
 **D5 — The listing carries equates for the addresses it references.** Every name the graph
 holds for an address outside the rendered image is emitted as an equate, so the name is
