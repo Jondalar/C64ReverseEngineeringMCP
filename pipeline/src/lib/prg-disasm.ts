@@ -21,6 +21,7 @@ import { parseAddress } from "./address-rule";
 import { buildEffectiveSegments, type AnnotationSegmentOverlay } from "./effective-segments";
 import { convertKickAsmToTass } from "./tass-converter";
 import { findC64IoMetadata, formatC64IoAddress, isC64IoAddress } from "./c64-symbols";
+import { listingEquates } from "./graph-equates";
 import { platformNode, type PlatformTag } from "./platform-kb";
 
 // Spec 048: per-render platform override. Set at the top of
@@ -1098,9 +1099,12 @@ function collectAnnotatedAddresses(context: RenderAnalysisContext): Set<number> 
  *   - strictly inside an instruction's operand → `applyDeclaredEntrySplits`
  *     splits the instruction into `.byte` and the entry gets its own line;
  *   - inside a data segment → `emitByteRange` emits the interior label;
- *   - outside the mapping → `renderExternalLabelEquates` writes an equate,
- *     which is why the range check below is a range check and not a nod: the
- *     address is elsewhere and must not look as if it were defined here.
+ *   - outside the mapping → it stays out of `labelSet`, which is why the range
+ *     check below is a range check and not a nod: the address is elsewhere and
+ *     must not look as if it were defined here. `renderExternalLabelEquates`
+ *     never saw it either — it reads `labelSet`. Spec 877 D5 is what finally
+ *     prints such a name: `renderGraphNameEquates` writes the equate, from the
+ *     graph rather than from this file, and only when the listing REFERENCES it.
  *
  * Nothing here emits a byte, so byte-identity is untouched by construction.
  */
@@ -2616,18 +2620,133 @@ function renderAnalysisPreface(context: RenderAnalysisContext): string[] {
 }
 
 /**
- * Spec 830 D3 — a label outside this file's mapping is an EQUATE.
- *
- * `seedJumpTableTargets` / `seedWordTableTargets` add a table's targets to the
- * label set with no range check, so a jump table that dispatches into another
- * payload puts `$BF56` in there; the annotations name it `overlay_invoke_a`;
- * the operand renders as that name and nothing ever defines it. The listing
- * already knows they are foreign — it annotates them "→ chunk_B800 (code)" —
- * so this writes down what it already says.
- *
- * `.label`, not a code label: the address is not in this file and must not
- * look as though it were.
+ * The rendered lines with every comment and string literal taken out, so what is
+ * left is code. The banner `//*******` is why `//` is tested BEFORE `/*`: its
+ * second and third characters are `/*`, and reading that as an unclosed block
+ * comment swallows the rest of the listing.
  */
+function* strippedCodeLines(rendered: string[]): Generator<string> {
+  let inBlockComment = false;
+  for (const line of rendered) {
+    let code = line;
+    if (inBlockComment) {
+      const close = code.indexOf("*/");
+      if (close < 0) continue;
+      code = code.slice(close + 2);
+      inBlockComment = false;
+    }
+    const lineFirst = code.indexOf("//");
+    const blockFirst = code.indexOf("/*");
+    if (lineFirst >= 0 && (blockFirst < 0 || lineFirst < blockFirst)) {
+      code = code.slice(0, lineFirst);
+    } else if (blockFirst >= 0) {
+      const close = code.indexOf("*/", blockFirst + 2);
+      if (close < 0) { inBlockComment = true; code = code.slice(0, blockFirst); }
+      else code = code.slice(0, blockFirst) + code.slice(close + 2);
+      const trailing = code.indexOf("//");
+      if (trailing >= 0) code = code.slice(0, trailing);
+    }
+    code = code.replace(/"(?:[^"\\]|\\.)*"/g, "").replace(/'(?:[^'\\]|\\.)*'/g, "");
+    if (code.trim().length === 0) continue;
+    yield code;
+  }
+}
+
+/**
+ * Spec 877 D5 — the listing carries an equate for every name the project graph
+ * holds for an address OUTSIDE the rendered image that the listing references.
+ *
+ * Measured on the Binky run: labels for `$F2A3`, `$F276` and their kind sat in
+ * the graph while the `.asm` printed the bare address, so six participants
+ * searched the rendered text for the ADDRESS — 103 shell reads of one listing
+ * against 5 `disasm` calls. The name existed; it was just not where anybody was
+ * looking. An equate puts it there.
+ *
+ * Which addresses: the ones the listing actually PRINTS as an operand, read back
+ * off the rendered lines, not every address the analysis knows about — an equate
+ * for a name nothing here touches is noise. Which name: the resolver's, through
+ * the one door in `graph-equates.ts`, so the three layers and their precedence
+ * are decided in the one place that already decides them.
+ *
+ * Bytes: an equate emits none. The rebuild is byte-identical before and after,
+ * and a name that would collide with one this listing already uses is refused
+ * out loud rather than allowed to shadow it.
+ */
+function renderGraphNameEquates(context: RenderAnalysisContext, body: string[]): string[] {
+  const projectDir = process.env.C64RE_PROJECT_DIR;
+  if (!projectDir) return [];
+
+  const { startAddress, endAddress } = context.report.mapping;
+  const referenced = referencedAddresses(body).filter((a) => a < startAddress || a > endAddress);
+  if (referenced.length === 0) return [];
+
+  // What this listing already binds a name to — `makeLabel` is the one namer, so
+  // running it over everything nameable is the inverse the collision check needs.
+  const defined = new Map<string, number>();
+  const remember = (address: number): void => {
+    const name = makeLabel(address & 0xffff);
+    if (!defined.has(name)) defined.set(name, address & 0xffff);
+  };
+  for (const address of context.labelSet) remember(address);
+  for (const segment of context.segments) remember(segment.start);
+  for (const address of context.annotations?.labelsByAddress.keys() ?? []) remember(address);
+  for (const address of context.annotations?.routinesByAddress.keys() ?? []) remember(address);
+
+  const result = listingEquates({
+    projectDir,
+    space: activePlatform === "c1541" ? "drive8" : "c64",
+    addresses: referenced,
+    defined: [...defined],
+    definedElsewhere: namesDefinedIn(body),
+  });
+  if (result.equates.length === 0 && result.notes.length === 0 && !result.reason) return [];
+
+  const lines = ["// Names the project knows for addresses this listing references but does not hold"];
+  for (const e of result.equates) {
+    const where = e.payload ? `  // ${e.kind} in ${e.payload}` : `  // ${e.kind}`;
+    lines.push(`      .label ${e.name} = ${formatAddress(e.address)}${where}`);
+  }
+  if (result.reason) lines.push(`//  no names read: ${result.reason}`);
+  for (const note of result.notes.slice(0, 20)) lines.push(`//  ${note}`);
+  if (result.notes.length > 20) lines.push(`//  ... and ${result.notes.length - 20} more the graph names but this listing cannot`);
+  lines.push("");
+  return lines;
+}
+
+/** Every address the rendered lines print as an operand or a 16-bit table entry. */
+function referencedAddresses(body: string[]): number[] {
+  const out = new Set<number>();
+  for (const code of strippedCodeLines(body)) {
+    // an instruction line (`      lda $F2A3,x`, `      sta.abs $0074`) or a `.word`
+    // table entry — never `.byte`, whose `$EA` is a value and not an address.
+    const head = /^\s+(?:[A-Za-z]{3}(?:\.[A-Za-z]+)?|\.word)\s+(\S.*)$/.exec(code);
+    if (!head) continue;
+    // `lda #$01` touches no address at all; the `$01` is the byte itself.
+    const operand = head[1]!.replace(/#[<>]?\$[0-9A-Fa-f]+/g, "");
+    for (const m of operand.matchAll(/\$([0-9A-Fa-f]{1,4})\b/g)) out.add(parseInt(m[1]!, 16) & 0xffff);
+  }
+  return [...out];
+}
+
+/**
+ * The names the rendered text already DEFINES — a code label or an equate. The
+ * addresses are not recoverable from the text (a label inside a `.pseudopc` block
+ * runs at an address this side never sees), which is exactly why the name alone is
+ * what a second definition has to be kept away from.
+ */
+function namesDefinedIn(body: string[]): string[] {
+  const out = new Set<string>();
+  for (const code of strippedCodeLines(body)) {
+    // indented on purpose: inside a `.pseudopc` block the renderer indents its labels,
+    // and that block is precisely where the address cannot be read back off the text.
+    const label = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:/.exec(code);
+    if (label) out.add(label[1]!);
+    const equate = /^\s*\.label\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(code);
+    if (equate) out.add(equate[1]!);
+  }
+  return [...out];
+}
+
 /**
  * Spec 830 D3 — the backstop: every symbol the listing USES must be DEFINED.
  *
@@ -2658,33 +2777,14 @@ function renderUndefinedSymbolEquates(context: RenderAnalysisContext, rendered: 
 
   const defined = new Set<string>();
   const used = new Set<string>();
-  let inBlockComment = false;
-  for (const line of rendered) {
-    let code = line;
-    if (inBlockComment) {
-      const close = code.indexOf("*/");
-      if (close < 0) continue;
-      code = code.slice(close + 2);
-      inBlockComment = false;
-    }
-    // `//` FIRST when it comes first: this file's banner is `//*******`, whose
-    // second and third characters are `/*`, and treating that as an unclosed
-    // block comment swallows the rest of the listing.
-    const lineFirst = code.indexOf("//");
-    const blockFirst = code.indexOf("/*");
-    if (lineFirst >= 0 && (blockFirst < 0 || lineFirst < blockFirst)) {
-      code = code.slice(0, lineFirst);
-    } else if (blockFirst >= 0) {
-      const close = code.indexOf("*/", blockFirst + 2);
-      if (close < 0) { inBlockComment = true; code = code.slice(0, blockFirst); }
-      else code = code.slice(0, blockFirst) + code.slice(close + 2);
-      const trailing = code.indexOf("//");
-      if (trailing >= 0) code = code.slice(0, trailing);
-    }
-    code = code.replace(/"(?:[^"\\]|\\.)*"/g, "").replace(/'(?:[^'\\]|\\.)*'/g, "");
-    if (code.trim().length === 0) continue;
+  for (const stripped of strippedCodeLines(rendered)) {
+    let code = stripped;
 
-    const label = /^([A-Za-z_][A-Za-z0-9_]*)\s*:/.exec(code);
+    // Leading whitespace allowed: inside a `.pseudopc` block the renderer indents its
+    // labels, and an anchored match read `reloc_entry:` as undefined and equated it a
+    // second time — "The symbol 'reloc_entry' is already defined", which is the one
+    // thing this backstop exists to prevent.
+    const label = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:/.exec(code);
     if (label) { defined.add(label[1]!); code = code.slice(label[0].length); }
     const equate = /^\s*\.label\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(code);
     if (equate) { defined.add(equate[1]!); continue; }
@@ -2709,6 +2809,19 @@ function renderUndefinedSymbolEquates(context: RenderAnalysisContext, rendered: 
   return lines;
 }
 
+/**
+ * Spec 830 D3 — a label outside this file's mapping is an EQUATE.
+ *
+ * `seedJumpTableTargets` / `seedWordTableTargets` add a table's targets to the
+ * label set with no range check, so a jump table that dispatches into another
+ * payload puts `$BF56` in there; the annotations name it `overlay_invoke_a`;
+ * the operand renders as that name and nothing ever defines it. The listing
+ * already knows they are foreign — it annotates them "→ chunk_B800 (code)" —
+ * so this writes down what it already says.
+ *
+ * `.label`, not a code label: the address is not in this file and must not
+ * look as though it were.
+ */
 function renderExternalLabelEquates(context: RenderAnalysisContext): string[] {
   const { startAddress, endAddress } = context.report.mapping;
   const foreign = Array.from(context.labelSet)
@@ -3788,6 +3901,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   if (relocations && analysisContext) {
     const body: string[] = [];
     renderWithAnalysisAndRelocations(prg, analysisContext, body, relocations);
+    lines.push(...renderGraphNameEquates(analysisContext, body));
     lines.push(...renderAddressAliasLabels(analysisContext, prg));
     lines.push(...renderExternalLabelEquates(analysisContext));
     lines.push(...renderUndefinedSymbolEquates(analysisContext, [...lines, ...body]));
@@ -3797,6 +3911,7 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   } else if (analysisContext) {
     const body: string[] = [];
     renderWithAnalysis(prg, analysisContext, body);
+    lines.push(...renderGraphNameEquates(analysisContext, body));
     lines.push(...renderAddressAliasLabels(analysisContext, prg));
     lines.push(...renderExternalLabelEquates(analysisContext));
     lines.push(...renderUndefinedSymbolEquates(analysisContext, [...lines, ...body]));

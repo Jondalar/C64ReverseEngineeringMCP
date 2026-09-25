@@ -448,3 +448,15 @@ jobs:
       # assembler, no daemon.
       - name: Two annotation segments on one start (BUG-060)
         run: npm run e2e:bug060-dup-segment
+
+      # Six participants of one run searched a rendered listing for `$F2A3` —
+      # 103 shell reads against 5 disasm calls — while the graph had held the
+      # name for it all along. The listing now equates every name the project
+      # knows for an address outside its own image that it references, in both
+      # dialects, and refuses out loud a name that would collide with one it
+      # already uses or run past the project's length limit. Hermetic: temp
+      # projects, synthetic PRGs, one MCP session over stdio. No ROMs, no media,
+      # no daemon. The byte-identity half needs KickAssembler and skips loudly
+      # without it.
+      - name: Equates for the names outside the image (877 D5)
+        run: npm run e2e:877-equates

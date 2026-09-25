@@ -118,6 +118,7 @@
     "e2e:865": "npm run build && node scripts/e2e-865-disasm-raw.mjs",
     "e2e:867-window": "npm run build && node scripts/e2e-867-window.mjs",
     "e2e:866": "npm run build && node scripts/e2e-866-two-doors.mjs",
+    "e2e:877-equates": "npm run build && node scripts/e2e-877-equates.mjs",
     "e2e:060-bulk": "npm run build && node scripts/e2e-060-bulk-doors.mjs",
     "e2e:060-slot-title": "npm run build:mcp && node scripts/e2e-060-slot-title.mjs",
     "smoke:867": "npm run build && node scripts/smoke-867-residency.mjs",
