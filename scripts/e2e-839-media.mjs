@@ -78,8 +78,14 @@ const md = desc("runtime_monitor");
 for (const verb of ["reset", "power on|off", "warp", "turbo", "whowrote", "triage", "rstep", "mark", "goto", "identify"]) {
   check(md.includes(verb), `runtime_monitor names \`${verb}\` — reachable and, until now, unmentioned`);
 }
-for (const verb of ["mount <path>", "eject [cart|disk]", "drive", "cart", "drivepower", "recent", "tracering"]) {
-  check(md.includes(verb), `runtime_monitor names the forwarded verb \`${verb}\``);
+// A verb may be a literal or, where the daemon keeps ADDING forms to it, a pattern.
+// `eject [cart|disk]` grew a `|<unit>` when the description was brought up to TRX64
+// 0.9.2, and this check went red over a better description. What it is actually
+// guarding is that the verb is named AND that both media it can take come out — the
+// list of alternatives after that is the daemon's to grow.
+for (const verb of ["mount <path>", /eject \[cart\|disk(\|[^\]]*)?\]/, "drive", "cart", "drivepower", "recent", "tracering"]) {
+  const hit = typeof verb === "string" ? md.includes(verb) : verb.test(md);
+  check(hit, `runtime_monitor names the forwarded verb \`${typeof verb === "string" ? verb : "eject [cart|disk…]"}\``);
 }
 
 // ── D10 — the rest of the Visual-Origin Join ───────────────────────────────────
