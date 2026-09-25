@@ -185,6 +185,32 @@ Reported by the run, listed here so the thread is not lost (details in
 - `extract_disk` produced both PRGs byte-identical in one call and recognised the DEL
   directory-art entries.
 
+## Phase by phase, as the observer graded it
+
+| Phase | | Why |
+|---|---|---|
+| Kickoff & contract | **good** | Five questions one at a time; slot relevance derived from the goal — a highscore file means S10 and S15, trainer hooks mean S11 |
+| D64 extraction | **better than expected** | One call, both PRGs byte-identical, the DEL directory-art entries recognised |
+| Splitting the five agents | **good** | Address ranges, a straddle rule, a named core deliverable each. But the depack knowledge was written into one brief of five |
+| RE substance | **better than expected** | 98.1 %, the god-mode hook in eight minutes, GoatTracker identified, a false `code` island in music data refuted by hand |
+| Instrument choice while doing it | **bad** | 103 listing greps against 5 `disasm`, `da65` eight times with a wrapper built around it, one probe for `x64` |
+| Depack | **good** | The game's own codec through the sandbox, static as the doctrine requires. Left it for Python once the count grew |
+| Disk forensics | **good** | Used the door, and proved the 404 sectors by a full byte compare instead of asserting it |
+| Merging the five fragments | **bad** | The judgements — who is right at `$82E6` — as Python literals in a throwaway script |
+| Persisting knowledge | **ok** | Slots honest, documents registered; every writer hand-rolled and the merge reasoning lost |
+| Trainers | **better than expected** | Read first and marked unverified in as many words, then confirmed in runs. The distinction held to the end |
+| EF design | **better than expected** | The seam stated as a contract, and the largest free hole `$FC00` REJECTED because flash lives there — the usable number, not the biggest |
+| Writing assembly | **ok** | Good code, bad method: `str.replace` with no uniqueness check cost `drv.asm` entirely |
+| Debugging the driver | **bad** | 21 runs, 0 steps, a hand-built tracer — mitigated, because the shared session was held by another project |
+| Building the cartridge | **ok** | Skill loaded, references read, no loader invented. The dummy PRG was trx-crt's doing |
+| Final verification | **better than expected** | Every menu path proved separately, results as a table in a registered document, instrument and date in its heading |
+| Scope discipline | **bad** | A D64 patcher for a target never asked for. The human noticed, not the run |
+| Its own report | **ok** | Eleven real frictions with repros — and blind to every detour |
+
+The shape of it: **strong wherever there was a question to answer, weak wherever there was
+a path to choose.** Understanding, checking, reporting honestly — good throughout. Reaching
+for the right instrument, recording a decision, staying inside the scope — the opposite.
+
 ## Left open
 
 Everything in A and B. Nothing here is fixed yet; this record is the evidence.
