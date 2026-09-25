@@ -579,3 +579,93 @@ jobs:
 
       - name: The runtime pin, mapping and resolution (716.3)
         run: npm run e2e:716-runtime
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Spec 716.5 — WSL2, which turns out to be testable after all.
+  #
+  # This was written off once on the belief that GitHub's Windows runners cannot do WSL2.
+  # That was out of date: nested virtualisation arrived with the Dadsv5 image in January
+  # 2024, WSLv2 works from windows-2022 onward, and Vampire/setup-wsl defaults to version 2.
+  #
+  # Two things are asked here, and they are different questions.
+  #
+  #   A. Does the package install and run inside the distribution, on ITS OWN filesystem?
+  #      That is the route INSTALL.md tells people to take.
+  #   B. Does it still work from /mnt/, and what does that cost? INSTALL.md says to keep
+  #      the repository off /mnt/c because crossing the boundary is expensive on file-heavy
+  #      work. That is the ONLY WSL-specific claim the document makes, so it is the one
+  #      worth measuring — and it is a claim about COST, not about correctness, so B gates
+  #      on the package still working and merely PRINTS the two times. If the numbers ever
+  #      stop supporting the advice, the advice is what changes.
+  #
+  # Known to be flaky rather than impossible: actions/runner-images#12321 reports
+  # windows-2022 + WSL hanging after an otherwise successful step.
+  wsl:
+    name: The package installs and runs inside WSL2 (716.5)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Vampire/setup-wsl@v7
+        with:
+          distribution: Debian-13
+          wsl-version: 2
+          additional-packages: curl ca-certificates gnupg git rsync
+
+      - name: It really is WSL 2, and it really is Linux
+        shell: wsl-bash {0}
+        run: |
+          set -eu
+          uname -srm
+          # The interop binfmt handler exists only under WSL, so this is also the check
+          # that we are not quietly running somewhere else.
+          test -e /proc/sys/fs/binfmt_misc/WSLInterop \
+            || { echo "::error::not running under WSL"; exit 1; }
+
+      - name: Node inside the distribution
+        shell: wsl-bash {0}
+        run: |
+          set -eu
+          SUDO=""
+          if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then SUDO=sudo; fi
+          curl -fsSL https://deb.nodesource.com/setup_22.x | $SUDO bash -
+          $SUDO apt-get install -y nodejs
+          node -v
+          npm -v
+
+      # A — the documented route: the project on the distribution's own filesystem.
+      - name: The package installs and runs on the Linux filesystem
+        shell: wsl-bash {0}
+        run: |
+          set -eu
+          SRC="$(pwd)"
+          rsync -a --exclude node_modules --exclude dist "$SRC/" "$HOME/c64re/"
+          cd "$HOME/c64re"
+          npm ci --no-audit --no-fund --loglevel error
+          START=$(date +%s)
+          npm run e2e:716-package
+          echo "linux_fs_seconds=$(( $(date +%s) - START ))" >> "$GITHUB_ENV"
+
+      # B — the route the document warns about, measured rather than asserted.
+      - name: ...and from /mnt, with the cost of the boundary measured
+        shell: wsl-bash {0}
+        run: |
+          set -eu
+          npm ci --no-audit --no-fund --loglevel error
+          START=$(date +%s)
+          npm run e2e:716-package
+          MNT=$(( $(date +%s) - START ))
+          echo "on the distribution's filesystem: ${linux_fs_seconds}s"
+          echo "under /mnt (the Windows filesystem): ${MNT}s"
+          {
+            echo "### WSL2 — where the project lives"
+            echo ""
+            echo "| location | gate wall time |"
+            echo "|---|---|"
+            echo "| the distribution's own filesystem | ${linux_fs_seconds}s |"
+            echo "| under \`/mnt\` (Windows filesystem) | ${MNT}s |"
+            echo ""
+            echo "INSTALL.md advises the first. This step gates on the package WORKING in"
+            echo "both; the numbers are what the advice rests on."
+          } >> "$GITHUB_STEP_SUMMARY"

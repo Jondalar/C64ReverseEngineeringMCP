@@ -271,10 +271,22 @@ Stated rather than implied, so nobody reads a green board as more than it is:
   written the executable's shim and never ran it. It now completes an MCP session three
   ways — `node <entry>`, the shim npm wrote, and `npx <name>` — because a harness names the
   command, and on Windows that name is a `.cmd` reached through a shell.
-- **WSL2 cannot be proved on a runner, and is not.** GitHub's Windows runners do not offer
-  WSL2 — nested virtualisation — and the third-party actions that exist install WSL1,
-  which is not what `INSTALL.md` describes. Proving it with something adjacent would be
-  worse than leaving it marked, so it stays marked.
+- **WSL2 — a job exists, and it has not run yet.** This spec previously said WSL2 could not
+  be proved on a GitHub runner, on the belief that the images lack nested virtualisation.
+  That was out of date: nested virtualisation arrived with the Dadsv5 image in January
+  2024, WSLv2 works from `windows-2022` onward, and `Vampire/setup-wsl` defaults to
+  version 2. The claim is withdrawn.
+
+  The job asks two different questions. First, does the package install and run inside the
+  distribution, on **its own filesystem** — the route `INSTALL.md` tells people to take.
+  Second, does it still work from `/mnt`, and what does that cost? The boundary warning is
+  the only WSL-specific claim the document makes, and it is a claim about **cost**, not
+  correctness — so that step gates on the package working in both places and prints the two
+  wall times into the run summary. If the numbers ever stop supporting the advice, the
+  advice is what changes.
+
+  Known to be flaky rather than impossible: `actions/runner-images#12321` reports
+  `windows-2022` + WSL hanging after an otherwise successful step.
 - ~~The Intel-Mac cross build has not been built once.~~ **Built 2026-09-25**, run
   36174907622 on TRX64's `main`: all six targets green, `macos-x86_64` among them. No tag
   and nothing published — that workflow takes `workflow_dispatch` and ends at
