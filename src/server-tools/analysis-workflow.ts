@@ -1224,8 +1224,17 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
   // ── the old names ─────────────────────────────────────────────────────────
   //
   // They are named in playbooks, in the doctrine, in gates and in project notes
-  // written months ago. Each keeps working for ONE release, renders identically
-  // because it IS the same body, and says so once in its own answer.
+  // written months ago. Each keeps working for ONE release and renders identically
+  // because it IS the same body.
+  //
+  // Each also names its successor ONCE PER PROCESS, in the first answer that name
+  // produces — `aliasNotice` in byte-doors.ts holds that flag, and the answer says
+  // it is the last one that will say so. Not once per answer: repeated on every
+  // listing the sentence becomes furniture. And not nowhere, which is what it was
+  // worth before the note carried a reason — a run four days after 866 shipped
+  // reached for these names, found they want a PRG header, and wrote
+  // `struct.pack('<H', addr) + data` in front of every block it extracted.
+  // e2e:866 §8.6 asserts both halves: the first answer says it, the second does not.
 
   server.tool(
     "analyze_prg",
