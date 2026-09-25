@@ -15,6 +15,14 @@
 // and why `critic/run.ts` now renders its contract blockers FROM here rather than
 // computing them a second time. One computation, two readers — the verdict's wording is
 // unchanged on purpose, because `e2e:848-contract` asserts it and the footer quotes it.
+//
+// `clearBy` is printed verbatim inside the refusal, so it is the one instruction a
+// blocked run follows: it names LIVE doors only. It first shipped naming `disasm_prg`,
+// which 866 had retired, and never named `write_annotations`, which D6 shipped two
+// commits earlier for exactly this job — a session that obeyed it landed on the alias,
+// found that it wants a PRG header, and invented one. `e2e:877-teeth` fails on a
+// retired name in any of these strings, and on a naming remedy that does not point at
+// the writer.
 
 import type { SlotReport } from "../slots/state.js";
 
@@ -59,7 +67,7 @@ export async function contractPromises(
       asks: `>= ${(d.namedRatio * 100).toFixed(0)} % of the meaning-bearing nodes carry a HUMAN name`,
       askedValue: String(d.namedRatio),
       now: `${(slots.naming.ratio * 100).toFixed(1)} % (${slots.naming.named}/${slots.naming.members} nodes; ${slots.naming.machineNamed} carry only a machine name)`,
-      clearBy: "disasm the payload and then NAME what is in it — `propose_annotations` → `disasm_prg` imports the file into the graph's human layer, or `save_finding` with tags=[\"routine\"] and an addressRange",
+      clearBy: "disasm the payload and then NAME what is in it — `write_annotations` (segments/labels/routines in, the file out) → `disasm`, which applies it and imports it into the graph's human layer; `merge_annotations` when several passes produced fragments; or `save_finding` with tags=[\"routine\"] and an addressRange",
       blocker: `named ${(slots.naming.ratio * 100).toFixed(1)} % (${slots.naming.named}/${slots.naming.members} nodes) is below the ${(d.namedRatio * 100).toFixed(0)} % the contract asks for — coverage counts bytes in a RANGE, this counts things with a name`,
     });
   }
@@ -143,14 +151,14 @@ export async function contractPromises(
         out.push({
           ...base,
           now: `"${boundary.name}" holds ${total} routines/tables and not one carries a human name`,
-          clearBy: `name them — \`propose_annotations\` → \`disasm_prg\`, or \`save_finding\` tags=["routine"] per routine`,
+          clearBy: `name them — \`write_annotations\` → \`disasm\`, or \`save_finding\` tags=["routine"] per routine`,
           blocker: `"${boundary.name}" (asked for as "${want}") holds ${total} routines/tables and not one carries a human name`,
         });
       } else if (named / total < (d.namedRatio ?? 0.5)) {
         out.push({
           ...base,
           now: `"${boundary.name}" is ${(named / total * 100).toFixed(0)} % named — ${named} of ${total}`,
-          clearBy: `name the remaining ${total - named} — \`propose_annotations\` → \`disasm_prg\`, or \`save_finding\` tags=["routine"] per routine`,
+          clearBy: `name the remaining ${total - named} — \`write_annotations\` → \`disasm\`, or \`save_finding\` tags=["routine"] per routine`,
           blocker: `"${boundary.name}" (asked for as "${want}") is ${(named / total * 100).toFixed(0)} % named — ${named} of ${total}`,
         });
       }

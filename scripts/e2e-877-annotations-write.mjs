@@ -116,6 +116,22 @@ try {
     check(names.has("write_annotations"),
       "W1 write_annotations is registered on the DEFAULT surface — a tool outside DEFAULT_TOOLS is hidden",
       names.has("write_annotations") ? "" : `${names.size} tools listed, write_annotations is not one of them`);
+
+    // A cross-reference that runs one way is a dead end at the other. Both new doors
+    // send the reader to `propose_annotations` for a first guess; `propose_annotations`
+    // sent nobody back, so a session that starts at the draft door never learns the
+    // file can be written outright — which is the hand-rolled generator §1.5 abolished.
+    const desc = (n) => (listed.result?.tools ?? []).find((t) => t.name === n)?.description ?? "";
+    const propose = desc("propose_annotations");
+    check(/write_annotations/.test(propose),
+      "W1b propose_annotations names `write_annotations` — the cross-reference runs both ways",
+      propose ? propose.slice(0, 160) : "propose_annotations is not on the surface");
+    check(/merge_annotations/.test(propose),
+      "W1c …and `merge_annotations`, for what several passes produced",
+      propose ? propose.slice(0, 160) : "propose_annotations is not on the surface");
+    check(/propose_annotations/.test(desc("write_annotations")) && /propose_annotations/.test(desc("merge_annotations")),
+      "W1d …and the other direction still holds",
+      `${/propose_annotations/.test(desc("write_annotations"))} / ${/propose_annotations/.test(desc("merge_annotations"))}`);
   }
 
   const rel = writePrg("core_4300");

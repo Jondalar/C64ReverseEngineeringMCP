@@ -27,6 +27,7 @@ const { contractPromises } = await import("../dist/contract/promises.js");
 const { waivePromises } = await import("../dist/contract/waive.js");
 const { listWaivers, activeWaivers, formatWaivers } = await import("../dist/contract/standing.js");
 const { verdict } = await import("../dist/critic/run.js");
+const { ALIAS_SUCCESSOR } = await import("../dist/server-tools/byte-doors.js");
 const { GraphStore } = await import("../dist/knowledge-graph/store.js");
 const { KnowledgeRecords } = await import("../dist/knowledge-graph/records.js");
 
@@ -131,6 +132,42 @@ try {
     check("the refusal names the human's override", /contract_set/.test(r) && /waive/.test(r));
     check("it is shaped like a 844 refusal — a heading, then the body",
       /^# render_docs refused — /.test(r), r.split("\n")[0]);
+
+    // The refusal's `clear:` line is the ONE instruction a blocked run follows. It
+    // pointed at `disasm_prg`, a name 866 retired, and never named `write_annotations`
+    // — the door 877 D6 shipped for exactly this job, two commits before this text was
+    // written. A session that obeyed it landed on the alias, found it wants a PRG
+    // header, and invented one: the 865 failure, reproduced by our own remedy.
+    const retired = Object.keys(ALIAS_SUCCESSOR);
+    const namesRetired = retired.filter((n) => r.includes(n));
+    check("the clear: line names no door we retired", namesRetired.length === 0,
+      namesRetired.length ? `${namesRetired.join(", ")} — retired by 866` : retired.join(" / ") + " all absent");
+    check("…and names the writer 877 D6 shipped for this job",
+      /write_annotations/.test(r), r.split("\n").find((l) => /clear:/.test(l)));
+  }
+
+  // -------------------------------- every clearBy is a path a session can still walk
+  //
+  // The namedRatio promise above is only one of the strings. The boundary promises need
+  // a model and a graph to fire, so they are checked where they are WRITTEN: a `clearBy`
+  // is remedy text printed verbatim inside a refusal, and a retired name in one is the
+  // same defect wherever it sits.
+  {
+    const src = readFileSync(join("src", "contract", "promises.ts"), "utf8");
+    // A template literal here quotes tool names, so its own backticks are escaped —
+    // the extractor has to honour `\``, or every string stops at the first mention.
+    const clearBys = [...src.matchAll(/clearBy:\s*(`(?:[^`\\]|\\.)*`|"(?:[^"\\]|\\.)*")/g)].map((m) => m[1]);
+    check("every promise's clearBy was found to read", clearBys.length >= 6, `${clearBys.length} found`);
+    const rotten = clearBys.filter((s) => Object.keys(ALIAS_SUCCESSOR).some((n) => s.includes(n)));
+    check("no clearBy anywhere names a retired door", rotten.length === 0,
+      rotten.map((s) => s.slice(0, 110)).join("\n        "));
+    // The remedies that ask for routines to be NAMED — they all offer the per-routine
+    // `save_finding` as the second path, which is what identifies them.
+    const naming = clearBys.filter((s) => /tags=\[\\?"routine\\?"\]/.test(s));
+    check("the naming remedies were found", naming.length === 3, `${naming.length} of 3`);
+    const silent = naming.filter((s) => !/write_annotations/.test(s));
+    check("every clearBy that asks for routines to be named points at `write_annotations`", silent.length === 0,
+      silent.map((s) => s.slice(0, 110)).join("\n        "));
   }
 
   // ------------------------------------------- a release registration, and only that
