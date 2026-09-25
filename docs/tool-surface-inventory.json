@@ -1,5 +1,5 @@
 {
-  "total": 296,
+  "total": 297,
   "specCount": 41,
   "advancedCandidate": 110,
   "byNamespace": {
@@ -71,7 +71,8 @@
     "update": 1,
     "validate": 1,
     "verify": 1,
-    "wiki": 1
+    "wiki": 1,
+    "write": 1
   },
   "tools": [
     {
@@ -2736,6 +2737,15 @@
       "hasSpec": false,
       "firstSentence": "The project's document index, DERIVED from the declarations — never hand-maintained, so it cannot go empty.",
       "desc": "The project's document index, DERIVED from the declarations — never hand-maintained, so it cannot go empty. Use to see what is documented and what covers which address range. Not for the health of those declarations (use doc_lint). Inputs: optional write. Returns: the index; with write=true also saves docs/index.md.",
+      "tier": "default?"
+    },
+    {
+      "name": "write_annotations",
+      "file": "server-tools/annotation-doors.ts",
+      "ns": "write",
+      "hasSpec": false,
+      "firstSentence": "Write the semantic annotation file for a payload from structured input: segments, labels, routines, and the optional pointer/jump/immediate tables.",
+      "desc": "Write the semantic annotation file for a payload from structured input: segments, labels, routines, and the optional pointer/jump/immediate tables. Use whenever you have read a listing and know what its ranges and routines ARE — this is the door that turns that into the `<stem>_annotations.json` that `disasm` applies and the knowledge graph imports, so you never write the JSON by hand or with a script of your own. Every address may be written `43A8`, `$43a8` or `0x43A8` and comes back as bare uppercase hex, so nothing downstream has to normalise. It refuses BEFORE the file exists, naming every offending entry by its own index: two segments on one start (the id the listing and the graph are both keyed on), a routine with no `name`, one address carrying two names, one name at two addresses, a name past the project's length limit, or an output path the importer could not read a stem off. A single offender means nothing is written at all. Not for combining what several sessions or subagents wrote (use merge_annotations, which names every contradiction and records who won), not for a first guess to review by hand (use propose_annotations, which writes a draft), and not for rendering the listing afterwards (use disasm). It will not replace an existing file unless you pass overwrite. Inputs: prg_path or output_path, segments/labels/routines, optional pointerTables/jumpTables/immediates, binary, overwrite. Returns: the path written, what went into it, and the next call that applies it.",
       "tier": "default?"
     }
   ]

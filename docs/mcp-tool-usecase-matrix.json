@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 296,
-  "defaultCount": 186,
+  "total": 297,
+  "defaultCount": 187,
   "advancedCount": 110,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -5200,6 +5200,26 @@
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"
+    },
+    {
+      "name": "write_annotations",
+      "namespace": "write",
+      "sourceFile": "server-tools/annotation-doors.ts",
+      "tier": "default",
+      "role": "disassembly",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Write the annotations file for a payload from structured segments/labels/routines — the door that turns a reading of the listing into <stem>_annotations.json, refusing a bad entry before the file exists.",
+      "notFor": "A first guess to review by hand — use propose_annotations; combining several sessions' fragments — use merge_annotations.",
+      "adjacentTools": [
+        "disasm",
+        "propose_annotations",
+        "save_finding"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "project-or-absolute-ok"
     }
   ]
 }

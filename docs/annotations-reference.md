@@ -8,6 +8,16 @@ data-table hints only; the rebuilt bytes stay byte-identical.
 `propose_annotations` writes a DRAFT (`<stem>_annotations.draft.json`) you hand-edit and
 rename. It never overwrites a manual file.
 
+`write_annotations` writes the real file from structured input — segments, labels and
+routines as arguments, not as JSON you assemble yourself. Every address may be written
+`43A8`, `$43a8` or `0x43A8` and comes back as bare uppercase hex, so nothing downstream
+has to normalise. It refuses **before the file exists**, naming every offending entry by
+its own index: a mistyped or missing required field, two segments on one start, one
+address carrying two names, one name at two addresses, a name past the project's length
+limit, or an output path that does not end in `_annotations.json`. One offender means
+nothing is written at all — the tolerant skip described below is for a file a human wrote
+by hand, not for one a tool is writing.
+
 **Names are at most 20 characters** in a project created since 2026-09-19: `project_init`
 stamps `naming.maxLabelLength: 20` into `knowledge/project.json`, and `disasm` refuses
 an annotations file with a longer label, routine or segment name before it renders anything.

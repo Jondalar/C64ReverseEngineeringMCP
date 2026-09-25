@@ -38,6 +38,7 @@ const TRACE_WRITERS = new Set([
 const PATH_TOOLS = new Set([
   "inspect_disk", "extract_disk", "extract_crt", "disk_sector_allocation",
   "disasm", "analyze", "analyze_prg", "disasm_prg", "disasm_raw", "disasm_menu", "assemble_source",
+  "write_annotations",
   "runtime_session_start", "runtime_media_mount", "runtime_media_swap", "runtime_load_prg",
   "runtime_media_browse", "runtime_sandbox_run",
   "trace_store_info", "trace_store_query", "trace_store_top_pcs", "trace_store_bus_find",
@@ -91,6 +92,7 @@ const CURATED = {
   save_entity: { role: "knowledge-write", swimlane: "asset-linking", useWhen: "Record a named entity (routine/asset/struct) to link evidence to.", notFor: "Free-text conclusions — use save_finding.", adjacent: ["link_entities", "save_finding"], e2e: ["E2E-D"] },
   save_open_question: { role: "knowledge-write", swimlane: "validation", useWhen: "Record an unresolved question needing human input or later evidence.", notFor: "A settled conclusion — use save_finding.", adjacent: ["list_open_questions"], e2e: ["E2E-A"] },
   propose_annotations: { role: "disassembly", swimlane: "disassembly-improve", useWhen: "Write a draft annotation set (labels/segments/routine docs) for review.", notFor: "Applying + rebuilding — use disasm_prg with annotations.", adjacent: ["disasm_prg", "save_finding"], e2e: ["E2E-C"] },
+  write_annotations: { role: "disassembly", swimlane: "disassembly-improve", useWhen: "Write the annotations file for a payload from structured segments/labels/routines — the door that turns a reading of the listing into <stem>_annotations.json, refusing a bad entry before the file exists.", notFor: "A first guess to review by hand — use propose_annotations; combining several sessions' fragments — use merge_annotations.", adjacent: ["disasm", "propose_annotations", "save_finding"], e2e: ["E2E-C"] },
   link_payload_to_asm: { role: "knowledge-write", swimlane: "asset-linking", useWhen: "Link a payload/byte range to its disassembly + evidence.", notFor: "Linking two entities — use link_entities.", adjacent: ["link_entities", "save_finding"], e2e: ["E2E-D"] },
   register_payload: { role: "knowledge-write", swimlane: "asset-linking", useWhen: "Register a carved code-derived/custom-loader load (no CBM dir / no on-disk LUT) as a first-class payload — pass source_prg_path, load_address, format and medium_spans (track/sector) so it renders on the disk view at its T/S, in the memory map at its load address, and in list_payloads with load/fmt/src/asm.", notFor: "Thin name-only records — never use save_entity kind=payload; ASM-only links — use link_payload_to_asm.", adjacent: ["link_payload_to_asm", "list_payloads", "disasm_prg"], e2e: ["E2E-D"] },
   link_entities: { role: "knowledge-write", swimlane: "asset-linking", useWhen: "Relate two project entities (e.g. asset → producing routine).", notFor: "Linking a payload to code — use link_payload_to_asm.", adjacent: ["save_entity", "link_payload_to_asm"], e2e: ["E2E-D"] },
