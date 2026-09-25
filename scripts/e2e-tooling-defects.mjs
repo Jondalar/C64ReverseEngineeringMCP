@@ -325,7 +325,7 @@ console.log("Thirteen tooling defects from one autonomous run\n");
     [join(ROOT, "dist/pipeline/cli.cjs"), "disasm-prg", prg, join(d, "n.asm"), analysis, "--no-register"],
     { stdio: "pipe" }).toString();
   check(/the entry-points slot held n_analysis\.json/.test(out), "the note still fires when the analysis slides into the entry-point slot");
-  check(/analysis_json \(MCP tool disasm_prg\)/.test(out),
+  check(/analysis_json \(MCP tool disasm\)/.test(out),
     "and it names the MCP parameter for the reader who has no flags", out.split("\n").find((l) => /^Note:/.test(l)));
   check(/--analysis <path> \(this CLI\)/.test(out), "…and the CLI flag, labelled as the CLI's");
 }

@@ -441,11 +441,13 @@ function aliasNoticeText(invokedAs: string): string {
   const head = `Note: ${invokedAs} is now \`${successor}\`, and this name keeps working for one release — `
     + `this is the last answer that will say so.`;
   if (successor === "disasm") {
+    // retired-name-ok: the notice explains to a caller what the name they used did
     return `${head} disasm_prg and disasm_raw ran the same decoder, renderer, annotations and rebuild proof and `
       + `differed only in whether two bytes at the front are a load address — so that is the only question left: `
       + `pass load_address and the bytes are raw and start there, leave it out and the file's first two bytes are `
       + `read as one. ${NO_FAKE_HEADER}`;
   }
+  // retired-name-ok: the notice explains to a caller what the name they used did
   return `${head} analyze_prg took a PRG and nothing else, so headerless bytes — a depacked chunk, a relocated `
     + `overlay, a block of drive code — could not be classified at all; \`analyze\` decides by the same `
     + `load-address rule, so the nine analysers run on either. ${NO_FAKE_HEADER}`;

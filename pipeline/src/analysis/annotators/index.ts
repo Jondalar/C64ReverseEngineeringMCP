@@ -124,7 +124,7 @@ function proposeRelocations(report: AnalysisReport): { relocations: RelocationCa
       description:
         `A copy loop appears to move this region to $${hex4(r.runtimeAddr)}` +
         `${r.lengthCertain === false ? " (length is a page-wrap estimate — verify the loop bound)" : ""}. ` +
-        `If correct, pass it to disasm_prg.relocations as ` +
+        `If correct, pass it to disasm.relocations as ` +
         `{fileStart:"$${hex4(r.fileStart)}", fileEnd:"$${hex4(r.fileEnd)}", runtimeAddr:"$${hex4(r.runtimeAddr)}"} ` +
         `to render it as .pseudopc/.logical code.`,
       confidence,

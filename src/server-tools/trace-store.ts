@@ -259,7 +259,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
       path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
       cpu: z.enum(["c64", "drive8"]).describe("CPU side."),
       limit: z.number().int().positive().max(200).optional().describe("Max rows (default 20)."),
-      hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. Hotspot ranking is the archetypal 'reached for statistics instead of reading the code' — it CONFIRMS where a routine you already located spends time; it is not how you find structure. Fishing (no address / no rationale) is refused — read first (disasm_prg / inspect_address_range / project_search)."),
+      hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. Hotspot ranking is the archetypal 'reached for statistics instead of reading the code' — it CONFIRMS where a routine you already located spends time; it is not how you find structure. Fishing (no address / no rationale) is refused — read first (disasm / inspect_address_range / project_search)."),
     },
     safeHandler("trace_store_top_pcs", async ({ project_dir, path, cpu, limit, hypothesis }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
@@ -337,7 +337,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
         label: z.string().optional().describe("Owner label (module / segment)."),
       })).optional().describe("Statically-owned address ranges (module load-map / analysis-json). Pages overlapping these are reconciled: a static-owned page untouched in the run is flagged NOT provably free."),
       run_label: z.string().optional().describe("Optional run label for the header."),
-      hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. The page map CONFIRMS a free-RAM/footprint hypothesis for porting; it is runtime behaviour for ONE path, NOT identity grounding, and not how you discover what a block is. Fishing (no address / no rationale) is refused — read first (disasm_prg / inspect_address_range / project_search)."),
+      hypothesis: z.string().optional().describe("REQUIRED (read-before-runtime gate): a concrete $address + what you READ that points there. The page map CONFIRMS a free-RAM/footprint hypothesis for porting; it is runtime behaviour for ONE path, NOT identity grounding, and not how you discover what a block is. Fishing (no address / no rationale) is refused — read first (disasm / inspect_address_range / project_search)."),
     },
     safeHandler("trace_memory_map", async ({ project_dir, path, cpu, static_ranges, run_label, hypothesis }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");

@@ -250,11 +250,11 @@ export async function runProjectInventorySync(
   if (status === "failed") {
     nextStepHint = "Inventory sync hit a view-rebuild error. Re-run project_inventory_sync; if it persists, inspect the project knowledge store for a corrupt record.";
   } else if (remainingProblems.length > 0) {
-    nextStepHint = "Some files on disk are not covered by any inventory pattern. Confirm they belong in the project, then continue with analysis (analyze_prg) or disassembly (disasm_prg) of the registered payloads.";
+    nextStepHint = "Some files on disk are not covered by any inventory pattern. Confirm they belong in the project, then continue with analysis (analyze) or disassembly (disasm) of the registered payloads.";
   } else if (reg.registered === 0 && importedManifests === 0) {
-    nextStepHint = "Inventory is already in sync. Continue with the next analysis step (inspect_disk / analyze_prg / disasm_prg) or check agent_propose_next.";
+    nextStepHint = "Inventory is already in sync. Continue with the next analysis step (inspect_disk / analyze / disasm) or check agent_propose_next.";
   } else {
-    nextStepHint = "Inventory synced. Continue with media inspection / analysis (inspect_disk, analyze_prg) of the newly registered payloads.";
+    nextStepHint = "Inventory synced. Continue with media inspection / analysis (inspect_disk, analyze) of the newly registered payloads.";
   }
 
   return {

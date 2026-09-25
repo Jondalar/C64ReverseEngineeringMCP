@@ -38,7 +38,7 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   seed [--owner <stem>]         run the producers (819 control flow, 820 memory access, 826.0 resolve) over every _analysis.json (or one)
   resolve                       826.0 T2: the project-wide RESOLVES_TO pass (addr aliases → the one routine/label/data block at that address)
   machine [<owner> <c64|c1541>] 826.0 T7: declare which machine an owner's code runs on (drive code → c1541: drv space, 1541 ROM/ZP/VIA); no args lists the declarations
-  boundaries [--entries]        826.0 T3/T4: where a human drew a routine boundary 819 did not (splits, unseen, data outside code); --entries prints the unseen starts for analyze_prg
+  boundaries [--entries]        826.0 T3/T4: where a human drew a routine boundary 819 did not (splits, unseen, data outside code); --entries prints the unseen starts for analyze
   signature <ref>               826: a routine's computed calling convention — in / out / clobbers / preserves / stack, partial and where
   args <ref>                    826: what every caller passes — the value DOMAIN per live-in location (A ∈ {$01,$02,$03}), static and observed
   zp-usage <routine-id>         ZP addresses a routine touches, by role

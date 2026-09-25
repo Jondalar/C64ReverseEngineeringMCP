@@ -331,7 +331,7 @@ export interface InspectArgs {
 export function buildReport(args: InspectArgs): string {
   const analysisPath = args.analysisPath ?? findAnalysisJsonForPrg(args.prgPath);
   if (!analysisPath) {
-    throw new Error(`No analysis JSON found for ${args.prgPath}. Run analyze_prg first or pass analysis_json explicitly.`);
+    throw new Error(`No analysis JSON found for ${args.prgPath}. Run analyze first or pass analysis_json explicitly.`);
   }
   const report = JSON.parse(readFileSync(analysisPath, "utf8")) as AnalysisReport;
   const startAddress = args.startAddress;

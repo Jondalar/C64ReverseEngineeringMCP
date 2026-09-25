@@ -87,7 +87,7 @@ export function derivePayloadRelations(
   }
   const instructions = report.codeAnalysis?.instructions ?? [];
   if (!instructions.length) {
-    return { edges: [], unattributed: [], scanned: 0, notes: ["the analysis report has no disassembled instructions — run analyze_prg first"] };
+    return { edges: [], unattributed: [], scanned: 0, notes: ["the analysis report has no disassembled instructions — run analyze first"] };
   }
   // Every store with a resolved absolute target. Indexed stores count: `STA $1034,X`
   // names the BASE of what it writes, and a mutator that walks a payload with an index

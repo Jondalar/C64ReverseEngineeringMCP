@@ -276,7 +276,7 @@ function maybeLoadAnalysis(
     if (!existsSync(explicitPath)) {
       throw new Error(
         `the analysis JSON named for this render does not exist: ${explicitPath}. `
-        + `A named analysis is never swapped for the one beside the bytes — produce it with analyze_prg, `
+        + `A named analysis is never swapped for the one beside the bytes — produce it with analyze, `
         + `fix the path, or render without one.`,
       );
     }

@@ -1240,6 +1240,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
   // answer says it, the second does not, and the next session is told again.
 
   server.tool(
+    // retired-name-ok: the alias registration itself — 866 keeps the name alive for one release
     "analyze_prg",
     "Run the heuristic analysis pipeline on a PRG and produce structured JSON — segments, cross-references, RAM facts, pointer tables. Use first on any new PRG to map its structure. Now the same door as `analyze`, which takes headerless bytes too: this name keeps working for one release and says so in its answer. Not for producing assembly (run disasm next, passing this JSON) or for disk/cart images (extract first). Inputs: prg_path, optional project_dir. Returns: analysis JSON path + summary.",
     {
@@ -1248,6 +1249,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       output_json: z.string().optional().describe("Output path for the analysis JSON (default: next to PRG)"),
       entry_points: z.array(z.string()).optional().describe("Hex entry point addresses, e.g. [\"0827\", \"3E07\"]. Usually unnecessary: when the project graph knows an address another overlay calls into, the scan seeds it by itself and reports what it used. A list does NOT simply add seeds — an address inside an instruction another seed already decoded cannot be honoured, and the analysis names the ones it refused (`rejectedEntryPoints`, also printed in the listing header)."),
     },
+    // retired-name-ok: the alias registration itself — 866 keeps the name alive for one release
     safeHandler("analyze_prg", async (args) => runAnalyze("analyze_prg", { ...args, headed: true } as Parameters<typeof runAnalyze>[1])),
   );
 
@@ -1275,6 +1277,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
   );
 
   server.tool(
+    // retired-name-ok: the alias registration itself — 866 keeps the name alive for one release
     "disasm_prg",
     "Disassemble a PRG to KickAssembler .asm + 64tass .tas, segment-aware when given an analysis JSON. Use after analyze to get readable assembly, and again to render the final annotated version once you have an annotations file. Now the same door as `disasm`, which reads headerless bytes too: this name keeps working for one release and says so in its answer. For relocated/self-relocating loaders (code stored at one address but executed at another), pass `relocations`: each region is rendered as KickAssembler .pseudopc / 64tass .logical at its runtime PC while the stored bytes stay byte-exact — accept the relocation proposals from analyze / propose_annotations (draft.relocations[]) and copy them straight in. Not for the structural scan (use analyze), for menus/multi-file containers (use disasm_menu) or for bytes with no load header (use disasm, passing load_address). An analysis_json named here that EXISTS is the analysis rendered and is never swapped; when it does not exist the project store is asked which analysis is registered for these bytes, and the answer names what it used and why. A `<stem>_annotations.json` next to the PRG/ASM is auto-applied: names (labels, routines, a segment's `label`) apply with or without `analysis_json`, while segment kinds and pointer/jump/immediate tables need `analysis_json` — the listing's header line says which happened, and the tool output quotes it back as `Listing:`. Exact shape: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}], optional pointerTables/jumpTables/immediates. Hex with or without `$`. Loading is tolerant: a bad/mistyped entry (e.g. `addr` for `address`, `name` for a label's `label`) is skipped and reported as `[annotations] applied N, skipped M` in the output — it never crashes the rebuild. In a project created since 2026-09-19 (project_init stamps it) no label, routine or segment name may be longer than 20 characters: such a file is REFUSED before anything is rendered, and the refusal names every offender. Full reference: docs/annotations-reference.md. Inputs: prg_path, optional analysis_json, entry_points, platform, relocations. Returns: .asm/.tas artifact paths.",
     {
@@ -1299,10 +1302,12 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
         })).optional().describe("Runtime-addressed code/data kind hints inside the region (applied in a later slice; carried through for now)."),
       })).optional().describe("relocated regions, rendered as KickAssembler .pseudopc / 64tass .logical blocks at their runtime PC while the stored bytes stay byte-exact. Every address here obeys the same rule as entry_points: hex, with $ or 0x optional. A region outside the PRG, a reversed range or two overlapping regions are refused by name before anything is rendered. Omit for normal disassembly."),
     },
+    // retired-name-ok: the alias registration itself — 866 keeps the name alive for one release
     safeHandler("disasm_prg", async (args) => runDisasm("disasm_prg", { ...args, headed: true } as Parameters<typeof runDisasm>[1])),
   );
 
   server.tool(
+    // retired-name-ok: the alias registration itself — 866 keeps the name alive for one release
     "disasm_raw",
     "Disassemble raw bytes at an address you already know — a depacked chunk, a relocated overlay, a block lifted out of a track, drive code — with no PRG header and none invented. Use when you hold bytes and their runtime address: give a file path (or an artifact id), optionally a byte window, and load_address. Now the same door as `disasm`, which also reads a file that carries a header: this name keeps working for one release and says so in its answer. Not for a file that already carries a 2-byte load address (use disasm without load_address) and not for the running machine's memory (use runtime_monitor_disasm). Same decoder, renderer, annotations and rebuild proof as the PRG reading: it writes .asm + .tas, reassembles them and reports byte-identical or the first divergence, and registers the listing with its provenance — which file, which byte range, which address. Addresses are HEX with $ or 0x optional; a JSON number is taken as given, and offset/length follow the same rule (\"100\" = 256 bytes, 100 = 100 bytes) — every answer prints the window both ways. Pass entry_points when the block does not start with code: a seed resyncs the linear decode there and the bytes before it render as data. Pass analysis_json for segment-aware rendering; it must describe THIS window and is refused when it describes a different span, and no_analysis refuses one outright. When none is named, the project store is asked which analysis is registered for these bytes and the answer names what it found. Annotations it applies are imported into the knowledge graph, so a block with no PRG header gets human names in the graph too. Inputs: path or artifact_id, load_address, optional offset/length/entry_points/analysis_json/no_analysis/annotations_path/cpu/bank. Returns: the .asm/.tas paths, the address span, the instruction count, what was seeded, and the rebuild verdict.",
     {
@@ -1321,6 +1326,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       bank: z.number().int().nonnegative().optional().describe("Cartridge bank these bytes belong to, recorded with the listing's provenance."),
       space: z.string().optional().describe("Which memory space these bytes belong to (e.g. \"ram\", \"cart\", \"drive\"), recorded with the listing's provenance."),
     },
+    // retired-name-ok: the alias registration itself — 866 keeps the name alive for one release
     safeHandler("disasm_raw", async (args) => runDisasm("disasm_raw", { ...args, headed: false } as Parameters<typeof runDisasm>[1])),
   );
 

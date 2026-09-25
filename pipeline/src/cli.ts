@@ -193,7 +193,7 @@ function main(): void {
         // now, each labelled with where it belongs.
         process.stdout.write(
           `Note: the entry-points slot held ${basename(positionalAnalysis)}; it was read as the analysis JSON. `
-          + `Entry points are addresses — name the analysis as analysis_json (MCP tool disasm_prg) `
+          + `Entry points are addresses — name the analysis as analysis_json (MCP tool disasm) `
           + `or --analysis <path> (this CLI).\n`,
         );
       } else {
@@ -435,7 +435,7 @@ function main(): void {
             `NOT a tokenized BASIC V2 program: ${walk.reason}`,
             `Chain broke at body offset ${walk.offset} ($${(loadAddress + walk.offset).toString(16).toUpperCase().padStart(4, "0")}).`,
             "",
-            "Use analyze_prg / disasm_prg — this is machine code, not BASIC.",
+            "Use analyze / disasm — this is machine code, not BASIC.",
           ].join("\n") + "\n",
         );
       }

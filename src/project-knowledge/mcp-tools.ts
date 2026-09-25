@@ -1697,13 +1697,13 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       // compiles its table access to `LDA $8500,X`, and the analyser resolved the base.
       if (analysis_path) {
         const { readFileSync: rf, existsSync: ex } = await import("node:fs");
-        if (!ex(analysis_path)) return textContent(`No analysis report at ${analysis_path}. Run analyze_prg first.`);
+        if (!ex(analysis_path)) return textContent(`No analysis report at ${analysis_path}. Run analyze first.`);
         const { indexedAccesses, anchorCandidates, formatAnchored } = await import("./lut-detect.js");
         let report: { codeAnalysis?: { instructions?: [] } };
         try { report = JSON.parse(rf(analysis_path, "utf8")); }
         catch (e) { return textContent(`Unreadable analysis report: ${(e as Error).message}`); }
         const ins = report.codeAnalysis?.instructions ?? [];
-        if (!ins.length) return textContent("That report has no disassembled instructions — run analyze_prg first.");
+        if (!ins.length) return textContent("That report has no disassembled instructions — run analyze first.");
         const acc = indexedAccesses(ins);
         const cands = anchorCandidates(acc, { minColumns: min_columns ?? 3 });
         const withPitch = cands.filter((c) => c.pitch);
@@ -1794,13 +1794,13 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
     safeHandler("suggest_loader_entrypoints", async ({ analysis_path, kinds, min_call_sites }) => {
       const { readFileSync: rf, existsSync: ex } = await import("node:fs");
-      if (!ex(analysis_path)) return textContent(`No analysis report at ${analysis_path}. Run analyze_prg first.`);
+      if (!ex(analysis_path)) return textContent(`No analysis report at ${analysis_path}. Run analyze first.`);
       const { detectSectorLoads, detectDispatch, formatEntryPoints } = await import("./loader-entrypoint-detect.js");
       let report: { codeAnalysis?: { instructions?: [] } };
       try { report = JSON.parse(rf(analysis_path, "utf8")); }
       catch (e) { return textContent(`Unreadable analysis report: ${(e as Error).message}`); }
       const ins = report.codeAnalysis?.instructions ?? [];
-      if (!ins.length) return textContent("That report has no disassembled instructions — run analyze_prg first.");
+      if (!ins.length) return textContent("That report has no disassembled instructions — run analyze first.");
       const want = new Set(kinds ?? ["sector-load", "dispatch"]);
       const found = [
         ...(want.has("dispatch") ? detectDispatch(ins) : []),
