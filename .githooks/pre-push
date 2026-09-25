@@ -1,0 +1,140 @@
+#!/bin/sh
+# ─────────────────────────────────────────────────────────────────────────────
+# .githooks/pre-push — runs the local gate and BLOCKS the push on red.
+# Installed by `npm install` (package.json `prepare` sets core.hooksPath=.githooks).
+#
+# WHY THIS EXISTS. CI here reports, it does not gate — that is the repo's rule and
+# it stays. What the rule assumes is that someone reads the report. On 2026-09-25
+# it turned out nobody does: `e2e:839-media` went red at 7dfb3c5f, over one
+# assertion that pinned a monitor verb as a literal while the daemon extended it,
+# and two more pushes went out on top of the red without anyone noticing. A report
+# nobody reads is not a gate and was never standing in for one.
+#
+# IT LOOKS AT WHAT YOU ARE PUSHING FIRST. Two questions decide it, the same two
+# TRX64's hook asks:
+#
+#   1. Does this push reach master? A feature branch is work in progress, and it
+#      gates when it merges. Only master is what anyone else consumes.
+#   2. What does it carry? A push of nothing but Markdown does not have to build
+#      the workspace bundle to prove it — but it DOES have to face the gates that
+#      judge documents, because this repo has those and doctrine rule 9 is one of
+#      them. So a docs-only push runs the docs tier, not nothing.
+#
+# The code test is a whitelist of INERT files, not a blacklist of code. Anything
+# the list does not recognise runs the full gate — a new file type, a package.json,
+# a workflow, a build script. Guessing wrong in that direction costs minutes;
+# guessing wrong in the other ships a red push to master.
+#
+# Escape hatch for a deliberate WIP push (LOUD warning, never the default):
+#   GATE_SKIP=1 git push
+#
+# Inspect the decision without running anything:
+#   GATE_DRYRUN=1 git push
+#
+# Git invokes this with `<remote> <url>` argv and one line per pushed ref on
+# stdin: `<local-ref> <local-sha> <remote-ref> <remote-sha>`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+if [ "${GATE_SKIP:-0}" = "1" ]; then
+  printf '\n' >&2
+  printf '  ##############################################################\n' >&2
+  printf '  #  GATE_SKIP=1 — quality gate BYPASSED                        #\n' >&2
+  printf '  #  This push is UNVERIFIED. You are on the hook for green.    #\n' >&2
+  printf '  ##############################################################\n' >&2
+  printf '\n' >&2
+  exit 0
+fi
+
+HOOK_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH= cd -- "$HOOK_DIR/.." && pwd)
+ZERO=0000000000000000000000000000000000000000
+
+# ── which files does this push actually carry? ───────────────────────────────
+#
+# Empty on stdin, or any range we cannot resolve, means we do not know — and not
+# knowing runs the gate.
+CHANGED=$(
+  while read -r _local_ref local_sha _remote_ref remote_sha; do
+    [ -z "$local_sha" ] && continue
+    if [ "$local_sha" = "$ZERO" ]; then
+      # Deleting a branch carries no files. Marked rather than skipped silently,
+      # so a delete-plus-push in one command still gates on the push half.
+      printf 'BRANCH-DELETION\n'
+      continue
+    fi
+    # Only master is worth gating. A tag carries no new commits of its own, and a
+    # feature branch gates when it merges.
+    if [ "$_remote_ref" != "refs/heads/master" ] && [ "$_remote_ref" != "refs/heads/main" ]; then
+      # Marked, not dropped: "we looked and it does not need gating" must be
+      # distinguishable from "we could not look", which runs the gate.
+      printf 'NOT-A-PROTECTED-BRANCH\n'
+      continue
+    fi
+    if [ -z "$remote_sha" ] || [ "$remote_sha" = "$ZERO" ]; then
+      # New branch — no range to diff. Take every commit not already on a remote.
+      for sha in $(git rev-list "$local_sha" --not --remotes 2>/dev/null); do
+        git show --pretty=format: --name-only "$sha" 2>/dev/null
+      done
+    else
+      git diff --name-only "$remote_sha" "$local_sha" 2>/dev/null || printf 'UNKNOWN-RANGE\n'
+    fi
+  done | sed '/^$/d' | sort -u
+)
+
+# Nothing on stdin at all. Nothing was resolved, so nothing is claimed: run the
+# gate rather than assume.
+[ -z "$CHANGED" ] && CHANGED=UNKNOWN-RANGE
+
+# ── which tier does it deserve? ──────────────────────────────────────────────
+#
+# NOTHING   — nothing reaching master at all.
+# DOCS      — prose, pictures and specs only: the document gates.
+# ALL       — anything else: the workflow, end to end.
+TIER=NOTHING
+for f in $CHANGED; do
+  case "$f" in
+    BRANCH-DELETION|NOT-A-PROTECTED-BRANCH)
+      ;;
+    *.md|*.markdown|*.txt|\
+    *.png|*.jpg|*.jpeg|*.gif|*.svg|*.webp|\
+    LICENSE|LICENSE.*|.gitignore|.gitattributes)
+      [ "$TIER" = NOTHING ] && TIER=DOCS
+      ;;
+    *)
+      TIER=ALL
+      break
+      ;;
+  esac
+done
+
+if [ "${GATE_DRYRUN:-0}" = "1" ]; then
+  printf '\n=== GATE_DRYRUN — tier %s. Files this push carries:\n' "$TIER" >&2
+  printf '%s\n' "$CHANGED" | sed 's/^/    /' >&2
+  printf '\n' >&2
+  exit 0
+fi
+
+if [ "$TIER" = "NOTHING" ]; then
+  printf '\n=== gate skipped — nothing reaching master ===\n\n' >&2
+  exit 0
+fi
+
+if [ "$TIER" = "DOCS" ]; then
+  COUNT=$(printf '%s\n' "$CHANGED" | wc -l | tr -d ' ')
+  printf '\n=== pre-push gate: %s document(s), no code — docs tier ===\n' "$COUNT" >&2
+  if "$REPO_ROOT/scripts/gate.sh" docs; then
+    printf '=== gate GREEN — push allowed ===\n\n' >&2
+    exit 0
+  fi
+else
+  printf '\n=== pre-push gate: code reaching master — full workflow ===\n' >&2
+  if "$REPO_ROOT/scripts/gate.sh"; then
+    printf '=== gate GREEN — push allowed ===\n\n' >&2
+    exit 0
+  fi
+fi
+
+printf '\n' >&2
+printf '=== gate RED — PUSH BLOCKED ===\n' >&2
+printf '    Fix the gate above, or bypass this one push with:  GATE_SKIP=1 git push\n\n' >&2
+exit 1
