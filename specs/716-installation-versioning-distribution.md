@@ -271,9 +271,9 @@ Stated rather than implied, so nobody reads a green board as more than it is:
   WSL2 — nested virtualisation — and the third-party actions that exist install WSL1,
   which is not what `INSTALL.md` describes. Proving it with something adjacent would be
   worse than leaving it marked, so it stays marked.
-- **The Intel-Mac cross build has not been built once.** It needs no tag and publishes
-  nothing: TRX64's release workflow takes `workflow_dispatch` and ends at
-  `upload-artifact`, so one dispatch builds all six targets and attaches them to the run.
-  Until that has happened it is one matrix entry nobody has compiled.
+- ~~The Intel-Mac cross build has not been built once.~~ **Built 2026-09-25**, run
+  36174907622 on TRX64's `main`: all six targets green, `macos-x86_64` among them. No tag
+  and nothing published — that workflow takes `workflow_dispatch` and ends at
+  `upload-artifact`.
 - **`npx -y @c64re/mcp` cannot be true until 716.6.** Everything in `INSTALL.md` that names
   the registry describes the package this spec built and has not published.

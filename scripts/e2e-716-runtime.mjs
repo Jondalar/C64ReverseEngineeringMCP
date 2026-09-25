@@ -21,7 +21,7 @@
 import { existsSync, readFileSync, mkdtempSync, writeFileSync, chmodSync, mkdirSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 let pass = 0, fail = 0, skip = 0;
@@ -33,8 +33,13 @@ const skipped = (what, why) => { skip++; console.log(`  SKIP  ${what}  (${why})`
 
 console.log("Spec 716.3 — the runtime beside the package: the pin, the mapping, the resolution\n");
 
-const recipe = await import(join(ROOT, "dist/runtime/setup-recipe.js"));
-const installer = await import(join(ROOT, "dist/runtime/install-daemon.js"));
+// A dynamic import takes a URL, and on Windows an absolute path is not one: `D:\\…`
+// parses as the scheme "d:" and the loader refuses it. `pathToFileURL` is the only
+// portable way to hand a built file to `import()`.
+const built = (rel) => import(pathToFileURL(join(ROOT, rel)).href);
+
+const recipe = await built("dist/runtime/setup-recipe.js");
+const installer = await built("dist/runtime/install-daemon.js");
 
 // ── 1. the pin ───────────────────────────────────────────────────────────────
 console.log("1. The pin");
@@ -99,7 +104,7 @@ check(installer.assetFor("sunos-sparc") === null,
 // ── 3. the resolution ────────────────────────────────────────────────────────
 console.log("\n3. Finding a daemon without a checkout");
 
-const { resolveDaemonSpawn } = await import(join(ROOT, "dist/runtime/resolve-daemon-spawn.js"));
+const { resolveDaemonSpawn } = await built("dist/runtime/resolve-daemon-spawn.js");
 const work = mkdtempSync(join(tmpdir(), "c64re-716rt-"));
 process.on("exit", () => { try { rmSync(work, { recursive: true, force: true }); } catch {} });
 
