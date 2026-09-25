@@ -278,7 +278,7 @@ const shim = shimCmd(binName);
   } catch (e) {
     check(false, "the executable runs through npm's own shim", String(e.message).slice(0, 160));
     const err = s2.stderrText();
-    if (err) console.log(`        stderr: ${err.split("\n").slice(0, 3).join(" | ").slice(0, 300)}`);
+    if (err) console.log(`        stderr: ${err.split("\n").filter((l) => l.trim()).slice(0, 8).join(" | ").slice(0, 600)}`);
   } finally {
     s2.proc.kill();
   }
@@ -288,13 +288,19 @@ const shim = shimCmd(binName);
 // short of the registry — `npx -y @c64re/mcp` adds only the fetch, and that cannot be
 // proved before the package is published (716.6).
 {
-  const npxPath = join(binDir, win ? "npx.cmd" : "npx");
-  const haveLocalNpx = existsSync(npxPath);
-  const npx = haveLocalNpx ? npxPath : (win ? "npx.cmd" : "npx");
+  // npx is resolved the same way npm is, and for the same reasons: npm_execpath points at
+  // npm-cli.js, and npx-cli.js sits beside it. Spawning that with this Node needs no shell
+  // and no shim, on any platform. The first attempt passed a quoted "npx.cmd" to a shell,
+  // where the quotes stop cmd.exe searching PATH — it found something, tried to load it,
+  // and died in the CJS loader.
+  const npxCli = NPM_CLI ? join(dirname(NPM_CLI), "npx-cli.js") : null;
+  const useCli = Boolean(npxCli && existsSync(npxCli));
   // cwd is the directory that installed it, not a temp directory: that is how `npx`
   // finds a locally installed bin at all. Everything else in this gate deliberately runs
   // from elsewhere, to prove the server does not lean on the cwd — this one cannot.
-  const s3 = session(win ? `"${npx}"` : npx, [binName], { useShell: win, cwd: home });
+  const s3 = useCli
+    ? session(process.execPath, [npxCli, "--no-install", binName], { cwd: home })
+    : session(win ? "npx.cmd" : "npx", ["--no-install", binName], { useShell: win, cwd: home });
   try {
     const init = await s3.initialize();
     check(!init.error && Boolean(init.result?.serverInfo),
@@ -302,7 +308,7 @@ const shim = shimCmd(binName);
   } catch (e) {
     check(false, "and through `npx`, which is what an MCP host config names", String(e.message).slice(0, 160));
     const err = s3.stderrText();
-    if (err) console.log(`        stderr: ${err.split("\n").slice(0, 3).join(" | ").slice(0, 300)}`);
+    if (err) console.log(`        stderr: ${err.split("\n").filter((l) => l.trim()).slice(0, 8).join(" | ").slice(0, 600)}`);
   } finally {
     s3.proc.kill();
   }
