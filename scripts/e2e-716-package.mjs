@@ -24,6 +24,12 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
+
+// npm is `npm.cmd` on Windows, and execFileSync does not consult PATHEXT — it looks for a
+// file called exactly "npm" and reports ENOENT. Naming the right file is better than
+// passing shell:true, which would hand the whole argument list to a command interpreter
+// for no benefit.
+const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
 let pass = 0;
 let fail = 0;
 const check = (ok, what, detail) => {
@@ -42,7 +48,7 @@ console.log("1. The tarball");
 
 let packed;
 try {
-  const out = execFileSync("npm", ["pack", "--json", "--pack-destination", work], {
+  const out = execFileSync(NPM, ["pack", "--json", "--pack-destination", work], {
     cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], maxBuffer: 64 * 1024 * 1024,
   });
   // `--json` does not silence the lifecycle scripts it runs, and `prepack` is a full
@@ -90,7 +96,7 @@ writeFileSync(join(home, "package.json"), JSON.stringify({ name: "c64re-716-prob
 
 let installed = false;
 try {
-  execFileSync("npm", ["install", join(work, packed.filename), "--no-audit", "--no-fund", "--loglevel", "error"], {
+  execFileSync(NPM, ["install", join(work, packed.filename), "--no-audit", "--no-fund", "--loglevel", "error"], {
     cwd: home, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], timeout: 10 * 60 * 1000,
   });
   installed = true;
