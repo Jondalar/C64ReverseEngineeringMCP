@@ -1,5 +1,5 @@
 {
-  "total": 296,
+  "total": 298,
   "specCount": 41,
   "advancedCandidate": 110,
   "byNamespace": {
@@ -58,6 +58,7 @@
     "diff": 1,
     "disk": 1,
     "export": 1,
+    "merge": 1,
     "optimisation": 1,
     "pointer": 1,
     "ram": 1,
@@ -71,7 +72,8 @@
     "update": 1,
     "validate": 1,
     "verify": 1,
-    "wiki": 1
+    "wiki": 1,
+    "write": 1
   },
   "tools": [
     {
@@ -467,7 +469,7 @@
       "ns": "contract",
       "hasSpec": false,
       "firstSentence": "Write the project contract: what the human expects delivered.",
-      "desc": "Write the project contract: what the human expects delivered. Use once at kickoff, or when the expectation changes. It may demand FEWER slots than the default fifteen — a game with no save owes no S10. Not for reading back what the project owes (use contract_show). Inputs: goal + deliverables + optional limits. Returns: the stored contract.",
+      "desc": "Write the project contract: what the human expects delivered. Use once at kickoff, or when the expectation changes. It may demand FEWER slots than the default fifteen — a game with no save owes no S10. Also the human's override: `waive` releases an owed promise so the publishing doors open again, and records who waived what and why. Not for reading back what the project owes (use contract_show). Inputs: goal + deliverables + optional limits, or waive + waive_reason + waived_by. Returns: the stored contract, or the recorded waiver.",
       "tier": "default?"
     },
     {
@@ -1110,6 +1112,15 @@
       "tier": "advanced?"
     },
     {
+      "name": "merge_annotations",
+      "file": "server-tools/annotation-doors.ts",
+      "ns": "merge",
+      "hasSpec": false,
+      "firstSentence": "Merge several readings of one payload into one annotations file, refusing every contradiction by naming both sides and recording each resolution as a finding.",
+      "desc": "Merge several readings of one payload into one annotations file, refusing every contradiction by naming both sides and recording each resolution as a finding. Use whenever more than one session, subagent or pass produced annotations for the same bytes — it is the door that replaces a hand-written merge script, and the reason it exists is that such a script keeps its judgements in a scratchpad that dies with the session, so the project never learns the merge was contested. Two fragments saying the same thing collapse into one and you are asked nothing. Two that disagree — one segment start with two ends or kinds, one address with two names, one name at two addresses — are REFUSED, naming the key, every claimant and what each of them claimed. You answer with resolutions: [{ key, winner | value, why }], where `winner` is a fragment name, `value` is an entry neither side proposed, and `why` is required. Each answer is written into the project as a finding carrying who claimed what, which one won and why — that is the point of the door, not the merged file. It refuses a resolution for a key nothing disputes, a winner that claimed nothing there, and a resolution with no reason. Not for writing one reading (use write_annotations), not for a first guess to review (use propose_annotations), and not for rendering the listing afterwards (use disasm). Inputs: fragments, prg_path or output_path, optional resolutions/binary/dry_run/overwrite. Returns: the refusal with both sides named, or the path written, the resolutions recorded, and the findings they became.",
+      "tier": "default?"
+    },
+    {
       "name": "model_assert",
       "file": "server-tools/model.ts",
       "ns": "model",
@@ -1331,7 +1342,7 @@
       "ns": "propose",
       "hasSpec": false,
       "firstSentence": "Generate a DRAFT annotations file (labels, segment reclassifications, routine names, and relocations) from an analysis JSON + optional disasm.",
-      "desc": "Generate a DRAFT annotations file (labels, segment reclassifications, routine names, and relocations) from an analysis JSON + optional disasm. Use to bootstrap semantic annotation before hand-editing. The draft's relocations[] entries are in disasm.relocations shape ({fileStart,fileEnd,runtimeAddr} hex) — copy accepted ones straight into disasm(relocations=[...]) to render relocated loader code as .pseudopc/.logical. When hand-editing the draft, the field shape is: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}] (hex with or without `$`) — a mistyped key (`addr`/`name`) is tolerantly skipped, not applied; disasm reports the skip count. Full reference: docs/annotations-reference.md. Not for saving confirmed knowledge (use save_finding / save_entity); it never overwrites a manual annotations file. Inputs: analysis JSON, optional disasm, persist_questions. Returns: draft annotations path.",
+      "desc": "Generate a DRAFT annotations file (labels, segment reclassifications, routine names, and relocations) from an analysis JSON + optional disasm. Use to bootstrap semantic annotation before hand-editing. The draft's relocations[] entries are in disasm.relocations shape ({fileStart,fileEnd,runtimeAddr} hex) — copy accepted ones straight into disasm(relocations=[...]) to render relocated loader code as .pseudopc/.logical. When hand-editing the draft, the field shape is: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}] (hex with or without `$`) — a mistyped key (`addr`/`name`) is tolerantly skipped, not applied; disasm reports the skip count. Full reference: docs/annotations-reference.md. This door writes a DRAFT to review; it is not how a finished reading is written. Once you know what the ranges and routines ARE, call write_annotations with them — it produces the real `<stem>_annotations.json` that disasm applies and the graph imports, so the draft never has to be hand-edited into shape. What several sessions, subagents or passes produced goes through merge_annotations, which names every contradiction and records who won. Not for saving confirmed knowledge (use save_finding / save_entity); it never overwrites a manual annotations file. Inputs: analysis JSON, optional disasm, persist_questions. Returns: draft annotations path.",
       "tier": "default?"
     },
     {
@@ -2736,6 +2747,15 @@
       "hasSpec": false,
       "firstSentence": "The project's document index, DERIVED from the declarations — never hand-maintained, so it cannot go empty.",
       "desc": "The project's document index, DERIVED from the declarations — never hand-maintained, so it cannot go empty. Use to see what is documented and what covers which address range. Not for the health of those declarations (use doc_lint). Inputs: optional write. Returns: the index; with write=true also saves docs/index.md.",
+      "tier": "default?"
+    },
+    {
+      "name": "write_annotations",
+      "file": "server-tools/annotation-doors.ts",
+      "ns": "write",
+      "hasSpec": false,
+      "firstSentence": "Write the semantic annotation file for a payload from structured input: segments, labels, routines, and the optional pointer/jump/immediate tables.",
+      "desc": "Write the semantic annotation file for a payload from structured input: segments, labels, routines, and the optional pointer/jump/immediate tables. Use whenever you have read a listing and know what its ranges and routines ARE — this is the door that turns that into the `<stem>_annotations.json` that `disasm` applies and the knowledge graph imports, so you never write the JSON by hand or with a script of your own. Every address may be written `43A8`, `$43a8` or `0x43A8` and comes back as bare uppercase hex, so nothing downstream has to normalise. It refuses BEFORE the file exists, naming every offending entry by its own index: two segments on one start (the id the listing and the graph are both keyed on), a routine with no `name`, one address carrying two names, one name at two addresses, a name past the project's length limit, or an output path the importer could not read a stem off. A single offender means nothing is written at all. Not for combining what several sessions or subagents wrote (use merge_annotations, which names every contradiction and records who won), not for a first guess to review by hand (use propose_annotations, which writes a draft), and not for rendering the listing afterwards (use disasm). It will not replace an existing file unless you pass overwrite. Inputs: prg_path or output_path, segments/labels/routines, optional pointerTables/jumpTables/immediates, binary, overwrite. Returns: the path written, what went into it, and the next call that applies it.",
       "tier": "default?"
     }
   ]

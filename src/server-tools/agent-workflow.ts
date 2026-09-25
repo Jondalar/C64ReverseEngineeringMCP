@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { ensureProjectRules, summariseProjectRules } from "../project-rules/provision.js";
 import { resetRuleDelivery } from "../project-rules/deliver.js";
+import { resetAliasNotices } from "./byte-doors.js";
 import { resetStanding } from "../contract/standing.js";
 import { dirname, join, relative, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -419,6 +420,10 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       // so every rule is re-armed here and speaks once more at its own moment.
       try { resetRuleDelivery(projectRoot); } catch { /* best-effort */ }
       try { resetStanding(projectRoot); } catch { /* best-effort */ }
+      // Spec 877 D4 — and the same for the retired names. A server that had already
+      // answered one `analyze_prg` told the next session nothing, because "once" was
+      // held in a process-scoped Set; the ledger is a file now and this re-arms it.
+      try { resetAliasNotices(projectRoot); } catch { /* best-effort */ }
       // Doctrine rule 8 — this is the call every other tool waits for. Marked after the
       // rules are re-armed, so a session that is cleared to work has them in hand.
       markOnboarded(projectRoot);
@@ -698,6 +703,14 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
     },
     async ({ project_dir, step, next_action, note, role, focus, constraints }) => {
       const projectRoot = ctx.projectDir(project_dir);
+      // Spec 877 D1 — a step that says a phase is CLOSED is a delivery claim. A step that
+      // says what was done is not, and is recorded as always: this door is how a session
+      // persists what it learned, and a gate that eats those records would destroy the
+      // very thing the contract is asking for.
+      const teeth = await (await import("../contract/teeth.js")).checkContractTeeth(
+        "agent_record_step", projectRoot, { step, nextAction: next_action },
+      );
+      if (!teeth.allowed) return textContent(teeth.refusal!);
       const service = new ProjectKnowledgeService(projectRoot);
       const project = service.getProjectStatus().project;
       const prev = loadAgentState(projectRoot);

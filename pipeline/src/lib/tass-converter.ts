@@ -59,9 +59,12 @@ export function convertKickAsmToTass(kickAsm: string): string {
     }
 
     // KickAssembler labels: .label foo = $1234 → foo = $1234
+    // The value may be followed by a `//` comment (Spec 877 D5 says which payload a
+    // name came from on the equate line); 64tass would read `//` as an operator, so
+    // the tail goes through the same comment conversion as any other line.
     const labelMatch = converted.match(/^(\s*)\.label\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
     if (labelMatch) {
-      result.push(`${labelMatch[1]}${labelMatch[2]} = ${labelMatch[3]}`);
+      result.push(`${labelMatch[1]}${labelMatch[2]} = ${convertLineComment(labelMatch[3]!)}`);
       continue;
     }
 

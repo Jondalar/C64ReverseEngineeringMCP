@@ -197,6 +197,11 @@ to prevent.
 
 ### 1.1. There is exactly one runtime
 
+<!-- deliberate-limitation: runtime_* — a conditional about EVIDENCE, not a claim
+     about the surface: it says what to do on the day a runtime question has no
+     runtime answer, and the answer is to read the code, never to find a second
+     emulator. It stays worded this way on purpose. -->
+
 **The `runtime_*` MCP tools are the only runtime you have.** There is no
 external emulator to fall back on, no second opinion to consult, and no
 tool that offers one. If a runtime question cannot be answered by
@@ -231,15 +236,26 @@ steer at once, so:
   short "soll ich übernehmen?" — never a blanket "I can only control
   when paused" refusal. The tools never hard-block control; that
   sentence describes courtesy, not a wall.
+<!-- deliberate-limitation: runtime_session_start — it ATTACHES to the one shared
+     machine on purpose (one machine per process); a second in-process session
+     rebinds the process-global VIC and drive and corrupts the first. The tool's
+     own description says the same, and points at runtime_sandbox_run. -->
+
 - **Need to test something that would disturb the live session** (other
   CRT, cold boot, risky poke, run a scenario to the end)? Do NOT
   power-cycle the shared machine, and do NOT expect
   `runtime_session_start` to give you a second one — it deliberately
-  ATTACHES to the existing machine (one machine per process). Start
-  your OWN daemon on your OWN port and drive it over raw WebSocket:
-  **`docs/runtime-sandbox.md`** (copy-paste recipe). The human's
-  session on `:4312` stays untouched; you neither need their
-  permission nor their help to get a sandbox.
+  ATTACHES to the existing machine (one machine per process). Take a
+  machine of your own instead: **`runtime_sandbox_run`** starts a
+  private daemon on its own port as a child of the call, runs your
+  medium and your steps on it, hands back the screen, a frame and the
+  memory you ask for, and ends itself on its budget —
+  `runtime_scene_reel` does the same from a written scenario. The
+  human's session on `:4312` is never reached; you need neither their
+  permission nor their help. Only an INTERACTIVE loop on a private
+  machine (step, breakpoint, monitor, trace) still needs a daemon you
+  start yourself: **`docs/runtime-sandbox.md`** carries that recipe and
+  says when it is the wrong one.
 
 The persistent state lives in:
 

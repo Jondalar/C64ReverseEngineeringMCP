@@ -257,6 +257,28 @@ export class SymbolResolver {
   }
 
   /**
+   * Spec 877 D5 — the name a STATIC listing may print for an address, synchronously.
+   *
+   * A listing is a document about bytes on disk, not a snapshot of a machine, so there
+   * is nothing to compare code bytes against and residency (§4.2) has no answer here —
+   * every candidate counts, whichever payload it belongs to. Everything else is the
+   * live path's rule unchanged: layer precedence user > build > derived, kind rank
+   * inside the winning layer, and two DIFFERENT names of the same kind mean no name.
+   *
+   * EXACT hits only. A containing range would resolve to `table+$A3`, which is a
+   * reading of an address and not something an equate can define.
+   */
+  staticNameAt(space: RuntimeSpace, addr: number): Resolution {
+    const r: ResolveRequest = { space, addr };
+    const { exact } = this.candidatesAt(space, addr, "data");
+    for (const layer of LAYERS) {
+      const inLayer = exact.filter((e) => e.origin === layer);
+      if (inLayer.length > 0) return finish(r, inLayer, 0, []);
+    }
+    return { space, addr, evidence: [] };
+  }
+
+  /**
    * Name → address for the monitor's input (§2): the name's resident entries in the
    * winning layer must agree on ONE address, or there is no answer.
    */

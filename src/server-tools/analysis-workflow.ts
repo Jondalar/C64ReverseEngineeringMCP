@@ -817,7 +817,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       payloadLine.trim(),
       listingArtifactId ? `Artifact: ${listingArtifactId} (re-running with the same arguments updates this row; it does not make a second one).` : "",
       knowledgeRegistration.runPath ? `Knowledge run: ${knowledgeRegistration.runPath}` : (knowledgeRegistration.message ?? ""),
-      aliasNotice(invokedAs),
+      aliasNotice(invokedAs, pd),
     ].filter((line) => line !== "" && line !== undefined).join("\n");
     if (outcome) { outcome.ok = true; outcome.outputPath = outAbs; outcome.verdict = verdictLine; }
     return context.cliResultToContent(result) as { content: { type: "text"; text: string }[] };
@@ -995,7 +995,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     } catch { /* best effort */ }
     const packerSummary = summarizePackerHints(packerHints);
     if (packerSummary.length > 0) result.stdout += `\n${packerSummary.join("\n")}`;
-    const notice = aliasNotice(invokedAs);
+    const notice = aliasNotice(invokedAs, pd);
     if (notice) result.stdout += `\n${notice}`;
     if (outcome) {
       outcome.ok = true;
@@ -1224,8 +1224,20 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
   // ── the old names ─────────────────────────────────────────────────────────
   //
   // They are named in playbooks, in the doctrine, in gates and in project notes
-  // written months ago. Each keeps working for ONE release, renders identically
-  // because it IS the same body, and says so once in its own answer.
+  // written months ago. Each keeps working for ONE release and renders identically
+  // because it IS the same body.
+  //
+  // Each also names its successor ONCE PER SESSION, in the first answer that name
+  // produces — `aliasNotice` in byte-doors.ts keeps that ledger in the project and
+  // `agent_onboard` re-arms it, and the answer says it is the last one that will say
+  // so. Not once per answer: repeated on every listing the sentence becomes furniture.
+  // Not once per PROCESS either, which is what it was until the ledger became a file:
+  // this server outlives a session, so the second session on a globally configured one
+  // was told nothing. And not nowhere, which is what it was worth before the note
+  // carried a reason — a run four days after 866 shipped reached for these names,
+  // found they want a PRG header, and wrote `struct.pack('<H', addr) + data` in front
+  // of every block it extracted. e2e:866 §8.6 asserts all three halves: the first
+  // answer says it, the second does not, and the next session is told again.
 
   server.tool(
     "analyze_prg",
@@ -1418,7 +1430,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
 function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContext): void {
   server.tool(
     "propose_annotations",
-    "Generate a DRAFT annotations file (labels, segment reclassifications, routine names, and relocations) from an analysis JSON + optional disasm. Use to bootstrap semantic annotation before hand-editing. The draft's relocations[] entries are in disasm.relocations shape ({fileStart,fileEnd,runtimeAddr} hex) — copy accepted ones straight into disasm(relocations=[...]) to render relocated loader code as .pseudopc/.logical. When hand-editing the draft, the field shape is: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}] (hex with or without `$`) — a mistyped key (`addr`/`name`) is tolerantly skipped, not applied; disasm reports the skip count. Full reference: docs/annotations-reference.md. Not for saving confirmed knowledge (use save_finding / save_entity); it never overwrites a manual annotations file. Inputs: analysis JSON, optional disasm, persist_questions. Returns: draft annotations path.",
+    "Generate a DRAFT annotations file (labels, segment reclassifications, routine names, and relocations) from an analysis JSON + optional disasm. Use to bootstrap semantic annotation before hand-editing. The draft's relocations[] entries are in disasm.relocations shape ({fileStart,fileEnd,runtimeAddr} hex) — copy accepted ones straight into disasm(relocations=[...]) to render relocated loader code as .pseudopc/.logical. When hand-editing the draft, the field shape is: labels[{address,label,comment?}], routines[{address,name,comment?}], segments[{start,end,kind,label?,comment?}] (hex with or without `$`) — a mistyped key (`addr`/`name`) is tolerantly skipped, not applied; disasm reports the skip count. Full reference: docs/annotations-reference.md. This door writes a DRAFT to review; it is not how a finished reading is written. Once you know what the ranges and routines ARE, call write_annotations with them — it produces the real `<stem>_annotations.json` that disasm applies and the graph imports, so the draft never has to be hand-edited into shape. What several sessions, subagents or passes produced goes through merge_annotations, which names every contradiction and records who won. Not for saving confirmed knowledge (use save_finding / save_entity); it never overwrites a manual annotations file. Inputs: analysis JSON, optional disasm, persist_questions. Returns: draft annotations path.",
     {
       project_dir: z.string().optional(),
       analysis_json: z.string().describe("Path to the *_analysis.json file (relative to project_dir)."),

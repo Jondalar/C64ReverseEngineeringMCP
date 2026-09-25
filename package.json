@@ -12,6 +12,7 @@
     "e2e:846-critic": "node scripts/e2e-846-critic.mjs",
     "e2e:847-docs": "node scripts/e2e-847-docs.mjs",
     "e2e:848-contract": "node scripts/e2e-848-contract.mjs",
+    "e2e:877-teeth": "node scripts/e2e-877-teeth.mjs",
     "check:esm-require": "node scripts/check-esm-require.mjs",
     "dev": "tsx watch src/cli.ts",
     "build": "tsc -p tsconfig.json && tsc -p pipeline/tsconfig.json && node scripts/fix-pipeline-ext.mjs && node dist/platform-kb/seed.js",
@@ -20,6 +21,7 @@
     "check:cart-type-ids": "node scripts/check-cart-type-ids.mjs",
     "check:cycle-table": "node scripts/check-cycle-table.mjs",
     "check:docs-current": "node scripts/check-docs-current.mjs",
+    "check:doc-capability-claims": "npm run build:mcp && node scripts/gen-tool-surface-inventory.mjs >/dev/null && node scripts/check-doc-capability-claims.mjs",
     "check:text-only-tools": "node scripts/check-text-only-tools.mjs",
     "check:legacy-store-writers": "node scripts/check-no-legacy-store-writers.mjs",
     "e2e:onboarding-gate": "npm run build:mcp && node scripts/e2e-onboarding-gate.mjs",
@@ -118,6 +120,7 @@
     "e2e:865": "npm run build && node scripts/e2e-865-disasm-raw.mjs",
     "e2e:867-window": "npm run build && node scripts/e2e-867-window.mjs",
     "e2e:866": "npm run build && node scripts/e2e-866-two-doors.mjs",
+    "e2e:877-equates": "npm run build && node scripts/e2e-877-equates.mjs",
     "e2e:060-bulk": "npm run build && node scripts/e2e-060-bulk-doors.mjs",
     "e2e:060-slot-title": "npm run build:mcp && node scripts/e2e-060-slot-title.mjs",
     "smoke:867": "npm run build && node scripts/smoke-867-residency.mjs",
@@ -212,7 +215,9 @@
     "e2e:849-rules": "node scripts/e2e-849-rules.mjs",
     "e2e:849-standing": "node scripts/e2e-849-standing.mjs",
     "e2e:bug060-code-tail": "npm run build && node scripts/e2e-bug060-code-tail.mjs",
-    "e2e:bug060-dup-segment": "npm run build && node scripts/e2e-bug060-duplicate-segment.mjs"
+    "e2e:bug060-dup-segment": "npm run build && node scripts/e2e-bug060-duplicate-segment.mjs",
+    "e2e:877-write": "npm run build && node scripts/e2e-877-annotations-write.mjs",
+    "e2e:877-merge": "npm run build && node scripts/e2e-877-annotations-merge.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

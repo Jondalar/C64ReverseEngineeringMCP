@@ -1,23 +1,64 @@
-# Isolated runtime sandbox — how to test without touching the live session
+# A machine of your own — how to test without touching the live session
 
 **Problem this solves.** You want to try something on a C64 that would disturb the
 human's live session (mount a different CRT, cold-boot, poke, run a scenario to the
-end). The MCP `runtime_*` tools cannot give you that: they are all pinned to the ONE
-product daemon (`ws://127.0.0.1:4312`), and `runtime_session_start` deliberately
-**attaches** to the existing machine instead of building a second one (Spec 744
-shared-attach; see CLAUDE.md "One Machine Per Process"). So calling it again just puts
-you back on `integrated-1`.
+end). The shared session is exactly one machine and it is never power-cycled for a
+test, so isolation comes from a **second process** — never from a second in-process
+session.
 
-**The rule:** one daemon process = exactly ONE live machine. Isolation therefore comes
-from a **second process**, never from a second in-process session.
+**The answer: `runtime_sandbox_run`.** It starts that second process for you. A
+private daemon on its own port, born as a child of the call, born with a budget, and
+ending itself when the budget runs out — whether or not anyone is still listening.
+Nothing is mounted into the shared machine, nothing power-cycles it, nothing you do
+reaches the human's UI, and nothing is left running behind you.
 
-**The answer:** start your own daemon on your own port and drive it over raw
-WebSocket. Do NOT use the MCP `runtime_*` tools for this — they are for the shared
-session. The human's session on `:4312` stays completely untouched.
+Give it the medium, a schedule of steps, and say what you want read back:
+
+```jsonc
+runtime_sandbox_run {
+  "media_path": "artifacts/crt/spiel.crt",     // .crt/.d64/.g64/.d81/.prg/.c64re — by CONTENT, not extension
+  "steps": [
+    "I wait 170 frames",
+    "I type \"LOAD{QUOTE}*{QUOTE},8,1{RETURN}\"",
+    "I wait until the drive is idle within 8000 frames",
+    "I wait until the CPU reaches $0810 within 4000 frames",
+    "I hold joystick 2 fire for 3 frames"
+  ],
+  "read_memory": ["$0400:1000", "$d020:2@io", "$a000:16@ram"],
+  "frame_path": "analysis/sandbox/after-load.gif",
+  "model": "c64-ntsc",                          // omitted: the project's model, else PAL
+  "budget_seconds": 120                         // max 600; the machine ends itself at it
+}
+```
+
+Back comes the private port, which C64 it was, a line per step, every wait with the
+cycle it fired on, the end cycle + PC + registers, the 40x25 text screen, and the
+memory you asked for as a hex dump. The steps are the capture-scenario notation, one
+per line; every step that lasts carries its own duration and the machine is stopped
+between steps, so **the same list replays to the same bytes**.
+
+<!-- deliberate-limitation: runtime_sandbox_run — it returns no session id BY DESIGN
+     (Spec 836): a sandbox you could come back to would be a second shared machine,
+     and there is exactly one of those. This limit is the tool's shape, not drift. -->
+
+**What it cannot give you, deliberately: a machine that is still there afterwards.**
+`runtime_sandbox_run` returns no session id. The machine is gone before you read the
+answer, so nothing can attach to it, step it, breakpoint it, open the monitor on it,
+trace it or read its memory a second time. Ask for everything you want in THAT call.
+
+That leaves exactly one case for the raw recipe below: **an interactive loop on a
+machine that is not the shared one** — stepping, breakpoints, the monitor REPL, a
+trace you start and stop, memory you read, then poke, then read again, each decision
+made after seeing the last answer. If your loop is interactive but the machine may be
+the shared one, use `runtime_session_start` and the `runtime_*` tools instead; if your
+work is a written scenario that should come back as a reel, use `runtime_scene_reel`,
+which is the same private daemon with a `.feature` file in front of it.
 
 ---
 
-## Recipe
+## The raw recipe — an interactive private machine
+
+Only for the case above. Everything else is one `runtime_sandbox_run` call.
 
 ### 1. Start a sandbox daemon on its own port
 
@@ -67,13 +108,18 @@ const mem  = await call("monitor/exec", { command: "m 1000 1010" });  // VICE-su
 ws.close();
 ```
 
+Use a breakpoint (`monitor/exec "bk <addr>"`) to stop ON the instruction. Polling the
+PC every N frames answers a different, worse question — where the PC happened to be
+when you looked.
+
 ### 3. Clean up — always
 
 ```bash
 pkill -f "trx64-daemon --port 4333"
 ```
 
-A forgotten sandbox daemon keeps running and pegs a core.
+A forgotten sandbox daemon keeps running and pegs a core. That is the whole reason
+`runtime_sandbox_run` carries a budget: it ends itself, so there is nothing to forget.
 
 ---
 
@@ -90,11 +136,13 @@ A forgotten sandbox daemon keeps running and pegs a core.
 | `session/joystick_set` `{port, up/down/left/right/fire}` / `session/joystick_clear` | input |
 | `session/type` `{text}` | PETSCII keyboard |
 | `session/screenshot` | one PNG (`dataUrl`) |
-| `monitor/exec` `{command}` | monitor: `m`/`d`/`wr`/`trace`/`undump`… |
+| `monitor/exec` `{command}` | monitor: `m`/`d`/`wr`/`bk`/`trace`/`undump`… |
 | `trace/start_domains` `{output, domains}` | start a trace; `monitor/exec "trace off"` finalizes + reports `eventCount` |
 
 Monitor gotchas: memory **write** is `wr <addr> <bytes>` (not `>`), and `m` output is
-row-aligned — parse the `>C:ADDR` prefix rather than assuming your start address.
+row-aligned — parse the `>C:ADDR` prefix rather than assuming your start address. Do
+not regex the monitor's text dump back into bytes when all you wanted was memory:
+`runtime_sandbox_run`'s `read_memory` hands you the bytes, with a lens.
 
 ---
 
@@ -124,8 +172,9 @@ trx64cli boot --disk spiel.crt --warmup 5000000 --cycles 2000000 \
 
 **Point the MCP tools at another daemon** — `C64RE_RUNTIME_ENDPOINT=ws://127.0.0.1:4333`.
 Possible, but it is an MCP-**server** env: it redirects *all* `runtime_*` tools and needs
-an `/mcp` reconnect, so you lose access to the live session for the rest of the session.
-Fine for a dedicated sandbox-only session; wrong while co-driving. Prefer raw WS.
+an `/mcp` reconnect, so you lose the live session for the rest of the session. Fine for a
+dedicated sandbox-only session; wrong while co-driving, and unnecessary now that
+`runtime_sandbox_run` brings its own machine per call.
 
 ---
 
@@ -135,14 +184,18 @@ Fine for a dedicated sandbox-only session; wrong while co-driving. Prefer raw WS
 |---|---|
 | Read the human's live machine (memory, registers, render, scrub) | MCP `runtime_*` on `:4312` — reads don't disturb it |
 | Human invited you to drive their session | MCP `runtime_*` on `:4312` (doctrine §1.2) |
-| Try a different CRT / cold-boot / risky poke / run to the end | **sandbox daemon on your own port** (this doc) |
-| Deterministic tool/logic test, no watching | sandbox daemon **`--headless`** |
-| Just boot something and look at one frame | `trx64cli boot … --render` |
+| Try a different CRT / cold-boot / risky poke / run to the end | **`runtime_sandbox_run`** — one call, its own machine, ends itself |
+| Deterministic tool/logic test, no watching | **`runtime_sandbox_run`** with explicit `I wait N frames` steps |
+| A written scenario that should come back as a reel | `runtime_scene_reel` (same private daemon, `.feature` in front) |
+| Run a 6502 routine with no VIC/CIA/drive around it | `sandbox_6502_run`, or `sandbox_depack` for a game's own depacker |
+| Step / breakpoint / monitor / trace, interactively, NOT on the shared machine | raw WS daemon on your own port (this doc) |
+| Just boot something and look at one frame | `runtime_sandbox_run` with `frame_path`, or `trx64cli boot … --render` |
 
 Never power-cycle the shared session to "make room" for a test — the human's state
-(game progress, mounted media, checkpoint ring) is lost. Spin up your own process.
+(game progress, mounted media, checkpoint ring) is lost. Take a machine of your own.
 
 Cross-links: CLAUDE.md "One Machine Per Process (Session Isolation)",
 `docs/agent-doctrine.md` §1.2 (live-session control),
+`docs/tools/sandbox.md` (the sandbox tools in full),
 `docs/headless-runtime-singleton-audit.md` (why the core is single-machine — its
 subject is deleted, its argument is not).

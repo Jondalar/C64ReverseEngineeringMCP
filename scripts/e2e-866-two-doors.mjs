@@ -88,6 +88,51 @@ const call = async (name, args) => {
   return (r.result?.content || []).map((c) => c.text).join("\n");
 };
 
+/**
+ * A SECOND server process over the same project. Spec 877 D4's "once" is bounded by the
+ * session, and this server outlives the session: the answer that matters is the one a
+ * different process gives the next session, which a single-process gate cannot see.
+ */
+async function session(clientName) {
+  const p = spawn(process.execPath, [cli], {
+    cwd: tmpdir(),
+    env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let b = "";
+  const waiting = new Map();
+  let id2 = 1;
+  p.stdout.on("data", (d) => {
+    b += d.toString();
+    let nl;
+    while ((nl = b.indexOf("\n")) >= 0) {
+      const ln = b.slice(0, nl).trim();
+      b = b.slice(nl + 1);
+      if (!ln) continue;
+      let m;
+      try { m = JSON.parse(ln); } catch { continue; }
+      if (m.id != null && waiting.has(m.id)) { waiting.get(m.id)(m); waiting.delete(m.id); }
+    }
+  });
+  p.stderr.on("data", () => {});
+  const rpc2 = (method, params) => new Promise((res, rej) => {
+    const id = id2++;
+    const t = setTimeout(() => { waiting.delete(id); rej(new Error(`timeout ${method}`)); }, 180000);
+    waiting.set(id, (m) => { clearTimeout(t); res(m); });
+    p.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+  });
+  await rpc2("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: clientName, version: "1" } });
+  p.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+  return {
+    async call(name, args) {
+      const r = await rpc2("tools/call", { name, arguments: args });
+      if (r.error) throw new Error(`${name}: ${JSON.stringify(r.error)}`);
+      return (r.result?.content || []).map((c) => c.text).join("\n");
+    },
+    close() { try { p.kill(); } catch { /* already gone */ } },
+  };
+}
+
 /** The listing's body: everything after the `.pc =` line, trimmed, blanks dropped. */
 const body = (asm) => {
   const lines = asm.split("\n");
@@ -353,6 +398,11 @@ try {
 
   // ── §8.6 the old names work and say so ────────────────────────────────────
   head(6, "the old names render identically and each names its successor, once");
+  // ORDER MATTERS HERE (Spec 877 D4): the note is once per SESSION, so the three
+  // calls below must be the FIRST this script makes under each retired name. A new
+  // section that reaches for disasm_prg / disasm_raw / analyze_prg earlier spends the
+  // announcement and this block fails for a reason that has nothing to do with it —
+  // and a new `agent_onboard` anywhere above re-arms it, which breaks it the other way.
   {
     const viaOld = await call("disasm_prg", { prg_path: "artifacts/prg/twin.prg", output_asm: "analysis/alias/twin_prg.asm" });
     const oldBody = body(readFileSync(outputOf(viaOld), "utf8"));
@@ -365,6 +415,20 @@ try {
       "…and says so once, naming its successor",
       viaOld.split("\n").find((l) => l.startsWith("Note: "))?.slice(0, 120));
     check((viaOld.match(/is now `disasm`/g) ?? []).length === 1, "…exactly once, not on every line");
+
+    // Spec 877 D4 — ONCE PER SESSION, not once per answer. A session is told where a
+    // retired name went the first time it uses it; after that the note is noise on
+    // every listing, and noise is how the sentence stops being read.
+    check(/last answer that will say so/.test(viaOld),
+      "…and the answer says it is the only one that will say it");
+    const twiceOld = await call("disasm_prg", {
+      prg_path: "artifacts/prg/twin.prg", output_asm: "analysis/alias/twin_prg_again.asm",
+    });
+    check(!/is now `disasm`/.test(twiceOld),
+      "…once per SESSION: the second disasm_prg answer does not repeat it",
+      twiceOld.split("\n").find((l) => l.startsWith("Note: ")) ?? "no Note line — correct");
+    check(body(readFileSync(outputOf(twiceOld), "utf8")).length === oldBody.length,
+      "…and the second answer still renders the same listing — the note went, nothing else did");
 
     const viaRawOld = await call("disasm_raw", {
       path: "artifacts/blocks/twin.bin", load_address: "C000", no_analysis: true,
@@ -382,8 +446,69 @@ try {
       viaAnalyzeOld.split("\n").find((l) => l.startsWith("Note: "))?.slice(0, 120));
     check(/^Reading: no load_address given/m.test(viaAnalyzeOld),
       "…and still states its reading, like every other answer");
+    // The measured consequence of NOT saying this: a run four days after 866 shipped
+    // reached for analyze_prg / disasm_prg, those want a header, so it wrote
+    // `struct.pack('<H', addr) + data` in front of every block it extracted — the
+    // fake load headers 865 exists to abolish. The note names the OLD door as the one
+    // that wanted a header, and says outright not to invent one.
+    check(/analyze_prg took a PRG and nothing else/.test(viaAnalyzeOld),
+      "…and names the OLD door as the one that took a PRG — not its successor",
+      viaAnalyzeOld.split("\n").find((l) => l.startsWith("Note: "))?.slice(0, 200));
+    for (const [name, answer] of [["analyze_prg", viaAnalyzeOld], ["disasm_prg", viaOld], ["disasm_raw", viaRawOld]]) {
+      check(/never (?:invent|write|pack) a 2-byte (?:load )?header/i.test(answer),
+        `${name}'s note says not to invent a load header to get bytes through`,
+        answer.split("\n").find((l) => /2-byte/.test(l))?.slice(-130));
+    }
     check(!/is now `disasm`/.test(await call("disasm", { path: "artifacts/prg/twin.prg", output_asm: "analysis/alias/twin_new.asm" })),
       "the new name carries no such note — a successor has nothing to point at");
+
+    // "Once" is bounded by the SESSION, not by the process. This server outlives a
+    // session and serves several projects at once: a globally configured one that has
+    // already answered a disasm_prg hands the next session nothing, and the next
+    // session is precisely the one that has not been told. `agent_onboard` is what
+    // marks a session's start — the call every session makes first, and the one it
+    // makes again after a compaction — so it re-arms the note, exactly as 849 D5
+    // re-arms the project rules. Everything above this line runs inside ONE session
+    // and cannot see that; this is the half that can.
+    await call("agent_onboard", {});
+    const afterOnboard = await call("disasm_prg", {
+      prg_path: "artifacts/prg/twin.prg", output_asm: "analysis/alias/twin_prg_session2.asm",
+    });
+    check(/disasm_prg is now `disasm`/.test(afterOnboard),
+      "a new session is told again: agent_onboard re-arms the note",
+      afterOnboard.split("\n").find((l) => l.startsWith("Note: "))?.slice(0, 120) ?? "no Note line");
+    const stillOnce = await call("disasm_prg", {
+      prg_path: "artifacts/prg/twin.prg", output_asm: "analysis/alias/twin_prg_session2b.asm",
+    });
+    check(!/is now `disasm`/.test(stillOnce),
+      "…and once more means once in THAT session too",
+      stillOnce.split("\n").find((l) => l.startsWith("Note: ")) ?? "no Note line — correct");
+    const analyzeAfter = await call("analyze_prg", {
+      prg_path: "artifacts/prg/twin.prg", output_json: "analysis/alias/twin_analysis_s2.json",
+    });
+    check(/analyze_prg is now `analyze`/.test(analyzeAfter),
+      "…and every retired name is re-armed, not just the one that was called",
+      analyzeAfter.split("\n").find((l) => l.startsWith("Note: "))?.slice(0, 120) ?? "no Note line");
+
+    // The ledger is a file for the same reason 849's is: process state cannot survive
+    // the process, and the answer this gate is written about is the one a DIFFERENT
+    // process gives. A second server over the same project, onboarding as any session
+    // does, is told; and a third that does not onboard is not told twice.
+    const second = await session("e2e-866-session2");
+    try {
+      await second.call("agent_onboard", {});
+      const fresh = await second.call("disasm_prg", {
+        prg_path: "artifacts/prg/twin.prg", output_asm: "analysis/alias/twin_prg_proc2.asm",
+      });
+      check(/disasm_prg is now `disasm`/.test(fresh),
+        "another process, same project: the session that onboards is told",
+        fresh.split("\n").find((l) => l.startsWith("Note: "))?.slice(0, 120) ?? "no Note line");
+      const again = await second.call("disasm_prg", {
+        prg_path: "artifacts/prg/twin.prg", output_asm: "analysis/alias/twin_prg_proc2b.asm",
+      });
+      check(!/is now `disasm`/.test(again), "…and told once there as well",
+        again.split("\n").find((l) => l.startsWith("Note: ")) ?? "no Note line — correct");
+    } finally { second.close(); }
   }
 
   // ── §8.7 nothing is invented ──────────────────────────────────────────────
