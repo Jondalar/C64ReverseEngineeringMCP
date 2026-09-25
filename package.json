@@ -235,7 +235,8 @@
     "e2e:877-write": "npm run build && node scripts/e2e-877-annotations-write.mjs",
     "e2e:877-merge": "npm run build && node scripts/e2e-877-annotations-merge.mjs",
     "prepack": "npm run build",
-    "e2e:716-package": "node scripts/e2e-716-package.mjs"
+    "e2e:716-package": "node scripts/e2e-716-package.mjs",
+    "e2e:716-runtime": "node scripts/e2e-716-runtime.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

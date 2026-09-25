@@ -1,6 +1,8 @@
 # Spec 716 — C64RE distribution: npm package + the runtime beside it
 
-**Status:** READY 2026-09-25 (was SCOPED 2026-08-11, DRAFT 2026-05-24).
+**Status:** BUILT 2026-09-25 on `spec-716-npm-distribution` — 716.1 through 716.5 and
+716.3b. Only 716.6 (publish) is open, and it waits on an explicit approval by design.
+(Was READY 2026-09-25, SCOPED 2026-08-11, DRAFT 2026-05-24.)
 **Repo:** C64RE, plus one TRX64 change that is now in scope (§4.5, §6.3).
 **Counterpart:** [801](_archive/801-artifact-distribution.md) did this for TRX64 and is
 closed. This is the C64RE half it deferred.
@@ -169,31 +171,53 @@ missing runtime, which since Spec 806 is a first-class install failure with no f
 
 ## 6. Slices
 
-**716.1 — Truth.** Establish the Node LTS baseline from a build and a smoke. List the
-minimum runtime assets and environment variables. *Exit:* no undocumented prerequisite for
-MCP startup.
+**716.1 — Truth. BUILT.** The baseline is Node 22 LTS, and the requirement behind it is
+not a number: it is the built-in `node:sqlite` that carries the graph and the platform
+reference. `engines.node` is a warning at install time and nothing at run time, and the
+exact 22.x that first shipped the module unflagged would have been guessed rather than
+measured — so `cli.ts` checks whether *this* Node can import it and says so naming the
+version in play. Runtime assets: `resources/platform-kb.sqlite` and
+`resources/fingerprints/bundled/`, and nothing else under `resources/` is read at run time.
 
-**716.2 — The package gate.** §3 in full: manifest, `prepack`, pack-and-install proof in a
-clean directory. *Exit:* a tarball that starts and answers, with an audited file list.
-**This slice depends on no open decision and is the whole of the risk.**
+**716.2 — The package gate. BUILT.** `scripts/e2e-716-package.mjs`, 26/0. Red first, and
+red in the way that mattered: seventeen failures ending in "cannot load module", because
+`dist/` is gitignored and the tarball carried sources and no server. 1373 files / 23.2 MB →
+642 files / 8.2 MB, 1.8 MB packed. Runtime dependencies 13 → 4. One real defect fell out of
+it: `c64ref_lookup` required a 27 MB derived snapshot that is in no package and whose
+builder fetches from the network, so every install answered `knowledge_missing`; it now
+answers from the platform KB that ships.
 
-**716.3 — The runtime beside it.** §4.1–4.4, with the protocol/version agreement gate.
-*Exit:* a machine with neither a checkout nor Homebrew reaches a running daemon in one
-command, and a mismatched pin fails loudly at build time rather than quietly at the user.
+**716.3 — The runtime beside it. BUILT.** `scripts/e2e-716-runtime.mjs`, 39/0.
+`src/runtime/install-daemon.ts` maps platform → release asset, verifies the published
+`.sha256`, unpacks into a per-version cache; `runtime_install` and
+`npx c64re-mcp runtime install` are one implementation. Resolution gained the cache and
+`PATH`, cache first because it holds exactly the pinned release. The pin is
+`REQUIRED_TRX64_VERSION` beside the protocol constant, cross-checked against the sibling
+checkout's workspace version *and* the daemon's own `RUNTIME_VERSION` string. Proved live,
+not only in unit form: the fetched 0.9.2 daemon reports 0.9.2 and speaks
+`trx64-runtime/2`.
 
-**716.4 — Versioning contract.** Pre-1.0 semver written down: minor may break, patch does
-not intentionally change MCP tool schemas, `.c64re` compatibility or invocation. Tag
-`v<version>`; the package's version is the one authority. *Exit:* `0.1.0` means something.
+**716.4 — Versioning contract. BUILT.** Written down in `INSTALL.md`: minor may break,
+patch does not intentionally change tool schemas, `.c64re` compatibility or invocation;
+`package.json` is the one authority and a release is tagged `v<version>`; and the pinned
+TRX64 release moves with it, because the protocol match is exact.
 
-**716.5 — `INSTALL.md`.** §5 in full: five platform routes, each validated on its shell or
-in CI before it may be called supported.
+**716.5 — `INSTALL.md`. BUILT.** Three audiences, five routes, and the three-part install
+stated up front — package, runtime, ROMs — because the third part is the one nobody warns
+about. `README.md` keeps a quick-start and links here. Validation is honest rather than
+claimed: macOS and Linux/container are exercised by the gates; the Windows and WSL2 sections
+are written from the shape of the problem (path quoting, `$env:`, the filesystem boundary)
+and are marked in this spec as not yet run on those shells — §9's first follow-up.
 
-**716.3b — `macos-x86_64` in TRX64.** The cross-build entry of §4.5, and the `Package` step
-taught to take its binary directory from the matrix. Carried across rather than deferred —
-"→ TRX64" is this owner's own work, not a handoff.
+**716.3b — `macos-x86_64` in TRX64. BUILT.** The gate found this itself: the installer
+claimed to serve `darwin-x64` and the release workflow built no such target. A cross-build
+entry from `macos-latest`, not a `macos-13` runner label GitHub is retiring; `--target`
+threaded through, one `$BINDIR` computed from the matrix and read by every step below it,
+and a static proof step for the cross entry because an arm64 runner cannot run an x86_64
+binary without Rosetta. Six targets now.
 
-**716.6 — Publish.** GO only after 716.2 and 716.3 are green, and only on explicit
-approval.
+**716.6 — Publish. OPEN by design.** Both gates are green. Publishing is a separate,
+explicit act and has not been taken.
 
 ## 7. Acceptance
 
@@ -230,3 +254,16 @@ Consequences, all now in scope:
   (§4.5, slice 716.3b).
 - Publication still needs its own explicit approval (716.6). Deciding that npm is supported
   is not deciding to publish today.
+
+## 10. What is not yet proved
+
+Stated rather than implied, so nobody reads a green board as more than it is:
+
+- **Windows PowerShell and WSL2 have not been run.** Those sections of `INSTALL.md` are
+  written from the shape of the problem, not from a session on those shells. Until someone
+  runs them they are documentation, not validation, and §5's own rule says a route may not
+  be called supported before it is exercised.
+- **The Intel-Mac cross build has not been through a release run.** It is one matrix entry
+  and a static proof step; the first `v*` tag after this is where it is actually measured.
+- **`npx -y @c64re/mcp` cannot be true until 716.6.** Everything in `INSTALL.md` that names
+  the registry describes the package this spec built and has not published.

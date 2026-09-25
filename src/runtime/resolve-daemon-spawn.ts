@@ -27,6 +27,7 @@
 import { existsSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 import { projectMachineModel } from "../project-knowledge/machine-model.js";
+import { cachedDaemonPath } from "./install-daemon.js";
 
 export type DaemonSpawnMode = "external-bin" | "none";
 
@@ -123,7 +124,41 @@ export function resolveDaemonSpawn(opts: {
     return { cmd: trx64, args: [...stdArgs, ...m.args, ...extra], mode: "external-bin", model: m.model, modelFrom: m.modelFrom };
   }
 
+  // 3) Spec 716.3 — the copy `runtime_install` manages, then whatever is on PATH.
+  //
+  // Both are new because the three candidates above are all CHECKOUT shapes: two env vars
+  // somebody has to know about, and a sibling directory that only exists next to a clone.
+  // An installed C64RE had no fourth answer and fell straight through to "none".
+  //
+  // Cache before PATH on purpose. The cache holds exactly the release this build is
+  // pinned to; PATH holds whatever the machine happens to carry, which may be a `brew
+  // install trx64` from six months ago. PATH is still consulted, because ignoring a
+  // deliberate install would be its own surprise, and a wrong version is caught by the
+  // protocol handshake rather than silently tolerated.
+  const extraArgs = () => (process.env.C64RE_RUNTIME_BIN_ARGS?.trim() || "").split(/\s+/).filter(Boolean);
+  for (const candidate of [cachedDaemonPath(), daemonOnPath()]) {
+    if (!candidate || !existsSync(candidate)) continue;
+    const extra = extraArgs();
+    const m = modelArgs(opts.model, projectDir, extra);
+    return { cmd: candidate, args: [...stdArgs, ...m.args, ...extra], mode: "external-bin", model: m.model, modelFrom: m.modelFrom };
+  }
+
   // Not built → "none" makes the caller surface the actionable setup recipe. There is
   // no fallback tier to downgrade to (Spec 806).
   return { cmd: "", args: [], mode: "none" };
+}
+
+/**
+ * `trx64-daemon` on PATH, or null. Resolved by walking PATH rather than by shelling out to
+ * `which`/`where`: one code path on three platforms, and no process per lookup.
+ */
+function daemonOnPath(): string | null {
+  const exe = `trx64-daemon${process.platform === "win32" ? ".exe" : ""}`;
+  const parts = (process.env.PATH || "").split(process.platform === "win32" ? ";" : ":");
+  for (const dir of parts) {
+    if (!dir) continue;
+    const p = resolvePath(dir, exe);
+    if (existsSync(p)) return p;
+  }
+  return null;
 }

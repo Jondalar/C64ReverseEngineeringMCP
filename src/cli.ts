@@ -4,6 +4,7 @@ import { resolve, dirname } from "node:path";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { startStdioServer } from "./server.js";
+import { createRequire } from "node:module";
 
 // MCP lifecycle forensics — the stdio server "disconnects" in the field with
 // no trace of WHO killed it (signal? stdin EOF from the host? crash? OOM?).
@@ -25,6 +26,24 @@ function lifecycle(event: string, detail?: Record<string, unknown>): void {
 // Spec 044: subcommand router. `c64re setup <agent>` patches the
 // CLAUDE.md / agent config; everything else (the default) launches
 // the MCP stdio server.
+// Spec 716.1 — the one prerequisite that is not a version number.
+//
+// The knowledge graph and the platform KB are `node:sqlite`, which arrived during the
+// Node 22 line. Declaring `engines.node` is a warning at install time and nothing at run
+// time, and picking the exact 22.x that first carried the module unflagged would be a
+// number guessed rather than measured. So the requirement is checked as what it actually
+// is — can this Node import the module — and the failure says the Node in play, not a
+// stack trace from somewhere deep in the graph.
+try {
+  createRequire(import.meta.url)("node:sqlite");
+} catch {
+  console.error(
+    `c64re needs a Node with the built-in SQLite module; this is Node ${process.version}, which does not have it.\n`
+    + "Install Node 22 LTS or newer and start c64re with that one. Nothing else about the install changes.",
+  );
+  process.exit(1);
+}
+
 const argv = process.argv.slice(2);
 if (argv[0] === "graph") {
   // Spec 818 D8: `c64re graph <verb>` — the CLI over the knowledge-graph query
@@ -45,6 +64,35 @@ if (argv[0] === "graph") {
     console.error(`[c64re doc] ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
+} else if (argv[0] === "runtime" && argv[1] === "install") {
+  // Spec 716.3: `npx c64re-mcp runtime install`. The same code the `runtime_install` tool
+  // runs, reachable without a harness — someone setting up an MCP host has no session yet
+  // in which to call a tool, which is exactly the moment they need the daemon.
+  if (argv.includes("--help") || argv.includes("-h")) {
+    console.error([
+      "c64re-mcp runtime install [--force]",
+      "",
+      "  Fetches the TRX64 runtime daemon this C64RE is pinned to, verifies the checksum",
+      "  published beside it, and unpacks it into a per-version cache directory. Nothing is",
+      "  installed into the system and an existing daemon is never touched.",
+      "",
+      "  --force   re-download even when the pinned version is already in the cache",
+      "",
+      "  ROMs are separate and are yours to supply: point C64RE_ROOT at a directory whose",
+      "  resources/roms holds them.",
+    ].join("\n"));
+  } else {
+  await import("./runtime/install-daemon.js").then(async (mod) => {
+    const force = argv.includes("--force");
+    const r = await mod.installDaemon({ force });
+    console.error(r.alreadyPresent
+      ? `trx64-daemon ${r.version} is already here: ${r.path}`
+      : `trx64-daemon ${r.version} installed: ${r.path} (${(r.bytes / 1024 / 1024).toFixed(1)} MB, sha256 verified)`);
+  }).catch((error: unknown) => {
+    console.error(`[c64re runtime install] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
+  }
 } else if (argv[0] === "setup") {
   await import("./setup-cli.js").then(async (mod) => {
     await mod.runSetup(argv.slice(1));

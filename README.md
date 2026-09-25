@@ -102,27 +102,28 @@ Details: [workflow](docs/workflow.md) · [roles](docs/agent-doctrine.md) ·
 ## Setup
 
 ```bash
-git clone https://github.com/Jondalar/C64ReverseEngineeringMCP.git
-cd C64ReverseEngineeringMCP && npm install && npm run build
+npx -y @c64re/mcp          # the server
+npx c64re-mcp runtime install   # the machine it drives
 ```
 
-**Claude Code** — `.mcp.json` at your RE-project root:
+Then point your harness at it and give it a project directory:
 
 ```json
 {
   "mcpServers": {
     "c64-re": {
       "command": "npx",
-      "args": ["tsx", "/path/to/C64ReverseEngineeringMCP/src/cli.ts"],
+      "args": ["-y", "@c64re/mcp"],
       "env": { "C64RE_PROJECT_DIR": "/path/to/your/re-project" }
     }
   }
 }
 ```
 
-**Codex** — `[mcp_servers.c64re]` with `command = "zsh"` and the same `tsx src/cli.ts`
-invocation. `C64RE_PROJECT_DIR` is the only required variable; the runtime daemon is
-found as the sibling TRX64 build and started on first use.
+ROM images are yours to supply — they are Commodore's property and are in no package.
+
+Full setup, including a source checkout, Codex, Windows, WSL2 and containers, plus what to
+do when it does not work: **[INSTALL.md](INSTALL.md)**.
 
 ## The workbench
 
