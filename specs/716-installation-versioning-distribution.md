@@ -1,6 +1,8 @@
 # Spec 716 — C64RE distribution: npm package + the runtime beside it
 
-**Status:** READY 2026-09-25 (was SCOPED 2026-08-11, DRAFT 2026-05-24).
+**Status:** BUILT 2026-09-25 on `spec-716-npm-distribution` — 716.1 through 716.5 and
+716.3b. Only 716.6 (publish) is open, and it waits on an explicit approval by design.
+(Was READY 2026-09-25, SCOPED 2026-08-11, DRAFT 2026-05-24.)
 **Repo:** C64RE, plus one TRX64 change that is now in scope (§4.5, §6.3).
 **Counterpart:** [801](_archive/801-artifact-distribution.md) did this for TRX64 and is
 closed. This is the C64RE half it deferred.
@@ -81,10 +83,26 @@ From `npm pack` installed into an empty temporary directory:
    resolves;
 4. the tarball contains no sample, no trace, no session output and no `.git*` hook.
 
-### 3.3 Name
+### 3.3 Name — decided 2026-09-26
 
-`@c64re/mcp`. Scoped, free, and it leaves room for `@c64re/*` siblings later without
-renaming the first one. §9 carries this as the one open decision.
+**`@trex64/c64re`**, executable `c64re`.
+
+Scoped, though not for the reason a scope is usually taken. There are no npm siblings and
+probably will not be: TRX64 and the U64 work are Rust, and 801 settled that they ship as
+release binaries and a Homebrew tap, never crates.io and never npm. So today exactly one
+artifact belongs on a registry.
+
+The scope is taken because it is the thing that cannot be retrofitted. A name people have
+written into an MCP configuration is permanent in practice — packages can be added to a
+scope forever, and `c64re-mcp` could not be moved under `@trex64` later without breaking
+every config that names it. Taking the scope costs five minutes; wanting it afterwards
+costs a break. (The npm scope need not match the GitHub organisation, and does not:
+`trex64-dev` is the org, `@trex64` the scope.)
+
+`c64re` rather than `mcp` inside the scope, because MCP is how the thing is reached and not
+what it is — and a TRX64-side MCP server would otherwise find its name already spent. The
+executable follows: the CLI has always spoken as `c64re` (`c64re graph`, `c64re doc`,
+`c64re setup`), and the `bin` name was the one place it called itself something else.
 
 ## 4. The runtime beside it
 
@@ -169,31 +187,66 @@ missing runtime, which since Spec 806 is a first-class install failure with no f
 
 ## 6. Slices
 
-**716.1 — Truth.** Establish the Node LTS baseline from a build and a smoke. List the
-minimum runtime assets and environment variables. *Exit:* no undocumented prerequisite for
-MCP startup.
+**716.1 — Truth. BUILT.** The baseline is Node 22 LTS, and the requirement behind it is
+not a number: it is the built-in `node:sqlite` that carries the graph and the platform
+reference. `engines.node` is a warning at install time and nothing at run time, and the
+exact 22.x that first shipped the module unflagged would have been guessed rather than
+measured — so `cli.ts` checks whether *this* Node can import it and says so naming the
+version in play. Runtime assets: `resources/platform-kb.sqlite` and
+`resources/fingerprints/bundled/`, and nothing else under `resources/` is read at run time.
 
-**716.2 — The package gate.** §3 in full: manifest, `prepack`, pack-and-install proof in a
-clean directory. *Exit:* a tarball that starts and answers, with an audited file list.
-**This slice depends on no open decision and is the whole of the risk.**
+**716.2 — The package gate. BUILT.** `scripts/e2e-716-package.mjs`, 26/0. Red first, and
+red in the way that mattered: seventeen failures ending in "cannot load module", because
+`dist/` is gitignored and the tarball carried sources and no server. 1373 files / 23.2 MB →
+642 files / 8.2 MB, 1.8 MB packed. Runtime dependencies 13 → 4. One real defect fell out of
+it: `c64ref_lookup` required a 27 MB derived snapshot that is in no package and whose
+builder fetches from the network, so every install answered `knowledge_missing`; it now
+answers from the platform KB that ships.
 
-**716.3 — The runtime beside it.** §4.1–4.4, with the protocol/version agreement gate.
-*Exit:* a machine with neither a checkout nor Homebrew reaches a running daemon in one
-command, and a mismatched pin fails loudly at build time rather than quietly at the user.
+**716.3 — The runtime beside it. BUILT.** `scripts/e2e-716-runtime.mjs`, 39/0.
+`src/runtime/install-daemon.ts` maps platform → release asset, verifies the published
+`.sha256`, unpacks into a per-version cache; `runtime_install` and
+`npx c64re-mcp runtime install` are one implementation. Resolution gained the cache and
+`PATH`, cache first because it holds exactly the pinned release. The pin is
+`REQUIRED_TRX64_VERSION` beside the protocol constant, cross-checked against the sibling
+checkout's workspace version *and* the daemon's own `RUNTIME_VERSION` string. Proved live,
+not only in unit form: the fetched 0.9.2 daemon reports 0.9.2 and speaks
+`trx64-runtime/2`.
 
-**716.4 — Versioning contract.** Pre-1.0 semver written down: minor may break, patch does
-not intentionally change MCP tool schemas, `.c64re` compatibility or invocation. Tag
-`v<version>`; the package's version is the one authority. *Exit:* `0.1.0` means something.
+**716.4 — Versioning contract. BUILT.** Written down in `INSTALL.md`: minor may break,
+patch does not intentionally change tool schemas, `.c64re` compatibility or invocation;
+`package.json` is the one authority and a release is tagged `v<version>`; and the pinned
+TRX64 release moves with it, because the protocol match is exact.
 
-**716.5 — `INSTALL.md`.** §5 in full: five platform routes, each validated on its shell or
-in CI before it may be called supported.
+**716.5 — `INSTALL.md`. BUILT.** Three audiences, five routes, and the three-part install
+stated up front — package, runtime, ROMs — because the third part is the one nobody warns
+about. `README.md` keeps a quick-start and links here. Validation is honest rather than
+claimed: macOS and Linux/container are exercised by the gates; the Windows and WSL2 sections
+are written from the shape of the problem (path quoting, `$env:`, the filesystem boundary)
+and are marked in this spec as not yet run on those shells — §9's first follow-up.
 
-**716.3b — `macos-x86_64` in TRX64.** The cross-build entry of §4.5, and the `Package` step
-taught to take its binary directory from the matrix. Carried across rather than deferred —
-"→ TRX64" is this owner's own work, not a handoff.
+**716.3b — `macos-x86_64` in TRX64. BUILT.** The gate found this itself: the installer
+claimed to serve `darwin-x64` and the release workflow built no such target. A cross-build
+entry from `macos-latest`, not a `macos-13` runner label GitHub is retiring; `--target`
+threaded through, one `$BINDIR` computed from the matrix and read by every step below it,
+and a static proof step for the cross entry because an arm64 runner cannot run an x86_64
+binary without Rosetta. Six targets now.
 
-**716.6 — Publish.** GO only after 716.2 and 716.3 are green, and only on explicit
-approval.
+**716.6 — Publish. OPEN by design.** Both gates are green, the manifest is complete, and
+`.github/workflows/release-npm.yml` exists and is inert until a `v*` tag does. What remains
+is in this order, and the first step is a human one:
+
+1. Create the npm organisation `trex64` (free for public packages) and sign in.
+2. `npm publish` 0.1.0 once, by hand. A trusted publisher is configured **on a package**,
+   so the package must exist before it can be pointed at a workflow. This first release
+   cannot be automated, and publishing is irreversible after 72 hours.
+3. On npmjs.com, point the package at this repository and `release-npm.yml`. Since
+   2026-09-03 a new configuration permits `npm stage publish` only unless direct publishing
+   is also ticked.
+4. Every release after that is `git tag v0.1.1 && git push --tags`. No token is stored
+   anywhere: the workflow presents a GitHub OIDC token and npm generates provenance
+   attestations automatically, so the published package carries a verifiable link back to
+   the commit and the run that produced it.
 
 ## 7. Acceptance
 
@@ -230,3 +283,43 @@ Consequences, all now in scope:
   (§4.5, slice 716.3b).
 - Publication still needs its own explicit approval (716.6). Deciding that npm is supported
   is not deciding to publish today.
+
+## 10. What is not yet proved
+
+Stated rather than implied, so nobody reads a green board as more than it is:
+
+- **Windows PowerShell — proved 2026-09-25**, run 36183644245: both jobs green. Getting
+  there took three runs and found three POSIX assumptions, all of them in the gate rather
+  than in the package: `execFileSync` does not consult PATHEXT, so `npm` was ENOENT; naming
+  `npm.cmd` then hit Node's refusal to spawn a batch file without a shell, answered by
+  running npm through `npm_execpath` with this Node instead of reaching for `shell: true`
+  and buying a quoting problem; and an absolute Windows path handed to `import()` parses as
+  the scheme `d:`.
+
+  The gate then grew the part that was missing on every platform: it checked that npm had
+  written the executable's shim and never ran it. It now completes an MCP session three
+  ways — `node <entry>`, the shim npm wrote, and `npx <name>` — because a harness names the
+  command, and on Windows that name is a `.cmd` reached through a shell.
+- **WSL2 — proved 2026-09-25**, run 36194897749. This spec previously said WSL2 could not
+  be proved on a GitHub runner, on the belief that the images lack nested virtualisation.
+  That was out of date — it arrived with the Dadsv5 image in January 2024, WSLv2 works from
+  `windows-2022` onward, and `Vampire/setup-wsl` defaults to version 2. The claim was
+  withdrawn and then tested: Debian-13 under WSL2, Node installed inside it, and the gate
+  green 29/0 on the distribution's own filesystem. The job also asserts
+  `/proc/sys/fs/binfmt_misc/WSLInterop`, so a green run cannot mean it quietly ran
+  somewhere else.
+
+  **And the `/mnt` warning was measured rather than repeated.** Both filesystems run the
+  full check: **23 s on the distribution's own disk, 31 s under `/mnt`**, both 29/0. That is
+  a third slower, not the "great deal" `INSTALL.md` claimed, so the document was corrected
+  to say what was measured — while noting that the check is not a file-heavy workload and a
+  disassembly listing is, so the gap widens with the work. The advice survives; its
+  justification is now a number.
+
+  One thing that did not work and was rebuilt: the timing was first carried between steps
+  through `$GITHUB_ENV`, which does not exist inside the distribution — `setup-wsl` gives
+  the step a shell in WSL, and the runner's environment is not in it. Both measurements now
+  happen in one step and nothing reads the runner's environment.
+
+- **`npx -y @c64re/mcp` cannot be true until 716.6.** Everything in `INSTALL.md` that names
+  the registry describes the package this spec built and has not published.

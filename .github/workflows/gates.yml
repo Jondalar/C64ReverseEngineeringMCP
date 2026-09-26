@@ -37,7 +37,13 @@ concurrency:
 jobs:
   gates:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Raised from 15 on 2026-09-25. Spec 716 added two steps to this job, and the package
+    # one is expensive by nature: it runs a full build through `prepack`, then a real
+    # `npm install` of the tarball including a native dependency, then three MCP sessions.
+    # That pushed a job that used to finish in ~11 minutes past its own limit, and the
+    # first symptom was a bare "The operation was canceled" with no failing step above it
+    # — which reads like a flake and is not one.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -102,6 +108,18 @@ jobs:
       # so a comment may still tell the history.
       - name: No tool text recommends a retired door name (878)
         run: npm run check:tool-names
+
+      # 716.3 — the runtime beside the package. Hermetic: the pin, the asset mapping and
+      # the resolution order, with nothing downloaded. It is the gate that noticed TRX64
+      # built no Intel Mac while the installer claimed to serve one.
+      - name: The runtime pin, mapping and resolution (716.3)
+        run: npm run e2e:716-runtime
+
+      # 716.2 — the package itself: packed, installed into an empty directory, started,
+      # and asked for something. It is slow (a real install, including a native dependency)
+      # and it is the only check that sees the package the way a user does.
+      - name: The package starts from a tarball (716.2)
+        run: npm run e2e:716-package
 
       # The generated tool surface must match the live one. This went stale on
       # master when Spec 833 D3 reworded disasm_prg's description: the check
@@ -523,3 +541,134 @@ jobs:
 
       - name: The annotations merger (877 D6)
         run: npm run e2e:877-merge
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Spec 716.5 — Windows, on a Windows shell, because the alternative is prose.
+  #
+  # INSTALL.md claims C64RE installs and runs on Windows with PowerShell. §5 of the spec
+  # says a route may not be called supported before it is exercised, and until this job
+  # existed that claim was written from the shape of the problem rather than from a run.
+  #
+  # It is the PACKAGE gate and nothing else: pack, install into an empty directory, start
+  # the executable, speak MCP, read the shipped knowledge base, spawn the pipeline child.
+  # That is where every path, quoting and shim difference actually lives — npm writes
+  # .cmd/.ps1 shims instead of a symlink, paths carry a drive letter and backslashes, and
+  # a child process is spawned by a different loader. The runtime gate rides along because
+  # it is pure JavaScript and cheap.
+  #
+  # NOT here, deliberately: the rest of the 82. Running them twice buys a slower signal
+  # for the same answer — they are platform-independent logic over temp directories, and
+  # the one thing that is genuinely platform-shaped is the thing this job runs.
+  #
+  # No WSL2. GitHub's Windows runners do not offer it (nested virtualisation), and the
+  # third-party actions that exist install WSL1, which is not what INSTALL.md describes.
+  # That section stays marked unproved rather than proved by something adjacent.
+  windows:
+    name: The package installs and runs on Windows (716.5)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # `npm pack` runs prepack, which is the full build, so there is no separate build
+      # step here: a tarball cut from a stale tree is exactly what that hook prevents.
+      - name: The package starts from a tarball (716.2)
+        run: npm run e2e:716-package
+
+      - name: The runtime pin, mapping and resolution (716.3)
+        run: npm run e2e:716-runtime
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Spec 716.5 — WSL2, which turns out to be testable after all.
+  #
+  # This was written off once on the belief that GitHub's Windows runners cannot do WSL2.
+  # That was out of date: nested virtualisation arrived with the Dadsv5 image in January
+  # 2024, WSLv2 works from windows-2022 onward, and Vampire/setup-wsl defaults to version 2.
+  #
+  # Two things are asked here, and they are different questions.
+  #
+  #   A. Does the package install and run inside the distribution, on ITS OWN filesystem?
+  #      That is the route INSTALL.md tells people to take.
+  #   B. Does it still work from /mnt/, and what does that cost? INSTALL.md says to keep
+  #      the repository off /mnt/c because crossing the boundary is expensive on file-heavy
+  #      work. That is the ONLY WSL-specific claim the document makes, so it is the one
+  #      worth measuring — and it is a claim about COST, not about correctness, so B gates
+  #      on the package still working and merely PRINTS the two times. If the numbers ever
+  #      stop supporting the advice, the advice is what changes.
+  #
+  # Known to be flaky rather than impossible: actions/runner-images#12321 reports
+  # windows-2022 + WSL hanging after an otherwise successful step.
+  wsl:
+    name: The package installs and runs inside WSL2 (716.5)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: Vampire/setup-wsl@v7
+        with:
+          distribution: Debian-13
+          wsl-version: 2
+          additional-packages: curl ca-certificates gnupg git rsync
+
+      - name: It really is WSL 2, and it really is Linux
+        shell: wsl-bash {0}
+        run: |
+          set -eu
+          uname -srm
+          # The interop binfmt handler exists only under WSL, so this is also the check
+          # that we are not quietly running somewhere else.
+          test -e /proc/sys/fs/binfmt_misc/WSLInterop \
+            || { echo "::error::not running under WSL"; exit 1; }
+
+      - name: Node inside the distribution
+        shell: wsl-bash {0}
+        run: |
+          set -eu
+          SUDO=""
+          if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then SUDO=sudo; fi
+          curl -fsSL https://deb.nodesource.com/setup_22.x | $SUDO bash -
+          $SUDO apt-get install -y nodejs
+          node -v
+          npm -v
+
+      # Both filesystems in ONE step, because a runner environment variable does not
+      # cross into the distribution: the first attempt carried the timing between steps
+      # through $GITHUB_ENV and died on `unbound variable` AFTER the gate had gone green.
+      # Nothing here reads the runner's environment; the numbers go to the log.
+      - name: The package installs and runs, on both filesystems
+        shell: wsl-bash {0}
+        run: |
+          set -eu
+
+          # A — the documented route: the project on the distribution's own filesystem.
+          SRC="$(pwd)"
+          rsync -a --exclude node_modules --exclude dist "$SRC/" "$HOME/c64re/"
+          cd "$HOME/c64re"
+          npm ci --no-audit --no-fund --loglevel error
+          START=$(date +%s)
+          npm run e2e:716-package
+          LINUX_FS=$(( $(date +%s) - START ))
+
+          # B — the route INSTALL.md warns about. It gates on the package WORKING; the
+          # warning is about COST, so the cost is measured and printed rather than
+          # asserted. If these numbers ever stop supporting the advice, the advice changes.
+          cd "$SRC"
+          npm ci --no-audit --no-fund --loglevel error
+          START=$(date +%s)
+          npm run e2e:716-package
+          MNT_FS=$(( $(date +%s) - START ))
+
+          echo ""
+          echo "=== where the project lives, and what the gate costs there ==="
+          echo "  the distribution's own filesystem : ${LINUX_FS}s"
+          echo "  under /mnt (Windows filesystem)   : ${MNT_FS}s"
+          echo "INSTALL.md advises the first. Both work; the numbers are what the advice rests on."

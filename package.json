@@ -1,9 +1,50 @@
 {
-  "name": "c64-reverse-engineering-mcp",
+  "name": "@trex64/c64re",
   "version": "0.1.0",
+  "description": "MCP server for C64 reverse engineering \u2014 analysis pipeline, disassembly, and semantic classification",
   "license": "GPL-3.0-or-later",
+  "author": "Alex Damhuis",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jondalar/C64ReverseEngineeringMCP.git"
+  },
+  "homepage": "https://trex64-dev.github.io/",
+  "bugs": {
+    "url": "https://github.com/Jondalar/C64ReverseEngineeringMCP/issues"
+  },
+  "keywords": [
+    "c64",
+    "commodore-64",
+    "6502",
+    "reverse-engineering",
+    "disassembler",
+    "mcp",
+    "model-context-protocol",
+    "retrocomputing",
+    "kickassembler",
+    "64tass"
+  ],
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "type": "module",
-  "description": "MCP server for C64 reverse engineering — analysis pipeline, disassembly, and semantic classification",
+  "main": "dist/cli.js",
+  "bin": {
+    "c64re": "dist/cli.js"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "files": [
+    "dist/",
+    "resources/platform-kb.sqlite",
+    "resources/fingerprints/bundled/",
+    "LICENSE",
+    "README.md",
+    "INSTALL.md"
+  ],
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
     "e2e:844-teeth": "node scripts/e2e-844-teeth.mjs",
@@ -218,20 +259,14 @@
     "e2e:bug060-code-tail": "npm run build && node scripts/e2e-bug060-code-tail.mjs",
     "e2e:bug060-dup-segment": "npm run build && node scripts/e2e-bug060-duplicate-segment.mjs",
     "e2e:877-write": "npm run build && node scripts/e2e-877-annotations-write.mjs",
-    "e2e:877-merge": "npm run build && node scripts/e2e-877-annotations-merge.mjs"
+    "e2e:877-merge": "npm run build && node scripts/e2e-877-annotations-merge.mjs",
+    "prepack": "npm run build",
+    "e2e:716-package": "node scripts/e2e-716-package.mjs",
+    "e2e:716-runtime": "node scripts/e2e-716-runtime.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "@types/ws": "^8.18.1",
-    "graphology": "0.26.0",
-    "graphology-communities-louvain": "2.0.2",
-    "graphology-layout": "0.6.1",
-    "graphology-layout-forceatlas2": "0.10.1",
-    "pngjs": "^7.0.0",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
-    "sigma": "3.0.3",
     "ws": "^8.20.0",
     "zod": "^3.24.2"
   },
@@ -239,8 +274,16 @@
     "@types/node": "^22.13.10",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.1",
+    "graphology": "0.26.0",
+    "graphology-communities-louvain": "2.0.2",
+    "graphology-layout": "0.6.1",
+    "graphology-layout-forceatlas2": "0.10.1",
     "graphology-types": "0.24.8",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "sigma": "3.0.3",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "vite": "^8.0.8"

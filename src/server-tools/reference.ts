@@ -173,13 +173,38 @@ export function registerReferenceTools(server: McpServer, context: ServerToolCon
           if (auto_build) {
             await buildC64RefRomKnowledge(knowledgePath);
           } else {
+            // Spec 716.1 — the snapshot is a 27 MB derived file. It is gitignored, so it
+            // is in no package, and building it FETCHES FROM THE NETWORK. An installed
+            // C64RE therefore met a hard prerequisite here where it did not need to: the
+            // platform KB is seeded from the same sources, ships at 1.4 MB, and the two
+            // fallbacks below already existed — they were simply unreachable, because this
+            // branch returned before anything consulted them.
+            //
+            // So answer from what shipped, and offer the snapshot as the enrichment it is.
+            const kb = address
+              ? platformKbLines(parseHexWord(address))
+              : platformKbSearch(query ?? "", limit ?? 10);
+            if (kb.length) {
+              return {
+                content: [{
+                  type: "text" as const,
+                  text: [
+                    ...kb,
+                    "",
+                    "From the bundled platform KB. The fuller C64Ref snapshot is not built here —",
+                    "`c64ref_lookup` with `auto_build=true` builds it, which needs network access.",
+                  ].join("\n"),
+                }],
+              };
+            }
             return {
               content: [{
                 type: "text" as const,
                 text: [
                   "Status: knowledge_missing",
                   `Snapshot: ${knowledgePath}`,
-                  `Estimated build time: ${C64REF_BUILD_ESTIMATE_SECONDS}-${C64REF_BUILD_ESTIMATE_SECONDS + 5} seconds`,
+                  "The bundled platform KB has nothing for this either.",
+                  `Estimated build time: ${C64REF_BUILD_ESTIMATE_SECONDS}-${C64REF_BUILD_ESTIMATE_SECONDS + 5} seconds, and it needs network access.`,
                   "Run `c64ref_build_rom_knowledge` first or call `c64ref_lookup` again with `auto_build=true`.",
                 ].join("\n"),
               }],

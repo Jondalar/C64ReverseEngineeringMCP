@@ -61,7 +61,13 @@ const D2_RUNTIME = ["sigma", "graphology", "graphology-layout", "graphology-layo
 const D2_DEV = ["graphology-types"];
 const frozen824 = ["react", "react-dom", "@types/react", "@types/react-dom", "@vitejs/plugin-react", "vite"];
 check(frozen824.every((d) => d in deps), "824's frozen list is still there, untouched");
-check(D2_RUNTIME.every((d) => d in (pkg.dependencies ?? {})), `the five D2 runtime dependencies are present (${D2_RUNTIME.join(", ")})`);
+// Declared, in either section. They were `dependencies` until Spec 716.2, which asked what
+// the PUBLISHED package needs at run time and found the answer is four packages, none of
+// them these: the explorer is a Vite bundle that inlines sigma and graphology at build
+// time, and the tarball ships `dist/`, not `ui/`. So they are build-time packages and live
+// in devDependencies. What this check protects is unchanged — that the five are declared
+// and therefore installed for anyone who builds the explorer.
+check(D2_RUNTIME.every((d) => d in deps), `the five D2 explorer dependencies are declared (${D2_RUNTIME.join(", ")})`);
 check(D2_DEV.every((d) => d in (pkg.devDependencies ?? {})), "graphology-types is a devDependency, types only");
 const unpinned = [...D2_RUNTIME, ...D2_DEV].filter((d) => !/^\d+\.\d+\.\d+/.test(String(deps[d] ?? "")));
 check(unpinned.length === 0, `every 825 dependency is pinned to an exact version (${[...D2_RUNTIME, ...D2_DEV].map((d) => `${d}@${deps[d]}`).join(" ")})`);

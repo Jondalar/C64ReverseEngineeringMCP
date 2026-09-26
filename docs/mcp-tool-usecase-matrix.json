@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 298,
-  "defaultCount": 188,
+  "total": 299,
+  "defaultCount": 189,
   "advancedCount": 110,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -3390,6 +3390,25 @@
       "keepDecision": "keep-advanced",
       "pathMode": "no-path",
       "useInstead": "runtime_type"
+    },
+    {
+      "name": "runtime_install",
+      "namespace": "runtime",
+      "sourceFile": "server-tools/runtime.ts",
+      "tier": "default",
+      "role": "runtime-control",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "No runtime daemon is installed and a runtime tool just said so. Fetches the pinned TRX64 build for this platform, checksum-verified, into a per-version cache.",
+      "notFor": "A daemon you already have (set C64RE_TRX64_BIN) or one already running (set C64RE_RUNTIME_ENDPOINT); and it does not supply ROMs, which are yours.",
+      "adjacentTools": [
+        "runtime_session_start",
+        "runtime_session_status"
+      ],
+      "e2eUseCases": [
+        "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
     },
     {
       "name": "runtime_joystick",

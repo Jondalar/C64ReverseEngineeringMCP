@@ -144,6 +144,31 @@ async function daemonTraceRead<T>(
 }
 
 export function registerRuntimeTools(server: McpServer, _context: ServerToolContext): void {
+  // ---- Getting a machine at all (Spec 716.3) ----
+  //
+  // Everything below this needs a daemon. Until this door existed the only answer an
+  // installed C64RE could give was a recipe whose first step was `cargo build` in a
+  // sibling checkout that does not exist outside a clone.
+  server.tool(
+    "runtime_install",
+    "Fetch the TRX64 runtime daemon this C64RE is pinned to and put it where C64RE looks for it. "
+    + "Use when a runtime tool reports no daemon and you have none installed. Downloads the release build "
+    + "for this platform, verifies the checksum published beside it, and unpacks it into a per-version cache "
+    + "directory — nothing is installed into the system and no existing daemon is touched. Needs network "
+    + "access. Not for a daemon you already have (set C64RE_TRX64_BIN) and not for one already running "
+    + "(set C64RE_RUNTIME_ENDPOINT). Inputs: force. Returns: the path, the version, and whether it was already there.",
+    {
+      force: z.boolean().optional().describe("Re-download and replace even when the pinned version is already in the cache."),
+    },
+    safeHandler("runtime_install", async ({ force }) => {
+      const { installDaemon } = await import("../runtime/install-daemon.js");
+      const r = await installDaemon({ force: force === true });
+      return { content: [{ type: "text", text: r.alreadyPresent
+        ? `trx64-daemon ${r.version} is already here.\n\nPath: ${r.path}\n\nPass force=true to re-download it.`
+        : `trx64-daemon ${r.version} installed.\n\nPath: ${r.path}\nSize: ${(r.bytes / 1024 / 1024).toFixed(1)} MB\nsha256: ${r.sha256} (matches the checksum published with the release)\n\nRuntime tools will find it from now on; ROMs are separate and are yours to supply.` }] };
+    }),
+  );
+
   // ---- Monitor (Spec 248) ----
   server.tool(
     "runtime_monitor_registers",

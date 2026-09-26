@@ -16,6 +16,20 @@
  */
 export const EXPECTED_RUNTIME_PROTOCOL = 2;
 
+/**
+ * The TRX64 release this C64RE is pinned to (Spec 716.3).
+ *
+ * It exists because the protocol match above is EXACT: `runtime_install` may never
+ * resolve "latest", or an installed C64RE would cheerfully fetch a daemon it then
+ * refuses to talk to. Bump it in the same lockstep commit as the protocol constant.
+ *
+ * Two hand-maintained numbers can silently disagree, and that disagreement would only
+ * surface on somebody else's machine — so `npm run e2e:716-runtime` cross-checks this
+ * against the sibling TRX64 checkout's own workspace version and its RUNTIME_VERSION
+ * string, and fails when they drift.
+ */
+export const REQUIRED_TRX64_VERSION = "0.9.2";
+
 /** Parse the integer N out of a daemon version string like "trx64-runtime/1". */
 export function parseRuntimeProtocol(version: string | undefined | null): number | null {
   if (!version) return null;
@@ -38,18 +52,22 @@ export function runtimeSetupRecipe(reason?: string): string {
     [
       "The RE runtime is a separate daemon process reached over WebSocket. Set one up (any one):",
       "",
-      "  1) Build it from the sibling checkout (developer default):",
-      "       cd ../TRX64",
-      "       cargo build --release -p trx64-daemon",
-      `     Needs the Rust toolchain + a C++ compiler (for the bundled audio core).`,
-      `     Produces target/release/${bin}; C64RE finds the sibling path automatically`,
-      "     and auto-spawns it.",
+      "  1) Let C64RE fetch it — call the `runtime_install` tool, or on a shell:",
+      "       npx @trex64/c64re runtime install",
+      `     Downloads the pinned TRX64 ${REQUIRED_TRX64_VERSION} build for this machine, verifies the`,
+      "     checksum published beside it, and puts it where C64RE looks. Needs network",
+      "     access once; nothing is installed into the system.",
       "",
       "  2) Or point C64RE at a daemon you provide (prebuilt binary or another host):",
       `       ${setEnv("C64RE_TRX64_BIN", `<absolute path to ${bin}>`)}   # a built binary to auto-spawn`,
       `       ${setEnv("C64RE_RUNTIME_ENDPOINT", "ws://<host>:4312")}   # a daemon already running`,
       "",
-      "  3) Or run the packaged container and point C64RE_RUNTIME_ENDPOINT at its WS port.",
+      "  3) Or build it from a sibling checkout (developer default):",
+      "       cd ../TRX64 && cargo build --release -p trx64-daemon",
+      `     Needs the Rust toolchain + a C++ compiler. Produces target/release/${bin},`,
+      "     which C64RE finds automatically.",
+      "",
+      "  4) Or run the packaged container and point C64RE_RUNTIME_ENDPOINT at its WS port.",
       "",
       "After setup, retry — the runtime tools will connect. There is no in-process fallback:",
       "the runtime is always a separate process, so this recipe is the whole answer.",
