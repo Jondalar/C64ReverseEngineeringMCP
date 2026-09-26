@@ -133,8 +133,9 @@ npm run workspace -- --project /path/to/your/re-project      # from a checkout
 npm run ui:dev                                               # Vite live reload on :4311
 ```
 
-It opens on `http://127.0.0.1:4310`. The bundle ships with the package, so the first two
-need no build.
+It opens on `http://127.0.0.1:4310`. The bundle ships with the package, so the **first**
+line needs no build. From a checkout it does: `ui/dist/` is not in git, so
+`npm run ui:build` once, and `npm run workspace` compiles the server on every start.
 
 One bundle: project knowledge — artifacts, findings, memory maps, media, disassembly —
 and the live runtime view are the same app. The daemon owns the clock, monitor, media and

@@ -103,6 +103,14 @@ check(decls.length === 0, "and no type declarations, which nothing here can use"
 
 check(has("resources/platform-kb.sqlite"), "the knowledge base ships");
 
+// A module whose only callers are under `scripts/` cannot run from an install, because
+// `scripts/` is not in the package. It is weight a user downloads and can never reach —
+// and Socket read `dist/analysis/regression.js` as live code and reported on SQL in it.
+// The two MCP tools named after it are stubs that say "use scripts/regress-cli.mjs",
+// which is advice an installed package cannot follow either.
+check(!has("dist/analysis/regression.js"),
+  "no module that only `scripts/` can call", "dist/analysis/regression.js");
+
 // A source tree is not a package. Each of these is something a user pays to download and
 // can never use; `samples/` and `.githooks/` are also things that simply have no business
 // on someone else's machine.
