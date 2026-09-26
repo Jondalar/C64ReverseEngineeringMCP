@@ -76,6 +76,19 @@ const anyUnder = (d) => paths.some((p) => p === d || p.startsWith(d.endsWith("/"
 check(has("package.json") && has("LICENSE"), "the manifest and the licence ship");
 check(has("dist/cli.js"), "the built server ships", "dist/cli.js");
 check(has("dist/pipeline/cli.cjs"), "the pipeline child ships", "dist/pipeline/cli.cjs");
+// The workbench is part of the product, not a checkout-only extra. It fell out of the
+// first `files` allowlist silently, which is exactly why it is asserted rather than
+// assumed: `dist/workspace-ui/server.js` resolves `<package root>/ui/dist`, so the built
+// bundle has to sit there or the server serves nothing and says nothing.
+check(has("ui/dist/index.html"), "the workbench UI ships",
+  `${paths.filter((p) => p.startsWith("ui/dist")).length} files under ui/dist`);
+
+// Type declarations are for whoever imports a package as a library. Nothing imports this
+// one — it is a server behind a `bin` — and they were a third of the unpacked size.
+const decls = paths.filter((p) => p.endsWith(".d.ts"));
+check(decls.length === 0, "and no type declarations, which nothing here can use",
+  decls.length ? `${decls.length} still packed, e.g. ${decls[0]}` : "none");
+
 check(has("resources/platform-kb.sqlite"), "the knowledge base ships",
   `${(packed.files.find((f) => f.path === "resources/platform-kb.sqlite")?.size ?? 0) / 1024 | 0} KB`);
 
@@ -128,6 +141,9 @@ const linked = binName && existsSync(binDir)
 check(linked.length > 0, "and npm linked it into .bin", linked.join(", ") || binName);
 check(existsSync(join(pkgDir, "resources", "platform-kb.sqlite")),
   "the knowledge base is on disk in the installed package");
+// The exact path `resolveUiDist` computes from the installed module.
+check(existsSync(join(pkgDir, "ui", "dist", "index.html")),
+  "and the UI is where the workbench server looks for it");
 
 // ── 3. the installed server answers ──────────────────────────────────────────
 console.log("\n3. The installed server");

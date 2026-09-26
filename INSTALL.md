@@ -194,15 +194,16 @@ any package.
 
 ## The workbench UI
 
-Optional, and a second step. From a source checkout:
+The workbench ships with the package — it is part of the product, not a checkout-only
+extra. It shows the project the MCP server is working in: the artifacts, the graph, the
+live machine.
 
-```bash
-npm run ui:build     # once
-npm run ui:serve     # serves the workbench
-```
+Inside a session the `project_init` scaffold writes launcher scripts (`ui.sh`, `ui.ps1`)
+into the project directory; run one of those and it opens on a local port. From a source
+checkout it is `npm run ui:build` once, then `npm run ui:serve`.
 
-It opens on a local port and shows the project the MCP server is working in. It is not
-required for any RE work and it is not part of the published package.
+It is not required for any RE work — every tool works without it — but you do not have to
+build anything to get it.
 
 ## Versions
 
