@@ -1,8 +1,8 @@
 # Spec 716 — C64RE distribution: npm package + the runtime beside it
 
-**Status:** BUILT 2026-09-25 on `spec-716-npm-distribution` — 716.1 through 716.5 and
-716.3b. Only 716.6 (publish) is open, and it waits on an explicit approval by design.
-(Was READY 2026-09-25, SCOPED 2026-08-11, DRAFT 2026-05-24.)
+**Status:** DONE 2026-09-26. Every slice including 716.6: `@trex64/c64re` is published,
+and the second release went out through the tag pipeline over OIDC with no stored token.
+(Was BUILT 2026-09-25, READY 2026-09-25, SCOPED 2026-08-11, DRAFT 2026-05-24.)
 **Repo:** C64RE, plus one TRX64 change that is now in scope (§4.5, §6.3).
 **Counterpart:** [801](_archive/801-artifact-distribution.md) did this for TRX64 and is
 closed. This is the C64RE half it deferred.
