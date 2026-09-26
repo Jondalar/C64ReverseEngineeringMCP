@@ -226,6 +226,22 @@ async function closeBaselineStore(store: BaselineStore): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// SQL literals
+// ---------------------------------------------------------------------------
+//
+// DuckDB's node API takes statement text, so every value reaching it is a literal this
+// file writes. It used to write them by hand, and one went out unquoted: `payloadHash`
+// sat raw between a `family` that was escaped and a `cycle` that was not, which is how
+// this kind of hole is always shaped — not a value nobody thought about, but the one
+// neighbour in a row of identical-looking ones. So there are two helpers and no hand-
+// written literals. `Math.trunc(NaN)` is `NaN`, which renders as a bare word and makes
+// the whole INSERT a syntax error, losing the batch; a non-finite number is NULL.
+
+const sq = (s: string): string => `'${String(s).replace(/'/g, "''")}'`;
+const num = (n: number | undefined | null): string =>
+  (typeof n === "number" && Number.isFinite(n) ? String(Math.trunc(n)) : "NULL");
+
+// ---------------------------------------------------------------------------
 // Pruning — keep newest MAX_BASELINES run_ids per scenario
 // ---------------------------------------------------------------------------
 
@@ -233,10 +249,9 @@ async function pruneOldBaselines(
   conn: any,
   scenarioId: string,
 ): Promise<void> {
-  const safeId = scenarioId.replace(/'/g, "''");
   const rows = await conn.runAndReadAll(
     `SELECT run_id FROM regression_runs
-     WHERE scenario_id = '${safeId}'
+     WHERE scenario_id = ${sq(scenarioId)}
      ORDER BY captured_at DESC`,
   );
   const all: string[] = rows.getRowObjects().map((r: any) => String(r.run_id));
@@ -244,9 +259,8 @@ async function pruneOldBaselines(
 
   const toDelete = all.slice(MAX_BASELINES);
   for (const rid of toDelete) {
-    const safe = rid.replace(/'/g, "''");
-    await conn.run(`DELETE FROM regression_runs WHERE run_id = '${safe}'`);
-    await conn.run(`DELETE FROM regression_events WHERE run_id = '${safe}'`);
+    await conn.run(`DELETE FROM regression_runs WHERE run_id = ${sq(rid)}`);
+    await conn.run(`DELETE FROM regression_events WHERE run_id = ${sq(rid)}`);
   }
 }
 
@@ -264,23 +278,15 @@ async function insertBaselineRun(
   const runId = `${scenarioId}-${commitSha}-${Date.now()}`;
   const capturedAt = new Date().toISOString();
 
-  const safeRunId    = runId.replace(/'/g, "''");
-  const safeScenario = scenarioId.replace(/'/g, "''");
-  const safeCommit   = commitSha.replace(/'/g, "''");
-  const safeCls      = classification.replace(/'/g, "''");
-  const safeRam      = output.ramHash.replace(/'/g, "''");
-  const safeSS       = output.screenshotHash.replace(/'/g, "''");
-  const safeTr       = output.traceHash.replace(/'/g, "''");
-
   await conn.run(
     `INSERT INTO regression_runs
        (run_id, scenario_id, commit_sha, captured_at, cycles_ran,
         ram_hash, screenshot_hash, trace_hash, event_count, classification)
      VALUES (
-       '${safeRunId}', '${safeScenario}', '${safeCommit}',
-       '${capturedAt}', ${output.cyclesRan},
-       '${safeRam}', '${safeSS}', '${safeTr}',
-       ${output.events.length}, '${safeCls}'
+       ${sq(runId)}, ${sq(scenarioId)}, ${sq(commitSha)},
+       ${sq(capturedAt)}, ${num(output.cyclesRan)},
+       ${sq(output.ramHash)}, ${sq(output.screenshotHash)}, ${sq(output.traceHash)},
+       ${num(output.events.length)}, ${sq(classification)}
      )`,
   );
 
@@ -289,10 +295,7 @@ async function insertBaselineRun(
     for (let i = 0; i < output.events.length; i += batchSize) {
       const batch = output.events.slice(i, i + batchSize);
       const values = batch
-        .map(
-          (e) =>
-            `('${safeRunId}', ${e.cycle}, '${e.family.replace(/'/g, "''")}', '${e.payloadHash}')`,
-        )
+        .map((e) => `(${sq(runId)}, ${num(e.cycle)}, ${sq(e.family)}, ${sq(e.payloadHash)})`)
         .join(", ");
       await conn.run(
         `INSERT INTO regression_events (run_id, cycle, family, payload_hash) VALUES ${values}`,
@@ -321,10 +324,9 @@ async function fetchLatestBaselineRun(
   conn: any,
   scenarioId: string,
 ): Promise<StoredBaseline | null> {
-  const safeId = scenarioId.replace(/'/g, "''");
   const meta = await conn.runAndReadAll(
     `SELECT * FROM regression_runs
-     WHERE scenario_id = '${safeId}'
+     WHERE scenario_id = ${sq(scenarioId)}
      ORDER BY captured_at DESC LIMIT 1`,
   );
   const metaRows = meta.getRowObjects();
@@ -332,11 +334,9 @@ async function fetchLatestBaselineRun(
 
   const m = metaRows[0] as any;
   const runId = String(m.run_id);
-  const safeRunId = runId.replace(/'/g, "''");
-
   const evts = await conn.runAndReadAll(
     `SELECT cycle, family, payload_hash FROM regression_events
-     WHERE run_id = '${safeRunId}'
+     WHERE run_id = ${sq(runId)}
      ORDER BY cycle LIMIT 100000`,
   );
   const events = evts.getRowObjects().map((r: any) => ({
@@ -367,10 +367,9 @@ export async function listBaselineRunIds(
   if (!existsSync(dbPath)) return [];
   const store = await openBaselineStore(dbPath);
   try {
-    const safeId = scenarioId.replace(/'/g, "''");
     const rows = await store.conn.runAndReadAll(
       `SELECT run_id, captured_at, commit_sha FROM regression_runs
-       WHERE scenario_id = '${safeId}'
+       WHERE scenario_id = ${sq(scenarioId)}
        ORDER BY captured_at DESC`,
     );
     return rows.getRowObjects().map((r: any) => ({

@@ -36,7 +36,14 @@ export interface TraceEventRow {
 export interface TraceRunStore { conn: any; inst: any; path: string }
 
 const sq = (s: string): string => `'${String(s).replace(/'/g, "''")}'`;
-const num = (n: number | undefined | null): string => (n == null ? "NULL" : String(Math.trunc(n)));
+// Every value that reaches the SQL text goes through one of these two. `Math.trunc(NaN)`
+// is `NaN`, which renders as the bare word NaN and makes the statement a syntax error, so
+// a non-finite number is NULL — the column already accepts it and a broken INSERT loses
+// the whole run. `overheadMs` used to be interpolated raw, alone among its neighbours.
+const finite = (n: number | undefined | null): n is number => typeof n === "number" && Number.isFinite(n);
+const num = (n: number | undefined | null): string => (finite(n) ? String(Math.trunc(n)) : "NULL");
+/** Like `num`, for a measurement that is not a whole number. */
+const real = (n: number | undefined | null): string => (finite(n) ? String(n) : "NULL");
 
 export async function openTraceRunStore(path: string): Promise<TraceRunStore> {
   const duckdb = await loadDuckDb();
@@ -237,7 +244,7 @@ export async function writeTraceRunHeader(
     `${run.stopCheckpointId ? sq(run.stopCheckpointId) : "NULL"}, ` +
     `${run.media?.sha256 ? sq(run.media.sha256) : "NULL"}, ${run.media?.sourceName ? sq(run.media.sourceName) : "NULL"}, ` +
     `${run.branchId ? sq(run.branchId) : "NULL"}, ${num(run.cycleStart)}, ${num(run.cycleEnd)}, ` +
-    `${num(run.eventCount)}, ${num(run.bytesWritten)}, ${run.overheadMs == null ? "NULL" : run.overheadMs}, ` +
+    `${num(run.eventCount)}, ${num(run.bytesWritten)}, ${real(run.overheadMs)}, ` +
     `${sq(def.retention)}, ${sq(new Date().toISOString())})`,
   );
   if (run.marks.length > 0) {
