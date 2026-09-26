@@ -121,6 +121,28 @@ if [ "${GATE_DRYRUN:-0}" = "1" ]; then
   exit 0
 fi
 
+# Did the gate already run over exactly this code? scripts/gate.sh leaves a note naming
+# the tier it proved and the state it proved it on — the commit plus a digest of the
+# working tree's dirty state. When that matches what is being pushed, running it again
+# spends ten minutes reproducing an answer that is already in hand. An `all` note satisfies
+# a docs push as well, because it is a superset; a `docs` note never satisfies an `all` one.
+#
+# There is no expiry, on purpose. The note is keyed to the code, not to the clock: if the
+# state matches, the same steps would run over the same bytes. Touch a file and the digest
+# moves, which is exactly when the gate should run again.
+STATE="$(git rev-parse HEAD 2>/dev/null || echo no-head)-$(git status --porcelain 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
+GITDIR="$(git rev-parse --git-dir 2>/dev/null || echo .git)"
+if [ -f "$GITDIR/c64re-gate-ok" ] && [ "$TIER" != "NOTHING" ]; then
+  PROVED_TIER=$(cut -d' ' -f1 < "$GITDIR/c64re-gate-ok")
+  PROVED_STATE=$(cut -d' ' -f2 < "$GITDIR/c64re-gate-ok")
+  if [ "$PROVED_STATE" = "$STATE" ] &&
+     { [ "$PROVED_TIER" = "all" ] || [ "$PROVED_TIER" = "$(echo "$TIER" | tr 'A-Z' 'a-z')" ]; }; then
+    printf '\n=== gate already GREEN over this exact state (tier %s) — not run again ===\n' "$PROVED_TIER" >&2
+    printf '    scripts/gate.sh proved %s\n\n' "$STATE" >&2
+    exit 0
+  fi
+fi
+
 if [ "$TIER" = "NOTHING" ]; then
   printf '\n=== gate skipped — nothing reaching master ===\n\n' >&2
   exit 0

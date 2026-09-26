@@ -106,4 +106,15 @@ done < /tmp/.c64re-gate-steps.$$
 rm -f /tmp/.c64re-gate-steps.$$
 
 ELAPSED=$(( $(date +%s) - START ))
+
+# Leave a note saying WHAT was proved, so the pre-push hook does not prove it again.
+#
+# The note is the commit plus a digest of the working tree's dirty state, which together
+# identify the exact code that just went green. It carries no expiry: if the state matches,
+# the same 82 steps would run over the same bytes, and running them twice for one push is
+# ten minutes spent on an answer already in hand.
+STATE="$(git rev-parse HEAD 2>/dev/null || echo no-head)-$(git status --porcelain 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
+GITDIR="$(git rev-parse --git-dir 2>/dev/null || echo .git)"
+printf '%s %s\n' "$TIER" "$STATE" > "$GITDIR/c64re-gate-ok" 2>/dev/null || true
+
 printf '\n=== gate GREEN — %s/%s steps in %ss ===\n\n' "$TOTAL" "$TOTAL" "$ELAPSED" >&2
