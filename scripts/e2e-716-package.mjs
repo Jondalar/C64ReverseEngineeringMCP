@@ -18,7 +18,7 @@
 // tree. Expect it to take a minute: it installs real dependencies, including a native one.
 
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -55,21 +55,33 @@ process.on("exit", cleanup);
 // ── 1. what the tarball carries ──────────────────────────────────────────────
 console.log("1. The tarball");
 
-let packed;
+// Pack, then READ THE TARBALL — not npm's stdout.
+//
+// This parsed `npm pack --json` twice and broke twice: `--json` does not silence the
+// lifecycle scripts it runs, and `prepack` is a full build that prints, so the report is
+// not the only thing on stdout. Slicing for the last JSON array then broke again on a
+// runner with a newer npm that formats the array differently. The tarball is the artifact
+// under test; its own contents are the answer, and `tar` reads them the same everywhere.
+let tarball;
 try {
-  const out = execFileSync(NPM, npmArgv(["pack", "--json", "--pack-destination", work]), {
-    cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], maxBuffer: 64 * 1024 * 1024,
+  execFileSync(NPM, npmArgv(["pack", "--pack-destination", work]), {
+    cwd: ROOT, encoding: "utf8", stdio: ["ignore", "inherit", "inherit"], maxBuffer: 64 * 1024 * 1024,
   });
-  // `--json` does not silence the lifecycle scripts it runs, and `prepack` is a full
-  // build that prints. So the report is the LAST JSON value on stdout, not all of it.
-  packed = JSON.parse(out.slice(out.lastIndexOf("\n[\n") + 1))[0];
+  const produced = readdirSync(work).filter((f) => f.endsWith(".tgz"));
+  if (produced.length !== 1) throw new Error(`expected one .tgz in ${work}, found ${produced.length}`);
+  tarball = join(work, produced[0]);
 } catch (e) {
   check(false, "npm pack succeeds (runs prepack → build)", String(e.message).slice(0, 200));
   console.log("\nRED  spec 716 package: cannot continue without a tarball.");
   process.exit(1);
 }
 
-const paths = packed.files.map((f) => f.path);
+// Every path inside an npm tarball is prefixed `package/`.
+const paths = execFileSync("tar", ["-tzf", tarball], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+  .split("\n").map((l) => l.trim()).filter(Boolean)
+  .filter((l) => !l.endsWith("/"))
+  .map((l) => l.replace(/^(\.\/)?package\//, ""));
+const packed = { filename: tarball.split(/[\\/]/).pop(), size: statSync(tarball).size, entryCount: paths.length };
 const has = (p) => paths.includes(p);
 const anyUnder = (d) => paths.some((p) => p === d || p.startsWith(d.endsWith("/") ? d : `${d}/`));
 
@@ -89,8 +101,7 @@ const decls = paths.filter((p) => p.endsWith(".d.ts"));
 check(decls.length === 0, "and no type declarations, which nothing here can use",
   decls.length ? `${decls.length} still packed, e.g. ${decls[0]}` : "none");
 
-check(has("resources/platform-kb.sqlite"), "the knowledge base ships",
-  `${(packed.files.find((f) => f.path === "resources/platform-kb.sqlite")?.size ?? 0) / 1024 | 0} KB`);
+check(has("resources/platform-kb.sqlite"), "the knowledge base ships");
 
 // A source tree is not a package. Each of these is something a user pays to download and
 // can never use; `samples/` and `.githooks/` are also things that simply have no business
@@ -107,7 +118,7 @@ check(media.length === 0, "no media, image or trace file of any kind", media.sli
 const roms = paths.filter((p) => /resources\/roms\//.test(p) || /\.bin$/i.test(p));
 check(roms.length === 0, "no ROM — Commodore's property, never in a package", roms.slice(0, 3).join(", "));
 
-console.log(`        ${packed.entryCount} files, ${(packed.unpackedSize / 1024 / 1024).toFixed(1)} MB unpacked, ${(packed.size / 1024 / 1024).toFixed(1)} MB tarball`);
+console.log(`        ${packed.entryCount} files, ${(packed.size / 1024 / 1024).toFixed(2)} MB tarball`);
 
 // ── 2. install into an empty directory ───────────────────────────────────────
 console.log("\n2. Installing into an empty directory");
@@ -118,7 +129,7 @@ writeFileSync(join(home, "package.json"), JSON.stringify({ name: "c64re-716-prob
 
 let installed = false;
 try {
-  execFileSync(NPM, npmArgv(["install", join(work, packed.filename), "--no-audit", "--no-fund", "--loglevel", "error"]), {
+  execFileSync(NPM, npmArgv(["install", tarball, "--no-audit", "--no-fund", "--loglevel", "error"]), {
     cwd: home, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], timeout: 10 * 60 * 1000,
   });
   installed = true;
