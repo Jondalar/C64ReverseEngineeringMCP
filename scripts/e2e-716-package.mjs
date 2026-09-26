@@ -281,6 +281,23 @@ try {
 // thing the job did not do.
 console.log("\n4. Started the way a harness starts it");
 
+// INSTALL.md offers `--help` as the check that an install worked, so the gate runs the
+// same thing. Version 0.1.0 shipped with it printing nothing and exiting 0 — a check that
+// looks fine and says nothing is worse than no check, and it was in the documentation
+// because it was written and never run.
+{
+  const { execFileSync: run } = await import("node:child_process");
+  for (const [flag, expect] of [["--help", /c64re/i], ["--version", /^\d+\.\d+\.\d+/]]) {
+    let out = "";
+    try {
+      out = run(process.execPath, [entry, flag], { encoding: "utf8", timeout: 60000 }).trim();
+    } catch (e) {
+      out = `ERROR ${String(e.message).slice(0, 80)}`;
+    }
+    check(expect.test(out), `\`${flag}\` answers instead of waiting on stdin`, out.split("\n")[0]?.slice(0, 60));
+  }
+}
+
 const shim = shimCmd(binName);
 {
   const s2 = session(shim.cmd, shim.args, { useShell: shim.useShell });

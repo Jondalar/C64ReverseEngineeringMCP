@@ -34,7 +34,7 @@ Git is needed only for the source-checkout route below.
 npx -y @trex64/c64re --help
 ```
 
-That is the whole install: `npx` fetches it on first use and your harness runs the same
+It prints what it can do and exits. That is the whole install: `npx` fetches it on first use and your harness runs the same
 command. Nothing is written outside npm's own cache.
 
 ### From a source checkout

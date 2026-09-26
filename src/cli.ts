@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { fileURLToPath } from "node:url";
 import { resolve, dirname } from "node:path";
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { startStdioServer } from "./server.js";
 import { createRequire } from "node:module";
@@ -45,6 +45,38 @@ try {
 }
 
 const argv = process.argv.slice(2);
+
+// Spec 716 — `--help` and `--version` answer, rather than starting a server that waits on
+// a stdin nobody is going to write to. INSTALL.md offers `--help` as the check that an
+// install worked, and until this existed that check printed nothing at all and exited 0,
+// which is the worst of both: it looks fine and tells you nothing.
+if (argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help") {
+  console.log([
+    "c64re — MCP server for Commodore 64 reverse engineering",
+    "",
+    "Usually you do not run this by hand. An MCP host starts it and speaks the protocol",
+    "over stdin and stdout; with no arguments that is exactly what it does.",
+    "",
+    "  c64re                        run the MCP server on stdio (what a host does)",
+    "  c64re runtime install        fetch the TRX64 runtime daemon for this machine",
+    "  c64re graph <verb>           query a project's knowledge graph",
+    "  c64re doc lint|check|index   the document checks, as a hook or CI can call them",
+    "  c64re setup                  write an MCP host configuration",
+    "  c64re --version",
+    "",
+    "C64RE_PROJECT_DIR points at the project. Setup, host configuration and",
+    "troubleshooting: INSTALL.md, https://github.com/Jondalar/C64ReverseEngineeringMCP",
+  ].join("\n"));
+  process.exit(0);
+}
+
+if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "-V") {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const pkg = JSON.parse(readFileSync(resolve(here, "..", "package.json"), "utf8")) as { version?: string };
+  console.log(pkg.version ?? "unknown");
+  process.exit(0);
+}
+
 if (argv[0] === "graph") {
   // Spec 818 D8: `c64re graph <verb>` — the CLI over the knowledge-graph query
   // API. Stdout is the answer (one JSON document with --json), stderr the errors.
