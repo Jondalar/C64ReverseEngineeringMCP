@@ -67,6 +67,54 @@ export function stagingPathFor(path: string): string {
 }
 
 /**
+ * How often, and how long in total, a rename refused by Windows is tried again.
+ * Waits grow 10, 20, 40 … ms, capped at 200 ms per wait: 10+20+40+80+160 then
+ * 4 x 200 = 1110 ms before the tenth and last attempt, which throws without
+ * waiting.
+ */
+export const RENAME_RETRY_ATTEMPTS = 10;
+const RENAME_RETRY_MAX_WAIT_MS = 200;
+
+/**
+ * On Windows, replacing a file by rename fails with EPERM / EACCES / EBUSY
+ * while ANY other process holds the destination open — a virus scanner or the
+ * search indexer reading the store it just saw change, or a sync client's file
+ * filter (OneDrive keeps its filter loaded even while sync is paused). The lock
+ * above cannot help: those holders are not writers and take no lock. Seen on a
+ * project under OneDrive: 1–4 registrations per 40-file extract_disk lost, a
+ * different file each run, serial or parallel alike:
+ *
+ *   EPERM: operation not permitted,
+ *   rename '…/knowledge/artifacts.json.<pid>.<n>.<salt>.tmp' -> '…/knowledge/artifacts.json'
+ *
+ * The holder lets go within milliseconds, so the rename is simply tried again
+ * (the same remedy graceful-fs applies). Any other error, or one that outlasts
+ * the retries, is still thrown.
+ *
+ * `rename` and `wait` are the real renameSync and nap unless a test passes its
+ * own: that is how the loop, the wait schedule and the re-throw are checked on
+ * any platform, without a Windows machine holding a file open.
+ */
+export function renameWithRetry(
+  from: string,
+  to: string,
+  rename: (from: string, to: string) => void = renameSync,
+  wait: (ms: number) => void = nap,
+): void {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      rename(from, to);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
+      if (!transient || attempt >= RENAME_RETRY_ATTEMPTS) throw error;
+      wait(Math.min(10 * 2 ** (attempt - 1), RENAME_RETRY_MAX_WAIT_MS));
+    }
+  }
+}
+
+/**
  * Write `contents` to `path` through a staging file of its own, then rename it
  * into place. The rename is atomic, so a reader sees either the old file or the
  * new one and never a half-written store.
@@ -76,7 +124,7 @@ export function writeJsonStoreAtomic(path: string, contents: string): void {
   const staging = stagingPathFor(path);
   try {
     writeFileSync(staging, contents, "utf8");
-    renameSync(staging, path);
+    renameWithRetry(staging, path);
   } catch (error) {
     // Leave nothing behind for the next `ls` to puzzle over. The rename may
     // already have consumed it, so a failure to unlink is not news.

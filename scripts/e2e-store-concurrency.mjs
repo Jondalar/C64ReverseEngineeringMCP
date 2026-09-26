@@ -74,6 +74,38 @@ console.log("Two writers, one knowledge store\n");
     "saveArtifact holds the lock across the READ too — a write-only lock still loses rows");
 }
 
+// ───────────────────────────────────────── 0b. the rename retry, on any platform
+
+{
+  head("0b", "a rename Windows refuses is tried again - checked with a stub, on any OS");
+  // The retry only ever runs on Windows, which CI does not have, so the loop is
+  // driven through its injectable rename/wait instead of a real held file.
+  const { renameWithRetry, RENAME_RETRY_ATTEMPTS } = await import(new URL("../dist/lib/json-store-lock.js", import.meta.url));
+  const fail = (code) => Object.assign(new Error(code), { code });
+  const run = (codes) => {
+    const waits = [];
+    let calls = 0;
+    let thrown = null;
+    try {
+      renameWithRetry("a", "b", () => { calls += 1; const c = codes(calls); if (c) throw fail(c); }, (ms) => waits.push(ms));
+    } catch (e) { thrown = e.code; }
+    return { calls, waits, thrown };
+  };
+  const twice = run((n) => (n <= 2 ? "EPERM" : null));
+  check(twice.calls === 3 && twice.thrown === null && twice.waits.join() === "10,20",
+    "EPERM twice, then the third rename succeeds - waiting 10 and 20 ms in between",
+    `calls ${twice.calls}, waits ${twice.waits.join("/")}, thrown ${twice.thrown}`);
+  const other = run(() => "ENOENT");
+  check(other.calls === 1 && other.thrown === "ENOENT" && other.waits.length === 0,
+    "a non-transient error (ENOENT) is thrown at once, without a retry",
+    `calls ${other.calls}, thrown ${other.thrown}`);
+  const forever = run(() => "EBUSY");
+  const total = forever.waits.reduce((a, b) => a + b, 0);
+  check(forever.calls === RENAME_RETRY_ATTEMPTS && forever.thrown === "EBUSY" && total === 1110,
+    `a transient error that never clears is thrown after ${RENAME_RETRY_ATTEMPTS} attempts and 1110 ms of waiting`,
+    `calls ${forever.calls}, waited ${total} ms (${forever.waits.join("/")}), thrown ${forever.thrown}`);
+}
+
 // ───────────────────────────────────────── a project the pipeline will register into
 
 function makeProject(label) {
