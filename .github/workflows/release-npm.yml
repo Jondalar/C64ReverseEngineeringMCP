@@ -92,11 +92,38 @@ jobs:
       - name: What would be published
         run: npm pack --dry-run
 
+      # A version already on the registry is not an error. Two ordinary things land here:
+      # re-running a release job after its publish step already succeeded, and tagging a
+      # version that was published by hand — which the very first release is, because a
+      # trusted publisher cannot be configured on a package that does not exist yet.
+      # Neither should paint the run red, and neither should be answered by publishing
+      # over something, which npm forbids anyway.
+      - name: Is this version already on the registry?
+        id: exists
+        run: |
+          set -eu
+          PKG=$(node -p "require('./package.json').name")
+          VER=$(node -p "require('./package.json').version")
+          if npm view "$PKG@$VER" version >/dev/null 2>&1; then
+            echo "already=true" >> $GITHUB_OUTPUT
+            echo "$PKG@$VER is already published — nothing to do."
+          else
+            echo "already=false" >> $GITHUB_OUTPUT
+            echo "$PKG@$VER is new."
+          fi
+
       - name: Publish
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && steps.exists.outputs.already == 'false'
         run: npm publish
         # No NODE_AUTH_TOKEN. If this line ever needs one, trusted publishing has been
         # turned off and that is a decision, not an accident.
+
+      - name: Already published
+        if: startsWith(github.ref, 'refs/tags/v') && steps.exists.outputs.already == 'true'
+        run: |
+          echo "Everything was verified and the version was already on the registry."
+          echo "The gates above still ran, so this is a re-check of a released artifact."
+
 
       - name: Stopped before publishing
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
