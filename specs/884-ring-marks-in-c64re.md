@@ -1,11 +1,13 @@
 # Spec 884 — Ring marks in C64RE
 
 **Status:** PROPOSED 2026-09-26.
-**Repo:** C64RE only. What it needs from TRX64 is open work in **809 §9** (reopened
-2026-09-26), carried across there under the Leitregel — not a second spec for it here.
+**Repo:** C64RE only. What it needed from TRX64 was 809 §9 — reopened and **built
+2026-09-26** (TRX64 `main`, 809 archived). Nothing here waits any more.
 **Number:** 884 (registry: `specs/README.md`).
-**Depends on:** TRX64 809 (marks shipped; **§9** for the sandbox isolation and
-`nearestMark`), 808 (transport), 769.5b (the workbench filmstrip).
+**Depends on:** TRX64 809 (done: marks, isolated sandboxes, `nearestMark`, `asm/block`),
+808 (transport), 769.5b (the workbench filmstrip). **And a TRX64 release:** the package
+pins its runtime (`REQUIRED_TRX64_VERSION`), so these doors reach an installed C64RE only
+with the first TRX64 release that carries 809.
 **Origin:** the owner, 2026-09-26, on the dead bookmark panel: *"Das wollten wir mit dem
 Ring machen können, um schnell zu iterieren."*
 
@@ -27,12 +29,17 @@ that matter:
   attempts from one mark give the identical machine (809 G1, gated).
 - The cap is 32 and the 33rd is **refused**, because unlimited pins would shrink the rewind
   window silently.
-- A name works where an anchor id is taken: `runtime/overlay_run` and the transport's
-  `goto` resolve it (`mark_id`).
+- A name works where an anchor id is taken — since 809 §9 at the ring's own lookup, so at
+  every door that restores, pins or diffs (`unpin` excepted, on purpose: it would release
+  a mark's pin).
 - `ringdump` / `ringload` carry the labels, so a `.c64rering` is a session with its marks.
 - There is **one** ring — the shared machine's. None of the four takes a `session_id`.
 
-And `sandbox/run` / `sandbox/runMany` take `from: <mark name>`.
+And `sandbox/run` / `sandbox/runMany` take `from: <mark name>` and answer, per run:
+`id`, `anchorId` (start), `endStateId` (`sb-r-NNNN`, diffable with `runtime/component_diff`),
+`registers`, `reads`, `ramDigest`, and `media` when the run wrote its disk or cart — a copy
+in `<project>/sandbox/<stamp>-<run-id>/`, never the original. `asm/block` turns source into
+exactly such a patch without writing anything.
 
 ## §2 What is missing on this side
 
@@ -49,7 +56,7 @@ And `sandbox/run` / `sandbox/runMany` take `from: <mark name>`.
 
 So the capability the owner wants for fast iteration is built and unreachable.
 
-## §3 What this waits for — TRX64 809 §9
+## §3 What this waited for — TRX64 809 §9 (built)
 
 This came out of reading the code for this spec, and it decides whether "iterate from a
 mark" is safe to offer at all.
@@ -63,9 +70,9 @@ no verdict is attached; nothing asserts the live machine is untouched, so 809's 
 never a gate, and the board row that says the sandbox capability shipped "with all their
 gates" is wrong on exactly this.
 
-That is 809's defect, so it is fixed in 809: §9 there reopens it — sandbox runs on 787
-scratch instances, G7 as a test, and `nearestMark`. **Until 809 §9 item 1 lands, D2 below
-is not offered.** Nothing else here waits for it.
+That was 809's defect, so it was fixed in 809: §9 reopened it, and it is built — runs
+restore into clones on their own threads, G7 is a test (red on the old handler first), and
+`nearestMark` rides `transport/status`. D2 can be offered.
 
 ## §4 Design
 
@@ -80,10 +87,11 @@ is not offered.** Nothing else here waits for it.
 
 **D2 — iterate from a mark.** One door over `sandbox/runMany`: from a mark, N patch-sets,
 a cycle budget, N end states back. No name, no verdict (809's line, and 810's job). This
-is the loop the owner asked for — and it is the only door that must wait for 809 §9.
+is the loop the owner asked for. With `asm/block` in front of it the loop is: write six
+instructions, fan them out from a mark, compare the ends — none of it on the live machine.
 
-**D3 — a name wherever an id is taken.** The daemon already resolves names in
-`overlay_run` and `goto`. Each C64RE door that takes an anchor id —
+**D3 — a name wherever an id is taken.** The daemon resolves names at the ring now. Each
+C64RE door that takes an anchor id —
 `runtime_checkpoint_restore`, `_pin`, `_unpin`, `runtime_overlay_run`, the candidate
 doors — is checked against the daemon and either passes a name through or says it cannot.
 Measured per door, not assumed.
@@ -92,8 +100,8 @@ Measured per door, not assumed.
 
 - The filmstrip shows marks on their frames, sets one on the selected frame, and goes to
   one.
-- The transport line shows the nearest mark once the daemon reports it (`transport/status`
-  gains `nearestMark` — specified in 809 §5b, never built, open in 809 §9).
+- The transport line shows the nearest mark: `transport/status.nearestMark`
+  (`{ name, framesAway }`, positive when the mark lies behind the cursor).
 - The Trace tab's bookmark panel is replaced by the marks list. The dead call to
   `listBookmarks` goes with it.
 
@@ -111,7 +119,7 @@ capability → TRX64, meaning and memory → C64RE.
   877 D3).
 - **G3** — the 33rd mark comes back as the daemon's refusal, verbatim, not as an empty
   success.
-- **G4** (after 809 §9) — the D2 door, driven end to end, leaves the live machine's cycle
+- **G4** — the D2 door, driven end to end, leaves the live machine's cycle
   count and state untouched. 809's G7 proves the capability; this proves the door uses it.
 - **G5** — every D3 door is listed with its measured answer: takes a name, or refuses one
   with a sentence.
