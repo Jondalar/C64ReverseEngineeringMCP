@@ -68,7 +68,9 @@ export function stagingPathFor(path: string): string {
 
 /**
  * How often, and how long in total, a rename refused by Windows is tried again.
- * Waits grow 10, 20, 40 … ms, capped at 200 ms per wait — about 1.3 s overall.
+ * Waits grow 10, 20, 40 … ms, capped at 200 ms per wait: 10+20+40+80+160 then
+ * 4 x 200 = 1110 ms before the tenth and last attempt, which throws without
+ * waiting.
  */
 export const RENAME_RETRY_ATTEMPTS = 10;
 const RENAME_RETRY_MAX_WAIT_MS = 200;
@@ -88,17 +90,26 @@ const RENAME_RETRY_MAX_WAIT_MS = 200;
  * The holder lets go within milliseconds, so the rename is simply tried again
  * (the same remedy graceful-fs applies). Any other error, or one that outlasts
  * the retries, is still thrown.
+ *
+ * `rename` and `wait` are the real renameSync and nap unless a test passes its
+ * own: that is how the loop, the wait schedule and the re-throw are checked on
+ * any platform, without a Windows machine holding a file open.
  */
-function renameWithRetry(from: string, to: string): void {
+export function renameWithRetry(
+  from: string,
+  to: string,
+  rename: (from: string, to: string) => void = renameSync,
+  wait: (ms: number) => void = nap,
+): void {
   for (let attempt = 1; ; attempt += 1) {
     try {
-      renameSync(from, to);
+      rename(from, to);
       return;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       const transient = code === "EPERM" || code === "EACCES" || code === "EBUSY";
       if (!transient || attempt >= RENAME_RETRY_ATTEMPTS) throw error;
-      nap(Math.min(10 * 2 ** (attempt - 1), RENAME_RETRY_MAX_WAIT_MS));
+      wait(Math.min(10 * 2 ** (attempt - 1), RENAME_RETRY_MAX_WAIT_MS));
     }
   }
 }
