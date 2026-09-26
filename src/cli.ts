@@ -65,12 +65,12 @@ if (argv[0] === "graph") {
     process.exitCode = 1;
   });
 } else if (argv[0] === "runtime" && argv[1] === "install") {
-  // Spec 716.3: `npx c64re-mcp runtime install`. The same code the `runtime_install` tool
+  // Spec 716.3: `npx @trex64/c64re runtime install`. The same code the `runtime_install` tool
   // runs, reachable without a harness — someone setting up an MCP host has no session yet
   // in which to call a tool, which is exactly the moment they need the daemon.
   if (argv.includes("--help") || argv.includes("-h")) {
     console.error([
-      "c64re-mcp runtime install [--force]",
+      "c64re runtime install [--force]",
       "",
       "  Fetches the TRX64 runtime daemon this C64RE is pinned to, verifies the checksum",
       "  published beside it, and unpacks it into a per-version cache directory. Nothing is",

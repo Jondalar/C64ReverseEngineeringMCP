@@ -285,7 +285,7 @@ const shim = shimCmd(binName);
 }
 
 // `npx <name>` from the directory that installed it. This is the documented shape one step
-// short of the registry — `npx -y @c64re/mcp` adds only the fetch, and that cannot be
+// short of the registry — `npx -y @trex64/c64re` adds only the fetch, and that cannot be
 // proved before the package is published (716.6).
 {
   // npx is resolved the same way npm is, and for the same reasons: npm_execpath points at

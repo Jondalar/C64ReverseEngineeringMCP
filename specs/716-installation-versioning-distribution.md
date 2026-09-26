@@ -83,10 +83,26 @@ From `npm pack` installed into an empty temporary directory:
    resolves;
 4. the tarball contains no sample, no trace, no session output and no `.git*` hook.
 
-### 3.3 Name
+### 3.3 Name — decided 2026-09-26
 
-`@c64re/mcp`. Scoped, free, and it leaves room for `@c64re/*` siblings later without
-renaming the first one. §9 carries this as the one open decision.
+**`@trex64/c64re`**, executable `c64re`.
+
+Scoped, though not for the reason a scope is usually taken. There are no npm siblings and
+probably will not be: TRX64 and the U64 work are Rust, and 801 settled that they ship as
+release binaries and a Homebrew tap, never crates.io and never npm. So today exactly one
+artifact belongs on a registry.
+
+The scope is taken because it is the thing that cannot be retrofitted. A name people have
+written into an MCP configuration is permanent in practice — packages can be added to a
+scope forever, and `c64re-mcp` could not be moved under `@trex64` later without breaking
+every config that names it. Taking the scope costs five minutes; wanting it afterwards
+costs a break. (The npm scope need not match the GitHub organisation, and does not:
+`trex64-dev` is the org, `@trex64` the scope.)
+
+`c64re` rather than `mcp` inside the scope, because MCP is how the thing is reached and not
+what it is — and a TRX64-side MCP server would otherwise find its name already spent. The
+executable follows: the CLI has always spoken as `c64re` (`c64re graph`, `c64re doc`,
+`c64re setup`), and the `bin` name was the one place it called itself something else.
 
 ## 4. The runtime beside it
 
@@ -216,8 +232,21 @@ threaded through, one `$BINDIR` computed from the matrix and read by every step 
 and a static proof step for the cross entry because an arm64 runner cannot run an x86_64
 binary without Rosetta. Six targets now.
 
-**716.6 — Publish. OPEN by design.** Both gates are green. Publishing is a separate,
-explicit act and has not been taken.
+**716.6 — Publish. OPEN by design.** Both gates are green, the manifest is complete, and
+`.github/workflows/release-npm.yml` exists and is inert until a `v*` tag does. What remains
+is in this order, and the first step is a human one:
+
+1. Create the npm organisation `trex64` (free for public packages) and sign in.
+2. `npm publish` 0.1.0 once, by hand. A trusted publisher is configured **on a package**,
+   so the package must exist before it can be pointed at a workflow. This first release
+   cannot be automated, and publishing is irreversible after 72 hours.
+3. On npmjs.com, point the package at this repository and `release-npm.yml`. Since
+   2026-09-03 a new configuration permits `npm stage publish` only unless direct publishing
+   is also ticked.
+4. Every release after that is `git tag v0.1.1 && git push --tags`. No token is stored
+   anywhere: the workflow presents a GitHub OIDC token and npm generates provenance
+   attestations automatically, so the published package carries a verifiable link back to
+   the commit and the run that produced it.
 
 ## 7. Acceptance
 

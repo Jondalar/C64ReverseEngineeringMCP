@@ -53,7 +53,7 @@ export function runtimeSetupRecipe(reason?: string): string {
       "The RE runtime is a separate daemon process reached over WebSocket. Set one up (any one):",
       "",
       "  1) Let C64RE fetch it — call the `runtime_install` tool, or on a shell:",
-      "       npx c64re-mcp runtime install",
+      "       npx @trex64/c64re runtime install",
       `     Downloads the pinned TRX64 ${REQUIRED_TRX64_VERSION} build for this machine, verifies the`,
       "     checksum published beside it, and puts it where C64RE looks. Needs network",
       "     access once; nothing is installed into the system.",

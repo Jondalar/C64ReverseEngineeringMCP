@@ -1,0 +1,103 @@
+name: release-npm
+
+# Spec 716.6 — publishing @trex64/c64re, driven by a tag and by nothing else.
+#
+# It cannot fire by accident: no push to a branch reaches it, only a `v*` tag, and a tag is
+# a deliberate act. `workflow_dispatch` is here for a dry run, which stops before publishing.
+#
+# NO TOKEN. This uses npm's trusted publishing: the workflow presents a GitHub OIDC token,
+# npm checks it against a publisher configured on the package, and nothing is stored in a
+# repository secret. Provenance attestations are generated automatically — the published
+# package carries a verifiable link back to this workflow, this commit and this run, which
+# is worth more here than it would be for most packages, because the thing being shipped
+# runs inside somebody's agent.
+#
+# ── What has to exist before this can work ───────────────────────────────────────────────
+#
+#   1. The npm organisation `trex64`, and one manual `npm publish` of 0.1.0 from a signed-in
+#      machine. A trusted publisher is configured ON a package, so the package has to exist
+#      before it can be pointed at this workflow. The first release is a human act; every
+#      one after it is this file.
+#   2. On npmjs.com → the package → Settings → Trusted Publisher: organisation `Jondalar`,
+#      repository `C64ReverseEngineeringMCP`, workflow filename `release-npm.yml`.
+#   3. Since 2026-09-03 a new trusted-publisher configuration allows `npm stage publish`
+#      only unless direct publishing is also ticked. If this job fails with a permission
+#      error and everything else looks right, that tick is what is missing.
+#
+# Requirements this job satisfies: `id-token: write` for OIDC, npm CLI 11.5.1 or newer, and
+# Node 22.14 or newer.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build, verify and pack — then stop without publishing'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write   # OIDC. Without it there is no trusted publishing.
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          registry-url: 'https://registry.npmjs.org'
+          # Never a cache in a release build: the artifact must come from the lockfile as
+          # committed, not from whatever a previous run left behind.
+          cache: ''
+
+      - name: npm new enough for trusted publishing
+        run: |
+          set -eu
+          npm install -g npm@latest
+          node --version
+          npm --version
+
+      - name: Install
+        run: npm ci
+
+      # The tag is the claim; the manifest is the fact. TRX64 fails its build when the two
+      # disagree and it is right to — a release whose name does not match what it contains
+      # is worse than no release.
+      - name: The tag says what the package says
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -eu
+          TAG="${GITHUB_REF#refs/tags/v}"
+          PKG=$(node -p "require('./package.json').version")
+          echo "tag $TAG, manifest $PKG"
+          [ "$TAG" = "$PKG" ] || { echo "::error::tag v$TAG does not match package.json $PKG"; exit 1; }
+
+      # The same gate CI runs on every change, run again against the thing about to leave:
+      # pack, install into an empty directory, start it, speak MCP three ways. Publishing
+      # something this has not passed would make the whole of 716 decorative.
+      - name: The package starts from a tarball (716.2)
+        run: npm run e2e:716-package
+
+      - name: The runtime pin, mapping and resolution (716.3)
+        run: npm run e2e:716-runtime
+
+      - name: What would be published
+        run: npm pack --dry-run
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm publish
+        # No NODE_AUTH_TOKEN. If this line ever needs one, trusted publishing has been
+        # turned off and that is a decision, not an accident.
+
+      - name: Stopped before publishing
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: echo "Dispatch run — everything above was verified, nothing was published."

@@ -31,7 +31,7 @@ Git is needed only for the source-checkout route below.
 ### From the registry
 
 ```bash
-npx -y @c64re/mcp --help
+npx -y @trex64/c64re --help
 ```
 
 That is the whole install: `npx` fetches it on first use and your harness runs the same
@@ -62,7 +62,7 @@ C64RE analyses bytes on its own. To *run* them — to step code, watch a loader,
 memory — it needs TRX64, which is a separate process.
 
 ```bash
-npx c64re-mcp runtime install
+npx @trex64/c64re runtime install
 ```
 
 This downloads the TRX64 release C64RE is pinned to for your platform, verifies the
@@ -123,7 +123,7 @@ point at it, and run `project_init` once in your first session.
   "mcpServers": {
     "c64-re": {
       "command": "npx",
-      "args": ["-y", "@c64re/mcp"],
+      "args": ["-y", "@trex64/c64re"],
       "env": { "C64RE_PROJECT_DIR": "/path/to/your/re-project" }
     }
   }
@@ -139,7 +139,7 @@ is for working on C64RE itself.
 ```toml
 [mcp_servers.c64re]
 command = "npx"
-args = ["-y", "@c64re/mcp"]
+args = ["-y", "@trex64/c64re"]
 env = { C64RE_PROJECT_DIR = "/path/to/your/re-project" }
 ```
 
@@ -153,7 +153,7 @@ absolute path with its drive letter:
   "mcpServers": {
     "c64-re": {
       "command": "npx",
-      "args": ["-y", "@c64re/mcp"],
+      "args": ["-y", "@trex64/c64re"],
       "env": { "C64RE_PROJECT_DIR": "C:\\Users\\you\\re-projects\\thegame" }
     }
   }
@@ -184,7 +184,7 @@ The MCP server speaks over stdin and stdout, so a container must keep them attac
 docker run --rm -i \
   -v /path/to/your/re-project:/project \
   -e C64RE_PROJECT_DIR=/project \
-  <image> npx -y @c64re/mcp
+  <image> npx -y @trex64/c64re
 ```
 
 `-i` is not optional — without it the protocol has no channel. Mount the project; never
@@ -232,7 +232,7 @@ somewhere that does not exist, or points at a directory where `project_init` has
 Run `project_init` once; it creates the scaffold and takes in whatever is already lying
 there.
 
-**A runtime tool says there is no daemon** — run `npx c64re-mcp runtime install`, or set
+**A runtime tool says there is no daemon** — run `npx @trex64/c64re runtime install`, or set
 `C64RE_TRX64_BIN` / `C64RE_RUNTIME_ENDPOINT`. There is no in-process fallback and there
 never will be: the runtime is always a separate process, so this is a setup step rather
 than an edge case.

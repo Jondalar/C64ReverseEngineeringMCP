@@ -5,7 +5,7 @@
 // do not have. This module is the other answer: one explicit act, once, that puts the
 // pinned daemon in a cache directory where `resolve-daemon-spawn.ts` looks.
 //
-// **Not a postinstall.** `npx -y @c64re/mcp` has to start immediately; a postinstall that
+// **Not a postinstall.** `npx -y @trex64/c64re` has to start immediately; a postinstall that
 // pulls 27 MB from GitHub turns every cold start into a download, and it is also the first
 // thing a `--ignore-scripts` install silently skips. The fetch happens when something
 // actually needs a machine, it says what it is doing, and it verifies the checksum that

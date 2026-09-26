@@ -102,8 +102,8 @@ Details: [workflow](docs/workflow.md) · [roles](docs/agent-doctrine.md) ·
 ## Setup
 
 ```bash
-npx -y @c64re/mcp          # the server
-npx c64re-mcp runtime install   # the machine it drives
+npx -y @trex64/c64re          # the server
+npx @trex64/c64re runtime install   # the machine it drives
 ```
 
 Then point your harness at it and give it a project directory:
@@ -113,7 +113,7 @@ Then point your harness at it and give it a project directory:
   "mcpServers": {
     "c64-re": {
       "command": "npx",
-      "args": ["-y", "@c64re/mcp"],
+      "args": ["-y", "@trex64/c64re"],
       "env": { "C64RE_PROJECT_DIR": "/path/to/your/re-project" }
     }
   }
