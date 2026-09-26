@@ -109,6 +109,12 @@ jobs:
       - name: No tool text recommends a retired door name (878)
         run: npm run check:tool-names
 
+      # 881 — the graph comes before the listing. A door that refuses a large listing until
+      # the graph has been asked, and a footer line that measures the habit without
+      # refusing anything. Hermetic: one stdio session over a temp project.
+      - name: The graph before the listing (881)
+        run: npm run e2e:881-graph-first
+
       # 716.3 — the runtime beside the package. Hermetic: the pin, the asset mapping and
       # the resolution order, with nothing downloaded. It is the gate that noticed TRX64
       # built no Intel Mac while the installer claimed to serve one.

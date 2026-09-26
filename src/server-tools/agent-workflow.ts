@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSyn
 import { ensureProjectRules, summariseProjectRules } from "../project-rules/provision.js";
 import { resetRuleDelivery } from "../project-rules/deliver.js";
 import { resetAliasNotices } from "./byte-doors.js";
+import { resetGraphFirst } from "../contract/graph-first.js";
 import { resetStanding } from "../contract/standing.js";
 import { dirname, join, relative, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -424,6 +425,8 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       // answered one `analyze_prg` told the next session nothing, because "once" was
       // held in a process-scoped Set; the ledger is a file now and this re-arms it.
       try { resetAliasNotices(projectRoot); } catch { /* best-effort */ }
+      // Spec 881 — a new session has asked the graph nothing and read nothing.
+      try { resetGraphFirst(projectRoot); } catch { /* best-effort */ }
       // Doctrine rule 8 — this is the call every other tool waits for. Marked after the
       // rules are re-armed, so a session that is cleared to work has them in hand.
       markOnboarded(projectRoot);

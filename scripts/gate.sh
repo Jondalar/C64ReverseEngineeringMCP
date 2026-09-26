@@ -84,6 +84,16 @@ fi
 
 cd "$ROOT" || exit 2
 
+# The state the run is ABOUT to prove, captured before the first step. Writing the note
+# from the state at the END was wrong: an edit or a commit while the gate runs would have
+# it claim a tree the gate never saw, and the next push would skip on that claim.
+state_now() {
+  printf '%s-%s' \
+    "$(git rev-parse HEAD 2>/dev/null || echo no-head)" \
+    "$(git status --porcelain 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
+}
+STATE_AT_START="$(state_now)"
+
 N=0
 START=$(date +%s)
 printf '\n=== gate: %s step(s) from gates.yml (tier=%s) ===\n' "$TOTAL" "$TIER" >&2
@@ -113,8 +123,12 @@ ELAPSED=$(( $(date +%s) - START ))
 # identify the exact code that just went green. It carries no expiry: if the state matches,
 # the same 82 steps would run over the same bytes, and running them twice for one push is
 # ten minutes spent on an answer already in hand.
-STATE="$(git rev-parse HEAD 2>/dev/null || echo no-head)-$(git status --porcelain 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
 GITDIR="$(git rev-parse --git-dir 2>/dev/null || echo .git)"
-printf '%s %s\n' "$TIER" "$STATE" > "$GITDIR/c64re-gate-ok" 2>/dev/null || true
+if [ "$(state_now)" = "$STATE_AT_START" ]; then
+  printf '%s %s\n' "$TIER" "$STATE_AT_START" > "$GITDIR/c64re-gate-ok" 2>/dev/null || true
+else
+  rm -f "$GITDIR/c64re-gate-ok" 2>/dev/null || true
+  printf '    (the tree moved while this ran — no note left, the next push gates again)\n' >&2
+fi
 
 printf '\n=== gate GREEN — %s/%s steps in %ss ===\n\n' "$TOTAL" "$TOTAL" "$ELAPSED" >&2

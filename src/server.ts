@@ -46,7 +46,8 @@ import { registerTraceStoreTools } from "./server-tools/trace-store.js";
 import { phaseForTool, PHASE_TITLES } from "./agent-orchestrator/phase-tools.js";
 import { ruleFooterForTool } from "./project-rules/deliver.js";
 import { registrationFailureMessage } from "./lib/registration-failure.js";
-import { standingFooter } from "./contract/standing.js";
+import { standingFooter, WRITE_TOOLS } from "./contract/standing.js";
+import { graphFirstFooter, noteGraphQuery, GRAPH_TOOLS } from "./contract/graph-first.js";
 import { tierForTool, fullToolsEnabled } from "./server-tools/tier-tools.js";
 import { phaseGatedHandler } from "./server-tools/phase-gate-handler.js";
 import type { KnowledgeRegistrationInput, KnowledgeRegistrationResult, ServerToolContext } from "./server-tools/types.js";
@@ -146,10 +147,23 @@ function ruleFooterHandler(toolName: string, inner: ToolHandler): ToolHandler {
     try {
       const first = a[0] as { project_dir?: string } | undefined;
       const dir = (() => { try { return projectDir(first?.project_dir); } catch { return undefined; } })();
+      // Spec 881 D1 — the graph was asked. Recorded HERE, not in graph-tools.ts: Spec 823
+      // draws a boundary around that file (knowledge-graph, zod, safe-handler, types and
+      // nothing else) and it is a good one. This wrapper already sees every tool by name,
+      // so a sixth graph door registered somewhere else is counted without being told to.
+      if (dir && GRAPH_TOOLS.has(toolName)) {
+        try { noteGraphQuery(dir); } catch { /* a counter never breaks a query */ }
+      }
       const parts = [
         ruleFooterForTool(dir, toolName),
         // Spec 849 §8 — and what the contract still owes, on the write path, as a delta.
         await standingFooter(dir, toolName),
+        // Spec 881 D2 — and how the indexed path is being used against the rendered one.
+        // Same discipline as the others: reports, never refuses, and speaks only when the
+        // number moved, because an identical footer becomes a banner and a banner is
+        // skipped. It counts tool calls only; a shell reading the listing is invisible
+        // here, which is exactly why D1 exists as well.
+        dir && WRITE_TOOLS.has(toolName) ? graphFirstFooter(dir) : "",
       ].filter((x): x is string => !!x);
       if (parts.length === 0 || !result || !Array.isArray(result.content)) return result;
       const last = [...result.content].reverse().find(

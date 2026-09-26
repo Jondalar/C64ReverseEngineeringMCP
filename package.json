@@ -1,6 +1,6 @@
 {
   "name": "@trex64/c64re",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "MCP server for C64 reverse engineering \u2014 analysis pipeline, disassembly, and semantic classification",
   "license": "GPL-3.0-or-later",
   "author": "Alex Damhuis",
@@ -264,7 +264,8 @@
     "e2e:877-merge": "npm run build && node scripts/e2e-877-annotations-merge.mjs",
     "prepack": "npm run build && npm run ui:build",
     "e2e:716-package": "node scripts/e2e-716-package.mjs",
-    "e2e:716-runtime": "node scripts/e2e-716-runtime.mjs"
+    "e2e:716-runtime": "node scripts/e2e-716-runtime.mjs",
+    "e2e:881-graph-first": "node scripts/e2e-881-graph-first.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",

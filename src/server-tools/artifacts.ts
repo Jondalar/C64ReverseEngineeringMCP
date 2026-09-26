@@ -1,8 +1,9 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { ServerToolContext } from "./types.js";
+import { graphFirstVerdict, noteListingRead, LARGE_LISTING_LINES } from "../contract/graph-first.js";
 
 export function registerArtifactTools(server: McpServer, context: ServerToolContext): void {
   server.tool(
@@ -15,6 +16,16 @@ export function registerArtifactTools(server: McpServer, context: ServerToolCont
       const pd = context.projectDir(filePath);
       const absPath = resolve(pd, filePath);
       const text = context.readTextFile(absPath, 10 * 1024 * 1024);
+
+      // Spec 881 D1 — a large listing waits until the graph has been asked something this
+      // session. Counted and decided after the read, because the line count is the
+      // measure and the file is small enough to have read either way; nothing is hidden,
+      // the text simply is not handed over yet.
+      const lines = text.length ? text.split("\n").length : 0;
+      const verdict = graphFirstVerdict(pd, absPath, lines);
+      if (verdict.refusal) return { content: [{ type: "text" as const, text: verdict.refusal }] };
+      if (lines >= LARGE_LISTING_LINES) noteListingRead(pd, relative(resolve(pd), absPath) || filePath);
+
       return { content: [{ type: "text" as const, text }] };
     },
   );
