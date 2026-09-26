@@ -128,9 +128,13 @@ do when it does not work: **[INSTALL.md](INSTALL.md)**.
 ## The workbench
 
 ```bash
-npm run ui:serve     # API + built UI on http://127.0.0.1:4310
-npm run ui:dev       # Vite live reload on http://127.0.0.1:4311
+npx -y @trex64/c64re ui --project /path/to/your/re-project   # from the package
+npm run workspace -- --project /path/to/your/re-project      # from a checkout
+npm run ui:dev                                               # Vite live reload on :4311
 ```
+
+It opens on `http://127.0.0.1:4310`. The bundle ships with the package, so the first two
+need no build.
 
 One bundle: project knowledge — artifacts, findings, memory maps, media, disassembly —
 and the live runtime view are the same app. The daemon owns the clock, monitor, media and
@@ -145,8 +149,11 @@ remember any of the above:
 | Windows | double-click **ui-start.cmd** / **ui-stop.cmd** / **ui-restart.cmd**, or `powershell -ExecutionPolicy Bypass -File .\ui.ps1 <action>` |
 
 Both sets are written into every project, because a project folder travels between
-machines. `ui.ps1` takes the project from its own location, so the folder can be copied
-or renamed; only the path to *this repo* is baked, and `C64RE_REPO` overrides it
+machines, and they take the project from their own location so the folder can be copied or
+renamed. What they invoke depends on where they were written: beside an **installed
+package** they call `c64re ui` — nothing at all is baked, because under `npx` the package
+sits in a cache directory that moves. Beside a **checkout** they run the workspace script
+there, and that one path is baked with `C64RE_REPO` overriding it
 (`setx C64RE_REPO "C:\path\to\C64ReverseEngineeringMCP"`). `start` waits for the port
 and then opens the browser. For a project that predates the launchers:
 

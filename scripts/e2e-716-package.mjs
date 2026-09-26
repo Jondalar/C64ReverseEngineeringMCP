@@ -407,6 +407,12 @@ console.log("\n5. The workbench, from the installed package");
       } catch { /* not up yet */ }
     }
     check(/<!doctype html|<html/i.test(body), "`c64re ui` serves the workbench", body ? `${body.length} bytes of HTML` : `no answer on :${port}`);
+    // The startup line used to print a hard-coded WS :4312 while the endpoint was
+    // resolved further down, so a run steered elsewhere announced one port and used
+    // another. A launcher that misreports where it put the machine is worse than silent.
+    check(!/WS :4312/.test(log) && /runtime\.invalid:4312/.test(log),
+      "and its startup line names the endpoint it actually uses",
+      log.split("\n").find((l) => /HTTP :/.test(l))?.trim().slice(0, 60));
     check(/C64RE|c64re/i.test(body) || body.includes("/assets/"), "and it is the built bundle, not a placeholder");
   } finally {
     srv.kill("SIGINT");

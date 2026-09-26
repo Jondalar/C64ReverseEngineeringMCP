@@ -1,6 +1,6 @@
 {
   "name": "@trex64/c64re",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "MCP server for C64 reverse engineering \u2014 analysis pipeline, disassembly, and semantic classification",
   "license": "GPL-3.0-or-later",
   "author": "Alex Damhuis",

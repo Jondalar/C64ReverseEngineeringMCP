@@ -77,8 +77,15 @@ export async function launchWorkspace(argv: string[], env: NodeJS.ProcessEnv = p
   const httpPortIdx = argv.indexOf("--port");
   const httpPort = httpPortIdx >= 0 && argv[httpPortIdx + 1] ? argv[httpPortIdx + 1] : "4310";
 
+  // Resolved BEFORE it is announced. This line used to print a hard-coded `WS :4312`
+  // while the endpoint was computed thirty lines further down, so a run steered by
+  // C64RE_RUNTIME_ENDPOINT announced one port and used another.
+  const explicitEndpoint = env.C64RE_RUNTIME_ENDPOINT || env.C64RE_RUNTIME_WS;
+  const wsEndpoint = parseEndpoint(explicitEndpoint) ?? { host: "127.0.0.1", port: 4312 };
+  const wsIsLocal = wsEndpoint.host === "127.0.0.1" || wsEndpoint.host === "localhost";
+
   console.log(`[workspace] projectDir = ${projectDir}${devSamples ? " (+dev-samples)" : ""}`);
-  console.log(`[workspace] HTTP :${httpPort}  WS :4312`);
+  console.log(`[workspace] HTTP :${httpPort}  WS ${wsIsLocal ? `:${wsEndpoint.port}` : `${wsEndpoint.host}:${wsEndpoint.port}`}`);
 
   // Both children get the SAME resolved absolute projectDir via --project, so the HTTP
   // knowledge API and the WS runtime can never drift to different projects.
@@ -111,10 +118,6 @@ export async function launchWorkspace(argv: string[], env: NodeJS.ProcessEnv = p
   process.on("SIGTERM", shutdown);
 
   start("http", process.execPath, [`${packageRoot}/dist/workspace-ui/server.js`, "--port", httpPort, ...childArgs]);
-
-  const explicitEndpoint = env.C64RE_RUNTIME_ENDPOINT || env.C64RE_RUNTIME_WS;
-  const wsEndpoint = parseEndpoint(explicitEndpoint) ?? { host: "127.0.0.1", port: 4312 };
-  const wsIsLocal = wsEndpoint.host === "127.0.0.1" || wsEndpoint.host === "localhost";
 
   if (!wsIsLocal) {
     // Explicit remote endpoint: nothing to spawn here, just trust it.
