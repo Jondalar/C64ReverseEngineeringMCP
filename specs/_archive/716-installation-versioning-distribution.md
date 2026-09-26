@@ -248,6 +248,26 @@ is in this order, and the first step is a human one:
    attestations automatically, so the published package carries a verifiable link back to
    the commit and the run that produced it.
 
+## 6a. The rule this spec learned twice
+
+**Every shipped component gets an acceptance criterion that says it STARTS, not that it is
+PRESENT.**
+
+This spec asked the right question once — an earlier draft's §5.1 read *"Decide whether UI
+assets are included in the MCP package or delivered as a later separate package/build
+artifact"* — and the rewrite deleted it and answered it silently by omitting `ui/` from the
+allowlist. When the owner corrected that, `ui/dist` went in and the gate was taught to
+check the files were there. §7 was not extended, so nothing asked the follow-on question:
+*if the workbench ships, what starts it?*
+
+Nothing did. 0.1.1 shipped a workbench that could not be started from an installed package:
+the launchers `project_init` writes ran `npm run workspace`, which is
+`tsc -p tsconfig.json && node scripts/workspace.mjs`, and a package has no tsconfig, no
+`scripts/` and no TypeScript. The gate was green throughout, because presence is not
+function — which is this spec's own founding argument, applied one layer up and missed.
+
+Found by a reader of the published package, not by any gate here.
+
 ## 7. Acceptance
 
 1. `npm pack` produces a tarball whose contents are an audited allowlist — no samples, no
@@ -255,6 +275,10 @@ is in this order, and the first step is a human one:
 2. That tarball, installed into an empty directory, starts the MCP server, answers an
    initialization and one tool call, reads its shipped knowledge base, and spawns its
    pipeline child.
+2a. `--help` and `--version` answer instead of waiting on a stdin nobody will write to.
+2b. The workbench **starts** from that installation — `c64re ui` serves the built bundle on
+   its port — and the launchers `project_init` writes invoke it without a build step and
+   without baking a path that the npx cache will move.
 3. A machine with no checkout and no Homebrew gets a running daemon in one command, with
    the checksum verified.
 4. A protocol/version mismatch between C64RE and the pinned TRX64 release fails a gate.

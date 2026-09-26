@@ -58,10 +58,12 @@ if (argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help") {
     "over stdin and stdout; with no arguments that is exactly what it does.",
     "",
     "  c64re                        run the MCP server on stdio (what a host does)",
+    "  c64re ui --project <dir>     run the workbench: knowledge API + UI on :4310,",
+    "                               and the runtime on :4312 unless one already answers",
     "  c64re runtime install        fetch the TRX64 runtime daemon for this machine",
     "  c64re graph <verb>           query a project's knowledge graph",
     "  c64re doc lint|check|index   the document checks, as a hook or CI can call them",
-    "  c64re setup                  write an MCP host configuration",
+    "  c64re setup <agent>          write the process-discipline block into an agent config",
     "  c64re --version",
     "",
     "C64RE_PROJECT_DIR points at the project. Setup, host configuration and",
@@ -94,6 +96,18 @@ if (argv[0] === "graph") {
     await mod.runDocCli(argv.slice(1));
   }).catch((error: unknown) => {
     console.error(`[c64re doc] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
+} else if (argv[0] === "ui") {
+  // Spec 716 — the workbench, from an installed package. `project_init` writes launcher
+  // scripts that used to run `npm run workspace` in the repository; an installed package
+  // has no `scripts/`, no `tsconfig.json` and no TypeScript, so the workbench shipped and
+  // could not be started. This is the same orchestration the checkout runs, reached from
+  // `dist/`.
+  await import("./workspace-ui/launch.js").then(async (mod) => {
+    await mod.launchWorkspace(argv.slice(1), process.env);
+  }).catch((error: unknown) => {
+    console.error(`[c64re ui] ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
 } else if (argv[0] === "runtime" && argv[1] === "install") {

@@ -199,8 +199,15 @@ extra. It shows the project the MCP server is working in: the artifacts, the gra
 live machine.
 
 Inside a session the `project_init` scaffold writes launcher scripts (`ui.sh`, `ui.ps1`)
-into the project directory; run one of those and it opens on a local port. From a source
-checkout it is `npm run ui:build` once, then `npm run ui:serve`.
+into the project directory; run one of those and it opens on `http://localhost:4310`. From
+an installed package they invoke `c64re ui`, which needs no build — the bundle ships. You
+can also run it directly:
+
+```bash
+npx -y @trex64/c64re ui --project /path/to/your/re-project
+```
+
+From a source checkout it is `npm run ui:build` once, then `npm run workspace -- --project <dir>`.
 
 It is not required for any RE work — every tool works without it — but you do not have to
 build anything to get it.

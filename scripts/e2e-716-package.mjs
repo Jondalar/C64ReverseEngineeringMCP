@@ -358,5 +358,63 @@ const shim = shimCmd(binName);
   }
 }
 
+// ── 5. the workbench STARTS ──────────────────────────────────────────────────
+//
+// 0.1.1 shipped a workbench that could not be started, and this gate said it was fine,
+// because it checked that ui/dist was PRESENT. Presence is not function — which is the
+// same lesson the whole spec is built on, applied one layer up.
+//
+// The launchers project_init writes must not say `npm run workspace` in an installed
+// package: that is `tsc -p tsconfig.json && node scripts/workspace.mjs`, and a package has
+// none of the three. And the workbench itself must answer on its port.
+console.log("\n5. The workbench, from the installed package");
+
+{
+  const ui = join(proj, "ui.sh");
+  const ps1 = join(proj, "ui.ps1");
+  check(existsSync(ui) && existsSync(ps1), "project_init wrote the launchers");
+  if (existsSync(ui)) {
+    const body = readFileSync(ui, "utf8");
+    check(!/npm run workspace/.test(body),
+      "and they do not run `npm run workspace`, which a package cannot",
+      /npm run workspace/.test(body) ? "still there" : "");
+    check(/\$C64RE ui|c64re ui|@trex64\/c64re ui/.test(body), "they invoke the packaged workbench instead",
+      body.split("\n").find((l) => /ui --project/.test(l))?.trim().slice(0, 60));
+    check(!body.includes(pkgDir), "and bake no path into the project — the npx cache moves");
+  }
+
+  // The real question: does it serve? Start it, ask the port, stop it.
+  const port = 4399 + (process.pid % 90);
+  const srv = spawn(process.execPath, [entry, "ui", "--project", proj, "--port", String(port)], {
+    cwd: tmpdir(),
+    // A NON-LOCAL endpoint, so the launcher trusts it and spawns no daemon. Pointing at a
+    // dead local port instead makes it start one, and when that child dies the workspace
+    // shuts itself down by design — taking the HTTP server with it a second after it
+    // came up. What is under test here is the workbench, not the runtime.
+    env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_ENDPOINT: "ws://runtime.invalid:4312" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let log = "";
+  srv.stdout.on("data", (d) => { log += d.toString(); });
+  srv.stderr.on("data", (d) => { log += d.toString(); });
+  try {
+    let body = "";
+    for (let i = 0; i < 60 && !body; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(2000) });
+        if (res.ok) body = await res.text();
+      } catch { /* not up yet */ }
+    }
+    check(/<!doctype html|<html/i.test(body), "`c64re ui` serves the workbench", body ? `${body.length} bytes of HTML` : `no answer on :${port}`);
+    check(/C64RE|c64re/i.test(body) || body.includes("/assets/"), "and it is the built bundle, not a placeholder");
+  } finally {
+    srv.kill("SIGINT");
+    await new Promise((r) => setTimeout(r, 300));
+    try { srv.kill("SIGKILL"); } catch { /* already gone */ }
+  }
+  if (fail > 0 && log) console.log(`        launcher log: ${log.split("\n").filter((l) => l.trim()).slice(0, 6).join(" | ").slice(0, 400)}`);
+}
+
 console.log(`\n${fail ? "RED " : "GREEN"}  spec 716 package: ${pass} pass, ${fail} fail.`);
 process.exit(fail ? 1 : 0);
