@@ -166,11 +166,15 @@ variable for one shell session is `$env:C64RE_PROJECT_DIR = "C:\Users\you\..."` 
 
 ### Windows with WSL2
 
-Install Node **inside** the WSL distribution and keep the repository and your RE projects
-on the Linux filesystem (`/home/you/...`), not under `/mnt/c`. Crossing the boundary costs
-a great deal on file-heavy work, and a disassembly listing is file-heavy work. Then every
-command and path in this document is the Linux one; the harness must also be running inside
-WSL, because a Windows-side harness cannot start a Linux-side process.
+Install Node **inside** the WSL distribution, and prefer keeping the repository and your RE
+projects on the Linux filesystem (`/home/you/...`) rather than under `/mnt/c`. Both work —
+CI runs the full package check in both places on every change — but the Windows filesystem
+is slower across the boundary: the check itself takes about 23 s on the distribution's own
+disk against 31 s under `/mnt`, and that check is not a file-heavy workload. A disassembly
+listing is, so the gap widens with the work rather than staying at a third.
+
+Otherwise every command and path in this document is the Linux one, and the harness must be
+running inside WSL too — a Windows-side harness cannot start a Linux-side process.
 
 ### Container
 

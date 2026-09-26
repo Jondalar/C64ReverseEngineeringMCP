@@ -37,7 +37,13 @@ concurrency:
 jobs:
   gates:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Raised from 15 on 2026-09-25. Spec 716 added two steps to this job, and the package
+    # one is expensive by nature: it runs a full build through `prepack`, then a real
+    # `npm install` of the tarball including a native dependency, then three MCP sessions.
+    # That pushed a job that used to finish in ~11 minutes past its own limit, and the
+    # first symptom was a bare "The operation was canceled" with no failing step above it
+    # — which reads like a flake and is not one.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 

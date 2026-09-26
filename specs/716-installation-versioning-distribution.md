@@ -271,25 +271,26 @@ Stated rather than implied, so nobody reads a green board as more than it is:
   written the executable's shim and never ran it. It now completes an MCP session three
   ways — `node <entry>`, the shim npm wrote, and `npx <name>` — because a harness names the
   command, and on Windows that name is a `.cmd` reached through a shell.
-- **WSL2 — a job exists, and it has not run yet.** This spec previously said WSL2 could not
+- **WSL2 — proved 2026-09-25**, run 36194897749. This spec previously said WSL2 could not
   be proved on a GitHub runner, on the belief that the images lack nested virtualisation.
-  That was out of date: nested virtualisation arrived with the Dadsv5 image in January
-  2024, WSLv2 works from `windows-2022` onward, and `Vampire/setup-wsl` defaults to
-  version 2. The claim is withdrawn.
+  That was out of date — it arrived with the Dadsv5 image in January 2024, WSLv2 works from
+  `windows-2022` onward, and `Vampire/setup-wsl` defaults to version 2. The claim was
+  withdrawn and then tested: Debian-13 under WSL2, Node installed inside it, and the gate
+  green 29/0 on the distribution's own filesystem. The job also asserts
+  `/proc/sys/fs/binfmt_misc/WSLInterop`, so a green run cannot mean it quietly ran
+  somewhere else.
 
-  The job asks two different questions. First, does the package install and run inside the
-  distribution, on **its own filesystem** — the route `INSTALL.md` tells people to take.
-  Second, does it still work from `/mnt`, and what does that cost? The boundary warning is
-  the only WSL-specific claim the document makes, and it is a claim about **cost**, not
-  correctness — so that step gates on the package working in both places and prints the two
-  wall times into the run summary. If the numbers ever stop supporting the advice, the
-  advice is what changes.
+  **And the `/mnt` warning was measured rather than repeated.** Both filesystems run the
+  full check: **23 s on the distribution's own disk, 31 s under `/mnt`**, both 29/0. That is
+  a third slower, not the "great deal" `INSTALL.md` claimed, so the document was corrected
+  to say what was measured — while noting that the check is not a file-heavy workload and a
+  disassembly listing is, so the gap widens with the work. The advice survives; its
+  justification is now a number.
 
-  Known to be flaky rather than impossible: `actions/runner-images#12321` reports
-  `windows-2022` + WSL hanging after an otherwise successful step.
-- ~~The Intel-Mac cross build has not been built once.~~ **Built 2026-09-25**, run
-  36174907622 on TRX64's `main`: all six targets green, `macos-x86_64` among them. No tag
-  and nothing published — that workflow takes `workflow_dispatch` and ends at
-  `upload-artifact`.
+  One thing that did not work and was rebuilt: the timing was first carried between steps
+  through `$GITHUB_ENV`, which does not exist inside the distribution — `setup-wsl` gives
+  the step a shell in WSL, and the runner's environment is not in it. Both measurements now
+  happen in one step and nothing reads the runner's environment.
+
 - **`npx -y @c64re/mcp` cannot be true until 716.6.** Everything in `INSTALL.md` that names
   the registry describes the package this spec built and has not published.
