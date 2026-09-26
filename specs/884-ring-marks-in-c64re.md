@@ -1,11 +1,11 @@
 # Spec 884 — Ring marks in C64RE
 
 **Status:** PROPOSED 2026-09-26.
-**Repos:** C64RE (the doors, the workbench). TRX64: one prerequisite, D0 — a capability,
-so it is carried across under this spec rather than waited for (Leitregel).
+**Repo:** C64RE only. What it needs from TRX64 is open work in **809 §9** (reopened
+2026-09-26), carried across there under the Leitregel — not a second spec for it here.
 **Number:** 884 (registry: `specs/README.md`).
-**Depends on:** TRX64 809 (marks, sandboxes), 808 (transport), 787 (scratch instances),
-769.5b (the workbench filmstrip).
+**Depends on:** TRX64 809 (marks shipped; **§9** for the sandbox isolation and
+`nearestMark`), 808 (transport), 769.5b (the workbench filmstrip).
 **Origin:** the owner, 2026-09-26, on the dead bookmark panel: *"Das wollten wir mit dem
 Ring machen können, um schnell zu iterieren."*
 
@@ -49,7 +49,7 @@ And `sandbox/run` / `sandbox/runMany` take `from: <mark name>`.
 
 So the capability the owner wants for fast iteration is built and unreachable.
 
-## §3 D0 (TRX64) — a sandbox run must not be the shared machine
+## §3 What this waits for — TRX64 809 §9
 
 This came out of reading the code for this spec, and it decides whether "iterate from a
 mark" is safe to offer at all.
@@ -63,9 +63,9 @@ no verdict is attached; nothing asserts the live machine is untouched, so 809's 
 never a gate, and the board row that says the sandbox capability shipped "with all their
 gates" is wrong on exactly this.
 
-D0: `sandbox/run` / `runMany` run on 787 scratch instances restored from the mark's
-anchor, and G7 becomes a test — the live machine's cycle count and state are identical
-before and after a `runMany`. Until D0 lands, D2 below is not offered.
+That is 809's defect, so it is fixed in 809: §9 there reopens it — sandbox runs on 787
+scratch instances, G7 as a test, and `nearestMark`. **Until 809 §9 item 1 lands, D2 below
+is not offered.** Nothing else here waits for it.
 
 ## §4 Design
 
@@ -80,7 +80,7 @@ before and after a `runMany`. Until D0 lands, D2 below is not offered.
 
 **D2 — iterate from a mark.** One door over `sandbox/runMany`: from a mark, N patch-sets,
 a cycle budget, N end states back. No name, no verdict (809's line, and 810's job). This
-is the loop the owner asked for — and it is the only door that must wait for D0.
+is the loop the owner asked for — and it is the only door that must wait for 809 §9.
 
 **D3 — a name wherever an id is taken.** The daemon already resolves names in
 `overlay_run` and `goto`. Each C64RE door that takes an anchor id —
@@ -93,7 +93,7 @@ Measured per door, not assumed.
 - The filmstrip shows marks on their frames, sets one on the selected frame, and goes to
   one.
 - The transport line shows the nearest mark once the daemon reports it (`transport/status`
-  gains `nearestMark` in 809 §5b; **not built** — to be carried across with D0).
+  gains `nearestMark` — specified in 809 §5b, never built, open in 809 §9).
 - The Trace tab's bookmark panel is replaced by the marks list. The dead call to
   `listBookmarks` goes with it.
 
@@ -111,8 +111,8 @@ capability → TRX64, meaning and memory → C64RE.
   877 D3).
 - **G3** — the 33rd mark comes back as the daemon's refusal, verbatim, not as an empty
   success.
-- **G4** (with D0) — `runMany` from a mark touches the live machine not at all, asserted by
-  cycle count and state before and after.
+- **G4** (after 809 §9) — the D2 door, driven end to end, leaves the live machine's cycle
+  count and state untouched. 809's G7 proves the capability; this proves the door uses it.
 - **G5** — every D3 door is listed with its measured answer: takes a name, or refuses one
   with a sentence.
 - **G6** — the workbench shows a mark set over MCP without a reload, and a mark set in the
