@@ -109,6 +109,12 @@ jobs:
       - name: No tool text recommends a retired door name (878)
         run: npm run check:tool-names
 
+      # 883 — nothing ships that nothing can reach. Walks the built dist/ from every entry a
+      # package user can start; a module no entry reaches is dead or belongs in `files` as an
+      # exact exclusion. It is the gate for what was found by hand twice and came back.
+      - name: Nothing ships that nothing can reach (883)
+        run: npm run check:dist-reachable
+
       # 881 — the graph comes before the listing. A door that refuses a large listing until
       # the graph has been asked, and a footer line that measures the habit without
       # refusing anything. Hermetic: one stdio session over a temp project.

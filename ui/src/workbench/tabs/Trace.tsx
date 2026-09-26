@@ -193,8 +193,9 @@ export function TraceTab({ sessionId }: TabProps): React.JSX.Element {
     if (!sessionId) { setBookmarks([]); return; }
     try {
       const client = getClient();
-      // TODO: wire to runtime_bookmark_list when backend exposes it via WS runtime/call.
-      // For now, call listBookmarks op and handle gracefully if not available.
+      // No bookmark store exists anywhere today: the daemon has no `listBookmarks` op, and
+      // the MCP pair that wrote into the retired TS trace store went with it (Spec 883).
+      // This call therefore always lands in the catch and the panel is always empty.
       const result = await client.runtime<Bookmark[]>(sessionId, "listBookmarks", runId).catch(
         () => [] as Bookmark[],
       );

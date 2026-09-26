@@ -6,8 +6,7 @@
 //   2. SDL keysym → modern code mapping (5 known mappings)
 //   3. QWERTY mode: "KeyL" → "L" (no shift)
 //   4. Positional mode: "KeyA" → "A" at correct position
-//   5. Special keys: Escape → RUN_STOP, PageUp → RESTORE, F2 → F1+shift
-//   6. WS handler joystick_set routes directions + fire correctly
+//   5. Special keys: Escape → ← (LARROW), Tab → RUN_STOP, PageUp → RESTORE, F2 → F1+shift
 //   7. Config save/load round-trip (temp file)
 
 import { resolve as resolvePath } from "node:path";
@@ -24,8 +23,6 @@ const { translateKey } =
   await import(`${repoRoot}/dist/input/keymap.js`);
 const { loadInputConfig, saveInputConfig, bootstrapFromVicerc, defaultInputConfig } =
   await import(`${repoRoot}/dist/input/input-config.js`);
-const { handleJoystickSet } =
-  await import(`${repoRoot}/dist/input/ws-handlers.js`);
 
 const results = [];
 function test(name, ok, detail = "") {
@@ -114,12 +111,20 @@ test(
 // Test 5: Special keys
 // ------------------------------------------------------------------
 const escTr = translateKey("Escape", "qwerty");
+const tabTr = translateKey("Tab", "qwerty");
 const pageUpTr = translateKey("PageUp", "qwerty");
 const f2Tr = translateKey("F2", "qwerty");
+// BUG-026: the host key in the top-left ESCAPE position is the C64's ← in the same
+// position, and RUN/STOP moved to Tab. This test still asserted the mapping from before.
 test(
-  "5a. Special: Escape → RUN_STOP",
-  escTr?.key === "RUN_STOP",
+  "5a. Special: Escape → ← (LARROW)",
+  escTr?.key === "LARROW",
   `got key=${escTr?.key}`,
+);
+test(
+  "5a'. Special: Tab → RUN_STOP",
+  tabTr?.key === "RUN_STOP",
+  `got key=${tabTr?.key}`,
 );
 test(
   "5b. Special: PageUp → RESTORE (NMI)",
@@ -130,38 +135,6 @@ test(
   "5c. Special: F2 → F1 + shift",
   f2Tr?.key === "F1" && f2Tr?.shift === true,
   `got key=${f2Tr?.key} shift=${f2Tr?.shift}`,
-);
-
-// ------------------------------------------------------------------
-// Test 6: WS handler joystick_set routes directions + fire
-// ------------------------------------------------------------------
-// Create a mock session adapter.
-const mockSession = {
-  joystick1: { up: false, down: false, left: false, right: false, fire: false },
-  joystick2: { up: false, down: false, left: false, right: false, fire: false },
-  keyboard: { pressKey() {}, clearEvents() {} },
-};
-const getSession = (id) => id === "test" ? mockSession : undefined;
-
-handleJoystickSet(
-  { session_id: "test", port: 2, directions: ["up", "right"], fire: true },
-  getSession,
-);
-test(
-  "6a. joystick_set port2 up+right+fire",
-  mockSession.joystick2.up && mockSession.joystick2.right && mockSession.joystick2.fire
-    && !mockSession.joystick2.down && !mockSession.joystick2.left,
-  `port2=${JSON.stringify(mockSession.joystick2)}`,
-);
-
-handleJoystickSet(
-  { session_id: "test", port: 1, directions: ["down"], fire: false },
-  getSession,
-);
-test(
-  "6b. joystick_set port1 down only",
-  mockSession.joystick1.down && !mockSession.joystick1.fire,
-  `port1=${JSON.stringify(mockSession.joystick1)}`,
 );
 
 // ------------------------------------------------------------------

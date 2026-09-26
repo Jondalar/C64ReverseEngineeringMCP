@@ -57,7 +57,9 @@ check(hasMap(full), "a rebuilt snapshot is recognised as covering it");
 const referenceSrc = await import("node:fs").then((fs) => fs.readFileSync(join(ROOT, "src/server-tools/reference.ts"), "utf8"));
 check(/function describeCoverage/.test(referenceSrc), "reference.ts has the coverage explainer");
 check(/No C64Ref entry for/.test(referenceSrc), "an address miss is answered with a sentence, not an empty string");
-check(/c64ref_build_rom_knowledge/.test(referenceSrc) && /Rebuild it once/.test(referenceSrc), "a ROM-only snapshot is told to rebuild — the actual cause of issue #10");
+// It used to name `c64ref_build_rom_knowledge`, an advanced tool a default session cannot
+// see (Spec 883). The rebuild is reachable from the visible door itself.
+check(/`c64ref_lookup` again with `auto_build=true` to rebuild it once/.test(referenceSrc), "a ROM-only snapshot is told to rebuild, through a door the session can see — the actual cause of issue #10");
 check(/genuinely not documented upstream/.test(referenceSrc), "a full snapshot says the address is genuinely undocumented, instead of implying a gap");
 check(/save_finding/.test(referenceSrc), "a low-RAM miss points at the project's own knowledge, which is where a game-specific meaning belongs");
 check(/coverage\.lines\(undefined\)/.test(referenceSrc), "a query miss is explained the same way as an address miss");

@@ -861,7 +861,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_checkpoint_capture",
-    "Capture a checkpoint NOW (a full restorable snapshot of the shared session at the current instruction boundary) and add it to the ring. Use to mark an interesting live moment before it scrolls out of the auto-capture window. Not for a durable file (use snapshot_dump via runtime_session_status's ref, or the runtime's own .c64re dump). Inputs: session_id. Returns: the new checkpoint ref + ring stats.",
+    "Capture a checkpoint NOW (a full restorable snapshot of the shared session at the current instruction boundary) and add it to the ring. Use to mark an interesting live moment before it scrolls out of the auto-capture window. Not for a durable file: for that, runtime_monitor with `dump \"<path.c64re>\"`. Inputs: session_id. Returns: the new checkpoint ref + ring stats.",
     { session_id: z.string() },
     safeHandler("runtime_checkpoint_capture", async ({ session_id }) => {
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
@@ -927,7 +927,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_recorder_dump",
-    "Dump a recorder anchor (a past scrub point, by seq from runtime_recorder_list) to a durable .c64re snapshot file. The recorder's unique value: persist a point from MINUTES of cheap history, then undump it (runtime_session_undump) and replay it with tracing on. Not for the live moment (use the checkpoint/dump path). Inputs: session_id, seq, path. Returns: dump result (file bytes, embedded media, cycle/pc).",
+    "Dump a recorder anchor (a past scrub point, by seq from runtime_recorder_list) to a durable .c64re snapshot file. The recorder's unique value: persist a point from MINUTES of cheap history, then undump it (runtime_monitor with `undump \"<path.c64re>\"`) and replay it with tracing on. Not for the live moment (use the checkpoint/dump path). Inputs: session_id, seq, path. Returns: dump result (file bytes, embedded media, cycle/pc).",
     {
       session_id: z.string(),
       seq: z.number(),

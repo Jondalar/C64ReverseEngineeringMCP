@@ -1,9 +1,9 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 299,
+  "total": 295,
   "defaultCount": 189,
-  "advancedCount": 110,
+  "advancedCount": 106,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
     "runtime-explore": "start/run Headless, mount, input, render",
@@ -2929,40 +2929,6 @@
       "useInstead": "runtime_session_start / runtime_session_run / runtime_render_screen"
     },
     {
-      "name": "runtime_bookmark_add",
-      "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
-      "tier": "advanced",
-      "role": "runtime-control",
-      "swimlane": "internal-dev-only",
-      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
-      "notFor": "Normal workflow — the default runtime facade covers session start/run/render.",
-      "adjacentTools": [
-        "runtime_session_start"
-      ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "runtime_session_start / runtime_session_run / runtime_render_screen"
-    },
-    {
-      "name": "runtime_bookmark_list",
-      "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
-      "tier": "advanced",
-      "role": "runtime-control",
-      "swimlane": "internal-dev-only",
-      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
-      "notFor": "Normal workflow — the default runtime facade covers session start/run/render.",
-      "adjacentTools": [
-        "runtime_session_start"
-      ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "runtime_session_start / runtime_session_run / runtime_render_screen"
-    },
-    {
       "name": "runtime_breakpoint_add",
       "namespace": "runtime",
       "sourceFile": "server-tools/runtime.ts",
@@ -3833,40 +3799,6 @@
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"
-    },
-    {
-      "name": "runtime_regression_capture_baseline",
-      "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
-      "tier": "advanced",
-      "role": "runtime-control",
-      "swimlane": "internal-dev-only",
-      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
-      "notFor": "Normal workflow — the default runtime facade covers session start/run/render.",
-      "adjacentTools": [
-        "runtime_session_start"
-      ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "runtime_session_start / runtime_session_run / runtime_render_screen"
-    },
-    {
-      "name": "runtime_regression_compare",
-      "namespace": "runtime",
-      "sourceFile": "server-tools/runtime.ts",
-      "tier": "advanced",
-      "role": "runtime-control",
-      "swimlane": "internal-dev-only",
-      "useWhen": "Advanced runtime-control variant (lifecycle/dump/breakpoint/watch/batch/regression) for debugging.",
-      "notFor": "Normal workflow — the default runtime facade covers session start/run/render.",
-      "adjacentTools": [
-        "runtime_session_start"
-      ],
-      "e2eUseCases": [],
-      "keepDecision": "keep-advanced",
-      "pathMode": "no-path",
-      "useInstead": "runtime_session_start / runtime_session_run / runtime_render_screen"
     },
     {
       "name": "runtime_render_screen",

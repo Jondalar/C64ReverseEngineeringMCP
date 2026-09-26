@@ -1,8 +1,9 @@
 // Spec 726.B — Trace V2 binary timeline format.
 //
 // The authoritative runtime trace timeline is an append-only `.c64retrace`
-// binary log. DuckDB is a DERIVED query index rebuilt from this log
-// (binary-log-indexer.ts), never the hot-path authority (§2b/§2c).
+// binary log. DuckDB is a DERIVED query index rebuilt from this log — by the
+// runtime daemon since Spec 802 — never the hot-path authority (§2b/§2c). C64RE
+// reads the log itself only where it decodes events (the graph producer, the lens).
 //
 // Wire shape (one file = one run):
 //

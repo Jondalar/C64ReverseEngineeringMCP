@@ -19,7 +19,7 @@ they once proved stays in `docs/runtime-product-baseline-2026-05-24.md` and
 gates). This repo gates what this repo owns: the MCP surface
 (`check:mcp-product-surface`, `check:surface`, `check:runtime-invisible`), the
 knowledge/analysis e2e set (`e2e:748`, `e2e:751`, `e2e:752`, `e2e:medium-coverage`,
-`e2e:805-sandbox-batch`, `smoke:trace-query`, …) and the format checks
+`e2e:805-sandbox-batch`, `e2e:834-trace-store`, …) and the format checks
 (`check:cart-type-ids`). `npm run` lists the surviving 95.
 
 **Unit green ≠ runtime green. Mapping green ≠ runtime green.** No step
@@ -107,7 +107,7 @@ this repo actually has:
   `check:runtime-invisible` — a new tool is invisible until it is in `DEFAULT_TOOLS`,
   and the backend brand must not reach an agent-facing string
 - **Knowledge / analysis touched**: the e2e set — `e2e:748`, `e2e:751`, `e2e:752`,
-  `e2e:medium-coverage`, `e2e:785-cart-readset`, `smoke:trace-query`
+  `e2e:medium-coverage`, `e2e:785-cart-readset`, `e2e:834-trace-store`
 - **Formats / tables touched**: `check:cart-type-ids`
 - **Sandbox / runtime bridge touched**: `e2e:805-sandbox-batch`
 

@@ -59,8 +59,9 @@ export const RECONCILE_STEERING = `${RECONCILE_TOKEN}
   answered_by_finding_id=<id>)\`. If a question is no longer relevant, \`status="deferred"\`
   or \`"invalidated"\` — never leave an answered question \`open\`.
 - **Triage, don't ignore.** Heuristic \`Validate: …\` prompts are hidden from the default
-  surface but still real work: periodically run \`auto_resolve_questions\` /
-  \`archive_phase1_noise\` to confirm or invalidate them. The real questions are what
+  surface but still real work: list them with
+  \`list_open_questions(include_heuristic=true)\` and confirm or invalidate each with
+  \`save_open_question\`. The real questions are what
   \`c64re_whats_next\` surfaces — act on those first.`;
 
 /** Disk crack Discovery — boot-chain first (docs/agent-doctrine.md §0.7). */

@@ -40,7 +40,7 @@ export function defaultPlatformKbPath(): string {
   ].filter((p): p is string => Boolean(p));
   for (const candidate of candidates) if (existsSync(candidate)) return resolve(candidate);
   throw new Error(
-    `platform-kb.sqlite not found (looked in ${candidates.join(", ")}). Run \`npm run build:platform-kb\` — the store is generated from resources/c64ref-rom-knowledge.json and needs no network.`,
+    `platform-kb.sqlite not found (looked in ${candidates.join(", ")}). An installed package ships it, so the install is incomplete — reinstall. From a source checkout, run \`npm run build:platform-kb\`: the store is generated from resources/c64ref-rom-knowledge.json and needs no network.`,
   );
 }
 

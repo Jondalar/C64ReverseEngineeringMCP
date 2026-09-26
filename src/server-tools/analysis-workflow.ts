@@ -93,9 +93,9 @@ function summarizePackerHints(hints: PackerHintRecord[]): string[] {
   } else if (top.format.startsWith("exomizer")) {
     lines.push(`NEXT: this PRG is likely Exomizer-packed. Run depack_exomizer_${top.format === "exomizer_sfx" ? "sfx" : "raw"} on it before treating the analysis output as semantic ground truth.`);
   } else if (top.format === "rle") {
-    lines.push("NEXT: this PRG looks RLE-encoded. Run depack_rle, then re-analyze the unpacked output.");
+    lines.push("NEXT: this PRG looks RLE-encoded. Run try_depack with format=rle, then re-analyze the unpacked output.");
   } else if (top.format === "byteboozer2") {
-    lines.push("NEXT: this PRG looks ByteBoozer2-packed. Run depack_byteboozer, then re-analyze the unpacked output.");
+    lines.push("NEXT: this PRG looks ByteBoozer2-packed. Run try_depack with format=byteboozer2, then re-analyze the unpacked output.");
   } else {
     lines.push("NEXT: try the matching depacker tool, then re-analyze the unpacked output.");
   }

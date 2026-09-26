@@ -1,9 +1,9 @@
 {
-  "total": 299,
+  "total": 295,
   "specCount": 41,
-  "advancedCandidate": 110,
+  "advancedCandidate": 106,
   "byNamespace": {
-    "runtime": 91,
+    "runtime": 87,
     "list": 20,
     "project": 13,
     "save": 10,
@@ -369,8 +369,8 @@
       "file": "server-tools/artifacts.ts",
       "ns": "build",
       "hasSpec": false,
-      "firstSentence": "Compile the TRXDis pipeline (npm run build).",
-      "desc": "Compile the TRXDis pipeline (npm run build). Must be called before analysis if source has changed.",
+      "firstSentence": "Compile the TRXDis pipeline (npm run build) in a source checkout or a C64RE_TOOLS_DIR tree, after its source changed.",
+      "desc": "Compile the TRXDis pipeline (npm run build) in a source checkout or a C64RE_TOOLS_DIR tree, after its source changed. An installed package ships the pipeline built and has nothing to compile.",
       "tier": "advanced?"
     },
     {
@@ -532,7 +532,7 @@
       "ns": "define",
       "hasSpec": true,
       "firstSentence": "Spec 030 / R20: define a named scenario (target artifact, breakpoints, stop condition, expected milestone).",
-      "desc": "Spec 030 / R20: define a named scenario (target artifact, breakpoints, stop condition, expected milestone). Used by run_runtime_scenario + diff_scenario_runs to compare original vs port builds.",
+      "desc": "Spec 030 / R20: define a named scenario (target artifact, breakpoints, stop condition, expected milestone). Runs of it are compared with diff_scenario_runs (original vs port builds).",
       "tier": "advanced?"
     },
     {
@@ -1598,24 +1598,6 @@
       "tier": "advanced?"
     },
     {
-      "name": "runtime_bookmark_add",
-      "file": "server-tools/runtime.ts",
-      "ns": "runtime",
-      "hasSpec": false,
-      "firstSentence": "Add trace bookmark with bind mode (cycle/event-key/both).",
-      "desc": "Add trace bookmark with bind mode (cycle/event-key/both). Persisted in trace store DuckDB.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "runtime_bookmark_list",
-      "file": "server-tools/runtime.ts",
-      "ns": "runtime",
-      "hasSpec": false,
-      "firstSentence": "List bookmarks for a run.",
-      "desc": "List bookmarks for a run.",
-      "tier": "advanced?"
-    },
-    {
       "name": "runtime_breakpoint_add",
       "file": "server-tools/runtime.ts",
       "ns": "runtime",
@@ -1720,7 +1702,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Capture a checkpoint NOW (a full restorable snapshot of the shared session at the current instruction boundary) and add it to the ring.",
-      "desc": "Capture a checkpoint NOW (a full restorable snapshot of the shared session at the current instruction boundary) and add it to the ring. Use to mark an interesting live moment before it scrolls out of the auto-capture window. Not for a durable file (use snapshot_dump via runtime_session_status's ref, or the runtime's own .c64re dump). Inputs: session_id. Returns: the new checkpoint ref + ring stats.",
+      "desc": "Capture a checkpoint NOW (a full restorable snapshot of the shared session at the current instruction boundary) and add it to the ring. Use to mark an interesting live moment before it scrolls out of the auto-capture window. Not for a durable file: for that, runtime_monitor with `dump \"<path.c64re>\"`. Inputs: session_id. Returns: the new checkpoint ref + ring stats.",
       "tier": "default?"
     },
     {
@@ -2026,7 +2008,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Dump a recorder anchor (a past scrub point, by seq from runtime_recorder_list) to a durable .c64re snapshot file.",
-      "desc": "Dump a recorder anchor (a past scrub point, by seq from runtime_recorder_list) to a durable .c64re snapshot file. The recorder's unique value: persist a point from MINUTES of cheap history, then undump it (runtime_session_undump) and replay it with tracing on. Not for the live moment (use the checkpoint/dump path). Inputs: session_id, seq, path. Returns: dump result (file bytes, embedded media, cycle/pc).",
+      "desc": "Dump a recorder anchor (a past scrub point, by seq from runtime_recorder_list) to a durable .c64re snapshot file. The recorder's unique value: persist a point from MINUTES of cheap history, then undump it (runtime_monitor with `undump \"<path.c64re>\"`) and replay it with tracing on. Not for the live moment (use the checkpoint/dump path). Inputs: session_id, seq, path. Returns: dump result (file bytes, embedded media, cycle/pc).",
       "tier": "default?"
     },
     {
@@ -2046,24 +2028,6 @@
       "firstSentence": "The shared-memory recorder's status: anchor count, oldest/newest cycle, scrub depth, medium generations, dropped count.",
       "desc": "The shared-memory recorder's status: anchor count, oldest/newest cycle, scrub depth, medium generations, dropped count. The recorder is the off-thread streaming capture (separate from the checkpoint ring) that holds minutes of cheap scrub history. Use to see how much history is retained; not for the anchor list (use runtime_recorder_list). Inputs: session_id. Returns: recorder stats.",
       "tier": "default?"
-    },
-    {
-      "name": "runtime_regression_capture_baseline",
-      "file": "server-tools/runtime.ts",
-      "ns": "runtime",
-      "hasSpec": false,
-      "firstSentence": "LLM-explicit baseline capture for a scenario.",
-      "desc": "LLM-explicit baseline capture for a scenario. Writes baseline.duckdb + ram-end.bin + screenshot.png + meta.json.",
-      "tier": "advanced?"
-    },
-    {
-      "name": "runtime_regression_compare",
-      "file": "server-tools/runtime.ts",
-      "ns": "runtime",
-      "hasSpec": false,
-      "firstSentence": "Compare current scenario run against captured baseline.",
-      "desc": "Compare current scenario run against captured baseline. Returns no_drift / minor_drift / structural_change / broken classification.",
-      "tier": "advanced?"
     },
     {
       "name": "runtime_render_screen",
@@ -2098,7 +2062,7 @@
       "ns": "runtime",
       "hasSpec": false,
       "firstSentence": "Extract a byte range out of the machine as a .bin file — a charset, a bitmap, a sprite block, a screen or colour map.",
-      "desc": "Extract a byte range out of the machine as a .bin file — a charset, a bitmap, a sprite block, a screen or colour map. Use it after identifying an element on the frozen screen (the Live tab's Inspect overlay reports the source ranges) to get the bytes out for editing or reuse. Reads a CHECKPOINT when given one, so a frozen screen yields exactly the bytes that drew it; otherwise the live machine. Not for a whole snapshot (use runtime_save_vsf) and not for writing bytes back (use runtime_inject_range). Inputs: session_id, addr, length, out_path, optional checkpoint_id and kind. Returns: { path, bytes, sha256 }.",
+      "desc": "Extract a byte range out of the machine as a .bin file — a charset, a bitmap, a sprite block, a screen or colour map. Use it after identifying an element on the frozen screen (the Live tab's Inspect overlay reports the source ranges) to get the bytes out for editing or reuse. Reads a CHECKPOINT when given one, so a frozen screen yields exactly the bytes that drew it; otherwise the live machine. Not for a whole snapshot (runtime_monitor with `dump \"<path.c64re>\"`) and not for writing bytes back (use runtime_inject_range). Inputs: session_id, addr, length, out_path, optional checkpoint_id and kind. Returns: { path, bytes, sha256 }.",
       "tier": "default?"
     },
     {

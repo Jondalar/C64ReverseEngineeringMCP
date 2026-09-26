@@ -109,8 +109,8 @@ export interface ImportRuntimeTraceResult {
 }
 
 // ------------------------------------------------------------------ flow lane
-// The FlowTracker classification of `src/analysis/flow-focus.ts` (`deriveFlow`),
-// replayed incrementally so a 118 M-step firehose is never materialized (D4).
+// The Monitor's FlowTracker classification (Spec 623 §4.2), replayed incrementally
+// so a 118 M-step firehose is never materialized (D4). The lanes are `FlowKind`.
 // Same rules, same limitation: an NMI taken from main flow with no vector hint
 // reads as `irq`.
 

@@ -28,10 +28,6 @@ Session start checklist:
    \`c64re_worker_phase(phase, artifact_id, role)\`) →
    \`agent_record_step(...)\` → next turn.
 
-Do not skip phases without an explicit
-\`agent_advance_phase(... evidence=...)\` call. Do not call
-phase-bound tools out of order; the phase gate refuses politely
-when \`projectProfile.phaseGateStrict\` is on.
 ${MARKER_END}`;
 
 interface SetupOptions {

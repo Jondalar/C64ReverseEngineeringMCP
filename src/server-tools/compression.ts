@@ -303,7 +303,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       project_dir: z.string().optional().describe("Project root — the directory holding knowledge/. Takes precedence over every other hint. Omit it and the input path is used, but only when it is absolute or exists from the server's working directory; otherwise the project this session onboarded into answers."),
       input_path: z.string().describe("Path to the Exomizer-packed file"),
       output_path: z.string().optional().describe("Optional output path for the unpacked file"),
-      backwards: z.boolean().optional().describe("Use Exomizer backward mode (-b)"),
+      backwards: z.boolean().optional().describe("Not supported for depacking yet: a backwards (-b) stream is refused with an error. Packing backwards works."),
       reverse_output: z.boolean().optional().describe("Write the outfile in reverse order (-r)"),
     },
     safeHandler("depack_exomizer_raw", async ({ project_dir, input_path, output_path, backwards, reverse_output }) => {
@@ -865,7 +865,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
       length: z.string().optional().describe("Optional hex byte length to limit the input slice"),
       has_rle_header: z.boolean().optional().describe("For RLE only: treat the first two bytes of the slice as a load header"),
       max_size: z.number().int().positive().optional().describe("For RLE only: hard ceiling for unpacked size"),
-      backwards: z.boolean().optional().describe("For Exomizer raw only: use -b"),
+      backwards: z.boolean().optional().describe("For Exomizer raw only. Not supported yet: a backwards (-b) stream is refused with an error."),
       reverse_output: z.boolean().optional().describe("For Exomizer raw only: use -r"),
       entry_address: z.string().optional().describe("For Exomizer SFX only: optional desfx entry override, e.g. 080D or 'load'"),
     },

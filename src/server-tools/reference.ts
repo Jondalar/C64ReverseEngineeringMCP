@@ -79,7 +79,7 @@ function describeCoverage(knowledge: C64RefRomKnowledge): { hasMemoryMap: boolea
         out.push(
           `Snapshot coverage: ROM only (${knowledge.entryCount} entries, built ${knowledge.generatedAt.slice(0, 10)}).`,
           `It carries no memory-map or symbol sources, so RAM vectors and zero page are absent${isLowRam ? " — which is exactly what you asked for" : ""}.`,
-          "Rebuild it once with `c64ref_build_rom_knowledge`; the memory map is part of the same upstream and needs no extra source.",
+          "Call `c64ref_lookup` again with `auto_build=true` to rebuild it once (network access); the memory map is part of the same upstream and needs no extra source.",
         );
       } else {
         out.push(`Snapshot coverage: ROM + memory map + symbols (${knowledge.entryCount} entries, built ${knowledge.generatedAt.slice(0, 10)}) — this address is genuinely not documented upstream.`);
@@ -161,7 +161,7 @@ export function registerReferenceTools(server: McpServer, context: ServerToolCon
       address: z.string().optional().describe("Exact ROM/system address in hex, e.g. FFD5."),
       query: z.string().optional().describe("Search term such as LOAD, SYS, CHRGET, keyboard queue, or NMI."),
       limit: z.number().int().positive().max(20).optional().describe("Maximum number of search hits to return for query searches."),
-      auto_build: z.boolean().optional().describe("When true, automatically build the local c64ref snapshot if it does not exist yet."),
+      auto_build: z.boolean().optional().describe("When true, build the local c64ref snapshot if it does not exist yet, or rebuild it if it carries only the ROM listings and no memory map. Needs network access."),
     },
     async ({ address, query, limit, auto_build }) => {
       try {
@@ -205,13 +205,21 @@ export function registerReferenceTools(server: McpServer, context: ServerToolCon
                   `Snapshot: ${knowledgePath}`,
                   "The bundled platform KB has nothing for this either.",
                   `Estimated build time: ${C64REF_BUILD_ESTIMATE_SECONDS}-${C64REF_BUILD_ESTIMATE_SECONDS + 5} seconds, and it needs network access.`,
-                  "Run `c64ref_build_rom_knowledge` first or call `c64ref_lookup` again with `auto_build=true`.",
+                  "Call `c64ref_lookup` again with `auto_build=true` to build it.",
                 ].join("\n"),
               }],
             };
           }
         }
-        const knowledge = loadC64RefRomKnowledge(knowledgePath);
+        let knowledge = loadC64RefRomKnowledge(knowledgePath);
+        // A snapshot built before the memory map joined the sources carries ROM listings
+        // only, and the coverage note below tells the caller to rebuild. `auto_build` used
+        // to act only on a MISSING file, so the one door a default session can see could
+        // not follow its own advice — the rebuild sat behind an advanced tool (Spec 883).
+        if (auto_build && !describeCoverage(knowledge).hasMemoryMap) {
+          await buildC64RefRomKnowledge(knowledgePath);
+          knowledge = loadC64RefRomKnowledge(knowledgePath);
+        }
         // Spec 828 D2 — a miss says WHY. Returning an empty result taught callers
         // to go and check sta.c64.org by hand (issue #10), when the real cause is
         // usually a snapshot built before the memory-map sources were parsed.

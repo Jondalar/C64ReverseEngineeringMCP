@@ -602,7 +602,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         return nextStepError(
           "record_build_step_result",
           `Build run '${run_id}' not found.`,
-          `list_build_pipelines + manual list_build_runs to discover valid run ids.`,
+          `list_build_pipelines to discover valid run ids.`,
         );
       }
       return textContent(`Step ${step_id} -> ${status}.\nRun status: ${run.status}.`);
@@ -612,7 +612,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
   // Spec 030 R20: runtime scenarios + diff.
   server.tool(
     "define_runtime_scenario",
-    "Spec 030 / R20: define a named scenario (target artifact, breakpoints, stop condition, expected milestone). Used by run_runtime_scenario + diff_scenario_runs to compare original vs port builds.",
+    "Spec 030 / R20: define a named scenario (target artifact, breakpoints, stop condition, expected milestone). Runs of it are compared with diff_scenario_runs (original vs port builds).",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -714,7 +714,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         return nextStepError(
           "diff_scenario_runs",
           `One or both run ids not found.`,
-          `list_runtime_scenarios + list_runtime_event_summaries to discover valid runs.`,
+          `list_runtime_scenarios to discover valid runs.`,
         );
       }
       return textContent([
@@ -1230,7 +1230,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     safeHandler("get_project_profile", async ({ project_dir }) => {
       const service = new ProjectKnowledgeService(resolveWorkspaceRoot(options, project_dir));
       const profile = service.getProjectProfile();
-      if (!profile) return textContent("No project profile saved yet. Use save_project_profile to scaffold.");
+      if (!profile) return textContent("No project profile saved yet. start_re_workflow creates one.");
       return textContent(JSON.stringify(profile, null, 2));
     },
 ));
@@ -2256,7 +2256,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       if (!include_heuristic) {
         const hidden = service.listOpenQuestions({ status }).length
           - service.listOpenQuestions({ status, excludeHeuristic: true }).length;
-        if (hidden > 0) hiddenNote = `\n\n(${hidden} heuristic validation question(s) hidden — pass include_heuristic=true to see them, or triage via auto_resolve_questions.)`;
+        if (hidden > 0) hiddenNote = `\n\n(${hidden} heuristic validation question(s) hidden — pass include_heuristic=true to see them; confirm or invalidate each with save_open_question.)`;
       }
       if (questions.length === 0) {
         return textContent(`No open questions matched the filters.${hiddenNote}`);

@@ -824,7 +824,8 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         lines.push("");
         for (const t of automationTasks.slice(0, 3)) {
           lines.push(`- [${t.status}] ${t.title} (id=${t.id}, priority=${t.priority})`);
-          lines.push(`  Read full description via list_tasks(filter to id) and execute it.`);
+          if (t.description) lines.push(`  ${t.description.replace(/\n/g, "\n  ")}`);
+          lines.push(`  Execute it.`);
         }
         if (automationTasks.length > 3) {
           lines.push(`- ... and ${automationTasks.length - 3} more`);
@@ -948,7 +949,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
         }
         if (phaseSubjects.length > 5) {
           lines.push(``);
-          lines.push(`... ${phaseSubjects.length - 5} more phase-bound artifacts. Filter or freeze irrelevant ones with agent_freeze_artifact.`);
+          lines.push(`... ${phaseSubjects.length - 5} more phase-bound artifacts not shown.`);
         }
       }
 

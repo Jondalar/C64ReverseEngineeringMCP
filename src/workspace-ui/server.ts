@@ -330,7 +330,7 @@ const server = createServer((req, res) => {
         wsUrl: `ws://${RUNTIME_WS_HOST}:${RUNTIME_WS_PORT}`,
         reachable: up,
         projectDir: options.projectDir,
-        hint: up ? undefined : `Runtime backend not reachable on :${RUNTIME_WS_PORT}. Start the full workspace (HTTP + runtime) with: npm run workspace -- --project "${options.projectDir}"`,
+        hint: up ? undefined : `Runtime backend not reachable on :${RUNTIME_WS_PORT}. Start the full workspace (HTTP + runtime) with: c64re ui --project "${options.projectDir}" (from a source checkout: npm run workspace -- --project "${options.projectDir}")`,
       }));
     });
     return;
@@ -2245,7 +2245,7 @@ const server = createServer((req, res) => {
   }
 
   if (options.apiOnly || !hasUiDist) {
-    send(res, textResponse(404, "UI bundle not found. Run `npm run ui:build` first or start with Vite in dev mode.\n"));
+    send(res, textResponse(404, "UI bundle not found. An installed package ships it, so the install is incomplete — reinstall. From a source checkout, run `npm run ui:build` once, or start Vite in dev mode.\n"));
     return;
   }
 

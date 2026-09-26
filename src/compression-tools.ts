@@ -772,7 +772,7 @@ export async function suggestDepackers(options: {
             `Header dest=$${(data[0]! | (data[1]! << 8)).toString(16).toUpperCase()} end=$${(data[2]! | (data[3]! << 8)).toString(16).toUpperCase()}`,
             `Termination: ${lykia.termination}`,
             `Expansion ratio: ${ratio.toFixed(2)}x`,
-            "Use depack_byteboozer_lykia to materialize the unpacked bytes.",
+            "Materialize the unpacked bytes with depack_byteboozer_lykia (an advanced tool — start the server with C64RE_FULL_TOOLS=1).",
           ],
         });
       } else if (consumedAll && unpackedSize >= 16) {
@@ -802,8 +802,8 @@ export async function suggestDepackers(options: {
       offset,
       length: data.length,
       notes: [
-        "Try depack_exomizer_raw with a registered shared-encoding artifact, or depack_byteboozer_lykia with the correct LUT entry.",
-        "If a packer was confirmed earlier in the project, record_file_packer can pin the metadata.",
+        "Try try_depack with format=\"exomizer_raw\" against a registered shared-encoding artifact, or depack_byteboozer_lykia with the correct LUT entry (an advanced tool — start the server with C64RE_FULL_TOOLS=1).",
+        "If a packer was confirmed earlier in the project, record_file_packer can pin the metadata (an advanced tool — start the server with C64RE_FULL_TOOLS=1).",
       ],
     });
   }

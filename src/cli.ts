@@ -225,6 +225,6 @@ if (argv[0] === "graph") {
       });
     }
   } else if (process.env.C64RE_RUNTIME_WS) {
-    console.error(`[c64-re mcp] C64RE_RUNTIME_WS (744.4b MCP co-host) is RETIRED — it reset sessions on MCP reconnect. Set C64RE_RUNTIME_ENDPOINT=ws://127.0.0.1:4312 and run \`npm run runtime:daemon\` (Spec 744.4c). Falling back to in-process runtime (no UI sharing).`);
+    console.error(`[c64-re mcp] C64RE_RUNTIME_WS (744.4b MCP co-host) is RETIRED — it reset sessions on MCP reconnect. It is ignored. Set C64RE_RUNTIME_ENDPOINT=ws://127.0.0.1:4312 instead (Spec 744.4c) — there is no in-process runtime to fall back to.`);
   }
 }

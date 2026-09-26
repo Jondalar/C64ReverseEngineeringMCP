@@ -68,10 +68,18 @@ export function registerArtifactTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "build_tools",
-    "Compile the TRXDis pipeline (npm run build). Must be called before analysis if source has changed.",
+    "Compile the TRXDis pipeline (npm run build) in a source checkout or a C64RE_TOOLS_DIR tree, after its source changed. An installed package ships the pipeline built and has nothing to compile.",
     {},
     async () => {
       const td = context.toolsDir();
+      // An installed package carries dist/ and no TypeScript: `npm run build` there has no
+      // tsconfig to read and fails with a compiler error that says nothing useful.
+      const { existsSync } = await import("node:fs");
+      const { join } = await import("node:path");
+      if (!existsSync(join(td, "tsconfig.json"))) {
+        return { content: [{ type: "text" as const, text:
+          `build_tools: nothing to compile in ${td} — it has no tsconfig.json, which is what an installed package looks like; the pipeline there is already built. Set C64RE_TOOLS_DIR to a source tree to rebuild one.` }] };
+      }
       const { execFile } = await import("node:child_process");
       return new Promise((resolveResult) => {
         execFile("npm", ["run", "build"], { cwd: td, timeout: 30_000 }, (error, stdout, stderr) => {

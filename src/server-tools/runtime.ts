@@ -64,66 +64,6 @@ async function callApiFull<T = unknown>(session_id: string, op: string, args: un
   return runtimeDaemon.call<T>("runtime/call", { session_id, op, args });
 }
 
-/** NOT a trace-read path (Spec 802). Every trace-store READ in C64RE now goes
- *  through `./trace-read.js` → the runtime's native reader. What is left here is
- *  the BOOKMARK pair (`runtime_bookmark_add` — a WRITE, which no `trace/read` op
- *  covers — and `runtime_bookmark_list`), both advanced-tier (absent from
- *  DEFAULT_TOOLS), plus the internal TS parity oracle (`workspace-ui/ws-server.ts`).
- *  It stays exported for those two consumers only; do NOT reintroduce it as a
- *  fallback under a reader.
- *
- *  Spec 726-fix — every trace-store reader handler must open the DuckDB file
- *  with try/finally CLOSE, otherwise the file's per-process lock leaks across
- *  calls (next reader call on the same file fails with "Conflicting lock is
- *  held"). Also installs the Spec 726 compat layer on open so 726 stores
- *  written before the compat views existed are auto-healed.
- *
- *  Spec 746.3 — READ-ONLY FIRST: a default read-write open takes an EXCLUSIVE
- *  file lock, so a reader (this MCP process) cannot open a store that the daemon
- *  process is touching (live tracing / indexing) → "Could not set lock on". Open
- *  READ_ONLY first: DuckDB allows many concurrent read-only handles across
- *  processes, no exclusive lock. A read-only store cannot CREATE VIEW, so the
- *  compat layer is skipped — fine for live 726 stores (the indexer already wrote
- *  the reader schema). Fall back to read-write (+ compat) only for an OLD store
- *  that needs healing AND when no other process holds the lock. */
-export async function withDuckDb<T>(dbPath: string, fn: (conn: any, backend: any) => Promise<T>): Promise<T> {
-  const duckdb = await import("@duckdb/node-api");
-  const { DuckDbQueryBackend } = await import("../analysis/duckdb-backend.js");
-  const { ensureSpec726CompatLayer } = await import("../trace/trace-run-store.js");
-  // Spec 746.x — LAZY-ON-READ: wait for an in-flight index, trust a present store,
-  // or (re)build a missing one from the .c64retrace authority before opening — so a
-  // read right after stop() sees the fresh store AND an orphaned store (e.g. a
-  // multi-GB trace whose index never built) is recovered on first read. Throws the
-  // real reason if the build failed (surfaced instead of a cryptic "not found").
-  // BUG-039 — BOUNDED: an unbounded wait here (minutes on a multi-GB log) trips
-  // the MCP host's ~180s stall limit and drops the stdio connection.
-  const { ensureIndexBounded } = await import("../trace/background-indexer.js");
-  await ensureIndexBounded(dbPath);
-  // 1) read-only (no exclusive lock; works while the daemon holds the file).
-  try {
-    const inst = await (duckdb as any).DuckDBInstance.create(dbPath, { access_mode: "READ_ONLY" });
-    try {
-      const conn = await inst.connect();
-      const backend = new DuckDbQueryBackend(conn);
-      return await fn(conn, backend);
-    } finally {
-      try { (inst as any).closeSync?.(); } catch { /* ignore */ }
-    }
-  } catch (e) {
-    // read-only failed (e.g. an OLD store missing the reader schema → needs compat
-    // CREATE VIEWs, which read-only can't do). Fall back to read-write + heal.
-    const inst = await (duckdb as any).DuckDBInstance.create(dbPath);
-    try {
-      const conn = await inst.connect();
-      await ensureSpec726CompatLayer(conn);
-      const backend = new DuckDbQueryBackend(conn);
-      return await fn(conn, backend);
-    } finally {
-      try { (inst as any).closeSync?.(); } catch { /* ignore */ }
-    }
-  }
-}
-
 /**
  * Spec 802 — read a trace store THROUGH the runtime, always. One path.
  *
@@ -551,7 +491,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   server.tool(
     "runtime_rip_range",
-    "Extract a byte range out of the machine as a .bin file — a charset, a bitmap, a sprite block, a screen or colour map. Use it after identifying an element on the frozen screen (the Live tab's Inspect overlay reports the source ranges) to get the bytes out for editing or reuse. Reads a CHECKPOINT when given one, so a frozen screen yields exactly the bytes that drew it; otherwise the live machine. Not for a whole snapshot (use runtime_save_vsf) and not for writing bytes back (use runtime_inject_range). Inputs: session_id, addr, length, out_path, optional checkpoint_id and kind. Returns: { path, bytes, sha256 }.",
+    "Extract a byte range out of the machine as a .bin file — a charset, a bitmap, a sprite block, a screen or colour map. Use it after identifying an element on the frozen screen (the Live tab's Inspect overlay reports the source ranges) to get the bytes out for editing or reuse. Reads a CHECKPOINT when given one, so a frozen screen yields exactly the bytes that drew it; otherwise the live machine. Not for a whole snapshot (runtime_monitor with `dump \"<path.c64re>\"`) and not for writing bytes back (use runtime_inject_range). Inputs: session_id, addr, length, out_path, optional checkpoint_id and kind. Returns: { path, bytes, sha256 }.",
     {
       session_id: z.string().describe("Session to read from — \"shared\" is the live machine the human is watching"),
       addr: z.number().int().describe("Start address in CPU space, e.g. 0xE000 for a bitmap under a VIC bank"),
@@ -916,79 +856,6 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
         reportAll: args.report_all, threshold: args.min_confidence,
       });
       return { content: [{ type: "text", text: JSON.stringify(matches, null, 2) }] };
-    }),
-  );
-
-  // ---- Bookmarks (Spec 242) ----
-  server.tool(
-    "runtime_bookmark_add",
-    "Add trace bookmark with bind mode (cycle/event-key/both). Persisted in trace store DuckDB.",
-    {
-      duckdb_path: z.string(),
-      run_id: z.string(),
-      cycle: z.number(),
-      label: z.string(),
-      family: z.string().optional(),
-      event_key_json: z.string().optional(),
-      note: z.string().optional(),
-      bind_mode: z.enum(["cycle", "event-key", "both"]).default("both"),
-      tags: z.array(z.string()).optional(),
-    },
-    safeHandler("runtime_bookmark_add", async (args) => {
-      const { addBookmark } = await import("../analysis/bookmarks.js");
-      return withDuckDb(args.duckdb_path, async (_conn, backend) => {
-        const id = await addBookmark(backend as any, {
-          runId: args.run_id, cycle: args.cycle, label: args.label,
-          family: args.family as any,
-          eventKey: args.event_key_json ? JSON.parse(args.event_key_json) : undefined,
-          note: args.note, bindMode: args.bind_mode, tags: args.tags,
-        });
-        return { content: [{ type: "text", text: `bookmark added: ${id}` }] };
-      });
-    }),
-  );
-
-  server.tool(
-    "runtime_bookmark_list",
-    "List bookmarks for a run.",
-    {
-      duckdb_path: z.string(),
-      run_id: z.string(),
-      cycle_start: z.number().optional(),
-      cycle_end: z.number().optional(),
-    },
-    safeHandler("runtime_bookmark_list", async (args) => {
-      const { listBookmarks } = await import("../analysis/bookmarks.js");
-      return withDuckDb(args.duckdb_path, async (_conn, backend) => {
-        const range = args.cycle_start !== undefined && args.cycle_end !== undefined ? [args.cycle_start, args.cycle_end] as [number, number] : undefined;
-        const list = await listBookmarks(backend as any, args.run_id, range);
-        return { content: [{ type: "text", text: JSON.stringify(list, null, 2) }] };
-      });
-    }),
-  );
-
-  // ---- Regression (Spec 250) ----
-  server.tool(
-    "runtime_regression_capture_baseline",
-    "LLM-explicit baseline capture for a scenario. Writes baseline.duckdb + ram-end.bin + screenshot.png + meta.json.",
-    {
-      scenario_id: z.string(),
-    },
-    safeHandler("runtime_regression_capture_baseline", async ({ scenario_id }) => {
-      // Note: requires scenarioRegistry map at runtime; for now pass empty map (= scenario must be runScenario-loadable separately).
-      // Real wiring requires V2 scenario registry; defer to follow-up. Stub returns guidance.
-      return { content: [{ type: "text", text: `runtime_regression_capture_baseline: scenarioRegistry not yet wired in MCP server. Use scripts/regress-cli.mjs capture ${scenario_id} directly.` }] };
-    }),
-  );
-
-  server.tool(
-    "runtime_regression_compare",
-    "Compare current scenario run against captured baseline. Returns no_drift / minor_drift / structural_change / broken classification.",
-    {
-      scenario_id: z.string(),
-    },
-    safeHandler("runtime_regression_compare", async ({ scenario_id }) => {
-      return { content: [{ type: "text", text: `runtime_regression_compare: scenarioRegistry not yet wired in MCP server. Use scripts/regress-cli.mjs compare ${scenario_id} directly.` }] };
     }),
   );
 
