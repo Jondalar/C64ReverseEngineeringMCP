@@ -13,7 +13,7 @@
 // Exit 0 = pass, 1 = fail.   npm run smoke:ui-launcher
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -191,6 +191,36 @@ if (pwsh.status === 0) {
 } else {
   console.log("  skip  PowerShell parser + run: pwsh not installed here — loudly skipped, not passed");
   console.log("  skip  install it without sudo: dotnet tool install --global PowerShell (or brew install --cask powershell)");
+}
+
+// ── the PACKAGED variant ──────────────────────────────────────────────────────
+//
+// Spec 716. The launchers above are the checkout's. An installed package has no
+// scripts/workspace.mjs and no TypeScript, so `npm run workspace` cannot run there — 0.1.1
+// shipped exactly that and the workbench could not be started. A package is recognised
+// positively: the built orchestrator present, the source entry absent.
+{
+  const pkgProject = join(tmpdir(), `c64re-launcher-pkg-${process.pid}`);
+  const pkgRoot = join(pkgProject, "node_modules", "@trex64", "c64re");
+  mkdirSync(join(pkgRoot, "dist", "workspace-ui"), { recursive: true });
+  writeFileSync(join(pkgRoot, "dist", "workspace-ui", "launch.js"), "// built orchestrator\n");
+
+  const r = ensureUiLauncher(pkgProject, pkgRoot);
+  const sh = readFileSync(join(pkgProject, "ui.sh"), "utf8");
+  const ps = readFileSync(join(pkgProject, "ui.ps1"), "utf8");
+
+  check(r.files.length > 0, "packaged: the launchers are written");
+  check(!/npm run workspace/.test(sh), "packaged ui.sh: does not run `npm run workspace`");
+  check(!/npm run workspace/.test(ps), "packaged ui.ps1: does not run `npm run workspace`");
+  check(/\$C64RE ui --project/.test(sh), "packaged ui.sh: starts the workbench through the package");
+  check(/command -v c64re/.test(sh) && sh.includes("@trex64/c64re"),
+    "packaged ui.sh: prefers a c64re on PATH, else npx by NAME");
+  check(!sh.includes(pkgRoot) && !ps.includes(pkgRoot),
+    "packaged: no path into the package is baked — the npx cache moves");
+  check(/\$C64RE_PKG = '@trex64\/c64re'/.test(ps), "packaged ui.ps1: carries the package name, not a path");
+  check(/nothing to rebuild/.test(sh) && /nothing to rebuild/.test(ps),
+    "packaged: build-ui says the bundle already shipped");
+  rmSync(pkgProject, { recursive: true, force: true });
 }
 
 console.log(`\n${failCount ? "RED" : "GREEN"}  UI launchers: ${pass} pass, ${failCount} fail.  project: ${projectDir}`);

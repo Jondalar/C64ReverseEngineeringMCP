@@ -28,7 +28,13 @@ import { join } from "node:path";
  * reached as `c64re ui`, already built, from dist/.
  */
 function isPackagedInstall(repoDir: string): boolean {
-  return !existsSync(join(repoDir, "scripts", "workspace.mjs"));
+  // Both halves are needed. "No scripts/workspace.mjs" alone calls an empty directory a
+  // package, which is how this first broke smoke:ui-launcher — that smoke hands in a
+  // synthetic repo path to exercise spaces and an apostrophe, and it contains neither
+  // marker. A package is identified POSITIVELY, by the built orchestrator being there
+  // while the source entry is not.
+  return existsSync(join(repoDir, "dist", "workspace-ui", "launch.js"))
+    && !existsSync(join(repoDir, "scripts", "workspace.mjs"));
 }
 
 /**
@@ -277,8 +283,8 @@ function Get-Npm {
   return $npm
 }
 
-# The first half of "npm run workspace". Kept in the FOREGROUND so a TypeScript
-# error lands on screen instead of hiding in the log.
+${packaged ? `# Nothing to build: the package ships compiled.` : `# The first half of the checkout's workspace script. Kept in the FOREGROUND so a
+# TypeScript error lands on screen instead of hiding in the log.`}
 function Build-Backend {
 ${packaged ? `  # The package ships built. There is nothing to compile and no repo to compile it in.
   return
