@@ -33,6 +33,7 @@
 //   hand-made rows without any address (traces, a save descriptor) → prose:
 //     an `entity:<kind>` annotation, logged `folded`.
 
+import { beginWrite, endWrite } from "../write-tx.js";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
@@ -1257,7 +1258,7 @@ export function migrateProject(options: MigrateOptions): MigrateSummary {
   const summary = emptySummary(projectDir, slug, dryRun, input.sourceHash, textIndex);
   summary.legacyDirFiles = legacyDirFiles;
 
-  db.exec("BEGIN IMMEDIATE");
+  const ownsTx = beginWrite(db);
   try {
     const runId = Number((db.prepare("INSERT INTO migration_runs (started_at, source_hash, dry_run) VALUES (?, ?, ?)").run(now, summary.sourceHash, dryRun ? 1 : 0)).lastInsertRowid);
     summary.runId = runId;
@@ -1267,10 +1268,9 @@ export function migrateProject(options: MigrateOptions): MigrateSummary {
     applyLegacyRecords(ctx, input);
     for (const path of input.annotationFiles) applyAnnotationFile(ctx, projectDir, path, input.artifacts);
     finishRun(db, store, ledger, summary, now);
-    if (dryRun) db.exec("ROLLBACK");
-    else db.exec("COMMIT");
+    endWrite(db, ownsTx, !dryRun);
   } catch (error) {
-    try { db.exec("ROLLBACK"); } catch { /* already rolled back */ }
+    try { endWrite(db, ownsTx, false); } catch { /* already rolled back */ }
     store.close();
     throw error;
   }
@@ -1338,7 +1338,7 @@ export function importRecords(input: Partial<Omit<LegacyInput, "artifacts">>, op
   const summary = emptySummary(projectDir, slug, false, "", textIndex);
   const purged = { evidence: 0, ledger: 0, nodes: 0, claims: 0, edges: 0, annotations: 0 };
   const inTx = options.inTransaction !== true;
-  if (inTx) db.exec("BEGIN IMMEDIATE");
+  const ownsTx = inTx ? beginWrite(db) : false;
   try {
     if (options.purgeArtifactId) {
       const token = legacyIdToken(options.purgeArtifactId);
@@ -1360,9 +1360,9 @@ export function importRecords(input: Partial<Omit<LegacyInput, "artifacts">>, op
     const resolver = new Resolver(slug, artifacts, full.entities, graphPayloads(db));
     applyLegacyRecords({ db, slug, now, ledger, writer, resolver, summary }, full);
     finishRun(db, store, ledger, summary, now);
-    if (inTx) db.exec("COMMIT");
+    endWrite(db, ownsTx, true);
   } catch (error) {
-    if (inTx) { try { db.exec("ROLLBACK"); } catch { /* already rolled back */ } }
+    try { endWrite(db, ownsTx, false); } catch { /* already rolled back */ }
     if (owned) store.close();
     throw error;
   }
@@ -1455,7 +1455,7 @@ export function importAnnotationFile(path: string, options: ImportAnnotationFile
   const artifacts = readItems<ArtifactRecord>(join(projectDir, "knowledge", "artifacts.json"));
   const summary = emptySummary(projectDir, slug, false, "", textIndex);
   const inTx = options.inTransaction !== true;
-  if (inTx) db.exec("BEGIN IMMEDIATE");
+  const ownsTx = inTx ? beginWrite(db) : false;
   let result: AnnotationFileResult;
   try {
     const runId = Number((db.prepare("INSERT INTO migration_runs (started_at, source_hash, dry_run) VALUES (?, ?, 0)").run(now, `annotations:${sha256File(path)}`)).lastInsertRowid);
@@ -1465,9 +1465,9 @@ export function importAnnotationFile(path: string, options: ImportAnnotationFile
     const resolver = new Resolver(slug, artifacts, [], graphPayloads(db));
     result = applyAnnotationFile({ db, slug, now, ledger, writer, resolver, summary, store }, projectDir, path, artifacts, { force: options.force, relocations: options.relocations });
     finishRun(db, store, ledger, summary, now);
-    if (inTx) db.exec("COMMIT");
+    endWrite(db, ownsTx, true);
   } catch (error) {
-    if (inTx) { try { db.exec("ROLLBACK"); } catch { /* already rolled back */ } }
+    try { endWrite(db, ownsTx, false); } catch { /* already rolled back */ }
     if (owned) store.close();
     throw error;
   }

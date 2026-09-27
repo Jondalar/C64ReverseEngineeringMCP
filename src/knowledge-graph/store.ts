@@ -6,6 +6,7 @@
 // (from, type, to, evidence_key), JSON lines), not the file's bytes.
 // D10: additive — this module never reads or writes knowledge/*.json.
 
+import { ddlObjectsPresent, writeTx } from "./write-tx.js";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -115,12 +116,23 @@ export class GraphStore {
       // included, is then covered by the busy handler. `journal_mode` is the one
       // statement the handler does not cover; see ensureWal().
       this.db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS};`);
+      // Outside the transaction: a journal-mode change cannot happen inside one.
       ensureWal(this.db);
-      this.db.exec(GRAPH_DDL);
-      const version = this.getMeta("schema_version");
-      if (version === undefined) this.setMeta("schema_version", String(GRAPH_SCHEMA_VERSION));
-      else if (Number(version) > GRAPH_SCHEMA_VERSION) {
-        throw new Error(`graph.sqlite schema_version ${version} is newer than this reader (${GRAPH_SCHEMA_VERSION})`);
+      // The schema exists after the first open of a graph, and every open after it used
+      // to run the DDL anyway — a write transaction's worth of queueing for a lock, to
+      // change nothing. Under many writers that queue is where one starved on the
+      // Windows runner (write-tx.ts). So look first, and only take the lock when there
+      // is something to create.
+      const version = ddlObjectsPresent(this.db, GRAPH_DDL) ? this.getMeta("schema_version") : undefined;
+      if (version === undefined) {
+        writeTx(this.db, () => {
+          this.db.exec(GRAPH_DDL);
+          if (this.getMeta("schema_version") === undefined) this.setMeta("schema_version", String(GRAPH_SCHEMA_VERSION));
+        });
+      }
+      const settled = version ?? this.getMeta("schema_version");
+      if (settled !== undefined && Number(settled) > GRAPH_SCHEMA_VERSION) {
+        throw new Error(`graph.sqlite schema_version ${settled} is newer than this reader (${GRAPH_SCHEMA_VERSION})`);
       }
     }
   }
@@ -145,15 +157,21 @@ export class GraphStore {
   }
 
   setMeta(key: string, value: string): void {
-    this.db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+    writeTx(this.db, () => {
+      this.db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+    });
   }
 
   /** Record a producer in meta.producers (a JSON object producer → schema version). */
   recordProducer(producer: string): void {
-    const raw = this.getMeta("producers");
-    const map = raw ? (JSON.parse(raw) as Record<string, number>) : {};
-    map[producer] = GRAPH_SCHEMA_VERSION;
-    this.setMeta("producers", JSON.stringify(Object.fromEntries(Object.entries(map).sort())));
+    // A read-modify-write: without the lock held across both, two producers each read
+    // the map without the other and the second write drops the first.
+    writeTx(this.db, () => {
+      const raw = this.getMeta("producers");
+      const map = raw ? (JSON.parse(raw) as Record<string, number>) : {};
+      map[producer] = GRAPH_SCHEMA_VERSION;
+      this.setMeta("producers", JSON.stringify(Object.fromEntries(Object.entries(map).sort())));
+    });
   }
 
   private toNodeRow(input: NodeInput, layer: Layer, producer: string, runOwner: string | null = null): NodeRow {
@@ -235,10 +253,8 @@ export class GraphStore {
     );
     // IMMEDIATE, not deferred: the write lock is taken at BEGIN, where the busy
     // handler applies, instead of half-way through where an upgrade can fail
-    // outright. The comment at the top of this file has claimed IMMEDIATE since
-    // 822 D9; the statement did not say it.
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
+    // outright (write-tx.ts — every write in this store goes through it now).
+    return writeTx(this.db, () => {
       const dn = delNodes.run(producer, owner).changes;
       const de = delEdges.run(producer, owner).changes;
       for (const n of nodeRows) {
@@ -246,12 +262,8 @@ export class GraphStore {
       }
       for (const e of edgeRows) insEdge.run(e.from_id, e.type, e.to_id, e.layer, e.evidence_key, e.origin, e.confidence, e.producer, e.owner, e.evidence);
       this.recordProducer(producer);
-      this.db.exec("COMMIT");
       return { producer, owner, deletedNodes: Number(dn), deletedEdges: Number(de), insertedNodes: nodeRows.length, insertedEdges: edgeRows.length };
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
 
   /** The one door for human rows (Spec 822 widens it). Upserts a human node.
@@ -262,12 +274,12 @@ export class GraphStore {
   upsertHuman(node: NodeInput, producer = "human"): NodeRow {
     if (this.readOnly) throw new Error("store is read-only");
     const row = this.toNodeRow({ ...node, origin: node.origin ?? "user", confidence: node.confidence ?? "user_asserted" }, "human", producer);
-    this.db.prepare(
+    writeTx(this.db, () => this.db.prepare(
       `INSERT INTO nodes (id, layer, kind, space, owner, bank, run_owner, address, end_address, name, attrs, origin, confidence, producer, evidence)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id, layer) DO UPDATE SET name = excluded.name, attrs = excluded.attrs, end_address = excluded.end_address, evidence = excluded.evidence,
          producer = excluded.producer, origin = excluded.origin, confidence = excluded.confidence`,
-    ).run(row.id, row.layer, row.kind, row.space, row.owner, row.bank, null, row.address, row.end_address, row.name, row.attrs, row.origin, row.confidence, row.producer, row.evidence);
+    ).run(row.id, row.layer, row.kind, row.space, row.owner, row.bank, null, row.address, row.end_address, row.name, row.attrs, row.origin, row.confidence, row.producer, row.evidence));
     return row;
   }
 

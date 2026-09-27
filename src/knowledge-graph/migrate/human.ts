@@ -10,6 +10,7 @@
 // Every door takes a project directory (opens and closes the store around the
 // call) or an open GraphStore (one connection per process for its lifetime).
 
+import { writeTx } from "../write-tx.js";
 import { assertNamesFit } from "../../project-knowledge/naming.js";
 import { randomBytes } from "node:crypto";
 import { dirname } from "node:path";
@@ -60,8 +61,6 @@ export function openStore(projectDir: string, options: { timeoutMs?: number } = 
   }
 }
 
-const OPEN_TX = new WeakSet<GraphStore>();
-
 /** Run `fn` on an open, writable store inside one BEGIN IMMEDIATE transaction.
  *  Re-entrant: a door called from inside another door's transaction joins it
  *  (the outermost call commits), so `saveEntity` can name a node and annotate it
@@ -71,25 +70,18 @@ export function withStore<T>(target: StoreTarget, fn: (store: GraphStore) => T):
   const store = owned ? openStore(target) : target;
   if (store.readOnly) throw new Error("the human door needs a writable store");
   try {
-    ensureSchema822(store.db);
-    if (OPEN_TX.has(store)) return fn(store);
-    OPEN_TX.add(store);
-    store.db.exec("BEGIN IMMEDIATE");
-    try {
+    // One transaction, taken before anything is read — the schema check included,
+    // which used to run ahead of it and was a read-then-write of its own (write-tx.ts).
+    // Re-entrant: a door inside a door joins the outer transaction.
+    return writeTx(store.db, () => {
+      ensureSchema822(store.db);
       // 822.2 — the cut-over switch: the first door write into a project's graph
       // stamps it. Readers and writers in ProjectKnowledgeService go to the
       // graph unconditionally on this branch (no dual-write window); the stamp
       // records WHEN this project crossed over.
       store.db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('cutover_at', ?)").run(new Date().toISOString());
-      const out = fn(store);
-      store.db.exec("COMMIT");
-      return out;
-    } catch (error) {
-      try { store.db.exec("ROLLBACK"); } catch { /* the transaction is already gone */ }
-      throw error;
-    } finally {
-      OPEN_TX.delete(store);
-    }
+      return fn(store);
+    });
   } finally {
     if (owned) store.close();
   }

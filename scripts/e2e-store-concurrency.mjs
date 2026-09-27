@@ -539,6 +539,63 @@ const readStore = (dir) => {
       opens.join(" | ") || "(no DatabaseSync open found)");
     rmSync(dir, { recursive: true, force: true });
   }
+
+  head("5d", "a graph whose schema is already there is opened without queueing for the write lock");
+  {
+    // Measured on the Windows runner: writers starved — each waited out its 5 s busy timeout
+    // for the write lock and died. Part of the queue was writes that changed nothing: the
+    // schema DDL on every open, two meta rows rewritten on every door. So hold the lock
+    // for 3 s and time the two schema checks while it is held. Queueing for it costs the
+    // full busy timeout (5 s); not queueing costs milliseconds. Deterministic, any OS.
+    const dir = makeGraphProject("nolock");
+    {
+      const s = GraphStore.open(dir);
+      s.replaceGenerated("seed", "seed", [node("seed", 0x1000)], []);
+      s.close();
+    }
+    const { ensureSchema822 } = await import(pathToFileURL(join(ROOT, "dist/knowledge-graph/migrate/schema-822.js")).href);
+    { const s = GraphStore.open(dir); ensureSchema822(s.db); s.close(); } // the 822 tables exist too
+    const holderSrc = `
+      const { createRequire } = await import("node:module");
+      const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite");
+      const h = new DatabaseSync(process.argv[1], { timeout: 5000 });
+      h.exec("BEGIN IMMEDIATE");
+      console.log("HELD");
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000);
+      h.exec("ROLLBACK");
+      h.close();
+    `;
+    const holder = spawn(process.execPath, ["--input-type=module", "-e", holderSrc, "--", join(dir, "knowledge", "graph.sqlite")], { stdio: ["ignore", "pipe", "ignore"] });
+    const holderExit = new Promise((res) => holder.on("exit", res));
+    await new Promise((res) => holder.stdout.on("data", (d) => { if (/HELD/.test(String(d))) res(); }));
+    const checkerSrc = `
+      const { GraphStore } = await import(${JSON.stringify(pathToFileURL(join(ROOT, "dist/knowledge-graph/store.js")).href)});
+      const { ensureSchema822 } = await import(${JSON.stringify(pathToFileURL(join(ROOT, "dist/knowledge-graph/migrate/schema-822.js")).href)});
+      let t = Date.now();
+      const s = GraphStore.open(process.argv[1]);
+      const open = Date.now() - t;
+      t = Date.now();
+      ensureSchema822(s.db);
+      const schema = Date.now() - t;
+      s.close();
+      console.log(JSON.stringify({ open, schema }));
+    `;
+    const r = await new Promise((res) => {
+      const p = spawn(process.execPath, ["--input-type=module", "-e", checkerSrc, "--", dir], { stdio: ["ignore", "pipe", "pipe"] });
+      let out = "", err = "";
+      p.stdout.on("data", (d) => { out += d; });
+      p.stderr.on("data", (d) => { err += d; });
+      p.on("exit", (code) => res({ code, out, err }));
+    });
+    await holderExit;
+    let t = null;
+    try { t = JSON.parse(r.out.trim().split("\n").pop()); } catch { /* reported below */ }
+    check(r.code === 0 && t !== null, "the checker ran while the lock was held",
+      r.code === 0 ? "exit 0" : (r.err.split("\n").find((l) => /Error|ERR_/.test(l)) ?? `exit ${r.code}`));
+    check(t !== null && t.open < 1000, "opening an established graph does not wait for the write lock", t ? `${t.open} ms` : "no timing");
+    check(t !== null && t.schema < 1000, "…nor does the 822 schema check every door runs", t ? `${t.schema} ms` : "no timing");
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 console.log(`\n${failCount === 0 ? "GREEN" : "RED"} store concurrency: ${pass} pass, ${failCount} fail.`);

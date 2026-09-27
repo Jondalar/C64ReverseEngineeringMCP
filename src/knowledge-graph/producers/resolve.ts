@@ -16,6 +16,7 @@
 //
 // Replacement unit = (producer "826r", owner NULL): the pass replaces itself.
 
+import { writeTx } from "../write-tx.js";
 import { GraphStore } from "../store.js";
 
 export const RESOLVE_PRODUCER = "826r";
@@ -99,8 +100,7 @@ export function resolveAddressesIn(store: GraphStore, options: { inTransaction?:
     // IMMEDIATE like every other writer here: this transaction reads before it
     // writes, and a deferred one that upgrades mid-way gets SQLITE_BUSY without
     // the busy handler ever being asked.
-    db.exec("BEGIN IMMEDIATE");
-    try { run(); db.exec("COMMIT"); } catch (error) { db.exec("ROLLBACK"); throw error; }
+    writeTx(db, run);
   }
   return { addrNodes: addrs.length, resolved, ambiguous: ambiguous.length, ms: Number(process.hrtime.bigint() - t0) / 1e6 };
 }

@@ -17,6 +17,7 @@
 //   - `migration_log` carries `note` (`ctx-by-stem` is a note on a `created`
 //     row, not a second action — one row per legacy id is the invariant).
 
+import { ddlObjectsPresent, writeTx } from "../write-tx.js";
 import { createHash } from "node:crypto";
 import type { DatabaseSync } from "../../platform-kb/sqlite-quiet.js";
 import type { Confidence, Layer, Origin } from "../schema.js";
@@ -244,18 +245,32 @@ export type TextIndex = "fts5" | "like";
  * `meta.annotations_text_index` so a reader on a different build can see it.
  */
 export function ensureSchema822(db: DatabaseSync): { textIndex: TextIndex } {
-  db.exec(SCHEMA_822_DDL);
-  let textIndex: TextIndex = "like";
-  try {
-    db.exec(FTS_DDL);
-    textIndex = "fts5";
-  } catch {
-    textIndex = "like";
+  // Every door ran this, and it rewrote two meta rows every time — a write, queued for
+  // the lock, that changed nothing (write-tx.ts: where writers starved). Look first.
+  // A text index recorded as `like` means fts5 was not available when the graph was
+  // made; that is not re-tried on every open, only when something else is missing.
+  if (ddlObjectsPresent(db, SCHEMA_822_DDL)) {
+    const meta = (key: string) => (db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined)?.value;
+    const index = meta("annotations_text_index");
+    if (meta("schema_822") === String(SCHEMA_822_VERSION) && (index === "like" || (index === "fts5" && ddlObjectsPresent(db, FTS_DDL)))) {
+      return { textIndex: index };
+    }
   }
-  const set = db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
-  set.run("schema_822", String(SCHEMA_822_VERSION));
-  set.run("annotations_text_index", textIndex);
-  return { textIndex };
+  // Something is missing: create it under the write lock (write-tx.ts).
+  return writeTx(db, () => {
+    db.exec(SCHEMA_822_DDL);
+    let textIndex: TextIndex = "like";
+    try {
+      db.exec(FTS_DDL);
+      textIndex = "fts5";
+    } catch {
+      textIndex = "like";
+    }
+    const set = db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value");
+    set.run("schema_822", String(SCHEMA_822_VERSION));
+    set.run("annotations_text_index", textIndex);
+    return { textIndex };
+  });
 }
 
 export function textIndexOf(db: DatabaseSync): TextIndex {
