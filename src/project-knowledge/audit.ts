@@ -178,13 +178,27 @@ function artifactFilePath(projectRoot: string, artifact: ArtifactRecord): string
 function findArtifactPathProblems(projectRoot: string, artifacts: ArtifactRecord[]): {
   missing: ArtifactRecord[];
   broken: Array<{ artifact: ArtifactRecord; reason: string }>;
+  duplicates: Array<{ artifact: ArtifactRecord; first: ArtifactRecord }>;
 } {
   const missing: ArtifactRecord[] = [];
   const broken: Array<{ artifact: ArtifactRecord; reason: string }> = [];
+  const duplicates: Array<{ artifact: ArtifactRecord; first: ArtifactRecord }> = [];
+  // Issue #28 — on Windows the two writers of this store spelled one file two ways, so the
+  // same file could be registered twice. New registrations cannot do that any more; rows
+  // that already did are reported here rather than merged, because entities and the graph
+  // refer to their ids and which one survives is a decision, not a cleanup.
+  const firstByPath = new Map<string, ArtifactRecord>();
 
   for (const artifact of artifacts) {
     const full = artifactFilePath(projectRoot, artifact);
     const expectedRelative = relPath(projectRoot, full).replace(/\\/g, "/");
+    const spelled = artifact.relativePath.replace(/\\/g, "/");
+    const first = firstByPath.get(spelled);
+    if (first && !artifact.derivedFrom && !first.derivedFrom) {
+      duplicates.push({ artifact, first });
+    } else if (!first) {
+      firstByPath.set(spelled, artifact);
+    }
 
     if (!isInsideRoot(projectRoot, full)) {
       broken.push({ artifact, reason: `absolute path escapes project root: ${artifact.path}` });
@@ -199,7 +213,7 @@ function findArtifactPathProblems(projectRoot: string, artifacts: ArtifactRecord
     }
   }
 
-  return { missing, broken };
+  return { missing, broken, duplicates };
 }
 
 function findUnimportedManifestArtifacts(service: ProjectKnowledgeService): ArtifactRecord[] {
@@ -275,6 +289,16 @@ export function auditProject(projectRoot: string, options: ProjectAuditOptions =
       paths: pathProblems.broken.slice(0, 20).map(({ artifact, reason }) => `${artifact.id}: ${artifact.relativePath} (${reason})`),
       whyItMatters: "The UI resolves artifacts through project-relative paths. CWD-relative paths break links after nested tool calls.",
       suggestedFix: "Rewrite artifact relativePath values from the resolved project root.",
+    });
+  }
+  if (pathProblems.duplicates.length > 0) {
+    addFinding(findings, {
+      id: "duplicate-artifact-registrations",
+      severity: "medium",
+      title: "The same file is registered more than once",
+      paths: pathProblems.duplicates.slice(0, 20).map(({ artifact, first }) => `${artifact.id}: ${artifact.relativePath} (also ${first.id})`),
+      whyItMatters: "Two records for one file split what the project knows about it: findings, entities and the graph can cite either id, and each sees only half. On Windows the pipeline and the server spelled a path two ways until issue #28, which is how this happened.",
+      suggestedFix: "Keep the record the project's entities and findings cite, move any references from the other to it, then remove the other.",
     });
   }
   if (pathProblems.missing.length > 0) {

@@ -309,7 +309,12 @@ export class ProjectKnowledgeStorage {
   }
 
   loadArtifacts(): ArtifactStore {
-    return ArtifactStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeArtifacts, emptyStore<ArtifactRecord>()));
+    const store = ArtifactStoreSchema.parse(readJsonOrDefault(this.paths.knowledgeArtifacts, emptyStore<ArtifactRecord>()));
+    // Issue #28 — the pipeline registrar wrote `relativePath` with `\` on Windows while
+    // this writer stores `/`. Both write `/` now; a store written before that is read in
+    // the one spelling here, and the next save stores it healed.
+    for (const item of store.items) item.relativePath = item.relativePath.replace(/\\/g, "/");
+    return store;
   }
 
   saveArtifacts(store: ArtifactStore): ArtifactStore {

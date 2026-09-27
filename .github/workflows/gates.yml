@@ -121,6 +121,11 @@ jobs:
       - name: The graph before the listing (881)
         run: npm run e2e:881-graph-first
 
+      # Issue #28 — one spelling of a path in knowledge/artifacts.json, whoever writes it.
+      # Plants what a Windows store written before the fix holds, so it bites here too.
+      - name: One spelling per path in the artifact store (#28)
+        run: npm run e2e:relpath-spelling
+
       # 716.3 — the runtime beside the package. Hermetic: the pin, the asset mapping and
       # the resolution order, with nothing downloaded. It is the gate that noticed TRX64
       # built no Intel Mac while the installer claimed to serve one.
@@ -597,6 +602,16 @@ jobs:
 
       - name: The runtime pin, mapping and resolution (716.3)
         run: npm run e2e:716-runtime
+
+      # Issue #28 — only here does `path.relative` answer with `\`, so only here do the
+      # first two cases of this test mean anything. And the concurrency e2e is where the
+      # mismatch was seen: 37 pass, 1 fail on Windows, 0/8 rows found by a `===` against
+      # `/`. Both run on the platform that can break them.
+      - name: One spelling per path in the artifact store (#28)
+        run: npm run e2e:relpath-spelling
+
+      - name: Parallel pipeline children lose no registration (#26, #28)
+        run: npm run e2e:store-concurrency
 
   # ─────────────────────────────────────────────────────────────────────────────
   # Spec 716.5 — WSL2, which turns out to be testable after all.

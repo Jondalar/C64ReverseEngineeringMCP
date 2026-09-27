@@ -403,8 +403,12 @@ export async function runPayloadReverseWorkflow(opts: PayloadReverseWorkflowOpti
   // stamp never downgrades a disk-file entity.
   if (["payload", "disk-file", "cart-chunk"].includes(payload.kind)) try {
     const refreshedService = new ProjectKnowledgeService(projectRoot);
+    // `relative()` answers with the platform separator and the store holds `/` (#28): on
+    // Windows this comparison never matched a row, and the listing never reached the entity.
+    const storeSpelling = (path: string) => relative(projectRoot, path).replace(/\\/g, "/");
+    const wanted = new Set([storeSpelling(result.asmPath), storeSpelling(result.tassPath)]);
     const asmArtifactIds = refreshedService.listArtifacts()
-      .filter((entry) => entry.relativePath === relative(projectRoot, result.asmPath) || entry.relativePath === relative(projectRoot, result.tassPath))
+      .filter((entry) => wanted.has(entry.relativePath))
       .map((entry) => entry.id);
     if (asmArtifactIds.length > 0) {
       const merged = Array.from(new Set([...(payload.payloadAsmArtifactIds ?? []), ...asmArtifactIds]));

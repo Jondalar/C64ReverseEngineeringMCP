@@ -101,6 +101,11 @@ function loadStore(path: string): ArtifactStore {
   try {
     const data = JSON.parse(readFileSync(path, "utf8")) as ArtifactStore;
     if (!data.items) data.items = [];
+    // A store written on Windows before #28 holds `\`. Read it in the one spelling, so
+    // the skip below sees those rows too — and the next write stores them healed.
+    for (const item of data.items) {
+      if (typeof item.relativePath === "string") item.relativePath = item.relativePath.replace(/\\/g, "/");
+    }
     return data;
   } catch {
     return { schemaVersion: SCHEMA_VERSION, updatedAt: nowIso(), items: [] };
@@ -166,7 +171,12 @@ export function registerCliArtifact(input: CliArtifactInput): void {
 
   const artifactsPath = resolve(projectRoot, "knowledge", "artifacts.json");
   const absolutePath = canonical(resolve(input.path));
-  const relativePath = relative(canonical(projectRoot), absolutePath);
+  // One spelling per file, whoever writes it: `/`. `path.relative` answers with the
+  // platform separator, so on Windows this used to store `artifacts\prg\x.json` while
+  // the MCP server — the other writer of this same store — stores `artifacts/prg/x.json`.
+  // The skip below compares by `===`, so a file the server had registered was registered a
+  // second time here, in the other spelling (issue #28).
+  const relativePath = relative(canonical(projectRoot), absolutePath).replace(/\\/g, "/");
 
   try {
     // Load, check and write inside ONE lock. Splitting them is what turns two

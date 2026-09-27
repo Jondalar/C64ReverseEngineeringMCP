@@ -266,7 +266,8 @@
     "e2e:716-package": "node scripts/e2e-716-package.mjs",
     "e2e:716-runtime": "node scripts/e2e-716-runtime.mjs",
     "e2e:881-graph-first": "node scripts/e2e-881-graph-first.mjs",
-    "check:dist-reachable": "node scripts/check-dist-reachable.mjs"
+    "check:dist-reachable": "node scripts/check-dist-reachable.mjs",
+    "e2e:relpath-spelling": "npm run build && node scripts/e2e-relpath-spelling.mjs"
   },
   "dependencies": {
     "@duckdb/node-api": "^1.5.2-r.1",
