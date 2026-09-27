@@ -12,9 +12,10 @@
 //   * DIRECT-ENTRY — PC=entry + reg-seed + the staged RTS sentinel
 //     ($01FE=$FD/$01FF=$FF ⇒ RTS → $FFFE), byte-identical to the TS runner
 //     (sandbox-runner.ts:127-130). Never the `jsr entry` stub.
-//   * `--io $34` — all-RAM ($A000-$FFFF + $D000-$DFFF = RAM), reproducing the
-//     shadow's flat-64K "no ROM / no IO visible" memory model (the tool doc:
-//     "load code/data into a flat 64K RAM").
+//   * `--io $34` — the START banking is all-RAM ($A000-$FFFF + $D000-$DFFF = RAM),
+//     the shadow's "no ROM / no IO visible" model. It is only the start: the real
+//     core banks by $01 from there on, and an initial_zp $01 / $00 seed is passed
+//     as `--zp` and trx64cli puts it in the CPU port, overriding `--io`.
 //   * A single full-RAM harvest ($0000:0x10000); memory snapshots and the
 //     output PRG span are sliced from it locally (deterministic run).
 //
@@ -126,8 +127,8 @@ export function runSandboxRealCore(options: SandboxRunOptions): SandboxRunResult
       // TS-faithful entry: PC=entry, reg-seed, staged RTS sentinel — not the
       // `jsr entry` stub (sandbox-runner.ts sets PC directly + stages $01FE/$01FF).
       "--direct-entry",
-      // All-RAM: reproduce the flat-64K TS shadow ($A000-$FFFF + $D000-$DFFF = RAM,
-      // no ROM / no IO). The tool doc: "load code/data into a flat 64K RAM".
+      // Start banking all-RAM ($A000-$FFFF + $D000-$DFFF = RAM, no ROM / no IO);
+      // a `--zp $01` seed below overrides it inside trx64cli.
       "--io", "$34",
       "--json",
     ];

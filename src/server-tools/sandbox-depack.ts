@@ -39,7 +39,7 @@ export function registerSandboxDepackTool(server: McpServer, ctx: ServerToolCont
       entry_pc: z.string().describe("Hex PC of the depacker entry point inside the resident loader."),
       source_zp_low: z.number().int().min(0).max(255).optional().describe("Zero-page byte holding the source pointer's low byte. Default $52."),
       source_zp_high: z.number().int().min(0).max(255).optional().describe("Zero-page high source-pointer byte. Default $53."),
-      initial_zp: z.record(z.string(), z.number().int().min(0).max(255)).optional().describe("Other zero-page seed values, keyed by hex zp address."),
+      initial_zp: z.record(z.string(), z.number().int().min(0).max(255)).optional().describe("Other zero-page seed values, keyed by hex zp address. $01 and $00 are the CPU port, not RAM: a $01 seed sets the start banking (default $34 = all RAM), a $00 seed the port direction (default $2F)."),
       initial_a: z.number().int().min(0).max(255).optional(),
       initial_x: z.number().int().min(0).max(255).optional(),
       initial_y: z.number().int().min(0).max(255).optional(),
