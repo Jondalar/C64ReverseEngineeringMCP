@@ -228,15 +228,22 @@ export function legacyIdToken(s: string): string {
 // ------------------------------------------------------------------ ledger + writer
 
 export class Ledger {
-  /** migrated by an earlier run, or claimed by this run — a legacy id is processed once */
-  readonly seen = new Set<string>();
   readonly counts: Record<string, StoreSummary> = {};
 
+  // A legacy id is processed once: it is in the ledger when an earlier run migrated
+  // it or this run claimed it (log() writes the row inside this run's transaction).
+  // Asked per key on the ledger's primary key. BUG-067: the constructor used to read
+  // the WHOLE ledger into a set — 33K rows on a real project — and a closed-loop
+  // sweep built one Ledger per finding it archived.
+  private readonly has: StatementSync;
+
   constructor(private readonly db: DatabaseSync, readonly runId: number) {
-    for (const row of db.prepare("SELECT legacy_store, legacy_id FROM migration_log").all() as Array<{ legacy_store: string; legacy_id: string }>) {
-      this.seen.add(`${row.legacy_store} ${row.legacy_id}`);
-    }
+    this.has = db.prepare("SELECT 1 AS x FROM migration_log WHERE legacy_store = ? AND legacy_id = ?");
     this.insert = db.prepare("INSERT INTO migration_log (legacy_store, legacy_id, action, target_table, target_id, note, run_id) VALUES (?,?,?,?,?,?,?)");
+  }
+
+  private seen(store: string, id: string): boolean {
+    return this.has.get(store, id) !== undefined;
   }
 
   private readonly insert: StatementSync;
@@ -250,14 +257,12 @@ export class Ledger {
   already(store: string, id: string): boolean {
     const b = this.bucket(store);
     b.total += 1;
-    if (this.seen.has(`${store} ${id}`)) { b.already += 1; return true; }
+    if (this.seen(store, id)) { b.already += 1; return true; }
     return false;
   }
 
   log(store: string, id: string, action: MigrationAction, targetTable: string | null, targetId: string | null, note: string | null = null): void {
-    const key = `${store} ${id}`;
-    if (this.seen.has(key)) throw new Error(`migration_log: ${store}/${id} logged twice`);
-    this.seen.add(key);
+    if (this.seen(store, id)) throw new Error(`migration_log: ${store}/${id} logged twice`);
     this.insert.run(store, id, action, targetTable, targetId, note, this.runId);
     const b = this.bucket(store);
     if (action === "created") b.created += 1;
@@ -1027,9 +1032,8 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
     // the file changed since its last import: retire what the FILE put there, keep what the door wrote
     db.prepare("DELETE FROM annotations WHERE producer = ? AND source_path = ?").run(migrated, rel);
     db.prepare("DELETE FROM nodes WHERE layer = 'human' AND producer = ? AND json_extract(attrs, '$.source_path') = ?").run(migrated, rel);
+    // The ledger answers from this table, so the file's entries are forgotten with it.
     db.prepare("DELETE FROM migration_log WHERE legacy_store = ?").run(ledgerStore);
-    const l = ledger as unknown as { seen: Set<string> };
-    for (const k of [...l.seen]) if (k.startsWith(`${ledgerStore} `)) l.seen.delete(k);
   }
   const analysisArtifact = artifacts.find((a) => (a.relativePath ?? a.path ?? "").endsWith(`${stem.replace(/_disasm$/u, "")}_analysis.json`));
   const actx: Ctx = contextForOwner(projectDir, owner, analysisArtifact, analysisArtifact?.path ?? analysisArtifact?.relativePath).ctx; // 826.0 T7 — the declared machine counts
@@ -1346,7 +1350,10 @@ export function importRecords(input: Partial<Omit<LegacyInput, "artifacts">>, op
       purged.ledger += Number(db.prepare("DELETE FROM migration_log WHERE legacy_store IN ('entities','findings','relations','open-questions') AND (legacy_id LIKE ? OR legacy_id LIKE ? OR legacy_id LIKE ? OR legacy_id LIKE ?)").run(`entity-${token}-%`, `finding-${token}-%`, `relation-${token}-%`, `question-${token}-%`).changes);
     }
     for (const p of options.purgeLegacyIds ?? []) {
-      purged.evidence += Number(db.prepare("DELETE FROM evidence WHERE producer = '822' AND (legacy_id = ? OR legacy_id LIKE ?)").run(p.id, `${p.id}#%`).changes);
+      // The id itself, and every `<id>#<n>` beside it — as a range on evidence_legacy
+      // ('$' is the character after '#'), not a LIKE, which scanned the table and read
+      // a `_` or `%` inside an id as a wildcard (BUG-067).
+      purged.evidence += Number(db.prepare("DELETE FROM evidence WHERE producer = '822' AND (legacy_id = ? OR (legacy_id >= ? AND legacy_id < ?))").run(p.id, `${p.id}#`, `${p.id}$`).changes);
       purged.ledger += Number(db.prepare("DELETE FROM migration_log WHERE legacy_store = ? AND legacy_id = ?").run(p.store, p.id).changes);
     }
     if (purged.evidence > 0 || purged.ledger > 0) {

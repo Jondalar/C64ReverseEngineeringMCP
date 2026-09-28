@@ -141,8 +141,13 @@ interface EdgeRowLite { from_id: string; type: string; to_id: string; layer: str
 interface Snapshot {
   db: DatabaseSync;
   cutover: string;
-  /** migration ledger: `<store> <legacy id>` → { table, id } */
-  alias: Map<string, { table: string; id: string }>;
+  /** migration ledger: `<store> <legacy id>` → { table, id }, looked up per key (BUG-067) */
+  alias: AliasLookup;
+}
+
+/** The ledger as an alias table, asked one key at a time. */
+interface AliasLookup {
+  get(key: string): { table: string; id: string } | undefined;
 }
 
 // ------------------------------------------------------------------ the layer
@@ -174,18 +179,24 @@ export class KnowledgeRecords {
     try {
       ensureSchema822(store.db);
       const cutover = (store.db.prepare("SELECT value FROM meta WHERE key = 'cutover_at'").get() as { value: string } | undefined)?.value ?? new Date().toISOString();
-      const alias = new Map<string, { table: string; id: string }>();
-      let loaded = false;
+      // BUG-067: this used to load the whole ledger (33K rows in a real project) the
+      // first time any row needed an alias — once per read, and a sweep reads once
+      // per finding. A key is now answered by the ledger's primary key, and
+      // remembered for the rest of this read.
+      const seen = new Map<string, { table: string; id: string } | undefined>();
+      let byKey: { get(store: string, id: string): unknown } | undefined;
       const snap: Snapshot = {
         db: store.db, cutover,
-        get alias() {
-          if (!loaded) {
-            loaded = true;
-            for (const r of store.db.prepare("SELECT legacy_store, legacy_id, target_table, target_id FROM migration_log WHERE target_id IS NOT NULL").all() as Array<{ legacy_store: string; legacy_id: string; target_table: string; target_id: string }>) {
-              alias.set(`${r.legacy_store} ${r.legacy_id}`, { table: r.target_table, id: r.target_id });
-            }
-          }
-          return alias;
+        alias: {
+          get(key: string) {
+            if (seen.has(key)) return seen.get(key);
+            const space = key.indexOf(" ");
+            byKey ??= store.db.prepare("SELECT target_table, target_id FROM migration_log WHERE legacy_store = ? AND legacy_id = ? AND target_id IS NOT NULL");
+            const r = space < 0 ? undefined : byKey.get(key.slice(0, space), key.slice(space + 1)) as { target_table: string; target_id: string } | undefined;
+            const hit = r ? { table: r.target_table, id: r.target_id } : undefined;
+            seen.set(key, hit);
+            return hit;
+          },
         },
       };
       return fn(snap);
@@ -1101,6 +1112,64 @@ export class KnowledgeRecords {
   /** Legacy-shaped records from a deterministic importer → the generated layer (D2 purge by artifact, D5 evidence per run). */
   importGenerated(records: Partial<Omit<LegacyInput, "artifacts">>, options: { artifactId?: string; purgeLegacyIds?: Array<{ store: "entities" | "findings" | "relations" | "open-questions" | "labels"; id: string }> } = {}): ImportRecordsResult {
     return importRecords(records, { projectDir: this.projectDir, purgeArtifactId: options.artifactId, purgeLegacyIds: options.purgeLegacyIds });
+  }
+
+  /** What the closed loop has done to the project so far, counted: archived findings
+   *  (claims + `finding:*` prose) and answered questions (claim validations + rows). */
+  closedLoopTotals(): { archived: number; answered: number } {
+    return this.read((s) => {
+      const n = (sql: string) => Number((s.db.prepare(sql).get() as { n: number }).n);
+      return {
+        archived: n("SELECT COUNT(*) AS n FROM claims WHERE status = 'archived'") + n("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'finding:%' AND status = 'archived'"),
+        answered: n("SELECT COUNT(*) AS n FROM claims WHERE validation = 'answered'") + n("SELECT COUNT(*) AS n FROM questions WHERE status = 'answered'"),
+      };
+    }, { archived: 0, answered: 0 });
+  }
+
+  /**
+   * BUG-067 — the closed-loop sweep's archive, one transaction for the whole sweep.
+   *
+   * A covered hypothesis used to be archived by re-saving it through `saveFinding`. Its
+   * tags carry `analysis-import`, so that took the importer branch: a full `importRecords`
+   * run per finding (ledger read, purge, orphan sweep, human-layer hash) — and the claim
+   * came out of it still `active`, so the next sweep archived the same findings again.
+   *
+   * Here a generated claim's status and `superseded_by` are set directly, as the
+   * `claim:` branch of `saveFinding` does, and a generated `finding:*` annotation gets
+   * the same status and `archived_by`. Only rows in the GENERATED layer are touched;
+   * anything else is handed back for the human door. A row already archived changes
+   * nothing, so a second sweep archives nothing.
+   */
+  archiveCovered(items: Array<{ id: string; supersededBy: string }>): { archived: string[]; human: Array<{ id: string; supersededBy: string }> } {
+    const archived: string[] = [];
+    const human: Array<{ id: string; supersededBy: string }> = [];
+    if (items.length === 0) return { archived, human };
+    const store = openStore(this.projectDir);
+    try {
+      ensureSchema822(store.db);
+      withStore(store, (st) => {
+        const now = new Date().toISOString();
+        const claim = st.db.prepare("UPDATE claims SET status = 'archived', superseded_by = ?, updated_at = ? WHERE node_id = ? AND claim = ? AND layer = 'generated' AND status <> 'archived'");
+        const annotation = st.db.prepare("UPDATE annotations SET status = 'archived', attrs = json_set(attrs, '$.archived_by', ?), updated_at = ? WHERE id = ? AND layer = 'generated' AND kind LIKE 'finding:%' AND status <> 'archived'");
+        for (const item of items) {
+          const hit = this.resolveFindingIn(st.db, item.id);
+          if (!hit) continue;
+          const by = this.resolveFindingKey(st.db, item.supersededBy) ?? item.supersededBy;
+          let changes = 0;
+          if (hit.table === "claims") {
+            const cut = hit.id.lastIndexOf("|");
+            changes = Number(claim.run(by, now, hit.id.slice(0, cut), hit.id.slice(cut + 1)).changes);
+          } else {
+            changes = Number(annotation.run(by, now, hit.id).changes);
+          }
+          if (changes > 0) archived.push(item.id);
+          else if (hit.table === "annotations" && st.db.prepare("SELECT 1 FROM annotations WHERE id = ? AND layer = 'human' AND status <> 'archived'").get(hit.id)) human.push(item);
+        }
+      });
+    } finally {
+      store.close();
+    }
+    return { archived, human };
   }
 
   /**

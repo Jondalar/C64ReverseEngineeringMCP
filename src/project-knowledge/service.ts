@@ -2452,50 +2452,44 @@ export class ProjectKnowledgeService {
     return { routines: r.routines, labels: r.labels, segments: r.segments, dropped: r.dropped, changed: r.changed, owner: r.owner, annotationsArtifactId };
   }
 
-  // Spec 057 R26: closed-loop sweep helper. Runs archivePhase1Noise +
-  // sweepQuestionResolutions with optional artifact-scope. Returns
-  // both scope-restricted counts and project-wide totals so the caller
-  // can render a "scope=X/Y, project=A/B" footer. Soft semantics:
-  // exceptions are caught and reported via `error`; the parent op
-  // never fails because the closed loop hit a snag.
+  // Spec 057 R26: closed-loop sweep helper. With an artifact it runs
+  // archivePhase1Noise + sweepQuestionResolutions for THAT artifact only;
+  // without one, for the whole project. Soft semantics: exceptions are
+  // caught and reported via `error`; the parent op never fails because
+  // the closed loop hit a snag.
+  //
+  // BUG-067: an artifact-scoped sweep used to run both passes a second time
+  // over the whole project, only to print their counts — 70 s of a 93 s
+  // `disasm` on a real project. The project figures are now what the graph
+  // HOLDS (`projectTotals`, two COUNTs), not what a second pass did; the
+  // project-wide pass is `archive_phase1_noise` / `auto_resolve_questions`
+  // without an artifact.
   runClosedLoopSweep(opts: { artifactId?: string } = {}): {
     scope: "project" | "artifact";
     scopeArtifactId?: string;
     archivedScoped: number;
     questionsAnsweredScoped: number;
-    archivedProject: number;
-    questionsAnsweredProject: number;
+    projectTotals: { archived: number; answered: number };
     error?: string;
   } {
+    const scope = opts.artifactId ? "artifact" as const : "project" as const;
     try {
-      let archivedScoped = 0;
-      let questionsAnsweredScoped = 0;
-      if (opts.artifactId) {
-        const aRes = this.archivePhase1Noise({ artifactId: opts.artifactId });
-        const qRes = this.sweepQuestionResolutions({ artifactId: opts.artifactId });
-        archivedScoped = aRes.findingsArchived;
-        questionsAnsweredScoped = aRes.questionsAnswered + qRes.autoResolved;
-      }
-      const aProj = this.archivePhase1Noise({});
-      const qProj = this.sweepQuestionResolutions({});
-      const archivedProject = aProj.findingsArchived;
-      const questionsAnsweredProject = aProj.questionsAnswered + qProj.autoResolved;
+      const aRes = this.archivePhase1Noise(opts.artifactId ? { artifactId: opts.artifactId } : {});
+      const qRes = this.sweepQuestionResolutions(opts.artifactId ? { artifactId: opts.artifactId } : {});
       return {
-        scope: opts.artifactId ? "artifact" : "project",
+        scope,
         scopeArtifactId: opts.artifactId,
-        archivedScoped: opts.artifactId ? archivedScoped : archivedProject,
-        questionsAnsweredScoped: opts.artifactId ? questionsAnsweredScoped : questionsAnsweredProject,
-        archivedProject,
-        questionsAnsweredProject,
+        archivedScoped: aRes.findingsArchived,
+        questionsAnsweredScoped: aRes.questionsAnswered + qRes.autoResolved,
+        projectTotals: this.records.closedLoopTotals(),
       };
     } catch (error) {
       return {
-        scope: opts.artifactId ? "artifact" : "project",
+        scope,
         scopeArtifactId: opts.artifactId,
         archivedScoped: 0,
         questionsAnsweredScoped: 0,
-        archivedProject: 0,
-        questionsAnsweredProject: 0,
+        projectTotals: { archived: 0, answered: 0 },
         error: error instanceof Error ? error.message : String(error),
       };
     }
@@ -2551,6 +2545,7 @@ export class ProjectKnowledgeService {
       && inScope(f)
     );
     const preview: Array<{ findingId: string; title: string; supersededBy: string }> = [];
+    const covered: Array<{ finding: FindingRecord; supersededBy: string }> = [];
     let archived = 0;
     for (const candidate of hypothesisCandidates) {
       // Bug 28: use effective range (top-level OR evidence[0]) so
@@ -2561,15 +2556,30 @@ export class ProjectKnowledgeService {
       const coverer = coverers.find((r) => r.range.start <= cr.start && r.range.end >= cr.end);
       if (!coverer) continue;
       preview.push({ findingId: candidate.id, title: candidate.title, supersededBy: coverer.id });
-      if (!opts.dryRun) {
-        this.saveFinding({
-          id: candidate.id,
-          kind: candidate.kind,
-          title: candidate.title,
-          status: "archived",
-          archivedBy: coverer.id,
+      covered.push({ finding: candidate, supersededBy: coverer.id });
+    }
+    if (!opts.dryRun && covered.length > 0) {
+      // BUG-067: one transaction for the sweep, straight onto the claim's status —
+      // never a re-save per finding through the importer (records.archiveCovered).
+      const byId = new Map(covered.map((c) => [c.finding.id, c]));
+      const batch = this.records.archiveCovered(covered.map((c) => ({ id: c.finding.id, supersededBy: c.supersededBy })));
+      const done = batch.archived.map((id) => byId.get(id)!.finding);
+      // A finding in the human layer keeps going through the human door, as before.
+      for (const item of batch.human) {
+        const c = byId.get(item.id)!;
+        this.saveFinding({ id: c.finding.id, kind: c.finding.kind, title: c.finding.title, status: "archived", archivedBy: c.supersededBy });
+      }
+      archived = done.length + batch.human.length;
+      if (done.length > 0) {
+        this.appendTimelineEvent({
+          kind: "note",
+          title: `Auto-archived ${done.length} finding${done.length === 1 ? "" : "s"} covered by routines`,
+          summary: done.slice(0, 5).map((f) => f.title).join("; ") + (done.length > 5 ? `; … ${done.length - 5} more` : ""),
         });
-        archived += 1;
+        // What the per-finding save did next (Spec 052): the questions these
+        // findings share entities with — asked of ONE question load.
+        const ctx = this.questionResolutionContext();
+        for (const f of done) this.resolveQuestionsAgainst(f, ctx, {});
       }
     }
     // Now sweep paired questions. Bug 32 extends this beyond
@@ -2866,23 +2876,42 @@ export class ProjectKnowledgeService {
   resolveQuestionsForFinding(findingId: string, opts: { artifactId?: string } = {}): { autoResolved: number; pending: number } {
     const finding = this.records.getFinding(findingId);
     if (!finding) return { autoResolved: 0, pending: 0 };
-    const profile = this.getProjectProfile();
-    const proposeOnly = profile?.questionAutoResolveMode === "propose-only";
+    return this.resolveQuestionsAgainst(finding, this.questionResolutionContext(), opts);
+  }
+
+  /**
+   * BUG-067 — what one question sweep needs, read ONCE: the questions a finding can
+   * resolve (open / researching / resolution-pending, auto-resolvable, naming an entity)
+   * and the project's resolve mode. The sweep used to re-read every question in the
+   * project for every finding in it — 1755 × a full read on a real project.
+   */
+  private questionResolutionContext(): { questions: OpenQuestionRecord[]; proposeOnly: boolean } {
+    const questions = this.listOpenQuestions().filter((q) =>
+      (q.status === "open" || q.status === "researching" || q.status === "resolution-pending")
+      && q.autoResolvable === true
+      && q.entityIds.length > 0);
+    return { questions, proposeOnly: this.getProjectProfile()?.questionAutoResolveMode === "propose-only" };
+  }
+
+  /** Spec 052 for one finding against a sweep's question set. A question it answers or
+   *  proposes is updated in the set too, so the next finding sees it as the store would. */
+  private resolveQuestionsAgainst(
+    finding: FindingRecord,
+    ctx: { questions: OpenQuestionRecord[]; proposeOnly: boolean },
+    opts: { artifactId?: string },
+  ): { autoResolved: number; pending: number } {
     const findingEntityIds = new Set(finding.entityIds);
-    const questions = this.listOpenQuestions();
     let autoResolved = 0;
     let pending = 0;
-    for (const q of questions) {
+    for (const q of ctx.questions) {
       if (q.status !== "open" && q.status !== "researching" && q.status !== "resolution-pending") continue;
-      if (q.autoResolvable !== true) continue;
-      if (q.entityIds.length === 0) continue;
       // Spec 056 R27: artifact-scope. When set, skip questions not
       // linked to the same artifact.
       if (opts.artifactId && !q.artifactIds.includes(opts.artifactId)) continue;
       const overlaps = q.entityIds.some((id) => findingEntityIds.has(id));
       if (!overlaps) continue;
       const highConfidence =
-        !proposeOnly
+        !ctx.proposeOnly
         && finding.confidence >= 0.85
         && finding.entityIds.length === 1
         && q.entityIds.length === 1;
@@ -2895,6 +2924,7 @@ export class ProjectKnowledgeService {
           answeredByFindingId: finding.id,
           answerSummary: finding.summary,
         });
+        q.status = "answered";
         autoResolved += 1;
       } else if (q.status !== "resolution-pending") {
         this.saveOpenQuestion({
@@ -2905,6 +2935,7 @@ export class ProjectKnowledgeService {
           answeredByFindingId: finding.id,
           answerSummary: finding.summary ? `Proposed: ${finding.summary}` : `Proposed by finding ${finding.id}`,
         });
+        q.status = "resolution-pending";
         pending += 1;
       }
     }
@@ -2914,8 +2945,10 @@ export class ProjectKnowledgeService {
   // Spec 052: phase-reached resolution. Called from
   // advanceArtifactPhase. Closes any auto-resolvable question whose
   // structured hint is satisfied.
-  resolveQuestionsForPhase(artifactId: string, reachedPhase: number): number {
-    const questions = this.listOpenQuestions();
+  resolveQuestionsForPhase(artifactId: string, reachedPhase: number, preloaded?: OpenQuestionRecord[]): number {
+    // A sweep hands in the one read it made (BUG-067); a question closed here is marked
+    // in that list too, so the next artifact does not close it a second time.
+    const questions = preloaded ?? this.listOpenQuestions();
     let closed = 0;
     for (const q of questions) {
       if (q.status !== "open" && q.status !== "researching") continue;
@@ -2931,6 +2964,7 @@ export class ProjectKnowledgeService {
         status: "answered",
         answerSummary: `Auto-resolved: artifact ${artifactId} reached phase ${reachedPhase} (>= required ${hint.phase}).`,
       });
+      q.status = "answered";
       closed += 1;
     }
     return closed;
@@ -3027,19 +3061,23 @@ export class ProjectKnowledgeService {
       : allFindings;
     let autoResolved = 0;
     let pending = 0;
-    for (const f of findings) {
-      const r = this.resolveQuestionsForFinding(f.id, { artifactId: opts.artifactId });
-      autoResolved += r.autoResolved;
-      pending += r.pending;
+    // BUG-067: the questions are read once for the sweep, not once per finding; and
+    // with none a finding could resolve, there is nothing to walk.
+    const ctx = this.questionResolutionContext();
+    if (ctx.questions.length > 0) {
+      for (const f of findings) {
+        const r = this.resolveQuestionsAgainst(f, ctx, { artifactId: opts.artifactId });
+        autoResolved += r.autoResolved;
+        pending += r.pending;
+      }
     }
     let phaseClosed = 0;
-    const artifacts = opts.artifactId
+    const artifacts = (opts.artifactId
       ? this.listArtifacts().filter((a) => a.id === opts.artifactId)
-      : this.listArtifacts();
-    for (const a of artifacts) {
-      if (a.phase !== undefined) {
-        phaseClosed += this.resolveQuestionsForPhase(a.id, a.phase);
-      }
+      : this.listArtifacts()).filter((a) => a.phase !== undefined);
+    if (artifacts.length > 0) {
+      const questions = this.listOpenQuestions();
+      for (const a of artifacts) phaseClosed += this.resolveQuestionsForPhase(a.id, a.phase!, questions);
     }
     return {
       autoResolved,

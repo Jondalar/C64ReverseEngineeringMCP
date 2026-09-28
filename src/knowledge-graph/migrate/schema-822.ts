@@ -127,6 +127,8 @@ CREATE TABLE IF NOT EXISTS evidence (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS evidence_target ON evidence (target_table, target_key);
 CREATE INDEX IF NOT EXISTS evidence_artifact ON evidence (artifact_id);
+-- BUG-067: purging one legacy id (legacy_id = ?, or its "#" range) scanned the whole table.
+CREATE INDEX IF NOT EXISTS evidence_legacy ON evidence (legacy_id);
 
 CREATE TABLE IF NOT EXISTS claims (
   node_id       TEXT NOT NULL,
@@ -172,6 +174,8 @@ CREATE TABLE IF NOT EXISTS annotations (
 CREATE INDEX IF NOT EXISTS annotations_node ON annotations (node_id, kind);
 CREATE INDEX IF NOT EXISTS annotations_kind ON annotations (kind);
 CREATE INDEX IF NOT EXISTS annotations_name ON annotations (name);
+-- BUG-067: an annotation file's re-import retires its rows by (producer, source_path).
+CREATE INDEX IF NOT EXISTS annotations_source ON annotations (producer, source_path);
 
 CREATE TABLE IF NOT EXISTS questions (
   id           TEXT PRIMARY KEY,
