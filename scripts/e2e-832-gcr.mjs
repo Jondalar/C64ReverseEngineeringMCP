@@ -240,6 +240,36 @@ ok(
 ok(!bins.some((name) => /t240|s240/.test(name)), "no phantom sector file was written");
 ok(bins.every((name) => readFileSync(join(outDir, name)).length === 256), "every written sector file is 256 real bytes");
 
+// ── BUG-068: the two pad bytes after the checksum are not a read error ──────────
+// The 1541 ROM decodes the last group of a data block and keeps only data[255] and
+// the checksum ($F913/$F92B); the pad bytes are never read. A bad pad nibble must not
+// turn a good block into gcr_error — LN1 side 1 had 684 of 700 blocks flagged so.
+{
+  const { decodeGCRDataBlock } = await import(distGcr);
+  const payload = new Uint8Array(256).map((_, i) => (i * 7 + 3) & 0xff);
+  const clean = encodeGCRBytes(buildSectorDataRaw(payload));
+  ok(clean.length === 325, "a data block encodes to 325 GCR bytes", `${clean.length}`);
+  const c = decodeGCRDataBlock(clean);
+  ok(c.valid && c.gcrValid && c.padGcrValid, "clean block: valid, GCR-clean, pad clean");
+
+  const badPad = clean.slice();
+  badPad[324] &= 0xe0; // last 5-bit code = byte 259's low nibble -> 00000, undecodable
+  const p = decodeGCRDataBlock(badPad);
+  ok(p.valid && p.gcrValid, "bad pad nibble: the block is still valid and GCR-clean");
+  ok(!p.padGcrValid, "bad pad nibble: reported as padGcrValid=false");
+
+  const badData = clean.slice();
+  badData[10] = 0x00; // group 2 = data bytes 7..10
+  const d = decodeGCRDataBlock(badData);
+  ok(!d.gcrValid && !d.valid, "bad data nibble: gcrValid=false (a real gcr_error)");
+  ok(d.padGcrValid, "bad data nibble: the pad is not blamed");
+
+  const badSum = clean.slice();
+  badSum[322] = 0x00; // group 64: bytes 256..259 — the checksum's codes sit at 322/323
+  const k = decodeGCRDataBlock(badSum);
+  ok(!k.gcrValid, "bad checksum nibble: gcrValid=false — the checksum is judged");
+}
+
 console.log(`\n${fail === 0 ? "OK" : "FAILED"} — ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
 

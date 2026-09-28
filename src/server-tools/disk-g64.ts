@@ -416,7 +416,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
           lines.push(`Header: ${result.header.track}/${result.header.sector} id=$${result.header.headerId.toString(16).toUpperCase().padStart(2, "0")} header=${result.header.valid ? "ok" : result.header.gcrValid ? "tolerant" : "bad"}`);
         }
         if (result.data) {
-          lines.push(`Data block: id=$${result.data.blockId.toString(16).toUpperCase().padStart(2, "0")} data=${result.data.valid ? "ok" : result.data.gcrValid ? "tolerant" : "bad"} bytes=${result.data.dataLength}`);
+          lines.push(`Data block: id=$${result.data.blockId.toString(16).toUpperCase().padStart(2, "0")} data=${result.data.valid ? "ok" : result.data.gcrValid ? "tolerant" : "bad"} bytes=${result.data.dataLength}${result.data.padGcrValid ? "" : " pad=undecodable (not an error: the 1541 never reads the two pad bytes)"}`);
         }
         // The status is one of the FOUR words the ring walk uses, and the door
         // says which condition produced it. Two doors reporting one block under

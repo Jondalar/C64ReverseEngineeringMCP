@@ -33,7 +33,7 @@ function readAlignedBytesFromBit(data: Uint8Array, startBit: number, byteCount: 
   return result;
 }
 
-function decodeGCRGroupDetailed(gcr: Uint8Array, offset = 0): { bytes: Uint8Array; valid: boolean } {
+function decodeGCRGroupDetailed(gcr: Uint8Array, offset = 0): { bytes: Uint8Array; valid: boolean; byteValid: boolean[] } {
   const result = new Uint8Array(4);
   const b0 = gcr[offset];
   const b1 = gcr[offset + 1];
@@ -56,9 +56,11 @@ function decodeGCRGroupDetailed(gcr: Uint8Array, offset = 0): { bytes: Uint8Arra
   result[1] = (decoded[2]! << 4) | decoded[3]!;
   result[2] = (decoded[4]! << 4) | decoded[5]!;
   result[3] = (decoded[6]! << 4) | decoded[7]!;
+  const byteValid = [0, 1, 2, 3].map((i) => decoded[i * 2] !== 0xff && decoded[i * 2 + 1] !== 0xff);
   return {
     bytes: result,
-    valid: decoded.every((value) => value !== 0xff),
+    valid: byteValid.every(Boolean),
+    byteValid,
   };
 }
 
@@ -107,19 +109,31 @@ export function decodeGCRHeader(gcr: Uint8Array, offset = 0): {
   };
 }
 
+/**
+ * A data block is 65 GCR groups = 260 bytes: block id, 256 data bytes, checksum and
+ * two pad bytes. `gcrValid` judges only the 258 bytes the drive uses. The 1541 ROM
+ * decodes the last group at $F7E6 and stores only its first two bytes ($F913 data,
+ * $F92B checksum); the pad bytes in $54/$55 are never read, so an undecodable pad
+ * nibble is no read error. It is reported separately as `padGcrValid`.
+ */
 export function decodeGCRDataBlock(gcr: Uint8Array, offset = 0): {
   valid: boolean;
   gcrValid: boolean;
+  padGcrValid: boolean;
   blockId: number;
   data: Uint8Array;
   checksum: number;
 } {
   const decoded = new Uint8Array(260);
   let gcrValid = true;
+  let padGcrValid = true;
   for (let i = 0; i < 65; i++) {
     const group = decodeGCRGroupDetailed(gcr, offset + i * 5);
     decoded.set(group.bytes, i * 4);
-    gcrValid &&= group.valid;
+    group.byteValid.forEach((ok, j) => {
+      if (i * 4 + j < 258) gcrValid &&= ok;
+      else padGcrValid &&= ok;
+    });
   }
 
   const blockId = decoded[0];
@@ -134,6 +148,7 @@ export function decodeGCRDataBlock(gcr: Uint8Array, offset = 0): {
   return {
     valid: gcrValid && blockId === 0x07 && checksum === calcChecksum,
     gcrValid,
+    padGcrValid,
     blockId,
     data,
     checksum,
@@ -222,11 +237,12 @@ export function findAllSyncMarks(data: Uint8Array): SyncMark[] {
  *                    match. The bytes ARE on the disk (custom CRC / deliberate
  *                    corruption is normal on protected originals), so they are
  *                    still handed out — flagged, not dropped.
- * `gcr_error`      — data block present ($07) but at least one 5-bit group does
- *                    not decode. Also normal: the 325-byte read overshoots the
- *                    block, so the LAST group routinely lands in the tail gap
- *                    (measured: Pawn/LN3/Accolade fail exactly group 64 on every
- *                    sector). Bytes are handed out, flagged.
+ * `gcr_error`      — data block present ($07) but a 5-bit code inside the id,
+ *                    the 256 data bytes or the checksum does not decode. Bytes
+ *                    are handed out, flagged. The two pad bytes after the
+ *                    checksum are not judged (the 1541 never decodes them, see
+ *                    decodeGCRDataBlock); a bad pad was what made the last group
+ *                    fail on every sector of Pawn/LN1/LN3/Accolade.
  * `no_data_block`  — there is no data block here at all (block id != $07).
  *                    Nothing was read, so NO bytes are produced. This is the
  *                    case that used to invent 256 bytes.
@@ -238,21 +254,20 @@ export type GCRDataStatus = "ok" | "checksum_error" | "gcr_error" | "no_data_blo
  *
  * One sentence per verdict, shared by every door that reports one, because the
  * defect this replaces was two doors using two words for one block and neither
- * saying what it had tested. A reader who sees `gcr_error` must not have to know
- * that the 325-byte read overshoots the block to understand why the last group
- * fails on a perfectly good sector.
+ * saying what it had tested.
  */
 export function describeDataStatus(status: GCRDataStatus | GCRReadSearchFailure): string {
   switch (status) {
     case "ok":
-      return "block id $07 present, every 5-bit GCR group decoded, checksum matches";
+      return "block id $07 present, the id, 256 data bytes and checksum all GCR-decoded, checksum matches "
+        + "(the two pad bytes after the checksum are not judged — the 1541 never decodes them)";
     case "checksum_error":
       return "block id $07 present and fully GCR-decodable; its checksum does not match the data bytes "
         + "(normal on a custom-CRC or deliberately corrupted original) — the bytes are the disk's and are handed out";
     case "gcr_error":
-      return "block id $07 present but at least one 5-bit GCR group does not decode, so those bytes are NOT the disk's "
-        + "(the 325-byte read overshoots the block, so the last group routinely lands in the tail gap) — "
-        + "the checksum was not tested, and the bytes are handed out flagged";
+      return "block id $07 present but a 5-bit GCR code inside the id, the 256 data bytes or the checksum does not "
+        + "decode, so those bytes are NOT the disk's — the checksum was not tested, and the bytes are handed out flagged "
+        + "(the two pad bytes are not judged: the 1541 never decodes them)";
     case "no_data_block":
       return "no data block here at all (block id is not $07) — nothing was read, so no bytes are produced";
     case "sync_not_found":
@@ -312,6 +327,8 @@ export interface GCRHeaderInspection {
 export interface GCRDataInspection {
   valid: boolean;
   gcrValid: boolean;
+  /** The two pad bytes after the checksum decoded; never part of `valid`/`gcrValid`. */
+  padGcrValid: boolean;
   blockId: number;
   checksum: number;
   dataLength: number;
@@ -447,6 +464,7 @@ export function readSectorLikeVice(trackData: Uint8Array, sector: number): GCRRe
     data: {
       valid: dataBlock.valid,
       gcrValid: dataBlock.gcrValid,
+      padGcrValid: dataBlock.padGcrValid,
       blockId: dataBlock.blockId,
       checksum: dataBlock.checksum,
       dataLength: dataBlock.data.length,
@@ -471,6 +489,7 @@ function inspectPair(trackData: Uint8Array, headerSync: SyncMark, dataSync: Sync
     data: {
       valid: dataBlock.valid,
       gcrValid: dataBlock.gcrValid,
+      padGcrValid: dataBlock.padGcrValid,
       blockId: dataBlock.blockId,
       checksum: dataBlock.checksum,
       dataLength: dataBlock.data.length,
