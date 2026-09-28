@@ -10,6 +10,7 @@ import { z } from "zod";
 import { addressOfRef, claimantsCard, edgesWalk, nodeCard, overview, resolveRef, shortestPath, type EdgeKind, type Focus } from "../knowledge-graph/cards.js";
 import { formatEdges, formatFind, formatNode, formatOverview, formatPath, stableJson, type Formatted } from "../knowledge-graph/format.js";
 import { Graph } from "../knowledge-graph/query.js";
+import { formatOwners, formatRemoveOwner, listOwners, removeOwner, UnknownOwnerError } from "../knowledge-graph/remove-owner.js";
 import { safeHandler } from "./safe-handler.js";
 import type { ServerToolContext } from "./types.js";
 
@@ -127,5 +128,29 @@ export function registerGraphTools(server: McpServer, context: ServerToolContext
     safeHandler("graph_overview", async ({ project_dir, focus, top }) =>
       withGraph(context, project_dir, (graph) => reply(formatOverview(overview(graph, (focus ?? "all") as Focus, top ?? 10)))),
     ),
+  );
+
+  server.tool(
+    "graph_remove_owner",
+    "Drop one owner (an artifact stem) from the knowledge graph: every generated row its analyses and renders seeded (control flow, memory access, signatures, the analysis import), the human rows its `<stem>_annotations.json` imported (routines, labels, segments, data blocks, their prose and boundary edges), their evidence, the generated edges that pointed at them, shared addr nodes nothing else references any more, and the owner's import ledger — so a later disasm of the same stem imports fresh. Use to clear scratch or preview renders (draft1, l1_prop, …) that distort counts, named %, orphans and queries. Call it without owner to list the owners with their row counts; pass dry_run first to see exactly what would go. Never touches rows written through a door (save_finding, save_entity, save_open_question, relations, labels, names), trace runs, or any file on disk — the annotations file stays and re-imports on the next disasm. Unknown owners are refused with the list. Inputs: optional owner, dry_run. Returns: the counts per table, layer and producer (identical for dry run and real run), plus a JSON block.",
+    {
+      project_dir: PROJECT,
+      owner: z.string().optional().describe("The owner stem as the graph spells it (see the list this tool returns without an owner), e.g. \"draft1\" or \"l0_a\". Omit to list the owners."),
+      dry_run: z.boolean().optional().describe("Count what would be removed and delete nothing (default false)."),
+    },
+    safeHandler("graph_remove_owner", async ({ project_dir, owner, dry_run }) => {
+      const dir = context.projectDir(project_dir, owner !== undefined && dry_run !== true);
+      if (owner === undefined || owner.trim() === "") {
+        const owners = listOwners(dir);
+        return reply({ text: formatOwners(owners), json: { owners } });
+      }
+      try {
+        const r = removeOwner(dir, owner, { dryRun: dry_run === true });
+        return reply({ text: formatRemoveOwner(r), json: r });
+      } catch (error) {
+        if (!(error instanceof UnknownOwnerError)) throw error;
+        return reply({ text: `Refused: no owner "${owner}" in the graph — nothing was removed.\n${formatOwners(error.owners)}`, json: { error: "unknown-owner", owner, owners: error.owners } });
+      }
+    }),
   );
 }

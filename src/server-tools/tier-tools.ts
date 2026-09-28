@@ -241,6 +241,11 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // Spec 823 — the knowledge graph's five doors (817–822 build the graph; these
   // are the only tools over it). Thin by gate: parse → one library call → format.
   "graph_find", "graph_node", "graph_edges", "graph_path", "graph_overview",
+  // …and the one door that takes rows OUT: a scratch or preview render leaves its owner
+  // in the graph for good (every disasm imports under the file stem), and those owners
+  // skewed every count and query of a long-running project. Without this, the only way
+  // back was sqlite3 against knowledge/graph.sqlite.
+  "graph_remove_owner",
   // Spec 861 — the cost of a change. All three are default for the reason the
   // graph tools are: they REPLACE work that is otherwise done by hand and badly.
   // Counting cycles off a listing, guessing who a patch breaks, and eyeballing

@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 295,
-  "defaultCount": 189,
+  "total": 296,
+  "defaultCount": 190,
   "advancedCount": 106,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -1409,6 +1409,25 @@
       "adjacentTools": [
         "graph_edges",
         "graph_find"
+      ],
+      "e2eUseCases": [
+        "E2E-C"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "graph_remove_owner",
+      "namespace": "graph",
+      "sourceFile": "server-tools/graph-tools.ts",
+      "tier": "default",
+      "role": "knowledge-write",
+      "swimlane": "disassembly-improve",
+      "useWhen": "Drop one owner (a scratch or preview render) from the graph: its generated rows and the rows its annotations file imported; without owner it lists the owners; dry_run counts first.",
+      "notFor": "Knowledge written through a door (findings, entities, questions, labels) — it never touches those; a trace run — use remove-run; the files on disk.",
+      "adjacentTools": [
+        "disasm",
+        "graph_overview"
       ],
       "e2eUseCases": [
         "E2E-C"
