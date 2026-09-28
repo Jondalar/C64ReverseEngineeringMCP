@@ -80,6 +80,7 @@
     "check:legacy-store-writers": "node scripts/check-no-legacy-store-writers.mjs",
     "e2e:onboarding-gate": "npm run build:mcp && node scripts/e2e-onboarding-gate.mjs",
     "e2e:bug067": "npm run build:mcp && node scripts/e2e-bug067-sweep-perf.mjs",
+    "e2e:graph-remove-owner": "npm run build && node scripts/e2e-graph-remove-owner.mjs",
     "e2e:discipline-gate": "npm run build:mcp && node scripts/e2e-discipline-gate.mjs",
     "e2e:tooling-defects": "npm run build && node scripts/e2e-tooling-defects.mjs",
     "e2e:subject-identity": "npm run build && node scripts/e2e-subject-identity.mjs",
