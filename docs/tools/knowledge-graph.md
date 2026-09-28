@@ -58,6 +58,9 @@ c64re graph migrate [--dry-run]                # 822: fold knowledge/*.json (or 
 c64re graph annotations-import <file> [--force] # 822.2: import <stem>_annotations.json into the human layer (disasm does this on change)
 c64re graph export [--out <dir>]               # 822.2: the graph written back into the legacy record shapes (knowledge/export/*.json), for humans and git diff
 c64re graph resolve                            # 826.0: the RESOLVES_TO pass by hand (seed runs it)
+c64re graph remove-owner                       # every owner (artifact stem) the graph holds, with its row counts
+c64re graph remove-owner draft1 --dry-run      # what dropping that owner would delete, per table / layer / producer — nothing deleted
+c64re graph remove-owner draft1                # drop it (see "Dropping an owner" below)
 c64re graph machine t18s12-15_0300 c1541       # 826.0 T7: this owner is DRIVE code — 1541 ROM / ZP / VIA ids, drv space; no args lists the declarations
 c64re graph boundaries [--entries]             # 826.0: where a human drew a routine boundary 819 did not — splits, unseen, data outside code; --entries = analyze entry points
 c64re graph signature '$FC00'                  # 826: in / out / clobbers / preserves / stack of a routine, partial and where
@@ -100,7 +103,7 @@ verbs are `signature` and `args`.
 
 ## The MCP tools (Spec 823)
 
-Five default tools, thin over the same library, one formatter with the CLI:
+Six default tools, thin over the same library, one formatter with the CLI:
 
 | tool | answers |
 |---|---|
@@ -109,9 +112,40 @@ Five default tools, thin over the same library, one formatter with the CLI:
 | `graph_edges` | callers · callees · readers · writers · references · ROM / ZP / hardware use · indirect — `direction × kind × origin`, depth 1–2 |
 | `graph_path` | shortest control-flow path with per-hop evidence, or "no path" + frontier |
 | `graph_overview` | entries, IRQ handlers, banking sites, hot hardware / ROM / ZP, subsystems, unresolved indirect accesses |
+| `graph_remove_owner` | the one that takes rows out: drop an owner (a scratch or preview render); without `owner` it lists the owners with their counts; `dry_run` counts first |
 
 Every reply ends with a ```` ```json ```` block that equals `c64re graph <verb> --json`
 byte for byte. For where something is *described* in prose, `project_search`.
+
+## Dropping an owner
+
+Every `disasm` with annotations imports them under the file's stem, and every
+`analyze` seeds the stem's control flow, memory access and signatures. A scratch
+render (`draft1`, `l1_prop`, a fragment tried out once) therefore stays in the
+graph for good and skews every count, named-percentage, orphan list and query.
+Two ways out:
+
+- **Before:** `disasm` / `disasm_prg` with `import_graph: false` render a preview
+  — listing and rebuild proof — and do not touch the graph at all.
+- **After:** `graph_remove_owner` (CLI `c64re graph remove-owner <owner>`) drops
+  what the owner put there, in one write transaction:
+  - every generated row the owner's runs wrote (all producers but trace runs),
+    and the generated edges of other owners that pointed at them;
+  - the human rows its `<stem>_annotations.json` imported — routines, labels,
+    segments, data blocks, their prose and boundary edges — recognised by the
+    file's path on the row;
+  - their claims, evidence and ledger entries, the stem's import marker (so the
+    next `disasm` of that stem imports fresh instead of "unchanged"), and shared
+    `addr` nodes nothing references any more.
+
+  It **never** touches a row written through a door — `save_finding`,
+  `save_entity`, `save_open_question`, relations, user labels, `name` / `link` —
+  even when it sits on the removed owner's address; those are counted as *kept*
+  in the answer. Trace runs have their own `remove-run`. No file on disk is
+  touched: the annotations file stays and re-imports on the next render.
+  `dry_run` returns the same counts and deletes nothing. A full `c64re graph seed`
+  skips a removed owner afterwards; analysing, seeding or rendering it by name
+  brings it back.
 
 ## The record layer (Spec 822.2)
 

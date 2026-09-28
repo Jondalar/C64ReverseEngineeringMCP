@@ -84,10 +84,11 @@ A disassembly answers "what is at this address". These are the other questions:
 
 ## How you use it
 
-Five tools on the MCP surface: `graph_overview` for the shape of a
+Six tools on the MCP surface: `graph_overview` for the shape of a
 project, `graph_find` to search, `graph_node` for one thing and everything known
-about it, `graph_edges` for what reaches it or what it reaches, and `graph_path`
-for how two things are connected.
+about it, `graph_edges` for what reaches it or what it reaches, `graph_path`
+for how two things are connected, and `graph_remove_owner` to drop what a
+scratch render put there (door-written knowledge stays).
 
 On the command line the same store is reachable through
 `node dist/cli.js graph <verb> --project <dir>`. `seed` fills it from the

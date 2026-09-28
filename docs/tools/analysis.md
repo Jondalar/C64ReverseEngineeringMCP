@@ -8,7 +8,7 @@ TRXDis pipeline.
 | Tool | Description |
 |---|---|
 | `analyze` | Heuristic analysis of bytes → JSON with segments, cross-references, RAM facts, pointer tables. Headed or headerless: the load address decides (below). |
-| `disasm` | Disassemble bytes → KickAssembler `.asm` + 64tass `.tas` (both generated automatically), with a rebuild proof. Re-running after annotations re-renders with labels and segment kinds applied. |
+| `disasm` | Disassemble bytes → KickAssembler `.asm` + 64tass `.tas` (both generated automatically), with a rebuild proof. Re-running after annotations re-renders with labels and segment kinds applied, and imports those names into the knowledge graph under the file's stem. `import_graph: false` renders a **preview** instead: the listing and its rebuild proof, and the graph left exactly as it was — for scratch and draft renders. A stem imported by mistake is dropped with `graph_remove_owner`. |
 | `disasm_prg` · `disasm_raw` · `analyze_prg` | The old names. Aliases of the two above for one release — the same body, and each says so once in its answer, naming its successor. |
 | `ram_report` | Generate a RAM-state facts report (markdown) from analysis JSON. |
 | `pointer_report` | Generate a pointer-table facts report (markdown) from analysis JSON. |
