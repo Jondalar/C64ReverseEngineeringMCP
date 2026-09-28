@@ -18,6 +18,7 @@ import { addressOfRef, claimantsCard, edgesWalk, nodeCard, overview, resolveRef,
 import { formatEdges, formatFind, formatNode, formatOverview, formatPath, formatSubgraph } from "./format.js";
 import { Graph, type EdgeHit, type ResolvedNode } from "./query.js";
 import { GraphStore } from "./store.js";
+import { formatOwners, formatRemoveOwner, listOwners, removeOwner, UnknownOwnerError } from "./remove-owner.js";
 
 const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
 
@@ -46,6 +47,7 @@ const USAGE = `Usage: c64re graph <verb> [args] [--project <dir>] [--json]
   indirect <routine-id|$zp>     the *_INDIRECT edges — the unknowns, as unknowns
   import-trace <file.c64retrace> [--owner <stem>]   821: import a trace run (origin=runtime rows)
   remove-run <run-id>           821: drop one run's rows
+  remove-owner [<owner>] [--dry-run]   drop everything one owner's renders and analyses put in the graph (generated rows + the rows its annotation file imported; door-written rows stay); no owner lists the owners
   runs                          821: imported runs
   observations <id|$addr>       821: runtime rows for a node or address
   pointer-targets <$zp>         821: what a zero-page pointer actually pointed at
@@ -122,7 +124,7 @@ export async function runGraphCli(argv: string[]): Promise<void> {
     // The pass itself is producers/seed-project.ts — the cut-over runs the same
     // one. The verb is no budget: asked for by hand, it seeds everything.
     const r = seedProject({ projectDir: args.project, owner: args.owner });
-    out(formatSeedProject(r), { results: r.seeded, resolve: r.resolve, signatures: r.signatures, skipped: r.skipped, deferred: r.deferred, failed: r.failed });
+    out(formatSeedProject(r), { results: r.seeded, resolve: r.resolve, signatures: r.signatures, skipped: r.skipped, removed: r.removed, deferred: r.deferred, failed: r.failed });
     return;
   }
   if (args.verb === "machine") {
@@ -184,6 +186,20 @@ export async function runGraphCli(argv: string[]): Promise<void> {
     if (!id) throw new Error("remove-run needs a run id");
     const r = removeRuntimeRun(args.project, id);
     out(JSON.stringify(r), r);
+    return;
+  }
+
+  if (args.verb === "remove-owner") {
+    const owner = args.positional.find((p) => p !== "--dry-run");
+    if (!owner) { const list = listOwners(args.project); out(formatOwners(list), list); return; }
+    try {
+      const r = removeOwner(args.project, owner, { dryRun: argv.includes("--dry-run") });
+      out(formatRemoveOwner(r), r);
+    } catch (error) {
+      if (!(error instanceof UnknownOwnerError)) throw error;
+      out(`${error.message.split(". Owners:")[0]}.\n${formatOwners(error.owners)}`, { error: "unknown-owner", owner, owners: error.owners });
+      process.exitCode = 1;
+    }
     return;
   }
 

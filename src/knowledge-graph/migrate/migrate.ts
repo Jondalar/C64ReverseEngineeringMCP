@@ -1107,6 +1107,8 @@ export function applyAnnotationFile(ctx: MigrationContext, projectDir: string, p
   ctx.summary.files.push(fs);
   db.prepare("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
     .run(`annotations_imported.${stem}`, JSON.stringify({ hash, mtimeMs: statSync(path).mtimeMs, importedAt: now, path: rel }));
+  // importing the owner's file by name brings a removed owner back (remove-owner.ts)
+  db.prepare("DELETE FROM meta WHERE key = ?").run(`owner_removed.${owner}`);
 
   // ---- 826.0 T3/T4 — the human nodes without a generated twin, by kind (computed
   // before the drafts are written so a boundary attr is part of the row, not a

@@ -257,6 +257,8 @@ export class GraphStore {
     return writeTx(this.db, () => {
       const dn = delNodes.run(producer, owner).changes;
       const de = delEdges.run(producer, owner).changes;
+      // A run seeding this owner by name brings a removed owner back (remove-owner.ts).
+      if (owner !== null) this.db.prepare("DELETE FROM meta WHERE key = ?").run(`owner_removed.${owner}`);
       for (const n of nodeRows) {
         (n.kind === "addr" ? insShared : insNode).run(n.id, n.layer, n.kind, n.space, n.owner, n.bank, n.run_owner, n.address, n.end_address, n.name, n.attrs, n.origin, n.confidence, n.producer, n.evidence);
       }

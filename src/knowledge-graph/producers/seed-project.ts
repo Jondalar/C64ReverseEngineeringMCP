@@ -105,12 +105,27 @@ export interface SeedProjectResult {
   seeded: SeedProjectOwnerResult[];
   /** owners already carrying 819 rows (skipSeeded) */
   skipped: string[];
+  /** owners `graph remove-owner` dropped: a project-wide pass leaves them out, a seed by name brings them back */
+  removed: string[];
   /** owners the budget did not reach — `c64re graph seed` finishes them */
   deferred: string[];
   failed: Array<{ owner: string; path: string; error: string }>;
   resolve?: ResolveResult;
   signatures?: SeedSignaturesResult;
   ms: number;
+}
+
+/** Owners a removal marked (remove-owner.ts) — a pass over every analysis must not bring them back. */
+function removedOwnerMarks(projectDir: string): Set<string> {
+  try {
+    const store = GraphStore.open(projectDir, { readOnly: true });
+    try {
+      const rows = store.db.prepare("SELECT key FROM meta WHERE key LIKE 'owner_removed.%'").all() as Array<{ key: string }>;
+      return new Set(rows.map((r) => r.key.slice("owner_removed.".length)));
+    } finally { store.close(); }
+  } catch {
+    return new Set();
+  }
 }
 
 /** The owners the graph already has control flow for. */
@@ -146,8 +161,10 @@ export function seedProject(options: SeedProjectOptions): SeedProjectResult {
   assertOneFilePerOwner(projectDir, all, ownerFromAnalysisPath);
 
   const already = options.skipSeeded ? seededOwners(projectDir) : new Set<string>();
+  const gone = options.owner ? new Set<string>() : removedOwnerMarks(projectDir);
   const seeded: SeedProjectOwnerResult[] = [];
   const skipped: string[] = [];
+  const removed: string[] = [];
   const deferred: string[] = [];
   const failed: SeedProjectResult["failed"] = [];
   const maxFiles = options.maxFiles ?? Infinity;
@@ -156,6 +173,7 @@ export function seedProject(options: SeedProjectOptions): SeedProjectResult {
 
   for (const analysisPath of all) {
     const owner = ownerFromAnalysisPath(analysisPath);
+    if (gone.has(owner)) { removed.push(owner); continue; }
     if (already.has(owner)) { skipped.push(owner); continue; }
     if (seeded.length >= maxFiles || elapsed() >= budgetMs) { deferred.push(owner); continue; }
     try {
@@ -180,7 +198,7 @@ export function seedProject(options: SeedProjectOptions): SeedProjectResult {
     // a budgeted pass signs only what it actually seeded; otherwise the budget
     // would be spent on exactly the files it decided to skip.
     try {
-      signatures = deferred.length === 0 && failed.length === 0 && !options.owner
+      signatures = deferred.length === 0 && failed.length === 0 && !options.owner && removed.length === 0
         ? seedSignatures({ projectDir })
         : signOneByOne(projectDir, seeded);
     } catch (error) {
@@ -189,7 +207,7 @@ export function seedProject(options: SeedProjectOptions): SeedProjectResult {
     }
   }
 
-  return { files: all.length, seeded, skipped, deferred, failed, resolve: resolved, signatures, ms: elapsed() };
+  return { files: all.length, seeded, skipped, removed, deferred, failed, resolve: resolved, signatures, ms: elapsed() };
 }
 
 function signOneByOne(projectDir: string, seeded: SeedProjectOwnerResult[]): SeedSignaturesResult {
@@ -211,6 +229,7 @@ export function formatSeedProject(r: SeedProjectResult): string {
   if (r.resolve) lines.push(`826.0 resolve: addr nodes=${r.resolve.addrNodes} RESOLVES_TO=${r.resolve.resolved} ambiguous=${r.resolve.ambiguous} ${r.resolve.ms.toFixed(0)}ms`);
   if (r.signatures) lines.push(`826 signatures: routines=${r.signatures.routines} signed=${r.signatures.signed} partial=${r.signatures.partial} unknown-stack=${r.signatures.unknownStack} passes=${r.signatures.passes} dispatches=${r.signatures.dispatches} ${r.signatures.ms.toFixed(0)}ms`);
   if (r.skipped.length) lines.push(`skipped (already seeded): ${r.skipped.join(", ")}`);
+  if (r.removed.length) lines.push(`skipped (removed with graph remove-owner — seed one by name to bring it back): ${r.removed.join(", ")}`);
   if (r.deferred.length) lines.push(`NOT SEEDED — budget: ${r.deferred.join(", ")}\nfinish them with: c64re graph seed --project <dir>`);
   for (const f of r.failed) lines.push(`FAILED ${f.owner}: ${f.error}`);
   for (const s of r.seeded) if (s.machine.hint) lines.push(`HINT ${s.machine.hint}`);
