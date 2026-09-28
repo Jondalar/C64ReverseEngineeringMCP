@@ -438,6 +438,16 @@ jobs:
       # assembler, no daemon.
       - name: Inventory sync tells the truth (BUG-054 follow-up)
         run: npm run e2e:inventory-truth
+      # BUG-067 — the closed-loop sweep that ran after every disasm archived the same
+      # covered claims again on every call (each through a full import run, and each
+      # still `active` afterwards), and re-read every question — each read loading the
+      # whole migration ledger — once per finding: 93 s of a disasm and 63 s of an
+      # onboarding on a real project. Asserts the archive sticks, a second sweep archives
+      # nothing, the questions are read a constant number of times, no whole-ledger read,
+      # and a scoped footer runs no project-wide pass. Hermetic: a temp project and a
+      # synthetic analysis JSON.
+      - name: The closed-loop sweep archives once and reads once (BUG-067)
+        run: npm run e2e:bug067
       # A second autonomous run put five more defects into doors these two gates
       # already own: a terminator that ended a table at row 0 without saying so, and
       # `at` / `at_lo` / `at_hi` carrying no description of what an address MEANS on a
