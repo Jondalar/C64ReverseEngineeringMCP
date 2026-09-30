@@ -25,7 +25,10 @@ const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS
 console.log("BUG-010 — workspace bootstrap starts HTTP + runtime WS for one project\n");
 
 const HTTP_PORT = 4318; // off the defaults to avoid clashing with a running UI
-const WS_PORT = 4312;   // the runtime WS default the UI connects to
+// NOT 4312: that is the shared session's port. The workspace is started against its own
+// endpoint, and the proof is that the server hands exactly that one to the page — a page
+// that assumed :4312 attached to whatever held it, another workspace's runtime included.
+const WS_PORT = Number(process.env.SMOKE_WORKSPACE_WS_PORT || 4396);
 const projectDir = mkdtempSync(join(tmpdir(), "c64re-bug010-"));
 
 function tcpUp(port, timeoutMs = 800) {
@@ -66,6 +69,7 @@ if (staleWs) { console.log(`  (port ${WS_PORT} already in use — a stale runtim
 
 const child = spawn("node", [join(ROOT, "scripts/workspace.mjs"), "--project", projectDir, "--port", String(HTTP_PORT)], {
   cwd: ROOT, stdio: ["ignore", "pipe", "pipe"],
+  env: { ...process.env, C64RE_RUNTIME_ENDPOINT: `ws://127.0.0.1:${WS_PORT}` },
 });
 let log = "";
 child.stdout.on("data", (b) => { log += b.toString(); });

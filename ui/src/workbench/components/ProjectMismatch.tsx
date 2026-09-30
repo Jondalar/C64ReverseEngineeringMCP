@@ -25,6 +25,9 @@ export function ProjectMismatch({ projectDir, conn }: { projectDir?: string; con
   const [minimised, setMinimised] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Switching ends the session running there, which may be another workspace's — so it is
+  // never the default: Leave it has the focus, and Switch waits for an explicit tick.
+  const [confirmed, setConfirmed] = useState(false);
 
   const recheck = useCallback(() => {
     if (!projectDir || conn !== "open") return;
@@ -37,6 +40,7 @@ export function ProjectMismatch({ projectDir, conn }: { projectDir?: string; con
         } else {
           setCheck(r);
         }
+        setConfirmed(false);
       })
       // A daemon older than 858 has no `project/set`: nothing to compare with, and no reason
       // to block the workspace over it.
@@ -100,6 +104,8 @@ export function ProjectMismatch({ projectDir, conn }: { projectDir?: string; con
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", fontSize: 12 }}>
           <span style={{ color: "#888" }}>runtime</span>
+          <span style={mono}>{getClient().endpoint ?? "?"}</span>
+          <span style={{ color: "#888" }}>serving</span>
           <span style={mono}>{check.current ?? "no project"}</span>
           <span style={{ color: "#888" }}>this workspace</span>
           <span style={mono}>{check.requested}</span>
@@ -117,10 +123,17 @@ export function ProjectMismatch({ projectDir, conn }: { projectDir?: string; con
             this workspace's project.
           </div>
         )}
+        {!blocked && check.current && (
+          <label style={{ fontSize: 12, display: "flex", gap: 8, alignItems: "center" }}>
+            <input id="pm858-confirm" type="checkbox" checked={confirmed} disabled={busy}
+              onChange={(e) => setConfirmed(e.target.checked)} />
+            End the session serving <span style={mono}>{check.current}</span>
+          </label>
+        )}
         {err && <div style={{ color: "#ff8080", fontSize: 12 }}>{err}</div>}
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button id="pm858-leave" onClick={() => setMinimised(true)} disabled={busy}>Leave it</button>
-          <button id="pm858-switch" onClick={switchProject} disabled={busy || !!blocked} style={{ fontWeight: 600 }}>
+          <button id="pm858-leave" autoFocus onClick={() => setMinimised(true)} disabled={busy} style={{ fontWeight: 600 }}>Leave it</button>
+          <button id="pm858-switch" onClick={switchProject} disabled={busy || !!blocked || (!!check.current && !confirmed)}>
             {busy ? "Switching…" : "Switch to this project"}
           </button>
         </div>

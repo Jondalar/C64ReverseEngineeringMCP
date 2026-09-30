@@ -103,8 +103,8 @@ export async function launchWorkspace(argv: string[], env: NodeJS.ProcessEnv = p
     setTimeout(done, 500);
   }
 
-  function start(label: string, cmd: string, args: string[]): void {
-    const c = spawn(cmd, args, { stdio: ["inherit", "pipe", "pipe"], cwd: packageRoot });
+  function start(label: string, cmd: string, args: string[], childEnv?: NodeJS.ProcessEnv): void {
+    const c = spawn(cmd, args, { stdio: ["inherit", "pipe", "pipe"], cwd: packageRoot, env: childEnv ?? env });
     c.stdout?.on("data", (b: Buffer) => process.stdout.write(`[${label}] ${b}`));
     c.stderr?.on("data", (b: Buffer) => process.stderr.write(`[${label}] ${b}`));
     c.on("exit", (code) => {
@@ -117,7 +117,11 @@ export async function launchWorkspace(argv: string[], env: NodeJS.ProcessEnv = p
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  start("http", process.execPath, [`${packageRoot}/dist/workspace-ui/server.js`, "--port", httpPort, ...childArgs]);
+  // The server tells the page which runtime is this workspace's, so it gets the endpoint
+  // resolved here — not left to guess :4312 while the daemon runs somewhere else.
+  const wsUrl = explicitEndpoint || `ws://${wsEndpoint.host}:${wsEndpoint.port}`;
+  start("http", process.execPath, [`${packageRoot}/dist/workspace-ui/server.js`, "--port", httpPort, ...childArgs],
+    { ...env, C64RE_RUNTIME_ENDPOINT: wsUrl });
 
   if (!wsIsLocal) {
     // Explicit remote endpoint: nothing to spawn here, just trust it.

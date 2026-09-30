@@ -2,7 +2,17 @@
 //
 // JSON-RPC 2.0 calls + binary frame consumer + auto-reconnect.
 
-export const V3_WS_URL = "ws://127.0.0.1:4312";
+// Which runtime this page talks to is the SERVER's answer, not a constant here: the
+// workspace was started against one endpoint (launch resolves it, and may have started
+// the daemon on it), and a page with its own `ws://127.0.0.1:4312` attached to whatever
+// held that port — another workspace's runtime, one click from being switched away.
+async function runtimeWsUrl(): Promise<string> {
+  const res = await fetch("/api/config");
+  if (!res.ok) throw new Error(`/api/config ${res.status}`);
+  const cfg = (await res.json()) as { runtimeWsUrl?: string };
+  if (!cfg.runtimeWsUrl) throw new Error("/api/config names no runtimeWsUrl");
+  return cfg.runtimeWsUrl;
+}
 
 export const BIN_TYPE_VIC_FRAME = 0x01;
 export const BIN_TYPE_AUDIO_BUFFER = 0x02;
@@ -34,12 +44,30 @@ export class WsClient {
   private state: ConnectionState = "closed";
   private reconnectTimer?: ReturnType<typeof setTimeout>;
 
-  constructor(private readonly url: string = V3_WS_URL) {}
+  constructor(private url?: string) {}
+
+  /** The runtime endpoint, once the server has named it. */
+  get endpoint(): string | undefined { return this.url; }
 
   connect(): void {
     if (this.state === "connecting" || this.state === "open") return;
     this.setState("connecting");
-    const ws = new WebSocket(this.url);
+    if (!this.url) {
+      runtimeWsUrl().then(
+        (u) => { this.url = u; this.open(u); },
+        (e) => {
+          console.warn("[ws] runtime endpoint unknown:", e?.message ?? e);
+          this.setState("error");
+          this.scheduleReconnect();
+        },
+      );
+      return;
+    }
+    this.open(this.url);
+  }
+
+  private open(url: string): void {
+    const ws = new WebSocket(url);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => this.setState("open");

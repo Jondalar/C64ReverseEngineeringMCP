@@ -286,8 +286,16 @@ const hasUiDist = existsSync(uiDistDir);
 // The HTTP server can't start it (separate process — `npm run workspace` brings
 // up both), but it CAN tell the UI whether it is reachable, so the Live tab shows
 // an actionable error instead of spinning on "connecting" forever.
-const RUNTIME_WS_HOST = "127.0.0.1";
-const RUNTIME_WS_PORT = Number(process.env.C64RE_WS_PORT ?? 4312);
+//
+// The endpoint is the one the workspace was started against: the launcher passes it as
+// C64RE_RUNTIME_ENDPOINT. The page asks for it here (runtimeWsUrl) instead of assuming
+// :4312, so two workspaces on one machine each reach their own runtime.
+const RUNTIME_WS_URL = process.env.C64RE_RUNTIME_ENDPOINT
+  || process.env.C64RE_RUNTIME_WS
+  || `ws://127.0.0.1:${process.env.C64RE_WS_PORT ?? 4312}`;
+const runtimeWsParsed = /^wss?:\/\/([^/:]+):(\d+)/.exec(RUNTIME_WS_URL);
+const RUNTIME_WS_HOST = runtimeWsParsed?.[1] ?? "127.0.0.1";
+const RUNTIME_WS_PORT = Number(runtimeWsParsed?.[2] ?? 4312);
 function probeRuntimeWs(timeoutMs = 800): Promise<boolean> {
   return new Promise((resolve) => {
     const sock = createConnection({ host: RUNTIME_WS_HOST, port: RUNTIME_WS_PORT });
@@ -316,7 +324,7 @@ const server = createServer((req, res) => {
       defaultProjectDir: options.projectDir,
       apiOnly: options.apiOnly,
       hasUiDist,
-      runtimeWsUrl: `ws://${RUNTIME_WS_HOST}:${RUNTIME_WS_PORT}`,
+      runtimeWsUrl: RUNTIME_WS_URL,
     }));
     return;
   }
@@ -327,7 +335,7 @@ const server = createServer((req, res) => {
   if (requestUrl.pathname === "/api/runtime-status") {
     void probeRuntimeWs().then((up) => {
       send(res, jsonResponse(200, {
-        wsUrl: `ws://${RUNTIME_WS_HOST}:${RUNTIME_WS_PORT}`,
+        wsUrl: RUNTIME_WS_URL,
         reachable: up,
         projectDir: options.projectDir,
         hint: up ? undefined : `Runtime backend not reachable on :${RUNTIME_WS_PORT}. Start the full workspace (HTTP + runtime) with: c64re ui --project "${options.projectDir}" (from a source checkout: npm run workspace -- --project "${options.projectDir}")`,
@@ -781,7 +789,7 @@ const server = createServer((req, res) => {
           const r = await monitorExecWithNames(
             { sessionId: payload.sessionId, command: String(payload.command ?? "") },
             options.projectDir,
-            `ws://${RUNTIME_WS_HOST}:${RUNTIME_WS_PORT}`,
+            RUNTIME_WS_URL,
           );
           send(res, jsonResponse(200, r));
         } catch (e) {
