@@ -1,9 +1,9 @@
 // Read-before-runtime discipline gate.
 //
-// Both the Accolade and Wasteland retros record the SAME failure, across months, on
-// titles far harder than anything since: the LLM reaches for a broad trace / aggregate
-// statistics instead of READING the code — and the human catches it every time
-// ("reached for statistics instead of reading the code — you called it out every time").
+// Accolade ran trace-first and paid for it; static-first is the correction. Wasteland's
+// retro records the same failure in its own words: "I reached for statistics instead of
+// reading the code … You called it out more than once, and you were right every time."
+// (Cracking/Wasteland_EF/docs/LEARNINGS.md)
 // That correction currently lives in the human. This moves it into the tool.
 //
 // Runtime is for CONFIRMING a hypothesis you formed by reading — not for finding
