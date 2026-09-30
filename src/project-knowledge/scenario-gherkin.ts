@@ -57,6 +57,88 @@ export interface Criterion {
   readonly names?: string;
   /** The address it resolved to, when it is a raw address rather than a name. */
   readonly address?: number;
+  /** Spec 900 — set when the line is written in the check notation: a runner can decide it. */
+  readonly check?: Check;
+  /** Spec 900 — the file line, for a report that points at it. */
+  readonly line?: number;
+  /** Spec 900 — how many steps come before it: it is checked right after that step. */
+  readonly afterSteps?: number;
+}
+
+/**
+ * Spec 900 — a `Then` a runner can decide on its own. The `wait until` predicates said as
+ * facts, widened where a check needs more than a wait did: several bytes, "not", "one of",
+ * and a lens.
+ */
+export type Check =
+  | {
+      readonly kind: "memory";
+      readonly address: number;
+      readonly lens: "cpu" | "ram" | "io" | "rom" | "cart";
+      readonly op: "is" | "isNot" | "oneOf";
+      /** `is`: the bytes from `address` on, in order. `isNot`: one byte. `oneOf`: the choices. */
+      readonly values: readonly number[];
+    }
+  | { readonly kind: "pc"; readonly address: number }
+  | { readonly kind: "screenShows"; readonly needle: string };
+
+export const CHECK_KINDS = ["memory", "pc", "screenShows"] as const;
+type _EveryCheckListed = Check["kind"] extends (typeof CHECK_KINDS)[number] ? true : never;
+type _NoExtraChecks = (typeof CHECK_KINDS)[number] extends Check["kind"] ? true : never;
+const _checksAreExhaustive: [_EveryCheckListed, _NoExtraChecks] = [true, true];
+void _checksAreExhaustive;
+
+const CHECK_LENSES = ["cpu", "ram", "io", "rom", "cart"] as const;
+
+/** `$1F` / `0x1F` → 31, `31` → 31. Anything else is not a number here. */
+function checkNumber(tok: string): number | undefined {
+  const t = tok.trim();
+  if (/^\$[0-9a-f]+$/i.test(t)) return parseInt(t.slice(1), 16);
+  if (/^0x[0-9a-f]+$/i.test(t)) return parseInt(t.slice(2), 16);
+  if (/^\d+$/.test(t)) return Number(t);
+  return undefined;
+}
+
+/**
+ * Spec 900 — read a `Then` as a check. `undefined`: it is not written as one (prose —
+ * unchecked, never a failure). `{ error }`: it STARTS like one and does not parse — a
+ * typo must not quietly become prose that nobody reads.
+ */
+export function parseCheck(text: string): { check: Check } | { error: string } | undefined {
+  const t = text.trim();
+
+  const pc = t.match(/^the CPU is at\s+(\S+)$/i);
+  if (pc) {
+    const a = checkNumber(pc[1]);
+    if (a === undefined || a > 0xffff) return { error: `"${t}": ${pc[1]} is not an address` };
+    return { check: { kind: "pc", address: a } };
+  }
+  if (/^the CPU is at\b/i.test(t)) return { error: `"${t}": the CPU is at $XXXX` };
+
+  const shows = t.match(/^the screen shows\s+"([^"]*)"$/i);
+  if (shows) {
+    if (!shows[1].trim()) return { error: `"${t}": nothing to look for` };
+    return { check: { kind: "screenShows", needle: shows[1] } };
+  }
+
+  if (!/^\$[0-9a-f]/i.test(t)) return undefined;
+  const mem = t.match(/^(\$[0-9a-f]+)(?:@([a-z]+))?\s+is\s+(not\s+|one\s+of\s+)?(.+)$/i);
+  const form =
+    `"${t}": a memory check is "$ADDR is $VV", "$ADDR is $VV $WW …", "$ADDR is not $VV" or ` +
+    `"$ADDR is one of $VV, $WW", with an optional @lens after the address (${CHECK_LENSES.join(", ")})`;
+  if (!mem) return { error: form };
+  const address = checkNumber(mem[1]);
+  if (address === undefined || address > 0xffff) return { error: `"${t}": ${mem[1]} is not an address` };
+  const lens = (mem[2]?.toLowerCase() ?? "cpu") as (typeof CHECK_LENSES)[number];
+  if (!CHECK_LENSES.includes(lens)) return { error: `"${t}": ${mem[2]} is not a lens (${CHECK_LENSES.join(", ")})` };
+  const op = !mem[3] ? "is" : /^not/i.test(mem[3]) ? "isNot" : "oneOf";
+  const toks = op === "oneOf" ? mem[4].split(",") : mem[4].trim().split(/\s+/);
+  const values = toks.map(checkNumber);
+  const bad = toks.find((_, i) => values[i] === undefined || values[i]! > 0xff);
+  if (bad !== undefined) return { error: `"${t}": ${bad.trim()} is not a byte` };
+  if (op === "isNot" && values.length !== 1) return { error: `"${t}": "is not" takes one byte — use "is one of" for a set` };
+  if (op === "is" && address + values.length > 0x10000) return { error: `"${t}": runs past $FFFF` };
+  return { check: { kind: "memory", address, lens, op, values: values as number[] } };
 }
 
 /**
@@ -772,6 +854,10 @@ export function parseFeature(source: string, file?: string): ParseResult {
       return;
     }
 
+    // Spec 900 — `Feature: …` titles the file, as Gherkin writes it. It names no scenario
+    // and starts none; a file that has one is otherwise read exactly as without it.
+    if (/^Feature:/i.test(line)) { flush(n); return; }
+
     const sc = line.match(/^Scenario:\s*(.+)$/i);
     if (sc) {
       flush(n);
@@ -846,7 +932,14 @@ export function parseFeature(source: string, file?: string): ParseResult {
     }
 
     const then = line.match(/^(?:Then|And)\s+(.+)$/i);
-    if (then) { cur.criteria.push(classifyCriterion(then[1].trim())); return; }
+    if (then) {
+      const text = then[1].trim();
+      // Spec 900 — a check is decided where it stands: after the steps written above it.
+      const parsed = parseCheck(text);
+      if (parsed && "error" in parsed) { issues.push({ line: n, message: parsed.error }); return; }
+      cur.criteria.push({ ...classifyCriterion(text), ...(parsed ? { check: parsed.check } : {}), line: n, afterSteps: cur.steps.length });
+      return;
+    }
 
     if (/^When\b/i.test(line)) {
       issues.push({

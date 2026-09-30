@@ -340,6 +340,12 @@ jobs:
       - name: C64 models as the runtime reports them (Spec 863)
         run: npm run e2e:863-model
 
+      # Spec 900 — hermetic: what a Then parses to, where it stands, and that a line which
+      # starts like a check and does not parse is an error. The half that runs machines is
+      # smoke:900, a local gate.
+      - name: A Then a runner can decide (Spec 900)
+        run: npm run e2e:900-checks
+
       # Spec 861 — three hermetic gates. The cycle table lives twice because src/
       # is ESM and pipeline/src/ is CommonJS, so check:cycle-table reads the grid
       # out of both files and compares it cell by cell; e2e:861-static prices

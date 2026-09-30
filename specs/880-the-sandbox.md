@@ -279,7 +279,7 @@ knows which it is. A waiver arriving through the harness is a self-waiver by con
    has the rest of C64RE anyway, and there is one `.feature` parser (812/814), so a runner
    in `trx64cli` would be a second dialect. The layering is a thin command over the
    runner that already exists (`scenario-gherkin.ts`, `run-sandbox.ts`, `run-scenario.ts`),
-   with the MCP tool as a second door onto the same evaluator. The `Then` evaluation is
-   810's open half, without 810's acceptance store. The rewrite is where to look at the
+   with the MCP tool as a second door onto the same evaluator — built the same day as
+   Spec 900 (`c64re scenario run`, `Then` checks). The rewrite is where to look at the
    whole set: which operations are needed as CLI tools, by whom, and how they are
    gathered — `c64re <verb>`, `trx64cli`, or one front inside the image.

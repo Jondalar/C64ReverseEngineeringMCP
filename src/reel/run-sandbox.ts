@@ -30,7 +30,7 @@
 // `assertNotShared` makes the one remaining coincidence, a free port that happens
 // to BE the shared one, a refusal rather than a surprise.
 
-import type { Step, Predicate } from "../project-knowledge/scenario-gherkin.js";
+import type { Step, Predicate, Check } from "../project-knowledge/scenario-gherkin.js";
 import { waitCycles } from "../project-knowledge/scenario-gherkin.js";
 import {
   joinChunks, screenShows, screenCodesToRows, SCREEN_COLS, SCREEN_ROWS,
@@ -79,6 +79,8 @@ export interface SandboxRunOptions extends SandboxOptions {
   mediaPath?: string;
   /** A PRG's entry: start there after the load instead of typing RUN. */
   run?: number;
+  /** Spec 900 — checks, each decided right after `afterSteps` steps (0: once the medium is in). */
+  checks?: readonly SandboxCheck[];
   /** The schedule. Parsed by the caller so a bad line is reported before a daemon starts. */
   steps: readonly Step[];
   /** Memory to dump once the steps are done. */
@@ -112,6 +114,24 @@ export interface SandboxRunOptions extends SandboxOptions {
   };
 }
 
+/** Spec 900 — a check to decide during the run, and where in it. */
+export interface SandboxCheck {
+  readonly check: Check;
+  readonly afterSteps: number;
+  /** As written, for the report. */
+  readonly text: string;
+  /** The `.feature` line, when there is one. */
+  readonly line?: number;
+}
+
+/** Spec 900 — how a check came out. `actual` is what the machine had, in the check's own terms. */
+export interface SandboxCheckResult extends SandboxCheck {
+  readonly pass: boolean;
+  readonly actual: string;
+  /** Cycle it was decided on. */
+  readonly cycle: number;
+}
+
 export interface SandboxRunResult {
   /** The port the private machine held — reported so nobody watches the wrong one. */
   readonly port: number;
@@ -132,6 +152,8 @@ export interface SandboxRunResult {
   readonly frame?: { bytes: Uint8Array; width: number; height: number };
   /** Why this machine is not a whole C64, when the runtime made it one. */
   readonly coreOnly?: string;
+  /** Spec 900 — every check asked for, in the order decided. */
+  readonly checks: readonly SandboxCheckResult[];
   /** Set when the sandbox ended ITSELF — the budget, or the daemon dying. */
   readonly endedBecause: string | null;
   readonly elapsedMs: number;
@@ -201,6 +223,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
   const log: string[] = [];
   const waits: { text: string; frames: number; budget: number; cycle: number }[] = [];
   const reads: { read: MemoryRead; bytes: Uint8Array }[] = [];
+  const checks: SandboxCheckResult[] = [];
   /** Set when the runtime dropped this machine onto its isolated CPU core. */
   let coreOnly: string | undefined;
 
@@ -409,6 +432,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     };
     if (startRecordingBefore === 0) await startRecording();
 
+    await decideChecksAfter(0);
     for (const [i, step] of opts.steps.entries()) {
       if (i === startRecordingBefore && i > 0) await startRecording();
       switch (step.kind) {
@@ -509,6 +533,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
               `frame_path.`,
           );
       }
+      await decideChecksAfter(i + 1);
     }
 
     // Spec 861 §4.5 — close the capture and build its index NOW. `wait_index`
@@ -559,7 +584,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     return {
       port: box.port,
       machine: machineIdentity(end),
-      log, waits, reads, frame, screenRows, screenUnreadable, trace,
+      log, waits, reads, frame, screenRows, screenUnreadable, trace, checks,
       endCycle: end.c64Cycles,
       pc: end.cpu.pc,
       cpu: {
@@ -575,6 +600,38 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     // The budget already guarantees this; closing here is what makes the COMMON
     // case leave nothing behind rather than a daemon idling out its ten minutes.
     await box.close();
+  }
+
+  /** Spec 900 — decide every check written after exactly `n` steps, where the run is now. */
+  async function decideChecksAfter(n: number): Promise<void> {
+    for (const c of opts.checks ?? []) {
+      if (c.afterSteps !== n) continue;
+      const { pass, actual } = await decide(c.check);
+      checks.push({ ...c, pass, actual, cycle: (await state()).c64Cycles });
+    }
+  }
+
+  async function decide(check: Check): Promise<{ pass: boolean; actual: string }> {
+    const byte = (v: number): string => `$${v.toString(16).padStart(2, "0").toUpperCase()}`;
+    if (check.kind === "pc") {
+      const pc = (await state()).cpu.pc;
+      return { pass: pc === check.address, actual: `PC ${hex4(pc)}` };
+    }
+    if (check.kind === "screenShows") {
+      const { codes, why } = await screenCodes();
+      // Unanswerable is not a pass: say why instead of reading a bitmap as text.
+      if (!codes) return { pass: false, actual: `the screen cannot be read as text — ${why}` };
+      const rows = screenCodesToRows(codes, SCREEN_COLS).map((r) => r.trimEnd()).filter(Boolean);
+      return { pass: screenShows(codes, check.needle, SCREEN_COLS), actual: rows.slice(0, 6).join(" / ") || "a blank screen" };
+    }
+    const len = check.op === "is" ? check.values.length : 1;
+    const got = await readRanges([{ addr: check.address, len, lens: check.lens }]);
+    const actual = [...got].map(byte).join(" ");
+    const pass =
+      check.op === "is" ? check.values.every((v, i) => got[i] === v)
+      : check.op === "isNot" ? got[0] !== check.values[0]
+      : check.values.includes(got[0]);
+    return { pass, actual };
   }
 
   /** Advance a frame at a time until the predicate holds; returns the frame count. */

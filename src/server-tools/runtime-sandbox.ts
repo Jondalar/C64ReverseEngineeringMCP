@@ -18,6 +18,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
+import type { Check } from "../project-knowledge/scenario-gherkin.js";
 
 const STEP_EXAMPLE = [
   'I wait 170 frames',
@@ -29,6 +30,17 @@ const STEP_EXAMPLE = [
   'I release joystick 2',
   'I wait until the screen shows "PRESS FIRE" within 2000 frames',
   'I wait until the CPU reaches $0810 within 4000 frames',
+].join("\n");
+
+/** Spec 900 — the check notation, as the refusal names it. */
+const CHECK_EXAMPLE = [
+  "Then $8EF2 is $01",
+  "Then $40 is $26 $40 $26 $40 $26 $55",
+  "Then $B0 is not $00",
+  "Then $8EF2 is one of $01, $02",
+  "Then $8EF2@ram is $01",
+  "Then the CPU is at $0812",
+  'Then the screen shows "READY."',
 ].join("\n");
 
 /** Well under the MCP host's ~180 s stall limit, so a sandbox ends itself before
@@ -58,7 +70,7 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
         .array(z.string())
         .optional()
         .describe(
-          `What to do, one step per entry, in the capture-scenario notation. Omit it and the machine simply runs \`run_frames\`. Example:\n${STEP_EXAMPLE}\nA capture step is refused here — this tool reports, it does not assemble a reel.`,
+          `What to do, one step per entry, in the capture-scenario notation. Omit it and the machine simply runs \`run_frames\`. Example:\n${STEP_EXAMPLE}\nA capture step is refused here — this tool reports, it does not assemble a reel. A \`Then …\` entry is a CHECK, decided where it stands in the list and reported PASS/FAIL with what the machine had:\n${CHECK_EXAMPLE}\nThe same checks a .feature file runs through \`c64re scenario run\`.`,
         ),
       run_frames: z
         .number()
@@ -112,7 +124,7 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
       const projectDir = context.projectDir(project_dir ?? media_path ?? frame_path);
       const abs = (p: string): string => (isAbsolute(p) ? p : resolvePath(projectDir, p));
 
-      const { parseStep, holdIssues } = await import("../project-knowledge/scenario-gherkin.js");
+      const { parseStep, parseCheck, holdIssues } = await import("../project-knowledge/scenario-gherkin.js");
       const { runSandbox, parseMemoryRead, hexDump } = await import("../reel/run-sandbox.js");
 
       // ── everything that can be refused BEFORE a daemon starts ────────────────
@@ -123,8 +135,19 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
 
       const parsedSteps = [];
       const stepErrors: string[] = [];
+      // Spec 900 — a `Then …` entry is a check, decided where it stands in the list.
+      const checks: { check: Check; afterSteps: number; text: string }[] = [];
       for (const line of steps ?? []) {
-        const r = parseStep(line);
+        const then = line.trim().match(/^(?:Then|And)\s+(.+)$/i);
+        const asCheck = then ? parseCheck(then[1]) : undefined;
+        if (then && !parseStep(then[1])) {
+          if (!asCheck) {
+            stepErrors.push(`"${line}": not a check — in a tool call a Then has to be decidable. The notation:\n${CHECK_EXAMPLE}`);
+          } else if ("error" in asCheck) stepErrors.push(asCheck.error);
+          else checks.push({ check: asCheck.check, afterSteps: parsedSteps.length, text: then[1].trim() });
+          continue;
+        }
+        const r = parseStep(then ? then[1] : line);
         if (!r) {
           stepErrors.push(`"${line}": not a step. The vocabulary is:\n${STEP_EXAMPLE}`);
           continue;
@@ -190,6 +213,7 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
           mediaPath: absMedia,
           run: runEntry,
           steps: parsedSteps,
+          checks,
           reads,
           screen: screen !== false,
           wantFrame: !!framePath,
@@ -241,6 +265,15 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
         lines.push("waits (each fired on its own state, at this cycle):");
         for (const w of result.waits) {
           lines.push(`  cycle ${String(w.cycle).padEnd(12)} ${w.text} — after ${w.frames} of ${w.budget} frames`);
+        }
+      }
+
+      if (result.checks.length) {
+        const failed = result.checks.filter((c) => !c.pass).length;
+        lines.push("");
+        lines.push(`checks: ${result.checks.length - failed} passed, ${failed} failed`);
+        for (const c of result.checks) {
+          lines.push(`  ${c.pass ? "PASS" : "FAIL"}  ${c.text}${c.pass ? "" : ` — got ${c.actual}`}  (after step ${c.afterSteps}, cycle ${c.cycle})`);
         }
       }
 
