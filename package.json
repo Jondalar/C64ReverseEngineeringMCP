@@ -162,6 +162,7 @@
     "smoke:740-graph": "npm run build && node scripts/smoke-740-graph.mjs",
     "smoke:858": "npm run build:mcp && node scripts/smoke-858-project-switch.mjs",
     "smoke:859": "npm run build:mcp && node scripts/smoke-859-line-trace.mjs",
+    "smoke:sandbox-prg-start": "npm run build:mcp && node scripts/smoke-sandbox-prg-start.mjs",
     "smoke:860": "npm run build:mcp && node scripts/smoke-860-frame-map.mjs",
     "e2e:861-static": "npm run build:mcp && node scripts/e2e-861-static.mjs",
     "e2e:861-impact": "npm run build && node scripts/e2e-861-impact.mjs",

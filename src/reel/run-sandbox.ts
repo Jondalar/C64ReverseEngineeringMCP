@@ -60,6 +60,13 @@ export function sharedRuntimePort(env: NodeJS.ProcessEnv = process.env): number 
   return m ? Number(m[1]) : 4312;
 }
 
+/** What one typed key costs: session/type presses each key for 80 000 cycles and waits
+ *  80 000 before the next (the daemon's defaults, which this runner does not override). */
+const KEY_CYCLES = 160_000;
+/** The screen editor waiting for a key (KERNAL $E5CD–$E5D4): READY. and nothing started. */
+const KEY_WAIT_LOOP: readonly [number, number] = [0xe5cd, 0xe5d4];
+const hex4 = (n: number): string => `$${n.toString(16).padStart(4, "0").toUpperCase()}`;
+
 export interface MemoryRead {
   readonly label: string;
   readonly addr: number;
@@ -70,6 +77,8 @@ export interface MemoryRead {
 export interface SandboxRunOptions extends SandboxOptions {
   /** The medium for YOUR machine — .crt / .d64 / .g64 / .d81 / .prg / .c64re. */
   mediaPath?: string;
+  /** A PRG's entry: start there after the load instead of typing RUN. */
+  run?: number;
   /** The schedule. Parsed by the caller so a bad line is reported before a daemon starts. */
   steps: readonly Step[];
   /** Memory to dump once the steps are done. */
@@ -296,9 +305,20 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       // becomes the machine and a .prg is loaded. A sandbox that only took disks
       // would send the cartridge case straight back to the shared machine, which
       // is the defect this whole spec is about.
-      const opened = await box.call<{ message?: string; kind?: string; autostart?: boolean }>(
-        "media/open", { path: opts.mediaPath },
+      const opened = await box.call<{ message?: string; kind?: string; autostart?: boolean; run?: number | null }>(
+        "media/open", opts.run == null ? { path: opts.mediaPath } : { path: opts.mediaPath, run: opts.run },
       );
+      // A runtime that knows `run` echoes it (a number, or null when none was asked for).
+      // One that does not drops the parameter without a word, and the PRG would sit
+      // loaded while this report claimed a start.
+      const knowsRun = opened != null && "run" in opened;
+      if (opts.run != null && (!knowsRun || opened.run !== opts.run)) {
+        throw new Error(
+          `this runtime does not take \`run\` on media/open (it answered ${JSON.stringify(opened?.run ?? "nothing")}) — ` +
+            `nothing was started at ${hex4(opts.run)}. Update the runtime (c64re runtime install), or ` +
+            `omit run and let a $0801 BASIC line start it.`,
+        );
+      }
       log.push(typeof opened?.message === "string" ? opened.message : `opened ${opts.mediaPath}`);
       // A mount can flip the controller back to running; this front owns the clock.
       await box.call("debug/pause", { source: "sandbox" });
@@ -308,9 +328,9 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       resync();
       if (machine!.model !== was) log.push(`the medium made this machine a ${describeMachine(machine!)}`);
 
-      // Ask the machine whether it is still a whole machine. Measured on the real
-      // daemon: poking a .prg into a machine that has no disk and no cartridge
-      // latches it as an instruction EXERCISER, and the runtime then advances it
+      // Ask the machine whether it is still a whole machine. Measured on a runtime
+      // before C64RE #29 was fixed there: poking a .prg into a machine that has no disk
+      // and no cartridge latches it as an instruction EXERCISER, and the runtime then advances it
       // on an isolated CPU core with no VIC, no CIAs, no SID and no drive. The
       // CPU and memory stay real; nothing else does. A cartridge or a disk keeps
       // the whole machine, which is why the case this tool exists for is fine —
@@ -337,16 +357,25 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
         }
       }
 
-      // The daemon queues RUN for an autostarting PRG into a buffer its own
-      // running loop drains — and this machine is paused between steps, so that
-      // buffer never empties and the program sits loaded and never started.
-      // Measured: READY. still on screen 180 frames after the open. The keyboard
-      // queue IS clocked by a bounded run, so the sandbox presses the key itself
-      // and says that it did — but only on a machine that scans a keyboard.
-      if (opened?.kind === "prg" && opened.autostart && !coreOnly) {
-        await box.call("session/type", { text: "RUN\r" });
-        await runCycles(F * 30);
-        log.push("typed RUN — the medium autostarts, and a paused machine will not press it for you");
+      // Who starts the PRG. A runtime that knows `run` starts it itself — at the entry,
+      // or by typing RUN: for a $0801 BASIC line — and its keys play out as this paused
+      // machine is advanced. An older one queued RUN into a buffer nothing drained, so
+      // here the sandbox types it. `RUN:` and not `RUN`: the editor reads the whole
+      // screen line, and a colon makes whatever stands right of it a statement that
+      // never runs instead of a ?SYNTAX ERROR.
+      if (opened?.kind === "prg" && !coreOnly && (opts.run != null || opened.autostart)) {
+        const typed = opts.run == null ? "RUN:\r" : "";
+        if (typed && !knowsRun) await box.call("session/type", { text: typed });
+        await runCycles(typed.length * KEY_CYCLES + F * 30);
+        // Say what HAPPENED, not what was attempted: a machine still in the editor's
+        // key wait did not start the program, whatever was typed.
+        const pc = (await state()).cpu.pc;
+        const how = opts.run != null ? `started at ${hex4(opts.run)}` : `RUN: typed by the ${knowsRun ? "runtime" : "sandbox"}`;
+        log.push(
+          pc >= KEY_WAIT_LOOP[0] && pc <= KEY_WAIT_LOOP[1]
+            ? `${how}, but the machine is still waiting for a key at the READY prompt (PC ${hex4(pc)}) — the program did not start`
+            : `${how}; PC ${hex4(pc)} ${opts.run != null || pc < 0xa000 ? "— the program is running" : "(in ROM)"}`,
+        );
       }
     }
 
@@ -392,7 +421,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
           await box.call("session/type", { text: step.keys });
           // The type buffer drains as the machine runs, so a `type` with nothing
           // after it would return before a single key was pressed.
-          await runCycles(F * Math.max(4, step.keys.length * 2));
+          await runCycles(Math.max(F * 4, step.keys.length * KEY_CYCLES + F * 2));
           log.push(`${i}: ${step.text}`);
           break;
 

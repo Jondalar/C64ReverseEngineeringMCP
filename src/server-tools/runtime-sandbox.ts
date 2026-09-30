@@ -46,7 +46,13 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
         .string()
         .optional()
         .describe(
-          "The medium for YOUR machine — .crt / .d64 / .g64 / .d81 / .prg / .c64re, identified by CONTENT not by extension. A cartridge is inserted, a disk mounted, a snapshot REPLACES the machine, a PRG is loaded (and RUN when it loads at $0801 behind a valid BASIC line). Absolute, or relative to the project dir. Omit it for a bare C64 at the BASIC prompt.",
+          "The medium for YOUR machine — .crt / .d64 / .g64 / .d81 / .prg / .c64re, identified by CONTENT not by extension. A cartridge is inserted, a disk mounted, a snapshot REPLACES the machine, a PRG is loaded (and RUN: typed when it loads at $0801 behind a valid BASIC line, or started at `run`). Absolute, or relative to the project dir. Omit it for a bare C64 at the BASIC prompt.",
+        ),
+      run: z
+        .string()
+        .optional()
+        .describe(
+          "For a PRG: start it at this address after the load instead of typing RUN — \"$0840\", \"0x0840\" or \"0840\". The way to start machine code that has no BASIC line, or to skip one. Refused, not ignored, by a runtime too old to take it.",
         ),
       steps: z
         .array(z.string())
@@ -98,7 +104,7 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
         ),
     },
     safeHandler("runtime_sandbox_run", async (args) => {
-      const { media_path, steps, run_frames, read_memory, screen, frame_path, budget_seconds, project_dir, model } = args;
+      const { media_path, run, steps, run_frames, read_memory, screen, frame_path, budget_seconds, project_dir, model } = args;
 
       // The hint order is by what each path IS: `media_path` is an INPUT that must
       // already exist, `frame_path` an OUTPUT whose directory may not exist yet.
@@ -169,12 +175,20 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
       const { describeMachine } = await import("../runtime/machine-model.js");
       const chosenModel = model?.trim() || projectMachineModel(projectDir);
 
-      let run;
+      let runEntry: number | undefined;
+      if (run != null) {
+        const m = /^(?:\$|0x)?([0-9a-f]{1,4})$/i.exec(run.trim());
+        if (!m) return text(`runtime_sandbox_run: run must be an address like "$0840", got ${JSON.stringify(run)}. Nothing was run.`);
+        runEntry = parseInt(m[1], 16);
+      }
+
+      let result;
       try {
-        run = await runSandbox({
+        result = await runSandbox({
           budgetMs: budget * 1000,
           model: chosenModel,
           mediaPath: absMedia,
+          run: runEntry,
           steps: parsedSteps,
           reads,
           screen: screen !== false,
@@ -205,70 +219,70 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
       }
 
       const lines: string[] = [];
-      lines.push(`SANDBOX RUN — a machine of your own, on port ${run.port}.`);
+      lines.push(`SANDBOX RUN — a machine of your own, on port ${result.port}.`);
       lines.push(
         `It was started and ENDED by this call: there is no session to attach to, the shared ` +
           `machine was never reached, and nothing is still running.`,
       );
       lines.push(
-        `machine: ${describeMachine(run.machine)}` +
+        `machine: ${describeMachine(result.machine)}` +
           (model ? "" : chosenModel ? " — the project's model" : " — the default; pass `model` for another"),
       );
       lines.push(
-        `budget ${budget}s · ran ${(run.elapsedMs / 1000).toFixed(1)}s` +
-          (run.endedBecause ? ` · ENDED EARLY: ${run.endedBecause}` : ""),
+        `budget ${budget}s · ran ${(result.elapsedMs / 1000).toFixed(1)}s` +
+          (result.endedBecause ? ` · ENDED EARLY: ${result.endedBecause}` : ""),
       );
       lines.push("");
       lines.push("what it did:");
-      for (const l of run.log) lines.push(`  ${l}`);
+      for (const l of result.log) lines.push(`  ${l}`);
 
-      if (run.waits.length) {
+      if (result.waits.length) {
         lines.push("");
         lines.push("waits (each fired on its own state, at this cycle):");
-        for (const w of run.waits) {
+        for (const w of result.waits) {
           lines.push(`  cycle ${String(w.cycle).padEnd(12)} ${w.text} — after ${w.frames} of ${w.budget} frames`);
         }
       }
 
-      if (run.coreOnly) {
+      if (result.coreOnly) {
         // Loud, above the report, because everything under it means less than it
         // looks like it does.
         lines.push("");
-        lines.push(`NOT A WHOLE MACHINE: ${run.coreOnly}`);
+        lines.push(`NOT A WHOLE MACHINE: ${result.coreOnly}`);
       }
 
       lines.push("");
       lines.push(
-        `end: cycle ${run.endCycle} · PC $${hex4(run.pc)} · A $${hex2(run.cpu.a)} X $${hex2(run.cpu.x)} ` +
-          `Y $${hex2(run.cpu.y)} SP $${hex2(run.cpu.sp)} P $${hex2(run.cpu.flags)}` +
-          (run.runState ? ` · ${run.runState}` : ""),
+        `end: cycle ${result.endCycle} · PC $${hex4(result.pc)} · A $${hex2(result.cpu.a)} X $${hex2(result.cpu.x)} ` +
+          `Y $${hex2(result.cpu.y)} SP $${hex2(result.cpu.sp)} P $${hex2(result.cpu.flags)}` +
+          (result.runState ? ` · ${result.runState}` : ""),
       );
 
-      if (run.screenRows) {
+      if (result.screenRows) {
         lines.push("");
         lines.push("screen:");
-        for (const r of run.screenRows) lines.push(`  |${r}|`);
-      } else if (run.screenUnreadable) {
+        for (const r of result.screenRows) lines.push(`  |${r}|`);
+      } else if (result.screenUnreadable) {
         lines.push("");
-        lines.push(`screen: ${run.screenUnreadable}`);
+        lines.push(`screen: ${result.screenUnreadable}`);
       }
 
-      for (const { read, bytes } of run.reads) {
+      for (const { read, bytes } of result.reads) {
         lines.push("");
         lines.push(`memory ${read.label} (${bytes.length} bytes, ${read.lens} lens):`);
         lines.push(...hexDump(read.addr, bytes));
       }
 
-      if (framePath && run.frame) {
+      if (framePath && result.frame) {
         mkdirSync(dirname(framePath), { recursive: true });
-        writeFileSync(framePath, run.frame.bytes);
+        writeFileSync(framePath, result.frame.bytes);
         lines.push("");
-        lines.push(`frame: ${framePath} (${run.frame.width}x${run.frame.height}, ${run.frame.bytes.length} bytes, GIF)`);
+        lines.push(`frame: ${framePath} (${result.frame.width}x${result.frame.height}, ${result.frame.bytes.length} bytes, GIF)`);
         try {
           const reg = context.tryRegisterKnowledgeArtifacts(projectDir, {
             toolName: "runtime_sandbox_run",
             title: `Sandbox run: ${absMedia ?? "bare machine"}`,
-            parameters: { port: run.port, endCycle: run.endCycle, budgetSeconds: budget },
+            parameters: { port: result.port, endCycle: result.endCycle, budgetSeconds: budget },
             outputs: [
               {
                 path: framePath, kind: "preview", scope: "generated", format: "gif",

@@ -37,6 +37,11 @@ memory you asked for as a hex dump. The steps are the capture-scenario notation,
 per line; every step that lasts carries its own duration and the machine is stopped
 between steps, so **the same list replays to the same bytes**.
 
+A `.prg` is loaded and started. One that loads at `$0801` behind a BASIC line gets
+`RUN:` typed for it; machine code without one takes `"run": "$C000"` and starts at that
+address. The log says what happened, not what was tried: a program that is still at
+the `READY.` prompt afterwards is reported as not started, with the PC it sits at.
+
 <!-- deliberate-limitation: runtime_sandbox_run — it returns no session id BY DESIGN
      (Spec 836): a sandbox you could come back to would be a second shared machine,
      and there is exactly one of those. This limit is the tool's shape, not drift. -->
