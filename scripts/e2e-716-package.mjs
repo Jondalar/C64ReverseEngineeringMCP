@@ -177,7 +177,7 @@ const entry = join(pkgDir, manifest.bin?.[binName] ?? "dist/cli.js");
 function session(cmd, args, { useShell = false, cwd = tmpdir() } = {}) {
   const proc = spawn(cmd, args, {
     cwd,
-    env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_SLOT_GATE: "0" },
+    env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_SLOT_GATE: "0" },
     stdio: ["pipe", "pipe", "pipe"],
     shell: useShell,
   });

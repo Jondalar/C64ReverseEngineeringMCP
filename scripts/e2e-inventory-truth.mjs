@@ -277,7 +277,7 @@ const openVersionQuestions = (svc) =>
   const proj = tmpProject("c64re-live-inv-");
   const server = spawn(process.execPath, [cli], {
     cwd: tmpdir(),
-    env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_FULL_TOOLS: "" },
+    env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "" },
     stdio: ["pipe", "pipe", "pipe"],
   });
   let stderr = "";

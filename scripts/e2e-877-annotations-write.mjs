@@ -55,7 +55,7 @@ if (!existsSync(cli) || !existsSync(join(ROOT, "dist/pipeline/cli.cjs"))) {
 console.log("Spec 877 D6 — the annotations WRITER\n");
 
 const proj = mkdtempSync(join(tmpdir(), "c64re-877-write-"));
-const procEnv = { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" };
+const procEnv = { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" };
 const proc = spawn(process.execPath, [cli], { cwd: tmpdir(), env: procEnv, stdio: ["pipe", "pipe", "pipe"] });
 let buf = "";
 const pend = new Map();

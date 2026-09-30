@@ -273,7 +273,7 @@ try {
 try {
   head(6, "the last door that let the pipeline child write the store");
   const proj = tmpProject("c64re-subj-basic-");
-  const procEnv = { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" };
+  const procEnv = { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" };
   const proc = spawn(process.execPath, [cli], { cwd: tmpdir(), env: procEnv, stdio: ["pipe", "pipe", "pipe"] });
   let buf = "";
   const pend = new Map();

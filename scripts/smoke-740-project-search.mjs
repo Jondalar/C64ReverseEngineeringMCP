@@ -134,7 +134,7 @@ const search = (q, f, n) => searchIndex(index, q, f ?? {}, n ?? 12);
   const cli = join(ROOT, "dist/cli.js");
   if (!existsSync(cli)) { console.log("  PENDING  7 MCP stdio — dist/cli.js missing"); }
   else {
-    const proc = spawn(process.execPath, [cli], { cwd: tmpdir(), env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_FULL_TOOLS: "" }, stdio: ["pipe", "pipe", "pipe"] });
+    const proc = spawn(process.execPath, [cli], { cwd: tmpdir(), env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "" }, stdio: ["pipe", "pipe", "pipe"] });
     let buf = ""; const pend = new Map(); let nid = 1;
     proc.stdout.on("data", (d) => { buf += d.toString(); let nl; while ((nl = buf.indexOf("\n")) >= 0) { const ln = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1); if (!ln) continue; let m; try { m = JSON.parse(ln); } catch { continue; } if (m.id != null && pend.has(m.id)) { pend.get(m.id)(m); pend.delete(m.id); } } });
     const rpc = (method, params) => new Promise((res, rej) => { const id = nid++; const t = setTimeout(() => { pend.delete(id); rej(new Error("timeout " + method)); }, 60000); pend.set(id, (m) => { clearTimeout(t); res(m); }); proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n"); });

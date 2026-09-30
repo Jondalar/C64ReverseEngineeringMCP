@@ -207,7 +207,7 @@ const base = { id: "lut_t", name: "t", evidence: [], tags: [], createdAt: now, u
   writeFileSync(crtPath, Buffer.concat([header, ch, chip]));
 
   const proc = spawn(process.execPath, [join(ROOT, "dist/cli.js")], {
-    cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_FULL_TOOLS: "1" },
+    cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "1" },
     stdio: ["pipe", "pipe", "pipe"],
   });
   let buf = ""; const pending = new Map(); let id = 1;
@@ -842,7 +842,7 @@ try {
   writeFileSync(join(projectDir, "payloads", "index.prg"), payload);
 
   const proc = spawn(process.execPath, [join(ROOT, "dist/cli.js")], {
-    cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_FULL_TOOLS: "1", C64RE_SLOT_GATE: "0" },
+    cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "1", C64RE_SLOT_GATE: "0" },
     stdio: ["pipe", "pipe", "pipe"],
   });
   let buf = ""; const pending = new Map(); let id = 1;

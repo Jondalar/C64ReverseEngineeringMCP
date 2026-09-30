@@ -29,7 +29,7 @@ ok(!projectDir.startsWith(ROOT), "0 project dir is outside the repo", projectDir
 
 const proc = spawn(process.execPath, [cli], {
   cwd: tmpdir(),
-  env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_FULL_TOOLS: "" },
+  env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "" },
   stdio: ["pipe", "pipe", "pipe"],
 });
 let stderr = "";

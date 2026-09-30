@@ -47,7 +47,7 @@ console.log("The disassembly family — six defects from one autonomous run\n");
 const proj = mkdtempSync(join(tmpdir(), "c64re-disasm-family-"));
 const proc = spawn(process.execPath, [cli], {
   cwd: tmpdir(),
-  env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" },
+  env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" },
   stdio: ["pipe", "pipe", "pipe"],
 });
 let buf = "";

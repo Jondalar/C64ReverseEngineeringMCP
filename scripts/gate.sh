@@ -94,6 +94,19 @@ state_now() {
 }
 STATE_AT_START="$(state_now)"
 
+# Every trx64-daemon serving a throwaway project. A test that spawns the real server lets
+# it warm-start a daemon, and that daemon is detached by design (it outlives an MCP
+# reconnect) — so it also outlives the test, sits on :4312, and the UI and the real MCP
+# attach to a machine holding a temp project. Taken before and after: only a daemon this
+# run left behind is this run's fault.
+temp_daemons() {
+  ps -axo pid=,command= 2>/dev/null \
+    | grep 'trx64-daemon' | grep -v grep \
+    | grep -E -- "--project (/tmp/|/private/tmp/|/var/folders/|/private/var/folders/|${TMPDIR:-/nonexistent/})" \
+    | sort
+}
+TEMP_DAEMONS_AT_START="$(temp_daemons)"
+
 N=0
 START=$(date +%s)
 printf '\n=== gate: %s step(s) from gates.yml (tier=%s) ===\n' "$TOTAL" "$TIER" >&2
@@ -114,6 +127,15 @@ while IFS="$(printf '\t')" read -r NAME CMD; do
   fi
 done < /tmp/.c64re-gate-steps.$$
 rm -f /tmp/.c64re-gate-steps.$$
+
+LEFT_BEHIND=$(temp_daemons | grep -vxF -- "${TEMP_DAEMONS_AT_START:-\x00}")
+if [ -n "$LEFT_BEHIND" ]; then
+  printf '\n=== gate RED: a step left a runtime daemon running ===\n' >&2
+  printf '%s\n' "$LEFT_BEHIND" | sed 's/^/    /' >&2
+  printf '    A test that starts the MCP server sets C64RE_RUNTIME_AUTOSTART=0, or runs its own\n' >&2
+  printf '    daemon on its own port and kills it in finally. Stop these by PID.\n\n' >&2
+  exit 1
+fi
 
 ELAPSED=$(( $(date +%s) - START ))
 

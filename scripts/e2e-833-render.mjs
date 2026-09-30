@@ -294,7 +294,7 @@ if (!existsSync(mcpCli)) {
   const projectDir = mkdtempSync(join(tmpdir(), "c64re-833-project-"));
   const proc = spawn(process.execPath, [mcpCli], {
     cwd: tmpdir(),
-    env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_FULL_TOOLS: "" },
+    env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "" },
     stdio: ["pipe", "pipe", "pipe"],
   });
   proc.stderr.resume();

@@ -21,7 +21,7 @@ const { ProjectKnowledgeService } = await import(`${ROOT}/dist/project-knowledge
 new ProjectKnowledgeService(projectDir).initProject({ name: "Steering Test" });
 
 function spawnMcp() {
-  const proc = spawn(process.execPath, [cli], { cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_FULL_TOOLS: "1" }, stdio: ["pipe", "pipe", "pipe"] });
+  const proc = spawn(process.execPath, [cli], { cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "1" }, stdio: ["pipe", "pipe", "pipe"] });
   let buf = ""; const pending = new Map(); let id = 1;
   proc.stdout.on("data", (d) => { buf += d.toString(); let nl; while ((nl = buf.indexOf("\n")) >= 0) { const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1); if (!line) continue; let m; try { m = JSON.parse(line); } catch { continue; } if (m.id != null && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } } });
   const rpc = (method, params, t = 30000) => new Promise((res, rej) => { const i = id++; const timer = setTimeout(() => { pending.delete(i); rej(new Error("timeout " + method)); }, t); pending.set(i, (m) => { clearTimeout(timer); res(m); }); proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: i, method, params }) + "\n"); });

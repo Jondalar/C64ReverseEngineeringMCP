@@ -208,6 +208,7 @@ function startServer(proj, log) {
     ...process.env,
     C64RE_PROJECT_DIR: proj,
     C64RE_PIPELINE_REGISTRATION_LOG: log,
+    C64RE_RUNTIME_AUTOSTART: "0",
     C64RE_FULL_TOOLS: "1",
     C64RE_SLOT_GATE: "0",
   };

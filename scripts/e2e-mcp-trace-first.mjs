@@ -13,6 +13,7 @@
 // No emulator-fidelity assertion: the synthetic disk just has to produce real
 // CPU events. The point is the PRODUCT FLOW works end-to-end via the façade.
 import { spawn } from "node:child_process";
+import { connect } from "node:net";
 import { mkdtempSync, writeFileSync, existsSync, copyFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -45,10 +46,38 @@ const diskPath = join(projectDir, "game.d64");
 copyFileSync(seed, diskPath);
 const tracePath = join(projectDir, "traces", "run.duckdb"); // project-relative target (abs here)
 
+// This flow STEPS a machine, so it gets its own: a sandbox daemon on its own port, never
+// the shared one on 4312 (that is the human's session), and autostart off so the server
+// cannot bring one up either. Killed in `finally`, and by the budget if the run hangs.
+const DAEMON = process.env.TRX64_DAEMON_BIN || join(ROOT, "../TRX64/target/release/trx64-daemon");
+if (!existsSync(DAEMON)) {
+  PENDING("private runtime", `no TRX64 daemon at ${DAEMON} — cargo build -p trx64-daemon --release, or set TRX64_DAEMON_BIN`);
+  console.log("\nPENDING (no runtime). 0 pass, 0 fail.");
+  process.exit(0);
+}
+const PORT = Number(process.env.E2E_TRACE_FIRST_PORT || 4398);
+const daemon = spawn(DAEMON, ["--project", projectDir, "--port", String(PORT), "--headless"], { stdio: ["ignore", "ignore", "pipe"] });
+let daemonLog = "";
+daemon.stderr.on("data", (d) => { daemonLog += d.toString(); });
+const budget = setTimeout(() => { console.log("  FAIL  sandbox budget (600 s) exhausted"); daemon.kill("SIGKILL"); process.exit(1); }, 600_000);
+for (const until = Date.now() + 15_000; ;) {
+  const up = await new Promise((res) => {
+    const s = connect(PORT, "127.0.0.1", () => { s.destroy(); res(true); });
+    s.once("error", () => res(false));
+  });
+  if (up) break;
+  if (Date.now() > until || daemon.exitCode != null) {
+    console.log(`  FAIL  private daemon never listened on ${PORT}\n${daemonLog.slice(-500)}`);
+    daemon.kill("SIGKILL");
+    process.exit(1);
+  }
+  await new Promise((r) => setTimeout(r, 200));
+}
+
 // ---- stdio JSON-RPC MCP client ----
 const proc = spawn(process.execPath, [cli], {
   cwd: tmpdir(), // NOT the repo — prove no cwd coupling
-  env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_FULL_TOOLS: "" },
+  env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_ENDPOINT: `ws://127.0.0.1:${PORT}`, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "" },
   stdio: ["pipe", "pipe", "pipe"],
 });
 let stderr = "";
@@ -176,6 +205,8 @@ try {
   exitCode = 1;
 } finally {
   proc.kill();
+  daemon.kill("SIGKILL");
+  clearTimeout(budget);
 }
 
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} E2E trace-first: ${pass} pass, ${fail} fail.`);

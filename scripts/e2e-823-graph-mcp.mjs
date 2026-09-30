@@ -61,7 +61,7 @@ function seedFixture() {
 
 // ---------------------------------------------------------------- the server over stdio
 
-const proc = spawn(process.execPath, [cli], { cwd: tmpdir(), env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_FULL_TOOLS: "" }, stdio: ["pipe", "pipe", "pipe"] });
+const proc = spawn(process.execPath, [cli], { cwd: tmpdir(), env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "" }, stdio: ["pipe", "pipe", "pipe"] });
 let stderr = "";
 proc.stderr.on("data", (d) => { stderr += d.toString(); });
 let buf = "";

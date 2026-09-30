@@ -57,7 +57,7 @@ console.log("Spec 866 — two doors, not four: the load address decides\n");
 const proj = mkdtempSync(join(tmpdir(), "c64re-866-"));
 const proc = spawn(process.execPath, [cli], {
   cwd: tmpdir(),
-  env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" },
+  env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" },
   stdio: ["pipe", "pipe", "pipe"],
 });
 let buf = "";
@@ -96,7 +96,7 @@ const call = async (name, args) => {
 async function session(clientName) {
   const p = spawn(process.execPath, [cli], {
     cwd: tmpdir(),
-    env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" },
+    env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "", C64RE_SLOT_GATE: "0" },
     stdio: ["pipe", "pipe", "pipe"],
   });
   let b = "";

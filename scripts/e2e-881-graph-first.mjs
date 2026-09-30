@@ -31,7 +31,7 @@ process.on("exit", () => { try { rmSync(proj, { recursive: true, force: true });
 function session() {
   const proc = spawn(process.execPath, [cli], {
     cwd: tmpdir(),
-    env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_SLOT_GATE: "0" },
+    env: { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_SLOT_GATE: "0" },
     stdio: ["pipe", "pipe", "pipe"],
   });
   let buf = "";
