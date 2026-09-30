@@ -271,3 +271,15 @@ knows which it is. A waiver arriving through the harness is a self-waiver by con
 4. **Whether the workflow graph is C64RE's or the plugin's.** In the graph it is portable to
    any harness and survives a handover; in the plugin it is enforceable but dies with the
    harness — which is 847 D7's argument, decided once already in the other direction.
+5. **The command-line doors, and where they are collected.** Noted 2026-09-30 from a
+   request by the LN_Engine session: run its `.feature` scenarios from `make`, with
+   machine-checked `Then` lines (`memory $44 = $26`, ranges, `in [...]`, `!=`, a lens),
+   one PASS/FAIL per scenario, exit code, `--json`, batch — with no agent in the loop.
+   Decided for now: it stays Node and inside C64RE, since a project that runs scenarios
+   has the rest of C64RE anyway, and there is one `.feature` parser (812/814), so a runner
+   in `trx64cli` would be a second dialect. The layering is a thin command over the
+   runner that already exists (`scenario-gherkin.ts`, `run-sandbox.ts`, `run-scenario.ts`),
+   with the MCP tool as a second door onto the same evaluator. The `Then` evaluation is
+   810's open half, without 810's acceptance store. The rewrite is where to look at the
+   whole set: which operations are needed as CLI tools, by whom, and how they are
+   gathered — `c64re <verb>`, `trx64cli`, or one front inside the image.
