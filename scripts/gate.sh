@@ -94,13 +94,16 @@ state_now() {
 }
 STATE_AT_START="$(state_now)"
 
-# Every trx64-daemon serving a throwaway project. A test that spawns the real server lets
-# it warm-start a daemon, and that daemon is detached by design (it outlives an MCP
-# reconnect) — so it also outlives the test, sits on :4312, and the UI and the real MCP
-# attach to a machine holding a temp project. Taken before and after: only a daemon this
-# run left behind is this run's fault.
+# Every ORPHANED trx64-daemon serving a throwaway project. A test that spawns the real
+# server lets it warm-start a daemon, and that daemon is detached by design (it outlives an
+# MCP reconnect) — so it also outlives the test, sits on :4312, and the UI and the real MCP
+# attach to a machine holding a temp project. Detached and its parent gone is what makes it
+# a leak: its parent is then 1. A daemon whose parent is alive is somebody's sandbox —
+# another session's reel started during this run blocked a push on 2026-10-01 — and is not
+# this run's to judge. Taken before and after: only an orphan this run left is its fault.
 temp_daemons() {
-  ps -axo pid=,command= 2>/dev/null \
+  ps -axo pid=,ppid=,command= 2>/dev/null \
+    | awk '$2 == 1' \
     | grep 'trx64-daemon' | grep -v grep \
     | grep -E -- "--project (/tmp/|/private/tmp/|/var/folders/|/private/var/folders/|${TMPDIR:-/nonexistent/})" \
     | sort
