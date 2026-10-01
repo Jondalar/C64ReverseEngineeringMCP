@@ -10,6 +10,7 @@ import { join, relative, resolve } from "node:path";
 import { importAnalysisKnowledge } from "../project-knowledge/analysis-import.js";
 import {
   INVENTORY_PATTERNS_FILE,
+  projectSkipDirs,
   readInventoryDeclaration,
   type ProjectInventoryDeclaration,
 } from "../project-knowledge/inventory-patterns.js";
@@ -177,10 +178,12 @@ interface WalkSink {
   toolByDir: Record<string, number>;
   toolBytesByDir: Record<string, number>;
   toolBytes: number;
+  /** Spec 885 D7 — the project's skipDirs. */
+  skip: (relPath: string) => boolean;
 }
 
 function newSink(projectRoot: string, registered: Set<string>): WalkSink {
-  return { projectRoot, registered, human: [], humanByExt: {}, tool: [], toolByDir: {}, toolBytesByDir: {}, toolBytes: 0 };
+  return { projectRoot, registered, human: [], humanByExt: {}, tool: [], toolByDir: {}, toolBytesByDir: {}, toolBytes: 0, skip: projectSkipDirs(projectRoot) };
 }
 
 function walk(dir: string, sink: WalkSink): { total: number; alreadyRegistered: number } {
@@ -197,6 +200,7 @@ function walk(dir: string, sink: WalkSink): { total: number; alreadyRegistered: 
     if (SKIP_DIRS.has(entry.name)) continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
+      if (sink.skip(relative(sink.projectRoot, full))) continue;
       const sub = walk(full, sink);
       total += sub.total;
       already += sub.alreadyRegistered;

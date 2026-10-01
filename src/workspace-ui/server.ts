@@ -22,6 +22,8 @@ import { ByteBoozerDepacker, RleDepacker, depackExomizerRaw, depackExomizerSfx }
 import { lykiaDecompress } from "../byteboozer-lykia-decoder.js";
 import { writeFile as writeFileAsync, mkdtemp as mkdtempAsync, rm as rmAsync } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { gzipSync } from "node:zlib";
+import { createHash } from "node:crypto";
 
 interface UiMark {
   id: string;
@@ -102,10 +104,17 @@ function parseArgs(argv: string[]): ServerOptions {
   return options;
 }
 
+/** A body that must equal a `c64re … --json` command's output byte for byte (825 D1). */
+function asCliJson(status: number, payload: unknown): ServerReply {
+  return { ...jsonResponse(status, payload), body: `${JSON.stringify(payload, null, 2)}\n` };
+}
+
 function jsonResponse(status: number, payload: unknown): ServerReply {
   return {
     status,
-    body: `${JSON.stringify(payload, null, 2)}\n`,
+    // Spec 885 D3 — compact: the page parses it, nobody reads it. Indentation was
+    // 30 % of a 185 MB /api/workspace body on a large project.
+    body: `${JSON.stringify(payload)}\n`,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Access-Control-Allow-Origin": "*",
@@ -126,9 +135,87 @@ function textResponse(status: number, body: string | Buffer, contentType = "text
   };
 }
 
+/** Spec 885 D3 — gzip what is worth it when the client takes gzip (every browser does). */
+const GZIP_MIN_BYTES = 1024;
+const GZIP_TYPES = /^(application\/json|text\/|application\/javascript|image\/svg)/u;
+
+function acceptsGzip(res: import("node:http").ServerResponse): boolean {
+  const header = res.req?.headers["accept-encoding"];
+  return typeof header === "string" && /\bgzip\b/u.test(header);
+}
+
 function send(res: import("node:http").ServerResponse, response: ServerReply): void {
+  const type = response.headers["Content-Type"] ?? "";
+  const size = typeof response.body === "string" ? Buffer.byteLength(response.body) : response.body.length;
+  if (size >= GZIP_MIN_BYTES && GZIP_TYPES.test(type) && !response.headers["Content-Encoding"] && acceptsGzip(res)) {
+    res.writeHead(response.status ?? 200, { ...response.headers, "Content-Encoding": "gzip", Vary: "Accept-Encoding" });
+    res.end(gzipSync(response.body));
+    return;
+  }
   res.writeHead(response.status ?? 200, response.headers);
   res.end(response.body);
+}
+
+/**
+ * Spec 885 D4 — the /api/workspace snapshot, kept until the knowledge changes.
+ * Building it reads the whole graph and composes every view (20+ s on a project
+ * with ~20k entities); the page asks for it on load and again from several tabs.
+ * The key is the size + mtime of every file in knowledge/ and views/ (the graph's
+ * WAL included), so a write through any door — MCP, pipeline, this server —
+ * changes it. workflow-state.json is left out: it is derived on every read.
+ */
+interface SnapshotCacheEntry { key: string; etag: string; json: string; gz?: Buffer }
+const snapshotCache = new Map<string, SnapshotCacheEntry>();
+const SNAPSHOT_KEY_SKIP = new Set(["workflow-state.json"]);
+
+function snapshotKey(projectDir: string): string {
+  const parts: string[] = [];
+  for (const dir of ["knowledge", "views"]) {
+    const full = join(projectDir, dir);
+    let names: string[] = [];
+    try { names = readdirSync(full).sort(); } catch { continue; }
+    for (const name of names) {
+      if (SNAPSHOT_KEY_SKIP.has(name)) continue;
+      try {
+        const st = statSync(join(full, name));
+        if (st.isFile()) parts.push(`${dir}/${name}:${st.size}:${st.mtimeMs}`);
+      } catch { /* vanished between readdir and stat */ }
+    }
+  }
+  return parts.join("|");
+}
+
+function sendWorkspaceSnapshot(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse, projectDir: string, fresh: boolean): void {
+  let entry = fresh ? undefined : snapshotCache.get(projectDir);
+  if (!entry || entry.key !== snapshotKey(projectDir)) {
+    const service = new ProjectKnowledgeService(projectDir);
+    const json = `${JSON.stringify(service.buildWorkspaceUiSnapshot())}\n`;
+    // the key AFTER the build: building may itself write (a cut-over or seed on
+    // first open), and a key taken before that would never match again
+    entry = { key: snapshotKey(projectDir), etag: `"${createHash("sha1").update(json).digest("hex").slice(0, 20)}"`, json };
+    snapshotCache.set(projectDir, entry);
+  }
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json; charset=utf-8",
+    "Access-Control-Allow-Origin": "*",
+    // revalidate every time: the ETag answers "unchanged" without a body
+    "Cache-Control": "no-cache",
+    ETag: entry.etag,
+    Vary: "Accept-Encoding",
+  };
+  if (req.headers["if-none-match"] === entry.etag) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  if (acceptsGzip(res)) {
+    entry.gz ??= gzipSync(entry.json);
+    res.writeHead(200, { ...headers, "Content-Encoding": "gzip" });
+    res.end(entry.gz);
+    return;
+  }
+  res.writeHead(200, headers);
+  res.end(entry.json);
 }
 
 function mimeType(path: string): string {
@@ -378,9 +465,7 @@ const server = createServer((req, res) => {
       : options.projectDir;
 
     try {
-      const service = new ProjectKnowledgeService(projectDir);
-      const snapshot = service.buildWorkspaceUiSnapshot();
-      send(res, jsonResponse(200, snapshot));
+      sendWorkspaceSnapshot(req, res, projectDir, requestUrl.searchParams.get("fresh") === "1");
     } catch (error) {
       send(res, jsonResponse(500, {
         error: error instanceof Error ? error.message : String(error),
@@ -553,10 +638,12 @@ const server = createServer((req, res) => {
       } else if (verb === "overview") {
         send(res, jsonResponse(200, formatOverview(graphOverview(graph, (q("focus") ?? "all") as Focus, num("top") ?? 10)).json));
       } else if (verb === "subgraph") {
-        // 825 D1 — one aggregate, one formatter: this body IS `c64re graph subgraph --json`.
+        // 825 D1 — one aggregate, one formatter: this body IS `c64re graph subgraph --json`,
+        // so it is serialised the way that command prints it (indented), not compact like
+        // the other bodies. gzip takes the indentation back on the wire.
         const kindsArg = q("kinds");
         try {
-          send(res, jsonResponse(200, formatSubgraph(graphSubgraph(graph, {
+          send(res, asCliJson(200, formatSubgraph(graphSubgraph(graph, {
             scope: q("scope") ?? "all",
             depth: num("depth"),
             kinds: kindsArg ? kindsArg.split(",").map((k) => k.trim()).filter(Boolean) : undefined,

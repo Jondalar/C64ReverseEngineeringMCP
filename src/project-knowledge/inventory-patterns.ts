@@ -71,6 +71,13 @@ export interface ProjectInventoryPattern {
 export interface ProjectInventoryDeclaration {
   patterns: ProjectInventoryPattern[];
   intentional: string[];
+  /**
+   * Spec 885 D7 — project-relative directories no project walk descends into (the
+   * registration delta, the docs scan): a tool's own tree, a build output, a
+   * virtualenv. Unlike `intentional`, which still walks a folder and then ignores
+   * what it finds, a skipped directory is never read at all.
+   */
+  skipDirs?: string[];
   /** Set when the file exists but could not be read/parsed — reported, never swallowed. */
   error?: string;
   /**
@@ -154,8 +161,8 @@ export function readInventoryDeclaration(projectRoot: string): ProjectInventoryD
   const problems: string[] = [];
   const obj = raw as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
-    if (key !== "patterns" && key !== "intentional") {
-      problems.push(`${INVENTORY_PATTERNS_FILE}: unknown top-level key "${key}" — only "patterns" and "intentional" are read.`);
+    if (key !== "patterns" && key !== "intentional" && key !== "skipDirs") {
+      problems.push(`${INVENTORY_PATTERNS_FILE}: unknown top-level key "${key}" — only "patterns", "intentional" and "skipDirs" are read.`);
     }
   }
 
@@ -229,7 +236,40 @@ export function readInventoryDeclaration(projectRoot: string): ProjectInventoryD
     }
   }
 
-  return { patterns, intentional, problems };
+  const skipDirs: string[] = [];
+  if (obj.skipDirs !== undefined) {
+    if (!Array.isArray(obj.skipDirs)) {
+      problems.push(`${INVENTORY_PATTERNS_FILE}: "skipDirs" must be an array of project-relative directories; found ${typeof obj.skipDirs}.`);
+    } else {
+      obj.skipDirs.forEach((d, i) => {
+        const norm = typeof d === "string" ? normalizeSkipDir(d) : "";
+        if (norm === "") {
+          problems.push(`${INVENTORY_PATTERNS_FILE}: skipDirs[${i}] must be a non-empty project-relative directory (e.g. "work" or "build/out"); it was NOT applied.`);
+          return;
+        }
+        skipDirs.push(norm);
+      });
+    }
+  }
+
+  return { patterns, intentional, problems, ...(skipDirs.length > 0 ? { skipDirs } : {}) };
+}
+
+/** "./work/", "work\\tmp" -> "work", "work/tmp": forward slashes, no leading ./ or trailing /. */
+function normalizeSkipDir(dir: string): string {
+  return dir.trim().replace(/\\/gu, "/").replace(/^(\.\/)+/u, "").replace(/\/+$/u, "");
+}
+
+/**
+ * Spec 885 D7 — the project's skipDirs as a predicate over a project-relative path
+ * (forward or back slashes). A directory is skipped when it IS a listed one; its
+ * contents go with it because the walk never enters it.
+ */
+export function projectSkipDirs(projectRoot: string): (relPath: string) => boolean {
+  const list = readInventoryDeclaration(projectRoot).skipDirs ?? [];
+  if (list.length === 0) return () => false;
+  const set = new Set(list.map((d) => d.toLowerCase()));
+  return (relPath: string) => set.has(normalizeSkipDir(relPath).toLowerCase());
 }
 
 // ─────────────────────────────────────────────────────────── suggesting a declaration

@@ -1218,6 +1218,22 @@ export class KnowledgeRecords {
     }, { entities: 0, findings: 0, relations: 0, openQuestions: 0 });
   }
 
+  /**
+   * Spec 885 D2 — how many findings `listFindings()` would return with an
+   * `addressRange`, counted in SQL instead of projecting every row. Same rule as
+   * the projection: an annotation finding needs `address_range.start` in its attrs;
+   * a claim is grounded by its node, else by its newest evidence row's range.
+   */
+  groundedFindingCount(): number {
+    return this.read((s) => {
+      const q = (sql: string) => Number((s.db.prepare(sql).get() as { n: number }).n);
+      return q("SELECT COUNT(*) AS n FROM annotations WHERE kind LIKE 'finding:%' AND json_type(attrs, '$.address_range.start') IN ('integer','real')")
+        + q(`SELECT COUNT(*) AS n FROM claims c WHERE EXISTS (SELECT 1 FROM nodes n WHERE n.id = c.node_id)
+             OR json_type((SELECT e.attrs FROM evidence e WHERE e.target_table = 'claims' AND e.target_key = c.node_id || '|' || c.claim
+                           ORDER BY e.captured_at DESC, e.legacy_id LIMIT 1), '$.address_range.start') IN ('integer','real')`);
+    }, 0);
+  }
+
   /** Artifact ids renamed by dedupeArtifactRegistry: evidence rows and the attrs / evidence JSON that name them. */
   remapArtifactIds(idRemap: Map<string, string>): { entities: number; findings: number; relations: number; openQuestions: number } {
     const counts = { entities: 0, findings: 0, relations: 0, openQuestions: 0 };

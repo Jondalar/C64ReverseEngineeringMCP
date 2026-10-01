@@ -5,8 +5,9 @@
 // agent can call it without holding a foreground process; `restart` is a single
 // self-contained kill+start.
 //
-// `npm run workspace` runs `build:mcp` on every start, so start/restart always
-// rebuild the BACKEND (picks up runtime/palette changes). The FRONTEND bundle
+// `npm run workspace` rebuilds the BACKEND on start when src/ changed since the
+// last build (scripts/build-if-stale.mjs, Spec 885 D6 - picks up runtime/palette
+// changes without paying tsc on every start). The FRONTEND bundle
 // (ui/dist) is rebuilt only by the explicit `build-ui` command.
 //
 // BOTH sets are written on every platform, on purpose: a project folder travels
@@ -296,9 +297,15 @@ function Build-Backend-Unused {` : ``}  $repo = Get-Repo
     if (Test-Path $server) { Write-Warning '[ui.ps1] npm not on PATH - starting the build already in dist\\'; return }
     throw '[ui.ps1] npm not on PATH and dist\\workspace-ui\\server.js is missing. Install Node.js 22+ and run "npm install; npm run build" in the repo once.'
   }
-  Write-Ui 'building backend (npm run build:mcp) ...'
+  # Spec 885 D6 - compile only when src\\ changed since the last build (~11 s saved
+  # on every start of an unchanged checkout). -NoBuild skips even the check.
+  $node = Get-Command 'node.exe' -ErrorAction SilentlyContinue
+  $stale = Join-Path $repo 'scripts\\build-if-stale.mjs'
   Push-Location $repo
-  try { & $npm.Source 'run' 'build:mcp' } finally { Pop-Location }
+  try {
+    if ($node -and (Test-Path $stale)) { & $node.Source $stale }
+    else { Write-Ui 'building backend (npm run build:mcp) ...'; & $npm.Source 'run' 'build:mcp' }
+  } finally { Pop-Location }
   if ($LASTEXITCODE -ne 0) { throw ('[ui.ps1] backend build failed (exit ' + $LASTEXITCODE + ')') }
 }
 
