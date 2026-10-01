@@ -104,6 +104,11 @@ function parseArgs(argv: string[]): ServerOptions {
   return options;
 }
 
+/** A body that must equal a `c64re … --json` command's output byte for byte (825 D1). */
+function asCliJson(status: number, payload: unknown): ServerReply {
+  return { ...jsonResponse(status, payload), body: `${JSON.stringify(payload, null, 2)}\n` };
+}
+
 function jsonResponse(status: number, payload: unknown): ServerReply {
   return {
     status,
@@ -633,10 +638,12 @@ const server = createServer((req, res) => {
       } else if (verb === "overview") {
         send(res, jsonResponse(200, formatOverview(graphOverview(graph, (q("focus") ?? "all") as Focus, num("top") ?? 10)).json));
       } else if (verb === "subgraph") {
-        // 825 D1 — one aggregate, one formatter: this body IS `c64re graph subgraph --json`.
+        // 825 D1 — one aggregate, one formatter: this body IS `c64re graph subgraph --json`,
+        // so it is serialised the way that command prints it (indented), not compact like
+        // the other bodies. gzip takes the indentation back on the wire.
         const kindsArg = q("kinds");
         try {
-          send(res, jsonResponse(200, formatSubgraph(graphSubgraph(graph, {
+          send(res, asCliJson(200, formatSubgraph(graphSubgraph(graph, {
             scope: q("scope") ?? "all",
             depth: num("depth"),
             kinds: kindsArg ? kindsArg.split(",").map((k) => k.trim()).filter(Boolean) : undefined,
