@@ -43,7 +43,7 @@ import {
   type ArtifactLookup,
   type TieResolutionRule,
 } from "./artifact-versions.js";
-import { deriveSubstratePosture } from "./types.js";
+import { deriveSubstratePosture, WorkflowStateSchema } from "./types.js";
 import { generatedFrontmatter } from "../docs/register.js";
 import { isPayloadEntity } from "./payload-kinds.js";
 import type {
@@ -4757,7 +4757,7 @@ export class ProjectKnowledgeService {
     const bundle = this.loadBundle();
     const views = this.composeViews(bundle);
     const workflowPlan = this.storage.loadWorkflowPlan();
-    const workflowState = this.syncWorkflowState(workflowPlan);
+    const workflowState = this.syncWorkflowState(workflowPlan, bundle);
     // Discovery→RE content gate: hold the lifecycle in Discovery until every
     // data-bearing block on every medium is claimed (uniform block-coverage
     // over the substrate — no disk/cart branch here). Spec 773 §Discovery.
@@ -4842,9 +4842,37 @@ export class ProjectKnowledgeService {
     };
   }
 
-  private syncWorkflowState(plan: WorkflowPlan): WorkflowState {
-    const bundle = this.loadBundle();
-    const artifacts = bundle.artifacts;
+  /**
+   * Spec 885 D2 — what the phase gates read, as counts. The record projections
+   * (`listEntities` / `listFindings`, seconds on a big graph) are not needed to
+   * count: the graph answers in SQL, and a caller that already holds a bundle
+   * passes it so nothing is read twice.
+   */
+  private workflowSignals(bundle?: ReturnType<ProjectKnowledgeService["loadBundle"]>): WorkflowSignals {
+    if (bundle) {
+      return {
+        artifacts: bundle.artifacts,
+        entities: bundle.entities.length,
+        relations: bundle.relations.length,
+        flows: bundle.flows.length,
+        findings: bundle.findings.length,
+        groundedFindings: bundle.findings.filter((f) => Boolean(f.addressRange)).length,
+      };
+    }
+    const counts = this.records.counts();
+    return {
+      artifacts: this.storage.loadArtifacts().items,
+      entities: counts.entities,
+      relations: counts.relations,
+      flows: this.storage.loadFlows().items.length,
+      findings: counts.findings,
+      groundedFindings: this.records.groundedFindingCount(),
+    };
+  }
+
+  private syncWorkflowState(plan: WorkflowPlan, bundle?: ReturnType<ProjectKnowledgeService["loadBundle"]>): WorkflowState {
+    const signals = this.workflowSignals(bundle);
+    const artifacts = signals.artifacts;
     const artifactRoles = new Set(artifacts.map((artifact) => artifact.role).filter((role): role is string => Boolean(role)));
     const viewFiles = [
       this.storage.paths.viewProjectDashboard,
@@ -4884,9 +4912,9 @@ export class ProjectKnowledgeService {
           summary = completed ? "Deterministic manifests/reports exist." : "No deterministic analysis/manifests have been recorded yet.";
           break;
         case "structural-enrichment":
-          progressSignals = bundle.entities.length + bundle.relations.length + bundle.flows.length;
-          completed = bundle.entities.length > 0 || bundle.relations.length > 0;
-          summary = completed ? `${bundle.entities.length} entities and ${bundle.relations.length} relations are persisted.` : "No structural entities/relations persisted yet.";
+          progressSignals = signals.entities + signals.relations + signals.flows;
+          completed = signals.entities > 0 || signals.relations > 0;
+          summary = completed ? `${signals.entities} entities and ${signals.relations} relations are persisted.` : "No structural entities/relations persisted yet.";
           break;
         case "semantic-enrichment": {
           // NOT count-of-any-record. "semantic-enrichment" = actual interpretation
@@ -4894,23 +4922,21 @@ export class ProjectKnowledgeService {
           // addressRange. Kickoff/meta prose (no address), open questions (the
           // opposite of done), and format/medium observations (evidence but no code
           // address — those belong to Discovery) do NOT complete it.
-          const semanticFindings = bundle.findings.filter((f) => Boolean(f.addressRange));
-          progressSignals = semanticFindings.length;
-          completed = semanticFindings.length > 0;
+          progressSignals = signals.groundedFindings;
+          completed = signals.groundedFindings > 0;
           summary = completed
-            ? `${semanticFindings.length} address-grounded semantic findings (of ${bundle.findings.length} total).`
-            : bundle.findings.length > 0
-              ? `${bundle.findings.length} findings exist but none are grounded to a code/data address — no semantic classification done yet.`
+            ? `${signals.groundedFindings} address-grounded semantic findings (of ${signals.findings} total).`
+            : signals.findings > 0
+              ? `${signals.findings} findings exist but none are grounded to a code/data address — no semantic classification done yet.`
               : "No semantic findings saved yet.";
           break;
         }
         case "semantic-feedback-refinement": {
           // Same gate: refinement needs address-grounded semantic findings, not any record.
-          const semanticFindings = bundle.findings.filter((f) => Boolean(f.addressRange));
-          progressSignals = semanticFindings.length + bundle.relations.length + bundle.flows.length + artifacts.filter((artifact) =>
+          progressSignals = signals.groundedFindings + signals.relations + signals.flows + artifacts.filter((artifact) =>
             ["semantic-annotations", "refined-analysis-json", "payload-link-map"].includes(artifact.role ?? ""),
           ).length;
-          completed = semanticFindings.length > 0 && (bundle.relations.length > 0 || bundle.flows.length > 0);
+          completed = signals.groundedFindings > 0 && (signals.relations > 0 || signals.flows > 0);
           summary = completed
             ? "Grounded semantic feedback has strengthened structure/relationships beyond the first heuristic cut."
             : "No grounded semantically-driven refinement pass has been captured yet.";
@@ -4978,6 +5004,22 @@ export class ProjectKnowledgeService {
       summary,
       phases: phaseStates,
     };
+    // Spec 885 D1 — a read is not a change. This runs on every status / onboard /
+    // snapshot; rewriting the file each time only to move its timestamps changed
+    // workflow-state.json's mtime, which is part of the project-audit fingerprint,
+    // so the audit cache never hit. Unchanged phases keep their timestamps.
+    let previous: WorkflowState | undefined;
+    try { previous = existsSync(this.storage.paths.knowledgeWorkflowState) ? this.storage.loadWorkflowState() : undefined; } catch { previous = undefined; }
+    if (previous) {
+      const before = new Map(previous.phases.map((p) => [p.phaseId, p]));
+      const strip = (p: WorkflowPhaseState) => stableJson({ ...p, lastUpdatedAt: undefined });
+      for (const p of state.phases) {
+        const old = before.get(p.phaseId);
+        if (old && strip(old) === strip(p)) p.lastUpdatedAt = old.lastUpdatedAt;
+      }
+      const same = stableJson({ ...previous, updatedAt: undefined }) === stableJson({ ...WorkflowStateSchema.parse(state), updatedAt: undefined });
+      if (same) return previous;
+    }
     return this.storage.saveWorkflowState(state);
   }
 
@@ -5033,4 +5075,21 @@ export class ProjectKnowledgeService {
       });
     }
   }
+}
+
+/** Spec 885 D2 — the counts the workflow phase gates read. */
+interface WorkflowSignals {
+  artifacts: ArtifactRecord[];
+  entities: number;
+  relations: number;
+  flows: number;
+  findings: number;
+  groundedFindings: number;
+}
+
+/** JSON with object keys sorted and undefined members dropped — for comparing two records. */
+function stableJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) => (v && typeof v === "object" && !Array.isArray(v)
+    ? Object.fromEntries(Object.entries(v as Record<string, unknown>).filter(([, x]) => x !== undefined).sort(([a], [b]) => a.localeCompare(b)))
+    : v));
 }

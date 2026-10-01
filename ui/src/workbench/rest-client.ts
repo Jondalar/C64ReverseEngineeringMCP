@@ -78,6 +78,33 @@ async function getJson<T>(path: string): Promise<T> {
   return body as T;
 }
 
+/**
+ * Spec 885 D5 — the workspace snapshot is large (tens of MB on a big project) and
+ * several tabs want it. One request at a time; the last one is kept with its ETag,
+ * and a later call asks the server "changed since?" — an unchanged snapshot comes
+ * back as 304 with no body, so it is neither sent nor parsed again.
+ */
+let workspaceLast: { etag: string; value: unknown } | undefined;
+let workspaceInFlight: Promise<unknown> | undefined;
+function getWorkspaceSnapshot<T>(): Promise<T> {
+  workspaceInFlight ??= (async () => {
+    try {
+      const headers: Record<string, string> = { accept: "application/json" };
+      if (workspaceLast) headers["if-none-match"] = workspaceLast.etag;
+      const res = await fetch("/api/workspace", { headers, cache: "no-store" });
+      if (res.status === 304 && workspaceLast) return workspaceLast.value;
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { error?: string }).error || `HTTP ${res.status} /api/workspace`);
+      const etag = res.headers.get("etag");
+      workspaceLast = etag ? { etag, value: body } : undefined;
+      return body;
+    } finally {
+      workspaceInFlight = undefined;
+    }
+  })();
+  return workspaceInFlight as Promise<T>;
+}
+
 async function postJson<T>(path: string, payload: unknown): Promise<T> {
   const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   const body = await res.json().catch(() => ({}));
@@ -127,7 +154,7 @@ export const api = {
   config: () => getJson<ProjectConfig>("/api/config"),
   dumpTarget: (label: string) => getJson<DumpTarget>(`/api/runtime/dump-target?label=${encodeURIComponent(label)}`),
   runtimeStatus: () => getJson<RuntimeStatus>("/api/runtime-status"),
-  workspace: () => getJson<WorkspaceSnapshot>("/api/workspace"),
+  workspace: () => getWorkspaceSnapshot<WorkspaceSnapshot>(),
   docs: () => getJson<{ projectDir: string; docs: DocEntry[] }>("/api/docs"),
   document: async (relativePath: string): Promise<string> => {
     const res = await fetch(`/api/document?path=${encodeURIComponent(relativePath)}`);

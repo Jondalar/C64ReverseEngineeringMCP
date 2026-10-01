@@ -13,6 +13,7 @@
 import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { join, relative, basename } from "node:path";
 import { parseFrontmatter, type Frontmatter } from "./frontmatter.js";
+import { projectSkipDirs } from "../project-knowledge/inventory-patterns.js";
 
 const SKIP_DIRS = new Set([".git", "node_modules", ".claude", ".cache", "_archive", "dist", "build"]);
 
@@ -61,7 +62,7 @@ export function scanDocs(projectDir: string): ScannedDoc[] {
  */
 export function listDocFiles(projectDir: string): string[] {
   const out: string[] = [];
-  for (const dir of findDocsDirs(projectDir)) out.push(...walkMarkdown(dir));
+  for (const dir of findDocsDirs(projectDir, 0, projectSkipDirs(projectDir), projectDir)) out.push(...walkMarkdown(dir));
   return out;
 }
 
@@ -77,7 +78,7 @@ function isDirEntry(parent: string, e: Dirent): boolean | undefined {
 }
 
 /** Every `docs/` directory in the tree, at any depth. */
-export function findDocsDirs(root: string, depth = 0): string[] {
+export function findDocsDirs(root: string, depth = 0, skip: (relPath: string) => boolean = () => false, projectRoot: string = root): string[] {
   if (depth > 5 || !existsSync(root)) return [];
   const found: string[] = [];
   let entries: Dirent[];
@@ -86,8 +87,9 @@ export function findDocsDirs(root: string, depth = 0): string[] {
     if (SKIP_DIRS.has(e.name) || e.name.startsWith(".")) continue;
     if (!isDirEntry(root, e)) continue;
     const p = join(root, e.name);
+    if (skip(relative(projectRoot, p))) continue;
     if (e.name === "docs") found.push(p);
-    else found.push(...findDocsDirs(p, depth + 1));
+    else found.push(...findDocsDirs(p, depth + 1, skip, projectRoot));
   }
   return found;
 }
