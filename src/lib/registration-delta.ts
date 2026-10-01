@@ -143,6 +143,15 @@ interface ArtifactsJson {
   items?: Array<{ relativePath?: string; path?: string }>;
 }
 
+/**
+ * A project-relative path in one spelling: forward slashes. `relativePath` is
+ * stored with `/`, but `path.relative()` answers with `\` on Windows, so without
+ * this every registered file there was counted as unregistered.
+ */
+function slashPath(rel: string): string {
+  return rel.replace(/\\/g, "/");
+}
+
 function loadRegisteredPaths(projectRoot: string): Set<string> {
   const path = resolve(projectRoot, "knowledge", "artifacts.json");
   if (!existsSync(path)) return new Set();
@@ -150,8 +159,8 @@ function loadRegisteredPaths(projectRoot: string): Set<string> {
     const data = JSON.parse(readFileSync(path, "utf8")) as ArtifactsJson;
     const set = new Set<string>();
     for (const item of data.items ?? []) {
-      if (item.relativePath) set.add(item.relativePath);
-      else if (item.path) set.add(relative(projectRoot, item.path));
+      if (item.relativePath) set.add(slashPath(item.relativePath));
+      else if (item.path) set.add(slashPath(relative(projectRoot, item.path)));
     }
     return set;
   } catch {
@@ -203,7 +212,7 @@ function walk(dir: string, sink: WalkSink): { total: number; alreadyRegistered: 
     const ext = entry.name.slice(dot).toLowerCase();
     if (!KNOWN_EXTENSIONS.has(ext)) continue;
     total += 1;
-    const rel = relative(sink.projectRoot, full);
+    const rel = slashPath(relative(sink.projectRoot, full));
     if (sink.registered.has(rel)) {
       already += 1;
       continue;
