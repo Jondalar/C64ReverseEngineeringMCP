@@ -635,6 +635,12 @@ jobs:
       - name: Parallel pipeline children lose no registration (#26, #28)
         run: npm run e2e:store-concurrency
 
+      # The registration walk keyed files with relative()'s OS separator and the store with
+      # `/`, so on Windows every registered file counted as unregistered and no `analysis/**`
+      # glob matched — invisible on the Linux job, where the two spellings agree.
+      - name: Project knowledge store, on Windows
+        run: npm run test:project-knowledge
+
   # ─────────────────────────────────────────────────────────────────────────────
   # Spec 716.5 — WSL2, which turns out to be testable after all.
   #

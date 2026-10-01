@@ -143,6 +143,11 @@ interface ArtifactsJson {
   items?: Array<{ relativePath?: string; path?: string }>;
 }
 
+/** The store's spelling of a project path: `/`, on every OS. `relative()` answers with the
+ *  OS separator, and on Windows a `\\` key never meets a `/` one (#28's family: the store
+ *  is written with `/`, so a walk keyed with `\\` found every registered file missing). */
+const storeSpelling = (p: string): string => p.replace(/\\/g, "/");
+
 function loadRegisteredPaths(projectRoot: string): Set<string> {
   const path = resolve(projectRoot, "knowledge", "artifacts.json");
   if (!existsSync(path)) return new Set();
@@ -150,8 +155,8 @@ function loadRegisteredPaths(projectRoot: string): Set<string> {
     const data = JSON.parse(readFileSync(path, "utf8")) as ArtifactsJson;
     const set = new Set<string>();
     for (const item of data.items ?? []) {
-      if (item.relativePath) set.add(item.relativePath);
-      else if (item.path) set.add(relative(projectRoot, item.path));
+      if (item.relativePath) set.add(storeSpelling(item.relativePath));
+      else if (item.path) set.add(storeSpelling(relative(projectRoot, item.path)));
     }
     return set;
   } catch {
@@ -203,7 +208,7 @@ function walk(dir: string, sink: WalkSink): { total: number; alreadyRegistered: 
     const ext = entry.name.slice(dot).toLowerCase();
     if (!KNOWN_EXTENSIONS.has(ext)) continue;
     total += 1;
-    const rel = relative(sink.projectRoot, full);
+    const rel = storeSpelling(relative(sink.projectRoot, full));
     if (sink.registered.has(rel)) {
       already += 1;
       continue;
