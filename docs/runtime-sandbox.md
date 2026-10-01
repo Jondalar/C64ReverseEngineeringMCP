@@ -42,6 +42,24 @@ A `.prg` is loaded and started. One that loads at `$0801` behind a BASIC line ge
 address. The log says what happened, not what was tried: a program that is still at
 the `READY.` prompt afterwards is reported as not started, with the PC it sits at.
 
+A `Then …` entry in `steps` is a **check**, decided where it stands and reported
+PASS/FAIL with what the machine had:
+
+```
+Then $8EF2 is $01                  Then $40 is $26 $40 $26 $40 $26 $55
+Then $B0 is not $00                Then $8EF2 is one of $01, $02
+Then $8EF2@ram is $01              Then the CPU is at $0812
+Then the screen shows "READY."
+```
+
+The same checks in a `.feature` file run with no agent at all:
+`c64re scenario run scenarios/ [--json] [--jobs N]` gives one line per scenario — PASS,
+FAIL (with the line, what it wanted and what was there), UNCHECKED (its `Then` lines are
+prose so far), SKIP (starts from a mark, or asks for a capture), ERROR (the run failed) —
+and exits 1 on a FAIL, an ERROR or a line that does not parse. Each scenario gets a fresh
+machine, so a file gives the same bytes every time; media resolve beside the file, then
+in the project.
+
 <!-- deliberate-limitation: runtime_sandbox_run — it returns no session id BY DESIGN
      (Spec 836): a sandbox you could come back to would be a second shared machine,
      and there is exactly one of those. This limit is the tool's shape, not drift. -->
