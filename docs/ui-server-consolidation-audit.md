@@ -77,7 +77,7 @@ mode options (removed in 723.3) — would 400 on submit.
   explicit `--dev-samples` (default off). Remove the `start-v3-server` dead keys
   (`useMicrocodedCpu`/`drive1541`/cycle-pumped) + the `Scenarios.tsx` mode
   options.
-- **724.5** guard `scripts/probe-workspace-single.mjs`: no `process.cwd()` in
+- **724.5** guard `scripts/probe-workspace-single.mjs` (removed 2026-10-02: it grepped source text that has since moved; the behaviour is proved by `smoke:workspace-runtime` — one resolved project for HTTP and WS — and by the Spec 834 checks that a relative path with no project fails instead of using the cwd): no `process.cwd()` in
   media/project/UI-asset resolution; no `cwd/samples` silent fallback; one v3 UI
   entry (no `ui/index.html`/`ui/dist`); HTTP + WS report the same `projectDir`;
   no post-723 removed runtime key in the bootstrap; project path required.
