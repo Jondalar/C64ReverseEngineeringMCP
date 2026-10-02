@@ -1,9 +1,9 @@
 {
-  "total": 296,
+  "total": 297,
   "specCount": 41,
   "advancedCandidate": 106,
   "byNamespace": {
-    "runtime": 87,
+    "runtime": 88,
     "list": 20,
     "project": 13,
     "save": 10,
@@ -1838,6 +1838,15 @@
       "hasSpec": false,
       "firstSentence": "Set or HOLD joystick state on a session.",
       "desc": "Set or HOLD joystick state on a session. Use to drive game input. Not for keyboard (use runtime_type). Two modes. Without `hold_frames` it sets the port state and returns immediately — the machine keeps free-running in real time, so a press lasts as long as it takes you to make the next call, which is a moment you do not control. With `hold_frames` the press is FRAME-LOCKED: the tool pauses the machine, applies the state, advances exactly that many frames, releases, and restores whether the machine was running. That is the same thing runtime_scene_reel does, and it is what you want against a title that debounces its own $DC00/$DC01 poll behind a raster-frame wait — a menu that samples once per frame will step once per press instead of zero or five times at random. Reach for hold_frames FIRST for any menu or in-game input; the bare set mode is for holding a direction across several other calls on purpose. Inputs: session_id, direction/fire flags, optional port (1 or 2, default 2), optional hold_frames. Returns: applied state, and for a hold the cycle window it covered.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_keep_alive",
+      "file": "server-tools/headless.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "Keep the runtime up for a while, or for good.",
+      "desc": "Keep the runtime up for a while, or for good. The runtime C64RE starts by itself ends itself after 10 minutes with no request, no viewer on the A/V stream and no recording trace, and the next tool call then starts a FRESH machine — sessions, mounted media, checkpoints and rewind history gone. Use when you are about to step away from a machine you still need (a long think, a human checking the screen, a trace you mean to come back to): minutes holds it that long from now, forever until it is stopped. Not for a machine of your own (runtime_sandbox_run ends with its call by design) and not to keep a session from being reset (nothing resets it while it is in use). Inputs: minutes or forever. Returns: when the runtime will now end itself, or that it will not.",
       "tier": "default?"
     },
     {

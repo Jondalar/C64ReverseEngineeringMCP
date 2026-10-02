@@ -84,6 +84,12 @@ Without either, C64RE looks in this order: those two variables, a sibling `../TR
 release build, its own cache, then `trx64-daemon` on your `PATH`. A `brew install trx64` is
 therefore found without configuration.
 
+A daemon C64RE starts by itself ends itself after 10 minutes with no request, nobody
+watching its A/V stream and no trace recording; the next tool call starts a fresh one and
+says so. `C64RE_RUNTIME_IDLE_EXIT` sets the seconds (`0` = never), and the
+`runtime_keep_alive` tool holds one for longer. A daemon you start yourself, or one behind
+`C64RE_RUNTIME_ENDPOINT` that C64RE did not start, is left alone.
+
 Building it from source stays supported and needs the Rust toolchain and a C++ compiler:
 
 ```bash

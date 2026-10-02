@@ -1,8 +1,8 @@
 # Spec 886 — The auto-started runtime ends itself when nobody uses it
 
-**Status:** PROPOSED (2026-10-02)
+**Status:** BUILT (2026-10-02) — waits on the TRX64 release that carries 887, then the pin
 **Repos:** C64RE (this spec). The capability is TRX64's: **Spec 887**
-(`../TRX64/docs/887-idle-exit.md`), the TRX64 half, numbered on this board.
+(`../TRX64/docs/_archive/887-idle-exit.md`), the TRX64 half, numbered on this board.
 
 ## §1 What is wrong
 
@@ -71,3 +71,21 @@ exit.
 
 D5 green against a TRX64 that carries 887, the pin raised to it, and no auto-started
 daemon left on this machine after a day of use.
+
+## §6 As built
+
+- D1: `spawnDaemonDetached` appends `--idle-exit <C64RE_RUNTIME_IDLE_EXIT, default 600>`.
+  It is the one place that starts the shared daemon, used by the eager warm-start and the
+  lazy respawn alike. The workspace launcher's daemon is not touched.
+- The MCP's socket connects with `?av=0` (887). Otherwise the daemon subscribes it to the
+  A/V push, and a subscriber holds the clock. One open Claude window would keep the
+  machine forever, which is the problem this spec exists for. Side effect, by 887's
+  design: with only RPC clients connected, the machine advances on `session/run`, not by
+  free-running.
+- D2 `runtime_keep_alive` is on the default surface, in the onboarding playbook and in
+  the matrix. D3: `runtime_session_status` ends with the idle-exit line.
+- D4 is the notice, prepended once by `safeHandler` to the first answer after a respawn.
+- D5 `e2e:886-idle-exit` 16/16. e2e-744-4c-daemon and -autostart are deleted.
+- Regression against 887: trace-first 23, 744 slices 2a/2b/2c 2/10/13, race 11, 746
+  checkpoint 3, bug028 2, smoke-858 13, -859 11, -860 14, -863 50, 804-monitor 25,
+  e2e-836 80. All green.

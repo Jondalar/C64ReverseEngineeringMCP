@@ -1,3 +1,4 @@
+import { takeFreshRuntimeNotice } from "../runtime/idle-exit.js";
 interface SafeHandlerError {
   toolName: string;
   projectRoot?: string;
@@ -45,11 +46,17 @@ export function safeHandler<TArgs, TResult extends { content: unknown[] }>(
   handler: (args: TArgs, extra?: unknown) => Promise<TResult>,
 ): (args: TArgs, extra?: unknown) => Promise<TResult | ToolTextResult> {
   return async (args: TArgs, extra?: unknown) => {
+    let result: TResult | ToolTextResult;
     try {
-      return await handler(args, extra);
+      result = await handler(args, extra);
     } catch (error) {
       process.stderr.write(`[c64-re mcp] tool '${toolName}' failed: ${error instanceof Error ? error.message : String(error)}\n`);
-      return renderErrorEnvelope(toolName, error);
+      result = renderErrorEnvelope(toolName, error);
     }
+    // Spec 886 D4 — when this call had to start a fresh runtime because the old one ended
+    // itself, the answer says so first: whatever it reports is a new machine's.
+    const notice = takeFreshRuntimeNotice();
+    if (notice) result = { ...result, content: [{ type: "text", text: notice }, ...(result.content as unknown[])] } as TResult;
+    return result;
   };
 }

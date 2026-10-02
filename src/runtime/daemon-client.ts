@@ -18,6 +18,7 @@ import { resolve as resolvePath, dirname } from "node:path";
 import { resolveDaemonSpawn } from "./resolve-daemon-spawn.js";
 import { EXPECTED_RUNTIME_PROTOCOL, parseRuntimeProtocol, runtimeSetupRecipe } from "./setup-recipe.js";
 import type { MachineIdentity } from "./machine-model.js";
+import { idleExitSeconds, noteFreshRuntime, type IdleExitStatus } from "./idle-exit.js";
 
 /** Spec 863 — the identity fields a state reply carries (read them with `machineIdentity`). */
 type MachineIdentityFields = MachineIdentity;
@@ -39,6 +40,16 @@ export function runtimeEndpoint(): string {
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** Try one WS connection (resolves the socket or rejects with the ws error). */
+/**
+ * This client's socket speaks RPC only. Without `?av=0` the daemon pushes it every frame
+ * and the audio it will never read, and counts it as a viewer — which holds the idle
+ * clock (TRX64 887) for as long as the MCP lives, so an open Claude window kept a
+ * machine up forever. A daemon that does not know the parameter ignores it.
+ */
+function rpcOnly(endpoint: string): string {
+  return endpoint + (endpoint.includes("?") ? "&" : "?") + "av=0";
+}
+
 function tryOpen(endpoint: string, timeoutMs = 2500): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(endpoint);
@@ -128,14 +139,17 @@ function spawnDaemonDetached(endpoint: string, projectDirArg?: string): boolean 
   // Repo root from this module: <repo>/{src|dist}/server-tools/runtime-daemon-client.{ts|js}
   const here = fileURLToPath(import.meta.url);
   const repo = resolvePath(dirname(here), "..", "..");
-  // Spec 771.1 — ONE resolver picks the backend: explicit C64RE_RUNTIME_BIN > the TRX64
-  // sibling daemon (the DEFAULT) > built TS dist > tsx fallback. C64RE_RUNTIME_TS=1
-  // forces the TS oracle.
+  // Spec 771.1 — ONE resolver picks the binary (C64RE_RUNTIME_BIN, the install cache,
+  // PATH, the sibling build); Spec 806 left no second backend to fall back to.
   const plan = resolveDaemonSpawn({ repoRoot: repo, projectDir, port });
   if (plan.mode === "none") return false;
   if (plan.warn) console.error(`[c64-re mcp] WARNING: ${plan.warn}`);
+  // Spec 886 — detached, so it survives a reconnect; and therefore it ends ITSELF after
+  // the idle window (TRX64 887), or nothing ever would.
+  const idle = idleExitSeconds();
+  const args = idle > 0 ? [...plan.args, "--idle-exit", String(idle)] : plan.args;
   try {
-    const child = spawn(plan.cmd, plan.args, {
+    const child = spawn(plan.cmd, args, {
       cwd: repo, detached: true, stdio: "ignore",
       env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_DAEMON_PORT: port },
     });
@@ -195,6 +209,8 @@ class RuntimeDaemonClient {
   setProjectDir(dir: string | undefined): void { if (dir) this.projectDir = dir; }
 
   private protocolOk = false;
+  /** Spec 886 D4 — whether this process has had a daemon, so a later spawn is a RE-spawn. */
+  private everConnected = false;
   /** Product build reported by the connected daemon (see handshakeProtocol). */
   private runtimeBuild: string | undefined;
 
@@ -212,7 +228,7 @@ class RuntimeDaemonClient {
     const health = await probeLiveness(endpoint);
     if (health === "healthy") {
       let ws: WebSocket | null = null;
-      try { ws = this.wire(await tryOpen(endpoint)); } catch { /* fall through to respawn */ }
+      try { ws = this.wire(await tryOpen(rpcOnly(endpoint))); } catch { /* fall through to respawn */ }
       if (ws) { await this.handshakeProtocol(); return ws; }
     } else if (health === "stall") {
       console.error(`[c64-re mcp] runtime daemon at ${endpoint} is STALLED — killing it + respawning.`);
@@ -221,12 +237,21 @@ class RuntimeDaemonClient {
     }
     // 2) auto-start the daemon (detached, outlives this MCP) then poll for it.
     const spawned = spawnDaemonDetached(endpoint, this.projectDir);
+    // Spec 886 D4 — this process had a machine and it is gone: the daemon ended itself
+    // when idle (or was stopped). Say so in the next answer; its state does not come back.
+    if (spawned && this.everConnected) {
+      noteFreshRuntime(
+        "NOTE: the runtime had ended — it ends itself after being idle — so this call started a fresh " +
+          "machine. Its sessions, mounted media, checkpoints and rewind history are gone; mount and load " +
+          "again. runtime_keep_alive keeps a runtime that has to stay up.",
+      );
+    }
     const deadlineMs = spawned ? 40_000 : 4_000; // booting the default session takes a few s
     const start = Date.now();
     while (Date.now() - start < deadlineMs) {
       await sleep(400);
       let ws: WebSocket | null = null;
-      try { ws = this.wire(await tryOpen(endpoint)); } catch { /* keep polling */ }
+      try { ws = this.wire(await tryOpen(rpcOnly(endpoint))); } catch { /* keep polling */ }
       if (ws) { await this.handshakeProtocol(); return ws; }
     }
     throw new Error(runtimeSetupRecipe(
@@ -266,6 +291,7 @@ class RuntimeDaemonClient {
     ws.on("close", () => { this.ws = null; this.protocolOk = false; this.failAll(new Error("runtime daemon connection closed")); });
     ws.on("error", () => { /* surfaced per-call via timeouts / failAll */ });
     this.ws = ws;
+    this.everConnected = true;
     return ws;
   }
 
@@ -307,7 +333,11 @@ class RuntimeDaemonClient {
     return this.call<{ sessionId: string; mode: string; diskPath: string; c64Cycles: number; pc: number; trace: unknown; attached?: boolean } & Partial<MachineIdentityFields>>("session/create", p);
   }
   listSessions() { return this.call<Array<{ sessionId: string; mode: string; diskPath: string; c64Cycles: number }>>("session/list"); }
-  state(sessionId: string) { return this.call<{ c64Cycles: number; mode: string; runState?: string; controlOwner?: string; streamPump?: boolean; cpu: { pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number } } & Partial<MachineIdentityFields>>("session/state", { session_id: sessionId }); }
+  /** Spec 886 / TRX64 887 — hold the daemon N s from now; null = never end on idle. */
+  keepAlive(seconds: number | null) {
+    return this.call<IdleExitStatus & { armed: boolean }>("daemon/keep_alive", { seconds });
+  }
+  state(sessionId: string) { return this.call<{ c64Cycles: number; idleExit?: IdleExitStatus; mode: string; runState?: string; controlOwner?: string; streamPump?: boolean; cpu: { pc: number; a: number; x: number; y: number; sp: number; flags: number; cycles: number } } & Partial<MachineIdentityFields>>("session/state", { session_id: sessionId }); }
   /** Spec 863 — every model the runtime knows, runnable or not (with what it lacks). */
   models() { return this.call<{ models: Array<Record<string, unknown> & { name: string }>; current: string }>("session/models"); }
   /** Spec 863 — switch the running machine to another model at the next frame boundary

@@ -7,6 +7,7 @@ import { z } from "zod";
 // with the in-process branches below.
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
+import { describeIdleExit } from "../runtime/idle-exit.js";
 
 // BUG-052 — how long a loader-lens fold may block the tool call before it becomes
 // a background job. Well under the host's ~180 s stall limit; a normal capture
@@ -583,9 +584,33 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         projectLine,
         `Drive 8: ${render(drive, "unavailable")}`,
         `Cartridge: ${render(cart, "none inserted")}`,
+        // Spec 886 D3 — when the runtime will end itself, so nothing is lost by surprise.
+        describeIdleExit(st.idleExit),
       ].join("\n") }] };
     },
 ));
+
+  // Spec 886 D2 — the runtime the MCP starts ends itself after a quiet spell (TRX64 887),
+  // and the next call starts a fresh machine. Work that must not lose its machine says so.
+  server.tool(
+    "runtime_keep_alive",
+    "Keep the runtime up for a while, or for good. The runtime C64RE starts by itself ends itself after 10 minutes with no request, no viewer on the A/V stream and no recording trace, and the next tool call then starts a FRESH machine — sessions, mounted media, checkpoints and rewind history gone. Use when you are about to step away from a machine you still need (a long think, a human checking the screen, a trace you mean to come back to): minutes holds it that long from now, forever until it is stopped. Not for a machine of your own (runtime_sandbox_run ends with its call by design) and not to keep a session from being reset (nothing resets it while it is in use). Inputs: minutes or forever. Returns: when the runtime will now end itself, or that it will not.",
+    {
+      minutes: z.number().positive().max(24 * 60).optional().describe("Hold the runtime at least this long from now."),
+      forever: z.boolean().optional().describe("Never end on idle; it runs until stopped. A later `minutes` replaces it."),
+    },
+    safeHandler("runtime_keep_alive", async ({ minutes, forever }) => {
+      if ((minutes === undefined) === (forever !== true)) {
+        return { content: [{ type: "text" as const, text: "runtime_keep_alive: give minutes (how long from now) or forever: true — one of them." }] };
+      }
+      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const r = await runtimeDaemon.keepAlive(forever ? null : Math.ceil(minutes! * 60));
+      const status = r.armed
+        ? describeIdleExit(r)
+        : "Idle exit: none — this runtime was started by hand and runs until it is stopped; there was nothing to hold.";
+      return { content: [{ type: "text" as const, text: status }] };
+    }),
+  );
 
   server.tool(
     "runtime_session_close",
