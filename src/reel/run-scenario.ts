@@ -22,6 +22,7 @@ import {
   describeMachine, machineIdentity, scenarioModelRefusal, type MachineIdentity, type ModelRow,
 } from "../runtime/machine-model.js";
 import { SandboxSession, type SandboxOptions } from "./sandbox-session.js";
+import { openFittingDrive, setDriveBoard, type DriveBoard } from "./drive-board.js";
 import type { Frame } from "./gif89a.js";
 import type { JournalEntry } from "./record-scenario.js";
 
@@ -119,6 +120,8 @@ export interface RunOptions extends SandboxOptions {
    *  replay's own record of the cycle every input landed on, to hold against the
    *  recording's. */
   journal?: boolean;
+  /** #33 — drive 8's board from the start. Omitted: a 1541, unless the medium asks for another. */
+  driveType?: DriveBoard;
 }
 
 /**
@@ -234,6 +237,11 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
     await readMachine();
     await refuseOtherModel();
     log.push(`machine: ${describeMachine(machine!)}`);
+    const call = box.call.bind(box) as Parameters<typeof setDriveBoard>[0];
+    if (opts.driveType && opts.driveType !== "1541") {
+      await setDriveBoard(call, opts.driveType);
+      log.push(`drive 8 is a ${opts.driveType}, as asked`);
+    }
 
     if (scenario.origin.kind === "medium") {
       const path = opts.resolveMedium
@@ -245,7 +253,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
         await box.call("snapshot/undump", { path });
         log.push(`undumped ${path}`);
       } else {
-        await box.call("media/mount", { path });
+        await openFittingDrive(call, () => box.call("media/mount", { path }), log);
         log.push(`mounted ${path}`);
       }
     } else if (scenario.origin.kind === "mark") {
@@ -352,7 +360,7 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
           const path = opts.resolveMedium ? opts.resolveMedium(step.path, "insert") : step.path;
           await box.call("media/unmount", { slot: 8 });
           await runCycles(F * 30);
-          await box.call("media/mount", { path });
+          await openFittingDrive(call, () => box.call("media/mount", { path }), log);
           // A mount can flip the controller to running; this front owns the clock.
           await box.call("debug/pause", { source: "reel" });
           await readMachine();

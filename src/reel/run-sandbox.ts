@@ -38,6 +38,7 @@ import {
 } from "../project-knowledge/region.js";
 import { describeMachine, machineIdentity, type MachineIdentity } from "../runtime/machine-model.js";
 import { SandboxSession, type SandboxOptions } from "./sandbox-session.js";
+import { openFittingDrive, setDriveBoard, type DriveBoard } from "./drive-board.js";
 
 // A bounded run is split a frame at a time so a JAM still stops where it happens. How
 // long a frame is comes from the machine (Spec 863): 19 656 cycles PAL, 17 095 NTSC.
@@ -79,6 +80,8 @@ export interface SandboxRunOptions extends SandboxOptions {
   mediaPath?: string;
   /** A PRG's entry: start there after the load instead of typing RUN. */
   run?: number;
+  /** #33 — drive 8's board from the start. Omitted: a 1541, unless the medium asks for another. */
+  driveType?: DriveBoard;
   /** Spec 900 — checks, each decided right after `afterSteps` steps (0: once the medium is in). */
   checks?: readonly SandboxCheck[];
   /** The schedule. Parsed by the caller so a bad line is reported before a daemon starts. */
@@ -313,6 +316,11 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     await readMachine();
     resync();
     log.push(`machine: ${describeMachine(machine!)}`);
+    const call = box.call.bind(box) as Parameters<typeof setDriveBoard>[0];
+    if (opts.driveType && opts.driveType !== "1541") {
+      await setDriveBoard(call, opts.driveType);
+      log.push(`drive 8 is a ${opts.driveType}, as asked`);
+    }
 
     const boot = await warmBoot();
     log.push(
@@ -328,9 +336,10 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
       // becomes the machine and a .prg is loaded. A sandbox that only took disks
       // would send the cartridge case straight back to the shared machine, which
       // is the defect this whole spec is about.
-      const opened = await box.call<{ message?: string; kind?: string; autostart?: boolean; run?: number | null }>(
-        "media/open", opts.run == null ? { path: opts.mediaPath } : { path: opts.mediaPath, run: opts.run },
-      );
+      const mediaPath = opts.mediaPath;
+      const opened = await openFittingDrive(call, () => box.call<{ message?: string; kind?: string; autostart?: boolean; run?: number | null }>(
+        "media/open", opts.run == null ? { path: mediaPath } : { path: mediaPath, run: opts.run },
+      ), log);
       // A runtime that knows `run` echoes it (a number, or null when none was asked for).
       // One that does not drops the parameter without a word, and the PRG would sit
       // loaded while this report claimed a start.
@@ -504,7 +513,7 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
           const path = opts.resolveMedium ? opts.resolveMedium(step.path) : step.path;
           await box.call("media/unmount", { slot: 8 });
           await runCycles(F * 30);
-          await box.call("media/open", { path });
+          await openFittingDrive(call, () => box.call("media/open", { path }), log);
           await box.call("debug/pause", { source: "sandbox" });
           await readMachine();
           resync();

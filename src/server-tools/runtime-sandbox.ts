@@ -58,8 +58,12 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
         .string()
         .optional()
         .describe(
-          "The medium for YOUR machine — .crt / .d64 / .g64 / .d81 / .prg / .c64re, identified by CONTENT not by extension. A cartridge is inserted, a disk mounted, a snapshot REPLACES the machine, a PRG is loaded (and RUN: typed when it loads at $0801 behind a valid BASIC line, or started at `run`). Absolute, or relative to the project dir. Omit it for a bare C64 at the BASIC prompt.",
+          "The medium for YOUR machine — .crt / .d64 / .g64 / .d81 / .prg / .c64re, identified by CONTENT not by extension. A cartridge is inserted, a disk mounted (a .d81 into a 1581 — drive 8 is fitted with one), a snapshot REPLACES the machine, a PRG is loaded (and RUN: typed when it loads at $0801 behind a valid BASIC line, or started at `run`). Absolute, or relative to the project dir. Omit it for a bare C64 at the BASIC prompt.",
         ),
+      drive_type: z
+        .enum(["1541", "1581"])
+        .optional()
+        .describe("Drive 8's board: \"1541\" or \"1581\". Omitted: a 1541 — and a medium that only fits the other one (a .d81) gets that one by itself, the runtime naming it. Set it when no medium says: an empty drive, or a D81 inserted by a later step."),
       run: z
         .string()
         .optional()
@@ -116,7 +120,7 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
         ),
     },
     safeHandler("runtime_sandbox_run", async (args) => {
-      const { media_path, run, steps, run_frames, read_memory, screen, frame_path, budget_seconds, project_dir, model } = args;
+      const { media_path, run, drive_type, steps, run_frames, read_memory, screen, frame_path, budget_seconds, project_dir, model } = args;
 
       // The hint order is by what each path IS: `media_path` is an INPUT that must
       // already exist, `frame_path` an OUTPUT whose directory may not exist yet.
@@ -212,6 +216,7 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
           model: chosenModel,
           mediaPath: absMedia,
           run: runEntry,
+          driveType: drive_type,
           steps: parsedSteps,
           checks,
           reads,

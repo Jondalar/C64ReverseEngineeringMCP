@@ -37,6 +37,12 @@ memory you asked for as a hex dump. The steps are the capture-scenario notation,
 per line; every step that lasts carries its own duration and the machine is stopped
 between steps, so **the same list replays to the same bytes**.
 
+Drive 8 starts as a 1541. A medium that only fits a 1581 — a `.d81` — gets one: the
+runtime names the board it needs, and the sandbox switches drive 8 to it before opening
+the medium again (the same for `runtime_scene_reel`, and for a disk a step inserts).
+`"drive_type": "1581"` fits it from the start, for an empty drive or a D81 that only a
+later step inserts. A 1581 needs `dos1581-318045-02.bin` among the ROMs.
+
 A `.prg` is loaded and started. One that loads at `$0801` behind a BASIC line gets
 `RUN:` typed for it; machine code without one takes `"run": "$C000"` and starts at that
 address. The log says what happened, not what was tried: a program that is still at

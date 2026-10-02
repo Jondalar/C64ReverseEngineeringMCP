@@ -106,6 +106,10 @@ export C64RE_ROOT=/path/to/that/parent
 The daemon also looks beside its own executable, so a `roms/` directory next to
 `trx64-daemon` works without any variable at all.
 
+A 1581 (for `.d81` media) needs its DOS ROM in the same directory, as
+`dos1581-318045-02.bin` (`1581.bin` and `1581.rom` are accepted too). Without it a drive
+fitted as a 1581 runs no DOS.
+
 ---
 
 ## Configuring your harness

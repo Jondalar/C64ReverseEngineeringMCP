@@ -88,11 +88,15 @@ export function registerSceneReelTool(server: McpServer, context: ServerToolCont
         .string()
         .optional()
         .describe("Which C64 to run it on — c64-pal, c64-ntsc, c64-paln (runtime_monitor `model` lists them). Omitted: the model the scenario was recorded on (`# model:`), else the project's. A recorded scenario on another model is refused: its frames and cycles are the other machine's."),
+      drive_type: z
+        .enum(["1541", "1581"])
+        .optional()
+        .describe("Drive 8's board: \"1541\" or \"1581\". Omitted: a 1541 — and a medium that only fits the other one (a .d81) gets that one by itself, the runtime naming it. Set it when no medium says: an empty drive, or a D81 inserted by a later step."),
     },
     safeHandler("runtime_scene_reel", async (args) => {
       const {
         project_dir, feature, feature_path, scenario: wanted, out_path, media_path,
-        delay_ms, max_bytes, save_feature_to, budget_seconds, model,
+        delay_ms, max_bytes, save_feature_to, budget_seconds, model, drive_type,
       } = args;
 
       if (!feature && !feature_path) return text("runtime_scene_reel: give `feature` (the Gherkin text) or `feature_path`.");
@@ -185,6 +189,7 @@ export function registerSceneReelTool(server: McpServer, context: ServerToolCont
         run = await runScenario(chosen, {
           budgetMs: (budget_seconds ?? 600) * 1000,
           model,
+          driveType: drive_type,
           defaultModel: projectMachineModel(projectDir),
           // `media_path` names the medium the scenario STARTS from, and only
           // that one. It used to override every medium, so a mid-run
