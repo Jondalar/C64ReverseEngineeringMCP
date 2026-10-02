@@ -10,8 +10,13 @@
 //   - it spawns DETACHED, so its daemon outlives the caller — right for a session
 //     someone co-drives, wrong for a machine that exists for one command.
 //
-// Here the daemon is a CHILD on its own port, and it dies with this object, on the
-// budget, or with the process. Nothing to reap afterwards.
+// Here the daemon runs on its own port under a KEEPER — a few lines of node that are
+// this process's child and the daemon's parent. The keeper holds the budget itself and
+// watches this process: when the budget runs out, or this process is gone, the keeper
+// ends the daemon and removes its scratch. A budget kept by a timer in THIS process ended
+// nothing once the process died — a reel daemon outlived its MCP server by a day
+// (2026-10-01, parent PID 1). So the machine dies with this object, on the budget, or
+// with the process, and the last of the three no longer depends on this process.
 //
 // The machine is PAUSED for the whole run and advanced only by bounded runs. That
 // is what makes a schedule reproducible over a socket: a round trip costs wall
@@ -32,6 +37,42 @@ import { runtimeSetupRecipe } from "../runtime/setup-recipe.js";
 const SESSION_ID = "integrated-1";
 /** How long a sandbox may live before it ends itself, regardless of the caller. */
 const DEFAULT_BUDGET_MS = 10 * 60_000;
+/** The keeper waits this much past the budget, so the caller's own reaper — which can
+ *  still say WHY the run ended — normally gets there first. */
+const KEEPER_GRACE_MS = 5_000;
+
+/**
+ * The keeper (see the header), run as `node -e`. argv: a JSON of [parentPid, budgetMs,
+ * scratchDir, cmd, ...args]. It reports the daemon's pid on stdout, passes the daemon's
+ * stderr through, exits with the daemon, and forwards a SIGTERM/SIGINT. Parent gone is
+ * asked two ways: a changed ppid (POSIX reparents an orphan) and `kill(parent, 0)`
+ * failing (Windows does not reparent).
+ */
+const KEEPER = `
+const { spawn } = require("node:child_process");
+const { rmSync } = require("node:fs");
+const [parent, budget, scratch, cmd, ...args] = JSON.parse(process.argv[1]);
+const d = spawn(cmd, args, { stdio: ["ignore", "ignore", "inherit"] });
+process.stdout.write(String(d.pid) + "\\n");
+let orphaned = false;
+const parentGone = () => {
+  if (process.ppid !== parent) return true;
+  try { process.kill(parent, 0); return false; } catch { return true; }
+};
+const end = (sig) => { try { d.kill(sig); } catch {} setTimeout(() => { try { d.kill("SIGKILL"); } catch {} }, 1000).unref(); };
+d.on("exit", (code) => {
+  // Asked again here, not only by the poll: measured, the daemon could be gone before
+  // the poll had noticed the caller was, and its scratch stayed behind.
+  if ((orphaned || parentGone()) && scratch) { try { rmSync(scratch, { recursive: true, force: true }); } catch {} }
+  process.exit(code ?? 1);
+});
+d.on("error", () => process.exit(127));
+setTimeout(() => end("SIGTERM"), budget);
+setInterval(() => {
+  if (!orphaned && parentGone()) { orphaned = true; end("SIGTERM"); }
+}, 500);
+for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => end("SIGTERM"));
+`;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -72,6 +113,9 @@ export class SandboxSession {
   private reaper: NodeJS.Timeout | null = null;
   private closed = false;
   private endedBecause: string | null = null;
+  /** The daemon itself, as the keeper reported it — killed directly on close, so a
+   *  platform where killing the keeper cannot forward the signal still ends it. */
+  private daemonPid: number | null = null;
 
   private constructor(readonly port: number) {}
 
@@ -85,11 +129,20 @@ export class SandboxSession {
       throw new Error(runtimeSetupRecipe("no runtime binary available for an isolated capture run"));
     }
 
-    s.child = spawn(plan.cmd, plan.args, {
-      // A CHILD, not detached: it must not survive this command.
+    const budget = opts.budgetMs ?? DEFAULT_BUDGET_MS;
+    // The keeper is the child; the daemon is ITS child. Not detached either way: neither
+    // may survive this command, and the keeper makes sure of it when this process cannot.
+    s.child = spawn(process.execPath, [
+      "-e", KEEPER,
+      JSON.stringify([process.pid, budget + KEEPER_GRACE_MS, s.ownTmp ?? "", plan.cmd, ...plan.args]),
+    ], {
       detached: false,
-      stdio: ["ignore", "ignore", "pipe"],
+      stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, C64RE_PROJECT_DIR: projectDir, C64RE_RUNTIME_DAEMON_PORT: String(port) },
+    });
+    s.child.stdout?.once("data", (b: Buffer) => {
+      const pid = Number.parseInt(b.toString(), 10);
+      if (Number.isFinite(pid)) s.daemonPid = pid;
     });
     let stderr = "";
     let exited = false;
@@ -100,7 +153,6 @@ export class SandboxSession {
       s.failAllPending(new Error(s.endedBecause ?? "the runtime exited"));
     });
 
-    const budget = opts.budgetMs ?? DEFAULT_BUDGET_MS;
     s.reaper = setTimeout(() => {
       s.endedBecause = `the sandbox reached its ${Math.round(budget / 1000)}s budget`;
       void s.close();
@@ -194,6 +246,7 @@ export class SandboxSession {
     if (this.reaper) clearTimeout(this.reaper);
     try { this.ws?.close(); } catch { /* going away anyway */ }
     this.ws = null;
+    if (this.daemonPid) { try { process.kill(this.daemonPid, "SIGTERM"); } catch { /* already gone */ } }
     if (this.child && this.child.exitCode === null) {
       this.child.kill("SIGTERM");
       for (let i = 0; i < 20 && this.child.exitCode === null; i++) await sleep(50);

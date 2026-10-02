@@ -188,6 +188,9 @@ try {
   };
   await mrpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "smoke-863", version: "0" } });
   mcp.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+  // A session onboards before it works in a project; the server refuses every project
+  // tool until it has (the onboarding gate came after this smoke was written).
+  await tool("agent_onboard", { project_dir: proj });
   const tools = (await mrpc("tools/list", {})).result?.tools ?? [];
   const start = tools.find((t) => t.name === "runtime_session_start");
   check(!!start?.inputSchema?.properties?.model && !start.inputSchema.properties.pal,

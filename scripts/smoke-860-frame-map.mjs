@@ -15,7 +15,7 @@
 //                                            release daemon with vic/frame_map)
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,8 +38,6 @@ if (!existsSync(DAEMON)) {
 }
 
 const base = mkdtempSync(join(tmpdir(), "c64re-860-"));
-mkdirSync(join(base, "knowledge"));
-writeFileSync(join(base, "knowledge", "phase-plan.json"), "{}\n");
 
 const daemon = spawn(DAEMON, ["--project", base, "--port", String(PORT), "--headless"], { stdio: ["ignore", "pipe", "pipe"] });
 let daemonLog = "";
@@ -166,6 +164,10 @@ try {
   mcp.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
   const tools = (await rpc("tools/list", {})).result?.tools ?? [];
   check(tools.some((x) => x.name === "runtime_vic_frame_map"), "runtime_vic_frame_map is in the default tool surface");
+  // A session onboards before it works in a project; the server refuses every project
+  // tool until it has (the onboarding gate came after this smoke was written).
+  await rpc("tools/call", { name: "project_init", arguments: { project_dir: base, name: "smoke-860" } });
+  await rpc("tools/call", { name: "agent_onboard", arguments: { project_dir: base } });
   const r = await rpc("tools/call", { name: "runtime_vic_frame_map", arguments: { session_id: S, checkpoint_id: cp } });
   const text = (r.result?.content ?? []).map((c) => c.text).join("");
   let parsed = null; try { parsed = JSON.parse(text); } catch {}

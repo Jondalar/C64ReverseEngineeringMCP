@@ -42,11 +42,11 @@ const A = join(base, "alpha"), B = join(base, "beta");
 mkdirSync(A); mkdirSync(B);
 writeFileSync(join(A, "alpha.d64"), Buffer.alloc(174_848));
 writeFileSync(join(B, "beta.d64"), Buffer.alloc(174_848));
-// Both are C64RE projects, so the MCP side resolves them (the marker is what it looks for).
-for (const d of [A, B]) {
-  mkdirSync(join(d, "knowledge"));
-  writeFileSync(join(d, "knowledge", "phase-plan.json"), "{}\n");
-}
+// Both are C64RE projects, so the MCP side resolves them and a session can onboard into
+// them. Made by the service, not the project_init tool: the tool sorts top-level media
+// into input/, and the .d64 files have to stay where the daemon was pointed at them.
+const { ProjectKnowledgeService } = await import("../dist/project-knowledge/service.js");
+for (const d of [A, B]) new ProjectKnowledgeService(d).initProject({ name: d === A ? "alpha" : "beta" });
 const rA = realpathSync(A), rB = realpathSync(B);
 
 const daemon = spawn(DAEMON, ["--project", A, "--port", String(PORT), "--headless"], { stdio: ["ignore", "pipe", "pipe"] });
@@ -163,6 +163,9 @@ try {
   });
   await rpc("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "smoke-858", version: "0" } });
   mcp.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+  // A session onboards before it works in a project; the server refuses every project
+  // tool until it has (the onboarding gate came after this smoke was written).
+  for (const d of [A, B]) await rpc("tools/call", { name: "agent_onboard", arguments: { project_dir: d } });
   const status = async (project_dir) => {
     const r = await rpc("tools/call", { name: "runtime_session_status", arguments: { session_id: "shared", project_dir } });
     return (r.result?.content ?? []).map((c) => c.text).join("\n") || JSON.stringify(r.error ?? r);

@@ -148,7 +148,10 @@ pkill -f "trx64-daemon --port 4333"
 ```
 
 A forgotten sandbox daemon keeps running and pegs a core. That is the whole reason
-`runtime_sandbox_run` carries a budget: it ends itself, so there is nothing to forget.
+`runtime_sandbox_run` carries a budget: it ends itself, so there is nothing to forget. The
+budget is held next to the daemon, not in the process that asked for it: a keeper process
+between the two ends the daemon when the budget runs out or when that process is gone —
+killed, crashed or closed — and removes its scratch directory.
 
 ---
 
