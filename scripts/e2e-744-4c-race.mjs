@@ -6,7 +6,8 @@
 //   Part 2 — N MCPs starting simultaneously (eager warm-start) → exactly ONE
 //            listener on the port, and every MCP shares that one daemon.
 import { spawn, execSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
@@ -14,7 +15,10 @@ import { WebSocket } from "ws";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(ROOT, "dist/cli.js");
 const daemonScript = join(ROOT, "scripts/runtime-daemon.mjs");
-const DISK = join(ROOT, "samples/synthetic/1byte.g64");
+// A throwaway project, never the repo: the MCPs onboard into it, and the daemons serve it.
+const PROJECT = mkdtempSync(join(tmpdir(), "c64re-744-race-"));
+const { ProjectKnowledgeService } = await import(join(ROOT, "dist/project-knowledge/service.js"));
+new ProjectKnowledgeService(PROJECT).initProject({ name: "744 race" });
 const PORT = 14748;
 const ENDPOINT = `ws://127.0.0.1:${PORT}`;
 let pass = 0, fail = 0;
@@ -34,7 +38,7 @@ killPort();
 
 const procs = [];
 function spawnMcp() {
-  const proc = spawn(process.execPath, [cli], { cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: ROOT, C64RE_FULL_TOOLS: "1", C64RE_RUNTIME_ENDPOINT: ENDPOINT }, stdio: ["pipe", "pipe", "pipe"] });
+  const proc = spawn(process.execPath, [cli], { cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: PROJECT, C64RE_FULL_TOOLS: "1", C64RE_RUNTIME_ENDPOINT: ENDPOINT }, stdio: ["pipe", "pipe", "pipe"] });
   procs.push(proc);
   let buf = ""; const pending = new Map(); let nextId = 1;
   proc.stdout.on("data", (d) => { buf += d.toString(); let nl; while ((nl = buf.indexOf("\n")) >= 0) { const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1); if (!line) continue; let m; try { m = JSON.parse(line); } catch { continue; } if (m.id != null && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } } });
@@ -50,12 +54,12 @@ try {
   ok(!(await portOpen()), "0 clean start — no daemon on the port");
 
   // ---- Part 1: explicit two-daemon EADDRINUSE → loser exits 0, winner serves ----
-  const dA = spawn(process.execPath, [daemonScript, "--project", ROOT, "--port", String(PORT)], { cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: ROOT }, stdio: ["ignore", "pipe", "pipe"] });
+  const dA = spawn(process.execPath, [daemonScript, "--project", PROJECT, "--port", String(PORT)], { cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: PROJECT }, stdio: ["ignore", "pipe", "pipe"] });
   let aLog = ""; dA.stdout.on("data", (d) => { aLog += d.toString(); }); dA.stderr.on("data", (d) => { aLog += d.toString(); });
   for (let i = 0; i < 120 && !/listening on ws:\/\//.test(aLog); i++) await sleep(200);
   ok(/listening on ws:\/\//.test(aLog), "1 daemon A bound the port + ready");
 
-  const dB = spawn(process.execPath, [daemonScript, "--project", ROOT, "--port", String(PORT)], { cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: ROOT }, stdio: ["ignore", "pipe", "pipe"] });
+  const dB = spawn(process.execPath, [daemonScript, "--project", PROJECT, "--port", String(PORT)], { cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: PROJECT }, stdio: ["ignore", "pipe", "pipe"] });
   let bLog = ""; dB.stdout.on("data", (d) => { bLog += d.toString(); }); dB.stderr.on("data", (d) => { bLog += d.toString(); });
   const bExit = await new Promise((res) => { dB.once("exit", (code) => res(code)); setTimeout(() => res("timeout"), 15000); });
   ok(bExit === 0, "2 daemon B (port taken) exits CLEANLY (code 0), not a crash", `exit=${bExit}`);
@@ -78,7 +82,13 @@ try {
   // One machine per process: every MCP start ATTACHES to the daemon's one shared
   // machine — all N return the SAME session id (no second machine from the race).
   const ids = [];
-  for (const m of mcps) { const t = m.text(await m.call("runtime_session_start", { disk_path: DISK, write_protected: true })); const s = (t.match(/Session:\s*(\S+)/) || [])[1]; if (s) ids.push(s); }
+  // An attach takes no medium (Spec 836: it is refused rather than swapping the medium
+  // under whoever else is using the machine), and a session onboards first.
+  for (const m of mcps) {
+    await m.call("agent_onboard", { project_dir: PROJECT });
+    const t = m.text(await m.call("runtime_session_start", {}));
+    const s = (t.match(/Session:\s*(\S+)/) || [])[1]; if (s) ids.push(s);
+  }
   ok(ids.length === N && new Set(ids).size === 1, `9 all ${N} concurrent MCP starts attached to the ONE shared machine (same id)`, [...new Set(ids)].join(","));
   const st = mcps[0].text(await mcps[0].call("runtime_session_status", { session_id: ids[0] }));
   ok(/cycles=\d+/.test(st), "10 the shared machine is statusable from any MCP", ids[0]);
@@ -89,6 +99,7 @@ try {
   for (const p of procs) { try { p.kill(); } catch {} }
   await sleep(200);
   killPort();
+  rmSync(PROJECT, { recursive: true, force: true });
 }
 
 console.log(`\nSpec 744.4c race: ${pass} pass, ${fail} fail`);
