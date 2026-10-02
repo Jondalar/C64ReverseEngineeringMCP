@@ -226,10 +226,13 @@ build anything to get it.
 
 C64RE is pre-1.0 and versioned accordingly:
 
-- **Minor** versions may break things. MCP tool schemas can change, a project written by an
-  older version may need a migration, and the workbench may move.
-- **Patch** versions do not intentionally change MCP tool schemas, `.c64re` snapshot
-  compatibility, or how the server is invoked.
+- **Minor** versions break something that worked: a tool or a parameter removed or
+  renamed, an answer a caller reads changed in shape or meaning, a project written by an
+  older version needing a migration, `.c64re` snapshot compatibility, how the server is
+  invoked, or a pinned runtime that speaks a new wire protocol.
+- **Patch** versions add and fix: new tools, new optional parameters, new fields in an
+  answer, a newer pinned runtime on the same wire protocol, and every fix. Nothing that
+  worked stops working.
 
 `package.json` carries the one authoritative version, and a release is tagged `v<version>`.
 The TRX64 release C64RE is pinned to moves with it: client and daemon must agree on the
