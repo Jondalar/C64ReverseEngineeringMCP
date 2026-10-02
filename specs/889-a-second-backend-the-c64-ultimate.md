@@ -1,4 +1,4 @@
-# Spec 888 — A second backend: the C64 Ultimate
+# Spec 889 — A second backend: the C64 Ultimate
 
 **Status:** PROPOSED (2026-10-02) — spec only; the owner builds later
 **Repos:** C64RE. Inputs come from the 1541ultimate repo (`trxmon.u2a`, the TRX64 core
