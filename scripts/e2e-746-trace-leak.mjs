@@ -40,6 +40,10 @@ let pass = 0, fail = 0;
 const ok = (c, m, d = "") => { (c ? pass++ : fail++); console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? "  (" + d + ")" : ""}`); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const killPort = () => { try { execSync(`lsof -ti tcp:${PORT} -sTCP:LISTEN | xargs kill -9 2>/dev/null`, { stdio: "ignore" }); } catch {} };
+// The process that holds the port IS the daemon. `daemon.pid` is the node wrapper
+// (runtime-daemon.mjs) around it, whose RSS sat at a flat 43 MiB while the daemon itself
+// grew 148 → 334 MiB — so checks 5 and 6 measured nothing until 2026-10-02.
+const listenerPid = () => { try { return Number(execSync(`lsof -nP -iTCP:${PORT} -sTCP:LISTEN -t`).toString().trim().split("\n")[0]) || 0; } catch { return 0; } };
 const rssMiB = (pid) => { try { return Math.round(Number(execSync(`ps -o rss= -p ${pid}`).toString().trim()) / 1024); } catch { return -1; } };
 
 let wsId = 1;
@@ -62,14 +66,15 @@ let exit = 0;
 const rssSamples = [];
 try {
   for (let i = 0; i < 150 && !/listening on ws:\/\//.test(dlog); i++) await sleep(200);
-  ok(/listening on ws:\/\//.test(dlog), "0 daemon ready", `pid=${daemon.pid}`);
+  const daemonPid = listenerPid();
+  ok(/listening on ws:\/\//.test(dlog) && daemonPid > 0, "0 daemon ready", `pid=${daemonPid} (wrapper ${daemon.pid})`);
 
   const ws = await new Promise((res, rej) => { const w = new WebSocket(ENDPOINT); w.once("open", () => res(w)); w.once("error", rej); });
   const S = (await wsRpc(ws, "session/list", {}))[0]?.sessionId;
   ok(!!S, "0b default session present", S);
   await wsRpc(ws, "session/reset", { session_id: S, video: "pal-default" });
 
-  const baseline = rssMiB(daemon.pid);
+  const baseline = rssMiB(daemonPid);
   ok(baseline > 0, "1 baseline RSS sampled", `${baseline} MiB`);
 
   // Start a FULL-domain trace on the LIVE session, then free-run at WARP.
@@ -87,7 +92,7 @@ try {
   let swapErr = null, swapped = false, liveResponses = 0;
   for (let s = 1; s <= 10; s++) {
     await sleep(2000);
-    rssSamples.push(rssMiB(daemon.pid));
+    rssSamples.push(rssMiB(daemonPid));
     try { const l = await wsRpc(ws2, "session/list", {}, 4000); if (Array.isArray(l) && l.length) liveResponses++; } catch {}
     if (s === 5) {
       try { await wsRpc(ws, "media/swap", { session_id: S, path: DISK }); swapped = true; }
@@ -99,7 +104,7 @@ try {
   ok(liveResponses >= 8, "3b daemon stayed RESPONSIVE during the live trace (would go silent on the OOM path)", `${liveResponses}/10 pings answered`);
 
   // 4 daemon SURVIVED the whole warp-trace + swap (the headline: no OOM crash).
-  const alive = (() => { try { return process.kill(daemon.pid, 0), true; } catch { return false; } })();
+  const alive = (() => { try { return process.kill(daemonPid, 0), true; } catch { return false; } })();
   ok(alive, "4 daemon SURVIVED 20s warp trace + disk swap (no OOM / no crash)", `samples=[${rssSamples.join(",")}] MiB`);
 
   // 5 RSS STABILISED — late-phase growth is ~flat (a leak keeps climbing here).
