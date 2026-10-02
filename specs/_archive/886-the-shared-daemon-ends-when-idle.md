@@ -1,8 +1,8 @@
 # Spec 886 — The auto-started runtime ends itself when nobody uses it
 
-**Status:** BUILT (2026-10-02) — waits on the TRX64 release that carries 887, then the pin
+**Status:** DONE (2026-10-02) — TRX64 0.12.0 carries 887; C64RE pins it
 **Repos:** C64RE (this spec). The capability is TRX64's: **Spec 887**
-(`../TRX64/docs/_archive/887-idle-exit.md`), the TRX64 half, numbered on this board.
+(`../../../TRX64/docs/_archive/887-idle-exit.md`), the TRX64 half, numbered on this board.
 
 ## §1 What is wrong
 
@@ -89,3 +89,5 @@ daemon left on this machine after a day of use.
 - Regression against 887: trace-first 23, 744 slices 2a/2b/2c 2/10/13, race 11, 746
   checkpoint 3, bug028 2, smoke-858 13, -859 11, -860 14, -863 50, 804-monitor 25,
   e2e-836 80. All green.
+
+Pinned TRX64 0.12.0: e2e:716-runtime 41/0 (the fetched daemon reports 0.12.0), e2e-886 16/16, 744-race 11, 746-trace-leak 14, sandbox-orphan 5, trace-first 23.
