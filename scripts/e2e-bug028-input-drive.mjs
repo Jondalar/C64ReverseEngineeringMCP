@@ -48,8 +48,8 @@ let dlog = ""; daemon.stdout.on("data", (d) => dlog += d); daemon.stderr.on("dat
 
 let exit = 0;
 try {
-  for (let i = 0; i < 150 && !/runtime authority ready/.test(dlog); i++) await sleep(200);
-  ok(/runtime authority ready/.test(dlog), "0 daemon ready");
+  for (let i = 0; i < 150 && !/listening on ws:\/\//.test(dlog); i++) await sleep(200);
+  ok(/listening on ws:\/\//.test(dlog), "0 daemon ready");
   const ui = await new Promise((res, rej) => { const w = new WebSocket(ENDPOINT); w.once("open", () => res(w)); w.once("error", rej); });
   const S = (await wsRpc(ui, "session/list", {}))[0]?.sessionId;
   ok(!!S, "0b default session", S);

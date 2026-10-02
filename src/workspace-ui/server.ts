@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { extname, join, normalize, relative, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
-import { edgesWalk, nodeCard, overview as graphOverview, resolveRef, shortestPath, subgraph as graphSubgraph, SubgraphNotFound, type EdgeKind, type Focus, type OriginFilter } from "../knowledge-graph/cards.js";
+import { addressOfRef, claimantsCard, edgesWalk, nodeCard, overview as graphOverview, resolveRef, shortestPath, subgraph as graphSubgraph, SubgraphNotFound, type EdgeKind, type Focus, type OriginFilter } from "../knowledge-graph/cards.js";
 import { formatEdges, formatFind, formatNode, formatOverview, formatPath, formatSubgraph } from "../knowledge-graph/format.js";
 import { Graph } from "../knowledge-graph/query.js";
 import { resolveProjectDir } from "./resolve-project-dir.js";
@@ -104,7 +104,12 @@ function parseArgs(argv: string[]): ServerOptions {
   return options;
 }
 
-/** A body that must equal a `c64re … --json` command's output byte for byte (825 D1). */
+/**
+ * A body that must equal a `c64re graph … --json` command's output byte for byte (824,
+ * 825 D1): every graph route's 200 is the CLI's answer, serialised the way the CLI prints
+ * it — indented, not compact like the other bodies (885 D3). gzip takes the indentation
+ * back on the wire.
+ */
 function asCliJson(status: number, payload: unknown): ServerReply {
   return { ...jsonResponse(status, payload), body: `${JSON.stringify(payload, null, 2)}\n` };
 }
@@ -611,14 +616,18 @@ const server = createServer((req, res) => {
         if (origin === "human") nodes = nodes.filter((n) => n.layers.includes("human"));
         else if (origin === "generated") nodes = nodes.filter((n) => !n.layers.includes("human") && !n.platform);
         else if (origin === "platform") nodes = nodes.filter((n) => n.platform);
-        send(res, jsonResponse(200, formatFind(query, nodes, num("limit") ?? 10).json));
+        // Spec 867 D2 — an address on an overlaid machine names its claimants, as
+        // `c64re graph find --json` and graph_find do: one document behind all three doors.
+        const at = addressOfRef(query, bank);
+        const claimants = at ? claimantsCard(graph, at.address, undefined, at.bank ?? null) : null;
+        send(res, asCliJson(200, formatFind(query, nodes, num("limit") ?? 10, claimants).json));
       } else if (verb === "node") {
         const ref = q("ref");
         if (!ref) { send(res, jsonResponse(400, { error: "ref is required" })); return; }
         const nodes = resolveRef(graph, ref, bank);
         if (nodes.length === 0) { send(res, jsonResponse(404, { error: `no node for "${ref}"`, ref })); return; }
-        if (nodes.length > 1) { send(res, jsonResponse(200, { ambiguous: true, ...(formatFind(ref, nodes, 10).json as object) })); return; }
-        send(res, jsonResponse(200, formatNode(nodeCard(graph, nodes[0]!)).json));
+        if (nodes.length > 1) { send(res, asCliJson(200, { ambiguous: true, ...(formatFind(ref, nodes, 10).json as object) })); return; }
+        send(res, asCliJson(200, formatNode(nodeCard(graph, nodes[0]!)).json));
       } else if (verb === "edges") {
         const ref = q("ref");
         if (!ref) { send(res, jsonResponse(400, { error: "ref is required" })); return; }
@@ -626,7 +635,7 @@ const server = createServer((req, res) => {
         if (roots.length === 0) { send(res, jsonResponse(404, { error: `no node for "${ref}"`, ref })); return; }
         const direction = q("direction") as "in" | "out" | "both" | undefined;
         const depth = num("depth") === 2 ? 2 : num("depth") === 1 ? 1 : undefined;
-        send(res, jsonResponse(200, formatEdges(edgesWalk(graph, roots, { direction, kind: q("kind") as EdgeKind | undefined, origin: q("origin") as never, depth, limit: num("limit") })).json));
+        send(res, asCliJson(200, formatEdges(edgesWalk(graph, roots, { direction, kind: q("kind") as EdgeKind | undefined, origin: q("origin") as never, depth, limit: num("limit") })).json));
       } else if (verb === "path") {
         const from = q("from");
         const to = q("to");
@@ -634,13 +643,11 @@ const server = createServer((req, res) => {
         const a = resolveRef(graph, from, bank)[0];
         const b = resolveRef(graph, to, bank)[0];
         if (!a || !b) { send(res, jsonResponse(404, { error: `cannot resolve ${!a ? from : to}` })); return; }
-        send(res, jsonResponse(200, formatPath(shortestPath(graph, a.id, b.id, (q("via") as "calls" | "calls+jumps" | "any" | undefined) ?? "any", num("max_depth") ?? 8)).json));
+        send(res, asCliJson(200, formatPath(shortestPath(graph, a.id, b.id, (q("via") as "calls" | "calls+jumps" | "any" | undefined) ?? "any", num("max_depth") ?? 8)).json));
       } else if (verb === "overview") {
-        send(res, jsonResponse(200, formatOverview(graphOverview(graph, (q("focus") ?? "all") as Focus, num("top") ?? 10)).json));
+        send(res, asCliJson(200, formatOverview(graphOverview(graph, (q("focus") ?? "all") as Focus, num("top") ?? 10)).json));
       } else if (verb === "subgraph") {
-        // 825 D1 — one aggregate, one formatter: this body IS `c64re graph subgraph --json`,
-        // so it is serialised the way that command prints it (indented), not compact like
-        // the other bodies. gzip takes the indentation back on the wire.
+        // 825 D1 — one aggregate, one formatter: this body IS `c64re graph subgraph --json`.
         const kindsArg = q("kinds");
         try {
           send(res, asCliJson(200, formatSubgraph(graphSubgraph(graph, {

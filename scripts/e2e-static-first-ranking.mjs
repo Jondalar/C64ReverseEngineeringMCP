@@ -42,9 +42,12 @@ ok(pick({ loaderReadAnnotated: true, hasReadHypothesis: true }) === "runtime-tra
 ok(pick({ openQuestions: 0, loaderReadAnnotated: true, hasReadHypothesis: true }) !== "runtime-trace",
   "no open questions → not runtime-trace", pick({ openQuestions: 0, loaderReadAnnotated: true, hasReadHypothesis: true }));
 
-// Sanity: an ungrounded finding still outranks everything (§7b), unchanged by this gate.
-ok(pick({ ungroundedFindings: 1, loaderReadAnnotated: true, hasReadHypothesis: true }) === "static-analyze",
-  "ungrounded finding still wins (§7b unchanged)", pick({ ungroundedFindings: 1, loaderReadAnnotated: true, hasReadHypothesis: true }));
+// Sanity: an ungrounded finding closes the runtime steps even when both preconditions are
+// met. It used to force static-analyze outright; Spec 752 L1 was narrowed to veto the
+// flight to runtime (runtime-trace, trace-query) and leave static work open, which is
+// what agent-step.ts now does — the ranking then picks the next static step.
+ok(pick({ ungroundedFindings: 1, loaderReadAnnotated: true, hasReadHypothesis: true }) !== "runtime-trace",
+  "an ungrounded finding still closes runtime-trace", pick({ ungroundedFindings: 1, loaderReadAnnotated: true, hasReadHypothesis: true }));
 
 console.log(`\n${fail === 0 ? "GREEN" : "RED"}  static-first ranking: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

@@ -31,23 +31,27 @@ inventory.
    - tools: `agent_onboard`, `project_init`, `project_status`, `get_project_profile`, `project_steering_set`
    - persist: project state
    - ask human when: it is unclear whether to create a new project here
-2. _(llm)_ Ask the user's objective (crack / EasyFlash port / analysis / bugfix / routine) and set role + workflow.
+2. _(llm)_ If onboarding (or a runtime tool) reports that no runtime daemon is installed, fetch the pinned one; the C64 ROMs stay the user's to supply.
+   - tools: `runtime_install`
+   - persist: runtime binary in the cache
+   - ask human when: the ROMs are missing — they are not distributed
+3. _(llm)_ Ask the user's objective (crack / EasyFlash port / analysis / bugfix / routine) and set role + workflow.
    - tools: `agent_set_role`, `start_re_workflow`
    - persist: role, workflow profile
    - ask human when: the objective is not stated
-3. _(human)_ Drop .d64/.g64/.crt/.prg + context into the project folder (or give absolute paths).
-4. _(llm)_ For a resumed project, search existing knowledge before re-deriving anything: find where a topic/address/track is already described and pull together the records around a payload. The index notices on its own when the graph, a document or a listing changed and says so in the answer; project_reindex_search forces a rebuild.
+4. _(human)_ Drop .d64/.g64/.crt/.prg + context into the project folder (or give absolute paths).
+5. _(llm)_ For a resumed project, search existing knowledge before re-deriving anything: find where a topic/address/track is already described and pull together the records around a payload. The index notices on its own when the graph, a document or a listing changed and says so in the answer; project_reindex_search forces a rebuild.
    - tools: `project_reindex_search`, `project_search`, `project_find_related`
    - persist: located records, related groups
    - ask human when: the search returns nothing for a topic you expected to exist
-5. _(llm)_ Answer a structural question from the graph before opening a listing: resolve a name or address to nodes, read the node card, walk callers / writers / hardware use, find a path, or take the project overview to see entry points, banking sites and the unresolved indirect accesses.
+6. _(llm)_ Answer a structural question from the graph before opening a listing: resolve a name or address to nodes, read the node card, walk callers / writers / hardware use, find a path, or take the project overview to see entry points, banking sites and the unresolved indirect accesses.
    - tools: `graph_find`, `graph_node`, `graph_edges`, `graph_path`, `graph_overview`
    - persist: node ids, the structural picture
    - ask human when: the graph is empty for an artifact you expected to be analyzed (run project_inventory_sync / c64re graph seed)
-6. _(llm)_ Ask the orchestrator for the single next product step; run the inventory/media-sync step or follow its named tool.
+7. _(llm)_ Ask the orchestrator for the single next product step; run the inventory/media-sync step or follow its named tool.
    - tools: `agent_next_step`, `agent_run_step`
    - persist: next-step suggestion, branch alternatives
-7. _(llm)_ Confirm next action and record the step.
+8. _(llm)_ Confirm next action and record the step.
    - tools: `c64re_whats_next`, `agent_propose_next`, `agent_record_step`
    - persist: next-action proposal
 
@@ -279,9 +283,13 @@ inventory.
 2. _(llm)_ Disassemble + resolve ROM/symbol references. One door: pass load_address and the bytes are raw and start there (a depacked chunk, a relocated overlay, a block out of a track, drive code — no PRG header is invented and the listing is registered with the byte range it came from); leave it out and the file must carry a 2-byte header, whose first two bytes are read as the address. Every answer opens with the reading it took.
    - tools: `disasm`, `disasm_menu`, `c64ref_lookup`
    - persist: disasm artifact
-3. _(llm)_ Draft annotations; re-run disasm with them (the file is a door into the knowledge graph); record what you concluded.
-   - tools: `propose_annotations`, `disasm`, `save_finding`, `agent_record_step`
+3. _(llm)_ Draft annotations, or write them from what you read (segments, labels, routines); when several passes or agents read the same payload, merge their files — contradictions are refused by name and each resolution recorded. Re-run disasm with them (the file is a door into the knowledge graph); record what you concluded.
+   - tools: `propose_annotations`, `write_annotations`, `merge_annotations`, `disasm`, `save_finding`, `agent_record_step`
    - persist: annotations, findings
+4. _(llm)_ Clear scratch or preview renders (draft1, l1_prop, …) that distort counts, named % and queries — dry run first. A preview that should never reach the graph is disasm with import_graph=false instead.
+   - tools: `graph_remove_owner`
+   - persist: the graph without that owner's rows
+   - ask human when: the owner is not obviously scratch
 
 **Stop when:** A readable disassembly + draft annotations exist.
 

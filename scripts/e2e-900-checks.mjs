@@ -34,7 +34,7 @@ for (const text of ["$8EF2 is $100", "$8EF2@vic is $01", "$44/$45 are $26/$55", 
   const r = parseCheck(text);
   check(r && "error" in r, `"${text}" starts like a check and is refused`, r && "error" in r ? r.error.slice(0, 70) : JSON.stringify(r));
 }
-for (const text of ["the player stops at the line", "a FALL runs from x 54: fall_on = 1", "the intro plays"]) {
+for (const text of ["the player stops at the line", "a FALL runs from x 54: fall_on = 1", "the intro plays", "$DC08 is unchanged", "$D020 is not changed"]) {
   check(parseCheck(text) === undefined, `"${text}" is prose — unchecked, not an error`);
 }
 

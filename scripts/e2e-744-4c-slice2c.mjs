@@ -56,8 +56,8 @@ const pj = (t) => { try { return JSON.parse(t); } catch { return null; } };
 
 let exit = 0;
 try {
-  for (let i = 0; i < 150 && !/runtime authority ready/.test(dlog); i++) await sleep(200);
-  ok(/runtime authority ready/.test(dlog), "0 daemon ready");
+  for (let i = 0; i < 150 && !/listening on ws:\/\//.test(dlog); i++) await sleep(200);
+  ok(/listening on ws:\/\//.test(dlog), "0 daemon ready");
   const ui = await new Promise((res, rej) => { const w = new WebSocket(ENDPOINT); w.once("open", () => res(w)); w.once("error", rej); });
   const S = (await wsRpc(ui, "session/list", {}))[0]?.sessionId;
   ok(!!S, "0b default session", S);
@@ -94,7 +94,12 @@ try {
   ok(/loaded \d+ bytes from/.test(lv) && lv.includes(VSF_ABS), "6 load_vsf restored the shared session from the caller's file", lv.trim());
 
   // 7 memory_access_map — liveness window runs on the shared session.
-  const mam = m.text(await m.call("runtime_memory_access_map", { session_id: S, cycles: 100000, classes: ["live", "dead", "unused"], min_bytes: 256 }));
+  const mam = m.text(await m.call("runtime_memory_access_map", {
+    session_id: S, cycles: 100000, classes: ["live", "dead", "unused"], min_bytes: 256,
+    // The read-before-runtime gate (discipline-gate.ts) came after this test: a liveness
+    // map confirms a read-derived hypothesis — a $address and what was read there.
+    hypothesis: "$C000 is free RAM: the BASIC idle loop never touches $C000-$CFFF, so the map should show it unused",
+  }));
   ok(/memory-access map over \d+ cyc/.test(mam), "7 memory_access_map ran on the shared session", mam.split("\n")[0]);
 
   // 8 vic_inspect_at — captures+pins a checkpoint on the shared ring, resolves a pixel.

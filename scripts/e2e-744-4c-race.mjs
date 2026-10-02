@@ -52,8 +52,8 @@ try {
   // ---- Part 1: explicit two-daemon EADDRINUSE → loser exits 0, winner serves ----
   const dA = spawn(process.execPath, [daemonScript, "--project", ROOT, "--port", String(PORT)], { cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: ROOT }, stdio: ["ignore", "pipe", "pipe"] });
   let aLog = ""; dA.stdout.on("data", (d) => { aLog += d.toString(); }); dA.stderr.on("data", (d) => { aLog += d.toString(); });
-  for (let i = 0; i < 120 && !/runtime authority ready/.test(aLog); i++) await sleep(200);
-  ok(/runtime authority ready/.test(aLog), "1 daemon A bound the port + ready");
+  for (let i = 0; i < 120 && !/listening on ws:\/\//.test(aLog); i++) await sleep(200);
+  ok(/listening on ws:\/\//.test(aLog), "1 daemon A bound the port + ready");
 
   const dB = spawn(process.execPath, [daemonScript, "--project", ROOT, "--port", String(PORT)], { cwd: ROOT, env: { ...process.env, C64RE_PROJECT_DIR: ROOT }, stdio: ["ignore", "pipe", "pipe"] });
   let bLog = ""; dB.stdout.on("data", (d) => { bLog += d.toString(); }); dB.stderr.on("data", (d) => { bLog += d.toString(); });

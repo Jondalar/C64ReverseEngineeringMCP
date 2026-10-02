@@ -91,6 +91,8 @@ try {
 
   mcp = startMcp(ROOT, { C64RE_PROJECT_DIR: dir, C64RE_RUNTIME_ENDPOINT: `ws://127.0.0.1:${RELAY}`, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "" });
   const tools = await mcp.init();
+  // A session onboards before it works in a project; the server refuses otherwise.
+  await mcp.tool("agent_onboard", { project_dir: dir });
   for (const t of ["runtime_monitor", "runtime_monitor_disasm", "runtime_resolve_pc"]) {
     check(tools.some((x) => x.name === t), `${t} is in the default tool surface`);
   }

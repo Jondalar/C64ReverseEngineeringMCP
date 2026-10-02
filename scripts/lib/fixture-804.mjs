@@ -94,6 +94,9 @@ export async function buildFixture804(root, log = () => {}) {
   try {
     await mcp.init();
     await mcp.tool("project_init", { project_dir: dir, name: "Spec 804 fixture" });
+    // A session onboards before it works in a project; the server refuses every project
+    // tool until it has (the onboarding gate came after this fixture was written).
+    await mcp.tool("agent_onboard", { project_dir: dir });
     const pay = join(dir, "payloads");
     mkdirSync(pay, { recursive: true });
     const paths = {};

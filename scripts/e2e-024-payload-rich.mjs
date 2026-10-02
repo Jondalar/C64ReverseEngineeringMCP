@@ -80,6 +80,8 @@ try {
 
   // Bring up a project.
   ok(!isErr(await callTool("project_init", { project_dir: projectDir, name: "BUG-024" })), "3 project_init", "");
+  // A session onboards before it works in a project; the server refuses otherwise.
+  await callTool("agent_onboard", { project_dir: projectDir });
 
   // A carved DD00-loader block + its disassembly, placed under analysis/ like a
   // real crack workflow (a scan root inventory_sync registers).
@@ -116,7 +118,8 @@ try {
   // list_payloads shows the rich row.
   const lp = textOf(await callTool("list_payloads", { project_dir: projectDir }));
   ok(/engine_4000/.test(lp), "9 list_payloads lists the payload", "");
-  ok(/load=\$4000 fmt=raw asm=[1-9]/.test(lp), "10 list_payloads row is rich (load/fmt/asm)",
+  // Spec 867 put the payload's window between load and fmt: `load=$4000 win=$4000-$40FF fmt=raw`.
+  ok(/load=\$4000 (?:win=\$[0-9A-F]{4}-\$[0-9A-F]{4}\*? )?fmt=raw asm=[1-9]/.test(lp), "10 list_payloads row is rich (load/fmt/asm)",
     (lp.match(/engine_4000.*/) || [""])[0]);
 
   // Memory map places it at its load address (runtime view).

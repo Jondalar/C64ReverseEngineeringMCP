@@ -144,6 +144,8 @@ const search = (q, f, n) => searchIndex(index, q, f ?? {}, n ?? 12);
       proc.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
       const tools = new Set(((await rpc("tools/list", {})).result?.tools || []).map((t) => t.name));
       ok(["project_search", "project_find_related", "project_reindex_search", "project_wiki_lint"].every((n) => tools.has(n)), "7 all 4 project tools on the default surface (no FULL_TOOLS)");
+      // A session onboards before it works in a project; the server refuses otherwise.
+      await callText("agent_onboard", { project_dir: proj });
       const re = await callText("project_reindex_search", {});
       ok(/Reindexed \d+ records/.test(re), "7b project_reindex_search rebuilds the cache over stdio", re.split("\n")[0]);
       const se = await callText("project_search", { query: "$FC00" });

@@ -133,6 +133,10 @@ export function parseCheck(text: string): { check: Check } | { error: string } |
   if (!CHECK_LENSES.includes(lens)) return { error: `"${t}": ${mem[2]} is not a lens (${CHECK_LENSES.join(", ")})` };
   const op = !mem[3] ? "is" : /^not/i.test(mem[3]) ? "isNot" : "oneOf";
   const toks = op === "oneOf" ? mem[4].split(",") : mem[4].trim().split(/\s+/);
+  // `$DC08 is unchanged` / `$D020 is the accepted baseline` — 810's own criteria, said in
+  // words, compared against an accepted state rather than a written byte. No number after
+  // `is` means it is not a check; a number that is not a byte is a typo, and that is refused.
+  if (!/[$\d]/.test(mem[4])) return undefined;
   const values = toks.map(checkNumber);
   const bad = toks.find((_, i) => values[i] === undefined || values[i]! > 0xff);
   if (bad !== undefined) return { error: `"${t}": ${bad.trim()} is not a byte` };

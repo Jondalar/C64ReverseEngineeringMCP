@@ -50,8 +50,8 @@ let dlog = ""; daemon.stdout.on("data", (d) => { dlog += d.toString(); }); daemo
 
 let exit = 0; let wsId = 1;
 try {
-  for (let i = 0; i < 120 && !/runtime authority ready/.test(dlog); i++) await sleep(250);
-  ok(/runtime authority ready/.test(dlog), "1+ Runtime Daemon started + authority ready", (dlog.match(/endpoint[^\n]*/) || [""])[0]);
+  for (let i = 0; i < 120 && !/listening on ws:\/\//.test(dlog); i++) await sleep(250);
+  ok(/listening on ws:\/\//.test(dlog), "1+ Runtime Daemon started + authority ready", (dlog.match(/endpoint[^\n]*/) || [""])[0]);
 
   // ---- MCP client #1 ----
   const mcp1 = spawnMcp();

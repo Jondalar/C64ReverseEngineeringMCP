@@ -54,7 +54,8 @@ try {
     }],
   };
 
-  const artifact = persistInspectEvidence(service, root, { evidence, name: "test cell", notes: "smoke" });
+  // The door returns { artifact, findingIds } since it started recording findings too.
+  const { artifact } = persistInspectEvidence(service, root, { evidence, name: "test cell", notes: "smoke" });
 
   gate("artifact persisted with kind=other scope=session", artifact?.kind === "other" && artifact?.scope === "session", `kind=${artifact?.kind} scope=${artifact?.scope}`);
   gate("tags include vic-inspect + spec-710", Array.isArray(artifact?.tags) && artifact.tags.includes("vic-inspect") && artifact.tags.includes("spec-710"), `tags=${artifact?.tags?.join(",")}`);

@@ -43,6 +43,17 @@
         },
         {
           "actor": "llm",
+          "action": "If onboarding (or a runtime tool) reports that no runtime daemon is installed, fetch the pinned one; the C64 ROMs stay the user's to supply.",
+          "tools": [
+            "runtime_install"
+          ],
+          "persist": [
+            "runtime binary in the cache"
+          ],
+          "askHumanWhen": "the ROMs are missing — they are not distributed"
+        },
+        {
+          "actor": "llm",
           "action": "Ask the user's objective (crack / EasyFlash port / analysis / bugfix / routine) and set role + workflow.",
           "tools": [
             "agent_set_role",
@@ -633,9 +644,11 @@
         },
         {
           "actor": "llm",
-          "action": "Draft annotations; re-run disasm with them (the file is a door into the knowledge graph); record what you concluded.",
+          "action": "Draft annotations, or write them from what you read (segments, labels, routines); when several passes or agents read the same payload, merge their files — contradictions are refused by name and each resolution recorded. Re-run disasm with them (the file is a door into the knowledge graph); record what you concluded.",
           "tools": [
             "propose_annotations",
+            "write_annotations",
+            "merge_annotations",
             "disasm",
             "save_finding",
             "agent_record_step"
@@ -644,6 +657,17 @@
             "annotations",
             "findings"
           ]
+        },
+        {
+          "actor": "llm",
+          "action": "Clear scratch or preview renders (draft1, l1_prop, …) that distort counts, named % and queries — dry run first. A preview that should never reach the graph is disasm with import_graph=false instead.",
+          "tools": [
+            "graph_remove_owner"
+          ],
+          "persist": [
+            "the graph without that owner's rows"
+          ],
+          "askHumanWhen": "the owner is not obviously scratch"
         }
       ],
       "stopConditions": [

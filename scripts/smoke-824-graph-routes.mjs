@@ -44,7 +44,7 @@ try {
   check(await waitTcp(PORT), `workspace HTTP up on :${PORT}`);
 
   const empty = await get(`/api/graph/overview?${pd}`);
-  check(empty.status === 404 && Array.isArray(empty.body?.next) && empty.body.next.includes("analyze_prg"), "no graph yet → 404 with next[] naming the product step");
+  check(empty.status === 404 && Array.isArray(empty.body?.next) && empty.body.next.includes("analyze"), "no graph yet → 404 with next[] naming the product step");
 
   // analyze + seed the fixture ($1000: jsr $1020 ; lda $D011 ; sta $D011 ; jsr $FFD2 ; rts   $1020: rts)
   const image = new Uint8Array(0x40).fill(0xea);
