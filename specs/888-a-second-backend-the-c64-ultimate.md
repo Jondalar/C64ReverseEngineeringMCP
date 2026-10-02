@@ -1,6 +1,6 @@
 # Spec 888 — A second backend: the C64 Ultimate
 
-**Status:** PROPOSED (2026-10-02) — open questions to the 1541U side in §6
+**Status:** PROPOSED (2026-10-02) — spec only; the owner builds later
 **Repos:** C64RE. Inputs come from the 1541ultimate repo (`trxmon.u2a`, the TRX64 core
 bitstream). TRX64 itself is unchanged.
 
@@ -54,6 +54,25 @@ one to the other. DOCTRINE.md is amended in the same change.
   nobody wonders where theirs went.
 - A device with a REST password (`password_protected`) asks for it once in the UI. The
   password is kept for the session only, never written to the project.
+
+### The probe, as the owner put it (2026-10-02)
+
+The ident answer only says "this is an Ultimate 64 II or a C64U". Whether it runs our
+core with the monitor app is decided by **asking the app itself**: open
+`ws://<address>:4312/?av=0` and send `ping`.
+
+- The answer names `runtime_version: "trx64-runtime/2"` and `backend: "c64u"`, so this is
+  our core with `trxmon.u2a` running. The device is offered.
+- Nothing answers on 4312, or the answer is not that: the device is stock, or the app is
+  not running. It is listed greyed out ("C64 Ultimate — no TRX64 monitor on :4312").
+
+This works today, without waiting for the `trx64` ident field. The ident field, once it
+ships, only tells "our core, app not started" apart from "stock core". The ping stays the
+deciding test, and an epoch other than C64RE's is refused by name, as with the daemon.
+
+Seen on 2026-10-02 (read only), at 192.168.242.189: `/v1/info` gives product "C64
+Ultimate", firmware 3.15, fpga 125, core 1.01; UDP 64 answers the same. There is no
+`trx64` field, so this is a stock device. A ping on :4312 was not tried.
 
 ## §4 Choosing
 
@@ -134,6 +153,5 @@ Discovery and the probe; the switch with the C64U backend serving `ping`, `sessi
 So the C64U backend is two connections: REST (media, machine, input, memory, the video
 stream) and the app's WS (the TRX64 methods it implements). The switch routes per method.
 
-**Consequence for "offered only with our core and the app":** until the `trx64` ident
-field ships, no device passes the probe. The REST-only first slice (§5) can be built and
-tested only against an explicitly named host (`c64u:<host>`), not through discovery.
+**Consequence:** the deciding probe is the app's own `ping` on :4312 (§3, "The probe"),
+so discovery does not wait for the `trx64` ident field.
