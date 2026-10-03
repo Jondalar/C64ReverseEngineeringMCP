@@ -110,7 +110,7 @@ if (argv[0] === "graph") {
     process.exitCode = 1;
   });
 } else if (argv[0] === "ui") {
-  // Spec 716 — the workbench, from an installed package. `project_init` writes launcher
+  // Spec 716 — the workbench, from an installed package. The UI starters (`project_launchers`)
   // scripts that used to run `npm run workspace` in the repository; an installed package
   // has no `scripts/`, no `tsconfig.json` and no TypeScript, so the workbench shipped and
   // could not be started. This is the same orchestration the checkout runs, reached from

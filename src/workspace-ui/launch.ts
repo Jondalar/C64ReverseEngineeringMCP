@@ -3,7 +3,7 @@
 // This used to live in `scripts/workspace.mjs`, which `scripts/` keeps out of the npm
 // tarball. Everything it needs — the HTTP server, the project resolver, the daemon
 // resolver, the machine model, `ws` — ships; it was the orchestrator itself that did not,
-// and the launchers `project_init` writes therefore ran `npm run workspace` in a directory
+// and the launchers (then written by `project_init`) therefore ran `npm run workspace` in a directory
 // with no `tsconfig.json`, no `scripts/` and no TypeScript. The workbench shipped and
 // could not be started.
 //
