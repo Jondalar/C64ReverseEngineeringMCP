@@ -1,8 +1,8 @@
 {
   "generated": "scripts/gen-mcp-tool-usecase-matrix.mjs",
   "spec": "727",
-  "total": 297,
-  "defaultCount": 191,
+  "total": 298,
+  "defaultCount": 192,
   "advancedCount": 106,
   "swimlaneLegend": {
     "entry-project-baseline": "onboard, status, media inventory, knowledge",
@@ -2337,6 +2337,25 @@
       "e2eUseCases": [
         "E2E-A",
         "E2E-B"
+      ],
+      "keepDecision": "keep-default",
+      "pathMode": "no-path"
+    },
+    {
+      "name": "project_launchers",
+      "namespace": "project",
+      "sourceFile": "project-knowledge/mcp-tools.ts",
+      "tier": "default",
+      "role": "workflow",
+      "swimlane": "entry-project-baseline",
+      "useWhen": "The human wants to click to start, stop or restart the workbench UI, or a project folder goes to someone on another system: write the starters for that platform (.desktop / .command / .cmd).",
+      "notFor": "Starting the UI yourself — run ./ui.sh start; creating a project — use project_init.",
+      "adjacentTools": [
+        "project_init",
+        "project_status"
+      ],
+      "e2eUseCases": [
+        "E2E-A"
       ],
       "keepDecision": "keep-default",
       "pathMode": "no-path"

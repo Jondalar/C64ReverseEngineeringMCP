@@ -208,8 +208,10 @@ The workbench ships with the package — it is part of the product, not a checko
 extra. It shows the project the MCP server is working in: the artifacts, the graph, the
 live machine.
 
-Inside a session the `project_init` scaffold writes launcher scripts (`ui.sh`, `ui.ps1`)
-into the project directory; run one of those and it opens on `http://localhost:4310`. From
+Inside a session, ask for the UI starters (the `project_launchers` tool) and the project
+directory gets the double-click files for your system (`.desktop` on Linux, `.command` on
+macOS, `.cmd` on Windows) plus `ui.sh` / `ui.ps1`; start one and the UI opens on
+`http://localhost:4310`. `project_init` itself writes none. From
 an installed package they invoke `c64re ui`, which needs no build — the bundle ships. You
 can also run it directly:
 

@@ -7,7 +7,7 @@ import { auditProject, renderProjectAudit } from "./audit.js";
 import { PROJECT_REPAIR_OPERATIONS, repairProject, renderProjectRepair } from "./repair.js";
 import { safeHandler } from "../server-tools/safe-handler.js";
 import { ensureWikiSkeleton } from "./project-wiki.js";
-import { ensureUiLauncher } from "./ui-launcher.js";
+import { ensureUiLaunchers, hostUiPlatform, type UiPlatform } from "./ui-launcher.js";
 import { ensureProjectRules, summariseProjectRules } from "../project-rules/provision.js";
 import { ensureDefaultSteering } from "../server-tools/steering-defaults.js";
 import { ProjectKnowledgeService } from "./service.js";
@@ -121,13 +121,6 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       // read what a session is being told and can override the wording by editing it.
       // Re-synced by `agent_onboard`; a hand-edited rule is never overwritten.
       const projectRules = ensureProjectRules(projectRoot);
-      // Convenience: workspace launchers in the project root to start/restart
-      // the workspace (HTTP UI :4310 + runtime daemon :4312) pointed at this
-      // project — `ui.sh` for macOS/Linux, `ui.ps1` + the ui-start/stop/restart
-      // `.cmd` shims for Windows. Both sets on every platform: a project folder
-      // travels between machines. Idempotent + never clobbers a hand-edited one.
-      const uiLauncher = ensureUiLauncher(projectRoot, options.repoDir);
-      const uiCreated = uiLauncher.files.filter((f) => f.created).map((f) => basename(f.path));
       const workflow = service.initializeWorkflowContract({
         canonicalDocPaths: [
           resolve(options.repoDir, "docs", "workflow.md"),
@@ -165,8 +158,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Wiki scaffolded: ${wikiScaffold.created.length ? wikiScaffold.created.join(", ") : "already present"}`,
         `Steering (extract-first doctrine): ${steeringSeed}`,
         `Harness rules: ${summariseProjectRules(projectRules) ?? "already current"}`,
-        `UI launcher: ${uiCreated.length ? `created ${uiCreated.join(", ")}` : "already present (not overwritten)"}`,
-        `  macOS / Linux: ./ui.sh start|restart|stop|status|logs   ·   Windows: double-click ui-start.cmd / ui-stop.cmd / ui-restart.cmd`,
+        `UI starters for double-click: project_launchers`,
         `Input media sorted: ${mediaSort.sorted.length} file(s)`,
         ...mediaSort.sorted.map((s) => `  ${s.from} → ${s.to} (${s.kind})`),
         ...(mediaSort.skipped.length > 0
@@ -178,6 +170,37 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       ].join("\n"));
     },
 ));
+
+  server.tool(
+    "project_launchers",
+    "Write the double-click UI starters into the project folder for one system: linux = ui.sh + ui-start/stop/restart.desktop, macos = ui.sh + ui-start/stop/restart.command, windows = ui.ps1 + ui-start/stop/restart.cmd. Use when the human wants to click to start, stop or restart the workbench UI (HTTP :4310) instead of typing, or when a project folder goes to someone on another system (name that platform). Not for starting the UI yourself (run ./ui.sh start; it opens no browser without --open) and not for creating a project (use project_init). platform defaults to the system this server runs on. Existing files are kept (hand edits are safe) unless refresh is true, which rewrites this platform's files. Returns: files written, files kept, how to start.",
+    {
+      project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
+      platform: z.enum(["linux", "macos", "windows"]).optional().describe("The system the starters are for. Omitted: the system this MCP server runs on."),
+      refresh: z.boolean().optional().describe("Rewrite this platform's starters even when they exist, e.g. after the project folder moved (a .desktop file holds an absolute path). Default false: only missing files are written."),
+    },
+    safeHandler("project_launchers", async ({ project_dir, platform, refresh }) => {
+      const projectRoot = resolveWorkspaceRoot(options, project_dir);
+      const target: UiPlatform = platform ?? hostUiPlatform();
+      const result = ensureUiLaunchers(projectRoot, options.repoDir, { platform: target, refresh });
+      const written = result.files.filter((f) => f.created).map((f) => basename(f.path));
+      const kept = result.files.filter((f) => !f.created).map((f) => basename(f.path));
+      const how = target === "windows"
+        ? "Double-click ui-start.cmd / ui-stop.cmd / ui-restart.cmd. From a shell: powershell -ExecutionPolicy Bypass -File .\\ui.ps1 start|stop|restart|status|logs (start opens the browser)."
+        : target === "macos"
+          ? "Double-click ui-start.command / ui-stop.command / ui-restart.command (Finder runs them in Terminal; the first time, right-click > Open). From a shell: ./ui.sh start|stop|restart|status|logs [--open]."
+          : "Double-click ui-start.desktop / ui-stop.desktop / ui-restart.desktop (a file manager may ask once to allow launching). From a shell: ./ui.sh start|stop|restart|status|logs [--open].";
+      return textContent([
+        `UI starters for ${target} in ${projectRoot}`,
+        `Written: ${written.length ? written.join(", ") : "(none)"}`,
+        `Kept (already there${refresh ? "" : ", not overwritten; pass refresh to rewrite"}): ${kept.length ? kept.join(", ") : "(none)"}`,
+        how,
+        ...(target === "linux"
+          ? [`The .desktop files hold this absolute path (${projectRoot}), so they should not be committed; after moving the project, regenerate them with refresh.`]
+          : []),
+      ].join("\n"));
+    }),
+  );
 
   server.tool(
     "project_audit",

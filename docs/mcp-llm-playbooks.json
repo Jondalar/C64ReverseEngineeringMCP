@@ -43,6 +43,17 @@
         },
         {
           "actor": "llm",
+          "action": "If the human wants to click to start the UI (or the folder goes to someone on another system), write the starters for that system: .desktop on Linux, .command on macOS, .cmd on Windows.",
+          "tools": [
+            "project_launchers"
+          ],
+          "persist": [
+            "starter files in the project folder"
+          ],
+          "askHumanWhen": "the target system is not the one this server runs on and was not named"
+        },
+        {
+          "actor": "llm",
           "action": "If onboarding (or a runtime tool) reports that no runtime daemon is installed, fetch the pinned one; the C64 ROMs stay the user's to supply.",
           "tools": [
             "runtime_install"

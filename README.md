@@ -141,25 +141,32 @@ One bundle: project knowledge — artifacts, findings, memory maps, media, disas
 and the live runtime view are the same app. The daemon owns the clock, monitor, media and
 traces; browser and MCP are both clients, so a reload never resets a session.
 
-**In the project folder itself**, `project_init` leaves launchers so nobody has to
-remember any of the above:
+**In the project folder itself**, starters so nobody has to remember any of the above.
+`project_init` does not write them; you ask for them, for the system you use: tell the
+assistant "give me the UI starters" (the `project_launchers` tool), or run
+`npm run launchers -- --platform linux|macos|windows` (default: this system).
 
-| | |
-|---|---|
-| macOS / Linux | `./ui.sh start` · `restart` · `stop` · `status` · `logs` · `build-ui` |
-| Windows | double-click **ui-start.cmd** / **ui-stop.cmd** / **ui-restart.cmd**, or `powershell -ExecutionPolicy Bypass -File .\ui.ps1 <action>` |
+| | Double-click | From a shell |
+|---|---|---|
+| Linux | **ui-start.desktop** / **ui-stop.desktop** / **ui-restart.desktop** (start and restart open the browser) | `./ui.sh start` · `restart` · `stop` · `status` · `logs` · `build-ui`; add `--open` to open the browser |
+| macOS | **ui-start.command** / **ui-stop.command** / **ui-restart.command** | the same `./ui.sh` |
+| Windows | **ui-start.cmd** / **ui-stop.cmd** / **ui-restart.cmd** | `powershell -ExecutionPolicy Bypass -File .\ui.ps1 <action>` |
 
-Both sets are written into every project, because a project folder travels between
-machines, and they take the project from their own location so the folder can be copied or
-renamed. What they invoke depends on where they were written: beside an **installed
+Only that system's files are written; naming another platform writes that one's set, for
+a folder you hand to someone else. Existing files are kept, so hand edits survive; refresh
+rewrites them. The `.desktop` files hold the project's absolute path, so do not commit
+them, and refresh them after moving the project. The scripts take the project from their
+own location so the folder can be copied or renamed. What they invoke depends on where they were written: beside an **installed
 package** they call `c64re ui` — nothing at all is baked, because under `npx` the package
 sits in a cache directory that moves. Beside a **checkout** they run the workspace script
 there, and that one path is baked with `C64RE_REPO` overriding it
-(`setx C64RE_REPO "C:\path\to\C64ReverseEngineeringMCP"`). `start` waits for the port
-and then opens the browser. For a project that predates the launchers:
+(`setx C64RE_REPO "C:\path\to\C64ReverseEngineeringMCP"`). On Windows `start` waits
+for the port and then opens the browser; on Linux and macOS `ui.sh` does so with `--open`,
+which the double-click starters pass (a plain `./ui.sh start` opens no window). For a
+project that already exists:
 
 ```bash
-npm run launchers -- --project /path/to/project
+npm run launchers -- --project /path/to/project --platform linux
 ```
 
 Windows, start to finish: [docs/windows-setup.md](docs/windows-setup.md).

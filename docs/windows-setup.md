@@ -44,14 +44,16 @@ out. It is not this repo. Create it, then put `.mcp.json` in it:
 
 Both paths absolute, forward slashes. Start Claude Code **in the project
 folder** and say: *initialise this project with C64RE*. The `project_init` tool
-writes the knowledge scaffold and the launchers.
+writes the knowledge scaffold. Then say: *give me the UI starters for Windows*
+(the `project_launchers` tool), which writes `ui.ps1` and the three `.cmd` files
+into the folder.
 
 Optional, only if you want byte-verification:
 `setx C64RE_KICKASS_JAR "C:\path\to\KickAss.jar"`, then open a new window.
 
 ## 4. Run the workbench
 
-In the project folder, double-click:
+In the project folder, once you have the starters (step 3), double-click:
 
 | | |
 |---|---|

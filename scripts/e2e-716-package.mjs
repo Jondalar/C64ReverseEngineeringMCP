@@ -274,6 +274,9 @@ try {
   writeFileSync(join(proj, "input", "tiny.prg"), Buffer.from([0x00, 0x10, 0xa9, 0x00, 0x8d, 0x20, 0xd0, 0x60]));
 
   await call("agent_onboard", { project_dir: proj });
+  // project_init writes no starters; section 5 checks the ones asked for, per platform.
+  const starters = [await call("project_launchers", { project_dir: proj, platform: "linux" }), await call("project_launchers", { project_dir: proj, platform: "windows" })];
+  check(starters.every((t) => t.startsWith("UI starters for")), "project_launchers works in an installed package", starters.map((t) => t.split("\n")[0]).join(" | ").slice(0, 100));
   const analysed = await call("analyze", { path: "input/tiny.prg" });
   check(!analysed.startsWith("ERROR") && /segment|analysis|\$1000/i.test(analysed),
     "and a tool spawns the pipeline child from node_modules",
@@ -365,7 +368,7 @@ const shim = shimCmd(binName);
 // because it checked that ui/dist was PRESENT. Presence is not function — which is the
 // same lesson the whole spec is built on, applied one layer up.
 //
-// The launchers project_init writes must not say `npm run workspace` in an installed
+// The launchers project_launchers writes must not say `npm run workspace` in an installed
 // package: that is `tsc -p tsconfig.json && node scripts/workspace.mjs`, and a package has
 // none of the three. And the workbench itself must answer on its port.
 console.log("\n5. The workbench, from the installed package");
@@ -373,7 +376,7 @@ console.log("\n5. The workbench, from the installed package");
 {
   const ui = join(proj, "ui.sh");
   const ps1 = join(proj, "ui.ps1");
-  check(existsSync(ui) && existsSync(ps1), "project_init wrote the launchers");
+  check(existsSync(ui) && existsSync(ps1), "project_launchers wrote the launchers");
   if (existsSync(ui)) {
     const body = readFileSync(ui, "utf8");
     check(!/npm run workspace/.test(body),
