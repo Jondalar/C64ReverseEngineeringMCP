@@ -1,4 +1,4 @@
-# Spec 890 — UI starters on request, for the system you name
+# Spec 892 — UI starters on request, for the system you name
 
 **Status:** DONE (2026-10-03)
 **Repo:** C64RE. From issue #34 (Mike, Linux Mint 22).
