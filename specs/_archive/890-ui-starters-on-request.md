@@ -1,6 +1,6 @@
 # Spec 890 — UI starters on request, for the system you name
 
-**Status:** PROPOSED (2026-10-03)
+**Status:** DONE (2026-10-03)
 **Repo:** C64RE. From issue #34 (Mike, Linux Mint 22).
 
 ## §1 What is wrong
@@ -79,3 +79,20 @@ writes them for that system.
 
 App bundles (.app), Windows .lnk with icons, Linux menu entries in
 `~/.local/share/applications`: a double-click in the project folder is what was asked for.
+
+## §5 As built
+
+- `ui-launcher.ts`: `ensureUiLaunchers(projectDir, repoDir, { platform, refresh })`; `.desktop`
+  (chmod 0755, best-effort `gio set ... metadata::trusted true` on a Linux host only) and
+  `.command` writers; `ui.sh` with `--open`. The Windows files are byte-identical to before.
+- `project_launchers` on the default surface (192 default / 298 total tools), matrix row,
+  onboarding playbook step, regenerated inventory. It sits behind the onboarding gate like
+  any other non-init tool. `project_init` writes no starter and names the tool.
+- `npm run launchers -- --platform --refresh`.
+- Tests: `smoke:ui-launcher` 105 pass; `e2e-716-package` 42 pass; probe-tool-surface 19,
+  probe-mcp-llm-playbooks 12, probe-mcp-tool-usecase-matrix 17; `scripts/gate.sh` 88/88.
+  `desktop-file-validate` and `pwsh` are not installed on the build machine: both steps
+  print a SKIP line naming the binary.
+- Found on the way: `ui.sh` `stop` and `is_up` use `lsof -ti:PORT`, which also lists a client
+  connected to the port, so `stop` can kill a process that merely talks to the UI. The smoke
+  probes the port from a child process for that reason. Not changed here.
