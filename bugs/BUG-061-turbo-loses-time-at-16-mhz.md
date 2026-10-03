@@ -415,3 +415,11 @@ device always detects PAL.
   hold" and for `$02A6`.
 - **Regression:** `cia_alarm_check_gate`'s `booted@64` re-recorded, and it alone — the only
   workload that resets; every other digest bit-identical. 350 lib, 92 across seven gates.
+
+## Correction (2026-10-03, TRX64 0.12.2)
+
+The hold is **2^22 = 4,194,304 PHI2 cycles (4.257 s on PAL)**, not ~2.06 s. A reset-anchored
+cycle probe on the device read 4,194,236 / 4,194,166 / 4,194,244 (PAL, and the same on NTSC);
+the 2.06 s above came from TI-based timing, which the hold itself distorts. TRX64's
+`u64_reset_hold` now counts 2^22 PHI2 cycles (Spec 890 D15, archived in TRX64); the "outlasts
+~1.5 s" argument for the KERNAL's PAL/NTSC detector still holds.
