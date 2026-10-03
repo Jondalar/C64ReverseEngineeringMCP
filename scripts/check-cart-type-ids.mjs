@@ -45,11 +45,12 @@ const NAME_ALIASES = new Map([
 ]);
 
 // Ids that are deliberately not mainline. Each must SAY so in its comment, and the
-// identity rule is applied to them in reverse: 61 must NOT be named after the
-// upstream cart that owns the number, and 87 must be absent upstream.
+// identity rule is applied to them in reverse: they must be absent upstream. 87-89 are
+// the private ids TRX64, TRX_CRT_cli, C64RE and TRX64-Ultimate share (2026-10-03).
 const FORK_IDS = new Map([
-  [61, { mustNotBeUpstreamName: true, note: "martinpiper fork — upstream 61 is MAX Basic" }],
-  [87, { mustBeUnallocated: true, note: "private allocation — upstream CARTRIDGE_LAST is 86" }],
+  [87, { mustBeUnallocated: true, note: "private allocation (GMod4) — upstream CARTRIDGE_LAST is 86" }],
+  [88, { mustBeUnallocated: true, note: "private allocation (C64MegaCart) — upstream CARTRIDGE_LAST is 86" }],
+  [89, { mustBeUnallocated: true, note: "private allocation (TwoMegabyter) — upstream CARTRIDGE_LAST is 86" }],
 ]);
 
 const fails = [];
