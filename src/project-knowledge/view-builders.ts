@@ -1310,12 +1310,12 @@ interface CartTypeProfile {
 // was labelled "GMod3", which is wrong in both directions: 71 is BlackBox 9
 // (`cartridge.h:262`) and GMod3 is 62 (`cartridge.h:253`).
 //
-// TWO IDS ARE NOT UNIQUE IN THE WILD, so a `.crt` header alone cannot resolve them:
-//   61 — mainline VICE says MAX Basic (`cartridge.h:252`, `maxbasic.c`). The
-//        martinpiper fork uses it for C64MegaCart, which is what TRX64 implements
-//        and what real images in this corpus carry. Named for the fork here.
-//   87 — unallocated upstream (`CARTRIDGE_LAST` is 86, `cartridge.h:278`). A
-//        private allocation for GMod4, and it collides the day upstream takes 87.
+// PRIVATE IDS above `CARTRIDGE_LAST` (86, `cartridge.h:278`), shared by TRX64,
+// TRX_CRT_cli, C64RE and TRX64-Ultimate since 2026-10-03: 87 = GMod4,
+// 88 = C64MegaCart, 89 = TwoMegabyter (no row: no implementation reads it yet). They
+// collide the day upstream allocates them. C64MegaCart used to be 61, as in the
+// martinpiper fork, but mainline VICE says 61 is MAX Basic (`cartridge.h:252`), and
+// no image with 61 existed in the owner's tree when it moved.
 const CART_TYPE_PROFILES: Record<number, CartTypeProfile> = {
   // ── read-only banked storage ──────────────────────────────────────────────
   // cartridge.h:? — the plain CRT container, no mapper. Geometry comes from the
@@ -1358,9 +1358,6 @@ const CART_TYPE_PROFILES: Record<number, CartTypeProfile> = {
   32: { hardwareTypeName: "EasyFlash",       slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: false, canFlash: true },
   // gmod2.c — AM29F040 flash plus a separate M93C86 serial EEPROM for saves.
   60: { hardwareTypeName: "GMod2",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: true,  isUltimax: false, canFlash: true,  eepromKindHint: "M93C86 (SPI)" },
-  // FORK-ONLY id, see the note above. TRX64 `cart.rs` C64MegaCartMapper: $DE00 bank
-  // bits 0-7 + $DF00 bits 8-13 and mode; programs only in ultimax via $E000.
-  61: { hardwareTypeName: "C64MegaCart",     slotsPerBank: 1, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: true,  canFlash: true },
   // gmod3.c:124,232,241 — 8K GAME by default with an ULTIMAX mode; bank is 11 bits
   // (`value + ((addr & 7) << 8)`), storage is SPI flash of 2/4/8/16 MB (gmod3.c:110).
   62: { hardwareTypeName: "GMod3",           slotsPerBank: 1, bankSize: 0x2000, hasRomh: false, hasEeprom: false, isUltimax: false, canFlash: true,  eepromKindHint: "SPI flash (2-16 MB)" },
@@ -1371,6 +1368,9 @@ const CART_TYPE_PROFILES: Record<number, CartTypeProfile> = {
   // CONTEXTS × two windows = four bank registers, $E000 permanently bank 0 so the
   // cart owns the IRQ/NMI vectors, fake ultimax, SPI flash with 64 KiB erase blocks.
   87: { hardwareTypeName: "GMod4",           slotsPerBank: 2, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: true,  canFlash: true,  eepromKindHint: "SPI flash" },
+  // PRIVATE id, see the note above. TRX64 `cart.rs` C64MegaCartMapper: $DE00 bank
+  // bits 0-7 + $DF00 bits 8-13 and mode; programs only in ultimax via $E000.
+  88: { hardwareTypeName: "C64MegaCart",     slotsPerBank: 1, bankSize: 0x2000, hasRomh: true,  hasEeprom: false, isUltimax: true,  canFlash: true },
 };
 
 function classifyChipSlot(loadAddress: number, isUltimax: boolean): "ROML" | "ROMH" | "ULTIMAX_ROMH" | "OTHER" {
