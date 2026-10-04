@@ -1,6 +1,6 @@
 # Spec 893 — The project you name is the project you get, and every project is in git
 
-**Status:** PROPOSED (2026-10-04)
+**Status:** DONE (2026-10-04)
 **Repo:** C64RE. From issue #35 (Mike, Windows 11).
 
 ## §1 What went wrong
@@ -106,3 +106,56 @@ Two failures, two rules:
 ## §5 Not in this spec
 
 `.mcp.json` generation and checking (issue #36) and the ten items of issue #37.
+
+## §6 As built
+
+**Rule 1.** `resolveProjectDir` takes `explicitDir` (a named `project_dir`) and `hintPath`
+(a file) as separate inputs, plus `fallbackDir` (the sole onboarded project). `ServerToolContext.projectDir`
+takes a `ProjectHint { projectDir?, fileHint? }` and no longer takes a string; all ~100 call sites were
+rewritten to state which of the two they hold (tsc found every one). The named directory wins over the env
+var and is refused when it has no marker; a file hint under an absolute path inside a different project than
+`C64RE_PROJECT_DIR` is refused naming both roots. `resolveWorkspaceRoot` (`project-knowledge/mcp-tools.ts`)
+passes its `project_dir` as `explicitDir`. The onboarding gate and `agent_onboard` resolve through the same
+call with `{ projectDir }`.
+
+Beyond the spec:
+- A file inside the MCP repo itself (samples, fixtures) is not "another project's file": the repo carries a
+  marker but is refused as a project, so the cross-project check ignores it. Found by `e2e-store-concurrency`.
+- A relative file hint is not cross-checked (callers resolve it against the project, so it says nothing about
+  where the file lives).
+- The discipline gate for `trace_store_top_pcs` / `trace_memory_map` resolved its citation against the env
+  project even when the call named `project_dir`; it now gets the named project.
+- The footer wrapper in `server.ts` prints `Project: <resolved root>` for `contract_set`, `project_steering_set`,
+  `write_annotations`, `model_assert`, `model_remove` and every `save_*`, so no writer reports an echoed argument.
+  `contract_set` and `project_steering_set` already printed their resolved path.
+- No environment project and a file hint in no project now falls back to the sole onboarded project (before: an error).
+- Not changed: `src/cli.ts:228` (startup, no named project, env then cwd as before) and
+  `src/workspace-ui/resolve-project-dir.ts` (`--project` already beats the env var).
+
+**Rule 2.** `src/project-knowledge/project-git.ts`. `git` is always the executable, run with the caller's
+`GIT_DIR`-family variables removed (a pre-push hook sets them). `project_init` checks git before anything is
+written, then `git init` + `.gitignore` + commit `c64re: project_init <name>` outside a work tree; inside one it
+touches no git and says which repository. A missing identity keeps the repo with files staged and prints the
+two `git config --global` lines plus the commit command; nothing is configured by the server.
+`agent_onboard` refuses without git before any sweep writes, puts the warning first on a project outside a work
+tree (with the `git -C … init && add -A && commit` command, no git run), and counts uncommitted files under
+`knowledge/` with `-uall`.
+
+`.gitignore` (a marked block, refreshed when ours, untouched when the file is somebody else's): `ui.sh`, `ui.ps1`,
+`ui-*.desktop|command|cmd`, `ui.log`, `.ui.pid` (names from `ui-launcher.ts`), `knowledge/.cache/`,
+`knowledge/graph.sqlite-wal|-shm`, `*.duckdb`, `*.duckdb.wal`, `*.c64retrace` (trace stores),
+`*.lock`, `*.tmp` (JSON-store staging), `*_disasm_rebuild_check.prg`, `.DS_Store`. Media, `knowledge/`, annotations,
+listings and `runtime/dumps` are committed. The launcher scripts `ui.sh`/`ui.ps1` are ignored too, not only the
+`.desktop` files the spec named: both bake absolute paths.
+
+Docs: README, INSTALL, `docs/windows-setup.md` (no spec numbers), the doctrine (§2 and §8 commit rule) and a new
+default steering block "Commit the project", which `agent_onboard` appends once to an existing project's steering.
+
+**Tests.** `scripts/smoke-893-project-dir-and-git.mjs` (`npm run smoke:893`, in `gates.yml`): 34 checks over every
+§4.3 case, a server per case in temp dirs, no daemon. Harness updates for the changed context signature in
+`e2e-833-sandbox`, `e2e-834-headless`, `e2e-834-scene-reel`, `e2e-834-trace-store` (mocks and source-shape assertions;
+no assertion weakened).
+
+**Not done.** Issue #35 is not answered yet: it waits for the push. `project_init` on an existing project that is
+in no repository commits everything in the folder (media included); `.gitignore` is the only filter. PowerShell 5.1
+does not take `&&`, so the onboarding command needs a newer shell or the three commands one by one.
