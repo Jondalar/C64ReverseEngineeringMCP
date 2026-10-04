@@ -422,7 +422,7 @@ export function registerInventorySyncTool(server: McpServer, ctx: ServerToolCont
       project_dir: z.string().optional().describe("Project root directory. Absolute or project-relative; defaults to C64RE_PROJECT_DIR or the active project."),
     },
     safeHandler("project_inventory_sync", async ({ project_dir }: { project_dir?: string }) => {
-      const projectRoot = ctx.projectDir(project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const result = await runProjectInventorySync(service, projectRoot);
       // The full detail goes to a file, always, so the short answer can name it

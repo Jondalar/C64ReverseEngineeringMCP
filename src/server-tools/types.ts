@@ -36,8 +36,19 @@ export interface KnowledgeRegistrationResult {
   failed?: boolean;
 }
 
+/**
+ * What a call tells the resolver about its project. `projectDir` is a project the caller
+ * NAMED (`project_dir`): honoured or refused, never swapped. `fileHint` is a file or
+ * directory the call works on (`prg_path`, `image_path`, ...): it is not a project name
+ * and only decides when no project is named.
+ */
+export interface ProjectHint {
+  projectDir?: string;
+  fileHint?: string;
+}
+
 export interface ServerToolContext {
-  projectDir(hintPath?: string, requireWritable?: boolean): string;
+  projectDir(hint?: ProjectHint, requireWritable?: boolean): string;
   toolsDir(): string;
   readTextFile(path: string, maxBytes?: number): string;
   cliResultToContent(result: { stdout: string; stderr: string; exitCode: number }): ToolTextResult;

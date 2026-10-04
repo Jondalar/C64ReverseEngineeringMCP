@@ -162,6 +162,11 @@ jobs:
       - name: Workspace launchers
         run: npm run smoke:ui-launcher
 
+      # Spec 893 — the project a call names is the project it gets, and a project is in git.
+      # Spawns the MCP over stdio in temp directories; no daemon, no :4312.
+      - name: Named project and git (Spec 893)
+        run: npm run smoke:893
+
       - name: Model router skills and agents
         run: npm run smoke:model-router
 

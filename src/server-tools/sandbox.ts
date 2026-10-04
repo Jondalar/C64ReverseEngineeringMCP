@@ -125,7 +125,7 @@ export function registerSandboxTools(server: McpServer, context: ServerToolConte
         // explicit project_dir, else the first loads[] entry that carries a path,
         // which the tool already resolves against the project root.
         const firstLoadPath = args.loads.map((entry) => entry.prg_path ?? entry.raw_path).find((p) => !!p);
-        const projectHint = args.project_dir ?? firstLoadPath;
+        const projectHint = { projectDir: args.project_dir, fileHint: firstLoadPath };
         // A loads[] made only of hex_bytes carries NO path — and such a run needs
         // no project either: every byte is inline, and a project root is only ever
         // used to resolve a RELATIVE path. So the root is resolved on first use

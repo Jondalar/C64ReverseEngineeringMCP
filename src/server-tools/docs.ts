@@ -39,7 +39,7 @@ export function registerDocTools(server: McpServer, context: ServerToolContext):
       path: z.string().describe("Project-relative path to the .md, e.g. docs/model/A_overlay_model.md"),
     },
     async ({ project_dir, path }) => {
-      const pd = context.projectDir(project_dir, true);
+      const pd = context.projectDir({ projectDir: project_dir }, true);
       try {
         const d = await registerDoc(pd, path);
         return {
@@ -61,7 +61,7 @@ export function registerDocTools(server: McpServer, context: ServerToolContext):
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
     },
     async ({ project_dir }) => {
-      const pd = context.projectDir(project_dir);
+      const pd = context.projectDir({ projectDir: project_dir });
       const r = lintDocs(pd);
       return {
         content: [{ type: "text" as const, text: formatDocLint(r) }],
@@ -95,7 +95,7 @@ export function registerDocTools(server: McpServer, context: ServerToolContext):
       write: z.boolean().default(false).describe("Also write docs/index.md"),
     },
     async ({ project_dir, write }) => {
-      const pd = context.projectDir(project_dir, write);
+      const pd = context.projectDir({ projectDir: project_dir }, write);
       const text = await renderWikiIndex(pd);
       let wrote = "";
       if (write) wrote = `\n\nWritten: ${await writeWikiIndex(pd)}`;

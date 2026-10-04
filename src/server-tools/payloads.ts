@@ -104,7 +104,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       tags: z.array(z.string()).optional(),
     },
     safeHandler("register_payload", async (args) => {
-      const projectRoot = ctx.projectDir(args.project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: args.project_dir });
       const slotGate = await (await import("../slots/gate.js")).checkSlotGate("register_payload", projectRoot);
       if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
       const service = new ProjectKnowledgeService(projectRoot);
@@ -253,7 +253,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       manifest_path: z.string().describe("Path (relative to the project) to the extractor manifest JSON."),
     },
     safeHandler("register_payloads_from_manifest", async (args) => {
-      const projectRoot = ctx.projectDir(args.project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: args.project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const manifestAbs = resolve(projectRoot, args.manifest_path);
       if (!existsSync(manifestAbs)) throw new Error(`manifest_path not found: ${manifestAbs}`);
@@ -334,7 +334,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       min_run_len: z.number().int().positive().optional(),
     },
     safeHandler("validate_extraction", async (args) => {
-      const projectRoot = ctx.projectDir(args.project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: args.project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
 
       const manifestAbs = resolve(projectRoot, args.manifest_path);
@@ -447,7 +447,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       project_dir: z.string().optional(),
     },
     safeHandler("list_loader_models", async (args) => {
-      const service = new ProjectKnowledgeService(ctx.projectDir(args.project_dir));
+      const service = new ProjectKnowledgeService(ctx.projectDir({ projectDir: args.project_dir }));
       const models = service.listLoaderModels();
       if (!models.length) {
         return textContent("No LoaderModels recorded. Register payloads via register_payloads_from_manifest.");
@@ -476,7 +476,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       row_index: z.number().int().nonnegative(),
     },
     safeHandler("link_payload_to_lut_row", async (args) => {
-      const projectRoot = ctx.projectDir(args.project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: args.project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const found = findPayloadEntity(service, args.payload_id);
       if ("refusal" in found) throw new Error(found.refusal);
@@ -506,7 +506,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       asm_artifact_id: z.string(),
     },
     safeHandler("link_payload_to_asm", async (args) => {
-      const projectRoot = ctx.projectDir(args.project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: args.project_dir });
       const slotGate = await (await import("../slots/gate.js")).checkSlotGate("link_payload_to_asm", projectRoot);
       if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
       const service = new ProjectKnowledgeService(projectRoot);
@@ -535,7 +535,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       load_address: z.number().int().min(0).max(0xffff).optional().describe("Override / record the payload's runtime load address if not already set."),
     },
     safeHandler("link_payload_to_runtime", async (args) => {
-      const projectRoot = ctx.projectDir(args.project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: args.project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const found = findPayloadEntity(service, args.payload_id);
       if ("refusal" in found) throw new Error(found.refusal);
@@ -563,7 +563,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       limit: z.number().int().positive().max(500).optional(),
     },
     safeHandler("list_payloads", async (args) => {
-      const projectRoot = ctx.projectDir(args.project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: args.project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const all = listPayloadEntities(service);
       // Spec 867 D2/D3 — an address names its claimants, and the reading decides
@@ -633,7 +633,7 @@ export function registerPayloadTools(server: McpServer, ctx: ServerToolContext):
       dry_run: z.boolean().optional(),
     },
     safeHandler("bulk_create_cart_chunk_payloads", async (args) => {
-      const projectRoot = ctx.projectDir(args.project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: args.project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const cartView = service.buildCartridgeLayoutView().view;
       const existingTags = new Set<string>();

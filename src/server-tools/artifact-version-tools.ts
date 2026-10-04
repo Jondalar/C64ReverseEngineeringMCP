@@ -47,7 +47,7 @@ export function registerArtifactVersionTools(server: McpServer, ctx: ServerToolC
       subject_id: z.string().describe("The subject id — the directory the sources live in plus their shared stem (e.g. 'analysis/disk/wl/02_2.0') — OR an artifact id belonging to the subject. A bare filename resolves when only one subject carries it."),
     },
     safeHandler("list_artifact_versions", async ({ project_dir, subject_id }: { project_dir?: string; subject_id: string }) => {
-      const service = new ProjectKnowledgeService(ctx.projectDir(project_dir));
+      const service = new ProjectKnowledgeService(ctx.projectDir({ projectDir: project_dir }));
       const resolved = resolveSubjectOrAsk(service, subject_id);
       if ("ambiguous" in resolved) return textContent(ambiguousText(subject_id, resolved.ambiguous));
       const subjectId = resolved.subjectId;
@@ -67,7 +67,7 @@ export function registerArtifactVersionTools(server: McpServer, ctx: ServerToolC
       subject_id: z.string().describe("The subject id — the directory the sources live in plus their shared stem (e.g. 'analysis/disk/wl/02_2.0') — OR an artifact id belonging to the subject. A bare filename resolves when only one subject carries it."),
     },
     safeHandler("get_current_artifact", async ({ project_dir, subject_id }: { project_dir?: string; subject_id: string }) => {
-      const service = new ProjectKnowledgeService(ctx.projectDir(project_dir));
+      const service = new ProjectKnowledgeService(ctx.projectDir({ projectDir: project_dir }));
       const resolved = resolveSubjectOrAsk(service, subject_id);
       if ("ambiguous" in resolved) return textContent(ambiguousText(subject_id, resolved.ambiguous));
       const subjectId = resolved.subjectId;
@@ -94,7 +94,7 @@ export function registerArtifactVersionTools(server: McpServer, ctx: ServerToolC
       artifact_id: z.string().describe("The artifact id to make the current best version."),
     },
     safeHandler("set_current_artifact_version", async ({ project_dir, subject_id, artifact_id }: { project_dir?: string; subject_id: string; artifact_id: string }) => {
-      const service = new ProjectKnowledgeService(ctx.projectDir(project_dir));
+      const service = new ProjectKnowledgeService(ctx.projectDir({ projectDir: project_dir }));
       // No ambiguity check here: the artifact id names the file, and the file
       // names its own subject — this call can always be carried out.
       const group = service.setCurrentArtifactVersion(service.resolveSubjectRef(subject_id).subjectId, artifact_id);
@@ -113,7 +113,7 @@ export function registerArtifactVersionTools(server: McpServer, ctx: ServerToolC
       status: z.enum(["stale", "missing"]).optional().describe("'stale' (outdated, default) or 'missing' (no longer on disk)."),
     },
     safeHandler("mark_artifact_version_stale", async ({ project_dir, subject_id, artifact_id, status }: { project_dir?: string; subject_id: string; artifact_id: string; status?: "stale" | "missing" }) => {
-      const service = new ProjectKnowledgeService(ctx.projectDir(project_dir));
+      const service = new ProjectKnowledgeService(ctx.projectDir({ projectDir: project_dir }));
       const artifact = service.getArtifactById(artifact_id);
       const subjectId = artifact ? service.subjectIdOf(artifact) : service.resolveSubjectRef(subject_id).subjectId;
       const group = service.markArtifactVersionStatus(subjectId, artifact_id, status ?? "stale");

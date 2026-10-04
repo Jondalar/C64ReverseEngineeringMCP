@@ -95,7 +95,7 @@ export function registerCostTools(server: McpServer, context: ServerToolContext)
       depth: z.number().int().min(1).max(3).optional().describe("How far upstream to walk (default 3)."),
     },
     safeHandler("change_impact", async ({ project_dir, ref, address_start, address_end, prg_path, trace_path, candidate_cycles, depth }) => {
-      const projectDir = context.projectDir(project_dir ?? prg_path, false);
+      const projectDir = context.projectDir({ projectDir: project_dir, fileHint: prg_path }, false);
       const { Graph } = await import("../knowledge-graph/query.js");
       const { changeImpact, formatImpact } = await import("../cost/impact.js");
 
@@ -149,7 +149,7 @@ export function registerCostTools(server: McpServer, context: ServerToolContext)
         candidate_bytes, candidate_address, candidate_prg_path, candidate_start, candidate_end,
         live_out, decimal_at_entry, listing,
       } = args;
-      const projectDir = (() => { try { return context.projectDir(project_dir ?? prg_path, false); } catch { return process.cwd(); } })();
+      const projectDir = (() => { try { return context.projectDir({ projectDir: project_dir, fileHint: prg_path }, false); } catch { return process.cwd(); } })();
       const abs = (p: string): string => (isAbsolute(p) ? p : resolvePath(projectDir, p));
       const { costOf, compareCost, formatOne, formatComparison } = await import("../cost/code-cost.js");
 
@@ -210,7 +210,7 @@ export function registerCostTools(server: McpServer, context: ServerToolContext)
     },
     safeHandler("trace_cost", async (args) => {
       const { project_dir, trace_path, prg_path, media_path, frames, steps, model, out, cpu, address_start, address_end, budget_seconds, record_after_steps, domains } = args;
-      const projectDir = context.projectDir(project_dir ?? trace_path ?? prg_path ?? media_path, false);
+      const projectDir = context.projectDir({ projectDir: project_dir, fileHint: trace_path ?? prg_path ?? media_path }, false);
       const abs = (p: string): string => (isAbsolute(p) ? p : resolvePath(projectDir, p));
 
       const { evaluateTrace, formatTraceCost } = await import("../cost/trace-cost.js");
@@ -221,7 +221,7 @@ export function registerCostTools(server: McpServer, context: ServerToolContext)
       let storePath: string;
       if (trace_path) {
         const { resolveStorePath } = await import("./trace-store.js");
-        storePath = resolveStorePath(trace_path, context, project_dir ?? trace_path);
+        storePath = resolveStorePath(trace_path, context, { projectDir: project_dir, fileHint: trace_path });
         header.push(`trace_cost: ${storePath}`);
       } else if (prg_path || media_path) {
         const medium = abs((prg_path ?? media_path)!);

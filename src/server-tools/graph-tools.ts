@@ -20,7 +20,7 @@ function reply(formatted: Formatted) {
 }
 
 function withGraph<T>(context: ServerToolContext, projectDir: string | undefined, fn: (graph: Graph) => T): T {
-  const graph = Graph.open(context.projectDir(projectDir, false));
+  const graph = Graph.open(context.projectDir({ projectDir }, false));
   try {
     return fn(graph);
   } finally {
@@ -139,7 +139,7 @@ export function registerGraphTools(server: McpServer, context: ServerToolContext
       dry_run: z.boolean().optional().describe("Count what would be removed and delete nothing (default false)."),
     },
     safeHandler("graph_remove_owner", async ({ project_dir, owner, dry_run }) => {
-      const dir = context.projectDir(project_dir, owner !== undefined && dry_run !== true);
+      const dir = context.projectDir({ projectDir: project_dir }, owner !== undefined && dry_run !== true);
       if (owner === undefined || owner.trim() === "") {
         const owners = listOwners(dir);
         return reply({ text: formatOwners(owners), json: { owners } });

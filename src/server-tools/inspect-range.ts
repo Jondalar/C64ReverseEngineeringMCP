@@ -480,7 +480,7 @@ export function registerInspectRangeTools(server: McpServer, context: ServerTool
     },
     async ({ project_dir, prg_path, analysis_json, start_address, end_address }) => {
       try {
-        const pd = context.projectDir(project_dir ?? prg_path, true);
+        const pd = context.projectDir({ projectDir: project_dir, fileHint: prg_path }, true);
         const prgAbs = resolve(pd, prg_path);
         const analysisAbs = analysis_json ? resolve(pd, analysis_json) : undefined;
         const text = buildReport({

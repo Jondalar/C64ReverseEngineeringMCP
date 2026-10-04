@@ -57,7 +57,7 @@ export function registerProjectSearchTools(server: McpServer, ctx: ServerToolCon
       project_dir: z.string().optional().describe("Project root directory. Absolute or project-relative; defaults to the active project."),
     },
     safeHandler("project_reindex_search", async ({ project_dir }: { project_dir?: string }) => {
-      const dir = ctx.projectDir(project_dir, true);
+      const dir = ctx.projectDir({ projectDir: project_dir }, true);
       const skeleton = ensureWikiSkeleton(dir);
       const index = buildProjectSearchIndex(dir);
       const nowIso = new Date().toISOString();
@@ -95,7 +95,7 @@ export function registerProjectSearchTools(server: McpServer, ctx: ServerToolCon
       full_text: z.boolean().optional().describe("Return each hit's whole summary instead of a clipped snippet. Use when the question is about addresses or parameters — the clip lands at ~200 characters and those usually sit past it."),
     },
     safeHandler("project_search", async (args: { project_dir?: string; query: string; kind?: string; tag?: string; address?: string; artifact_id?: string; entity_id?: string; limit?: number; full_text?: boolean }) => {
-      const dir = ctx.projectDir(args.project_dir);
+      const dir = ctx.projectDir({ projectDir: args.project_dir });
       const fresh = loadFreshIndex(dir);
       const hits = searchIndex(fresh.index, args.query, { kind: args.kind, tag: args.tag, address: args.address, artifactId: args.artifact_id, entityId: args.entity_id }, args.limit ?? 10);
       if (hits.length === 0) {
@@ -122,7 +122,7 @@ export function registerProjectSearchTools(server: McpServer, ctx: ServerToolCon
       limit: z.number().optional().describe("Max items per group (default 8)."),
     },
     safeHandler("project_find_related", async (args: { project_dir?: string; id_or_query: string; limit?: number }) => {
-      const dir = ctx.projectDir(args.project_dir);
+      const dir = ctx.projectDir({ projectDir: args.project_dir });
       const fresh = loadFreshIndex(dir);
       const result = findRelated(fresh.index, args.id_or_query, args.limit ?? 8);
       const seedLabel = "query" in result.seed ? `query "${result.seed.query}"` : `${result.seed.kind} ${result.seed.title} (${result.seed.id})`;
@@ -141,7 +141,7 @@ export function registerProjectSearchTools(server: McpServer, ctx: ServerToolCon
       limit: z.number().optional().describe("Max items per list (default 15)."),
     },
     safeHandler("project_wiki_lint", async (args: { project_dir?: string; limit?: number }) => {
-      const dir = ctx.projectDir(args.project_dir);
+      const dir = ctx.projectDir({ projectDir: args.project_dir });
       const fresh = loadFreshIndex(dir);
       const index = fresh.index;
       const limit = args.limit ?? 15;

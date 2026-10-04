@@ -288,7 +288,7 @@ After relevant knowledge changes, rebuild the affected views with `build_*` tool
 
 At initialization, after context loss, or when entering a new project:
 
-1. Call `agent_onboard` (also returns workflow phases, agent-state, recent artifacts, proposed next actions). Every other tool in this project refuses until you have.
+1. Call `agent_onboard` (also returns workflow phases, agent-state, recent artifacts, proposed next actions). Every other tool in this project refuses until you have. It needs `git` on PATH, and a first line of `PLEASE USE GIT TO AVOID LOSS OF DATA!` means the project is not in a repository: say so to the user and give them the command it prints.
 2. Call `project_status` for counts and paths if more detail needed.
 3. List existing artifacts via `list_project_artifacts`.
 4. Inspect current knowledge:
@@ -658,6 +658,7 @@ Before ending a session or major step:
 7. Rebuild views (`build_all_views` if in doubt).
 8. Create a checkpoint when useful (`project_checkpoint`).
 9. Record the step (`agent_record_step`) with the next action queued. This rewrites `NEXT.md`.
+10. Commit the project (`git add -A && git commit`) after any step that changed `knowledge/` — contract, findings, annotations, steering. The project lives in git because those files are hand-authored and a wrong write over one is only recoverable from history; `agent_onboard` warns when the project is not in a repository and counts the uncommitted files under `knowledge/`. The server cannot commit for you.
 
 The next session must be able to continue from the knowledge store, not from chat history.
 

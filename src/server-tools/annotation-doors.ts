@@ -114,7 +114,7 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
       pointerTables?: unknown[]; jumpTables?: unknown[]; immediates?: unknown[];
       overwrite?: boolean;
     }) => {
-      const pd = context.projectDir(args.project_dir, true);
+      const pd = context.projectDir({ projectDir: args.project_dir }, true);
       const dest = resolveAnnotationsPath(pd, { outputPath: args.output_path, prgPath: args.prg_path });
       if ("refusal" in dest) return text(dest.refusal);
 
@@ -209,7 +209,7 @@ export function registerAnnotationDoors(server: McpServer, context: ServerToolCo
       project_dir?: string; fragments: FragmentInput[]; prg_path?: string; output_path?: string;
       binary?: string; resolutions?: ResolutionInput[]; dry_run?: boolean; overwrite?: boolean;
     }) => {
-      const pd = context.projectDir(args.project_dir, true);
+      const pd = context.projectDir({ projectDir: args.project_dir }, true);
       const dest = resolveAnnotationsPath(pd, { outputPath: args.output_path, prgPath: args.prg_path });
       if ("refusal" in dest) return text(dest.refusal);
       const binary = args.binary

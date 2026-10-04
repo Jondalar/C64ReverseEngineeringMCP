@@ -103,9 +103,11 @@ check(!traceDir.startsWith(`${project}/`), "the 827 trace dir is OUTSIDE the pro
 // the defect this spec is about.
 const hints = [];
 const context = {
-  projectDir: (hintPath, requireWritable = false) => {
-    hints.push(hintPath);
-    return resolveProjectDir({ cwd: process.cwd(), repoDir: ROOT, hintPath, requireWritable });
+  // The context takes the named project and the file hint apart (Spec 893). `hints` records
+  // what the call handed over to name its project: the named dir, else the file.
+  projectDir: (hint = {}, requireWritable = false) => {
+    hints.push(hint.projectDir ?? hint.fileHint);
+    return resolveProjectDir({ cwd: process.cwd(), repoDir: ROOT, explicitDir: hint.projectDir, hintPath: hint.fileHint, requireWritable });
   },
   toolsDir: () => join(ROOT, "pipeline"),
   readTextFile: (p) => p,
@@ -142,28 +144,28 @@ check(/trace store path not found/.test(threw(() => resolveStorePath(join(traceD
 console.log("\n--- B. a relative path resolves against the PROJECT, never the cwd ---");
 
 before = hints.length;
-const relTraceDir = resolveStorePath("live_a.duckdb", context, project);
+const relTraceDir = resolveStorePath("live_a.duckdb", context, { projectDir: project });
 check(relTraceDir === inTraceDir, "a relative name finds the capture in the 827 trace dir", relTraceDir);
 check(relTraceDir !== decoy, "…and NOT the identically-named decoy in the cwd", `decoy=${decoy}`);
 check(hints[hints.length - 1] === project, "the named project_dir is the hint the resolver got", String(hints[hints.length - 1]));
 check(hints.length === before + 1, "one project resolution, not one per candidate");
 
-check(resolveStorePath("traces/mine.duckdb", context, project) === inProject,
+check(resolveStorePath("traces/mine.duckdb", context, { projectDir: project }) === inProject,
   "a store the caller deliberately kept INSIDE the project still resolves");
-check(resolveStorePath("traces", context, project) === dirStore,
+check(resolveStorePath("traces", context, { projectDir: project }) === dirStore,
   "the directory branch works on a relative path too");
-check(resolveStorePath("orphan.duckdb", context, project) === orphan,
+check(resolveStorePath("orphan.duckdb", context, { projectDir: project }) === orphan,
   "the .c64retrace recovery branch works on a relative path too");
 
 // The pointer file is the only thing that knows about `elsewhere`: not under the
 // project, not under the current trace dir. A resolver that composed a plausible
 // path instead of probing a real one cannot answer this.
-const viaPointer = resolveStorePath("faraway.duckdb", context, project);
+const viaPointer = resolveStorePath("faraway.duckdb", context, { projectDir: project });
 check(viaPointer === faraway, "the 827 pointer file is consulted — a capture outside BOTH the project and the current trace dir is found", viaPointer);
 check(viaPointer !== join(neutralCwd, "faraway.duckdb"), "…and not the same-named decoy in the cwd");
 check(!existsSync(join(traceDir, "faraway.duckdb")) && !existsSync(join(project, "faraway.duckdb")),
   "…which is the only way it could have been found: nothing of that name is under the project or the trace dir");
-check(resolveStorePath("run-elsewhere", context, project) === faraway,
+check(resolveStorePath("run-elsewhere", context, { projectDir: project }) === faraway,
   "the pointer also answers the run id that runtime_trace_finalize printed");
 
 // ------------------------------------------------------- C. the removed fallback
@@ -176,7 +178,7 @@ check(/runtime\/traces\.json/.test(noProject ?? ""), "the failure names the 827 
 check((noProject ?? "").includes(process.env.C64RE_TRACE_DIR), "the failure names the trace dir the captures live under");
 check(/project_dir/.test(noProject ?? ""), "…and says what to pass");
 
-const noMatch = threw(() => resolveStorePath("never_captured.duckdb", context, project));
+const noMatch = threw(() => resolveStorePath("never_captured.duckdb", context, { projectDir: project }));
 check((noMatch ?? "").includes(tracePointerPath(project)), "with a project named, the failure names THAT project's pointer file");
 check((noMatch ?? "").includes(traceDir), "…and THAT project's trace dir");
 check((noMatch ?? "").includes(faraway), "…and lists the captures the pointer file knows, so the caller stops guessing");

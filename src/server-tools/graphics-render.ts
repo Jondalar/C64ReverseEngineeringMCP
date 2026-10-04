@@ -150,7 +150,7 @@ export function registerGraphicsRenderTools(server: McpServer, context: ServerTo
       output_path,
     }) => {
       try {
-        const pd = context.projectDir(project_dir ?? input_path, true);
+        const pd = context.projectDir({ projectDir: project_dir, fileHint: input_path }, true);
         const inputAbs = resolve(pd, input_path);
         if (!offset && !address) {
           throw new Error("Provide either offset or address.");
@@ -251,7 +251,7 @@ export function registerGraphicsRenderTools(server: McpServer, context: ServerTo
       run_id,
     }) => {
       try {
-        const pd = context.projectDir(project_dir ?? input_path, true);
+        const pd = context.projectDir({ projectDir: project_dir, fileHint: input_path }, true);
         const inputAbs = resolve(pd, input_path);
         const startAddr = parseAddress(start_address);
         const endAddr = parseAddress(end_address);

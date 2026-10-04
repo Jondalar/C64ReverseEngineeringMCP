@@ -38,7 +38,7 @@ export function registerCriticTools(server: McpServer, context: ServerToolContex
       verdict_only: z.boolean().default(false).describe("Just the ready/not-ready answer and its blockers"),
     },
     async ({ project_dir, min_severity, verdict_only }) => {
-      const pd = context.projectDir(project_dir);
+      const pd = context.projectDir({ projectDir: project_dir });
       const v = await verdict(pd);
 
       if (verdict_only) {

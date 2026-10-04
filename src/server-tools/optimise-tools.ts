@@ -54,7 +54,7 @@ export function registerOptimiseTools(server: McpServer, context: ServerToolCont
         return text(formatRuleTable());
       }
 
-      const projectDir = context.projectDir(project_dir ?? prg_path, false);
+      const projectDir = context.projectDir({ projectDir: project_dir, fileHint: prg_path }, false);
       const abs = (p: string): string => (isAbsolute(p) ? p : resolvePath(projectDir, p));
 
       // ---- the byte source -------------------------------------------------
@@ -121,7 +121,7 @@ export function registerOptimiseTools(server: McpServer, context: ServerToolCont
       let trace = null;
       if (trace_path) {
         const { resolveStorePath } = await import("./trace-store.js");
-        const storePath = resolveStorePath(trace_path, context, project_dir ?? trace_path);
+        const storePath = resolveStorePath(trace_path, context, { projectDir: project_dir, fileHint: trace_path });
         const { evaluateTrace } = await import("../cost/trace-cost.js");
         const { readAnchor, readInstructionRows, readMemRows } = await import("../cost/trace-store-read.js");
         const anchor = await readAnchor(storePath);

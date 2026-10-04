@@ -25,7 +25,7 @@ export function registerBasicTools(server: McpServer, context: ServerToolContext
       json: z.boolean().optional().describe("Return machine-readable JSON (listing + facts) instead of the rendered listing"),
     },
     safeHandler("basic_list", async ({ project_dir, prg_path, json }) => {
-      const pd = context.projectDir(project_dir ?? prg_path, false);
+      const pd = context.projectDir({ projectDir: project_dir, fileHint: prg_path }, false);
       const prgAbs = resolve(pd, prg_path);
       const result = await runCli("basic-list", [prgAbs, ...(json ? ["--json"] : [])], { projectDir: pd });
       return context.cliResultToContent(result);
@@ -42,7 +42,7 @@ export function registerBasicTools(server: McpServer, context: ServerToolContext
       load_address: z.string().optional().describe("Hex load address, e.g. \"0801\" or \"$0801\". Default $0801 (BASIC start)."),
     },
     safeHandler("basic_tokenize", async ({ project_dir, text, output_path, load_address }) => {
-      const pd = context.projectDir(project_dir ?? output_path, true);
+      const pd = context.projectDir({ projectDir: project_dir, fileHint: output_path }, true);
       const outAbs = resolve(pd, output_path);
       // The source is passed as a FILE, never as an argv string: a listing is
       // multi-line and carries quotes, braces and PETSCII control names, none

@@ -49,7 +49,7 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
       bank: z.number().int().min(0).optional().describe("Cartridge bank, for space=crt"),
     },
     async (args) => {
-      const pd = context.projectDir(args.project_dir, true);
+      const pd = context.projectDir({ projectDir: args.project_dir }, true);
       if (args.evidence === undefined || args.evidence.length === 0) {
         return {
           content: [{
@@ -131,7 +131,7 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
       model_only: z.boolean().default(false).describe("Only the boundaries and their edges, without the open/refuted sections"),
     },
     async ({ project_dir, model_only }) => {
-      const pd = context.projectDir(project_dir);
+      const pd = context.projectDir({ projectDir: project_dir });
       if (model_only) {
         const r = await modelReport(pd);
         return { content: [{ type: "text" as const, text: formatModel(r) }] };
@@ -151,7 +151,7 @@ export function registerModelTools(server: McpServer, context: ServerToolContext
       id: z.string().min(3).describe("The boundary id, as model_read prints it"),
     },
     async ({ project_dir, id }) => {
-      const pd = context.projectDir(project_dir, true);
+      const pd = context.projectDir({ projectDir: project_dir }, true);
       const before = (await listBoundaries(pd)).length;
       const gone = await removeBoundary(pd, id);
       const after = await modelReport(pd);

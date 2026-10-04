@@ -96,9 +96,11 @@ check(process.env.C64RE_PROJECT_DIR === undefined, "C64RE_PROJECT_DIR is not set
 // the hint every call was made with. A hint of `undefined` IS the defect.
 const hints = [];
 const context = {
-  projectDir: (hintPath, requireWritable = false) => {
-    hints.push(hintPath);
-    return resolveProjectDir({ cwd: process.cwd(), repoDir: ROOT, hintPath, requireWritable });
+  // The context takes the named project and the file hint apart (Spec 893). `hints` records
+  // what the call handed over to name its project: the named dir, else the file.
+  projectDir: (hint = {}, requireWritable = false) => {
+    hints.push(hint.projectDir ?? hint.fileHint);
+    return resolveProjectDir({ cwd: process.cwd(), repoDir: ROOT, explicitDir: hint.projectDir, hintPath: hint.fileHint, requireWritable });
   },
   toolsDir: () => join(ROOT, "pipeline"),
   readTextFile: (p) => p,
@@ -240,8 +242,8 @@ async function callReel(args) {
   // the spec's gate and not only by the file-granular sweep.
   check(!code.some((l) => /\.projectDir\(\s*(\)|undefined)/.test(l)),
     "10 scene-reel.ts contains no hintless projectDir call at all — the gate is file-granular");
-  check(/projectDir\(project_dir \?\? feature_path \?\? media_path \?\? out_path\)/.test(src),
-    "10b it resolves `project_dir ?? feature_path ?? media_path ?? out_path`, the D1 shape");
+  check(/projectDir\(\{ projectDir: project_dir, fileHint: feature_path \?\? media_path \?\? out_path \}\)/.test(src),
+    "10b it resolves { projectDir: project_dir, fileHint: feature_path ?? media_path ?? out_path }, the D1 shape");
   check(/OUTPUT/.test(src) && /circular/.test(src),
     "10c and a comment says why the output path is last");
 }

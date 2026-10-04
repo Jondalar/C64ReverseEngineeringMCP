@@ -14,6 +14,9 @@ import { INVENTORY_PATTERNS_FILE } from "../project-knowledge/inventory-patterns
 import type { ServerToolContext } from "./types.js";
 import { ensureDefaultSteering } from "./steering-defaults.js";
 import { markOnboarded } from "./onboarding-gate.js";
+import {
+  GIT_WARNING_LINE, gitAdoptCommand, gitAvailable, noGitRefusal, uncommittedKnowledgeFiles, workTreeRoot,
+} from "../project-knowledge/project-git.js";
 
 const AGENT_STATE_SCHEMA_VERSION = 1;
 
@@ -380,12 +383,29 @@ function recentArtifactSummary(service: ProjectKnowledgeService, projectRoot: st
 export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolContext): void {
   server.tool(
     "agent_onboard",
-    "Reload the full project state into the session. Use when a session starts or after context loss/compaction — run it FIRST. Not for per-turn checks (use c64re_whats_next) or choosing among options (use agent_propose_next). Inputs: none. Returns: project metadata, workflow phases, agent role/state, recent artifacts, open tasks + questions, and the proposed next action.",
+    "Reload the full project state into the session. Use when a session starts or after context loss/compaction — run it FIRST. Not for per-turn checks (use c64re_whats_next) or choosing among options (use agent_propose_next). Inputs: project_dir (optional; a named project wins over C64RE_PROJECT_DIR). Needs git on PATH (refused otherwise); a project outside a git work tree is onboarded with PLEASE USE GIT TO AVOID LOSS OF DATA! as the first line. Returns: project metadata, workflow phases, agent role/state, recent artifacts, open tasks + questions, and the proposed next action.",
     {
-      project_dir: z.string().optional().describe("Project root. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
+      project_dir: z.string().optional().describe("Project root. Wins over C64RE_PROJECT_DIR when given; omitted, C64RE_PROJECT_DIR, then the project this session onboarded into, then process.cwd()."),
     },
     async ({ project_dir }) => {
-      const projectRoot = ctx.projectDir(project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: project_dir });
+      // A session that cannot keep history does not start writing: refused before the
+      // sweeps below touch the project. A project outside a work tree is onboarded, with
+      // the warning as the FIRST line — onboarding never runs git on the user's files.
+      if (!gitAvailable()) return textContent(noGitRefusal("agent_onboard"));
+      const gitHead: string[] = [];
+      let gitNote: string | undefined;
+      if (!workTreeRoot(projectRoot)) {
+        gitHead.push(
+          GIT_WARNING_LINE,
+          `This project is not in a git repository, so one wrong write over knowledge/ cannot be undone. Run: ${gitAdoptCommand(projectRoot)}`,
+          `(project_init on this directory does the same and also writes a .gitignore for the regenerable output.)`,
+          ``,
+        );
+      } else {
+        const dirty = uncommittedKnowledgeFiles(projectRoot);
+        if (dirty > 0) gitNote = `Git: ${dirty} file(s) under knowledge/ are not committed — commit the project after a step that changed knowledge/.`;
+      }
       const service = new ProjectKnowledgeService(projectRoot);
       // Bug 16 / Spec 022: auto-import analysis runs whose entities are
       // not yet back-linked, so the audit no longer warns about them.
@@ -401,8 +421,9 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       const auditState = summarizeAuditState(audit);
       const proposals = proposeNextActions(service, state, projectRoot, audit);
 
-      const lines: string[] = [];
+      const lines: string[] = [...gitHead];
       lines.push(`# Agent Onboarding`);
+      if (gitNote) lines.push(gitNote);
       // Spec 748 (BUG-032) — PROJECT STEERING, injected FIRST + verbatim (the Kiro
       // "steering file" analogue: project-scoped, always-in-context rules the agent
       // must apply every session). Lives at <project>/knowledge/steering.md; written
@@ -643,7 +664,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       append: z.boolean().optional().describe("Append to the existing steering instead of replacing (default false)."),
     },
     async ({ project_dir, rules, append }) => {
-      const projectRoot = ctx.projectDir(project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: project_dir });
       const path = join(projectRoot, "knowledge", "steering.md");
       mkdirSync(dirname(path), { recursive: true });
       let content = rules.trim() + "\n";
@@ -669,7 +690,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       constraints: z.array(z.string()).optional().describe("Optional list of constraints active for this role/session"),
     },
     async ({ project_dir, role, focus, constraints }) => {
-      const projectRoot = ctx.projectDir(project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const project = service.getProjectStatus().project;
       const prev = loadAgentState(projectRoot);
@@ -705,7 +726,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       constraints: z.array(z.string()).optional().describe("Optional replacement for the constraints list"),
     },
     async ({ project_dir, step, next_action, note, role, focus, constraints }) => {
-      const projectRoot = ctx.projectDir(project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: project_dir });
       // Spec 877 D1 — a step that says a phase is CLOSED is a delivery claim. A step that
       // says what was done is not, and is recorded as always: this door is how a session
       // persists what it learned, and a gate that eats those records would destroy the
@@ -782,7 +803,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       context: z.string().optional(),
     },
     async ({ project_dir }) => {
-      const projectRoot = ctx.projectDir(project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: project_dir });
       // Spec 045 self-documenting: refuse politely if not onboarded.
       const { isProjectInitialised, nextStepError } = await import("./error-helpers.js");
       if (!isProjectInitialised(projectRoot)) {
@@ -873,7 +894,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       force: z.boolean().optional(),
     },
     async ({ project_dir, workflow, force }) => {
-      const projectRoot = ctx.projectDir(project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const profile = service.getProjectProfile();
       if (profile?.workflow && !force) {
@@ -906,7 +927,7 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       project_dir: z.string().optional(),
     },
     async ({ project_dir }) => {
-      const projectRoot = ctx.projectDir(project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const state = loadAgentState(projectRoot);
       const cached = auditProjectCached(projectRoot, { includeFileScan: true, registrationSampleLimit: 5 });

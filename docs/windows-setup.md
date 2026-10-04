@@ -8,7 +8,7 @@ Paths below use forward slashes: they work on Windows and they survive JSON.
 | | |
 |---|---|
 | **Node.js 22 or newer** | required — C64RE uses `node:sqlite`, which older Node does not have |
-| **Git** | to clone and to pull updates |
+| **Git** | required — to clone and update, and because every project lives in a git repository: `project_init` and `agent_onboard` refuse to run without it |
 | TRX64 daemon (`trx64-daemon.exe`) | optional — needed only for the live runtime, tracing and screenshots. Static reverse engineering works without it |
 | Java + `KickAss.jar` | optional — needed only to rebuild a disassembly byte-for-byte |
 
@@ -44,7 +44,12 @@ out. It is not this repo. Create it, then put `.mcp.json` in it:
 
 Both paths absolute, forward slashes. Start Claude Code **in the project
 folder** and say: *initialise this project with C64RE*. The `project_init` tool
-writes the knowledge scaffold. Then say: *give me the UI starters for Windows*
+writes the knowledge scaffold, runs `git init` in the folder (unless it already sits
+inside a repository), writes a `.gitignore` and commits the scaffold. The project keeps
+contracts and findings that took hours to write; git history is what brings one back
+after a wrong write. If git reports that it does not know who you are, run
+`git config --global user.name "Your Name"` and `git config --global user.email "you@example.com"`
+and commit again. Then say: *give me the UI starters for Windows*
 (the `project_launchers` tool), which writes `ui.ps1` and the three `.cmd` files
 into the folder.
 

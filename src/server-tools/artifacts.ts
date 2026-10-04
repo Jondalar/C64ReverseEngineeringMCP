@@ -13,7 +13,7 @@ export function registerArtifactTools(server: McpServer, context: ServerToolCont
       path: z.string().describe("Path to the artifact (relative to project dir or absolute)"),
     },
     async ({ path: filePath }) => {
-      const pd = context.projectDir(filePath);
+      const pd = context.projectDir({ fileHint: filePath });
       const absPath = resolve(pd, filePath);
       const text = context.readTextFile(absPath, 10 * 1024 * 1024);
 
@@ -37,7 +37,7 @@ export function registerArtifactTools(server: McpServer, context: ServerToolCont
       subdir: z.string().optional().describe("Subdirectory to list (default: analysis)"),
     },
     async ({ subdir }) => {
-      const pd = context.projectDir(subdir);
+      const pd = context.projectDir({ fileHint: subdir });
       const dir = resolve(pd, subdir ?? "analysis");
       if (!existsSync(dir)) {
         return { content: [{ type: "text" as const, text: `[directory not found: ${dir}]` }] };

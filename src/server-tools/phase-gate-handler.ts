@@ -8,12 +8,13 @@
 
 import { resolve } from "node:path";
 import { hasProjectMarker } from "../project-root.js";
+import type { ProjectHint } from "./types.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 import { isToolAllowedInPhase, PHASE_TITLES, type PhaseNumber } from "../agent-orchestrator/phase-tools.js";
 import { isPayloadEntity } from "../project-knowledge/payload-kinds.js";
 
 export interface PhaseGateContext {
-  projectDir: (hint?: string, requireWritable?: boolean) => string;
+  projectDir: (hint?: ProjectHint, requireWritable?: boolean) => string;
 }
 
 type ToolTextResult = { content: Array<{ type: "text"; text: string }>; [key: string]: unknown };
@@ -94,11 +95,11 @@ export function phaseGatedHandler<TArgs, TResult extends { content: unknown[] }>
     try {
       // Resolve project root from args. Best-effort; fall through if
       // we can't establish context.
-      const projectDirHint = (args && typeof args === "object")
-        ? ((args as Record<string, unknown>).project_dir as string | undefined)
-          ?? ((args as Record<string, unknown>).prg_path as string | undefined)
-        : undefined;
-      const projectDir = ctx.projectDir(projectDirHint);
+      const rec = (args && typeof args === "object") ? args as Record<string, unknown> : {};
+      const projectDir = ctx.projectDir({
+        projectDir: rec.project_dir as string | undefined,
+        fileHint: rec.prg_path as string | undefined,
+      });
       if (!isProjectInitialised(projectDir)) {
         return await inner(args, extra);
       }

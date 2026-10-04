@@ -8,7 +8,7 @@ import { basename, resolve as resolvePath, isAbsolute } from "node:path";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import type { ServerToolContext } from "./types.js";
+import type { ProjectHint, ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 import { traceStoreFn } from "./trace-read.js";
 import { buildMemoryMapText } from "./trace-memory-map.js";
@@ -52,8 +52,9 @@ type QueryRow = unknown[];
 // Spec 834 D1/D2 — the hint, and the end of the cwd fallback. This resolver used
 // to ask `context.projectDir(undefined, false)` (nothing to walk up from) and
 // then fall back to `resolvePath(process.cwd(), input)`. Both are gone:
-//   D1  each of the seven readers passes `project_dir ?? path`, the same shape
-//       as `disk-g64.ts` and the Spec 833 sandbox tools.
+//   D1  each of the seven readers passes its `project_dir` and its `path` as
+//       separate hints (a named project is honoured, a path only helps when none is named),
+//       the same shape as `disk-g64.ts` and the Spec 833 sandbox tools.
 //   D2  a relative path resolves against the project the caller named — and
 //       Spec 827 moved a capture OUT of the project, so "against the project"
 //       means three real places, tried in order and each PROBED for a store that
@@ -118,10 +119,10 @@ function pointerMatch(entry: TracePointer, input: string): string | undefined {
   return undefined;
 }
 
-function resolveRelativeStore(input: string, context: ServerToolContext, projectHint?: string): string {
+function resolveRelativeStore(input: string, context: ServerToolContext, projectHint?: ProjectHint): string {
   let proj: string;
   try {
-    proj = context.projectDir(projectHint ?? input, false);
+    proj = context.projectDir({ projectDir: projectHint?.projectDir, fileHint: projectHint?.fileHint ?? input }, false);
   } catch (error) {
     throw new Error([
       `trace store path "${input}" is relative and no project could be resolved, so there is nothing to resolve it against.`,
@@ -166,10 +167,10 @@ function resolveRelativeStore(input: string, context: ServerToolContext, project
 /**
  * Resolve a store argument to the path a reader should open.
  *
- * @param projectHint Spec 834 D1 — `project_dir ?? <the tool's own store path>`.
+ * @param projectHint Spec 834 D1 — the caller's `project_dir` and the tool's own store path, kept apart.
  *                    Consulted only when `input` is relative.
  */
-export function resolveStorePath(input: string, context: ServerToolContext, projectHint?: string): string {
+export function resolveStorePath(input: string, context: ServerToolContext, projectHint?: ProjectHint): string {
   if (!isAbsolute(input)) return resolveRelativeStore(input, context, projectHint);
   // The flow that actually runs: absolute in, absolute out, no project consulted.
   const abs = resolvePath(input);
@@ -200,7 +201,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
       path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
     },
     safeHandler("trace_store_info", async ({ project_dir, path }) => {
-      const dbPath = resolveStorePath(path, context, project_dir ?? path);
+      const dbPath = resolveStorePath(path, context, { projectDir: project_dir, fileHint: path });
       const info = await traceStoreFn<StoreInfo>("getInfo", dbPath);
       const lines = [`trace_store_info: ${dbPath}`, ``, `meta:`];
       for (const [k, v] of Object.entries(info.meta)) lines.push(`  ${k} = ${v}`);
@@ -221,7 +222,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
       path: z.string().describe("Path to trace.duckdb or its parent directory. Absolute is the normal case (Spec 827 keeps a capture outside the project). A relative name is looked up under the project, then the project's per-user trace dir, then its runtime/traces.json pointer file — never against the process cwd."),
     },
     safeHandler("trace_store_anchor_list", async ({ project_dir, path }) => {
-      const dbPath = resolveStorePath(path, context, project_dir ?? path);
+      const dbPath = resolveStorePath(path, context, { projectDir: project_dir, fileHint: path });
       const rows = await traceStoreFn<AnchorRow[]>("listAnchors", dbPath);
       const lines = [`anchors (${rows.length}):`, ``];
       lines.push(`name\tcpu\tpc\toccurrences\tfirst_clock\tlast_clock`);
@@ -242,7 +243,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
       limit: z.number().int().positive().max(10000).optional().describe("Max occurrences to return (default 200)."),
     },
     safeHandler("trace_store_anchor_find", async ({ project_dir, path, name, limit }) => {
-      const dbPath = resolveStorePath(path, context, project_dir ?? path);
+      const dbPath = resolveStorePath(path, context, { projectDir: project_dir, fileHint: path });
       const rows = await traceStoreFn<AnchorOccurrenceRow[]>("findAnchor", dbPath, { name, limit: limit ?? 200 });
       const lines = [`occurrences of '${name}' (${rows.length}):`, ``];
       lines.push(`occ\tpc\tclock\tseq`);
@@ -263,9 +264,9 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     },
     safeHandler("trace_store_top_pcs", async ({ project_dir, path, cpu, limit, hypothesis }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
-      const gate = await checkRuntimeDiscipline(hypothesis, { tool: "trace_store_top_pcs", act: "ranking the hottest PCs (statistics)" });
+      const gate = await checkRuntimeDiscipline(hypothesis, { tool: "trace_store_top_pcs", act: "ranking the hottest PCs (statistics)", projectDir: project_dir ? context.projectDir({ projectDir: project_dir }) : undefined });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
-      const dbPath = resolveStorePath(path, context, project_dir ?? path);
+      const dbPath = resolveStorePath(path, context, { projectDir: project_dir, fileHint: path });
       const rows = await traceStoreFn<TopPcRow[]>("topPcs", dbPath, { cpu, limit: limit ?? 20 });
       const lines = [`top ${rows.length} PCs for cpu=${cpu}:`, ``];
       for (const r of rows) lines.push(`${fmtHex(r.pc)}\t${r.count}`);
@@ -283,7 +284,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
       limit: z.number().int().positive().max(10000).optional().describe("Max rows (default 100)."),
     },
     safeHandler("trace_store_bus_find", async ({ project_dir, path, addr, limit }) => {
-      const dbPath = resolveStorePath(path, context, project_dir ?? path);
+      const dbPath = resolveStorePath(path, context, { projectDir: project_dir, fileHint: path });
       const cleaned = String(addr).trim().replace(/^\$/, "").replace(/^0x/i, "");
       let n: number;
       if (/^[0-9a-fA-F]+$/.test(cleaned) && (cleaned.length > 1 || /[a-fA-F]/.test(cleaned))) {
@@ -310,7 +311,7 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
       limit: z.number().int().positive().max(2000).optional().describe("Max rows returned (default 200)."),
     },
     safeHandler("trace_store_query", async ({ project_dir, path, sql, limit }) => {
-      const dbPath = resolveStorePath(path, context, project_dir ?? path);
+      const dbPath = resolveStorePath(path, context, { projectDir: project_dir, fileHint: path });
       const rows = await traceStoreFn<QueryRow[]>("safeQuery", dbPath, { sql, limit: limit ?? 200 });
       const lines = [`query (${rows.length} rows):`, ``];
       for (const r of rows) {
@@ -341,9 +342,9 @@ export function registerTraceStoreTools(server: McpServer, context: ServerToolCo
     },
     safeHandler("trace_memory_map", async ({ project_dir, path, cpu, static_ranges, run_label, hypothesis }) => {
       const { checkRuntimeDiscipline } = await import("./discipline-gate.js");
-      const gate = await checkRuntimeDiscipline(hypothesis, { tool: "trace_memory_map", act: "reconstructing a per-page RAM map" });
+      const gate = await checkRuntimeDiscipline(hypothesis, { tool: "trace_memory_map", act: "reconstructing a per-page RAM map", projectDir: project_dir ? context.projectDir({ projectDir: project_dir }) : undefined });
       if (!gate.allowed) return { content: [{ type: "text" as const, text: gate.refusal! }] };
-      const dbPath = resolveStorePath(path, context, project_dir ?? path);
+      const dbPath = resolveStorePath(path, context, { projectDir: project_dir, fileHint: path });
       // Spec 802 — the two SQL passes run inside the runtime (`store_fn`/`safeQuery`,
       // which self-heals an orphaned `.c64retrace` via its own bounded index-ensure —
       // the old BUG-035 caller-side ensureTraceIndex is no longer needed). Only the

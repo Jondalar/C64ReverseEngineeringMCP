@@ -5,7 +5,7 @@ import { z } from "zod";
 // Spec 806 step 2: the trace-query / trace-index imports were already unused here —
 // they were the last static edges from this file into the TS emulator, and they go
 // with the in-process branches below.
-import type { ServerToolContext } from "./types.js";
+import type { ProjectHint, ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 import { describeIdleExit } from "../runtime/idle-exit.js";
 
@@ -37,9 +37,9 @@ function formatHexByte(value: number): string {
 // cwd happening to sit inside a project. Every headless call site carried a path
 // all along — media_path, prg_path, capture_path, the file it is about to write —
 // and threw it away, so the tool worked quietly against the wrong project or none.
-function resolveHeadlessProjectDir(context: ServerToolContext, hintPath: string | undefined): string {
+function resolveHeadlessProjectDir(context: ServerToolContext, hint: ProjectHint): string {
   // Spec 723.4b: no longer consults the standalone HeadlessSessionManager.
-  return context.projectDir(hintPath, true);
+  return context.projectDir(hint, true);
 }
 
 // Spec 723.4b: headlessSessionToContent + headlessRunResultToContent removed —
@@ -144,7 +144,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // defect, so where the answer is not needed the question is not put.
       const mcpProject = projectHint === undefined
         ? undefined
-        : resolveHeadlessProjectDir(context, projectHint);
+        : resolveHeadlessProjectDir(context, { projectDir: project_dir, fileHint: mediaIn ?? trace_out });
       const { resolveTraceOut } = await import("./runtime-trace-sink.js");
       // Resolve to ABSOLUTE the same way the trace path is (absolute as-is, else
       // under the MCP's project). NOTE: context.projectDir() returns the project
@@ -323,13 +323,13 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         // the same rule: hand it the path the call carries. With no `output` — the Spec
         // 827 default, where the capture goes to the per-user trace directory — this
         // call genuinely has no path, and it resolves as it did before.
-        const proj = (() => { try { return resolveHeadlessProjectDir(context, output); } catch { return undefined; } })();
+        const proj = (() => { try { return resolveHeadlessProjectDir(context, { fileHint: output }); } catch { return undefined; } })();
         const { checkSubstrateDiscipline } = await import("./substrate-gate.js");
         const sub = await checkSubstrateDiscipline(proj, { tool: "runtime_trace_start (drive-mechanism / loader-lens capture)" });
         if (!sub.allowed) return { content: [{ type: "text" as const, text: sub.refusal! }] };
       }
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
-      const proj = (() => { try { return resolveHeadlessProjectDir(context, output); } catch { return undefined; } })();
+      const proj = (() => { try { return resolveHeadlessProjectDir(context, { fileHint: output }); } catch { return undefined; } })();
       // Spec 827 — a capture defaults OUTSIDE the project: 20 GB of index and log
       // in one project measured on 2026-09-06, in the very tree a user syncs. An
       // explicit `output` is still obeyed exactly as before; it only gets a warning
@@ -444,7 +444,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Spec 834 D1 — the hint is the capture this call is about to read. D3 — the
       // catch is gone; it mattered most here, because the substrate gate two lines
       // down is handed this root and with `undefined` it had no medium to check.
-      const proj = resolveHeadlessProjectDir(context, project_dir ?? capture_path);
+      const proj = resolveHeadlessProjectDir(context, { projectDir: project_dir, fileHint: capture_path });
       // Tier 2 substrate gate — the landing map is payload-extraction-from-medium: if the
       // medium is standard-GCR the payload is a static depack, not a runtime job (the Cybernoid block).
       const { checkSubstrateDiscipline } = await import("./substrate-gate.js");
@@ -527,7 +527,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         const id = machineIdentity(st);
         machineLine = `Machine: ${describeMachine(id)}`;
         let wantDir: string | undefined;
-        try { wantDir = context.projectDir(project_dir, true); } catch { wantDir = undefined; }
+        try { wantDir = context.projectDir({ projectDir: project_dir }, true); } catch { wantDir = undefined; }
         const want = projectMachineModel(wantDir);
         if (want && want !== id.model) {
           machineLine += `\n  This project is ${want} (knowledge/project.json). The machine is not moved by a status call — ` +
@@ -555,7 +555,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // where that is decided.
       let projectLine: string;
       let here: string | undefined;
-      try { here = context.projectDir(project_dir, true); } catch { here = undefined; }
+      try { here = context.projectDir({ projectDir: project_dir }, true); } catch { here = undefined; }
       if (!here) {
         projectLine = "Project: not checked — no project resolved for this call";
       } else {
@@ -649,7 +649,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // Spec 834 D1/D3 — the hint is the PRG this call is about to inject, and a
       // project that cannot be found is reported instead of being replaced by the
       // process cwd (which is how one relative prg_path could reach two different files).
-      const mcpProject = resolveHeadlessProjectDir(context, project_dir ?? prg_path);
+      const mcpProject = resolveHeadlessProjectDir(context, { projectDir: project_dir, fileHint: prg_path });
       const absPrg = resolve(mcpProject, prg_path);
       const r = await runtimeDaemon.loadPrg<{ loadAddress: number; endAddress: number; bytesLoaded: number }>(session_id, absPrg, addr);
       return { content: [{ type: "text" as const, text: [
@@ -678,7 +678,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
       const entry = run ? parseHexWord(run) : undefined;
       // Spec 834 D1/D3 — same as runtime_load_prg: hint from prg_path, failure visible.
-      const mcpProject = resolveHeadlessProjectDir(context, project_dir ?? prg_path);
+      const mcpProject = resolveHeadlessProjectDir(context, { projectDir: project_dir, fileHint: prg_path });
       const abs = resolve(mcpProject, prg_path);
       // The shared backend macro (runtime/run_prg) — same path the UI .prg-drop
       // uses: loadPrgBytes (sets BASIC VARTAB) + autostart (BASIC RUN / g entry).
@@ -845,7 +845,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // standing. The hint is the output path itself (or the project the caller named),
       // and the PNG is written under the resolved root. D3 — no catch: an unfindable
       // project is reported rather than replaced by the cwd.
-      const proj = resolveHeadlessProjectDir(context, project_dir ?? path);
+      const proj = resolveHeadlessProjectDir(context, { projectDir: project_dir, fileHint: path });
       const outPath = isAbsolute(path) ? path : resolve(proj, path);
       // Spec 744.4c — render the shared Runtime Daemon session's screen. The daemon
       // returns a base64 PNG (same frame the UI sees); write it to the requested path.
@@ -966,7 +966,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // project. Same rule runtime_session_start states for its medium — the MCP
       // resolves against its own project and hands the daemon an absolute path. D3 — a
       // project that cannot be found is reported, not silently substituted.
-      const proj = resolveHeadlessProjectDir(context, project_dir ?? path);
+      const proj = resolveHeadlessProjectDir(context, { projectDir: project_dir, fileHint: path });
       const outPath = isAbsolute(path) ? path : resolve(proj, path);
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
       const r = await runtimeDaemon.recorderDump(session_id, seq, outPath);

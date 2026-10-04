@@ -106,6 +106,11 @@ npx -y @trex64/c64re          # the server
 npx @trex64/c64re runtime install   # the machine it drives
 ```
 
+A project lives in a git repository — `project_init` creates one for a new project and the
+tools refuse to run without `git` on `PATH` — because the contract, findings and
+annotations in it are hand-written and history is the only way back from a wrong write.
+Commit the project after a step that changed `knowledge/`.
+
 Then point your harness at it and give it a project directory:
 
 ```json

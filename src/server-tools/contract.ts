@@ -34,7 +34,7 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
       project_dir: z.string().optional().describe("Project directory (default: the current project)"),
     },
     async ({ project_dir }) => {
-      const pd = context.projectDir(project_dir);
+      const pd = context.projectDir({ projectDir: project_dir });
       const { contract, present } = loadContract(pd);
       const lines = [formatContract(contract, present)];
       // Spec 877 D2 — a waiver nobody can see from outside is not a record. It prints
@@ -78,7 +78,7 @@ export function registerContractTools(server: McpServer, context: ServerToolCont
       waived_by: z.string().optional().describe("Who is overruling. Required with waive, recorded verbatim, never defaulted — this is a human's decision and the server cannot tell a human's call from a run's."),
     },
     async (a) => {
-      const pd = context.projectDir(a.project_dir, true);
+      const pd = context.projectDir({ projectDir: a.project_dir }, true);
 
       // Spec 877 D2. A waiver is its own act: it must not be able to arrive as a side
       // effect of rewriting the contract, and a call that only waives does not need a

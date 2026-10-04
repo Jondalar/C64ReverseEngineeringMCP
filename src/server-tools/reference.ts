@@ -129,7 +129,7 @@ export function registerReferenceTools(server: McpServer, context: ServerToolCon
     },
     async ({ output_path }) => {
       try {
-        const outputPath = output_path ? resolve(context.projectDir(output_path, true), output_path) : c64refKnowledgePath();
+        const outputPath = output_path ? resolve(context.projectDir({ fileHint: output_path }, true), output_path) : c64refKnowledgePath();
         const knowledge = await buildC64RefRomKnowledge(outputPath);
         return {
           content: [{

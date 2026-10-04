@@ -11,6 +11,10 @@ import { ensureUiLaunchers, hostUiPlatform, type UiPlatform } from "./ui-launche
 import { ensureProjectRules, summariseProjectRules } from "../project-rules/provision.js";
 import { ensureDefaultSteering } from "../server-tools/steering-defaults.js";
 import { ProjectKnowledgeService } from "./service.js";
+import {
+  ensureGitignore, gitAvailable, initRepositoryAndCommit, noGitRefusal, workTreeRoot,
+  type GitignoreOutcome,
+} from "./project-git.js";
 
 interface RegisterProjectKnowledgeToolsOptions {
   repoDir: string;
@@ -34,6 +38,7 @@ function formatWorkflowPhaseLine(phase: { phaseId: string; status: string; summa
   return `- [${phase.status}] ${phase.phaseId}${details.length > 0 ? ` — ${details.join(" | ")}` : ""}`;
 }
 
+/** `hintPath` is the caller's `project_dir`: a named project, honoured or refused (see resolveProjectDir). */
 function resolveWorkspaceRoot(options: RegisterProjectKnowledgeToolsOptions, hintPath?: string, allowCreate = false): string {
   const envProjectDir = process.env.C64RE_PROJECT_DIR?.trim();
   const root = allowCreate
@@ -45,7 +50,7 @@ function resolveWorkspaceRoot(options: RegisterProjectKnowledgeToolsOptions, hin
     : resolveProjectDir({
       cwd: process.cwd(),
       repoDir: options.repoDir,
-      hintPath: hintPath?.trim() || undefined,
+      explicitDir: hintPath?.trim() || undefined,
       requireWritable: false,
     });
 
@@ -59,6 +64,33 @@ function resolveWorkspaceRoot(options: RegisterProjectKnowledgeToolsOptions, hin
     throw new Error(`Project root does not exist: ${root}`);
   }
   return root;
+}
+
+const GITIGNORE_SAID: Record<GitignoreOutcome, string> = {
+  written: ".gitignore written (UI starters, caches, trace stores and other regenerable output are left out).",
+  updated: ".gitignore: the c64re block was refreshed.",
+  current: ".gitignore already carries the c64re block.",
+  "left-alone": ".gitignore exists and is not ours: left untouched.",
+};
+
+/**
+ * Put the project under git, or say where it already is. Inside an existing work tree
+ * (the project or a parent) git itself is never touched — no nested repository.
+ */
+function gitStepLines(projectRoot: string, name: string): string[] {
+  const existing = workTreeRoot(projectRoot);
+  const ignore = GITIGNORE_SAID[ensureGitignore(projectRoot)];
+  if (existing) {
+    return [`Git: the project is inside the repository at ${existing}; git was not touched. ${ignore}`];
+  }
+  const result = initRepositoryAndCommit(projectRoot, `c64re: project_init ${name}`);
+  if (result.committed) {
+    return [`Git: repository created in ${projectRoot} and the scaffold committed ("c64re: project_init ${name}"). ${ignore}`];
+  }
+  return [
+    `Git: ${result.initialised ? `repository created in ${projectRoot}, but the scaffold is NOT committed.` : "the repository could not be created."} ${ignore}`,
+    ...(result.problem ?? []).map((l) => `  ${l}`),
+  ];
 }
 
 const evidenceSchema = z.object({
@@ -92,7 +124,7 @@ const evidenceSchema = z.object({
 export function registerProjectKnowledgeTools(server: McpServer, options: RegisterProjectKnowledgeToolsOptions): void {
   server.tool(
     "project_init",
-    "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. Inputs: project name, optional description/tags/assembler/machine_model. Returns: created project + knowledge/phase-plan paths.",
+    "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. Inputs: project name, optional description/tags/assembler/machine_model. Needs git on PATH (refused otherwise, nothing written); a project outside any work tree gets `git init`, a .gitignore and a first commit, one inside a repository is left to it. Returns: created project + knowledge/phase-plan paths.",
     {
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
       name: z.string().describe("Human-readable project name"),
@@ -103,6 +135,9 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
     },
     safeHandler("project_init", async ({ project_dir, name, description, tags, preferred_assembler, machine_model }) => {
       const projectRoot = resolveWorkspaceRoot(options, project_dir, true);
+      // A project without history loses its hand-written state on the first wrong write,
+      // so no git means nothing is created — checked before anything is written.
+      if (!gitAvailable()) return textContent(noGitRefusal("project_init"));
       const service = new ProjectKnowledgeService(projectRoot);
       const project = service.initProject({ name, description, tags, preferredAssembler: preferred_assembler, machineModel: machine_model });
       // BUG-015 — sort any loose media in the project root into the canonical
@@ -137,8 +172,10 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         ],
       });
       const status = service.getProjectStatus();
+      const gitLines = gitStepLines(projectRoot, project.name);
       return textContent([
         `Project initialized.`,
+        ...gitLines,
         `Name: ${project.name}`,
         `Root: ${project.rootPath}`,
         `Preferred assembler: ${project.preferredAssembler ?? "(not set)"}`,

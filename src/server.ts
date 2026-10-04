@@ -50,22 +50,27 @@ import { standingFooter, WRITE_TOOLS } from "./contract/standing.js";
 import { graphFirstFooter, noteGraphQuery, GRAPH_TOOLS } from "./contract/graph-first.js";
 import { tierForTool, fullToolsEnabled } from "./server-tools/tier-tools.js";
 import { phaseGatedHandler } from "./server-tools/phase-gate-handler.js";
-import type { KnowledgeRegistrationInput, KnowledgeRegistrationResult, ServerToolContext } from "./server-tools/types.js";
+import type { KnowledgeRegistrationInput, KnowledgeRegistrationResult, ProjectHint, ServerToolContext } from "./server-tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function projectDir(hintPath?: string, requireWritable = false): string {
-  // No hint and no configured root: fall back to the project THIS SESSION onboarded
-  // into, before falling back to the cwd. Otherwise a globally configured server
-  // resolves an omitted `project_dir` against its own repo and refuses.
-  const hint = hintPath
-    ?? (process.env.C64RE_PROJECT_DIR?.trim() ? undefined : soleOnboardedProject());
+/**
+ * Which project a call acts on. `projectDir` is a project the caller NAMED and is honoured
+ * or refused; `fileHint` is a file the call works on and only helps when no project is
+ * named. The two are separate inputs because a string alone cannot say which it is.
+ */
+function projectDir(hint: ProjectHint = {}, requireWritable = false): string {
+  // Nothing named and no configured root: the project THIS SESSION onboarded into is the
+  // answer, before the cwd. Otherwise a globally configured server resolves an omitted
+  // `project_dir` against its own repo and refuses.
   return resolveProjectDir({
     cwd: process.cwd(),
     repoDir: repoDir(),
-    hintPath: hint,
+    explicitDir: hint.projectDir,
+    hintPath: hint.fileHint,
+    fallbackDir: process.env.C64RE_PROJECT_DIR?.trim() ? undefined : soleOnboardedProject(),
     requireWritable,
   });
 }
@@ -127,10 +132,18 @@ function onboardingGateHandler(toolName: string, inner: ToolHandler): ToolHandle
   return async (...a: unknown[]) => {
     if (ORIENTATION_TOOLS.has(toolName) || gateDisabled()) return inner(...a);
     const first = a[0] as { project_dir?: string } | undefined;
-    const dir = (() => { try { return projectDir(first?.project_dir); } catch { return undefined; } })();
+    const dir = (() => { try { return projectDir({ projectDir: first?.project_dir }); } catch { return undefined; } })();
     if (!dir || !isProjectInitialised(dir) || isOnboarded(dir)) return inner(...a);
     return nextStepError(toolName, onboardingMessage(toolName, dir), `agent_onboard(project_dir="${dir}")`);
   };
+}
+
+const HAND_AUTHORED_WRITERS: ReadonlySet<string> = new Set([
+  "contract_set", "project_steering_set", "write_annotations", "model_assert", "model_remove",
+]);
+
+function writesHandAuthoredState(toolName: string): boolean {
+  return toolName.startsWith("save_") || HAND_AUTHORED_WRITERS.has(toolName);
 }
 
 /**
@@ -146,7 +159,7 @@ function ruleFooterHandler(toolName: string, inner: ToolHandler): ToolHandler {
     const result = await inner(...a);
     try {
       const first = a[0] as { project_dir?: string } | undefined;
-      const dir = (() => { try { return projectDir(first?.project_dir); } catch { return undefined; } })();
+      const dir = (() => { try { return projectDir({ projectDir: first?.project_dir }); } catch { return undefined; } })();
       // Spec 881 D1 — the graph was asked. Recorded HERE, not in graph-tools.ts: Spec 823
       // draws a boundary around that file (knowledge-graph, zod, safe-handler, types and
       // nothing else) and it is a good one. This wrapper already sees every tool by name,
@@ -155,6 +168,9 @@ function ruleFooterHandler(toolName: string, inner: ToolHandler): ToolHandler {
         try { noteGraphQuery(dir); } catch { /* a counter never breaks a query */ }
       }
       const parts = [
+        // The tools that overwrite hand-authored state say WHICH project they wrote to,
+        // as the server resolved it — not the argument echoed back.
+        dir && writesHandAuthoredState(toolName) ? `Project: ${dir}` : "",
         ruleFooterForTool(dir, toolName),
         // Spec 849 §8 — and what the contract still owes, on the write path, as a delta.
         await standingFooter(dir, toolName),

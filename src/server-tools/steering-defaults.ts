@@ -125,12 +125,24 @@ export const TOOLING_DISCIPLINE_STEERING = `${TOOLING_DISCIPLINE_TOKEN}
   same reflex as reaching for a trace instead of reading the code — the fast, wrong path.
   Stop, reconnect, reuse.`;
 
+/** The project is in git; a step that changed knowledge/ ends in a commit. */
+export const COMMIT_MARKER = "Commit the project";
+export const COMMIT_TOKEN = "<!-- commit-the-project-v1 -->";
+export const COMMIT_STEERING = `${COMMIT_TOKEN}
+## ${COMMIT_MARKER} — always apply
+- **Commit after a step that changed \`knowledge/\`.** The contract, findings,
+  annotations and steering are hand-authored state; git history is the only way back
+  from a wrong write over them. After a working step that changed any of it, commit the
+  project (\`git add -A && git commit\`). The server cannot commit for you — \`agent_onboard\`
+  tells you how many files under \`knowledge/\` are still uncommitted.`;
+
 interface SteeringBlock { token: string; marker: string; body: string; }
 const STEERING_BLOCKS: SteeringBlock[] = [
   { token: EXTRACT_FIRST_TOKEN, marker: EXTRACT_FIRST_MARKER, body: EXTRACT_FIRST_STEERING },
   { token: RECONCILE_TOKEN, marker: RECONCILE_MARKER, body: RECONCILE_STEERING },
   { token: CRACK_DISCOVERY_TOKEN, marker: CRACK_DISCOVERY_MARKER, body: CRACK_DISCOVERY_STEERING },
   { token: TOOLING_DISCIPLINE_TOKEN, marker: TOOLING_DISCIPLINE_MARKER, body: TOOLING_DISCIPLINE_STEERING },
+  { token: COMMIT_TOKEN, marker: COMMIT_MARKER, body: COMMIT_STEERING },
 ];
 
 /**

@@ -75,11 +75,10 @@ function pathDoorProjectDir(
   projectDirArg: string | undefined,
   hintPath: string | undefined,
 ): string {
-  if (projectDirArg) return context.projectDir(projectDirArg, true);
   const usable = hintPath !== undefined
     && (isAbsolute(hintPath) || existsSync(resolve(process.cwd(), hintPath)));
   try {
-    return context.projectDir(usable ? hintPath : undefined, true);
+    return context.projectDir({ projectDir: projectDirArg, fileHint: usable ? hintPath : undefined }, true);
   } catch (error) {
     const base = error instanceof Error ? error.message : String(error);
     throw new Error(

@@ -75,7 +75,7 @@ export function registerSandboxDepackTool(server: McpServer, ctx: ServerToolCont
       // `input_path` is the packed blob and is always present, so it is the
       // honest fallback: the same `project_dir ?? <a path the call already
       // carries>` shape every other path-taking tool uses.
-      const projectRoot = ctx.projectDir(args.project_dir ?? args.input_path, true);
+      const projectRoot = ctx.projectDir({ projectDir: args.project_dir, fileHint: args.input_path }, true);
       const inputAbs = resolve(projectRoot, args.input_path);
       const inputBuf = readFileSync(inputAbs);
       const offset = args.offset ? parseHexU(args.offset, 0xffffff) : 0;

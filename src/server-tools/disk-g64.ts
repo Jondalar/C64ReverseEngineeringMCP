@@ -12,7 +12,7 @@ import type { ServerToolContext } from "./types.js";
 
 function g64SectorDefaultOutputDir(context: ServerToolContext, imagePath: string, track: number, projectDir?: string): string {
   return join(
-    projectDir ?? context.projectDir(imagePath, true),
+    projectDir ?? context.projectDir({ fileHint: imagePath }, true),
     "analysis",
     "g64",
     // Spec 838 D1 — the stem comes from a file the host already accepted, so the
@@ -26,7 +26,7 @@ function g64SectorDefaultOutputDir(context: ServerToolContext, imagePath: string
 }
 
 function loadG64Parser(context: ServerToolContext, imagePath: string, projectDir?: string): G64Parser {
-  const imageAbs = resolve(projectDir ?? context.projectDir(imagePath, true), imagePath);
+  const imageAbs = resolve(projectDir ?? context.projectDir({ fileHint: imagePath }, true), imagePath);
   const parser = createDiskParser(new Uint8Array(readFileSync(imageAbs)));
   if (!(parser instanceof G64Parser)) {
     throw new Error(`Image is not a G64: ${imageAbs}`);
@@ -62,7 +62,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
     },
     async ({ image_path, include_empty }) => {
       try {
-        const pd = context.projectDir(image_path, true);
+        const pd = context.projectDir({ fileHint: image_path }, true);
         const imageAbs = resolve(pd, image_path);
         const parser = loadG64Parser(context, image_path);
         const slots = parser.listSlots(include_empty ?? false);
@@ -100,7 +100,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
     },
     async ({ image_path, track }) => {
       try {
-        const pd = context.projectDir(image_path, true);
+        const pd = context.projectDir({ fileHint: image_path }, true);
         const imageAbs = resolve(pd, image_path);
         const parser = loadG64Parser(context, image_path);
         const analysis = parser.getTrackAnalysis(track);
@@ -191,7 +191,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
     },
     async ({ image_path, track, limit, ascii_width }) => {
       try {
-        const pd = context.projectDir(image_path, true);
+        const pd = context.projectDir({ fileHint: image_path }, true);
         const imageAbs = resolve(pd, image_path);
         const parser = loadG64Parser(context, image_path);
         const inspection = parser.inspectTrackBlocks(track, ascii_width ?? 96);
@@ -265,7 +265,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
     },
     async ({ image_path, track, output_path }) => {
       try {
-        const pd = context.projectDir(image_path, true);
+        const pd = context.projectDir({ fileHint: image_path }, true);
         const imageAbs = resolve(pd, image_path);
         const parser = loadG64Parser(context, image_path);
         const raw = parser.extractRawTrack(track);
@@ -307,7 +307,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
     },
     async ({ image_path, track, limit }) => {
       try {
-        const pd = context.projectDir(image_path, true);
+        const pd = context.projectDir({ fileHint: image_path }, true);
         const imageAbs = resolve(pd, image_path);
         const parser = loadG64Parser(context, image_path);
         const info = parser.getTrackSyncInfo(track);
@@ -352,7 +352,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
     },
     async ({ image_path, track, limit }) => {
       try {
-        const pd = context.projectDir(image_path, true);
+        const pd = context.projectDir({ fileHint: image_path }, true);
         const imageAbs = resolve(pd, image_path);
         const parser = loadG64Parser(context, image_path);
         const headers = parser.scanTrackHeadersLikeVice(track);
@@ -391,7 +391,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
     },
     async ({ image_path, track, sector }) => {
       try {
-        const pd = context.projectDir(image_path, true);
+        const pd = context.projectDir({ fileHint: image_path }, true);
         const imageAbs = resolve(pd, image_path);
         const parser = loadG64Parser(context, image_path);
         const readResult = parser.readTrackSectorLikeVice(track, sector);
@@ -643,7 +643,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
     },
     async ({ project_dir, image_path, track, tracks, all_tracks, sectors, output_dir }) => {
       try {
-        const pd = context.projectDir(project_dir ?? image_path, true);
+        const pd = context.projectDir({ projectDir: project_dir, fileHint: image_path }, true);
         const imageAbs = resolve(pd, image_path);
         const parser = loadG64Parser(context, image_path, pd);
 
@@ -743,7 +743,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
     },
     async ({ image_path, lut_path }) => {
       try {
-        const pd = context.projectDir(image_path, true);
+        const pd = context.projectDir({ fileHint: image_path }, true);
         const imageAbs = resolve(pd, image_path);
         const parser = loadG64Parser(context, image_path);
         const lutAbs = lut_path ? resolve(pd, lut_path) : undefined;
@@ -783,7 +783,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
       analysis_dir: z.string().optional().describe("Analysis directory (default: analysis)"),
     },
     async ({ analysis_dir }) => {
-      const pd = context.projectDir(analysis_dir, true);
+      const pd = context.projectDir({ fileHint: analysis_dir }, true);
       const analysisAbs = analysis_dir ? resolve(pd, analysis_dir) : resolve(pd, "analysis");
       const args = analysis_dir ? [analysisAbs] : [];
       const result = await runCli("reconstruct-lut", args, { projectDir: pd });
@@ -814,7 +814,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
       analysis_dir: z.string().optional().describe("Analysis directory (default: analysis)"),
     },
     async ({ analysis_dir }) => {
-      const pd = context.projectDir(analysis_dir, true);
+      const pd = context.projectDir({ fileHint: analysis_dir }, true);
       const analysisAbs = analysis_dir ? resolve(pd, analysis_dir) : resolve(pd, "analysis");
       const args = analysis_dir ? [analysisAbs] : [];
       const result = await runCli("export-menu", args, { projectDir: pd });
@@ -848,7 +848,7 @@ export function registerDiskG64Tools(server: McpServer, context: ServerToolConte
       output_dir: z.string().optional().describe("Output directory for ASM sources"),
     },
     async ({ analysis_dir, output_dir }) => {
-      const pd = context.projectDir(analysis_dir ?? output_dir, true);
+      const pd = context.projectDir({ fileHint: analysis_dir ?? output_dir }, true);
       const analysisAbs = analysis_dir ? resolve(pd, analysis_dir) : resolve(pd, "analysis");
       const outputAbs = output_dir ? resolve(pd, output_dir) : join(analysisAbs, "kickasm_sources");
       const args: string[] = [];

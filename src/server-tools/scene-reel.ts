@@ -129,7 +129,7 @@ export function registerSceneReelTool(server: McpServer, context: ServerToolCont
       //                   still beats no hint at all.
       // Since `out_path` is required, the hint is never `undefined`: the defect's
       // own signature cannot come back through this call.
-      const projectDir = context.projectDir(project_dir ?? feature_path ?? media_path ?? out_path);
+      const projectDir = context.projectDir({ projectDir: project_dir, fileHint: feature_path ?? media_path ?? out_path });
       const abs = (p: string): string => (isAbsolute(p) ? p : resolvePath(projectDir, p));
 
       let source: string;

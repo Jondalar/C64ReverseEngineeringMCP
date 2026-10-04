@@ -125,7 +125,7 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
       // The hint order is by what each path IS: `media_path` is an INPUT that must
       // already exist, `frame_path` an OUTPUT whose directory may not exist yet.
       // Never hintless — that is the cwd coupling no default tool may have.
-      const projectDir = context.projectDir(project_dir ?? media_path ?? frame_path);
+      const projectDir = context.projectDir({ projectDir: project_dir, fileHint: media_path ?? frame_path });
       const abs = (p: string): string => (isAbsolute(p) ? p : resolvePath(projectDir, p));
 
       const { parseStep, parseCheck, holdIssues } = await import("../project-knowledge/scenario-gherkin.js");

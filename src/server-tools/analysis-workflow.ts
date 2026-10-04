@@ -447,7 +447,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     relocations?: Array<Record<string, unknown>>;
     paths?: string[];
   }, outcome?: DoorOutcome): Promise<{ content: { type: "text"; text: string }[] }> {
-    const pd = context.projectDir(a.project_dir ?? a.path ?? a.prg_path, true);
+    const pd = context.projectDir({ projectDir: a.project_dir, fileHint: a.path ?? a.prg_path }, true);
     const refuse = (text: string) => {
       if (outcome) { outcome.ok = false; outcome.reason = text; }
       return { content: [{ type: "text" as const, text: `# ${invokedAs} refused\n\n${text}` }] };
@@ -834,7 +834,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     entry_points?: Array<string | number>; output_json?: string;
     paths?: string[];
   }, outcome?: DoorOutcome): Promise<{ content: { type: "text"; text: string }[] }> {
-    const pd = context.projectDir(a.project_dir ?? a.path ?? a.prg_path, true);
+    const pd = context.projectDir({ projectDir: a.project_dir, fileHint: a.path ?? a.prg_path }, true);
     const refuse = (text: string) => {
       if (outcome) { outcome.ok = false; outcome.reason = text; }
       return { content: [{ type: "text" as const, text: `# ${invokedAs} refused\n\n${text}` }] };
@@ -1171,7 +1171,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     safeHandler("disasm", async (args) => {
       const a = args as Parameters<typeof runDisasm>[1] & { paths?: string[] };
       if (a.paths === undefined) return runDisasm("disasm", a);
-      const pd = context.projectDir(a.project_dir ?? a.paths[0], true);
+      const pd = context.projectDir({ projectDir: a.project_dir, fileHint: a.paths[0] }, true);
       const batch = () => runBatch({
         invokedAs: "disasm", verb: "rendered", paths: a.paths!, projectDir: pd,
         outputParam: "output_asm", outputValue: a.output_asm,
@@ -1205,7 +1205,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
     safeHandler("analyze", async (args) => {
       const a = args as Parameters<typeof runAnalyze>[1] & { paths?: string[] };
       if (a.paths === undefined) return runAnalyze("analyze", a);
-      const pd = context.projectDir(a.project_dir ?? a.paths[0], true);
+      const pd = context.projectDir({ projectDir: a.project_dir, fileHint: a.paths[0] }, true);
       const batch = () => runBatch({
         invokedAs: "analyze", verb: "analysed", paths: a.paths!, projectDir: pd,
         outputParam: "output_json", outputValue: a.output_json,
@@ -1343,7 +1343,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       output_md: z.string().optional().describe("Output path for the markdown report"),
     },
     safeHandler("ram_report", async ({ analysis_json, output_md }) => {
-      const pd = context.projectDir(analysis_json, true);
+      const pd = context.projectDir({ fileHint: analysis_json }, true);
       const jsonAbs = resolve(pd, analysis_json);
       const outAbs = output_md
         ? resolve(pd, output_md)
@@ -1393,7 +1393,7 @@ export function registerAnalysisWorkflowTools(server: McpServer, context: Server
       output_md: z.string().optional().describe("Output path for the markdown report"),
     },
     safeHandler("pointer_report", async ({ analysis_json, output_md }) => {
-      const pd = context.projectDir(analysis_json, true);
+      const pd = context.projectDir({ fileHint: analysis_json }, true);
       const jsonAbs = resolve(pd, analysis_json);
       const outAbs = output_md
         ? resolve(pd, output_md)
@@ -1450,7 +1450,7 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
       persist_questions: z.boolean().optional().describe("If true, also save openQuestions[] entries via save_open_question with source=static-analysis."),
     },
     safeHandler("propose_annotations", async ({ project_dir, analysis_json, output_path, listing_path, persist_questions }) => {
-      const pd = context.projectDir(project_dir, true);
+      const pd = context.projectDir({ projectDir: project_dir }, true);
       const analysisAbs = resolve(pd, analysis_json);
       const draftAbs = output_path ? resolve(pd, output_path) : analysisAbs.replace(/_analysis\.json$/i, "_annotations.draft.json");
       const listingAbs = listing_path ? resolve(pd, listing_path) : undefined;
@@ -1529,7 +1529,7 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
       entry_points: z.array(z.string()).optional().describe("Optional hex entry-point overrides (e.g. [\"0827\"])."),
     },
     safeHandler("run_prg_reverse_workflow", async ({ project_dir, prg_path, mode, output_dir, rebuild_views, entry_points }) => {
-      const pd = context.projectDir(project_dir ?? prg_path, true);
+      const pd = context.projectDir({ projectDir: project_dir, fileHint: prg_path }, true);
       const result = await runPrgReverseWorkflow({
         projectRoot: pd,
         prgPath: prg_path,
@@ -1558,7 +1558,7 @@ function registerPrgReverseWorkflow(server: McpServer, context: ServerToolContex
       entry_points: z.array(z.string()).optional().describe("Optional hex entry-point overrides."),
     },
     safeHandler("run_payload_reverse_workflow", async ({ project_dir, payload_id, mode, output_dir, rebuild_views, entry_points }) => {
-      const pd = context.projectDir(project_dir, false);
+      const pd = context.projectDir({ projectDir: project_dir }, false);
       const result = await runPayloadReverseWorkflow({
         projectRoot: pd,
         payloadId: payload_id,

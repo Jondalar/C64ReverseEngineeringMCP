@@ -80,9 +80,11 @@ check(process.env.C64RE_PROJECT_DIR === undefined, "C64RE_PROJECT_DIR is not set
 // the hint every call was made with. A hint of `undefined` IS the defect.
 const hints = [];
 const context = {
-  projectDir: (hintPath, requireWritable = false) => {
-    hints.push(hintPath);
-    return resolveProjectDir({ cwd: process.cwd(), repoDir: ROOT, hintPath, requireWritable });
+  // The context takes the named project and the file hint apart (Spec 893). `hints` records
+  // what the call handed over to name its project: the named dir, else the file.
+  projectDir: (hint = {}, requireWritable = false) => {
+    hints.push(hint.projectDir ?? hint.fileHint);
+    return resolveProjectDir({ cwd: process.cwd(), repoDir: ROOT, explicitDir: hint.projectDir, hintPath: hint.fileHint, requireWritable });
   },
   toolsDir: () => join(ROOT, "pipeline"),
   readTextFile: (p) => p,
@@ -314,13 +316,13 @@ console.log("\n--- the file, as the portability gate reads it ---");
   // runtime_trace_start's, which is not one of the six and whose own path
   // parameter (`output`) the portability walk does not read as a path.
   const caught = code.filter((l) => /resolveHeadlessProjectDir\(context/.test(l) && /catch/.test(l));
-  check(caught.every((l) => /context, output/.test(l)),
+  check(caught.every((l) => /fileHint: output/.test(l)),
     "9 no resolution among the six is swallowed by a catch any more",
     caught.map((l) => l.trim().slice(0, 60)).join(" | ") || "none caught");
   check(caught.length === 2, "9b the only caught resolutions left are runtime_trace_start's two", String(caught.length));
   // The helper cannot be called hintlessly by accident: the hint is a parameter
   // every call site has to state.
-  check(/function resolveHeadlessProjectDir\(context: ServerToolContext, hintPath: string \| undefined\)/.test(src),
+  check(/function resolveHeadlessProjectDir\(context: ServerToolContext, hint: ProjectHint\)/.test(src),
     "10 the helper's hint is a required parameter, not an omittable one");
 }
 

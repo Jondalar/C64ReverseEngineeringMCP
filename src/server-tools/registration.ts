@@ -295,7 +295,7 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
       include_excluded: z.boolean().optional().describe("If true, do not apply the default exclude list (e.g. *_disasm_rebuild_check.prg). Default false."),
     },
     safeHandler("register_existing_files", async (args) => {
-      const projectRoot = ctx.projectDir(args.project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: args.project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const patterns = args.patterns && args.patterns.length > 0 ? args.patterns : DEFAULT_PATTERNS.map((p) => ({ ...p }));
       const usingDefaults = !args.patterns || args.patterns.length === 0;
@@ -434,7 +434,7 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
       dry_run: z.boolean().optional().describe("If true, report what would be taken out without writing. Default false."),
     },
     safeHandler("unregister_files", async ({ project_dir, glob, dry_run }: { project_dir?: string; glob: string; dry_run?: boolean }) => {
-      const projectRoot = ctx.projectDir(project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const r = unregisterProjectFiles(service, projectRoot, { glob, dryRun: dry_run });
       const lines: string[] = [];
@@ -466,7 +466,7 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
       cap: z.number().int().positive().max(500).optional().describe("Maximum example file paths to return (default 50)."),
     },
     safeHandler("scan_registration_delta", async ({ project_dir, cap }: { project_dir?: string; cap?: number }) => {
-      const projectRoot = ctx.projectDir(project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: project_dir });
       const delta = scanRegistrationDelta(projectRoot, cap ?? 50);
       const lines: string[] = [];
       lines.push(`# Registration Delta`);
@@ -521,7 +521,7 @@ export function registerRegistrationTools(server: McpServer, ctx: ServerToolCont
       dry_run: z.boolean().optional().describe("If true, return the planned import set without writing."),
     },
     safeHandler("bulk_import_analysis_reports", async (args) => {
-      const projectRoot = ctx.projectDir(args.project_dir);
+      const projectRoot = ctx.projectDir({ projectDir: args.project_dir });
       const service = new ProjectKnowledgeService(projectRoot);
       const candidates = findUnimportedAnalysisArtifacts(service);
       const limit = args.limit ?? 500;

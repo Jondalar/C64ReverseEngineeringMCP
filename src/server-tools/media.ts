@@ -73,7 +73,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
       output_dir: z.string().optional().describe("Output directory (default: analysis/extracted)"),
     },
     async ({ project_dir, crt_path, output_dir }) => {
-      const pd = context.projectDir(project_dir ?? crt_path, true);
+      const pd = context.projectDir({ projectDir: project_dir, fileHint: crt_path }, true);
       const crtAbs = resolve(pd, crt_path);
       const outAbs = output_dir ? resolve(pd, output_dir) : resolve(pd, "analysis", "extracted");
       const args = [crtAbs];
@@ -150,7 +150,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
     },
     async ({ project_dir, image_path, substrate_override }) => {
       try {
-        const pd = context.projectDir(project_dir ?? image_path, true);
+        const pd = context.projectDir({ projectDir: project_dir, fileHint: image_path }, true);
         const imageAbs = resolve(pd, image_path);
         const manifest = readDiskDirectory(imageAbs);
         // Tier 2 substrate verdict — characterize-medium records whether the disk is
@@ -188,7 +188,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
     },
     async ({ project_dir, image_path, output_dir }) => {
       try {
-        const pd = context.projectDir(project_dir ?? image_path, true);
+        const pd = context.projectDir({ projectDir: project_dir, fileHint: image_path }, true);
         const imageAbs = resolve(pd, image_path);
         const outAbs = output_dir
           ? resolve(pd, output_dir)
@@ -313,7 +313,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
       raw_default_size: z.number().int().min(1).optional(),
     },
     safeHandler("extract_disk_custom_lut", async (args) => {
-      const pd = context.projectDir(args.project_dir ?? args.image_path, true);
+      const pd = context.projectDir({ projectDir: args.project_dir, fileHint: args.image_path }, true);
       const slotGate = await (await import("../slots/gate.js")).checkSlotGate("extract_disk_custom_lut", pd);
       if (!slotGate.allowed) return { content: [{ type: "text" as const, text: slotGate.refusal! }] };
       const imageAbs = resolve(pd, args.image_path);
@@ -391,7 +391,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
       show_owners: z.boolean().optional().describe("Also list every owner with the T/S cells it holds. Off by default — the map above already shows the shape, and a 245-file disk makes a long list."),
     },
     safeHandler("disk_sector_allocation", async (args) => {
-      const pd = context.projectDir(args.project_dir ?? args.image_path, false);
+      const pd = context.projectDir({ projectDir: args.project_dir, fileHint: args.image_path }, false);
       const imageAbs = resolve(pd, args.image_path);
       const manifestAbs = args.manifest_path
         ? resolve(pd, args.manifest_path)
@@ -477,7 +477,7 @@ export function registerMediaTools(server: McpServer, context: ServerToolContext
       image_path: z.string(),
     },
     safeHandler("suggest_disk_lut_sector", async (args) => {
-      const pd = context.projectDir(args.project_dir ?? args.image_path, false);
+      const pd = context.projectDir({ projectDir: args.project_dir, fileHint: args.image_path }, false);
       const imageAbs = resolve(pd, args.image_path);
       const candidates = suggestDiskLutSector(imageAbs);
       const lines: string[] = [];

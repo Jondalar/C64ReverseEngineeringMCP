@@ -62,7 +62,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       verbose: z.boolean().default(false).describe("Also print what each open slot asks and what would fill it"),
     },
     async ({ project_dir, verbose }) => {
-      const pd = context.projectDir(project_dir);
+      const pd = context.projectDir({ projectDir: project_dir });
       const report = await slotReport(pd);
       let text = formatSlotReport(report);
       if (verbose && report.missing.length > 0) {
@@ -106,7 +106,7 @@ export function registerSlotTools(server: McpServer, context: ServerToolContext)
       owner: z.string().optional().describe("Bind the boundary to ONE artifact owner; omit to span the space"),
     },
     async ({ project_dir, slot, answer, title, evidence, address_start, address_end, method, count, boundary_name, space, owner }) => {
-      const pd = context.projectDir(project_dir, true);
+      const pd = context.projectDir({ projectDir: project_dir }, true);
       const def = SLOT_BY_ID.get(slot)!;
 
       if (evidence === undefined || evidence.trim().length < 10) {

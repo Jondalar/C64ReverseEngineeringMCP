@@ -26,7 +26,15 @@ built-in `node:sqlite` module, which carries the knowledge graph and the platfor
 reference. C64RE checks for it at startup and says so plainly if your Node is too old,
 rather than failing somewhere deep in a query.
 
-Git is needed only for the source-checkout route below.
+**Git, always.** A project keeps hand-written state — the contract, findings,
+annotations, steering — and one wrong write over it is only recoverable from history.
+`project_init` and `agent_onboard` therefore refuse to run when `git` is not on `PATH`
+(the answer starts with `PLEASE USE GIT TO AVOID LOSS OF DATA!` and says how to install
+it). `project_init` also puts a new project under git itself — `git init`, a
+`.gitignore` for regenerable output, a first commit — and leaves a project inside an
+existing repository to that repository. If git has no identity on the machine the
+repository is still created and the answer gives the two `git config` lines to run.
+After a step that changed `knowledge/`, commit the project.
 
 ### From the registry
 
@@ -122,7 +130,10 @@ fitted as a 1581 runs no DOS.
 
 `C64RE_PROJECT_DIR` is the only variable C64RE requires: the directory holding the program
 you are reverse-engineering, together with everything C64RE learns about it. Create it,
-point at it, and run `project_init` once in your first session.
+point at it, and run `project_init` once in your first session. A tool call that names
+a `project_dir` always works on that project, whatever `C64RE_PROJECT_DIR` says; the
+variable is only the default for calls that name none. A named directory that is not a
+project is refused rather than replaced by the default.
 
 ### Claude Code
 
@@ -254,6 +265,10 @@ shell's environment.
 somewhere that does not exist, or points at a directory where `project_init` has never run.
 Run `project_init` once; it creates the scaffold and takes in whatever is already lying
 there.
+
+**"PLEASE USE GIT TO AVOID LOSS OF DATA!"** — `git` is not on `PATH` (the tool refused and
+wrote nothing), or, from `agent_onboard`, the project is not in a git repository. Install
+git, or run the command the answer prints in the project folder.
 
 **A runtime tool says there is no daemon** — run `npx @trex64/c64re runtime install`, or set
 `C64RE_TRX64_BIN` / `C64RE_RUNTIME_ENDPOINT`. There is no in-process fallback and there

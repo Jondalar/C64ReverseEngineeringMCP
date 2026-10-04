@@ -15,7 +15,7 @@ export function registerAssemblyTools(server: McpServer, context: ServerToolCont
     },
     async ({ source_path, assembler, output_path, compare_to }) => {
       try {
-        const pd = context.projectDir(source_path, true);
+        const pd = context.projectDir({ fileHint: source_path }, true);
         const result = await assembleSource({
           projectDir: pd,
           sourcePath: source_path,

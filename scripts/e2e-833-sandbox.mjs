@@ -68,9 +68,11 @@ check(process.env.C64RE_PROJECT_DIR === undefined, "C64RE_PROJECT_DIR is not set
 // the hint every call was made with. A hint of `undefined` IS the defect.
 const hints = [];
 const context = {
-  projectDir: (hintPath, requireWritable = false) => {
-    hints.push(hintPath);
-    return resolveProjectDir({ cwd: process.cwd(), repoDir: ROOT, hintPath, requireWritable });
+  // The context takes the named project and the file hint apart (Spec 893). `hints` records
+  // what the call handed over to name its project: the named dir, else the file.
+  projectDir: (hint = {}, requireWritable = false) => {
+    hints.push(hint.projectDir ?? hint.fileHint);
+    return resolveProjectDir({ cwd: process.cwd(), repoDir: ROOT, explicitDir: hint.projectDir, hintPath: hint.fileHint, requireWritable });
   },
   toolsDir: () => join(ROOT, "pipeline"),
   readTextFile: (p) => p,
@@ -321,8 +323,8 @@ rmSync(neutralCwd, { recursive: true, force: true });
 // sandbox_depack DECLARED `project_dir` and resolved with no hint, so the
 // parameter a caller passed was read by nobody. Same tool family, same gate.
 const depackSrc = readFileSync(join(ROOT, "src/server-tools/sandbox-depack.ts"), "utf8");
-check(/ctx\.projectDir\(args\.project_dir \?\? args\.input_path/.test(depackSrc),
-  "834 sandbox_depack resolves `project_dir ?? input_path` — the parameter it declares is finally read");
+check(/ctx\.projectDir\(\{ projectDir: args\.project_dir, fileHint: args\.input_path \}/.test(depackSrc),
+  "834 sandbox_depack resolves `project_dir` (named) and `input_path` (file hint) — the parameter it declares is finally read");
 check(!/ctx\.projectDir\(\s*undefined/.test(depackSrc),
   "834 sandbox_depack no longer resolves hintless");
 const portSrc = readFileSync(join(ROOT, "scripts/e2e-mcp-path-portability.mjs"), "utf8");
