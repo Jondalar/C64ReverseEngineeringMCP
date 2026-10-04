@@ -205,7 +205,7 @@ export function uncommittedKnowledgeFiles(root: string): number {
   return r.stdout.split("\n").filter((l) => l.trim().length > 0).length;
 }
 
-/** The one command that puts an existing project under git. */
+/** The one command line that puts an existing project under git. `;`, not `&&`: Windows PowerShell 5.1 has no `&&`. */
 export function gitAdoptCommand(root: string): string {
-  return `git -C "${root}" init && git -C "${root}" add -A && git -C "${root}" commit -m "c64re: put the project under git"`;
+  return `git -C "${root}" init; git -C "${root}" add -A; git -C "${root}" commit -m "c64re: put the project under git"`;
 }

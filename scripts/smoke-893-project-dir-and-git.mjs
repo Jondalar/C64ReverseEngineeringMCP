@@ -203,7 +203,7 @@ try {
     await session(cleanEnv({ C64RE_PROJECT_DIR: bare }), async (tool) => {
       const out = await tool("agent_onboard", {});
       check(out.split("\n")[0] === LINE, "8a a project outside a work tree: the first line is exactly the warning", out.split("\n")[0]);
-      check(/git -C ".*" init && git -C ".*" add -A && git -C ".*" commit -m/.test(out.split("\n").slice(0, 4).join("\n")), "8b … followed by the one fixing command", out.split("\n")[1]);
+      check(/git -C ".*" init; git -C ".*" add -A; git -C ".*" commit -m/.test(out.split("\n").slice(0, 4).join("\n")), "8b … followed by the one fixing command", out.split("\n")[1]);
       check(/# Agent Onboarding/.test(out) && !existsSync(join(bare, ".git")), "8c … onboarding proceeds and does not run git itself", "");
     });
 

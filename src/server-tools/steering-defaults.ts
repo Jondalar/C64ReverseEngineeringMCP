@@ -133,7 +133,7 @@ export const COMMIT_STEERING = `${COMMIT_TOKEN}
 - **Commit after a step that changed \`knowledge/\`.** The contract, findings,
   annotations and steering are hand-authored state; git history is the only way back
   from a wrong write over them. After a working step that changed any of it, commit the
-  project (\`git add -A && git commit\`). The server cannot commit for you — \`agent_onboard\`
+  project (\`git add -A; git commit -m "…"\`). The server cannot commit for you — \`agent_onboard\`
   tells you how many files under \`knowledge/\` are still uncommitted.`;
 
 interface SteeringBlock { token: string; marker: string; body: string; }
