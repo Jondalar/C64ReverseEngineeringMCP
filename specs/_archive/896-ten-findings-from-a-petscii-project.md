@@ -1,6 +1,6 @@
 # Spec 896 — Ten findings from a PETSCII logo project
 
-**Status:** BUILT except item 7 (2026-10-05) — item 7 waits for TRX64: `trx64cli sandbox` harvests raw RAM, so I/O writes under `$01=$37` are lost there (handed to the TRX64 session).
+**Status:** DONE (2026-10-05) — items 1–10 built and gated; item 7 closed on TRX64 0.12.6.
 **Repo:** C64RE (item 9 may reach TRX64). From issue #37 (Mike, Windows 11, 64tass only).
 
 Mike's issue names a public CSDb file and an exact call for every item; unp64 confirmed
@@ -125,17 +125,18 @@ Refused by name before the machine is touched: `raster`, `iec`, `stable_screen`,
 `max_instructions` / `cycle_budget` do not bound an `until` run, and an unreached PC is
 reported as such. The stale comment about a "slice 2" that would route it is gone.
 
-**7 — NOT built; the loss is inside TRX64.** `sandbox_6502_run` shells out to
-`trx64cli sandbox`; C64RE's `runSandboxRealCore` takes every byte it reports from the
-harvest. In TRX64 `crates/trx64-cli/src/sandbox_cmd.rs`, `execute_sandbox` builds the harvest
-as `m.ram[start..end]` — the raw 64 K RAM array, banking ignored. With `$01=$37` a store to
-`$D000-$DFFF` goes to the chip, not to `m.ram`, so the byte is not in the harvest. The write
-map still names the addresses (measured: `LDA #5 / STA $D020 / … STA $D800` under `--zp 01=$37`
-returns `writtenRuns` `$D020-$D021` and `$D800-$D801`, and the harvest of those ranges is
-all `$00`), so C64RE reports a written run with RAM-under bytes. The fix needs a value the
-runtime does not give: a harvest through the CPU's view (VIC/SID/CIA registers as the last
-value written, colour RAM low nibble) or a write log carrying values. C64RE cannot
-reconstruct it; it was not guessed at here.
+**7 — built (TRX64 0.12.6).** `trx64cli sandbox` now harvests through the CPU's view: with
+I/O banked in (`$01=$37`) each address the routine stored to in `$D000-$DFFF` returns the last
+value the CPU wrote (never a chip read), colour RAM `$D800-$DBFF` as its low nibble; addresses
+never stored to and RAM under I/O stay raw RAM; I/O off is RAM as before. Every `harvests[]`
+entry and the back-compat `harvest` carry `ioWritten: [[lo,hi],..]`. C64RE: `REQUIRED_TRX64_VERSION`
+is `0.12.6`; `runSandboxRealCore` reads `harvest.ioWritten` into `SandboxRunResult.ioWritten`;
+`sandbox_6502_run` prints an "I/O stores: …" line naming those ranges (so `$D020` is known to
+come from a store, not RAM) and its description says so. The runs and `output_path` files already
+took their bytes from the harvest, so they hold the stored values with no further change
+(measured: `$D018`, `$D020/$D021` = `$0E`, `$D800/$D801` = `$0E,$05` from a stored `$F5`; with
+`$01=$34` the same stores are RAM and `$D801` stays `$F5`). Not built: a per-byte marker inside
+a run's byte list — the "I/O stores" line carries the ranges.
 
 **9 — C64RE half built.** `describeRunAdvance` (`src/runtime/session-run.ts`): "Advanced N
 cycles" with N = after − before as the daemon counts them; the asked-for budget is named as
@@ -150,6 +151,5 @@ call is refused"; a newer record from another pid → "onboarded by a different 
 process". No record → the plain refusal as before.
 
 **Tests.** `scripts/smoke-896-runtime.mjs` (`npm run smoke:896-runtime`, in `gates.yml`):
-19 checks for 4, 5, 9, 10 — own daemon on a free port, temp dirs, never :4312. The daemon
-and `trx64cli` parts skip loudly where neither exists. Item 7 has no test: nothing in
-C64RE can make it pass.
+22 checks for 4, 5, 7, 9, 10 — own daemon on a free port, temp dirs, never :4312. The daemon
+and `trx64cli` parts skip loudly where neither exists. Item 7: checks 7a–7c in the same smoke (22 checks in all), skipped loudly below trx64cli 0.12.6.
