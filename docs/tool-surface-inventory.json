@@ -109,7 +109,7 @@
       "ns": "agent",
       "hasSpec": false,
       "firstSentence": "Reload the full project state into the session.",
-      "desc": "Reload the full project state into the session. Use when a session starts or after context loss/compaction — run it FIRST. Not for per-turn checks (use c64re_whats_next) or choosing among options (use agent_propose_next). Inputs: project_dir (optional; a named project wins over C64RE_PROJECT_DIR). Needs git on PATH (refused otherwise); a project outside a git work tree is onboarded with PLEASE USE GIT TO AVOID LOSS OF DATA! as the first line. Returns: project metadata, workflow phases, agent role/state, recent artifacts, open tasks + questions, and the proposed next action.",
+      "desc": "Reload the full project state into the session. Use when a session starts or after context loss/compaction — run it FIRST. Not for per-turn checks (use c64re_whats_next) or choosing among options (use agent_propose_next). Inputs: project_dir (optional; a named project wins over C64RE_PROJECT_DIR). Needs git on PATH (refused otherwise); a project outside a git work tree is onboarded with PLEASE USE GIT TO AVOID LOSS OF DATA! as the first line. A broken `.mcp.json` is reported as a warning (Claude Code drops the server silently when it does not parse). Returns: project metadata, workflow phases, agent role/state, recent artifacts, open tasks + questions, and the proposed next action.",
       "tier": "default?"
     },
     {
@@ -1270,7 +1270,7 @@
       "ns": "project",
       "hasSpec": false,
       "firstSentence": "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders.",
-      "desc": "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. Inputs: project name, optional description/tags/assembler/machine_model. Needs git on PATH (refused otherwise, nothing written); a project outside any work tree gets `git init`, a .gitignore and a first commit, one inside a repository is left to it. Returns: created project + knowledge/phase-plan paths.",
+      "desc": "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. Inputs: project name, optional description/tags/assembler/machine_model. Needs git on PATH (refused otherwise, nothing written); a project outside any work tree gets `git init`, a .gitignore and a first commit, one inside a repository is left to it. Writes `.mcp.json` (this server's own launch, git-ignored) when the project has none, and checks an existing one — never write that file by hand (`c64re mcp-config` regenerates it). Returns: created project + knowledge/phase-plan paths.",
       "tier": "default?"
     },
     {
@@ -1333,7 +1333,7 @@
       "ns": "project",
       "hasSpec": false,
       "firstSentence": "Summarize the current project — knowledge counts + key filesystem paths.",
-      "desc": "Summarize the current project — knowledge counts + key filesystem paths. Use for a quick 'where is this project at'. Not for the orient-and-next-action flow (use agent_onboard) or the stored profile (use get_project_profile). Inputs: none. Returns: counts + paths.",
+      "desc": "Summarize the current project — knowledge counts + key filesystem paths. Use for a quick 'where is this project at'. Not for the orient-and-next-action flow (use agent_onboard) or the stored profile (use get_project_profile). Inputs: none. Returns: counts + paths, plus a warning line per problem in the project's `.mcp.json` (invalid JSON, wrong C64RE_PROJECT_DIR, missing command or path).",
       "tier": "default?"
     },
     {

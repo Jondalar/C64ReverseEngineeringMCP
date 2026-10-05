@@ -167,6 +167,11 @@ jobs:
       - name: Named project and git (Spec 893)
         run: npm run smoke:893
 
+      # Spec 895 — the host config is written by C64RE, never typed: project_init and
+      # `c64re mcp-config` write it, the check reads it. Temp directories; no daemon, no :4312.
+      - name: Host config written by C64RE (Spec 895)
+        run: npm run smoke:895
+
       - name: Model router skills and agents
         run: npm run smoke:model-router
 

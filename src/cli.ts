@@ -66,6 +66,8 @@ if (argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help") {
     "                               decide their Then lines (exit 1 on a failure)",
     "  c64re doc lint|check|index   the document checks, as a hook or CI can call them",
     "  c64re setup <agent>          write the process-discipline block into an agent config",
+    "  c64re mcp-config [--project <dir>] [--print]",
+    "                               write <dir>/.mcp.json for Claude Code (--print: show, write nothing)",
     "  c64re --version",
     "",
     "C64RE_PROJECT_DIR points at the project. Setup, host configuration and",
@@ -155,6 +157,14 @@ if (argv[0] === "graph") {
     await mod.runSetup(argv.slice(1));
   }).catch((error: unknown) => {
     console.error(`[c64re setup] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
+} else if (argv[0] === "mcp-config") {
+  // Write <project>/.mcp.json — the host config is generated, never typed.
+  await import("./mcp-config-cli.js").then(async (mod) => {
+    await mod.runMcpConfig(argv.slice(1));
+  }).catch((error: unknown) => {
+    console.error(`[c64re mcp-config] ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
 } else {

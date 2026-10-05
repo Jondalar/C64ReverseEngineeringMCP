@@ -192,6 +192,7 @@
     "start": "tsx src/cli.ts",
     "smoke:product-ui": "npm run build:mcp && npm run ui:build && node scripts/smoke-product-ui.mjs",
     "smoke:893": "npm run build:mcp && node scripts/smoke-893-project-dir-and-git.mjs",
+    "smoke:895": "npm run build:mcp && node scripts/smoke-895-mcp-config.mjs",
     "smoke:ui-launcher": "npm run build:mcp && node scripts/smoke-ui-launcher.mjs",
     "smoke:model-router": "node scripts/smoke-model-router.mjs",
     "e2e:827": "npm run build:mcp && node scripts/e2e-827-trace-location.mjs",

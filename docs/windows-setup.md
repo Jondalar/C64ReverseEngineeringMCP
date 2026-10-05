@@ -28,21 +28,32 @@ Repeat `git pull; npm run build` after every update.
 ## 3. Point Claude at a reverse-engineering project
 
 A *project* is a folder for one game: the disk images go in, the analysis comes
-out. It is not this repo. Create it, then put `.mcp.json` in it:
+out. It is not this repo. Create it, then let C64RE write the `.mcp.json` in it — do not
+hand-edit paths:
+
+```
+node C:/path/to/C64ReverseEngineeringMCP/dist/cli.js mcp-config --project C:/path/to/your/project
+```
+
+(`project_init` writes the same file into a new project.) A single `\` in a JSON string makes
+Claude Code drop the server silently, with no error: use `/` or `\\` if you ever type a path.
+The file it writes looks like this:
 
 ```json
 {
   "mcpServers": {
     "c64-re": {
-      "command": "npx",
-      "args": ["tsx", "C:/path/to/C64ReverseEngineeringMCP/src/cli.ts"],
+      "command": "C:/Program Files/nodejs/node.exe",
+      "args": ["C:/path/to/C64ReverseEngineeringMCP/dist/cli.js"],
       "env": { "C64RE_PROJECT_DIR": "C:/path/to/your/project" }
     }
   }
 }
 ```
 
-Both paths absolute, forward slashes. Start Claude Code **in the project
+What C64RE writes has the Windows backslashes escaped as `\\` instead; both spellings are valid JSON for the same path. Every path absolute.
+
+Start Claude Code **in the project
 folder** and say: *initialise this project with C64RE*. The `project_init` tool
 writes the knowledge scaffold, runs `git init` in the folder (unless it already sits
 inside a repository), writes a `.gitignore` and commits the scaffold. The project keeps
