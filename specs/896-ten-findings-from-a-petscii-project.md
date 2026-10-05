@@ -1,6 +1,6 @@
 # Spec 896 — Ten findings from a PETSCII logo project
 
-**Status:** PROPOSED (2026-10-05)
+**Status:** BUILT except item 7 (2026-10-05) — item 7 waits for TRX64: `trx64cli sandbox` harvests raw RAM, so I/O writes under `$01=$37` are lost there (handed to the TRX64 session).
 **Repo:** C64RE (item 9 may reach TRX64). From issue #37 (Mike, Windows 11, 64tass only).
 
 Mike's issue names a public CSDb file and an exact call for every item; unp64 confirmed

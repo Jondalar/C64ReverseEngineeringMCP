@@ -1,6 +1,6 @@
 # Spec 895 — The host config is written by C64RE, never typed
 
-**Status:** PROPOSED (2026-10-05)
+**Status:** DONE (2026-10-05)
 **Repo:** C64RE. From issue #36 (Mike, Windows 11).
 
 ## §1 What went wrong
