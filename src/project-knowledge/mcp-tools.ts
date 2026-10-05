@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { resolveProjectDir } from "../project-root.js";
@@ -11,6 +11,9 @@ import { ensureUiLaunchers, hostUiPlatform, type UiPlatform } from "./ui-launche
 import { ensureProjectRules, summariseProjectRules } from "../project-rules/provision.js";
 import { ensureDefaultSteering } from "../server-tools/steering-defaults.js";
 import { ProjectKnowledgeService } from "./service.js";
+import {
+  buildServerEntry, checkMcpConfig, mcpConfigWarnings, describeFailure, describeLaunch, writeMcpConfig, MCP_CONFIG_FILE,
+} from "./mcp-config.js";
 import {
   ensureGitignore, gitAvailable, initRepositoryAndCommit, noGitRefusal, workTreeRoot,
   type GitignoreOutcome,
@@ -93,6 +96,33 @@ function gitStepLines(projectRoot: string, name: string): string[] {
   ];
 }
 
+/**
+ * `.mcp.json` for the new project: this server's own launch, written by code. Absent: written.
+ * Present: left alone and checked. Runs after the git step, so a project whose .gitignore is
+ * somebody else's does not get this machine's absolute paths into its first commit.
+ */
+function mcpConfigLines(projectRoot: string, repoDir: string): string[] {
+  const path = join(projectRoot, MCP_CONFIG_FILE);
+  if (existsSync(path)) {
+    const warnings = checkMcpConfig(projectRoot);
+    return [
+      `Host config: ${MCP_CONFIG_FILE} exists and was left alone.`,
+      ...(warnings.length > 0 ? warnings : [`Host config: ${MCP_CONFIG_FILE} checked, nothing to report.`]),
+    ];
+  }
+  const entry = buildServerEntry({
+    projectDir: projectRoot,
+    launch: describeLaunch({ execPath: process.execPath, argv: process.argv, execArgv: process.execArgv, repoDir }),
+    env: process.env,
+  });
+  const outcome = writeMcpConfig(projectRoot, entry);
+  if (outcome.kind === "refused") return [`Host config: not written. ${describeFailure(outcome.path, outcome.failure)}`];
+  return [
+    `Host config: ${path} written, this server's own launch (${entry.command} ${entry.args.join(" ")}) with C64RE_PROJECT_DIR = ${projectRoot}. `
+    + `It is git-ignored: it holds absolute paths of this machine. Never write it by hand; \`c64re mcp-config\` regenerates it.`,
+  ];
+}
+
 const evidenceSchema = z.object({
   kind: z.enum(["artifact", "finding", "entity", "relation", "flow", "task", "question", "note", "external"]),
   title: z.string(),
@@ -124,7 +154,7 @@ const evidenceSchema = z.object({
 export function registerProjectKnowledgeTools(server: McpServer, options: RegisterProjectKnowledgeToolsOptions): void {
   server.tool(
     "project_init",
-    "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. Inputs: project name, optional description/tags/assembler/machine_model. Needs git on PATH (refused otherwise, nothing written); a project outside any work tree gets `git init`, a .gitignore and a first commit, one inside a repository is left to it. Returns: created project + knowledge/phase-plan paths.",
+    "Initialize a reverse-engineering project workspace with persistent knowledge, view, analysis, and session folders. Use ONCE on a fresh directory before any knowledge write — knowledge tools reject an uninitialized project. Not for resuming an existing project (use agent_onboard) or choosing a workflow template (use start_re_workflow). The project remembers which C64 it is (machine_model, default c64-pal): the workspace and a sandbox run start the machine as that model, so an NTSC release boots as NTSC. Re-running it on an existing project keeps its knowledge and only changes what is passed — the way to change the model later. Inputs: project name, optional description/tags/assembler/machine_model. Needs git on PATH (refused otherwise, nothing written); a project outside any work tree gets `git init`, a .gitignore and a first commit, one inside a repository is left to it. Writes `.mcp.json` (this server's own launch, git-ignored) when the project has none, and checks an existing one — never write that file by hand (`c64re mcp-config` regenerates it). Returns: created project + knowledge/phase-plan paths.",
     {
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
       name: z.string().describe("Human-readable project name"),
@@ -173,9 +203,11 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       });
       const status = service.getProjectStatus();
       const gitLines = gitStepLines(projectRoot, project.name);
+      const hostConfigLines = mcpConfigLines(projectRoot, options.repoDir);
       return textContent([
         `Project initialized.`,
         ...gitLines,
+        ...hostConfigLines,
         `Name: ${project.name}`,
         `Root: ${project.rootPath}`,
         `Preferred assembler: ${project.preferredAssembler ?? "(not set)"}`,
@@ -275,7 +307,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "project_status",
-    "Summarize the current project — knowledge counts + key filesystem paths. Use for a quick 'where is this project at'. Not for the orient-and-next-action flow (use agent_onboard) or the stored profile (use get_project_profile). Inputs: none. Returns: counts + paths.",
+    "Summarize the current project — knowledge counts + key filesystem paths. Use for a quick 'where is this project at'. Not for the orient-and-next-action flow (use agent_onboard) or the stored profile (use get_project_profile). Inputs: none. Returns: counts + paths, plus a warning line per problem in the project's `.mcp.json` (invalid JSON, wrong C64RE_PROJECT_DIR, missing command or path).",
     {
       project_dir: z.string().optional().describe("Project root directory. Defaults to C64RE_PROJECT_DIR or process.cwd()."),
     },
@@ -327,6 +359,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Canonical docs: ${status.workflowPlan.canonicalDocPaths.join(", ") || "(none)"}`,
         `Canonical prompts: ${status.workflowPlan.canonicalPromptIds.join(", ") || "(none)"}`,
         ...docLines,
+        ...mcpConfigWarnings(root),
         ``,
         `Phase status:`,
         ...status.workflowState.phases.map((phase) => formatWorkflowPhaseLine(phase)),

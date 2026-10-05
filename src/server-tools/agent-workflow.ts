@@ -9,6 +9,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { auditProject, auditProjectCached, type AuditCachedResult, type ProjectAuditResult } from "../project-knowledge/audit.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
+import { mcpConfigWarnings } from "../project-knowledge/mcp-config.js";
 import { countUnimportedAnalysisArtifacts, scanRegistrationDelta } from "../lib/registration-delta.js";
 import { INVENTORY_PATTERNS_FILE } from "../project-knowledge/inventory-patterns.js";
 import type { ServerToolContext } from "./types.js";
@@ -383,7 +384,7 @@ function recentArtifactSummary(service: ProjectKnowledgeService, projectRoot: st
 export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolContext): void {
   server.tool(
     "agent_onboard",
-    "Reload the full project state into the session. Use when a session starts or after context loss/compaction — run it FIRST. Not for per-turn checks (use c64re_whats_next) or choosing among options (use agent_propose_next). Inputs: project_dir (optional; a named project wins over C64RE_PROJECT_DIR). Needs git on PATH (refused otherwise); a project outside a git work tree is onboarded with PLEASE USE GIT TO AVOID LOSS OF DATA! as the first line. Returns: project metadata, workflow phases, agent role/state, recent artifacts, open tasks + questions, and the proposed next action.",
+    "Reload the full project state into the session. Use when a session starts or after context loss/compaction — run it FIRST. Not for per-turn checks (use c64re_whats_next) or choosing among options (use agent_propose_next). Inputs: project_dir (optional; a named project wins over C64RE_PROJECT_DIR). Needs git on PATH (refused otherwise); a project outside a git work tree is onboarded with PLEASE USE GIT TO AVOID LOSS OF DATA! as the first line. A broken `.mcp.json` is reported as a warning (Claude Code drops the server silently when it does not parse). Returns: project metadata, workflow phases, agent role/state, recent artifacts, open tasks + questions, and the proposed next action.",
     {
       project_dir: z.string().optional().describe("Project root. Wins over C64RE_PROJECT_DIR when given; omitted, C64RE_PROJECT_DIR, then the project this session onboarded into, then process.cwd()."),
     },
@@ -424,6 +425,9 @@ export function registerAgentWorkflowTools(server: McpServer, ctx: ServerToolCon
       const lines: string[] = [...gitHead];
       lines.push(`# Agent Onboarding`);
       if (gitNote) lines.push(gitNote);
+      // The host config is read by the NEXT session, so a broken one is said here, while a
+      // human can still fix it. A warning, never a refusal: this session is already running.
+      for (const w of mcpConfigWarnings(projectRoot)) lines.push(w);
       // Spec 748 (BUG-032) — PROJECT STEERING, injected FIRST + verbatim (the Kiro
       // "steering file" analogue: project-scoped, always-in-context rules the agent
       // must apply every session). Lives at <project>/knowledge/steering.md; written

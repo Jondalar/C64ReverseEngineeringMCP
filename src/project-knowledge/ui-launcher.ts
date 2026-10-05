@@ -32,7 +32,7 @@ import { join } from "node:path";
  * has no tsconfig, no scripts/ and no TypeScript. In a package the same orchestration is
  * reached as `c64re ui`, already built, from dist/.
  */
-function isPackagedInstall(repoDir: string): boolean {
+export function isPackagedInstall(repoDir: string): boolean {
   // Both halves are needed. "No scripts/workspace.mjs" alone calls an empty directory a
   // package, which is how this first broke smoke:ui-launcher — that smoke hands in a
   // synthetic repo path to exercise spaces and an apostrophe, and it contains neither

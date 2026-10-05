@@ -137,7 +137,23 @@ project is refused rather than replaced by the default.
 
 ### Claude Code
 
-`.mcp.json` at your RE-project root:
+Let C64RE write the `.mcp.json` — do not hand-edit paths. `project_init` writes it into a new
+project, and for one that already exists:
+
+```
+npx -y @trex64/c64re mcp-config --project /path/to/your/re-project
+```
+
+(from a checkout: `node dist/cli.js mcp-config --project …`). It describes how that command
+was started, replaces only the `c64-re` entry and keeps every other server in the file; a file
+that is not valid JSON is refused and left untouched, with the line and column. `--print`
+shows the result and writes nothing. The file holds paths of this machine, so `project_init`
+adds it to the project's `.gitignore`.
+
+A single `\` in a JSON string makes Claude Code drop the server silently, with no error. If
+you must write a path yourself, use `/` or `\\`.
+
+The file looks like this, at your RE-project root:
 
 ```json
 {

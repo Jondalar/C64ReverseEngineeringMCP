@@ -311,6 +311,8 @@ At initialization, after context loss, or when entering a new project:
    - a partially imported project
    - a project with stale views
 
+**Never write `.mcp.json` by hand — not for a new project, not by copying your own server entry.** `project_init` writes it (this server's own launch, serialised by code) and `c64re mcp-config --project <dir>` writes it for a project that already exists. A hand-copied Windows path loses its JSON escaping, the file stops parsing, and Claude Code drops the `c64-re` server without an error: the next session has no c64-re tools. `project_status` and `agent_onboard` report a broken one; the fix is the command, not an edit.
+
 If knowledge files are missing, initialize the project with `project_init`. If artifacts exist but knowledge is empty, run `project_inventory_sync` (imports manifests, registers files, rebuilds views) or `import_analysis_report` for individual analysis runs before reasoning.
 
 ---

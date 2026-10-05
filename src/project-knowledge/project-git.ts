@@ -90,7 +90,8 @@ export function workTreeRoot(dir: string): string | undefined {
 /**
  * Regenerable or per-machine outputs. Names are the ones the writers use:
  * the launchers (`project_launchers`: ui.sh / ui.ps1, ui-<action>.desktop|command|cmd —
- * each bakes an absolute path — plus `ui.log` and `.ui.pid`), the derived indexes under
+ * each bakes an absolute path — plus `ui.log` and `.ui.pid`), `.mcp.json` (absolute paths
+ * of this machine's launch), the derived indexes under
  * `knowledge/.cache/`, the graph's WAL side files, trace stores (`*.duckdb` index and
  * `*.c64retrace` log, gigabytes and rewritten while a trace runs), the lock and temp
  * files of the JSON stores, and the rebuild check's scratch PRG. Media, `knowledge/`,
@@ -107,6 +108,8 @@ export const GITIGNORE_LINES = [
   "ui-*.cmd",
   "ui.log",
   ".ui.pid",
+  "# the host config: absolute, per-machine paths (written by project_init / c64re mcp-config)",
+  ".mcp.json",
   "# derived indexes, rebuilt on demand",
   "knowledge/.cache/",
   "# the graph's write-ahead side files",
