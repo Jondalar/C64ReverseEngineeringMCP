@@ -28,7 +28,7 @@ export const EXPECTED_RUNTIME_PROTOCOL = 2;
  * against the sibling TRX64 checkout's own workspace version and its RUNTIME_VERSION
  * string, and fails when they drift.
  */
-export const REQUIRED_TRX64_VERSION = "0.12.4";
+export const REQUIRED_TRX64_VERSION = "0.12.5";
 
 /** Parse the integer N out of a daemon version string like "trx64-runtime/1". */
 export function parseRuntimeProtocol(version: string | undefined | null): number | null {
