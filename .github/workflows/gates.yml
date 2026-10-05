@@ -167,6 +167,13 @@ jobs:
       - name: Named project and git (Spec 893)
         run: npm run smoke:893
 
+      # Spec 896 items 1, 2, 3, 6, 8 — the rebuild check follows preferredAssembler, hex
+      # offsets, missing output folders, depack results with/without a load address, BASIC
+      # launchers. Temp dirs only, own MCP servers, no daemon. Rebuild cases skip loudly
+      # when 64tass is absent.
+      - name: Static findings (Spec 896)
+        run: npm run smoke:896-static
+
       - name: Model router skills and agents
         run: npm run smoke:model-router
 

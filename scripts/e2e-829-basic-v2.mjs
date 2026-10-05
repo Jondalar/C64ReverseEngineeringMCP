@@ -333,6 +333,24 @@ check(
 );
 check(detokenize(MIXED, BASIC) === "10 SYS 2080", "the trailing machine code does not leak into the listing");
 
+// A launcher whose next-line pointer is the first byte of the code its SYS jumps to
+// (`1994 SYS 2059`, link $080B, no $0000 chain end) — the shape packers write.
+const OPEN_STUB = Uint8Array.from([
+  0x0b, 0x08, 0xca, 0x07, 0x9e, 0x32, 0x30, 0x35, 0x39, 0x00, // $0801-$080A
+  0xa9, 0x00, 0x8d, 0x20, 0xd0, 0x60,                         // $080B code
+]);
+check(walkBasicProgram(OPEN_STUB, BASIC).ok === false, "the strict walk still refuses a chain with no $0000 end");
+const openAnalysis = analyzeBasicProgram(OPEN_STUB, BASIC);
+check(openAnalysis.ok === true && openAnalysis.openEnded === true && openAnalysis.programRange.end === 0x080a,
+  "analyzeBasicProgram reads it as BASIC $0801-$080A, open-ended, because the SYS proves the exit");
+check(openAnalysis.ok === true && openAnalysis.facts.some((f) => f.kind === "sys" && f.value === 0x080b), "…and the SYS target $080B is a fact");
+// the same bytes with PRINT (token $99) instead of SYS: nothing proves a launcher
+const OPEN_NO_SYS = Uint8Array.from(OPEN_STUB); OPEN_NO_SYS[4] = 0x99;
+check(analyzeBasicProgram(OPEN_NO_SYS, BASIC).ok === false, "an open-ended chain without a SYS leaving it is NOT claimed as BASIC");
+// a SYS that lands INSIDE the line (before the chain break) proves nothing either
+const OPEN_SYS_BACK = Uint8Array.from(OPEN_STUB); OPEN_SYS_BACK.set([0x32, 0x30, 0x34, 0x39], 5); // SYS 2049
+check(analyzeBasicProgram(OPEN_SYS_BACK, BASIC).ok === false, "…nor a SYS that jumps back into the program itself");
+
 // ---------------------------------------------------------------- the analysis door
 
 const stubAnalysis = analyzeBasicProgram(STUB, BASIC);

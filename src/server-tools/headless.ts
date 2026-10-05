@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { ProjectHint, ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 import { describeIdleExit } from "../runtime/idle-exit.js";
+import { pngBytesFromDataUrl, writeFileCreatingDirs } from "../lib/write-output.js";
 
 // BUG-052 — how long a loader-lens fold may block the tool call before it becomes
 // a background job. Well under the host's ~180 s stall limit; a normal capture
@@ -833,7 +834,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_render_screen",
-    "Render a session's current VIC output to a PNG. Use to see the live screen state. Not for a saved scenario (use the advanced scenario export). Inputs: session_id, out_path. Returns: PNG path + dimensions.",
+    "Render a session's current VIC output to a PNG. Use to see the live screen state. Not for a saved scenario (use the advanced scenario export). The output folder is created when missing. Inputs: session_id, path. Returns: PNG path + dimensions.",
     {
       session_id: z.string(),
       path: z.string().describe("Output PNG path"),
@@ -851,11 +852,8 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       // returns a base64 PNG (same frame the UI sees); write it to the requested path.
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
       const shot = await runtimeDaemon.screenshot(session_id);
-      const dataUrl = shot.dataUrl ?? "";
-      const b64 = dataUrl.includes(",") ? dataUrl.slice(dataUrl.indexOf(",") + 1) : dataUrl;
-      const buf = Buffer.from(b64, "base64");
-      const { writeFileSync } = await import("node:fs");
-      writeFileSync(outPath, buf);
+      const buf = pngBytesFromDataUrl(shot.dataUrl ?? "");
+      writeFileCreatingDirs(outPath, buf);
       return { content: [{ type: "text" as const, text: [
         `runtime_render_screen — session ${session_id} (Runtime Daemon)`,
         `Output: ${outPath}`,

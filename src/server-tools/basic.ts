@@ -1,6 +1,6 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { runCli } from "../run-cli.js";
@@ -55,6 +55,7 @@ export function registerBasicTools(server: McpServer, context: ServerToolContext
         if (load_address) {
           args.push("--load-address", load_address);
         }
+        mkdirSync(dirname(outAbs), { recursive: true });
         const result = await runCli("basic-tokenize", args, { projectDir: pd });
         const answer = context.cliResultToContent(result);
         // The PRG is registered from HERE, by the door that was called, the way
