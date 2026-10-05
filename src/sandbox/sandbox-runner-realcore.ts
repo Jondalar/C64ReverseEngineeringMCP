@@ -268,6 +268,8 @@ export function runSandboxRealCore(options: SandboxRunOptions): SandboxRunResult
       cycles: j.cycles,
     };
 
+    const ioWritten = (j.harvest.ioWritten ?? []).map(([lo, hi]) => ({ lo, hi }));
+
     return {
       stopReason: j.stopReason as StopReason | "stop_pc",
       steps: j.steps,
@@ -275,6 +277,7 @@ export function runSandboxRealCore(options: SandboxRunOptions): SandboxRunResult
       writes,
       writtenMap,
       writtenRuns,
+      ioWritten,
       writtenSpan,
       memorySnapshots,
       streamPos: j.streamPos,

@@ -53,8 +53,8 @@ export interface Trx64SandboxJson {
   writtenRuns: Array<{ lo: number; hi: number }>;
   finalRegs: { a: number; x: number; y: number; sp: number; p: number };
   streamPos: number;
-  harvest: { addr: number; len: number; hex: string };
-  harvests: Array<{ addr: number; len: number; hex: string }>;
+  harvest: { addr: number; len: number; hex: string; ioWritten?: Array<[number, number]> };
+  harvests: Array<{ addr: number; len: number; hex: string; ioWritten?: Array<[number, number]> }>;
 }
 
 export class Trx64CliError extends Error {}

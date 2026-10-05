@@ -1,4 +1,4 @@
-// Spec 896 items 4, 5, 9, 10 — a self-extracting file depacks, `until` runs to a PC on the
+// Spec 896 items 4, 5, 7, 9, 10 — a self-extracting file depacks, `until` runs to a PC on the
 // runtime, a run says what it actually advanced, and a refusal after a restart says why.
 //
 // Temp directories only. Every runtime test starts its OWN daemon on a port picked at run
@@ -14,7 +14,8 @@
 //       the machine did not advance and never says "ran up to"
 //   10  save_finding in a project onboarded by an earlier server process: the refusal says
 //       the server was (re)started since, and that is why; a never-onboarded project does not
-//   (item 7 is not here: the loss is inside the runtime's sandbox harvest, see the spec)
+//   7   sandbox_6502_run with $01=$37: stores to $D000-$DFFF come back as the values the CPU
+//       wrote (output_path + an "I/O stores" line); with $01=$34 they are plain RAM
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
@@ -65,7 +66,7 @@ function startMcp(projectDir, extraEnv = {}) {
 const freePort = () => new Promise((res, rej) => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => res(p)); }); s.on("error", rej); });
 
 // ── hermetic parts ───────────────────────────────────────────────────────────────────
-console.log("Spec 896 — runtime items (4, 5, 9, 10)\n");
+console.log("Spec 896 — runtime items (4, 5, 7, 9, 10)\n");
 
 // 9 — the wording, from numbers (the daemon half is below)
 {
@@ -151,6 +152,39 @@ if (!existsSync(cliBin)) {
   check(/FAILED/.test(r2) && /overlaps the resident loader window/.test(r2) && !existsSync(join(proj, "out", "other.prg")),
     "4b a DIFFERENT image over the loader's addresses is still refused", r2.split("\n").slice(-2).join(" | "));
   m.stop();
+}
+
+// 7 — I/O stores under $01=$37 (needs trx64cli >= 0.12.6)
+{
+  const ver = existsSync(cliBin) ? spawnSync(cliBin, ["--version"], { encoding: "utf8" }).stdout.trim() : "";
+  const mm = /(\d+)\.(\d+)\.(\d+)/.exec(ver);
+  const okVer = mm && (+mm[1] > 0 || +mm[2] > 12 || (+mm[2] === 12 && +mm[3] >= 6));
+  if (!okVer) {
+    skip(`7 sandbox_6502_run I/O stores — needs trx64cli >= 0.12.6, have "${ver || "none at " + cliBin}"`);
+  } else {
+    const proj = scratch("proj7");
+    new ProjectKnowledgeService(proj).initProject({ name: "896-7" });
+    // LDA #$0E / STA $D020 / STA $D021 / STA $D018 / STA $D800 / LDA #$F5 / STA $D801 / RTS
+    const hex = "A90E8D20D08D21D08D18D08D00D8A9F58D01D860";
+    const m = startMcp(proj, { C64RE_TRX64CLI_BIN: cliBin });
+    await m.tool("agent_onboard", { project_dir: proj });
+    const run = (zp01, out) => m.tool("sandbox_6502_run", {
+      project_dir: proj, loads: [{ address: "0800", hex_bytes: hex }], initial_pc: "0800",
+      initial_zp: { "01": zp01 }, return_writes_start: "D000", return_writes_end: "DFFF",
+      output_path: out,
+    });
+    const prgBytes = (f) => (existsSync(f) ? [...readFileSync(f).subarray(2)] : null);
+    const r37 = await run(0x37, "out7/io37.prg");
+    const o = (lo) => prgBytes(join(proj, "out7", `io37-$${lo}.prg`));
+    check(JSON.stringify(o("D018")) === "[14]" && JSON.stringify(o("D020")) === "[14,14]" && JSON.stringify(o("D800")) === "[14,5]",
+      "7a $01=$37: $D018, $D020/$D021 and colour RAM $D800/$D801 reach output_path as the stored values ($0E,$0E,$0E,$0E,$05)", r37.split("\n").slice(-4).join(" | "));
+    check(/I\/O stores: \$D018, \$D020-\$D021, \$D800-\$D801/.test(r37), "7b the answer names the ranges that are CPU I/O stores", r37.split("\n").filter((l) => /I\/O/.test(l)).join(" | "));
+    const r34 = await run(0x34, "out7/ram34.prg");
+    const ram = (lo) => prgBytes(join(proj, "out7", `ram34-$${lo}.prg`));
+    check(!/I\/O stores/.test(r34) && JSON.stringify(ram("D020")) === "[14,14]" && JSON.stringify(ram("D800")) === "[14,245]",
+      "7c $01=$34: the same stores land in RAM (raw $F5, not the colour-RAM nibble) and no I/O stores are claimed", r34.split("\n").slice(-4).join(" | "));
+    m.stop();
+  }
 }
 
 // 5 + 9 — a daemon of our own

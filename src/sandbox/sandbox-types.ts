@@ -145,6 +145,11 @@ export interface SandboxRunResult {
   // runs stay disjoint — the space between two runs is not in this list, and
   // nothing fills it. Clipped to returnWritesRange when the caller set one.
   writtenRuns: WrittenRun[];
+  // Absolute address ranges inside the written runs whose bytes are what the CPU
+  // stored into I/O space ($D000-$DFFF with I/O banked in) — the last value
+  // written, never a chip read; colour RAM is its low nibble. Empty when the
+  // routine stored nowhere in I/O.
+  ioWritten?: Array<{ lo: number; hi: number }>;
   // Smallest contiguous span covering all writtenMap addresses, or null. The
   // span is a convenience over `writtenRuns`, so its holes are `null` — it does
   // NOT gap-fill with zeroes (that was invented data) and never with residue.
