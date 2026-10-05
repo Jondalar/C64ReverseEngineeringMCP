@@ -172,6 +172,12 @@ jobs:
       - name: Host config written by C64RE (Spec 895)
         run: npm run smoke:895
 
+      # Spec 896 — a self-extracting depack, `until` on the runtime, an honest run answer, a
+      # refusal that says the server restarted. Own temp dirs; its daemon and trx64cli parts
+      # start their own process on a free port and SKIP LOUDLY on a runner that has neither.
+      - name: Runtime items 4, 5, 9, 10 (Spec 896)
+        run: npm run smoke:896-runtime
+
       - name: Model router skills and agents
         run: npm run smoke:model-router
 

@@ -67,3 +67,47 @@ for the pattern).
 
 Tool descriptions where behaviour changed (regenerate inventory → matrix → playbooks).
 User docs only where they described the old behaviour. No spec numbers in user docs.
+
+## §5 As built — items 4, 5, 7, 9, 10
+
+**4 — built.** `payloadIsLoaderImage` (`src/sandbox/sandbox-depack-generic.ts`): when the
+payload bytes are a window of the loader image at the same address, `checkLayout` lets it
+through and the real-core run loads that image once and starts at `entry_pc`. Anything else
+that overlaps stays refused; the message now says it is a different image. Mike's call
+(`input_path == resident_loader_path`, `offset 2`, `source_load_address 0801`) is the case.
+
+**5 — built.** `runtime_session_run {until}` runs the daemon's run-to-address (`api/call`
+`until`, the call `runtime_until` makes). It supports `kind="pc"`, C64 side, first arrival.
+Refused by name before the machine is touched: `raster`, `iec`, `stable_screen`,
+`side="drive"`, `count>1`. The daemon's `until` carries its own fixed budget (10 M cycles);
+`max_instructions` / `cycle_budget` do not bound an `until` run, and an unreached PC is
+reported as such. The stale comment about a "slice 2" that would route it is gone.
+
+**7 — NOT built; the loss is inside TRX64.** `sandbox_6502_run` shells out to
+`trx64cli sandbox`; C64RE's `runSandboxRealCore` takes every byte it reports from the
+harvest. In TRX64 `crates/trx64-cli/src/sandbox_cmd.rs`, `execute_sandbox` builds the harvest
+as `m.ram[start..end]` — the raw 64 K RAM array, banking ignored. With `$01=$37` a store to
+`$D000-$DFFF` goes to the chip, not to `m.ram`, so the byte is not in the harvest. The write
+map still names the addresses (measured: `LDA #5 / STA $D020 / … STA $D800` under `--zp 01=$37`
+returns `writtenRuns` `$D020-$D021` and `$D800-$D801`, and the harvest of those ranges is
+all `$00`), so C64RE reports a written run with RAM-under bytes. The fix needs a value the
+runtime does not give: a harvest through the CPU's view (VIC/SID/CIA registers as the last
+value written, colour RAM low nibble) or a write log carrying values. C64RE cannot
+reconstruct it; it was not guessed at here.
+
+**9 — C64RE half built.** `describeRunAdvance` (`src/runtime/session-run.ts`): "Advanced N
+cycles" with N = after − before as the daemon counts them; the asked-for budget is named as
+such; N ≤ 0 says "The machine did not advance" with cycles and PC, and never "ran up to".
+The daemon half stays unchased (no reproduction); the issue reply asks for one.
+
+**10 — built.** `agent_onboard` writes `knowledge/.cache/onboarding.json` (`{at, pid}`;
+`.cache/` is already ignored by the project's `.gitignore` block, so it is per machine).
+The gate's refusal reads it: a record from another process older than this process's start
+→ "the server was (re)started since — … onboarding is per server process. That is why this
+call is refused"; a newer record from another pid → "onboarded by a different MCP server
+process". No record → the plain refusal as before.
+
+**Tests.** `scripts/smoke-896-runtime.mjs` (`npm run smoke:896-runtime`, in `gates.yml`):
+19 checks for 4, 5, 9, 10 — own daemon on a free port, temp dirs, never :4312. The daemon
+and `trx64cli` parts skip loudly where neither exists. Item 7 has no test: nothing in
+C64RE can make it pass.
