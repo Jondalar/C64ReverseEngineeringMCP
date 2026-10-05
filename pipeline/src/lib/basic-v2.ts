@@ -300,6 +300,14 @@ export interface BasicWalkOk {
    * The pointer chain is what has to ascend; this is reported, not enforced.
    */
   ascendingLineNumbers: boolean;
+  /**
+   * True when the chain does NOT end in `$0000`: the next-line pointer of the last
+   * clean line lands on machine code (the launcher shape `0B 08 .. 9E "2059" 00` with
+   * code at $080B, where SYS jumps over the missing terminator). Only produced when
+   * the caller asks for it (`machineCodeTail`). `endAddress` is then the address the
+   * next-line pointer would have occupied, and `programRange.end` the last line's `$00`.
+   */
+  openEnded?: boolean;
 }
 
 export interface BasicWalkFail {
@@ -330,7 +338,18 @@ function toByteArray(bytes: ArrayLike<number>): number[] {
  * anything else says where it broke, because half a listing is how the bug this
  * spec closes came about in the first place (D2).
  */
-export function walkBasicProgram(bytes: ArrayLike<number>, loadAddress: number): BasicWalkResult {
+export interface BasicWalkOptions {
+  /**
+   * Accept a chain whose last clean line is followed by something that is not a line
+   * record: machine code a SYS leaves BASIC for. Off by default, because
+   * `walkBasicProgram` answers "is this a complete BASIC program" and half a listing is
+   * not an answer to that. `analyzeBasicProgram` turns it on only with a SYS that proves
+   * the exit.
+   */
+  machineCodeTail?: boolean;
+}
+
+export function walkBasicProgram(bytes: ArrayLike<number>, loadAddress: number, options: BasicWalkOptions = {}): BasicWalkResult {
   if (!Number.isInteger(loadAddress) || loadAddress < 0 || loadAddress > 0xffff) {
     return { ok: false, reason: `load address $${hex4(loadAddress | 0)} is outside the 64K address space`, offset: 0 };
   }
@@ -338,8 +357,21 @@ export function walkBasicProgram(bytes: ArrayLike<number>, loadAddress: number):
   const lines: BasicLine[] = [];
   let offset = 0;
 
+  const tail = options.machineCodeTail === true;
+  const openEnd = (): BasicWalkOk => ({
+    ok: true,
+    loadAddress,
+    lines,
+    endOffset: offset,
+    endAddress: loadAddress + offset,
+    programRange: { start: loadAddress, end: loadAddress + offset - 1 },
+    ascendingLineNumbers: lines.every((line, i) => i === 0 || line.number > lines[i - 1].number),
+    openEnded: true,
+  });
+
   for (;;) {
     if (image.length - offset < 2) {
+      if (tail && lines.length > 0) return openEnd();
       return lines.length === 0
         ? { ok: false, reason: "image is too short to hold a line record", offset }
         : { ok: false, reason: "the chain never ends at a $0000 next-line pointer", offset };
@@ -366,12 +398,14 @@ export function walkBasicProgram(bytes: ArrayLike<number>, loadAddress: number):
     }
 
     if (image.length - offset < 4) {
+      if (tail && lines.length > 0) return openEnd();
       return { ok: false, reason: "truncated line record: the 2-byte line number is missing", offset: offset + 2 };
     }
     const lineNumber = image[offset + 2] | (image[offset + 3] << 8);
     const address = loadAddress + offset;
 
     if (pointer <= address) {
+      if (tail && lines.length > 0) return openEnd();
       return {
         ok: false,
         reason: `next-line pointer $${hex4(pointer)} does not advance past the record at $${hex4(address)}`,
@@ -380,6 +414,7 @@ export function walkBasicProgram(bytes: ArrayLike<number>, loadAddress: number):
     }
     const nextOffset = pointer - loadAddress;
     if (nextOffset > image.length) {
+      if (tail && lines.length > 0) return openEnd();
       return {
         ok: false,
         reason: `next-line pointer $${hex4(pointer)} points outside the image (${image.length} bytes from $${hex4(loadAddress)})`,
@@ -388,6 +423,7 @@ export function walkBasicProgram(bytes: ArrayLike<number>, loadAddress: number):
     }
     const terminator = nextOffset - 1;
     if (terminator < offset + 4) {
+      if (tail && lines.length > 0) return openEnd();
       return {
         ok: false,
         reason: `next-line pointer $${hex4(pointer)} leaves no room for the record's own header`,
@@ -395,6 +431,7 @@ export function walkBasicProgram(bytes: ArrayLike<number>, loadAddress: number):
       };
     }
     if (image[terminator] !== 0) {
+      if (tail && lines.length > 0) return openEnd();
       return {
         ok: false,
         reason: `no $00 line terminator at $${hex4(loadAddress + terminator)}, where the next-line pointer says the line ends`,
@@ -998,9 +1035,19 @@ export type BasicProgramAnalysis = BasicProgramAnalysisOk | BasicWalkFail;
 
 /** Walk, list and extract in one call — the shape a tool or an analyzer wants. */
 export function analyzeBasicProgram(bytes: ArrayLike<number>, loadAddress: number): BasicProgramAnalysis {
-  const walk = walkBasicProgram(bytes, loadAddress);
+  const strict = walkBasicProgram(bytes, loadAddress);
+  const walk = strict.ok ? strict : walkBasicProgram(bytes, loadAddress, { machineCodeTail: true });
+  // The open-ended reading claims a SYS leaves BASIC for the bytes after the last line.
+  // Without a resolved SYS to or past that point nothing proves it, and the strict
+  // failure is the honest answer.
   if (!walk.ok) return walk;
   const facts = extractBasicFacts(walk.lines);
+  if (walk.openEnded) {
+    const breakAddress = walk.programRange.end + 1;
+    const leaves = facts.some((f) => f.kind === "sys" && f.value !== undefined && f.value >= breakAddress
+      && f.value < loadAddress + bytes.length);
+    if (!leaves) return strict as BasicWalkFail;
+  }
   return {
     ...walk,
     listing: detokenizeLines(walk.lines),

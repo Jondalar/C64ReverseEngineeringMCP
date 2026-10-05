@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { basename, resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
 import { parseCrt, writeCrtOutputs } from "./lib/crt";
 import { exportMenuPayloads, reconstructBootPayloads } from "./lib/easyflash";
 import { analyzeBasicProgram, stripPrgHeader, tokenize, toPrg } from "./lib/basic-v2";
@@ -526,6 +526,7 @@ function main(): void {
     const text = readFileSync(textAbs, "utf8");
     const body = tokenize(text, loadAddress);
     const prg = Buffer.from(toPrg(loadAddress, body));
+    mkdirSync(dirname(outputAbs), { recursive: true });
     writeFileSync(outputAbs, prg);
     registerCliArtifact({
       kind: "prg",
@@ -572,6 +573,7 @@ function main(): void {
     // 820.2: the access table reads knowledge/graph.sqlite for this owner when it
     // exists (owner = the analysis stem); absent → the JSON walk with a loud note.
     const owner = basename(resolve(analysisPath)).replace(/_analysis\.json$/u, "").toLowerCase();
+    mkdirSync(dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, renderRamStateMarkdown(report, { projectDir: process.env.C64RE_PROJECT_DIR, owner }), "utf8");
     registerCliArtifact({
       kind: "report",
@@ -592,6 +594,7 @@ function main(): void {
     }
     const outputPath = resolve(args[1] ?? "analysis/main-game/POINTER_TABLE_FACTS.md");
     const report = JSON.parse(readFileSync(resolve(analysisPath), "utf8"));
+    mkdirSync(dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, renderPointerTableMarkdown(report), "utf8");
     registerCliArtifact({
       kind: "report",

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,6 +43,8 @@ export async function assembleSource(options: AssembleSourceOptions): Promise<As
     options.projectDir,
     options.outputPath ?? defaultOutputPathForSource(sourcePath),
   );
+  // Neither assembler creates the output folder (64tass also writes its label file there).
+  mkdirSync(dirname(outputPath), { recursive: true });
 
   const symbolsPath = options.symbols ? symbolPathForOutput(outputPath) : undefined;
   const run = assembler === "kickassembler"
@@ -148,6 +150,16 @@ function execTool(binary: string, args: string[], cwd: string): Promise<{ stdout
       },
     );
   });
+}
+
+/** The jar path when KickAssembler can be run here, else undefined (never throws). */
+export function findKickAssemblerJar(): string | undefined {
+  try { return resolveKickAssemblerJarPath(); } catch { return undefined; }
+}
+
+/** The 64tass binary when one can be run here, else undefined (never throws). */
+export function find64tassBinary(): string | undefined {
+  try { return resolve64tassBinaryPath(); } catch { return undefined; }
 }
 
 function resolveKickAssemblerJarPath(): string {

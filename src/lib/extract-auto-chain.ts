@@ -274,7 +274,7 @@ export function summarizeAutoChain(results: AutoChainItemResult[]): string {
       }${diverged > 5 ? `, +${diverged - 5} more` : ""}.`,
     );
   } else if (unverified === done) {
-    lines.push("No listing was verified — the assembler could not be run (KickAssembler jar / java absent).");
+    lines.push("No listing was verified — no assembler could be run (KickAssembler jar / java and 64tass all absent).");
   }
   return lines.join("\n");
 }

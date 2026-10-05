@@ -13,8 +13,8 @@
 // would report a divergence at offset 0, which is a false alarm and worse than silence.
 
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { basename } from "node:path";
-import { assembleSource } from "../assemble-source.js";
+import { basename, join } from "node:path";
+import { assembleSource, find64tassBinary, findKickAssemblerJar, type SupportedAssembler } from "../assemble-source.js";
 import { ProjectKnowledgeService } from "../project-knowledge/service.js";
 
 export interface RebuildVerdict {
@@ -24,6 +24,22 @@ export interface RebuildVerdict {
   verified: boolean;
   /** true when the assembler itself could not be run at all (absent jar / no java). */
   assemblerUnavailable: boolean;
+}
+
+/**
+ * Which assembler checks the listing: the project's `preferredAssembler` first, when it
+ * can run here; otherwise whichever is installed, KickAssembler before 64tass.
+ * Undefined when neither can run.
+ */
+export function chooseRebuildAssembler(projectDir: string): SupportedAssembler | undefined {
+  let preferred: SupportedAssembler | undefined;
+  try {
+    const meta = JSON.parse(readFileSync(join(projectDir, "knowledge", "project.json"), "utf8")) as { preferredAssembler?: string };
+    if (meta.preferredAssembler === "64tass") preferred = "64tass";
+    else if (meta.preferredAssembler === "kickass") preferred = "kickassembler";
+  } catch { /* no project record: no preference */ }
+  const order: SupportedAssembler[] = preferred === "64tass" ? ["64tass", "kickassembler"] : ["kickassembler", "64tass"];
+  return order.find((a) => (a === "kickassembler" ? findKickAssemblerJar() : find64tassBinary()) !== undefined);
 }
 
 export async function rebuildVerification(args: {
@@ -58,11 +74,19 @@ export async function rebuildVerification(args: {
   let assemblyOk = false;
   let verified = false;
   let assemblerUnavailable = false;
+  let assemblerUsed = "";
   try {
+    const assembler = chooseRebuildAssembler(args.projectDir);
+    assemblerUsed = assembler === "64tass" ? "64tass" : "KickAssembler";
+    if (!assembler) {
+      throw new Error("no assembler available: KickAssembler jar not found (set C64RE_KICKASS_JAR) and 64tass not found (set C64RE_64TASS_BIN or put 64tass on PATH)");
+    }
+    const sourcePath = assembler === "64tass" ? args.asmPath.replace(/\.asm$/i, ".tas") : args.asmPath;
+    if (!existsSync(sourcePath)) throw new Error(`${assembler} is the assembler to use but ${sourcePath} does not exist`);
     const result = await assembleSource({
       projectDir: args.projectDir,
-      sourcePath: args.asmPath,
-      assembler: "kickassembler",
+      sourcePath,
+      assembler,
       outputPath: tempPrg,
       // A raw blob is compared here instead, past the load header the assembler adds.
       ...(headerless ? {} : { compareToPath: args.prgPath }),
@@ -96,7 +120,7 @@ export async function rebuildVerification(args: {
     } else if (result.compareMatches) {
       assemblyOk = true;
       verified = true;
-      summaryLine = `// rebuild verified byte-identical against ${compared} (${result.comparedBytes ?? "?"} bytes)`;
+      summaryLine = `// rebuild verified byte-identical against ${compared} (${result.comparedBytes ?? "?"} bytes) with ${assemblerUsed}`;
     } else {
       summaryLine = `// rebuild verification skipped (no compare result)`;
     }

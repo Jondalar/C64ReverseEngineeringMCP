@@ -22,6 +22,8 @@ import {
 } from "../byteboozer-cruncher.js";
 import { lykiaEncode } from "../byteboozer-lykia-encoder.js";
 import { lykiaDecompress } from "../byteboozer-lykia-decoder.js";
+import { chooseDepackOutput, withLoadAddress } from "../lib/depack-output.js";
+import { parseCount } from "../shared/address-rule.js";
 import type { ServerToolContext } from "./types.js";
 import { safeHandler } from "./safe-handler.js";
 
@@ -724,8 +726,8 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         const pd = pathDoorProjectDir(context, project_dir, input_path);
         const inputAbs = resolve(pd, input_path);
         const raw = await readBinaryFile(inputAbs);
-        const start = offset ? parseHexWord(offset) : 0;
-        const end = length ? Math.min(raw.length, start + parseHexWord(length)) : raw.length;
+        const start = offset ? parseCount(offset, "offset") : 0;
+        const end = length ? Math.min(raw.length, start + parseCount(length, "length")) : raw.length;
         const slice = raw.slice(start, end);
         const outputAbs = output_path ? resolve(pd, output_path) : `${inputAbs}.byteboozer.unpacked.bin`;
         const result = new ByteBoozerDepacker().unpack(slice);
@@ -772,8 +774,8 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         const pd = pathDoorProjectDir(context, project_dir, input_path);
         const inputAbs = resolve(pd, input_path);
         const raw = await readBinaryFile(inputAbs);
-        const start = offset ? parseHexWord(offset) : 0;
-        const end = length ? Math.min(raw.length, start + parseHexWord(length)) : raw.length;
+        const start = offset ? parseCount(offset, "offset") : 0;
+        const end = length ? Math.min(raw.length, start + parseCount(length, "length")) : raw.length;
         const slice = raw.slice(start, end);
         const seed = dest_hi !== undefined ? parseHexWord(dest_hi) & 0xFF : (slice[1] ?? 0);
         const outputAbs = output_path ? resolve(pd, output_path) : `${inputAbs}.bb2lykia.unpacked.bin`;
@@ -823,8 +825,8 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         const suggestions = await suggestDepackers({
           projectDir: pd,
           inputPath: inputAbs,
-          offset: offset ? parseHexWord(offset) : undefined,
-          length: length ? parseHexWord(length) : undefined,
+          offset: offset ? parseCount(offset, "offset") : undefined,
+          length: length ? parseCount(length, "length") : undefined,
         });
         const lines = [
           `Depacker suggestions for ${inputAbs}:`,
@@ -854,12 +856,12 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
 
   server.tool(
     "try_depack",
-    "Run one specific depacker against a file or byte-range (built-in RLE, Exomizer raw, host-side ByteBoozer2). Use when you know — or suggest_depacker guessed — the format. Not for guessing (use suggest_depacker). Inputs: file/range, depacker kind. Returns: decompressed bytes / artifact.",
+    "Run one specific depacker against a file or byte-range (built-in RLE, Exomizer raw, host-side ByteBoozer2). Use when you know — or suggest_depacker guessed — the format. Not for guessing (use suggest_depacker). Inputs: file/range, depacker kind. Returns: the depacked file — a PRG (2-byte load address first) when the depacker knows the destination (byteboozer2, exomizer_sfx, rle with has_rle_header), the body alone as .bin otherwise (a header-less result you name .prg is written as .bin and the answer says so).",
     {
       project_dir: z.string().optional().describe("Project root — the directory holding knowledge/. Takes precedence over every other hint. Omit it and the input path is used, but only when it is absolute or exists from the server's working directory; otherwise the project this session onboarded into answers."),
       input_path: z.string().describe("Path to the packed input file"),
       format: z.enum(["rle", "exomizer_raw", "exomizer_sfx", "byteboozer2"]).describe("Which depacker to try"),
-      output_path: z.string().optional().describe("Optional output path for the unpacked data"),
+      output_path: z.string().optional().describe("Optional output path for the unpacked data. byteboozer2, exomizer_sfx and rle with has_rle_header write a PRG (2-byte load address, then the body); exomizer_raw and rle without a header write the body alone — a header-less result named .prg is written as .bin beside it, and the answer says so. Default: <input>.<format>.unpacked.prg or .bin accordingly."),
       offset: z.string().optional().describe("Optional hex file offset to start from"),
       length: z.string().optional().describe("Optional hex byte length to limit the input slice"),
       has_rle_header: z.boolean().optional().describe("For RLE only: treat the first two bytes of the slice as a load header"),
@@ -873,10 +875,24 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         const pd = pathDoorProjectDir(context, project_dir, input_path);
         const inputAbs = resolve(pd, input_path);
         const raw = await readBinaryFile(inputAbs);
-        const start = offset ? parseHexWord(offset) : 0;
-        const end = length ? Math.min(raw.length, start + parseHexWord(length)) : raw.length;
+        const start = offset ? parseCount(offset, "offset") : 0;
+        const end = length ? Math.min(raw.length, start + parseCount(length, "length")) : raw.length;
         const slice = raw.slice(start, end);
-        const outputAbs = output_path ? resolve(pd, output_path) : `${inputAbs}.${format}.unpacked.bin`;
+        // Which results carry a load address: ByteBoozer2 always knows its destination, an
+        // Exomizer SFX result is built as a PRG, RLE knows it only from the header it was
+        // told to read, Exomizer raw never does.
+        const hasLoadAddress = format === "byteboozer2" || format === "exomizer_sfx" || (format === "rle" && has_rle_header === true);
+        const choice = chooseDepackOutput({
+          requestedAbs: output_path ? resolve(pd, output_path) : undefined,
+          inputAbs,
+          format,
+          hasLoadAddress,
+        });
+        const outputAbs = choice.path;
+        const outputNote = (): string =>
+          [choice.renamedNote, hasLoadAddress
+            ? "Output format: PRG (2-byte load address, then the body)."
+            : "Output format: raw body, no load address."].filter(Boolean).join("\n");
 
         if (format === "rle") {
           const depacker = new RleDepacker();
@@ -884,12 +900,16 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
             hasHeader: has_rle_header ?? false,
             maxSize: max_size,
           });
-          await writeBinaryFile(outputAbs, result.data);
+          await writeBinaryFile(
+            outputAbs,
+            hasLoadAddress && result.headerAddress !== undefined ? withLoadAddress(result.headerAddress, result.data) : result.data,
+          );
           const lines = [
             "RLE depack complete.",
             `Input: ${inputAbs}`,
             `Slice: $${start.toString(16).toUpperCase()}-$${(end - 1).toString(16).toUpperCase()}`,
             `Output: ${outputAbs}`,
+            outputNote(),
             `Unpacked bytes: ${result.byteCount}`,
             `Consumed bytes: ${result.consumedBytes}`,
             `Terminated: ${result.terminated ? "yes" : "no"}`,
@@ -903,7 +923,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
         if (format === "byteboozer2") {
           const depacker = new ByteBoozerDepacker();
           const result = depacker.unpack(slice);
-          await writeBinaryFile(outputAbs, result.data);
+          await writeBinaryFile(outputAbs, withLoadAddress(result.outputAddress, result.data));
           return {
             content: [{
               type: "text" as const,
@@ -912,6 +932,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
                 `Input: ${inputAbs}`,
                 `Slice: $${start.toString(16).toUpperCase()}-$${(end - 1).toString(16).toUpperCase()}`,
                 `Output: ${outputAbs}`,
+                outputNote(),
                 `Mode: ${result.mode}`,
                 `Output address: ${formatHexWord(result.outputAddress)}`,
                 result.sourceLoadAddress !== undefined ? `Source load address: ${formatHexWord(result.sourceLoadAddress)}` : "",
@@ -938,6 +959,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
                 `Input: ${inputAbs}`,
                 `Slice: $${start.toString(16).toUpperCase()}-$${(end - 1).toString(16).toUpperCase()}`,
                 `Output: ${outputAbs}`,
+                outputNote(),
                 `Load address: ${formatHexWord(result.outputStart)}`,
                 `End address: ${formatHexWord((result.outputEnd - 1) & 0xffff)}`,
                 `Entry after decrunch: ${formatHexWord(result.entryPoint)}`,
@@ -964,6 +986,7 @@ export function registerCompressionTools(server: McpServer, context: ServerToolC
               `Input: ${inputAbs}`,
               `Slice: $${start.toString(16).toUpperCase()}-$${(end - 1).toString(16).toUpperCase()}`,
               `Output: ${outputAbs}`,
+              outputNote(),
               `Unpacked bytes: ${sliceResult.byteCount}`,
             ].join("\n"),
           }],

@@ -68,6 +68,48 @@ for the pattern).
 Tool descriptions where behaviour changed (regenerate inventory → matrix → playbooks).
 User docs only where they described the old behaviour. No spec numbers in user docs.
 
+## §4 As built — items 1, 2, 3, 6, 8
+
+Branch `spec-896-static`. Smoke: `npm run smoke:896-static` (`scripts/smoke-896-static.mjs`,
+in gates.yml). Items 4, 5, 7, 9, 10 are another branch.
+
+1. **Rebuild check.** `chooseRebuildAssembler` (`src/lib/rebuild-verify.ts`) reads
+   `knowledge/project.json` `preferredAssembler` (`64tass` → 64tass first, `kickass` or none →
+   KickAssembler first) and takes the first assembler that can actually run here
+   (`findKickAssemblerJar` / `find64tassBinary` in `src/assemble-source.ts`). 64tass checks the
+   `.tas` beside the `.asm`. With neither, the warning names both (jar + `C64RE_KICKASS_JAR`,
+   64tass + `C64RE_64TASS_BIN` / PATH). The verdict line now ends `with KickAssembler` /
+   `with 64tass`, also stamped in the listing head. Not provoked in the smoke: the "neither"
+   warning (both assemblers resolve from fixed install paths on the dev machine; skipped
+   loudly).
+2. **`disasm` offset/length.** Already hex on master (`parseCount`, commit 91790b41, after
+   Mike's build): the smoke now pins it (`"113"/"70"` = `$113`/`$70`, numbers decimal, also
+   `disasm_raw`). What was still wrong: `try_depack`, `depack_byteboozer`,
+   `depack_byteboozer_lykia` and `suggest_depacker` parsed `offset`/`length` with a 16-bit
+   `parseHexWord`, so a window past `$FFFF` was refused. They use `parseCount` now.
+3. **Output folders.** `assembleSource` creates the output's parent (covers `assemble_source`
+   and the rebuild check); `basic_tokenize`, the pipeline CLI's `basic-tokenize`, `ram-report`
+   and `pointer-report` too; `runtime_render_screen` writes through `writeFileCreatingDirs`
+   (`src/lib/write-output.ts`). Other writers that take a caller path were read and already
+   `mkdir -p`. `runtime_render_screen` needs a daemon, so the smoke tests its writer with a
+   stubbed screenshot reply, not the tool.
+6. **`try_depack` output.** `src/lib/depack-output.ts`. PRG with the load address:
+   `byteboozer2` (always knows its destination), `exomizer_sfx` (was already a PRG), `rle` with
+   `has_rle_header`. Body only: `exomizer_raw`, `rle` without a header. Naming decision:
+   no `output_path` → `<input>.<format>.unpacked.prg` or `.bin` by that rule; a caller's name is
+   kept, except a header-less result named `.prg` is written as `.bin` beside it and the answer
+   says so. A PRG the caller names `.bin` stays `.bin`. Every answer states "Output format".
+   Not changed: the standalone `depack_byteboozer` / `depack_byteboozer_lykia` tools still write
+   headerless bodies (their default name is `.bin`).
+8. **BASIC launcher.** The chain walk (`walkBasicProgram`, already present) required a `$0000`
+   end, but packers write the launcher with its next-line pointer on the first byte of the code
+   the SYS jumps to (`0B 08 CA 07 9E 32 30 35 39 00` + code at `$080B`, no `00 00`). Such a
+   chain now reads as a `basic` segment (`$0801-$080A`) with the SYS target as a `basic_sys`
+   entry point, but only when a resolved SYS target lies at or after the chain break, which is
+   what proves the exit (`analyzeBasicProgram`, `openEnded`). `walkBasicProgram` itself stays
+   strict. The `basic` kind and the SYS entry-point source already existed; nothing was added to
+   an enumeration. A canonical chain ending `00 00` was already handled and is covered too.
+
 ## §5 As built — items 4, 5, 7, 9, 10
 
 **4 — built.** `payloadIsLoaderImage` (`src/sandbox/sandbox-depack-generic.ts`): when the
