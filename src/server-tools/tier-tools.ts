@@ -34,7 +34,7 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // knowledge-write tools reject every call with "not an initialized c64re
   // project". Without this the swimlane cannot even start. (Spec 727 gap.)
   "project_init",
-  // Spec 892 — the double-click UI starters, written on request for one platform.
+  // Spec 894 — the double-click UI starters, written on request for one platform.
   "project_launchers",
   // Spec 730.3 — single product facade over register/import/view-rebuild. The
   // callable action when files are present-but-unregistered, manifests are
