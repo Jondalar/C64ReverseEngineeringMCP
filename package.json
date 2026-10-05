@@ -230,6 +230,7 @@
     "smoke:bug019": "npm run ui:build && node scripts/smoke-bug019-best-asm-version.mjs",
     "runtime:daemon": "npm run build:mcp && node scripts/runtime-daemon.mjs",
     "e2e:886-idle-exit": "npm run build:mcp && node scripts/e2e-886-idle-exit.mjs",
+    "smoke:896-runtime": "npm run build:mcp && node scripts/smoke-896-runtime.mjs",
     "e2e:744-4c-race": "npm run build:mcp && node scripts/e2e-744-4c-race.mjs",
     "e2e:744-4c-slice2a": "npm run build:mcp && node scripts/e2e-744-4c-slice2a.mjs",
     "e2e:744-4c-slice2b": "npm run build:mcp && node scripts/e2e-744-4c-slice2b.mjs",

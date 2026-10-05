@@ -148,7 +148,20 @@ function pickDestRun(
 
 // Validate the 64K layout (engine-independent input checks — the packed blob
 // must fit and must not overlap the resident loader window).
+/** The payload IS the loader: the same bytes at the same address (the whole image or a
+ *  window of it). A self-extracting file is its own packed source; it is one image, loaded
+ *  once and run from `entryPc`, not two images that happen to collide. */
+function payloadIsLoaderImage(opts: SandboxDepackOptions, sourceLoad: number): boolean {
+  const rel = sourceLoad - opts.residentLoadAddress;
+  if (rel < 0 || rel + opts.packed.length > opts.residentLoader.length) return false;
+  for (let i = 0; i < opts.packed.length; i++) {
+    if (opts.packed[i] !== opts.residentLoader[rel + i]) return false;
+  }
+  return true;
+}
+
 function checkLayout(opts: SandboxDepackOptions, sourceLoad: number, residentEnd: number): void {
+  if (payloadIsLoaderImage(opts, sourceLoad)) return;
   if (sourceLoad + opts.packed.length > 0x10000) {
     throw new GenericSandboxDepackError(
       `packed payload (${opts.packed.length} bytes) at $${sourceLoad.toString(16)} overflows 64K`,
@@ -156,7 +169,7 @@ function checkLayout(opts: SandboxDepackOptions, sourceLoad: number, residentEnd
   }
   if (sourceLoad < residentEnd && sourceLoad + opts.packed.length > opts.residentLoadAddress) {
     throw new GenericSandboxDepackError(
-      `packed payload $${sourceLoad.toString(16)}-$${(sourceLoad + opts.packed.length - 1).toString(16)} overlaps the resident loader window`,
+      `packed payload $${sourceLoad.toString(16)}-$${(sourceLoad + opts.packed.length - 1).toString(16)} overlaps the resident loader window and is not the same bytes (a different image at an overlapping address); pass the loader's own bytes as the payload to depack a self-extracting file`,
     );
   }
 }
@@ -193,7 +206,9 @@ function buildDepackItem(opts: SandboxDepackOptions, tmp: string, index: number)
   zp.push(`${hx2(zpHigh)}=${hx2((sourceLoad >> 8) & 0xff)}`);
 
   const item: Record<string, unknown> = {
-    load: [`${residentFile}@${hx4(opts.residentLoadAddress)}`, `${packedFile}@${hx4(sourceLoad)}`],
+    load: payloadIsLoaderImage(opts, sourceLoad)
+      ? [`${residentFile}@${hx4(opts.residentLoadAddress)}`]
+      : [`${residentFile}@${hx4(opts.residentLoadAddress)}`, `${packedFile}@${hx4(sourceLoad)}`],
     entry: hx4(opts.entryPc),
     directEntry: true,
     // All-RAM: model the flat-64K TS shadow ($A000-$FFFF + $D000-$DFFF = RAM) so a

@@ -238,7 +238,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
 
   server.tool(
     "runtime_session_run",
-    "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition. Use to step the machine forward. When the session has a streaming trace active (runtime_session_start trace_out=...), this run automatically chunks + drains the trace queue to trace.duckdb between chunks (behaviour-neutral). Not for run-to-PC only (use runtime_until) or for phase markers (use runtime_mark between calls). Inputs: session_id, max_instructions, optional breakpoints/until/cycle_budget. Returns: counts + final PC.",
+    "Advance a session up to N C64 instructions (drive runs proportional cycles), with optional breakpoints / cycle budget / named stop condition. Use to step the machine forward. When the session has a streaming trace active (runtime_session_start trace_out=...), this run automatically chunks + drains the trace queue to trace.duckdb between chunks (behaviour-neutral). Not for run-to-PC only (use runtime_until) or for phase markers (use runtime_mark between calls). Inputs: session_id, max_instructions, optional breakpoints/until/cycle_budget. Returns: the cycles that actually advanced (or a plain statement that the machine did not advance) + final PC. `until` supports kind=\"pc\" on the C64 CPU (first arrival, bounded by the daemon's own run budget); other kinds are refused by name.",
     {
       session_id: z.string(),
       max_instructions: z.number().int().min(1).max(10_000_000),
@@ -254,25 +254,30 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         frames_stable: z.number().int().min(1).optional().describe("Frames-stable threshold (for kind=stable_screen). Default 3."),
       }).optional().describe("Named stop condition. If set, runs until satisfied (or budget exhausted) instead of max_instructions."),
     },
-    // Spec 806 step 2: `breakpoints` was only ever honoured by the removed in-process
-    // branch — the daemon run has always ignored it (use runtime_monitor `bp` / the
-    // `until` route once 744.4c slice 2 lands). Schema left as-is; the input surface is
-    // a separate decision.
+    // `breakpoints` was only ever honoured by the removed in-process branch; the daemon
+    // run ignores it (use runtime_monitor `bp`). Schema left as-is.
     safeHandler("runtime_session_run", async ({ session_id, max_instructions, cycle_budget, until }) => {
-      // Spec 744.4c — bounded run against the shared Runtime Daemon session.
       const { runtimeDaemon } = await import("../runtime/daemon-client.js");
-      if (until) throw new Error("runtime_session_run with `until` conditions is not yet routed through the Runtime Daemon (744.4c slice 2). Use cycle_budget / max_instructions.");
+      const { planUntil, describeRunAdvance } = await import("../runtime/session-run.js");
+      // Refuse what cannot be done before touching the machine.
+      const target = until ? planUntil(until) : undefined;
+      const s0 = await runtimeDaemon.state(session_id);
+      if (target) {
+        // The same daemon path runtime_until takes: run to the address on the live machine.
+        const { addr } = target;
+        const r = await runtimeDaemon.apiCall<{ halted: boolean }>(session_id, "until", [addr]);
+        const after = await runtimeDaemon.state(session_id);
+        return { content: [{ type: "text" as const, text: describeRunAdvance({ before: s0.c64Cycles, after: after.c64Cycles, pc: after.cpu.pc, via: "Runtime Daemon, run to address", until: { addr, halted: r.halted === true } }) }] };
+      }
       const cycles = cycle_budget ?? Math.max(1, (max_instructions ?? 100_000) * 2);
       // Spec 767 slice 2 — when a stream pump is attached (--stream, the shared UI
       // session), advance via the LIVE capped run so the UI keeps RUNNING (every rendered
       // frame is streamed) instead of freezing on the blocking session/run; it auto-pauses
       // at the cap. Headless daemons (no pump) fall back to the blocking bounded run.
-      const s0 = await runtimeDaemon.state(session_id);
       const after = s0.streamPump
         ? await runtimeDaemon.runCapped(session_id, cycles, "warp")
         : (await runtimeDaemon.run(session_id, cycles), await runtimeDaemon.state(session_id));
-      const { c64Cycles, cpu } = after;
-      return { content: [{ type: "text" as const, text: `Ran up to ~${cycles} cycles (Runtime Daemon${s0.streamPump ? ", live-streamed" : ""}). cycles=${c64Cycles} pc=${formatHexWord(cpu.pc)}` }] };
+      return { content: [{ type: "text" as const, text: describeRunAdvance({ requestedCycles: cycles, before: s0.c64Cycles, after: after.c64Cycles, pc: after.cpu.pc, via: `Runtime Daemon${s0.streamPump ? ", live-streamed" : ""}` }) }] };
     },
 ));
 
