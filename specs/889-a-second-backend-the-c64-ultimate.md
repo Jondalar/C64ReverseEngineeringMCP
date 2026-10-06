@@ -42,9 +42,12 @@ one to the other. DOCTRINE.md is amended in the same change.
   the app's `ping` (`runtime_version`, `backend:"c64u"`, `version` — the constant
   "trxmon 0.1", not a build id). The app sends no capability list and no build id today:
   what a method is, C64RE learns from a -32601 with its reason sentence, and the backend
-  keeps the §5 list as its own table of what it routes. (Asked of the app as a TODO: a
-  `capabilities` array and the firmware build in `ping`; the backend uses them when they
-  appear and does not wait for them.)
+  keeps the §5 list as its own table of what it routes. **Coming in the app** (owner,
+  2026-10-06; being built on app branch `t21-rpc1-app`): `ping` carries a `capabilities`
+  array (served methods and sent notifications) and real build ids (firmware and trxmon
+  git sha) instead of the constant. With it the backend checks its routing table against
+  `capabilities` at select and names any method it routes that the device does not serve;
+  without it (an older app) it falls back to -32601 as above.
 - **trxmon gone = device gone.** When the app's port closes (quit, menu restart, `x` with
   nothing armed), every RPC-routed call fails like an unreachable device, with the message
   "trxmon not running on <host> — start it (§3) or select the emulator". Never a fallback.
@@ -82,8 +85,11 @@ the ping still decides "offered". An epoch other than C64RE's is refused by name
 the daemon; there is no epoch negotiation on the app side, compatibility is C64RE's logic.
 
 Transport facts (TRX64-FW review, 2026-10-06): port 4312 fixed; `?av=0` and the path are
-ignored (the app never sends A/V, so connecting with it is harmless); at most **4 clients**
-(a fifth TCP connection is closed at once) — C64RE uses **one** connection per server;
+ignored (the app never sends A/V, so connecting with it is harmless); today at most **4
+clients**, and **coming: exactly one** (owner, 2026-10-06) — a second connection is refused
+with a reason naming the held port and the peer holding it. C64RE holds that one connection
+for as long as the C64U is selected and reports the refusal verbatim ("held by <peer>");
+the probe's `ping` therefore uses the same connection the backend keeps, never a second one;
 messages capped at 16 KB (close 1009); plain HTTP on the port gets 426; **no auth on the
 RPC port** even when REST has a password. Notifications go to every client.
 
@@ -138,6 +144,50 @@ A medium reaches the C64U only once it has passed in the emulator. (Owner, 2026-
 - **A changed build is a new medium.** Another hash needs its own pass.
 - The emulator backend has no gate.
 
+## §4c Picture and sound in the UI
+
+With the C64U selected, the workbench server receives the device's UDP streams and relays
+them to the browser as the binary frames the UI already plays: `0x01` VIC frame, `0x02`
+audio buffer (`ui/src/workbench/ws-client.ts`). The browser never talks to the device.
+
+- **Start.** `PUT /v1/streams/video:start?ip=<this host>:<port>` and the same for `audio`,
+  unicast to the server's address on the device's segment. One destination per stream: a
+  second start REPLACES the target, so the backend owns the streams while selected and says
+  so if they were pointed elsewhere. Unicast start ARPs for up to 25 × 100 ms and can block
+  for seconds ("Cannot find MAC") — run it off the request path and report a timeout as
+  such. The stream enable survives REST reset / `run_crt` / mount; only a system reset
+  clears it, so the backend re-arms after one. `streams/debug` is not used: it answers OK
+  on our core and sends nothing.
+- **Video wire format** (identical to stock U64): 780-byte datagrams, 12-byte header
+  `<HHHHBBH` — seq, frame, line (bit 15 = last packet of the frame), width 384, lines per
+  packet 4, bpp 4, encoding 0 — then 768 bytes = 4 lines × 384 four-bit VIC colour indices,
+  left pixel in the LOW nibble. PAL 272 lines (68 packets), 60 Hz modes 240 lines; a PAL/
+  NTSC switch blanks ~14 ms and changes the height. Raw indices: the palette is the
+  decoder's job — the backend uses the palette the emulator path uses, so both backends
+  look alike. Packets are lost under load (the device drops a packet that finds the sender
+  busy, and the RPC/REST MAC traffic has priority): assemble per frame, show a frame only
+  when complete or when the next frame starts (then with the gaps), never stall.
+- **Audio wire format:** 770-byte datagrams, seq u16le + 192 stereo s16le frames (L, R).
+  **Rate 48,003.07 Hz on our core in every video mode** (not stock's 47,982.887 /
+  47,940.34); one mixed stereo pair. The UI's player runs at 44,100 Hz today: the
+  stream rate becomes a property of the backend and the player resamples from it, so the
+  emulator path does not change. Reorder and duplicate by seq; conceal gaps with a SHORT
+  fill cap for live playback.
+- **Reference to port:** `1541ultimate/tests/e2e/lib/streams.py` — the header, nibble
+  unpack, `FrameAssembler` (reassembly, loss, re-anchor, 272/240) and `AudioTimeline`
+  (reorder, duplicates, concealment; its FILL_CAP 2500 is for writing files — live uses a
+  short one; replace `rate_for()` with 48,003.07 Hz). `TRX64-Ultimate/tools/stream_shot.py`
+  is a thin CLI over it (one frame → PNG). Port the logic, test it against recorded
+  datagrams, not against a live device.
+- **Paused, breakpoint, freeze, Timewarp scrub:** video STOPS mid-frame (it is driven by the
+  VIC's counters, which stop with the C64 clock) and resumes with an incomplete frame / a
+  re-anchor; "no video packets" means paused, not broken — the UI keeps the last frame and
+  marks it paused. An app CPU-only stop keeps video running. Audio keeps sending at full
+  rate with zero samples.
+- **Bandwidth:** video ≈ 22 Mbit/s, audio ≈ 2 Mbit/s on the device's 100 Mbit link, shared
+  with REST and RPC. Heavy RPC (large `read_memory` loops) costs video frames; the backend
+  does not poll in tight loops while streams run.
+
 ## §5 First slice (RC: what exists on the board today)
 
 Discovery, the probe, §3a start, the switch. The C64U backend routes:
@@ -156,8 +206,9 @@ Discovery, the probe, §3a start, the switch. The C64U backend routes:
   cart; there is no mount-only), input (typing, joystick), machine
   (`reset|pause|resume|poweroff|menu_button|readmem|writemem`), streams.
 - **Screenshot:** the app refuses `session/screenshot` and REST has none. The backend takes
-  one frame from the VIC UDP stream (started over REST, unicast to this host; decoder
-  reference `tools/stream_shot.py` in 1541ultimate) and answers in the daemon's shape.
+  one frame from the VIC UDP stream (§4c) and answers in the daemon's shape. While the
+  machine is paused no video arrives (§4c), so a screenshot of a paused machine is the last
+  complete frame received, and the answer says so with its age.
 - **Wrapped carefully:** `debug/break_add` without `pc` adds a breakpoint at $0000 — the
   backend refuses a missing `pc` itself. `debug/break_del` without `id` deletes ALL — the
   backend never sends it without one unless the caller asked for "all" explicitly.
@@ -208,7 +259,8 @@ Discovery, the probe, §3a start, the switch. The C64U backend routes:
    `board` goes into the `trx64` field.
 4. **Video.** The existing U64 UDP VIC stream, started over REST and sent unicast. It
    works on our core; the decoders are in `tools/stream_shot.py` and
-   `tests/e2e/lib/streams.py` (1541ultimate).
+   `tests/e2e/lib/streams.py` (1541ultimate). *Corrected 2026-10-06: `stream_shot.py` is in
+   TRX64-Ultimate; audio runs at 48,003.07 Hz on our core; full detail in §4c.*
 
 So the C64U backend is two connections: REST (media, machine, input, memory, the video
 stream) and the app's WS (the TRX64 methods it implements). The switch routes per method.
@@ -233,5 +285,6 @@ From the TRX64-FW review (2026-10-06):
 - **No streaming in the app.** Video and audio only via REST `streams` (UDP).
 - **Security.** The RPC port is open on the LAN even when REST has a password. The UI says
   so on the device row; C64RE never exposes it further (no relay to other hosts).
-- **Concurrency.** Up to 4 clients share one machine; C64RE holds exactly one connection
-  and treats notifications it did not cause as another client's or the person's action.
+- **Concurrency.** Today up to 4 clients share one machine, coming: exactly one (§3).
+  C64RE holds that one connection and treats a state change it did not cause as the
+  person's action at the machine.
