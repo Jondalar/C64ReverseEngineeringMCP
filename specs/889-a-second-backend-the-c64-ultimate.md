@@ -1,8 +1,10 @@
 # Spec 889 — A second backend: the C64 Ultimate
 
-**Status:** PROPOSED (2026-10-02) — spec only; the owner builds later
-**Repos:** C64RE. Inputs come from the 1541ultimate repo (`trxmon.u2a`, the TRX64 core
-bitstream). TRX64 itself is unchanged.
+**Status:** PROPOSED (2026-10-02; revised 2026-10-06 after the TRX64-FW review) — spec
+only; the owner builds later. First integration at RC level = what exists on the board today.
+**Repos:** C64RE. Inputs: the C64U build of the TRX64 Ultimate firmware (superproject
+`integ-m1`) and `trxmon.u2a` (app branch `integ-m1-app`, reviewed at `5b605bb0`). The first
+slice is what exists there today (§5). TRX64 itself is unchanged.
 
 ## §1 What is asked
 
@@ -11,8 +13,9 @@ runtime is either
 
 - **the TRX64 daemon**, the emulator, exactly as today; or
 - **a C64 Ultimate / UE2** running the TRX64 core and the `trxmon.u2a` app. It is reached
-  through two APIs: Gideon's U64 REST API (media, machine, input, memory) and the app's
-  RPC (pause, step, watch units, the state bus, the delta ring, trace streams).
+  through two APIs: Gideon's U64 REST API (media, machine, input, memory, video stream)
+  and the app's RPC (pause, step, breakpoints, the monitor, the checkpoint ring, marks,
+  transport, reverse step). Trace over RPC is not in the app (§6 Q2).
 
 It is chosen in the UI. A C64U on the network is **found by itself** and offered only
 when a **probe** confirms that it runs our core and the app.
@@ -34,8 +37,17 @@ one to the other. DOCTRINE.md is amended in the same change.
   your own (runtime_sandbox_run), which is always the emulator". Sandboxes, reels and
   scenario runs stay on private emulator daemons whichever backend is active. They are
   point work on a machine of your own, and that machine is always TRX64.
-- **Identity.** `ping` from the C64U backend reports what it is (product, core, app
-  version) and a capability list. `runtime_session_status` names the backend.
+- **Identity.** `runtime_session_status` names the backend and the device. The C64U
+  backend builds its identity from the ident `trx64` object (`core`, `board`, `caps`) and
+  the app's `ping` (`runtime_version`, `backend:"c64u"`, `version` — the constant
+  "trxmon 0.1", not a build id). The app sends no capability list and no build id today:
+  what a method is, C64RE learns from a -32601 with its reason sentence, and the backend
+  keeps the §5 list as its own table of what it routes. (Asked of the app as a TODO: a
+  `capabilities` array and the firmware build in `ping`; the backend uses them when they
+  appear and does not wait for them.)
+- **trxmon gone = device gone.** When the app's port closes (quit, menu restart, `x` with
+  nothing armed), every RPC-routed call fails like an unreachable device, with the message
+  "trxmon not running on <host> — start it (§3) or select the emulator". Never a fallback.
 - **The UI goes through the server.** Today the browser connects straight to the daemon's
   WS (`ui/src/workbench/ws-client.ts`). A C64U backend speaks no TRX64 WS, so with the
   C64U selected, the workbench server relays the same JSON-RPC and notifications for it.
@@ -46,33 +58,51 @@ one to the other. DOCTRINE.md is amended in the same change.
 - **Find.** A UDP broadcast of `json<nonce>` to port 64, the Ultimate Ident Service
   (`1541ultimate/software/network/socket_dma.cc:524`). Every Ultimate on the segment
   answers with `product`, `firmware_version`, `fpga_version`, `core_version` and
-  `hostname`. Also available as `GET /v1/info`, with `git_commit_hash`.
-- **Probe**, per answering device. Is it a C64U or UE2 (`product`)? Is it running the TRX64
-  core (the marker: §6 Q1)? Does `trxmon.u2a` answer on its port with a handshake that
-  names its protocol version (§6 Q2)? Only a device that passes all three is offered.
-  The others are listed greyed out with the reason ("Ultimate 64 Elite — stock core"), so
-  nobody wonders where theirs went.
+  `hostname`, and when set also `menu_header`, `your_string`, `password_protected` and
+  `unique_id`. Our firmware adds `trx64: {core:"TRX2", caps:"0x…", board:"C64U"|"U64-II",
+  rpc:<port>}` (`socket_dma.cc` ~634; only on a U64-class board with the TRX64 IO block
+  present). Also available as `GET /v1/info` (`routes.cc` ~255), with `git_commit_hash`.
+  `board` is a label, not a probe result; there is no `build` field.
+- **Probe**, per answering device, three outcomes:
+  - **no `trx64`** → stock device. Listed greyed out ("C64 Ultimate — stock core").
+  - **`trx64` with `core == "TRX2"` but no `rpc`** → our core, trxmon not running. Listed
+    with a **Start monitor** action (§3a), not selectable until it answers.
+  - **`rpc` present** → open `ws://<addr>:<rpc>/` and send `ping`. `runtime_version:
+    "trx64-runtime/2"` and `backend:"c64u"` → offered. Anything else → greyed out with
+    what was answered.
+  Nobody wonders where theirs went: every answering device is listed, with its reason.
 - A device with a REST password (`password_protected`) asks for it once in the UI. The
   password is kept for the session only, never written to the project.
 
 ### The probe, as the owner put it (2026-10-02)
 
-The ident answer only says "this is an Ultimate 64 II or a C64U". Whether it runs our
-core with the monitor app is decided by **asking the app itself**: open
-`ws://<address>:4312/?av=0` and send `ping`.
+The deciding test is **asking the app itself**: `ping` on its WS. The `trx64` ident field
+has landed (2026-10-06) and now separates "our core, app not started" from "stock core";
+the ping still decides "offered". An epoch other than C64RE's is refused by name, as with
+the daemon; there is no epoch negotiation on the app side, compatibility is C64RE's logic.
 
-- The answer names `runtime_version: "trx64-runtime/2"` and `backend: "c64u"`, so this is
-  our core with `trxmon.u2a` running. The device is offered.
-- Nothing answers on 4312, or the answer is not that: the device is stock, or the app is
-  not running. It is listed greyed out ("C64 Ultimate — no TRX64 monitor on :4312").
-
-This works today, without waiting for the `trx64` ident field. The ident field, once it
-ships, only tells "our core, app not started" apart from "stock core". The ping stays the
-deciding test, and an epoch other than C64RE's is refused by name, as with the daemon.
+Transport facts (TRX64-FW review, 2026-10-06): port 4312 fixed; `?av=0` and the path are
+ignored (the app never sends A/V, so connecting with it is harmless); at most **4 clients**
+(a fifth TCP connection is closed at once) — C64RE uses **one** connection per server;
+messages capped at 16 KB (close 1009); plain HTTP on the port gets 426; **no auth on the
+RPC port** even when REST has a password. Notifications go to every client.
 
 Seen on 2026-10-02 (read only), at 192.168.242.189: `/v1/info` gives product "C64
-Ultimate", firmware 3.15, fpga 125, core 1.01; UDP 64 answers the same. There is no
-`trx64` field, so this is a stock device. A ping on :4312 was not tried.
+Ultimate", firmware 3.15, fpga 125, core 1.01; UDP 64 answers the same, no `trx64` field —
+a stock device on that date. A ping on :4312 was not tried.
+
+### §3a Starting the app
+
+There is no autostart; the RPC exists only while trxmon runs. C64RE can start it over REST:
+- `PUT /v1/apps:run_file?app=<full path of trxmon.u2a>&action=serve` — works on every
+  build;
+- `PUT /v1/apps/trxmon:run` — only with app `5b605bb0` or later **installed** (an older
+  install keeps its manifest without `rest` and answers 403 until reinstalled).
+A headless start detaches and serves on 4312. A second start while trxmon is resident gets
+423 (treat as "already running", then probe). trxmon starts with the machine **PAUSED**:
+the backend sends `debug/continue` after select unless the caller asked for paused.
+trxmon ends on `trxmon/quit`, `/quit`, a menu restart, or `x` at the machine with nothing
+armed (breakpoint, observer, run cap, drive bp) — then §2 "trxmon gone" applies.
 
 ## §4 Choosing
 
@@ -108,13 +138,38 @@ A medium reaches the C64U only once it has passed in the emulator. (Owner, 2026-
 - **A changed build is a new medium.** Another hash needs its own pass.
 - The emulator backend has no gate.
 
-## §5 First slice
+## §5 First slice (RC: what exists on the board today)
 
-Discovery and the probe; the switch with the C64U backend serving `ping`, `session/state`,
-`session/read_memory`, `debug/pause`, `debug/continue`, `media/mount`, `media/unmount`,
-`session/load_prg` / `runtime/run_prg`, `session/type`, the joystick, and
-`session/screenshot`. Everything else is refused by name. Then step/watch, the ring
-(`checkpoint/*`) and trace, as the app delivers them.
+Discovery, the probe, §3a start, the switch. The C64U backend routes:
+
+- **App RPC (board-tested 2026-10-04/06):** `ping`; `session/create|list|close|state|run|
+  read_memory` (lenses cpu|ram|rom|io|cart, ≤ 32768 bytes, `{addr,length,lens}` or
+  `ranges:[…]`, `bytes` = array of numbers); `debug/state|pause|continue|run|step|
+  break_add|break_del|break_list`; `monitor/exec|state` (`command` ≤ 512 chars; a command
+  that runs the machine answers when it stops); `trxmon/quit`;
+  `checkpoint/list|capture|restore|pin|unpin` (`capture` returns the anchor the machine is
+  in, it does not make a new one); `mark/*`; `transport/*`;
+  `runtime/reverse_step|who_wrote|crash_triage|set_reverse_depth`. Notifications:
+  `debug/running|paused|stopped|breakpoint_hit|observer_hit`.
+- **REST:** media and drives (`drives/{drive}:mount|remove|reset|on|off|set_mode`), PRG
+  (`runners:load_prg|run_prg`, upload variants), CRT (`runners:run_crt` — it STARTS the
+  cart; there is no mount-only), input (typing, joystick), machine
+  (`reset|pause|resume|poweroff|menu_button|readmem|writemem`), streams.
+- **Screenshot:** the app refuses `session/screenshot` and REST has none. The backend takes
+  one frame from the VIC UDP stream (started over REST, unicast to this host; decoder
+  reference `tools/stream_shot.py` in 1541ultimate) and answers in the daemon's shape.
+- **Wrapped carefully:** `debug/break_add` without `pc` adds a breakpoint at $0000 — the
+  backend refuses a missing `pc` itself. `debug/break_del` without `id` deletes ALL — the
+  backend never sends it without one unless the caller asked for "all" explicitly.
+- **Everything else is refused by name** with the reason and the way out: `trace/*` and
+  `debug/memory_access_map` (trace only via `monitor/exec "trace on|off|status"`, `sd`,
+  `chis`, `whowrote` — offered as that), `snapshot/*`, `ringbuffer/*`,
+  `trace/build_from_ring` (removed in the app's M1; no .c64re/.c64rering/.c64retrace
+  files), the sandbox group ("use a local TRX64 sandbox"), `debug/observer_log` (never
+  sent), `runtime/overlay_run` and other emulator-only methods.
+- Later, as the app delivers: trace RPC and snapshot/ring files (app T66, M2 — after a
+  triage with TRX64 and C64RE), `capabilities` in `ping`. UE2 runs a stock core for now, so
+  the first slice is C64U only.
 
 ## §6 Answers from the 1541U side (2026-10-02)
 
@@ -126,8 +181,8 @@ Discovery and the probe; the switch with the C64U backend serving `ping`, `sessi
      today.
    - `rpc` is present only while `trxmon.u2a` runs.
    - **Probe rule:** `trx64` present and `core == "TRX2"` means our core. `rpc` present
-     means the app is up. `trx64` absent means a stock device. Until that patch lands,
-     every device reads as stock.
+     means the app is up. `trx64` absent means a stock device. *(Landed; as shipped there is
+     no `build` field and `board` is a label — corrected 2026-10-06, see §3.)*
 2. **App transport.** WebSocket on TCP 4312, JSON-RPC 2.0 text frames, TRX64's wire format
    and method names 1:1. Connect with `?av=0`: the app pushes no A/V.
    - **Handshake:** `ping` → `{runtime_version:"trx64-runtime/2", version:"trxmon <ver>",
@@ -138,11 +193,16 @@ Discovery and the probe; the switch with the C64U backend serving `ping`, `sessi
      - `monitor/exec` (TRX64 verbs), `debug/break_add|break_del|break_list`;
      - `checkpoint/*` (DDR2 ring, .c64re/.c64rering);
      - `trace/start_domains`, `trace/run/status|mark|stop`, `trace/read` (.c64retrace).
+     - *Corrected 2026-10-06 (TRX64-FW review): `trace/*` is NOT in the app (-32601);
+       snapshot/ringbuffer and the .c64re*/.c64retrace files were removed in M1 (T66); the
+       real first delivery is §5. `version` is the constant "trxmon 0.1"; `?av` is ignored;
+       no auth; 4 clients; `debug/observer_log` is never sent.*
    - **Notifications:** `debug/breakpoint_hit`, `debug/paused|running`,
      `debug/observer_hit|observer_log`.
    - **Not on hardware:** -32601 with a reason sentence.
-   - **Not in the app:** media, machine and input; those go over REST. The app spec is
-     T21-monitor.md §7.4 in TRX64-Ultimate, and the app is not built yet.
+   - **Not in the app:** media, machine and input; those go over REST (the app refuses
+     them by name, "Ultimate's REST API"). The app spec is T21-monitor.md §7.4 in
+     TRX64-Ultimate; the app exists and is board-tested (2026-10-06).
 3. **UE2.** The product string ("Ultimate 64-II", `system/product.cc:18`) does not
    separate a C64U from a UE2; the board revision does. A UE2 always runs a stock core.
    `board` goes into the `trx64` field.
@@ -155,3 +215,23 @@ stream) and the app's WS (the TRX64 methods it implements). The switch routes pe
 
 **Consequence:** the deciding probe is the app's own `ping` on :4312 (§3, "The probe"),
 so discovery does not wait for the `trx64` ident field.
+
+## §7 Hardware behaviours the backend must handle
+
+From the TRX64-FW review (2026-10-06):
+- **Paused on start.** See §3a.
+- **A person at the machine wins.** RUN/STOP, `x` in the monitor, the menu: the backend
+  reports what happened, it never fights it. A `debug/running` may arrive unannounced after
+  a firmware-side stop; the backend takes the notification as truth.
+- **REST actions invalidate the RPC view.** A REST reset, mount, `run_prg` or `run_crt`
+  while trxmon holds the machine pushes no state change. After any REST action the backend
+  re-reads `debug/state` before it answers, and says that ring anchors and marks taken
+  before it may be stale (the ring does not restore SID, drive A, flash or VIC internals).
+- **Error forms.** -32700, -32600, -32602, -32601 (with a reason sentence — passed through
+  verbatim), -32001 busy / not available, -32603. Pending runs carry deadlines; a deadline
+  is reported as such, not as a hang.
+- **No streaming in the app.** Video and audio only via REST `streams` (UDP).
+- **Security.** The RPC port is open on the LAN even when REST has a password. The UI says
+  so on the device row; C64RE never exposes it further (no relay to other hosts).
+- **Concurrency.** Up to 4 clients share one machine; C64RE holds exactly one connection
+  and treats notifications it did not cause as another client's or the person's action.
