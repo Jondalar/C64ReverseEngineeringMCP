@@ -244,7 +244,11 @@ export function MachineControls({ sessionId, runState, setRunState, fps, onSnaps
     // re-prebuffer from the restored reSID state (no old-timeline playback).
     offFlushRef.current = c.onNotification("audio/flush", () => player.flush());
     try {
-      await c.call("audio/start", { session_id: sessionId });
+      // A backend with its own sample rate (the C64 Ultimate relay) names it in the reply;
+      // the emulator's reply has no such field and the player stays at 44.1 kHz.
+      const started = await c.call<{ sampleRate?: number } | undefined>("audio/start", { session_id: sessionId });
+      const rate = started?.sampleRate;
+      if (typeof rate === "number" && rate > 0) await player.setStreamRate(rate);
     } catch (e) {
       console.error("audio/start failed", e);
       await stopAudio();

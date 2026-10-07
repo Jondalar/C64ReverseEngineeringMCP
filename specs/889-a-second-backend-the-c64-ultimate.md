@@ -1,6 +1,6 @@
 # Spec 889 — A second backend: the C64 Ultimate
 
-**Status:** FOUNDATION BUILT (2026-10-07, §8: the backend contract, the C64U backend, discovery
+**Status:** FOUNDATION + STREAMS BUILT, UI and wiring open (2026-10-07, §8: the backend contract, the C64U backend, discovery
 and probe, trxmon start, selection, the gate, DOCTRINE). OPEN: §4c picture and sound, the UI
 selector and the server relay (§2, §4). Proposed 2026-10-02, revised 2026-10-06 after the
 TRX64-FW review. First integration at RC level = what exists on the board today.
@@ -402,3 +402,57 @@ the video stream.
 4. `runtime_backend list` broadcasts by default. Acceptable for a headless agent on a shared
    network, or should discovery be opt-in (`broadcast` required)?
 
+## §9 As built (streams)
+
+§4c is built as self-contained modules plus the player change; the backend switch, the
+discovery and the WS relay that carries these messages to browsers are not part of it.
+
+**Modules** — `src/runtime/c64u-streams/`: `wire.ts` (constants, header parse, nibble unpack),
+`video.ts` (`FrameAssembler`), `audio.ts` (`AudioTimeline`), `relay.ts` (the binary messages),
+`receiver.ts` (UDP sockets, paused signal), `control.ts` (REST start/stop, `httpRestCaller`),
+`screenshot.ts`, `index.ts` (`C64UStreams`, the one object the backend holds).
+
+**The interface the backend calls** (`C64UStreams`): `startStreams()` opens the two UDP sockets
+and asks the device to send, returns a ticket at once (`settled` never rejects for device
+trouble; a bind failure rejects); `rearm()` after a system reset; `stopStreams()` stops on the
+device (audio, then video) and closes the sockets; `screenshot()` / `frameIndices()` answer in the
+daemon's `session/screenshot` / `session/frame_indices` shapes plus `ageMs`, `paused`, `complete`,
+`frame`; `audioFormat()` is `{sampleRate: 48003.07, channels: 2}` for the `audio/start` reply;
+`status()`. Injected: `rest` (a `RestCaller`; `httpRestCaller(baseUrl, {password})` is the plain
+one), `receiverHost` (this host as the device reaches it; `localAddressTowards(deviceHost)`),
+`deviceHost` (source filter), `relay.{video,audio,paused}`, bind address and ports.
+
+**Relay bytes** are the daemon's own: `[type:u8][seq:u32 LE][payload]`; `0x01` payload
+`[w:u16][h:u16][fmt=1][0][cycle:u32=0][48 B colodore palette][w*h indices]`, `0x02` raw s16le
+stereo. The palette is the emulator path's colodore table. The 240- and 272-line frames carry
+their own height. The device sends no cycle counter, so `cycle` is 0 (the UI does not read it).
+
+**Player.** `WebAudioPlayer(streamRate = 44100)`; the backend's `audio/start` reply may carry
+`sampleRate` and `MachineControls` then calls `setStreamRate`, which rebuilds the context and the
+worklet at that rate. The emulator's reply has no field, so its player is built with the same
+numbers as before (the smoke asserts them). The AudioContext is asked for `round(rate)` and the
+worklet's resample ratio carries the fraction.
+
+**Decisions.**
+- Live audio fill cap: 12 packets (48 ms at 48,003.07 Hz). The reference's 2500 (~10 s) is for
+  files; live, a longer fade is worse than the jump of a re-anchor, which is what a gap beyond the
+  cap does (no fill).
+- Video: a frame is handed out complete, or when the next frame's first packet arrives (gaps show
+  that frame's previous lines, colour 0 with none). A straggler of a frame already handed out is
+  dropped and counted `packets_late`. This differs from the reference, which keeps two frames in
+  progress and never hands out a partial one. A backward frame-counter jump beyond 8 frames is a
+  device restart (re-anchor), not endless "reordering".
+- Paused = no video datagram for 250 ms; the last frame is kept.
+- A late audio packet is dropped, not re-inserted (the reference's semantics: its slot was already
+  concealed).
+- Starts run video then audio, sequentially, each under a 15 s deadline; a deadline is reported as
+  a timeout, a device refusal verbatim (HTTP status and body), a transport failure as unreachable.
+
+**Not done / not detectable.** The device has no "get stream target", so the backend cannot say
+beforehand that the streams were pointed elsewhere; it replaces the target and can only say so
+after. Marking the picture "paused" in the Live tab is the backend relaying `relay.paused` as a
+notification and the tab reading it; the signal exists, no notification name is fixed here.
+No test ran against a device or recorded device datagrams (none exist on disk); the datagrams are
+synthetic, built from the header layout in `streams.py`.
+
+**Gate.** `npm run smoke:889-streams` (hermetic, in `gates.yml`).
