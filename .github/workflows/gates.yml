@@ -369,6 +369,14 @@ jobs:
       - name: Picture and sound from a C64 Ultimate (Spec 889 streams)
         run: npm run smoke:889-streams
 
+      # Spec 889 §2/§4/§4c — hermetic: the backend's streams (start on select, relay, paused,
+      # re-arm, stop on switch), the workbench server's relay and selection API against a fake
+      # Ultimate and a stand-in for the emulator's WS, the page's own WsClient, the REST
+      # password staying in memory. Child server on a free port, UDP on 127.0.0.1, never a
+      # device, never :4312.
+      - name: The C64 Ultimate in the workbench (Spec 889 UI)
+        run: npm run smoke:889-ui
+
       # Spec 900 — hermetic: what a Then parses to, where it stands, and that a line which
       # starts like a check and does not parse is an error. The half that runs machines is
       # smoke:900, a local gate.

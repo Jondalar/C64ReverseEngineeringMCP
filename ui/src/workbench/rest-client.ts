@@ -11,6 +11,52 @@ export interface ProjectConfig {
   runtimeWsUrl?: string;
 }
 
+/** Spec 889 — which runtime the page reaches, and what the workbench knows of it. */
+export interface BackendView {
+  kind: "emulator" | "c64u";
+  /** What the page connects to: the emulator's WS, or the workbench relay with a C64 Ultimate selected. */
+  runtimeWsUrl: string;
+  emulatorWsUrl: string;
+  identity?: { kind: "emulator" | "c64u"; label: string; device?: { host: string; restPort: number; rpcPort?: number; board?: string; firmwareVersion?: string; trxmonVersion?: string } };
+  relayClients?: number;
+  streams?: { running: boolean; trouble?: string };
+  envError?: string;
+  notes?: string[];
+}
+
+export interface DeviceRowView {
+  host: string;
+  restPort: number;
+  hostname?: string;
+  product?: string;
+  firmware?: string;
+  board?: string;
+  outcome: "stock" | "core-no-monitor" | "offered" | "not-offered" | "unreachable";
+  reason: string;
+  selectable: boolean;
+  action?: "start_monitor";
+  passwordProtected?: boolean;
+  held?: boolean;
+}
+
+export interface DevicesView {
+  active?: { kind: "emulator" | "c64u"; label: string; host?: string };
+  emulator: { label: string; selectable: boolean; reason: string };
+  devices: DeviceRowView[];
+}
+
+export interface SelectOutcome {
+  ok: boolean;
+  status: number;
+  /** The switch needs the human's yes (the server answered 409). */
+  needsConfirm?: boolean;
+  from?: string;
+  to?: string;
+  error?: string;
+  notes?: string[];
+  view?: BackendView;
+}
+
 export interface RuntimeStatus {
   wsUrl: string;
   reachable: boolean;
@@ -148,7 +194,24 @@ export interface MonitorExecResult {
 /** Spec 804 — a name's place in the laid-out reply. */
 export interface MonitorNameMark { line: number; start: number; end: number; origin: "user" | "build" | "derived" }
 
+async function postJsonRaw(path: string, payload: unknown): Promise<{ status: number; body: any }> {
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+
 export const api = {
+  /** Spec 889 — the runtime backend: which one, find devices, choose, start the monitor. The password goes to the server's memory, never to disk. */
+  runtimeBackend: () => getJson<BackendView>("/api/runtime/backend"),
+  runtimeDevices: (body: { host?: string; restPort?: number; password?: string } = {}) => postJson<DevicesView>("/api/runtime/devices", body),
+  selectRuntimeBackend: async (body: { backend: "emulator" | "c64u"; host?: string; restPort?: number; password?: string; startMonitor?: boolean; confirmed?: boolean }): Promise<SelectOutcome> => {
+    const r = await postJsonRaw("/api/runtime/backend/select", body);
+    if (r.status === 409 && r.body?.needsConfirm) return { ok: false, status: 409, needsConfirm: true, from: r.body.from, to: r.body.to, error: r.body.error };
+    if (r.status >= 400) return { ok: false, status: r.status, error: r.body?.error ?? `HTTP ${r.status}` };
+    return { ok: true, status: r.status, notes: r.body.notes, view: r.body as BackendView };
+  },
+  startRuntimeMonitor: (body: { host: string; restPort?: number; password?: string }) =>
+    postJson<{ started: boolean; note: string; device: DeviceRowView }>("/api/runtime/backend/start-monitor", body),
+
   /** Spec 804 — run a monitor command through C64RE (names in, names out). */
   monitorExec: (sessionId: string, command: string) => postJson<MonitorExecResult>("/api/monitor/exec", { sessionId, command }),
   config: () => getJson<ProjectConfig>("/api/config"),

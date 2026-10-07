@@ -13,7 +13,7 @@
 
 import { emulatorDaemon, runtimeHealth as emulatorHealth } from "./daemon-client.js";
 import { RuntimeMethods, type BackendIdentity } from "./runtime-methods.js";
-import { C64UBackend, type ConnectOptions, type ConnectReport } from "./c64u/c64u-backend.js";
+import { C64UBackend, type ConnectOptions, type ConnectReport, type StreamsConfig } from "./c64u/c64u-backend.js";
 import { UltimateRest, UltimateRestError } from "./c64u/rest.js";
 import { RpcLink, RpcLinkError } from "./c64u/rpc-link.js";
 import { classifyIdent, discoverUltimates, type DiscoverTarget, type FoundDevice, type UltimateIdent } from "./c64u/discovery.js";
@@ -84,6 +84,8 @@ export interface SelectOptions extends ConnectOptions {
   frameSource?: FrameSource;
   fetchImpl?: typeof fetch;
   projectDir?: string;
+  /** `false`: no picture and sound for this selection; or where the device is told to send them (§4c). */
+  streams?: false | StreamsConfig;
 }
 
 /**
@@ -96,8 +98,9 @@ export async function selectBackend(spec: BackendSpec, opts: SelectOptions = {})
   envChecked = true;
   if (spec.kind === "emulator") {
     const before = active;
-    if (before instanceof C64UBackend) before.close(); // release the device's one app connection
     active = emulatorDaemon;
+    // release the device's one app connection and stop its streams (the fixed UDP ports are free again when this returns)
+    if (before instanceof C64UBackend) await before.closeAndWait();
     return { identity: await emulatorDaemon.describe(), notes: ["the emulator is the active runtime"] };
   }
   const prev = active;
@@ -111,15 +114,23 @@ export async function selectBackend(spec: BackendSpec, opts: SelectOptions = {})
     active = prev;
     return r;
   }
+  // A switch from another device frees its fixed UDP ports BEFORE the new one binds them — but
+  // only once the new one has been selected: a device that cannot be selected leaves the old
+  // choice (and its streams) exactly as it was.
+  const switching = prev instanceof C64UBackend;
   const next = new C64UBackend({
     host: spec.host, restPort: spec.restPort, rpcPort: opts.rpcPort, password: opts.password,
     trxmonPath: opts.trxmonPath, frameSource: opts.frameSource, fetchImpl: opts.fetchImpl, projectDir: opts.projectDir,
+    streams: opts.streams,
   });
   let report: ConnectReport;
-  try { report = await next.connect(opts); }
-  catch (e) { next.close(); throw e; }
+  try { report = await next.connect({ ...opts, deferStreams: switching ? true : opts.deferStreams }); }
+  catch (e) { await next.closeAndWait(); throw e; }
   active = next;
-  if (prev instanceof C64UBackend) prev.close();
+  if (switching) {
+    await (prev as C64UBackend).closeAndWait();
+    if (!opts.deferStreams) report.notes.push(...await next.beginStreams());
+  }
   return report;
 }
 

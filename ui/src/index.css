@@ -84,6 +84,39 @@ button {
   text-transform: uppercase;
   color: var(--accent-2);
 }
+/* Spec 889 — the runtime backend selector in the top bar. */
+.backend-selector { position: relative; margin-left: auto; }
+.backend-chip {
+  display: inline-flex; align-items: center; gap: 0.45rem;
+  padding: 0.18rem 0.65rem; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg-elevated); color: var(--ink);
+  font-size: 0.72rem; letter-spacing: 0.02em; white-space: nowrap;
+}
+.backend-chip .backend-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-3); }
+.backend-chip.backend-c64u { border-color: rgba(255, 213, 79, 0.5); color: var(--warning); }
+.backend-chip.backend-c64u .backend-dot { background: var(--warning); }
+.backend-pop {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 900;
+  width: min(560px, calc(100vw - 32px)); max-height: 70vh; overflow-y: auto;
+  background: var(--bg-elevated); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: var(--shadow); padding: 8px; font-size: 0.74rem; display: flex; flex-direction: column; gap: 6px;
+}
+.backend-pop-head { display: flex; justify-content: space-between; align-items: center; padding: 0 2px; }
+.backend-row {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;
+  padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg-soft);
+}
+.backend-row.active { border-color: rgba(76, 175, 80, 0.55); }
+.backend-row.grey { opacity: 0.62; }
+.backend-row-title { color: var(--ink); font-weight: 600; }
+.backend-row-reason { color: var(--muted); margin-top: 2px; }
+.backend-row-note { color: var(--warning); margin-top: 3px; font-size: 0.68rem; }
+.backend-row-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.backend-badge { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); }
+.backend-badge.ok { color: var(--accent-3); border-color: rgba(76, 175, 80, 0.45); }
+.backend-err { color: #ff8080; padding: 2px 4px; }
+.backend-pw { display: flex; gap: 6px; margin-top: 6px; }
+.backend-pw input { flex: 1; min-width: 0; }
 /* In the compact header the phase-strip is a flex child, not a grid row. */
 .hero-compact .phase-strip {
   margin: 0;

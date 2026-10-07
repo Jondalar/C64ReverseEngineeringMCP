@@ -35,7 +35,8 @@ export const REST_METHODS: readonly string[] = [
   "media/open", "media/mount", "media/ingress", "media/unmount",
   "session/drive_status", "session/drive_power", "session/drive_reset",
   "session/reset", "session/power",
-  "session/screenshot",
+  "session/screenshot", "session/frame_indices",
+  "audio/start", "audio/stop",
 ];
 
 /** `api/call` verbs the backend can express on the app (the rest are refused by name). */
@@ -84,7 +85,7 @@ const REFUSALS: readonly RefusalRule[] = [
     match: (m) => startsWithAny(m, ["sandbox/", "runtime/candidate_", "runtime/scenario_", "runtime/promote_branch",
       "runtime/snapshot_tree", "runtime/find_cheat", "runtime/component_diff", "runtime/diff_checkpoints",
       "batch/", "recorder/", "vic/", "vsf/", "audio/", "session/model", "session/set_pacing", "session/turbo",
-      "session/warp", "session/tick", "session/advance_to_frame", "session/frame_indices"]),
+      "session/warp", "session/tick", "session/advance_to_frame"]),
     reason: "an emulator-only method: the machine on a C64 Ultimate is real hardware",
     wayOut: SANDBOX_WAY_OUT,
   },

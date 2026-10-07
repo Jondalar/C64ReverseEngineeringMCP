@@ -45,6 +45,7 @@ export async function startFakeUltimate(opts = {}) {
     refused: 0,
     trxmonRunning: false,
     rpcPort: undefined,
+    streams: { video: null, audio: null }, // the `ip=host:port` each stream was last started to (null: stopped)
   };
   const APP_METHODS = [
     "ping", "session/create", "session/list", "session/close", "session/state", "session/run", "session/read_memory",
@@ -106,7 +107,7 @@ export async function startFakeUltimate(opts = {}) {
         return { result: { deleted: true, breakpoints: sim.breakpoints.map((b) => ({ ...b })) } };
       }
       case "debug/break_list": return { result: { breakpoints: sim.breakpoints.map((b) => ({ ...b })) } };
-      case "monitor/exec": return { result: { text: `ok: ${params.command ?? ""}` } };
+      case "monitor/exec": return { result: { text: `ok: ${params.command ?? ""}`, output: `ok: ${params.command ?? ""}`, spans: [] } };
       case "monitor/state": return { result: { mode: "hardware" } };
       case "checkpoint/list": return { result: { checkpoints: [] } };
       case "trxmon/quit": setTimeout(() => sim.stopTrxmon(), 10); return { result: { ok: true } };
@@ -197,6 +198,20 @@ export async function startFakeUltimate(opts = {}) {
         const ev = rec.json?.events;
         if (!Array.isArray(ev) || ev.length < 1 || ev.length > 64) return send(400, { errors: ["`events` must contain 1..64 entries."] });
         return send(200, { keyboard: { inputs: [] }, joysticks: [{ port: 1, inputs: [] }, { port: 2, inputs: [] }] });
+      }
+      // §4c: the stream enable. A unicast start replaces the target; stopping a stopped stream is fine.
+      const sm = /^\/v1\/streams\/(video|audio):(start|stop)$/.exec(p);
+      if (req.method === "PUT" && sm) {
+        const [, name, verb] = sm;
+        if (o.streamsRefuse) return send(o.streamsRefuse, { errors: ["streams are refused by this fake"] });
+        const finish = () => {
+          if (verb === "start") {
+            if (!/^[^:]+:\d+$/.test(query.ip ?? "")) return send(400, { errors: ["`ip` must be host:port"] });
+            sim.streams[name] = query.ip;
+          } else sim.streams[name] = null;
+          return send(200, {});
+        };
+        return o.streamsDelayMs ? void setTimeout(finish, o.streamsDelayMs) : void finish();
       }
       return send(404, { errors: [`no such route in the fake: ${key}`] });
     });

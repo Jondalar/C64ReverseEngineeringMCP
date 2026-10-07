@@ -27,6 +27,11 @@ import { createHash } from "node:crypto";
 import { WebSocket } from "ws";
 import { startFakeUltimate } from "./lib/fake-ultimate.mjs";
 
+// The backend now starts the device's picture and sound on select; this smoke is about the REST/RPC
+// side, so the UDP ports are the OS's choice (the fixed defaults would collide between runs).
+process.env.C64RE_C64U_VIDEO_PORT = "0";
+process.env.C64RE_C64U_AUDIO_PORT = "0";
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
 const check = (c, m, d = "") => { c ? pass++ : failCount++; console.log(`  ${c ? "PASS" : "FAIL"}  ${m}${d ? `  (${d})` : ""}`); };
@@ -278,7 +283,10 @@ try {
     ]) {
       const n = sim.requests.length;
       await b.call(method, params);
-      check(sim.requests[n]?.method === mth && sim.requests[n].path === path, `${method} ${JSON.stringify(params)} → ${mth} ${path}`);
+      // (a reset also re-arms the picture and sound, so the device sees stream starts right behind it:
+      // the request this call made is the first one on ITS path, not necessarily the next one)
+      const sent = sim.requests.slice(n).find((q) => q.path === path);
+      check(sent?.method === mth, `${method} ${JSON.stringify(params)} → ${mth} ${path}`);
     }
     check(/at the machine/.test((await rejects(b.call("session/power", { op: "on" }))) ?? ""), "power on cannot be done over REST and says so");
     check(/no route that ejects a cartridge/.test((await rejects(b.call("media/unmount", { role: "cartridge" }))) ?? ""), "cartridge eject: refused by name (no REST route)");
@@ -292,7 +300,7 @@ try {
 
     // screenshot: the injectable frameSource
     const e3 = await rejects(b.screenshot("shared"));
-    check(/session\/screenshot: no frame to give/.test(e3 ?? "") && /video stream/.test(e3 ?? ""), "screenshot with the stub source: refused by name, says the stream relay is not attached", e3?.slice(0, 120));
+    check(/session\/screenshot: no frame to give/.test(e3 ?? "") && /video stream/.test(e3 ?? ""), "screenshot before any video frame arrived: refused by name, and says there is no frame from the video stream", e3?.slice(0, 120));
     b.setFrameSource({ describe: () => "test source", latest: async () => ({ png: new Uint8Array([137, 80, 78, 71]), width: 384, height: 272, receivedAt: Date.now() - 1500, complete: true }) });
     const shot = await b.screenshot("shared");
     check(shot.dataUrl.startsWith("data:image/png;base64,") && shot.width === 384 && shot.ageMs >= 1500, "screenshot from an injected frameSource, in the daemon's shape, with its age");

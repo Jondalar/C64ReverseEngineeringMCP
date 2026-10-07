@@ -37,6 +37,8 @@ export interface BackendIdentity {
     capabilities: "listed" | "not listed (an older app: -32601 decides per method)";
     capabilityGaps: string[];
     runState?: string;
+    /** Video/audio stream state (ports, per-stream start phase, paused). */
+    streams?: unknown;
   };
   endpoint?: string;
   version?: string;

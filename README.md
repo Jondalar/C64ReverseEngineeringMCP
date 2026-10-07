@@ -146,6 +146,34 @@ One bundle: project knowledge — artifacts, findings, memory maps, media, disas
 and the live runtime view are the same app. The daemon owns the clock, monitor, media and
 traces; browser and MCP are both clients, so a reload never resets a session.
 
+**A C64 Ultimate instead of the emulator.** The top bar names the runtime the workbench
+drives: "TRX64 (emulator)" unless you chose otherwise. Open it and the workbench scans the
+network for Ultimates (a UDP broadcast to port 64; Rescan repeats it). Every device that
+answers is listed with its reason:
+
+- **ready**: it runs the TRX64 core and the `trxmon` app. Select it.
+- **monitor not running**: it has the core, `trxmon` is not started. **Start monitor**
+  starts it over the device's REST API (from `/Flash/apps/trxmon.u2a`).
+- **greyed out**: a stock core, an app that answered something else, or a device that wants
+  its REST password. The password is asked once, kept in memory for this session, and never
+  written anywhere.
+
+Switching asks first, as switching a project does: the machine changes, so what is on screen
+becomes another machine's. With a device selected the page talks to the workbench server,
+which relays the calls, the device's notifications, and its picture and sound. The device
+sends those over UDP to the machine running the workbench: ports 11000 (video) and 11001
+(audio), or `C64RE_C64U_VIDEO_PORT` / `C64RE_C64U_AUDIO_PORT`; `C64RE_C64U_RECEIVER_HOST`
+names this machine's address when the automatic choice is wrong for the device's network.
+While the device's machine is paused (breakpoint, freeze, scrub) it sends no video: the Live
+tab keeps the last frame and marks it PAUSED, with its age.
+
+Two things to know. Media, PRGs and cartridges reach a device only if the exact same bytes
+passed a run in the emulator with at least one `Then` check (`c64re scenario run`, or
+`runtime_sandbox_run` with a `Then`); anything else is refused with the file name and what is
+missing. And the app's RPC port (4312) has no password even when the device's REST has one:
+anyone on the network can reach it, and the device row says so. A device serves one app
+connection, so select it in the workbench or in the assistant, not in both.
+
 **In the project folder itself**, starters so nobody has to remember any of the above.
 `project_init` does not write them; you ask for them, for the system you use: tell the
 assistant "give me the UI starters" (the `project_launchers` tool), or run

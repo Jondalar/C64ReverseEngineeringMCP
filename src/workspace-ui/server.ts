@@ -24,6 +24,7 @@ import { writeFile as writeFileAsync, mkdtemp as mkdtempAsync, rm as rmAsync } f
 import { tmpdir } from "node:os";
 import { gzipSync } from "node:zlib";
 import { createHash } from "node:crypto";
+import { RuntimeRelay, handleRuntimeBackendRoute, monitorExecViaBackend, runtimeUrlFor, selectedBackend } from "./runtime-backend-routes.js";
 
 interface UiMark {
   id: string;
@@ -398,6 +399,10 @@ function probeRuntimeWs(timeoutMs = 800): Promise<boolean> {
   });
 }
 
+// Spec 889 — with a C64 Ultimate selected the page talks to THIS server (the relay), not to a
+// daemon WS; with the emulator selected nothing below changes anything a page sees.
+const runtimeRelay = new RuntimeRelay();
+
 const server = createServer((req, res) => {
   const requestUrl = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
 
@@ -411,12 +416,17 @@ const server = createServer((req, res) => {
     return;
   }
 
+  if (handleRuntimeBackendRoute(req, res, requestUrl, { projectDir: options.projectDir, relay: runtimeRelay, emulatorWsUrl: RUNTIME_WS_URL })) return;
+
   if (requestUrl.pathname === "/api/config") {
+    const rt = runtimeUrlFor(req, { emulatorWsUrl: RUNTIME_WS_URL });
     send(res, jsonResponse(200, {
       defaultProjectDir: options.projectDir,
       apiOnly: options.apiOnly,
       hasUiDist,
-      runtimeWsUrl: RUNTIME_WS_URL,
+      runtimeWsUrl: rt.runtimeWsUrl,
+      backend: rt.kind,
+      emulatorWsUrl: RUNTIME_WS_URL,
     }));
     return;
   }
@@ -424,6 +434,17 @@ const server = createServer((req, res) => {
   // BUG-010: report whether the runtime WS backend (Live tab) is up, so the UI
   // can show an actionable error ("runtime backend not running — start it with
   // npm run workspace") instead of an endless "connecting".
+  if (requestUrl.pathname === "/api/runtime-status" && selectedBackend().kind === "c64u") {
+    const b = selectedBackend().backend!;
+    send(res, jsonResponse(200, {
+      wsUrl: runtimeUrlFor(req, { emulatorWsUrl: RUNTIME_WS_URL }).runtimeWsUrl,
+      reachable: b.isConnected,
+      backend: "c64u",
+      projectDir: options.projectDir,
+      hint: b.isConnected ? undefined : `C64 Ultimate ${b.host}: not connected — trxmon may have ended; start it from the backend selector or select the emulator`,
+    }));
+    return;
+  }
   if (requestUrl.pathname === "/api/runtime-status") {
     void probeRuntimeWs().then((up) => {
       send(res, jsonResponse(200, {
@@ -880,11 +901,11 @@ const server = createServer((req, res) => {
         try {
           const payload = JSON.parse(body) as { sessionId?: string; command?: string };
           const { monitorExecWithNames } = await import("./monitor-names-route.js");
-          const r = await monitorExecWithNames(
-            { sessionId: payload.sessionId, command: String(payload.command ?? "") },
-            options.projectDir,
-            RUNTIME_WS_URL,
-          );
+          const input = { sessionId: payload.sessionId, command: String(payload.command ?? "") };
+          // A selected C64 Ultimate has no daemon WS to open: the same call goes over the backend.
+          const r = selectedBackend().kind === "c64u"
+            ? await monitorExecViaBackend(input, options.projectDir)
+            : await monitorExecWithNames(input, options.projectDir, RUNTIME_WS_URL);
           send(res, jsonResponse(200, r));
         } catch (e) {
           send(res, jsonResponse(502, { error: e instanceof Error ? e.message : String(e) }));
@@ -2378,6 +2399,8 @@ const server = createServer((req, res) => {
     send(res, textResponse(500, `Failed to read ${filePath}: ${error instanceof Error ? error.message : String(error)}\n`));
   }
 });
+
+runtimeRelay.attach(server);
 
 server.listen(options.port, () => {
   console.log(`workspace-ui server listening on http://127.0.0.1:${options.port}`);

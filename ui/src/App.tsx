@@ -29,6 +29,7 @@ import { LiveTab } from "./workbench/tabs/Live.js";
 import { getClient } from "./workbench/ws-client.js";
 import { MonitorPopout } from "./workbench/components/MonitorPopout.js";
 import { ProjectMismatch } from "./workbench/components/ProjectMismatch.js";
+import { BackendSelector } from "./workbench/components/BackendSelector.js";
 import type { CartridgeLutChunk } from "./types.js";
 import type {
   ArtifactRecord,
@@ -5810,6 +5811,8 @@ export function App() {
               <span className="hero-brand">C64RE · by DKL/TREX</span>
             </div>
             {snapshot ? <GoalChip profile={snapshot.projectProfile} onCapture={() => handlePhaseChange("onboarding")} /> : null}
+            {/* Spec 889 — the runtime this workbench drives: the emulator, or a C64 Ultimate through the server's relay. */}
+            <BackendSelector onChanged={() => setLiveSessionId("")} />
           </header>
 
       {error ? <div className="error-banner">{error}</div> : null}

@@ -1,9 +1,8 @@
 # Spec 889 — A second backend: the C64 Ultimate
 
-**Status:** FOUNDATION + STREAMS BUILT, UI and wiring open (2026-10-07, §8: the backend contract, the C64U backend, discovery
-and probe, trxmon start, selection, the gate, DOCTRINE). OPEN: §4c picture and sound, the UI
-selector and the server relay (§2, §4). Proposed 2026-10-02, revised 2026-10-06 after the
-TRX64-FW review. First integration at RC level = what exists on the board today.
+**Status:** DONE (2026-10-07) — everything in §2–§5 and §4c is built (§8 foundation, §9 streams, §10 UI and
+wiring). Not archived: the owner's test on real hardware is pending; archive after it. Proposed 2026-10-02,
+revised 2026-10-06 after the TRX64-FW review. First integration at RC level = what exists on the board today.
 **Repos:** C64RE. Inputs: the C64U build of the TRX64 Ultimate firmware (superproject
 `integ-m1`) and `trxmon.u2a` (app branch `integ-m1-app`, reviewed at `5b605bb0`). The first
 slice is what exists there today (§5). TRX64 itself is unchanged.
@@ -294,7 +293,7 @@ From the TRX64-FW review (2026-10-06):
 ## §8 As built (foundation)
 
 Branch `spec-889-core`. Everything in §2, §3, §3a, §4 (MCP / headless half), §4b, §5 and §7
-is built and tested; §4c, the UI selector and the workbench relay are not (see "Not built").
+is built and tested; §4c and the UI half followed (§9, §10).
 
 **Where it lives**
 
@@ -380,12 +379,9 @@ the video stream.
 
 **Not built (named, not hidden)**
 
-- §4c picture and sound: `session/screenshot` answers from an injectable `FrameSource`; the
-  default says the relay is not attached. No `streams` start/stop, no UDP receiver, no palette.
-- The UI: the top-bar selector, the rescan, the "switching asks first" dialog, the REST-password
-  prompt, and the workbench server relay of JSON-RPC and notifications for a selected C64U (§2
-  last bullet, §4 UI). The MCP / headless half of §4 is complete.
-- `media/ingress` etc. do not broadcast `media/changed` (no UI to tell).
+- (Built since, see §9 and §10:) §4c picture and sound, the top-bar selector with rescan, the
+  "switching asks first" dialog, the REST-password prompt, and the workbench server relay.
+- `media/ingress` etc. do not broadcast `media/changed` (still true; §10 "Not built").
 - `CLAUDE.md` rule 1 still carries the old wording; DOCTRINE.md is amended, CLAUDE.md is the
   owner's file.
 - `e2e:889-pass` is not in `gates.yml` (needs the runtime), nor is the UE2 run.
@@ -456,3 +452,96 @@ No test ran against a device or recorded device datagrams (none exist on disk); 
 synthetic, built from the header layout in `streams.py`.
 
 **Gate.** `npm run smoke:889-streams` (hermetic, in `gates.yml`).
+
+## §10 As built (UI + wiring)
+
+Master, 2026-10-07. §2's last bullet, §4's UI half and §4c's wiring are built; with §8 and §9 that
+is all of §2–§5 and §4c.
+
+**Wiring** (`src/runtime/c64u/c64u-backend.ts`, `streams-frame-source.ts`, `routing.ts`, `backend.ts`)
+
+- The `C64UBackend` owns one `C64UStreams` while it is selected. `connect()` binds the UDP sockets and
+  asks the device to send (video, then audio); that returns without waiting for the device (a unicast
+  start can take seconds) — the outcome is in `streamStatus()` / `describe().device.streams` and in the
+  select's notes. A bind failure, a bad port in the environment or a refusing device does not fail the
+  select: the picture is then unavailable and every message says why.
+- Stop on deselect and on a switch (`closeAndWait`, audio first). A switch from device A to B selects B
+  with `deferStreams`, and only after B is selected stops A and lets B bind: the fixed ports are free
+  first, and a device that cannot be selected leaves the old choice and its streams running.
+- Re-arm after `session/reset` (soft or cold). FrameSource = the receiver (`StreamsFrameSource`); a
+  `NoFrameSource` remains only for `streams: false`. `session/screenshot` carries the device's frame
+  counter, lost packets and age (`extra`).
+- Routed now (they were refused): `audio/start` answers `{ok, sampleRate: 48003.07, channels: 2}`,
+  `audio/stop` `{ok}`, `session/frame_indices` is served from the last frame. Every other `audio/*`,
+  `vic/*`, … stays an emulator-only refusal.
+- Paused: the backend emits the JSON-RPC notification `stream/paused {paused, ageMs}` (the receiver's
+  250 ms rule); it travels with the app's own notifications.
+- Environment: `C64RE_C64U_RECEIVER_HOST` (default: the local address towards the device),
+  `C64RE_C64U_VIDEO_PORT` / `C64RE_C64U_AUDIO_PORT` (default 11000 / 11001, `0` = free),
+  `C64RE_C64U_STREAM_SOURCE` (source filter; default the device's address, `any` = none — for a NAT that
+  rewrites the sender; the UE2 e2e sets it). Discovery
+  stays the broadcast to 255.255.255.255:64; an explicit host list is accepted too.
+
+**The relay** (`src/workspace-ui/runtime-backend-routes.ts`, wired in `server.ts`)
+
+- *Who holds the selection.* The workbench server and the MCP server are different processes and
+  today share nothing: the selection is per process (`backend.ts`), from `C64RE_RUNTIME_BACKEND` or a
+  `select`. Decided: the workbench server owns **its own** backend instance, selected through its own
+  API, and relays for the page. Why: a device serves ONE app connection and ONE stream target per
+  stream, so a second process holding the same device is refused by the device (and by the fixed UDP
+  ports) whatever C64RE does; sharing through a file would share a name, not the connection. Whichever
+  process selects a device first holds it; the other gets the device's refusal, verbatim. The page and
+  the assistant therefore do not co-drive a C64U the way they co-drive the emulator's daemon (open
+  question 1).
+- `WS /runtime-relay` (same origin only: a handshake with another `Origin` is a 403): JSON-RPC calls
+  go to the active backend and are answered with its result or error (`RpcError` code, a refusal as
+  -32601); the backend's notifications are broadcast as JSON; video binary frames go to every page
+  (latest-frame-wins past 4 MiB of backlog), audio only to a page that called `audio/start`, until its
+  `audio/stop`. A page that connects while the machine is paused gets `stream/paused` and the last frame
+  at once. Close 4400: no C64 Ultimate selected (the page goes direct); 4001: the selection changed.
+- `/api/config` names the relay URL while a C64U is selected (plus `backend`, `emulatorWsUrl`); with the
+  emulator selected `runtimeWsUrl` is what it always was and `/api/runtime-status` is unchanged.
+  `/api/monitor/exec` goes over the backend when a C64U is selected.
+- API (smoke-covered, the UI's only doors): `GET /api/runtime/backend`; `GET|POST /api/runtime/devices`
+  (every answering device with its reason; a password for one device re-probes that device only);
+  `POST /api/runtime/backend/select` — **asks first**: a switch to another backend is a 409
+  `{needsConfirm, from, to}` until the body says `confirmed:true`; `POST /api/runtime/backend/start-monitor`.
+  POSTs must be `application/json` (415 otherwise), hosts are validated, bodies capped at 64 KiB.
+- The REST password lives in the server process's memory, keyed by `host:port`; it is sent only to
+  that device, is in no reply, no log, no file (the smoke greps the whole sandbox), and the page keeps
+  it in a ref, never in browser storage.
+
+**The UI** (`ui/src/workbench/components/BackendSelector.tsx`, `ws-client.ts`, `Live.tsx`)
+
+- Top bar chip "TRX64 (emulator)" / "C64 Ultimate <host>"; the popover lists the emulator and the
+  scanned devices (ready: Select; trxmon not running: Start monitor; greyed with the reason; Password…),
+  Rescan, and on every ours-row the note that the app's RPC port has no password. Switching opens a
+  dialog in the shape of the project switch (safe answer focused). After a switch `WsClient.restart()`
+  reconnects to whatever `/api/config` names and the tabs pick their session again.
+- Live tab: on `stream/paused` the last frame stays and a PAUSED marker with the age of that frame
+  (ticking) shows; cleared by `paused:false` or a closed connection. `MachineControls` already applied
+  the stream rate from `audio/start` (§9).
+
+**Tests.** `npm run smoke:889-ui` (105 checks, in `gates.yml`): the wiring against the fake Ultimate and
+a UDP sender, the workbench server as a child process, the relay WebSocket, the page's own `WsClient`
+(esbuild bundle, real WebSocket) over the emulator path (the same JSON-RPC bytes, the same URL), a
+switch and the way back, the password sweep, the UI source and the built bundle. `smoke:889` (198) and
+`smoke:889-streams` are unchanged in what they assert. `e2e:889-ue2emu` (local, 46 checks) gained
+section 3b: against the UE2 emulator the streams start, **guest → host UDP through slirp works** (the
+host is 10.0.2.2 for the guest), PAL 384x272 frames arrive as the UI's frames, the screenshot is the
+BASIC screen (blue 59.7 % / light blue 40.3 %), audio arrives at 48,154 Hz over a 5 s window with no
+loss. Not run against real hardware.
+
+**Not built (named).**
+- `media/*` through the relay do not broadcast `media/changed`; a page reads the result of its own call.
+- The Live tab's cart-status poll and a few other emulator-only calls fail quietly on a C64U (refused
+  by name, ignored by the tab).
+- CLAUDE.md rule 1 still carries the old wording (the owner's file).
+- The assistant (MCP process) cannot use the device the workbench holds (open question 1).
+
+**Open questions.**
+1. Should the MCP process, when a workbench holds the C64U, call through the workbench's relay instead of
+   opening a second (refused) connection? That would give back the co-drive the emulator has.
+2. Is "scan on first open of the selector" enough, or should the page scan once at load?
+3. Hardware: the real device decides whether `stream/paused` fires on a CPU-only `debug/pause` (the spec
+   says video keeps running then) — the owner's test shows which stops pause the picture.

@@ -194,6 +194,10 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
   const { machine } = useMachineModel(sessionId);
   const machineCanvas = machine?.canvas;
   const [fps, setFps] = useState(0);
+  // Spec 889 §4c — a C64 Ultimate's video stops with its machine; the backend says so as `stream/paused`
+  // (the emulator never sends it). The last frame stays on the canvas; this marks it, with its age.
+  const [streamPaused, setStreamPaused] = useState<{ since: number; ageMs: number } | null>(null);
+  const [streamPausedTick, setStreamPausedTick] = useState(0);
   const [drive, setDrive] = useState<DriveStatus | null>(null);
   const [drive9, setDrive9] = useState<DriveStatus | null>(null);
   const [cart, setCart] = useState<CartStatus | null>(null);
@@ -361,6 +365,22 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
     return off;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
+
+  useEffect(() => {
+    const client = getClient();
+    const offPaused = client.onNotification("stream/paused", (p: any) => {
+      if (p?.paused) setStreamPaused({ since: Date.now(), ageMs: typeof p.ageMs === "number" ? p.ageMs : 0 });
+      else setStreamPaused(null);
+    });
+    // A new connection (another backend, a reconnect) starts without a verdict until the backend says one.
+    const offState = client.onState((st) => { if (st !== "open") setStreamPaused(null); });
+    return () => { offPaused(); offState(); };
+  }, []);
+  useEffect(() => {
+    if (!streamPaused) return;
+    const t = window.setInterval(() => setStreamPausedTick((n) => n + 1), 500);
+    return () => window.clearInterval(t);
+  }, [streamPaused]);
 
   // (C) Backend broadcasts → UI state. The loop self-halts on a breakpoint
   //     and announces it; the UI reacts (drops into the monitor, freezes the
@@ -776,6 +796,11 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
                       is, and offer the way out. */}
                   <p>{runState === "running" ? "No frame yet — emulator booting…" : "No frame yet — the machine is paused, so it is not sending one."}</p>
                   <button type="button" onClick={() => void grabScreenshot.current()}>Show the current frame</button>
+                </div>
+              )}
+              {streamPaused && (
+                <div className="wb-screen-streampaused" role="status" data-tick={streamPausedTick}>
+                  PAUSED — last frame {Math.max(0, Math.round((streamPaused.ageMs + (Date.now() - streamPaused.since)) / 100) / 10).toFixed(1)} s old
                 </div>
               )}
               {hasFrame && frameStalledFor >= 5 && (

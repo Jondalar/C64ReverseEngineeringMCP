@@ -10,6 +10,8 @@
 // told. Nothing here ever reaches an emulator and nothing falls back to one.
 
 import { existsSync, readFileSync } from "node:fs";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { findProjectRoot } from "../../project-root.js";
 import { gateRefusal } from "../emulator-pass.js";
@@ -17,6 +19,8 @@ import { EXPECTED_RUNTIME_PROTOCOL, parseRuntimeProtocol } from "../setup-recipe
 import { RuntimeMethods, type BackendIdentity, type BackendNotification } from "../runtime-methods.js";
 import { classifyIdent, type UltimateIdent } from "./discovery.js";
 import { NoFrameSource, type FrameSource } from "./frame-source.js";
+import { StreamsFrameSource } from "./streams-frame-source.js";
+import { C64UStreams, localAddressTowards, type RestCaller } from "../c64u-streams/index.js";
 import { UltimateRest, UltimateRestError } from "./rest.js";
 import { RpcError, RpcLink, RpcLinkError } from "./rpc-link.js";
 import { driveLetter, joystickEvents, sniffMedia, tapBatches, textToTaps } from "./rest-map.js";
@@ -27,6 +31,37 @@ import { APP_NOTIFICATIONS, API_CALL_VERBS, capabilityGaps, parseCapabilities, r
 export const DEFAULT_TRXMON_PATH = "/Flash/apps/trxmon.u2a";
 
 /** A call the backend refused by name. Distinct from a device error so a caller can tell the two. */
+/** Where the device is told to send its video and audio, as this process listens. */
+export interface StreamsConfig {
+  /** This host as the device reaches it. Default: `C64RE_C64U_RECEIVER_HOST`, else the local address towards the device. */
+  receiverHost?: string;
+  /** UDP port for video. Default `C64RE_C64U_VIDEO_PORT`, else 11000; 0 = a free port. */
+  videoPort?: number;
+  /** UDP port for audio. Default `C64RE_C64U_AUDIO_PORT`, else 11001; 0 = a free port. */
+  audioPort?: number;
+  bindAddress?: string;
+  /** Only datagrams from this address count. Default: the device's address (`C64RE_C64U_STREAM_SOURCE` overrides; `any` = no filter). */
+  sourceAddress?: string | "any";
+  pausedAfterMs?: number;
+  startTimeoutMs?: number;
+  stopTimeoutMs?: number;
+}
+
+/** The ports are fixed by default so a restart of this server keeps receiving what the device was told. */
+export const DEFAULT_VIDEO_PORT = 11000;
+export const DEFAULT_AUDIO_PORT = 11001;
+
+function envPort(name: string, dflt: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return dflt;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0 || n > 65535) throw new Error(`${name}=${JSON.stringify(raw)} is not a UDP port (0..65535)`);
+  return n;
+}
+
+/** A binary message of the device's streams, for whoever relays them to a browser. */
+export type StreamMessage = { kind: "video" | "audio"; data: Uint8Array };
+
 export class BackendRefusal extends Error {
   constructor(message: string) { super(message); this.name = "BackendRefusal"; }
 }
@@ -47,6 +82,8 @@ export interface C64UOptions {
   projectDir?: string;
   /** Selected by environment: connect on the first call instead of on a select. */
   lazyConnect?: boolean;
+  /** `false`: this backend never starts the device's video/audio streams (tests of the REST/RPC side). */
+  streams?: false | StreamsConfig;
 }
 
 export interface ConnectOptions {
@@ -54,6 +91,8 @@ export interface ConnectOptions {
   startMonitor?: boolean;
   /** Leave the machine paused after select instead of sending debug/continue. */
   paused?: boolean;
+  /** Do not start the streams in `connect`; the caller starts them with `beginStreams()` (a switch from another device frees the fixed ports first). */
+  deferStreams?: boolean;
 }
 
 export interface ConnectReport {
@@ -83,13 +122,24 @@ export class C64UBackend extends RuntimeMethods {
   private connected = false;
   private everConnected = false;
   private lazyP: Promise<void> | undefined;
+  // §4c — the streams this backend owns while it is selected.
+  private streams: C64UStreams | null = null;
+  private streamsStarting: Promise<string[]> | undefined;
+  private streamTicket: Promise<unknown> | undefined;
+  private streamTrouble: string | undefined;
+  private closing: Promise<void> | undefined;
+  private closed = false;
+  private lastVideoMessage: Uint8Array | undefined;
+  private readonly binaryHandlers = new Set<(m: StreamMessage) => void>();
 
   constructor(private readonly opts: C64UOptions) {
     super();
     this.host = opts.host;
     this.rest = new UltimateRest(opts.host, opts.restPort ?? 80, opts.password, opts.fetchImpl);
     this.rpcPort = opts.rpcPort;
-    this.frameSource = opts.frameSource ?? new NoFrameSource();
+    this.frameSource = opts.frameSource ?? (opts.streams === false
+      ? new NoFrameSource()
+      : new StreamsFrameSource(() => this.streams, () => this.streamTrouble));
     this.trxmonPath = opts.trxmonPath ?? DEFAULT_TRXMON_PATH;
     this.projectDir = opts.projectDir;
   }
@@ -104,6 +154,26 @@ export class C64UBackend extends RuntimeMethods {
   onNotification(handler: (n: BackendNotification) => void): () => void {
     this.noteHandlers.add(handler);
     return () => { this.noteHandlers.delete(handler); };
+  }
+
+  /** Subscribe to the device's picture and sound as the binary messages the UI plays (relay.ts). */
+  onBinary(handler: (m: StreamMessage) => void): () => void {
+    this.binaryHandlers.add(handler);
+    return () => { this.binaryHandlers.delete(handler); };
+  }
+
+  /** The newest video message, for a browser that connects while the machine is paused (no video arrives then). */
+  lastVideo(): Uint8Array | undefined { return this.lastVideoMessage; }
+
+  /** `stream/paused` as it stands now (the notification's payload). */
+  pausedState(): { paused: boolean; ageMs: number } | undefined {
+    if (!this.streams) return undefined;
+    const st = this.streams.status();
+    return { paused: st.paused, ageMs: st.lastFrameAgeMs ?? 0 };
+  }
+
+  private emit(n: BackendNotification): void {
+    for (const h of this.noteHandlers) { try { h(n); } catch { /* a listener must not break the link */ } }
   }
 
   // ---- identity ---------------------------------------------------------------------
@@ -133,6 +203,7 @@ export class C64UBackend extends RuntimeMethods {
         capabilities: this.served ? "listed" : "not listed (an older app: -32601 decides per method)",
         capabilityGaps: this.gaps,
         runState: this.runState,
+        streams: this.streams ? { ...this.streams.status(), trouble: this.streamTrouble } : { running: false, trouble: this.streamTrouble },
       },
     };
   }
@@ -220,8 +291,96 @@ export class C64UBackend extends RuntimeMethods {
         notes.push("trxmon starts the machine PAUSED: sent debug/continue");
       }
     }
+    if (!opts.deferStreams) notes.push(...await this.beginStreams());
     return { identity: await this.describe(), notes };
   }
+
+  // ---- §4c: the device's picture and sound ------------------------------------------------
+
+  /** The device's REST as the stream controller calls it (this backend owns host, port and password). */
+  private streamRest(): RestCaller {
+    return async (req) => {
+      try {
+        const r = await this.rest.request({ method: req.method, path: req.path });
+        return { status: r.status, body: JSON.stringify(r.json ?? {}) };
+      } catch (e) {
+        if (e instanceof UltimateRestError && e.status !== undefined) return { status: e.status, body: e.message };
+        throw e;
+      }
+    };
+  }
+
+  /**
+   * Open the UDP sockets and ask the device to send here (non-blocking: the REST starts run behind
+   * a ticket, a unicast start can take seconds). Idempotent while the streams are up. A failure
+   * to bind or to resolve is not a failure to select: the picture is then unavailable, and the
+   * notes and `describe()` say why.
+   */
+  beginStreams(): Promise<string[]> {
+    if (this.opts.streams === false || this.closed) return Promise.resolve([]);
+    if (this.streams) { const p = this.streams.status().ports; return Promise.resolve([`streams already running (UDP ${p.video}/${p.audio})`]); }
+    this.streamsStarting ??= this.openStreams().finally(() => { this.streamsStarting = undefined; });
+    return this.streamsStarting;
+  }
+
+  private async openStreams(): Promise<string[]> {
+    const cfg = this.opts.streams || {};
+    try {
+      const receiverHost = cfg.receiverHost ?? (process.env.C64RE_C64U_RECEIVER_HOST?.trim() || await localAddressTowards(this.host));
+      const videoPort = cfg.videoPort ?? envPort("C64RE_C64U_VIDEO_PORT", DEFAULT_VIDEO_PORT);
+      const audioPort = cfg.audioPort ?? envPort("C64RE_C64U_AUDIO_PORT", DEFAULT_AUDIO_PORT);
+      const srcSetting = cfg.sourceAddress ?? (process.env.C64RE_C64U_STREAM_SOURCE?.trim() || undefined);
+      let sourceAddress: string | undefined;
+      if (srcSetting === "any") sourceAddress = undefined;
+      else if (srcSetting) sourceAddress = srcSetting;
+      else if (isIP(this.host)) sourceAddress = this.host;
+      else { try { sourceAddress = (await lookup(this.host, { family: 4 })).address; } catch { sourceAddress = undefined; } }
+      const streams = new C64UStreams({
+        rest: this.streamRest(),
+        receiverHost,
+        deviceHost: sourceAddress,
+        bindAddress: cfg.bindAddress,
+        videoPort, audioPort,
+        pausedAfterMs: cfg.pausedAfterMs,
+        startTimeoutMs: cfg.startTimeoutMs,
+        stopTimeoutMs: cfg.stopTimeoutMs ?? 3000,
+        relay: {
+          video: (m) => { this.lastVideoMessage = m; this.fanBinary({ kind: "video", data: m }); },
+          audio: (m) => this.fanBinary({ kind: "audio", data: m }),
+          paused: (p) => this.emit({ method: "stream/paused", params: { paused: p, ageMs: p ? (this.streams?.status().lastFrameAgeMs ?? 0) : 0 } }),
+        },
+      });
+      const ticket = streams.startStreams();
+      // The bind is quick and rejects here; the device's answers come later through the ticket.
+      await Promise.race([ticket.settled.then(() => undefined), new Promise<void>((r) => setTimeout(r, 50))]);
+      if (this.closed) { void streams.stopStreams().catch(() => undefined); return []; }
+      this.streams = streams;
+      this.streamTrouble = undefined;
+      this.streamTicket = ticket.settled.then((st) => {
+        const bad = (["video", "audio"] as const).filter((k) => st[k].failure).map((k) => st[k].failure!.message);
+        this.streamTrouble = bad.length ? bad.join("; ") : undefined;
+        return st;
+      }).catch((e) => { this.streamTrouble = e instanceof Error ? e.message : String(e); });
+      const p = streams.status().ports;
+      return [`picture and sound: listening on UDP ${p.video} (video) / ${p.audio} (audio), the device is asked to send to ${receiverHost} (not waited for — a unicast start can take seconds; its outcome is in the streams status)`];
+    } catch (e) {
+      this.streams = null;
+      this.streamTrouble = e instanceof Error ? e.message : String(e);
+      return [`picture and sound unavailable: ${this.streamTrouble}`];
+    }
+  }
+
+  private fanBinary(m: StreamMessage): void {
+    for (const h of this.binaryHandlers) { try { h(m); } catch { /* a listener must not break the receiver */ } }
+  }
+
+  /** Stream state for a status line / the UI. */
+  streamStatus(): { running: boolean; trouble?: string; status?: ReturnType<C64UStreams["status"]> } {
+    return this.streams ? { running: true, trouble: this.streamTrouble, status: this.streams.status() } : { running: false, trouble: this.streamTrouble };
+  }
+
+  /** Resolves when the device has answered both stream starts (tests, and a caller that wants the outcome). */
+  streamsSettled(): Promise<unknown> { return this.streamTicket ?? Promise.resolve(); }
 
   private async openLink(): Promise<void> {
     if (this.link?.isOpen) return;
@@ -257,18 +416,34 @@ export class C64UBackend extends RuntimeMethods {
     // A state change we did not cause is the person's action at the machine: take it as truth.
     if (n.method === "debug/running") this.runState = "running";
     else if (APP_NOTIFICATIONS.includes(n.method)) this.runState = "paused";
-    for (const h of this.noteHandlers) { try { h({ method: n.method, params: n.params }); } catch { /* a listener must not break the link */ } }
+    this.emit({ method: n.method, params: n.params });
   }
 
   private noteState(s: unknown): void {
     if (isObj(s) && typeof s.runState === "string") this.runState = s.runState;
   }
 
-  /** Release the one app connection (select back to the emulator, or shutdown). */
-  close(): void {
+  /**
+   * Release the one app connection and stop the streams (select back to the emulator, a switch,
+   * or shutdown). Returns at once; `closeAndWait` is the same and awaits the device's answers to
+   * the stream stops.
+   */
+  close(): void { void this.closeAndWait(); }
+
+  closeAndWait(): Promise<void> {
+    this.closed = true;
     this.connected = false;
     this.link?.close();
     this.link = null;
+    this.closing ??= (async () => {
+      const pending = this.streamsStarting;
+      if (pending) await pending.catch(() => undefined);
+      const s = this.streams;
+      this.streams = null;
+      if (s) { try { await s.stopStreams(); } catch { /* the device is gone: the sockets are closed regardless */ } }
+      this.binaryHandlers.clear();
+    })();
+    return this.closing;
   }
 
   /**
@@ -437,6 +612,9 @@ export class C64UBackend extends RuntimeMethods {
   private async restMethod(method: string, p: Record<string, unknown>, timeoutMs: number): Promise<unknown> {
     switch (method) {
       case "session/screenshot": return this.doScreenshot();
+      case "session/frame_indices": return this.doFrameIndices();
+      case "audio/start": return this.doAudioStart();
+      case "audio/stop": return this.doAudioStop();
       case "session/drive_status": return this.doDriveStatus(p);
       case "session/type": return this.afterRest(await this.doType(p), "typing");
       case "session/joystick_set": return this.doJoystick(p, false);
@@ -478,15 +656,38 @@ export class C64UBackend extends RuntimeMethods {
         `the picture of a C64 Ultimate is its UDP video stream, and a paused machine sends none.`);
     }
     const ageMs = Math.max(0, Date.now() - frame.receivedAt);
-    const paused = this.runState === "paused";
+    const streamPaused = frame.extra?.streamPaused === true;
+    const paused = this.runState === "paused" || streamPaused;
     return {
       dataUrl: `data:image/png;base64,${Buffer.from(frame.png).toString("base64")}`,
       width: frame.width,
       height: frame.height,
       ageMs,
       complete: frame.complete,
+      ...(frame.extra ?? {}),
       ...(paused ? { note: `the machine is paused: this is the last complete frame received, ${ageMs} ms old` } : {}),
     };
+  }
+
+  private async doFrameIndices(): Promise<unknown> {
+    if (!this.streams) {
+      throw new BackendRefusal(`session/frame_indices: the device's video stream is not running here${this.streamTrouble ? ` (${this.streamTrouble})` : ""} — there is no frame to give`);
+    }
+    try { return this.streams.frameIndices(); }
+    catch (e) { throw new BackendRefusal(`session/frame_indices: ${e instanceof Error ? e.message : String(e)}`); }
+  }
+
+  /** `audio/start`: the stream is the device's; the reply carries ITS rate so the player resamples from it. */
+  private async doAudioStart(): Promise<unknown> {
+    if (!this.streams) {
+      throw new BackendRefusal(`audio/start: the device's audio stream is not running here${this.streamTrouble ? ` (${this.streamTrouble})` : ""} — it arrives over UDP, started when the device was selected`);
+    }
+    return { ok: true, ...this.streams.audioFormat(), source: "c64u-audio-stream" };
+  }
+
+  /** `audio/stop` ends the listener's playback; the device's stream stays owned by this backend while it is selected. */
+  private async doAudioStop(): Promise<unknown> {
+    return { ok: true };
   }
 
   private async doDriveStatus(p: Record<string, unknown>): Promise<unknown> {
@@ -662,6 +863,8 @@ export class C64UBackend extends RuntimeMethods {
   private async doReset(p: Record<string, unknown>): Promise<unknown> {
     const soft = p.mode === "soft";
     await this.rest.request({ method: "PUT", path: soft ? "/v1/machine:reset" : "/v1/machine:reboot" });
+    // §4c: a system reset clears the device's stream enable; start again what was wanted (not waited for).
+    this.streams?.rearm();
     return { mode: soft ? "soft" : "cold", via: soft ? "REST machine:reset (pulls reset; the cartridge stays as it is)" : "REST machine:reboot (resets and re-initialises the cartridge)" };
   }
 

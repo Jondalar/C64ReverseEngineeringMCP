@@ -20,6 +20,12 @@
 //   6  the gate: a PRG with no pass is refused, with a pass it runs on the device
 //      (run_prg → $C000 written) — the exact bytes went over REST
 //   7  trxmon/quit → "trxmon not running", REST still answers, no fallback
+//   8  picture and sound (Spec 889 §4c): select starts the device's video and audio streams to this
+//      host on free UDP ports (guest → host through the `--net user` NAT, the host as the guest
+//      sees it is 10.0.2.2); frames arrive as the UI's binary frames, a screenshot of the BASIC
+//      screen is the READY. colours (border light blue, background blue), audio arrives at the
+//      device's 48,003 Hz. Section 8 is reported as it happens: if the NAT cannot deliver
+//      guest → host UDP, the check says what the streams status and the counters showed.
 //
 //   UE2EMU_DIR=/path/to/u64-emulator node scripts/e2e-889-ue2emu.mjs
 import { spawn } from "node:child_process";
@@ -56,6 +62,13 @@ mkdirSync(usb);
 copyFileSync(u2a, join(usb, "trxmon.u2a"));
 writeFileSync(join(work, "smoke.cfg"), "[User Interface Settings]\nNavigation Style=Quick Search\n[U64 Specific Settings]\nSystem Mode=PAL\n");
 const restPort = await freePort(), rpcPort = await freePort(), udpPort = await freePort();
+// §4c: the device sends to this host through slirp: 10.0.2.2 is the host as the guest sees it, and
+// the datagrams come out of the NAT from an address that is not the forward's, so no source filter.
+const videoUdp = await freePort(), audioUdp = await freePort();
+process.env.C64RE_C64U_RECEIVER_HOST = process.env.C64RE_C64U_RECEIVER_HOST ?? "10.0.2.2";
+process.env.C64RE_C64U_STREAM_SOURCE = process.env.C64RE_C64U_STREAM_SOURCE ?? "any";
+process.env.C64RE_C64U_VIDEO_PORT = String(videoUdp);
+process.env.C64RE_C64U_AUDIO_PORT = String(audioUdp);
 
 console.log("Spec 889 — the C64U backend against the UE2 emulator\n");
 console.log(`  emulator: ${bin}\n  forwards: REST 127.0.0.1:${restPort}→80, app :${rpcPort}→4312, ident udp :${udpPort}→64\n  work dir: ${work}`);
@@ -111,9 +124,58 @@ try {
   const sel = await be.selectBackend({ kind: "c64u", host: "127.0.0.1", restPort }, { rpcPort });
   check(sel.identity.device.runtimeVersion === "trx64-runtime/2" && /^trxmon /.test(sel.identity.device.trxmonVersion ?? "") && sel.identity.device.board === "C64U", "identity: board C64U, trx64-runtime/2, trxmon version", `${sel.identity.device.trxmonVersion}; ${sel.identity.device.capabilities}`);
   const d = be.runtimeDaemon;
+  const d_ = d;
   const s0 = await d.state("shared");
   check(s0.runState === "running" && sel.notes.some((n) => /debug\/continue/.test(n)), "trxmon started paused; select continued it", sel.notes.join(" | "));
   check(s0.cpu && typeof s0.cpu.pc === "number" && s0.backend === "c64u" && s0.model === "c64-pal", "session/state in the daemon's shape (cpu, backend c64u, model)");
+
+  head("3b picture and sound (§4c)");
+  {
+    const b = be.activeBackend();
+    const msgs = { video: [], audio: [], notes: [] };
+    const t0 = Date.now();
+    const off = b.onBinary((m) => msgs[m.kind].push({ at: Date.now(), n: m.data.length, data: m.kind === "video" ? m.data : undefined }));
+    const offN = b.onNotification((n) => { if (n.method === "stream/paused") msgs.notes.push({ at: Date.now() - t0, ...n.params }); });
+    check(sel.notes.some((n) => /picture and sound: listening on UDP \d+ \(video\) \/ \d+ \(audio\)/.test(n)), "select opened the UDP receivers", sel.notes.find((n) => /picture and sound/.test(n)) ?? "");
+    await Promise.race([b.streamsSettled(), sleep(30_000)]);
+    const ss = b.streamStatus();
+    const sv = ss.status?.streams;
+    console.log(`  streams after the start: video ${sv?.video.phase}${sv?.video.failure ? ` (${sv.video.failure.message})` : ""}, audio ${sv?.audio.phase}${sv?.audio.failure ? ` (${sv.audio.failure.message})` : ""}; told ${sv?.video.target} / ${sv?.audio.target}`);
+    check(sv?.video.phase === "running" && sv?.audio.phase === "running", "the device accepted both stream starts (PUT streams/video:start, audio:start)", JSON.stringify(sv));
+    const waited = await (async () => { const end = Date.now() + 25_000; while (Date.now() < end && (msgs.video.length < 5 || msgs.audio.length < 20)) await sleep(250); return Date.now() - t0; })();
+    const st0 = b.streamStatus().status;
+    console.log(`  after ${waited} ms: ${msgs.video.length} video frames, ${msgs.audio.length} audio buffers; foreign datagrams ${st0.foreignDatagrams}; video ${JSON.stringify(st0.video)}; audio ${JSON.stringify(st0.audio)}`);
+    check(msgs.video.length >= 5, "video frames arrive through the NAT (guest → host UDP)", `${msgs.video.length} frames; receivedAnyVideo=${st0.receivedAnyVideo}`);
+    if (msgs.video.length >= 5) {
+      const v = msgs.video.at(-1).data;
+      const w = v[5 + 0] | (v[5 + 1] << 8), h = v[5 + 2] | (v[5 + 3] << 8);
+      check(v[0] === 0x01 && w === 384 && (h === 272 || h === 240) && v.length === 5 + 58 + w * h, "…as the UI's frames: 0x01, 384 x 272 (PAL), palette-indexed", `${w}x${h}`);
+      const fi = await d_.call("session/frame_indices", { session_id: "shared" });
+      const idx = Buffer.from(fi.indices, "base64");
+      const hist = new Array(16).fill(0); for (const c of idx) hist[c & 15]++;
+      const order = hist.map((n, i) => [i, n]).sort((a, c) => c[1] - a[1]);
+      const frac = (hist[6] + hist[14]) / idx.length;
+      console.log(`  colour histogram (index:share): ${order.filter(([, n]) => n).slice(0, 5).map(([i, n]) => `${i}:${(100 * n / idx.length).toFixed(1)}%`).join(" ")}`);
+      check(order[0][0] === 6 && order[1][0] === 14 && frac > 0.95, "the screenshot is the BASIC screen: blue (6) background and light blue (14) border/text make up the picture", `blue+lightblue ${(100 * frac).toFixed(1)}%`);
+      const shot = await d_.call("session/screenshot", { session_id: "shared" });
+      check(shot.dataUrl.startsWith("data:image/png;base64,") && shot.width === 384 && shot.frame >= 0 && shot.ageMs < 5000, "session/screenshot answers with a PNG, the frame number and its age", `age ${shot.ageMs} ms, frame ${shot.frame}, complete ${shot.complete}`);
+    }
+    check(msgs.audio.length >= 20, "audio buffers arrive through the NAT", `${msgs.audio.length} buffers`);
+    if (msgs.audio.length >= 20) {
+      // a steady window, not the burst that was buffered while the streams were starting
+      const w0 = Date.now(), n0 = msgs.audio.length;
+      await sleep(5000);
+      const w1 = Date.now();
+      const inWin = msgs.audio.slice(n0).filter((m) => m.at >= w0 && m.at <= w1);
+      const frames = inWin.reduce((n, m) => n + (m.n - 5) / 4, 0);
+      const hz = frames / ((w1 - w0) / 1000);
+      const st1 = b.streamStatus().status;
+      console.log(`  audio: ${inWin.length} buffers in ${w1 - w0} ms → ${hz.toFixed(0)} Hz (device nominal 48003.07); lost ${st1.audio.packets_lost}, concealed ${st1.audio.packets_concealed}`);
+      check(hz > 48003.07 * 0.97 && hz < 48003.07 * 1.03, "audio packets arrive at about 48,003 Hz (±3 % over a 5 s window)", `${hz.toFixed(0)} Hz`);
+    }
+    console.log(`  paused notifications seen: ${JSON.stringify(msgs.notes)}`);
+    off(); offN();
+  }
 
   head("4  the app's RPC through the backend");
   const mem = await d.readMemoryRange("shared", 0x0000, 4);

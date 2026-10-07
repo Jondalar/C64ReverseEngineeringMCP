@@ -82,6 +82,26 @@ export class WsClient {
     };
   }
 
+  /**
+   * The runtime backend changed (the emulator, or a C64 Ultimate through the workbench relay):
+   * drop this connection and connect again to whatever `/api/config` names NOW. Calls still in
+   * flight on the old one are rejected — they were answered by another machine.
+   */
+  restart(): void {
+    if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined; }
+    const old = this.ws;
+    if (old) {
+      old.onopen = null; old.onclose = null; old.onerror = null; old.onmessage = null;
+      try { old.close(); } catch { /* already closed */ }
+    }
+    this.ws = undefined;
+    for (const p of this.pending.values()) p.reject(new Error("the runtime backend changed"));
+    this.pending.clear();
+    this.url = undefined;
+    this.setState("closed");
+    this.connect();
+  }
+
   disconnect(): void {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.ws?.close();

@@ -710,6 +710,14 @@
   background: rgba(20, 8, 8, 0.86); border: 1px solid #e0506a; color: #e0506a;
   font-size: 11px; white-space: nowrap;
 }
+/* Spec 889 §4c — a C64 Ultimate stops sending video while its machine is paused (breakpoint, freeze,
+   scrub): the last frame stays, and this says so, with how old that frame is. */
+.wb-live .wb-screen-streampaused {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+  padding: 3px 10px; border-radius: 4px; pointer-events: none;
+  background: rgba(30, 24, 4, 0.88); border: 1px solid var(--c64-yellow, #d4b34a); color: var(--c64-yellow, #d4b34a);
+  font-size: 11px; letter-spacing: 0.06em; white-space: nowrap;
+}
 .wb-live .wb-screen-hint {
   position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%);
   color: var(--c64-blue-bright); font-size: 11px; pointer-events: none;

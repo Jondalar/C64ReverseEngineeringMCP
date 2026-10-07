@@ -105,7 +105,13 @@ the default and the other value). Nothing is chosen for you and nothing falls ba
 emulator: a device that stops answering is an error naming it. Machines of your own
 (`runtime_sandbox_run`, `runtime_scene_reel`, `c64re scenario run`) are always the emulator,
 and media reach the device only if the exact same bytes passed a run there with at least one
-`Then` check first.
+`Then` check first. In the workbench the same choice is the runtime selector in the top bar
+(scan, **Start monitor** for a device that has the core but not the app, a REST password
+prompt kept in memory only); the device's picture and sound arrive over UDP on ports 11000
+and 11001 of the machine running the workbench (`C64RE_C64U_VIDEO_PORT`,
+`C64RE_C64U_AUDIO_PORT`, and `C64RE_C64U_RECEIVER_HOST` for this machine's address). The
+app's RPC port (4312) has no password even when the device's REST has one, and it serves one
+connection: select the device in the workbench or in the assistant, not both.
 
 Building it from source stays supported and needs the Rust toolchain and a C++ compiler:
 
