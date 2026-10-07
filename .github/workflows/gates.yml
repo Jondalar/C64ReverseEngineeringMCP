@@ -368,6 +368,16 @@ jobs:
       - name: A Then a runner can decide (Spec 900)
         run: npm run e2e:900-checks
 
+      # Spec 889 — the C64 Ultimate backend against a fake Ultimate in this process: every
+      # socket on 127.0.0.1 (REST, the app's WebSocket, the UDP ident), no device, no
+      # daemon. Routing, discovery, probe, select/start, the one connection, the gate by
+      # sha256, no silent fallback, and the MCP tool over stdio. The half that records a
+      # pass from a real emulator run is e2e:889-pass, a local gate (it needs the runtime
+      # and skips loudly without it); the half that talks to a real UE2 emulator is
+      # scripts/e2e-889-ue2emu.mjs, run by hand.
+      - name: The C64 Ultimate backend (Spec 889)
+        run: npm run smoke:889
+
       # Spec 861 — three hermetic gates. The cycle table lives twice because src/
       # is ESM and pipeline/src/ is CommonJS, so check:cycle-table reads the grid
       # out of both files and compares it cell by cell; e2e:861-static prices

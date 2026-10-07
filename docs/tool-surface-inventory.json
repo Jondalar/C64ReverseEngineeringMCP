@@ -1,9 +1,9 @@
 {
-  "total": 298,
+  "total": 299,
   "specCount": 41,
   "advancedCandidate": 106,
   "byNamespace": {
-    "runtime": 88,
+    "runtime": 89,
     "list": 20,
     "project": 14,
     "save": 10,
@@ -1595,6 +1595,15 @@
       "hasSpec": false,
       "firstSentence": "Run the full first-pass PRG reverse-engineering chain end-to-end: register, analyze, disassemble, RAM + pointer reports, import knowledge, rebuild views.",
       "desc": "Run the full first-pass PRG reverse-engineering chain end-to-end: register, analyze, disassemble, RAM + pointer reports, import knowledge, rebuild views. Use to bootstrap a fresh PRG in one call. Not for a single step (call analyze / disasm directly). Inputs: prg_path. Returns: done/incomplete/blocked + the next required semantic action.",
+      "tier": "default?"
+    },
+    {
+      "name": "runtime_backend",
+      "file": "server-tools/runtime-backend.ts",
+      "ns": "runtime",
+      "hasSpec": false,
+      "firstSentence": "See and choose WHICH RUNTIME the runtime_* tools drive: the emulator (the default) or a C64 Ultimate running the runtime core and the trxmon app.",
+      "desc": "See and choose WHICH RUNTIME the runtime_* tools drive: the emulator (the default) or a C64 Ultimate running the runtime core and the trxmon app. Use `list` to find Ultimates (a UDP ident broadcast to port 64 and/or hosts you name) — every answering device is listed with its reason: stock core, our core without trxmon (offer: start_monitor), or offered; `probe` for one host; `select` to make a device (or the emulator again) the runtime — the choice is yours and explicit, nothing falls back to the emulator and nothing switches by itself, and a selected device that stops answering is an error that names it; `start_monitor` to start trxmon on a device over REST. On a C64 Ultimate the machine is one real machine: media, PRG and CRT reach it only if the exact bytes passed in the emulator first (a run whose Then checks all passed — c64re scenario run, or runtime_sandbox_run with a Then), a method it cannot serve is refused by name with the way out, and sandboxes, reels and scenario runs always stay on the emulator. Not for starting a machine of your own (use runtime_sandbox_run) and not for a snapshot of the machine you are driving (use runtime_session_status, which names the backend). Inputs: action, backend (emulator|c64u), host, rest_port, rpc_port, password (kept in memory for this session only), hosts, broadcast, ident_port, scan, start_monitor, paused, trxmon_path, via. Returns: the devices with outcome + reason, or the selected backend's identity and what the select did.",
       "tier": "default?"
     },
     {

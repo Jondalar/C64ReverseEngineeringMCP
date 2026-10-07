@@ -98,6 +98,15 @@ says so. `C64RE_RUNTIME_IDLE_EXIT` sets the seconds (`0` = never), and the
 `runtime_keep_alive` tool holds one for longer. A daemon you start yourself, or one behind
 `C64RE_RUNTIME_ENDPOINT` that C64RE did not start, is left alone.
 
+**A C64 Ultimate instead of the emulator.** The emulator is always the default. To drive a
+C64 Ultimate that runs the TRX64 core and the `trxmon` app, choose it: `runtime_backend`
+(list, probe, select, start_monitor) or `C64RE_RUNTIME_BACKEND=c64u:<host>` (`emulator` is
+the default and the other value). Nothing is chosen for you and nothing falls back to the
+emulator: a device that stops answering is an error naming it. Machines of your own
+(`runtime_sandbox_run`, `runtime_scene_reel`, `c64re scenario run`) are always the emulator,
+and media reach the device only if the exact same bytes passed a run there with at least one
+`Then` check first.
+
 Building it from source stays supported and needs the Rust toolchain and a C++ compiler:
 
 ```bash

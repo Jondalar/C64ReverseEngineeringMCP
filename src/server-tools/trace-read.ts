@@ -51,7 +51,7 @@ export async function traceRead<T = unknown>(
   // Spec 806: the endpoint always resolves (there is no in-process opt-out any more), so
   // an unreachable runtime surfaces as a connect error carrying the setup recipe, not as
   // a "no endpoint configured" branch here.
-  const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+  const { runtimeDaemon } = await import("../runtime/backend.js");
   return runtimeDaemon.traceRead<T>(op, absStorePath(storePath), args);
 }
 

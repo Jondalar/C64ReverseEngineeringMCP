@@ -119,7 +119,7 @@ const spawner = readFileSync(join(ROOT, "src/reel/sandbox-session.ts"), "utf8");
 // shared client is documentation, an edge into it is the defect.
 const importsOf = (src) => [...src.matchAll(/^\s*(?:import|export)[^;]*?from\s+"([^"]+)"/gm)].map((m) => m[1]);
 for (const [name, src] of [["the driver", driver], ["the tool", toolSrc], ["the spawner", spawner]]) {
-  const bad = importsOf(src).filter((m) => /daemon-client|runtime\/daemon/.test(m));
+  const bad = importsOf(src).filter((m) => /daemon-client|runtime\/daemon|runtime\/backend|c64u/.test(m));
   check(bad.length === 0, `${name} imports nothing from the shared daemon client`, bad.join(",") || "none");
   check(!/\bruntimeDaemon\b\s*\./.test(src), `${name} never calls the shared singleton`);
   check(!/DEFAULT_RUNTIME_ENDPOINT/.test(src), `${name} does not reach for the shared endpoint constant`);

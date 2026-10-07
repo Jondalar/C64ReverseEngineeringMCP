@@ -280,6 +280,23 @@ export function registerRuntimeSandboxTool(server: McpServer, context: ServerToo
         for (const c of result.checks) {
           lines.push(`  ${c.pass ? "PASS" : "FAIL"}  ${c.text}${c.pass ? "" : ` — got ${c.actual}`}  (after step ${c.afterSteps}, cycle ${c.cycle})`);
         }
+        // Spec 889 §4b — a green run (every Then held, at least one) is the emulator's yes for
+        // the bytes it ran; the C64 Ultimate backend takes only media that have one.
+        const { recordPassForRun } = await import("../runtime/emulator-pass.js");
+        const passed = recordPassForRun({
+          projectDir, mediaPath: absMedia, steps: parsedSteps, checks: result.checks,
+          resolveMedium: (named) => {
+            if (isAbsolute(named)) return named;
+            if (absMedia) {
+              const beside = resolvePath(dirname(absMedia), named);
+              if (existsSync(beside)) return beside;
+            }
+            return resolvePath(projectDir, named);
+          },
+        });
+        if (passed.recorded.length) {
+          lines.push(`green emulator run recorded for the C64 Ultimate gate: ${passed.recorded.map((r) => `${r.name} (sha256 ${r.sha256.slice(0, 8)}…)`).join(", ")}`);
+        } else if (passed.note) lines.push(passed.note);
       }
 
       if (result.coreOnly) {

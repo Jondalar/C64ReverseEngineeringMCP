@@ -37,7 +37,7 @@ if (!CAPTURE || !existsSync(CAPTURE)) {
   process.exit(0);
 }
 
-const { runtimeDaemon } = await import(join(ROOT, "dist/runtime/daemon-client.js"));
+const { emulatorDaemon: runtimeDaemon } = await import(join(ROOT, "dist/runtime/daemon-client.js")); // Spec 889: the default backend
 let traceReadCalls = 0;
 runtimeDaemon.traceRead = async () => { traceReadCalls += 1; throw new Error("trace/read must not be called"); };
 const { importRuntimeTrace } = await import(join(ROOT, "dist/knowledge-graph/producers/runtime.js"));
