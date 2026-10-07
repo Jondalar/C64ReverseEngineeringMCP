@@ -49,7 +49,8 @@ console.log("Spec 834 §2 — the six headless runtime tools find their project\
 
 const { resolveProjectDir } = await import(pathToFileURL(join(ROOT, "dist/project-root.js")).href);
 const { registerHeadlessTools } = await import(pathToFileURL(join(ROOT, "dist/server-tools/headless.js")).href);
-const { runtimeDaemon } = await import(pathToFileURL(join(ROOT, "dist/runtime/daemon-client.js")).href);
+// Spec 889: tools reach the active backend; with nothing chosen that is the emulator client, which is what is stubbed here.
+const { emulatorDaemon: runtimeDaemon } = await import(pathToFileURL(join(ROOT, "dist/runtime/daemon-client.js")).href);
 const { DEFAULT_TOOLS } = await import(pathToFileURL(join(ROOT, "dist/server-tools/tier-tools.js")).href);
 
 // ------------------------------------------------------------ the temp project

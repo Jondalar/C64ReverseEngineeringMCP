@@ -29,7 +29,7 @@ import { join, resolve } from "node:path";
 process.env.C64RE_RUNTIME_ENDPOINT = "ws://127.0.0.1:1";
 process.env.C64RE_RUNTIME_AUTOSTART = "0";
 const ROOT = resolve(import.meta.dirname, "..");
-const { runtimeDaemon } = await import(join(ROOT, "dist/runtime/daemon-client.js"));
+const { emulatorDaemon: runtimeDaemon } = await import(join(ROOT, "dist/runtime/daemon-client.js")); // Spec 889: the default backend
 let traceReadCalls = 0;
 runtimeDaemon.traceRead = async () => { traceReadCalls += 1; throw new Error("trace/read must not be called by the 821 importer"); };
 

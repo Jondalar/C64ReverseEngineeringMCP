@@ -243,6 +243,8 @@ try {
     check(sim.rpcLog.length === n0 && sim.requests.length === r0, "…and not one byte went to the device for any of them");
     const e1 = await rejects(b.apiCall("shared", "until", [0xc000]));
     check(/api\/call until/.test(e1 ?? "") && /runtime_monitor/.test(e1 ?? ""), "api/call verbs the app cannot express are refused by name", e1);
+    const e4 = await rejects(b.call("session/read_memory", { addr: 0, length: 40000 }));
+    check(/32768 bytes is the cap/.test(e4 ?? ""), "a device error (-32602) is passed through verbatim", e4);
     const regs = await b.apiCall("shared", "monitorRegisters", []);
     check(regs.pc === 0x0810 && regs.a === 1, "api/call monitorRegisters → session/state cpu");
     const bytes = await b.apiCall("shared", "monitorMemory", [0x0800, 0x0803]);
@@ -555,6 +557,12 @@ try {
     for (const r of roots) walk(join(SRC, r));
     check(bad.length === 0, "no module of the sandbox / reel / scenario-run graph imports the backend, the daemon client or the C64U code", bad.join("; "));
     check(seen.size > 15, "…and the walk really covered the graph", `${seen.size} modules`);
+    // …and the tools' door is the only way in: nothing in src/ reaches the emulator client except
+    // the backend registry (which owns it) and the eager warm-start in cli.ts (ensureDaemon).
+    const direct = [];
+    const scan = (dir) => { for (const f of readdirSync(dir, { withFileTypes: true })) { const p = join(dir, f.name); if (f.isDirectory()) scan(p); else if (f.name.endsWith(".ts")) { const src = readFileSync(p, "utf8"); if (/emulatorDaemon|runtimeDaemon\b[^;]*daemon-client/.test(src) || /import\([^)]*daemon-client[^)]*\)[\s\S]{0,40}runtimeDaemon/.test(src)) direct.push(p.replace(SRC + "/", "")); } } };
+    scan(SRC);
+    check(direct.every((p) => p === "runtime/daemon-client.ts" || p === "runtime/backend.ts"), "no tool imports the emulator client directly — every runtimeDaemon comes from backend.ts", direct.join(", "));
     const sandboxSrc = readFileSync(join(SRC, "reel/sandbox-session.ts"), "utf8");
     check(/resolveDaemonSpawn/.test(sandboxSrc) && /127\.0\.0\.1/.test(sandboxSrc), "a sandbox spawns its own daemon on 127.0.0.1");
     const sim = await fake({});

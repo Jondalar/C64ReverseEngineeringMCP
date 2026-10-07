@@ -71,6 +71,45 @@ longer expressible. `scripts/probe-session-isolation.mjs` went with them; it dro
 in-process sessions and diffed their rendering. The rule stays because it still governs
 TRX64, where the property is real and the hazard is the same one.*
 
+### One contract, several backends — chosen, never fallen back to (Spec 889)
+
+**Amended 2026-10-07.** Rule 1 in `CLAUDE.md` said *one runtime, and it is a separate
+process*. That stays true of the **emulator** — a separate process, no second
+implementation inside C64RE — and it stops being the whole story: the owner asked for a
+second runtime, the **C64 Ultimate** running the TRX64 core and the `trxmon` app (Spec
+889). The rule now reads:
+
+> **One contract towards C64RE's tools, several backends behind it, each chosen
+> explicitly, and never a silent fallback from one to the other.**
+
+What that means in code, and what must not drift:
+
+- **The contract is `RuntimeBackend`** (`src/runtime/runtime-methods.ts`): `call(method,
+  params)` in the daemon's method names and answer shapes, notifications, an identity.
+  Tools import `runtimeDaemon` from `src/runtime/backend.ts` and call method names;
+  they never learn which backend answered. The emulator client is one implementation,
+  `C64UBackend` the other.
+- **The emulator is the default, always.** A C64 Ultimate found on the network is
+  *offered*, never chosen: it becomes active only by `runtime_backend action=select` or
+  `C64RE_RUNTIME_BACKEND=c64u:<host>`.
+- **No silent fallback, in either direction.** A selected C64U that stops answering is an
+  error naming the device ("trxmon not running on <host> …"); an unparseable
+  `C64RE_RUNTIME_BACKEND` is an error on every call. Nothing quietly becomes the emulator
+  — that is how somebody ends up debugging the wrong machine, the failure this whole file
+  exists to prevent.
+- **Sandboxes, reels and scenario runs are always private emulator daemons**, whichever
+  backend is active (`src/reel/`, `src/scenario/`, `src/cost/capture.ts` import nothing
+  from `backend.ts`, the daemon client or `c64u/`; `scripts/smoke-889-backend.mjs`
+  walks the import graph). Real hardware is one machine; a machine of your own is TRX64.
+- **Hardware only after the emulator said yes** (§4b): with the C64U active, bytes reach
+  the device only if their SHA-256 has a recorded green emulator run in the project
+  (`knowledge/emulator-passes.json`). There is no override.
+- **What a backend cannot do is refused by name**, with the reason and the way out
+  (`src/runtime/c64u/routing.ts`) — never guessed, never sent anyway.
+
+`CLAUDE.md`'s rule-1 line carries the older wording; it is the owner's file and needs the
+same amendment.
+
 ### Traces belong in a store, never in a one-off script
 
 **Trace broadly, abundantly, into the trace store.** Capture every relevant event family
@@ -176,7 +215,9 @@ These apply to project work, not to ordinary edits in this repo.
 a flag to pick another. With the subject gone there is nothing left to be single-path
 about on this side: C64RE has no execution path at all, it has a client. The rule that
 replaces it is simpler and is already in `CLAUDE.md`: **one runtime, and it is a
-separate process.**
+separate process.** *(Amended 2026-10-07 by Spec 889: one contract, several backends,
+each chosen explicitly — see "One contract, several backends" above. The emulator is
+still a separate process with no second implementation in C64RE.)*
 
 **What went with it:** `scripts/probe-single-path.mjs`, the gate that enforced all
 25 assertions below. Its last run before deletion was GREEN — 25 pass, 0 fail — so

@@ -51,7 +51,9 @@ export class UltimateRest {
     else if (req.body) { headers["Content-Type"] = "application/octet-stream"; body = req.body as unknown as BodyInit; }
     let res: Response;
     try {
-      res = await this.fetchImpl(url, { method: req.method, headers, body, signal: AbortSignal.timeout(this.timeoutMs) });
+      // An upload (a CRT, a disk image) is written to the device's storage before it answers.
+      const limit = req.body ? Math.max(this.timeoutMs, 120_000) : this.timeoutMs;
+      res = await this.fetchImpl(url, { method: req.method, headers, body, signal: AbortSignal.timeout(limit) });
     } catch (e) {
       const why = e instanceof Error ? (e.cause instanceof Error ? e.cause.message : e.message) : String(e);
       throw new UltimateRestError(`C64 Ultimate ${this.host} unreachable over REST (${req.method} ${req.path}): ${why}`);

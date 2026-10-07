@@ -1,7 +1,9 @@
 # Spec 889 — A second backend: the C64 Ultimate
 
-**Status:** PROPOSED (2026-10-02; revised 2026-10-06 after the TRX64-FW review) — spec
-only; the owner builds later. First integration at RC level = what exists on the board today.
+**Status:** FOUNDATION BUILT (2026-10-07, §8: the backend contract, the C64U backend, discovery
+and probe, trxmon start, selection, the gate, DOCTRINE). OPEN: §4c picture and sound, the UI
+selector and the server relay (§2, §4). Proposed 2026-10-02, revised 2026-10-06 after the
+TRX64-FW review. First integration at RC level = what exists on the board today.
 **Repos:** C64RE. Inputs: the C64U build of the TRX64 Ultimate firmware (superproject
 `integ-m1`) and `trxmon.u2a` (app branch `integ-m1-app`, reviewed at `5b605bb0`). The first
 slice is what exists there today (§5). TRX64 itself is unchanged.
@@ -288,3 +290,115 @@ From the TRX64-FW review (2026-10-06):
 - **Concurrency.** Today up to 4 clients share one machine, coming: exactly one (§3).
   C64RE holds that one connection and treats a state change it did not cause as the
   person's action at the machine.
+
+## §8 As built (foundation)
+
+Branch `spec-889-core`. Everything in §2, §3, §3a, §4 (MCP / headless half), §4b, §5 and §7
+is built and tested; §4c, the UI selector and the workbench relay are not (see "Not built").
+
+**Where it lives**
+
+- `src/runtime/runtime-methods.ts` — the contract: `RuntimeMethods` (`call`, `onNotification`,
+  `describe`, `setProjectDir`, `kind`) with the typed wrappers every tool uses
+  (`state`, `createSession`, `mediaIngress`, …), all written over `call`.
+  `RuntimeDaemonClient` (`daemon-client.ts`) is the emulator implementation, behaviour unchanged
+  (it only gained `describe` and a notification fan-out); its singleton is `emulatorDaemon`.
+- `src/runtime/backend.ts` — the registry and the tools' door. `runtimeDaemon` is a facade over
+  the active backend; every `src/server-tools/*` import of it points here. `selectBackend`,
+  `probeHost`, `listDevices`, `startMonitorOn`, `runtimeHealth`, `C64RE_RUNTIME_BACKEND`.
+- `src/runtime/c64u/` — `c64u-backend.ts` (REST + the one app connection, routing, §7),
+  `routing.ts` (the table), `rest.ts`, `rpc-link.ts`, `rest-map.ts` (typing, joystick, media
+  sniffing), `discovery.ts` (UDP ident, three outcomes), `frame-source.ts` (the §4c hook).
+- `src/runtime/emulator-pass.ts` — the gate's store and check; `knowledge/emulator-passes.json`.
+- `src/server-tools/runtime-backend.ts` — the `runtime_backend` tool (list, probe, select,
+  start_monitor), in DEFAULT_TOOLS. `runtime_session_status` names backend and device.
+- Gate recording: `c64re scenario run` (`src/scenario/cli.ts`) and `runtime_sandbox_run`
+  (`src/server-tools/runtime-sandbox.ts`) call `recordPassForRun` after a PASS.
+- Tests: `npm run smoke:889` (fake Ultimate, 198 checks, in `gates.yml`),
+  `npm run e2e:889-pass` (real emulator runs record passes; local, skips without a runtime),
+  `npm run e2e:889-ue2emu` (a whole Ultimate in software; local, skips without it).
+  `scripts/lib/fake-ultimate.mjs` is the fake (REST routes, UDP ident, one-client WS JSON-RPC
+  answering like `rpc.c`, all on 127.0.0.1).
+
+**Decisions and deviations from the text above**
+
+1. The emulator is `kind: "emulator"` in code and in everything the agent reads. Spec 800's
+   gate (`check-runtime-invisible`) forbids the brand in agent-facing strings; the spec's
+   `trx64` stays an accepted spelling of the env value (`C64RE_RUNTIME_BACKEND=trx64|emulator|
+   c64u:<host>[:<rest port>]`). The `:<rest port>` suffix is mine, for a device behind a forward.
+2. `ping.capabilities` is accepted in both shapes the app documents: an array of names, and
+   `{methods:[…], notifications:[…]}` (T21 §8.1). The check runs at select; a gap is named, and a
+   call to a gap method is refused by name without being sent. Without capabilities an unserved
+   method surfaces the device's own -32601 sentence with a note.
+3. After select, `debug/continue` is sent when the machine is paused and (we just started trxmon,
+   or there is no stop, or the stop reason is `pause`). A stop at a breakpoint, a step or a jam is
+   left alone ("a person at the machine wins", §7) and the select says so. `paused: true` never
+   continues.
+4. `api/call` is expressed for four verbs only (monitorRegisters, monitorMemory, stepInto,
+   status); the rest is refused by name with `runtime_monitor` as the way out. The app has no
+   `until`, `stepOver`, breakpoint-by-id etc. in the daemon's `api/call` shape.
+5. Refused by name besides §5's list: `daemon/keep_alive`, `project/set`, `runtime/call`,
+   `runtime/mark` (a trace mark), `runtime/swap_disk_and_continue`, `media/persist`, `media/swap`,
+   `session/cart_status`, single key/pot events, cartridge eject (no REST route), `session/power
+   op=on`. Each carries its way out (`routing.ts`).
+6. REST mapping: typing is letters unshifted (what BASIC wants), shifted symbols with
+   `left_shift`, ≤ 64 taps per request; `hold_cycles`/`gap_cycles` are not used. Mounts and CRT/PRG
+   go up as raw `POST` bodies (a path on the host means nothing on the device), so a disk's writes
+   land in the device's temporary copy, never in the host image — said in the answer. `run_prg`
+   with an entry address is `load_prg` + `monitor/exec "g <entry>"`.
+7. The gate covers `media/open`, `media/mount`, `media/ingress` (disk, crt, prg; path or
+   `bytes_b64`), `session/load_prg`, `runtime/run_prg`. Project resolution: the project that
+   contains the file, else `setProjectDir`, else `C64RE_PROJECT_DIR`; none = refused, never allowed.
+   A pass is recorded per medium: the one a run started from and each one an `I insert` step
+   names. The record carries `runtimeVersion` (the pinned daemon version), not "TRX64 version".
+   A record file that does not parse passes nothing and is not overwritten.
+8. `trxmon.u2a` defaults to `/Flash/apps/trxmon.u2a` (T21 §8.1 names it); the path is a
+   parameter (`trxmon_path`). `start_monitor` uses `PUT /v1/apps:run_file` by default, the
+   app route (`via: "app"`) on request; 423 is "already running", 403 on the app route explains
+   the old manifest.
+9. One connection: the select-time `ping`, the capability check, every call and the probe of the
+   selected device ride the held `RpcLink`; selecting the same device again reuses it; a probe of
+   another device opens a short connection and gives the slot back. A refusal (-32001 / close
+   1013 / HTTP 503) is reported as the device said it.
+10. `runtime_backend list` broadcasts to `255.255.255.255:64` by default (that is the discovery
+    the spec asks for); `broadcast`, `ident_port`, `hosts` and `scan:false` change that, and every
+    test names `127.0.0.1`.
+
+**Seen against the UE2 emulator** (`e2e-889-ue2emu.mjs`, 38 checks, firmware `f2a26eae`)
+
+Worked: the UDP ident and `/v1/info` through `--net user` forwards (`trx64 {core TRX2, board
+C64U}`, no rpc), probe → `core-no-monitor`, start from `/Usb0/trxmon.u2a` (a `--usb-dir`
+volume), 423 on a second start, ping `trx64-runtime/2` / `backend c64u`, PAUSED on start →
+continue, state / read_memory / `monitor/exec` / break_add·del / pause / step / continue /
+`checkpoint/list` / `runtime/reverse_step`, typing reaching BASIC (`PRINT 6*7` → 42 read from
+screen RAM), the gate then `run_prg` writing `$C000`, `trxmon/quit` → "trxmon not running",
+restart → reconnect. Notes: that firmware's ping has no `capabilities` and `version` is
+`trxmon 0.1`; the ident's `rpc` is the GUEST port (4312), so behind a forward the host port is
+passed as `rpc_port`; `monitor/exec` answers `{output, spans}`; `session/state` carries `model`,
+`backend`, `controlOwner`, `streamPump:false`. Not exercised there: `run_crt`, disk mounts,
+the video stream.
+
+**Not built (named, not hidden)**
+
+- §4c picture and sound: `session/screenshot` answers from an injectable `FrameSource`; the
+  default says the relay is not attached. No `streams` start/stop, no UDP receiver, no palette.
+- The UI: the top-bar selector, the rescan, the "switching asks first" dialog, the REST-password
+  prompt, and the workbench server relay of JSON-RPC and notifications for a selected C64U (§2
+  last bullet, §4 UI). The MCP / headless half of §4 is complete.
+- `media/ingress` etc. do not broadcast `media/changed` (no UI to tell).
+- `CLAUDE.md` rule 1 still carries the old wording; DOCTRINE.md is amended, CLAUDE.md is the
+  owner's file.
+- `e2e:889-pass` is not in `gates.yml` (needs the runtime), nor is the UE2 run.
+
+**Open questions**
+
+1. `capabilities` shape: array (as §2 says) or `{methods, notifications}` (as T21 §8.1 says)?
+   Both are accepted today; one should be dropped when the app ships.
+2. Should a select ever continue a machine that is paused for any reason? Today only a plain
+   `pause` stop or a fresh trxmon start is continued (decision 3).
+3. A cartridge started over REST cannot be ejected and has no status route. Is `machine:reboot`
+   + a following select the intended way back to BASIC, or should the backend keep the knowledge
+   "a cart was started by C64RE" itself?
+4. `runtime_backend list` broadcasts by default. Acceptable for a headless agent on a shared
+   network, or should discovery be opt-in (`broadcast` required)?
+
