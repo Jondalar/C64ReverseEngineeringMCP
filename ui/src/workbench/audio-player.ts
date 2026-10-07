@@ -10,7 +10,10 @@
 
 import workletUrl from "./resid-worklet.js?url";
 
-const STREAM_RATE = 44100;
+// The emulator streams 44.1 kHz. A backend that streams another rate (the C64 Ultimate relay:
+// 48,003.07 Hz, Spec 889 §4c) says so in its `audio/start` reply and the page passes it here;
+// the default keeps the emulator path exactly as it was.
+export const DEFAULT_STREAM_RATE = 44100;
 // Spec 706.3 — live latency budget. Prebuffer is the startup headroom that
 // rides brief realtime dips (fastloaders); the governor target is the
 // steady-state ring fill the worklet trims back toward; margin is the slack
@@ -33,23 +36,43 @@ export class WebAudioPlayer {
   private gestureArmed = false;
   private onGesture = (): void => { void this.resume(); };
 
+  constructor(private streamRate: number = DEFAULT_STREAM_RATE) {}
+
+  /** The rate of the PCM this player is fed, in Hz. */
+  get rate(): number { return this.streamRate; }
+
+  /**
+   * The backend streams a different rate than the player was built for. The context and the
+   * worklet resample from the stream rate, so a change rebuilds both; PCM pushed meanwhile is
+   * stale anyway. A no-op for the same rate.
+   */
+  async setStreamRate(hz: number): Promise<void> {
+    if (!(hz > 0) || hz === this.streamRate) return;
+    const wasArmed = this.gestureArmed;
+    await this.close();
+    this.streamRate = hz;
+    if (wasArmed) this.arm();
+  }
+
   private async setup(): Promise<void> {
     if (this.ctx) return;
     const Ctor: typeof AudioContext =
       (window as any).AudioContext ?? (window as any).webkitAudioContext;
-    const ctx = new Ctor({ sampleRate: STREAM_RATE });
+    // sampleRate must be a whole number the browser accepts; resampleRatio below carries the fraction.
+    const ctx = new Ctor({ sampleRate: Math.round(this.streamRate) });
     this.ctx = ctx;
     await ctx.audioWorklet.addModule(workletUrl);
+    if (this.ctx !== ctx) return; // closed (rate change) while the module loaded: a newer setup owns the player
     const node = new AudioWorkletNode(ctx, "resid-playback", {
       numberOfInputs: 0,
       numberOfOutputs: 1,
       outputChannelCount: [2],
       processorOptions: {
-        ringFrames: STREAM_RATE, // ~1s hard cap (governor keeps fill far below)
-        resampleRatio: STREAM_RATE / ctx.sampleRate,
-        startFrames: Math.round(STREAM_RATE * PREBUFFER_SEC),
-        governorTarget: Math.round(STREAM_RATE * LIVE_TARGET_SEC),
-        governorMargin: Math.round(STREAM_RATE * LIVE_MARGIN_SEC),
+        ringFrames: Math.round(this.streamRate), // ~1s hard cap (governor keeps fill far below)
+        resampleRatio: this.streamRate / ctx.sampleRate,
+        startFrames: Math.round(this.streamRate * PREBUFFER_SEC),
+        governorTarget: Math.round(this.streamRate * LIVE_TARGET_SEC),
+        governorMargin: Math.round(this.streamRate * LIVE_MARGIN_SEC),
       },
     });
     node.connect(ctx.destination);
@@ -58,7 +81,10 @@ export class WebAudioPlayer {
 
   /** Create + start the AudioContext/worklet. Must be from a user gesture. */
   async resume(): Promise<void> {
-    if (!this.setupP) this.setupP = this.setup().catch((e) => { this.setupP = null; throw e; });
+    if (!this.setupP) {
+      const p: Promise<void> = this.setup().catch((e) => { if (this.setupP === p) this.setupP = null; throw e; });
+      this.setupP = p;
+    }
     await this.setupP;
     if (this.ctx && this.ctx.state === "suspended") await this.ctx.resume();
   }

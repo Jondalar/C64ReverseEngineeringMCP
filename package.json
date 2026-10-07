@@ -193,6 +193,7 @@
     "smoke:product-ui": "npm run build:mcp && npm run ui:build && node scripts/smoke-product-ui.mjs",
     "smoke:893": "npm run build:mcp && node scripts/smoke-893-project-dir-and-git.mjs",
     "smoke:895": "npm run build:mcp && node scripts/smoke-895-mcp-config.mjs",
+    "smoke:889-streams": "npm run build:mcp && node scripts/smoke-889-streams.mjs",
     "smoke:896-static": "npm run build && node scripts/smoke-896-static.mjs",
     "smoke:ui-launcher": "npm run build:mcp && node scripts/smoke-ui-launcher.mjs",
     "smoke:model-router": "node scripts/smoke-model-router.mjs",

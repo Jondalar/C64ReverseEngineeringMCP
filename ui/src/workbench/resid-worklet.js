@@ -7,7 +7,8 @@
 // On underrun the worklet outputs smooth silence and re-buffers, instead of
 // clicking.
 //
-// Input PCM: signed 16-bit interleaved stereo at the stream rate (44.1 kHz),
+// Input PCM: signed 16-bit interleaved stereo at the stream rate (44.1 kHz from the emulator;
+// another backend names its own, passed in as resampleRatio),
 // posted as an Int16Array (transferred). If the context runs at a different
 // rate, a nearest-neighbour resample ratio decimates/repeats on read.
 
