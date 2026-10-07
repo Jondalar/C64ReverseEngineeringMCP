@@ -167,7 +167,17 @@ async function runOne(file: string, scenario: Scenario, projectDir: string): Pro
       resolveMedium,
     });
     const verdict: Verdict = run.checks.some((c) => !c.pass) ? "FAIL" : run.checks.length ? "PASS" : "UNCHECKED";
-    return end(verdict, { checks: run.checks, model: run.machine.model });
+    // Spec 889 §4b — a PASS is the emulator's recorded yes for the bytes it ran: the C64
+    // Ultimate backend takes only media that have one. Soft: never changes the verdict.
+    let note: string | undefined;
+    if (verdict === "PASS") {
+      const { recordPassForRun } = await import("../runtime/emulator-pass.js");
+      const rec = recordPassForRun({
+        projectDir, mediaPath, steps: scenario.steps, resolveMedium, scenario: scenario.name, checks: run.checks,
+      });
+      note = rec.note;
+    }
+    return end(verdict, { checks: run.checks, model: run.machine.model, ...(note ? { reason: note } : {}) });
   } catch (e) {
     return end("ERROR", { reason: e instanceof Error ? e.message : String(e), model });
   }

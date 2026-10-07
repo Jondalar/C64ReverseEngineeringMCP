@@ -23,7 +23,9 @@ console.log("Spec 839 — the media door, and the tools that lied\n");
 
 const runtimeSrc = readFileSync(join(ROOT, "src/server-tools/runtime.ts"), "utf8");
 const headlessSrc = readFileSync(join(ROOT, "src/server-tools/headless.ts"), "utf8");
-const clientSrc = readFileSync(join(ROOT, "src/runtime/daemon-client.ts"), "utf8");
+// Spec 889 — the typed wrappers moved from daemon-client.ts to the shared base the emulator and
+// the C64 Ultimate backend both extend; the assertions below are about the wrappers, wherever they live.
+const clientSrc = readFileSync(join(ROOT, "src/runtime/runtime-methods.ts"), "utf8");
 const inv = JSON.parse(readFileSync(join(ROOT, "docs/tool-surface-inventory.json"), "utf8"));
 const tools = Array.isArray(inv) ? inv : (inv.tools ?? []);
 const desc = (name) => tools.find((t) => t.name === name)?.desc ?? "";

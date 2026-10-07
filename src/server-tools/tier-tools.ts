@@ -99,6 +99,8 @@ export const DEFAULT_TOOLS: ReadonlySet<string> = new Set<string>([
   // has none; a tool outside DEFAULT_TOOLS does not exist for the client.
   "runtime_install",
   "runtime_keep_alive",
+  // Spec 889 — which runtime the runtime_* tools drive (emulator by default, a C64 Ultimate by choice).
+  "runtime_backend",
 
   // retired-name-ok: an alias missing from DEFAULT_TOOLS is not callable at all
   "analyze_prg", "disasm_prg", "disasm_raw",

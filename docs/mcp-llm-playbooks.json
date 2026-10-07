@@ -65,6 +65,19 @@
         },
         {
           "actor": "llm",
+          "action": "To run on a C64 Ultimate instead of the emulator: list the devices (each carries its reason), start the monitor app on one that has our core without it, select it — the choice is explicit and never made for you. On the device, media reach the machine only with a recorded green emulator run of the same bytes (runtime_sandbox_run with a Then, or c64re scenario run); sandboxes and reels stay on the emulator.",
+          "tools": [
+            "runtime_backend",
+            "runtime_sandbox_run",
+            "runtime_session_status"
+          ],
+          "persist": [
+            "knowledge/emulator-passes.json (written by the green run)"
+          ],
+          "askHumanWhen": "a REST password is needed, or the human has not said the device may be driven"
+        },
+        {
+          "actor": "llm",
           "action": "The runtime C64RE starts ends itself after 10 min idle and the next call starts a fresh machine (the answer says so). Before going quiet on a machine you still need, keep it alive — for minutes, or forever; runtime_session_status shows when it would end.",
           "tools": [
             "runtime_keep_alive",

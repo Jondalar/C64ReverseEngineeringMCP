@@ -38,7 +38,7 @@ async function mediaIngress(
   session_id: string,
   req: { kind: "disk" | "prg" | "crt" | "eject"; path?: string; name?: string; mode?: "load" | "inject-run"; entry?: number; resetPolicy?: "reset" | "power-cycle"; role?: "drive8" | "cartridge" | "auto" },
 ): Promise<unknown> {
-  const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+  const { runtimeDaemon } = await import("../runtime/backend.js");
   return runtimeDaemon.mediaIngress(session_id, req);
 }
 
@@ -49,7 +49,7 @@ async function mediaIngress(
  * over the narrow `api/call` verb (monitor/step/breakpoint/until/status).
  */
 async function callApi<T = unknown>(session_id: string, method: string, ...args: unknown[]): Promise<T> {
-  const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+  const { runtimeDaemon } = await import("../runtime/backend.js");
   return runtimeDaemon.apiCall<T>(session_id, method, args);
 }
 
@@ -60,7 +60,7 @@ async function callApi<T = unknown>(session_id: string, method: string, ...args:
  * C64RE's, and `runtime_resolve_pc` answers from the graph.
  */
 async function callApiFull<T = unknown>(session_id: string, op: string, args: unknown[] = []): Promise<T> {
-  const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+  const { runtimeDaemon } = await import("../runtime/backend.js");
   return runtimeDaemon.call<T>("runtime/call", { session_id, op, args });
 }
 
@@ -167,7 +167,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
         return { content: [{ type: "text" as const, text }] };
       };
       // Spec 744.4c slice 2c — run the liveness window on the SHARED session.
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const r = await runtimeDaemon.memoryAccessMap<{ tally: Record<string, number>; regions: any[] }>(session_id, cycles, classes, min_bytes);
       return renderMap(r.tally, r.regions);
     }),
@@ -185,7 +185,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       const lines = await callApi<Array<{ text: string; addr: number; target?: number; operandAddr?: number } & Record<string, unknown>>>(session_id, "monitorDisasm", addr, count);
       // Spec 804 — the runtime's line carries its addresses as numbers; they are named
       // here from the graph, without touching the runtime's text.
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const { SymbolResolver } = await import("../symbols/resolver.js");
       const { liveByteSource } = await import("../symbols/live-bytes.js");
       const { nameRows } = await import("../symbols/structured.js");
@@ -300,7 +300,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       // path is resolved absolute against the caller's project; the daemon
       // (localhost) writes that same file — bytes never cross the wire.
       const abs = resolveCallerMediaPath(output_path);
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const r = await runtimeDaemon.vsfSave<{ savedPath: string; bytes: number }>(session_id, abs);
       return { content: [{ type: "text", text: `saved ${r.bytes} bytes to ${r.savedPath}` }] };
     }),
@@ -317,7 +317,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       // Spec 744.4c slice 2c — restore the shared session from a host VSF file. The
       // daemon (localhost) reads the caller-resolved abs path; bytes never cross.
       const abs = resolveCallerMediaPath(input_path);
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const r = await runtimeDaemon.vsfLoad<{ loadedPath: string; bytes: number; source?: string; loadedModules?: string[] }>(session_id, abs);
       const origin = r.source === "vice-x64sc" ? "foreign .vsf (legacy VICE Snapshot Format)" : "c64re snapshot";
       return { content: [{ type: "text", text: `loaded ${r.bytes} bytes from ${r.loadedPath} (${origin}${r.loadedModules ? `; modules: ${r.loadedModules.join(", ")}` : ""})` }] };
@@ -336,7 +336,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_resolve_pc", async ({ session_id, artifact_id, pc, space }) => {
       // Spec 804 — answered from the graph, not the runtime: TRX64 holds no symbols.
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const { SymbolResolver } = await import("../symbols/resolver.js");
       const { liveByteSource } = await import("../symbols/live-bytes.js");
       const { machineFromReply } = await import("../symbols/monitor-names.js");
@@ -474,7 +474,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
 
   // ---- Candidate model (Spec 796) — live scenario-bound overlay branches ----
   const candidateDaemon = async () => {
-    const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+    const { runtimeDaemon } = await import("../runtime/backend.js");
     return runtimeDaemon;
   };
 
@@ -502,7 +502,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_rip_range", async ({ session_id, addr, length, out_path, checkpoint_id, kind }) => {
       if (length <= 0 || length > 0x10000) throw new Error(`length must be 1..65536, got ${length}`);
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       // The monitor's own memory read, so the bytes come through the same bank view
       // the VIC used — not a flat RAM peek that would miss a cart or an I/O window.
       const lens = checkpoint_id ? `checkpoint ${checkpoint_id}` : "live";
@@ -870,7 +870,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_session_export_audio", async ({ session_id, out_path, duration_sec }) => {
       // Runs on the shared machine — the same session the UI drives.
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const r = await runtimeDaemon.call("audio/export", { session_id, out_path, duration_sec });
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     }),
@@ -957,7 +957,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       // mount time, so the daemon (localhost) writes the CALLER's .d64/.g64.
       // role=cartridge runs the same cartridge persist as the eject path
       // (BUG-023-cart) — flash → host .crt, cart stays attached.
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const result = await runtimeDaemon.mediaPersist(session_id, slot, role);
       return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }),
@@ -995,7 +995,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     },
     safeHandler("runtime_swap_disk_and_continue", async ({ session_id, path, confirm_input, settle_cycles, post_cycles, confirm_hold_cycles, unit }) => {
       const abs = resolveCallerMediaPath(path);
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const result = await runtimeDaemon.swapDiskAndContinue(session_id, abs, { confirm_input, settle_cycles, post_cycles, confirm_hold_cycles, unit });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }),
@@ -1080,7 +1080,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     safeHandler("runtime_scenario_list", async () => {
       // Spec 806 step 2 — the scenario registry lives in the runtime: it owns the
       // project `scenarios/` dir and merges its in-memory copies over the disk scan.
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const scenarios = await runtimeDaemon.call("runtime/scenario_list", {});
       return { content: [{ type: "text", text: JSON.stringify(scenarios, null, 2) }] };
     }),
@@ -1102,7 +1102,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       startSnapshot: z.string().optional().describe("VSF file path or omit for empty (scenario is a plan only)."),
     },
     safeHandler("runtime_scenario_save", async ({ id, diskPath, mode, cycleBudget, inputs, startSnapshot }) => {
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const scenario: any = { id, diskPath, mode, cycleBudget, inputs, startSnapshot: startSnapshot ?? "" };
       const r = await runtimeDaemon.call<{ id: string; filePath?: string }>("runtime/scenario_save", { scenario });
       // The runtime writes into ITS project's `scenarios/` dir (the MCP starts it
@@ -1119,7 +1119,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     { id: z.string() },
     safeHandler("runtime_scenario_load", async ({ id }) => {
       // The runtime raises `scenario '<id>' not found` itself — same message.
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const s = await runtimeDaemon.call("runtime/scenario_load", { id });
       return { content: [{ type: "text", text: JSON.stringify(s, null, 2) }] };
     }),
@@ -1130,7 +1130,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Delete a scenario JSON by id. Returns true if found and removed.",
     { id: z.string() },
     safeHandler("runtime_scenario_delete", async ({ id }) => {
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const { deleted } = await runtimeDaemon.call<{ deleted: boolean }>("runtime/scenario_delete", { id });
       return { content: [{ type: "text", text: deleted ? `deleted ${id}` : `${id} not found` }] };
     }),
@@ -1144,7 +1144,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       // Spec 744.4c slice 2c — runtime/snapshot_tree sets scenarioId+diskPath+mode
       // for beginRewindSession (the facade verb does NOT, and throws). Same shared
       // session as the UI.
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const tree = await runtimeDaemon.snapshotTree(session_id);
       return { content: [{ type: "text", text: JSON.stringify(tree, null, 2) }] };
     }),
@@ -1156,7 +1156,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     { session_id: z.string(), branch_id: z.string() },
     safeHandler("runtime_promote_branch", async ({ session_id, branch_id }) => {
       // Spec 744.4c slice 2c — runtime/promote_branch on the shared session.
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const r = await runtimeDaemon.promoteBranch(session_id, branch_id);
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     }),
@@ -1170,7 +1170,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       // Spec 806 step 2 — deterministic replay in the runtime: it looks the id up in
       // its own registry and returns the ReplayResult. The load + startSnapshot
       // decoding that used to happen here is the runtime's, on the far side of the id.
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const result = await runtimeDaemon.call("runtime/scenario_run", { id });
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     }),
@@ -1189,7 +1189,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       // Spec 806 step 2 — the batch runner is the runtime's (`batch/start`), which
       // owns the scenario registry the ids resolve against and pushes the same
       // batch/progress notifications. Poll it with runtime_batch_status.
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const entry = await runtimeDaemon.call("batch/start", {
         scenarioIds: scenario_ids,
         workerCount: worker_count,
@@ -1204,7 +1204,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     { batch_id: z.string() },
     safeHandler("runtime_batch_status", async ({ batch_id }) => {
       // The runtime raises `batch '<id>' not found` itself — same message.
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const entry = await runtimeDaemon.call("batch/status", { batchId: batch_id });
       return { content: [{ type: "text", text: JSON.stringify(entry, null, 2) }] };
     }),
@@ -1215,7 +1215,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     "Collect ReplayResult per scenario once batch is done. Errors per-scenario included.",
     { batch_id: z.string() },
     safeHandler("runtime_batch_results", async ({ batch_id }) => {
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const r = await runtimeDaemon.call<{ batch: { status?: string; completed?: number; total?: number } }>(
         "batch/results", { batchId: batch_id },
       );
@@ -1248,7 +1248,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
     safeHandler("runtime_vic_inspect_at", async ({ session_id, x, y, checkpoint_id }) => {
       // Spec 744.4c slice 2c — resolve a frozen pixel on the SHARED session's
       // checkpoint ring (the same frames the human inspects).
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const r = await runtimeDaemon.vicInspectAt(session_id, x, y, checkpoint_id);
       return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
     }),
@@ -1275,7 +1275,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
    *  the capture policy stays in the daemon and does not fork. */
   const checkpointFor = async (session_id: string, x: number, y: number, given?: string): Promise<string> => {
     if (given) return given;
-    const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+    const { runtimeDaemon } = await import("../runtime/backend.js");
     const r = await runtimeDaemon.vicInspectAt<{ checkpointId?: string }>(session_id, x, y);
     if (!r?.checkpointId) throw new Error("could not capture a checkpoint to inspect (is the session running?)");
     return r.checkpointId;
@@ -1293,7 +1293,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       checkpoint_id: z.string().optional().describe("Inspect this retained checkpoint. Omitted: capture and pin a fresh one from the live machine (which pauses it), the same way runtime_vic_inspect_at does."),
     },
     safeHandler("runtime_vic_inspect_region", async ({ session_id, x, y, width, height, checkpoint_id }) => {
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const cp = await checkpointFor(session_id, x, y, checkpoint_id);
       const r = await runtimeDaemon.vicInspectRegion(session_id, cp, { x, y, width, height });
       return { content: [{ type: "text", text: JSON.stringify({ checkpointId: cp, ...(r as object) }, null, 2) }] };
@@ -1310,7 +1310,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       checkpoint_id: z.string().optional().describe("Inspect this retained checkpoint. Omitted: capture and pin a fresh one from the live machine (which pauses it)."),
     },
     safeHandler("runtime_vic_origin", async ({ session_id, x, y, checkpoint_id }) => {
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const cp = await checkpointFor(session_id, x, y, checkpoint_id);
       const r = await runtimeDaemon.vicOrigin(session_id, cp, x, y);
       return { content: [{ type: "text", text: JSON.stringify({ checkpointId: cp, ...(r as object) }, null, 2) }] };
@@ -1333,7 +1333,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       include_cells: z.boolean().optional().describe("Also return the cell grid — one bit field per raster line and cycle, indexed by raster line (312×63 on PAL, 263×65 on NTSC). Large; off by default"),
     },
     safeHandler("runtime_vic_frame_map", async ({ session_id, checkpoint_id, include_cells }) => {
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const cp = await checkpointFor(session_id, 0, 0, checkpoint_id);
       const r = await runtimeDaemon.vicFrameMap(session_id, cp, include_cells ?? false);
       return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };
@@ -1356,7 +1356,7 @@ export function registerRuntimeTools(server: McpServer, _context: ServerToolCont
       checkpoint_id: z.string().optional().describe("The frozen checkpoint to answer for — the one the Inspect overlay opened. Omitted: one is captured from the current picture"),
     },
     safeHandler("runtime_vic_line_trace", async ({ session_id, line, to, checkpoint_id }) => {
-      const { runtimeDaemon } = await import("../runtime/daemon-client.js");
+      const { runtimeDaemon } = await import("../runtime/backend.js");
       const cp = await checkpointFor(session_id, 0, 0, checkpoint_id);
       const r = await runtimeDaemon.vicLineTrace(session_id, cp, line, to ?? line);
       return { content: [{ type: "text" as const, text: JSON.stringify(r) }] };

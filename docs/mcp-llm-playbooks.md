@@ -39,27 +39,31 @@ inventory.
    - tools: `runtime_install`
    - persist: runtime binary in the cache
    - ask human when: the ROMs are missing — they are not distributed
-4. _(llm)_ The runtime C64RE starts ends itself after 10 min idle and the next call starts a fresh machine (the answer says so). Before going quiet on a machine you still need, keep it alive — for minutes, or forever; runtime_session_status shows when it would end.
+4. _(llm)_ To run on a C64 Ultimate instead of the emulator: list the devices (each carries its reason), start the monitor app on one that has our core without it, select it — the choice is explicit and never made for you. On the device, media reach the machine only with a recorded green emulator run of the same bytes (runtime_sandbox_run with a Then, or c64re scenario run); sandboxes and reels stay on the emulator.
+   - tools: `runtime_backend`, `runtime_sandbox_run`, `runtime_session_status`
+   - persist: knowledge/emulator-passes.json (written by the green run)
+   - ask human when: a REST password is needed, or the human has not said the device may be driven
+5. _(llm)_ The runtime C64RE starts ends itself after 10 min idle and the next call starts a fresh machine (the answer says so). Before going quiet on a machine you still need, keep it alive — for minutes, or forever; runtime_session_status shows when it would end.
    - tools: `runtime_keep_alive`, `runtime_session_status`
    - persist: the runtime's lifetime
    - ask human when: the human wants to watch the machine for longer than the work needs
-5. _(llm)_ Ask the user's objective (crack / EasyFlash port / analysis / bugfix / routine) and set role + workflow.
+6. _(llm)_ Ask the user's objective (crack / EasyFlash port / analysis / bugfix / routine) and set role + workflow.
    - tools: `agent_set_role`, `start_re_workflow`
    - persist: role, workflow profile
    - ask human when: the objective is not stated
-6. _(human)_ Drop .d64/.g64/.crt/.prg + context into the project folder (or give absolute paths).
-7. _(llm)_ For a resumed project, search existing knowledge before re-deriving anything: find where a topic/address/track is already described and pull together the records around a payload. The index notices on its own when the graph, a document or a listing changed and says so in the answer; project_reindex_search forces a rebuild.
+7. _(human)_ Drop .d64/.g64/.crt/.prg + context into the project folder (or give absolute paths).
+8. _(llm)_ For a resumed project, search existing knowledge before re-deriving anything: find where a topic/address/track is already described and pull together the records around a payload. The index notices on its own when the graph, a document or a listing changed and says so in the answer; project_reindex_search forces a rebuild.
    - tools: `project_reindex_search`, `project_search`, `project_find_related`
    - persist: located records, related groups
    - ask human when: the search returns nothing for a topic you expected to exist
-8. _(llm)_ Answer a structural question from the graph before opening a listing: resolve a name or address to nodes, read the node card, walk callers / writers / hardware use, find a path, or take the project overview to see entry points, banking sites and the unresolved indirect accesses.
+9. _(llm)_ Answer a structural question from the graph before opening a listing: resolve a name or address to nodes, read the node card, walk callers / writers / hardware use, find a path, or take the project overview to see entry points, banking sites and the unresolved indirect accesses.
    - tools: `graph_find`, `graph_node`, `graph_edges`, `graph_path`, `graph_overview`
    - persist: node ids, the structural picture
    - ask human when: the graph is empty for an artifact you expected to be analyzed (run project_inventory_sync / c64re graph seed)
-9. _(llm)_ Ask the orchestrator for the single next product step; run the inventory/media-sync step or follow its named tool.
+10. _(llm)_ Ask the orchestrator for the single next product step; run the inventory/media-sync step or follow its named tool.
    - tools: `agent_next_step`, `agent_run_step`
    - persist: next-step suggestion, branch alternatives
-10. _(llm)_ Confirm next action and record the step.
+11. _(llm)_ Confirm next action and record the step.
    - tools: `c64re_whats_next`, `agent_propose_next`, `agent_record_step`
    - persist: next-action proposal
 
