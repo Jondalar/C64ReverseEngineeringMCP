@@ -1,4 +1,4 @@
-// Spec 889 §3 / §7 — the ONE app WebSocket to trxmon, held for as long as the C64U is selected.
+// Spec 889 §3 / §7 — the ONE app WebSocket to trxmon, held for as long as the C64U bridge runs.
 //
 // trxmon serves exactly one RPC client (a second is refused with -32001 "port N is held by
 // <peer>" and close 1013; a plain HTTP client gets 503). So this link is opened once, kept, and

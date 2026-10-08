@@ -87,8 +87,11 @@ What that means in code, and what must not drift:
 - **The contract is `RuntimeBackend`** (`src/runtime/runtime-methods.ts`): `call(method,
   params)` in the daemon's method names and answer shapes, notifications, an identity.
   Tools import `runtimeDaemon` from `src/runtime/backend.ts` and call method names;
-  they never learn which backend answered. The emulator client is one implementation,
-  `C64UBackend` the other.
+  they never learn which backend answered. The emulator's daemon is one runtime
+  endpoint; the other is the **C64U bridge** (`c64re c64u-bridge`, Spec 889 §11), a daemon
+  of its own that speaks the same wire protocol and holds the one device connection — so
+  "the C64U is selected" means the runtime endpoint is the bridge's, one machine for every
+  client, and nothing in a C64RE process talks to the device's app.
 - **The emulator is the default, always.** A C64 Ultimate found on the network is
   *offered*, never chosen: it becomes active only by `runtime_backend action=select` or
   `C64RE_RUNTIME_BACKEND=c64u:<host>`.
@@ -99,8 +102,8 @@ What that means in code, and what must not drift:
   exists to prevent.
 - **Sandboxes, reels and scenario runs are always private emulator daemons**, whichever
   backend is active (`src/reel/`, `src/scenario/`, `src/cost/capture.ts` import nothing
-  from `backend.ts`, the daemon client or `c64u/`; `scripts/smoke-889-backend.mjs`
-  walks the import graph). Real hardware is one machine; a machine of your own is TRX64.
+  from `backend.ts`, the daemon client, `c64u/` or `c64u-bridge/`;
+  `scripts/smoke-889-backend.mjs` walks the import graph). Real hardware is one machine; a machine of your own is TRX64.
 - **Hardware only after the emulator said yes** (§4b): with the C64U active, bytes reach
   the device only if their SHA-256 has a recorded green emulator run in the project
   (`knowledge/emulator-passes.json`). There is no override.

@@ -1,6 +1,6 @@
 // Spec 889 §4c — picture and sound from a C64 Ultimate, as the binary frames the UI plays.
 //
-// The C64U backend creates ONE `C64UStreams` per selected device and calls:
+// The C64U bridge's backend creates ONE `C64UStreams` per device and calls:
 //
 //   const streams = new C64UStreams({ rest, receiverHost, deviceHost, relay });
 //   streams.startStreams()          // select: opens the UDP sockets, asks the device to send; returns a ticket AT ONCE

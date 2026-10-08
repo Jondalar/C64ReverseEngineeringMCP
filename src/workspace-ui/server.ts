@@ -24,7 +24,8 @@ import { writeFile as writeFileAsync, mkdtemp as mkdtempAsync, rm as rmAsync } f
 import { tmpdir } from "node:os";
 import { gzipSync } from "node:zlib";
 import { createHash } from "node:crypto";
-import { RuntimeRelay, handleRuntimeBackendRoute, monitorExecViaBackend, runtimeUrlFor, selectedBackend } from "./runtime-backend-routes.js";
+import { handleRuntimeBackendRoute, runtimeUrlFor } from "./runtime-backend-routes.js";
+import { currentSelection } from "../runtime/backend.js";
 
 interface UiMark {
   id: string;
@@ -399,9 +400,10 @@ function probeRuntimeWs(timeoutMs = 800): Promise<boolean> {
   });
 }
 
-// Spec 889 — with a C64 Ultimate selected the page talks to THIS server (the relay), not to a
-// daemon WS; with the emulator selected nothing below changes anything a page sees.
-const runtimeRelay = new RuntimeRelay();
+// Spec 889 §11 — with a C64 Ultimate selected the page talks to the C64U bridge's WS, directly, as it
+// talks to the emulator daemon's; this server only names the endpoint (runtimeUrlFor). With the
+// emulator selected nothing below changes anything a page sees.
+process.env.C64RE_PROCESS_ROLE ??= "the workbench";
 
 const server = createServer((req, res) => {
   const requestUrl = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
@@ -416,33 +418,36 @@ const server = createServer((req, res) => {
     return;
   }
 
-  if (handleRuntimeBackendRoute(req, res, requestUrl, { projectDir: options.projectDir, relay: runtimeRelay, emulatorWsUrl: RUNTIME_WS_URL })) return;
+  if (handleRuntimeBackendRoute(req, res, requestUrl, { projectDir: options.projectDir, emulatorWsUrl: RUNTIME_WS_URL })) return;
 
   if (requestUrl.pathname === "/api/config") {
-    const rt = runtimeUrlFor(req, { emulatorWsUrl: RUNTIME_WS_URL });
-    send(res, jsonResponse(200, {
-      defaultProjectDir: options.projectDir,
-      apiOnly: options.apiOnly,
-      hasUiDist,
-      runtimeWsUrl: rt.runtimeWsUrl,
-      backend: rt.kind,
-      emulatorWsUrl: RUNTIME_WS_URL,
-    }));
+    void runtimeUrlFor({ emulatorWsUrl: RUNTIME_WS_URL }).then((rt) => {
+      send(res, jsonResponse(200, {
+        defaultProjectDir: options.projectDir,
+        apiOnly: options.apiOnly,
+        hasUiDist,
+        runtimeWsUrl: rt.runtimeWsUrl,
+        backend: rt.kind,
+        emulatorWsUrl: RUNTIME_WS_URL,
+        selection: { key: rt.key, seq: rt.seq, by: rt.by },
+      }));
+    });
     return;
   }
 
   // BUG-010: report whether the runtime WS backend (Live tab) is up, so the UI
   // can show an actionable error ("runtime backend not running — start it with
   // npm run workspace") instead of an endless "connecting".
-  if (requestUrl.pathname === "/api/runtime-status" && selectedBackend().kind === "c64u") {
-    const b = selectedBackend().backend!;
-    send(res, jsonResponse(200, {
-      wsUrl: runtimeUrlFor(req, { emulatorWsUrl: RUNTIME_WS_URL }).runtimeWsUrl,
-      reachable: b.isConnected,
-      backend: "c64u",
-      projectDir: options.projectDir,
-      hint: b.isConnected ? undefined : `C64 Ultimate ${b.host}: not connected — trxmon may have ended; start it from the backend selector or select the emulator`,
-    }));
+  if (requestUrl.pathname === "/api/runtime-status" && currentSelection().kind === "c64u") {
+    void runtimeUrlFor({ emulatorWsUrl: RUNTIME_WS_URL }).then((rt) => {
+      send(res, jsonResponse(200, {
+        wsUrl: rt.runtimeWsUrl,
+        reachable: !rt.error,
+        backend: "c64u",
+        projectDir: options.projectDir,
+        hint: rt.error ? `C64 Ultimate bridge: ${rt.error} — start the monitor from the backend selector, or select the emulator` : undefined,
+      }));
+    });
     return;
   }
   if (requestUrl.pathname === "/api/runtime-status") {
@@ -902,10 +907,10 @@ const server = createServer((req, res) => {
           const payload = JSON.parse(body) as { sessionId?: string; command?: string };
           const { monitorExecWithNames } = await import("./monitor-names-route.js");
           const input = { sessionId: payload.sessionId, command: String(payload.command ?? "") };
-          // A selected C64 Ultimate has no daemon WS to open: the same call goes over the backend.
-          const r = selectedBackend().kind === "c64u"
-            ? await monitorExecViaBackend(input, options.projectDir)
-            : await monitorExecWithNames(input, options.projectDir, RUNTIME_WS_URL);
+          // The runtime the page talks to: the emulator daemon, or the C64U bridge (same wire).
+          const rt = await runtimeUrlFor({ emulatorWsUrl: RUNTIME_WS_URL });
+          if (rt.error) throw new Error(rt.error);
+          const r = await monitorExecWithNames(input, options.projectDir, rt.runtimeWsUrl);
           send(res, jsonResponse(200, r));
         } catch (e) {
           send(res, jsonResponse(502, { error: e instanceof Error ? e.message : String(e) }));
@@ -2400,7 +2405,6 @@ const server = createServer((req, res) => {
   }
 });
 
-runtimeRelay.attach(server);
 
 server.listen(options.port, () => {
   console.log(`workspace-ui server listening on http://127.0.0.1:${options.port}`);

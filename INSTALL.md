@@ -107,11 +107,27 @@ emulator: a device that stops answering is an error naming it. Machines of your 
 and media reach the device only if the exact same bytes passed a run there with at least one
 `Then` check first. In the workbench the same choice is the runtime selector in the top bar
 (scan, **Start monitor** for a device that has the core but not the app, a REST password
-prompt kept in memory only); the device's picture and sound arrive over UDP on ports 11000
-and 11001 of the machine running the workbench (`C64RE_C64U_VIDEO_PORT`,
-`C64RE_C64U_AUDIO_PORT`, and `C64RE_C64U_RECEIVER_HOST` for this machine's address). The
-app's RPC port (4312) has no password even when the device's REST has one, and it serves one
-connection: select the device in the workbench or in the assistant, not both.
+prompt kept in memory only).
+
+A C64 Ultimate is served by a **bridge**, a process of its own: `c64re c64u-bridge --device
+<host>[:<restport>] [--port <p>]`. It holds the device's one app connection and its picture
+and sound, and speaks the same protocol the emulator's daemon does, so the workbench, the
+assistant and any other client use it side by side — the assistant and the person drive the
+same machine, as they do the emulator. Selecting a device starts the bridge by itself
+(detached, one per device — a second start finds the running one) and it ends itself after
+the same idle window as the emulator's daemon; started by hand it runs until you stop it.
+Every C64RE process on the machine shares one choice, kept in `~/.c64re/` (or
+`C64RE_STATE_DIR`): a switch made in the workbench is followed by the assistant and the
+other way round. The bridge listens on `127.0.0.1` only; the REST password is given to it on
+standard input (or `C64RE_C64U_PASSWORD` when you start it yourself), never as an argument.
+Its emulator-pass check looks in the project it was started for (`--project`, or the
+project the workbench moves it to).
+
+The device sends its picture and sound over UDP to ports 11000 and 11001 of the machine
+running the bridge (`C64RE_C64U_VIDEO_PORT`, `C64RE_C64U_AUDIO_PORT`, and
+`C64RE_C64U_RECEIVER_HOST` for this machine's address). The app's RPC port (4312 on the
+device) has no password even when the device's REST has one, and it serves one connection:
+that connection is the bridge's, so nothing else needs it.
 
 Building it from source stays supported and needs the Rust toolchain and a C++ compiler:
 

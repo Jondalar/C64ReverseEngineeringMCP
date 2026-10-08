@@ -14,11 +14,12 @@ export interface ProjectConfig {
 /** Spec 889 — which runtime the page reaches, and what the workbench knows of it. */
 export interface BackendView {
   kind: "emulator" | "c64u";
-  /** What the page connects to: the emulator's WS, or the workbench relay with a C64 Ultimate selected. */
+  /** What the page connects to: the emulator daemon's WS, or the C64U bridge's with a C64 Ultimate selected. */
   runtimeWsUrl: string;
   emulatorWsUrl: string;
   identity?: { kind: "emulator" | "c64u"; label: string; device?: { host: string; restPort: number; rpcPort?: number; board?: string; firmwareVersion?: string; trxmonVersion?: string } };
-  relayClients?: number;
+  /** The machine-wide selection: `key` changes with every switch (by the page, the assistant or anyone), `by` says who made it. */
+  selection?: { key: string; seq?: number; by?: string };
   streams?: { running: boolean; trouble?: string };
   envError?: string;
   notes?: string[];

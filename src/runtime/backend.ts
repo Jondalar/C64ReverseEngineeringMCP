@@ -1,26 +1,37 @@
-// Spec 889 §2 / §4 — which runtime the tools reach.
+// Spec 889 §2 / §4 / §11 — which runtime the tools reach.
 //
 // Tools import `runtimeDaemon` from HERE. It is a thin facade over the ACTIVE backend:
 //   - the emulator (the TRX64 daemon client) — the default, always;
 //   - a C64 Ultimate — only by an explicit choice: `C64RE_RUNTIME_BACKEND=c64u:<host>` or
-//     `runtime_backend action=select`.
+//     `runtime_backend action=select`. That is a RUNTIME ENDPOINT: the C64U bridge
+//     (`c64re c64u-bridge`, c64u-bridge/), a daemon of its own that holds the one device
+//     connection and speaks the daemon wire protocol. A client of it is the same client class as
+//     the emulator's; nothing in this process ever talks to the device's app.
 // There is no automatic switch in either direction. A selected C64U that stops answering is an
 // error naming the device; an environment value that does not parse is an error on every call
 // until someone chooses — it never quietly becomes the emulator.
+//
+// ONE selection per machine, shared by every C64RE process (MCP servers, the workbench): a file
+// under the state directory (c64u-bridge/state.ts). A switch made by any of them is followed by
+// the others on their next call and announced to them.
 //
 // Sandboxes, reels and scenario runs are NOT reached through here: they start their own
 // private emulator daemons (`src/reel/sandbox-session.ts`) whichever backend is active.
 
 import { emulatorDaemon, runtimeHealth as emulatorHealth } from "./daemon-client.js";
 import { RuntimeMethods, type BackendIdentity } from "./runtime-methods.js";
-import { C64UBackend, type ConnectOptions, type ConnectReport, type StreamsConfig } from "./c64u/c64u-backend.js";
 import { UltimateRest, UltimateRestError } from "./c64u/rest.js";
 import { RpcLink, RpcLinkError } from "./c64u/rpc-link.js";
 import { classifyIdent, discoverUltimates, type DiscoverTarget, type FoundDevice, type UltimateIdent } from "./c64u/discovery.js";
+import { startTrxmon } from "./c64u/start-monitor.js";
 import { EXPECTED_RUNTIME_PROTOCOL, parseRuntimeProtocol } from "./setup-recipe.js";
-import type { FrameSource } from "./c64u/frame-source.js";
+import { noteFreshRuntime } from "./idle-exit.js";
+import { BridgeClient } from "./c64u-bridge/client.js";
+import { bridgeCall, ensureBridge, findBridge, rememberPassword, passwordFor, shutdownBridge, forgetPasswordsForTests, bridgeConfigFor } from "./c64u-bridge/launch.js";
+import { pidAlive, readSelection, writeSelection, type SelectionRecord } from "./c64u-bridge/state.js";
 
 export type { BackendIdentity } from "./runtime-methods.js";
+export { rememberPassword } from "./c64u-bridge/launch.js";
 
 export type BackendSpec = { kind: "emulator" } | { kind: "c64u"; host: string; restPort?: number };
 
@@ -35,26 +46,94 @@ export function parseBackendSpec(raw: string): BackendSpec {
     `Nothing falls back to the emulator — fix the value, or choose with runtime_backend.`);
 }
 
-let active: RuntimeMethods | undefined;
+// ---- the selection this process follows -----------------------------------------------------------------
+
+const SELECTION_TTL_MS = 250;
 let envChecked = false;
+let envSpec: BackendSpec | undefined;
 let envError: Error | undefined;
+/** Devices this process has selected or used while their bridge was alive: an ended bridge is then restarted, not abandoned. */
+const adopted = new Set<string>();
+const bridgeClients = new Map<string, BridgeClient>();
+let recCache: { at: number; rec: SelectionRecord | undefined } | undefined;
+let lastKey: string | undefined;
+
+const devKey = (host: string, restPort: number) => `${host}:${restPort}`;
+
+function readSelectionCached(): SelectionRecord | undefined {
+  const now = Date.now();
+  if (!recCache || now - recCache.at > SELECTION_TTL_MS) recCache = { at: now, rec: readSelection() };
+  return recCache.rec;
+}
+const dropSelectionCache = () => { recCache = undefined; };
+
+function readEnv(): void {
+  if (envChecked) return;
+  envChecked = true;
+  const e = process.env.C64RE_RUNTIME_BACKEND?.trim();
+  if (!e) return;
+  try { envSpec = parseBackendSpec(e); } catch (err) { envError = err instanceof Error ? err : new Error(String(err)); }
+}
+
+type Resolved = { kind: "emulator" } | { kind: "c64u"; host: string; restPort: number; rec?: SelectionRecord; config?: BridgeClient["target"]["config"] };
+
+/**
+ * What this process reaches right now. The shared record wins; a record of a C64U whose bridge is
+ * gone counts only for a process that used that device (it restarts the bridge) — for a fresh
+ * process it is stale, and the environment or the emulator default applies. The environment is
+ * only the initial choice: once anyone has chosen, the record decides.
+ */
+function resolveSelection(): Resolved {
+  readEnv();
+  const rec = readSelectionCached();
+  if (rec?.kind === "emulator") return { kind: "emulator" };
+  if (rec?.kind === "c64u" && rec.device && rec.endpoint) {
+    const k = devKey(rec.device.host, rec.device.restPort);
+    if (pidAlive(rec.bridgePid)) { adopted.add(k); return { kind: "c64u", host: rec.device.host, restPort: rec.device.restPort, rec, config: rec.config }; }
+    if (adopted.has(k)) return { kind: "c64u", host: rec.device.host, restPort: rec.device.restPort, rec, config: rec.config };
+  }
+  if (envError) throw envError;
+  if (envSpec?.kind === "c64u") return { kind: "c64u", host: envSpec.host, restPort: envSpec.restPort ?? 80 };
+  return { kind: "emulator" };
+}
+
+const selKey = (r: Resolved) => (r.kind === "emulator" ? "emulator" : `c64u:${devKey(r.host, r.restPort)}`);
+
+function clientFor(r: Extract<Resolved, { kind: "c64u" }>): BridgeClient {
+  const k = devKey(r.host, r.restPort);
+  let c = bridgeClients.get(k);
+  if (!c) {
+    c = new BridgeClient({ host: r.host, restPort: r.restPort, endpoint: r.rec?.endpoint ?? "", bridgePid: r.rec?.bridgePid, config: r.config }, (rec) => { recCache = { at: Date.now(), rec }; });
+    bridgeClients.set(k, c);
+  } else if (r.rec) {
+    // another process restarted the bridge on a new port: follow it
+    c.target.endpoint = r.rec.endpoint ?? c.target.endpoint;
+    c.target.bridgePid = r.rec.bridgePid;
+  }
+  return c;
+}
+
+/** What the selection looks like to a status line or the workbench: the kind, the device, the endpoint, a key that changes with a switch. */
+export function currentSelection(): { kind: "emulator" | "c64u"; key: string; host?: string; restPort?: number; endpoint?: string; seq?: number; by?: string; error?: string } {
+  let r: Resolved;
+  try { r = resolveSelection(); }
+  catch (e) { return { kind: "emulator", key: "emulator", error: e instanceof Error ? e.message : String(e) }; }
+  if (r.kind === "emulator") return { kind: "emulator", key: "emulator", seq: readSelectionCached()?.seq, by: readSelectionCached()?.by };
+  return { kind: "c64u", key: selKey(r), host: r.host, restPort: r.restPort, endpoint: r.rec?.endpoint, seq: r.rec?.seq, by: r.rec?.by };
+}
 
 /** The backend the tools reach right now. */
 export function activeBackend(): RuntimeMethods {
-  if (!envChecked) {
-    envChecked = true;
-    const e = process.env.C64RE_RUNTIME_BACKEND?.trim();
-    if (e) {
-      try {
-        const spec = parseBackendSpec(e);
-        active = spec.kind === "emulator"
-          ? emulatorDaemon
-          : new C64UBackend({ host: spec.host, restPort: spec.restPort, lazyConnect: true });
-      } catch (err) { envError = err instanceof Error ? err : new Error(String(err)); }
-    }
+  const r = resolveSelection();
+  const key = selKey(r);
+  if (lastKey !== undefined && lastKey !== key) {
+    noteFreshRuntime(
+      `NOTE: the runtime selection changed to ${r.kind === "emulator" ? "the emulator" : `the C64 Ultimate ${r.host}`} ` +
+      `(chosen ${readSelectionCached()?.by ? `by ${readSelectionCached()!.by}` : "elsewhere"}; every C64RE process on this machine follows it). ` +
+      "What is on screen and in the tool answers from now on is that machine's.");
   }
-  if (envError) throw envError;
-  return active ?? emulatorDaemon;
+  lastKey = key;
+  return r.kind === "emulator" ? emulatorDaemon : clientFor(r);
 }
 
 /** The identity of the active backend, for status lines. Never starts or connects anything. */
@@ -75,74 +154,88 @@ export const runtimeDaemon: RuntimeMethods = new Proxy({} as RuntimeMethods, {
   has(_t, prop) { return prop in (activeBackend() as object); },
 });
 
-export interface SelectOptions extends ConnectOptions {
-  /** REST password for a C64U; kept in memory for the session only. */
+export interface SelectOptions {
+  /** REST password for a C64U; kept in memory for the session only (handed to the bridge on its stdin). */
   password?: string;
   /** Full device path of trxmon.u2a, for a start. */
   trxmonPath?: string;
   rpcPort?: number;
-  frameSource?: FrameSource;
-  fetchImpl?: typeof fetch;
   projectDir?: string;
-  /** `false`: no picture and sound for this selection; or where the device is told to send them (§4c). */
-  streams?: false | StreamsConfig;
+  /** Start trxmon first when the device has our core without it (§3a). */
+  startMonitor?: boolean;
+  /** Leave the machine paused after select. */
+  paused?: boolean;
 }
 
 /**
- * Choose the backend. The emulator needs nothing; a C64U is connected (probe, optional start,
- * the ONE app connection, ping, capabilities) BEFORE it becomes active: a device that cannot be
- * selected leaves the previous choice exactly as it was and says why.
+ * Choose the backend, for every C64RE process on this machine. The emulator needs nothing; a C64U
+ * is a bridge that is attached to or started (probe, optional trxmon start, the ONE app connection,
+ * ping, capabilities — all the bridge's) BEFORE the choice is written: a device that cannot be
+ * selected leaves the previous choice exactly as it was and says why. Leaving a C64U (back to the
+ * emulator, or to another device) stops its bridge: the streams stop and the device's app slot is
+ * free when this returns.
  */
 export async function selectBackend(spec: BackendSpec, opts: SelectOptions = {}): Promise<{ identity: BackendIdentity; notes: string[] }> {
   envError = undefined;
   envChecked = true;
+  dropSelectionCache();
+  const prev = readSelection();
+  const prevC64u = prev?.kind === "c64u" && prev.device && prev.endpoint && pidAlive(prev.bridgePid) ? prev : undefined;
+
   if (spec.kind === "emulator") {
-    const before = active;
-    active = emulatorDaemon;
-    // release the device's one app connection and stop its streams (the fixed UDP ports are free again when this returns)
-    if (before instanceof C64UBackend) await before.closeAndWait();
-    return { identity: await emulatorDaemon.describe(), notes: ["the emulator is the active runtime"] };
+    const rec = writeSelection({ kind: "emulator", by: byWho() });
+    recCache = { at: Date.now(), rec };
+    lastKey = "emulator";
+    const notes = ["the emulator is the active runtime"];
+    if (prevC64u?.endpoint) {
+      const ok = await shutdownBridge(prevC64u.endpoint);
+      notes.push(ok ? `the C64U bridge for ${prevC64u.device!.host} was stopped (streams off, the device's app connection released)` : `the C64U bridge for ${prevC64u.device!.host} did not answer a stop — it ends itself when idle`);
+    }
+    bridgeClients.clear();
+    return { identity: await emulatorDaemon.describe(), notes };
   }
-  const prev = active;
-  // The same device again: reuse the held connection (trxmon serves ONE client — a second
-  // connection from this process would be refused by our own first).
-  if (prev instanceof C64UBackend && prev.host === spec.host && prev.restPort === (spec.restPort ?? 80)) {
-    if (opts.password !== undefined) prev.setPassword(opts.password);
-    if (opts.frameSource) prev.setFrameSource(opts.frameSource);
-    if (opts.projectDir) prev.setProjectDir(opts.projectDir);
-    const r = await prev.connect(opts);
-    active = prev;
-    return r;
-  }
-  // A switch from another device frees its fixed UDP ports BEFORE the new one binds them — but
-  // only once the new one has been selected: a device that cannot be selected leaves the old
-  // choice (and its streams) exactly as it was.
-  const switching = prev instanceof C64UBackend;
-  const next = new C64UBackend({
-    host: spec.host, restPort: spec.restPort, rpcPort: opts.rpcPort, password: opts.password,
-    trxmonPath: opts.trxmonPath, frameSource: opts.frameSource, fetchImpl: opts.fetchImpl, projectDir: opts.projectDir,
-    streams: opts.streams,
+
+  const restPort = spec.restPort ?? 80;
+  const k = devKey(spec.host, restPort);
+  if (opts.password !== undefined) rememberPassword(spec.host, restPort, opts.password);
+  // A switch from another device frees the fixed UDP ports BEFORE the new bridge binds them — but
+  // only once the new one has connected: a device that cannot be selected leaves the old choice
+  // (and its streams) exactly as it was.
+  const switching = !!prevC64u && devKey(prevC64u.device!.host, prevC64u.device!.restPort) !== k;
+  const handle = await ensureBridge(bridgeConfigFor(spec.host, restPort, {
+    rpcPort: opts.rpcPort, trxmonPath: opts.trxmonPath, startMonitor: opts.startMonitor, paused: opts.paused,
+    projectDir: opts.projectDir, deferStreams: switching,
+  }));
+  const notes = [...handle.notes];
+  const rec = writeSelection({
+    kind: "c64u", by: byWho(), device: { host: spec.host, restPort }, endpoint: handle.endpoint, bridgePid: handle.pid,
+    config: { rpcPort: opts.rpcPort, trxmonPath: opts.trxmonPath, paused: opts.paused },
   });
-  let report: ConnectReport;
-  try { report = await next.connect({ ...opts, deferStreams: switching ? true : opts.deferStreams }); }
-  catch (e) { await next.closeAndWait(); throw e; }
-  active = next;
-  if (switching) {
-    await (prev as C64UBackend).closeAndWait();
-    if (!opts.deferStreams) report.notes.push(...await next.beginStreams());
+  recCache = { at: Date.now(), rec };
+  adopted.add(k);
+  lastKey = `c64u:${k}`;
+  bridgeClients.delete(k);
+  if (switching && prevC64u) {
+    bridgeClients.delete(devKey(prevC64u.device!.host, prevC64u.device!.restPort));
+    await shutdownBridge(prevC64u.endpoint!);
+    const began = await bridgeCall<{ notes: string[] }>(handle.endpoint, "bridge/begin_streams", {}, 15000).catch((e) => ({ notes: [`picture and sound unavailable: ${e instanceof Error ? e.message : String(e)}`] }));
+    notes.push(...began.notes);
   }
-  return report;
+  const c = clientFor({ kind: "c64u", host: spec.host, restPort, rec, config: { rpcPort: opts.rpcPort, trxmonPath: opts.trxmonPath, paused: opts.paused, startMonitor: opts.startMonitor } });
+  return { identity: await c.describe(), notes };
 }
+
+function byWho(): string { return `${process.env.C64RE_PROCESS_ROLE ?? "c64re"}:${process.pid}`; }
 
 /** Start trxmon on a device (§3a) without selecting it: REST only, then say what the ident shows. */
 export async function startMonitorOn(
   target: { host: string; restPort?: number; password?: string; fetchImpl?: typeof fetch; trxmonPath?: string; via?: "run_file" | "app" },
 ): Promise<{ started: boolean; note: string; rpcPort?: number }> {
-  const held = active instanceof C64UBackend && active.host === target.host && active.restPort === (target.restPort ?? 80) ? active : undefined;
-  const b = held ?? new C64UBackend({ host: target.host, restPort: target.restPort, password: target.password, trxmonPath: target.trxmonPath, fetchImpl: target.fetchImpl });
-  if (held && target.password !== undefined) held.setPassword(target.password);
-  const r = await b.startMonitor({ via: target.via, path: target.trxmonPath });
-  return { ...r, rpcPort: b.heldRpcPort };
+  const restPort = target.restPort ?? 80;
+  const pw = target.password ?? passwordFor(target.host, restPort);
+  const rest = new UltimateRest(target.host, restPort, pw, target.fetchImpl);
+  const r = await startTrxmon(rest, { via: target.via, path: target.trxmonPath });
+  return { started: r.started, note: r.note, rpcPort: r.rpcPort };
 }
 
 // ---- probe and list (§3) -------------------------------------------------------------------
@@ -219,10 +312,11 @@ export async function probeHost(t: ProbeTarget): Promise<DeviceRow> {
     return { ...row, outcome: "core-no-monitor", reason: verdict.reason, selectable: false, action: "start_monitor" };
   }
   const port = t.rpcPort ?? verdict.rpc;
-  const held = active instanceof C64UBackend && active.host === t.host && active.restPort === restPort ? active : undefined;
+  // The bridge for this device holds the app's one connection: ask it (it pings on the held link).
+  const held = await findBridge(t.host, restPort);
   try {
     let ping: Record<string, unknown>;
-    if (held) ping = await held.probeHeld();
+    if (held) ping = await bridgeCall<Record<string, unknown>>(held.entry.endpoint, "bridge/probe", {}, 8000);
     else {
       const link = new RpcLink(t.host, port);
       try { await link.open(3000); ping = await link.call<Record<string, unknown>>("ping", {}, 4000); }
@@ -273,9 +367,9 @@ export async function runtimeHealth(): Promise<{ ok: true; build?: string } | { 
   let b: RuntimeMethods;
   try { b = activeBackend(); }
   catch (e) { return { ok: false, reason: e instanceof Error ? e.message : String(e), recipe: "Set C64RE_RUNTIME_BACKEND to emulator or c64u:<host>, or unset it for the emulator." }; }
-  if (b instanceof C64UBackend) {
+  if (b.kind === "c64u") {
     try {
-      const ping = await b.probeHeld();
+      const ping = await b.call<Record<string, unknown>>("bridge/probe", {}, 10000);
       return { ok: true, build: typeof ping.version === "string" ? ping.version : undefined };
     } catch (e) {
       const reason = e instanceof Error ? e.message : String(e);
@@ -285,10 +379,14 @@ export async function runtimeHealth(): Promise<{ ok: true; build?: string } | { 
   return emulatorHealth();
 }
 
-/** Test seam: forget the selection and the environment verdict. */
+/** Test seam: forget what this process followed (not the shared files). */
 export function resetBackendForTests(): void {
-  if (active instanceof C64UBackend) active.close();
-  active = undefined;
+  bridgeClients.clear();
+  adopted.clear();
+  recCache = undefined;
+  lastKey = undefined;
   envChecked = false;
+  envSpec = undefined;
   envError = undefined;
+  forgetPasswordsForTests();
 }

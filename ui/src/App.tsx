@@ -5811,7 +5811,7 @@ export function App() {
               <span className="hero-brand">C64RE · by DKL/TREX</span>
             </div>
             {snapshot ? <GoalChip profile={snapshot.projectProfile} onCapture={() => handlePhaseChange("onboarding")} /> : null}
-            {/* Spec 889 — the runtime this workbench drives: the emulator, or a C64 Ultimate through the server's relay. */}
+            {/* Spec 889 — the runtime this workbench drives: the emulator, or a C64 Ultimate through its bridge (same wire). */}
             <BackendSelector onChanged={() => setLiveSessionId("")} />
           </header>
 

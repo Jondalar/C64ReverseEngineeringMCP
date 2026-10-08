@@ -159,20 +159,22 @@ answers is listed with its reason:
   written anywhere.
 
 Switching asks first, as switching a project does: the machine changes, so what is on screen
-becomes another machine's. With a device selected the page talks to the workbench server,
-which relays the calls, the device's notifications, and its picture and sound. The device
-sends those over UDP to the machine running the workbench: ports 11000 (video) and 11001
-(audio), or `C64RE_C64U_VIDEO_PORT` / `C64RE_C64U_AUDIO_PORT`; `C64RE_C64U_RECEIVER_HOST`
-names this machine's address when the automatic choice is wrong for the device's network.
-While the device's machine is paused (breakpoint, freeze, scrub) it sends no video: the Live
-tab keeps the last frame and marks it PAUSED, with its age.
+becomes another machine's. The choice belongs to the machine, not to the page: the assistant
+and the workbench follow a switch made by either, and the page says so when the assistant
+made it. A device is served by a bridge (`c64re c64u-bridge`), a process of its own that
+holds the device's connection and speaks the runtime's protocol: the page connects to it
+directly and the assistant uses it at the same time, so both drive the one machine. The
+device sends picture and sound over UDP to the machine running the bridge: ports 11000
+(video) and 11001 (audio), or `C64RE_C64U_VIDEO_PORT` / `C64RE_C64U_AUDIO_PORT`;
+`C64RE_C64U_RECEIVER_HOST` names this machine's address when the automatic choice is wrong
+for the device's network. While the device's machine is paused (breakpoint, freeze, scrub)
+it sends no video: the Live tab keeps the last frame and marks it PAUSED, with its age.
 
 Two things to know. Media, PRGs and cartridges reach a device only if the exact same bytes
 passed a run in the emulator with at least one `Then` check (`c64re scenario run`, or
 `runtime_sandbox_run` with a `Then`); anything else is refused with the file name and what is
 missing. And the app's RPC port (4312) has no password even when the device's REST has one:
-anyone on the network can reach it, and the device row says so. A device serves one app
-connection, so select it in the workbench or in the assistant, not in both.
+anyone on the network can reach it, and the device row says so.
 
 **In the project folder itself**, starters so nobody has to remember any of the above.
 `project_init` does not write them; you ask for them, for the system you use: tell the

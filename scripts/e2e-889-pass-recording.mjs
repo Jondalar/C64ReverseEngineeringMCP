@@ -11,7 +11,7 @@
 //   1  scenario run PASS  → knowledge/emulator-passes.json holds the PRG's sha256
 //   2  a run with a failing Then, and a run with no Then → record nothing
 //   3  runtime_sandbox_run with a Then that holds → a pass; the answer says so
-//   4  the C64U backend: refused before, allowed after, refused again for a changed byte
+//   4  the C64U bridge: refused before, allowed after, refused again for a changed byte
 //
 // Exit 0 = pass, 1 = fail, 0 with SKIPPED when there is no daemon.   npm run e2e:889-pass
 import { spawn, spawnSync } from "node:child_process";
@@ -37,6 +37,8 @@ const check = (c, m, d = "") => { c ? pass++ : fail++; console.log(`  ${c ? "PAS
 const sha = (b) => createHash("sha256").update(b).digest("hex");
 
 const dir = mkdtempSync(join(tmpdir(), "c64re-889p-"));
+// the machine-wide state (shared runtime selection, bridge registry) lives in this run's directory
+process.env.C64RE_STATE_DIR = join(dir, "state");
 const { ProjectKnowledgeService } = await import(pathToFileURL(join(ROOT, "dist/project-knowledge/service.js")).href);
 new ProjectKnowledgeService(dir).initProject({ name: "889p" });
 // 10 SYS2061, then SEI · $C000 := $01 · JMP *
@@ -123,6 +125,7 @@ try {
 } catch (e) {
   check(false, "harness", e.stack ?? e.message);
 } finally {
+  try { const { reapBridges } = await import(pathToFileURL(join(ROOT, "scripts/lib/bridge-harness.mjs")).href); await reapBridges(join(dir, "state")); } catch { /* none */ }
   rmSync(dir, { recursive: true, force: true });
 }
 

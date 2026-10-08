@@ -43,6 +43,8 @@ export class WsClient {
   private stateListeners = new Set<(s: ConnectionState) => void>();
   private state: ConnectionState = "closed";
   private reconnectTimer?: ReturnType<typeof setTimeout>;
+  /** The URL came from /api/config, not from the constructor: it is asked again after a drop (a C64U bridge that ended and was restarted listens elsewhere). */
+  private urlFromServer = false;
 
   constructor(private url?: string) {}
 
@@ -54,7 +56,7 @@ export class WsClient {
     this.setState("connecting");
     if (!this.url) {
       runtimeWsUrl().then(
-        (u) => { this.url = u; this.open(u); },
+        (u) => { this.url = u; this.urlFromServer = true; this.open(u); },
         (e) => {
           console.warn("[ws] runtime endpoint unknown:", e?.message ?? e);
           this.setState("error");
@@ -73,6 +75,7 @@ export class WsClient {
     ws.onopen = () => this.setState("open");
     ws.onclose = () => {
       this.setState("closed");
+      if (this.urlFromServer) this.url = undefined;
       this.scheduleReconnect();
     };
     ws.onerror = () => this.setState("error");
@@ -83,7 +86,7 @@ export class WsClient {
   }
 
   /**
-   * The runtime backend changed (the emulator, or a C64 Ultimate through the workbench relay):
+   * The runtime backend changed (the emulator daemon, or the C64 Ultimate bridge — both speak the same wire):
    * drop this connection and connect again to whatever `/api/config` names NOW. Calls still in
    * flight on the old one are rejected — they were answered by another machine.
    */

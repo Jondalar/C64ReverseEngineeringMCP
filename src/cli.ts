@@ -61,6 +61,10 @@ if (argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help") {
     "  c64re ui --project <dir>     run the workbench: knowledge API + UI on :4310,",
     "                               and the runtime on :4312 unless one already answers",
     "  c64re runtime install        fetch the TRX64 runtime daemon for this machine",
+    "  c64re c64u-bridge --device <host>[:<restport>] [--port <p>]",
+    "                               the C64 Ultimate as a daemon of its own: one process per device that",
+    "                               holds the device's connection and speaks the runtime wire protocol to",
+    "                               the MCP server, the workbench and any other client (--help for more)",
     "  c64re graph <verb>           query a project's knowledge graph",
     "  c64re scenario run <files>   run .feature scenarios on private machines and",
     "                               decide their Then lines (exit 1 on a failure)",
@@ -123,6 +127,15 @@ if (argv[0] === "graph") {
     console.error(`[c64re ui] ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
+} else if (argv[0] === "c64u-bridge") {
+  // Spec 889 §11: the C64 Ultimate facade as a daemon of its own. Runs in the foreground until stopped
+  // (C64RE starts it detached when a C64 Ultimate is selected).
+  await import("./runtime/c64u-bridge/cli.js").then(async (mod) => {
+    await mod.runC64uBridgeCli(argv.slice(1));
+  }).catch((error: unknown) => {
+    console.error(`[c64re c64u-bridge] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
 } else if (argv[0] === "runtime" && argv[1] === "install") {
   // Spec 716.3: `npx @trex64/c64re runtime install`. The same code the `runtime_install` tool
   // runs, reachable without a harness — someone setting up an MCP host has no session yet
@@ -174,6 +187,8 @@ if (argv[0] === "graph") {
   // stderr for the whole process lifetime.
   // eslint-disable-next-line no-console
   console.log = (...args: unknown[]) => { console.error(...args); };
+  // Spec 889 §11 — who made a runtime switch, for the notice the other processes get.
+  process.env.C64RE_PROCESS_ROLE ??= "the assistant (MCP)";
 
   lifecycle("start", {
     ppid: process.ppid,

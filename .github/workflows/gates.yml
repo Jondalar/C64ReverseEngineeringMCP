@@ -369,11 +369,12 @@ jobs:
       - name: Picture and sound from a C64 Ultimate (Spec 889 streams)
         run: npm run smoke:889-streams
 
-      # Spec 889 §2/§4/§4c — hermetic: the backend's streams (start on select, relay, paused,
-      # re-arm, stop on switch), the workbench server's relay and selection API against a fake
-      # Ultimate and a stand-in for the emulator's WS, the page's own WsClient, the REST
-      # password staying in memory. Child server on a free port, UDP on 127.0.0.1, never a
-      # device, never :4312.
+      # Spec 889 §2/§4/§4c/§11 — hermetic: the bridge's streams (start on connect, push to A/V
+      # subscribers, paused, re-arm, stop on its end and on a switch), the workbench server's
+      # selection API against a fake Ultimate and a stand-in for the emulator's WS, the page's
+      # own WsClient connecting to the bridge directly, the assistant and the workbench
+      # following each other's switch, the REST password staying in memory. Child server on a
+      # free port, UDP on 127.0.0.1, never a device, never :4312.
       - name: The C64 Ultimate in the workbench (Spec 889 UI)
         run: npm run smoke:889-ui
 
@@ -392,6 +393,15 @@ jobs:
       # scripts/e2e-889-ue2emu.mjs, run by hand.
       - name: The C64 Ultimate backend (Spec 889)
         run: npm run smoke:889
+
+      # Spec 889 §11 — hermetic: the C64U bridge as a process of its own against a fake
+      # Ultimate (127.0.0.1, free ports, a state directory of the run): the daemon's ping plus
+      # backend/device identity, the assistant and a browser-like client on ONE bridge with one
+      # connection at the device, A/V frames to subscribers only, a second start attaching, the
+      # gate for a raw WebSocket client, idle exit with Spec 886's rules, one selection for
+      # every process, the password on stdin only, a bridge that ended.
+      - name: The C64U bridge, a daemon of its own (Spec 889 bridge)
+        run: npm run smoke:889-bridge
 
       # Spec 861 — three hermetic gates. The cycle table lives twice because src/
       # is ESM and pipeline/src/ is CommonJS, so check:cycle-table reads the grid

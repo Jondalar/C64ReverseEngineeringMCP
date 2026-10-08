@@ -17,20 +17,29 @@
 //   K  sandboxes, reels and scenario runs do not reach the active backend
 //   L  the MCP tool over stdio: runtime_backend, status names backend + device, gate text
 //
+// Spec 889 §11: the backend is the C64U bridge now (a daemon of its own). Groups D-I and L drive a
+// bridge — in this process (scripts/lib/bridge-harness.mjs: the class `c64re c64u-bridge` runs) or as
+// the detached process C64RE starts on select — through the daemon wire, as every client does.
+//
 // Exit 0 = pass, 1 = fail.   npm run smoke:889
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { WebSocket } from "ws";
 import { startFakeUltimate } from "./lib/fake-ultimate.mjs";
+import { bridgeHandle, reapBridges } from "./lib/bridge-harness.mjs";
 
 // The backend now starts the device's picture and sound on select; this smoke is about the REST/RPC
 // side, so the UDP ports are the OS's choice (the fixed defaults would collide between runs).
 process.env.C64RE_C64U_VIDEO_PORT = "0";
 process.env.C64RE_C64U_AUDIO_PORT = "0";
+// The machine-wide state (the shared runtime selection, the bridge registry) lives in a directory of this run.
+const stateDirs = [];
+const freshState = () => { const d = mkdtempSync(join(tmpdir(), "c64re-889-state-")); stateDirs.push(d); process.env.C64RE_STATE_DIR = d; return d; };
+freshState();
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, failCount = 0;
@@ -46,7 +55,6 @@ if (!existsSync(join(ROOT, "dist/runtime/backend.js"))) { console.log("FAIL  dis
 const routing = await dist("runtime/c64u/routing.js");
 const restMap = await dist("runtime/c64u/rest-map.js");
 const disc = await dist("runtime/c64u/discovery.js");
-const { C64UBackend, BackendRefusal } = await dist("runtime/c64u/c64u-backend.js");
 const { RpcLink } = await dist("runtime/c64u/rpc-link.js");
 const be = await dist("runtime/backend.js");
 const pass_ = await dist("runtime/emulator-pass.js");
@@ -57,7 +65,7 @@ console.log("Spec 889 — the C64 Ultimate backend, against a fake Ultimate\n");
 
 const sims = [];
 const fake = async (o) => { const s = await startFakeUltimate(o); sims.push(s); return s; };
-const mk = (sim, extra = {}) => new C64UBackend({ host: "127.0.0.1", restPort: sim.restPort, ...extra });
+const mk = (sim, extra = {}) => bridgeHandle(dist, sim, extra);
 const rpcMethods = (sim) => sim.rpcLog.map((r) => r.method);
 const proj = mkdtempSync(join(tmpdir(), "c64re-889-"));
 new ProjectKnowledgeService(proj).initProject({ name: "889" });
@@ -379,7 +387,7 @@ try {
     check((await b.state("shared")).runState !== undefined && sim.clients === 1, "the held connection is untouched");
     const pings0 = rpcMethods(sim).filter((m) => m === "ping").length;
     be.resetBackendForTests(); // forget any selection from earlier groups
-    b.close(); await sleep(60);
+    await b.close(); await sleep(60);
     // select through the registry, then probe the SAME device
     const r = await be.selectBackend({ kind: "c64u", host: "127.0.0.1", restPort: sim.restPort });
     check(r.identity.device.rpcPort === sim.rpcPort && sim.clients === 1, "select through the registry holds the one connection");
@@ -482,15 +490,18 @@ try {
     const bytesIn = await b.call("media/ingress", { kind: "prg", bytes_b64: PRG.toString("base64"), name: "inline.prg", mode: "inject-run" });
     check(bytesIn.loadAddress === 0x0801, "ingress by bytes_b64 is gated by the hash of the bytes (the same PRG passes)");
     // a gate with no project
-    const b2 = mk(sim);
+    await b.close();
+    const sim2 = await fake({});
+    const b2 = mk(sim2);
     process.env.C64RE_PROJECT_DIR = "";
+    await b2.connect();
     const lonely = join(tmpdir(), `c64re-889-lonely-${process.pid}.prg`);
     writeFileSync(lonely, PRG);
     const e3 = await rejects(b2.call("session/load_prg", { prg_path: lonely }));
     delete process.env.C64RE_PROJECT_DIR;
     rmSync(lonely, { force: true });
     check(/no C64RE project could be resolved/.test(e3 ?? ""), "bytes outside any project and no project given: refused (nothing to look in), never allowed");
-    b.close(); b2.close();
+    await b2.close();
     // corrupt record
     writeFileSync(pass_.passesFilePath(proj), "{not json");
     const b3 = mk(sim, { projectDir: proj }); await b3.connect();
@@ -504,6 +515,7 @@ try {
   // ── J ──────────────────────────────────────────────────────────────────────────────────
   head("J  no silent fallback; the emulator is the default");
   {
+    freshState(); // nobody has chosen yet on this (fresh) machine
     be.resetBackendForTests();
     check(be.activeBackend() === emulatorDaemon && be.activeBackend().kind === "emulator", "with nothing chosen the active backend is the emulator client");
     check(be.runtimeDaemon.kind === "emulator", "the tools' facade reaches it");
@@ -529,6 +541,7 @@ try {
     delete process.env.C64RE_RUNTIME_BACKEND;
     // a select that fails leaves the old choice
     be.resetBackendForTests();
+    await be.selectBackend({ kind: "emulator" }); // the choice made by the environment value above is the machine's now: back to the emulator first
     const stock = await fake({ trx64: false });
     const e4 = await rejects(be.selectBackend({ kind: "c64u", host: "127.0.0.1", restPort: stock.restPort }));
     check(/stock core/.test(e4 ?? "") && be.activeBackend() === emulatorDaemon, "a device that cannot be selected leaves the emulator selected");
@@ -557,7 +570,7 @@ try {
       for (const m of src.matchAll(importRe)) {
         const target = resolve(dirname(file), m[1]).replace(/\.js$/, ".ts");
         if (!existsSync(target)) continue;
-        if (/runtime\/(backend|daemon-client|c64u\/)/.test(target) || /runtime-methods/.test(target)) bad.push(`${file.replace(SRC + "/", "")} → ${target.replace(SRC + "/", "")}`);
+        if (/runtime\/(backend|daemon-client|c64u\/|c64u-bridge\/|c64u-streams\/)/.test(target) || /runtime-methods/.test(target)) bad.push(`${file.replace(SRC + "/", "")} → ${target.replace(SRC + "/", "")}`);
         else walk(target);
       }
     };
@@ -591,7 +604,8 @@ head("L  the MCP tool over stdio");
 {
   const sim = await fake({ capabilities: "object", trxmonRunning: false });
   const cli = join(ROOT, "dist/cli.js");
-  const env = { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "" };
+  const lState = freshState();
+  const env = { ...process.env, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_FULL_TOOLS: "", C64RE_STATE_DIR: lState };
   delete env.C64RE_RUNTIME_BACKEND; delete env.C64RE_RUNTIME_ENDPOINT;
   const proc = spawn(process.execPath, [cli], { cwd: tmpdir(), env, stdio: ["pipe", "pipe", "pipe"] });
   let buf = "", nid = 1; const pend = new Map();
@@ -618,7 +632,7 @@ head("L  the MCP tool over stdio");
     check(/Selected: C64 Ultimate 127\.0\.0\.1 \(board C64U\)/.test(sel) && /trxmon 0\.1/.test(sel) && sim.clients === 1, "select: names device, board, trxmon version", sel.split("\n")[0]);
     const status = await call("runtime_session_status", { session_id: "shared" });
     check(/^Runtime session status \(C64 Ultimate\)/.test(status) && /Backend: C64 Ultimate 127\.0\.0\.1 — real hardware, board C64U/.test(status) && /app :\d+/.test(status), "runtime_session_status names the backend and the device");
-    check(/Drive 8: .*disk\.d64/.test(status) && /Project: none — a C64 Ultimate serves no project/.test(status), "…its drive line comes over REST, its project line says none");
+    check(/Drive 8: .*disk\.d64/.test(status) && /through the C64U bridge at ws:\/\/127\.0\.0\.1:\d+/.test(status) && new RegExp(`Project: ${realpathSync(proj).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*the runtime serves this project`).test(status), "…its drive line comes over REST, it names the bridge, and its project line says the bridge is bound to this project", status.split("\n").filter((l) => /Drive 8|Backend|Project/.test(l)).join(" | "));
     const typed = await call("runtime_type", { session_id: "shared", text: "run\\r" });
     check(/Queued 4 chars/.test(typed) && sim.requests.some((q) => q.path === "/v1/machine:input"), "runtime_type reaches the device over REST");
     const gate = await call("runtime_load_prg", { session_id: "shared", prg_path: prgPath });
@@ -639,6 +653,7 @@ head("L  the MCP tool over stdio");
 }
 
 for (const s of sims) { try { await s.close(); } catch { /* closed */ } }
+for (const d of stateDirs) { await reapBridges(d); rmSync(d, { recursive: true, force: true }); }
 rmSync(proj, { recursive: true, force: true });
 console.log(`\n${failCount ? "RED" : "GREEN"}  Spec 889 backend: ${pass} pass, ${failCount} fail.`);
 process.exit(failCount ? 1 : 0);

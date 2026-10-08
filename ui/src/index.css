@@ -115,6 +115,11 @@ button {
 .backend-badge { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); }
 .backend-badge.ok { color: var(--accent-3); border-color: rgba(76, 175, 80, 0.45); }
 .backend-err { color: #ff8080; padding: 2px 4px; }
+.backend-announce {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 899; width: min(420px, calc(100vw - 32px));
+  background: var(--bg-elevated); border: 1px solid rgba(255, 213, 79, 0.5); border-radius: 8px;
+  padding: 6px 10px; font-size: 0.72rem; color: var(--warning); display: flex; gap: 8px; align-items: center; justify-content: space-between;
+}
 .backend-pw { display: flex; gap: 6px; margin-top: 6px; }
 .backend-pw input { flex: 1; min-width: 0; }
 /* In the compact header the phase-strip is a flex child, not a grid row. */

@@ -120,16 +120,6 @@ const REFUSALS: readonly RefusalRule[] = [
     wayOut: "session/type (runtime_type) types text; session/joystick_set drives a joystick",
   },
   {
-    match: (m) => m === "daemon/keep_alive",
-    reason: "a C64 Ultimate does not end itself on idle; there is nothing to hold",
-    wayOut: "none needed — the device stays up until it is powered off",
-  },
-  {
-    match: (m) => m === "project/set",
-    reason: "a C64 Ultimate serves no project; its media come from the host on each call",
-    wayOut: "none needed",
-  },
-  {
     match: (m) => m === "runtime/call",
     reason: "the wide AgentQueryApi facade is an emulator surface",
     wayOut: "runtime_monitor (monitor/exec) speaks the device's own monitor verbs",

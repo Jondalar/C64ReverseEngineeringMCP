@@ -175,6 +175,7 @@
     "e2e:889-pass": "npm run build:mcp && node scripts/e2e-889-pass-recording.mjs",
     "e2e:889-ue2emu": "npm run build:mcp && node scripts/e2e-889-ue2emu.mjs",
     "smoke:889": "npm run build:mcp && node scripts/smoke-889-backend.mjs",
+    "smoke:889-bridge": "npm run build:mcp && node scripts/smoke-889-bridge.mjs",
     "e2e:900-checks": "npm run build:mcp && node scripts/e2e-900-checks.mjs",
     "smoke:900": "npm run build:mcp && node scripts/smoke-900-scenario-run.mjs",
     "e2e:865": "npm run build && node scripts/e2e-865-disasm-raw.mjs",

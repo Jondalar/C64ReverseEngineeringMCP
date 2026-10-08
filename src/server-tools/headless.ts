@@ -532,6 +532,7 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         ? `Backend: ${backendId.label} — real hardware${dev.board ? `, board ${dev.board}` : ""}${dev.product ? `, ${dev.product}` : ""}` +
           `${dev.firmwareVersion ? `, firmware ${dev.firmwareVersion}` : ""}${dev.trxmonVersion ? `, ${dev.trxmonVersion}` : ""}` +
           `${dev.runtimeVersion ? ` (${dev.runtimeVersion})` : ""}; REST :${dev.restPort}, app :${dev.rpcPort ?? "?"}` +
+          `${backendId.endpoint ? `; through the C64U bridge at ${backendId.endpoint}` : ""}` +
           `${dev.capabilityGaps.length ? `; routed here but not served by this trxmon: ${dev.capabilityGaps.join(", ")}` : ""}`
         : `Backend: ${backendId.label}${backendId.endpoint ? ` at ${backendId.endpoint}` : ""}${backendId.version ? `, build ${backendId.version}` : ""}`;
       // Spec 863 — which C64 it is, and whether that is the one the project remembers.
@@ -573,15 +574,17 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
       try { here = context.projectDir({ projectDir: project_dir }, true); } catch { here = undefined; }
       if (!here) {
         projectLine = "Project: not checked — no project resolved for this call";
-      } else if (backendId.kind === "c64u") {
-        projectLine = "Project: none — a C64 Ultimate serves no project; its media come from the host on each call (and only with a recorded green emulator run)";
       } else {
         try {
           const r = await runtimeDaemon.call<{ same: boolean; current: string | null; requested: string }>(
             "project/set", { path: here, dry_run: true }, 5000);
           projectLine = r.same
             ? `Project: ${r.current} (the runtime serves this project)`
-            : `Project: projectMismatch — the runtime serves ${r.current ?? "no project"}, not this one (${r.requested}). ` +
+            : backendId.kind === "c64u"
+              ? `Project: projectMismatch — the C64U bridge is bound to ${r.current ?? "no project"}, not this one (${r.requested}). ` +
+                `Its emulator-pass gate looks THERE: media and PRGs reach the device only with a green run recorded in that project. ` +
+                `Moving it is the workbench's project requester (project/set), not a tool.`
+              : `Project: projectMismatch — the runtime serves ${r.current ?? "no project"}, not this one (${r.requested}). ` +
               `Its media pickers and relative paths resolve THERE. Moving it ends the human's session; ` +
               `that is decided in the workbench UI's requester, not by a tool.`;
         } catch (e) {
@@ -599,11 +602,14 @@ export function registerHeadlessTools(server: McpServer, context: ServerToolCont
         `         cycles=${c64Cycles}`,
         machineLine,
         `Mode: ${mode}`,
+        // A C64 Ultimate is one real machine several clients drive: say whether it runs (a stop by the person
+        // at the machine, or by the workbench, shows here).
+        ...(backendId.kind === "c64u" && st.runState ? [`Run state: ${st.runState}`] : []),
         projectLine,
         `Drive 8: ${render(drive, "unavailable")}`,
         `Cartridge: ${render(cart, "none inserted")}`,
         // Spec 886 D3 — when the runtime will end itself, so nothing is lost by surprise.
-        describeIdleExit(st.idleExit),
+        describeIdleExit(st.idleExit, Date.now(), backendId.kind === "c64u" ? "bridge" : "runtime"),
       ].join("\n") }] };
     },
 ));

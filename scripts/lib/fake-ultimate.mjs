@@ -107,7 +107,13 @@ export async function startFakeUltimate(opts = {}) {
         return { result: { deleted: true, breakpoints: sim.breakpoints.map((b) => ({ ...b })) } };
       }
       case "debug/break_list": return { result: { breakpoints: sim.breakpoints.map((b) => ({ ...b })) } };
-      case "monitor/exec": return { result: { text: `ok: ${params.command ?? ""}`, output: `ok: ${params.command ?? ""}`, spans: [] } };
+      case "monitor/exec": {
+        // the monitor's run-control verbs act on the machine and are announced, as rpc.c does
+        const cmd = String(params.command ?? "").trim();
+        if (cmd === "pause") { const was = sim.runState === "running"; sim.runState = "paused"; sim.stop = { reason: "pause", pc: 0x0810, cycles: 1 }; if (was) notify("debug/paused", { stop: sim.stop }); }
+        else if (cmd === "run") { const was = sim.runState === "paused"; sim.runState = "running"; sim.stop = null; if (was) notify("debug/running", {}); }
+        return { result: { text: `ok: ${params.command ?? ""}`, output: `ok: ${params.command ?? ""}`, spans: [] } };
+      }
       case "monitor/state": return { result: { mode: "hardware" } };
       case "checkpoint/list": return { result: { checkpoints: [] } };
       case "trxmon/quit": setTimeout(() => sim.stopTrxmon(), 10); return { result: { ok: true } };

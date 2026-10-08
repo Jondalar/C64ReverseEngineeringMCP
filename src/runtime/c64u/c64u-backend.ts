@@ -1,9 +1,9 @@
-// Spec 889 — the C64 Ultimate backend: the second implementation behind the runtime contract.
+// Spec 889 — the C64 Ultimate facade: the device side of the C64U bridge (c64u-bridge/server.ts).
 //
-// Two connections, held while this backend is selected:
+// Two connections, held while the bridge runs (it is the only process that talks to the device's app):
 //   - REST (`http://<host>/v1/…`): media, machine, input, drives, apps; X-Password in memory only;
 //   - ONE app WebSocket to trxmon (`RpcLink`): the TRX64 methods the app implements.
-// `call(method, params)` is the tools' door and keeps the daemon's method names and answer
+// `call(method, params)` is the bridge's door for every client and keeps the daemon's method names and answer
 // shapes. What a name means here is `routing.ts`'s table: served by the app (pass-through),
 // mapped onto REST (this file), or refused BY NAME with the reason and the way out. After any
 // REST action that changes the machine, `debug/state` is re-read (§7) because trxmon is not
@@ -12,8 +12,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { basename, dirname, isAbsolute, resolve } from "node:path";
-import { findProjectRoot } from "../../project-root.js";
+import { basename, isAbsolute, resolve } from "node:path";
 import { gateRefusal } from "../emulator-pass.js";
 import { EXPECTED_RUNTIME_PROTOCOL, parseRuntimeProtocol } from "../setup-recipe.js";
 import { RuntimeMethods, type BackendIdentity, type BackendNotification } from "../runtime-methods.js";
@@ -24,11 +23,10 @@ import { C64UStreams, localAddressTowards, type RestCaller } from "../c64u-strea
 import { UltimateRest, UltimateRestError } from "./rest.js";
 import { RpcError, RpcLink, RpcLinkError } from "./rpc-link.js";
 import { driveLetter, joystickEvents, sniffMedia, tapBatches, textToTaps } from "./rest-map.js";
+import { DEFAULT_TRXMON_PATH, startTrxmon } from "./start-monitor.js";
 import { APP_NOTIFICATIONS, API_CALL_VERBS, capabilityGaps, parseCapabilities, refusalText, routeOf } from "./routing.js";
 
-/** Where trxmon is installed on a device, when nothing else says (T21 §8.1: the manifest's own
- *  example and the REST `run_file` documentation both name `/Flash/apps/trxmon.u2a`). */
-export const DEFAULT_TRXMON_PATH = "/Flash/apps/trxmon.u2a";
+export { DEFAULT_TRXMON_PATH };
 
 /** A call the backend refused by name. Distinct from a device error so a caller can tell the two. */
 /** Where the device is told to send its video and audio, as this process listens. */
@@ -78,10 +76,8 @@ export interface C64UOptions {
   /** Full path of trxmon.u2a on the device. */
   trxmonPath?: string;
   fetchImpl?: typeof fetch;
-  /** The project a gate lookup falls back to when the medium lies in none. */
+  /** The project the gate looks in (the bridge's bound project; `project/set` moves it). None = media and PRG doors refuse by name. */
   projectDir?: string;
-  /** Selected by environment: connect on the first call instead of on a select. */
-  lazyConnect?: boolean;
   /** `false`: this backend never starts the device's video/audio streams (tests of the REST/RPC side). */
   streams?: false | StreamsConfig;
 }
@@ -102,7 +98,6 @@ export interface ConnectReport {
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export class C64UBackend extends RuntimeMethods {
   readonly kind = "c64u" as const;
@@ -120,9 +115,7 @@ export class C64UBackend extends RuntimeMethods {
   private readonly trxmonPath: string;
   private readonly noteHandlers = new Set<(n: BackendNotification) => void>();
   private connected = false;
-  private everConnected = false;
-  private lazyP: Promise<void> | undefined;
-  // §4c — the streams this backend owns while it is selected.
+  // §4c — the streams this backend owns while the bridge runs.
   private streams: C64UStreams | null = null;
   private streamsStarting: Promise<string[]> | undefined;
   private streamTicket: Promise<unknown> | undefined;
@@ -144,7 +137,8 @@ export class C64UBackend extends RuntimeMethods {
     this.projectDir = opts.projectDir;
   }
 
-  setProjectDir(dir: string | undefined): void { if (dir) this.projectDir = dir; }
+  setProjectDir(dir: string | undefined): void { this.projectDir = dir || undefined; }
+  get project(): string | undefined { return this.projectDir; }
   setPassword(p: string | undefined): void { this.rest.setPassword(p); }
   setFrameSource(s: FrameSource): void { this.frameSource = s; }
   get restPort(): number { return this.rest.port; }
@@ -448,7 +442,7 @@ export class C64UBackend extends RuntimeMethods {
 
   /**
    * §3 probe on the connection this backend keeps: `ping` and report what the app is. Used
-   * by `runtime_backend probe` for the selected device so that no second connection is made.
+   * by the bridge's `bridge/probe` (what `runtime_backend probe` asks for the device it serves) so that no second connection is made.
    */
   async probeHeld(): Promise<Record<string, unknown>> {
     const link = await this.ensureLink();
@@ -459,59 +453,16 @@ export class C64UBackend extends RuntimeMethods {
 
   // ---- §3a: starting the app -----------------------------------------------------------
 
-  /**
-   * Start trxmon over REST. `via: "run_file"` (default, works on every build) passes the
-   * device path of trxmon.u2a; `via: "app"` uses the registered app and needs app 5b605bb0 or
-   * later installed (an older install answers 403 until reinstalled). 423 = already running.
-   */
+  /** Start trxmon over REST (§3a) and remember the app port the ident then names. */
   async startMonitor(o: { via?: "run_file" | "app"; path?: string; wait?: boolean } = {}): Promise<{ started: boolean; note: string }> {
-    const via = o.via ?? "run_file";
-    const path = o.path ?? this.trxmonPath;
-    let started = true;
-    let note: string;
-    try {
-      if (via === "app") {
-        await this.rest.request({ method: "PUT", path: "/v1/apps/trxmon:run", query: { action: "serve" } });
-        note = "started trxmon (PUT /v1/apps/trxmon:run action=serve)";
-      } else {
-        await this.rest.request({ method: "PUT", path: "/v1/apps:run_file", query: { app: path, action: "serve" } });
-        note = `started trxmon from ${path} (PUT /v1/apps:run_file action=serve)`;
-      }
-    } catch (e) {
-      if (e instanceof UltimateRestError && e.status === 423) {
-        started = false;
-        note = "trxmon is already running on the device (423: an app is resident) — probing it";
-      } else if (e instanceof UltimateRestError && e.status === 403 && via === "app") {
-        throw new Error(`${e.message}. The installed trxmon manifest has no REST action (an older install): reinstall the app, or start it with via=run_file and its path (default ${DEFAULT_TRXMON_PATH}).`);
-      } else if (e instanceof UltimateRestError && e.status === 404) {
-        throw new Error(`${e.message}. trxmon.u2a was not found at ${path} on the device — give its full device path (the path parameter).`);
-      } else throw e;
-    }
-    if (o.wait !== false) {
-      // The RPC port appears in the ident only while trxmon runs.
-      const deadline = Date.now() + 8000;
-      for (;;) {
-        try {
-          const info = await this.readInfo();
-          const rpc = info.trx64?.rpc;
-          if (typeof rpc === "number") { this.rpcPort = this.opts.rpcPort ?? rpc; break; }
-        } catch { /* keep polling until the deadline */ }
-        if (Date.now() > deadline) { note += "; the ident did not name an app port within 8 s"; break; }
-        await sleep(200);
-      }
-    }
-    return { started, note };
+    const r = await startTrxmon(this.rest, { via: o.via, path: o.path ?? this.trxmonPath, wait: o.wait, rpcPortOverride: this.opts.rpcPort });
+    if (r.rpcPort !== undefined) this.rpcPort = r.rpcPort;
+    return { started: r.started, note: r.note };
   }
 
   // ---- the tools' door ---------------------------------------------------------------------
 
   async call<T = unknown>(method: string, params: Record<string, unknown> = {}, timeoutMs = 60000): Promise<T> {
-    // Selected by environment (C64RE_RUNTIME_BACKEND): no select call ran, so the first call
-    // does the select-time connect. A failure is that call's error — never a fallback.
-    if (this.opts.lazyConnect && !this.everConnected) {
-      this.lazyP ??= this.connect().then(() => { this.everConnected = true; }).finally(() => { this.lazyP = undefined; });
-      await this.lazyP;
-    }
     const route = routeOf(method, this.served);
     if (route.kind === "refuse") throw new BackendRefusal(refusalText(method, route));
     if (route.kind === "rpc") return (await this.rpc(method, params, timeoutMs)) as T;
@@ -579,13 +530,8 @@ export class C64UBackend extends RuntimeMethods {
 
   // ---- REST-mapped methods ---------------------------------------------------------------------
 
-  private projectFor(path: string | undefined): string | undefined {
-    if (path && isAbsolute(path)) { const p = findProjectRoot(dirname(path)); if (p) return p; }
-    return this.projectDir ?? process.env.C64RE_PROJECT_DIR ?? undefined;
-  }
-
   private resolvePath(p: string): string {
-    return isAbsolute(p) ? p : resolve(this.projectDir ?? process.env.C64RE_PROJECT_DIR ?? process.cwd(), p);
+    return isAbsolute(p) ? p : resolve(this.projectDir ?? process.cwd(), p);
   }
 
   private readMedium(path: string): { abs: string; name: string; bytes: Uint8Array } {
@@ -595,8 +541,8 @@ export class C64UBackend extends RuntimeMethods {
   }
 
   /** §4b — bytes reach the device only with a recorded green emulator pass. */
-  private gate(name: string, bytes: Uint8Array, path?: string): void {
-    const refusal = gateRefusal({ name, bytes, projectDir: this.projectFor(path) });
+  private gate(name: string, bytes: Uint8Array, _path?: string): void {
+    const refusal = gateRefusal({ name, bytes, projectDir: this.projectDir });
     if (refusal) throw new BackendRefusal(refusal);
   }
 
@@ -680,12 +626,12 @@ export class C64UBackend extends RuntimeMethods {
   /** `audio/start`: the stream is the device's; the reply carries ITS rate so the player resamples from it. */
   private async doAudioStart(): Promise<unknown> {
     if (!this.streams) {
-      throw new BackendRefusal(`audio/start: the device's audio stream is not running here${this.streamTrouble ? ` (${this.streamTrouble})` : ""} — it arrives over UDP, started when the device was selected`);
+      throw new BackendRefusal(`audio/start: the device's audio stream is not running here${this.streamTrouble ? ` (${this.streamTrouble})` : ""} — it arrives over UDP, started when the bridge connected to the device`);
     }
     return { ok: true, ...this.streams.audioFormat(), source: "c64u-audio-stream" };
   }
 
-  /** `audio/stop` ends the listener's playback; the device's stream stays owned by this backend while it is selected. */
+  /** `audio/stop` ends the listener's playback; the device's stream stays owned by this backend for as long as the bridge runs. */
   private async doAudioStop(): Promise<unknown> {
     return { ok: true };
   }

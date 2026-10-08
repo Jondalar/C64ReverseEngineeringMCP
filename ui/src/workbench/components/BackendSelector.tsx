@@ -35,10 +35,33 @@ export function BackendSelector({ onChanged }: { onChanged?: () => void }) {
   const [pwFor, setPwFor] = useState<string | null>(null);
   const [pwInput, setPwInput] = useState("");
 
+  // The selection is the machine's, not this page's: the assistant (or another page) can switch it. The
+  // page notices within a couple of seconds, says so, and reconnects to the endpoint /api/config names now.
+  const lastKey = useRef<string | undefined>(undefined);
+  const [announce, setAnnounce] = useState<string | null>(null);
+
   const refresh = useCallback(() => {
-    api.runtimeBackend().then(setView).catch(() => setView(null));
+    api.runtimeBackend().then((v) => { if (v.selection?.key) lastKey.current = v.selection.key; setView(v); }).catch(() => setView(null));
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      api.runtimeBackend().then((v) => {
+        const key = v.selection?.key;
+        if (!key) return;
+        if (lastKey.current !== undefined && key !== lastKey.current) {
+          lastKey.current = key;
+          setView(v);
+          setDevices(null);
+          setAnnounce(`The runtime was switched to ${v.kind === "c64u" ? (v.identity?.label ?? "a C64 Ultimate") : "TRX64 (emulator)"}${v.selection?.by ? ` by ${v.selection.by}` : ""} — this page follows.`);
+          getClient().restart();
+          onChanged?.();
+        } else lastKey.current = key;
+      }).catch(() => undefined);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [onChanged]);
 
   const scan = useCallback(async () => {
     setScanning(true);
@@ -94,6 +117,8 @@ export function BackendSelector({ onChanged }: { onChanged?: () => void }) {
       setConfirm(null);
       setOpen(false);
       setView(r.view ?? null);
+      if (r.view?.selection?.key) lastKey.current = r.view.selection.key;
+      setAnnounce(null);
       // The page now talks to another machine: reconnect to whatever /api/config names, and let the
       // tabs pick their session again.
       getClient().restart();
@@ -122,6 +147,12 @@ export function BackendSelector({ onChanged }: { onChanged?: () => void }) {
         <span className="backend-dot" />
         {chipLabel}
       </button>
+
+      {announce && (
+        <div className="backend-announce" role="status">
+          {announce} <button type="button" onClick={() => setAnnounce(null)}>OK</button>
+        </div>
+      )}
 
       {open && (
         <div className="backend-pop" role="dialog" aria-label="Runtime backend">

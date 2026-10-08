@@ -1,6 +1,6 @@
 # Spec 889 — A second backend: the C64 Ultimate
 
-**Status:** IN REBUILD (2026-10-08) — §11: the facade becomes its own daemon process; built in-process first (§8–§10), which broke co-drive.
+**Status:** BUILT AS A DAEMON OF ITS OWN (2026-10-08, §12) — open until the owner's hardware test. The first build (§8–§10) held the facade in each C64RE process, which broke co-drive; §11 moved it into `c64re c64u-bridge`.
 **Repos:** C64RE. Inputs: the C64U build of the TRX64 Ultimate firmware (superproject
 `integ-m1`) and `trxmon.u2a` (app branch `integ-m1-app`, reviewed at `5b605bb0`). The first
 slice is what exists there today (§5). TRX64 itself is unchanged.
@@ -582,3 +582,174 @@ to the C64U instead of an emulated machine.
   as in §3/§3a/§10; the REST password is handed to the bridge at start (in memory there,
   never on disk or in argv visible to other users — environment or stdin).
 - **Sandboxes, reels and scenario runs stay on private emulator daemons**, unchanged.
+
+## §12 As built (bridge)
+
+Master, 2026-10-08. §11 is built; §8–§10 describe the code it moved from — where they say "the
+backend", "the relay" or "this process", read the bridge. Not run against the real device.
+
+**Where it lives**
+
+- `src/runtime/c64u-bridge/server.ts` — `BridgeServer`: the WebSocket server (127.0.0.1 only) around
+  one `C64UBackend`. `cli.ts` is `c64re c64u-bridge` (wired in `src/cli.ts`, listed in `--help`).
+  `launch.ts` is the C64RE side: `ensureBridge` (find or start), `pingBridge`, `shutdownBridge`,
+  the registry lock, the REST passwords (memory only). `client.ts` is `BridgeClient`, the
+  `RuntimeDaemonClient` for a bridge endpoint. `state.ts` is the two machine-wide files (below).
+  `idle-clock.ts` is Spec 887's clock in TypeScript.
+- Reused unchanged in behaviour: `src/runtime/c64u/*` (routing table, REST mapping, refusals by name,
+  break_* wrappers, re-read after REST, trxmon-gone, capabilities check) and `src/runtime/c64u-streams/*`
+  (`C64UStreams`, fixed ports 11000/11001 and the env overrides, receiver host, `stream/paused`). The
+  trxmon start moved out of the class to `c64u/start-monitor.ts` because a listing offers "Start
+  monitor" before any bridge exists.
+- `src/runtime/backend.ts` is the selection: `selectBackend`, `activeBackend`, `currentSelection`,
+  `probeHost`, `listDevices`, `startMonitorOn`, `runtimeHealth`. `daemon-client.ts` gained a
+  `DaemonPolicy` (endpoint, how it is brought up, what a lost machine is called); the default policy IS
+  the emulator's code, moved and not changed.
+- Removed from the MCP and workbench processes: the in-process `C64UBackend`, `lazyConnect`, the
+  `/runtime-relay` WebSocket and `RuntimeRelay`, `monitorExecViaBackend`. Nothing in them talks to the
+  device's app; they probe (`GET /v1/info`, a short `ping` of a device nobody holds), find (UDP ident)
+  and start trxmon (REST) — all of which are not the one connection.
+
+**The wire**
+
+- A client sees the daemon's protocol: JSON-RPC text frames, notifications to every client, binary
+  `[type u8][seq u32 LE][payload]` to A/V subscribers (`0x01` VIC frame, `0x02` audio), `?av=0` honoured.
+  What differs is `ping` (`backend:"c64u"`, `device` = the identity `describe()` builds, `label`, `bridge`
+  `{state: connecting|ready|failed, error, notes, pid, endpoint, clients, avClients}`, `idleExit`,
+  `project`) and the audio rate in the `audio/start` answer.
+- Own methods: `ping`, `project/set`, `daemon/keep_alive`, `bridge/status`, `bridge/probe` (the app's
+  `ping` over the held connection), `bridge/begin_streams`, `bridge/shutdown` (answered after the streams
+  are stopped and the device's connection is released). `session/state` carries `idleExit`. Everything
+  else is the backend's: routed, mapped, or refused by name.
+- Audio is pushed to a client only after its own `audio/start` (until its `audio/stop`) — the relay's
+  rule, kept; the daemon pushes to every subscriber, the page cannot tell. A client that connects while the
+  stream is paused gets `stream/paused` and the last frame.
+- A handshake with an `Origin` that is not loopback is a 403 (the relay checked "same origin"; the page
+  is now served from another port than the bridge, so the test is "a local page"); plain HTTP is 426.
+  The port is never 4312 (`--port 4312` is refused by name).
+
+**The gate (§4b) in the bridge.** The project is the daemon's chain: `project/set`, else `--project`, else
+`C64RE_PROJECT_DIR`. `project/set` has the daemon's shape (`dry_run`, `same`, `current`, `requested`,
+`changed`) and broadcasts `project/changed`; it moves nothing else — there is no machine to power-cycle
+and no media to persist. Passes are read from that project's `knowledge/emulator-passes.json` on every
+call (a pass recorded after the bridge started counts). **Deviation from §8 decision 7:** the project
+that *contains the file* no longer counts; only the bound project does, so a raw client cannot choose the
+project its bytes are judged in. No project → the doors refuse by name, as before. Recording passes stays
+where it is (`c64re scenario run`, `runtime_sandbox_run`).
+
+**Lifecycle**
+
+- Started detached by a select (`ensureBridge`), the shape of `spawnDaemonDetached`: `process.execPath
+  dist/cli.js c64u-bridge …`, stderr to `~/.c64re/c64u-bridges/<host>_<restport>.log`. One per device:
+  the registry entry `<host>_<restport>.json` (port, pid) plus a `ping` finds a running one and the start
+  attaches; a lock file per device serialises two processes selecting at once. The port is a free one,
+  chosen by the starter; started by hand it is the first free from 4313.
+- Idle exit as the daemon's: requests restart the window, an A/V subscriber HOLDS it, `daemon/keep_alive`
+  extends or holds it forever (`armed:false` without an idle window). C64RE passes `--idle-exit`
+  (`C64RE_RUNTIME_IDLE_EXIT`, default 600 s); by hand there is none unless given. On exit the bridge stops
+  the streams (audio, then video), closes the device connection and leaves the registry.
+- Ends otherwise: `bridge/shutdown` (select back to the emulator, or to another device), a failed connect
+  (the starter reads the verdict from `ping`; the process goes 2.5 s later), SIGINT/SIGTERM.
+- A switch from device A to B starts B with `--defer-streams`, stops A's bridge, then calls
+  `bridge/begin_streams` on B: the fixed UDP ports are free first, and a device that cannot be selected
+  leaves the old choice, its bridge and its streams as they were.
+- The REST password goes to the child on **stdin** (`--password-stdin`; `C64RE_C64U_PASSWORD` for a hand
+  start, removed from the environment after reading), never argv, never a file, in no answer; this
+  process keeps it in memory to restart a bridge that ended. `C64RE_RUNTIME_AUTOSTART=0` forbids the
+  *implicit* start (a call that finds the bridge gone); a select is explicit.
+
+**One selection (§11, "design it")** — chosen: **one file per machine**, `runtime-selection.json` in the
+state directory (`~/.c64re`, or `C64RE_STATE_DIR`), written atomically, read by every C64RE process at most
+every 250 ms. It holds `kind` (`emulator` | `c64u`), the device, the bridge endpoint and pid, a strictly
+increasing `seq` and who switched (`by`: "the workbench" / "the assistant (MCP)"); no secret.
+Why this and not the alternatives: the bridge is per *device* on this *machine*, and the MCP server does not
+know a project at the point it picks its backend (tools resolve one per call), so a file under a project's
+`knowledge/.cache/` could not be found by both; "the endpoint recorded where the daemon endpoint is resolved"
+would change `C64RE_RUNTIME_ENDPOINT`, which belongs to the emulator and to workspaces that run several of
+them. Rules: the record wins over `C64RE_RUNTIME_BACKEND` (the environment is only the first choice; an
+explicit `emulator` record is written by a select back, so the environment cannot resurrect a device); the
+emulator is the default when there is no record; a `c64u` record whose bridge pid is gone counts only for a
+process that used that device (it starts the bridge again and says so: a notice on its next answer) — a
+fresh process treats it as stale and uses the emulator, so a record left by yesterday never silently picks a
+device. A process that finds another has switched says so on its next tool answer ("the runtime selection
+changed to … chosen by …"); the page polls `/api/runtime/backend` (`selection.key`) every 2 s, reconnects
+to what `/api/config` names and shows a notice. `/api/config` and `/api/runtime-status` name the bridge's
+endpoint (a bridge this process used that ended is started again there, so the page never gets a dead
+address); `WsClient` asks `/api/config` again after a drop when it got its URL from there.
+
+**Other decisions**
+
+1. `runtime_session_status` for a C64U names the bridge and adds `Run state:` (paused/running), because two
+   clients now share the machine; its project line is the daemon's (`projectMismatch` against the bridge's
+   project). `describeIdleExit` says "the C64U bridge ends itself … the device keeps its state".
+2. `runtime_backend select` hands the call's project to the bridge it starts (`--project`).
+3. `routing.ts` no longer refuses `daemon/keep_alive` and `project/set` — the bridge answers them itself.
+4. The workbench monitor (`/api/monitor/exec`) opens the endpoint `/api/config` names, for both backends.
+5. Bridges are killed by `bridge/shutdown`; the smokes also reap every registry entry of their state
+   directory, so a crashed run leaves none behind.
+
+**Tests**
+
+- `smoke:889` (198, as before): groups D–I and L run a bridge (`scripts/lib/bridge-harness.mjs`: the class
+  `c64re c64u-bridge` runs, in this process, with a client over the daemon wire) or the detached process
+  C64RE starts. `smoke:889-bridge` (92, new, in `gates.yml`): the process, ping, co-drive of an MCP server
+  and a browser-like client on one bridge with one connection at the device, A/V to subscribers only, a
+  second start attaching, the gate for a raw WebSocket client, idle exit, one selection, the password,
+  a bridge that ended, two devices. `smoke:889-ui` (122, was 105) and `smoke:889-streams` (158, unchanged).
+- `e2e:889-ue2emu` (51, was 46) runs the whole path through a bridge started by the select, with an MCP
+  server and a browser-like client together. `e2e:889-pass` (15) is unchanged in what it asserts. Neither
+  is in `gates.yml`.
+- Assertions that described the in-process build and were replaced (each by its bridge equivalent):
+  `runtime_session_status`'s "Project: none — a C64 Ultimate serves no project" is now the bridge's bound
+  project and names the bridge; the relay's "closes 4400 while the emulator is selected / 4001 on a switch /
+  same-origin / any other path refused" are now "no `/runtime-relay` on the workbench server / the bridge
+  closes its pages with 1001 when it ends / a non-loopback origin is a 403 / plain HTTP is 426";
+  "audio message arrives" now calls `audio/start` first (the gate was always the client's own call);
+  "select back to the emulator stops both streams" is "the bridge's end stops both streams" (and J of
+  `smoke:889-bridge` asserts the select path); `smoke:889` J selects the emulator once before "a select that
+  fails leaves the emulator" because the environment's choice is the machine's now; the no-project gate
+  check uses a device of its own because the first bridge holds the fake's one slot. `/api/config` names the
+  bridge's WS instead of the relay's.
+
+**Not built (named)**
+
+- The `?av=0` / A/V rules are the daemon's *as read in `handle_connection`*; nothing was run against a real
+  TRX64 daemon side by side (the browser-visible difference is the backend name and the audio rate).
+- Windows: the detached start (`detached:true`, stdin pipe) and `process.kill(pid, 0)` are used as on POSIX;
+  not run there.
+- A bridge for a device on another host than the machine running the workbench is not a case: the bridge
+  listens on 127.0.0.1 and the page must reach it from the same machine.
+- `media/*` through the bridge still do not broadcast `media/changed`; CLAUDE.md rule 1 still carries the
+  old wording (the owner's file).
+
+**Open questions**
+
+1. Should `select` back to the emulator always stop the bridge? It does, because the shared selection says
+   nobody is left; a second workbench on another machine against the same device is not a case (127.0.0.1).
+2. The earlier §10 question 3 stands: which stops the real device pauses the picture for.
+
+**Hardware test — the real device (192.168.242.189: `trx64 {core:"TRX2", caps:"0x000000FF", board:"C64U"}`, no `rpc`, trxmon not running)**
+
+1. `npm run build`; `c64re ui --project <dir>` (workbench) and the assistant on the same machine.
+2. Top bar → runtime → Rescan: the row reads "monitor not running" → **Start monitor** (from
+   `/Flash/apps/trxmon.u2a`, or the path you give) → the row becomes ready → **Select** → confirm. A
+   `c64re c64u-bridge` process now exists (`ps`); its log is
+   `~/.c64re/c64u-bridges/192.168.242.189_80.log`.
+3. Assistant: `runtime_session_status` names the C64 Ultimate "through the C64U bridge at ws://127.0.0.1:<port>"
+   and shows `Run state`; `runtime_monitor r` answers from the device. The assistant followed the workbench's
+   choice without being told; its answer says who chose.
+4. Co-drive: assistant `runtime_monitor pause` → the page shows paused and the PAUSED marker after a quarter
+   second without video; run it in the page → `Run state: running` for the assistant. Both worked on the
+   device's ONE app connection (nothing else may hold port 4312 on the device meanwhile).
+5. Picture and sound in the Live tab (UDP 11000/11001 on this machine; if the picture stays empty, check
+   `C64RE_C64U_RECEIVER_HOST`); audio plays at 48,003 Hz. Note which stops pause the picture (§10 Q3).
+6. Gate: `runtime_load_prg` of a PRG with no pass → refused naming file and hash; `c64re scenario run` for
+   it, then allowed. The bridge is bound to the workbench's project (a mismatch is shown, and moved by the
+   project requester).
+7. Switch: the assistant selects the emulator → the page announces it and reconnects; the bridge ends, the
+   device's connection and streams are released (`ps`, and the app accepts another client). Select the
+   device in the assistant → the page follows.
+8. Idle: close the page, leave the assistant alone for the idle window (`C64RE_RUNTIME_IDLE_EXIT=60` to
+   shorten) → the bridge ends; the next assistant call starts it again ("the C64U bridge … had ended").
+9. By hand: `c64re c64u-bridge --device 192.168.242.189` runs until stopped; a second start prints
+   `already-running` with its endpoint.

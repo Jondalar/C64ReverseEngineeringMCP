@@ -1,5 +1,9 @@
 #!/usr/bin/env node
-// Spec 889 — the C64U backend against the UE2 emulator (a whole Ultimate in software).
+// Spec 889 — the C64U bridge against the UE2 emulator (a whole Ultimate in software).
+//
+// Spec 889 §11: the device is reached through the bridge (`c64re c64u-bridge`, started by the select as
+// C64RE starts it), by this process, by an MCP stdio server and by a browser-like WebSocket client —
+// together, on the one connection trxmon serves.
 //
 // NOT in gates.yml: it needs the emulator binary, the TRX firmware and trxmon.u2a, which
 // live outside this repo. It SKIPS LOUDLY when any is missing — a check that quietly
@@ -31,6 +35,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, copyFileSync } from "node:fs";
 import { createServer } from "node:net";
+import { WebSocket } from "ws";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -55,8 +60,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const freePort = () => new Promise((res, rej) => { const s = createServer(); s.once("error", rej); s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => res(p)); }); });
 const rejects = async (p) => { try { await p; return undefined; } catch (e) { return e instanceof Error ? e.message : String(e); } };
 const dist = (p) => import(pathToFileURL(join(ROOT, "dist", p)).href);
+const { startMcp } = await import(pathToFileURL(join(ROOT, "scripts/lib/mcp-stdio.mjs")).href);
+const { reapBridges } = await import(pathToFileURL(join(ROOT, "scripts/lib/bridge-harness.mjs")).href);
 
 const work = mkdtempSync(join(tmpdir(), "c64re-889-ue2-"));
+// the machine-wide state (selection, bridge registry) lives in this run's directory
+process.env.C64RE_STATE_DIR = join(work, "state");
+delete process.env.C64RE_RUNTIME_BACKEND;
 const usb = join(work, "usb");
 mkdirSync(usb);
 copyFileSync(u2a, join(usb, "trxmon.u2a"));
@@ -88,6 +98,7 @@ const stopEmu = async () => { try { emu.kill("SIGTERM"); } catch { /* gone */ } 
 const be = await dist("runtime/backend.js");
 const disc = await dist("runtime/c64u/discovery.js");
 const pass_ = await dist("runtime/emulator-pass.js");
+const state = await dist("runtime/c64u-bridge/state.js");
 const { ProjectKnowledgeService } = await dist("project-knowledge/service.js");
 const proj = join(work, "proj");
 mkdirSync(proj);
@@ -121,7 +132,7 @@ try {
   check(st2.started === false && /already running/.test(st2.note), "a second start is 423 = already running", st2.note);
 
   head("3  select, PAUSED on start");
-  const sel = await be.selectBackend({ kind: "c64u", host: "127.0.0.1", restPort }, { rpcPort });
+  const sel = await be.selectBackend({ kind: "c64u", host: "127.0.0.1", restPort }, { rpcPort, projectDir: proj });
   check(sel.identity.device.runtimeVersion === "trx64-runtime/2" && /^trxmon /.test(sel.identity.device.trxmonVersion ?? "") && sel.identity.device.board === "C64U", "identity: board C64U, trx64-runtime/2, trxmon version", `${sel.identity.device.trxmonVersion}; ${sel.identity.device.capabilities}`);
   const d = be.runtimeDaemon;
   const d_ = d;
@@ -129,23 +140,37 @@ try {
   check(s0.runState === "running" && sel.notes.some((n) => /debug\/continue/.test(n)), "trxmon started paused; select continued it", sel.notes.join(" | "));
   check(s0.cpu && typeof s0.cpu.pc === "number" && s0.backend === "c64u" && s0.model === "c64-pal", "session/state in the daemon's shape (cpu, backend c64u, model)");
 
-  head("3b picture and sound (§4c)");
+  head("3b picture and sound (§4c), to a browser-like client of the bridge");
   {
-    const b = be.activeBackend();
+    const bridgeEp = state.readBridgeEntry("127.0.0.1", restPort).endpoint;
+    // the page's kind of client: an A/V subscriber of the bridge's WS
     const msgs = { video: [], audio: [], notes: [] };
     const t0 = Date.now();
-    const off = b.onBinary((m) => msgs[m.kind].push({ at: Date.now(), n: m.data.length, data: m.kind === "video" ? m.data : undefined }));
-    const offN = b.onNotification((n) => { if (n.method === "stream/paused") msgs.notes.push({ at: Date.now() - t0, ...n.params }); });
+    const page = new WebSocket(bridgeEp);
+    page.binaryType = "arraybuffer";
+    let pid = 1; const pendingP = new Map();
+    page.on("message", (d, isBin) => {
+      if (isBin) { const u = new Uint8Array(d); if (u[0] === 0x01) msgs.video.push({ at: Date.now(), n: u.length, data: u }); else if (u[0] === 0x02) msgs.audio.push({ at: Date.now(), n: u.length }); return; }
+      const m = JSON.parse(d.toString());
+      if (m.id != null && pendingP.has(m.id)) { pendingP.get(m.id)(m); pendingP.delete(m.id); }
+      else if (m.method === "stream/paused") msgs.notes.push({ at: Date.now() - t0, ...m.params });
+    });
+    await new Promise((res, rej) => { page.once("open", res); page.once("error", rej); });
+    const pcall = (method, params = {}) => new Promise((res, rej) => { const id = pid++; pendingP.set(id, (m) => (m.error ? rej(new Error(m.error.message)) : res(m.result))); page.send(JSON.stringify({ jsonrpc: "2.0", id, method, params })); });
+    const as = await pcall("audio/start", { session_id: "shared" });
+    check(as.sampleRate === 48003.07 && as.channels === 2, "audio/start (the browser's call) answers with the device's rate 48,003.07 Hz", JSON.stringify(as));
     check(sel.notes.some((n) => /picture and sound: listening on UDP \d+ \(video\) \/ \d+ \(audio\)/.test(n)), "select opened the UDP receivers", sel.notes.find((n) => /picture and sound/.test(n)) ?? "");
-    await Promise.race([b.streamsSettled(), sleep(30_000)]);
-    const ss = b.streamStatus();
-    const sv = ss.status?.streams;
+    const bstat = async () => (await pcall("bridge/status"));
+    const settle = Date.now() + 30_000;
+    while (Date.now() < settle) { const sx = (await bstat()).streams?.status?.streams; if (sx?.video.phase === "running" && sx?.audio.phase === "running") break; await sleep(300); }
+    const ss = await bstat();
+    const sv = ss.streams?.status?.streams;
     console.log(`  streams after the start: video ${sv?.video.phase}${sv?.video.failure ? ` (${sv.video.failure.message})` : ""}, audio ${sv?.audio.phase}${sv?.audio.failure ? ` (${sv.audio.failure.message})` : ""}; told ${sv?.video.target} / ${sv?.audio.target}`);
     check(sv?.video.phase === "running" && sv?.audio.phase === "running", "the device accepted both stream starts (PUT streams/video:start, audio:start)", JSON.stringify(sv));
     const waited = await (async () => { const end = Date.now() + 25_000; while (Date.now() < end && (msgs.video.length < 5 || msgs.audio.length < 20)) await sleep(250); return Date.now() - t0; })();
-    const st0 = b.streamStatus().status;
+    const st0 = (await bstat()).streams.status;
     console.log(`  after ${waited} ms: ${msgs.video.length} video frames, ${msgs.audio.length} audio buffers; foreign datagrams ${st0.foreignDatagrams}; video ${JSON.stringify(st0.video)}; audio ${JSON.stringify(st0.audio)}`);
-    check(msgs.video.length >= 5, "video frames arrive through the NAT (guest → host UDP)", `${msgs.video.length} frames; receivedAnyVideo=${st0.receivedAnyVideo}`);
+    check(msgs.video.length >= 5, "video frames arrive through the NAT (guest → host UDP), at the browser", `${msgs.video.length} frames; receivedAnyVideo=${st0.receivedAnyVideo}`);
     if (msgs.video.length >= 5) {
       const v = msgs.video.at(-1).data;
       const w = v[5 + 0] | (v[5 + 1] << 8), h = v[5 + 2] | (v[5 + 3] << 8);
@@ -160,7 +185,7 @@ try {
       const shot = await d_.call("session/screenshot", { session_id: "shared" });
       check(shot.dataUrl.startsWith("data:image/png;base64,") && shot.width === 384 && shot.frame >= 0 && shot.ageMs < 5000, "session/screenshot answers with a PNG, the frame number and its age", `age ${shot.ageMs} ms, frame ${shot.frame}, complete ${shot.complete}`);
     }
-    check(msgs.audio.length >= 20, "audio buffers arrive through the NAT", `${msgs.audio.length} buffers`);
+    check(msgs.audio.length >= 20, "audio buffers arrive through the NAT, at the browser", `${msgs.audio.length} buffers`);
     if (msgs.audio.length >= 20) {
       // a steady window, not the burst that was buffered while the streams were starting
       const w0 = Date.now(), n0 = msgs.audio.length;
@@ -169,12 +194,29 @@ try {
       const inWin = msgs.audio.slice(n0).filter((m) => m.at >= w0 && m.at <= w1);
       const frames = inWin.reduce((n, m) => n + (m.n - 5) / 4, 0);
       const hz = frames / ((w1 - w0) / 1000);
-      const st1 = b.streamStatus().status;
+      const st1 = (await bstat()).streams.status;
       console.log(`  audio: ${inWin.length} buffers in ${w1 - w0} ms → ${hz.toFixed(0)} Hz (device nominal 48003.07); lost ${st1.audio.packets_lost}, concealed ${st1.audio.packets_concealed}`);
       check(hz > 48003.07 * 0.97 && hz < 48003.07 * 1.03, "audio packets arrive at about 48,003 Hz (±3 % over a 5 s window)", `${hz.toFixed(0)} Hz`);
     }
     console.log(`  paused notifications seen: ${JSON.stringify(msgs.notes)}`);
-    off(); offN();
+
+    head("3c the assistant and the browser on ONE bridge, one connection at the device");
+    const mcpState = process.env.C64RE_STATE_DIR;
+    const mcp = startMcp({ root: ROOT, env: { C64RE_STATE_DIR: mcpState, C64RE_PROJECT_DIR: proj, C64RE_RUNTIME_AUTOSTART: "0", C64RE_C64U_VIDEO_PORT: String(videoUdp + 0), C64RE_C64U_AUDIO_PORT: String(audioUdp + 0) } });
+    try {
+      await mcp.call("agent_onboard", { project_dir: proj });
+      const stM = await mcp.call("runtime_session_status", { session_id: "shared" });
+      check(/Runtime session status \(C64 Ultimate\)/.test(stM) && stM.includes(`through the C64U bridge at ${bridgeEp}`) && /Run state: running/.test(stM), "an MCP server follows the shared selection onto the same bridge", stM.split("\n").slice(0, 2).join(" | "));
+      const shared = (await bstat()).bridge;
+      check(shared.clients >= 2 && shared.state === "ready", "the assistant (RPC-only) and the browser (A/V subscriber) are both clients of the one bridge", JSON.stringify({ clients: shared.clients, av: shared.avClients, pid: shared.pid }));
+      const nBefore = msgs.notes.length;
+      const mon = await mcp.call("runtime_monitor", { session_id: "shared", command: "r" });
+      check(/AC XR YR SP/.test(mon), "the assistant's monitor verb (r) answers from the device", mon.slice(0, 100));
+      const reg = await pcall("session/read_memory", { session_id: "shared", addr: 0x0400, length: 4, lens: "ram" });
+      check(reg.bytes.length === 4, "…while the browser reads memory on the same connection");
+      void nBefore;
+    } finally { mcp.stop(); }
+    page.close();
   }
 
   head("4  the app's RPC through the backend");
@@ -226,7 +268,6 @@ try {
   const prgPath = join(proj, "input", "mark.prg");
   mkdirSync(join(proj, "input"), { recursive: true });
   writeFileSync(prgPath, PRG);
-  d.setProjectDir(proj);
   const eg = await rejects(d.runPrg("shared", prgPath));
   check(/mark\.prg \(sha256 [0-9a-f]{8}…\) has no green emulator run in this project/.test(eg ?? ""), "run_prg of a PRG with no pass: refused, names file + hash", eg?.slice(0, 80));
   const before = await d.readMemoryRange("shared", 0xc000, 1);
@@ -254,6 +295,7 @@ try {
   check(false, "harness", e instanceof Error ? e.stack : String(e));
 } finally {
   try { await be.selectBackend({ kind: "emulator" }); } catch { /* released */ }
+  await reapBridges(join(work, "state"));
   await stopEmu();
   if (fail) console.log(`\n  emulator console tail:\n${log.join("").split("\n").slice(-15).map((l) => "    " + l).join("\n")}\n  kept: ${work}`);
   else rmSync(work, { recursive: true, force: true });

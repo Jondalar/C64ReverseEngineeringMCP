@@ -32,9 +32,9 @@ const minutes = (ms: number): string => {
 const clock = (ms: number): string => new Date(ms).toTimeString().slice(0, 5);
 
 /** One line for a status answer. */
-export function describeIdleExit(s: IdleExitStatus | undefined, now = Date.now()): string {
+export function describeIdleExit(s: IdleExitStatus | undefined, now = Date.now(), subject: "runtime" | "bridge" = "runtime"): string {
   if (!s) return "Idle exit: not reported (a runtime older than TRX64 Spec 887)";
-  if (!s.armedSeconds) return "Idle exit: none — this runtime was started by hand and runs until it is stopped";
+  if (!s.armedSeconds) return `Idle exit: none — this ${subject} was started by hand and runs until it is stopped`;
   const window = minutes(s.armedSeconds * 1000);
   if (s.keptForever) return `Idle exit: kept alive — it does not end on its own (otherwise after ${window} idle)`;
   if (s.holding) {
@@ -43,7 +43,9 @@ export function describeIdleExit(s: IdleExitStatus | undefined, now = Date.now()
   }
   if (s.deadlineMs === null) return `Idle exit: after ${window} idle`;
   const kept = s.keptAliveUntilMs && s.keptAliveUntilMs >= s.deadlineMs ? ` (kept alive until ${clock(s.keptAliveUntilMs)})` : "";
-  return `Idle exit: ends itself in ${minutes(s.deadlineMs - now)} if nothing happens${kept} — the next tool call then starts a fresh machine`;
+  return subject === "bridge"
+    ? `Idle exit: the C64U bridge ends itself in ${minutes(s.deadlineMs - now)} if nothing happens${kept} — the next tool call then starts it again (the device keeps its state)`
+    : `Idle exit: ends itself in ${minutes(s.deadlineMs - now)} if nothing happens${kept} — the next tool call then starts a fresh machine`;
 }
 
 // ── the respawn notice ────────────────────────────────────────────────────────────

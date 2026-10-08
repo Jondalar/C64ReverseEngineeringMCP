@@ -10,7 +10,7 @@
 
 import workletUrl from "./resid-worklet.js?url";
 
-// The emulator streams 44.1 kHz. A backend that streams another rate (the C64 Ultimate relay:
+// The emulator streams 44.1 kHz. A backend that streams another rate (the C64 Ultimate bridge:
 // 48,003.07 Hz, Spec 889 §4c) says so in its `audio/start` reply and the page passes it here;
 // the default keeps the emulator path exactly as it was.
 export const DEFAULT_STREAM_RATE = 44100;

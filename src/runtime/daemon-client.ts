@@ -200,8 +200,51 @@ export async function ensureDaemon(
  * gated here. The C64 Ultimate is the other implementation (`c64u-backend.ts`); which one the
  * tools reach is decided in `backend.ts`, by an explicit choice and never by fallback.
  */
+/**
+ * What differs between "the emulator daemon" and "the C64U bridge" for this client, and nothing
+ * else: where it connects, how it is brought up, and what a lost machine is called. Both speak the
+ * same daemon wire protocol, so the connect / handshake / call code is one. The default policy IS
+ * the emulator's, unchanged.
+ */
+export interface DaemonPolicy {
+  readonly kind: "emulator" | "c64u";
+  /** The WS endpoint, asked at every connect (a selection can move it). */
+  endpoint(): string;
+  /**
+   * Bring the endpoint up. Returns whether something was started (a respawn notice follows when this
+   * client had a machine before). May throw: its message is the call's error.
+   */
+  start(projectDir: string | undefined): Promise<boolean> | boolean;
+  /** Kill a wedged listener on this endpoint (the emulator daemon's self-heal); the bridge is not killed. */
+  readonly killStalled: boolean;
+  /** The text a failed connect carries. */
+  unreachable(endpoint: string, spawned: boolean): string;
+  /** The notice after a respawn of a machine this client had. */
+  respawnNotice(): string;
+  label(): string;
+}
+
+const emulatorPolicy: DaemonPolicy = {
+  kind: "emulator",
+  endpoint: () => runtimeEndpoint(),
+  start: (projectDir) => spawnDaemonDetached(runtimeEndpoint(), projectDir),
+  killStalled: true,
+  unreachable: (endpoint, spawned) => runtimeSetupRecipe(
+    `no runtime daemon reachable at ${endpoint}` +
+    (spawned ? " (auto-start was attempted but it did not come up in time)" : "")),
+  respawnNotice: () =>
+    "NOTE: the runtime had ended — it ends itself after being idle — so this call started a fresh " +
+      "machine. Its sessions, mounted media, checkpoints and rewind history are gone; mount and load " +
+      "again. runtime_keep_alive keeps a runtime that has to stay up.",
+  label: () => "Emulator (the default runtime)",
+};
+
 export class RuntimeDaemonClient extends RuntimeMethods {
-  readonly kind = "emulator" as const;
+  readonly kind: "emulator" | "c64u";
+  constructor(private readonly policy: DaemonPolicy = emulatorPolicy) {
+    super();
+    this.kind = policy.kind;
+  }
   private readonly noteHandlers = new Set<(n: BackendNotification) => void>();
   /** Notifications the daemon pushes on this client's socket (it speaks RPC only, `av=0`). */
   onNotification(handler: (n: BackendNotification) => void): () => void {
@@ -210,7 +253,7 @@ export class RuntimeDaemonClient extends RuntimeMethods {
   }
   /** Names the emulator and where it lives; never connects (a status line must not start a daemon). */
   async describe(): Promise<BackendIdentity> {
-    return { kind: "emulator", label: "Emulator (the default runtime)", endpoint: runtimeEndpoint(), version: this.runtimeBuild };
+    return { kind: this.kind, label: this.policy.label(), endpoint: this.policy.endpoint(), version: this.runtimeBuild };
   }
   private ws: WebSocket | null = null;
   private connecting: Promise<WebSocket> | null = null;
@@ -236,7 +279,7 @@ export class RuntimeDaemonClient extends RuntimeMethods {
   }
 
   private async connectWithAutostart(): Promise<WebSocket> {
-    const endpoint = runtimeEndpoint();
+    const endpoint = this.policy.endpoint();
     // 1) already up AND alive? (liveness, not just port-open — a wedged daemon holds
     //    the port but never answers; ping it before trusting the connection.)
     const health = await probeLiveness(endpoint);
@@ -245,32 +288,30 @@ export class RuntimeDaemonClient extends RuntimeMethods {
       try { ws = this.wire(await tryOpen(rpcOnly(endpoint))); } catch { /* fall through to respawn */ }
       if (ws) { await this.handshakeProtocol(); return ws; }
     } else if (health === "stall") {
-      console.error(`[c64-re mcp] runtime daemon at ${endpoint} is STALLED — killing it + respawning.`);
-      killStalledDaemon(endpoint);
-      for (let i = 0; i < 20; i++) { await sleep(150); if ((await probeLiveness(endpoint, 500)) === "down") break; }
+      if (this.policy.killStalled) {
+        console.error(`[c64-re mcp] runtime daemon at ${endpoint} is STALLED — killing it + respawning.`);
+        killStalledDaemon(endpoint);
+        for (let i = 0; i < 20; i++) { await sleep(150); if ((await probeLiveness(endpoint, 500)) === "down") break; }
+      } else {
+        throw new Error(`${this.policy.label()} at ${endpoint} is not answering (it accepted the connection and never replied) — select the runtime again with runtime_backend`);
+      }
     }
     // 2) auto-start the daemon (detached, outlives this MCP) then poll for it.
-    const spawned = spawnDaemonDetached(endpoint, this.projectDir);
+    const spawned = await this.policy.start(this.projectDir);
     // Spec 886 D4 — this process had a machine and it is gone: the daemon ended itself
     // when idle (or was stopped). Say so in the next answer; its state does not come back.
     if (spawned && this.everConnected) {
-      noteFreshRuntime(
-        "NOTE: the runtime had ended — it ends itself after being idle — so this call started a fresh " +
-          "machine. Its sessions, mounted media, checkpoints and rewind history are gone; mount and load " +
-          "again. runtime_keep_alive keeps a runtime that has to stay up.",
-      );
+      noteFreshRuntime(this.policy.respawnNotice());
     }
     const deadlineMs = spawned ? 40_000 : 4_000; // booting the default session takes a few s
     const start = Date.now();
     while (Date.now() - start < deadlineMs) {
       await sleep(400);
       let ws: WebSocket | null = null;
-      try { ws = this.wire(await tryOpen(rpcOnly(endpoint))); } catch { /* keep polling */ }
+      try { ws = this.wire(await tryOpen(rpcOnly(this.policy.endpoint()))); } catch { /* keep polling */ }
       if (ws) { await this.handshakeProtocol(); return ws; }
     }
-    throw new Error(runtimeSetupRecipe(
-      `no runtime daemon reachable at ${endpoint}` +
-      (spawned ? " (auto-start was attempted but it did not come up in time)" : "")));
+    throw new Error(this.policy.unreachable(endpoint, spawned));
   }
 
   /** Spec 800 §D — verify the daemon speaks our exact protocol epoch, once per connection.
