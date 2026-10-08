@@ -115,7 +115,7 @@ export class StreamController {
   }
 
   private async call(name: StreamName, verb: "start" | "stop", timeoutMs: number, target?: string): Promise<StreamFailure | null> {
-    const path = `/v1/streams/${name}:${verb}` + (verb === "start" ? `?ip=${encodeURIComponent(target!)}` : "");
+    const path = `/v1/streams/${name}:${verb}` + (verb === "start" ? `?ip=${encodeURIComponent(target!).replace(/%3A/gi, ":")}` : "");
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), timeoutMs); });
     try {

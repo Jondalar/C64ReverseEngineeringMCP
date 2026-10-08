@@ -41,6 +41,10 @@ interface DriveStatus {
   drivePc: number;
   dd00?: { pra: number; ddr: number };
   transferMode?: "kernal" | "custom" | "idle";
+  // Spec 889 — a C64 Ultimate: what the device says is in the drive (the name the person gave it), and the
+  // image kinds it takes. Its answer has no head/CPU fields (halfTrack/track/drivePc are absent).
+  mounted?: { file: string; path?: string } | null;
+  kinds?: string[];
 }
 
 interface CartStatus {
@@ -460,6 +464,15 @@ export function LiveTab({ sessionId, setSessionId, runState = "running", setRunS
       try {
         const ds = await client.call<DriveStatus>("session/drive_status", { session_id: sessionId });
         if (alive) setDrive(ds);
+        // A C64 Ultimate has drives 8 and 9 and says what is in them: the panel shows the device's
+        // answer, not what this page last sent. (The emulator's answer has no `kinds`.)
+        if (alive && ds?.kinds) {
+          setActiveMedia(ds.mounted ? (ds.mounted.path ?? ds.mounted.file) : "");
+          try {
+            const d9 = await client.call<DriveStatus>("session/drive_status", { session_id: sessionId, unit: 9 });
+            if (alive) { setDrive9(d9); setActiveMedia9(d9.mounted ? (d9.mounted.path ?? d9.mounted.file) : ""); }
+          } catch { /* the device reports no drive b */ }
+        }
       } catch { /* ignore */ }
       try {
         const cs = await client.call<CartStatus | null>("session/cart_status", { session_id: sessionId });

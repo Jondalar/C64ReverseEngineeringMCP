@@ -31,6 +31,8 @@ const APP_PREFIXES = ["mark/", "transport/"] as const;
 /** Methods the backend answers itself over the Ultimate's REST API. */
 export const REST_METHODS: readonly string[] = [
   "session/type", "session/joystick_set", "session/joystick_clear",
+  "session/key_down", "session/key_up", "session/release_keys",
+  "media/list_paths", "media/browse", "media/recent",
   "session/load_prg", "runtime/run_prg",
   "media/open", "media/mount", "media/ingress", "media/unmount",
   "session/drive_status", "session/drive_power", "session/drive_reset",
@@ -115,9 +117,9 @@ const REFUSALS: readonly RefusalRule[] = [
     wayOut: "the monitor's `cart` verb: runtime_monitor command \"cart\"",
   },
   {
-    match: (m) => startsWithAny(m, ["session/key_down", "session/key_up", "session/release_keys", "session/pot_", "session/input_"]),
-    reason: "single key/pot events are not mapped on the C64 Ultimate",
-    wayOut: "session/type (runtime_type) types text; session/joystick_set drives a joystick",
+    match: (m) => startsWithAny(m, ["session/pot_", "session/input_"]),
+    reason: "pot/paddle events are not mapped on the C64 Ultimate (its machine:input has keyboard, joystick, mouse)",
+    wayOut: "session/key_down|key_up press single keys, session/type types text, session/joystick_set drives a joystick",
   },
   {
     match: (m) => m === "runtime/call",
@@ -130,7 +132,7 @@ const REFUSALS: readonly RefusalRule[] = [
     wayOut: "checkpoint/restore the anchor, then session/read_memory",
   },
   {
-    match: (m) => startsWithAny(m, ["device/", "fs/", "asm/", "cart/", "media/browse", "media/list_paths", "media/recent", "media/events"]),
+    match: (m) => startsWithAny(m, ["device/", "fs/", "asm/", "cart/", "media/events"]),
     reason: "a host-side (emulator workbench) method with no counterpart on a C64 Ultimate",
     wayOut: "media come from the host through media/mount, media/open or media/ingress",
   },

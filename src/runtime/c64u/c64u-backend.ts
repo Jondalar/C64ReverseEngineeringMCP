@@ -9,11 +9,12 @@
 // REST action that changes the machine, `debug/state` is re-read (§7) because trxmon is not
 // told. Nothing here ever reaches an emulator and nothing falls back to one.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
-import { basename, isAbsolute, resolve } from "node:path";
-import { gateRefusal } from "../emulator-pass.js";
+import { basename, extname, isAbsolute, join, resolve } from "node:path";
+import { gateRefusal, sha256Hex } from "../emulator-pass.js";
 import { EXPECTED_RUNTIME_PROTOCOL, parseRuntimeProtocol } from "../setup-recipe.js";
 import { RuntimeMethods, type BackendIdentity, type BackendNotification } from "../runtime-methods.js";
 import { classifyIdent, type UltimateIdent } from "./discovery.js";
@@ -22,7 +23,7 @@ import { StreamsFrameSource } from "./streams-frame-source.js";
 import { C64UStreams, localAddressTowards, type RestCaller } from "../c64u-streams/index.js";
 import { UltimateRest, UltimateRestError } from "./rest.js";
 import { RpcError, RpcLink, RpcLinkError } from "./rpc-link.js";
-import { driveLetter, joystickEvents, sniffMedia, tapBatches, textToTaps } from "./rest-map.js";
+import { DISK_KINDS, MAX_INPUT_EVENTS, driveLetter, joystickEvents, sniffMedia, textToTaps, uiKeyToInput, type InputEvent } from "./rest-map.js";
 import { DEFAULT_TRXMON_PATH, startTrxmon } from "./start-monitor.js";
 import { APP_NOTIFICATIONS, API_CALL_VERBS, capabilityGaps, parseCapabilities, refusalText, routeOf } from "./routing.js";
 
@@ -124,6 +125,16 @@ export class C64UBackend extends RuntimeMethods {
   private closed = false;
   private lastVideoMessage: Uint8Array | undefined;
   private readonly binaryHandlers = new Set<(m: StreamMessage) => void>();
+  // machine:input — every keyboard/joystick event goes through ONE ordered queue (see enqueueInput).
+  private inputJobs: Array<{ events: InputEvent[]; resolve: () => void; reject: (e: unknown) => void }> = [];
+  private inputTail: Promise<void> = Promise.resolve();
+  private inputScheduled = false;
+  /** Keys this bridge holds down on the device (the daemon's ids), so `release_keys` lets go of keys only. */
+  private readonly heldKeys = new Set<string>();
+  /** What the bridge uploaded into each drive (the device names its temporary copy, the person named the file). */
+  private readonly mountedNames: Record<string, { file: string; path?: string; kind: string }> = {};
+  /** Media this bridge mounted or started from a host path, newest first (the picker's "recent"). */
+  private readonly recentMedia: Array<{ path: string; type: string; mountedAt: string }> = [];
 
   constructor(private readonly opts: C64UOptions) {
     super();
@@ -563,6 +574,12 @@ export class C64UBackend extends RuntimeMethods {
       case "audio/stop": return this.doAudioStop();
       case "session/drive_status": return this.doDriveStatus(p);
       case "session/type": return this.afterRest(await this.doType(p), "typing");
+      case "session/key_down": return this.doKey(p, "press");
+      case "session/key_up": return this.doKey(p, "release");
+      case "session/release_keys": return this.doReleaseKeys();
+      case "media/list_paths": return this.doListPaths();
+      case "media/browse": return this.doBrowse(p);
+      case "media/recent": return this.doRecent();
       case "session/joystick_set": return this.doJoystick(p, false);
       case "session/joystick_clear": return this.doJoystick(p, true);
       case "session/load_prg": return this.afterRest(await this.doLoadPrg(p, false), "load_prg");
@@ -650,7 +667,8 @@ export class C64UBackend extends RuntimeMethods {
       busId: entry.bus_id,
       type: entry.type,
       rom: entry.rom,
-      mounted: entry.image_file ? { file: entry.image_file, path: entry.image_path } : null,
+      mounted: this.mountedOf(letter, entry),
+      kinds: DISK_KINDS,
       source: "REST /v1/drives",
     };
   }
@@ -662,9 +680,7 @@ export class C64UBackend extends RuntimeMethods {
       throw new BackendRefusal(`session/type: no C64 key for ${[...new Set(unmapped)].join(", ")} — nothing was typed. Use the characters of the C64 keyboard (letters, digits, space, RETURN and the shifted symbols).`);
     }
     if (taps.length === 0) return { queued: 0, via: "REST machine:input" };
-    for (const body of tapBatches(taps)) {
-      await this.rest.request({ method: "POST", path: "/v1/machine:input", jsonBody: body });
-    }
+    await this.enqueueInput(taps.map((t) => ({ kind: "keyboard" as const, inputs: [...t], transition: "tap" as const })));
     return {
       queued: taps.length,
       via: "REST machine:input",
@@ -672,13 +688,73 @@ export class C64UBackend extends RuntimeMethods {
     };
   }
 
+  /**
+   * Every keyboard/joystick event of every client goes through this one queue: events are sent in the
+   * order they were queued, calls arriving in the same event-loop turn share a request (at most 64
+   * events each, the firmware's cap), and a request starts only after the one before it was answered —
+   * so a press and the release behind it can never overtake each other on the wire.
+   */
+  private enqueueInput(events: InputEvent[]): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.inputJobs.push({ events, resolve, reject });
+      if (this.inputScheduled) return;
+      this.inputScheduled = true;
+      setImmediate(() => {
+        this.inputScheduled = false;
+        const jobs = this.inputJobs;
+        this.inputJobs = [];
+        const all = jobs.flatMap((j) => j.events);
+        this.inputTail = this.inputTail.then(async () => {
+          try {
+            for (let i = 0; i < all.length; i += MAX_INPUT_EVENTS) {
+              await this.rest.request({ method: "POST", path: "/v1/machine:input", jsonBody: { events: all.slice(i, i + MAX_INPUT_EVENTS) } });
+            }
+            for (const j of jobs) j.resolve();
+          } catch (e) { for (const j of jobs) j.reject(e); }
+        });
+      });
+    });
+  }
+
+  private keyInput(method: string, p: Record<string, unknown>): { id: string; input: string } {
+    const raw = typeof p.key === "string" ? p.key : "";
+    const input = raw ? uiKeyToInput(raw) : undefined;
+    if (!input) {
+      throw new BackendRefusal(`${method}: no key ${JSON.stringify(raw)} on the C64 Ultimate's keyboard (machine:input) — nothing was sent. Keys: A-Z, 0-9, RETURN, SPACE, DEL, HOME, RUN_STOP, C_EQ, CTRL, LARROW, UP_ARROW, L_SHIFT, R_SHIFT, CRSR_DN, CRSR_RT, F1 F3 F5 F7, POUND, RESTORE (tapped) and + - * / = : ; , . @`);
+    }
+    return { id: raw.toUpperCase(), input };
+  }
+
+  private async doKey(p: Record<string, unknown>, transition: "press" | "release"): Promise<unknown> {
+    const method = transition === "press" ? "session/key_down" : "session/key_up";
+    if (typeof p.key === "string" && p.key.toUpperCase() === "RESTORE") {
+      // RESTORE is the NMI line, an edge: the firmware takes it as a tap only. Down taps it, up has nothing to release.
+      if (transition === "press") await this.enqueueInput([{ kind: "keyboard", inputs: ["restore"], transition: "tap" }]);
+      return { ok: true, pressed: [...this.heldKeys], via: "REST machine:input", note: "RESTORE is tapped on key_down (an edge, not a level)" };
+    }
+    const { id, input } = this.keyInput(method, p);
+    if (transition === "press") this.heldKeys.add(id); else this.heldKeys.delete(id);
+    await this.enqueueInput([{ kind: "keyboard", inputs: [input], transition }]);
+    return { ok: true, pressed: [...this.heldKeys], via: "REST machine:input" };
+  }
+
+  /** Lets go of the keys this bridge holds — keys only: a joystick another client holds stays (BUG-049). */
+  private async doReleaseKeys(): Promise<unknown> {
+    const held = [...this.heldKeys];
+    this.heldKeys.clear();
+    const events: InputEvent[] = [];
+    for (let i = 0; i < held.length; i += 8) {
+      events.push({ kind: "keyboard", inputs: held.slice(i, i + 8).map((k) => uiKeyToInput(k)!), transition: "release" });
+    }
+    if (events.length) await this.enqueueInput(events);
+    return { ok: true, released: held, via: "REST machine:input" };
+  }
+
   private async doJoystick(p: Record<string, unknown>, clear: boolean): Promise<unknown> {
     const port = Number(p.port ?? 2);
     if (port !== 1 && port !== 2) throw new BackendRefusal(`joystick: port must be 1 or 2, got ${port}`);
     const state = clear ? {} : (p as { up?: boolean; down?: boolean; left?: boolean; right?: boolean; fire?: boolean });
-    for (const ev of joystickEvents(port, state)) {
-      await this.rest.request({ method: "POST", path: "/v1/machine:input", jsonBody: { events: [ev] } });
-    }
+    await this.enqueueInput(joystickEvents(port, state));
     return { port, ...(clear ? { cleared: true } : { up: !!state.up, down: !!state.down, left: !!state.left, right: !!state.right, fire: !!state.fire }), via: "REST machine:input" };
   }
 
@@ -716,13 +792,33 @@ export class C64UBackend extends RuntimeMethods {
     return { loadAddress: r.loadAddress, action: `g $${entry.toString(16).padStart(4, "0")} (REST load_prg, then the monitor's go)` };
   }
 
-  private async mountDisk(m: { name: string; bytes: Uint8Array }, kind: string, unit: number, writeProtected: boolean): Promise<void> {
+  private async mountDisk(m: { abs?: string; name: string; bytes: Uint8Array }, kind: string, unit: number, writeProtected: boolean): Promise<string> {
     const letter = driveLetter(unit);
     if (!letter) throw new BackendRefusal(`a C64 Ultimate has drives a (unit 8) and b (unit 9); unit ${unit} is not one of them`);
     await this.rest.request({
       method: "POST", path: `/v1/drives/${letter}:mount`,
       query: { type: kind, mode: writeProtected ? "readonly" : "readwrite" }, body: m.bytes,
     });
+    this.mountedNames[letter] = { file: m.name, path: m.abs, kind };
+    this.remember(m.abs, kind);
+    return letter;
+  }
+
+  /** The drive panel's "mounted": the device says whether an image is in, the bridge says what the person called it. */
+  private mountedOf(letter: string, entry: Record<string, unknown>): { file: string; path?: string; kind?: string; deviceFile?: string } | null {
+    if (!entry.image_file) { delete this.mountedNames[letter]; return null; }
+    const ours = this.mountedNames[letter];
+    return ours
+      ? { file: ours.file, path: ours.path ?? ours.file, kind: ours.kind, deviceFile: String(entry.image_file) }
+      : { file: String(entry.image_file), path: entry.image_path ? `${String(entry.image_path)}/${String(entry.image_file)}` : undefined };
+  }
+
+  private remember(abs: string | undefined, type: string): void {
+    if (!abs) return;
+    const i = this.recentMedia.findIndex((r) => r.path === abs);
+    if (i >= 0) this.recentMedia.splice(i, 1);
+    this.recentMedia.unshift({ path: abs, type, mountedAt: new Date().toISOString() });
+    this.recentMedia.length = Math.min(this.recentMedia.length, 30);
   }
 
   private async doMediaOpen(p: Record<string, unknown>, timeoutMs: number, via: "open" | "mount" = "open"): Promise<unknown> {
@@ -734,16 +830,18 @@ export class C64UBackend extends RuntimeMethods {
     const label = m.abs ?? m.name;
     if (kind === "crt") {
       await this.rest.request({ method: "POST", path: "/v1/runners:run_crt", body: m.bytes });
-      return { kind: "crt", path: label, message: `RUN_CRT ${label} — the Ultimate STARTS a cartridge, there is no mount-only` };
+      this.remember(m.abs, "crt");
+      return { kind: "crt", type: "crt", path: label, started: true, message: `RUN_CRT ${label} — the Ultimate STARTS the cartridge now (there is no mount-only, and no eject: reset or power-cycle leaves it)` };
     }
     if (kind === "prg") {
       if (via === "mount") throw new BackendRefusal(`media/mount: ${m.name} is a PRG, not a mountable medium — media/open or runtime_run_prg starts it`);
       const r = await this.runPrgBytes(m, typeof p.run === "number" ? p.run : undefined, p.session_id, timeoutMs);
-      return { kind: "prg", path: label, loadAddress: r.loadAddress, message: `LOAD ${label} → $${r.loadAddress.toString(16).padStart(4, "0")} — ${r.action}` };
+      this.remember(m.abs, "prg");
+      return { kind: "prg", type: "prg", path: label, loadAddress: r.loadAddress, message: `LOAD ${label} → $${r.loadAddress.toString(16).padStart(4, "0")} — ${r.action}` };
     }
     const unit = Number(p.unit ?? p.slot ?? 8);
-    await this.mountDisk(m, kind, unit, p.write_protected === true);
-    return { kind, path: label, message: `MOUNT ${label} (${kind}) on drive ${driveLetter(unit)} — uploaded to the device; writes land in its temporary copy, the host image is not changed` };
+    const letter = await this.mountDisk(m, kind, unit, p.write_protected === true);
+    return { kind, type: kind, slot: unit, mountedPath: label, path: label, drive: letter, errors: [], message: `MOUNT ${label} (${kind}) on drive ${unit} (${letter}) — uploaded to the device; writes land in its temporary copy, the host image is not changed` };
   }
 
   private async doMediaIngress(p: Record<string, unknown>, timeoutMs: number): Promise<unknown> {
@@ -759,11 +857,15 @@ export class C64UBackend extends RuntimeMethods {
     if (kind === "disk") {
       const m = this.mediaFrom(p, "media/ingress");
       const dk = sniffMedia(m.bytes, m.name);
-      if (!["d64", "g64", "d71", "g71", "d81"].includes(dk)) throw new BackendRefusal(`media/ingress kind=disk: ${m.name} is not a disk image (looks like ${dk})`);
+      if (!DISK_KINDS.includes(dk)) throw new BackendRefusal(`media/ingress kind=disk: ${m.name} is not a disk image (looks like ${dk})`);
       this.gate(m.name, m.bytes, m.abs);
       const unit = Number(p.unit ?? p.slot ?? 8);
-      await this.mountDisk(m, dk, unit, p.write_protected === true);
-      return { kind: "disk", path: m.abs ?? m.name, message: `MOUNT ${m.abs ?? m.name} (${dk}) — uploaded to the device; writes land in its temporary copy` };
+      const letter = await this.mountDisk(m, dk, unit, p.write_protected === true);
+      return {
+        kind: "disk", type: dk, slot: unit, drive: letter, path: m.abs ?? m.name, mountedPath: m.abs ?? m.name,
+        event: { format: dk, sha256: sha256Hex(m.bytes) },
+        message: `MOUNT ${m.abs ?? m.name} (${dk}) on drive ${unit} (${letter}) — uploaded to the device; writes land in its temporary copy`,
+      };
     }
     if (kind === "prg") {
       const m = this.mediaFrom(p, "media/ingress");
@@ -788,7 +890,69 @@ export class C64UBackend extends RuntimeMethods {
     const letter = driveLetter(unit);
     if (!letter) throw new BackendRefusal(`media/unmount: unit ${unit} — a C64 Ultimate has drives a (8) and b (9)`);
     await this.rest.request({ method: "PUT", path: `/v1/drives/${letter}:remove` });
-    return { ejected: true, role: "drive8", drive: letter, via: "REST drives:remove" };
+    delete this.mountedNames[letter];
+    return { ejected: true, role: `drive${unit}`, drive: letter, via: "REST drives:remove" };
+  }
+
+  // ---- host-side media lists (the picker's tree and "recent"): files of THIS machine, the device is not asked ----
+
+  private doListPaths(): unknown {
+    const project = this.projectDir ?? "";
+    const root = process.env.C64RE_ROOT ?? "";
+    const downloads = join(homedir(), "Downloads");
+    const rows = [
+      ...(root ? [{ label: "samples", path: join(root, "samples") }] : []),
+      { label: "project", path: project },
+      { label: "Downloads", path: downloads },
+    ];
+    return rows.map((r) => ({ ...r, exists: !!r.path && existsSync(r.path) }));
+  }
+
+  private doBrowse(p: Record<string, unknown>): unknown {
+    const dir = typeof p.path === "string" ? p.path : "";
+    if (!dir) throw new BackendRefusal("media/browse: missing path");
+    let names: string[];
+    try { names = readdirSync(dir); } catch (e) { throw new BackendRefusal(`media/browse: read_dir error: ${e instanceof Error ? e.message : String(e)}`); }
+    const known = new Set([...DISK_KINDS, "crt", "prg"]);
+    const entries: Array<Record<string, unknown>> = [];
+    for (const name of names.sort((a, b) => a.localeCompare(b))) {
+      if (name.startsWith(".")) continue;
+      const abs = join(dir, name);
+      let st; try { st = statSync(abs); } catch { continue; }
+      if (st.isDirectory()) { entries.push({ name, path: abs, type: "dir", deferred: false }); continue; }
+      const ext = extname(name).slice(1).toLowerCase();
+      if (!known.has(ext)) continue;
+      entries.push({ name, path: abs, type: ext, deferred: false, sizeBytes: st.size });
+    }
+    return { path: dir, entries };
+  }
+
+  private doRecent(): unknown {
+    const out: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    for (const r of this.recentMedia) {
+      if (!existsSync(r.path) || seen.has(r.path)) continue;
+      seen.add(r.path);
+      out.push({ path: r.path, name: basename(r.path), type: r.type, mountedAt: r.mountedAt });
+    }
+    const known = new Set([...DISK_KINDS, "crt"]);
+    const walk = (dir: string, depth: number) => {
+      if (depth > 3 || out.length >= 100) return;
+      let names: string[];
+      try { names = readdirSync(dir).sort(); } catch { return; }
+      for (const name of names) {
+        if (name.startsWith(".") || name === "node_modules" || name === "knowledge") continue;
+        const abs = join(dir, name);
+        let st; try { st = statSync(abs); } catch { continue; }
+        if (st.isDirectory()) { walk(abs, depth + 1); continue; }
+        const ext = extname(name).slice(1).toLowerCase();
+        if (!known.has(ext) || seen.has(abs)) continue;
+        seen.add(abs);
+        out.push({ path: abs, name: `${basename(dir)}/${name}`, type: ext });
+      }
+    };
+    if (this.projectDir && existsSync(this.projectDir)) walk(this.projectDir, 0);
+    return out.slice(0, 100);
   }
 
   private async doDrivePower(p: Record<string, unknown>): Promise<unknown> {

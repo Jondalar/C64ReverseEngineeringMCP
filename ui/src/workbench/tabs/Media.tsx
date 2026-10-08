@@ -21,7 +21,7 @@ interface FsRoot {
 interface FsEntry {
   name: string;
   path: string;
-  type: "dir" | "d64" | "g64" | "crt" | "prg" | "vsf" | "t64" | "tap";
+  type: "dir" | "d64" | "g64" | "d71" | "g71" | "d81" | "crt" | "prg" | "vsf" | "t64" | "tap";
   deferred: boolean;
   sizeBytes?: number;
 }
@@ -39,6 +39,9 @@ interface MountResult {
   mapperType?: string;
   sectors?: number;
   errors?: string[];
+  /** Spec 889 — a C64 Ultimate says what it did (a cartridge is STARTED there, not inserted). */
+  message?: string;
+  started?: boolean;
 }
 
 // ---- helpers ----
@@ -46,6 +49,9 @@ interface MountResult {
 const TYPE_BADGE: Record<string, string> = {
   d64: "D64",
   g64: "G64",
+  d71: "D71",
+  g71: "G71",
+  d81: "D81",
   crt: "CRT",
   prg: "PRG",
   vsf: "VSF",
@@ -56,6 +62,9 @@ const TYPE_BADGE: Record<string, string> = {
 const TYPE_COLOR: Record<string, string> = {
   d64: "#4a90d9",
   g64: "#4a90d9",
+  d71: "#4a90d9",
+  g71: "#4a90d9",
+  d81: "#4a90d9",
   crt: "#d47f00",
   prg: "#6a9f2f",
   vsf: "#8e59c9",
@@ -98,7 +107,7 @@ function TypeBadge({ type, deferred }: { type: string; deferred: boolean }): Rea
 
 function DriveSlot({
   slot, mountedPath, mountedType, mapperType,
-  onEject, onSwap,
+  onEject, onSwap, canSwap = true,
 }: {
   slot: 8 | 9;
   mountedPath?: string;
@@ -106,6 +115,8 @@ function DriveSlot({
   mapperType?: string;
   onEject: () => void;
   onSwap: (p: string) => void;
+  /** media/swap is the emulator's: a C64 Ultimate mounts again instead. */
+  canSwap?: boolean;
 }): React.JSX.Element {
   const [swapInput, setSwapInput] = useState("");
   return (
@@ -134,7 +145,7 @@ function DriveSlot({
           <span style={{ color: "#555", fontStyle: "italic", flex: 1 }}>empty</span>
         )}
       </div>
-      {mountedPath && (
+      {mountedPath && canSwap && (
         <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
           <input
             placeholder="Swap to path..."
@@ -170,7 +181,35 @@ export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
   // Media tab and the Live/Inspector tab never diverge.
   const [cart, setCart] = useState<{ path?: string; mapperType?: string }>({});
   const [status, setStatus] = useState<string>("");
+  // Spec 889 — a C64 Ultimate has drives 8 and 9 and says what is in them; the emulator's drive_status carries
+  // no `kinds`, so this stays false there and the tab is what it was.
+  const [device, setDevice] = useState(false);
+  const [dropUnit, setDropUnit] = useState<8 | 9>(8);
   const client = getClient();
+
+  useEffect(() => {
+    if (!sessionId) return;
+    let alive = true;
+    const tick = async () => {
+      if (!alive) return;
+      try {
+        const d8 = await client.call<{ kinds?: string[]; mounted?: { file: string; path?: string; kind?: string } | null }>(
+          "session/drive_status", { session_id: sessionId, unit: 8 });
+        if (alive && d8?.kinds) {
+          setDevice(true);
+          setDrive8(d8.mounted ? { path: d8.mounted.path ?? d8.mounted.file, type: d8.mounted.kind } : {});
+          try {
+            const d9 = await client.call<{ mounted?: { file: string; path?: string; kind?: string } | null }>(
+              "session/drive_status", { session_id: sessionId, unit: 9 });
+            if (alive) setDrive9(d9.mounted ? { path: d9.mounted.path ?? d9.mounted.file, type: d9.mounted.kind } : {});
+          } catch { /* the device reports no drive b */ }
+        }
+      } catch { /* ignore */ }
+      if (alive && device) setTimeout(tick, 1000);
+    };
+    void tick();
+    return () => { alive = false; };
+  }, [sessionId, client, device]);
 
   // Spec 709.13 — poll the backend cartridge state; refreshCart() also fires
   // immediately after an insert/eject for low latency.
@@ -244,7 +283,12 @@ export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
       const errMsg = result.errors?.join("; ");
       // Spec 709.12 — a CRT inserts as a CARTRIDGE (slot 0), never drive 8. The
       // adapter returns slot=undefined for a crt; route it to the CART row.
-      if (entry.type === "crt" || result.slot === undefined && result.type === "crt") {
+      if (result.message && device) {
+        // The device says what it did (a cartridge is STARTED, a disk is uploaded into a drive).
+        if (result.started) void refreshCart();
+        else (slot === 8 ? setDrive8 : setDrive9)({ path: result.mountedPath, type: result.type });
+        setStatus(result.message);
+      } else if (entry.type === "crt" || result.slot === undefined && result.type === "crt") {
         // Spec 709.13 — CART display comes from backend cart_status, not the
         // mount result; refresh now so the row updates immediately.
         void refreshCart();
@@ -258,7 +302,7 @@ export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
     } catch (e) {
       setStatus(`Mount error: ${(e as Error).message}`);
     }
-  }, [sessionId, client]);
+  }, [sessionId, client, device]);
 
   // Spec 709 §3 / 724.2e — browser drag & drop. The dropped file's BYTES are
   // sent to the SAME backend media-ingress service (media/ingress) as the path
@@ -274,11 +318,11 @@ export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
     // $0801 for BASIC = wrong). Other media → media/ingress as before.
     const isPrg = ext === "prg";
     let req: Record<string, unknown> | undefined;
-    if (ext === "d64" || ext === "g64") req = { kind: "disk" };
+    if (ext === "d64" || ext === "g64" || (device && (ext === "d71" || ext === "g71" || ext === "d81"))) req = { kind: "disk", ...(dropUnit !== 8 ? { unit: dropUnit } : {}) };
     else if (ext === "crt") req = { kind: "crt", resetPolicy: "power-cycle" };
     else if (isPrg) req = { kind: "prg" };
     else if (ext === "c64re") { setStatus(`${file.name}: .c64re is a snapshot — use Snapshots ▸ Undump, not media`); return; }
-    else { setStatus(`Unsupported file type: .${ext} (drop .d64/.g64/.crt/.prg)`); return; }
+    else { setStatus(`Unsupported file type: .${ext} (drop .d64/.g64${device ? "/.d71/.g71/.d81" : ""}/.crt/.prg)`); return; }
     try {
       setStatus(`Ingesting ${file.name}…`);
       const buf = new Uint8Array(await file.arrayBuffer());
@@ -288,16 +332,20 @@ export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
       const bytes_b64 = btoa(bin);
       if (isPrg) {
         const r = await client.call<{ loadAddress: number; action: string }>(
-          "runtime/run_prg", { session_id: sessionId, bytes_b64 });
+          "runtime/run_prg", { session_id: sessionId, name: file.name, bytes_b64 });
         client.call<RecentEntry[]>("media/recent").then(setRecent).catch(() => {});
         const la = (r?.loadAddress ?? 0).toString(16).padStart(4, "0");
         setStatus(`Ran ${file.name} @ $${la} → ${r?.action ?? "started"}`);
         return;
       }
-      const res = await client.call<{ event?: { format?: string; sha256?: string }; detail?: { mapperType?: string } }>(
+      const res = await client.call<{ event?: { format?: string; sha256?: string }; detail?: { mapperType?: string }; message?: string }>(
         "media/ingress", { session_id: sessionId, name: file.name, bytes_b64, ...req });
       client.call<RecentEntry[]>("media/recent").then(setRecent).catch(() => {});
-      if (req.kind === "crt") {
+      if (device && res.message) {
+        if (req.kind === "crt") void refreshCart();
+        else if (req.kind === "disk") (dropUnit === 8 ? setDrive8 : setDrive9)({ path: file.name, type: res.event?.format ?? ext });
+        setStatus(res.message);
+      } else if (req.kind === "crt") {
         void refreshCart();
         setStatus(`Inserted ${file.name} as cartridge${res.detail?.mapperType ? ` [${res.detail.mapperType}]` : ""} (cold boot)`);
       } else if (req.kind === "prg") {
@@ -309,7 +357,7 @@ export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
     } catch (e) {
       setStatus(`Ingest error: ${(e as Error).message}`);
     }
-  }, [sessionId, client, refreshCart]);
+  }, [sessionId, client, refreshCart, device, dropUnit]);
 
   const [dragOver, setDragOver] = useState(false);
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -354,6 +402,19 @@ export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
       setStatus(`Drive ${slot} swapped to ${basename(newPath)}`);
     } catch (e) {
       setStatus(`Swap error: ${(e as Error).message}`);
+    }
+  }, [sessionId, client]);
+
+  // A C64 Ultimate starts a PRG from a host file through media/open (upload + run_prg).
+  const runPrgFile = useCallback(async (entry: FsEntry) => {
+    if (!sessionId) { setStatus("No active session — start a session first"); return; }
+    try {
+      setStatus(`Running ${entry.name}...`);
+      const r = await client.call<{ message?: string }>("media/open", { session_id: sessionId, path: entry.path });
+      client.call<RecentEntry[]>("media/recent").then(setRecent).catch(() => {});
+      setStatus(r?.message ?? `Ran ${entry.name}`);
+    } catch (e) {
+      setStatus(`Run error: ${(e as Error).message}`);
     }
   }, [sessionId, client]);
 
@@ -453,15 +514,29 @@ export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
           background: "rgba(20,30,45,0.88)", border: "2px dashed #4a90d9", borderRadius: "6px",
           color: "#cfe3ff", fontSize: "15px", fontWeight: "bold", textAlign: "center", pointerEvents: "none",
         }}>
-          Drop .d64 / .g64 / .crt / .prg<br />
+          {device ? "Drop .d64 / .g64 / .d71 / .g71 / .d81 / .crt / .prg" : "Drop .d64 / .g64 / .crt / .prg"}<br />
           <span style={{ fontSize: "12px", fontWeight: "normal", color: "#9ab" }}>
-            disk → drive 8 · cartridge → cold boot · PRG → load + RUN
+            {device
+              ? `disk → drive ${dropUnit} · cartridge → uploaded and STARTED · PRG → load + RUN`
+              : "disk → drive 8 · cartridge → cold boot · PRG → load + RUN"}
           </span>
         </div>
       )}
       {/* Drive slots */}
       <div style={{ background: "#161616", borderRadius: "5px", padding: "8px" }}>
-        <div style={{ fontWeight: "bold", color: "#888", marginBottom: "6px", fontSize: "11px", textTransform: "uppercase" }}>Drive Slots</div>
+        <div style={{ fontWeight: "bold", color: "#888", marginBottom: "6px", fontSize: "11px", textTransform: "uppercase" }}>
+          Drive Slots
+          {device && (
+            <label style={{ float: "right", textTransform: "none", fontWeight: "normal" }}>
+              dropped disks go to drive{" "}
+              <select value={dropUnit} onChange={(e) => setDropUnit(Number(e.target.value) === 9 ? 9 : 8)}
+                style={{ fontSize: "11px", background: "#111", color: "#ccc", border: "1px solid #333" }}>
+                <option value={8}>8</option>
+                <option value={9}>9</option>
+              </select>
+            </label>
+          )}
+        </div>
         <DriveSlot
           slot={8}
           mountedPath={drive8.path}
@@ -469,9 +544,20 @@ export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
           mapperType={drive8.mapperType}
           onEject={() => ejectSlot(8)}
           onSwap={(p) => swapSlot(8, p)}
+          canSwap={!device}
         />
-        {/* Spec 709.9 — Drive 9 is not wired in v1 (the backend rejects it); the
-            control is disabled rather than presented as functional. */}
+        {device ? (
+          <DriveSlot
+            slot={9}
+            mountedPath={drive9.path}
+            mountedType={drive9.type}
+            onEject={() => ejectSlot(9)}
+            onSwap={() => {}}
+            canSwap={false}
+          />
+        ) : (
+        /* Spec 709.9 — Drive 9 is not wired in v1 (the backend rejects it); the
+            control is disabled rather than presented as functional. */
         <div style={{
           border: "1px dashed #333", borderRadius: "5px", padding: "8px 12px",
           marginBottom: "8px", background: "#181818", color: "#555", fontSize: "12px",
@@ -479,6 +565,7 @@ export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
           <strong style={{ color: "#666", minWidth: "70px" }}>Drive 9:</strong>{" "}
           <span style={{ fontStyle: "italic" }}>not supported in v1 (drive 8 only)</span>
         </div>
+        )}
         {/* Spec 709.12 — CART row: a .crt inserts here (slot 0), not drive 8. */}
         <div style={{
           display: "flex", alignItems: "center", gap: "8px",
@@ -540,14 +627,41 @@ export function MediaTab({ sessionId }: TabProps): React.JSX.Element {
               )}
               {!entry.deferred && (
                 <>
-                  <button
-                    onClick={() => mountFile(entry, 8)}
-                    style={{ fontSize: "10px", padding: "1px 5px", marginLeft: "4px" }}
-                    title="Mount to drive 8"
-                  >
-                    Mount
-                  </button>
-                  {/* Spec 709.9 — Drive 9 mount removed (v1 drive8-only; backend rejects it). */}
+                  {device && entry.type === "prg" ? (
+                    <button
+                      onClick={() => runPrgFile(entry)}
+                      style={{ fontSize: "10px", padding: "1px 5px", marginLeft: "4px" }}
+                      title="Upload this PRG to the C64 Ultimate and run it"
+                    >
+                      Run
+                    </button>
+                  ) : device && entry.type === "crt" ? (
+                    <button
+                      onClick={() => mountFile(entry, 8)}
+                      style={{ fontSize: "10px", padding: "1px 5px", marginLeft: "4px" }}
+                      title="Upload and START this cartridge on the C64 Ultimate (there is no mount-only)"
+                    >
+                      Start
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => mountFile(entry, 8)}
+                      style={{ fontSize: "10px", padding: "1px 5px", marginLeft: "4px" }}
+                      title="Mount to drive 8"
+                    >
+                      Mount
+                    </button>
+                  )}
+                  {device && entry.type !== "crt" && entry.type !== "prg" && (
+                    <button
+                      onClick={() => mountFile(entry, 9)}
+                      style={{ fontSize: "10px", padding: "1px 5px", marginLeft: "4px" }}
+                      title="Mount to drive 9"
+                    >
+                      Mount 9
+                    </button>
+                  )}
+                  {/* Spec 709.9 — emulator: drive 8 only (the backend rejects 9). A C64 Ultimate has both. */}
                 </>
               )}
               {entry.deferred && (

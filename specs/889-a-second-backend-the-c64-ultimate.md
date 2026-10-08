@@ -753,3 +753,41 @@ address); `WsClient` asks `/api/config` again after a drop when it got its URL f
    shorten) → the bridge ends; the next assistant call starts it again ("the C64U bridge … had ended").
 9. By hand: `c64re c64u-bridge --device 192.168.242.189` runs until stopped; a second start prints
    `already-running` with its endpoint.
+
+### As built — keys and media from the UI (2026-10-08)
+
+Not run against the real device; every REST shape below is read from the firmware's `route_input.cc`,
+`input_api.h`, `route_drives.cc`, `route_runners.cc` and exercised against the fake (`smoke:889-bridge` group K).
+
+**Keys.** `session/key_down|key_up|release_keys` are routed (they were refused). The Live tab's key ids
+(`A`, `RETURN`, `L_SHIFT`, `CRSR_DN`, `C_EQ`, `RUN_STOP` …, the daemon's vocabulary) map in
+`rest-map.ts` `uiKeyToInput` to the firmware's names (`return`, `left_shift`, `cursor_up_down`,
+`commodore`, `run_stop` …). `POST /v1/machine:input` `{"events":[{"kind":"keyboard","inputs":["a"],"transition":"press"}]}`
+(`release` for key_up). An id with no key is refused by name, nothing sent. `RESTORE` is an edge on the
+firmware (`tap` only): key_down sends `tap restore`, key_up sends nothing. Keys, text and joystick events
+share ONE ordered queue in the backend: calls of one event-loop turn (`setImmediate`) go as one request,
+at most 64 events each, and a request starts after the previous was answered, so a press and its release
+cannot overtake each other (before, concurrent joystick calls could). `release_keys` releases the keys the
+bridge holds (`transition:"release"`, ≤ 8 inputs per event), NOT `release_all`: the firmware's
+`release_all` also drops a joystick another client holds (BUG-049). A device without the block answers 501;
+the HTTP error reaches the caller.
+
+**Media.** The disk, CRT and PRG doors were already REST-mapped (§8); what was missing was the UI's way
+there. `media/list_paths`, `media/browse`, `media/recent` are answered by the bridge itself from the files
+of this machine (the picker's tree, d64/g64/d71/g71/d81/crt/prg; recents = what the bridge mounted plus a
+depth-3 scan of the bound project) — they were refused as host-side. Mount: `POST /v1/drives/{a|b}:mount?type=<d64|g64|d71|g71|d81>&mode=<readwrite|readonly>`,
+body = the raw file (`application/octet-stream`), unit 8 → `a`, 9 → `b`. CRT: `POST /v1/runners:run_crt` (upload) —
+it STARTS the cartridge; the answer says so (`started:true`, message), the Media tab shows it ("Start"
+button), no eject exists. PRG: `POST /v1/runners:run_prg` / `load_prg` (upload). Eject: `PUT /v1/drives/{a|b}:remove`.
+Answers are in the daemon's shape (`slot`, `mountedPath`, `type`, `event.format/sha256`, `message`).
+`session/drive_status` carries `mounted.file` (the name the person gave — the device names its temporary
+copy), `kinds`; the Live tab polls drives 8 and 9 and the Inspector shows the names from it. The gate's
+refusal (`<file> (sha256 …) has no green emulator run …`) is shown in the Inspector (under the CART row) and
+in the Media tab's status line; a dropped PRG now carries its file name (the refusal named "(uploaded bytes)").
+The Media tab gained: drive 9 slot, "Mount 9", "Start" (cart), "Run" (PRG), a drop-target drive select,
+d71/g71/d81 — all only when `drive_status` has `kinds` (a C64 Ultimate); the emulator's tab is unchanged.
+
+**Not built.** `session/cart_status` stays refused (no cartridge status on REST): the CART row does not
+fill after a `run_crt`; the status line says it was started. `media/swap`/`persist` stay refused. A d81 needs
+the device's drive b/a in 1581 mode (`drives/{x}:set_mode`) — not done by the bridge. Pot/paddle events stay
+refused.

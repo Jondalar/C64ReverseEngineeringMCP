@@ -14,6 +14,7 @@
 //   C  picture and sound reach A/V subscribers (audio after audio/start), never `?av=0`
 //   D  one bridge per device: a second start attaches; select attaches; leaving stops it
 //   E  the gate (§4b) holds for a raw WebSocket client: project from project/set, passes from that project
+//   K  keys and media from the workbench: key_down/up/release_keys → machine:input, disks/CRT/PRG upload, the gate text, eject
 //   F  idle exit (Spec 886's rules): requests and A/V viewers hold it, keep_alive, then it ends — streams
 //      stopped, the device's connection released
 //   G  one selection for every process: a switch by either is followed by the other and announced
@@ -24,7 +25,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import { createSocket } from "node:dgram";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -253,6 +254,115 @@ try {
   check(/has no green emulator run in this project/.test((await rejects(browser.call("session/load_prg", { path: prgPath }))) ?? ""), "project/set moves the gate with it: the other project has no pass for these bytes");
   await browser.call("project/set", { path: PROJ });
   check((await browser.call("session/load_prg", { path: prgPath })).loadAddress === 0x0801, "…and back");
+
+  // ═══ K ═══════════════════════════════════════════════════════════════════════════════════════
+  head("K  keys and media from the workbench, over the daemon wire");
+  const inputBodies = (from) => sim.requests.slice(from).filter((q) => q.path === "/v1/machine:input").map((q) => q.json);
+  let n0 = sim.requests.length;
+  // a press and its release in the same turn share a request and keep their order
+  await Promise.all([
+    browser.call("session/key_down", { session_id: "shared", key: "A" }),
+    browser.call("session/key_down", { session_id: "shared", key: "L_SHIFT" }),
+    browser.call("session/key_up", { session_id: "shared", key: "A" }),
+    browser.call("session/key_up", { session_id: "shared", key: "L_SHIFT" }),
+  ]);
+  let ib = inputBodies(n0);
+  const evs = ib.flatMap((b) => b.events);
+  check(evs.length === 4 && evs.map((e) => `${e.transition}:${e.inputs[0]}`).join() === "press:a,press:left_shift,release:a,release:left_shift" && evs.every((e) => e.kind === "keyboard"),
+    "session/key_down|key_up → machine:input press/release, in the order sent", JSON.stringify(evs));
+  check(ib.length <= 2, "…calls of one turn are batched into few requests", String(ib.length));
+  const keyMap = { RETURN: "return", DEL: "inst_del", SPACE: "space", RUN_STOP: "run_stop", C_EQ: "commodore", CTRL: "ctrl", LARROW: "arrow_left", UP_ARROW: "arrow_up", R_SHIFT: "right_shift", HOME: "clr_home", CRSR_DN: "cursor_up_down", CRSR_RT: "cursor_left_right", POUND: "pound", F1: "f1", F3: "f3", F5: "f5", F7: "f7", "+": "plus", "-": "minus", "*": "star", "/": "slash", "=": "equals", ":": "colon", ";": "semicolon", ",": "comma", ".": "period", "@": "at", Z: "z", 0: "0" };
+  n0 = sim.requests.length;
+  await Promise.all(Object.keys(keyMap).map((k) => browser.call("session/key_down", { key: k })));
+  const mapped = inputBodies(n0).flatMap((b) => b.events).map((e) => e.inputs[0]);
+  check(mapped.join() === Object.values(keyMap).join(), "every key id the Live tab sends maps to the firmware's key name", mapped.join());
+  n0 = sim.requests.length;
+  await browser.call("session/key_down", { key: "RESTORE" }); await browser.call("session/key_up", { key: "RESTORE" });
+  const rs = inputBodies(n0).flatMap((b) => b.events);
+  check(rs.length === 1 && rs[0].inputs[0] === "restore" && rs[0].transition === "tap", "RESTORE is tapped on key_down (the firmware takes it as an edge only); key_up sends nothing", JSON.stringify(rs));
+  // more than 64 events: split in order, none lost
+  n0 = sim.requests.length;
+  await browser.call("session/release_keys", { session_id: "shared" });
+  const rel = inputBodies(n0);
+  check(rel.length === 1 && rel[0].events.every((e) => e.transition === "release") && rel[0].events.flatMap((e) => e.inputs).length === Object.keys(keyMap).length && rel[0].events.every((e) => e.inputs.length <= 8),
+    "session/release_keys → release of the keys this bridge holds (8 per event), keys only", JSON.stringify(rel).slice(0, 200));
+  n0 = sim.requests.length;
+  await browser.call("session/joystick_set", { port: 2, up: true });
+  await browser.call("session/release_keys", { session_id: "shared" });
+  check(inputBodies(n0).length === 1 && inputBodies(n0)[0].events.every((e) => e.kind === "joystick"), "…and nothing with no key held (a joystick another client holds is not touched)");
+  // order across many events: 70 taps in one turn → 64 + 6, in order
+  n0 = sim.requests.length;
+  await Promise.all(Array.from({ length: 70 }, (_, i) => browser.call(i % 2 ? "session/key_up" : "session/key_down", { key: "B" })));
+  const seq = inputBodies(n0);
+  check(seq.length >= 2 && seq.every((b) => b.events.length <= 64) && seq.flatMap((b) => b.events).length === 70 && seq.flatMap((b) => b.events).every((e, i) => e.transition === (i % 2 ? "release" : "press")), "70 events in a burst: never more than 64 per request, all there, the order kept", seq.map((b) => b.events.length).join());
+  await browser.call("session/key_up", { key: "B" });
+  // unmapped: refused by name, nothing sent
+  n0 = sim.requests.length;
+  const uk = await rejects(browser.call("session/key_down", { key: "F13" }));
+  check(/session\/key_down: no key "F13"/.test(uk ?? "") && inputBodies(n0).length === 0, "an unmapped key is refused by name, nothing is sent", uk);
+  const uk2 = await rejects(browser.call("session/key_up", { key: "" }));
+  check(/session\/key_up: no key ""/.test(uk2 ?? ""), "…an empty one too", uk2);
+  // joystick: order across calls
+  n0 = sim.requests.length;
+  await Promise.all([browser.call("session/joystick_set", { port: 2, up: true }), browser.call("session/joystick_set", { port: 2, up: false, fire: true }), browser.call("session/joystick_clear", { port: 2 })]);
+  const jb = inputBodies(n0).flatMap((b) => b.events).filter((e) => e.transition === "press");
+  check(jb.length === 2 && jb[0].inputs.join() === "up" && jb[1].inputs.join() === "fire", "joystick calls keep their order on the wire (one queue with the keys)", JSON.stringify(jb));
+
+  // ── media: the picker's lists are this machine's files ──
+  const D64B = Buffer.alloc(174848, 0x42), G64B = Buffer.concat([Buffer.from("GCR-1541", "latin1"), Buffer.alloc(300, 0x33)]);
+  const D81B = Buffer.alloc(819200, 0x81), CRTB = Buffer.concat([Buffer.from("C64 CARTRIDGE   ", "latin1"), Buffer.alloc(64, 0x11)]);
+  const PROJR = realpathSync(PROJ);
+  const med = (n) => join(PROJR, "media", n);
+  writeFileSync(med("a.d64"), D64B); writeFileSync(med("b.g64"), G64B); writeFileSync(med("c.d81"), D81B); writeFileSync(med("x.crt"), CRTB);
+  const roots = await browser.call("media/list_paths");
+  check(Array.isArray(roots) && roots.some((r) => r.label === "project" && r.path === PROJR && r.exists === true), "media/list_paths names the bound project", JSON.stringify(roots));
+  const br = await browser.call("media/browse", { path: join(PROJ, "media") });
+  check(br.entries.map((e) => `${e.name}:${e.type}`).join() === "a.d64:d64,b.g64:g64,c.d81:d81,game.prg:prg,x.crt:crt", "media/browse lists d64/g64/d81/crt/prg", br.entries.map((e) => e.name).join());
+  const rc0 = await browser.call("media/recent");
+  check(rc0.some((r) => r.path === med("a.d64") && r.type === "d64") && !rc0.some((r) => r.type === "prg"), "media/recent lists the project's images");
+
+  // the gate: refused naming file + sha, reaches the client, nothing sent
+  n0 = sim.requests.length;
+  const gk = await rejects(browser.call("media/mount", { session_id: "shared", slot: 8, path: med("a.d64") }));
+  check(/^a\.d64 \(sha256 [0-9a-f]{8}…\) has no green emulator run in this project/.test(gk ?? "") && sim.requests.length === n0, "a disk without a pass: the refusal names file and sha256, nothing reaches the device", gk);
+  const gu = await rejects(browser.call("media/ingress", { session_id: "shared", kind: "disk", name: "dropped.d64", bytes_b64: D64B.toString("base64"), unit: 9 }));
+  check(/^dropped\.d64 \(sha256 /.test(gu ?? ""), "…a dropped file (bytes + name) too", gu);
+  const PRG2 = Buffer.concat([PRG, Buffer.from([0x60])]);
+  const gp = await rejects(browser.call("runtime/run_prg", { session_id: "shared", name: "drop.prg", bytes_b64: PRG2.toString("base64") }));
+  check(/^drop\.prg \(sha256 /.test(gp ?? ""), "…and a dropped PRG, named", gp);
+  pass_.recordEmulatorPass(PROJ, { media: [
+    { name: "a.d64", bytes: new Uint8Array(D64B) }, { name: "b.g64", bytes: new Uint8Array(G64B) }, { name: "c.d81", bytes: new Uint8Array(D81B) },
+    { name: "x.crt", bytes: new Uint8Array(CRTB) }, { name: "drop.prg", bytes: new Uint8Array(PRG2) },
+  ], steps: ["I wait 10 frames"], checks: [{ text: "Then $8EF2 is $01", afterSteps: 1, actual: "$01", pass: true }] });
+  const sha = (b) => pass_.sha256Hex(new Uint8Array(b));
+  const mountCall = (extra) => { n0 = sim.requests.length; return browser.call("media/mount", { session_id: "shared", ...extra }).then((r) => ({ r, req: sim.requests.slice(n0).find((q) => /:mount$/.test(q.path)) })); };
+  const m1 = await mountCall({ slot: 8, path: med("a.d64") });
+  check(m1.req.method === "POST" && m1.req.path === "/v1/drives/a:mount" && m1.req.query.type === "d64" && m1.req.query.mode === "readwrite" && m1.req.bodySha === sha(D64B) && m1.req.contentType === "application/octet-stream" && m1.r.slot === 8 && m1.r.mountedPath === med("a.d64"), "d64 → POST drives/a:mount?type=d64&mode=readwrite with the file as the body (slot 8)", JSON.stringify(m1.req));
+  const m2 = await mountCall({ slot: 9, path: med("b.g64") });
+  check(m2.req.path === "/v1/drives/b:mount" && m2.req.query.type === "g64" && m2.req.bodySha === sha(G64B), "g64 into slot 9 → drives/b:mount?type=g64", JSON.stringify(m2.req));
+  const m3 = await mountCall({ slot: 9, path: med("c.d81"), write_protected: true });
+  check(m3.req.path === "/v1/drives/b:mount" && m3.req.query.type === "d81" && m3.req.query.mode === "readonly", "d81 → type=d81, write_protected → mode=readonly", JSON.stringify(m3.req.query));
+  const ds8 = await browser.call("session/drive_status", { unit: 8 }), ds9 = await browser.call("session/drive_status", { unit: 9 });
+  check(ds8.mounted?.file === "a.d64" && ds8.mounted.path === med("a.d64") && ds8.kinds.includes("d81") && ds9.mounted === null, "the drive panel's status carries the name the person gave (the fake device reports drive b empty, so null there)", JSON.stringify([ds8.mounted, ds9.mounted]));
+  const dropped = await browser.call("media/ingress", { session_id: "shared", kind: "disk", name: "a.d64", bytes_b64: D64B.toString("base64"), unit: 9 });
+  check(dropped.slot === 9 && dropped.drive === "b" && dropped.event.format === "d64" && /drive 9/.test(dropped.message), "a dropped disk goes to the chosen drive and answers in the ingress shape", JSON.stringify(dropped).slice(0, 160));
+  n0 = sim.requests.length;
+  const cr = await browser.call("media/ingress", { session_id: "shared", kind: "crt", name: "x.crt", bytes_b64: CRTB.toString("base64") });
+  const crReq = sim.requests.slice(n0).find((q) => q.path === "/v1/runners:run_crt");
+  check(crReq?.method === "POST" && crReq.bodySha === sha(CRTB) && cr.started === true && /STARTS/.test(cr.message), "a cartridge → POST runners:run_crt (upload) and the answer says it STARTS", cr.message);
+  const cr2 = await browser.call("media/mount", { session_id: "shared", slot: 0, path: med("x.crt") });
+  check(cr2.started === true, "the Inspector's CART row (mount slot 0) starts it the same way");
+  n0 = sim.requests.length;
+  const rp = await browser.call("runtime/run_prg", { session_id: "shared", name: "drop.prg", bytes_b64: PRG2.toString("base64") });
+  check(sim.requests.slice(n0).some((q) => q.method === "POST" && q.path === "/v1/runners:run_prg" && q.bodySha === sha(PRG2)) && rp.loadAddress === 0x0801, "a PRG → POST runners:run_prg (upload)");
+  n0 = sim.requests.length;
+  const ej = await browser.call("media/unmount", { session_id: "shared", slot: 9 });
+  const ej8 = await browser.call("media/unmount", { session_id: "shared", slot: 8 });
+  check(sim.requests.slice(n0).filter((q) => /:remove$/.test(q.path)).map((q) => `${q.method} ${q.path}`).join() === "PUT /v1/drives/b:remove,PUT /v1/drives/a:remove" && ej.drive === "b" && ej8.drive === "a", "eject → PUT drives/{a|b}:remove");
+  check(/cartridge/.test((await rejects(browser.call("media/unmount", { session_id: "shared", slot: 0 }))) ?? ""), "ejecting the cartridge is refused by name (the device has no route)");
+  const rcAfter = await browser.call("media/recent");
+  check(rcAfter[0].path === med("x.crt") || rcAfter.slice(0, 4).some((r) => r.path === med("c.d81")), "media/recent puts what was mounted first");
+
   const sim2 = await fake({});
   const noProj = runBridgeCli(["--device", `127.0.0.1:${sim2.restPort}`, "--port", String(await freePort())], { env: { C64RE_PROJECT_DIR: "" } });
   const npl = await noProj.first();

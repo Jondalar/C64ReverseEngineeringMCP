@@ -75,6 +75,31 @@ export function tapBatches(taps: readonly KeyTap[]): { events: { kind: "keyboard
   return out;
 }
 
+/**
+ * The daemon's key ids (what the workbench's Live tab and `runtime_*` tools send in
+ * `session/key_down|key_up`: `A`, `RETURN`, `L_SHIFT`, `CRSR_DN`, `C_EQ` …) → the firmware's
+ * `machine:input` key names. undefined = the id is not a key of the C64 matrix (an unmapped key
+ * is refused by name, never dropped).
+ */
+const UI_KEYS: Readonly<Record<string, string>> = {
+  RETURN: "return", DEL: "inst_del", SPACE: "space", RUN_STOP: "run_stop", C_EQ: "commodore", CTRL: "ctrl",
+  LARROW: "arrow_left", UP_ARROW: "arrow_up", L_SHIFT: "left_shift", R_SHIFT: "right_shift", HOME: "clr_home",
+  CRSR_DN: "cursor_up_down", CRSR_RT: "cursor_left_right", POUND: "pound",
+  F1: "f1", F3: "f3", F5: "f5", F7: "f7",
+  "+": "plus", "-": "minus", "*": "star", "/": "slash", "=": "equals", ":": "colon", ";": "semicolon",
+  ",": "comma", ".": "period", "@": "at",
+};
+
+export function uiKeyToInput(id: string): string | undefined {
+  const k = id.toUpperCase();
+  if (UI_KEYS[k]) return UI_KEYS[k];
+  if (k.length === 1 && ((k >= "A" && k <= "Z") || (k >= "0" && k <= "9"))) return k.toLowerCase();
+  return undefined;
+}
+
+export interface KeyboardEvent64 { kind: "keyboard"; inputs: string[]; transition: "press" | "release" | "tap" }
+export type InputEvent = KeyboardEvent64 | { kind: "joystick"; port: number; inputs: string[]; transition: "press" | "release" };
+
 const JOY_DIRS = ["up", "down", "left", "right", "fire"] as const;
 type JoyState = { up?: boolean; down?: boolean; left?: boolean; right?: boolean; fire?: boolean };
 
@@ -87,6 +112,9 @@ export function joystickEvents(port: number, state: JoyState): { kind: "joystick
   if (pressed.length) ev.push({ kind: "joystick", port, inputs: [...pressed], transition: "press" });
   return ev;
 }
+
+/** Disk image kinds the device mounts (`drives/{x}:mount` type enum). */
+export const DISK_KINDS: readonly string[] = ["d64", "g64", "d71", "g71", "d81"];
 
 export type MediaKind = "crt" | "d64" | "g64" | "d71" | "g71" | "d81" | "prg" | "snapshot" | "unknown";
 

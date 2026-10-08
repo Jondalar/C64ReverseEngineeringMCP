@@ -11,12 +11,15 @@ interface Drive {
   ledPwm?: number;  // Spec 424 VICE 1:1 — 0..1000 brightness
   motorOn: boolean;
   rwMode?: "read" | "write";
-  halfTrack: number;
-  track: number;
+  // Absent on a C64 Ultimate: the device reports no drive head or drive CPU state.
+  halfTrack?: number;
+  track?: number;
   sector?: number;
-  drivePc: number;
+  drivePc?: number;
   dd00?: { pra: number; ddr: number };
   transferMode?: "kernal" | "custom" | "idle";
+  /** Spec 889 — a C64 Ultimate: the image kinds its drives take. */
+  kinds?: string[];
 }
 
 interface Cart {
@@ -125,6 +128,11 @@ function cartLedClass(c: Cart | null | undefined): string {
   if (c.activity === "write") return "wb-led write blink";
   if (c.activity === "read") return "wb-led motor";
   return c.booted ? "wb-led read" : "wb-led off";
+}
+
+/** The image kinds a drive's picker offers: the device's own list when it gave one. */
+function diskExts(d: Drive | null): string[] {
+  return d?.kinds ? d.kinds.map((k) => `.${k}`) : [".d64", ".g64"];
 }
 
 function DeviceRow({
@@ -245,21 +253,34 @@ export function InspectorPanel({
   // Spec 858 — the list is the DAEMON's project; follow it when the daemon is moved.
   useEffect(() => getClient().onNotification("project/changed", () => refreshMedia()), [refreshMedia]);
 
-  const hex = (n: number, w = 2) => "$" + n.toString(16).padStart(w, "0").toUpperCase();
+  const hex = (n: number | undefined, w = 2) => n === undefined ? "—" : "$" + n.toString(16).padStart(w, "0").toUpperCase();
 
+  // What the runtime answered to the last mount/eject — a refusal (the C64 Ultimate's gate: no green emulator
+  // run for this file + sha256) is shown to the person, not left in the console. A cartridge on a C64 Ultimate
+  // is STARTED by the mount, and the answer says so.
+  const [mediaNote, setMediaNote] = useState<{ text: string; error: boolean } | null>(null);
   const mountSlot = async (slot: number, path: string) => {
     if (!sessionId) return;
+    setMediaNote(null);
     try {
-      await getClient().call("media/mount", { session_id: sessionId, slot, path });
+      const r = await getClient().call<{ message?: string } | null>("media/mount", { session_id: sessionId, slot, path });
       onMounted?.(slot, path);
-    } catch (e) { console.error("mount:", e); }
+      if (r?.message) setMediaNote({ text: r.message, error: false });
+    } catch (e) {
+      console.error("mount:", e);
+      setMediaNote({ text: `mount: ${(e as Error).message}`, error: true });
+    }
   };
   const ejectSlot = async (slot: number) => {
     if (!sessionId) return;
+    setMediaNote(null);
     try {
       await getClient().call("media/unmount", { session_id: sessionId, slot });
       onMounted?.(slot, "");
-    } catch (e) { console.error("eject:", e); }
+    } catch (e) {
+      console.error("eject:", e);
+      setMediaNote({ text: `eject: ${(e as Error).message}`, error: true });
+    }
   };
   const drivePower = async () => {
     if (!sessionId) return;
@@ -271,8 +292,9 @@ export function InspectorPanel({
   // T/S formatted as fixed-width "XX.X/YY" (zero-padded) so the layout doesn't
   // shift when track/sector drop a digit.
   const tsFmt = (d: Drive): string => {
+    if (d.track === undefined) return "—";
     const t = d.track.toString().padStart(2, "0");
-    const half = (d.halfTrack % 2 === 1) ? "5" : "0";
+    const half = ((d.halfTrack ?? 0) % 2 === 1) ? "5" : "0";
     const sec = (d.sector ?? 0).toString().padStart(2, "0");
     return `${t}.${half}/${sec}`;
   };
@@ -439,7 +461,7 @@ export function InspectorPanel({
             currentPath={activeMedia}
             onMount={(p) => mountSlot(8, p)}
             onEject={() => ejectSlot(8)}
-            exts={[".d64", ".g64"]}
+            exts={diskExts(drive)}
             secondLine={driveSecondLine(drive)}
             onPower={drivePower}
             onOpen={refreshMedia}
@@ -457,7 +479,7 @@ export function InspectorPanel({
             currentPath={activeMedia9}
             onMount={(p) => mountSlot(9, p)}
             onEject={() => ejectSlot(9)}
-            exts={[".d64", ".g64"]}
+            exts={diskExts(drive9)}
             secondLine={driveSecondLine(drive9)}
             onOpen={refreshMedia}
           />
@@ -476,6 +498,15 @@ export function InspectorPanel({
           secondLine={cartSecondLine(cart)}
           onOpen={refreshMedia}
         />
+        {mediaNote && (
+          <p
+            className={mediaNote.error ? "wb-media-note wb-media-error" : "wb-media-note"}
+            role={mediaNote.error ? "alert" : "status"}
+            style={{ margin: "4px 0 0", fontSize: 11, color: mediaNote.error ? "#e06c6c" : "#9ab", wordBreak: "break-word" }}
+            onClick={() => setMediaNote(null)}
+            title="click to dismiss"
+          >{mediaNote.text}</p>
+        )}
       </section>
 
       {/* Spec 310 — virtual joystick segmented control + live status.

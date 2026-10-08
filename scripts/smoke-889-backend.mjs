@@ -274,7 +274,7 @@ try {
     check(/no C64 key for "é"/.test(e2 ?? ""), "text with a character that has no key is refused whole");
     const rq1 = sim.requests.length;
     await b.joystickSet("shared", 2, { up: true, fire: true });
-    const jev = sim.requests.slice(rq1).map((q) => q.json.events[0]);
+    const jev = sim.requests.slice(rq1).flatMap((q) => q.json.events);
     check(jev.length === 2 && jev[0].transition === "release" && jev[0].inputs.join() === "down,left,right" && jev[1].transition === "press" && jev[1].inputs.join() === "up,fire" && jev.every((e) => e.port === 2), "session/joystick_set: the pressed ones pressed, the rest released, on port 2");
     await b.joystickClear("shared", 1);
     check(sim.requests.at(-1).json.events[0].inputs.length === 5 && sim.requests.at(-1).json.events[0].port === 1, "session/joystick_clear releases all five on the port");

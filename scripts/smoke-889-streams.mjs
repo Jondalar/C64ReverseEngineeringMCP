@@ -416,7 +416,7 @@ section("6  control: REST start/stop, never blocking");
     const ctl = new S.StreamController({ rest: mkRest(), receiverHost: "10.0.0.5", ports });
     const tk = ctl.start();
     const r = await tk.settled;
-    check(calls.join() === "/v1/streams/video:start?ip=10.0.0.5%3A40001,/v1/streams/audio:start?ip=10.0.0.5%3A40002", "PUT video:start then audio:start with ip=<host:port>", calls.join());
+    check(calls.join() === "/v1/streams/video:start?ip=10.0.0.5:40001,/v1/streams/audio:start?ip=10.0.0.5:40002", "PUT video:start then audio:start with ip=<host:port>", calls.join());
     check(decodeURIComponent(calls[0]).endsWith("ip=10.0.0.5:40001"), "the ip parameter is host:port");
     check(r.video.phase === "running" && r.audio.phase === "running" && r.video.target === "10.0.0.5:40001", "both running");
     const st = await ctl.stop();
@@ -469,7 +469,7 @@ section("6  control: REST start/stop, never blocking");
     await ctl.stop();
     await tk.settled;
     check(ctl.status().video.phase === "idle" && ctl.status().audio.phase === "idle", "stop during a slow start leaves them idle");
-    check(!calls.includes("/v1/streams/audio:start?ip=10.0.0.5%3A40002"), "and the audio start behind it was never issued", calls.join());
+    check(!calls.includes("/v1/streams/audio:start?ip=10.0.0.5:40002"), "and the audio start behind it was never issued", calls.join());
   }
   // re-arm after a system reset
   {
@@ -525,7 +525,7 @@ section("7  loopback UDP on 127.0.0.1");
   const r = await tk.settled;
   const ports = streams.receiver.ports;
   check(ports.video > 0 && ports.audio > 0 && ports.video !== 4312 && ports.audio !== 4312, "free ports bound, never 4312", JSON.stringify(ports));
-  check(r.video.phase === "running" && calls[0] === `/v1/streams/video:start?ip=127.0.0.1%3A${ports.video}` && calls[1] === `/v1/streams/audio:start?ip=127.0.0.1%3A${ports.audio}`, "the device was told the ports the sockets are on", calls.join());
+  check(r.video.phase === "running" && calls[0] === `/v1/streams/video:start?ip=127.0.0.1:${ports.video}` && calls[1] === `/v1/streams/audio:start?ip=127.0.0.1:${ports.audio}`, "the device was told the ports the sockets are on", calls.join());
 
   const g = new Gen();
   for (const d of g.frame(1, 272)) await send(ports.video, d);
