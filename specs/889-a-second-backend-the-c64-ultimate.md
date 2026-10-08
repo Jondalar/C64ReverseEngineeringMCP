@@ -1,8 +1,6 @@
 # Spec 889 — A second backend: the C64 Ultimate
 
-**Status:** DONE (2026-10-07) — everything in §2–§5 and §4c is built (§8 foundation, §9 streams, §10 UI and
-wiring). Not archived: the owner's test on real hardware is pending; archive after it. Proposed 2026-10-02,
-revised 2026-10-06 after the TRX64-FW review. First integration at RC level = what exists on the board today.
+**Status:** IN REBUILD (2026-10-08) — §11: the facade becomes its own daemon process; built in-process first (§8–§10), which broke co-drive.
 **Repos:** C64RE. Inputs: the C64U build of the TRX64 Ultimate firmware (superproject
 `integ-m1`) and `trxmon.u2a` (app branch `integ-m1-app`, reviewed at `5b605bb0`). The first
 slice is what exists there today (§5). TRX64 itself is unchanged.
@@ -545,3 +543,42 @@ loss. Not run against real hardware.
 2. Is "scan on first open of the selector" enough, or should the page scan once at load?
 3. Hardware: the real device decides whether `stream/paused` fires on a CPU-only `debug/pause` (the spec
    says video keeps running then) — the owner's test shows which stops pause the picture.
+
+## §11 The facade is a daemon of its own (owner, 2026-10-08)
+
+The first build (§8–§10) put the C64U facade into each C64RE process as a library: the MCP
+server and the workbench server each held their own connection to the device. With
+trxmon's one-connection rule only one of them got through, so the person and the
+assistant could not co-drive the C64U — against DOCTRINE rule 2. The owner: *"das war
+auch von Anfang an mein Steer dazu"* — the facade is like a second TRX64 daemon that talks
+to the C64U instead of an emulated machine.
+
+- **One process per device: `c64re c64u-bridge --device <host>[:<restport>] [--port <p>]`.**
+  It speaks the TRX64 daemon's wire protocol on its own WS port: the same JSON-RPC methods
+  and notifications, the same binary frames (`0x01` VIC frame, `0x02` audio) for A/V
+  subscribers, `?av=0` honoured. Its `ping` answers like the daemon's
+  (`runtime_version: "trx64-runtime/2"`) with `backend: "c64u"` and the device identity
+  (host, ident `trx64` object, trxmon build/capabilities when the app sends them).
+- **It holds the one device connection and the UDP streams**, and serves any number of
+  clients: MCP, the browser, a CLI. Notifications go to all. This is the shared machine.
+- **Everything of §8/§9 that talks to the device moves into it unchanged:** routing table,
+  REST mapping, refusals by name, break_* wrappers, re-read after REST, trxmon-gone,
+  capabilities check, streams (C64UStreams, palette, 48,003.07 Hz audio, `stream/paused`).
+- **The gate (§4b) is enforced in the bridge**, because the browser talks to it directly
+  and must be bound too. The project comes from `project/set` (as with the daemon); the
+  pass records stay in that project's `knowledge/emulator-passes.json`. No project set →
+  media/PRG doors refused.
+- **Clients treat it as an endpoint.** In C64RE, "the C64U is selected" means the runtime
+  endpoint is the bridge's: `RuntimeDaemonClient` connects to it as to any daemon, and the
+  browser connects to it directly as it does to the emulator daemon. The workbench relay
+  (`/runtime-relay`) and the in-process C64UBackend go.
+- **Lifecycle, as the emulator daemon's:** started detached by C64RE on select (or by hand),
+  one per device — a second start finds the running one and attaches; idle exit as the
+  daemon's (Spec 886 rules: requests and A/V subscribers hold it) — on exit it stops the
+  streams and closes the device connection; a bridge started by hand runs until stopped.
+- **One selection, shared by MCP and workbench.** Both processes see the same choice
+  (emulator or a bridge endpoint) and follow a switch made by either; a switch is
+  announced to connected clients. Discovery, probe, "Start monitor" and the password stay
+  as in §3/§3a/§10; the REST password is handed to the bridge at start (in memory there,
+  never on disk or in argv visible to other users — environment or stdin).
+- **Sandboxes, reels and scenario runs stay on private emulator daemons**, unchanged.
