@@ -250,6 +250,45 @@ try {
     check("849: asserting the boundary is what clears the blocker",
       !covered.findings.some((f) => f.check === "orphan-ratio"), "no orphan-ratio finding");
   }
+  // ---- #44: a routine reached by JMP / a branch is reached
+  //
+  // The control-flow producer points JUMPS_TO / BRANCHES_TO at a `label` node when the
+  // target is not a JSR target; a human annotation then names the same address a
+  // routine. The edge lands on `...:label:XXXX`, the routine is `...:routine:XXXX`. The
+  // check has to join on the ADDRESS (owner, space, bank, address), not on the node id.
+  {
+    const dir = newProject(); dirs.push(dir);
+    const store = GraphStore.open(dir);
+    const gen = (id, kind, name) => ({ id, kind, name, origin: "static", confidence: "certain" });
+    store.replaceGenerated("test", null, [
+      gen(rid("game", "routine", 0x1000), "routine", "W1000"),
+      gen(rid("game", "label", 0x1b89), "label", "W1b89"),
+      gen(rid("game", "label", 0x192a), "label", "W192a"),
+      gen(rid("other", "label", 0x3000), "label", "W3000"),
+    ], [
+      { from: rid("game", "routine", 0x1000), type: "JUMPS_TO", to: rid("game", "label", 0x1b89), evidenceKey: "a", origin: "static", confidence: "certain" },
+      { from: rid("game", "routine", 0x1000), type: "BRANCHES_TO", to: rid("game", "label", 0x192a), evidenceKey: "b", origin: "static", confidence: "certain" },
+      // another owner's node at the same NUMERIC address: not this routine's caller
+      { from: rid("other", "label", 0x3000), type: "JUMPS_TO", to: rid("other", "label", 0x3000), evidenceKey: "c", origin: "static", confidence: "certain" },
+    ]);
+    const human = (addr, name) => store.upsertHuman({ id: rid("game", "routine", addr), kind: "routine", name });
+    human(0x1b89, "main_entry");
+    human(0x192a, "tick_game_won");
+    human(0x2000, "truly_unreachable");
+    human(0x3000, "other_owner_only");
+    store.close();
+
+    const r = await critique(dir);
+    const un = r.findings.filter((f) => f.check === "unreachable-routine").map((f) => f.title);
+    check("#44: a routine reached by `jmp` (edge into a label at its start) is not unreachable",
+      !un.some((t) => /main_entry/.test(t)), un.join(" | "));
+    check("#44: a routine reached by a branch is not unreachable",
+      !un.some((t) => /tick_game_won/.test(t)), un.join(" | "));
+    check("#44: the routine nothing points at is still reported",
+      un.some((t) => /truly_unreachable/.test(t)), un.join(" | "));
+    check("#44: an edge into ANOTHER owner's node at the same address does not count",
+      un.some((t) => /other_owner_only/.test(t)), un.join(" | "));
+  }
 } finally {
   for (const d of dirs) { try { rmSync(d, { recursive: true, force: true }); } catch {} }
 }

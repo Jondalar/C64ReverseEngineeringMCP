@@ -259,17 +259,25 @@ export async function critique(projectDir: string): Promise<CriticReport> {
     // ------------------------------------------------------ unreachable code
     if (store) {
       ran.push("unreachable-routine");
+      // "Reached" is decided by ADDRESS, not by node id: the control-flow producer points a
+      // jmp / branch edge at a `label` node when the target is not a JSR target, while an
+      // annotation may name the same start a `routine` — different ids, one place. So a
+      // routine is reached when any node at its start (same owner, space, bank, address —
+      // the `startKey` identity of slots/state.ts) has an incoming edge of any type or
+      // layer, or is an entry. `IS` because owner/space/bank can be NULL.
       const rows = store.db.prepare(
         `SELECT n.id, n.name, n.address FROM nodes n
          WHERE n.kind = 'routine'
-           AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.to_id = n.id)
-           AND NOT EXISTS (SELECT 1 FROM nodes k WHERE k.kind = 'entry' AND k.address = n.address)
+           AND NOT EXISTS (
+             SELECT 1 FROM nodes t
+             WHERE t.address = n.address AND t.owner IS n.owner AND t.space IS n.space AND t.bank IS n.bank
+               AND (t.kind = 'entry' OR EXISTS (SELECT 1 FROM edges e WHERE e.to_id = t.id)))
          ORDER BY n.address LIMIT 25`,
       ).all() as Array<{ id: string; name: string | null; address: number }>;
       for (const r of rows) {
         add("unreachable-routine",
           `${r.name ?? r.id} at $${hex(r.address)} has no caller`,
-          `no edge in the graph points at ${r.id}, and no entry node sits at $${hex(r.address)}`);
+          `no edge of any type points at a node at $${hex(r.address)} (same owner, space and bank) — a routine, a label or anything else — and no entry node sits there`);
       }
     }
   } finally {
