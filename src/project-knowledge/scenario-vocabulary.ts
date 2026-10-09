@@ -222,7 +222,7 @@ export const VOCABULARY: readonly VocabularyEntry[] = [
     kind: "pc",
     form: "the CPU reaches $<addr>",
     sample: PREDICATE_STEP("the CPU reaches $0810", 1200),
-    doc: "Execution arrived somewhere you named.",
+    doc: "The CPU fetched an instruction from the address you named — an execution breakpoint, so a handler that runs for a few cycles between frames still counts. (An interrupt's very first handler instruction, $FF48 for the KERNAL IRQ, folds into the entry step and is not seen; the next instruction is.) `Then the CPU is at $<addr>` is the sample.",
   },
   {
     section: "predicate",

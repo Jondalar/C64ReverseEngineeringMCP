@@ -164,6 +164,7 @@
     "smoke:859": "npm run build:mcp && node scripts/smoke-859-line-trace.mjs",
     "smoke:sandbox-prg-start": "npm run build:mcp && node scripts/smoke-sandbox-prg-start.mjs",
     "smoke:d81-drive": "npm run build:mcp && node scripts/smoke-d81-drive.mjs",
+    "smoke:sandbox-wait-pc": "npm run build:mcp && node scripts/smoke-sandbox-wait-pc.mjs",
     "smoke:sandbox-orphan": "npm run build:mcp && node scripts/smoke-sandbox-orphan.mjs",
     "smoke:860": "npm run build:mcp && node scripts/smoke-860-frame-map.mjs",
     "e2e:861-static": "npm run build:mcp && node scripts/e2e-861-static.mjs",

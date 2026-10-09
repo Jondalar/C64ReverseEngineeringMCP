@@ -643,6 +643,40 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
     return { pass, actual };
   }
 
+  /**
+   * Run until the CPU FETCHES `address`, within `timeoutFrames` frames; returns the whole
+   * frames that passed. The daemon's PC breakpoint matches the fetch address whatever the
+   * banking (KERNAL ROM included) and a bounded `session/run` stops on it. The breakpoint is
+   * removed again on every exit, so later steps run as if it had never been there.
+   */
+  async function waitForPc(address: number, timeoutFrames: number): Promise<number> {
+    const id = "__sandbox_wait_pc__";
+    if ((await state()).cpu.pc === address) return 0;
+    await box.call("api/call", { method: "addPcBreakpoint", args: [id, address, "halt"] });
+    try {
+      const from = at;
+      const budget = timeoutFrames * F;
+      while (at - from < budget) {
+        const step = Math.min(F, budget - (at - from));
+        const r = await box.call<{ c64Cycles?: number; breakpoint?: { pc?: number } }>("session/run", { cycles: step });
+        at = typeof r?.c64Cycles === "number" && r.c64Cycles > at ? r.c64Cycles : at + step;
+        if (r?.breakpoint) {
+          resync();
+          return Math.floor((at - from) / F);
+        }
+      }
+      resync();
+      const st = await state();
+      throw new Error(
+        `"${describe({ kind: "pc", address })}" did not happen within ${timeoutFrames} frames ` +
+          `(PC now $${st.cpu.pc.toString(16).padStart(4, "0").toUpperCase()}) — no instruction ` +
+          `was fetched from that address in the whole window`,
+      );
+    } finally {
+      await box.call("api/call", { method: "removeBreakpoint", args: [id] });
+    }
+  }
+
   /** Advance a frame at a time until the predicate holds; returns the frame count. */
   async function waitUntil(pred: Predicate, timeoutFrames: number): Promise<number> {
     let stableFor = 0;
@@ -652,7 +686,9 @@ export async function runSandbox(opts: SandboxRunOptions): Promise<SandboxRunRes
 
     for (let elapsed = 0; elapsed < timeoutFrames; elapsed++) {
       if (pred.kind === "pc") {
-        if ((await state()).cpu.pc === pred.address) return elapsed;
+        // An execution breakpoint, not a sample: code that runs for a few cycles between
+        // two frame boundaries (an IRQ handler) is never the PC at one.
+        return waitForPc(pred.address, timeoutFrames);
       } else if (pred.kind === "screenShows") {
         const { codes, why } = await screenCodes();
         if (codes === undefined) {

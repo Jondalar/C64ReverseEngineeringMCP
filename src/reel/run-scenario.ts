@@ -440,6 +440,39 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
   }
 
   /**
+   * Run until the CPU FETCHES `address`, within `timeoutFrames` frames; returns the whole
+   * frames that passed. A bounded `session/run` stops on the daemon's PC breakpoint, which
+   * matches the fetch address whatever the banking; it is removed again on every exit.
+   */
+  async function waitForPc(address: number, timeoutFrames: number): Promise<number> {
+    const id = "__reel_wait_pc__";
+    if ((await state()).cpu.pc === address) return 0;
+    await box.call("api/call", { method: "addPcBreakpoint", args: [id, address, "halt"] });
+    try {
+      const from = at;
+      const budget = timeoutFrames * F;
+      while (at - from < budget) {
+        const step = Math.min(F, budget - (at - from));
+        const r = await box.call<{ c64Cycles?: number; breakpoint?: { pc?: number } }>("session/run", { cycles: step });
+        at = typeof r?.c64Cycles === "number" && r.c64Cycles > at ? r.c64Cycles : at + step;
+        if (r?.breakpoint) {
+          resync();
+          return Math.floor((at - from) / F);
+        }
+      }
+      resync();
+      const pc = (await state()).cpu.pc;
+      throw new Error(
+        `"${describe({ kind: "pc", address })}" did not happen within ${timeoutFrames} frames ` +
+          `(PC now $${pc.toString(16).padStart(4, "0").toUpperCase()}) — no instruction ` +
+          `was fetched from that address in the whole window`,
+      );
+    } finally {
+      await box.call("api/call", { method: "removeBreakpoint", args: [id] });
+    }
+  }
+
+  /**
    * Advance a frame at a time until the predicate holds. Returns how many frames
    * it took.
    */
@@ -456,7 +489,8 @@ export async function runScenario(scenario: Scenario, opts: RunOptions = {}): Pr
 
     for (let elapsed = 0; elapsed < timeoutFrames; elapsed++) {
       if (pred.kind === "pc") {
-        if ((await state()).cpu.pc === pred.address) return elapsed;
+        // An execution breakpoint, not a sample (see run-sandbox.ts waitForPc).
+        return waitForPc(pred.address, timeoutFrames);
       } else if (pred.kind === "screenShows" || pred.kind === "regionShows") {
         const codes = pred.kind === "screenShows"
           ? await screenCodes()
