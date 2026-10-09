@@ -651,8 +651,8 @@ export interface SaveFindingInput {
   flowIds?: string[];
   payloadId?: string;
   tags?: string[];
-  // Spec 053 Bug 20.
-  addressRange?: { start: number; end: number; bank?: number; label?: string };
+  // Spec 053 Bug 20. `null` removes the stored range on an update; omitted leaves it.
+  addressRange?: { start: number; end: number; bank?: number; label?: string } | null;
   archivedBy?: string;
 }
 
@@ -4101,7 +4101,7 @@ export class ProjectKnowledgeService {
       evidence: input.evidence ?? existing?.evidence ?? [],
       artifactIds: uniqueStrings(input.artifactIds ?? existing?.artifactIds),
       payloadId: input.payloadId ?? existing?.payloadId,
-      addressRange: input.addressRange ?? existing?.addressRange,
+      addressRange: input.addressRange === null ? undefined : input.addressRange ?? existing?.addressRange,
     };
     let tags = uniqueStrings(input.tags ?? existing?.tags);
     // Spec 752 L1 — extract-backing. A finding about a file/payload MUST cite a

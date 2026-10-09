@@ -2458,7 +2458,7 @@
       "ns": "save",
       "hasSpec": false,
       "firstSentence": "Persist a semantic finding — a claim, hypothesis, confirmation, or refutation — with your confidence.",
-      "desc": "Persist a semantic finding — a claim, hypothesis, confirmation, or refutation — with your confidence. Use to record what something IS or DOES. Not for a concrete named entity (use save_entity) or an unresolved question (use save_open_question). Inputs: summary, evidence, tags, optional address_range. Returns: finding id. (address_range + tags=['routine'] makes it eligible for auto-archive matching.)",
+      "desc": "Persist a semantic finding — a claim, hypothesis, confirmation, or refutation — with your confidence. Use to record what something IS or DOES. Not for a concrete named entity (use save_entity) or an unresolved question (use save_open_question). Inputs: summary, evidence, tags, optional address_range (on an update omitted keeps the stored range, null removes it). Returns: finding id. (address_range + tags=['routine'] makes it eligible for auto-archive matching.)",
       "tier": "default?"
     },
     {

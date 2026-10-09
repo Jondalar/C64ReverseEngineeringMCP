@@ -2146,7 +2146,7 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
 
   server.tool(
     "save_finding",
-    "Persist a semantic finding — a claim, hypothesis, confirmation, or refutation — with your confidence. Use to record what something IS or DOES. Not for a concrete named entity (use save_entity) or an unresolved question (use save_open_question). Inputs: summary, evidence, tags, optional address_range. Returns: finding id. (address_range + tags=['routine'] makes it eligible for auto-archive matching.)",
+    "Persist a semantic finding — a claim, hypothesis, confirmation, or refutation — with your confidence. Use to record what something IS or DOES. Not for a concrete named entity (use save_entity) or an unresolved question (use save_open_question). Inputs: summary, evidence, tags, optional address_range (on an update omitted keeps the stored range, null removes it). Returns: finding id. (address_range + tags=['routine'] makes it eligible for auto-archive matching.)",
     {
       project_dir: z.string().optional(),
       id: z.string().optional(),
@@ -2165,10 +2165,11 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
       // AddressRangeSchema). Required for routine-coverage findings —
       // archivePhase1Noise filters on top-level addressRange + tags.
       // No fallback from evidence[].addressRange: caller must opt in.
+      // null = remove the stored range on an update; omitted = leave it.
       address_range: z.object({
         start: z.number().int().min(0).max(0xffffff),
         end: z.number().int().min(0).max(0xffffff),
-      }).optional(),
+      }).nullable().optional(),
     },
     safeHandler("save_finding", async ({ project_dir, id, kind, title, summary, confidence, status, entity_ids, artifact_ids, relation_ids, flow_ids, tags, evidence, address_range }) => {
       const root = resolveWorkspaceRoot(options, project_dir);
@@ -2204,6 +2205,9 @@ export function registerProjectKnowledgeTools(server: McpServer, options: Regist
         `Status: ${finding.status}`,
         `Confidence: ${finding.confidence}`,
       ];
+      if (address_range === null && finding.id.startsWith("claim:")) {
+        lines.push(``, `Note: address_range was not cleared - a claim-backed finding's range is its node's span; to detach it, archive this finding (status: archived) and save a new one without a range.`);
+      }
       // Spec 752 L1 — surface the ungrounded marker as a visible warning at the
       // point of action (the steering "teeth").
       if ((finding.tags ?? []).includes("ungrounded")) {

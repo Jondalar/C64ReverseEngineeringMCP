@@ -124,7 +124,8 @@ function evidenceRefsOf(v: unknown): EvidenceRef[] | undefined {
 // ------------------------------------------------------------------ inputs (what the service's save* methods hand in)
 
 export type EntityInput = Partial<Omit<EntityRecord, "kind" | "name">> & { kind: EntityRecord["kind"]; name: string };
-export type FindingInput = Partial<Omit<FindingRecord, "kind" | "title">> & { kind: FindingRecord["kind"]; title: string };
+/** `addressRange: null` removes the stored range; omitted leaves it as it is. */
+export type FindingInput = Partial<Omit<FindingRecord, "kind" | "title" | "addressRange">> & { kind: FindingRecord["kind"]; title: string; addressRange?: FindingRecord["addressRange"] | null };
 export type RelationInput = Partial<Omit<RelationRecord, "kind" | "title" | "sourceEntityId" | "targetEntityId">> & { kind: RelationRecord["kind"]; title: string; sourceEntityId: string; targetEntityId: string; tags?: string[] };
 export type QuestionInput = Partial<Omit<OpenQuestionRecord, "kind" | "title">> & { kind: string; title: string; tags?: string[] };
 
@@ -618,7 +619,8 @@ export class KnowledgeRecords {
       createdAt: evidence[evidence.length - 1]?.captured_at ?? c.updated_at,
       updatedAt: c.updated_at,
     };
-    if (newest?.excerpt) record.summary = newest.excerpt;
+    const summary = str(attrs.summary) ?? newest?.excerpt;
+    if (summary) record.summary = summary;
     const r = range(newestAttrs.address_range) ?? (node ? { start: node.address, end: node.end_address ?? node.address, ...(node.bank !== null && node.space === "crt" ? { bank: node.bank } : {}) } : undefined);
     if (r) record.addressRange = r;
     if (c.superseded_by) record.archivedBy = this.mapFindingId(s.alias, c.superseded_by);
@@ -671,6 +673,9 @@ export class KnowledgeRecords {
           const supersededBy = input.archivedBy ? this.resolveFindingKey(st.db, input.archivedBy) : undefined;
           st.db.prepare("UPDATE claims SET status = COALESCE(?, status), superseded_by = COALESCE(?, superseded_by), score = COALESCE(?, score), updated_at = ? WHERE node_id = ? AND claim = ?")
             .run(status ?? null, supersededBy ?? null, input.confidence ?? null, now, nodeId, claim);
+          // what the update carries is stored: kind, title and summary (a refutation re-saved over a claim must not read back as the hypothesis it was)
+          st.db.prepare("UPDATE claims SET attrs = json_set(attrs, '$.legacy_kind', ?, '$.title', ?, '$.summary', COALESCE(?, json_extract(attrs, '$.summary'))) WHERE node_id = ? AND claim = ?")
+            .run(input.kind, input.title, input.summary ?? null, nodeId, claim);
           if (input.status && input.status !== "archived") {
             st.db.prepare("UPDATE claims SET attrs = json_set(attrs, '$.legacy_status', ?) WHERE node_id = ? AND claim = ?").run(input.status, nodeId, claim);
           }
@@ -725,7 +730,7 @@ export class KnowledgeRecords {
     };
     const summary = input.summary ?? existing?.summary; if (summary !== undefined) record.summary = summary;
     const payloadId = input.payloadId ?? existing?.payloadId; if (payloadId !== undefined) record.payloadId = payloadId;
-    const ar = input.addressRange ?? existing?.addressRange; if (ar !== undefined) record.addressRange = ar;
+    const ar = input.addressRange === null ? undefined : input.addressRange ?? existing?.addressRange; if (ar !== undefined) record.addressRange = ar;
     const by = input.archivedBy ?? existing?.archivedBy; if (by !== undefined) record.archivedBy = by;
     return record;
   }

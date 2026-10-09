@@ -10,6 +10,7 @@
 // answered by the harness. Spec 773 decision #1 holds: "Harness redet+denkt, C64RE
 // merkt+zeigt."
 
+import { basename } from "node:path";
 import type { CriticFinding, Severity } from "./checks.js";
 import { CHECK_BY_ID } from "./checks.js";
 import { parseNegativeClaim, findCounterExample } from "./negative-claims.js";
@@ -94,6 +95,24 @@ export async function critique(projectDir: string): Promise<CriticReport> {
   const entityCount = rec.listEntities().length;
   const questionCount = rec.listOpenQuestions().length;
 
+  // The owners a finding is about: its artifacts' file stems (the graph's `nodes.owner`) and the
+  // owner of any graph node it is attached to. Empty = it names no subject.
+  const { normStem } = await import("../knowledge-graph/migrate/classify.js");
+  const { parseId } = await import("../knowledge-graph/ids.js");
+  const ownerByArtifact = new Map<string, string>();
+  for (const a of rec.listArtifacts()) {
+    const path = a.relativePath ?? a.path ?? a.title;
+    if (path) ownerByArtifact.set(a.id, normStem(basename(path)));
+  }
+  const subjectOwners = (f: { artifactIds?: string[]; entityIds?: string[] }): Set<string> => {
+    const out = new Set<string>();
+    for (const id of f.artifactIds ?? []) { const o = ownerByArtifact.get(id); if (o) out.add(o); }
+    for (const id of f.entityIds ?? []) {
+      try { const p = parseId(id); if (p.form === "project" && p.ctx.owner) out.add(p.ctx.owner); } catch { /* a legacy entity id names no node */ }
+    }
+    return out;
+  };
+
   const { GraphStore } = await import("../knowledge-graph/store.js");
   let store: ReturnType<typeof GraphStore.open> | undefined;
   try { store = GraphStore.open(projectDir, { readOnly: true }); } catch { store = undefined; }
@@ -108,11 +127,12 @@ export async function critique(projectDir: string): Promise<CriticReport> {
         const claim = parseNegativeClaim(`${f.title} ${f.summary ?? ""}`);
         if (!claim) continue;
         const range = f.addressRange ?? f.evidence?.[0]?.addressRange;
-        const counter = findCounterExample(store.db, claim, claim.onlyAddress === undefined ? range : undefined);
+        const counter = findCounterExample(store.db, claim, claim.onlyAddress === undefined ? range : undefined, subjectOwners(f));
         if (counter) {
+          const whose = counter.owner ? ` [owner ${counter.owner}]` : "";
           const proof = claim.onlyAddress !== undefined
-            ? `${counter.from} also does it: ${counter.edgeType} edge ${counter.from} -> ${counter.to}, the same target $${hex(claim.onlyAddress)} reaches`
-            : `${counter.edgeType} edge ${counter.from} -> ${counter.to} lands on $${hex(counter.address)}`;
+            ? `${counter.from} also does it: ${counter.edgeType} edge ${counter.from} -> ${counter.to}, the same target $${hex(claim.onlyAddress)} reaches${whose}`
+            : `${counter.edgeType} edge ${counter.from} -> ${counter.to} lands on $${hex(counter.address)}${whose}`;
           add("negative-claim-refuted", `"${f.title}" claims ${claim.phrase}`, proof);
         }
       }

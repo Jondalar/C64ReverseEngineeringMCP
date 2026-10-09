@@ -289,6 +289,137 @@ try {
     check("#44: an edge into ANOTHER owner's node at the same address does not count",
       un.some((t) => /other_owner_only/.test(t)), un.join(" | "));
   }
+  // ---- #48: the critic's counter-example hunt and the refutation that settles it
+  //
+  // Three tape files load into the same window ($1000-$1FFF) at different times, so the
+  // graph holds nodes of three owners at the same numeric addresses. The fixture mirrors
+  // the reporter's: a claim about F1's bytes, a REFERENCES edge that belongs to F3.
+  const seed48 = () => {
+    const dir = newProject(); dirs.push(dir);
+    const store = GraphStore.open(dir);
+    const gen = (id, kind, name) => ({ id, kind, name, origin: "static", confidence: "certain" });
+    store.replaceGenerated("test", null, [
+      gen(rid("megavault_f3", "entry", 0x1008), "entry", "f3_entry"),
+      gen(rid("megavault_f3", "segment", 0x1008), "segment", "f3_seg"),
+      gen(rid("megavault_f1", "segment", 0x1008), "segment", "f1_seg"),
+    ], [
+      { from: rid("megavault_f3", "entry", 0x1008), type: "REFERENCES", to: rid("megavault_f3", "segment", 0x1008), evidenceKey: "a", origin: "static", confidence: "certain" },
+    ]);
+    store.close();
+    return dir;
+  };
+  const negHits = async (dir) => (await critique(dir)).findings.filter((f) => f.check === "negative-claim-refuted");
+  const ev48 = [{ kind: "artifact", title: "t", excerpt: "x", capturedAt: new Date().toISOString() }];
+
+  // point 3: a refutation that quotes the claim's words is not itself a negative claim
+  {
+    const dir = seed48();
+    const rec = new KnowledgeRecords(dir);
+    const quote = { title: "the F1 'not referenced' claim was wrong", summary: "bytes at $1008 are 'not referenced' per the old finding", addressRange: { start: 0x1000, end: 0x1fff } };
+    for (const [name, extra] of [["plain", {}], ["tagged routine", { tags: ["routine"] }], ["claim-door tags", { tags: ["analysis-import", "ram-hypothesis"] }]]) {
+      const f = rec.saveFinding({ kind: "refutation", ...quote, title: `${quote.title} (${name})`, evidence: ev48, ...extra });
+      check(`#48.3: a refutation saved with ${name} reads back as kind refutation`,
+        rec.listFindings().find((x) => x.id === f.id)?.kind === "refutation", `${f.id} -> ${rec.listFindings().find((x) => x.id === f.id)?.kind}`);
+    }
+    check("#48.3: no refutation is flagged as a negative claim",
+      (await negHits(dir)).length === 0, (await negHits(dir)).map((h) => h.title).join(" | "));
+
+    // a claim-backed finding re-saved as the refutation that settles it keeps that kind
+    const dir2 = seed48();
+    const rec2 = new KnowledgeRecords(dir2);
+    const claim = rec2.saveFinding({ kind: "hypothesis", title: "F1 bytes not referenced", addressRange: { start: 0x1000, end: 0x1fff }, tags: ["analysis-import", "ram-hypothesis"] });
+    rec2.saveFinding({ id: claim.id, kind: "refutation", title: "F1 'not referenced' was wrong", status: "rejected" });
+    const after = rec2.listFindings().find((x) => x.id === claim.id);
+    check("#48.3: re-saving a claim-backed finding stores the title it was given",
+      after?.title === "F1 'not referenced' was wrong", `title is ${after?.title}`);
+    rec2.saveFinding({ id: claim.id, kind: "refutation", title: "F1 'not referenced' was wrong", summary: "settled by the F3 edge" });
+    check("#48.3: ... and the summary; an update that omits it keeps it",
+      rec2.listFindings().find((x) => x.id === claim.id)?.summary === "settled by the F3 edge");
+    rec2.saveFinding({ id: claim.id, kind: "refutation", title: "F1 'not referenced' was wrong" });
+    check("#48.3: ... omitted summary leaves the stored one",
+      rec2.listFindings().find((x) => x.id === claim.id)?.summary === "settled by the F3 edge");
+    check("#48.3: re-saving a claim-backed finding as kind refutation keeps the kind",
+      after?.kind === "refutation", `kind is ${after?.kind}`);
+  }
+
+  // point 1: a counter-example must belong to the claim's owner when the finding names one
+  {
+    const { ProjectKnowledgeService } = await import("../dist/project-knowledge/service.js");
+    const dir = seed48();
+    const store = GraphStore.open(dir);
+    const gen = (id, kind, name) => ({ id, kind, name, origin: "static", confidence: "certain" });
+    store.replaceGenerated("test2", null, [
+      gen(rid("megavault_f1", "routine", 0x1000), "routine", "f1_writer"),
+      gen(rid("megavault_f3", "routine", 0x1010), "routine", "f3_writer"),
+      gen(rid("megavault_f3", "routine", 0x1020), "routine", "f3_zp"),
+    ], [
+      { from: rid("megavault_f1", "routine", 0x1000), type: "WRITES", to: aid(0xdd00), evidenceKey: "w1", origin: "static", confidence: "certain" },
+      { from: rid("megavault_f3", "routine", 0x1010), type: "WRITES", to: aid(0xdd00), evidenceKey: "w3", origin: "static", confidence: "certain" },
+      { from: rid("megavault_f3", "routine", 0x1020), type: "USES_ZP", to: "c64:zp:00f3", evidenceKey: "z3", origin: "static", confidence: "certain" },
+      // a dangling project id (no node row): only the suffix branch can see it, and it is F3's
+      { from: rid("megavault_f3", "routine", 0x1020), type: "CALLS", to: rid("megavault_f3", "routine", 0x2008), evidenceKey: "d3", origin: "static", confidence: "certain" },
+    ]);
+    store.close();
+    const svc = new ProjectKnowledgeService(dir);
+    const f1 = svc.saveArtifact({ kind: "prg", scope: "input", title: "megavault_f1.prg", path: "megavault_f1.prg", role: "tape-file" });
+    const f3 = svc.saveArtifact({ kind: "prg", scope: "input", title: "megavault_f3.prg", path: "megavault_f3.prg", role: "tape-file" });
+    const range = { start: 0x1000, end: 0x1fff };
+    const saved = (title, artifactIds) => svc.saveFinding({ kind: "observation", title, addressRange: range, artifactIds, evidence: [], tags: [] });
+    const hitsFor = async (title) => (await negHits(dir)).filter((h) => h.title.includes(title));
+
+    saved("F1 window $1000-$1FFF not referenced", [f1.id]);
+    check("#48.1: a claim about F1 is not refuted by an edge of F3 in the same window",
+      (await hitsFor("F1 window $1000-$1FFF not referenced")).length === 0, (await hitsFor("F1 window $1000-$1FFF not referenced")).map((h) => h.proof).join(" | "));
+    saved("F3 window $1000-$1FFF not referenced", [f3.id]);
+    const own = await hitsFor("F3 window $1000-$1FFF not referenced");
+    check("#48.1: a claim about F3 IS refuted by F3's own edge, and the proof names the owner",
+      own.length === 1 && /\[owner megavault_f3\]/.test(own[0].proof), own.map((h) => h.proof).join(" | "));
+    saved("anon window $1000-$1FFF not referenced", []);
+    const anon = await hitsFor("anon window $1000-$1FFF not referenced");
+    check("#48.1: a finding that names no subject still matches any owner, and the proof shows whose edge it was",
+      anon.length === 1 && /\[owner megavault_f3\]/.test(anon[0].proof), anon.map((h) => h.proof).join(" | "));
+
+    svc.saveFinding({ kind: "observation", title: "F1 zp: $F3 is read by nothing", artifactIds: [f1.id], evidence: [], tags: [] });
+    check("#48.1: zero page is shared - a platform edge still refutes a claim about F1",
+      (await hitsFor("F1 zp: $F3")).length === 1, (await hitsFor("F1 zp: $F3")).map((h) => h.proof).join(" | "));
+
+    svc.saveFinding({ kind: "observation", title: "F1 $2008 is not referenced", artifactIds: [f1.id], evidence: [], tags: [] });
+    svc.saveFinding({ kind: "observation", title: "F3 $2008 is not referenced", artifactIds: [f3.id], evidence: [], tags: [] });
+    check("#48.1: a dangling id of another owner (suffix branch) does not refute a claim about F1, and does refute F3's",
+      (await hitsFor("F1 $2008")).length === 0 && (await hitsFor("F3 $2008")).length === 1,
+      `F1: ${(await hitsFor("F1 $2008")).length}, F3: ${(await hitsFor("F3 $2008")).length}`);
+
+    // "only $X writes": the other writer must be the same owner's
+    svc.saveFinding({ kind: "observation", title: "F1 only $1000 writes to disk", artifactIds: [f1.id], evidence: [], tags: [] });
+    svc.saveFinding({ kind: "observation", title: "anon only $1000 writes to disk", evidence: [], tags: [] });
+    check("#48.1: 'only $1000 writes' about F1 is not refuted by F3's writer at another address",
+      (await hitsFor("F1 only $1000")).length === 0, (await hitsFor("F1 only $1000")).map((h) => h.proof).join(" | "));
+    check("#48.1: the same claim with no subject is still refuted by any owner's writer",
+      (await hitsFor("anon only $1000")).length === 1, (await hitsFor("anon only $1000")).map((h) => h.proof).join(" | "));
+  }
+
+  // point 2: an update without address_range leaves the stored range alone; `null` removes it
+  {
+    const { ProjectKnowledgeService } = await import("../dist/project-knowledge/service.js");
+    const dir = seed48();
+    const svc = new ProjectKnowledgeService(dir);
+    const rec = new KnowledgeRecords(dir);
+    const f = svc.saveFinding({ kind: "observation", title: "F1 $1100 not referenced", summary: "first", addressRange: { start: 0x1000, end: 0x1fff }, evidence: [], tags: [] });
+    const rangeOf = (id) => rec.listFindings().find((x) => x.id === id)?.addressRange;
+    const hit = async () => (await negHits(dir)).some((h) => h.title.includes("F1 $1100"));
+    check("#48.2: the range makes the finding hit F3's edge at $1008 (baseline)", await hit());
+    const same = svc.saveFinding({ id: f.id, kind: "observation", title: "F1 $1100 not referenced", summary: "second", evidence: [], tags: [] });
+    check("#48.2: an update that omits address_range keeps the stored range",
+      rangeOf(same.id)?.start === 0x1000 && rangeOf(same.id)?.end === 0x1fff, JSON.stringify(rangeOf(same.id)));
+    const cleared = svc.saveFinding({ id: f.id, kind: "observation", title: "F1 $1100 not referenced", summary: "third", addressRange: null, evidence: [], tags: [] });
+    check("#48.2: address_range: null removes the stored range", rangeOf(cleared.id) === undefined, JSON.stringify(rangeOf(cleared.id)));
+    check("#48.2: the cleared finding is only checked at the address it names",
+      !(await hit()), (await negHits(dir)).map((h) => h.proof).join(" | "));
+    check("#48.2: clearing the range keeps the rest of the update",
+      rec.listFindings().find((x) => x.id === cleared.id)?.summary === "third");
+    const again = svc.saveFinding({ id: f.id, kind: "observation", title: "F1 $1100 not referenced", summary: "fourth", evidence: [], tags: [] });
+    check("#48.2: after clearing, an omitting update does not bring the range back", rangeOf(again.id) === undefined, JSON.stringify(rangeOf(again.id)));
+  }
 } finally {
   for (const d of dirs) { try { rmSync(d, { recursive: true, force: true }); } catch {} }
 }

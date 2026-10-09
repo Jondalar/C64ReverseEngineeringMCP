@@ -19,6 +19,8 @@
 // catches four confident false negatives out of five at zero cost is worth having; one
 // that pretends to catch the fifth is not.
 
+import { parseId } from "../knowledge-graph/ids.js";
+
 /** Edge types, grouped by the verb a claim would use about them. */
 const VERB_EDGES: Record<string, readonly string[]> = {
   read: ["READS", "USES_ZP", "READS_INDIRECT", "REFERENCES_DATA"],
@@ -147,6 +149,16 @@ export interface CounterExample {
   to: string;
   /** The address the claim was about. */
   address: number;
+  /** Whose edge it is: the owner of the node it lands on (or of its source, for "only $A writes"). Absent for platform / ownerless nodes. */
+  owner?: string;
+}
+
+/** The owner a project-form node id carries (`slug:ram/<owner>:kind:addr`); a platform id has none. */
+function ownerOfId(id: string): string | undefined {
+  try {
+    const p = parseId(id);
+    return p.form === "project" ? p.ctx.owner ?? undefined : undefined;
+  } catch { return undefined; }
 }
 
 /**
@@ -154,29 +166,39 @@ export interface CounterExample {
  *
  * One is enough — the point is refutation, not a census — and stopping at the first keeps
  * this cheap enough to run over every finding in a project.
+ *
+ * `owners` is the subject the finding names (normStem keys, as `nodes.owner` holds them).
+ * Several files can load into one window, so numeric address equality across owners is not
+ * a contradiction: with a subject, only nodes of those owners count. Ownerless nodes
+ * (`addr`, cart banks) and platform ids (`c64:zp:00f3`) are shared by every owner and
+ * always count. Without a subject every owner counts, as before.
  */
 export function findCounterExample(
   db: { prepare(sql: string): { all(...args: unknown[]): unknown[] } },
   claim: NegativeClaim,
   range?: { start: number; end: number },
+  owners?: ReadonlySet<string>,
 ): CounterExample | undefined {
   const types = VERB_EDGES[claim.verb];
   const typeClause = types.length > 0 ? `AND e.type IN (${types.map(() => "?").join(",")})` : "";
+  const subject = owners && owners.size > 0 ? [...owners] : undefined;
+  const ownerClause = (col: string) => subject ? `AND (${col} IS NULL OR ${col} IN (${subject.map(() => "?").join(",")}))` : "";
+  const ownerArgs = subject ?? [];
 
   // "only $A writes T": a counter-example is another source writing something $A writes.
   if (claim.onlyAddress !== undefined) {
     const targets = db.prepare(
       `SELECT DISTINCT e.to_id FROM edges e JOIN nodes n ON n.id = e.from_id
-       WHERE n.address = ? ${typeClause} LIMIT 50`,
-    ).all(claim.onlyAddress, ...types) as Array<{ to_id: string }>;
+       WHERE n.address = ? ${ownerClause("n.owner")} ${typeClause} LIMIT 50`,
+    ).all(claim.onlyAddress, ...ownerArgs, ...types) as Array<{ to_id: string }>;
     if (targets.length === 0) return undefined;
     const placeholders = targets.map(() => "?").join(",");
     const rows = db.prepare(
       `SELECT e.type, e.from_id, e.to_id FROM edges e JOIN nodes n ON n.id = e.from_id
-       WHERE e.to_id IN (${placeholders}) AND n.address <> ? ${typeClause} LIMIT 1`,
-    ).all(...targets.map((t) => t.to_id), claim.onlyAddress, ...types) as Array<{ type: string; from_id: string; to_id: string }>;
+       WHERE e.to_id IN (${placeholders}) AND n.address <> ? ${ownerClause("n.owner")} ${typeClause} LIMIT 1`,
+    ).all(...targets.map((t) => t.to_id), claim.onlyAddress, ...ownerArgs, ...types) as Array<{ type: string; from_id: string; to_id: string }>;
     const hit = rows[0];
-    return hit ? { edgeType: hit.type, from: hit.from_id, to: hit.to_id, address: claim.onlyAddress } : undefined;
+    return hit ? { edgeType: hit.type, from: hit.from_id, to: hit.to_id, address: claim.onlyAddress, owner: ownerOfId(hit.from_id) } : undefined;
   }
 
   // Plain negative: anything landing on the claimed address (or inside the claimed range).
@@ -186,11 +208,11 @@ export function findCounterExample(
 
   for (const span of spans) {
     const rows = db.prepare(
-      `SELECT e.type, e.from_id, e.to_id, n.address FROM edges e JOIN nodes n ON n.id = e.to_id
-       WHERE n.address BETWEEN ? AND ? ${typeClause} LIMIT 1`,
-    ).all(span.start, span.end, ...types) as Array<{ type: string; from_id: string; to_id: string; address: number }>;
+      `SELECT e.type, e.from_id, e.to_id, n.address, n.owner FROM edges e JOIN nodes n ON n.id = e.to_id
+       WHERE n.address BETWEEN ? AND ? ${ownerClause("n.owner")} ${typeClause} LIMIT 1`,
+    ).all(span.start, span.end, ...ownerArgs, ...types) as Array<{ type: string; from_id: string; to_id: string; address: number; owner: string | null }>;
     const hit = rows[0];
-    if (hit) return { edgeType: hit.type, from: hit.from_id, to: hit.to_id, address: hit.address };
+    if (hit) return { edgeType: hit.type, from: hit.from_id, to: hit.to_id, address: hit.address, owner: hit.owner ?? undefined };
 
     // A to_id may point into the PLATFORM file rather than this project's nodes table —
     // the graph schema says so outright, and USES_ZP is exactly that case: every one of
@@ -198,15 +220,16 @@ export function findCounterExample(
     // see. That is why "$F3 is read by nothing" survived the first version of this check
     // against the very project whose rebuild it cost. Every id form ends in four hex
     // digits, so a suffix match finds them; it is an unindexed scan, which is why it is
-    // only done for single addresses and not for a range of thousands.
+    // only done for single addresses and not for a range of thousands. The suffix also
+    // matches project ids, so with a subject the target's own owner is read off the id.
     if (span.start === span.end) {
       const suffix = span.start.toString(16).padStart(4, "0");
       const dangling = db.prepare(
         `SELECT e.type, e.from_id, e.to_id FROM edges e
-         WHERE substr(e.to_id, -4) = ? ${typeClause} LIMIT 1`,
+         WHERE substr(e.to_id, -4) = ? ${typeClause} LIMIT ${subject ? 200 : 1}`,
       ).all(suffix, ...types) as Array<{ type: string; from_id: string; to_id: string }>;
-      const d = dangling[0];
-      if (d) return { edgeType: d.type, from: d.from_id, to: d.to_id, address: span.start };
+      const d = dangling.find((x) => !subject || ownerOfId(x.to_id) === undefined || subject.includes(ownerOfId(x.to_id)!));
+      if (d) return { edgeType: d.type, from: d.from_id, to: d.to_id, address: span.start, owner: ownerOfId(d.to_id) };
     }
   }
   return undefined;
