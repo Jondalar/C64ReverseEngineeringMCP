@@ -301,5 +301,49 @@ try {
   ok(false, "harness", e.message);
 }
 
+// Issue #43 — a file address inside a relocated region, referenced from outside, gets ONE
+// equate; a segment label on the region is defined once (in the block), and the stored
+// byte's file-address symbol is renamed. Both dialects rebuild byte-exact.
+try {
+  const b43 = new Array(0x170).fill(0xea);
+  const put43 = (a, bytes) => bytes.forEach((v, i) => { b43[a - 0x1000 + i] = v; });
+  put43(0x1000, [0xa2, 0x5a, 0xbd, 0x90, 0x10, 0x9d, 0xa0, 0x02, 0xca, 0xd0, 0xf7,
+                 0xa2, 0x85, 0xbd, 0xea, 0x10, 0x9d, 0x0a, 0x01, 0xca, 0xd0, 0xf7, 0x4c, 0xa1, 0x02]);
+  put43(0x1019, [0xad, 0x91, 0x10, 0x60]);
+  put43(0x1091, [0x4c, 0xe8, 0x10]); put43(0x10e8, [0xad, 0x00, 0xea]);
+  put43(0x10eb, [0xa9, 0x00, 0x60]); b43[0x116f - 0x1000] = 0x60;
+  const prg43 = writePrg("i43.prg", 0x1000, b43);
+  const json43 = join(work, "i43_analysis.json");
+  const r43 = spawnSync(process.execPath, [cliCjs, "analyze-prg", prg43, json43, "1000,1019", "--no-register"], { cwd: work, encoding: "utf8" });
+  if (r43.status !== 0) throw new Error(r43.stderr || r43.stdout);
+  const annPath = join(work, "i43_ann.json");
+  writeFileSync(annPath, JSON.stringify({ version: 1, binary: "i43.prg", segments: [{ start: "1091", end: "10EA", kind: "code", label: "lowcode", space: "file" }], labels: [], routines: [] }));
+  const relocs43 = [{ fileStart: "1091", fileEnd: "10EA", runtimeAddr: "02A1" }, { fileStart: "10EB", fileEnd: "116F", runtimeAddr: "010B" }];
+  const out43 = join(work, "i43.asm");
+  const rp = join(work, "i43_reloc.json");
+  writeFileSync(rp, JSON.stringify(relocs43));
+  const rr = spawnSync(process.execPath, [cliCjs, "disasm-prg", prg43, out43, "1000,1019", json43, "--no-register", "--relocations", rp, "--annotations", annPath], { cwd: work, encoding: "utf8" });
+  if (rr.status !== 0) throw new Error(rr.stderr || rr.stdout);
+  const tas43 = readFileSync(out43.replace(/\.asm$/, ".tas"), "utf8");
+  const defs = (name) => (tas43.match(new RegExp(`^\\s*${name}\\s*(=|:)`, "gm")) ?? []).length;
+  ok(defs("W10EA") === 1, "issue43 W10EA equate defined once", `${defs("W10EA")}x`);
+  ok(defs("lowcode") === 1, "issue43 region label defined once", `${defs("lowcode")}x`);
+  await assertByteExact("issue43 reloc", out43, "kickassembler", prg43);
+  await assertByteExact("issue43 reloc", out43.replace(/\.asm$/, ".tas"), "64tass", prg43);
+} catch (e) {
+  ok(false, "issue43 harness", e.message);
+}
+
+// Issue #43 — dropRedefinedEquates: an exact repeat goes, a conflicting pair stays.
+try {
+  const { dropRedefinedEquates } = await import(join(ROOT, "dist/pipeline/lib/prg-disasm.cjs"));
+  const rep = dropRedefinedEquates(["      .label W10EA = $10ea", "      .label W10EA = $10EA  // x"]);
+  ok(rep.length === 1, "issue43 identical equate repeat dropped", `${rep.length} left`);
+  const conflict = dropRedefinedEquates(["      .label A = $10EA", "      .label A = $02A1"]);
+  ok(conflict.length === 2, "issue43 conflicting same-name equates both kept", `${conflict.length} left`);
+} catch (e) {
+  ok(false, "issue43 dedupe unit", e.message);
+}
+
 console.log(`\n${fail === 0 ? "GREEN" : "RED"} smoke-741: ${pass} pass, ${fail} fail.`);
 process.exit(fail === 0 ? 0 : 1);

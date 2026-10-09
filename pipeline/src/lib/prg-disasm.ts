@@ -3639,25 +3639,37 @@ function subtractRelocations(segStart: number, segEnd: number, relocations: Relo
   return intervals;
 }
 
+/**
+ * One definition per equate. Several emitters write `.label NAME = value` (the
+ * relocation file-address aliases, the code-segment aliases, the external and graph
+ * equates, the undefined-symbol backstop), each deciding on its own list, so an
+ * address that lands on two lists is defined twice and the assembler stops.
+ * Only an EXACT repeat (same name, same value once whitespace and hex case are
+ * normalised) is dropped: it is the same claim. The same name with a different
+ * value is a real conflict and stays, so the assembler refuses it instead of the
+ * rebuild quietly taking the first meaning.
+ */
+export function dropRedefinedEquates(lines: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of lines) {
+    const m = /^\s*\.label\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^/]*?)\s*(?:\/\/.*)?$/.exec(line);
+    if (m) {
+      const key = `${m[1]}=${m[2]!.replace(/\s+/g, "").toUpperCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    out.push(line);
+  }
+  return out;
+}
+
 // Spec 741: analysis-driven rendering WITH relocations. Gap stretches render
 // via the full analysis path (clipped to non-relocated sub-intervals);
 // relocation regions render as .pseudopc blocks. Items are emitted in file
 // address order so the byte stream stays a single, gap-free emission.
 function renderWithAnalysisAndRelocations(prg: PrgImage, analysis: RenderAnalysisContext, lines: string[], relocations: RelocationEntry[]): void {
   lines.push(...renderAnalysisPreface(analysis));
-
-  // Spec 741: a reference from OUTSIDE a relocated region to an address INSIDE
-  // its file range (e.g. the copy loop's `lda src,x`) targets the STORED bytes
-  // at the file address. The relocated body is emitted under .pseudopc with
-  // RUNTIME labels, so the file-address symbol would be undefined. Emit an
-  // explicit alias (`.label Wxxxx = $xxxx`) for each such referenced file
-  // address so the reference resolves to the stored location (byte-exact).
-  const inReloc = (addr: number) => relocations.some((r) => addr >= r.fileStart && addr <= r.fileEnd);
-  const aliasAddrs = Array.from(analysis.labelSet).filter(inReloc).sort((a, b) => a - b);
-  for (const addr of aliasAddrs) {
-    lines.push(`      .label ${makeLabel(addr)} = $${formatHex16(addr)}`);
-  }
-  if (aliasAddrs.length > 0) lines.push("");
 
   // Spec 842 — hand each relocation the annotation segments that fall inside it, in
   // runtime space, so the mixed code/data body Spec 741 §2a built actually receives
@@ -3672,6 +3684,41 @@ function renderWithAnalysisAndRelocations(prg: PrgImage, analysis: RenderAnalysi
   });
   for (const note of projection.notes) lines.push(`      // [relocation] ${note}`);
   if (projection.notes.length > 0) lines.push("");
+
+  // Spec 741: a reference from OUTSIDE a relocated region to an address INSIDE
+  // its file range (e.g. the copy loop's `lda src,x`) targets the STORED bytes
+  // at the file address. The relocated body is emitted under .pseudopc with
+  // RUNTIME labels, so the file-address symbol would be undefined. Emit ONE
+  // equate (`.label Wxxxx = $xxxx`) per referenced file address so the reference
+  // resolves to the stored location (byte-exact).
+  //
+  // A file address and a runtime address are different places, so they may not
+  // share a name. When a name the block DEFINES at its runtime PC (a segment
+  // label on the region) is also the name the annotations give the file address,
+  // the file-address symbol is the one that moves: it becomes `<name>_file`, in
+  // the index, so the equate AND every outside operand that references the stored
+  // byte print the same name. Leaving it would define the name twice, and
+  // pointing the outside operand at the in-block label would assemble the runtime
+  // address into the copy loop instead of the stored one.
+  const inReloc = (addr: number) => relocations.some((r) => addr >= r.fileStart && addr <= r.fileEnd);
+  const blockLabelNames = new Set<string>();
+  for (const r of effectiveRelocations) {
+    for (const sub of r.subSegments ?? []) if (sub.label) blockLabelNames.add(sub.label);
+  }
+  const aliasAddrs = Array.from(analysis.labelSet).filter(inReloc).sort((a, b) => a - b);
+  const labelsByAddress = analysis.annotations?.labelsByAddress;
+  for (const addr of aliasAddrs) {
+    const named = labelsByAddress?.get(addr);
+    if (labelsByAddress && named && blockLabelNames.has(named.label)) {
+      let renamed = `${named.label}_file`;
+      while (blockLabelNames.has(renamed)) renamed += "_";
+      labelsByAddress.set(addr, { ...named, label: renamed });
+    }
+  }
+  for (const addr of aliasAddrs) {
+    lines.push(`      .label ${makeLabel(addr)} = $${formatHex16(addr)}`);
+  }
+  if (aliasAddrs.length > 0) lines.push("");
 
   type Item = { start: number; seg?: Segment; reloc?: RelocationEntry };
   const items: Item[] = [];
@@ -3901,11 +3948,13 @@ export function disassemblePrgToKickAsm(prgPath: string, outputPath: string, opt
   if (relocations && analysisContext) {
     const body: string[] = [];
     renderWithAnalysisAndRelocations(prg, analysisContext, body, relocations);
+    const tailStart = lines.length;
     lines.push(...renderGraphNameEquates(analysisContext, body));
     lines.push(...renderAddressAliasLabels(analysisContext, prg));
     lines.push(...renderExternalLabelEquates(analysisContext));
     lines.push(...renderUndefinedSymbolEquates(analysisContext, [...lines, ...body]));
     lines.push(...body);
+    lines.push(...dropRedefinedEquates(lines.splice(tailStart)));
   } else if (relocations) {
     renderWithRelocations(prg, options.entryPoints ?? [], lines, relocations);
   } else if (analysisContext) {
