@@ -364,20 +364,19 @@ export async function slotReport(projectDir: string): Promise<SlotReport> {
   // it shows one artifact per lineage.
   // `identityOf` lives in scope.ts: a scope entry takes the owners of byte-identical files
   // by the very same rule (Spec 897 D6), so the denominator and the scope cannot disagree.
-  // Under a scope, byte-identical in-scope files are one piece of content seen under
-  // several owners (annotations carry their own `binary`, so the names sit under another
-  // stem than the file the tools read). The kept copy is measured against the ranges of
-  // every owner in its class, or whichever stem came first would decide the ratio.
+  // Byte-identical counted files are one piece of content seen under several owners
+  // (annotations carry their own `binary`, so the names sit under another stem than the
+  // file the tools read). The kept copy is measured against the ranges of every owner in
+  // its class, or whichever stem came first would decide the ratio — 0 % for a fully
+  // named image, issue #39. With or without a scope: the same bytes, the same answer.
   const classOwners = new Map<string, string[]>();
-  if (scope) {
-    for (const a of artifacts) {
-      const own = stemOf(a.relativePath ?? a.path ?? a.title);
-      if (!inScope(own)) continue;
-      const id = identityOf(a);
-      const list = classOwners.get(id) ?? [];
-      if (!list.includes(own)) list.push(own);
-      classOwners.set(id, list);
-    }
+  for (const a of artifacts) {
+    const own = stemOf(a.relativePath ?? a.path ?? a.title);
+    if (!inScope(own)) continue;
+    const id = identityOf(a);
+    const list = classOwners.get(id) ?? [];
+    if (!list.includes(own)) list.push(own);
+    classOwners.set(id, list);
   }
   const rangesOf = (m: Map<string, Array<{ start: number; end: number }>>, own: string, id: string) =>
     (classOwners.get(id) ?? [own]).flatMap((o) => m.get(o) ?? []);

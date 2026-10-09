@@ -194,8 +194,16 @@ try {
     }
     store.close();
 
+    // Without a scope the identical pair is measured as one content too: the kept copy
+    // (whichever stem comes first) counts the ranges of its twin's owner.
+    saveContract(dir, { goal: GOAL, deliver: { coverageRatio: 0.9 } });
+    const unscoped = await slotReport(dir);
+    check("(D6) no scope: the identical pair is one content, measured against both owners' ranges",
+      unscoped.coverage.total === 5000 && unscoped.coverage.covered === 768 && unscoped.coverage.artifacts === 2,
+      `${unscoped.coverage.covered}/${unscoped.coverage.total}, artifacts ${unscoped.coverage.artifacts}`);
+
     // D6 — the entry names the file the tools read; the names live under its twin.
-    saveContract(dir, { goal: GOAL, deliver: { scope: ["mc_orig_unpacked.prg"], coverageRatio: 0.9, namedRatio: 0.9 } });
+    saveContract(dir,{ goal: GOAL, deliver: { scope: ["mc_orig_unpacked.prg"], coverageRatio: 0.9, namedRatio: 0.9 } });
     const mc = await slotReport(dir);
     check("(D6) scope = the file the tools read counts its twin's ranges, once",
       mc.coverage.total === 1000 && mc.coverage.covered === 768 && mc.coverage.artifacts === 1,

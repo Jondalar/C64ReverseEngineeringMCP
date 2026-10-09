@@ -147,8 +147,8 @@ refused by name.
 - D6: `identityOf` moved to `scope.ts` (S12 imports it — one rule). It compares the recorded
   `contentHash`, else `lineageRoot`, else the path. Under a scope the kept copy of an
   identity class is measured against the ranges of every owner in the class.
-  **Known asymmetry:** without a scope, an identical pair is still measured from the
-  first stem only (unchanged, so existing numbers do not move).
+  Without a scope too (owner, 2026-10-09): the same bytes give the same answer with or
+  without a scope; an identical pair's existing numbers can only rise.
 - D7: payload links read from the graph's payload nodes, `attrs.payload.source_artifact_id`
   / `depacked_artifact_id`; fixpoint over depacked artifacts; never addresses.
 - D8: `sortWaivers` in `standing.ts`; `contract_show` prints "Waived" and "Lapsed".
