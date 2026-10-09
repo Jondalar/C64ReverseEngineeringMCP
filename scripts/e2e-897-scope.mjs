@@ -267,6 +267,28 @@ try {
       moved.split("\n").filter((l) => /Waived|Lapsed|lapsed/.test(l)).join(" | "));
   }
 
+  // ---- (#47) a waiver on a MET promise says met, not "not owed any more"
+  {
+    const dir = newProject();
+    saveContract(dir, { goal: GOAL, deliver: { scope: ["game.prg"], namedRatio: 0.9 } });
+    const tt = tools(dir);
+    await tt.set({ waive: ["namedRatio"], waive_reason: "demo tonight", waived_by: "Alex" });
+    // the promise is met: nothing is owed, yet the contract still states it
+    const { contractPromises: cp } = await import("../dist/contract/promises.js");
+    const { sortWaivers } = await import("../dist/contract/standing.js");
+    const owedNow = await cp(dir);
+    const sorted = sortWaivers(dir, owedNow.filter((p) => p.id !== "namedRatio"));
+    check("(#47) a waiver on a met promise lapses as met, the contract still states it",
+      sorted.active.length === 0 && sorted.lapsed.length === 1 && /^met — the waiver is no longer needed$/.test(sorted.lapsed[0].why),
+      sorted.lapsed.map((l) => l.why).join(" | "));
+    saveContract(dir, { goal: GOAL, deliver: { scope: ["game.prg"] } });
+    const gone = sortWaivers(dir, []);
+    check("(#47) a waiver whose promise left the contract says not owed any more",
+      gone.lapsed.length === 1 && /not owed any more — the contract no longer asks for it/.test(gone.lapsed[0].why),
+      gone.lapsed.map((l) => l.why).join(" | "));
+    check("(#47) contract_show prints the new reason", /not owed any more — the contract no longer asks for it/.test(await tt.show()));
+  }
+
   // ---- (D9) a waiver is withdrawn explicitly, on the record
   {
     const dir = newProject();

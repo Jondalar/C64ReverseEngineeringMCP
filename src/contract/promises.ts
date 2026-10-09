@@ -25,6 +25,27 @@
 // the writer.
 
 import type { SlotReport } from "../slots/state.js";
+import type { ProjectContract } from "./contract.js";
+
+/** The ids of the two per-name promise families — one place builds them, both readers use it. */
+export const annotatePromiseId = (want: string): string => `annotate:${want}`;
+export const documentPromiseId = (covers: string): string => `document:${covers}`;
+
+/**
+ * Every promise id the contract, as it stands, STATES — met or not. `contractPromises` lists
+ * only the unmet ones, so a promise missing from that list is either met (stated here) or no
+ * longer asked for at all (absent here). The keys follow the same fields and the same id
+ * builders `contractPromises` uses.
+ */
+export function statedPromiseIds(contract: ProjectContract): Set<string> {
+  const d = contract.deliver ?? {};
+  const ids = new Set<string>();
+  if (d.namedRatio !== undefined) ids.add("namedRatio");
+  if (d.coverageRatio !== undefined) ids.add("coverageRatio");
+  for (const want of d.annotate ?? []) ids.add(annotatePromiseId(want));
+  for (const want of d.documents ?? []) ids.add(documentPromiseId(want.covers));
+  return ids;
+}
 
 export interface ContractPromise {
   /** Stable id. This is what a waiver names, so it may not drift with the wording. */
@@ -113,7 +134,7 @@ export async function contractPromises(
       const boundary = model.nodes.find((n) => n.name.toLowerCase().includes(want.toLowerCase()));
       if (!boundary) {
         out.push({
-          id: `annotate:${want}`,
+          id: annotatePromiseId(want),
           asks: `"${want}" is semantically annotated, not merely disassembled`,
           askedValue: want,
           now: "no model boundary carries that name yet",
@@ -144,7 +165,7 @@ export async function contractPromises(
       } catch { /* no graph — reported as unnamed below */ }
 
       const base = {
-        id: `annotate:${want}`,
+        id: annotatePromiseId(want),
         asks: `"${want}" is semantically annotated, not merely disassembled`,
         askedValue: want,
       };
@@ -200,7 +221,7 @@ export async function contractPromises(
       const demand = resolveDocumentDemand(want.covers, { boundaries: model.nodes, artifacts });
       if (demandSatisfiedBy(demand, declared)) continue;
       out.push({
-        id: `document:${want.covers}`,
+        id: documentPromiseId(want.covers),
         asks: `a declared document covering ${want.covers}${want.why ? ` — ${want.why}` : ""}`,
         askedValue: want.covers,
         now: "no document declares it",

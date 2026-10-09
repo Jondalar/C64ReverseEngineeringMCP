@@ -25,6 +25,8 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { loadContract } from "./contract.js";
+import { statedPromiseIds } from "./promises.js";
 
 /** Tools that RECORD something. The contract's state can have moved under each of them. */
 export const WRITE_TOOLS: ReadonlySet<string> = new Set([
@@ -194,12 +196,16 @@ export interface LapsedWaiver { waiver: Waiver; why: string }
  * promises as they stand NOW. A waiver holds while its promise is still owed, at the number
  * it was granted for, and nobody took it back (D9: a withdrawal at or after the waiver ends
  * it); the newest holding waiver of a promise is the one that counts.
+ *
+ * `promises` lists only what is NOT met, so a waived promise missing from it is either met
+ * (the contract still states it) or no longer asked for; the contract on disk says which.
  */
 export function sortWaivers(
   projectDir: string,
   promises: ReadonlyArray<{ id: string; askedValue: string }>,
 ): { active: Waiver[]; lapsed: LapsedWaiver[] } {
   const byId = new Map(promises.map((p) => [p.id, p.askedValue]));
+  const stated = statedPromiseIds(loadContract(projectDir).contract);
   const withdrawals = listWithdrawals(projectDir);
   const lapsed: LapsedWaiver[] = [];
   const holding: Waiver[] = [];
@@ -207,7 +213,12 @@ export function sortWaivers(
     const taken = withdrawals.filter((x) => x.promise === w.promise && x.ends >= w.at).pop();
     const now = byId.get(w.promise);
     if (taken) lapsed.push({ waiver: w, why: `withdrawn by ${taken.by}, ${taken.at.slice(0, 10)} (via ${taken.via}): ${taken.reason}` });
-    else if (now === undefined) lapsed.push({ waiver: w, why: "the promise is not owed any more" });
+    else if (now === undefined) lapsed.push({
+      waiver: w,
+      why: stated.has(w.promise)
+        ? "met — the waiver is no longer needed"
+        : "the promise is not owed any more — the contract no longer asks for it",
+    });
     else if (now !== w.askedValue) lapsed.push({ waiver: w, why: `the number changed: waived at ${w.askedValue}, the contract now asks ${now}` });
     else holding.push(w);
   }
